@@ -14,8 +14,14 @@ import { pageLabel } from "../changes/types";
 const { groupFor, happenedLine, judgedOnAi, liftLabel, liveConfirmed, rowState, stateWord } = RESULT_LINES;
 type ResultState = ReturnType<typeof rowState>;
 type Metric = ShipmentPresentation["read"]["metric"];
-/** Under five verified readings a thought is a signal, not a pattern; a pattern tolerates one dissenting read in five. */
-const PATTERN_AT = 5;
+/** THE CONFIDENCE CONTRACT, STATED (operator, 2026-09-01): no magic five. A pattern is claimed only when the verified reads agree so
+ *  consistently that the chance of it under no effect at all (a fair coin per read) is at most one in fourteen: four of four, five of
+ *  five, six of seven, seven of eight. Under four verified reads nothing is a pattern however consistent, and the inspector prints the
+ *  count, the agreement and the odds so a small sample is read as a small sample. */
+const PATTERN_MIN = 4, PATTERN_ODDS = 0.07;
+const choose = (n: number, k: number): number => { let r = 1; for (let i = 1; i <= k; i += 1) r = (r * (n - k + i)) / i; return r; };
+/** The chance that a fair coin lands the majority side at least `agree` times in `n` throws. */
+const chanceOf = (agree: number, n: number): number => { let sum = 0; for (let k = agree; k <= n; k += 1) sum += choose(n, k); return sum / 2 ** n; };
 const isMature = (d: number | null): boolean => kernelIsMature(d as 7 | 14 | 28 | 56 | null);
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const plural = (n: number, one: string, many = `${one}s`): string => `${num(n)} ${n === 1 ? one : many}`;
@@ -34,6 +40,8 @@ type Thought = {
   historicalAhead: number; historicalBehind: number; historicalUnclear: number;
   /** The yardstick most of the verified reads share, and the middle read in that unit; a click-rate fraction is never printed as clicks. */
   unit: Metric | null; medianEffect: number | null;
+  /** The agreement behind the confidence, said as a count and the odds of it by chance, so a small sample reads as one. */
+  agreement: string | null; pageFamilies: string[];
   belief: string; strongest: Example | null; counterexample: Example | null; limits: string[]; changeMind: string; watching: string;
   /** Keys of thoughts whose changes overlapped this one's on the same page: real combinations off the kernel's own overlap ids. */
   edges: string[];
@@ -49,6 +57,7 @@ export type BrainModel = {
     historicalAhead: number; historicalBehind: number; historicalUnclear: number; confounded: number; notMeasurable: number };
 };
 
+const CONF_LABEL: Record<Thought["confidence"], string> = { none: "nothing verified", early: "an early signal", pattern: "a pattern", mixed: "mixed" };
 const FAMILY_NAME: Record<string, string> = { title: "Titles", meta: "Meta descriptions", title_meta: "Titles and meta descriptions", h1: "Page headlines",
   answer: "Answers at the top", link: "Internal links", schema: "Structured data", content: "Page content", new_page: "New pages", full_rewrite: "Full rewrites", other: "Other changes" };
 /** THE SAME GROUPING THE KERNEL LEARNS BY: one row through treatment-learning yields the coarse family its own grouping would file it under, so the field and the ranking's history can never disagree about what kind of work a change was. */
@@ -70,7 +79,10 @@ function thoughtOf(family: string | null, rows: ShipmentPresentation[], now: Dat
   const sized = verified.filter((p) => p.read.metric === unit).map((p) => p.read.lift).sort((a, b) => a - b), m = sized.length >> 1;
   const median = sized.length === 0 ? null : sized.length % 2 ? sized[m]! : (sized[m - 1]! + sized[m]!) / 2;
   const typical = unit != null && median != null ? liftLabel(unit, median) : null;
-  const confidence: Thought["confidence"] = verified.length >= PATTERN_AT ? (verified.length - agree <= verified.length / PATTERN_AT ? "pattern" : "mixed") : verified.length > 0 ? "early" : "none";
+  const odds = verified.length > 0 ? chanceOf(agree, verified.length) : 1;
+  const confidence: Thought["confidence"] = verified.length >= PATTERN_MIN ? (odds <= PATTERN_ODDS ? "pattern" : "mixed") : verified.length > 0 ? "early" : "none";
+  // WHERE THIS KIND OF WORK HAPPENED, as context beside the belief: the site's own page families, most rows first.
+  const families = [...rows.reduce((m, p) => { const f = `/${(p.read.path || "").split("/").filter(Boolean)[0] ?? ""}`; return m.set(f, (m.get(f) ?? 0) + 1); }, new Map<string, number>())].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([f, n]) => `${f === "/" ? "home" : f} (${n})`);
   const historical = rows.filter((p) => HISTORICAL.has(rowState(p))).length, inFlight = rows.filter((p) => p.implementedAt != null && (rowState(p) === "reading" || rowState(p) === "live_verified")).length;
   const overlapping = rows.filter((p) => p.read.overlappingIds.length > 0).length, name = family == null ? "Older, untyped changes" : FAMILY_NAME[family] ?? "Other changes";
   const belief = confidence === "pattern" ? `${name} have finished ${ahead >= behind ? "ahead" : "behind"} in ${agree} of ${plural(verified.length, "verified read")}${typical && typical !== "Level" ? `, typically ${typical.replace(/ (ahead|behind)$/, "")} against pages that were not changed` : ""}.`
@@ -83,10 +95,11 @@ function thoughtOf(family: string | null, rows: ShipmentPresentation[], now: Dat
     ...(count("waiting_verification") > 0 ? [`${plural(count("waiting_verification"), "reading")} cannot teach: the change was not confirmed on the live page.`] : []),
     ...(historical > 0 ? [`${plural(historical, "historical read")} predate live verification and never train recommendations.`] : []),
     ...(count("confounded") > 0 ? [`${plural(count("confounded"), "reading")} shared ${count("confounded") === 1 ? "its" : "their"} days with a later change and cannot be separated.`] : [])];
-  const owed = Math.max(0, PATTERN_AT - verified.length);
+  const owed = Math.max(0, PATTERN_MIN - verified.length), one = (n: number) => Math.max(2, Math.round(1 / Math.max(n, 1e-9)));
+  const agreement = verified.length === 0 ? null : `${agree} of ${plural(verified.length, "verified read")} point the same way; the chance of that with no real effect is about 1 in ${one(odds)}.`;
   const changeMind = confidence === "pattern" ? `Verified reads finishing the other way would turn this back into a mixed record.`
-    : confidence === "mixed" ? `Verified reads that separate consistently, ahead or behind, would let a pattern form.`
-    : `${plural(owed, "more verified 28 day read")} pointing the same way would make this a pattern; ${owed === PATTERN_AT ? "the first" : "the next"} live-confirmed change finishing its read moves it.`;
+    : confidence === "mixed" ? `Verified reads that separate consistently, ahead or behind, would let a pattern form; today the split could still be chance.`
+    : `${plural(owed, "more verified 28 day read")} pointing the same way would make this a pattern; ${owed === PATTERN_MIN ? "the first" : "the next"} live-confirmed change finishing its read moves it.`;
   const soon = rows.map((p) => p.read.windows.find((w) => w.state !== "closed")?.closesOn ?? null).filter((d): d is string => d != null).sort()[0] ?? null;
   const next = soon ? `For ${name.toLowerCase()}, the next read ${landsLabel(soon, now) ?? "lands soon"}.` : null;
   const watching = inFlight > 0 ? `${plural(inFlight, "confirmed change")} still being read.${next ? ` ${next}` : ""}` : count("waiting_verification") + count("recorded") > 0
@@ -100,7 +113,7 @@ function thoughtOf(family: string | null, rows: ShipmentPresentation[], now: Dat
   return { key: family ?? "unsigned", family, name, confidence, verifiedSample: verified.length, historical, inFlight, shipped: rows.length,
     liveVerified: rows.filter(liveConfirmed).length, waitingVerification: count("waiting_verification"), recorded: count("recorded"),
     ahead, behind, inconclusive: count("inconclusive"), confounded: count("confounded"), notMeasurable: count("not_measurable"), overlapping,
-    historicalAhead: count("historical_ahead"), historicalBehind: count("historical_behind"), historicalUnclear: count("historical_unclear"), unit, medianEffect: median,
+    historicalAhead: count("historical_ahead"), historicalBehind: count("historical_behind"), historicalUnclear: count("historical_unclear"), unit, medianEffect: median, agreement, pageFamilies: families,
     belief, strongest: pick("ahead"), counterexample: pick("behind"), limits, changeMind, watching, edges };
 }
 
@@ -131,12 +144,15 @@ export function buildResultsBrain(shipments: ReadonlyArray<ShipmentPresentation>
     ...(counts.verifiedMature > 0 ? [`${plural(counts.verifiedMature, "live-verified read")} ${counts.verifiedMature === 1 ? "has" : "have"} finished${c("inconclusive") > 0 ? `, ${c("inconclusive")} of them inconclusive` : ""}.`] : []),
     ...(newer.length > 0 ? [`${plural(newer.length, "newer change")} ${newer.length === 1 ? "is" : "are"} not finished: ${plural(inFlight, "change")} confirmed on the live page and reading, ${plural(unconfirmed, "change")} recorded and waiting for live verification.`] : []),
     ...(mixed.length > 0 ? [`${mixed.map((t) => t.name).join(", ")} point both ways, so no pattern is claimed there.`] : [])];
-  // WHAT CHANGED RECENTLY is a fact about closes, never about beliefs nobody stored: reads whose window closed inside the last fourteen days,
-  // counted by the direction the ledger files them under, never by the sign of a lift: a read inside the comparable range has a sign and is still unclear.
-  const recent = shipments.filter((p) => isMature(p.read.basisDay) && [...p.read.windows].filter((w) => w.state === "closed" && w.closesOn != null).some((w) => now.getTime() - Date.parse(w.closesOn!) <= 14 * 86_400_000));
+  // WHAT CHANGED RECENTLY IS A DIFFERENCE BETWEEN TWO BELIEFS, not a count of rows: the same model is asked what it believed two weeks ago,
+  // with every read that closed since then still open, and each thought whose confidence moved is named. The closes are the second sentence.
+  const cutoff = now.getTime() - 14 * 86_400_000, closedSince = (p: ShipmentPresentation): boolean => isMature(p.read.basisDay) && [...p.read.windows].some((w) => w.state === "closed" && w.closesOn != null && Date.parse(w.closesOn) > cutoff);
+  const recent = shipments.filter(closedSince), earlier = shipments.map((p) => closedSince(p) ? { ...p, read: { ...p.read, basisDay: null, verdict: "waiting" as const, lift: 0 } } : p);
+  const then = new Map([...byFamily.keys()].map((f) => [f ?? "unsigned", thoughtOf(f, earlier.filter((p) => familyOf(p) === f), new Date(cutoff), []).confidence] as const));
+  const moved = thoughts.filter((t) => then.get(t.key) !== t.confidence).map((t) => `${t.name}: ${CONF_LABEL[then.get(t.key) ?? "none"]} two weeks ago, ${CONF_LABEL[t.confidence]} now`);
   const ahead = recent.filter((p) => direction(p) === "ahead").length, behind = recent.filter((p) => direction(p) === "behind").length, hist = recent.filter((p) => HISTORICAL.has(rowState(p))).length;
   const split = [[ahead, "ahead"], [behind, "behind"], [recent.length - ahead - behind, "unclear"]].filter(([n]) => (n as number) > 0).map(([n, w]) => `${n} ${w}`).join(", ");
-  const changed = recent.length === 0 ? null : `${plural(recent.length, "read")} finished in the last two weeks: ${split}${hist === recent.length ? ", all of them historical" : hist > 0 ? `, ${hist} of them historical` : ""}.`;
+  const changed = recent.length === 0 ? null : `${moved.length > 0 ? `${moved.join("; ")}. ` : "No belief moved in the last two weeks. "}${plural(recent.length, "read")} finished in that time: ${split}${hist === recent.length ? ", all of them historical" : hist > 0 ? `, ${hist} of them historical` : ""}.`;
   const soonest = shipments.map((p) => p.read.windows.find((w) => w.state !== "closed")?.closesOn ?? null).filter((d): d is string => d != null).sort()[0] ?? null;
   // THE FACTS BEHIND THE LIVE CHECK, said as facts: a page whose live copy differs from the approved words, and a page that could not be read.
   const differs = shipments.filter((p) => p.implementedAt != null && p.verification?.status === "differs"), unread = shipments.filter((p) => p.verification?.status === "blocked" && p.verification.recheckAfter != null).length;

@@ -115,6 +115,8 @@ export function ResultsBrain({ model, checkedAgo }: { model: BrainModel; checked
                   .filter(([k, v]) => v > 0 || k === "Marked done" || k === "Verified 28 day reads").map(([k, v]) => (<div key={k} className="contents"><dt className="text-muted-foreground">{k}</dt><dd className="text-right text-foreground">{v}</dd></div>))}
               </dl>
               {current.historical > 0 ? <p className="mt-2 text-[11px] text-muted-foreground">Historical: {current.historicalAhead} ahead, {current.historicalBehind} behind, {current.historicalUnclear} unclear. Context only.</p> : null}
+              {current.agreement ? <p className="mt-1 text-[11px] text-muted-foreground">{current.agreement}</p> : null}
+              {current.pageFamilies.length > 0 ? <p className="mt-1 text-[11px] text-muted-foreground">Where: {current.pageFamilies.join(", ")}.</p> : null}
               <div className="mt-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Strongest example</p>
                 {current.strongest ? <p className="text-[12px] text-foreground/85"><a href={`#change-${current.strongest.id}`} className={`font-medium text-accent-primary underline underline-offset-2 ${FOCUS}`}>{current.strongest.label}</a> {current.strongest.line}</p>
                   : <p className="text-[12px] text-muted-foreground">No read has finished ahead for {current.name.toLowerCase()} yet.</p>}</div>
