@@ -431,7 +431,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
 
       // CARRY THE PAID RECEIPTS, NOT JUST THE AGENDA. A posted task's cacheKey lives ONLY on this row: rebuilding the list from the current agenda dropped any posted query that churned out of it, and the paid task sat pending in the cache with nothing ever able to collect it until the 30 day expiry recycled the money. A dropped row that is still `posted` rides along until it is collected, exactly as winning-pages carries unexpired read outcomes.
       const kept = new Set(serps.map((s) => s.query));
-      const carried = state.serps.queries.filter((s) => s.status === "posted" && s.cacheKey != null && !kept.has(s.query));
+      const carried = state.serps.queries.filter((s) => !kept.has(s.query) && ((s.status === "posted" && s.cacheKey != null) || (s.status === "done" && !!s.observedAt && isCurrent("serp_hot", s.observedAt, d.now())))); // AND A PAID PAGE THAT IS STILL CURRENT (live 2026-09-02): a results page bought for one owed row was pruned by the next phase run because its agenda no longer named the query, so eight readings vanished before the replay could use them
       state.serps.queries = [...serps, ...carried].slice(0, SERP_ROWS_KEPT + carried.length); state.serps.analyzed = serps.filter((s) => s.status === "done").length;
       await save(d, tenantId, basis, state, ctx);
       if (blockedDetail) return { status: "failed", cursor, progress: serpProgress(state), detail: blockedDetail }; // a held refusal OUTRANKS the done arithmetic and every unavailable count

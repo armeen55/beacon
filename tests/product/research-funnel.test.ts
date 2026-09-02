@@ -107,13 +107,13 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
   const retainedState = (keywords: string[]): FunnelState => { const s = emptyFunnelState("ts", BASIS); // the agenda reads the profile and my own page queries; both injected, so nothing reaches the network
     s.discovery.retained = keywords.map((keyword, i) => ({ keyword, searchVolume: 90 - i, competition: 0.3, difficulty: null, intent: null, discoveredVia: "site" as const })); return s; };
   const serpBase = { parse, now: () => NOW, loadProfile: async () => emptyBusinessProfile("ts"), loadPageQueries: async () => [] } satisfies FunnelDeps;
-  it("prunes obsolete queries, re-observes only a week-old look, resumes via collect, and never reposts a live key", async () => {
-    const seed = retainedState(["a query", "b query"]); seed.serps.queries = [{ query: "dropped query", cacheKey: null, status: "done", observedAt: new Date(NOW).toISOString() }, { query: "a query", cacheKey: null, status: "done", observedAt: WEEKS_AGO }, { query: "b query", cacheKey: null, status: "done", observedAt: new Date(NOW - 3_600_000).toISOString() }];
-    seed.serps.analyzed = 3; const store = memStore(seed); let posts = 0, collects = 0;
+  it("prunes a stale obsolete query but carries a paid page still current, re-observes only a week-old look, resumes via collect, and never reposts a live key", async () => {
+    const seed = retainedState(["a query", "b query"]); seed.serps.queries = [{ query: "dropped query", cacheKey: null, status: "done", observedAt: new Date(NOW).toISOString() }, { query: "stale query", cacheKey: null, status: "done", observedAt: WEEKS_AGO }, { query: "a query", cacheKey: null, status: "done", observedAt: WEEKS_AGO }, { query: "b query", cacheKey: null, status: "done", observedAt: new Date(NOW - 3_600_000).toISOString() }];
+    seed.serps.analyzed = 4; const store = memStore(seed); let posts = 0, collects = 0;
     const deps: FunnelDeps = { ...store.deps, ...serpBase, callProvider: async (cap: CapabilityKey, input) => { if (cap === "serp_organic") posts += 1; return waiting(`ck-${(input as { keyword: string }).keyword}`); },
       collectTask: async () => { collects += 1; return ok(serp([{ rank: 1, domain: "a.com", url: "https://a.com/x", title: "A" }])); } };
     const r1 = await serpAnalysisUnit(deps)("ts", cur(), 60_000); expect(r1.status).toBe("waiting"); expect(posts).toBe(1); // only the week-old look is due; the fresh one is never bought again
-    const kept = store.peek("ts", BASIS)!.serps; expect(kept.queries.map((q) => q.query)).toEqual(["a query", "b query"]); // the obsolete query is pruned
+    const kept = store.peek("ts", BASIS)!.serps; expect(kept.queries.map((q) => q.query)).toEqual(["a query", "b query", "dropped query"]); // a paid page still current rides along behind the agenda (2026-09-02: eight bought pages vanished here); a stale one is pruned
     expect(kept.analyzed).toBe(1); // an old completion can never satisfy a due query
     const r2 = await serpAnalysisUnit(deps)("ts", cur(), 60_000); expect(posts).toBe(1); expect(collects).toBeGreaterThanOrEqual(1); expect(r2.status).toBe("done"); // resumed for free, never reposted
   });
