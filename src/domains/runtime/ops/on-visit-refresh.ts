@@ -254,11 +254,11 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
         if (bought > 0) progress = { ...progress, evidenceOwed: left }; if (bought > 0 ? !await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor }) : nowFn().getTime() - t0 >= LEASE_REPROVE_AFTER_MS && !await renewLease(tenantId, run.id, ownerToken, attemptCursor)) return "lost_lease"; } // THE WALK STARTS ON A LEASE JUST PROVEN (live 2026-09-02): the collection, the owed readings and the walk together outlived the 280-second lease, the save after the walk failed, and three cycles dropped their day memory in silence and re-bought the same eight readings
       const runway = deadline - nowFn().getTime() - (stockOnly || shortStock ? 0 : REPLENISH_RESERVE_MS);
       if (runway > REPLENISH_MIN_MS) {
-        const began = nowFn().getTime();
+        const began = nowFn().getTime(), box = Math.min(runway, REPLENISH_BOX_MS), grace = Math.min(STOP_STARTING_MS, Math.max(0, deadline - began - box - 10_000)); // A CARD IN FLIGHT AT THE STOP FINISHES (live 2026-09-02): the walk stops starting cards at the box less the margin, one card's last attempt ran 48 s past the box, the race called the walk boxed and dropped its receipts and day memory, and the same three refused pages were funded again; the timer now waits the margin past the box when the deadline allows
         // BOXED IS NOT THE SAME AS ANSWERED NOTHING. A step that ran and came back empty-handed HAD its chance, and the drive may go on; one the box cut off never got to look, and that is the case that must not turn into buying instead.
         const raced = await Promise.race([
-          steps.replenishReady(tenantId, nowFn(), { fingerprint: mem?.fingerprint ?? null, attempted: mem?.attempted ?? [], tried: mem?.tried ?? [], spent: mem?.spent ?? {}, settled: mem?.settled ?? [] }, nowFn().getTime() + Math.min(runway, REPLENISH_BOX_MS) - STOP_STARTING_MS).then((v) => ({ v })).catch(() => ({ v: null })),
-          new Promise<null>((res) => setTimeout(() => res(null), Math.min(runway, REPLENISH_BOX_MS))),
+          steps.replenishReady(tenantId, nowFn(), { fingerprint: mem?.fingerprint ?? null, attempted: mem?.attempted ?? [], tried: mem?.tried ?? [], spent: mem?.spent ?? {}, settled: mem?.settled ?? [] }, began + box - STOP_STARTING_MS).then((v) => ({ v })).catch(() => ({ v: null })),
+          new Promise<null>((res) => setTimeout(() => res(null), box + grace)),
         ]);
         r = raced?.v ?? null;
         answered = raced != null;

@@ -98,7 +98,7 @@ function fewShotProvenanceFrom(
   return { pattern: hint.pattern, winningPage: hint.winningPage, sentence };
 }
 
-const SUPERLATIVES = /\b(best|leading|#1|number one|top-rated|guaranteed|world-class|ultimate|premier)\b/i;
+export const SUPERLATIVES = /\b(best|leading|#1|number one|top-rated|guaranteed|world-class|ultimate|premier)\b/i;
 
 /** Pilot loop 6: a rephrase-class retry asks the model to REWRITE its answer - exactly when it is tempted to fill in a fresh invented number. Every rephrase-class instruction below closes with this reminder so a rewrite cannot trade an ungrounded superlative or a too-thin answer for an invented statistic. */
 const NO_NEW_NUMBERS_RETRY_REMINDER =

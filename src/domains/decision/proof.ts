@@ -6,7 +6,7 @@ import type { CauseFinding } from "./diagnosis";
 
 /** What the card may say about a change, already selected and ordered. Every part is optional because honest
  *  absence is the normal case: a page-only repair has no demand figure and must not pretend to one. */
-export type ProofReceipt = {
+type ProofReceipt = {
   /** The collapsed card's one line: why this opportunity is ranked here. Null when no typed field supports one. */
   ranksHere: string | null;
   /** What was measured, each already a sentence its producer wrote with its own numbers, dated where the  evidence carried a date. `seen` is formatted from the stored instant alone, never from the reader's clock:  a relative age rendered on the server and rehydrated in the browser disagrees with itself. */
