@@ -473,6 +473,7 @@ describe("a day of AI checks ends when the day ends, never when a batch does", (
     const rows = withRun({ current_phase: "prompt_observations" }); const w = day(); await run(w.steps); expect(w.windows).toEqual([20, 20, 20, 20, 20, 20, 20]); // seven windows of twenty, one reporting day, one run
     expect([rows.length, rows[0]!.status, rows[0]!.current_phase]).toEqual([1, "completed", "done"]);
     expect(rows[0]!.progress.state).toMatchObject({ checksDone: 140, checksTotal: 140, checksAnswers: 140 }); }); // the DAY's numbers, not the last batch's
+  it("checks and reads what was marked done before a waiting lane pauses, and asks nothing else of that lane", async () => { let checked = 0; const rows = withRun({ current_phase: "serp_analysis" }); await run({ dueWork: async () => ({ ...SOMETHING_DUE, due: ["plan_cases", "verify_and_measure"] }), verifyShipments: async () => (checked += 1, 1), funnelUnit: async () => ({ status: "waiting", cursor: null, progress: {} }) }); expect([rows[0]!.status, rows[0]!.current_phase, checked]).toEqual(["paused", "serp_analysis", 1]); });
   it("stays on the AI phase while provider work is still in flight: a durable wait pauses there with no error at all, and the next tick picks the day back up", async () => {
     const rows = withRun({ current_phase: "prompt_observations" }); let done = 0, inFlight = true;
     const steps: Partial<ResearchCycleSteps> = {

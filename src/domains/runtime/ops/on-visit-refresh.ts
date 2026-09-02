@@ -365,6 +365,9 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
           log.info("[research-run] today's AI checks could not be planned, so the lane is filed as unreadable and the rest of the day runs now", { tenantId, to: past, detail: (unit.detail ?? "").slice(0, 120) });
           if (!await advancePhase(tenantId, run.id, ownerToken, { phase: past, progress, cursor: null })) return "lost_lease";
           phase = past; cursor = null; continue; }
+        if (unit.status === "waiting" && work.due.includes("verify_and_measure")) { // A LANE WAITING ON A PROVIDER STILL CHECKS THE LIVE PAGES (operator, 2026-09-02): the same bounded verify-and-measure step the publish phase runs, under this lease, before the pause, so fifteen shipments do not wait on a results-page task
+          const verified = await steps.verifyShipments(tenantId, nowFn()).catch(() => 0), measured = await steps.measureShipments(tenantId, nowFn()).catch(() => 0);
+          if (verified > 0 || measured > 0) log.info("[research-run] checked and read what you marked as done while a research lane waits on its provider", { tenantId, phase, verified, measured }); }
         return pause(unit.status === "waiting" ? null : { phase, message: (unit.detail ?? "evidence step could not finish").slice(0, 300), at: nowFn().toISOString() });
       }
       // THE BATCH IS NOT THE DAY. The unit answers for the window it was handed; the DAY is what the operator was promised, so a settled window RE-READS the canonical planner before this phase may move on. Unreadable pauses fail-closed, anything still owed keeps this same phase under a renewed lease, and only settled == intended advances, carrying the whole day's breakdown so completion reports the day and never the last batch.
