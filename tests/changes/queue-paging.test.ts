@@ -128,9 +128,9 @@ describe("one release identity, or no release at all", () => {
     expect(await committed()).toEqual(["rel-9", "rel-9"]);
   }); });
 describe("one global rank across every lane", () => {
-  it("interleaves research and drafts with ready work by worth, and the stamped lane rides each row", async () => {
+  it("interleaves research and drafts with ready work by worth, and a stamp never outranks the row it stamps", async () => {
     await stamp("rel-mixed", [{ id: ALL[0]!.id, lane: "research" }, { id: ALL[1]!.id, lane: "ready" }, { id: ALL[2]!.id, lane: "todo" }, { id: ALL[3]!.id, lane: "ready" }]); const page = await readQueuePage(T, "all", "b1", 0, 10);
-    expect(page.rows.map((p) => p.id)).toEqual([ALL[0]!.id, ALL[1]!.id, ALL[2]!.id, ALL[3]!.id]); expect(page.rows.map((p) => page.laneById[p.id])).toEqual(["research", "ready", "todo", "ready"]);
+    expect(page.rows.map((p) => p.id)).toEqual([ALL[0]!.id, ALL[1]!.id, ALL[2]!.id, ALL[3]!.id]); expect(page.rows.map((p) => page.laneById[p.id])).toEqual(["ready", "ready", "ready", "ready"]); // every fixture row is finished, so every lane is ready whatever the release stamped (operator, 2026-09-02): a stamp outlived its row and painted a brief as finished work
     await stamp("rel-1"); // restore the fixture ranking for the suites below
   });});
 describe("the ranked queue pages in the database", () => {
