@@ -14,6 +14,7 @@
  */
 
 import "server-only";
+import { selectPageVersion } from "./pages/page-version";
 
 import { basisTag, getTenant, loadBusinessProfile } from "@/domains/account";
 import { readGscPageSignalsForTenant, type GscPageSignal } from "@/domains/evidence/readers/gsc-page-signals";
@@ -171,7 +172,7 @@ export async function loadEvidenceSnapshot(
       schemaTypes: s.schema_types ?? [],
       hasFaq: (s.faqs?.length ?? 0) > 0,
       faqCount: s.faqs?.length ?? 0,
-      wordCount: s.word_count ?? 0,
+      wordCount: s.word_count ?? 0, extractionCertainty: s.extraction_certainty ?? null,
       internalLinks: (s.internal_links ?? []).map((l) => ({ href: l.href, anchorText: l.anchor_text })),
       fetchedAt: s.fetched_at ?? null,
       canonicalUrl: s.canonical_url ?? null,
@@ -179,12 +180,13 @@ export async function loadEvidenceSnapshot(
       hasCanonicalMismatch: s.has_canonical_mismatch ?? null,
       robotsMeta: s.robots_meta ?? null,
     }));
-  // Keep the newest snapshot per URL only.
+  // ONE RULE FOR WHICH CAPTURE IS THE PAGE (pages/page-version): the newest confirmed body per address, a newer blank never erasing it, and the version state riding on the page so nothing stale proves a current absence.
+  const captures = new Map<string, ({ url: string } & OwnedPageContent)[]>();
+  for (const row of wixPayload) { const key = canonicalUrlKey(row.url); captures.set(key, [...(captures.get(key) ?? []), row]); }
   const wixByUrl = new Map<string, { url: string } & OwnedPageContent>();
-  for (const row of wixPayload) {
-    const key = canonicalUrlKey(row.url);
-    const existing = wixByUrl.get(key);
-    if (!existing || (row.fetchedAt ?? "") > (existing.fetchedAt ?? "")) wixByUrl.set(key, row);
+  for (const [key, group] of captures) {
+    const v = selectPageVersion(group, (r) => ({ fetchedAt: r.fetchedAt, words: r.wordCount, bodyHeld: true, certainty: r.extractionCertainty ?? null }));
+    if (v.content) wixByUrl.set(key, { ...v.content, versionState: v.state, contentAt: v.contentAt, newestAt: v.current?.fetchedAt ?? null });
   }
 
   // ── DataForSEO keyword demand (the funnel's retained set) ──

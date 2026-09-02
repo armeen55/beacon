@@ -35,6 +35,8 @@ export type OwnedQuerySignal = {
   clicks: number;
   position: number | null;};
 export type OwnedPageContent = {
+  /** The crawler's own confidence in the capture, and which capture these words are (pages/page-version). */
+  extractionCertainty?: string | null; versionState?: ReturnType<typeof import("./pages/page-version").selectPageVersion>["state"]; contentAt?: string | null; newestAt?: string | null;
   title: string | null;
   metaDescription: string | null;
   h1: string | null;

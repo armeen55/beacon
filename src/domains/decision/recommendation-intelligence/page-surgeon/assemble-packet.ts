@@ -13,6 +13,7 @@ import { loadGscPageSignalsForTenant } from "@/domains/evidence/readers/gsc-page
 import { loadClarityPageSignalsForTenant } from "@/domains/evidence/readers/clarity-page-signals";
 import { loadGa4PageValuesForTenant } from "@/domains/evidence/readers/ga4-page-values";
 import type { PageSnapshot } from "@/domains/evidence/pages/types";
+import { selectPageVersion } from "@/domains/evidence/pages/page-version";
 
 import { expectedCtrForPosition as expectedCtr } from "./expected-ctr";
 
@@ -162,11 +163,11 @@ async function loadPageSurgeonContextUncached(
       loadGa4PageValuesForTenant(tenantId).catch(() => new Map()),
     ]);
 
+  // ONE RULE FOR WHICH CAPTURE IS THE PAGE (pages/page-version): the first row per address was the newest, blank or not.
+  const captures = new Map<string, PageSnapshot[]>();
+  for (const s of snapshots) { const c = canonicalizeCitationUrl(s.url) ?? s.url; captures.set(c, [...(captures.get(c) ?? []), s]); }
   const snapshotByCanon = new Map<string, PageSnapshot>();
-  for (const s of snapshots) {
-    const c = canonicalizeCitationUrl(s.url) ?? s.url;
-    if (!snapshotByCanon.has(c)) snapshotByCanon.set(c, s);
-  }
+  for (const [c, group] of captures) { const v = selectPageVersion(group, (s) => ({ fetchedAt: s.fetched_at ?? null, words: s.word_count ?? 0, bodyHeld: true, certainty: s.extraction_certainty ?? null })); if (v.content) snapshotByCanon.set(c, v.content); }
 
   // Competitor domains (market rivals): DataForSEO SERP winners are the market layer (wired separately). Empty here until that layer feeds this context.
   const competitorDomains: string[] = [];

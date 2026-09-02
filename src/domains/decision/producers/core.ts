@@ -79,7 +79,7 @@ const incompleteCoverage: Producer = async (ctx) => {
   // A missing HEADING and a missing ENTITY are both subjects the winners agree on: either one names a section worth writing, and the finding fires on both, so the producer must serve both or it refuses
   // on its own evidence. A subject the held page PROVABLY already carries is dropped before drafting.
   const named = payload?.cause === "incomplete_coverage" ? [...payload.absentHeadings, ...payload.absentEntities] : [];
-  const absent = named.filter((s) => pageContains(ctx.body, s) !== "yes");
+  const absent = named.filter((s) => pageContains(ctx.body, s) === "no"); // proven absent on a complete, current capture; "unknown" writes nothing
   // A REFUSAL SAYS WHICH TRUTH IT IS. When the held page turned out to carry every named subject, the honest answer is presence, not a restated absence the page itself just disproved.
   if (absent.length === 0) return refuse(named.length > 0
     ? "The page itself already carries what the winning pages cover, so there is nothing to add here."
@@ -241,7 +241,7 @@ const rankingLoss: Producer = async (ctx) => {
   // 4. WHAT THE WINNING PAGES ALL COVER AND THIS ONE DOES NOT, off the side-by-side reading of those pages.
   const covers = "Cover what the winning pages all cover";
   const absent = [...(ctx.pattern?.commonHeadings ?? []).map((h) => h.heading), ...(ctx.pattern?.commonEntities ?? []).map((e) => e.entity)]
-    .filter((s) => pageContains(ctx.body, s) !== "yes");
+    .filter((s) => pageContains(ctx.body, s) === "no"); // proven absent, never merely unproven
   if (absent.length > 0) {
     const out = await incompleteCoverage({ ...ctx, finding: { ...ctx.finding, payload: { cause: "incomplete_coverage", absentHeadings: absent, absentEntities: [] } } });
     if (out.components.length > 0) return { ...out, considered };

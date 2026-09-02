@@ -16,6 +16,7 @@ import { actionFamilyOf, loadChangeProposals } from "../proposal-store";
 import { mutationFootprint } from "../mutation-footprint";
 import { placementCandidatesOf, winnersCover } from "../drafted-copy";
 import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
+import { selectPageVersion } from "@/domains/evidence/pages/page-version";
 // THE SHARED PRIMITIVES live in page-fit now: two producers answer "which page of this account is this search
 // FOR" and one copy of that answer is the whole point of the split.
 import { count, labelOf, MAX_PER_PRODUCER, mint, pageWords, pathOf, plain,
@@ -71,11 +72,11 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
   const graphs = await getRepository().forTenant(tenantId).getPageSnapshotLinkGraphs().catch(() => null);
   if (graphs == null) return { drafts: [], complete: false };
   if (graphs.length === 0) return { drafts: [], complete: true };
+  // ONE RULE FOR WHICH CAPTURE IS THE PAGE (pages/page-version): a blank newest capture carries no links, and it used to stand for the page.
+  const graphsByKey = new Map<string, typeof graphs>();
+  for (const g of graphs) { const key = canonicalUrlKey(g.url); graphsByKey.set(key, [...(graphsByKey.get(key) ?? []), g]); }
   const linksByPage = new Map<string, Set<string>>();
-  for (const g of graphs) {
-    const key = canonicalUrlKey(g.url);
-    if (!linksByPage.has(key)) linksByPage.set(key, new Set(g.internal_links.map((l) => pathOf(l.href).toLowerCase())));
-  }
+  for (const [key, group] of graphsByKey) { const v = selectPageVersion(group, (g) => ({ fetchedAt: g.fetched_at ?? null, words: g.internal_links.length, bodyHeld: true, certainty: null })); if (v.content) linksByPage.set(key, new Set(v.content.internal_links.map((l) => pathOf(l.href).toLowerCase()))); }
   // WHAT EACH PAGE IS HELD UP BY, off the same graph: how many pages point at it today. That is the link's purpose said as a number the operator can check, rather than as link equity.
   const inbound = new Map<string, number>();
   for (const links of linksByPage.values()) for (const to of links) inbound.set(to, (inbound.get(to) ?? 0) + 1);

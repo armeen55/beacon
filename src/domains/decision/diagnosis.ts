@@ -252,7 +252,7 @@ const RULES: Rule[] = [
       const entities = c.pattern!.commonEntities.map((e) => e.entity);
       const shared = [...headings, ...entities];
       // The SAME filter, kept apart: a missing section is one to write, a missing named thing is one to name. AND THE HELD PAGE HAS THE LAST WORD on any absence claimed here.
-      const missing = (xs: string[]): string[] => xs.filter((s) => { const t = topicTokens(s); return t.length > 0 && !t.some((x) => mineTokens.has(x)) && pageContains(c.body, s) !== "yes"; });
+      const missing = (xs: string[]): string[] => xs.filter((s) => { const t = topicTokens(s); return t.length > 0 && !t.some((x) => mineTokens.has(x)) && pageContains(c.body, s) === "no"; }); // PROVEN ABSENT, never merely unproven (operator, 2026-09-01): "unknown" comes off a sample, a stale body or no body at all, and it minted sections for subjects the current page may well carry
       const absentHeadings = missing(headings); const absentEntities = missing(entities);
       const absent = [...absentHeadings, ...absentEntities];
       return absent.length === 0

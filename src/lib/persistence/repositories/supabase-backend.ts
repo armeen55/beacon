@@ -385,13 +385,15 @@ export const supabaseBackend: SeedDataRepository = {
           throw new Error(
             `Supabase query failed on page_snapshots: ${error.message}`,
           );
-        const seen = new Set<string>();
+        // THE NEWEST ROW AND THE NEWEST TRUSTED ROW PER PAGE (operator, 2026-09-01): keeping only the newest per page
+        // handed the readers a blank August capture and threw away the confirmed August body under the same page id,
+        // so every reader downstream fell back to a June sample. The page-version selector needs both, and no more.
+        const seen = new Set<string>(), trusted = new Set<string>();
         const latest: PageSnapshot[] = [];
         for (const row of (data ?? []) as PageSnapshot[]) {
-          if (!seen.has(row.page_id)) {
-            seen.add(row.page_id);
-            latest.push(row);
-          }
+          const good = (row.word_count ?? 0) > 0 && row.extraction_certainty !== "uncertain";
+          if (!seen.has(row.page_id)) { seen.add(row.page_id); latest.push(row); if (good) trusted.add(row.page_id); }
+          else if (good && !trusted.has(row.page_id)) { trusted.add(row.page_id); latest.push(row); }
         }
         logEgress({
           table: "page_snapshots[capped+dedup+projected]",

@@ -262,7 +262,7 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
       : transportBlocked("Your website did not answer, so this change could not be checked.");
   }
   const profile = deps.loadProfile ? await deps.loadProfile(tenantId).catch(() => null) : await loadBusinessProfile(tenantId).catch(() => null);
-  const snap = extractPageSnapshot(res.html, requested, pageIdFor(shipment.url), tenantId, res.status, profile ?? undefined);
+  const snap = extractPageSnapshot(res.html, requested, pageIdFor(canonicalUrlKey(shipment.url)), tenantId, res.status, profile ?? undefined); // ONE PAGE IDENTITY (operator, 2026-09-01): the raw address minted a second page id for eight pages beside the crawler's canonical one
   // Fail-soft on purpose: the verification I just computed is the evidence, and a snapshot row I could not
   // save changes nothing about what I read with my own eyes.
   await (deps.writeOwnedPage ?? ((s: PageSnapshot, t: string) => syncPageSnapshots([s], t)))(snap, tenantId).catch(() => {});

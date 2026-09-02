@@ -17,6 +17,7 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
+import { selectPageVersion } from "./page-version";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 
 /** What my own page says, in its own words, with an honest account of how much of it I have. `fetchedAt`
@@ -46,6 +47,10 @@ export type OwnedPageBody = {
   contentHash: string | null;
   /** What I hold and what I do not, in plain words, with the numbers. */
   heldNote: string;
+  /** WHICH CAPTURE THESE WORDS ARE (pages/page-version). `stale_known_good` = the newest read captured nothing and an older confirmed body stands in: it proves presence, never a current absence. Absent means current. */
+  version?: ReturnType<typeof selectPageVersion>["state"];
+  /** When the newest, blank read happened, on a stale body. */
+  newestAt?: string | null;
 };
 
 /** ONE SPLIT'S OWN PAGES, WHOLE, and the page under work; a wider ask is refused outright because the
@@ -69,9 +74,10 @@ const MAX_HEADINGS = 60, MAX_FAQS = 20, MAX_ENTITIES = 12, MAX_LINKS = 12;
 /** A page keeps a snapshot history: read a few rows per URL newest-first and keep the newest. */
 const MAX_ROWS = MAX_URLS * 8;
 /** Every column of the capture that carries page CONTENT, and nothing else. */
-const COLUMNS = "url, title, h1, meta_description, fetched_at, word_count, h2_list, h3_list, faqs, body_text, body_paragraph_sample, card_texts, schema_entity_names, internal_links, content_hash";
+const COLUMNS = "url, title, h1, meta_description, fetched_at, word_count, h2_list, h3_list, faqs, body_text, body_paragraph_sample, card_texts, schema_entity_names, internal_links, content_hash, extraction_certainty";
 
 type Row = {
+  extraction_certainty?: unknown;
   url?: string | null; title?: string | null; h1?: string | null; meta_description?: string | null;
   fetched_at?: string | null; word_count?: unknown; body_text?: unknown;
   h2_list?: unknown; h3_list?: unknown; faqs?: unknown;
@@ -213,7 +219,8 @@ export function pageContains(page: OwnedPageBody | null | undefined, phrase: str
     ...page.cardTexts, ...page.faqs.flatMap((f) => [f.question, f.answer]), ...page.entityNames,
     ...page.internalLinks.map((l) => l.anchorText)].join(" \n "));
   if (hay.includes(needle)) return "yes";
-  return page.completeness === "complete" ? "no" : "unknown";
+  // A STALE BODY PROVES PRESENCE, NEVER A CURRENT ABSENCE: only a complete capture that is also the newest may say "no".
+  return page.completeness === "complete" && (page.version ?? "current") === "current" ? "no" : "unknown";
 }
 
 /** The newest persisted content for each of `urls`, keyed by canonicalUrlKey. Scoped to `tenantId` in the
@@ -239,16 +246,15 @@ export async function loadOwnedPageBodies(tenantId: string, urls: string[]): Pro
       .order("fetched_at", { ascending: false })
       .limit(MAX_ROWS);
     if (error) return out;
-    for (const row of (data ?? []) as Row[]) {
-      const key = canonicalUrlKey(typeof row.url === "string" ? row.url : "");
-      if (!key || !wanted.has(key)) continue;
-      const body = bodyOf(row);
-      const prev = out.get(key);
-      // NEWEST WINS, BUT WORDS BEAT NO WORDS. One host spelling of a page can hold a newer empty 200 while the other
-      // holds the real body, and taking the newest outright handed the drafter an empty page it had every word of.
-      const worth = (b: OwnedPageBody): string => `${b.passages.length > 0 || (b.vocabulary?.length ?? 0) > 0 ? 1 : 0}${b.fetchedAt ?? ""}`;
-      if (prev && worth(prev) >= worth(body)) continue;
-      out.set(key, body);
+    // ONE RULE FOR WHICH CAPTURE IS THE PAGE (pages/page-version), the same one the snapshot loader applies, so the
+    // writer and the diagnosis can never hold two different pages under one address.
+    const captures = new Map<string, Row[]>();
+    for (const row of (data ?? []) as Row[]) { const key = canonicalUrlKey(typeof row.url === "string" ? row.url : ""); if (key && wanted.has(key)) captures.set(key, [...(captures.get(key) ?? []), row]); }
+    for (const [key, rows] of captures) {
+      const v = selectPageVersion(rows, (r) => ({ fetchedAt: typeof r.fetched_at === "string" ? r.fetched_at : null, words: typeof r.word_count === "number" && r.word_count > 0 ? r.word_count : typeof r.body_text === "string" ? r.body_text.trim().split(/\s+/).filter(Boolean).length : 0, bodyHeld: typeof r.body_text === "string", certainty: typeof r.extraction_certainty === "string" ? r.extraction_certainty : null }));
+      if (!v.content) continue;
+      const body = bodyOf(v.content), newestAt = v.conflict && typeof (v.current as Row | null)?.fetched_at === "string" ? ((v.current as Row).fetched_at as string) : null;
+      out.set(key, { ...body, version: v.state, newestAt, ...(v.conflict ? { heldNote: `${body.heldNote} The newest read of this page, ${newestAt?.slice(0, 10) ?? "recently"}, captured no words; these are the words captured ${body.fetchedAt?.slice(0, 10) ?? "earlier"}. They prove what the page said then, never what it lacks now.` } : {}) });
     }
     return out;
   } catch (e) {

@@ -6,7 +6,7 @@ const fenv = vi.hoisted(() => ({ cards: null as null | unknown[], review: null a
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...((await orig()) as object), // Keyed the way the producer reads it (canonical, so a stored row and a full address are one page), or the page's own words are silently dropped.
   loadOwnedPageBodies: async (_t: string, urls: string[]) => new Map(urls.filter((u) => !u.includes("unreadable"))
-    .flatMap((u) => [u, u.replace(/^https?:\/\//, "").replace(/\/+$/, "")].map((k) => [k, { url: u, title: "T", metaDescription: null, openingSample: "A haft seen table is the spread a household sets out for the new year.", cardTexts: [], entityNames: [], internalLinks: [], fetchedAt: "2026-07-25T00:00:00.000Z" }] as const))) }));
+    .flatMap((u) => [u, u.replace(/^https?:\/\//, "").replace(/\/+$/, "")].map((k) => [k, { url: u, title: "T", h1: null, metaDescription: null, headings: [], passages: ["A haft seen table is the spread a household sets out for the new year."], openingSample: "A haft seen table is the spread a household sets out for the new year.", vocabulary: "A haft seen table is the spread a household sets out for the new year.", cardTexts: [], faqs: [], entityNames: [], internalLinks: [], fetchedAt: "2026-07-25T00:00:00.000Z", completeness: "complete", contentHash: null, heldNote: "" }] as const))) }));
 vi.mock("@/domains/decision/proposal-store", async () => { const actual = await vi.importActual<typeof import("@/domains/decision/proposal-store")>("@/domains/decision/proposal-store");
   return { ...actual, loadChangeProposals: async () => env.store, withdrawnProposalIds: async () => env.withdrawnIds, // The canonical store's OWN rule, emulated: a proposal identical to the stored row writes nothing at all.
     withdrawChangeProposal: async (p: ChangeProposal) => { env.withdrawn.push(p.id); env.store.delete(p.id); return true; }, saveChangeProposal: async (p: ChangeProposal) => { const prior = env.store.get(p.id); if (prior && actual.proposalFingerprint(prior) === actual.proposalFingerprint(p)) return "unchanged";
@@ -597,7 +597,7 @@ describe("why this page loses the click, one named cause at a time", () => { it(
       const read = await readCoverage(world, "fixture-tenant", { basis: "basis_today", now: NOW, patternFor: { topicKey: keyOf(READY()), pattern } });
       return compileCandidates(world, { coverage: read.decided })[0]!;};
     const noGaps = { ...PATTERN_HELD, ownedGaps: [] }; const bare = { ...noGaps, commonHeadings: [], commonEntities: [] };
-    expect((await laddered(GAP, noGaps)).cause.cause).toBe("incomplete_coverage"); // nothing my page fails to DO, so what they all cover is asked next
+    expect((await laddered(GAP, noGaps)).cause.cause).not.toBe("incomplete_coverage"); // ABSENCE IS PROVEN OFF THE PAGE'S OWN WORDS, NEVER ASSUMED (operator, 2026-09-01): this compile path holds no body, so it cannot name what the page lacks and walks on; the bundle path diagnoses with the held body
     const listy = ownedPage(GAP_URL, "Top 10 Nowruz Traditions", { impressions: 6400, clicks: 190 }, [{ query: "nowruz traditions", impressions: 6000, clicks: 180, position: 4.1 }]);
     expect((await laddered(listy, bare)).cause.cause).toBe("serp_shape_shift"); // and the kind of page that wins is asked after that
     const stopped = await laddered(GAP, bare); expect([stopped.action, stopped.cause.cause]).toEqual(["research_needed", "no_problem"]);
