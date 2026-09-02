@@ -610,8 +610,7 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     expect(compileCandidates(ACTORS_SEEN())[0]!.cause.notConsidered.find((n) => n.cause === "measuring_change")!.missing).toContain("Which of your pages already carry a change under measurement"); });
   it("counts the decline the ladder attributes to the change being read, and STILL works the page", async () => {
     reset(ACTORS_SEEN()); let called = 0; // MEASUREMENT IS NEVER A REASON TO SUPPRESS WORK (operator, 2026-08-29): the ladder may explain a DECLINE as the change being read, and the page still receives candidates, drafts and rows
-    const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, measuringPagePaths: ["/iranian-actors-actresses"],
-      complete: async () => { called += 1; return { value: VALID_ATOMIC_EDIT }; } });
+    const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, measuringPagePaths: ["/iranian-actors-actresses"], complete: async () => { called += 1; return { value: VALID_ATOMIC_EDIT }; } });
     expect([res.heldForMeasurement, res.proposals.length > 0, env.saved.length > 0], "the diagnosis is counted AND the page is worked").toEqual([1, true, true]); void called;
     expect(await produceProposalsForTenant("fixture-tenant", { now: NOW, measuringPagePaths: ["/somewhere-else"], complete: async () => ({ value: VALID_ATOMIC_EDIT }) })
       .then((r) => r.heldForMeasurement)).toBe(0); }); // and a page nothing is measuring on is never counted as held
@@ -622,8 +621,7 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     expect([res.outcome, res.actionable, res.proposals.filter((p) => p.id.endsWith("::missing_description")).length, res.proposals.filter((p) => p.id.endsWith("::ownership")).length, called, res.held.some((h) => h.reason.includes("two of your own pages competing for one search"))]).toEqual(["proposals_persisted", 1, 0, 1, 0, true]); // the description errand on a page splitting a search is WITHHELD with its reason on the receipt, never paid for and never offered, and ONE family card for the split takes its place
     expect(res.candidates.find((c) => c.action === "consolidate")!.cause.cause).toBe("cannibalization"); });
   it("ranks a 15-view description under a 10,000-view rebuild, and calls views an audience rather than a recovery", () => {
-    const card = (id: string, minutes: number, views: number): ChangeProposal => baseProposal({ id, pagePath: `/${id}`, status: "needs_review",
-      impactScore: null, upsidePerMonth: null, demandImpressions90d: views, estimatedEffortMinutes: minutes });
+    const card = (id: string, minutes: number, views: number): ChangeProposal => baseProposal({ id, pagePath: `/${id}`, status: "needs_review", impactScore: null, upsidePerMonth: null, demandImpressions90d: views, estimatedEffortMinutes: minutes });
     const ranked = rankProposals([card("meta", 1, 15), card("thin", 30, 10_000)]); // the description is a one minute paste; the rebuild is half an hour
     expect(ranked.map((p) => p.id)).toEqual(["thin", "meta"]); expect(ranked.every((p) => !!p.rankingReceipt)).toBe(true);
     expect(ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).toBe("shown 10,000 times in 90 days, an audience size rather than a proven recovery");
@@ -634,8 +632,7 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     expect(earnsOwnPage({ passes: 2, refusedPages: [] }, 9)).toBe(false); // no page was ever read and refused, so nothing proves none of them fits
     expect(earnsOwnPage({ passes: 2, refusedPages: ["/guide"] }, 0)).toBe(true); // the same search came back across two passes
     expect(earnsOwnPage({ passes: 1, refusedPages: ["/guide"] }, 3)).toBe(true); }); // or three stored answers handed it to somebody else
-  it("discounts a page only while its applied change is still being measured", async () => { const day = 24 * 60 * 60 * 1000; const applied = (ageDays: number): ChangeProposal =>
-      baseProposal({ id: "applied", status: "implemented_pending_verification", basis: "b", createdAt: new Date(Date.now() - ageDays * day).toISOString() });
+  it("discounts a page only while its applied change is still being measured", async () => { const day = 24 * 60 * 60 * 1000; const applied = (ageDays: number): ChangeProposal => baseProposal({ id: "applied", status: "implemented_pending_verification", basis: "b", createdAt: new Date(Date.now() - ageDays * day).toISOString() });
     expect(pagesUnderMeasurement([applied(10), applied(180)].map((p, i) => ({ ...p, pagePath: `/p${i}` })), new Date())).toEqual(["/p0"]);
     const overlapOf = async (ageDays: number) => { env.store = new Map([["live", baseProposal({ id: "live", basis: "b" })], ["applied", applied(ageDays)]]);
       return (await loadProposalQueue("fixture-tenant", { currentBasis: "b" })).ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "overlap")!; };
@@ -645,34 +642,28 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     expect(fresh.input).toBe("this page already has a change under measurement, noted for the reading"); });
   /** THE SAFETY NET ON BOTH SIDES OF THE STORE: a stored change whose claims stopped resolving may not RENDER, and the next canonical pass takes it back even when nothing re-selects that page for a deep read. */
   it("neither renders nor keeps a stored change whose claims no longer resolve, without waiting to be re-selected", async () => {
-    const bad = (basis: string): ChangeProposal => baseProposal({ id: "fixture-tenant::/split::existing_edit::bundle", pagePath: "/split", basis, status: "needs_review", riskLevel: "high",
-      bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] }, alternatives: [], risks: [], confidenceReasons: [],
-        receipt: { items: [{ key: "demand-exact", kind: "gsc_demand", fact: "f", observedAt: null }], missing: [], freshestObservedAt: null },
-        components: [{ kind: "consolidation", label: "Settle which page owns this search", before: null, after: "Keep one of these pages.", evidenceKeys: ["demand-competing"], risk: "dangerous", where: "across both", objective: "o", mechanism: "m", measurementPlan: "p" }] } });
+    const bad = (basis: string): ChangeProposal => baseProposal({ id: "fixture-tenant::/split::existing_edit::bundle", pagePath: "/split", basis, status: "needs_review", riskLevel: "high", bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] }, alternatives: [], risks: [], confidenceReasons: [],
+        receipt: { items: [{ key: "demand-exact", kind: "gsc_demand", fact: "f", observedAt: null }], missing: [], freshestObservedAt: null }, components: [{ kind: "consolidation", label: "Settle which page owns this search", before: null, after: "Keep one of these pages.", evidenceKeys: ["demand-competing"], risk: "dangerous", where: "across both", objective: "o", mechanism: "m", measurementPlan: "p" }] } });
     env.store = new Map([["good", baseProposal({ id: "good", basis: "b" })], [bad("b").id, bad("b")]]);
     expect((await loadProposalQueue("fixture-tenant", { currentBasis: "b" })).ranked.map((p) => p.id)).toEqual(["good"]); // it never reaches the screen
     reset(snap([WINNER])); env.store = new Map([[bad("basis_test").id, bad("basis_test")]]); // and no door opens on that page at all
     await produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: async () => ({ value: VALID_ATOMIC_EDIT }) }); expect(env.withdrawn).toEqual([bad("b").id]); });
   /** AND THE SAME NET CATCHES A ROW THAT WENT COLD. Refused at every door but never taken back, it sits in its own slot forever: an identical redraft answers "unchanged", so nothing fresh can replace it. */
   it("takes back a change whose readings went cold, so a redraft off fresh evidence can take its slot", async () => {
-    const aged = (observedAt: string): ChangeProposal => baseProposal({ id: "fixture-tenant::/aged::existing_edit::bundle", pagePath: "/aged", basis: "basis_test", status: "ready",
-      bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] }, alternatives: [], risks: [], confidenceReasons: [],
-        receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "f", observedAt }], missing: [], freshestObservedAt: observedAt },
-        components: [{ kind: "title", label: "Title", before: "a", after: "b", evidenceKeys: ["k1"], risk: "safe" }] } });
+    const aged = (observedAt: string): ChangeProposal => baseProposal({ id: "fixture-tenant::/aged::existing_edit::bundle", pagePath: "/aged", basis: "basis_test", status: "ready", bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] }, alternatives: [], risks: [], confidenceReasons: [],
+        receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "f", observedAt }], missing: [], freshestObservedAt: observedAt }, components: [{ kind: "title", label: "Title", before: "a", after: "b", evidenceKeys: ["k1"], risk: "safe" }] } });
     for (const [at, taken] of [[new Date(NOW.getTime() - 200 * 86_400_000).toISOString(), [aged("x").id]], [NOW.toISOString(), []]] as const) { // Cold goes back; a receipt whose readings still stand is left exactly where it is.
       reset(snap([WINNER])); env.store = new Map([[aged(at).id, aged(at)]]);
       await produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: async () => ({ value: VALID_ATOMIC_EDIT }) }); expect(env.withdrawn, at).toEqual(taken);
     } });
-  it("never emits a diagnosis without a competing explanation, a falsifier, and every unheld cause named", () => {
-    for (const world of [snap([WINNER]), SEEN(), snap([GAP]), snap([ACTORS], actorsSerp(DISPLAYED)), snap([GAP], CITED_ELSEWHERE()), BOTH()]) { for (const c of compileCandidates(world)) {
+  it("never emits a diagnosis without a competing explanation, a falsifier, and every unheld cause named", () => { for (const world of [snap([WINNER]), SEEN(), snap([GAP]), snap([ACTORS], actorsSerp(DISPLAYED)), snap([GAP], CITED_ELSEWHERE()), BOTH()]) { for (const c of compileCandidates(world)) {
         expect(c.cause.competingExplanations.length).toBeGreaterThan(0); expect(c.cause.competingExplanations.length).toBeLessThanOrEqual(3);
         expect(c.cause.competingExplanations.every((x) => x.reason.length > 0)).toBe(true); expect(c.cause.falsifier.length).toBeGreaterThan(0);
         expect(c.cause.notConsidered.map((n) => n.cause)).toEqual(expect.arrayContaining(NEVER_HELD)); expect(c.cause.notConsidered.every((n) => n.missing.length > 0)).toBe(true);
         expect(`${c.cause.explanation} ${c.cause.falsifier}`).not.toMatch(/[–—]|SERP|experiment|baseline/); } } }); });
 /** THE BAR EVERY GAP IS MEASURED AGAINST (2026-08-12). fitTenantCtrCurve was named in this module's own header and never existed, so every account was judged by an industry table promising 28 percent at position 1 while this one earns 1.34, and every card in the queue was sized about twenty times too big. */
 describe("the click curve is fitted to the account it judges", () => {
-  const rows = (ctrByBand: Record<number, number>, per = 40) => Object.entries(ctrByBand).flatMap(([band, ctr]) =>
-    Array.from({ length: per }, (_, i) => ({ query: `q${band}x${i}`, position: Number(band), impressions: 500, clicks: Math.round(500 * ctr) })));
+  const rows = (ctrByBand: Record<number, number>, per = 40) => Object.entries(ctrByBand).flatMap(([band, ctr]) => Array.from({ length: per }, (_, i) => ({ query: `q${band}x${i}`, position: Number(band), impressions: 500, clicks: Math.round(500 * ctr) })));
   it("learns this account's own rate, holds the curve decreasing, and keeps the industry table for the bands it never saw", () => {
     const curve = fitTenantCtrCurve(rows({ 1: 0.014, 2: 0.02, 3: 0.008 })); // band 2 out-earns band 1: real data, and never a curve that pays MORE for a worse position
     expect(curve.source).toBe("tenant");
@@ -699,8 +690,7 @@ describe("work identity survives unrelated drift and moves with the job's own ev
   /** Healthy on every axis (a description on file, clicks at position), so no producer mints work for it: its ONLY role is to drift. */
   const UNRELATED: OwnedPageEvidence = { ...AT, content: { ...AT.content!, metaDescription: "Socks for hiking, sized and rated for every season." } };
   const real = (s: EvidenceSnapshot): EvidenceSnapshot => ({ ...s, evidenceHash: hashSnapshot(s) });
-  it("an unrelated page's ordinary Google drift re-mints no identity, re-buys nothing, rewrites no row, and leaves finished copy byte-identical", async () => {
-    reset(real(snap([WEAK, GAP, UNRELATED], looked([["nowruz food traditions", "fixture-outdoors.example/nowruz-food"], ["nowruz traditions", GAP_URL]]))));
+  it("an unrelated page's ordinary Google drift re-mints no identity, re-buys nothing, rewrites no row, and leaves finished copy byte-identical", async () => { reset(real(snap([WEAK, GAP, UNRELATED], looked([["nowruz food traditions", "fixture-outdoors.example/nowruz-food"], ["nowruz traditions", GAP_URL]]))));
     const first = counting(); const one = await run(first.complete);
     expect([one.persisted > 0, first.calls() > 0]).toEqual([true, true]);
     const before = new Map([...env.store].map(([id, p]) => [id, [p.recommendedChange.kind === "existing_edit" ? p.recommendedChange.after : "", p.workKey ?? ""] as const]));
@@ -713,8 +703,7 @@ describe("work identity survives unrelated drift and moves with the job's own ev
     expect([again.reused > 0, second.calls(), env.saved.map((p) => p.id)]).toEqual([true, 0, []]); // no redraft, no provider attempt, not one row rewritten
     for (const [id, [after, workKey]] of before) { const now = env.store.get(id)!;
       expect([now.recommendedChange.kind === "existing_edit" ? now.recommendedChange.after : "", now.workKey ?? ""]).toEqual([after, workKey]); } });
-  it("the job's OWN page moving does move the identity, so the stored row re-stamps once instead of standing on stale evidence", async () => {
-    reset(real(snap([WEAK, GAP, UNRELATED], looked([["nowruz food traditions", "fixture-outdoors.example/nowruz-food"], ["nowruz traditions", GAP_URL]]))));
+  it("the job's OWN page moving does move the identity, so the stored row re-stamps once instead of standing on stale evidence", async () => { reset(real(snap([WEAK, GAP, UNRELATED], looked([["nowruz food traditions", "fixture-outdoors.example/nowruz-food"], ["nowruz traditions", GAP_URL]]))));
     await run(counting().complete);
     const guideId = [...env.store.keys()].find((id) => id.includes("/nowruz-guide"))!; const heldKey = env.store.get(guideId)!.workKey!;
     const base = env.snap as EvidenceSnapshot;
@@ -726,14 +715,11 @@ describe("work identity survives unrelated drift and moves with the job's own ev
     expect(env.saved.some((p) => p.id === guideId)).toBe(true); }); // one re-stamp, which is the honest churn a real movement earns
 });
 describe("canonical bundle status", () => { // ── the re-read sweep reconciles bundles, and the stored status agrees with the rendered lane ─
-  const BUNDLE = { objective: "Tell the two flag pages apart", metric: "clicks", measurementPlan: "read at 7, 14, 28 days", risks: [], confidenceReasons: ["r"], alternatives: [], scope: { queries: ["iran flag"], prompts: [] },
-    components: [{ kind: "title" as const, label: "Title", before: "Iran Flag", after: "The national flag of Iran, explained", where: null, page: "/flags", risk: "safe" as const, evidenceKeys: [] }],
+  const BUNDLE = { objective: "Tell the two flag pages apart", metric: "clicks", measurementPlan: "read at 7, 14, 28 days", risks: [], confidenceReasons: ["r"], alternatives: [], scope: { queries: ["iran flag"], prompts: [] }, components: [{ kind: "title" as const, label: "Title", before: "Iran Flag", after: "The national flag of Iran, explained", where: null, page: "/flags", risk: "safe" as const, evidenceKeys: [] }],
     dispositions: [], receipt: { items: [{ key: "k1", kind: "serp" as const, fact: "Observed on the results page for iran flag.", observedAt: "2026-07-20T00:00:00.000Z" }], missing: [], freshestObservedAt: "2026-07-20T00:00:00.000Z" } };
   const bundleRow = (over: Partial<ChangeProposal> = {}): ChangeProposal => baseProposal({ id: "fixture-tenant::/flags::existing_edit::title-family", pagePath: "/flags", pageUrl: "https://fixture-outdoors.example/flags",
-    basis: "basis_test::d8", changeFamily: "title-family", status: "ready", bundle: BUNDLE as never, modeledOn: "the stored results page for this search, whose top titles share this shape",
-    recommendedChange: { kind: "existing_edit", field: "title", before: "Iran Flag", after: "The national flag of Iran, explained" }, ...over });
-  it("a claim rule cannot fire vacuously on a bundle that carries no claims by construction, and the lane agrees with the store", async () => {
-    reset(SEEN()); const row = bundleRow(); env.store = new Map([[row.id, row]]);
+    basis: "basis_test::d8", changeFamily: "title-family", status: "ready", bundle: BUNDLE as never, modeledOn: "the stored results page for this search, whose top titles share this shape", recommendedChange: { kind: "existing_edit", field: "title", before: "Iran Flag", after: "The national flag of Iran, explained" }, ...over });
+  it("a claim rule cannot fire vacuously on a bundle that carries no claims by construction, and the lane agrees with the store", async () => { reset(SEEN()); const row = bundleRow(); env.store = new Map([[row.id, row]]);
     await produceProposalsForTenant("fixture-tenant", { now: NOW, maxDrafts: 0, zeroSpend: true });
     expect(env.store.get(row.id)!.status).toBe("ready"); // the national-symbol rule no longer holds a row that cannot declare claims
     const q = await loadProposalQueue("fixture-tenant", { currentBasis: "basis_test::d8", now: NOW });
@@ -803,11 +789,17 @@ describe("the $0 replay: a held finished draft promotes when its evidence lands,
     expect([promoted.status, promoted.recommendedChange.kind === "existing_edit" && promoted.recommendedChange.after, !!promoted.modeledOn], "the stored copy promotes byte-identical, wearing the results-page backing the gate asked for").toEqual(["ready", good.recommendedChange.kind === "existing_edit" ? good.recommendedChange.after : "", true]);
     expect([held.status, held.limitations.includes(gateLine)], "the defective sibling stays held with every word and reason").toEqual(["needs_review", true]);
     expect([paidCalls, out.outcome !== "evidence_unreadable"], "no provider was called for any of it").toEqual([0, true]); });
-  it("never promotes a row carrying a typed fault, whatever the prose says", async () => {
+  const OBJECTION = "the evaluator's exact objection: this reads as a list of searches rather than a sentence";
+  it("never promotes a row carrying a reading no rule of ours can re-derive, and drops the stale ones it can", async () => {
     reset(snap([{ ...GAP, content: { ...GAP.content!, metaDescription: "Old line about the holiday." } }], looked([["nowruz traditions", GAP_URL]])));
-    const faulted = meta("/nowruz-guide", "Nowruz traditions explained: the customs, the Haft-Seen table and the spring timing of Persian New Year, in plain language.", { faults: ["its opening repeats the heading"] });
-    env.store = new Map([[faulted.id, faulted]]); await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true });
-    expect([env.store.get(faulted.id)!.status, env.store.get(faulted.id)!.faults], "the same copy that promotes clean stays held under its typed fault, which no replay may clear").toEqual(["needs_review", ["its opening repeats the heading"]]); });
+    const COPY = "Nowruz traditions explained: the customs, the Haft-Seen table and the spring timing of Persian New Year, in plain language.";
+    const judged = meta("/nowruz-guide", COPY, { faults: [OBJECTION] });
+    // AND A DETERMINISTIC FAULT IS A PAST READING (falsifier, 2026-09-02): the rule that wrote "it uses words this account does not publish: Farsi" was withdrawn by the demand-vocabulary exemption, and nothing re-asked it, so the row could never replay. It is dropped and re-earned, or not, by the re-read.
+    const stale = meta("/nowruz-guide-2", COPY, { id: "fixture-tenant::/nowruz-guide-2::existing_edit::replay-fixture", pagePath: "/nowruz-guide", faults: ["it uses words this account does not publish: Farsi"] });
+    env.store = new Map([[judged.id, judged], [stale.id, stale]]); await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true });
+    expect([env.store.get(judged.id)!.status, env.store.get(judged.id)!.faults], "the paid reader's own objection is not ours to re-derive, so it still holds the row").toEqual(["needs_review", [OBJECTION]]);
+    const out = env.store.get(stale.id)!;
+    expect([out.status, out.faults ?? [], !!out.modeledOn], "and the withdrawn rule's line leaves with it, the results page on file backing the shape").toEqual(["ready", [], true]); });
 });
 /** RAW MARKUP IS NOT PASTE COPY (operator, 2026-08-31). A stored link row from before the typed-anchor contract carried an <a> tag in a section body and the $0 replay promoted it: nothing typed owned the rule that operator copy is text. The canon owns it now, so every door that mints or replays Ready refuses it. */
 describe("the canon refuses raw HTML in operator copy", () => {

@@ -1316,6 +1316,14 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
     expect(plan(jobs, { candidates: 1 }).funded.map((f) => f.key)).toEqual(["/strong"]);
     expect(plan(jobs, { candidates: 2 }).funded.map((f) => f.key)).toEqual(["/strong", "/tiny"]);
     expect([plan(jobs, { candidates: 1, skip: ["/strong::editor"] }).funded.map((f) => f.key), plan(jobs, { candidates: 1, skip: ["/strong::correction_review"] }).funded.map((f) => f.key)]).toEqual([["/tiny"], ["/strong"]]); }); // a spend is a fact about ONE family's job on a key, so a materially different obligation on that same key still funds today
+  /** THE TWO-ATTEMPTS CONTRACT, APPLIED TO THE DAY (falsifier, 2026-09-02): the inv_3446de602284 new page was funded on six consecutive cycles, spent two to three calls each time, answered "0 of N sections written" every time, and took the time box while seven funded editor keys behind it were never started. `tried` only demoted it. */
+  it("declines a job spent on twice today with nothing finished, funds one spent on once, and counts the spend per family", () => {
+    const jobs = [job("/topic", "new_page", 90, DRAFT_BUDGET.BUNDLE_CALLS), job("/small", "editor", 1)];
+    expect(plan(jobs, { candidates: 1, spent: { "/topic::new_page": 2 } }).funded.map((f) => f.key), "twice today and nothing finished: the money moves to the work behind it").toEqual(["/small"]);
+    expect(plan(jobs, { candidates: 1, spent: { "/topic::new_page": 1 } }).funded.map((f) => f.key), "one attempt is how a draft gets better, so it still funds").toEqual(["/topic"]);
+    expect(plan(jobs, { candidates: 1, spent: { "/topic::editor": 2 } }).funded.map((f) => f.key), "a spend is one FAMILY's attempt on a key, never the key's").toEqual(["/topic"]);
+    expect(plan(jobs, { candidates: 1, focus: ["/topic"], spent: { "/topic::new_page": 2 } }).funded.map((f) => f.key), "and the caller may still aim at it by name").toEqual(["/topic"]);
+    expect(plan(jobs, { candidates: 1, spent: { "/topic::new_page": 2 } }).declined.find((d) => d.key === "/topic")?.reason).toBe("spent on twice today and finished nothing, so it waits for new evidence or tomorrow"); });
   it("orders every paid job by expected value, with a finish breaking only a genuine tie", () => {
     const b = plan([job("topic:wildlife", "new_page", 4, DRAFT_BUDGET.BUNDLE_CALLS), job("/rugs", "correction_review", 3), job("/best", "field_draft", 90)], { candidates: 3 }); // FINISHING IS A TIE-BREAK, NEVER A BAND (operator, 2026-08-30): the absolute correction-first order put every one-cent finish above every new section whatever the traffic said, which is the names-only queue. A finish still wins any true tie, at the manifest and at the page's one slot alike.
     expect(b.funded.map((f) => f.key), "value first: the 90-click draft beats the 3-click finish, and the finish funds LAST").toEqual(["/best", "topic:wildlife", "/rugs"]);

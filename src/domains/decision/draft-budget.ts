@@ -4,6 +4,8 @@ import "server-only";
 
 /** EVERY CHARGED CALL ONE PASS MAY MAKE, drafts and judgings together, failures counted the same as successes. It is a RUNAWAY STOP, not a spending policy: what the money buys is decided by the ranked manifest below, and this only says how far one pass may go before it stops and lets the next one continue. Raised from thirty to sixty (operator, 2026-08-22, "no guardrails, unlimited money") so a drive that may now finish five candidates can actually afford five, bundles included, instead of running out at two of them. The 2026-08-21 raise to ninety is NOT what this is: back then nothing capped a single candidate, so the extra ceiling bought 239 retries on the same few pages and nothing finished. Every candidate is priced and bounded now, so the ceiling buys candidates. */
 const MAX_PAID_CALLS = 60;
+/** HOW MANY TIMES ONE JOB MAY TAKE REAL CALLS IN A DAY AND FINISH NOTHING. The same number the copy contract settles on, applied to the money. */
+const DAY_ATTEMPTS = 2;
 
 /** THE KEY ONE PAID JOB IS FUNDED UNDER: THE MUTATION, when the object in hand says which one, and the page when
  *  it does not. ONE PAGE IS NOT ONE OPPORTUNITY (Product Truth; operator, 2026-08-31): keying the money by page
@@ -76,7 +78,12 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   /** Pages the CALLER NAMES to finish first. Live (2026-08-30): a standing card one review from Ready could not
    *  be funded by any means, because fresh page candidates outrank it and skip only declines. A focused key funds
    *  ahead of the impact order and is exempt from skip; everything else about the walk is unchanged, so this aims
-   *  the same money, never more of it. */ focus?: readonly string[] }) {
+   *  the same money, never more of it. */ focus?: readonly string[];
+  /** HOW MANY TIMES TODAY EACH `key::family` WAS SPENT ON AND FINISHED NOTHING, from the day's own memory. The
+   *  two-attempts-then-settled contract, applied to the day: a candidate that has taken real calls twice and
+   *  produced nothing waits for new evidence or for tomorrow, instead of holding the top slot and the time box
+   *  on every drive. `tried` alone only DEMOTED such a job, which a stuck new-page draft outranked six times
+   *  in one night while seven funded editor keys behind it were never started. */ spent?: Readonly<Record<string, number>> }) {
   const ceiling = Math.max(0, input.calls ?? MAX_PAID_CALLS);
   // ONE ENTRY PER PAGE, AND THE PAGE GETS THE TREATMENT WITH THE HIGHEST EXPECTED SITE IMPACT (Codex, 2026-08-23).
   // Two corrections carved into this line. Dearest-wins buried strong cheap work behind bundles; value-per-call then
@@ -140,6 +147,7 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
     if (j.blocked) declined.push({ key: j.key, family: j.family, calls: price, reason: j.blocked });
     // ALREADY BOUGHT NEVER BLOCKS A DIFFERENT OBLIGATION (operator, 2026-09-02). The skip was keyed on the mutation alone, so a page whose DRAFT was spent today declined the REVIEW that page owed as well, and a materially different job on one key could not be funded until tomorrow. A spend is a fact about one family's job; the entry carries that family and declines only it.
     else if (skip.has(`${j.key}::${j.family}`) && !focusHits(focus, j.key)) declined.push({ key: j.key, family: j.family, calls: price, reason: "a pass today already spent on this exact job and it finished nothing, so the money moves to the next ranked one" });
+    else if ((input.spent?.[`${j.key}::${j.family}`] ?? 0) >= DAY_ATTEMPTS && !focusHits(focus, j.key)) declined.push({ key: j.key, family: j.family, calls: price, reason: "spent on twice today and finished nothing, so it waits for new evidence or tomorrow" });
     // TWO DIFFERENT THINGS, TWO DIFFERENT SENTENCES. A pass Beacon was ASKED not to spend on used to report the
     // provider's credit as exhausted, which is a cause the receipt invented: nothing had run out, and an
     // operator reading it would go looking at a billing page for a decision Beacon had made itself.
@@ -214,6 +222,8 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
     },
     /** The one funded name this key answers to: itself, its alias target, or its page's funded entry. Receipts and filings resolve through this so a branch that knows the work by another shape still lands its record on the funded row. */
     resolve: resolveKey,
+    /** POINT AN UNFUNDED KEY AT A FUNDED ONE'S ALLOWANCE, once (falsifier, 2026-09-02). A standing row offered to the walk in place of a suppressed fresh card carries its OWN key, which was never funded, so `resolveKey` fell back to the page, found nothing, and every draw answered null: ten name-page rows reached the editor and not one could spend the money already committed to them. Funding and walking share ONE identity through this, so a funded key that no card can draw under is impossible rather than a receipt. Never overwrites a real funded key. */
+    claim(from: string, to: string) { if (funded.has(to) && !funded.has(from) && !alias.has(from)) alias.set(from, to); },
     /** WHAT WAS ACTUALLY SPENT, off the allowances themselves: arithmetic, never a claim. */
     spent() {
       let used = 0; for (const [k, slice] of held) used += (funded.get(k) ?? 0) - Math.max(0, slice.left);
