@@ -131,10 +131,9 @@ beforeEach(() => {
   env.rpc = {}; env.calls = []; env.snapshot = null; env.store = new Map(); env.withdrawn = [];
   env.aiWindow = []; env.dispositions = new Map(); env.upserts = 0; });
 describe("a search read that did not answer", () => {
-  it("throws instead of handing back an account with no search data", async () => {
+  it("throws instead of handing back an account with no search data, and marks a read cut short after some rows INCOMPLETE while keeping what landed", async () => {
     env.rpc = { gsc_page_signals_v1: [{ error: TIMEOUT }] };
-    await expect(loadGscPageSignalsForTenant(TENANT, new Date("2026-08-12T09:00:00Z"))).rejects.toThrow(/statement timeout/); });
-  it("marks a read cut short after some rows INCOMPLETE, keeping what landed", async () => {
+    await expect(loadGscPageSignalsForTenant(TENANT, new Date("2026-08-12T09:00:00Z"))).rejects.toThrow(/statement timeout/);
     env.rpc = { gsc_page_signals_v1: [{ data: fullPage() }, { error: TIMEOUT }], gsc_page_totals_v1: [{ data: [] }] };
     const read = await readGscPageSignalsForTenant(TENANT, new Date("2026-08-12T09:00:00Z")); expect([read.incomplete, read.signals.size]).toEqual([true, 1_000]); });
   it("asks the database ONE question per account per reporting day, however the caller spells now", async () => {
@@ -147,15 +146,12 @@ describe("a search read that did not answer", () => {
     env.rpc = { gsc_page_signals_v1: [{ data: fullPage() }, { error: TIMEOUT }], gsc_page_totals_v1: [{ data: [] }] };
     const snapshot = await loadEvidenceSnapshot(TENANT, { now: new Date("2026-08-12T09:00:00Z") }); expect(snapshot.sources.find((s) => s.source === "gsc")?.status).toBe("failed"); }); });
 describe("the sweep only retires what a producer that FINISHED rewrote", () => {
-  it("changes nothing at all when the search source failed, so open cards survive", async () => {
+  it("changes nothing at all when the search source failed, and nothing when it is merely EMPTY either: unread is not rewritten", async () => {
     env.snapshot = snapshotWith("failed");
     env.store = new Map([["a", openCard("answer_block")], ["t", openCard("title")]].map(([, p]) => [(p as ChangeProposal).id, p]));
-    const out = await produceProposalsForTenant(TENANT); expect(out.outcome).toBe("evidence_unreadable");
-    expect(env.withdrawn).toEqual([]); });
-  it("withdraws nothing when the search source is merely EMPTY: unread is not rewritten", async () => {
-    env.snapshot = snapshotWith("empty");
-    env.store = new Map([[openCard("title").id, openCard("title")]]);
-    await produceProposalsForTenant(TENANT); expect(env.withdrawn).toEqual([]); });
+    expect([(await produceProposalsForTenant(TENANT)).outcome, env.withdrawn]).toEqual(["evidence_unreadable", []]);
+    env.snapshot = snapshotWith("empty"); env.store = new Map([[openCard("title").id, openCard("title")]]);
+    await produceProposalsForTenant(TENANT); expect(env.withdrawn, "an account that genuinely holds nothing still loses no open card").toEqual([]); });
   it("withdraws a stale card in its own family once the producer that owns it finished, and never an AI card on a pass whose AI read failed", async () => {
     env.snapshot = snapshotWith("fresh");
     env.aiWindow = "fail"; // the 28-day AI read is down on this pass

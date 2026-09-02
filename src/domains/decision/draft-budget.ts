@@ -1,4 +1,5 @@
 import "server-only";
+import { mutationKeyOf } from "./mutation-footprint";
 
 /** decision/draft-budget - THE ONE PAID DRAFTING BUDGET, and there is no second one. Every family that spends model money on a deliverable (the winning-pattern reading, the new page, the correction review, the shallow field drafts, the deep bundles and the editor) is DECLARED here before the pass spends anything, ranked here once, and funded here once. It lives beside the drafting rather than inside it because the money is the one thing every family shares (operator, 2026-08-22, after 239 charged calls bought nothing). WHY A MANIFEST AND NOT A CLAIM COUNTER (Codex, 2026-08-22). The first repair gave every family one shared pool and a ranked window, which stopped the private pools but left the order to whoever asked first: a family with no entry in the ranking claimed the moment it was reached, so an unranked new page or a correction review still took the pass's first slot ahead of the strongest completable change. Asking-order is not a ranking. So nothing claims any more. The pass compiles EVERY paid job it could run into one zero-cost manifest, `plan` ranks the whole manifest once and decides the funded set once, and each family then collects an allowance already decided for it. A key that is not on the funded list gets nothing, whenever it asks and whatever family it belongs to. */
 
@@ -17,26 +18,13 @@ const DAY_ATTEMPTS = 2;
  *  mutation still collapse to one job in `plan` exactly as two families wanting one page used to. A bare
  *  `{pagePath}` with no change on it still keys the page alone, and `take` below lets a mutation-keyed draw fall
  *  back to a page-keyed allowance so a job declared before its card exists is still reachable. */
-const pageOf = (p: { pagePath?: string | null; pageUrl?: string | null }): string => {
-  const raw = (p.pagePath ?? p.pageUrl ?? "").trim().toLowerCase();
-  if (!raw) return "unknown-page";
-  if (raw.startsWith("/")) return raw.replace(/\/+$/, "") || "/";
-  try { return new URL(raw.startsWith("http") ? raw : `https://${raw}`).pathname.replace(/\/+$/, "") || "/"; } catch { return raw; }
-};
-type Keyable = { pagePath?: string | null; pageUrl?: string | null; changeFamily?: string; primaryQuery?: string | null; id?: string;
-  recommendedChange?: { kind: string; field?: string; linkTo?: string | null } };
-const bareQuery = (q: string | null | undefined): string => (q ?? "").trim().toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "").slice(0, 60);
-const keyOf = (p: Keyable): string => {
-  const page = pageOf(p), c = p.recommendedChange;
-  if (!c) return page;
-  if (p.changeFamily === "factual_correction") return `${page}::corrections`; // the whole batch rides one job, exactly as it grouped by page before
-  if (c.kind === "new_page") return `${page}::new_page::${bareQuery(p.primaryQuery) || (p.id ?? "").split("::").at(-1) || "topic"}`;
-  const f = c.field ?? "";
-  if (f === "title" || f === "meta" || f === "h1") return `${page}::${f}`;
-  if (c.linkTo || (p.id ?? "").endsWith("::internal_link")) return `${page}::link::${(c.linkTo ?? "").trim().toLowerCase() || bareQuery(p.primaryQuery)}`;
-  if (f === "section" || f === "answer_block") return `${page}::body::${bareQuery(p.primaryQuery)}`;
-  return page;
-};
+type Keyable = Parameters<typeof mutationKeyOf>[0];
+/** THE KEY ONE PAID JOB IS FUNDED UNDER IS THE MUTATION ITSELF, computed by the ONE definition of a mutation
+ *  (decision/mutation-footprint) and never spelled a second time here. It was spelled twice, and the two spellings
+ *  of a body topic disagreed, so money committed to `/funny-farsi-phrases::body::farsi-insults` could never be drawn
+ *  by the row stored as `farsi insults`. A page with nothing on it still keys the page alone, and `take` below lets
+ *  a mutation-keyed draw fall back to a page-keyed allowance, so a job declared before its card exists is reachable. */
+const keyOf = (p: Keyable): string => { try { return mutationKeyOf(p); } catch { return `unknown-page::${(p.id ?? p.primaryQuery ?? "").trim().toLowerCase() || "none"}`; } }; // its OWN name, so two page-less jobs never share one slot // a job with no page at all can never be drawn against and must not take the pass down with it
 /** Whether a focus entry names this job: exactly, or as the page every mutation on it extends. */
 const focusHits = (focus: ReadonlySet<string>, key: string): boolean => {
   if (focus.has(key)) return true;
@@ -128,9 +116,11 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
       // liveness still count: its impact lifts the slot, and a live page job unblocks a slot only a blocked
       // mutation held.
       const live = !j.blocked && !!strongest.blocked;
+      // THE SLOT IS PRICED AT THE DELIVERABLE THAT WON IT (reviewer, 2026-09-02): a live page job that outscores the live mutation takes the slot's family and calls too, or a whole-page rewrite ranked at 90 was funded at a description's six calls and its own door could never open.
+      const takes = live || (!j.blocked && !strongest.blocked && j.impact > strongest.impact);
       byKey.delete(j.key); alias.set(j.key, strongest.key);
-      byKey.set(strongest.key, { ...strongest, impact: Math.max(strongest.impact, j.impact), ...(live ? { blocked: undefined, family: j.family, calls: j.calls } : {}),
-        fallbacks: [...new Set([...(strongest.fallbacks ?? []), ...(j.fallbacks ?? []), live ? strongest.family : j.family])].filter((f) => f !== (live ? j.family : strongest.family)) });
+      byKey.set(strongest.key, { ...strongest, impact: Math.max(strongest.impact, j.impact), ...(takes ? { blocked: undefined, family: j.family, calls: j.calls } : {}),
+        fallbacks: [...new Set([...(strongest.fallbacks ?? []), ...(j.fallbacks ?? []), takes ? strongest.family : j.family])].filter((f) => f !== (takes ? j.family : strongest.family)) });
     }
   }
   const tried = new Set(input.retry ?? []);

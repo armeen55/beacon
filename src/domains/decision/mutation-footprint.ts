@@ -66,10 +66,37 @@ function placeToken(text: string | null | undefined): string {
   return h.toString(36);
 }
 
-/** The one mutation a piece writes: page, slot, and (where a page can have several) which one. */
+/** THE ONE NAME FOR ONE MUTATION, and the only definition of it (operator, 2026-09-02). Three spellings of this
+ *  key lived in three files: this one, the paid plan's `keyOf`, and the queue's own `mutationKey`, and they
+ *  disagreed about how a body topic is spelled, so the money committed to `/funny-farsi-phrases::body::farsi-insults`
+ *  could never reach the row stored as `farsi insults`. It is computed HERE, from the page, the slot, and (where a
+ *  page can hold several of a slot) which one, and every other file reads it. EVERY KEY CARRIES PAGE IDENTITY: a
+ *  change with no page at all is a defect in whatever minted it, so it throws rather than quietly keying `::title`,
+ *  which is how 101 stored rows came to share names across pages. */
+type Keyed = { pagePath?: string | null; pageUrl?: string | null; changeFamily?: string; primaryQuery?: string | null; kind?: string; id?: string;
+  recommendedChange?: { kind: string; field?: string; before?: string | null; where?: string | null; linkTo?: string | null } | null };
+const SLOT_BY_FIELD: Readonly<Record<string, string>> = { title: "title", meta: "meta", h1: "h1", schema: "schema", section: "body", answer_block: "body" };
+export function mutationKeyOf(p: Keyed): string {
+  if (p.kind === "new_page" || p.recommendedChange?.kind === "new_page") return `new_page::${canonicalQueryKey(p.primaryQuery ?? "")}`;
+  const page = pageToken(p.pagePath ?? p.pageUrl);
+  if (!page) throw new Error("this change names no page, so nothing can say what it writes: every mutation carries the page it lands on");
+  const c = p.recommendedChange; if (!c) return page; // a paid job declared before its card exists keys the page alone, and `take` falls back to it
+  if (p.changeFamily === "factual_correction") return `${page}::corrections`; // every correction on one page is ONE reading, priced and bought together, exactly as it grouped before
+  const dest = (c.linkTo ?? "").trim().toLowerCase() || ((p.id ?? "").endsWith("::internal_link") ? canonicalQueryKey(p.primaryQuery ?? "") : "");
+  if (dest) return `${page}::link::${dest}`;
+  const slot = SLOT_BY_FIELD[c.field ?? ""] ?? "body";
+  if (slot !== "body") return `${page}::${slot}`;
+  // A CHANGE THAT REPLACES A NAMED STRING AT A NAMED PLACE IS A POINT EDIT, not a claim on the whole topic: forty
+  // sourced corrections on one page are forty independently applicable mutations at forty places, and keyed on the
+  // topic they would be ONE, with thirty-nine of the operator's best work vanishing into the fortieth.
+  const before = (c.before ?? "").trim(), where = (c.where ?? "").trim();
+  return before && where ? `${page}::point::${placeToken(`${where}|${before}`)}` : `${page}::body::${canonicalQueryKey(p.primaryQuery ?? "")}`;
+}
+/** The one mutation a bundle PIECE writes, through the same page, slot and discriminator rule. */
 function componentToken(c: BundleComponent, p: ChangeProposal): string {
   const slot = SLOT_BY_KIND[c.kind] ?? "body", page = pageToken(c.page ?? p.pagePath ?? p.pageUrl);
   if (slot === "new_page") return `new_page::${canonicalQueryKey(p.primaryQuery ?? "")}`;
+  if (!page) throw new Error("this change names no page, so nothing can say what it writes: every mutation carries the page it lands on");
   if (SINGLETON_SLOT.has(slot)) return `${page}::${slot}`;
   // A SECTION IS NAMED BY THE QUESTION IT ANSWERS, not by where it happens to land: two answers to one question
   // overwrite each other wherever they sit, and two answers to different questions never do.
@@ -88,16 +115,7 @@ export function mutationFootprint(p: ChangeProposal): ReadonlySet<string> {
   if (p.kind === "new_page" || p.recommendedChange.kind === "new_page") return new Set([`new_page::${canonicalQueryKey(p.primaryQuery ?? "")}`]);
   const parts = p.bundle?.components ?? [];
   if (parts.length > 0) return new Set(parts.map((c) => componentToken(c, p)));
-  const page = pageToken(p.pagePath ?? p.pageUrl), field = p.recommendedChange.field;
-  if (field === "title" || field === "meta" || field === "h1") return new Set([`${page}::${field}`]);
-  // A CHANGE THAT REPLACES A NAMED STRING AT A NAMED PLACE IS A POINT EDIT, not a claim on the whole topic.
-  // Forty sourced corrections on one page ("Darya" says beauty, means sea; "Nazanin" says hope, means beloved)
-  // are forty independently applicable mutations at forty places. Keyed on the topic they would be ONE, and
-  // thirty-nine of the operator's best work would vanish into the fortieth. Only a change with no `before` to
-  // replace is claiming the section itself.
-  const before = (p.recommendedChange.before ?? "").trim(), where = (p.recommendedChange.where ?? "").trim();
-  if (before && where) return new Set([`${page}::point::${placeToken(`${where}|${before}`)}`]);
-  return new Set([`${page}::body::${canonicalQueryKey(p.primaryQuery ?? "")}`]);
+  return new Set([mutationKeyOf({ ...p, changeFamily: undefined })]); // the ONE rule; the correction batching above is the paid plan's grouping and never what a row WRITES
 }
 
 /** Does ONE token cover another: itself, or the whole-page token standing over everything on its page. */

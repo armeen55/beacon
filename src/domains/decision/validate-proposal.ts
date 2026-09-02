@@ -401,8 +401,8 @@ export function validateProposal(
   opts: ValidateProposalOptions = {},
 ): ProposalValidation {
   const change = proposal.recommendedChange;
-  const texts = operatorFacingText(proposal);
-  const query = proposal.primaryQuery;
+  if (proposal.researchOnly === true && change.kind === "existing_edit") return { verdict: "needs_review", qualityStatus: "useful_but_needs_review", reasons: ["the exact copy is not written yet, so there is nothing here for the canon to read"], factViolations: [], corrections: [], safetyFlags: [], limitations: [], confidence: "low" }; // A BRIEF IS NOT OPERATOR COPY (D-036; operator, 2026-09-02): a research row's `after` is the INSTRUCTION for the work, and pointing the copy gates at it rejected 79 of 90 briefs as thin, generic or off-topic writing, which is a verdict about words nobody has written. The canon abstains and the row waits for the draft it is owed. A new-page BRIEF keeps its own gate (evaluateNewPageBrief) and is deliberately not covered here.
+  const texts = operatorFacingText(proposal), query = proposal.primaryQuery;
   // STRUCTURED DATA IS JUDGED BY ITS OWN GATE, and by that gate ONLY: the prose rules below all read a JSON-LD
   // block as broken prose, so they are asked of every field except this one.
   const schema = change.kind === "existing_edit" && change.field === "schema" ? schemaFailures(proposal, change, opts) : null;
