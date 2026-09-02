@@ -84,7 +84,7 @@ describe("opening a change says what happened, against what, and what to do next
   it("never invents a date or a number it was not given", () => {
     const bare = first({ implementedAt: null, baseline: null, verification: null, basisMove: null });
     expect([bare.timeline[0], bare.timeline[1], bare.chip, bare.numbers]).toEqual([{ label: "Marked done, date not kept", done: true }, { label: "Live page never checked; predates verification", done: false }, { text: "Historical read ahead", amber: false }, null]);
-    const noTraffic = first({ baseline: { clicks: 0, impressions: 0, windowDays: 28, capturedAt: SHIPPED } }); expect([noTraffic.numbersNote, noTraffic.impressionsLabel]).toEqual(["No Google traffic on file.", null]);});});
+    const noTraffic = first({ baseline: { clicks: 0, impressions: 0, windowDays: 28, capturedAt: SHIPPED } }); expect([noTraffic.numbersNote, noTraffic.impressionsLabel]).toEqual(["No starting point could be read for this one.", null]);});});
 /** THREE SENTENCES TOLD EVERY OPERATOR TO PUT THE OLD WORDING BACK, including the ones whose change was a redirect or an internal link, where there was no wording to restore. One step per family of work, in win/loss/flat order. */
 describe("the next step belongs to the kind of work that was done", () => {
   const dir = (v: number) => ({ adjustedClicksLift: 40 * v, adjustedCtrLift: 0.02 * v, adjustedPosLift: v });

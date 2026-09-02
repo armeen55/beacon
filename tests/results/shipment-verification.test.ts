@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 /** Live implementation verification (V1 Truth Convergence Phase 6). These pin CUSTOMER TRUTH, not the implementation: what Beacon says it saw on the operator's live page, and what it refuses to say. Fixtures only, zero network: the polite fetch is seamed exactly the way the owned-page read seams it. */
 const ROWS: Array<Record<string, unknown>> = [];
 const WRITES: Array<[string, string, { status: string }]> = [];
+vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ rpc: async (_fn: string, a: { p_since: string }) => (a.p_since <= "2026-08-05" ? { data: [{ page: "https://own.com/nowruz", clicks: 30, impressions: 900, pos_weighted: 4500 }], error: null } : { data: [], error: null }) }) }));
 vi.mock("@/domains/measurement/proof-gsc/shipped-change-store", () => ({
   loadShippedChangesForTenant: async () => ROWS,
   recordVerification: async (t: string, id: string, v: { status: string }) => { WRITES.push([t, id, v]); return true; },}));
@@ -65,6 +66,7 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect(await state("internal_link_add", "Link to /chaharshanbe-suri")).toBe("not_verified");
     expect(await state("internal_link_add", "Add a link to the guide")).toBe("unverifiable"); // no address named
     const noLinks = serve("<html><head><title>t</title></head><body><main><p>words enough to count as a paragraph here</p></main></body></html>"); expect(await state("internal_link_add", "Link to /haft-seen", noLinks)).toBe("unverifiable");});
+  it("verifies a new link only when the live link to the named address also carries the words the change asked for", async () => { const to = { kind: "internal_link_add", after: "Link to /haft-seen" }; expect([(await check([{ ...to, anchorAfter: "the haft seen explained" }])).components[0]!.state, (await check([{ ...to, anchorAfter: "seven items of spring" }])).components[0]!.state, ((await check([{ ...to, anchorAfter: "seven items of spring" }])).components[0]!.note ?? "").includes("does not carry the words")]).toEqual(["verified", "not_verified", true]); });
   it("checks a renamed link on the words that are actually on it, both ways, and says unknown without them", async () => {
     const swap = async (anchorAfter: string | null) => (await check([{ kind: "anchor_text",
       after: 'I would change the words "read more" that already point at /haft-seen so they read "the haft seen explained".',
@@ -147,10 +149,10 @@ describe("what Beacon says overall, and what it refuses to say", () => {
     const gone = await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "http_404")); // NOT_FOUND INSIDE THE PUBLISH LAG IS THE SAME LAG (operator, 2026-08-29): work is marked done in the editor and the site publishes later, so read one schedules a bounded recheck instead of burying the change
     expect([gone.status, gone.recheckAfter != null]).toEqual(["not_found", true]); expect((await check([{ kind: "new_page", after: "" }], refuse("fetch_failed", "http_404"))).status).toBe("not_found");
     expect((await check([{ kind: "noindex", after: "" }])).status).toBe("blocked");});
-  it("goes and reads the page whatever the operator claimed, and cannot land verified without page evidence", async () => {
-    let fetched = 0;
-    const claimed = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }] },
-      { ...base, fetchPage: async () => { fetched += 1; return { ok: true as const, html: PAGE, status: 200 }; } });
+  it("reads a difference inside the publish grace window as not published yet: no bounded check is spent and it is read again tomorrow", async () => { const at = (h: number) => new Date(NOW - h * 3_600_000).toISOString(); const early = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }], implementedAt: at(1) }, { ...base, fetchPage: serve(PAGE) }), late = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }], implementedAt: at(8) }, { ...base, fetchPage: serve(PAGE) });
+    expect([early.status, early.checks, early.recheckAfter, (early.components[0]!.note ?? "").includes("published later"), late.status, late.checks, late.recheckAfter]).toEqual(["differs", 0, "2026-08-01", true, "differs", 1, "2026-08-02"]); });
+  it("resolves a scheme-less page key and an absolute address to the same Search history, and answers nothing at all for a page with none", async () => { const { readWindowForPages } = await import("@/domains/measurement/proof-gsc/gsc-window"); const m = await readWindowForPages({ tenantId: T, pages: ["own.com/nowruz", "https://www.own.com/nowruz/", "own.com/never"], start: "2026-08-05", end: "2026-09-02" }); expect([m.get("own.com/nowruz")?.impressions, m.get("https://www.own.com/nowruz/")?.impressions, m.has("own.com/never")]).toEqual([900, 900, false]); }); // NOTHING ON FILE IS NOT ZERO
+  it("goes and reads the page whatever the operator claimed, and cannot land verified without page evidence", async () => { let fetched = 0; const claimed = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }] }, { ...base, fetchPage: async () => { fetched += 1; return { ok: true as const, html: PAGE, status: 200 }; } });
     expect([claimed.status, fetched, claimed.components[0]!.state]).toEqual(["differs", 1, "changed_differently"]);});});
 describe("the pass: what is due, how much of it runs, and what it writes", () => {
   const row = (o: Record<string, unknown>) => ({
@@ -159,8 +161,7 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
   beforeEach(() => { ROWS.length = 0; WRITES.length = 0; passedBustedAt = undefined; });
   it("owes a check on every change marked implemented that has never been checked, and on nothing else", async () => {
     ROWS.push(row({ id: "a" }), row({ id: "b", verification: { status: "verified", checkedAt: "x", components: [] } }), row({ id: "c", implementedAt: null }));
-    expect((await shipmentsAwaitingVerification(T, 3)).map((s) => s.id)).toEqual(["a"]); expect(await shipmentsAwaitingVerification("", 3)).toEqual([]);});
-  it("reads every due live page in one bounded pass, writes each answer exactly once, and never reads a page twice", async () => {
+    expect((await shipmentsAwaitingVerification(T, 3)).map((s) => s.id)).toEqual(["a"]); expect(await shipmentsAwaitingVerification("", 3)).toEqual([]); ROWS.length = 0; // and then reads every due live page in one bounded pass, writing each answer exactly once
     for (const id of ["a", "b", "c", "d", "e"]) ROWS.push(row({ id, implementedAt: `2026-07-3${id === "a" ? 0 : 1}T09:00:00Z` }));
     const read: string[] = []; const written = await verifyDueShipments(T, { ...base, fetchPage: (async (u: string) => { read.push(u); return { ok: true as const, html: PAGE, status: 200 }; }) });
     expect([written, read.length, WRITES.length]).toEqual([5, 5, 5]); expect(WRITES.map((w) => w[2].status)).toEqual(["verified", "verified", "verified", "verified", "verified"]);});
@@ -168,11 +169,10 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     for (const id of ["a", "b", "c", "d", "e"]) ROWS.push(row({ id, implementedAt: `2026-07-${id === "e" ? "31" : "30"}T09:00:00Z` }));
     const read: string[] = [];
     const written = await verifyShipmentNow(T, "e", { ...base, fetchPage: (async (u: string) => { read.push(u); return { ok: true as const, html: PAGE, status: 200 }; }) });
-    expect([written, read.length, WRITES.map((w) => w[1])], "the fifth-in-line target, one read, one record").toEqual([1, 1, ["e"]]); });
-  it("checks the one shipment just marked done, through the same path and nothing else", async () => {
-    for (const id of ["a", "b", "c"]) ROWS.push(row({ id, implementedAt: "2026-07-30T09:00:00Z" }));
-    const read: string[] = [];
-    const written = await verifyShipmentNow(T, "b", { ...base, fetchPage: (async (u: string) => { read.push(u); return { ok: true as const, html: PAGE, status: 200 }; }) });
+    expect([written, read.length, WRITES.map((w) => w[1])], "the fifth-in-line target, one read, one record").toEqual([1, 1, ["e"]]);
+    ROWS.length = 0; WRITES.length = 0; for (const id of ["a", "b", "c"]) ROWS.push(row({ id, implementedAt: "2026-07-30T09:00:00Z" })); // and the one shipment just marked done goes through the same path and nothing else
+    const read2: string[] = [];
+    const written2 = await verifyShipmentNow(T, "b", { ...base, fetchPage: (async (u: string) => { read2.push(u); return { ok: true as const, html: PAGE, status: 200 }; }) });
     expect([written, read.length, WRITES.map((w) => w[1])], "one shipment, one read, one record").toEqual([1, 1, ["b"]]);
     expect(await verifyShipmentNow(T, "nope", { ...base, fetchPage: serve(PAGE) }), "a shipment that is not due reads nothing").toBe(0); });
   it("records a page it was refused rather than retrying it forever: the answer lands, so the change stops being due", async () => {
@@ -180,9 +180,8 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     let reads = 0; const pass = () => verifyDueShipments(T, { ...base, fetchPage: (async () => { reads += 1; return { ok: false as const, reason: "robots_blocked" as const }; }) });
     expect([await pass(), WRITES[0]![2].status, reads]).toEqual([1, "blocked", 1]);
     ROWS[0]!.verification = WRITES[0]![2];
-    expect([await pass(), reads]).toEqual([0, 1]);});
-  it("keeps a shipment due when the answer could not be saved, so the check is not silently lost", async () => {
-    ROWS.push(row({ id: "a" }));
+    expect([await pass(), reads]).toEqual([0, 1]);
+    ROWS.length = 0; ROWS.push(row({ id: "a" })); // and a shipment whose answer could not be saved stays due, so the check is not silently lost
     expect(await verifyDueShipments(T, { ...base, fetchPage: serve(PAGE), record: async () => false })).toBe(0);});
   it("stops reading an address inside the same pass once an answer for it could not be saved", async () => {
     ROWS.push(row({ id: "a" }), row({ id: "b" }), row({ id: "c" })); // three changes, one page
@@ -220,9 +219,8 @@ describe("a change the operator implemented busts that page's freshness", () => 
       { id: "b", page: "https://own.com/nowruz", path: "/nowruz", implementedAt: "2026-07-29T09:00:00Z" },
       { id: "c", page: "https://own.com/other", path: "/other", implementedAt: "2026-07-30T09:00:00Z" });
     expect(await shipmentBustedAt(T, URL_)).toBe("2026-07-29T09:00:00Z"); expect(await shipmentBustedAt(T, "https://own.com/nothing")).toBeNull();
-    expect(await shipmentBustedAt(T, "")).toBeNull();});
-  it("busts the page that was changed and no other: a home page change does not throw away the whole site", async () => {
-    ROWS.push({ id: "home", page: "https://own.com/", path: "/", implementedAt: "2026-07-30T09:00:00Z" });
+    expect(await shipmentBustedAt(T, "")).toBeNull();
+    ROWS.length = 0; ROWS.push({ id: "home", page: "https://own.com/", path: "/", implementedAt: "2026-07-30T09:00:00Z" }); // and only the page that was changed is busted: a home page change does not throw away the whole site
     expect(await shipmentBustedAt(T, "https://own.com/")).toBe("2026-07-30T09:00:00Z"); expect(await shipmentBustedAt(T, URL_)).toBeNull();
     ROWS.push({ id: "guide", page: "https://own.com/guide", path: "/guide", implementedAt: "2026-07-30T09:00:00Z" });
     expect(await shipmentBustedAt(T, "https://own.com/nowruz-guide")).toBeNull(); });

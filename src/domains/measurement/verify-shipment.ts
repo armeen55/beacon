@@ -54,7 +54,11 @@ type VerifiableShipment = {
   recheck?: boolean;
   /** How many live reads this shipment has already had, so the differs recheck loop stays bounded. */
   priorChecks?: number;
+  /** When the operator marked it done, so a read inside the publish grace window is never counted against the bounded checks. */
+  implementedAt?: string | null;
 };
+/** THE PUBLISH GRACE WINDOW (operator, 2026-09-02): Mark Done means applied in the editor, and a site is often published once at the end of the session, so a difference read inside this window is "not published yet", spends none of the bounded checks and is read again tomorrow. */
+const PUBLISH_GRACE_MS = 6 * 60 * 60 * 1000;
 
 type VerifyDeps = {
   fetchPage?: typeof fetchPageHtml;
@@ -189,10 +193,12 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
         ? judged("verified", "That link now reads the way this change asked.")
         : judged("not_verified", "That link is on your page, and it still does not read the way this change asked.");
     }
-    case "internal_links": case "internal_link_add":
+    case "internal_links": case "internal_link_add": { // BOTH THE ADDRESS AND THE WORDS (operator, 2026-09-02): a link is verified only when the live link to the named address carries the anchor words the change asked for
+      const want = norm(component.anchorAfter ?? "");
+      const worded = !want || (snap.internal_links ?? []).some((l) => canonicalUrlKey(absolute(l.href)) === targetKey && norm(l.anchor_text ?? "").includes(want));
       return !target ? judged("unverifiable", "This change names no address to look for.")
         : snap.internal_links == null ? judged("unverifiable", "The links on your page could not be read this time.")
-          : linkHit ? judged("verified", "The link this change asked for is on the page.") : judged("not_verified", "That link is not on the page yet.");
+          : linkHit && worded ? judged("verified", "The link this change asked for is on the page.") : linkHit ? judged("not_verified", "A link to that address is on the page, and it does not carry the words this change asked for.") : judged("not_verified", "That link is not on the page yet."); }
     // A SITEMAP EDIT IS READ IN THE SITEMAP. This looked for a link on the PAGE, which no edit to
     // sitemap.xml can ever put there, so every one of them read as work the operator had not done.
     case "navigation": {
@@ -294,7 +300,8 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
   // THE ONE ANSWER THAT IS NOT FINAL. A site that did not answer at all says nothing about the change, so
   // it earns exactly one retry on a LATER day. Every other ending is written once: a robots denial is the
   // site's standing instruction, a missing page and a difference are facts about the page itself.
-  const checks = (shipment.priorChecks ?? 0) + 1;
+  const early = !!shipment.implementedAt && now() - Date.parse(shipment.implementedAt) < PUBLISH_GRACE_MS;
+  const checks = (shipment.priorChecks ?? 0) + (early ? 0 : 1); // a read inside the grace window is free: it informs, it never counts
   const transportBlocked = (note: string): ShipmentVerification => ({
     status: "blocked", checkedAt, components: allUnknown(shipment, note), checks,
     recheckAfter: shipment.recheck === true ? null : reportingDay(now() + 86_400_000),
@@ -305,7 +312,7 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
   if (!res.ok) {
     if (/^http_(404|410)$/.test(res.detail ?? "")) {
       // NOT_FOUND INSIDE THE PUBLISH LAG IS THE SAME LAG (operator, 2026-08-29): Mark Done means applied in the editor and the site may be published once at the end of the session, so a page not there yet is re-read on the same bounded schedule rather than buried on read one.
-      return { status: "not_found", checkedAt, checks, components: allUnknown(shipment, "There is no page at that address right now."), recheckAfter: checks < MAX_CHECKS ? reportingDay(now() + 2 * 86_400_000) : null };
+      return { status: "not_found", checkedAt, checks, components: allUnknown(shipment, early ? "There is no page at that address yet. Sites are often published later in the session, so it is read again tomorrow." : "There is no page at that address right now."), recheckAfter: early ? reportingDay(now() + 86_400_000) : checks < MAX_CHECKS ? reportingDay(now() + 2 * 86_400_000) : null };
     }
     return res.reason === "robots_blocked"
       ? { status: "blocked", checkedAt, checks, components: allUnknown(shipment, "Your site's robots rules ask for this page not to be read, so it was not.") }
@@ -334,8 +341,8 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
   // and build queues for hours after a paste, so the first read routinely differs and that one reading used
   // to stand as final: three of eight real shipments sat "differs" for good. Up to MAX_CHECKS bounded reads,
   // two days apart; a verified answer is final on any read, and the last read's answer stands whatever it is.
-  const again = (status === "differs" || status === "partially_verified") && checks < MAX_CHECKS;
-  return { status, checkedAt, checks, components, recheckAfter: again ? reportingDay(now() + 2 * 86_400_000) : null };
+  const again = (status === "differs" || status === "partially_verified") && (early || checks < MAX_CHECKS);
+  return { status, checkedAt, checks, components: early && again ? components.map((c) => c.state !== "verified" && c.state !== "unverifiable" ? { ...c, note: `${c.note} Sites are often published later in the session, so this is read again tomorrow without counting against the check limit.` } : c) : components, recheckAfter: again ? reportingDay(now() + (early ? 1 : 2) * 86_400_000) : null };
 }
 
 /** WHAT THE OPERATOR SAID THEY APPLIED, with the exact copy WHERE I HOLD IT. A Shipment names the
@@ -355,7 +362,7 @@ function componentsOf(r: ShippedChangeRecord): VerifiableShipment["components"] 
 /** One Shipment row, as verification reads it. A row that already holds an answer is only ever here as
  *  the one retry a silent site earns, and it is told so, because a recheck's answer is final. */
 const toVerifiable = (r: ShippedChangeRecord): VerifiableShipment =>
-  ({ id: r.id, url: r.page, components: componentsOf(r), ...(r.verification != null ? { recheck: true, priorChecks: r.verification.checks ?? 1 } : {}) });
+  ({ id: r.id, url: r.page, components: componentsOf(r), implementedAt: r.implementedAt ?? null, ...(r.verification != null ? { recheck: true, priorChecks: r.verification.checks ?? 1 } : {}) });
 
 /** The most live reads one shipment ever gets. */
 const MAX_CHECKS = 3;

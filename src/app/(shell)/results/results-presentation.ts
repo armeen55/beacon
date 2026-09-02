@@ -205,7 +205,7 @@ function numbersOf(p: ShipmentPresentation): { numbers: ResultsRow["numbers"]; n
   const r = p.read;
   const b = p.baseline;
   if (!b) return { numbers: null, note: "No starting point was kept for this one." };
-  if (b.impressions <= 0) return { numbers: null, note: "No Google traffic on file." };
+  if (b.impressions <= 0) return { numbers: null, note: "No starting point could be read for this one." }; // a zero row is never called "no traffic": nothing on file is not zero (operator, 2026-09-02)
   if (r.basisDay == null || !p.basisMove) return { numbers: null, note: "Nothing read yet." };
   const scale = b.windowDays > 0 ? r.basisDay / b.windowDays : 1;
   const beforeClicks = b.clicks * scale;

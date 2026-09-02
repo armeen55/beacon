@@ -147,8 +147,19 @@ export async function readWindowForPages(args: {
   ]);
   const out = new Map<string, GscWindowMetrics>();
   for (const page of args.pages) {
-    const canon = canonicalizeCitationUrl(page) ?? page;
-    out.set(canon, subtract(startCum.get(canon), endCum.get(canon)));
+    // THE PAGE IS RESOLVED BEFORE IT IS LOOKED UP, AND ANSWERED UNDER THE NAME IT WAS ASKED BY (operator, 2026-09-02): a scheme-less
+    // page key never matched the cumulative map's canonical absolute urls, so 57 of 90 shipments froze a starting point of zeros and
+    // measured every later window against it. NOTHING ON FILE IS NOT ZERO: a page with no cumulative row on either side is absent.
+    const canon = canonicalPageKey(page), start = startCum.get(canon), end = endCum.get(canon);
+    if (start === undefined && end === undefined) continue;
+    out.set(page, subtract(start, end));
   }
   return out;
+}
+
+/** The one spelling the cumulative map is keyed by: canonical absolute url, with a scheme supplied for a scheme-less page key. */
+function canonicalPageKey(page: string): string {
+  const raw = page.trim();
+  const absolute = /^https?:\/\//i.test(raw) ? raw : raw.startsWith("/") ? raw : `https://${raw}`;
+  return canonicalizeCitationUrl(absolute) ?? raw;
 }

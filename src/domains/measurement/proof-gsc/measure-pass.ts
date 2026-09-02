@@ -176,6 +176,7 @@ export async function measureRecord(
 
   const measured: ShippedChangeRecord = {
     ...record,
+    baseline: record.baseline.impressions > 0 || (pre.get(record.page)?.impressions ?? 0) <= 0 ? record.baseline : { ...pre.get(record.page)!, windowDays: BASELINE_WINDOW_DAYS }, // A ZERO STARTING POINT IS REPLACED BY THE HISTORY IT NEVER READ (operator, 2026-09-02): 57 rows froze zeros because their page key had no scheme; the page's own pre-window is the starting point every later window is compared against
     windows,
     measuredAt: readSomething ? now.toISOString() : record.measuredAt,
     updatedAt: now.toISOString(),
