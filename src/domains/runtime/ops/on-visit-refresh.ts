@@ -250,7 +250,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       const runway = deadline - nowFn().getTime() - (stockOnly || shortStock ? 0 : REPLENISH_RESERVE_MS);
       let answered = false, r: Awaited<ReturnType<ResearchCycleSteps["replenishReady"]>> = null;
       // WHAT WAS ALREADY PAID FOR IS FINISHED FIRST, AND IT IS FREE (falsifier, 2026-09-02): posted provider tasks are charged at post and collected with a GET, and the only collector ran on a scheduler tick that never fires while hosting is paused, so results pages this account had already bought sat pending for days and every gate asking for one answered no. GET only, nothing posted, bounded, and before a cent of drafting is funded.
-      const collected = await steps.collectBought(Math.max(5_000, Math.min(45_000, deadline - nowFn().getTime()))).catch(() => null);
+      const collected = deadline - nowFn().getTime() > 5_000 ? await steps.collectBought(Math.min(45_000, deadline - nowFn().getTime())).catch(() => null) : null; // below the floor the collect is skipped, never clamped up past the deadline (reviewer, 2026-09-02)
       if (collected) progress = { ...progress, collected };
       if (runway > REPLENISH_MIN_MS) {
         const began = nowFn().getTime();
@@ -294,7 +294,8 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
           // work while its acquisition is IN FLIGHT, and leaving it there after the reading LANDED handed the very
           // next drive to unrelated candidates while the newly-informed page waited another day. Its key comes off
           // the retry list for this same-turn draft, so it ranks by its own impact again.
-          const again = await steps.replenishReady(tenantId, nowFn(), { fingerprint: mem?.fingerprint ?? null, attempted: mem?.attempted ?? [], tried: (mem?.tried ?? []).filter((k) => k !== need.key), spent: mem?.spent ?? {}, settled: mem?.settled ?? [] },
+          const cur = progress.replenish?.day === day ? progress.replenish : null; // THE MEMORY IS RE-READ PER READING (reviewer, 2026-09-02): eight readings in one drive against one stale binding lost up to seven spends
+          const again = await steps.replenishReady(tenantId, nowFn(), { fingerprint: cur?.fingerprint ?? null, attempted: cur?.attempted ?? [], tried: (cur?.tried ?? []).filter((k) => k !== need.key), spent: cur?.spent ?? {}, settled: cur?.settled ?? [] },
             nowFn().getTime() + Math.min(deadline - nowFn().getTime(), REPLENISH_BOX_MS) - STOP_STARTING_MS).catch(() => null);
           if (again) { r = again;
             // A SECOND REQUIREMENT RETURNED BY THE SAME-TURN DRAFT IS KEPT, NEVER LOST: `remaining` was rebuilt only
