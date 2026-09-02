@@ -483,6 +483,14 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const SAYS = "the figure's own sentence says international, and the copy drops it";
     expect([meta("Iran Shir o Khorshid Vertical Stripe Shirt - lightweight polyester jersey with Lion & Sun emblem; ships in 7-21 business days. Free USA shipping.").includes(SAYS), meta("Iran Shir o Khorshid vertical stripe jersey with green, white, red panel and Lion & Sun emblem; loose athletic fit. Ships in 7 - 21 business days - see details.").includes(SAYS),
       meta("Iran Shir o Khorshid Vertical Stripe Shirt - runs true to size, relaxed fit. Free USA shipping in 2-6 business days; see sizing and details.").includes(SAYS)]) .toEqual([true, true, false]); });
+  /** CONTAINER NARRATION WITH NO FACT (operator, 2026-09-02): "Joojeh Kabob is a kabob named on Iranopedia." reached Ready past every gate. It is short, true, names its subject once and repeats the brand once, so nothing refused it, and a searcher learns nothing: the category is the subject said twice and the only other fact is the address they are already looking at. */
+  it("refuses a line whose only content is that the subject is on the site, at the mint door and on the banked re-read", () => {
+    const at = "https://www.iranopedia.com/persian-kabobs/joojeh-kabob", ONLY = "it says only that the subject is on the site, which tells a searcher nothing about it";
+    const pk = { targetUrl: at, title: "Joojeh Kabob", h1: "Joojeh Kabob", metaDescription: null, bodyText: "b", headings: [], evidence: { "page-copy-1": "b" }, trackedQuestion: "joojeh kabob", ownedPaths: ["/persian-kabobs/joojeh-kabob"], bannedTerms: [], demand: { preserve: [], vocabulary: [] } };
+    const meta = (after: string) => deliverableFailures({ targetUrl: at, actionType: "meta", naturalHeading: null, beforeText: null, placementAnchor: "the description", evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 1, measurementTarget: "ctr", claims: [{ text: "a claim", supportedBy: ["page-copy-1"] }], finalCopy: after } as never, pk as never).includes(ONLY);
+    expect([meta("Joojeh Kabob is a kabob named on Iranopedia."), meta("Joojeh Kabob is saffron-marinated chicken grilled over charcoal, served with grilled tomato and rice."), meta("Joojeh Kabob is listed on this site.")], "only the lines that say nothing but the address are refused").toEqual([true, false, true]);
+    const banked = prop({ pagePath: "/persian-kabobs/joojeh-kabob", pageUrl: at, changeFamily: "meta", status: "ready", researchOnly: false, claims: [{ text: "c", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: "Joojeh Kabob" }], recommendedChange: { kind: "existing_edit", field: "meta", before: "Old.", after: "Joojeh Kabob is a kabob named on Iranopedia." } });
+    expect(staleCopyReasons(banked, new Map(), [], { title: "Joojeh Kabob", h1: "Joojeh Kabob", metaDescription: "Old." }).join(" "), "and the $0 re-read demotes the row already wearing Ready").toContain(ONLY); });
   it("refuses the keyword list the operator rejected, and keeps the topic list that names three different things", () => {
     const pk = { targetUrl: "https://www.iranopedia.com/x", title: "T", h1: "H", metaDescription: null, bodyText: "b", headings: [], evidence: { "page-copy-1": "b" }, trackedQuestion: "Q", ownedPaths: ["/x"], bannedTerms: [], demand: { preserve: [], vocabulary: [] } };
     const title = (after: string) => deliverableFailures({ targetUrl: "https://www.iranopedia.com/x", actionType: "title", naturalHeading: null, beforeText: null, placementAnchor: "the title", evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 1, measurementTarget: "ctr", claims: [{ text: "a claim", supportedBy: ["page-copy-1"] }], finalCopy: after } as never, pk as never)
@@ -685,8 +693,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const asked: string[] = [];
       const card = prop({ id: `${TENANT}::/iran-animals/persian-wolf::existing_edit::thin_page`, pagePath: "/iran-animals/persian-wolf",
         pageUrl: "https://www.iranopedia.com/iran-animals/persian-wolf", changeFamily: "section", status: "needs_review" as const,
-        researchOnly: false, primaryQuery: "persian wolf", limitations: [], evidence: { query: "persian wolf", hints: ["/iran-animals/persian-wolf holds 196 words of copy"], evidenceRefCount: 1 },
-        recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add words that answer its main question." } });
+        researchOnly: false, primaryQuery: "persian wolf", limitations: [], evidence: { query: "persian wolf", hints: ["/iran-animals/persian-wolf holds 196 words of copy"], evidenceRefCount: 1 }, recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add words that answer its main question." } });
       const snap = { ownedPages: [{ url: card.pageUrl, content: { wordCount: 196, title: "Persian Wolf", h1: "Persian Wolf", outline: ["Range"] }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
       await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(),
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/iran-animals/persian-wolf", family: "editor", impact: 91, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }), complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: GOOD }) } as never);
@@ -696,8 +703,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const asked: string[] = []; let round = 0;
       const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-copy-2"] }, { text: P2, supportedBy: ["page-copy-3"] }, { text: P3, supportedBy: ["page-copy-4"] }] };
       const cta = { ...good2, after: "See the page for more phrases.", claims: [{ text: "See the page for more phrases.", supportedBy: ["page-copy-1"] }] };
-      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url, changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "funny persian phrases",
-        limitations: [], evidence: { query: "funny persian phrases", hints: [P1, P2, P3], evidenceRefCount: 3 },
+      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url, changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "funny persian phrases", limitations: [], evidence: { query: "funny persian phrases", hints: [P1, P2, P3], evidenceRefCount: 3 },
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the question." } });
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
       const budget = DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 });
@@ -713,15 +719,12 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     it("a rewrite names the exact stored passage it replaces, never a new section", async () => {
       const { canonicalUrlKey } = await import("@/domains/evidence/snapshot");
       bodyStore.map = new Map([[canonicalUrlKey(BODY.url), BODY]]);
-      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
-        changeFamily: "section", status: "needs_review" as const, researchOnly: false, treatment: "rewrite_existing_section", primaryQuery: "playful persian expressions",
-        limitations: [], evidence: { query: "playful persian expressions", hints: [P1, P2, P3], evidenceRefCount: 3 },
-        recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section with information gain." } });
+      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url, changeFamily: "section", status: "needs_review" as const, researchOnly: false, treatment: "rewrite_existing_section", primaryQuery: "playful persian expressions",
+        limitations: [], evidence: { query: "playful persian expressions", hints: [P1, P2, P3], evidenceRefCount: 3 }, recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section with information gain." } });
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
       const rewritten = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-copy-2"] }, { text: P2, supportedBy: ["page-copy-3"] }, { text: P3, supportedBy: ["page-copy-4"] }] };
       const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never,
-        budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
-        complete: async () => ({ value: rewritten }) } as never);
+        budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }), complete: async () => ({ value: rewritten }) } as never);
       const rc = out[0]!.recommendedChange;
       expect(rc.kind === "existing_edit" ? rc.where : "").toBe('Replaces the existing passage under "Playful Persian expressions"');
       expect((rc.kind === "existing_edit" ? rc.before ?? "" : "").includes(P2)).toBe(true); // A REWRITE REPLACES THE SECTION UNDER ITS HEADING, never an arbitrary thousand-character slice of the crawl: cut between this heading and the next, the target is a thing an operator can find
@@ -730,8 +733,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       expect(out[0]!.treatment).toBe("rewrite_existing_section"); // the passage WAS found, so this really is a replacement and stays one
       const away = { ...card, primaryQuery: "wholesale freight logistics", evidence: { query: "wholesale freight logistics", hints: [P1], evidenceRefCount: 1 } };
       const add = await applyDraftedCopy([away], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never,
-        budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 },),
-        complete: async () => ({ value: rewritten }) } as never);
+        budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 },), complete: async () => ({ value: rewritten }) } as never);
       const arc = add[0]!.recommendedChange;
       if (arc.kind === "existing_edit" && (arc.where ?? "").includes("A new section headed")) expect(add[0]!.treatment).toBe("add_answer_section");
       expect(add[0]!.treatment === "rewrite_existing_section").toBe(JSON.stringify(arc).includes("Replaces the existing passage"));
@@ -740,18 +742,13 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     it("catches a repeated subject in any formatting, and lets only a claim-preserving consolidation name its removals", async () => {
       const { canonicalUrlKey: ck3 } = await import("@/domains/evidence/snapshot");
       const H = ["Playful Persian expressions", "Pedar Sag (پدر سگ)", "Topoli (تپلی)", "Gooz (گوز)", "Bikhial (بی‌خیال)", "Boro Baa Baad (برو با باد)", "Chert-o-Pert (چرت و پرت)", "Olagh (الاغ)", "Divooneh (دیوانه)"];
-      const SECTIONS = ["Pedar Sag (پدر سگ)", "Literally father dog, a harsh insult close friends trade as a joke.",
-        "Topoli (تپلی)", "Chubby, an affectionate nickname for children and pets.",
-        "Gooz (گوز)", "Fart, used casually to call something worthless.",
-        "Bikhial (بی‌خیال)", "Forget it, said to let a thing go.",
-        "Boro Baa Baad (برو با باد)", "Go with the wind, told to somebody who should leave.",
-        "Chert-o-Pert (چرت و پرت)", "Nonsense, used to dismiss foolish talk.",
-        "Olagh (الاغ)", "Donkey, said of somebody being slow-witted.",
-        "Divooneh (دیوانه)", "Crazy, used warmly for somebody acting wild."];
+      const SECTIONS = ["Pedar Sag (پدر سگ)", "Literally father dog, a harsh insult close friends trade as a joke.", "Topoli (تپلی)", "Chubby, an affectionate nickname for children and pets.",
+        "Gooz (گوز)", "Fart, used casually to call something worthless.", "Bikhial (بی‌خیال)", "Forget it, said to let a thing go.",
+        "Boro Baa Baad (برو با باد)", "Go with the wind, told to somebody who should leave.", "Chert-o-Pert (چرت و پرت)", "Nonsense, used to dismiss foolish talk.",
+        "Olagh (الاغ)", "Donkey, said of somebody being slow-witted.", "Divooneh (دیوانه)", "Crazy, used warmly for somebody acting wild."];
       const PAGE = { ...BODY, headings: H, passages: ["Playful Persian expressions", P1, ...SECTIONS] };
       bodyStore.map = new Map([[ck3(BODY.url), PAGE]]);
-      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
-        changeFamily: "section", status: "needs_review" as const, researchOnly: false, treatment: "rewrite_existing_section", primaryQuery: "playful persian phrase meanings",
+      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url, changeFamily: "section", status: "needs_review" as const, researchOnly: false, treatment: "rewrite_existing_section", primaryQuery: "playful persian phrase meanings",
         limitations: [], evidence: { query: "playful persian phrase meanings", hints: [P1], evidenceRefCount: 1 },
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section." } });
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 900, title: BODY.title, h1: BODY.h1, outline: H }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT } };
