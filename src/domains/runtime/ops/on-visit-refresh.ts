@@ -256,7 +256,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
         const began = nowFn().getTime();
         // BOXED IS NOT THE SAME AS ANSWERED NOTHING. A step that ran and came back empty-handed HAD its chance, and the drive may go on; one the box cut off never got to look, and that is the case that must not turn into buying instead.
         const raced = await Promise.race([
-          steps.replenishReady(tenantId, nowFn(), { fingerprint: mem?.fingerprint ?? null, attempted: mem?.attempted ?? [], tried: mem?.tried ?? [], spent: mem?.spent ?? {} }, nowFn().getTime() + Math.min(runway, REPLENISH_BOX_MS) - STOP_STARTING_MS).then((v) => ({ v })).catch(() => ({ v: null })),
+          steps.replenishReady(tenantId, nowFn(), { fingerprint: mem?.fingerprint ?? null, attempted: mem?.attempted ?? [], tried: mem?.tried ?? [], spent: mem?.spent ?? {}, settled: mem?.settled ?? [] }, nowFn().getTime() + Math.min(runway, REPLENISH_BOX_MS) - STOP_STARTING_MS).then((v) => ({ v })).catch(() => ({ v: null })),
           new Promise<null>((res) => setTimeout(() => res(null), Math.min(runway, REPLENISH_BOX_MS))),
         ]);
         r = raced?.v ?? null;
@@ -294,7 +294,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
           // work while its acquisition is IN FLIGHT, and leaving it there after the reading LANDED handed the very
           // next drive to unrelated candidates while the newly-informed page waited another day. Its key comes off
           // the retry list for this same-turn draft, so it ranks by its own impact again.
-          const again = await steps.replenishReady(tenantId, nowFn(), { fingerprint: mem?.fingerprint ?? null, attempted: mem?.attempted ?? [], tried: (mem?.tried ?? []).filter((k) => k !== need.key), spent: mem?.spent ?? {} },
+          const again = await steps.replenishReady(tenantId, nowFn(), { fingerprint: mem?.fingerprint ?? null, attempted: mem?.attempted ?? [], tried: (mem?.tried ?? []).filter((k) => k !== need.key), spent: mem?.spent ?? {}, settled: mem?.settled ?? [] },
             nowFn().getTime() + Math.min(deadline - nowFn().getTime(), REPLENISH_BOX_MS) - STOP_STARTING_MS).catch(() => null);
           if (again) { r = again;
             // A SECOND REQUIREMENT RETURNED BY THE SAME-TURN DRAFT IS KEPT, NEVER LOST: `remaining` was rebuilt only
