@@ -64,11 +64,11 @@ const many = (n: number) => Array.from({ length: n }, (_, i) =>
 describe("a page's own statements against their sources", () => {
   beforeEach(() => { checks.rows = []; store.rows = []; store.withdrew = []; store.why = []; store.bodyFails = false; });
   it("a correction whose evidence stopped being current is withdrawn, and a page nobody could read is left alone", async () => {
-    const live = "t::/persian-female-first-names::existing_edit::fact-afsaneh", dead = "t::/persian-female-first-names::existing_edit::fact-darya";
-    store.rows = [{ id: live }, { id: dead }, { id: "t::/other::existing_edit::fact-elsewhere" }];
+    const live = "t::/persian-female-first-names::existing_edit::fact-afsaneh", dead = "t::/persian-female-first-names::existing_edit::fact-darya", applied = "t::/persian-female-first-names::existing_edit::fact-hamid";
+    store.rows = [{ id: live }, { id: dead }, { id: applied, status: "implemented_pending_verification" }, { id: "t::/other::existing_edit::fact-elsewhere" }];
     checks.rows = [check()]; // Afsaneh still authorized; Darya's row is gone, and /other was never read this pass
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
-    expect(store.withdrew).toEqual([dead]);
+    expect(store.withdrew, "a correction the operator already applied is never taken back, whatever its evidence does (the Hamid correction, 2026-09-02)").toEqual([dead]);
     const LIFT = "The name comes from Old French jessemin, from Persian yasamin and nothing else besides";
     checks.rows = [check({ subject: "Afsaneh", proposed: LIFT, sources: [{ url: "https://en.wiktionary.org/j", kind: "dictionary", says: LIFT }] }),
       check({ subject: "Afsaneh", state: "superseded", proposed: "Nothing any quote carries" })];
