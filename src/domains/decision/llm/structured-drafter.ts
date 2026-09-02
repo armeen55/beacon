@@ -400,7 +400,7 @@ function runContentFirewalls(
   strings: string[],
   ledger: GroundedNumbers,
   // G4 (2026-07-10): when true, the flat marketing-superlative reject is SKIPPED here and handled instead by the verification-aware superlative post-check after source verification (a superlative IS allowed when a qualifying verified source asserts it; an ungrounded one triggers ONE rephrase retry, then fails closed). The drafter defers it for `answer_block` and for every `answer_analysis` kind, which RESTATES somebody else's answer and may quote a superlative that answer used; every other kind keeps the hard reject below.
-  opts?: { deferSuperlativeCheck?: boolean; skipPlaceholderCheck?: boolean },
+  opts?: { deferSuperlativeCheck?: boolean; skipPlaceholderCheck?: boolean; ownWords?: string },
 ): { ok: true } | { ok: false; reason: string } {
   const blob = strings.join("  ");
   // NAME THE THING THAT WAS REJECTED. A bare "placeholder" tells a retry only its category, so it returns the
@@ -416,7 +416,7 @@ function runContentFirewalls(
     if (placeholder) return { ok: false, reason: `placeholder:${placeholder[0].slice(0, 40)}` };
   }
   if (blob.includes("—")) return { ok: false, reason: "em_dash" };
-  const sup = opts?.deferSuperlativeCheck ? null : SUPERLATIVES.exec(blob); if (sup) return { ok: false, reason: `superlative:${sup[0]}` }; // NAMED, like the placeholder above: told only the category, three paid retries per page returned the same word (live 2026-09-02)
+  const sup = opts?.deferSuperlativeCheck ? null : SUPERLATIVES.exec(blob); if (sup && !(opts?.ownWords && new RegExp(`\\b${sup[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(opts.ownWords))) return { ok: false, reason: `superlative:${sup[0]}` }; // NAMED, like the placeholder above: told only the category, three paid retries per page returned the same word (live 2026-09-02)
   const invented = findUngroundedNumbers(blob, ledger);
   if (invented.length > 0) return { ok: false, reason: `invented_numbers:${invented.slice(0, 3).join(",")}` };
   return { ok: true };
@@ -487,7 +487,7 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
   /** BEACON_500 item 74: carried straight onto a "drafted" result's `fewShot` field when present. The engine does not compute this itself - it only threads through whatever the concrete drafter already resolved from winner-memory's pattern aggregate, so the prompt-building and the result metadata always agree on whether a confident cell was actually used. */
   fewShotProvenance?: FewShotProvenance;
   /** R16: skip the $0 cache-serve and force a fresh paid draft (the explicit Regenerate action). The fresh result still REPLACES the cached entry. */
-  bypassCache?: boolean;
+  bypassCache?: boolean; /** THE PAGE'S OWN TITLE AND HEADINGS (live 2026-09-02): a superlative they carry is the page's own fact, not the writer's claim, so a summary field may repeat that word; twenty city pages headed "Best Persian Restaurants in X" could never earn a description. */ ownWords?: string;
   /** R16 test seam: inject cache behavior. Default: the store-backed call cache in production, NO cache under vitest (pinned suites stay hermetic). */
   cacheImpl?: CacheImpl;
   /** R16 test seam / caller-supplied history for the de-templating guard. When absent the guard reads the last cached outputs for this kind. */
@@ -659,7 +659,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     if (req.kind === "internal_link" || req.unmarkPhrase) result.data = unmarkAnchor(result.data, req.unmarkPhrase);
     const fw = runContentFirewalls(draftProseStringValues(result.data), ledger, {
       deferSuperlativeCheck: req.kind === "answer_block" || req.kind.startsWith("answer_analysis"),
-      skipPlaceholderCheck: primaryCustomerText(req.kind, result.data) == null,
+      skipPlaceholderCheck: primaryCustomerText(req.kind, result.data) == null, ownWords: req.ownWords,
     });
     if (!fw.ok) {
       errors.push(`firewall:${fw.reason}`);
@@ -874,7 +874,7 @@ export async function draftAtomicEditStructured(
 
   const result = await callStructuredLLM({
     kind: "atomic_edit",
-    tenantId: input.tenantId,
+    tenantId: input.tenantId, ownWords: input.field === "answer_block" ? undefined : [input.pageLabel, ...outline].join(" "), // a summary field may repeat a superlative the page's own title or headings carry; body copy may not
     ...(input.unmarkPhrase ? { unmarkPhrase: input.unmarkPhrase } : {}),
     system: (ATOMIC_HEAD[input.field] ?? ATOMIC_HEAD.default!) + ATOMIC_EDIT_SYSTEM + (input.field === "answer_block" ? OPENING_ANSWER_CLAUSE : input.field === "meta" ? META_SUBJECT_CLAUSE : "") + fewShots,
     user,
