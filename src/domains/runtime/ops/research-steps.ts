@@ -311,9 +311,9 @@ export const defaultSteps: ResearchCycleSteps = {
     const landed = (out: unknown): boolean => unitStatus(out) === "done" || unitStatus(out) === "advanced"; // stage one of winning-pages persists its reads and answers `advanced`; both words mean the write landed
     switch (need.kind) {
       case "serp": {
-        const out = await serpAnalysisUnit({}, [need.query])(tenantId, { basis }, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) }));
-        log.info("[research-run] the exact reading a refused candidate named", { tenantId, kind: need.kind, query: need.query, status: unitStatus(out) });
-        return { acquired: unitStatus(out) === "done", detail: `results page for "${need.query}": ${unitStatus(out)}` };
+        const out = await serpAnalysisUnit({}, [need.query])(tenantId, { basis }, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) })); // LANDED MEANS ON FILE (live 2026-09-02): the unit answers done for its whole agenda, and eight "done" readings were on no row, so the page itself is read back under the basis before it counts
+        const key = canonicalQueryKey(need.query), landed = unitStatus(out) === "done" && (await loadFunnelState(tenantId, basis).catch(() => null))?.state.serps.queries.some((q) => canonicalQueryKey(q.query) === key && q.status === "done") === true;
+        log.info("[research-run] the exact reading a refused candidate named", { tenantId, kind: need.kind, query: need.query, status: unitStatus(out), landed, basis }); return { acquired: landed, detail: `results page for "${need.query}": ${landed ? "done" : unitStatus(out) === "done" ? `not on file under ${basis} after the unit finished` : unitStatus(out)}` };
       }
       case "competitor_page": {
         const out = await winningPagesUnit({}, [need.query])(tenantId, { basis }, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) }));
