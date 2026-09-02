@@ -595,7 +595,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
         // of every kind, so a judgement whose schema has no such field was told to fill one in, which is an
         // instruction it can only fail or fabricate against.
         const wantsRefs = "evidenceRefs" in ((schema as unknown as { shape?: Record<string, unknown> }).shape ?? {});
-        system = `${req.system}\n\nYour previous output was rejected: ${errors.slice(-3).join(" | ")}. Fix exactly those problems${wantsRefs ? " and include at least one non-empty evidenceRefs entry" : ""}.`;
+        system = `${req.system}\n\nYour previous output was rejected: ${errors.slice(-3).join(" | ")}. Fix exactly those problems${wantsRefs ? " and include at least one non-empty evidenceRefs entry" : ""}.`; const sup = errors.map((e) => /^firewall:superlative:(.+)$/.exec(e)?.[1]).find(Boolean); if (sup) system += ` The word "${sup}" is a ranking claim no supplied source makes: remove it and every other ranking word (best, leading, top-rated, premier, ultimate) and say what the page offers instead.`; // A CODE IS NOT AN INSTRUCTION (live 2026-09-02): told "firewall:superlative:best", the writer returned "best" on every retry
         // R16 numeric repair: when the failure was an ungrounded number, inject the CORRECT grounded numbers so the retry can fix the figure instead of guessing again. One repair retry, then fail closed.
         if (errors.some((e) => e.startsWith("firewall:invented_numbers"))) {
           const nums = groundedNumberList(ledger);
