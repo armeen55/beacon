@@ -216,7 +216,8 @@ async function currentBasisFast(tenantId: string): Promise<string | null> {
   if (held && Date.now() - held.at < BASIS_MEMORY_MS) return held.value;
   const value = await resolveCurrentBasis(tenantId).catch(() => null);
   if (value != null) rememberedBasis.set(tenantId, { value, at: Date.now() });
-  return value;
+  // A REMEMBERED BASIS BEATS A BLANK ONE (operator, 2026-09-01): a lookup that failed under a background rebuild read as "no basis", the ready list emptied, and the heading kept the release's count of one. The last basis this process resolved stands until the store answers again.
+  return value ?? held?.value ?? null;
 }
 
 /** MEMORY BEATS A SECOND ATTEMPT (operator, 2026-09-01). The old shape spent two 2.5s attempts BEFORE looking at
