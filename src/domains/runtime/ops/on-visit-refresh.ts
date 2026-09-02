@@ -79,7 +79,7 @@ type ResearchCycleOptions = { now?: () => Date; deadlineMs?: number; steps?: Par
 type PhaseOutcome = { progress: ResearchRunProgress; pause?: ResearchRunError };
 
 /** THE ONLY FACT-CHECK FAILURES THAT STOP A RUN: a lost or spent lease, a write that did not land, a thrown step. Everything else owes one more claim. */
-const FACT_CHECK_HARD_STOP = new Set(["lease_lost", "lease_exhausted", "inventory_write_failed", "store_write_failed", "step_error"]);async function runPhase(phase: ResearchPhase, tenantId: string, now: Date, progress: ResearchRunProgress, attemptKey: string, steps: ResearchCycleSteps, lease: { remainingMs: () => number; renew: () => Promise<boolean> }): Promise<PhaseOutcome> {
+const FACT_CHECK_HARD_STOP = new Set(["lease_lost", /* lease_exhausted is not a stop (live 2026-09-02): with the finished-change stock walked first, a fact check that finds no room is ordinary, the phases behind it still run, and the claims stay owed to a later pass */ "inventory_write_failed", "store_write_failed", "step_error"]);async function runPhase(phase: ResearchPhase, tenantId: string, now: Date, progress: ResearchRunProgress, attemptKey: string, steps: ResearchCycleSteps, lease: { remainingMs: () => number; renew: () => Promise<boolean> }): Promise<PhaseOutcome> {
   if (phase === "refresh_sources") {
     const result = await steps.refreshSources(tenantId, now, attemptKey);
     // Union the freshly-synced provider identities with any that synced on an earlier attempt of this same cycle, so a provider that failed once and later succeeded is counted EXACTLY once. Failed ones never.
