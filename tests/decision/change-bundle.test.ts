@@ -4,9 +4,9 @@ import { componentIdOf, receiptComposition } from "@/domains/decision/contracts"
 import { naturalAnchorOf, placementCandidatesOf, reviewFinishedCopy } from "@/domains/decision/drafted-copy"; import { confirmedVersion, deliverableGaps, openHold, preferFinished } from "@/domains/decision/completeness"; import { applyDraftedCopy, deliverableFailures, draftFieldForPage, staleCopyReasons, withoutCta } from "@/domains/decision/drafted-copy"; // acceptDeliverable went internal: imported here for years and never called
 import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { DANGEROUS_COMPONENT_KINDS, dangerousComponents, needsSourcePack } from "@/domains/decision/contracts"; import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals"; import { validateProposal } from "@/domains/decision/validate-proposal";
-const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); const env = vi.hoisted(() => ({ snap: null as unknown })); vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
+const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>(), taken: [] as string[] })); const env = vi.hoisted(() => ({ snap: null as unknown })); vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) })); vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => store.rows, saveChangeProposal: async (p: ChangeProposal) => { store.rows.set(p.id, p); },
-  withdrawnProposalIds: async () => new Set<string>(), withdrawChangeProposal: async () => true }));
+  withdrawnProposalIds: async () => new Set<string>(), withdrawChangeProposal: async (p: ChangeProposal) => (store.taken.push(p.id), true) }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
 const factStore = vi.hoisted(() => ({ rows: [] as unknown[] }));
 vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => ({ ...(await orig<Record<string, unknown>>()), readFactChecks: async () => factStore.rows })); const bodyStore = vi.hoisted(() => ({ map: null as null | Map<string, unknown> }));
@@ -1255,6 +1255,13 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     await runWith(incoming());
     const opRow = store.rows.get(JUDGED)!; // AN OPERATOR REFUSAL IS A WITHDRAWAL, TYPED (operator, 2026-08-31): the take-back door is how a person's no is recorded, and this row's own typed state (a binding entailed review on every claim) says the opposite of the prose beside it. The prose survives as a visible limitation for the person to read; it does not outvote the typed record either way.
     expect([opRow.status, opRow.limitations.includes("the operator read this and no claim on this card carries it")]).toEqual(["ready", true]); });
+  /** A $0 PRODUCE INSIDE THE PUBLISH PHASE WITHDREW SEVEN DRAFTED DESCRIPTIONS (falsifier, 2026-09-02), the actors line seven minutes after a paid redraft carried it to Ready: a brief producer not re-emitting a brief says nothing about paid words already written for that page. */
+  it("never sweeps drafted words, however silent the producer that owns their family was", async () => {
+    const OTHER = "fixture-tenant::/untouched::existing_edit::ai_answer_gap"; store.taken.length = 0;
+    store.rows.set(CITIES, heldRow());
+    store.rows.set(OTHER, heldRow({ id: OTHER, pagePath: "/untouched", pageUrl: "https://fixture-content.example/untouched", pageLabel: "Untouched", status: "needs_review", researchOnly: false }));
+    await runWith(incoming());
+    expect(store.taken, "written copy leaves through a receipt about the words, never through one pass's silence").not.toContain(OTHER); });
   it("retires nothing when there is no finished copy to make premature", async () => {
     store.rows.set(CITIES, heldRow({ researchOnly: true, status: "needs_review",
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "An earlier brief, never finished work." } }));

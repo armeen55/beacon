@@ -122,7 +122,7 @@ const openCard = (suffix: string): ChangeProposal => ({
   id: `${TENANT}::/shiraz::existing_edit::${suffix}`, tenantId: TENANT, kind: "existing_edit",
   pagePath: "/shiraz", pageUrl: "https://fixture.example/shiraz", pageLabel: "Shiraz",
   primaryQuery: "things to do in shiraz", opportunityType: "Answer the question", changeFamily: suffix,
-  status: "needs_review", evidence: { query: "things to do in shiraz", hints: [], evidenceRefCount: 1 },
+  status: "needs_review", researchOnly: true, evidence: { query: "things to do in shiraz", hints: [], evidenceRefCount: 1 }, // A BRIEF, said out loud: the sweep retires cards nobody has written words for, and drafted copy leaves only through a receipt about the words (falsifier, 2026-09-02)
   recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A short answer block." },
   whyItMatters: "The page never answers the question it ranks for.", estimatedEffortMinutes: 10,
   riskLevel: "low", confidence: "medium", limitations: [], impactScore: 20, upsidePerMonth: 5,

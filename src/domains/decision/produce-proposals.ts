@@ -38,8 +38,7 @@ const SUGGESTED_FAMILIES = ["title", "h1", "answer_block", "divergence"] as cons
 /** WHAT A PRODUCER REWROTE, AND WHETHER IT FINISHED. The sweep used to infer both from the length of one producer's output. A producer that read nothing and a producer that found nothing hand back the same empty list and mean opposite things, and on the night the search read timed out that inference retired cards out from under the operator mid-edit. Completeness is STATED, never read off an output length. */
 type ProducerRun = { families: readonly string[]; complete: boolean };
 /** THE ONE PAGE A VERDICT DECIDED TO IMPROVE, as facts out of words this pass ALREADY holds. Null for `create_new`, and null when its own words are not held. */
-function ownedFactsFor(snapshot: EvidenceSnapshot, decided: DecidedTopic): ReturnType<typeof extractPageFacts>[number] | null {
-  if (decided.decision.verdict !== "improve_existing") return null; const url = decided.decision.ownedUrls[0], held = decided.candidates.find((c) => c.url === url && c.bodyHeld); if (!held) return null;
+function ownedFactsFor(snapshot: EvidenceSnapshot, decided: DecidedTopic): ReturnType<typeof extractPageFacts>[number] | null { if (decided.decision.verdict !== "improve_existing") return null; const url = decided.decision.ownedUrls[0], held = decided.candidates.find((c) => c.url === url && c.bodyHeld); if (!held) return null;
   const at = (u: string): string => { try { return new URL(u.startsWith("http") ? u : `https://${u}`).pathname.replace(/\/+$/, "") || "/"; } catch { return u; } }; const row = snapshot.ownedPages.find((p) => at(p.url) === at(held.url))?.content ?? null;
   return extractPageFacts([{ url: held.url, extract: { title: held.title, h1: held.h1, wordCount: held.wordCount, headings: row?.outline ?? null, faqCount: row?.faqCount ?? null, openingSample: held.openingSample, entityNames: held.entities } }])[0] ?? null;}
 /** Normalized keys a candidate and a proposal can be matched on. */
@@ -48,8 +47,7 @@ const pageKeys = (pageUrl: string | null | undefined): string[] => {
   try { return [url, new URL(url.startsWith("http") ? url : `https://${url}`).pathname || "/"]; } catch { return [url]; }
 };
 /** The pages still being measured: what the caller passed, else the Shipment STAMPS (Decision -> Measurement is the allowed direction), else the drafted dates of the applied rows in hand. Fail-soft. */
-async function measuringPaths(tenantId: string, existing: Map<string, ChangeProposal>, opts: ProduceProposalsOptions): Promise<string[]> {
-  if (opts.measuringPagePaths) return [...opts.measuringPagePaths]; const shipped = await import("@/domains/measurement/proof-gsc/shipped-change-store").then((m) => m.pagesUnderMeasurementFromShipments(tenantId, opts.now)).catch(() => [] as string[]);
+async function measuringPaths(tenantId: string, existing: Map<string, ChangeProposal>, opts: ProduceProposalsOptions): Promise<string[]> { if (opts.measuringPagePaths) return [...opts.measuringPagePaths]; const shipped = await import("@/domains/measurement/proof-gsc/shipped-change-store").then((m) => m.pagesUnderMeasurementFromShipments(tenantId, opts.now)).catch(() => [] as string[]);
   return shipped.length > 0 ? shipped : pagesUnderMeasurement(existing.values(), opts.now);}
 /** TWO CONSECUTIVE 28-DAY WINDOWS PER PAGE, Google's and GA4's side by side: the only read that tells "Google moved this page" apart from "something on this page stopped working". $0, fail-soft. */
 type Windows = Map<string, { positionNow: number; positionPrior: number; sessionsNow: number; sessionsPrior: number; clicksNow: number; clicksPrior: number; impressionsNow: number; impressionsPrior: number; windowEnd: string; lostClicks: number }>;
@@ -334,6 +332,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const zeroDollar = new RegExp(`::existing_edit::(${[...SUGGESTED_FAMILIES, ...EXTRA_FAMILIES, "demand_recovery", "factual_correction"].join("|")})(@[^:]*)?$`); let taken = 0;
     for (const [id, row] of existing) {
       if (ids.has(id) || (!zeroDollar.test(id) && (cappedOut.has(id) || cappedOut.has((row.pagePath ?? "").trim().toLowerCase())))) continue; if (row.status !== "needs_review" || !pattern.test(id)) continue;
+      // THE SWEEP RETIRES BRIEFS, NEVER DRAFTED WORK (falsifier, 2026-09-02). A $0 produce inside the publish phase withdrew SEVEN drafted descriptions, the actors line among them, seven minutes after it reached Ready on a paid redraft: the brief producer not re-emitting a brief says nothing whatever about paid words already written for that page. Written copy leaves through the store's own receipt path or a rule that names a defect in it, and never through silence.
+      if (row.researchOnly !== true && (row.recommendedChange.kind === "existing_edit" ? row.recommendedChange.after.trim().length > 0 : (row.bundle?.components ?? []).some((c) => (c.after ?? "").trim().length > 0))) continue;
       if (row.bundle && !doorWalked.has((row.pagePath ?? "").trim().toLowerCase()) && !doorWalked.has((row.pageUrl ?? "").trim().toLowerCase())) continue; if (await withdrawChangeProposal(row, "swept: the producer that owns this family rewrote it and did not re-emit this card").catch(() => false)) taken += 1;
     }
     if (taken > 0) log.info("[produce-proposals] stale cards withdrawn", { tenantId, taken, families });

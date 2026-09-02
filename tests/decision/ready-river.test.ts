@@ -27,6 +27,17 @@ describe("the typed next step a stored change owes", () => {
     expect(nextObligation(row({ status: "needs_review", changeFamily: "section", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A finished section that adds something.", where: 'A new section headed "How the forms differ"' } }))).toEqual({ kind: "redraft", attempt: 1, instruction: "nothing on file says what a reader gains from it that the page does not already say, so it is held until an evaluator reads it against the page and names the gain" });
     expect(nextObligation(row({ status: "needs_review", diagnosisCause: "weak_opening" }))?.kind).toBe("terminal"); });
 });
+describe("what a sweep may take back", () => {
+  beforeEach(() => { db.rows = []; });
+  /** A $0 produce inside the publish phase withdrew SEVEN drafted descriptions, the actors line seven minutes after a paid redraft carried it to Ready, on "the producer that owns this family rewrote it and did not re-emit this card". A brief producer's silence says nothing about paid words already written, and the withdrawal it writes is a cache of that silence rather than a decision about the work. */
+  it("revives a swept row on the next save, keeps refusing the one the operator put away, and never sweeps drafted words", async () => {
+    const drafted = row({ id: "t::/actors::existing_edit::missing_description", pagePath: "/actors", changeFamily: "meta", status: "needs_review", basis: "b1", recommendedChange: { kind: "existing_edit", field: "meta", before: "Old", after: "A finished description of the actors page." } });
+    expect(await saveChangeProposal(drafted)).toBe("saved");
+    Object.assign(db.rows[0]!, { terminal_disposition: "withdrawn", withdrawn_reason: "swept: the producer that owns this family rewrote it and did not re-emit this card" });
+    expect(await saveChangeProposal(drafted), "a swept withdrawal is a cache of one pass's silence, so the next save revives the row").toBe("saved");
+    Object.assign(db.rows[0]!, { terminal_disposition: "dismissed", withdrawn_reason: null });
+    expect(await saveChangeProposal(drafted), "the operator's own putting-away is a decision and still refuses").toBe("refused"); });
+});
 describe("the store merge protects words, never a caller's decision about the same words", () => {
   beforeEach(() => { db.rows = []; });
   it("keeps a same-words demotion exactly as the caller decided it, and still keeps finished words under a re-minted brief", async () => {

@@ -31,8 +31,7 @@ type SaveResult = "saved" | "unchanged" | "refused" | "blocked" | "failed";
 type ActionFamily = "title-family" | "section-family" | "links-family" | "technical-family" | "consolidation" | "accuracy-family" | "new_page";
 
 /** Every kind maps to one family, once, here. Adding a kind without adding it here does not compile. */
-const FAMILY_BY_KIND: Record<BundleComponentKind, ActionFamily> = {
-  title: "title-family", meta: "title-family", h1: "title-family",
+const FAMILY_BY_KIND: Record<BundleComponentKind, ActionFamily> = { title: "title-family", meta: "title-family", h1: "title-family",
   opening_answer: "section-family", section: "section-family", source_pack: "section-family",
   paragraph_correction: "section-family", section_add: "section-family", section_remove: "section-family",
   section_rewrite: "section-family", restructure: "section-family", full_rewrite: "section-family",
@@ -108,10 +107,10 @@ const decisionReceipt = (p: ChangeProposal): Record<string, unknown> => ({
 /** `status` is `unknown` on purpose: a pre-rename row carries an old word and the bridge below is the ONE  place that word is understood. */
 type CanonRow = {
   id: string; proposal_version: number; status: unknown; terminal_disposition: TerminalDisposition | null;
-  superseded_by: string | null; basis: string | null; payload: unknown;};
+  superseded_by: string | null; basis: string | null; withdrawn_reason?: string | null; payload: unknown;};
 
 /** The columns every canonical read needs: identity, stage, disposition and pointer, and the payload. */
-const CANON_COLUMNS = "id, proposal_version, status, terminal_disposition, superseded_by, basis, payload";
+const CANON_COLUMNS = "id, proposal_version, status, terminal_disposition, superseded_by, basis, withdrawn_reason, payload";
 
 /** Parse one stored payload through the contract. The database speaks only the three lifecycle words (the  contract migration closed the union), so nothing is normalized on the way in. */
 function decode(payload: unknown): ChangeProposal | null {
@@ -188,6 +187,8 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     if ([mine, ...rows].some((r) => { const d = r?.terminal_disposition ?? null;
       if ((d !== "dismissed" && d !== "withdrawn") || (r!.basis ?? null) !== (proposal.basis ?? null)) return false;
       if (transition === IMPLEMENTED_TRANSITION && r!.id === proposal.id && d === "withdrawn") return false; // the operator's own press outvotes a reconciliation withdrawal of THIS row (Mahsa's stranded flip, 2026-08-29); a DISMISSED row still refuses, because that retirement was the operator's decision and a stale tab may not undo it
+      // A SWEPT WITHDRAWAL IS A CACHE, NOT A DECISION (falsifier, 2026-09-02), for the same reason a correction card's is: the sweep says only that a $0 producer did not re-emit this card on one pass, which is not a finding about the work, and holding the id shut on it stranded seven drafted descriptions behind a refusal nothing could lift. A withdrawal whose reason is about the COPY still refuses, and so does the operator's own dismissal.
+      if (d === "withdrawn" && /^swept:/.test(r!.withdrawn_reason ?? "")) return false;
       if (d === "withdrawn" && /::fact-[^:]+$/.test(r!.id)) return false; // A CORRECTION CARD EXISTS EXACTLY WHILE ITS CORRECTION IS AUTHORIZED: the factual producer recomputes that authorization from the evidence on every pass, so its own past withdrawal is a cache of "not authorized then", never a standing decision, and a re-mint under standing authorization revives the row. Seven authorized corrections stayed dead behind this refusal on 2026-08-30. A DISMISSED fact row still refuses above: that retirement was the operator's.
       const stored = decode(r!.payload);
       // AN UNREADABLE ROW MAY ONLY REFUSE ITSELF: "unreadable is not moved" is right about THIS id and wrong about a neighbour, and once the sibling read widened to the whole page one undecodable retired row refused every new change there. To refuse, the store must be able to SHOW the evidence has not moved, which it cannot do about a row it cannot read.

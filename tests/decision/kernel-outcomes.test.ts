@@ -201,8 +201,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
   /** SAME PAGE AND SAME CAUSE IS STILL NOT SAME WORK, AND A DRAFT AWAITING REVIEW IS NEVER READY (Codex, 2026-08-23).  Both proved through the REAL producer against the live counterexample: an incomplete title bundle on  /iran-flags/iran-islamic-republic-flag-history answered a newly selected rewrite because both said  "cannibalization", so the writer was skipped, zero calls were spent, and the receipt said produced for a page  the queue could not see. */
   it("never reuses a stored bundle that is not this exact work, and never calls a review draft produced", async () => { reset(BOTH());
     const sameCause = baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::title-family", pagePath: "/nowruz-guide", pageUrl: GAP_URL, basis: "basis_today", status: "needs_review", diagnosisCause: "cannibalization", workKey: "a-different-piece-of-work",
-      bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] }, confidenceReasons: [], alternatives: [], risks: [], components: [{ kind: "title", label: "T", risk: "safe", before: "a", after: "b", evidenceKeys: ["k1"] }],
-        receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "f", observedAt: NOW.toISOString() }], missing: [], freshestObservedAt: NOW.toISOString() } } });
+      bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] }, confidenceReasons: [], alternatives: [], risks: [], components: [{ kind: "title", label: "T", risk: "safe", before: "a", after: "b", evidenceKeys: ["k1"] }], receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "f", observedAt: NOW.toISOString() }], missing: [], freshestObservedAt: NOW.toISOString() } } });
     env.store = new Map([[sameCause.id, sameCause]]);
     const out = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true });
     for (const r of out.paid.receipts) { if (r.outcome !== "produced") continue;
@@ -241,12 +240,10 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     expect(out.paid.receipts.some((r) => r.key === guide || r.key.startsWith(`${guide}::title`)), "and it owns no funded receipt").toBe(false);
     expect(out.paid.receipts.every((r) => r.outcome !== "not_reached")).toBe(true); }); // A DIFFERENT mutation on the measured page MAY fund (operator, 2026-08-31): a title under measurement never makes the page's missing description wait a month; only overlapping work queues behind the reading.
   /** THE RECEIPT IS PROVED AGAINST THE REAL PRODUCER (Codex, 2026-08-23). The runtime test used to hand-build a  complete receipt inside a mocked `@/domains/decision` and assert on its own fiction, while the real builder  emitted neither treatment, nor family, nor impact, nor allowance, nor operations, nor the store's answer.  This drives `produceProposalsForTenant` itself and reads what it actually returns. */
-  it("emits the COMPLETE per-page record for every funded key: family, treatment, impact, allowance, operations, real requests, real dollars, the store's own answer and the whole reason", async () => {
-    reset(SEEN()); const out = await run(counting().complete);
+  it("emits the COMPLETE per-page record for every funded key: family, treatment, impact, allowance, operations, real requests, real dollars, the store's own answer and the whole reason", async () => { reset(SEEN()); const out = await run(counting().complete);
     expect(out.paid.funded.length).toBeGreaterThan(0);
     expect(out.paid.receipts.length).toBe(out.paid.funded.length); // one record per funded key, never fewer
-    for (const r of out.paid.receipts) {
-      expect(typeof r.key).toBe("string"); expect(r.funded).toBe(true);
+    for (const r of out.paid.receipts) { expect(typeof r.key).toBe("string"); expect(r.funded).toBe(true);
       expect(typeof r.family).toBe("string"); expect((r.family ?? "").length).toBeGreaterThan(0); // WHICH producer owns this money
       expect(r).toHaveProperty("treatment"); // present on every row, null where the job declared none
       expect(typeof r.impact).toBe("number"); expect(Number.isFinite(r.impact)).toBe(true);
@@ -274,13 +271,11 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     const plain = await run(counting().complete); const here = plain.candidates.find((c) => c.action === "act_existing_page")!.cause.cause;
     expect(plain.proposals.find((p) => p.id.endsWith("::bundle"))!.diagnosisCause).toBe(here); expect(here).not.toBe("weak_opening"); // the ladder here reaches a DIFFERENT cause: the whole fixture
     reset(SEEN());
-    const own = { cause: "weak_opening" as const, action: null, evidenceKeys: ["demand-exact"], competingExplanations: [], notConsidered: [],
-      falsifier: "If the page already answers the search in its first lines, this is not it.", explanation: "The page takes too long to answer the search." };
+    const own = { cause: "weak_opening" as const, action: null, evidenceKeys: ["demand-exact"], competingExplanations: [], notConsidered: [], falsifier: "If the page already answers the search in its first lines, this is not it.", explanation: "The page takes too long to answer the search." };
     env.bundle = { status: "bundled", proposal: baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::bundle",
       pagePath: "/nowruz-guide", pageUrl: "https://fixture-outdoors.example/nowruz-guide", diagnosisCause: "weak_opening", causeFinding: own }) };
     const res = await run(counting().complete); const bundled = res.proposals.find((p) => p.id.endsWith("::bundle"))!; expect([bundled.diagnosisCause, bundled.causeFinding!.cause]).toEqual(["weak_opening", "weak_opening"]); });
-  it("calls a pass that saved nothing a FAILURE, and a real gap with no trusted draft exactly that", async () => {
-    reset(SEEN()); env.failWrites = true; const failed = await run(counting().complete);
+  it("calls a pass that saved nothing a FAILURE, and a real gap with no trusted draft exactly that", async () => { reset(SEEN()); env.failWrites = true; const failed = await run(counting().complete);
     expect([failed.outcome, failed.persisted, env.saved.length]).toEqual(["persistence_failed", 0, 1]); // it tried, and it says so
     expect(failed.paid.receipts.every((r) => r.outcome !== "deterministic_refusal" && (r.outcome !== "produced" || (r.why ?? "").includes("already on file")))).toBe(true); // a failing-writes pass produced nothing NEW; a mutation a stored Ready row already covers is still honestly reported finished
     reset(SEEN()); const first = await run(counting().complete);
@@ -297,8 +292,7 @@ const HAFT = "haft seen table"; const LOOKED_AT = "2026-07-25T00:00:00.000Z"; co
 /** Every cheaper check behind me: three publishers, my own page on those results, and the answer to exactly the comparison this pass would buy. */ const READY = (over: Partial<ResearchPageComparison> = {}): FunnelResearchEvidence => ({ ...GUIDED, serpEvidence: [{ ...GUIDED.serpEvidence[0]!, organic: [...GUIDED.serpEvidence[0]!.organic, { rank: 4, domain: "fixture-outdoors.example", url: GAP_URL, title: "Nowruz" }] }], winningPages: [1, 2, 3].map((n) => ({ url: RIVAL(n), domain: `r${n}.example`, engines: [], examplePrompts: [], appearances: [{ kind: "serp_organic" as const, query: HAFT, promptId: null, promptText: null, engine: null, rank: n, citedUrl: RIVAL(n), observedAt: LOOKED_AT, modelServed: null }], extract: { title: "g", h1: "g", wordCount: 900, headings: [], faqCount: 0, fetchedAt: LOOKED_AT } })), pageComparisons: [{ topicKey: "", askKey: askIdentity({ pages: COMPARED, intersection_mode: "union" }), pages: COMPARED, excludePages: [], observedAt: LOOKED_AT, receipt: null, unavailable: null, comparison: { intersectionMode: "union", excludePages: [], pages: COMPARED.map((url, i) => ({ page: i + 1, url })), keywords: ["haft seen table on wikipedia.org", "b", "c"].map((keyword, i) => ({ keyword, searchVolume: 500, competition: null, competitionLevel: null, difficulty: null, mainIntent: "informational", ranks: (i === 2 ? [3, 4] : [2, 3]).map((page) => ({ page, url: COMPARED[page - 1]!, title: null, rank: page })) })) }, ...over }] });
 const keyOf = (research: FunnelResearchEvidence): string => buildTopicInvestigations(snap([GAP], research, DEMAND)).find((i) => i.label === HAFT)!.key;
 /** One bought comparison, written as which requested page ranks for which search (page 1 is my own). */ const comparisonOf = (rows: Array<[string, number[]]>) => ({ intersectionMode: "union" as const, excludePages: [], pages: COMPARED.map((url, i) => ({ page: i + 1, url })),
-  keywords: rows.map(([keyword, ranks]) => ({ keyword, searchVolume: 500, competition: null, competitionLevel: null, difficulty: null, mainIntent: "informational",
-    ranks: ranks.map((page) => ({ page, url: COMPARED[page - 1]!, title: null, rank: page })) })) });
+  keywords: rows.map(([keyword, ranks]) => ({ keyword, searchVolume: 500, competition: null, competitionLevel: null, difficulty: null, mainIntent: "informational", ranks: ranks.map((page) => ({ page, url: COMPARED[page - 1]!, title: null, rank: page })) })) });
 describe("the pass says what it is investigating without turning any of it into work", () => {
   it("carries the research packets, picks the SAME strongest topic from the same evidence, and proposes nothing off them", async () => {
     const world = () => snap([WINNER], looked([["nowruz traditions", GAP_URL]])); // a page with no gap, plus one results page I have read
@@ -337,17 +331,13 @@ describe("the pass says what it is investigating without turning any of it into 
 const PARKED = "nowruz table settings"; const PARK_RIVAL = (n: number) => `https://p${n}.example/a`; const UNREAD_URL = "fixture-outdoors.example/nowruz-table";
 const UNREAD: OwnedPageEvidence = { ...ownedPage(UNREAD_URL, "T", { impressions: 10, clicks: 1 }, []), content: null };
 const PARKED_DEMAND: EvidenceSnapshot["keywordDemand"] = [{ query: PARKED, searchVolume: 2000, source: "dataforseo", competition: null, competitionLevel: null, gscImpressions: null }];
-const withParked = (r: FunnelResearchEvidence): FunnelResearchEvidence => ({ ...r,
-  retainedKeywords: [...r.retainedKeywords, { query: PARKED, searchVolume: 2000, competition: null, competitionLevel: null, difficulty: null, intent: "informational", discoveredVia: "gsc", seed: null }],
+const withParked = (r: FunnelResearchEvidence): FunnelResearchEvidence => ({ ...r, retainedKeywords: [...r.retainedKeywords, { query: PARKED, searchVolume: 2000, competition: null, competitionLevel: null, difficulty: null, intent: "informational", discoveredVia: "gsc", seed: null }],
   serpEvidence: [...r.serpEvidence, { query: PARKED, observedAt: LOOKED_AT, aiOverview: [], aiMode: [], paa: [], related: [], organic: [...[1, 2, 3].map((rank) => ({ rank, domain: `p${rank}.example`, url: PARK_RIVAL(rank), title: `${PARKED} guide` })), { rank: 4, domain: "fixture-outdoors.example", url: UNREAD_URL, title: "T" }] }],
   winningPages: [...r.winningPages, ...[1, 2, 3].map((n) => ({ url: PARK_RIVAL(n), domain: `p${n}.example`, engines: [], examplePrompts: [], appearances: [{ kind: "serp_organic" as const, query: PARKED, promptId: null, promptText: null, engine: null, rank: n, citedUrl: PARK_RIVAL(n), observedAt: LOOKED_AT, modelServed: null }], extract: { title: "g", h1: "g", wordCount: 900, headings: [], faqCount: 0, fetchedAt: LOOKED_AT } }))] });
 /** A brief with no figure, no address and no question the evidence did not supply. */
-const BRIEF = { proposedTitle: "The haft seen table, and what belongs on it", metaDescription: "What a haft seen table is, what goes on it, and how families set one out for the new year.",
-  openingAnswer: "A haft seen table is the spread a household sets out for the new year, and each item on it stands for something the family hopes the year will bring.",
-  whyExistingPagesLose: "Your page fixture-outdoors.example/nowruz-guide covers the wider holiday and never sets out the table itself, so stretching it would bury the answer people are looking for.",
-  sections: ["What a haft seen table is", "What goes on the table", "How families set the table out"].map((heading) => ({ heading, covers: "Answer this plainly and name what belongs on it.", evidenceKeys: ["verdict"] })),
-  sourceRequirements: ["Cite a cultural reference for what each item stands for."], factRequirements: ["Check every item name against a source before this goes out."],
-  internalLinks: [{ url: GAP_URL, anchor: "the wider holiday" }], faqQuestions: [], headKeys: ["verdict"] };
+const BRIEF = { proposedTitle: "The haft seen table, and what belongs on it", metaDescription: "What a haft seen table is, what goes on it, and how families set one out for the new year.", openingAnswer: "A haft seen table is the spread a household sets out for the new year, and each item on it stands for something the family hopes the year will bring.",
+  whyExistingPagesLose: "Your page fixture-outdoors.example/nowruz-guide covers the wider holiday and never sets out the table itself, so stretching it would bury the answer people are looking for.", sections: ["What a haft seen table is", "What goes on the table", "How families set the table out"].map((heading) => ({ heading, covers: "Answer this plainly and name what belongs on it.", evidenceKeys: ["verdict"] })),
+  sourceRequirements: ["Cite a cultural reference for what each item stands for."], factRequirements: ["Check every item name against a source before this goes out."], internalLinks: [{ url: GAP_URL, anchor: "the wider holiday" }], faqQuestions: [], headKeys: ["verdict"] };
 /** THE PAGE'S OWN SECTIONS, through the ONE canonical editor a section of an existing page goes through: a Ready new page carries copy, never a plan, and every section of it declares what it asserts and names the stored id that carries it. `cited` picks whatever the packet really handed over, so a fixture never claims an id nobody gave it. */
 const cited = (user: string): string => ["owned-page-1", "page-copy-1", "page-heading-1", "page-title"].find((id) => user.includes(`${id}:`)) ?? "page-title";
 const sectionDraft = (user: string, heading = (user.match(/Write the section headed "(.*?)"/) ?? [])[1] ?? "The table") => ({ ...VALID_ATOMIC_EDIT, field: "answer_block", before: null,
@@ -355,8 +345,7 @@ const sectionDraft = (user: string, heading = (user.match(/Write the section hea
   naturalHeading: heading, placementAnchor: BRIEF.proposedTitle, implementationMinutes: 15, claims: [{ text: "The table is set out.", supportedBy: [cited(user)] }] });
 const judged = (user: string) => ({ pageFit: true, resolvesDiagnosis: true, claims: [{ i: 0, by: [cited(user)], entailed: true }], usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "It says what belongs on the table, which nothing else here does.", resolution: "none" });
 /** One whole drafting pass for a page: the brief, then every planned section, each read for sense. `sections: false` refuses one. */
-const pageSeam = (brief: unknown, sections = true): CompleteFn => async ({ kind, user }) =>
-  ({ value: (kind === "new_page_brief" ? brief : kind === "editor_judgement" ? judged(user)
+const pageSeam = (brief: unknown, sections = true): CompleteFn => async ({ kind, user }) => ({ value: (kind === "new_page_brief" ? brief : kind === "editor_judgement" ? judged(user)
     : kind === "atomic_edit" ? (sections || user.includes('Write the section headed "What a haft seen table is"') ? sectionDraft(user) : {}) : VALID_ATOMIC_EDIT) as never });
 const briefSeam = (brief: unknown = BRIEF): { complete: CompleteFn; kinds: string[] } => { const kinds: string[] = []; const inner = pageSeam(brief);
   return { kinds, complete: async (r) => { kinds.push(r.kind); return inner(r); } }; };
@@ -435,8 +424,7 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     if (!held) return; // an unread winner can also close the verdict, which is its own honest answer
     expect([held.status, held.bundle!.components.find((c) => c.kind === "source_pack")!.after.includes("You pick the exact source for this one")]).toEqual(["needs_review", true]);
     expect(held.limitations).toContain("I hold no source of my own behind the claims on this page, so you pick every one of them before it goes out."); });
-  it.each([["the winners share too little to be a pattern", [["a", [2, 3]], ["b", [2, 3]]], "do_nothing"],
-    ["a page I already have carries the cluster", [["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]], "improve_existing"],
+  it.each([["the winners share too little to be a pattern", [["a", [2, 3]], ["b", [2, 3]]], "do_nothing"], ["a page I already have carries the cluster", [["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]], "improve_existing"],
   ] as Array<[string, Array<[string, number[]]>, string]>)("answers %s without building anything", async (_what, rows, verdict) => {
     const research = READY({ topicKey: keyOf(READY()), comparison: comparisonOf(rows) }); reset(snap([GAP], research, DEMAND)); const seam = briefSeam();
     const res = await produceProposalsForTenant("fixture-tenant", { complete: seam.complete, now: NOW });
@@ -472,19 +460,14 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
 }); // ── what the winning pages share, computed on the drafting pass ──────────────
 const HEADS = ["What a haft seen table is", "Setting out the table", "What each item stands for"];
 const OPENS = "Families set one of these out at the turn of the year, and every piece on it carries a meaning.";
-const rich = (w: FunnelResearchEvidence["winningPages"][number], i: number) => ({ ...w, extract: { title: `${HAFT} guide`, h1: `${HAFT} guide`, wordCount: 900 + i,
-  headings: HEADS, faqCount: 2, fetchedAt: LOOKED_AT, openingSample: OPENS, entityNames: ["Nowruz"] } });
+const rich = (w: FunnelResearchEvidence["winningPages"][number], i: number) => ({ ...w, extract: { title: `${HAFT} guide`, h1: `${HAFT} guide`, wordCount: 900 + i, headings: HEADS, faqCount: 2, fetchedAt: LOOKED_AT, openingSample: OPENS, entityNames: ["Nowruz"] } });
 /** A FOURTH ranked winner whose read is months old: it ranks, and I do not currently hold its words. */
-const STALE = { url: RIVAL(4), domain: "r4.example", engines: [], examplePrompts: [], appearances: [{ kind: "serp_organic" as const, query: HAFT, promptId: null, promptText: null, engine: null, rank: 4, citedUrl: RIVAL(4), observedAt: LOOKED_AT, modelServed: null }],
-  extract: { title: `${HAFT} guide`, h1: null, wordCount: 200, headings: [], faqCount: 0, fetchedAt: "2026-01-04T00:00:00.000Z" } };
+const STALE = { url: RIVAL(4), domain: "r4.example", engines: [], examplePrompts: [], appearances: [{ kind: "serp_organic" as const, query: HAFT, promptId: null, promptText: null, engine: null, rank: 4, citedUrl: RIVAL(4), observedAt: LOOKED_AT, modelServed: null }], extract: { title: `${HAFT} guide`, h1: null, wordCount: 200, headings: [], faqCount: 0, fetchedAt: "2026-01-04T00:00:00.000Z" } };
 const READABLE = (over: Partial<ResearchPageComparison> = {}): FunnelResearchEvidence => { const r = READY(over); return { ...r, winningPages: [...r.winningPages.map(rich), STALE] }; };
 /** A reading in its OWN words: it repeats the shape it was handed, names only what every cited page carries, and writes a gap only against a page of mine. */
-const PATTERN = (user: string) => ({ archetype: user.match(/SETTLED: (\w+)/)?.[1] ?? "unknown",
-  commonHeadings: [{ heading: "what each piece means", seenOn: [0, 1, 2] }], commonEntities: [{ entity: "Nowruz", seenOn: [0, 1, 2] }],
-  questionsAnswered: ["What belongs on it?"], openingPattern: "Each of them answers the question in its first sentence.",
-  disagreements: ["Some of them call it a custom and others call it a shopping list."],
-  ownedGaps: user.includes("I hold no page of my own") ? [] : [{ gap: "your page never walks through the pieces one by one", seenOn: [0, 1, 2] }],
-  uniqueNotCommon: [{ detail: "one of them prices the pieces", seenOn: [1] }] });
+const PATTERN = (user: string) => ({ archetype: user.match(/SETTLED: (\w+)/)?.[1] ?? "unknown", commonHeadings: [{ heading: "what each piece means", seenOn: [0, 1, 2] }], commonEntities: [{ entity: "Nowruz", seenOn: [0, 1, 2] }],
+  questionsAnswered: ["What belongs on it?"], openingPattern: "Each of them answers the question in its first sentence.", disagreements: ["Some of them call it a custom and others call it a shopping list."],
+  ownedGaps: user.includes("I hold no page of my own") ? [] : [{ gap: "your page never walks through the pieces one by one", seenOn: [0, 1, 2] }], uniqueNotCommon: [{ detail: "one of them prices the pieces", seenOn: [1] }] });
 describe("what the winning pages share reaches the operator, and never one of their own sentences", () => {
   it("shows the reading MY OWN page before it may name a gap in it, counts only the winners I currently hold, and carries its lines onto the verdict", async () => {
     const research = READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) });
@@ -506,8 +489,7 @@ describe("what the winning pages share reaches the operator, and never one of th
 /** A page the click door can NEVER select: about 27 clicks short of the 50 a change owes, and its displayed line already carries the searcher's words. */
 const WHOLE = ownedPage(GAP_URL, `${HAFT} guide for Nowruz`, { impressions: 900, clicks: 45 }, [{ query: HAFT, impressions: 900, clicks: 45, position: 4.1 }], ["Persian New Year Customs", "what each piece means"]);
 const SPLIT_URL = "fixture-outdoors.example/haft-seen-table";
-const ASKED = canon({ promptId: "p8", promptText: `what goes on a ${HAFT}`, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null,
-  modelServed: null, webSearchReported: true, citationsObserved: true, citations: [{ url: RIVAL(1), domain: "r1.example", title: "g" }], fanOutQueries: [HAFT], observedAt: LOOKED_AT });
+const ASKED = canon({ promptId: "p8", promptText: `what goes on a ${HAFT}`, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [{ url: RIVAL(1), domain: "r1.example", title: "g" }], fanOutQueries: [HAFT], observedAt: LOOKED_AT });
 const doorWorld = (over: Partial<FunnelResearchEvidence> = {}, pages: OwnedPageEvidence[] = [WHOLE], can: EvidenceSnapshot["cannibalization"] = []): EvidenceSnapshot => {
   const r = READABLE({ comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) });
   const research = { ...r, serpEvidence: [{ ...r.serpEvidence[0]!, organic: [...GUIDED.serpEvidence[0]!.organic, { rank: 4, domain: "fixture-outdoors.example", url: GAP_URL, title: `${HAFT} guide` }] }], ...over };
