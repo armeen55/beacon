@@ -20,8 +20,7 @@ const blockedNote = (r: Interp) => r.detail || pauseDetail("blocked", "");
 const ENGINES: ResearchEngine[] = ["chatgpt", "gemini", "claude", "perplexity"];
 /** CANONICAL coverage = the ChatGPT consumer search experience (the citation-grade look real people get) plus the standardized response on the other three. */
 const canonicalMode = (e: ResearchEngine): ObservationMode => (e === "chatgpt" ? "consumer_search" : "standardized_response");
-/** A deliberate second sample of one pair on one day is a DIFFERENT observation, so the slot is part of the
- *  working identity exactly as it is part of the stored one. A row without a slot is slot 0. */
+/** A deliberate second sample of one pair on one day is a DIFFERENT observation, so the slot is part of the working identity exactly as it is part of the stored one. A row without a slot is slot 0. */
 const slotOf = (p: FunnelPair) => p.slot ?? 0;
 /** THE working identity IS the stored identity, reporting day and all. A row from another day is another observation, never this one's retry: carrying a done
  * row across days is what made day 2 plan twelve readings and execute none. */
@@ -30,8 +29,7 @@ const capabilityFor = (p: FunnelPair): CapabilityKey => (p.engine === "chatgpt" 
 /** The engines I can actually ask. Anything else is answered honestly as unsupported at ZERO spend. */
 const OBSERVABLE = new Set<string>(ENGINES);
 /** How many readings wait on their assistant at once. Four keeps every provider well inside its own concurrency
- *  and one pass inside its deadline, and it is what the page reader already uses. The per-engine ceilings above
- *  still decide WHICH readings are asked; this only decides how many of them wait at the same time. */
+ *  and one pass inside its deadline, and it is what the page reader already uses. The per-engine ceilings above still decide WHICH readings are asked; this only decides how many wait at the same time. */
 const ASK_AT_ONCE = 4;
 /** Each capability gets EXACTLY its documented ask: ChatGPT llm_responses web_search only (live o4-mini rejected force, 40501); Claude force + country; Gemini web_search only; perplexity none; the scraper is KEYWORD-based.
  *  The plan's reporting day and a deliberate second slot ride ALONGSIDE that ask: the registry keys on them
@@ -63,8 +61,7 @@ async function siteOf(d: ResolvedDeps, tenantId: string): Promise<string> {
   try { return (await d.getAccount(tenantId))?.domain ?? ""; } catch { return ""; }
 }
 
-/** ONE construction of the canonical observation draft, whatever the outcome. The pair carries the identity
- *  (prompt, version, engine, ask day, slot); the caller supplies only what actually happened. */
+/** ONE construction of the canonical observation draft, whatever the outcome. The pair carries the identity (prompt, version, engine, ask day, slot); the caller supplies only what actually happened. */
 function draftOf(p: FunnelPair, ids: ObsIds, text: string, at: string, status: AiObservationStatus, over: Partial<AiObservationDraft> = {}): AiObservationDraft {
   return {
     tenantId: ids.tenantId, site: ids.site, promptId: p.promptId, promptVersion: p.promptVersion ?? 1,
@@ -84,11 +81,9 @@ function draftOf(p: FunnelPair, ids: ObsIds, text: string, at: string, status: A
  * canonical row, and the historical prompt_answer_observations row is DERIVED from that same record in the same breath. Two writes, one truth: nothing
  * composes a history row independently any more, so the two can never disagree. */
 async function landAnswer(p: FunnelPair, r: Interp, parsed: ParsedAiAnswer, promptText: string, ids: ObsIds, nowIso: string, d: ResolvedDeps): Promise<void> {
-  // THE MONEY IS THE PLACEMENT'S. A posted ask is finished by a FREE collect, so the cost on the final row is
-  // what the placement paid PLUS whatever this landing itself cost; the collect's own zero never erases it.
+  // THE MONEY IS THE PLACEMENT'S. A posted ask is finished by a FREE collect, so the cost on the final row is what the placement paid PLUS whatever this landing itself cost; the collect's own zero never erases it.
   const rec = buildAiObservation(draftOf(p, ids, promptText, nowIso, "observed", { completedAt: nowIso, cacheKey: r.cacheKey ?? p.cacheKey, costUsd: round(r.costUsd + (p.postCostUsd ?? 0)), parsed }));
-  // AN IDENTITY POSTED BEFORE the pair carried its own cost still holds the paid placement on the pending row
-  // this upserts over: when the landing computed nothing, keep what is on file rather than zeroing a receipt.
+  // AN IDENTITY POSTED BEFORE the pair carried its own cost still holds the paid placement on the pending row this upserts over: when the landing computed nothing, keep what is on file rather than zeroing a receipt.
   if (rec.cost_usd === 0) rec.cost_usd = await d.readObservationCost(ids.tenantId, rec.id).catch(() => 0);
   p.status = "done"; p.cacheKey = r.cacheKey ?? p.cacheKey; p.observedAt = nowIso; p.promptText = promptText;
   p.reposts = undefined; p.requestedAt = undefined; p.postCostUsd = undefined; // a landed answer closes the incident: fresh budget next time
@@ -96,9 +91,8 @@ async function landAnswer(p: FunnelPair, r: Interp, parsed: ParsedAiAnswer, prom
   p.citationsObserved = parsed.citations !== null;
   p.citations = parsed.citations ? parsed.citations.map((c) => ({ url: c.url, domain: c.domain, title: c.title })) : null;
   p.fanOutQueries = parsed.fanOutQueries; p.answerHash = parsed.answerText ? sha16(parsed.answerText) : null;
-  // THE RETRIEVAL LIST AND THE ENGINE'S OWN BRAND LIST travel to the snapshot AS REPORTED: the canonical
-  // row held both from Phase 1, but the funnel projection dropped them, so Decision could never ask "was I
-  // read and passed over" - the exact question the observation was bought to answer. It subtracts.
+  // THE RETRIEVAL LIST AND THE ENGINE'S OWN BRAND LIST travel to the snapshot AS REPORTED: the canonical row held both from Phase 1, but the funnel projection dropped them, so Decision could never ask "was I read
+  // and passed over" - the exact question the observation was bought to answer. It subtracts.
   p.retrievedResults = parsed.retrievedResults ? parsed.retrievedResults.map((c) => ({ url: c.url, domain: c.domain, title: c.title })) : null;
   p.brandMentions = parsed.brandMentions ?? null;
   await d.recordObservation(rec, ids.tenantId);
@@ -132,7 +126,7 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
     const basis = basisFromCursor(cursor);
     if (!basis) return { status: "failed", cursor, progress: {}, detail: NO_BASIS_DETAIL };
     // The planner could not read what is owed. NOTHING is implied by that: no plan, no work, no spend.
-    if (due === null) return { status: "failed", cursor, progress: {}, detail: "I could not read which of your questions are due to be checked today, so I asked nothing and spent nothing. I will pick this up on your next visit." };
+    if (due === null) return { status: "failed", cursor, progress: {}, detail: "Which questions are due to be checked today could not be read, so nothing was asked and nothing was spent. The next visit picks this up." };
     // Nothing is owed: today's one reading of every question on every engine is already in.
     if (due.length === 0) return { status: "done", cursor, progress: {} };
     const unitKey = `prompts:${tenantId}`, ids = { tenantId, unitKey }, deadline = d.now() + Math.max(1000, budgetMs);
@@ -284,8 +278,8 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
 const refs = (parsed: ParsedSerp | null) => (parsed?.aiOverview?.references ?? []).map((r) => ({ url: r.url, domain: r.domain, title: r.title }));
 
 /** THE SEARCH THE PROVIDER SAYS IT RAN, off the envelope it sent back: the SERP result block echoes the ask
- *  (tasks[0].result[0].keyword) and the task carries the same string on its stored data. The typed ParsedSerp
- *  keeps only the results, so the echo is read here from the envelope itself. null = this payload echoed  nothing, which is never proof of a match and is never treated as one. */
+ *  (tasks[0].result[0].keyword) and the task carries the same string on its stored data. The typed ParsedSerp keeps only the results, so the echo is read here from the envelope itself. null = this payload echoed
+ *  nothing, which is never proof of a match and is never treated as one. */
 function echoedKeyword(payload: unknown): string | null {
   const task = (payload as { tasks?: { data?: { keyword?: unknown }; result?: { keyword?: unknown }[] }[] } | null)?.tasks?.[0];
   const echo = (Array.isArray(task?.result) ? task.result[0]?.keyword : undefined) ?? task?.data?.keyword;
@@ -293,9 +287,8 @@ function echoedKeyword(payload: unknown): string | null {
 }
 
 /** A LANDING IS ACCEPTED ONLY WHERE THE PROVIDER ANSWERED THE SEARCH THAT WAS ASKED. The keyword it echoes is
- *  compared under the SAME normalization the ask was sent in; a mismatch is named on the row, held as
- *  unavailable coverage and kept out of evidence rather than stored as this search's own results page. An
- *  envelope that echoes NOTHING is not a mismatch: it is a match nobody can prove, so the results stand and  what is verified is only what the response itself carries (its rows and its status). */
+ *  compared under the SAME normalization the ask was sent in; a mismatch is named on the row, held as unavailable coverage and kept out of evidence rather than stored as this search's own results page. An
+ *  envelope that echoes NOTHING is not a mismatch: it is a match nobody can prove, so the results stand and what is verified is only what the response itself carries (its rows and its status). */
 function applySerp(s: FunnelSerp, parsed: ParsedSerp, nowIso: string, payload: unknown, tenantId: string): void {
   const echo = echoedKeyword(payload), served = echo ? normalizeKeyword(echo) : null;
   if (served && served !== normalizeKeyword(s.query)) {
@@ -305,8 +298,13 @@ function applySerp(s: FunnelSerp, parsed: ParsedSerp, nowIso: string, payload: u
   }
   s.identityMismatch = undefined; // a clean landing closes an earlier mismatch on this row
   s.status = "done"; s.observedAt = nowIso; s.aiOverview = refs(parsed); s.related = parsed.relatedSearches.slice(0, 20);
-  s.reposts = undefined; s.organic = parsed.organic.slice(0, 10).map((o) => ({ rank: o.rank, url: o.url, domain: o.domain, title: o.title })); // a landed look closes the incident
+  // EVERY ROW THIS LOOK PAID FOR IS KEPT. The request buys SERP_DEPTH results and the provider bills per ten of them, so slicing at ten threw away half of every purchase, and with it every owned position past nine.
+  s.reposts = undefined; s.organic = parsed.organic.slice(0, SERP_ROWS_BOUGHT).map((o) => ({ rank: o.rank, url: o.url, domain: o.domain, title: o.title })); // a landed look closes the incident
   s.paa = parsed.paaQuestions.map((q) => ({ question: q.question, answeringDomain: q.answeringDomain }));
+  // AND THE REST OF WHAT THE PAGE ALREADY CARRIED: its block list, its answer box and its holder, and the overview's own words beside the pages it credited. EACH IS WRITTEN ONLY WHERE THE PAYLOAD ACTUALLY SPOKE: a
+  // response with no block list leaves both unknown rather than claiming this page has no answer box, and an AI Overview that came back as an empty asynchronous stub leaves the text unknown rather than empty.
+  if (parsed.itemTypes != null) { s.itemTypes = parsed.itemTypes.slice(0, 30); s.featured = parsed.featuredSnippet ?? null; }
+  const overview = parsed.aiOverview?.excerpt; if (typeof overview === "string" && overview.trim()) s.aiOverviewText = overview;
 }
 
 const serpProgress = (s: FunnelState): FunnelCounters => ({ serpsAnalyzed: s.serps.analyzed, cacheHits: s.cycle.cacheHits, spendUsd: round(s.cycle.spentUsd) });
@@ -316,6 +314,8 @@ const serpProgress = (s: FunnelState): FunnelCounters => ({ serpsAnalyzed: s.ser
  *  RESERVED COST AT THAT CEILING (reservations sit ABOVE the charge; reconcile drops every one to actual): 104 organic results pages x $0.0021 = $0.2184, plus 5 AI Mode looks x $0.0100 = $0.0500, so one cycle's whole exact-SERP allowance reserves $0.2684, against $0.1340 for the old 40 slots. Both per-call prices are serp_organic / serp_ai_mode estCostUsd in dataforseo/capabilities.ts.
  *  THE TWO CEILINGS THAT ACTUALLY REFUSE A CALL are elsewhere and neither moved: the per-account, per-platform MONTHLY cap (DEFAULT_MONTHLY_CAP_USD = $250 in dataforseo/client.ts, checked by reserve_provider_spend before every call, answering `capped`), and the PROVIDER's own daily cost limit (error 40203, arriving as the `daily_limit` disposition that stops the batch below). This constant is a work bound, not a money bound. CACHE DISCIPLINE IS UNCHANGED and is what makes the raise nearly free in practice: a query still inside its freshness window is never re-posted (serp_hot daily for a search the frozen plan is stuck on, serp_cold weekly for the rest), so a settled agenda replays at $0 and only genuinely due queries reach a provider. Every per-call reservation, disposition and repost rule below is untouched: this raises a bound, it removes none. */
 const SERP_AGENDA_CAP = 120, SERP_POSTS_PER_PASS = 120, SERP_ROWS_KEPT = 160;
+/** HOW MANY ORGANIC ROWS ONE LOOK KEEPS, which is every row the request bought: capabilities.ts asks for SERP_DEPTH (20) and DataForSEO bills per ten results, so half of every results page was paid for and dropped. */
+const SERP_ROWS_BOUGHT = 20;
 
 /** `priorityQueries`: plain strings from the caller (Evidence never reads Decision), the exact searches an open investigation cannot close without. Empty is honest and leaves the agenda exactly as it was. */
 export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[] = []): FunnelUnitFn {
@@ -400,7 +400,9 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
       for (const s of serps) {
         if (blockedDetail || limitDetail || d.now() > deadline || processed >= SERP_POSTS_PER_PASS) break;
         if (s.status === "pending") {
-          const r = interp(await d.callProvider("serp_organic", { keyword: s.query }, ids)); track(state, r);
+          // THE OVERVIEW IS BOUGHT ONLY WHERE IT IS READ. `load_async_ai_overview` costs $0.0006 a request (refunded when the search has no async overview), so it rides exactly the searches an open investigation or a
+          // funded row named, which is the same `hot` set the daily freshness window is granted to, and never the broad discovery agenda.
+          const r = interp(await d.callProvider("serp_organic", { keyword: s.query, ...(hot.has(canonicalQueryKey(s.query)) ? { loadAiOverview: true } : {}) }, ids)); track(state, r);
           if (r.kind === "waiting") { s.status = "posted"; s.cacheKey = r.cacheKey; }
           else if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed, nowIso(), r.payload, tenantId); }
           else if (r.kind === "failed") {
@@ -464,8 +466,7 @@ const competitionLevel = (c: number | null): "low" | "medium" | "high" | null =>
 /** Read-only: normalize the persisted funnel state into the canonical research evidence bundle plus an explicit receipt. The state is already pruned to the CURRENT set, so nothing obsolete can be projected. The receipt's money and cache numbers are THIS RUN's, not a lifetime total. PURE. */
 export function projectFunnelEvidence(state: FunnelState, now: number): FunnelResearchEvidence {
   const donePairs = state.prompts.pairs.filter((p) => p.status === "done");
-  // The freshest look THIS STATE holds, over both lanes. The snapshot takes the newer of this and the canonical
-  // answers it loads, so freshness is never dated by a working set that no longer carries the answers at all.
+  // The freshest look THIS STATE holds, over both lanes. The snapshot takes the newer of this and the canonical answers it loads, so freshness is never dated by a working set that no longer carries the answers.
   const observedTimes = [...donePairs.map((p) => p.observedAt), ...state.serps.queries.map((s) => s.observedAt)]
     .filter((t): t is string => !!t).sort();
   const isStale = (at: string | undefined) => !isCurrent("serp_cold", at, now);
@@ -474,8 +475,7 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
     + state.serps.queries.filter((s) => s.status === "done" && isStale(s.observedAt)).length;
   const missing = Math.max(0, state.prompts.pairs.length - donePairs.length)
     + state.serps.queries.filter((s) => s.status !== "done" || !!s.identityMismatch).length + state.serps.queries.filter((s) => s.aiModeFailed).length;
-  // FAIL CLOSED ON IDENTITY: a look the provider answered for a DIFFERENT phrase is missing coverage, never
-  // this search's evidence, so it is counted above and dropped here however its row happens to be marked.
+  // FAIL CLOSED ON IDENTITY: a look the provider answered for a DIFFERENT phrase is missing coverage, never this search's evidence, so it is counted above and dropped here however its row happens to be marked.
   const doneSerps = state.serps.queries.filter((s) => s.status === "done" && !s.identityMismatch);
   return {
     // LINEAGE rides along: how each keyword was found, the confirmed theme it was found from, the case it joined, the page of my own that already ranks for it, and what acting on it would mean. Every one is a recorded fact, so nothing downstream has to guess them. THE WHOLE JOURNEY rides along too (`origins`), so a fan-out can be traced back to the question, the engine, the day and the stored answer that produced it; a row stored before it was kept projects without it rather than with an invented one.

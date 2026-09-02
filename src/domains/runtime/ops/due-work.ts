@@ -51,7 +51,9 @@ export type DueWork = {
   readable: boolean;
   /** Today's AI checks, from the planner: how many of today's readings are SETTLED of how many are owed,
    *  and how those settled ones landed (an answer, an engine with nothing to give, an engine I cannot ask). */
-  checks: { done: number; total: number; answers: number; unavailable: number; unsupported: number };
+  checks: { done: number; total: number; answers: number; unavailable: number; unsupported: number;
+    /** How many already-paid answers are waiting to be read WHEN that backlog is what stopped today's buying. Absent = the meter was read and nothing is blocking. Null = the meter could not be read, which is unknown and never a truthful zero. */
+    readingBacklog?: number | null };
   /** The frozen plan's topics: how many may be read now, how many are waiting on a promised date. */
   cases: { active: number; parked: number };
   /** The earliest date something waiting becomes legal again, or null when nothing is waiting. */
@@ -405,7 +407,8 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   return {
     due: readable ? due : [], readable,
     checks: checks.value ? { done: checks.value.done, total: checks.value.total, answers: checks.value.answers,
-      unavailable: checks.value.unavailable, unsupported: checks.value.unsupported } : NO_CHECKS,
+      unavailable: checks.value.unavailable, unsupported: checks.value.unsupported,
+      ...(checks.value.readingBacklog !== undefined ? { readingBacklog: checks.value.readingBacklog } : {}) } : NO_CHECKS,
     cases: { active: active.length, parked: parked.length },
     nextDueAt,
     evidenceVersion: version.value,

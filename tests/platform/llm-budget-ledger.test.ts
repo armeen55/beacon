@@ -16,9 +16,9 @@ describe("the durable per-account LLM spend writer", () => {
   it("adds what was just spent to that account's own running total, opening it when the account has spent nothing yet", async () => {
     await recordSpendSupabase({ tenantId: "acct-a", platform: "perplexity", costUsd: 0.0917, promptCount: 100, chunkCount: 1, runId: "run-x" });
     expect([db.tables[0], db.wrote[0]!.p_tenant_id, db.wrote[0]!.p_platform, db.wrote[0]!.p_delta, db.wrote[0]!.p_prompts]).toEqual(["increment_llm_spend", "acct-a", "perplexity", 0.0917, 100]);
-    await recordSpendSupabase({ tenantId: "acct-a", platform: "openai", costUsd: 2.88, promptCount: 100, chunkCount: 1 }); expect([db.wrote[1]!.p_delta, db.wrote[1]!.p_platform, db.wrote.length]).toEqual([2.88, "openai", 2]); });
-  it("answers false and writes nothing when the ledger cannot be written, so the paid call it is recording is never broken by it", async () => {
-    db.readError = { message: "boom" };
+    await recordSpendSupabase({ tenantId: "acct-a", platform: "openai", costUsd: 2.88, promptCount: 100, chunkCount: 1 }); expect([db.wrote[1]!.p_delta, db.wrote[1]!.p_platform, db.wrote.length]).toEqual([2.88, "openai", 2]);
+    // AND A LEDGER THAT COULD NOT BE WRITTEN ANSWERS FALSE AND WRITES NOTHING, so the paid call it is recording is never broken by it.
+    db.readError = { message: "boom" }; db.wrote.length = 0;
     await expect(recordSpendSupabase({ tenantId: "acct-a", platform: "perplexity", costUsd: 0.05 })).resolves.toBe(false); expect(db.wrote).toEqual([]); });
   it.each([["no account", { tenantId: "", platform: "perplexity", costUsd: 0.05 }], ["an engine that cannot be billed", { tenantId: "t1", platform: "claude", costUsd: 0.05 }],
     ["a negative amount", { tenantId: "t1", platform: "perplexity", costUsd: -0.01 }], ["an amount that is not a number", { tenantId: "t1", platform: "perplexity", costUsd: NaN }],

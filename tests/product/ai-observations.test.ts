@@ -110,7 +110,7 @@ describe("one canonical identity per observation", () => {
   });
   it("does nothing at all when the planner could not read what is due, and never falls back on asking everything", async () => {
     const blind = world(), out = await run(blind.deps, null); expect([out.status, blind.paid(), db.written.length]).toEqual(["failed", 0, 0]);
-    expect(out.detail).toContain("I could not read which of your questions are due"); const settled = world();
+    expect(out.detail).toContain("Which questions are due to be checked today could not be read"); const settled = world();
     const nothing = await run(settled.deps, []); // nothing owed is a finished day, not a reason to re-ask
     expect([nothing.status, settled.paid(), db.written.length]).toEqual(["done", 0, 0]);});
   it("treats a second deliberate reading of the same pair as a NEW observation, never an overwrite", async () => {

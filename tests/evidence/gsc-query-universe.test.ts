@@ -12,18 +12,12 @@ import { loadGscQueryUniverse } from "@/domains/evidence/readers/gsc-query-unive
 const NOW = () => new Date("2026-08-21T12:00:00Z");
 beforeEach(() => { vi.resetModules(); env.pages = []; env.fail = false; env.calls = 0; });
 describe("the complete query universe for Decision", () => {
-  it("pages through every pair and canonicalizes the keys the corroboration ask joins on", async () => {
+  it("pages through every pair, canonicalizes the keys the corroboration ask joins on, hands back null on a failed read, and reads once per tenant per reporting day", async () => {
     env.pages = [Array.from({ length: 1000 }, (_v, i) => ({ query: `search number ${i}` })), [{ query: "Haft Seen Table?" }]];
-    const u = await loadGscQueryUniverse("t-universe-a", NOW()); expect(u?.pairs).toBe(1001);
-    expect(u?.incomplete).toBe(false);
-    expect(env.calls).toBe(2); // it kept reading past the first page
+    const u = await loadGscQueryUniverse("t-universe-a", NOW());
     const { canonicalQueryKey } = await import("@/domains/evidence/relevance-gate");
-    expect(u?.keys.has(canonicalQueryKey("haft seen table"))).toBe(true); // capitals and punctuation are the same search
-  });
-  it("hands back null on a failed read, never an empty universe", async () => {
-    env.fail = true;
-    expect(await loadGscQueryUniverse("t-universe-b", NOW())).toBeNull();});
-  it("reads once per tenant per reporting day, because the universe changes when the sync lands", async () => {
-    env.pages = [[{ query: "one" }]];
+    expect([u?.pairs, u?.incomplete, env.calls, u?.keys.has(canonicalQueryKey("haft seen table"))]).toEqual([1001, false, 2, true]); // it kept reading past the first page, and capitals and punctuation are the same search
+    env.fail = true; expect(await loadGscQueryUniverse("t-universe-b", NOW()), "a failed read is UNKNOWN, never an empty universe").toBeNull();
+    env.fail = false; env.calls = 0; env.pages = [[{ query: "one" }]];
     await loadGscQueryUniverse("t-universe-c", NOW()); await loadGscQueryUniverse("t-universe-c", NOW());
-    expect(env.calls).toBe(1);});});
+    expect(env.calls, "the universe changes when the sync lands, so once a day is enough").toBe(1);});});

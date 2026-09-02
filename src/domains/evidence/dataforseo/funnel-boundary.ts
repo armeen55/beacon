@@ -81,6 +81,12 @@ export type ParsedSerp = {
   aiOverview: { present: boolean; references: { url: string; domain: string; title: string | null }[]; excerpt: string | null } | null;
   paaQuestions: { question: string; answeringDomain: string | null }[];
   relatedSearches: string[];
+  /** EVERY BLOCK THE PROVIDER SAYS THIS PAGE HAS, in its own words (result.item_types), so what a page is SHAPED like is read off the response instead of inferred from the blocks we happened to keep.
+   *  null = this payload carried no item list at all, so the shape is UNKNOWN; [] = it carried an empty one. Capture incomplete is never the same claim as observed zero. */
+  itemTypes?: string[] | null;
+  /** The answer Google itself lifted to the top of the page, and whose page it lifted it from: bought on every one of these requests and thrown away until now. The block when the page has one; null ONLY when the
+   *  provider's own item list proves it has none; ABSENT when the payload carries no item list, because a snippet nobody could look for is unknown, never absent. */
+  featuredSnippet?: { url: string; domain: string; title: string | null } | null;
 };
 /** ONE page an answer pointed at. `startIndex`, `endIndex` and `passage` are the annotation's OWN span into the answer text, kept so the exact words a
  *  source backs can be shown later instead of re-derived by searching the text for the url. Present only where the provider sent them: absent is absent. */
@@ -172,7 +178,10 @@ export type CapabilityInputByKey = {
   /** `depth` IS EMITTED and defaulted by the builder, so it changes the REQUEST without changing the cache
    *  identity of an ask that never named one. Without it the provider returned its own default page and stored
    *  results held seven to nine organic rows, so no owned position past about nine was decidable at all. */
-  serp_organic: { keyword: string; device?: "desktop" | "mobile"; depth?: number };
+  /** `loadAiOverview` sends the documented `load_async_ai_overview` flag: without it the AI Overview block arrives as an empty asynchronous stub (569 of 716 stored looks held nothing), and the provider charges
+   *  $0.0006 extra for it and refunds that when no async overview exists. It IS part of the cache identity, deliberately: a look asked WITH the overview is a different ask from one asked without, so it is sent only
+   *  for the searches an open investigation or a funded row actually named and never for broad discovery. */
+  serp_organic: { keyword: string; device?: "desktop" | "mobile"; depth?: number; loadAiOverview?: boolean };
   serp_ai_mode: { keyword: string; device?: "desktop" | "mobile" };
   llm_chatgpt: ChatGptWebInput & ObservationIdentity;
   llm_claude: ClaudeWebInput & ObservationIdentity;

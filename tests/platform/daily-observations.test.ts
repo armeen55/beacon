@@ -102,9 +102,20 @@ describe("extra readings", () => {
     const world = { readPrompts: async () => PROMPTS, readObservations: async () => [], readMarkers: async () => ({}) };
     expect(await dueObservations(T, DAY, { ...world, unreadBacklog: async () => 201 })).toEqual([]);
     expect(((await dueObservations(T, DAY, { ...world, unreadBacklog: async () => 200 })) ?? []).length).toBeGreaterThan(0);
-    expect(((await dueObservations(T, DAY, { ...world, unreadBacklog: async () => { throw new Error("meter down"); } })) ?? []).length).toBeGreaterThan(0);
+    expect(await dueObservations(T, DAY, { ...world, unreadBacklog: async () => { throw new Error("meter down"); } })).toEqual([]); // A METER NOBODY COULD READ IS UNKNOWN, NEVER ZERO (operator, 2026-09-02): unknown asks nothing and spends nothing, as an EMPTY plan rather than a failed day, so the lane files as unreadable and the rest of the day still runs
     const blind = await requestExtraSample(T, DAY, { ...world, unreadBacklog: async () => { throw new Error("meter down"); } }); // A BROKEN METER MUST NOT STOP THE CANONICAL DAY, and it may not grant the DISCRETIONARY extra either: both gates read a failed count as zero, so buying proceeded exactly when the protection could not be measured.
-    expect([blind.granted, blind.reason?.includes("could not be read")]).toEqual([false, true]); });
+    expect([blind.granted, blind.reason?.includes("could not be read")]).toEqual([false, true]);
+    // AND THE BLOCKED LANE IS NAMED RATHER THAN HANDED OVER AS AN EMPTY WINDOW. The standing carries the backlog that stopped the buying, so a drive reads those answers back instead of asking for more; once the reading
+    // clears it the day buys EXACTLY what was still owed and not one duplicate of what it already holds. A day owing nothing is blocked by nothing and never pays for the count; a count nobody could take is null, never zero.
+    const over = await dailyChecks(T, DAY, { ...world, unreadBacklog: async () => 201 }), drained = await dailyChecks(T, DAY, { ...world, unreadBacklog: async () => 200 });
+    expect([over!.readingBacklog, drained!.readingBacklog, drained!.due.length]).toEqual([201, undefined, over!.due.length]);
+    expect([(await dailyChecks(T, DAY, { ...world, readObservations: async () => fullDay(), unreadBacklog: async () => { throw new Error("never asked"); } }))!.readingBacklog,
+      (await dailyChecks(T, DAY, { ...world, unreadBacklog: async () => { throw new Error("meter down"); } }))!.readingBacklog], "a settled day never pays for the count; unknown is null, never a truthful zero").toEqual([undefined, null]);
+    // AND THE DISCRETIONARY GRANT REFUSES THE SAME WAY, naming the backlog and the money rather than a policy: live, 891 answers carrying $7.75 of paid text had never been analysed and the button that buys more still said yes.
+    const settled = { ...world, readObservations: async () => fullDay(), readMarkers: async () => ({}), writeMarkers: async () => true };
+    const behind = await requestExtraSample(T, DAY, { ...settled, unreadBacklog: async () => 891 });
+    expect([behind.granted, behind.due, behind.reason.includes("891 answers already paid for are still waiting to be read")]).toEqual([false, [], true]);
+    expect((await requestExtraSample(T, DAY, { ...settled, unreadBacklog: async () => 0 })).granted).toBe(true); });
 
   it("refuses honestly rather than guessing when it cannot read where today stands", async () => {
     const out = await requestExtraSample(T, DAY, { readPrompts: async () => null, readObservations: async () => { throw new Error("db down"); } }); expect([out.granted, out.due]).toEqual([false, []]);
@@ -118,14 +129,6 @@ describe("extra readings", () => {
     const out = SCHEMA_BY_KIND.answer_analysis.safeParse(long);
     expect(out.success, "a long answer is a long answer, never an invalid one").toBe(true);
     expect(out.success && out.data.topicEntities.length, "and what is over the bound is dropped, not the reading").toBe(30); });
-
-  it("buys no new answer while answers already paid for sit unread, and says how many", async () => {
-    const world = { readPrompts: async () => PROMPTS, readObservations: async () => fullDay(),
-      readMarkers: async () => ({}), writeMarkers: async () => true };
-    const behind = await requestExtraSample(T, DAY, { ...world, unreadBacklog: async () => 891 });
-    expect([behind.granted, behind.due]).toEqual([false, []]);
-    expect(behind.reason).toContain("891 answers already paid for are still waiting to be read");
-    expect((await requestExtraSample(T, DAY, { ...world, unreadBacklog: async () => 0 })).granted).toBe(true); });
 
   it("SAVES the grant so the next pass actually plans it, and refuses rather than promising a reading it could not record", async () => {
     let stored: ExtraSampleGrant | null = null;
@@ -146,10 +149,10 @@ describe("extra readings", () => {
     expect([finished!.done, finished!.total, finished!.due.length, (await dailyChecks(T, DAY, { ...world, readObservations: async () => fullDay("2026-07-30") }))!.done,
       await dailyChecks(T, DAY, { ...world, readObservations: async () => { throw new Error("store down"); } })]).toEqual([12, 12, 0, 0, null]);});
   it("plans NOTHING and says so when it cannot read the questions or the answers already on file", async () => {
-    const prompts = async () => PROMPTS, observed = async () => [], readMarkers = async () => null; expect(await dueObservations(T, DAY, { readPrompts: async () => null, readObservations: observed, readMarkers })).toBeNull();
-    expect(await dueObservations(T, DAY, { readPrompts: prompts, readObservations: async () => { throw new Error("store down"); }, readMarkers })).toBeNull();
-    expect(await dueObservations(T, DAY, { readPrompts: async () => [], readObservations: observed, readMarkers })).toEqual([]); // no questions is a real, empty answer
-    expect(await dueObservations(T, DAY, { readPrompts: prompts, readObservations: observed, readMarkers })).toHaveLength(12);});});
+    const prompts = async () => PROMPTS, observed = async () => [], readMarkers = async () => null, unreadBacklog = async () => 0; expect(await dueObservations(T, DAY, { readPrompts: async () => null, readObservations: observed, readMarkers, unreadBacklog })).toBeNull();
+    expect(await dueObservations(T, DAY, { readPrompts: prompts, readObservations: async () => { throw new Error("store down"); }, readMarkers, unreadBacklog })).toBeNull();
+    expect(await dueObservations(T, DAY, { readPrompts: async () => [], readObservations: observed, readMarkers, unreadBacklog })).toEqual([]); // no questions is a real, empty answer
+    expect(await dueObservations(T, DAY, { readPrompts: prompts, readObservations: observed, readMarkers, unreadBacklog })).toHaveLength(12);});});
 describe("reading the approved questions", () => {
   beforeEach(() => { pg.queued = []; pg.queries = 0; pg.cols = []; });
   const missingColumn = { data: null, error: { code: "42703", message: 'column tracked_prompts.version does not exist' } }, rows = [{ id: "p1", text: "question p1", tags: ["core_v1"], is_active: true, created_at: "2026-01-01" }];
@@ -410,7 +413,7 @@ describe("work that is genuinely finished", () => {
     expect(plan([seen({ promptId: "p1", engine: "chatgpt", status: "failed" })], { "p1|1|chatgpt|0": FAILED_RETRIES_PER_DAY })).toEqual([]); // But only while the day's retry budget lasts. Spent, it is finished for the day like any other outcome.
   });
   it("derives the engines it plans from the provider registry itself, with nobody handing it a list", async () => {
-    const world = { readPrompts: async () => ONE, readObservations: async () => [], readMarkers: async () => null, maxBatch: 99 }; expect(new Set((await dueObservations(T, DAY, world))!.map((d) => d.engine))).toEqual(new Set(ENGINES));
+    const world = { readPrompts: async () => ONE, readObservations: async () => [], readMarkers: async () => null, maxBatch: 99, unreadBacklog: async () => 0 }; expect(new Set((await dueObservations(T, DAY, world))!.map((d) => d.engine))).toEqual(new Set(ENGINES));
     registry.off.add("llm_gemini");
     try { expect(new Set((await dueObservations(T, DAY, world))!.map((d) => d.engine))).toEqual(new Set(["chatgpt", "claude", "perplexity"])); }
     finally { registry.off.clear(); }
@@ -424,7 +427,7 @@ describe("work that is genuinely finished", () => {
     const store = [seen({ promptId: "p1", engine: "chatgpt", status: "failed", failureReason: REASON, requestedAt: `${DAY}T08:00:00.000Z` })]; let markers: DayMarkers | null = null, asks = 0;
     const settled: Array<[string, string]> = [];
     const world = {
-      readPrompts: async () => ONE, readObservations: async () => store, engines, maxBatch: 99,
+      readPrompts: async () => ONE, readObservations: async () => store, engines, maxBatch: 99, unreadBacklog: async () => 0,
       readMarkers: async () => markers,
       writeMarkers: async (_t: string, p: DayMarkers) => { markers = { ...markers, ...p }; return true; },
       settle: async (_t: string, id: string, status: "unavailable" | "unsupported") => { // The real write only moves `status`, so this models it exactly: the reason stays where the provider put it.
@@ -451,7 +454,7 @@ describe("work that is genuinely finished", () => {
   it("settles a failed row on an engine the registry cannot ask as UNSUPPORTED, and never plans that engine again while that holds", async () => {
     const store = [seen({ promptId: "p1", engine: "perplexity", status: "failed", failureReason: REASON })]; const settled: Array<[string, string]> = [];
     const world = {
-      readPrompts: async () => ONE, readObservations: async () => store, engines, maxBatch: 99,
+      readPrompts: async () => ONE, readObservations: async () => store, engines, maxBatch: 99, unreadBacklog: async () => 0,
       readMarkers: async () => ({ observationRetries: { day: DAY, counts: { "p1|1|perplexity|0": FAILED_RETRIES_PER_DAY }, askedAt: { "p1|1|perplexity|0": store[0]!.requestedAt } } }),
       writeMarkers: async () => true,
       settle: async (_t: string, id: string, status: "unavailable" | "unsupported") => {
@@ -465,7 +468,7 @@ describe("work that is genuinely finished", () => {
     const K = "p1|1|chatgpt|0", OLD = `${DAY}T08:00:00.000Z`; const store = [seen({ promptId: "p1", engine: "chatgpt", status: "failed", failureReason: REASON, requestedAt: `${DAY}T09:00:00.000Z` })];
     let markers: DayMarkers | null = { observationRetries: { day: DAY, counts: { [K]: FAILED_RETRIES_PER_DAY - 1 }, askedAt: { [K]: OLD } } }; const settled: string[] = [];
     const world = {
-      readPrompts: async () => ONE, readObservations: async () => store, engines, maxBatch: 99,
+      readPrompts: async () => ONE, readObservations: async () => store, engines, maxBatch: 99, unreadBacklog: async () => 0,
       readMarkers: async () => markers,
       writeMarkers: async (_t: string, p: DayMarkers) => { markers = { ...markers, ...p }; return true; },
       settle: async () => { throw new Error("the observation store refused that write"); },};
@@ -482,14 +485,14 @@ describe("work that is genuinely finished", () => {
   it("asks the observation store for the DAY it is planning, so a 600 row day is read whole", async () => {
     const asked: Array<{ day?: string }> = []; const big = Array.from({ length: 600 }, (_, i) => seen({ promptId: `p${i}`, engine: "chatgpt", id: `obs-${i}` }));
     const plan = await dueObservations(T, DAY, {
-      readPrompts: async () => ONE, engines, maxBatch: 99, readMarkers: async () => null,
+      readPrompts: async () => ONE, engines, maxBatch: 99, readMarkers: async () => null, unreadBacklog: async () => 0,
       readObservations: async (_t, o) => { asked.push(o); return big.length === 600 ? big : []; },});
     expect(asked).toEqual([{ day: DAY }]);   // the day is NAMED, which is what flips the reader to read-it-all
     expect(plan).toEqual([]);                 // and p1's own reading is in that day, so nothing is re-bought
   });
   it("does not plan an unavailable pair again the same day, and does plan it the next day", async () => {
     const gone = seen({ promptId: "p1", engine: "chatgpt", status: "unavailable", failureReason: REASON });
-    const world = { readPrompts: async () => ONE, readObservations: async () => [gone], engines, maxBatch: 99, readMarkers: async () => null }; expect(await dueObservations(T, DAY, world)).toEqual([]);
+    const world = { readPrompts: async () => ONE, readObservations: async () => [gone], engines, maxBatch: 99, readMarkers: async () => null, unreadBacklog: async () => 0 }; expect(await dueObservations(T, DAY, world)).toEqual([]);
     const tomorrow = await dueObservations(T, "2026-08-01", world); expect(tomorrow).toHaveLength(1);
     expect(tomorrow![0]).toMatchObject({ promptId: "p1", engine: "chatgpt", slot: 0, day: "2026-08-01" });});
   it("reads a row already stored under the day it computes as that pair being done, and leaves every other day alone", async () => {
@@ -497,7 +500,7 @@ describe("work that is genuinely finished", () => {
     const spent = seen({ promptId: "p2", engine: "chatgpt", day: "2026-08-04", status: "failed", failureReason: "The provider refused this request." });
     const history = [seen({ promptId: "p1", engine: "chatgpt", day: "2026-08-04" }), seen({ promptId: "p1", engine: "chatgpt", day: "2026-08-02" }), spent]; const before = JSON.stringify(history);
     const settled: Array<[string, string]> = [];
-    const world = { readPrompts: async () => [PROMPTS[0]!, PROMPTS[1]!], readObservations: async () => history, engines, maxBatch: 99,
+    const world = { readPrompts: async () => [PROMPTS[0]!, PROMPTS[1]!], readObservations: async () => history, engines, maxBatch: 99, unreadBacklog: async () => 0,
       readMarkers: async () => ({ observationRetries: { day, counts: { [key({ ...spent, promptId: "p2" })]: FAILED_RETRIES_PER_DAY }, askedAt: { [key({ ...spent, promptId: "p2" })]: spent.requestedAt } } }),
       writeMarkers: async () => true,
       settle: async (_t: string, id: string, status: "unavailable" | "unsupported") => { settled.push([id, status]); } };

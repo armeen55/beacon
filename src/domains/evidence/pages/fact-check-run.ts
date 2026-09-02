@@ -129,8 +129,7 @@ const SCRIPT_OF: Record<string, RegExp> = {
   armenian: /[\u0530-\u058F]/, georgian: /[\u10A0-\u10FF]/, thai: /[\u0E00-\u0E7F]/,};
 
 /** WHY A PAID DOOR GAVE NOTHING, carried end to end. `capped` = the budget refused it, `waiting` = a posted
- *  task has not answered, `refused` = it answered and the answer would not validate, `unavailable` = it could
- *  not be reached. Each is a different debt and each leaves the claim owed (Codex, 2026-08-18). */
+ *  task has not answered, `refused` = it answered and the answer would not validate, `unavailable` = it could not be reached. Each is a different debt and each leaves the claim owed (Codex, 2026-08-18). */
 type ProviderHold = "capped" | "waiting" | "refused" | "unavailable";
 
 /** The one model call a unit may make. `kind` names the STRUCTURED OUTPUT SCHEMA the answer must satisfy, so
@@ -140,8 +139,7 @@ type StructuredRead = (input: { kind: "fact_claim_extraction" | "fact_claim_judg
   => Promise<{ value: Record<string, unknown> } | { hold: ProviderHold }>;
 
 /** WHY A UNIT FAILED, as an identity a later reader can act on: a cap, a queue wait, a timeout and a schema
- *  refusal are different debts, and one generic sentence hid which of them repeated paid attempts were hitting
- *  (Codex, 2026-08-18). Every failure leaves the claim OWED. */
+ *  refusal are different debts, and one generic sentence hid which of them repeated paid attempts were hitting (Codex, 2026-08-18). Every failure leaves the claim OWED. */
 type UnitFailure = "no_page_body" | "lease_exhausted" | "inventory_write_failed" | "store_write_failed"
   | "lease_lost" | "source_quality_unresolved"
   | `extraction_${ProviderHold}` | `search_${ProviderHold}` | `fetch_${ProviderHold}` | `judge_${ProviderHold}`;
@@ -178,13 +176,20 @@ type FactCheckUnitDeps = {
   deadlineAt: number;};
 
 /** WHAT ONE UNIT DID. `advanced` = durable progress was STORED (a claim banked, or the next section
- *  inventoried). `done` = this page version owes nothing at full coverage. `failed` = nothing advanced and the
- *  claim is still owed, which is not the same answer and must never move a run on to publishing. */
+ *  inventoried). `done` = this page version owes nothing at full coverage. `failed` = nothing advanced and the claim is still owed, which must never move a run on to publishing. */
 type FactCheckUnitResult = { status: "advanced" | "done" | "failed"; banked: number;
   cursor: FactCheckCursor | null; failure?: UnitFailure; reason?: string;
   /** WHICH CLAIM THIS UNIT TOOK ON, so a pass may set one aside and reach the next. */ attempted?: string };
 
 const enough = (deadlineAt: number, need: number): boolean => Date.now() + need + RESERVE_MS <= deadlineAt;
+/** PURE. THE PASSAGE AROUND THE SUBJECT, never simply the opening of the document (the entity-anchored window the claim-verification literature reads on). A long reference page's first 6,000 characters are its
+ *  navigation and its introduction, so a subject discussed further down reached the judge in an excerpt that never named it. About 160 words either side of the first place the subject, or a number the claim itself
+ *  carries, appears past the opening; the opening stands when the subject is absent or already inside it, and the 6,000-character cap still bounds everything sent. */
+function subjectWindow(text: string, anchors: readonly string[], max = 6_000, words = 160): string {
+  const hay = text.toLowerCase(), at = anchors.map((a) => hay.indexOf(a.trim().toLowerCase())).filter((i) => i > max / 2).sort((x, y) => x - y)[0];
+  if (at == null) return text.slice(0, max);
+  return `${text.slice(0, at).split(/\s+/).slice(-words).join(" ")} ${text.slice(at).split(/\s+/).slice(0, words * 2).join(" ")}`.slice(0, max);
+}
 const fail = (failure: UnitFailure, cursor: FactCheckCursor | null, reason: string, attempted?: string): FactCheckUnitResult =>
   ({ status: "failed", banked: 0, cursor, failure, reason, ...(attempted ? { attempted } : {}) });
 
@@ -193,8 +198,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const { tenantId, page, now } = d;
   if (!page.body.trim()) return fail("no_page_body", null, "no stored words for this page");
   const hash = pageHashOf(page.body);
-  // 1. THE CLAIM INVENTORY FOR THIS PAGE VERSION AND ITS COVERAGE, READ BACK FROM THE STORE: a lease lost mid
-  // page resumes where it stopped, and completeness outlives the pass. Coverage is what keeps a long page
+  // 1. THE CLAIM INVENTORY FOR THIS PAGE VERSION AND ITS COVERAGE, READ BACK FROM THE STORE: a lease lost mid page resumes where it stopped, and completeness outlives the pass. Coverage is what keeps a long page
   // honest: the first 12,000 characters are a SECTION, never the page (Codex, 2026-08-18).
   const mine = (d.held ?? []).filter((h) => h.page === page.path);
   let inventory = mine.filter((h) => h.pageContentHash === hash && h.state !== "superseded");
@@ -207,10 +211,8 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     || (h.state === "checked" && h.confidence === "confirmed" && unauthorizedReason(h) != null));
   if (obsolete.length > 0 && await reopenObsoleteChecks(tenantId, page.path, obsolete).catch(() => 0) > 0) {
     inventory = inventory.map((h) => (obsolete.includes(h) ? { ...h, state: "owed" as const, rulesVersion: VERIFICATION_RULES_VERSION } : h));}
-  // THE SEEDED PROPOSITION IS RESEARCHED FIRST. A row whose locator is `missing` exists only because an acquisition
-  // seeded it for a funded candidate that was refused for lacking exactly that fact, so it outranks rotation over the
-  // page's own existing statements: without this the pass spent its budget re-checking claims the page already makes
-  // and reported the reading as acquired, while the writer still had nothing new to cite.
+  // THE SEEDED PROPOSITION IS RESEARCHED FIRST. A row whose locator is `missing` exists only because an acquisition seeded it for a funded candidate that was refused for lacking exactly that fact, so it outranks
+  // rotation over the page's own existing statements: without this the pass spent its budget re-checking claims the page already makes and reported the reading as acquired, while the writer had nothing new to cite.
   const seededFirst = (rows: typeof inventory) => [...rows].sort((a, b) => (b.pageLocator === "missing" ? 1 : 0) - (a.pageLocator === "missing" ? 1 : 0));
   let owed = seededFirst(inventory.filter((h) => h.state === "owed"));
   if (cov.coveredChars < cov.totalChars) {
@@ -242,8 +244,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
       const body = page.body.toLowerCase();
       await supersedeStaleFacts(tenantId, page.path, hash, (current) => body.includes(current.trim().toLowerCase()))
         .catch((e) => { log.warn("[fact-check] stale claims could not be retired", { tenantId, page: page.path, error: String(e) }); return 0; });}
-    // THE INVENTORY AND ITS COVERAGE ARE THE CURSOR, stored BEFORE one claim is researched. A write that did
-    // not land is a failed unit: researching against an inventory nobody stored is how page two was lost.
+    // THE INVENTORY AND ITS COVERAGE ARE THE CURSOR, stored BEFORE one claim is researched. A write that did not land is a failed unit: researching against an inventory nobody stored is how page two was lost.
     const wrote = claims.length === 0 ? 0 : await recordOwedClaims(tenantId, page.path, claims, hash, d.basis).catch(() => -1);
     if (wrote < 0) return fail("inventory_write_failed", null, "the page's claim inventory could not be stored, so nothing was researched");
     // A CAPPED EXTRACTION HAS NOT READ ITS CHUNK, IT HAS FILLED UP: one oversized chunk once swallowed a
@@ -305,28 +306,24 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // EXCLUSIONS COME BEFORE THE LIMIT, and ONE CANDIDATE PER PUBLISHER. Taking the first six raw results and filtering afterwards threw away a whole results page: six credible outlets were cut before the policy ever saw them, and the claim would have been buried as an empty world (Codex, 2026-08-19). The allowance counts QUALIFYING candidates.
   const organic = found.organic ?? [];
   const seenDomains = new Set<string>();
-  // A SITE MAY NOT VOUCH FOR ITSELF, and nothing enforced it: live, the Nazanin correction cited the very page
-  // it was correcting, iranopedia.com/persian-female-first-names, and banked that as a source.
+  // A SITE MAY NOT VOUCH FOR ITSELF, and nothing enforced it: live, the Nazanin correction cited the very page it was correcting, iranopedia.com/persian-female-first-names, and banked that as a source.
   const ownSite = (page.url ?? "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].toLowerCase();
   const candidates = organic
     .map((o) => ({ url: o.url, domain: o.domain.replace(/^www\./, "").toLowerCase(), kind: sourceClassOf(o.domain), title: o.title ?? "" })) .filter((c) => !REJECTED.has(c.kind))
     .filter((c) => !ownSite || (c.domain !== ownSite && !c.domain.endsWith(`.${ownSite}`)))
     .filter((c) => !seenDomains.has(c.domain) && seenDomains.add(c.domain) !== undefined)
     .sort((a, b) => (AUTHORITATIVE.has(b.kind) ? 1 : 0) - (AUTHORITATIVE.has(a.kind) ? 1 : 0)) .slice(0, CANDIDATES);
-  // `none_found` IS A CLAIM ABOUT THE WORLD, and only an empty results page may make it. A page full of
-  // results none of which clears the policy is an unresolved question, and the claim stays owed.
+  // `none_found` IS A CLAIM ABOUT THE WORLD, and only an empty results page may make it. A page full of results none of which clears the policy is an unresolved question, and the claim stays owed.
   if (organic.length === 0) {
     return bank({ ...base, proposed: null, sources: [], agreement: "none_found", confidence: "unsupported",
       verdict: "undecidable", note: "The search was readable and returned nothing at all for this claim, so nothing is proposed." });}
   if (candidates.length === 0) return fail("source_quality_unresolved", cursor,
     `the search returned ${organic.length} results and none clears the source policy, so this claim is still owed`, next.statementKey);
-  // PUBLISHER-DIVERSE PICKS: the second fetch prefers a DIFFERENT source class, so two generic encyclopedia
-  // pages are not taken merely because they rank first (Codex, 2026-08-18).
+  // PUBLISHER-DIVERSE PICKS: the second fetch prefers a DIFFERENT source class, so two generic encyclopedia pages are not taken merely because they rank first (Codex, 2026-08-18).
   const second = candidates.slice(1).find((c) => c.kind !== candidates[0]!.kind) ?? candidates[1];
   const picks = [candidates[0]!, ...(second ? [second] : [])].slice(0, FETCH_PER_CLAIM);
 
-  // 4. READ THE SOURCES. A title is not a fact, and A SOURCE NOBODY READ NEVER CLEARS THE CLAIM: when every
-  // fetch fails the claim stays OWED, because "the evidence disproved nothing" and "the infrastructure could
+  // 4. READ THE SOURCES, AROUND THE SUBJECT. A title is not a fact, and A SOURCE NOBODY READ NEVER CLEARS THE CLAIM: when every fetch fails the claim stays OWED, because "the evidence disproved nothing" and "the infrastructure could
   // not read the evidence" are different answers (Codex, 2026-08-18).
   const passages: { url: string; kind: SourceKind; text: string; title: string | null; readAt: string }[] = [];
   let lastHold: ProviderHold = "unavailable";
@@ -334,7 +331,8 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     if (!d.fetchSource || !enough(d.deadlineAt, 20_000)) break;
     const got = await d.fetchSource(c.url).catch(() => ({ hold: "unavailable" as const }));
     if ("hold" in got) { lastHold = got.hold; continue; }
-    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, text: got.text.slice(0, 6_000), title: got.title ?? null, readAt: new Date().toISOString() });}
+    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, title: got.title ?? null, readAt: new Date().toISOString(),
+      text: subjectWindow(got.text, [claim.subject, ...(claim.current.match(/\b\d[\d,.]*\b/g) ?? [])]) });}
   if (passages.length === 0) return fail(`fetch_${lastHold}`, cursor, `sources were found and reading them is ${lastHold}, so this claim is still owed`, next.statementKey);
 
   // 5. JUDGE against the passages only.

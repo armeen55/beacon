@@ -148,6 +148,12 @@ export type FunnelSerp = {
   aiModeFailed?: boolean;
   paa?: { question: string; answeringDomain: string | null }[];
   related?: string[];
+  /** WHAT THIS RESULTS PAGE IS SHAPED LIKE and WHOSE PAGE HOLDS ITS ANSWER BOX, and the overview's own words beside the pages it cited. Every one of them arrives in the payload this row already paid for; keeping only
+   *  the citation list meant half of each bought page was discarded, so no rule could ask whether a search even HAS a snippet to take. CAPTURE INCOMPLETE IS NEVER OBSERVED ZERO: each is written only when the payload
+   *  actually said something, so ABSENT means unknown (the look predates these fields, or the response did not carry them) and null on `featured` means the provider's own block list proved this page has no answer box. */
+  itemTypes?: string[];
+  featured?: { url: string; domain: string; title: string | null } | null;
+  aiOverviewText?: string;
 };
 
 export type FunnelWinningPage = {

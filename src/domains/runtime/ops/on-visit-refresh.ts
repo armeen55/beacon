@@ -36,8 +36,8 @@ export const RESEARCH_CYCLE_DEADLINE_MS = 260_000; // THE HOSTED FUNCTION ALLOWS
 const ANALYSIS_SLICE_MIN_MS = 90_000;
 /** THE PHASES THAT CAN HOLD A RUN FOR HOURS, and the reason a turn may not simply walk back into one. The daily dispatch resumes this account's ONE unfinished run every half hour, so a run parked in the results-page or winning-pages phase was handed the whole turn again, and again: on 7 August one held the day for ten and a half hours while the 140 answers bought that morning went unread, because the only door that opens a reading pass is the one the claim never reaches while a run is open. A turn that RESUMES into one of these now reads a bounded slice of the answers already paid for FIRST, then carries on with the phase on what is left of the deadline. Once per drive, only when a reading is genuinely owed, and it buys nothing: it reads answers already on file. */
 const LONG_PHASES = new Set<ResearchPhase>(["serp_analysis", "winning_pages"]);
-/** A day I cannot count is never a day I finished. */
-const DAY_UNREADABLE = "I could not read where today's AI checks stand, so I stopped rather than call the day finished. I will pick this up on the next pass.";
+/** A day that cannot be counted is never a day that finished. */
+const DAY_UNREADABLE = "Today's AI checks could not be counted, so the day was not called finished. The next pass picks this up.";
 
 /** The four Slice 6 evidence phases, each backed by one funnel unit executor. */
 const FUNNEL_PHASES = new Set<ResearchPhase>(["keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages"]);
@@ -144,9 +144,22 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
   const allowed = plannedPhases(run.progress ?? null);
   // THE ONLY REASON THIS RUN OPENED IS THE FINISHED-CHANGE STOCK, so it tops the stock up and buys NO NEW RESEARCH EVIDENCE: no results page, no crawl, no answer. It does spend the bounded drafting allowance, which is the whole point of it, and saying it "buys nothing" was false (Codex, 2026-08-22).
   const stockOnly = (run.progress?.plan?.units ?? []).length > 0 && (run.progress?.plan?.units ?? []).every((u) => u === "replenish_ready");
-  /** This pass owes a READING of answers already bought, and owes nobody a new one: the observation phase reads and buys nothing. */
+  /** IS THE OBSERVATION LANE BLOCKED ON READING RATHER THAN ON MONEY, off the ONE due-work read this drive already made, and has this drive spent the reading that unblocks it. A drive owing a reading of answers already
+   *  bought no longer has to be a drive that asks for none: it reads FIRST and then asks the engines for whatever that reading cleared, which is why the reading door no longer turns on the absence of the buying one. */
   const planUnits = run.progress?.plan?.units ?? [];
+  /** PURE. THE LANE'S OWN STATE from one standing: absent = measured and not blocked, a number = blocked on that many unread answers, null = the meter could not be read, which is UNKNOWN and may not authorize a purchase. */
+  const laneOf = (v: number | null | undefined): ResearchRunProgress["observations"] | null =>
+    v === undefined ? null : { state: v === null ? "reading_unreadable" : "reading_backlog", unread: v, done: 0, total: 0 };
+  let lane = laneOf(work.checks.readingBacklog);
+  // THE STAMP IS REFRESHED FROM TODAY'S STANDING THE MOMENT A DRIVE OPENS, whatever phase it resumes into, so a lane that drained while the run sat past its phase leaves no stale claim behind.
+  progress = { ...progress, ...(lane ? { observations: { ...lane, done: work.checks.done, total: work.checks.total } } : { observations: undefined }) };
+  /** THE LANE FILES AS UNREADABLE AND THE DAY GOES ON: a question list or an answer store nobody could read is one lane's debt, never a reason to hold verification, measurement, the decision pass and the publication behind it. */
+  const laneUnreadable = (why: string): void => { progress = { ...progress, state: { ...progress.state, blocker: why.slice(0, 300) }, observations: { state: "reading_unreadable", unread: null, done: work.checks.done, total: work.checks.total } }; };
+  let readFirst = lane != null || planUnits.includes("analyze_answers");
+  /** A pass opened for a READING ALONE still asks no engine anything: nothing else on its plan is an observation, so there is nothing here to buy. */
   const readingOnly = planUnits.includes("analyze_answers") && !planUnits.includes("daily_observations");
+  /** WHAT THE OBSERVATION LANE LOOKED LIKE WHEN THIS DRIVE OPENED. A round that leaves both exactly where they were moved nothing, which is a blocked lane and never a reason to ask again. */
+  let lastDone = work.checks.done;
   /** ONE bounded reading of answers already bought, folded into the run's OWN receipt. Fail-soft by contract: the expensive part is already persisted, so a reading I could not produce is absent and never a pause. The three numbers go down together, because a bare "0 analyzed" cannot tell a quiet pass from one that took forty answers on and could store none of them. */
   const readAnswersBack = async (): Promise<void> => {
     const pass = await steps.analyzeAnswers(tenantId, run.cycle_key.slice(-10), Math.max(0, deadline - nowFn().getTime())).catch(() => null);
@@ -166,8 +179,9 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
   /** The phase whose attempt already spent its ONE state-conflict retry (never global). */
   let conflictRetried: ResearchPhase | null = null;
 
-  /** How many observation WINDOWS one drive may chain. Seven cover 35 questions on four engines at twenty a pass; the rest is slack, and past it I pause rather than let a planner and an executor that disagree turn this into a hot loop on the database until the deadline kills it. MAX_CRAWL_ROUNDS is the same idea for the website: four fifteen-page batches is sixty pages a pass, and the rest is owed to the next pass. */
-  const MAX_DAY_WINDOWS = 12, MAX_CRAWL_ROUNDS = 4; let windows = 0, crawlRounds = 0;
+  /** How many crawl rounds one drive may chain: four fifteen-page batches is sixty pages a pass, and the rest is owed to the next pass. The observation phase needs no such ceiling: it chains a window only while the day's
+   *  settled count actually MOVES, so it terminates on its own arithmetic and a lane that moves nothing yields the phase instead of spending twelve rounds proving it. */
+  const MAX_CRAWL_ROUNDS = 4; let crawlRounds = 0;
   const REPLENISH_MIN_MS = 45_000, REPLENISH_RESERVE_MS = 60_000, REPLENISH_BOX_MS = 240_000, LEASE_REPROVE_AFTER_MS = 1_000, STOP_STARTING_MS = 40_000;
   // MIN gates entry, RESERVE stays banked for the phases behind, BOX bounds the wait, and STOP_STARTING is the margin the pass keeps back so whatever it starts can finish and be filed. Ninety-five seconds (one reasoning call's TIMEOUT FLOOR) proved far too cautious: it is a ceiling, not a typical latency, and reserving it left a 150-second runway with fifty-five usable seconds, so nothing was ever started. Forty-five covers a normal call; a rare one that runs to its floor gets cut off, and a cut-off is safe now because the receipt says not_reached and settles nothing.
   let replenished = false; // one inventory check per DAY before the first exploratory phase
@@ -201,16 +215,23 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
     if (readBeforePhase && LONG_PHASES.has(phase) && roomToRead()) {
       readBeforePhase = false; slices -= 1;
       await readAnswersBack();
-      log.info("[research-run] I read your stored answers before carrying on with the slower step, so a long step cannot hold them up", { tenantId, phase, read: progress.funnel?.answersAnalyzed ?? 0 });
+      log.info("[research-run] stored answers were read before the slower step carried on, so a long step cannot hold them up", { tenantId, phase, read: progress.funnel?.answersAnalyzed ?? 0 });
       if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return "lost_lease";
     }
 
-    // A DEBT OF READING IS NOT A DEBT OF BUYING. A pass opened because answers already paid for have never been read closely reads THEM and asks no engine anything: no plan, no observation unit, no re-read of the day's standing, and no basis to resolve first. It runs here under the lease just renewed, because a reading spends money, and it is fail-soft like every other derived step.
-    if (phase === "prompt_observations" && allowed != null && readingOnly) {
-      if (roomToRead()) { slices -= 1; await readAnswersBack(); } // no room is never a reason to buy a reading and strand it: the debt keeps its place and the pass advances on what it already knows
-      const next = nextPlanned(nextPhase(phase), allowed);
-      if (!await advancePhase(tenantId, run.id, ownerToken, { phase: next, progress, cursor: null })) return "lost_lease";
-      phase = next; cursor = null; continue;
+    // A BLOCKED PURCHASE LANE IS NOT A BLOCKED DAY, AND A DEBT OF READING IS NOT A DEBT OF BUYING. While answers already paid for sit unread the observation lane buys nothing at all, so this drive spends its reading slice
+    // HERE, in front of the phase and on the lease just renewed (a reading spends money), and only then asks the engines for whatever that reading cleared. The state is TYPED on the row, distinct from done and from
+    // failure, so a later reader can tell a lane waiting on reading from a day that is finished. Once per drive, and fail-soft like every other derived step: no room to store a reading is never a reason to buy one.
+    if (phase === "prompt_observations" && readFirst) {
+      readFirst = false;
+      progress = { ...progress, ...(lane ? { observations: { ...lane, done: work.checks.done, total: work.checks.total } } : { observations: undefined }) };
+      if (roomToRead()) { slices -= 1; await readAnswersBack(); }
+      log.info("[research-run] answers already paid for were read before any were bought", { tenantId, lane: lane?.state ?? "clear", unread: lane?.unread ?? null, read: progress.funnel?.answersAnalyzed ?? 0 });
+      if (allowed != null && readingOnly) {
+        const next = nextPlanned(nextPhase(phase), allowed);
+        if (!await advancePhase(tenantId, run.id, ownerToken, { phase: next, progress, cursor: null })) return "lost_lease";
+        phase = next; cursor = null; continue; }
+      if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return "lost_lease";
     }
 
     // Every funnel unit runs under the account's CURRENT basis; a change in website/profile/goal mints a new basis and strands prior derived state. PUBLISHING NEEDS THAT BASIS TOO, because a run resumed straight at publish_surface would otherwise reach the staleness check and the release build with a basis nobody could read. NO BASIS, NO WORK OF ANY KIND: a basis I cannot read PAUSES this same phase before reconciliation, before any focus, unit, provider call, website fetch or surface write, so surfacePublished is never set and the release already saved stays visible. The retry re-resolves the basis, reconciles, then freezes, and it re-runs no completed evidence phase to get there.
@@ -337,20 +358,35 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
           log.info("[research-run] the spending cap ended paid evidence for today; the free phases continue", { tenantId, from: phase, to: past });
           if (!await advancePhase(tenantId, run.id, ownerToken, { phase: past, progress, cursor: null })) return "lost_lease";
           phase = past; cursor = null; continue; }
+        if (phase === "prompt_observations" && unit.status === "failed") { laneUnreadable(unit.detail ?? DAY_UNREADABLE); const past = allowed ? nextPlanned(nextPhase(phase), allowed) : nextPhase(phase); // ONE LANE NEVER CLOSES THE DAY (operator, 2026-09-02)
+          log.info("[research-run] today's AI checks could not be planned, so the lane is filed as unreadable and the rest of the day runs now", { tenantId, to: past, detail: (unit.detail ?? "").slice(0, 120) });
+          if (!await advancePhase(tenantId, run.id, ownerToken, { phase: past, progress, cursor: null })) return "lost_lease";
+          phase = past; cursor = null; continue; }
         return pause(unit.status === "waiting" ? null : { phase, message: (unit.detail ?? "evidence step could not finish").slice(0, 300), at: nowFn().toISOString() });
       }
       // THE BATCH IS NOT THE DAY. The unit answers for the window it was handed; the DAY is what the operator was promised, so a settled window RE-READS the canonical planner before this phase may move on. Unreadable pauses fail-closed, anything still owed keeps this same phase under a renewed lease, and only settled == intended advances, carrying the whole day's breakdown so completion reports the day and never the last batch.
       if (phase === "prompt_observations") {
         const day = await steps.dayStanding(tenantId, run.cycle_key.slice(-10)).catch(() => null);
-        if (day == null) return pause({ phase, message: DAY_UNREADABLE, at: nowFn().toISOString() });
+        if (day == null) { laneUnreadable(DAY_UNREADABLE); const past = allowed ? nextPlanned(nextPhase(phase), allowed) : nextPhase(phase); // the standing could not be re-read: the lane is filed, the day is not
+          if (!await advancePhase(tenantId, run.id, ownerToken, { phase: past, progress, cursor: null })) return "lost_lease";
+          phase = past; cursor = null; continue; }
+        // THE LANE'S STATE IS RE-READ AND RE-STAMPED EVERY ROUND, WHICH IS WHAT CLEARS IT: a backlog that drained below the bound leaves the field absent rather than a stale claim that reading is still blocking.
+        lane = laneOf(day.readingBacklog);
         progress = { ...progress, state: { ...progress.state, checksDone: day.done, checksTotal: day.total,
-          checksAnswers: day.answers, checksUnavailable: day.unavailable, checksUnsupported: day.unsupported } };
+          checksAnswers: day.answers, checksUnavailable: day.unavailable, checksUnsupported: day.unsupported },
+          observations: lane ? { ...lane, done: day.done, total: day.total } : undefined };
         if (day.done < day.total) {
-          // The ceiling is the number of rounds, so the round that REACHES it is the last: `>` let a thirteenth window through.
-          if ((windows += 1) >= MAX_DAY_WINDOWS) return pause({ phase, at: nowFn().toISOString(),
-            message: `I ran ${MAX_DAY_WINDOWS} rounds of checks on this pass and ${day.total - day.done} of today's ${day.total} AI checks are still owed. I will pick the rest up on the next pass.` });
-          if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: unitCursor })) return "lost_lease";
-          cursor = unitCursor; continue; }
+          // A ROUND THAT MOVED NOTHING IS A BLOCKED LANE, NEVER A ROUND TO REPEAT. A blocked purchase lane hands the unit an empty window, the unit reads an empty window as finished, and the day still owes 140: bounded
+          // at twelve rounds that spent the whole drive on the database and then PAUSED THE RUN, so the results pages, the winner reads, the verification, the measurement, the decision and the publication behind this
+          // phase never ran at all, all day. The lane yields instead. Its debt is untouched and re-enters on the next drive; the rest of today happens now.
+          const moved = day.done > lastDone; // MONOTONE: only a rising settled count earns another round, so a flapping meter cannot chain rounds and the loop ends within the day's own total
+          lastDone = day.done;
+          if (moved) { if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: unitCursor })) return "lost_lease";
+            cursor = unitCursor; continue; }
+          const past = allowed ? nextPlanned(nextPhase(phase), allowed) : nextPhase(phase);
+          log.info("[research-run] today's checks are waiting on something this drive cannot move, so the rest of the day runs now", { tenantId, done: day.done, total: day.total, lane: lane?.state ?? "clear", to: past });
+          if (!await advancePhase(tenantId, run.id, ownerToken, { phase: past, progress, cursor: null })) return "lost_lease";
+          phase = past; cursor = null; continue; }
       }
       const collected = phase === "prompt_observations", nextAfterFunnel = nextPhase(phase); // done, and the day agrees: on to the next phase
       if (!await advancePhase(tenantId, run.id, ownerToken, { phase: nextAfterFunnel, progress, cursor: null })) return "lost_lease";

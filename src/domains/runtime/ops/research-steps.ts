@@ -43,6 +43,8 @@ const BENIGN_BACKFILL_SKIPS = new Set(["not_started", "already_complete", "no_sy
  *  nothing would find it. The window MOVES now, by a deterministic offset off the clock in id order, wrapping at the end of the fleet, so consecutive dispatches walk the whole list whatever its size with no cursor to persist, no
  *  fleet held in memory and no second scheduler. Still bounded: this is a recovery sweep, not a fleet scan. */
 const RECOVERY_PROBE_ACCOUNTS = 20, PROBE_ROTATION_MS = 3_600_000, FREE_COLLECT_PER_RUN = 5;
+/** How many banked claims one drive derives missing source support for, at $0 and from quotes already on file. Bounded because it is a backfill of standing inventory, not the pass's own work. */
+const SUPPORT_BACKFILL_PER_DRIVE = 12;
 /** The refresh_sources phase outcome: how many sources were attempted, the identities of the ones that actually synced, and the bounded per-source failure detail for the rest. `succeeded` is a list of provider identities (not a
  *  count) so retries can UNION distinct successes rather than double-count them. */
 type RefreshSourcesResult = { attempted: number; succeeded: string[]; failures: Array<{ provider: string; detail: string }> };
@@ -275,7 +277,8 @@ export const defaultSteps: ResearchCycleSteps = {
     return (await continueColdStartCrawlIfStarted(tenantId, deps)).crawled
       + await renderUnreadOwnedPages(tenantId).catch(() => 0); },
   async dayStanding(tenantId, day) { const c = await dailyChecks(tenantId, day);
-    return c == null ? null : { done: c.done, total: c.total, answers: c.answers, unavailable: c.unavailable, unsupported: c.unsupported }; },
+    return c == null ? null : { done: c.done, total: c.total, answers: c.answers, unavailable: c.unavailable, unsupported: c.unsupported,
+      ...(c.readingBacklog !== undefined ? { readingBacklog: c.readingBacklog } : {}) }; },
   // THE DAY THE FLEET CLAIM CANNOT SEE. claim_due_research_work excludes an account the moment ANY run completed today, so a pass that settled its batch and left the day short is owed nothing further and the rest of the day never happens. This is the free question that finds those accounts, and it asks ONE canonical question: due-work, the same planner every other door consults. It used to ask only whether today's AI observations were short, so an account whose answers were all collected but whose website was two hundred pages unread, whose bought answers nobody had read closely, whose promised evidence date had arrived or whose release was never published looked finished and was never opened again that day. FREE either way (every read is a lean projection of state on file), and A READ THAT FAILED IS NOT AN EMPTY FLEET, so it THROWS rather than answering with a list: empty now means a read that succeeded and proved nobody was left.
   async strandedToday(nowMs) {
     const active = () => getSupabaseAdmin().from("tenants").select("id", { count: "exact" }).eq("status", "active").not("research_paused", "is", true).order("id", { ascending: true });
@@ -500,6 +503,18 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
           return text.trim() ? { text, title: parsed?.title ?? null } : { hold: "refused" as const }; // the FETCHED document's own title rides along: it identifies the subject of an anaphoric passage, which a SERP title or slug never can
         },
       });
+      // AND THE SUPPORT ARTIFACT EVERY BANKED SOURCE OWES, DERIVED AT $0 AND BOUNDED PER DRIVE. Nothing in the runtime ever ran this, so 1,023 of 1,194 banked sources carry no artifact at all and not one of the rows they
+      // back may be spent on a correction: evidence this account already paid for, sitting unusable. Deterministic derivation from the quote ALREADY ON FILE only, so no search, no fetch and no cent; a claim its own
+      // quote genuinely cannot carry is banked unsupported with its reason rather than reopened, because reopening buys fresh research and this is the free half. Fail-soft: it never decides the phase's own answer.
+      const owedSupport = held.filter((h) => h.state === "checked" && h.sources.some((s) => s.says.trim() !== "" && s.support == null)).slice(0, SUPPORT_BACKFILL_PER_DRIVE);
+      if (owedSupport.length > 0 && Date.now() < deadlineAt) {
+        const { backfillClaimSupport } = await import("@/domains/evidence/pages/claim-support");
+        const page = new Map<string, ReturnType<typeof facts.readFactChecks>>(); // one read per PAGE, not per claim: a page's rows answer every target on it
+        const banked = await backfillClaimSupport(tenantId, owedSupport.map((h) => ({ page: h.page, statementKey: h.statementKey, onUnsupported: "bank" as const })),
+          { rows: (p) => { const held0 = page.get(p) ?? facts.readFactChecks(tenantId, p); page.set(p, held0); return held0; },
+            rebank: (p, rows) => facts.recordFactChecks(tenantId, p, rows), reopen: (p, rows) => facts.reopenObsoleteChecks(tenantId, p, rows) }).catch(() => []);
+        log.info("[research-steps] source support derived for claims already paid for", { tenantId, asked: owedSupport.length, supported: banked.filter((o) => o.action === "banked_supported").length });
+      }
       return { status: out.status, banked: out.banked, pagesComplete: out.pagesComplete, failure: out.failure, reason: out.reason };
     } catch (e) {
       log.warn("[research-steps] the fact check could not run this pass", { tenantId, error: e instanceof Error ? e.message : String(e) });

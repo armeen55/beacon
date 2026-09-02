@@ -124,6 +124,19 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
     const spent = store.peek("ts", BASIS)!.cycle.spentUsd, ceiling = 120 * 0.0021 + 5 * 0.01; // the widest cycle this unit can buy, in reserved dollars
     expect([posts, aiMode, out.status]).toEqual([36, 5, "done"]); // thirty six first-party searches in one pass, where the flat stop bought twelve
     expect([spent <= ceiling, ceiling <= 3.0]).toEqual([true, true]); }); // the whole allowance is a tenth of the funnel's day, so the raise is never what stops a cycle
+  /** WHAT A BOUGHT RESULTS PAGE ACTUALLY CARRIES. The request buys twenty results and DataForSEO bills per ten of them, so slicing at ten paid for half a page and threw it away, and with it every owned position past nine.
+   *  The block list, the answer box and the PAA answering domain arrive in that same payload and were dropped or written as null. The AI Overview is an empty asynchronous stub unless `load_async_ai_overview` is sent
+   *  ($0.0006, refunded where there is no async overview), so it rides only the searches an open investigation or a funded row actually named and never the broad discovery agenda. */
+  it("keeps every row, feature and answering domain the look paid for, and asks for the AI Overview only on a search that was named", async () => {
+    const store = memStore(retainedState([])); const asked: Record<string, unknown>[] = [];
+    const full: ParsedSerp = { ...serp(Array.from({ length: 20 }, (_v, i) => ({ rank: i + 1, domain: `d${i}.com`, url: `https://d${i}.com/x`, title: `T${i}` }))),
+      itemTypes: ["organic", "featured_snippet", "people_also_ask"], featuredSnippet: { url: "https://d0.com/x", domain: "d0.com", title: "T0" },
+      paaQuestions: [{ question: "who wins this", answeringDomain: "d3.com" }], aiOverview: { present: true, references: [], excerpt: "the overview's own words" } };
+    await serpAnalysisUnit({ ...store.deps, ...serpBase, loadPageQueries: async () => [{ query: "quiet search", impressions: 900 }],
+      callProvider: async (_c: CapabilityKey, input) => (asked.push(input as Record<string, unknown>), ok(full)) }, ["named search"])("ts", cur(), 60_000);
+    const named = store.peek("ts", BASIS)!.serps.queries.find((q) => q.query === "named search")!;
+    expect([named.organic!.length, named.featured?.domain, named.paa![0]!.answeringDomain, named.aiOverviewText, named.itemTypes]).toEqual([20, "d0.com", "d3.com", "the overview's own words", ["organic", "featured_snippet", "people_also_ask"]]);
+    expect(asked.filter((a) => a.loadAiOverview === true).map((a) => a.keyword), "the quiet discovery search pays nothing extra").toEqual(["named search"]); });
   it("refuses a results page for a search other than the one asked, names both words, and keeps it out of the evidence", async () => { const store = memStore(retainedState([])); const said: string[] = []; const spy = vi.spyOn(console, "warn").mockImplementation((...a: unknown[]) => void said.push(String(a[0])));
     const answered = { ...serp([{ rank: 1, domain: "a.com", url: "https://a.com/x", title: "A" }]), tasks: [{ result: [{ keyword: "a different search entirely" }] }] }; // the provider echoes the keyword it actually ran on its own result block
     const out = await serpAnalysisUnit({ ...store.deps, ...serpBase, loadPageQueries: async () => [{ query: "boys baby names", impressions: 900 }], callProvider: async () => ok(answered) })("ts", cur(), 60_000); spy.mockRestore(); const st = store.peek("ts", BASIS)!;

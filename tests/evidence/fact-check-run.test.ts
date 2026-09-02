@@ -128,6 +128,13 @@ describe("every failure is typed and leaves the claim owed", () => { beforeEach(
     expect((await unit({ read: async () => ({ hold: "capped" as const }) })).failure).toBe("extraction_capped"); // nothing inventoried yet
     expect(db.rows).toHaveLength(0); // none of them banked anything
   });
+  /** THE JUDGE READS THE PASSAGE AROUND THE SUBJECT, never the first 6,000 characters of a long reference page: a subject discussed further down reached the judge in an excerpt that never named it, so a source that
+   *  genuinely answers the claim could clear nothing. The opening still stands where the subject is absent or already inside it. */
+  it("hands the judge the words around the subject when the source discusses it past the opening", async () => {
+    const filler = "unrelated preamble words ".repeat(400), text = `${filler}Afsaneh. ${PASSAGE}${filler}`; // the defining sentence sits 10,000 characters in
+    let asked = ""; const read = async (i: { system: string; user: string }) => { const claims = i.system.startsWith("You read one web page"); if (!claims) asked = i.user; return { value: (claims ? CLAIMS : CONFIRMS) as Record<string, unknown> }; };
+    await unit({ held: [row({ statementKey: "k1" })], read, fetchSource: async () => ({ text }) });
+    expect([asked.includes(PASSAGE), asked.includes("Afsaneh."), asked.length < text.length]).toEqual([true, true, true]); });
   it("only an EMPTY results page is none_found; results that fail the policy leave the claim owed", async () => {
     const held = [row({ statementKey: "k1" })]; // a page of results none of which clears the policy is unresolved, never an empty world
     const bad = await unit({ held, searchSources: async () => ({ organic: [{ domain: "babynames.example", url: "https://babynames.example/x", title: "x" }] }) });

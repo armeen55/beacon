@@ -60,6 +60,11 @@ export type ResearchRunProgress = {
   /** THE DAY THIS RUN COULD NOT BUY A CASE'S COMPETING DOMAINS because the spending ceiling was reached, and which cases those were. Day-scoped like the extra-sample grant, so it clears by rollover and the case receipt
    *  says "capped" about the pass that was actually capped, not about every pass since. */
   capped?: { day: string; caseIds: string[] };
+  /** THE OBSERVATION LANE'S OWN TYPED STATE, which is neither done nor failed: `reading_backlog` says the buying stopped because answers already paid for are waiting to be read and carries the count that proves it,
+   *  `reading_unreadable` says how far behind the reading is could not be counted at all, which is unknown and never a truthful zero. Without a word for either, a blocked lane reached the drive as an empty window, read
+   *  as a finished day beside a count that still owed 140, and the drive spent twelve rounds on it before pausing the whole run. IT CLEARS: absent means the lane was measured and is not blocked, so a drained backlog
+   *  leaves no stale claim behind. `unread` is null exactly when the state is `reading_unreadable`. */
+  observations?: { state: "reading_backlog" | "reading_unreadable"; unread: number | null; done: number; total: number };
   observationRetries?: { day: string; counts: Record<string, number> }; // how many times each broken question and engine pair has been asked AGAIN today (daily-observations owns the rule); day-scoped and inherited exactly like the markers above, so a provider that refuses one engine all day is not re-bought on every pass forever
   /** The watermark the LAST decide-and-publish pass ran against: which basis, and which version of the research notes. Notes that moved past it are new evidence, which is what makes a second pass on the same day
    *  legitimate instead of redundant. */

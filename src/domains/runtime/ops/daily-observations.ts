@@ -4,22 +4,17 @@ import "server-only";
  * daily-observations - WHAT I ASK THE AI ENGINES TODAY, and what I do with the
  * answers that come back (V1 Truth Convergence Phase 1, 2026-07-31).
  *
- * THE ONE CANONICAL SAMPLE. A tracked question on one engine gets exactly ONE reading per reporting day, and that reading is slot 0.
- * That is the whole trend: one point per question, per engine, per day, so a chart of "how often did the engines name me" compares
- * like with like. Slots 1 and 2 exist for the days an operator wants to see how much an engine wobbles and are NEVER planned
- * automatically, because an unasked second read triples the bill and reweights the average toward whichever question got sampled
- * more. They come only from an explicit ask, only after slot 0 is complete, and never past three.
+ * THE ONE CANONICAL SAMPLE. A tracked question on one engine gets exactly ONE reading per reporting day, and that reading is slot 0. That is the whole trend: one point per question, per engine, per day, so a chart of
+ * "how often did the engines name me" compares like with like. Slots 1 and 2 exist for the days an operator wants to see how much an engine wobbles and are NEVER planned automatically, because an unasked second read
+ * triples the bill and reweights the average toward whichever question got sampled more. They come only from an explicit ask, only after slot 0 is complete, and never past three.
  *
- * THE REPORTING DAY IS THE OPERATOR'S DAY (Pacific, src/lib/reporting-day.ts): the day the person reading Beacon is actually in, and
- * the day Search Console reports on. It is handed IN by the caller and stored verbatim on every row, so a run and its observations
- * can never disagree about which day they belong to. A MISSED DAY IS GONE and nothing here backfills: if the run never reached a
- * question on Tuesday, Tuesday has no point for it and Wednesday asks about Wednesday, because a hole filled later would put a
- * number on the chart at a date it was never true.
+ * THE REPORTING DAY IS THE OPERATOR'S DAY (Pacific, src/lib/reporting-day.ts): the day the person reading Beacon is actually in, and the day Search Console reports on. It is handed IN by the caller and stored verbatim
+ * on every row, so a run and its observations can never disagree about which day they belong to. A MISSED DAY IS GONE and nothing here backfills: if the run never reached a question on Tuesday, Tuesday has no point
+ * for it and Wednesday asks about Wednesday, because a hole filled later would put a number on the chart at a date it was never true.
  *
- * A PAIR'S DAY ENDS ONE OF FOUR WAYS and the row says which: `observed` (the answer is in), `unavailable` (the engine had nothing
- * readable to give today), `unsupported` (I cannot ask this engine at all) or `failed` with its retries spent, which I settle to
- * `unavailable` keeping the provider's own reason. The planner reads all four as finished, because a row that only ever says
- * "failed" reads as owed on every look and was re-bought on every pass forever.
+ * A PAIR'S DAY ENDS ONE OF FOUR WAYS and the row says which: `observed` (the answer is in), `unavailable` (the engine had nothing readable to give today), `unsupported` (the engine cannot be asked at all) or `failed`
+ * with its retries spent, which settles to `unavailable` keeping the provider's own reason. The planner reads all four as finished, because a row that only ever says "failed" reads as owed on every look and was
+ * re-bought on every pass forever.
  *
  * IDENTITY IS (prompt id, VERSION, engine, day). A wording edit, an engine-set change, an add or a revival bumps the version in
  * prompt-set.ts, so from that day on the question is a NEW series and yesterday's readings are never mixed into it. That is why a
@@ -66,14 +61,10 @@ const pairKey = (promptId: string, version: number, engine: string): string => `
 const retryKey = (o: { promptId: string; version: number; engine: string; slot: number }): string =>
   `${pairKey(o.promptId, o.version, o.engine)}|${o.slot}`;
 
-/** IS THIS PAIR'S DAY OVER, on the evidence of the row itself? THE ONE PREDICATE, asked by the planner to
- *  decide what is still owed AND by the count to decide what has landed. Two answers to that one question is
- *  exactly how a finished day came to read 139 of 140 forever: the plan knew an honestly unavailable pair was
- *  over, the count only ever accepted an answer, and Today kept asking after nothing was left to ask.
- *  observed = the answer is in. unavailable = the engine had nothing readable to give, and a second ask today
- *  buys the same nothing. unsupported = I cannot ask at all. failed = the provider broke, which IS worth
- *  asking again, but only while the day's retry budget lasts. pending = an ask already in flight, which the
- *  next pass collects for free and therefore must stay in the plan. */
+/** IS THIS PAIR'S DAY OVER, on the evidence of the row itself? THE ONE PREDICATE, asked by the planner to decide what is still owed AND by the count to decide what has landed. Two answers to that one question is
+ *  exactly how a finished day came to read 139 of 140 forever: the plan knew an honestly unavailable pair was over, the count only ever accepted an answer, and Today kept asking after nothing was left to ask.
+ *  observed = the answer is in. unavailable = the engine had nothing readable to give, and a second ask today buys the same nothing. unsupported = it cannot be asked at all. failed = the provider broke, which IS
+ *  worth asking again, but only while the day's retry budget lasts. pending = an ask already in flight, which the next pass collects for free and therefore must stay in the plan. */
 function settledForDay(row: ObservedSample, retriesSpent: number): boolean {
   if (row.status === "observed" || row.status === "unavailable" || row.status === "unsupported") return true;
   return row.status === "failed" && retriesSpent >= FAILED_RETRIES_PER_DAY;}
@@ -175,10 +166,6 @@ export function planObservations(day: string, input: ObservationPlanInput): DueO
     promptId: c.prompt.id, version: c.prompt.version, text: c.prompt.text, engine: c.engine, slot: c.slot, day,}));
 }
 
-/** PURE. Is one MORE reading legitimate today, and what would it be. Refuses while today's one canonical
- *  round is unfinished (an extra read of a few questions before every question has one would tilt the day's
- *  average toward whichever ones got sampled twice), and refuses once every pair has three.
- *  `input.extraSamples` is what was ALREADY granted today, so each press asks for exactly one more. */
 /** Answers on file carrying text nobody has analysed: one narrow count, no rows read. UNREAD_BACKLOG_MAX is how far the reading may fall behind before the buying stops, about one ordinary day of answers. */
 async function unreadAnswerCount(tenantId: string): Promise<number> {
   const { getSupabaseAdmin } = await import("@/lib/persistence/supabase");
@@ -187,7 +174,8 @@ async function unreadAnswerCount(tenantId: string): Promise<number> {
   if (error) throw new Error(error.message); return count ?? 0;
 }
 const UNREAD_BACKLOG_MAX = 200;
-
+/** PURE. Is one MORE reading legitimate today, and what would it be. Refuses while today's one canonical round is unfinished (an extra read of a few questions before every question has one would tilt the day's average
+ *  toward whichever ones got sampled twice), and refuses once every pair has three. `input.extraSamples` is what was ALREADY granted today, so each press asks for exactly one more. */
 export function extraSampleVerdict(day: string, input: ObservationPlanInput): { granted: boolean; reason: string; due: DueObservation[] } {
   const canonical = planObservations(day, { ...input, extraSamples: 0, maxBatch: Number.MAX_SAFE_INTEGER });
   if (canonical.length > 0) {
@@ -214,8 +202,7 @@ export type ExtraSampleGrant = { day: string; granted: number };
  *  rollover instead of by a cleanup nobody runs, and both are inherited by every pass that opens the same
  *  day (research-run carries them onto a new row), so a second pass never hands out a fresh allowance. */
 export type DayMarkers = { extraSamples?: ExtraSampleGrant;
-  /** `counts` is how many retries each broken pair has SPENT today; `askedAt` is the ask stamp each count
-   *  was last taken against, so a retry is spent when the provider was really asked again and never merely
+  /** `counts` is how many retries each broken pair has SPENT today; `askedAt` is the ask stamp each count was last taken against, so a retry is spent when the provider was really asked again and never merely
    *  because a plan named the pair. */
   observationRetries?: { day: string; counts: Record<string, number>; askedAt?: Record<string, string> } };
 /** How many pairs one day's retry ledger may name. Bounded so a broken provider cannot inflate a run row. */
@@ -279,7 +266,11 @@ async function evidenceObservations() {
 /** Today's canonical round as a count: how many pairs are SETTLED of how many are owed, and how the settled
  *  ones actually landed. `done` and `total` are what a surface shows; the three below are what makes a day
  *  that did not land 140 answers still readable as finished. */
-type DayChecks = { done: number; total: number; answers: number; unavailable: number; unsupported: number };
+type DayChecks = { done: number; total: number; answers: number; unavailable: number; unsupported: number;
+  /** HOW MANY ANSWERS ALREADY PAID FOR ARE WAITING TO BE READ, and only when that backlog is what stopped today's buying. ABSENT = the meter was read and the backlog is under the bound, so nothing is blocking. NULL = the
+   *  meter could not be read at all, which is UNKNOWN and never a truthful zero: a count nobody could take may not authorize a purchase. A blocked purchase lane used to reach a drive as an empty window, indistinguishable
+   *  from a finished day, so the drive asked again, and again, and finally stopped the whole run over a lane that needed reading and not money. Named here, the lane is a fact a drive can act on. */
+  readingBacklog?: number | null };
 
 /** PURE. Every (question, engine) pair that owes a reading today, and how many of them are settled, on the
  *  SAME predicate the planner uses. A pair whose retries ran out is bucketed the way spendFailureBudget is
@@ -343,9 +334,8 @@ async function readDayState(tenantId: string, day: string, opts: PlannerDeps): P
   const engines = opts.engines ?? await registryEngines();
   if (prompts.length === 0) return { prompts: [], observed: [], markers: null, engines };
   const readObservations = opts.readObservations ?? (async (t, o) => (await evidenceObservations()).readAiObservationViews(t, o));
-  // THE DAY IS NAMED, so the reader hands back the whole day instead of its newest page. An unnamed read
-  // defaults to 500 rows, and an account asking 35 questions of 4 engines writes more than that in a day:
-  // the planner was deciding what was still owed off a truncated day and re-buying what it could not see.
+  // THE DAY IS NAMED, so the reader hands back the whole day instead of its newest page. An unnamed read defaults to 500 rows, and an account asking 35 questions of 4 engines writes more than that in a day: the
+  // planner was deciding what was still owed off a truncated day and re-buying what it could not see.
   const observed = await readObservations(tenantId, { day }).catch(() => null);
   if (observed == null) {
     log.warn("[daily-observations] observation history unreadable; planning nothing this pass", { tenantId, day });
@@ -396,7 +386,13 @@ function planFrom(day: string, s: DayState, opts: PlannerDeps): DayChecks & { du
  */
 export async function dailyChecks(tenantId: string, reportingDay: string, opts: PlannerDeps = {}): Promise<(DayChecks & { due: DueObservation[] }) | null> {
   const state = await readDayState(tenantId, reportingDay, opts);
-  return state == null ? null : planFrom(reportingDay, state, opts);
+  if (state == null) return null;
+  const plan = planFrom(reportingDay, state, opts);
+  // AND WHETHER THE LANE IS BLOCKED ON READING RATHER THAN ON MONEY. The buying gate below refuses a whole day over an unread backlog; a day with nothing due is not blocked by anything, so it is never counted for. A
+  // count that could not be taken is NULL, never zero: the backlog is then unknown, and unknown may not authorize a purchase. Under the bound the field is ABSENT, which is what clears a lane that has drained.
+  if (plan.due.length === 0) return plan;
+  const behind = await (opts.unreadBacklog ?? unreadAnswerCount)(tenantId).catch(() => null);
+  return behind == null ? { ...plan, readingBacklog: null } : behind > UNREAD_BACKLOG_MAX ? { ...plan, readingBacklog: behind } : plan;
 }
 
 /**
@@ -406,8 +402,11 @@ export async function dailyChecks(tenantId: string, reportingDay: string, opts: 
  * spent stops saying "failed" on the row and says `unavailable`, with the provider's reason left in place.
  */
 export async function dueObservations(tenantId: string, reportingDay: string, opts: PlannerDeps = {}): Promise<DueObservation[] | null> {
-  // MONEY IS NOT SPENT ON A NEW ANSWER WHILE PAID ANSWERS SIT UNREAD, on the SCHEDULED path exactly as on the button: the extra-sample door got this refusal after 891 unread answers carrying $7.75 and the run path kept buying through it. Reading stays due (analyze_answers plans separately) so a backlog drains and sampling resumes on its own; a count that cannot be read fails open, because a broken meter must not stop the day's one canonical round.
-  const behind = await (opts.unreadBacklog ?? unreadAnswerCount)(tenantId).catch(() => 0);
+  // MONEY IS NOT SPENT ON A NEW ANSWER WHILE PAID ANSWERS SIT UNREAD, on the SCHEDULED path exactly as on the button: the extra-sample door got this refusal after 891 unread answers carrying $7.75 and the run path kept
+  // buying through it. Reading stays due (analyze_answers plans separately) so a backlog drains and sampling resumes on its own. AND A METER NOBODY COULD READ IS UNKNOWN, NEVER ZERO (operator, 2026-09-02): this used to
+  // fail OPEN so a broken count would not stop the canonical round, which is exactly the moment the protection cannot be measured and buying proceeded anyway. Unknown answers `null`, which asks nothing and spends nothing.
+  const behind = await (opts.unreadBacklog ?? unreadAnswerCount)(tenantId).catch(() => null);
+  if (behind == null) { log.warn("[daily-observations] how many paid answers are still unread could not be read, so nothing is bought against a guess", { tenantId }); return []; } // an EMPTY plan, never a failed day: the lane files as unreadable through dailyChecks and the rest of the day runs
   if (behind > UNREAD_BACKLOG_MAX) { log.info("[daily-observations] buying paused: paid answers are waiting to be read", { tenantId, unread: behind }); return []; }
   const state = await readDayState(tenantId, reportingDay, opts);
   if (state == null) return null;
@@ -485,7 +484,7 @@ export async function requestExtraSample(tenantId: string, day: string, opts: Pl
   // answers carrying $7.75 of paid text had never been analysed, every one of them dated 2026-08-16 or later,
   // and the button that buys more was still saying yes. Buying more of what nobody is reading is the one spend
   // this product can never justify, so the refusal names the backlog and the money rather than a policy.
-  const behind = await (opts.unreadBacklog ?? unreadAnswerCount)(tenantId).catch(() => null); // AND A METER THAT WILL NOT READ MAY NOT GRANT THE EXTRA: both gates treated a failed count as zero, so buying proceeded exactly when the protection could not be measured (Codex, 2026-08-28). The SCHEDULED round above keeps failing OPEN on purpose, because a broken meter must not stop the canonical day; this is the discretionary grant and it fails closed.
+  const behind = await (opts.unreadBacklog ?? unreadAnswerCount)(tenantId).catch(() => null); // AND A METER THAT WILL NOT READ MAY NOT GRANT THE EXTRA: both gates treated a failed count as zero, so buying proceeded exactly when the protection could not be measured (Codex, 2026-08-28). The SCHEDULED round above asks nothing while the meter is unreadable and files the lane as unreadable, so the canonical day goes on without buying; this discretionary grant fails closed too.
   if (behind == null) return { granted: false, due: [], reason: "how many paid answers are still unread could not be read, and an extra sample is not bought while that is unknown" };
   if (behind > UNREAD_BACKLOG_MAX) return { granted: false, due: [], reason: `${behind.toLocaleString("en-US")} answers already paid for are still waiting to be read, so no more are bought today. Reading those comes first, and the next fresh round starts once they are read.` };
   const grant = state.markers?.extraSamples;

@@ -67,11 +67,11 @@ describe("evidence - my own page's actual words, read narrowly", () => {
   const snapRow = (over: Record<string, unknown> = {}) => ({ tenant_id: T, url: "https://own.com/actors", title: "T", meta_description: "M", fetched_at: "2026-06-11T00:00:00.000Z",
     body_paragraph_sample: ["Iran has a deep film history."], card_texts: ["Card"], schema_entity_names: ["Person"], internal_links: [{ href: "/a", anchor_text: "A" }], ...over });
   const read = async (url = "https://own.com/actors") => (await loadOwnedPageBodies(T, [url])).get(url.replace("https://", ""))!;
-  it("reads only the asked tenant and the asked URLs, refuses a wider ask, fails closed to no bodies, and never passes headings off as body text", async () => {
+  it("reads only the asked tenant and the asked URLs, answers a wide ask page by page with a typed miss, fails closed to no bodies, and never passes headings off as body text", async () => {
     db.snaps = [snapRow(), snapRow({ url: "https://own.com/other" }), snapRow({ tenant_id: OTHER, title: "Not mine" })];
     expect([...(await loadOwnedPageBodies(T, ["https://own.com/actors"])).keys()]).toEqual(["own.com/actors"]); // a page I did not ask about, and an account not mine, are never keyed in
-    expect([(await loadOwnedPageBodies(T, ["a", "b", "c", "d", "e", "f", "g", "h"])).size, [...(await loadOwnedPageBodies(T, ["https://own.com/actors", "own.com/actors", "https://own.com/actors/"])).keys()]]).toEqual([0, ["own.com/actors"]]); // past the bound is refused, never fanned out; one page spelled three ways is ONE slot, never three
-    db.fails = true; expect((await loadOwnedPageBodies(T, ["https://own.com/actors"])).size).toBe(0); db.fails = false; // a broken read is never an empty page
+    const wide = new Map<string, "no_capture" | "read_failed">(); expect([(await loadOwnedPageBodies(T, ["a", "b", "c", "d", "e", "f", "g", "h"], wide)).size, wide.size, [...new Set(wide.values())], [...(await loadOwnedPageBodies(T, ["https://own.com/actors", "own.com/actors", "https://own.com/actors/"])).keys()]]).toEqual([0, 8, ["no_capture"], ["own.com/actors"]]); // eight pages asked past the old bound: eight typed answers, no cap
+    const broken = new Map<string, "no_capture" | "read_failed">(); db.fails = true; expect([(await loadOwnedPageBodies(T, ["https://own.com/actors"], broken)).size, [...broken.values()]]).toEqual([0, ["read_failed"]]); db.fails = false; // a broken read is never an empty page, and it says so
     db.snaps = [snapRow({ body_paragraph_sample: undefined, h2_list: ["Famous Actors"], card_texts: ["Golshifteh Farahani"] })];
     expect([(await read()).openingSample, (await read()).cardTexts]).toEqual([null, ["Golshifteh Farahani"]]); }); // no body text on file is said plainly, never filled in from labels
   it("holds the whole de-chromed page, hashes exactly the text it holds, and only then answers a whole-page question with no", async () => {

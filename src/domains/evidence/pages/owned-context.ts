@@ -9,10 +9,10 @@ import "server-only";
  * only the old bounded capture (20 paragraphs cut at 300 characters), and reads as `sample_only` forever,
  * because what is not in a sample is UNKNOWN, never absent.
  *
- * A wider ask is REFUSED rather than fanned out, and a failure fails closed to an EMPTY map, so a missing
- * body reads as "I do not have the page text", never as an empty page. WHOLE-PAGE JUDGEMENTS ARE IMPOSSIBLE
- * TO FAKE HERE: a diagnosis once judged what a page LACKS against a 1,200 character opening sample, so a
- * fact in paragraph nine read as missing. `pageContains` is the honest way to ask.
+ * A wider ask is PAGED rather than refused, every asked page gets an answer, and a page with no body says WHY
+ * (nothing on file, or a read that failed), so a missing body is never mistaken for an empty page. WHOLE-PAGE
+ * JUDGEMENTS ARE IMPOSSIBLE TO FAKE HERE: a diagnosis once judged what a page LACKS against a 1,200 character
+ * opening sample, so a fact in paragraph nine read as missing. `pageContains` is the honest way to ask.
  */
 
 import { log } from "@/lib/logger";
@@ -53,8 +53,7 @@ export type OwnedPageBody = {
   newestAt?: string | null;
 };
 
-/** ONE SPLIT'S OWN PAGES, WHOLE, and the page under work; a wider ask is refused outright because the
- *  whole-site read is too heavy. Sized to the ladder's MAX_SPLIT_PAGES plus the page under work. */
+/** ONE QUERY'S OWN WIDTH: one split's pages, whole, plus the page under work. Sized to the ladder's MAX_SPLIT_PAGES plus the page under work. It bounds a QUERY, never the caller's question: a wider ask is paged. */
 const MAX_URLS = 7;
 /** The byte ceiling on ONE page's held content: roughly four times the largest capture the crawler can
  *  produce, so it truncates nothing real today and still bounds this read if the capture grows. */
@@ -116,6 +115,7 @@ const items = (value: unknown, max: number, chars: number): string[] =>
 const wordsIn = (parts: readonly string[]): number =>
   parts.join(" ").split(/\s+/).filter(Boolean).length;
 
+/** The crawler now keeps list boundaries, so its own bullet is dropped here before anything is matched: what a page CONTAINS is exactly what it contained before the boundaries went in. */
 const norm = (s: string): string => s.toLowerCase().replace(/\s+/g, " ").trim();
 
 /** Every spelling of one page, so a stored trailing slash or a `www.` host cannot hide the row. Production
@@ -223,9 +223,13 @@ export function pageContains(page: OwnedPageBody | null | undefined, phrase: str
   return page.completeness === "complete" && (page.version ?? "current") === "current" ? "no" : "unknown";
 }
 
-/** The newest persisted content for each of `urls`, keyed by canonicalUrlKey. Scoped to `tenantId` in the
- *  query itself, never filtered after a wide read. An empty map means "I have no page text for you". */
-export async function loadOwnedPageBodies(tenantId: string, urls: string[]): Promise<Map<string, OwnedPageBody>> {
+/** The newest persisted content for each of `urls`, keyed by canonicalUrlKey. Scoped to `tenantId` in the query itself, never filtered after a wide read.
+ *
+ *  EVERY PAGE ASKED FOR GETS AN ANSWER, and the WIDTH BOUNDS ONE QUERY RATHER THAN THE QUESTION. A wider ask used to be refused outright and answered with an EMPTY map, which every reader downstream reads as "this page
+ *  has no text", so asking for eight pages made all eight look blank and a whole-page judgement was taken off nothing at all. The ask is PAGED now, with no ceiling on it, and a chunk that could not be read never erases
+ *  the chunks that did: what landed is returned. WHY A PAGE IS ABSENT IS TYPED rather than left to the caller to guess: pass `misses` and every asked key that produced no body lands in it as `no_capture` (nothing is on
+ *  file for that page) or `read_failed` (the store could not be read, so its content is UNKNOWN and never absent). An empty capture never overwrites a known body: pages/page-version decides which capture is the page. */
+export async function loadOwnedPageBodies(tenantId: string, urls: string[], misses?: Map<string, "no_capture" | "read_failed">): Promise<Map<string, OwnedPageBody>> {
   const out = new Map<string, OwnedPageBody>();
   // ONE PAGE IS ONE SLOT. The bound counted STRINGS, so an absolute address and its own canonical key spent two of
   // three slots on one page and a two-page split could tip a caller over the bound. Deduped on the key this reader
@@ -233,34 +237,34 @@ export async function loadOwnedPageBodies(tenantId: string, urls: string[]): Pro
   const seen = new Set<string>(), asked: string[] = [];
   for (const u of urls ?? []) { const s = typeof u === "string" ? u.trim() : "", k = s ? canonicalUrlKey(s) : ""; if (k && !seen.has(k)) { seen.add(k); asked.push(s); } }
   if (!tenantId?.trim() || asked.length === 0) return out;
-  if (asked.length > MAX_URLS) {
-    log.warn("[owned-context] refused a page-body read wider than its bound", { asked: asked.length, max: MAX_URLS });
-    return out;
-  }
   const wanted = new Set(asked.map(canonicalUrlKey).filter(Boolean));
-  try {
-    const { data, error } = await getSupabaseAdmin()
-      .from("page_snapshots").select(COLUMNS)
-      .eq("tenant_id", tenantId)
-      .in("url", variantsOf(asked))
-      .order("fetched_at", { ascending: false })
-      .limit(MAX_ROWS);
-    if (error) return out;
-    // ONE RULE FOR WHICH CAPTURE IS THE PAGE (pages/page-version), the same one the snapshot loader applies, so the
-    // writer and the diagnosis can never hold two different pages under one address.
-    const captures = new Map<string, Row[]>();
-    for (const row of (data ?? []) as Row[]) { const key = canonicalUrlKey(typeof row.url === "string" ? row.url : ""); if (key && wanted.has(key)) captures.set(key, [...(captures.get(key) ?? []), row]); }
-    for (const [key, rows] of captures) {
-      const v = selectPageVersion(rows, (r) => ({ fetchedAt: typeof r.fetched_at === "string" ? r.fetched_at : null, words: typeof r.word_count === "number" && r.word_count > 0 ? r.word_count : typeof r.body_text === "string" ? r.body_text.trim().split(/\s+/).filter(Boolean).length : 0, bodyHeld: typeof r.body_text === "string", certainty: typeof r.extraction_certainty === "string" ? r.extraction_certainty : null }));
-      if (!v.content) continue;
-      const body = bodyOf(v.content), newestAt = v.conflict && typeof (v.current as Row | null)?.fetched_at === "string" ? ((v.current as Row).fetched_at as string) : null;
-      out.set(key, { ...body, version: v.state, newestAt, ...(v.conflict ? { heldNote: `${body.heldNote} The newest read of this page, ${newestAt?.slice(0, 10) ?? "recently"}, captured no words; these are the words captured ${body.fetchedAt?.slice(0, 10) ?? "earlier"}. They prove what the page said then, never what it lacks now.` } : {}) });
+  const captures = new Map<string, Row[]>();
+  const failed = new Set<string>();
+  for (let at = 0; at < asked.length; at += MAX_URLS) {
+    const slice = asked.slice(at, at + MAX_URLS);
+    try {
+      const { data, error } = await getSupabaseAdmin()
+        .from("page_snapshots").select(COLUMNS)
+        .eq("tenant_id", tenantId)
+        .in("url", variantsOf(slice))
+        .order("fetched_at", { ascending: false })
+        .limit(MAX_ROWS);
+      if (error) throw new Error(error.message ?? String(error));
+      // ONE RULE FOR WHICH CAPTURE IS THE PAGE (pages/page-version), the same one the snapshot loader applies, so the writer and the diagnosis can never hold two different pages under one address.
+      for (const row of (data ?? []) as Row[]) { const key = canonicalUrlKey(typeof row.url === "string" ? row.url : ""); if (key && wanted.has(key)) captures.set(key, [...(captures.get(key) ?? []), row]); }
+    } catch (e) {
+      // THIS CHUNK ALONE IS UNKNOWN. Failing the whole read closed threw away pages that were genuinely in hand and told the caller they had no text, which is the very lie this reader exists to prevent.
+      for (const u of slice) failed.add(canonicalUrlKey(u));
+      log.warn("[owned-context] one page-body chunk could not be read; its pages are unknown and the rest still answer", { pages: slice.length, error: e instanceof Error ? e.message.slice(0, 200) : String(e) });
     }
-    return out;
-  } catch (e) {
-    log.warn("[owned-context] page-body read failed (fail-closed to no bodies)", {
-      error: e instanceof Error ? e.message.slice(0, 200) : String(e),
-    });
-    return new Map();
   }
+  for (const [key, rows] of captures) {
+    const v = selectPageVersion(rows, (r) => ({ fetchedAt: typeof r.fetched_at === "string" ? r.fetched_at : null, words: typeof r.word_count === "number" && r.word_count > 0 ? r.word_count : typeof r.body_text === "string" ? r.body_text.trim().split(/\s+/).filter(Boolean).length : 0, bodyHeld: typeof r.body_text === "string", certainty: typeof r.extraction_certainty === "string" ? r.extraction_certainty : null }));
+    if (!v.content) continue;
+    const body = bodyOf(v.content), newestAt = v.conflict && typeof (v.current as Row | null)?.fetched_at === "string" ? ((v.current as Row).fetched_at as string) : null;
+    out.set(key, { ...body, version: v.state, newestAt, ...(v.conflict ? { heldNote: `${body.heldNote} The newest read of this page, ${newestAt?.slice(0, 10) ?? "recently"}, captured no words; these are the words captured ${body.fetchedAt?.slice(0, 10) ?? "earlier"}. They prove what the page said then, never what it lacks now.` } : {}) });
+  }
+  // AND THE ASKED PAGES THAT PRODUCED NO BODY SAY WHY, one typed word each, so "nothing is on file" is never confused with "the store could not be read".
+  if (misses) for (const key of wanted) if (!out.has(key)) misses.set(key, failed.has(key) ? "read_failed" : "no_capture");
+  return out;
 }

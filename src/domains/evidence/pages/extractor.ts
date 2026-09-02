@@ -329,18 +329,16 @@ export function extractPageSnapshot(
   // shared menus never inflate the count, mask a thin page, or disturb the main $.
   const $wc = cheerioLoad($.html());
   $wc("nav, header, footer, aside, script, style, noscript, svg, iframe").remove();
-  const bodyText = $wc("body").text().replace(/\s+/g, " ").trim();
-  const wordCount = bodyText ? bodyText.split(/\s+/).length : 0;
+  // ONE FLAT TEXT, and the hash preimage every banked claim inventory and content hash was taken from: boundary markers were tried here (2026-09-02) and changed pageContains answers on minified markup and re-hashed every page, so they are not stored.
+  const flat = $wc("body").text().replace(/\s+/g, " ").trim();
+  const wordCount = flat ? flat.split(/\s+/).length : 0;
+  const bodyText = flat;
   // THE WHOLE PAGE, KEPT (2026-08-03). The 20x300-char paragraph sample could prove a phrase was
   // PRESENT and never that it was absent, so every whole-page judgement was unprovable. body_text
   // holds the same de-chromed text the word count is taken from, under one explicit ceiling, and
   // a cut is RECORDED rather than silently swallowed.
   const bodyTextHeld = bodyText.slice(0, BODY_TEXT_CEILING);
-  if (bodyText.length > BODY_TEXT_CEILING) {
-    structuralWarnings.push(
-      `body_text_truncated: kept the first ${BODY_TEXT_CEILING} characters of ${bodyText.length}`,
-    );
-  }
+  if (bodyText.length > BODY_TEXT_CEILING) structuralWarnings.push(`body_text_truncated: kept the first ${BODY_TEXT_CEILING} characters of ${bodyText.length}`);
 
   // ── Location + service terms (from business config or inline defaults) ──
   // The caller supplies the account's loaded BusinessProfile (async reads
@@ -348,8 +346,8 @@ export function extractPageSnapshot(
   // another business's vocabulary.
   const locationRegex = profile ? locationRegexFrom(profile) : /(?!)/g;
   const serviceRegex = profile ? serviceRegexFrom(profile) : /(?!)/g;
-  const locationTerms = extractTermsByPattern(bodyText, locationRegex);
-  const serviceTerms = extractTermsByPattern(bodyText, serviceRegex);
+  const locationTerms = extractTermsByPattern(flat, locationRegex);
+  const serviceTerms = extractTermsByPattern(flat, serviceRegex);
 
   // ── Canonical mismatch ──
   const hasCanonicalMismatch =

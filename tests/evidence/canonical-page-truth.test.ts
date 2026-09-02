@@ -1,8 +1,12 @@
 /** CANONICAL PAGE TRUTH (operator, 2026-09-01). Every reader chooses the same capture for a page: the newest confirmed body, never a newer blank over it, and a stale body proves presence but never a current absence. Live counterexample: /iranian-actors-actresses held a newer zero-word capture marked uncertain beside an older 921-word confirmed body, and the diagnosis read zero while the writer read 921. */
 import { describe, expect, it, vi } from "vitest";
 import { selectPageVersion } from "@/domains/evidence/pages/page-version";
-const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[] }));
-vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => { const q = { select: () => q, eq: () => q, in: () => q, order: () => q, limit: async () => ({ data: db.rows, error: null }) }; return { from: () => q }; } }));
+const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], calls: 0, failAfter: Infinity }));
+// The `in` list is HONOURED, so a paged read is a real paged read here: each query answers for its own chunk, and `failAfter` breaks one chunk while the others still land.
+vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => { let asked: string[] = [];
+  const q = { select: () => q, eq: () => q, in: (_c: string, list: string[]) => (asked = list, q), order: () => q,
+    limit: async () => (db.calls += 1) > db.failAfter ? { data: null, error: { message: "chunk down" } } : { data: db.rows.filter((r) => asked.includes(String(r.url))), error: null } };
+  return { from: () => q }; } }));
 import { loadOwnedPageBodies, pageContains } from "@/domains/evidence/pages/owned-context";
 const cap = (fetchedAt: string, words: number, certainty = "confirmed", bodyHeld = true) => ({ fetchedAt, words, bodyHeld, certainty });
 describe("one rule decides which capture is the page", () => {
@@ -19,4 +23,13 @@ describe("one rule decides which capture is the page", () => {
     expect([pageContains(page, "Golshifteh Farahani"), pageContains(page, "Navid Negahban")]).toEqual(["yes", "unknown"]);
     db.rows = [row("https://iranopedia.com/iran-flags/iran-islamic-republic-flag-history", "2026-08-29T20:51:00Z", "The flag adopted in 1980 carries the Takbir twenty-two times along the edges of the green and red bands.", 129, "confirmed")];
     const flag = (await loadOwnedPageBodies("t", ["https://iranopedia.com/iran-flags/iran-islamic-republic-flag-history"])).get("iranopedia.com/iran-flags/iran-islamic-republic-flag-history")!;
-    expect([flag.version, flag.completeness, pageContains(flag, "Takbir"), pageContains(flag, "Pahlavi")]).toEqual(["current", "complete", "yes", "no"]); }); });
+    expect([flag.version, flag.completeness, pageContains(flag, "Takbir"), pageContains(flag, "Pahlavi")]).toEqual(["current", "complete", "yes", "no"]);
+    // A NINE-PAGE ASK IS NINE PAGES, and a page with no body says WHY. Anything wider than one query's own width was REFUSED and answered with an EMPTY map, which every reader downstream reads as "this page has no text",
+    // so a split asking about eight pages made all eight look blank and a whole-page judgement was taken off nothing. The width bounds one query now, the ask is paged, and no chunk erases another.
+    db.rows = Array.from({ length: 9 }, (_v, i) => row(`https://iranopedia.com/p${i}`, "2026-08-30T22:00:00Z", `Page ${i} says something true about its own subject.`, 9, "confirmed"));
+    const urls = db.rows.map((r) => String(r.url)); db.calls = 0;
+    const misses = new Map<string, string>(); expect([(await loadOwnedPageBodies("t", [...urls, "https://iranopedia.com/never-crawled"], misses as Map<string, "no_capture" | "read_failed">)).size, [...misses]]).toEqual([9, [["iranopedia.com/never-crawled", "no_capture"]]]);
+    // AND A CHUNK THAT COULD NOT BE READ NEVER ERASES THE CHUNKS THAT DID: its own pages are UNKNOWN by name, and the pages already in hand still answer.
+    db.calls = 0; db.failAfter = 1; const broke = new Map<string, "no_capture" | "read_failed">();
+    const partial = await loadOwnedPageBodies("t", urls, broke); db.failAfter = Infinity;
+    expect([partial.size, [...broke.values()]]).toEqual([7, ["read_failed", "read_failed"]]); }); });

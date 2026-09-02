@@ -45,13 +45,11 @@ describe("recurrence is distinct days and assistants, never row totals", () => {
     const r = buildFanoutEvidence(rows, SITE).rows[0]!; expect(r.ownPages).toEqual([{ url: "https://own.example/haft-seen", cited: 0, retrieved: 3, retrievedNotCited: 3 }]);
     expect([r.rivalPages.length, r.rivalPagesTotal]).toEqual([5, 7]); // five shown, seven said out loud
     expect(r.observationIdsTruncated).toBe(false);});
-  it("never merges two models or two modes into one instrument", () => {
-    const rows = [obs({ observationId: "m1", modelServed: "gpt-5", observationMode: "web" }),
-      obs({ observationId: "m2", reportingDay: "2026-08-02", modelServed: "gpt-5.1", observationMode: "web" })];
-    const r = buildFanoutEvidence(rows, SITE).rows[0]!; expect(r.models.map((m) => m.modelServed)).toEqual(["gpt-5", "gpt-5.1"]);});
-  it("never lists the tracked question itself as a search the assistant thought of", () => {
-    const echo = obs({ fanOutQueries: ["Where to buy a haft seen set?", "haft seen set delivery"] }); const rows = buildFanoutEvidence([echo], SITE).rows;
-    expect(rows.map((r) => r.query)).toEqual(["haft seen set delivery"]);});});
+  it("never merges two models or two modes into one instrument, and never lists the tracked question itself as a search the assistant thought of", () => {
+    const rows = [obs({ observationId: "m1", modelServed: "gpt-5", observationMode: "web" }), obs({ observationId: "m2", reportingDay: "2026-08-02", modelServed: "gpt-5.1", observationMode: "web" })];
+    expect(buildFanoutEvidence(rows, SITE).rows[0]!.models.map((m) => m.modelServed)).toEqual(["gpt-5", "gpt-5.1"]);
+    const echo = obs({ fanOutQueries: ["Where to buy a haft seen set?", "haft seen set delivery"] });
+    expect(buildFanoutEvidence([echo], SITE).rows.map((r) => r.query)).toEqual(["haft seen set delivery"]);});});
 describe("where the site stood is five different worlds, with an honest denominator", () => {
   it("says cited, read and passed over, never you, not credited, or unreported, off the same rows Visibility renders", () => {
     const cited = obs({ citations: [{ url: "https://own.example/haft-seen", domain: "own.example" }] }); expect(buildFanoutEvidence([cited], SITE).rows[0]!.ownState).toBe("cited");

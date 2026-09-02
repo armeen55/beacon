@@ -28,19 +28,13 @@ describe("per-account LLM budget isolation", () => {
     DURABLE.clear();
     durableWrites.length = 0;
     readCalls.length = 0;});
-  it("account A's file-layer spend never changes account B's remaining budget", async () => {
-    await recordSpend(74.99, { tenantId: A }); const a = await checkBudget({ tenantId: A, projectedCostUsd: 0.02 });
-    const b = await checkBudget({ tenantId: B, projectedCostUsd: 0.02 });
-    expect(a.allowed).toBe(false); // A is at its own cap, whatever that cap currently is
-    expect(b).toEqual({ allowed: true, remaining: 75 }); // B untouched
-  });
-  it("recording spend for A writes A's ledgers only, and B stays uncapped on the durable layer too", async () => {
-    DURABLE.set(A, 75); // A's durable monthly spend at cap
-    const a = await checkBudget({ tenantId: A }); const b = await checkBudget({ tenantId: B });
-    expect(a.allowed).toBe(false); expect(b.allowed).toBe(true);
-    await recordSpend(0.5, { tenantId: B }); expect(durableWrites).toEqual([{ tenantId: B, costUsd: 0.5 }]);
-    expect(FILE_ROWS.has(A)).toBe(false); // A's file ledger untouched by B's spend
-  });
+  it("account A's spend never changes account B's remaining budget, on the file layer or the durable one, and writes only A's own ledgers", async () => {
+    await recordSpend(74.99, { tenantId: A });
+    expect([(await checkBudget({ tenantId: A, projectedCostUsd: 0.02 })).allowed, await checkBudget({ tenantId: B, projectedCostUsd: 0.02 })]).toEqual([false, { allowed: true, remaining: 75 }]); // A is at its own cap, whatever that cap currently is; B untouched
+    FILE_ROWS.clear(); durableWrites.length = 0; DURABLE.set(A, 75); // A's DURABLE monthly spend at cap, with nothing on its file layer
+    expect([(await checkBudget({ tenantId: A })).allowed, (await checkBudget({ tenantId: B })).allowed]).toEqual([false, true]);
+    await recordSpend(0.5, { tenantId: B });
+    expect([durableWrites, FILE_ROWS.has(A)]).toEqual([[{ tenantId: B, costUsd: 0.5 }], false]); }); // A's file ledger untouched by B's spend
   it("same-account max(file, durable) and the exact-cap boundary are unchanged", async () => {
     DURABLE.set(A, 4);
     await recordSpend(6, { tenantId: A }); // file 6, durable(mock) 4 → effective 6... plus durable write

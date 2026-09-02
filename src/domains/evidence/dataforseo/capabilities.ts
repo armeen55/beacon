@@ -104,7 +104,9 @@ function serpEntry<K extends "serp_organic" | "serp_ai_mode">(base: string, estC
   return {
     ttlMs: 1 * DAY, estCostUsd, dims: { device: true, model: false },
     route: () => ({ mode: "task", postPath: `${base}/task_post`, getPath: (id) => `${base}/task_get/advanced/${id}`, tasksReady: `${base}/tasks_ready` }),
-    build: (i) => [{ keyword: i.keyword, location_code: LOCATION_US, language_code: LANG_EN, device: i.device ?? "desktop", ...(depth ? { depth: (i as { depth?: number }).depth ?? depth } : {}) }],
+    build: (i) => [{ keyword: i.keyword, location_code: LOCATION_US, language_code: LANG_EN, device: i.device ?? "desktop", ...(depth ? { depth: (i as { depth?: number }).depth ?? depth } : {}),
+      // THE OVERVIEW IS ASYNCHRONOUS UNLESS IT IS ASKED FOR. Without this flag the ai_overview block comes back an empty stub, so the reference list and the text it cites were never in the payload at all.
+      ...((i as { loadAiOverview?: boolean }).loadAiOverview ? { load_async_ai_overview: true } : {}) }],
     parse: parseSerp,
   };
 }
@@ -380,19 +382,26 @@ function parseSerpCompetitors(env: ProviderEnvelope): ParsedByCapability["labs_s
   })).filter((c) => c.domain.length > 0);
 }
 function parseSerp(env: ProviderEnvelope): ParsedSerp {
-  const { items } = resultBlock(env);
+  const { result0, items } = resultBlock(env);
   const sub = (t: string): Record<string, unknown>[] => { const b = items.find((i) => i.type === t); return Array.isArray(b?.items) ? (b!.items as Record<string, unknown>[]) : []; };
   const organic = items.filter((i) => i.type === "organic").map((i) => ({ // rank_group IS the organic position; rank_absolute counts ads and packs, so it read result 1 as "#2"
     rank: Number(i.rank_group ?? i.rank_absolute ?? 0), domain: String(i.domain ?? ""), url: String(i.url ?? ""), title: str(i.title),
   }));
-  const paaQuestions = sub("people_also_ask").map((el) => ({ question: String(el.title ?? ""), answeringDomain: null as string | null })).filter((q) => q.question.length > 0);
+  // WHAT THE PAGE IS SHAPED LIKE, and WHO HOLDS ITS ANSWER BOX. Both are in every payload already bought; the parser simply dropped them, so nothing downstream could see that a search HAS a featured snippet, let alone
+  // whose page fills it. A PAYLOAD THAT NEVER LISTED ITS BLOCKS PROVES NO ABSENCE: item_types reads null there, and the snippet is left ABSENT rather than reported as a page that has none.
+  const itemTypes = Array.isArray(result0?.item_types) ? (result0!.item_types as unknown[]).map((t) => String(t)).filter(Boolean) : null;
+  const snip = items.find((i) => i.type === "featured_snippet");
+  const featuredSnippet = snip ? { url: String(snip.url ?? ""), domain: String(snip.domain ?? hostname(String(snip.url ?? ""))), title: str(snip.title) } : itemTypes == null ? undefined : null;
+  // WHOSE PAGE ANSWERS THE FOLLOW-UP QUESTION, off the expanded element the provider sends inside each row (docs: serp/google/organic task_get/advanced, people_also_ask_expanded_element). It was written as null on every row.
+  const paaQuestions = sub("people_also_ask").map((el) => { const ex = (Array.isArray(el.expanded_element) ? (el.expanded_element as Record<string, unknown>[]) : [])[0];
+    const url = String(ex?.url ?? ""); return { question: String(el.title ?? ""), answeringDomain: str(ex?.domain) ?? (url ? hostname(url) : null) }; }).filter((q) => q.question.length > 0);
   const relatedSearches = sub("related_searches").map((s) => String(s)).filter((s) => s.length > 0);
   const inner = sub("ai_overview");
   const references = inner.flatMap((el) => (Array.isArray(el.references) ? (el.references as Record<string, unknown>[]) : []))
     .map((r) => { const url = String(r.url ?? ""); return { url, domain: String(r.domain ?? hostname(url)), title: str(r.title) }; }).filter((r) => r.url.length > 0);
   const excerpt = inner.map((el) => str(el.text) ?? str(el.markdown)).find((t) => t != null) ?? null;
   const aiOverview = items.some((i) => i.type === "ai_overview") ? { present: true, references, excerpt } : null;
-  return { organic, aiOverview, paaQuestions, relatedSearches };
+  return { organic, aiOverview, paaQuestions, relatedSearches, itemTypes, ...(featuredSnippet === undefined ? {} : { featuredSnippet }) };
 }
 function parseLlmAnswer(env: ProviderEnvelope): ParsedAiAnswer {
   const { result0, items } = resultBlock(env);
