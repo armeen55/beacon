@@ -31,8 +31,7 @@ describe("every material search the assistants ran terminates somewhere a person
     const c = resolveFanoutCase(rowOf(recurring()), { pageUrl: "https://own.example/haft-seen", refused: false }, { googleDemand: true }); expect(c.state).toBe("actionable");
     expect(c.reason).toContain("people ask Google the same thing");});
   it("stages a search that already reads a page here as liftability, not discoverability", () => {
-    const c = resolveFanoutCase(rowOf(recurring({ retrievedResults: [OWN] })), { pageUrl: OWN.url, refused: false }); expect(c.stage).toBe("owned_retrieved_not_cited");
-    expect(c.reason).toContain("read for it and passed over");});
+    const c = resolveFanoutCase(rowOf(recurring({ retrievedResults: [OWN] })), { pageUrl: OWN.url, refused: false }); expect(c.stage).toBe("owned_retrieved_not_cited"); expect(c.reason).toContain("read for it and passed over");});
   it("degrades a reading claim to a reliance claim where no instrument reports retrieval", () => {
     const responses = ["2026-08-01", "2026-08-02", "2026-08-03"].map((reportingDay, i) =>
       obs({ reportingDay, engine: i === 0 ? "claude" : "perplexity", observationMode: "standardized_response" }));

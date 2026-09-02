@@ -12,7 +12,7 @@ import type { CauseFinding } from "@/domains/decision/diagnosis";
 import { actionFamilyOf } from "../proposal-store";
 import { pageUnderstanding, sectionFit } from "./page-job";
 /** `headline` IS the card's action line: it names the page, the thing to do and the number behind it, so the queue reads as work without being opened. Never "update the section to sharpen it", which says nothing. */
-export type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1" | "section"; headline: string; /** For an internal link: the destination path, typed rather than left inside the instruction prose. */ linkTo?: string;
+export type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1" | "section" | "answer_block"; headline: string; /** For an internal link: the destination path, typed rather than left inside the instruction prose. */ linkTo?: string;
   query: string; before: string | null; after: string; why: string; steps: string[]; hints: string[];
   minutes: number; confidence: ChangeProposal["confidence"]; limitation: string;
   /** HOW MANY STORED ROWS ARE BEHIND THIS CARD, which used to be the hint count: three on every card this file writes, on three stored answers or thirty. `impact` is the clicks this page is measurably leaving behind. */
@@ -32,8 +32,6 @@ export type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1
    *  question's stored answers credit rivals and never this site: that is a citation gap by name, and the card
    *  says so in the same currency the boundary and the ranking read everywhere else. */
   cause?: CauseFinding };
-/** A page worth linking to sits inside striking distance and is genuinely being seen; under THIN_WORDS a page is a stub to a reader and to Google. TOP_PAGES_PER_CLASS pages per defect get a card, one page at a time. */
-export const MAX_PER_PRODUCER = Number.MAX_SAFE_INTEGER; // the count meter is DELETED (operator, 2026-08-30, "i dont want any limits"): every card that clears its own evidence gates mints; money and the day bound the paid work behind them
 const THIN_WORDS = 200, TOP_PAGES_PER_CLASS = 3; // NEAR_MISS_MIN, NEAR_MISS_MAX and MIN_IMPRESSIONS lived here too, exported and imported by nothing: `producers/extra` declares its own. Deleted rather than left to read as a shared bound.
 /** THE PAGES AN ESSAY NEVER GOES ON: the home page, and the shop rails. A storefront answers with products, so "add a section answering this question" there is work nobody would ever publish. */
 export const STOREFRONT = /(^|[/-])(explore|shop|store|categor(y|ies)|collections?|product|cart|checkout)([/-]|$)/i;

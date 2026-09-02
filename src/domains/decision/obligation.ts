@@ -68,6 +68,7 @@ export function nextObligation(p: ChangeProposal): Obligation | null {
   if (p.obligation?.kind === "terminal") return p.obligation;
   const hold = openHold(p);
   if (hold.safetyHold) return { kind: "operator", decision: "safety_confirmation" };
+  if (p.researchOnly === true && p.obligation?.kind === "evidence") return p.obligation; // A TYPED READING ON A RESEARCH ROW SURVIVES THE SAVE (reviewer, 2026-09-02): every research row answered `draft` here, so the capture, the source and the split reading a pass had just worked out were overwritten at the store door, the runtime bought none of them, and the row was refused again at $0 on the next pass for ever. Only the row's own last pass writes this field, so honouring it is honouring that pass, not guessing; when the reading lands, the same pass recomputes it and either clears it or hires the writer.
   const gaps = deliverableGaps(p), unwritten = gaps.some((g) => UNWRITTEN.test(g)), owed = owedSections(gaps);
   if (p.recommendedChange.kind === "new_page") {
     if (unwritten || owed > 0) return { kind: "sections", owed: Math.max(owed, 1) };

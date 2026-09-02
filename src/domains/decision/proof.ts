@@ -155,12 +155,15 @@ export const CAUSE_LEVERS: Record<CauseFinding["cause"], ReadonlySet<BundleCompo
   cannibalization: new Set(["consolidation", "canonical", "redirect", "noindex", "internal_link_remove", "internal_links"]),
   ctr_snippet: new Set(["title", "meta", "h1", "anchor_text"]),
   competitor_content_gap: new Set(["section_add", "entity_expansion", "full_rewrite", "table_or_list_add", "new_page", "section"]),
-  incomplete_coverage: new Set(["section_add", "entity_expansion", "table_or_list_add", "full_rewrite", "new_page", "section"]),
+  incomplete_coverage: new Set(["section_add", "entity_expansion", "table_or_list_add", "full_rewrite", "new_page", "section", "opening_answer"]),
   weak_opening: new Set(["opening_answer", "h1", "paragraph_correction", "restructure"]),
   serp_shape_shift: new Set(["restructure", "table_or_list_add", "schema", "section_rewrite", "opening_answer", "section"]),
   intent_shift: new Set(["full_rewrite", "restructure", "section_rewrite", "title", "new_page", "section"]),
   // `section` belongs in these three for the same reason the older seven kinds do: a section is what a producer
   // here actually mints, and leaving it out refused the very cards that answer an engine citing everybody else.
+  // AND `opening_answer` BELONGS TO INCOMPLETE COVERAGE for that same reason (operator, 2026-09-02): the answer
+  // block a page owes for a search it already earns and never answers is a section that leads with the answer,
+  // and without it the boundary withheld every one of them as a lever that does not treat the coverage it closes.
   internal_link_weakness: new Set(["internal_link_add", "anchor_text", "navigation", "internal_link_remove", "internal_links", "section"]),
   ai_citation_gap: new Set(["source_update", "factual_correction", "entity_expansion", "schema", "opening_answer", "source_pack", "section"]),
   retrieved_not_cited: new Set(["opening_answer", "table_or_list_add", "schema", "source_update", "entity_expansion", "source_pack", "section"]),

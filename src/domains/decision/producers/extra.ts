@@ -10,16 +10,17 @@ import { readFactChecks } from "@/domains/evidence/pages/fact-checks";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence, type OwnedQuerySignal } from "@/domains/evidence/snapshot";
 import { defaultExpectedCtrAt, type TenantCtrCurve } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import type { ChangeProposal } from "@/domains/decision/contracts";
-import type { CauseFinding } from "@/domains/decision/diagnosis";
+import { substantiveGapOf, type CauseFinding } from "@/domains/decision/diagnosis";
 import type { CanonicalDemandUnit } from "@/domains/evidence/demand-units";
 import { actionFamilyOf, loadChangeProposals } from "../proposal-store";
 import { mutationFootprint } from "../mutation-footprint";
-import { placementCandidatesOf, winnersCover } from "../drafted-copy";
+import { RECEIPT } from "../diagnose";
+import { demandOf, placementCandidatesOf, winnersCover } from "../drafted-copy";
 import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { selectPageVersion } from "@/domains/evidence/pages/page-version";
 // THE SHARED PRIMITIVES live in page-fit now: two producers answer "which page of this account is this search
 // FOR" and one copy of that answer is the whole point of the split.
-import { count, labelOf, MAX_PER_PRODUCER, mint, pageWords, pathOf, plain,
+import { count, labelOf, mint, pageWords, pathOf, plain,
   STOREFRONT, subjectWords, type Draft, type Understanding } from "./page-fit";
 
 // WHAT ONLY THIS FILE USES STAYS IN THIS FILE. The split exists so two producers share ONE answer to "which
@@ -130,7 +131,6 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
       minutes: 5, confidence: "medium", refs: linksByPage.size + 1,
       limitation: "The link list comes from the last stored read of this page, so a link added since then is not counted here.",
     }); }
-    if (out.length >= MAX_PER_PRODUCER) break; // unreachable: the meter is deleted and stays only as a runaway guard
   }
   return { drafts: out, complete: true };
 }
@@ -263,6 +263,24 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   }
   return out;
 }
+/** 4. THE SEARCH THIS PAGE ALREADY EARNS AND NEVER ANSWERS (operator, 2026-09-02). The largest opportunities on a live account are questions Google already sends a page and the page does not answer: 29,965 impressions on a flag page that never says "before", 3,502 asking which animal is Iran's national one. No cause payload names one, so no producer minted a body card for them and they never entered the paid plan at all. THE GAP READER DECIDES, NOT THIS FILE: the page's own demand is built by the one shared reading and typed by `substantiveGapOf`, so the search this card is minted on is the same search the writer is later refused or hired for, and the shape gate, the absent-word gate, the vocabulary refusal and the ownership ruling are asked once, in one place. NOTHING IS BOUGHT HERE: with no body in hand the reading is capture-first by construction, so every card lands as research owing one typed step. */
+function unansweredCards(snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], expectedCtrAt: (position: number) => number): Draft[] {
+  const out: Draft[] = []; for (const p of pages) { const path = pathOf(p.url); if (path === "/" || STOREFRONT.test(path)) continue; // an essay never goes on the home page or a shop rail, the same rule every other body card here obeys
+    const rows = (p.search?.topQueries ?? []).filter((q) => q.impressions >= MIN_IMPRESSIONS); if (rows.length === 0) continue; // a handful of impressions is not a missing answer, it is noise, and this file's own floor decides which searches are worth acting on
+    const gap = substantiveGapOf({}, { ...demandOf(p, null, [], null, "", snapshot), rows: rows.map((q) => ({ query: q.query, impressions: q.impressions })) });
+    if (gap?.kind !== "missing_answer" || !gap.query || gap.impressions == null) continue; // a split this page does not own, a vocabulary gap and a page that answers everything it is shown for all land here as nothing
+    const q = gap.query, seen = count(gap.impressions, "search", "searches"), row = rows.find((r) => canonicalQueryKey(r.query) === canonicalQueryKey(q));
+    const impact = row?.position == null ? null : Math.max(0, Math.round((expectedCtrAt(row.position) - Math.min(1, row.clicks / Math.max(1, row.impressions))) * gap.impressions)); // the same curve, the same arithmetic and the same unit as every other card here, run on the whole demand behind the missing answer rather than on one of the ways it is asked
+    out.push({ page: p, slug: "missing_answer", field: "answer_block", query: q, asked: q, treatment: "add_answer_section",
+      headline: `Answer "${q}" on ${path}: ${seen} in 90 days and the page never says it`,
+      before: null, after: `One section on ${path} that answers "${q}" for a reader who asked exactly that, in this page's own voice.`, why: `${seen} in 90 days put ${path} in front of people asking "${q}", and nothing in this page's own words answers it.`,
+      steps: [`Open your site editor on ${path}`, "Add the section above where a reader asking this would look for it", "Come back here and mark it done, and measurement starts"],
+      hints: [`"${q}" is worth ${seen} in 90 days on ${path}`, `Nothing in this page's stored title, headings or copy answers "${q}"`],
+      minutes: 30, confidence: "medium", refs: 2, impact, demand: p.search?.impressions90d ?? null, limitation: "The absence is read off this page's own stored words as last captured, and the whole page is read again before a word is written, so a passage that already answers this settles the card instead of adding a second answer.",
+      next: "The page's own words are read first, then a source for the answer, and the exact copy lands here once one is on file.",
+      cause: { cause: "incomplete_coverage", action: "opening_answer", evidenceKeys: [RECEIPT.gsc], competingExplanations: [], notConsidered: [], explanation: `Google shows ${path} to ${seen} in 90 days for "${q}" and the page's own stored words never answer it.`,
+        falsifier: `If this page's stored copy turns out to answer "${q}" once the whole page is read, there is no missing answer here.` } }); }
+  return out; }
 /** Every extra card this account's stored evidence already supports, at `needs_review`, deduplicated against the queue it holds. Never throws: a source that will not read narrows the answer instead of failing the pass. */
 export async function extraQueueCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date;
   /** THE PASS'S AEO DIAGNOSIS PURSE. Absent means an UNFUNDED caller, so nothing is bought and every case stays owed. */
@@ -279,7 +297,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   const expectedCtrAt = input.curve?.expectedCtrAt ?? defaultExpectedCtrAt;
   // WHICH SOURCE EACH FAMILY IS JUDGED ON. The two answer producers read stored AI answers and nothing else, so an answer read that failed must not let the sweep retire their cards as ones nobody re-emitted.
   const answersRead = snapshot.sources.some((s) => s.source === "native_ai" && s.status === "fresh");
-  const DEFECTS = ["missing_description", "duplicate_heading", "thin_page"];
+  const DEFECTS = ["missing_description", "duplicate_heading", "thin_page", "missing_answer"];
   const pages = snapshot.ownedPages.filter((p) => !!p.content);
   // NOTHING TO READ IS NOT A FINISHED PASS. These producers rewrite their families in full and the sweep behind them retires only what a FINISHED producer no longer stands behind, so a pass that read nothing says so.
   if (pages.length === 0) return { cards: [], complete: false, families: [], held: [], needsOwnPage: [] };
@@ -314,7 +332,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
     .then((m) => m.loadGscQueryUniverse(tenantId, now)).catch(() => null);
   const cases = await aiCaseCards(bank, snapshot, pages, weak, earned, children, u, tenantId, input.units ?? [], windowObs, now, input.persist !== false, meter, universe?.keys ?? null);
   const drafts = [...cases.drafts,
-    ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt)];
+    ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt), ...unansweredCards(snapshot, pages, expectedCtrAt)]; // LAST, so an AI case about the same question keeps it: one question is one card
   const out: ChangeProposal[] = [];
   // ONE QUESTION, ONE CARD: the answer an engine wrote and the follow-up search it ran to write it are one question, so only the strongest reading of it is filed.
   const answered = new Set<string>();

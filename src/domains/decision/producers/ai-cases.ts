@@ -15,7 +15,7 @@ import { sectionFit } from "./page-job";
 import { DIAGNOSIS_CONTRACT, freshDiagnosis, TREATMENT_FOR_KIND, readAiCaseDispositions, recordAiCaseDispositions, type AeoGapDiagnosis, type AiCaseDisposition, type AiCaseState } from "../ai-case-store";
 import { callStructuredLLM } from "../llm/structured-drafter";
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
-import { askable, bestPageFor, count, MAX_PER_PRODUCER, noteNeedsOwnPage, pageWords, pathOf, plain,
+import { askable, bestPageFor, count, noteNeedsOwnPage, pageWords, pathOf, plain,
   STOREFRONT, subjectWords, type Draft, type Fit, type Understanding } from "./page-fit";
 
 /** WHERE A SEARCH ENDS UP AS FAR AS THE EVIDENCE ALONE CAN SAY. The vocabulary is the store's (ai-case-store) and is not spelled a second time here: two names for one set of states is the same defect this closure exists to remove. `held` and the landing states below need facts only a producer pass holds. */
@@ -345,7 +345,6 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
     if (!gate.hire) holdIds.add(`${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap`);
     notePrompt(g, "actionable", `Rivals are credited on this question and this site is not. A change is open for it on ${path}.`,
       { pageUrl: match.page.url, stage, proposalId: `${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap`, ...(gate.diagnosis ? { diagnosis: gate.diagnosis } : {}) });
-    if (out.length >= MAX_PER_PRODUCER) break;
   }
 
   // ── SECOND SOURCE: THE SEARCHES THE ASSISTANTS RAN THEMSELVES. Classification is deliberately unbounded (bounding it abandons the fourth strongest search in silence); only paid drafting is bounded, where the money is spent. A cluster whose page already carries a card MERGES into it (operator, 2026-08-19).
