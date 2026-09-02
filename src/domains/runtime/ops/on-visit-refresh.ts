@@ -295,7 +295,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
           // work while its acquisition is IN FLIGHT, and leaving it there after the reading LANDED handed the very
           // next drive to unrelated candidates while the newly-informed page waited another day. Its key comes off
           // the retry list for this same-turn draft, so it ranks by its own impact again.
-          const cur = progress.replenish?.day === day ? progress.replenish : null; // THE MEMORY IS RE-READ PER READING (reviewer, 2026-09-02): eight readings in one drive against one stale binding lost up to seven spends
+          if (!await renewLease(tenantId, run.id, ownerToken, attemptCursor)) return "lost_lease"; /* AND THE REDRAFT BEHIND THE READING RE-PROVES IT AGAIN (live 2026-09-02): a 99 s reading followed by a 205 s redraft outlived the lease renewed before the reading, and the redraft's receipts and day memory were lost */ const cur = progress.replenish?.day === day ? progress.replenish : null; // THE MEMORY IS RE-READ PER READING (reviewer, 2026-09-02): eight readings in one drive against one stale binding lost up to seven spends
           const again = await steps.replenishReady(tenantId, nowFn(), { fingerprint: cur?.fingerprint ?? null, attempted: cur?.attempted ?? [], tried: (cur?.tried ?? []).filter((k) => k !== need.key), spent: cur?.spent ?? {}, settled: cur?.settled ?? [] },
             nowFn().getTime() + Math.min(deadline - nowFn().getTime(), REPLENISH_BOX_MS) - STOP_STARTING_MS).catch(() => null);
           if (again) { r = again;
