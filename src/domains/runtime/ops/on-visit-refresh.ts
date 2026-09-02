@@ -153,8 +153,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
   let lane = laneOf(work.checks.readingBacklog);
   // THE STAMP IS REFRESHED FROM TODAY'S STANDING THE MOMENT A DRIVE OPENS, whatever phase it resumes into, so a lane that drained while the run sat past its phase leaves no stale claim behind.
   progress = { ...progress, ...(lane ? { observations: { ...lane, done: work.checks.done, total: work.checks.total } } : { observations: undefined }) };
-  /** THE LANE FILES AS UNREADABLE AND THE DAY GOES ON: a question list or an answer store nobody could read is one lane's debt, never a reason to hold verification, measurement, the decision pass and the publication behind it. */
-  const laneUnreadable = (why: string): void => { progress = { ...progress, state: { ...progress.state, blocker: why.slice(0, 300) }, observations: { state: "reading_unreadable", unread: null, done: work.checks.done, total: work.checks.total } }; };
+  /** THE LANE FILES AS UNREADABLE AND THE DAY GOES ON: a question list or an answer store nobody could read is one lane's debt, never a reason to hold verification, measurement, the decision pass and the publication behind it. */ const laneUnreadable = (why: string): void => { progress = { ...progress, state: { ...progress.state, blocker: why.slice(0, 300) }, observations: { state: "reading_unreadable", unread: null, done: work.checks.done, total: work.checks.total } }; };
   let readFirst = lane != null || planUnits.includes("analyze_answers");
   /** A pass opened for a READING ALONE still asks no engine anything: nothing else on its plan is an observation, so there is nothing here to buy. */
   const readingOnly = planUnits.includes("analyze_answers") && !planUnits.includes("daily_observations");
@@ -184,8 +183,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
   const MAX_CRAWL_ROUNDS = 4; let crawlRounds = 0;
   const REPLENISH_MIN_MS = 45_000, REPLENISH_RESERVE_MS = 60_000, REPLENISH_BOX_MS = 240_000, LEASE_REPROVE_AFTER_MS = 1_000, STOP_STARTING_MS = 40_000, OWED_PER_DRIVE = 8;
   /** THE RECEIPTS THAT SPENT ARE THE DAY'S RECEIPTS (operator, 2026-09-02): a later $0 produce in the same day filed every funded key as not reached and wrote that over the paid pass's real outcomes, so a pass that made no call keeps the receipts already on the row. */
-  type Outcomes = NonNullable<ResearchRunProgress["replenish"]>["outcomes"]; const calls = (o: Outcomes): number => ((o?.receipts ?? []) as { providerCalls?: number }[]).reduce((n, r) => n + (r.providerCalls ?? 0), 0);
-  const keepOutcomes = (next: Outcomes): Outcomes => { const prev = progress.replenish?.outcomes; return next && (calls(next) > 0 || !prev) ? next : prev; };
+  type Outcomes = NonNullable<ResearchRunProgress["replenish"]>["outcomes"]; const calls = (o: Outcomes): number => ((o?.receipts ?? []) as { providerCalls?: number }[]).reduce((n, r) => n + (r.providerCalls ?? 0), 0); const keepOutcomes = (next: Outcomes): Outcomes => { const prev = progress.replenish?.outcomes; return next && (calls(next) > 0 || !prev) ? next : prev; };
   // MIN gates entry, RESERVE stays banked for the phases behind, BOX bounds the wait, and STOP_STARTING is the margin the pass keeps back so whatever it starts can finish and be filed. Ninety-five seconds (one reasoning call's TIMEOUT FLOOR) proved far too cautious: it is a ceiling, not a typical latency, and reserving it left a 150-second runway with fifty-five usable seconds, so nothing was ever started. Forty-five covers a normal call; a rare one that runs to its floor gets cut off, and a cut-off is safe now because the receipt says not_reached and settles nothing.
   let replenished = false; // one inventory check per DAY before the first exploratory phase
   while (phase !== "done") {
@@ -246,12 +244,14 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       replenished = true;
       const day = run.cycle_key.slice(-10), mem = progress.replenish?.day === day ? progress.replenish : null;
       // A DRIVE TOPPING UP A SHORT STOCK BANKS NO RESERVE. The reserve exists for the phases BEHIND this one, and inventory comes before acquisition anyway: if the top-up uses the drive, those phases resume on the next dispatch, which is exactly what pausing is for. Measured live at 22:30Z: a 150-second runway less a 95-second margin left FIFTY-FIVE seconds to start any paid work, the free producers ate them, and every funded candidate came back not_reached. The stock got nothing while the drive was nominally spent on it.
-      const shortStock = (work?.due ?? []).includes("replenish_ready");
-      const runway = deadline - nowFn().getTime() - (stockOnly || shortStock ? 0 : REPLENISH_RESERVE_MS);
-      let answered = false, r: Awaited<ReturnType<ResearchCycleSteps["replenishReady"]>> = null;
+      const shortStock = (work?.due ?? []).includes("replenish_ready"); let answered = false, r: Awaited<ReturnType<ResearchCycleSteps["replenishReady"]>> = null;
       // WHAT WAS ALREADY PAID FOR IS FINISHED FIRST, AND IT IS FREE (falsifier, 2026-09-02): posted provider tasks are charged at post and collected with a GET, and the only collector ran on a scheduler tick that never fires while hosting is paused, so results pages this account had already bought sat pending for days and every gate asking for one answered no. GET only, nothing posted, bounded, and before a cent of drafting is funded.
       const collected = deadline - nowFn().getTime() > 5_000 ? await steps.collectBought(Math.min(45_000, deadline - nowFn().getTime())).catch(() => null) : null; // below the floor the collect is skipped, never clamped up past the deadline (reviewer, 2026-09-02)
       if (collected) progress = { ...progress, collected };
+      { let left = [...(progress.evidenceOwed ?? [])]; const began0 = nowFn().getTime(); let bought = 0; // OWED READINGS BEFORE THE WALK (operator, 2026-09-02): the walk spends the whole box, so the exact readings earlier passes were refused for never got their turn (36 rows owed a results page while two cycles bought none); a bounded slice is bought first, and the walk that follows drafts against what landed
+        for (const need of left.slice(0, OWED_PER_DRIVE)) { if (nowFn().getTime() - began0 > 90_000 || deadline - nowFn().getTime() < STOP_STARTING_MS + REPLENISH_MIN_MS) break; const got = await steps.acquireEvidence(tenantId, need, basis || null, Math.max(20_000, Math.min(60_000, deadline - nowFn().getTime() - STOP_STARTING_MS))).catch(() => ({ acquired: false, detail: "the acquisition threw" })); bought += 1; log.info("[research-run] a reading owed from an earlier pass, bought before the walk", { tenantId, key: need.key, kind: need.kind, query: need.query, acquired: got.acquired, detail: got.detail }); if (got.acquired) left = left.filter((n) => n.key !== need.key); }
+        if (bought > 0) progress = { ...progress, evidenceOwed: left }; }
+      const runway = deadline - nowFn().getTime() - (stockOnly || shortStock ? 0 : REPLENISH_RESERVE_MS);
       if (runway > REPLENISH_MIN_MS) {
         const began = nowFn().getTime();
         // BOXED IS NOT THE SAME AS ANSWERED NOTHING. A step that ran and came back empty-handed HAD its chance, and the drive may go on; one the box cut off never got to look, and that is the case that must not turn into buying instead.
