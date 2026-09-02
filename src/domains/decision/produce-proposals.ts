@@ -500,7 +500,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     await runUnitsFor(f); }
   await flushEditor();
   // A CARD THE MONEY DID NOT REACH IS STILL THIS PASS'S CARD (reviewer and live cohort, 2026-09-02): the old editor run returned every eligible card, drafted or not, and the pass re-emitted them all, so the sweep never mistook an unfunded brief for one its producer abandoned. The walk runs only funded keys, so the eligible cards it never reached are re-emitted here, unchanged, before the sweep reads the pass.
-  for (const c of eligible) { if (settledIds.has(c.id) || proposals.some((p) => p.id === c.id)) continue; const p = { ...c, ...(basis ? { basis } : {}) }; putProposal(p); await persistIfChanged(p); }
+  { const done = (r: ChangeProposal): boolean => r.status === "ready" && r.researchOnly !== true, coveredNow = new Set(proposals.filter(done).map(keyOfRow)); // the same coverage rule the editor run applies: a card a finished change already covers is held, never re-emitted
+    for (const c of eligible) { if (settledIds.has(c.id) || coveredNow.has(keyOfRow(c)) || proposals.some((p) => p.id === c.id)) continue; const p = { ...c, ...(basis ? { basis } : {}) }; putProposal(p); await persistIfChanged(p); } }
   if (quietDay) { log.info("[produce-proposals] nothing earned an action this pass", { tenantId, judged: candidates.length, watching: candidates.filter((c) => c.action === "watch").length + consolidating, researching: investigating });
     for (const c of extra.cards) { // A QUIET DAY STILL JUDGES THE AI CASES: returning before the $0 queue left the case file empty forever on a paused quiet account (first canonical $0 acceptance run, 2026-08-21).
       if (!(await admit(c))) continue; const p = { ...c, ...(basis ? { basis } : {}) };
