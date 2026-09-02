@@ -11,7 +11,7 @@ import { landsLabel, type ShipmentPresentation } from "./results-presentation";
 import { RESULT_LINES } from "./results-lines";
 import { pageLabel } from "../changes/types";
 
-const { groupFor, happenedLine, judgedOnAi, liftLabel, liveConfirmed, rowState, stateWord } = RESULT_LINES;
+const { groupFor, happenedLine, isRetired, judgedOnAi, liftLabel, liveConfirmed, rowState, stateWord } = RESULT_LINES;
 type ResultState = ReturnType<typeof rowState>;
 type Metric = ShipmentPresentation["read"]["metric"];
 /** THE CONFIDENCE CONTRACT, STATED AND DESCRIPTIVE (operator, 2026-09-01): no magic five, and no probability either. A fair-coin
@@ -145,7 +145,9 @@ export function buildResultsBrain(shipments: ReadonlyArray<ShipmentPresentation>
   // WHAT CHANGED RECENTLY IS A DIFFERENCE BETWEEN TWO BELIEFS, not a count of rows: the same model is asked what it believed two weeks ago,
   // with every read that closed since then still open, and each thought whose confidence moved is named. The closes are the second sentence.
   const cutoff = now.getTime() - 14 * 86_400_000, closedSince = (p: ShipmentPresentation): boolean => isMature(p.read.basisDay) && [...p.read.windows].some((w) => w.state === "closed" && w.closesOn != null && Date.parse(w.closesOn) > cutoff);
-  const recent = shipments.filter(closedSince), earlier = shipments.map((p) => closedSince(p) ? { ...p, read: { ...p.read, basisDay: null, verdict: "waiting" as const, lift: 0 } } : p);
+  // A RETIRED RECOMMENDATION IS HISTORY, NOT NEWS: a read that closed under advice Beacon has since taken back is not part of
+  // "what finished in the last two weeks", and it may not be the thing the operator is sent to go and publish.
+  const recent = shipments.filter((p) => closedSince(p) && !isRetired(p)), earlier = shipments.map((p) => closedSince(p) ? { ...p, read: { ...p.read, basisDay: null, verdict: "waiting" as const, lift: 0 } } : p);
   const then = new Map([...byFamily.keys()].map((f) => [f ?? "unsigned", thoughtOf(f, earlier.filter((p) => familyOf(p) === f), new Date(cutoff), []).confidence] as const));
   const moved = thoughts.filter((t) => then.get(t.key) !== t.confidence).map((t) => `${t.name}: ${CONF_LABEL[then.get(t.key) ?? "none"]} two weeks ago, ${CONF_LABEL[t.confidence]} now`);
   const ahead = recent.filter((p) => direction(p) === "ahead").length, behind = recent.filter((p) => direction(p) === "behind").length, hist = recent.filter((p) => HISTORICAL.has(rowState(p))).length;
@@ -153,7 +155,7 @@ export function buildResultsBrain(shipments: ReadonlyArray<ShipmentPresentation>
   const changed = recent.length === 0 ? null : `${moved.length > 0 ? `${moved.join("; ")}. ` : "No belief moved in the last two weeks. "}${plural(recent.length, "read")} finished in that time: ${split}${hist === recent.length ? ", all of them historical" : hist > 0 ? `, ${hist} of them historical` : ""}.`;
   const soonest = shipments.map((p) => p.read.windows.find((w) => w.state !== "closed")?.closesOn ?? null).filter((d): d is string => d != null).sort()[0] ?? null;
   // THE FACTS BEHIND THE LIVE CHECK, said as facts: a page whose live copy differs from the approved words, and a page that could not be read.
-  const differs = shipments.filter((p) => p.implementedAt != null && p.verification?.status === "differs"), unread = shipments.filter((p) => p.verification?.status === "blocked" && p.verification.recheckAfter != null).length;
+  const differs = shipments.filter((p) => p.implementedAt != null && p.verification?.status === "differs" && !isRetired(p)), unread = shipments.filter((p) => p.verification?.status === "blocked" && p.verification.recheckAfter != null).length;
   const watching = [...(counts.liveVerified > 0 ? [`${plural(counts.liveVerified, "change")} confirmed on the live page, whose reads decide the first verified pattern.`] : []),
     ...(soonest ? [`The next read ${landsLabel(soonest, now) ?? "lands soon"}.`] : []),
     ...(differs.length > 0 ? [`${plural(differs.length, "marked-done change")} ${differs.length === 1 ? "does" : "do"} not yet show on the live page as approved: check ${differs.length === 1 ? "it is" : "they are"} published, and Beacon re-reads ${differs.length === 1 ? "it" : "them"}.`] : []),

@@ -119,6 +119,22 @@ const STATE_LABEL: Record<ResultState, string> = { recorded: "Recorded", waiting
   confounded: "Shared with a later change", inconclusive: "Inconclusive", not_measurable: "Not measurable" };
 /** ONLY A LIVE-CONFIRMED CHANGE MAY TEACH: the same two answers treatment-learning counts, and never a row with no implementation stamp. */
 const liveConfirmed = (p: ShipmentPresentation): boolean => p.implementedAt != null && (p.verification?.status === "verified" || p.verification?.status === "partially_verified");
+/** THE ONE TEST FOR A RETIRED RECOMMENDATION, so the chip, the belief and the next step can never disagree about which rows are history. */
+const isRetired = (p: ShipmentPresentation): boolean => p.recommendation?.state === "retired";
+/** WHY THE RECOMMENDATION BEHIND A CHANGE NO LONGER STANDS, one plain sentence each. A finished reading closing the queue's own
+ *  loop never lands here: that reading is what the row already prints, and calling it a retirement would deny a result this
+ *  surface just claimed. */
+const RETIRED_WHY: Record<string, string> = {
+  withdrawn: "The recommendation behind this was taken back after the change was marked done.",
+  superseded: "A newer recommendation replaced this one after the change was marked done.",
+  dismissed: "The recommendation behind this was set aside after the change was marked done.",
+  gone: "No recommendation stands behind this change any more.",
+};
+/** SAID WITHOUT HIDING ANYTHING: the change stays in history, its read stays on the row, and whether that read still teaches is
+ *  the live check's answer rather than the retirement's. No cause is claimed in either direction. */
+const retiredChip = (p: ShipmentPresentation): { text: string; note: string } | null => !isRetired(p) ? null
+  : { text: "Recommendation later retired",
+    note: `${RETIRED_WHY[p.recommendation?.disposition ?? "gone"] ?? RETIRED_WHY.gone} The change stays in history and its read stays on this row. ${liveConfirmed(p) ? "The live page confirmed it, so the read still counts." : "Nothing here teaches current work: the live page never confirmed it."}` };
 function rowState(p: ShipmentPresentation): ResultState {
   const r = p.read, onAi = judgedOnAi(p), group = groupFor(p), legacy = p.implementedAt == null;
   if (p.ai?.terminal === true || (r.metric === "unclassified" && !onAi)) return "not_measurable";
@@ -372,4 +388,4 @@ function caveatLines(r: KernelRead, judgedOnAi: boolean): string[] {
 
 
 /** ONE module surface: the sentence layer exports itself once, not eighteen times. */
-export const RESULT_LINES = { AI_MOVE, aiDays, aiHappenedLine, aiMove, aiStory, cap, caveatLines, groupFor, happenedLine, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, rowState, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } as const;
+export const RESULT_LINES = { AI_MOVE, aiDays, aiHappenedLine, aiMove, aiStory, cap, caveatLines, groupFor, happenedLine, isRetired, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, retiredChip, rowState, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } as const;

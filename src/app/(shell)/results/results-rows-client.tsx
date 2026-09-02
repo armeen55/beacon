@@ -132,6 +132,11 @@ function Row({ row, group, open, onToggle }: { row: ResultsRow; group: ResultsGr
               {row.chip.text}
             </span>
           ) : null}
+          {/* THE SECOND CHIP, AND THE ONLY OTHER ONE: a change whose recommendation was later retired reads exactly like a
+              current one without it. The row keeps its state word, its number and its read; this adds the one missing fact. */}
+          {row.retired ? (
+            <span className="shrink-0 rounded-full border border-border px-1.5 py-px text-[10px] text-muted-foreground">{row.retired.text}</span>
+          ) : null}
         </span>
         <span className="hidden sm:block"><LiftBar value={row.bar} opacity={row.barOpacity} /></span>
         <span className={`text-[12px] leading-tight tabular-nums ${cellTone}`}>{cell}</span>
@@ -168,6 +173,7 @@ function Row({ row, group, open, onToggle }: { row: ResultsRow; group: ResultsGr
                 </div>
               ) : googleBlock}
               {row.googleAside ? null : aiBlock}
+              {row.retired ? <p className="mt-1.5 text-[11px] text-muted-foreground">{row.retired.note}</p> : null}
               {row.caveats.map((c) => (
                 <p key={c} className="mt-1.5 text-[11px] text-amber-700">{c}</p>
               ))}

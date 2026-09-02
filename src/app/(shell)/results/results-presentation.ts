@@ -8,7 +8,7 @@ import { monthDayLabel } from "@/components/data/receipt-line";
 import { isMature as kernelIsMature } from "@/domains/measurement";
 import type { ControlReceipt, KernelRead, MeasurementState, ShipmentObjective, ShipmentVerification } from "@/domains/measurement";
 import { RESULT_LINES } from "./results-lines";
-const { AI_MOVE, aiDays, aiHappenedLine, aiMove, aiStory, caveatLines, groupFor, happenedLine, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } = RESULT_LINES;
+const { AI_MOVE, aiDays, aiHappenedLine, aiMove, aiStory, caveatLines, groupFor, happenedLine, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, retiredChip, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } = RESULT_LINES;
 
 
 /** What one measured change carries on the Results surface. */
@@ -31,6 +31,12 @@ export type ShipmentPresentation = {
    *  AI objective means the AI outcome is the verdict and Google is the context, not the other way round. Absent (a row recorded before
    *  the declaration existed) or "clicks" leaves everything exactly as it was. */
   judgedMetric?: ShipmentObjective | null;
+  /** WHETHER THE RECOMMENDATION BEHIND THIS CHANGE STILL STANDS. The change itself is the operator's own history and stays
+   *  visible whatever happens next, but the advice behind it can be taken back, replaced by a newer one or set aside
+   *  afterwards, and a row that says nothing about that reads exactly like a current one. A finished reading closing the
+   *  queue's own loop ("settled") is NOT a retirement: that reading is what this row already prints. Absent, or "unknown"
+   *  (a snapshot written before this, a row that names no recommendation, a read that failed), says nothing rather than guessing. */
+  recommendation?: { state: "current" | "retired" | "unknown"; disposition?: string } | null;
 };
 
 /** The four things a change can be, in the order All changes shows them. */
@@ -61,6 +67,8 @@ type ResultsRow = {
   /** The declared objective's own numbers, one sentence each, under that line. Empty on a change judged on clicks: its AI line is an observation, not its yardstick. */ aiMetricLines: string[];
   /** One sentence when a model or a mode moved under the reading, so a step reads as the instrument rather than as the change. Null when the whole stretch was one instrument. */ aiBoundary: string | null;
   chip: { text: string; amber: boolean } | null;
+  /** THE SECOND CHIP, AND ONLY EVER THIS ONE: the recommendation behind this change was retired after it was marked done. Null on every other row. */
+  retired: { text: string; note: string } | null;
   pips: Array<{ day: number; state: "read" | "pending" | "shared" }>;
   pipCaption: string | null;
   happened: string;
@@ -253,7 +261,7 @@ function rowOf(p: ShipmentPresentation, now: Date): ResultsRow {
     // EVERY COLLAPSED NUMBER CARRIES ITS UNIT (operator, 2026-08-21): a bare +1,119 answers nothing.
     impressionsLabel: onAi || !claimNumber || !showsImpressions(p) ? null
       : (Math.abs(r.impressionsLift) < 0.5 ? "Level" : `${signed(r.impressionsLift)} shown`),
-    chip: chipOf(p),
+    chip: chipOf(p), retired: retiredChip(p),
     // The dots count down the read THIS row is judged over. A citation change one day in showed three filled dots and "Done May 29",
     // because those are the Google windows, beside its own "Reading".
     pips: onAi ? [7, 14, 28].map((day) => ({ day, state: aiDone >= day ? "read" as const : "pending" as const }))

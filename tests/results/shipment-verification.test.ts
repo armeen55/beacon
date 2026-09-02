@@ -36,7 +36,7 @@ const refuse = (reason: "robots_blocked" | "fetch_failed", detail?: string): Fet
   async () => ({ ok: false, reason, detail });
 const base = { loadProfile: async () => null, writeOwnedPage: async () => {}, now: () => NOW };
 /** ONE verification of one page, with the components under test. */
-const check = async (components: Array<{ kind: string; after: string; anchorAfter?: string | null }>, page: Fetcher = serve(PAGE), over: Record<string, unknown> = {}) =>
+const check = async (components: Array<{ kind: string; after: string; anchorAfter?: string | null; before?: string | null }>, page: Fetcher = serve(PAGE), over: Record<string, unknown> = {}) =>
   verifyShipment(T, { id: "s1", url: URL_, components }, { ...base, fetchPage: page, ...over });
 /** What ONE component was judged to be. */
 const state = async (kind: string, after: string, page: Fetcher = serve(PAGE), over: Record<string, unknown> = {}) =>
@@ -79,6 +79,12 @@ describe("what Beacon can see on the live page, component by component", () => {
     const bare = serve(`<html><head><title>t</title></head><body><main><p>${"a real sentence about setting the table ".repeat(10)}</p></main></body></html>`);
     expect(await state("schema", "Add FAQPage structured data", bare)).toBe("not_verified");
     expect(await state("schema", "Add FAQPage structured data", serve("<html><head><title>t</title></head><body><div id=app></div></body></html>"))).toBe("unverifiable");});
+  // A PREPARED BLOCK IS CHECKED ON THE NAMES INSIDE IT. Shipped as its field family a schema change was read as a section, and no heading on any page will ever match a JSON-LD block, so every one of them read as work the operator had not done.
+  it("reads a prepared structured-data block on the names inside it, never on the page's own headings", async () => {
+    const ASKED = "What goes on the table?", qa = (qs: string[]) => JSON.stringify(qs.map((q) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: "yes" } })));
+    const block = (qs: string[]) => `{"@context":"https://schema.org","@type":"FAQPage","mainEntity":${qa(qs)}}`, live = (qs: string[]) => serve(PAGE.replace('"mainEntity":[]', `"mainEntity":${qa(qs)}`));
+    expect([await state("schema_add", block([ASKED]), live([ASKED])), await state("schema_add", block([ASKED]), live(["Something else entirely?"])), await state("schema_add", block([ASKED]), serve(PAGE.replace(/<script[\s\S]*?<\/script>/, ""))), await state("schema_add", "not json at all", live([ASKED]))], "the block it asked for, a block of that type carrying other questions, a page with no structured data on it at all, and a block nobody can read").toEqual(["verified", "changed_differently", "not_verified", "unverifiable"]);
+    expect((await check([{ kind: "schema_replace", after: block([ASKED]), before: block(["Old question?"]) }], live(["Old question?"]))).components[0], "a replacement the page still answers with the OLD block has not landed, which is not the same thing as a page carrying a different change").toEqual({ kind: "schema_replace", state: "not_verified", note: "Your page still carries the FAQPage block that was there before this change." });});
   it("checks the preferred address, the forward and the search setting from what the page itself reports", async () => {
     expect(await state("canonical", "Point the canonical at https://own.com/nowruz")).toBe("verified"); expect(await state("canonical", "Point the canonical at https://own.com/nowruz-guide")).toBe("changed_differently");
     const noCanonical = serve("<html><head><title>t</title></head><body><main><p>a paragraph with quite enough words in it</p></main></body></html>");

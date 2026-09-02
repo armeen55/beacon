@@ -4,6 +4,7 @@ import { cache } from "react";
 import { after } from "next/server";
 
 import { checkedAgoLabel } from "@/components/data/receipt-line";
+import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { currentTenantId } from "@/lib/tenant-context";
 import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import { runSingleFlight } from "@/lib/single-flight";
@@ -37,6 +38,32 @@ type ResultsLedgerSurface = {
   unavailable?: boolean;
 };
 
+type Recommendation = NonNullable<ShipmentPresentation["recommendation"]>;
+/** The dispositions that RETIRE the advice. `settled` is deliberately absent: it is the queue closing its own loop once a
+ *  reading finished ("the reading finished and the result is on Results"), and five of this account's own shipments carry it,
+ *  one of them a win. Printing "retired" over them would deny a result this very page claims. */
+const RETIRING = new Set(["withdrawn", "superseded", "dismissed", "gone"]);
+/** WHETHER THE RECOMMENDATION BEHIND EACH SHIPMENT STILL STANDS: ONE bounded, tenant scoped read of the proposal rows the loaded
+ *  records name. A shipment is immutable operator history, so nothing here removes a row; it only lets the surface tell a change
+ *  whose advice was later taken back apart from a current one. Fail soft: a read that errors, throws or is not covered answers
+ *  nothing at all, and the surface says "unknown" rather than painting history as withdrawn on a database hiccup. */
+async function recommendationStates(tenantId: string, ids: string[]): Promise<Map<string, Recommendation>> {
+  const out = new Map<string, Recommendation>();
+  const wanted = ids.slice(0, 300);
+  if (wanted.length === 0) return out;
+  try {
+    const { data, error } = await getSupabaseAdmin().from("change_proposals").select("id, terminal_disposition").eq("tenant_id", tenantId).in("id", wanted);
+    if (error != null || !Array.isArray(data)) return out;
+    const held = new Map((data as Array<{ id: string; terminal_disposition: string | null }>).map((r) => [r.id, r.terminal_disposition ?? null]));
+    for (const id of wanted) {
+      // A NAMED RECOMMENDATION THAT IS NO LONGER ON FILE IS RETIRED: this table supersedes and withdraws, it does not forget.
+      const disposition = held.has(id) ? held.get(id) ?? null : "gone";
+      out.set(id, disposition != null && RETIRING.has(disposition) ? { state: "retired", disposition } : { state: "current" });
+    }
+  } catch { return out; }
+  return out;
+}
+
 /**
  * One shipment story per record: the kernel's read, the live check the Shipment store holds, the
  * immutable starting point written at mark time, and THIS PAGE'S OWN movement over the read that
@@ -53,6 +80,7 @@ export async function presentShipments(tenantId: string, records: ShippedChangeR
   const aiReads = await aiOutcomesForShipments(tenantId, records.map((r) => ({
     implementedAt: r.implementedAt, shipmentBaseline: r.shipmentBaseline, scopeQueries: r.targetQueries, aiScope: r.aiScope,
   }))).catch(() => records.map(() => null));
+  const recommendations = await recommendationStates(tenantId, [...new Set(records.map((r) => r.proposalId).filter((id): id is string => !!id))]);
   return records.map((r, i) => {
     // A FINISHED READING IS SERVED AS IT WAS READ. Everything below still recomputes from live Google data,
     // which is right while a window is open and wrong the moment it closes: a backfilled day inside a closed
@@ -85,6 +113,8 @@ export async function presentShipments(tenantId: string, records: ShippedChangeR
       // THE DECLARATION TRAVELS WITH THE ROW: Results groups on the yardstick the change was pressed under,
       // so a citation change that won its citation is filed as a win rather than as traffic that did not move.
       judgedMetric: r.judgedMetric ?? null,
+      // A ROW THAT NAMES NO RECOMMENDATION, OR ONE NOTHING COULD BE READ FOR, SAYS NOTHING: history is never repainted on a silence.
+      recommendation: (r.proposalId ? recommendations.get(r.proposalId) : null) ?? { state: "unknown" as const },
       // The days that have passed ride with it, because the group holds an AI direction as still reading until this change's own 28 days
       // have run: an early lean is never banked as a win, on either side of the same row.
       ai: aiReads[i]
