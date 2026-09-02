@@ -13,7 +13,8 @@ vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async 
 vi.mock("@/domains/account", () => ({ getTenant: async () => ({ id: "t", domain: "site.example" }) }));
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
   loadChangeProposal: async () => stored.proposal, proposalDisposition: async () => stored.disposition, resolveCurrentBasis: async () => "basis_now::d4", transitionProposalToImplemented: led.flip }));
-vi.mock("next/server", async () => ({ ...(await vi.importActual<Record<string, unknown>>("next/server")), after: (fn: () => unknown) => { void fn(); } })); // production runs in a request scope; here after() executes inline so the exact scheduled shipment is observable
+vi.mock("next/server", async () => ({ ...(await vi.importActual<Record<string, unknown>>("next/server")), after: (fn: () => unknown) => { void fn(); } }));
+vi.mock("@/domains/runtime", () => ({ ensureResearchRunOnVisit: () => {} })); // the bulk press re-arms research after the response through a dynamic import; resolved from the mock cache so the import never lands after the test environment is torn down // production runs in a request scope; here after() executes inline so the exact scheduled shipment is observable
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
   verifyShipmentNow: async (_t: string, id: string) => { led.verified.push(id); return 1; },
   loadShippedChanges: async () => led.records, captureChangeMeta: async () => null,
