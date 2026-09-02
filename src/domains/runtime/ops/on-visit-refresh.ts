@@ -474,7 +474,7 @@ export async function driveClaimed(run: ResearchRun, ownerToken: string, work: D
 }
 
 /** How many EXTRA same-day passes THE VISIT DOOR may open for one account. A visit is a chance, not a debt: every navigation is another opportunity to open one, so this door keeps the eight it was sized for. The daily dispatch carries its own allowance (it claims first, and opens a recovery pass only for a day left short), and the day's absolute runaway stop inside research-run still bounds every door together. */
-const VISIT_EXTRA_PASSES_PER_DAY = 8;
+const VISIT_EXTRA_PASSES_PER_DAY = 24; // THE DAY'S PASSES ARE THE RUNAWAY CEILING, NOT A RATE (operator, 2026-09-02): eight passes closed the day at 05:18 with fifty-one drafted rows waiting on results pages that cost cents; the daily budget is the brake on money, and every pass still opens only on genuinely due work
 /** THE VISIT DOOR: claim, resume, or start the account's Research Run and drive it. A DAY IS NOT A UNIT OF WORK: a refused claim asks the one free question that matters (due-work, from persisted state alone) and opens another pass only when something is genuinely due. FAIL CLOSED both ways: an unreadable state opens nothing, an empty one opens nothing at $0, and a pass that opens with nothing due closes immediately. */
 export async function runResearchCycle(tenantId: string, options: ResearchCycleOptions = {}): Promise<void> {
   const nowFn = options.now ?? (() => new Date());
