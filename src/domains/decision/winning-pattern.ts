@@ -201,7 +201,7 @@ export async function readWinningPattern(
   /** The shape the results ALREADY settled, counted in code one gate earlier. Supplied, it is told to the
    *  model AND enforced on the answer: the model repeats a settled shape, it never re-votes one. */
   /** THE PASS'S OWN HARD ATTEMPT BUDGET, decremented BEFORE the call below like every other charged call in the pass. This read used to be the one paid Decision call the pool never saw, so "one budget pays every attempt" was untrue by exactly this call every pass that reached a verdict. Absent = a reading standing on its own, which spends against the money caps alone. */
-  & { pageType?: SerpPageType | null; attempts?: { left: number; record?: (r: unknown) => void } } = {},
+  & { pageType?: SerpPageType | null; attempts?: { left: number; record?: (r: unknown) => void }; /** Told when a reading came back twice and Beacon's own checks kept none of it either time: the caller files a settled refusal, not a transport failure. */ refused?: () => void; /** Why the previous reading was thrown away, carried into ONE uncached retry: the cache served the same refused reading at $0 on every walk. */ lesson?: string } = {},
 ): Promise<WinningPattern | null> {
   // ONLY PAGES I ACTUALLY READ, and only one vote per publisher: three pages from one site are one site's house style, and nothing downstream of this file may ever call that a pattern.
   const pages: PageFacts[] = [];
@@ -221,14 +221,14 @@ export async function readWinningPattern(
     "THE PAGES THAT WIN THIS SEARCH (cite these numbers and no others)",
     ...lines,
     `FACTS: ${fingerprint}`,
-    "Say what these winning pages have in common, and what my own page is missing against them.",
+    "Say what these winning pages have in common, and what my own page is missing against them.", ...(opts.lesson ? [`A previous reading was thrown away because it ${opts.lesson}. Name only what these pages carry, in plain words, and repeat the settled shape.`] : []),
   ].join("\n");
 
   if (opts.attempts && (opts.attempts.left -= 1) < 0) { log.info("[winning-pattern] the pass has spent its whole attempt budget, so the winners are not read", { tenantId }); return null; }
   const call = await callStructuredLLM({
     kind: "winning_pattern", tenantId, system: SYSTEM, user, grounded: lines.join(" "),
     projectedCostUsd: PATTERN_COST_USD, maxTokens: 1800,
-    complete: opts.complete, cacheImpl: opts.cacheImpl, now: opts.now,
+    complete: opts.complete, cacheImpl: opts.cacheImpl, now: opts.now, bypassCache: !!opts.lesson,
   });
   opts.attempts?.record?.(call); // real requests and real dollars, onto this page's own allowance
   if (call.status !== "drafted") {
@@ -268,10 +268,10 @@ export async function readWinningPattern(
   // THE SHAPE WAS SETTLED IN CODE ONE GATE EARLIER, and the deterministic count wins every time.
   const wrongShape = settled != null && v.archetype !== settled;
   if (stray !== undefined || copied || quoted || invented || blindGaps || wrongShape || slugged) {
-    // ONE of these throws the WHOLE reading away. Keeping the half that checks out would file a real case under a pattern half of which was invented or copied, and no diagnosis is worth that.
-    log.warn("[winning-pattern] the reading copied a page, named something no page carries, or overruled a settled shape, so I kept none of it",
-      { tenantId, stray, copied: copied?.slice(0, 80), quoted: quoted?.slice(0, 80), invented: invented?.slice(0, 80), blindGaps, wrongShape, slugged: slugged?.slice(0, 80) });
-    return null;
+    // ONE of these throws the WHOLE reading away. Keeping the half that checks out would file a real case under a pattern half of which was invented or copied, and no diagnosis is worth that. ONE UNCACHED RETRY CARRIES THE REASON (live 2026-09-02): the cache served the same refused reading at $0 on every walk, so the topic could never be read again.
+    const why = [stray !== undefined ? `cited a page number that was not supplied (${String(stray)})` : "", copied ? `copied a heading word for word ("${copied.slice(0, 80)}")` : "", quoted ? `quoted a page's own line ("${quoted.slice(0, 80)}")` : "", invented ? `named something no page carries ("${invented.slice(0, 80)}")` : "", blindGaps ? "listed gaps for a page it was never shown" : "", wrongShape ? `re-voted the settled shape (${settled})` : "", slugged ? "leaked an internal slug" : ""].filter(Boolean).join("; ");
+    log.warn("[winning-pattern] the reading copied a page, named something no page carries, or overruled a settled shape, so none of it was kept", { tenantId, why, retry: !opts.lesson });
+    if (!opts.lesson) return readWinningPattern(winners, owned, tenantId, { ...opts, lesson: why }); opts.refused?.(); return null;
   }
   return { ...v, winners: pages.length, publishers: pages.map((f) => f.domain), fingerprint };
 }
