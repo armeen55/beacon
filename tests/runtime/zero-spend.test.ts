@@ -240,7 +240,7 @@ describe("a paused tick collects what was already paid for, free, then republish
     }) }));
     const { runDueAccounts } = await import("@/domains/runtime/ops/scheduler"); // The stranded probe is somebody else's contract; this pin holds the dispatch to the paused tail.
     await runDueAccounts({ now: () => new Date("2026-08-21T12:00:00Z"), steps: { strandedToday: async () => [] } as never }); // The order IS the contract: what was already bought lands first, then the republish reads it.
-    expect(events).toEqual(["enumerate:5", "collect:dfs2_owed", "rebuild:tenant-fx"]);
+    expect(events).toEqual(["enumerate:40", "collect:dfs2_owed", "rebuild:tenant-fx"]);
     expect(fetchSpy).not.toHaveBeenCalled(); // GET went through the collector fake; nothing posted, nothing paid
     vi.doUnmock("@/domains/evidence/dataforseo/default-deps"); vi.doUnmock("@/domains/evidence/dataforseo/capabilities");
     vi.doUnmock("@/domains/runtime/research-run"); vi.doUnmock("@/app/(shell)/surface-release");
