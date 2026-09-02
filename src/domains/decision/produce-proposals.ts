@@ -250,8 +250,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     if (o?.kind !== "evidence" || o.need.kind !== "serp" || c.kind !== "existing_edit") return o;
     if (!snapshot.research.serpEvidence.some((e) => canonicalQueryKey(e.query) === canonicalQueryKey(p.primaryQuery))) return o;
     if (shapeBackingOf(snapshot, p.primaryQuery, c.after)) return null;
-    const token = topicTokens(p.primaryQuery)[0] ?? p.primaryQuery.trim().split(/\s+/)[0] ?? "", attempt = (p.previousCopy?.attempts ?? 0) + 1;
-    const why = `the ranked titles for this search lead with "${token}"; lead with it or this line has no backing`;
+    const firsts = (snapshot.research.serpEvidence.find((e) => canonicalQueryKey(e.query) === canonicalQueryKey(p.primaryQuery))?.organic ?? []).map((o) => topicTokens(o.title ?? "")[0] ?? "").filter(Boolean), counts = new Map<string, number>(); for (const t of firsts) counts.set(t, (counts.get(t) ?? 0) + 1); // THE LEAD IS READ OFF THE RANKED TITLES, never off the query's own first word (live 2026-09-02: "iranian cat" ranks pages that lead with "persian")
+    const token = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? topicTokens(p.primaryQuery)[0] ?? "", attempt = (p.previousCopy?.attempts ?? 0) + 1, why = `the ranked titles for this search lead with "${token}"; lead with it or this line has no backing`;
     return attempt > 2 ? { kind: "terminal", reason: why } : { kind: "redraft", attempt, instruction: why }; };
   const persistIfChanged = async (input0: ChangeProposal): Promise<"saved" | "unchanged" | "refused" | "blocked" | "failed" | "not_persisted"> => {
     const input: ChangeProposal = input0.workKey ? input0 : { ...input0, workKey: (input0.bundle ? declaredWorkKey.get(DRAFT_BUDGET.keyOf(input0)) : null) ?? workKeyOf(input0) }; // IDENTITY IS STAMPED AT THE ONE DOOR so no caller can forget it: a bundle keeps its declared key, everything else derives from the row itself
