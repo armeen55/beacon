@@ -6,7 +6,7 @@ import { canonicalQueryKey, domainOf, topicTokens } from "@/domains/evidence/rel
 import { citesOwnSite } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { buildFanoutEvidence } from "@/domains/evidence/ai-visibility/fanout-evidence";
 import { canonicalPairOf, readAiObservations } from "@/domains/evidence/ai-visibility/ai-observations";
-import { readFactChecks } from "@/domains/evidence/pages/fact-checks";
+import { readFactChecks, type FactCheck } from "@/domains/evidence/pages/fact-checks";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence, type OwnedQuerySignal } from "@/domains/evidence/snapshot";
 import { defaultExpectedCtrAt, type TenantCtrCurve } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import type { ChangeProposal } from "@/domains/decision/contracts";
@@ -33,18 +33,13 @@ const NEAR_MISS_MIN = 4, NEAR_MISS_MAX = 15, MIN_IMPRESSIONS = 30, TOP_PAGES_PER
 /** Results led by places that sell. A page losing to these loses on having nothing to buy on it. */
 const SHOP_DOMAIN = /(^|\.)(amazon|etsy|ebay|aliexpress|walmart|redbubble|teepublic|zazzle|temu|wayfair|shop)\./i;
 const STORE_FIRST = /(^|\.)(amazon|etsy)\./i;
-/** THE CARD'S QUERY IS A SEARCH SOMEBODY RAN, never the page's own name read back. A defect card whose query
- *  is the page's H1 hands the drafter the site's own vocabulary and it optimises for what the page already
- *  says; the page's biggest real search is on file and is the audience the fix is for. */
+/** THE CARD'S QUERY IS A SEARCH SOMEBODY RAN, never the page's own name read back. A defect card whose query is the page's H1 hands the drafter the site's own vocabulary and it optimises for what the page already says; the page's biggest real search is on file and is the audience the fix is for. */
 const topQueryOf = (p: OwnedPageEvidence): string => {
   const q = [...(p.search?.topQueries ?? [])].filter((q) => q.impressions >= MIN_IMPRESSIONS).sort((a, b) => b.impressions - a.impressions)[0];
   return q ? q.query : labelOf(p); };
 const clicksOf = (p: OwnedPageEvidence): number => p.search?.clicks90d ?? 0;
 const flat = (s: string): string => s.trim().toLowerCase().replace(/\s+/g, " ");
-/** THE WORDS A PAGE HAS EARNED THE RIGHT TO BE ASKED ABOUT: its title, heading and section headings. The
- *  canonical outline arrives with site furniture already stripped at the snapshot assembler; what stays out
- *  here is this file's own rules: paragraphs in a heading tag and the page's own FAQ questions, because a
- *  question a page ASKS is not one it covers. */
+/** THE WORDS A PAGE HAS EARNED THE RIGHT TO BE ASKED ABOUT: its title, heading and section headings. The canonical outline arrives with site furniture already stripped at the snapshot assembler; what stays out here is this file's own rules: paragraphs in a heading tag and the page's own FAQ questions, because a question a page ASKS is not one it covers. */
 const earnedWords = (p: OwnedPageEvidence, weak: ReadonlySet<string>): Set<string> =>
   new Set(topicTokens([p.content?.title, p.content?.h1, ...(p.content?.outline ?? []).filter((h) =>
     !h.trim().endsWith("?") && h.trim().split(/\s+/).length <= MAX_HEADING_WORDS)].filter(Boolean).join(" ")).filter((t) => !weak.has(t)));
@@ -68,7 +63,7 @@ function recoverableClicks(p: OwnedPageEvidence, expectedCtrAt: (position: numbe
 /** 2. THE LINKS THE STRONGEST PAGES NEVER PASS ON: the three pages that earn the most clicks, and the near miss pages they never link to. Off the stored link graph, so the absence of a link is a fact here. */
 /** How many links one source page may donate in one pass: distinct destinations, each its own card and footprint. */
 const LINKS_PER_SOURCE = 3;
-async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: ReadonlySet<string>, u: Understanding, expectedCtrAt: (position: number) => number): Promise<{ drafts: Draft[]; complete: boolean }> {
+async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: ReadonlySet<string>, u: Understanding, expectedCtrAt: (position: number) => number, bodies: ReadonlyMap<string, OwnedPageBody>): Promise<{ drafts: Draft[]; complete: boolean }> {
   // A READ THAT THREW IS NOT A SITE WITH NO LINKS. Swallowed, it returned the same empty list as a linkless site, this producer still reported FINISHED, and the sweep then withdrew every internal_link card on file for a database blip. The failure is carried out instead of flattened.
   const graphs = await getRepository().forTenant(tenantId).getPageSnapshotLinkGraphs().catch(() => null);
   if (graphs == null) return { drafts: [], complete: false };
@@ -83,8 +78,6 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
   for (const links of linksByPage.values()) for (const to of links) inbound.set(to, (inbound.get(to) ?? 0) + 1);
   const strongest = pages.filter((p) => linksByPage.has(canonicalUrlKey(p.url)) && clicksOf(p) > 0 && !STOREFRONT.test(pathOf(p.url))).sort((a, b) => clicksOf(b) - clicksOf(a)); // the source-page meter is DELETED (operator, 2026-08-30): every read page with clicks may donate a link, same anchor and fit gates; a shop page donates none, its rails are not prose
   // THE PLACEMENT IS THE GATE (operator, 2026-09-01): a link is a sentence on the source page that already talks about the destination's subject, so the source's stored PROSE is what is read, furniture excluded. Headings and rails put every flag's name on every flag page and the fit said yes to all of them.
-  const bodies = new Map<string, OwnedPageBody>();
-  for (let i = 0; i < strongest.length; i += 3) for (const [k, v] of await loadOwnedPageBodies(tenantId, strongest.slice(i, i + 3).map((p) => p.url)).catch(() => new Map<string, OwnedPageBody>())) bodies.set(k, v); // the reader is bounded to three pages a call and answers nothing to more
   const nearMiss = pages.flatMap((p) => {
     // THE SEARCH BECOMES THE WORDS ON THE LINK, so a search that is not words never qualifies: an operator like "site:" is never anchor text, a dictionary ask ("hyena in farsi") earns a line on its own page, and a question is a sentence nobody links with; anchors are the noun phrase the destination is FOR.
     const q = (p.search?.topQueries ?? []).filter((q) => !/[:/@]|^https?/i.test(q.query)
@@ -263,24 +256,25 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   }
   return out;
 }
-/** 4. THE SEARCH THIS PAGE ALREADY EARNS AND NEVER ANSWERS (operator, 2026-09-02). The largest opportunities on a live account are questions Google already sends a page and the page does not answer: 29,965 impressions on a flag page that never says "before", 3,502 asking which animal is Iran's national one. No cause payload names one, so no producer minted a body card for them and they never entered the paid plan at all. THE GAP READER DECIDES, NOT THIS FILE: the page's own demand is built by the one shared reading and typed by `substantiveGapOf`, so the search this card is minted on is the same search the writer is later refused or hired for, and the shape gate, the absent-word gate, the vocabulary refusal and the ownership ruling are asked once, in one place. NOTHING IS BOUGHT HERE: with no body in hand the reading is capture-first by construction, so every card lands as research owing one typed step. */
-function unansweredCards(snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], expectedCtrAt: (position: number) => number): Draft[] {
+/** 4. THE SEARCH THIS PAGE ALREADY EARNS AND NEVER ANSWERS (operator, 2026-09-02). The largest opportunities on a live account are questions Google already sends a page and the page does not answer: 29,965 impressions on a flag page that never says "before", 3,502 asking which animal is Iran's national one. No cause payload names one, so no producer minted a body card for them and they never entered the paid plan at all. THE GAP READER DECIDES, NOT THIS FILE: the page's own demand is built by the one shared reading and typed by `substantiveGapOf`, so the search this card is minted on is the same search the writer is later refused or hired for, and the shape gate, the absent-word gate, the vocabulary refusal and the ownership ruling are asked once, in one place. NOTHING IS BOUGHT HERE: the card lands as research carrying the step that reading typed, which is the page's own capture while its words are not all on file, a source while nothing checked answers the search, and a draft once one does. */
+function unansweredCards(snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], expectedCtrAt: (position: number) => number, read: { bodies: ReadonlyMap<string, OwnedPageBody>; misses: ReadonlyMap<string, "no_capture" | "read_failed">; facts: ReadonlyMap<string, FactCheck[]>; basis: string | null; tenantId: string }): Draft[] {
   const out: Draft[] = []; for (const p of pages) { const path = pathOf(p.url); if (path === "/" || STOREFRONT.test(path)) continue; // an essay never goes on the home page or a shop rail, the same rule every other body card here obeys
-    const rows = (p.search?.topQueries ?? []).filter((q) => q.impressions >= MIN_IMPRESSIONS); if (rows.length === 0) continue; // a handful of impressions is not a missing answer, it is noise, and this file's own floor decides which searches are worth acting on
-    const gap = substantiveGapOf({}, { ...demandOf(p, null, [], null, "", snapshot), rows: rows.map((q) => ({ query: q.query, impressions: q.impressions })) });
-    if (gap?.kind !== "missing_answer" || !gap.query || gap.impressions == null) continue; // a split this page does not own, a vocabulary gap and a page that answers everything it is shown for all land here as nothing
+    const rows = p.search?.topQueries ?? []; if (read.misses.get(canonicalUrlKey(p.url)) === "read_failed") continue; // I COULD NOT LOOK IS NOT THIS PAGE DOES NOT ANSWER (reviewer, 2026-09-02): a chunk of the body read that refused typed its pages `read_failed`, the producer asked for no reasons at all, and a page with words on file read as bodyless, which mints the very card this reading exists to refuse. Nothing on file (`no_capture`) still mints, carrying the page's own capture as the step it owes. The impressions floor moved to the gap reader, where it is asked of the SEARCH rather than of the page
+    const gap = substantiveGapOf({}, demandOf(p, read.bodies.get(canonicalUrlKey(p.url)) ?? null, read.facts.get(path) ?? [], read.basis, read.tenantId, snapshot)); // THE WALK'S OWN READING, NOT A THINNER ONE (reviewer, 2026-09-02): built with no body and no checked fact, this mint claimed an absence off a title and three headings and the walk settled the same card terminal seconds later, because the stored body answered it. Same page, same words, same facts, same split ruling, so a card is minted on the reading it is later judged by.
+    if (gap?.kind !== "missing_answer" || !gap.query || gap.impressions == null) continue; // a split this page does not own, a vocabulary gap and a page whose stored body already answers this all land here as nothing
     const q = gap.query, seen = count(gap.impressions, "search", "searches"), row = rows.find((r) => canonicalQueryKey(r.query) === canonicalQueryKey(q));
-    const impact = row?.position == null ? null : Math.max(0, Math.round((expectedCtrAt(row.position) - Math.min(1, row.clicks / Math.max(1, row.impressions))) * gap.impressions)); // the same curve, the same arithmetic and the same unit as every other card here, run on the whole demand behind the missing answer rather than on one of the ways it is asked
-    out.push({ page: p, slug: "missing_answer", field: "answer_block", query: q, asked: q, treatment: "add_answer_section",
+    const held = rows.map((r) => r.position).filter((n): n is number => n != null), at = row?.position ?? (held.length > 0 ? Math.min(...held) : 10); // A ROW WITH NO POSITION IS NOT A CARD WORTH NOTHING (reviewer, 2026-09-02): a null impact ranked Tehran's 8,531-impression question last and the plan funded it at zero, so the best receipt position this page holds stands in, and position 10 where it holds none
+    const impact = Math.max(0, Math.round((expectedCtrAt(at) - Math.min(1, (row?.clicks ?? 0) / Math.max(1, row?.impressions ?? 1))) * gap.impressions)); // the same curve, the same arithmetic and the same unit as every other card here, run on the whole demand behind the missing answer rather than on one of the ways it is asked
+    out.push({ page: p, slug: "missing_answer", field: "answer_block", query: q, asked: q, treatment: "add_answer_section", obligation: gap.owed ?? { kind: "draft" },
       headline: `Answer "${q}" on ${path}: ${seen} in 90 days and the page never says it`,
       before: null, after: `One section on ${path} that answers "${q}" for a reader who asked exactly that, in this page's own voice.`, why: `${seen} in 90 days put ${path} in front of people asking "${q}", and nothing in this page's own words answers it.`,
       steps: [`Open your site editor on ${path}`, "Add the section above where a reader asking this would look for it", "Come back here and mark it done, and measurement starts"],
       hints: [`"${q}" is worth ${seen} in 90 days on ${path}`, `Nothing in this page's stored title, headings or copy answers "${q}"`],
-      minutes: 30, confidence: "medium", refs: 2, impact, demand: p.search?.impressions90d ?? null, limitation: "The absence is read off this page's own stored words as last captured, and the whole page is read again before a word is written, so a passage that already answers this settles the card instead of adding a second answer.",
+      minutes: 30, confidence: "medium", refs: 2, impact, demand: gap.impressions, limitation: gap.why ?? "The absence is read off this page's own stored words as last captured.", // THE AUDIENCE IS THE SEARCH'S OWN, never the page's whole 90 days: a question worth 310 searches on a page shown 68,000 times inherited all 68,000 and outranked work that could really win them
       next: "The page's own words are read first, then a source for the answer, and the exact copy lands here once one is on file.",
       cause: { cause: "incomplete_coverage", action: "opening_answer", evidenceKeys: [RECEIPT.gsc], competingExplanations: [], notConsidered: [], explanation: `Google shows ${path} to ${seen} in 90 days for "${q}" and the page's own stored words never answer it.`,
         falsifier: `If this page's stored copy turns out to answer "${q}" once the whole page is read, there is no missing answer here.` } }); }
-  return out; }
+  return out.sort((a, b) => (b.demand ?? 0) - (a.demand ?? 0) || a.page.url.localeCompare(b.page.url)); } // ONE SEARCH BELONGS TO THE PAGE THAT EARNS IT (reviewer, 2026-09-02): where the ladder names no survivor, the dedupe behind this producer kept whichever page the snapshot listed first, so row order decided which of two pages answered a shared search; the strongest demand for it goes first and takes the card
 /** Every extra card this account's stored evidence already supports, at `needs_review`, deduplicated against the queue it holds. Never throws: a source that will not read narrows the answer instead of failing the pass. */
 export async function extraQueueCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date;
   /** THE PASS'S AEO DIAGNOSIS PURSE. Absent means an UNFUNDED caller, so nothing is bought and every case stays owed. */
@@ -291,6 +285,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   reads?: { left: number };
   /** THE CANONICAL DEMAND UNITS, loaded once by the pass and handed to every producer that joins audiences. */
   units?: readonly CanonicalDemandUnit[];
+  /** THE EVIDENCE GENERATION THIS PASS WORKS UNDER, the one the walk authorizes checked statements against. */ basis?: string | null;
   /** Default true. False on a dry run, and then nothing this producer concludes is written down either. */
   persist?: boolean }): Promise<ExtraQueueRun> {
   const { tenantId, snapshot, now } = input;
@@ -321,7 +316,10 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   const eligible = pages.filter((p) => { const path = pathOf(p.url); return path !== "/" && !STOREFRONT.test(path); });
   const u = await pageUnderstanding(tenantId, eligible, { now, openPaths: new Set(rows.map((p) => (p.pagePath ?? "").toLowerCase())), ...(input.reads ? { reads: input.reads } : {}) });
   const bank: { query: string; refusedPages?: string[] }[] = [];
-  const links = await linkCards(tenantId, pages, weak, u, expectedCtrAt);
+  // ONE READING OF THIS ACCOUNT'S STORED WORDS AND CHECKED STATEMENTS, taken once and shared: the link placement gate asks which sentence on a page already speaks of a destination, and the demand gap asks whether the page's own body answers the search it earns. The reader pages its own queries, so this is the same read the sweep already takes of every held page.
+  const misses = new Map<string, "no_capture" | "read_failed">(), bodies = await loadOwnedPageBodies(tenantId, pages.map((p) => p.url), misses).catch(() => { for (const p of pages) misses.set(canonicalUrlKey(p.url), "read_failed"); return new Map<string, OwnedPageBody>(); }); // WHY A PAGE HAS NO WORDS HERE, typed by the reader itself: a read that threw makes every page UNKNOWN rather than wordless, and an unknown page mints nothing at all
+  const facts = new Map<string, FactCheck[]>(); for (const f of await readFactChecks(tenantId).catch(() => [])) facts.set(f.page, [...(facts.get(f.page) ?? []), f]);
+  const links = await linkCards(tenantId, pages, weak, u, expectedCtrAt, bodies);
   // THE STORED AI WINDOW, one lean read through the same projection Visibility renders; a failed read hands
   // null through, and the staged producer then claims no recurrence it cannot show.
   const day = (d: Date): string => d.toISOString().slice(0, 10);
@@ -332,7 +330,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
     .then((m) => m.loadGscQueryUniverse(tenantId, now)).catch(() => null);
   const cases = await aiCaseCards(bank, snapshot, pages, weak, earned, children, u, tenantId, input.units ?? [], windowObs, now, input.persist !== false, meter, universe?.keys ?? null);
   const drafts = [...cases.drafts,
-    ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt), ...unansweredCards(snapshot, pages, expectedCtrAt)]; // LAST, so an AI case about the same question keeps it: one question is one card
+    ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt), ...unansweredCards(snapshot, pages, expectedCtrAt, { bodies, misses, facts, basis: input.basis ?? null, tenantId })]; // LAST, so an AI case about the same question keeps it: one question is one card
   const out: ChangeProposal[] = [];
   // ONE QUESTION, ONE CARD: the answer an engine wrote and the follow-up search it ran to write it are one question, so only the strongest reading of it is filed.
   const answered = new Set<string>();
@@ -356,11 +354,9 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   return { cards: out, complete: families.length === DEFECTS.length + 3, families, held: u.held, needsOwnPage: bank, aeoHold: cases.hold, aeoSpend: meter.spent() };
 }
 
-/** THE ONE ENTRANCE FOR A PASS: loads the demand units once (both producers join the SAME audiences) and
- *  runs the $0 queue. The paid funnel's early return used to skip this producer entirely, so a paused quiet
- *  account never judged a single AI case (first canonical $0 acceptance run, 2026-08-21). */
+/** THE ONE ENTRANCE FOR A PASS: loads the demand units once (both producers join the SAME audiences) and runs the $0 queue. The paid funnel's early return used to skip this producer entirely, so a paused quiet account never judged a single AI case (first canonical $0 acceptance run, 2026-08-21). */
 export async function extraQueuePass(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date;
-  curve?: Parameters<typeof extraQueueCards>[0]["curve"]; reads?: { left: number }; persist?: boolean; aeoDiagnoses?: number }): Promise<{
+  curve?: Parameters<typeof extraQueueCards>[0]["curve"]; reads?: { left: number }; persist?: boolean; aeoDiagnoses?: number; basis?: string | null }): Promise<{
   run: ExtraQueueRun; unitLoad: Awaited<ReturnType<typeof import("@/domains/evidence/demand-unit-loader")["loadCanonicalDemandUnits"]>> | null }> {
   const unitLoad = await import("@/domains/evidence/demand-unit-loader")
     .then((m) => m.loadCanonicalDemandUnits(input.tenantId, input.snapshot, input.curve, input.now)).catch(() => null);

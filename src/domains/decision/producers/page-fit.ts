@@ -8,7 +8,7 @@ import { log } from "@/lib/logger";
 import { topicTokens } from "@/domains/evidence/relevance-gate";
 import { type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import type { ChangeProposal } from "@/domains/decision/contracts";
-import type { CauseFinding } from "@/domains/decision/diagnosis";
+import type { CauseFinding } from "@/domains/decision/diagnosis"; import type { Obligation } from "../obligation";
 import { actionFamilyOf } from "../proposal-store";
 import { pageUnderstanding, sectionFit } from "./page-job";
 /** `headline` IS the card's action line: it names the page, the thing to do and the number behind it, so the queue reads as work without being opened. Never "update the section to sharpen it", which says nothing. */
@@ -24,6 +24,7 @@ export type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1
   /** THE EXACT AI SCOPE this card targets: prompt ids, assistants and the follow-up-search cluster, preserved through shipment so Results remeasures the same thing, never ten flattened strings. */
   aiScope?: ChangeProposal["aiScope"];
   /** THE ONE CHOSEN TREATMENT, decided by the planner between diagnosis and drafting. */ treatment?: ChangeProposal["treatment"];
+  /** THE TYPED NEXT STEP THE MINT ALREADY WORKED OUT, on a card whose producer read the same evidence the walk reads. Stamped here so an un-walked re-mint carries the reading on file instead of computing `draft` over it at the store door. */ obligation?: Obligation;
   /** The question this card came out of. ONE QUESTION, ONE CARD: an answer and the follow-up search an engine ran while writing it are the same question, so the strongest of them is the only one filed. */
   asked?: string;
   /** What happens next for this brief, when the default "the wording lands next pass" is not the truth. */
@@ -120,7 +121,7 @@ export function mint(tenantId: string, d: Draft, now: Date): ChangeProposal {
     // WHAT IS RIDING ON IT, off this page's own rows: the clicks it is measurably leaving behind, and the audience it is shown to. Either one absent stays null, never a zero the ranking would believe.
     impactScore: d.impact ?? null, upsidePerMonth: null, demandImpressions90d: d.demand ?? d.page.search?.impressions90d ?? null,
     ...(d.aiImpact ? { aiImpact: d.aiImpact } : {}),
-    ...(d.treatment ? { treatment: d.treatment } : {}),
+    ...(d.treatment ? { treatment: d.treatment } : {}), ...(d.obligation ? { obligation: d.obligation } : {}),
     ...(d.aiScope ? { aiScope: d.aiScope } : {}),
     ...(d.cause ? { causeFinding: d.cause, diagnosisCause: d.cause.cause } : {}),
     publish: "manual", createdAt: now.toISOString(),

@@ -215,7 +215,7 @@ export async function supersedeStaleFacts(tenantId: string, page: string, pageCo
 /** A VERDICT FROM OBSOLETE RULES IS NOT CURRENT EVIDENCE. Each stale row is ARCHIVED under its own key with
  *  its evidence intact, then the live claim goes back to `owed` so the repaired engine researches it again.
  *  Returns how many were re-opened. Nothing is deleted and no wording is rewritten. */
-export async function reopenObsoleteChecks(tenantId: string, page: string, stale: readonly FactCheck[]): Promise<number> {
+export async function reopenObsoleteChecks(tenantId: string, page: string, stale: readonly FactCheck[], why?: string): Promise<number> {
   if (stale.length === 0) return 0;
   const at = new Date().toISOString();
   const rows = stale.flatMap((g) => [
@@ -229,7 +229,7 @@ export async function reopenObsoleteChecks(tenantId: string, page: string, stale
       current_wording: g.current, proposed: null, sources: [], agreement: "none_found", confidence: "unsupported",
       verdict: "undecidable", page_content_hash: g.pageContentHash, page_locator: g.pageLocator,
       source_read_at: null, evidence_basis: g.evidenceBasis, rules_version: VERIFICATION_RULES_VERSION,
-      note: "Owed again: the rules that produced the earlier verdict were replaced.",
+      note: why ?? "Owed again: the rules that produced the earlier verdict were replaced.", // the caller names the rule that sent it back when the replaced rules are not the reason
       claim_state: "owed", superseded_at: null, checked_at: at, updated_at: at },
   ]);
   const { error } = await getSupabaseAdmin().from(TABLE).upsert(rows, { onConflict: "tenant_id,page_key,statement_key" });

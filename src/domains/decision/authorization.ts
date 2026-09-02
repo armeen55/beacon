@@ -1,7 +1,7 @@
 /** decision/authorization: THE ONE PLACE THAT ASKS WHETHER A CHANGE IS ALLOWED TO BE OFFERED AT ALL. A producer mints on its own evidence and the ranking picks the biggest number, so a page whose own evidence says two of your pages are splitting one search could still lead the queue with "add more copy to one of them", which is the one thing that makes the split worse. THE LEVER MUST TREAT THE WINNING DIAGNOSIS FOR THE PAGE. Where it cannot, the card is withheld with its reason on the run receipt, and the work the diagnosis DID prescribe is minted instead. `CAUSE_LEVERS` is the truth table, and it lives here rather than inside the ranking because two places now read it: the ranking discounts a mismatch, and this boundary refuses one. PURE, no I/O, no clock beyond the one a caller hands in. */
 
 import type { BundleComponentKind, ChangeProposal } from "./contracts";
-import { causeLabel, type CauseFinding } from "./diagnosis";
+import { causeLabel, substantiveGapOf, type CauseFinding } from "./diagnosis";
 import { CAUSE_LEVERS, treatable } from "./proof";
 
 /** The cause ladder's own vocabulary. Read from there, never re-declared here. */
@@ -40,7 +40,8 @@ function treatsCause(p: ChangeProposal, cause: Cause | null | undefined): boolea
   const levers = cause ? CAUSE_LEVERS[cause] : undefined;
   if (!levers || levers.size === 0) return true;
   if (cause === "cannibalization" && (p.changeFamily === OWNERSHIP_FAMILY || new Set((p.bundle?.components ?? []).map((c) => c.page).filter(Boolean)).size > 1)) return true; // A BUNDLE WHOSE PIECES LAND ON MORE THAN ONE PAGE IS SETTLING THE SPLIT, whatever field each piece uses. A differentiation is filed by its FIRST component's field, so the two-page flag bundle arrived as `title-family`, missed the ownership exception, and a finished ready row was served from the research lane where nobody can act on it.
-  return leversOf(p).some((k) => levers.has(k));
+  const opensAnAnswer = p.bundle == null && p.treatment === "add_answer_section" && (substantiveGapOf(p)?.kind ?? "missing_answer") === "missing_answer"; // AN OPENING TREATS INCOMPLETE COVERAGE ONLY WHERE A MISSING ANSWER IS WHAT IT ADDS (reviewer, 2026-09-02): `opening_answer` joined that cause's levers for the card a page's own unanswered demand mints, and `leversOf` maps EVERY answer_block row to that lever, so a pronunciation line and any bundle carrying an opening passed on every incomplete-coverage page. The card's own payload decides: a row asking for the section that answers a search this page earns is the one the lever was opened for, and a row whose payload types absent headings is not.
+  return leversOf(p).some((k) => levers.has(k) && !(k === "opening_answer" && cause === "incomplete_coverage" && !opensAnAnswer));
 }
 
 /** THE SIX FIELDS A CARD IN THIS PRODUCT CAN ACTUALLY CARRY. Everything else in the lever vocabulary is a

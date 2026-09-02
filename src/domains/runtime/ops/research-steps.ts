@@ -509,13 +509,19 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
       // back may be spent on a correction: evidence this account already paid for, sitting unusable. Deterministic derivation from the quote ALREADY ON FILE only, so no search, no fetch and no cent; a claim its own
       // quote genuinely cannot carry is banked unsupported with its reason rather than reopened, because reopening buys fresh research and this is the free half. Fail-soft: it never decides the phase's own answer.
       const owedSupport = held.filter((h) => h.state === "checked" && h.sources.some((s) => s.says.trim() !== "" && s.support == null)).slice(0, SUPPORT_BACKFILL_PER_DRIVE);
-      if (owedSupport.length > 0 && Date.now() < deadlineAt) {
+      // AND THE MISSING-INFORMATION ROWS WHOSE ARTIFACTS WERE JUDGED BY THE HEADWORD RULE. A row that corrects nothing is supported by PROPOSITION CARRIAGE, so its banked artifacts were decided under a question that never applied to it and are stale by identity; they are re-derived here at $0, and a row still below confirmed is handed back to the fact pass once so the proposition rule may settle it. Its own slice, so this never crowds out the rows that carry no artifact at all.
+      const gap = (h: (typeof held)[number]): boolean => h.current.trim() === "" && !!h.proposed?.trim();
+      const gapSupport = held.filter((h) => h.state === "checked" && gap(h) && !owedSupport.includes(h)
+        && h.sources.some((s) => s.says.trim() !== "" && s.support != null)).slice(0, SUPPORT_BACKFILL_PER_DRIVE);
+      const targets = [...owedSupport, ...gapSupport].map((h) => ({ page: h.page, statementKey: h.statementKey,
+        onUnsupported: gap(h) && h.confidence !== "confirmed" ? "reopen" as const : "bank" as const }));
+      if (targets.length > 0 && Date.now() < deadlineAt) {
         const { backfillClaimSupport } = await import("@/domains/evidence/pages/claim-support");
         const page = new Map<string, ReturnType<typeof facts.readFactChecks>>(); // one read per PAGE, not per claim: a page's rows answer every target on it
-        const banked = await backfillClaimSupport(tenantId, owedSupport.map((h) => ({ page: h.page, statementKey: h.statementKey, onUnsupported: "bank" as const })),
+        const banked = await backfillClaimSupport(tenantId, targets,
           { rows: (p) => { const held0 = page.get(p) ?? facts.readFactChecks(tenantId, p); page.set(p, held0); return held0; },
-            rebank: (p, rows) => facts.recordFactChecks(tenantId, p, rows), reopen: (p, rows) => facts.reopenObsoleteChecks(tenantId, p, rows) }).catch(() => []);
-        log.info("[research-steps] source support derived for claims already paid for", { tenantId, asked: owedSupport.length, supported: banked.filter((o) => o.action === "banked_supported").length });
+            rebank: (p, rows) => facts.recordFactChecks(tenantId, p, rows), reopen: (p, rows, why) => facts.reopenObsoleteChecks(tenantId, p, rows, why) }).catch(() => []);
+        log.info("[research-steps] source support derived for claims already paid for", { tenantId, asked: targets.length, supported: banked.filter((o) => o.action === "banked_supported").length, reopened: banked.filter((o) => o.action === "reopened").length });
       }
       return { status: out.status, banked: out.banked, pagesComplete: out.pagesComplete, failure: out.failure, reason: out.reason };
     } catch (e) {

@@ -58,9 +58,7 @@ export const pageHashOf = (body: string): string => createHash("sha256").update(
 const STOP = new Set(["the", "and", "for", "with", "that", "this", "from", "its", "are", "was", "were", "has",
   "have", "had", "holds", "hold", "held", "also", "ever", "been", "not", "which", "their", "there", "into", "over"]);
 
-/** THE SEARCH IS THE PROPOSITION. The subject alone researched "Ahvaz, Iran definition reference" for the
- *  claim that Ahvaz holds Asia's 54 degree heat record (Codex, 2026-08-18): the claim type may shape the
- *  query, but it may never erase the date, number, relationship or assertion being verified. */
+/** THE SEARCH IS THE PROPOSITION. The subject alone researched "Ahvaz, Iran definition reference" for the claim that Ahvaz holds Asia's 54 degree heat record (Codex, 2026-08-18): the claim type may shape the query, but it may never erase the date, number, relationship or assertion being verified. */
 /** WHAT KIND OF SOURCE WOULD SETTLE THIS, one small hint per type. The claim itself is preserved whole below. */
 const HINT_FOR: Record<ClaimType, string> = { word_meaning: " name meaning origin etymology",
   usage_or_register: " usage formal informal grammar", // a usage rule is settled by a grammar or instructional reference, never by a dictionary headword
@@ -79,16 +77,12 @@ export function sourceQueryFor(type: ClaimType, subject: string, current: string
   const hint = HINT_FOR[type]; // shaped by the proposition, never a synonym dump and never a second query builder
   return `${toks.join(" ")}${hint}`.trim();}
 
-/** A STATEMENT'S IDENTITY is the normalized claim plus where it sits, never the subject alone: a page can say
- *  two different things about one subject and both are real (Codex, 2026-08-18). */
+/** A STATEMENT'S IDENTITY is the normalized claim plus where it sits, never the subject alone: a page can say two different things about one subject and both are real (Codex, 2026-08-18). */
 export function claimIdentity(subject: string, current: string, locator?: string | null): string {
   const norm = `${subject}|${current}|${locator ?? ""}`.toLowerCase().replace(/\s+/g, " ").trim();
   return `${statementKeyOf(subject)}#${createHash("sha256").update(norm).digest("hex").slice(0, 10)}`;}
 
-/** THE CLAIM'S CONTENT-TOKEN FINGERPRINT: subject + wording reduced to its content words, sorted. Two
- *  statements with the SAME content words in any order are one proposition reworded, and the second is
- *  superseded free instead of researched twice. Deliberately NOT semantic: a reformulation that swaps in
- *  different words is a different fingerprint and is researched on its own (Codex, 2026-08-18). */
+/** THE CLAIM'S CONTENT-TOKEN FINGERPRINT: subject + wording reduced to its content words, sorted. Two statements with the SAME content words in any order are one proposition reworded, and the second is superseded free instead of researched twice. Deliberately NOT semantic: a reformulation that swaps in different words is a different fingerprint and is researched on its own (Codex, 2026-08-18). */
 export function tokenFingerprintOf(subject: string, current: string, role: ClaimType = "definition"): string {
   const toks = `${subject} ${current}`.toLowerCase().replace(/[^\p{L}\p{N}° ]+/gu, " ").split(/\s+/)
     .filter((t) => t.length > 0 && (/[\d°]/.test(t) || (t.length >= 4 && !STOP.has(t))));
@@ -128,18 +122,15 @@ const SCRIPT_OF: Record<string, RegExp> = {
   chinese: /[\u4E00-\u9FFF]/, japanese: /[\u3040-\u30FF\u4E00-\u9FFF]/, korean: /[\uAC00-\uD7AF]/,
   armenian: /[\u0530-\u058F]/, georgian: /[\u10A0-\u10FF]/, thai: /[\u0E00-\u0E7F]/,};
 
-/** WHY A PAID DOOR GAVE NOTHING, carried end to end. `capped` = the budget refused it, `waiting` = a posted
- *  task has not answered, `refused` = it answered and the answer would not validate, `unavailable` = it could not be reached. Each is a different debt and each leaves the claim owed (Codex, 2026-08-18). */
+/** WHY A PAID DOOR GAVE NOTHING, carried end to end. `capped` = the budget refused it, `waiting` = a posted task has not answered, `refused` = it answered and the answer would not validate, `unavailable` = it could not be reached. Each is a different debt and each leaves the claim owed (Codex, 2026-08-18). */
 type ProviderHold = "capped" | "waiting" | "refused" | "unavailable";
 
-/** The one model call a unit may make. `kind` names the STRUCTURED OUTPUT SCHEMA the answer must satisfy, so
- *  a caller cannot quietly ask the editor judge for a claim list and read zero statements for ever. */
+/** The one model call a unit may make. `kind` names the STRUCTURED OUTPUT SCHEMA the answer must satisfy, so a caller cannot quietly ask the editor judge for a claim list and read zero statements for ever. */
 type StructuredRead = (input: { kind: "fact_claim_extraction" | "fact_claim_judgement";
   system: string; user: string; grounded: string; projectedCostUsd: number; maxTokens: number })
   => Promise<{ value: Record<string, unknown> } | { hold: ProviderHold }>;
 
-/** WHY A UNIT FAILED, as an identity a later reader can act on: a cap, a queue wait, a timeout and a schema
- *  refusal are different debts, and one generic sentence hid which of them repeated paid attempts were hitting (Codex, 2026-08-18). Every failure leaves the claim OWED. */
+/** WHY A UNIT FAILED, as an identity a later reader can act on: a cap, a queue wait, a timeout and a schema refusal are different debts, and one generic sentence hid which of them repeated paid attempts were hitting (Codex, 2026-08-18). Every failure leaves the claim OWED. */
 type UnitFailure = "no_page_body" | "lease_exhausted" | "inventory_write_failed" | "store_write_failed"
   | "lease_lost" | "source_quality_unresolved"
   | `extraction_${ProviderHold}` | `search_${ProviderHold}` | `fetch_${ProviderHold}` | `judge_${ProviderHold}`;
@@ -175,21 +166,29 @@ type FactCheckUnitDeps = {
   /** The absolute instant this unit must be finished by. */
   deadlineAt: number;};
 
-/** WHAT ONE UNIT DID. `advanced` = durable progress was STORED (a claim banked, or the next section
- *  inventoried). `done` = this page version owes nothing at full coverage. `failed` = nothing advanced and the claim is still owed, which must never move a run on to publishing. */
+/** WHAT ONE UNIT DID. `advanced` = durable progress was STORED (a claim banked, or the next section inventoried). `done` = this page version owes nothing at full coverage. `failed` = nothing advanced and the claim is still owed, which must never move a run on to publishing. */
 type FactCheckUnitResult = { status: "advanced" | "done" | "failed"; banked: number;
   cursor: FactCheckCursor | null; failure?: UnitFailure; reason?: string;
   /** WHICH CLAIM THIS UNIT TOOK ON, so a pass may set one aside and reach the next. */ attempted?: string };
 
 const enough = (deadlineAt: number, need: number): boolean => Date.now() + need + RESERVE_MS <= deadlineAt;
-/** PURE. THE PASSAGE AROUND THE SUBJECT, never simply the opening of the document (the entity-anchored window the claim-verification literature reads on). A long reference page's first 6,000 characters are its
- *  navigation and its introduction, so a subject discussed further down reached the judge in an excerpt that never named it. About 160 words either side of the first place the subject, or a number the claim itself
- *  carries, appears past the opening; the opening stands when the subject is absent or already inside it, and the 6,000-character cap still bounds everything sent. */
+/** PURE. THE PASSAGE AROUND THE SUBJECT, never simply the opening of the document (the entity-anchored window the claim-verification literature reads on). A long reference page's first 6,000 characters are its navigation and its introduction, so a subject discussed further down reached the judge in an excerpt that never named it. About 160 words either side of the first place the subject, or a number the claim itself carries, appears past the opening; the opening stands when the subject is absent or already inside it, and the 6,000-character cap still bounds everything sent. */
 function subjectWindow(text: string, anchors: readonly string[], max = 6_000, words = 160): string {
   const hay = text.toLowerCase(), at = anchors.map((a) => hay.indexOf(a.trim().toLowerCase())).filter((i) => i > max / 2).sort((x, y) => x - y)[0];
-  if (at == null) return text.slice(0, max);
+  if (at == null) return askedWindow(text, anchors[0] ?? "", max);
   return `${text.slice(0, at).split(/\s+/).slice(-words).join(" ")} ${text.slice(at).split(/\s+/).slice(0, words * 2).join(" ")}`.slice(0, max);
 }
+/** PURE. AND WHEN THE ANCHOR IS NOWHERE, THE REGION THE SUBJECT'S OWN WORDS ARE DENSEST IN, never the document's opening (reviewer, 2026-09-02). A missing-information row's subject IS the question that was researched, "iran flag before 1979", which no source sentence contains, so the anchor above never fired and the judge read the first 6,000 characters of a reference article: on Flag_of_Iran that is the CURRENT flag, the pre-1979 flag sits under History past character 6,000, and the row banked a passage about the flag that REPLACED the one it was claiming. The window is the run of whole sentences, at most `max` characters, carrying the most DISTINCT words of the subject, counted distinctly so a long uniform lead repeating two of them never outvotes the one passage that carries them all; the earliest such run wins, and the opening stands when no word of the subject occurs anywhere. Verbatim: a slice of the fetched text, so the judge and the bank-time selection read one region and the selection can never see text the judge did not. */
+function askedWindow(text: string, subject: string, max: number): string {
+  const words = (t: string): string[] => t.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [], want = new Set(words(subject).filter((w) => w.length >= 4 || /\d/.test(w)));
+  const sents = text.match(/[^.!?\n]+[.!?]+["')\]]?|[^.!?\n]+$/g) ?? []; if (want.size === 0 || sents.length === 0) return text.slice(0, max);
+  const at: number[] = []; let cut = 0; for (const x of sents) { const i = text.indexOf(x, cut); at.push(i < 0 ? cut : i); cut = (i < 0 ? cut : i) + x.length; }
+  const said = sents.map((x) => [...new Set(words(x).filter((w) => want.has(w)))]), held = new Map<string, number>(); let from = 0, best = { at: 0, n: 0 };
+  for (let i = 0; i < sents.length; i += 1) {
+    for (const w of said[i]!) held.set(w, (held.get(w) ?? 0) + 1);
+    while (at[i]! + sents[i]!.length - at[from]! > max && from < i) { for (const w of said[from]!) { const n = held.get(w)! - 1; if (n > 0) held.set(w, n); else held.delete(w); } from += 1; }
+    if (held.size > best.n) best = { at: at[from]!, n: held.size }; }
+  return best.n === 0 ? text.slice(0, max) : text.slice(best.at, best.at + max); }
 const fail = (failure: UnitFailure, cursor: FactCheckCursor | null, reason: string, attempted?: string): FactCheckUnitResult =>
   ({ status: "failed", banked: 0, cursor, failure, reason, ...(attempted ? { attempted } : {}) });
 
@@ -216,10 +215,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const seededFirst = (rows: typeof inventory) => [...rows].sort((a, b) => (b.pageLocator === "missing" ? 1 : 0) - (a.pageLocator === "missing" ? 1 : 0));
   let owed = seededFirst(inventory.filter((h) => h.state === "owed"));
   if (cov.coveredChars < cov.totalChars) {
-    // EXTRACT THE NEXT SECTION, WHATEVER IS ALREADY OWED. Waiting for the owed queue to empty is a deadlock: a
-    // another character. Live: rules v4 re-opened 21 claims, the queue stood at 33, and eighteen passes left
-    // coverage at 0 of 11,589 while ~160 entries were neither owed nor checked. Extraction is what gives an
-    // entry a disposition at all and costs about two cents a section, so it no longer queues behind research.
+    // EXTRACT THE NEXT SECTION, WHATEVER IS ALREADY OWED. Waiting for the owed queue to empty is a deadlock: a another character. Live: rules v4 re-opened 21 claims, the queue stood at 33, and eighteen passes left coverage at 0 of 11,589 while ~160 entries were neither owed nor checked. Extraction is what gives an entry a disposition at all and costs about two cents a section, so it no longer queues behind research.
     if (!enough(d.deadlineAt, 20_000)) return fail("lease_exhausted", null, "not enough of this lease remains to read the page");
     const chunk = page.body.slice(cov.coveredChars, cov.coveredChars + EXTRACT_CHUNK);
     const answer = await d.read({ kind: "fact_claim_extraction", system: CLAIM_SYSTEM,
@@ -247,10 +243,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     // THE INVENTORY AND ITS COVERAGE ARE THE CURSOR, stored BEFORE one claim is researched. A write that did not land is a failed unit: researching against an inventory nobody stored is how page two was lost.
     const wrote = claims.length === 0 ? 0 : await recordOwedClaims(tenantId, page.path, claims, hash, d.basis).catch(() => -1);
     if (wrote < 0) return fail("inventory_write_failed", null, "the page's claim inventory could not be stored, so nothing was researched");
-    // A CAPPED EXTRACTION HAS NOT READ ITS CHUNK, IT HAS FILLED UP: one oversized chunk once swallowed a
-    // cursor now advances only to the end of the last statement read, found by its own wording, and nothing is
-    // re-banked because both filters above dedupe. MEASURED ON WHAT CAME BACK, never on what survived that
-    // dedupe: a chunk returning exactly the cap and then losing rows read as "not capped".
+    // A CAPPED EXTRACTION HAS NOT READ ITS CHUNK, IT HAS FILLED UP: one oversized chunk once swallowed a cursor now advances only to the end of the last statement read, found by its own wording, and nothing is re-banked because both filters above dedupe. MEASURED ON WHAT CAME BACK, never on what survived that dedupe: a chunk returning exactly the cap and then losing rows read as "not capped".
     const last = returned.length >= CLAIM_CAP ? returned[returned.length - 1]! : null;
     const at = last ? chunk.toLowerCase().lastIndexOf(last.toLowerCase().slice(0, 60)) : -1;
     const read = at >= 0 ? Math.max(1, at + Math.min(last!.length, 60)) : chunk.length;
@@ -338,10 +331,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // 5. JUDGE against the passages only.
   if (!enough(d.deadlineAt, 20_000)) return fail("lease_exhausted", cursor, "no lease left to judge this claim");
   const verdict = await d.read({ kind: "fact_claim_judgement", system: JUDGE_SYSTEM,
-    // A MISSING PROPOSITION IS RESEARCHED, NOT COMPARED: an owed claim with no current wording is the page's
-    // acknowledged gap (the missing-information loop seeds exactly these), so the judge is asked what the
-    // passages establish about the subject rather than to grade an empty quotation. `proposed` then carries the
-    // researched statement, which is what the writer's fact-* evidence renders.
+    // A MISSING PROPOSITION IS RESEARCHED, NOT COMPARED: an owed claim with no current wording is the page's acknowledged gap (the missing-information loop seeds exactly these), so the judge is asked what the passages establish about the subject rather than to grade an empty quotation. `proposed` then carries the researched statement, which is what the writer's fact-* evidence renders.
     user: [`Claim type: ${type}`, `Subject: ${claim.subject}`,
       claim.current.trim() ? `The page says: "${claim.current}"` : "The page does not answer this yet. From the passages alone, state in `proposed` the accurate, source-supported statement of this subject; if the passages cannot support one, answer unsupported.",
       "Passages fetched from real sources:",
@@ -359,10 +349,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     if (quote.length === 0) continue;
     const p = passages.find((x) => x.url === sup.url) ?? passages.find((x) => norm(x.text).includes(norm(quote)));
     if (p && norm(p.text).includes(norm(quote)) && !verified.has(p.url)) { verified.set(p.url, quote); vouchedAs.set(p.url, sup.url); }}
-  // A QUOTE PROVES THE SOURCE SAID IT, NEVER THAT IT SAID IT ABOUT THIS SUBJECT: a passage has to be about the
-  // SAME name in the SAME language. The reader names the subject it read and the code checks the half it can.
-  // Live, Wikipedia's "Daria (given name)" is quotable and lists "Darya" as a variant, so it authorized a Slavic
-  // name descended from Darius as the meaning of Persian دریا, sea. Every test the old chain ran was passing.
+  // A QUOTE PROVES THE SOURCE SAID IT, NEVER THAT IT SAID IT ABOUT THIS SUBJECT: a passage has to be about the SAME name in the SAME language. The reader names the subject it read and the code checks the half it can. Live, Wikipedia's "Daria (given name)" is quotable and lists "Darya" as a variant, so it authorized a Slavic name descended from Darius as the meaning of Persian دریا, sea. Every test the old chain ran was passing.
   const said = new Map((v.subjects ?? []).map((x) => [x.url, x]));
   const vouched = passages.filter((p) => {
     if (!verified.has(p.url)) return false;
@@ -380,20 +367,27 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const identified = vouched.filter((p) => langOf(p) === leadLang);
   const dropped = passages.filter((p) => verified.has(p.url) && !identified.includes(p));
   const supporters = identified;
-  // EVERY SOURCE EARNS ITS OWN RULING, AND THE CODE ACCEPTS ONLY WHAT IT CAN VERIFY (claim-support, 2026-08-29).
-  // The model locates the supporting sentence and its spans; supportFailure accepts nothing it cannot find
-  // verbatim in the exact quote this row banks, localized to ONE sentence, whole words only, the subject named
-  // in that sentence or by this same fetch's own document title. What stood here was glossCarriedBy, a
-  // bag-of-words provenance test that let a passage about the man who held a title carry a name's meaning;
-  // provenance remains a refusal inside unauthorizedReason and authorizes nothing.
+  // EVERY SOURCE EARNS ITS OWN RULING, AND THE CODE ACCEPTS ONLY WHAT IT CAN VERIFY (claim-support, 2026-08-29). The model locates the supporting sentence and its spans; supportFailure accepts nothing it cannot find verbatim in the exact quote this row banks, localized to ONE sentence, whole words only, the subject named in that sentence or by this same fetch's own document title. What stood here was glossCarriedBy, a bag-of-words provenance test that let a passage about the man who held a title carry a name's meaning; provenance remains a refusal inside unauthorizedReason and authorizes nothing.
   const rulings = new Map((v.supporting ?? []).map((x) => [x.url, x] as const)); const proposedNow = (v.proposed ?? "").trim();
+  const kind = claimTypeOf(claim.subject, claim.current || proposedNow, claim.locator); // ONE CLASSIFICATION, BOTH DOORS (reviewer, 2026-09-02). The kind above is read from the page's own wording, which a missing-information row does not have, while the authorization door rebuilds it from the wording OR the researched statement: the two disagreed, the identity never matched, the artifact read `stale` on every drive, and two live rows were handed back and re-bought for ever. What a row asserts is what classifies it at both doors.
   const bankedSources = passages.map((p) => {
-    const says = (verified.get(p.url) ?? "").slice(0, 600);
+    const ctxAt = (quote: string): SupportContext => ({ tenantId, page: page.path, statementKey: next!.statementKey,
+      pageLocator: claim.locator, subject: claim.subject, claimKind: kind, current: claim.current,
+      proposed: proposedNow, url: p.url, kind: p.kind, quote, titleContext: p.title ?? null });
+    let says = (verified.get(p.url) ?? "").slice(0, 600);
+    // THE QUOTE A MISSING-INFORMATION ROW BANKS IS THE PASSAGE THAT CARRIES THE PROPOSITION, not whichever sentence the judge reached for first. Live on /iran-flags the judge quoted two sentences about the flag CHANGING in 1979 and wrote that the passages support the pre-1979 colours and emblem; they did, three sentences away, so the row banked `likely` and its demand row was refused for months. When the verified quote falls short, the one to three consecutive sentences of THIS source's own fetched text that carry the most of the proposal are banked instead: a window of the text this fetch already read, in its own words and order, never assembled from pieces, banked only when it clears the carriage bar, and the TIGHTEST window wins a tie so no sentence rides along that carries nothing.
+    if (proposedNow && says && claim.current.trim() === "" && supporters.includes(p) && !deriveSupport(ctxAt(says))) {
+      const sents = (p.text.match(/[^.!?\n]+[.!?]+["')\]]?|[^.!?\n]+$/g) ?? []).map((s) => s.trim()).filter((s) => s.length > 2);
+      let best: { window: string; carried: number } | null = null;
+      for (let i = 0; i < sents.length; i += 1) for (let k = 1; k <= 3 && i + k <= sents.length; k += 1) {
+        const window = sents.slice(i, i + k).join(" ");
+        if (window.length > 600) break;
+        const a = deriveSupport(ctxAt(window));
+        if (a && (!best || a.meaningSpans.length > best.carried || (a.meaningSpans.length === best.carried && window.length < best.window.length))) best = { window, carried: a.meaningSpans.length }; }
+      if (best) says = best.window; }
     const stamp = { url: p.url, kind: p.kind, says, ...(p.title ? { titleContext: p.title, titleContextFrom: "fetched_document" as const } : {}) };
     if (!says || !proposedNow || !supporters.includes(p)) return stamp;
-    const ctx: SupportContext = { tenantId, page: page.path, statementKey: next!.statementKey,
-      pageLocator: claim.locator, subject: claim.subject, claimKind: type, current: claim.current,
-      proposed: proposedNow, url: p.url, kind: p.kind, quote: says, titleContext: p.title ?? null };
+    const ctx = ctxAt(says);
     const r = rulings.get(p.url) ?? rulings.get(vouchedAs.get(p.url) ?? "");
     const candidate: ClaimSupport | null = r ? { version: SUPPORT_ARTIFACT_VERSION, identity: supportIdentity(ctx),
       supported: r.supported === true, supportSpan: r.supportSpan ?? "", subjectSpan: r.subjectSpan ?? "",
@@ -412,15 +406,14 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const confirmable = (supporters.some((p) => AUTHORITATIVE.has(p.kind))
     || supporters.filter((p) => CREDIBLE.has(p.kind)).length >= 2)
     && (!proposedNow || carriers.some((b) => AUTHORITATIVE.has(b.kind)));
-  // AND A REPLACEMENT HAS TO BE FOUND IN THE QUOTE THE ROW WILL BANK, NOT MERELY SOMEWHERE ON THE PAGE: the full fetched text used to authorize here, and live it confirmed "Mountain Rampart" off a sentence one past the verified quote, so the customer receipt showed a quote that never carried the published words. The page may help LOCATE evidence; only the verified quotes authorize. A correction (current wording exists) needs every content word of its short gloss carried by those quotes and may not simply restate one of them as the page's line; a missing-information statement keeps the older share, now against quotes.
-  const read = norm(supporters.map((p) => verified.get(p.url) ?? "").join(" "));
+  // AND A REPLACEMENT HAS TO BE FOUND IN THE QUOTE THE ROW WILL BANK, NOT MERELY SOMEWHERE ON THE PAGE: the full fetched text used to authorize here, and live it confirmed "Mountain Rampart" off a sentence one past the verified quote, so the customer receipt showed a quote that never carried the published words. The page may help LOCATE evidence; only the BANKED quotes authorize, which is why the share and the door below read what each source is about to store rather than what the judge first offered. A correction (current wording exists) needs every content word of its short gloss carried by those quotes and may not simply restate one of them as the page's line; a missing-information statement keeps the older share, now against quotes.
+  const bankedSays = new Map(bankedSources.map((b) => [b.url, b.says] as const));
+  const read = norm(supporters.map((p) => bankedSays.get(p.url) ?? "").join(" "));
   const words = (v.proposed ?? "").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4 && !FILLER.has(w));
   const share = words.length === 0 ? 1 : words.filter((w) => read.includes(w)).length / words.length;
-  // A CORRECTION IS JUDGED HERE BY THE RULE THE CARD DOOR WILL APPLY, so nothing is banked `confirmed` that the
-  // door then refuses for ever: such a row reopens, is re-researched, and is refused again. Below confirmed it
-  // stays an honest finding and never reopens. Missing information keeps its own share against the quotes.
+  // A CORRECTION IS JUDGED HERE BY THE RULE THE CARD DOOR WILL APPLY, so nothing is banked `confirmed` that the door then refuses for ever: such a row reopens, is re-researched, and is refused again. Below confirmed it stays an honest finding and never reopens. Missing information keeps its own share against the quotes.
   const blocked = unauthorizedReason({ subject: claim.subject, current: claim.current, proposed: v.proposed ?? null,
-    sources: supporters.map((p) => ({ kind: p.kind, says: verified.get(p.url) ?? "" })) });
+    sources: supporters.map((p) => ({ kind: p.kind, says: bankedSays.get(p.url) ?? "" })) });
   const carried = blocked == null && (claim.current.trim() !== "" || share >= SUPPORTED_SHARE);
   const confidence: FactCheck["confidence"] = v.confidence === "confirmed" && confirmable && carried ? "confirmed"
     : v.confidence === "unsupported" ? "unsupported" : v.confidence === "disputed" ? "disputed" : "likely";
@@ -452,9 +445,7 @@ type FactCheckPassDeps = {
 type FactCheckPassResult = { status: "advanced" | "done" | "failed"; banked: number;
   pagesComplete: number; attempts: number; failure?: UnitFailure; reason?: string };
 
-/** ONE PASS: at most ATTEMPTS_PER_PASS claim attempts GLOBALLY, however many pages that spans. A failed unit
- *  ends the pass with its typed identity, because a cap or an outage repeats on the next attempt and burning
- *  the remaining allowance against it proves nothing. */
+/** ONE PASS: at most ATTEMPTS_PER_PASS claim attempts GLOBALLY, however many pages that spans. A failed unit ends the pass with its typed identity, because a cap or an outage repeats on the next attempt and burning the remaining allowance against it proves nothing. */
 export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckPassResult> {
   let banked = 0, pagesComplete = 0, attempts = 0, progressed = false, opened = 0;
   const setAside = new Set<string>(); let lastPerClaim: { failure: UnitFailure; reason: string } | null = null;
@@ -472,10 +463,7 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
         held: held.filter((h) => h.page === page.path), page: { url: page.url, path: page.path, body }, skip: setAside,
         read: d.read, searchSources: d.searchSources, warmSearch: d.warmSearch, fetchSource: d.fetchSource,
         readCoverage: () => d.readCoverage(page.path), writeCoverage: (cov) => d.writeCoverage(page.path, cov) });
-      // A CLAIM THAT WILL NOT RESOLVE IS SET ASIDE, NOT THE WHOLE PASS. Ending on any failed unit is right for a
-      // spent budget or an outage, which repeat; wrong for a per-claim failure, because the owed order is stable
-      // so it returned to the head every pass. Live: `fetch_refused` at $0 on five passes while 167 others were
-      // never reached once. Set aside for THIS pass only; it is owed again on the next.
+      // A CLAIM THAT WILL NOT RESOLVE IS SET ASIDE, NOT THE WHOLE PASS. Ending on any failed unit is right for a spent budget or an outage, which repeat; wrong for a per-claim failure, because the owed order is stable so it returned to the head every pass. Live: `fetch_refused` at $0 on five passes while 167 others were never reached once. Set aside for THIS pass only; it is owed again on the next.
       if (out.status === "failed" && out.attempted && PER_CLAIM.has(out.failure ?? "")) {
         setAside.add(out.attempted); lastPerClaim = { failure: out.failure!, reason: out.reason ?? "" }; continue; }
       if (out.status === "failed")
