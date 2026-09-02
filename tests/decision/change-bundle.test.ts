@@ -366,7 +366,6 @@ describe("evidence is proportional to what the treatment risks, and sources are 
     const twoPublishersOneFact = body({ recommendedChange: REPL, supportFacts: [{ id: "fact-1", fact: `${EDIN}; ${MSU}` }] }); expect(openHold(twoPublishersOneFact).need, "one fact row carrying two independent publishers IS two sources, whatever its id count").toBeUndefined();
     expect(openHold(prop({ ...additive, status: "ready" } as never)).need, "a promoted row owes nothing here").toBeUndefined();
     expect(openHold(prop({ ...additive, recommendedChange: { kind: "existing_edit", field: "title", before: "a", after: "b" } } as never)).need?.kind, "a title is not a body claim, so this rule never reaches it: what a replacement line owes is a results page, not a source").not.toBe("factual_source"); }); });
-
 describe("traffic is the objective and every other factor may only discount it", () => { const clicky = (over: Record<string, unknown> = {}) => prop({ id: "measured", pagePath: "/cheetah", impactScore: 98, estimatedEffortMinutes: 2, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "title" })]), ...over });
   const aeo = (over: Record<string, unknown> = {}) => prop({ id: "aeo", pagePath: "/phrases", impactScore: null, estimatedEffortMinutes: 30, aiImpact: { answers: 9, days: 7, engines: 4, citedRivals: 3, mentionRate: 0, audienceWeight: null, stage: "owned_retrieved_not_cited" as const }, ...over });
 
