@@ -7,6 +7,7 @@ import {
   type DraftQualityStatus,
 } from "@/domains/decision/drafts/draft-quality";
 import { checkFactualEntailment, type AuthoritativeFact } from "@/domains/decision/drafts/factual-entailment";
+import { validateSchemaToStrings } from "@/domains/evidence/pages/schema-validator";
 import type { ClassifiableSource } from "@/domains/decision/drafts/source-authority";
 import { looksLikePlaceholder } from "./placeholder-detection";
 import { containsUuid, AUTOPUBLISH_RE, CODE_SUFFIX, HOST_RE, SPELLED_PROPORTION_RE } from "./copy-sanitize";
@@ -146,14 +147,81 @@ export type ProposalValidation = {
   corrections: string[];
   /** The hard-safety checks that tripped (placeholder/dash/uuid/destructive). */
   safetyFlags: string[];
+  /** What the row must SAY about this change beside the copy: a structured-data warning that does not block,
+   *  and the sentence an FAQ block owes about what its markup does and does not buy. Never a hold. */
+  limitations: string[];
   confidence: "high" | "medium" | "low";
 };
 
-/** Text fields the hard-safety scanners run over, per proposal kind. */
+/** Text fields the hard-safety scanners run over, per proposal kind. STRUCTURED DATA IS SCANNED ON THE WORDS A
+ *  READER WILL SEE, never on its punctuation: a colon between a JSON key and its value is not typography and a
+ *  brace is not a placeholder, but an em dash inside an FAQ answer is copy that lands on the page. */
 function operatorFacingText(proposal: ChangeProposal): string[] {
   const c = proposal.recommendedChange;
-  if (c.kind === "existing_edit") return [c.after];
+  if (c.kind === "existing_edit") return c.field === "schema" ? schemaVisible(c.after).visible : [c.after];
   return [c.proposedTitle, c.metaDescription, c.openingAnswer, ...c.outline, ...c.faqQuestions];
+}
+
+/** The fields of a block that assert something a reader can SEE on the page, per type. An Organization's own
+ *  name and a breadcrumb's label describe the site, not the page's words, so neither is claimed for the page. */
+const CLAIMED_ON_PAGE: Record<string, readonly string[]> = { Question: ["name"], Answer: ["text"], ImageObject: ["name", "caption"] };
+/** WALK ONE BLOCK ONCE: the @types it declares and the strings it claims the page carries. */
+function readSchema(node: unknown, types: Set<string>, visible: string[]): void {
+  if (!node || typeof node !== "object") return;
+  if (Array.isArray(node)) { for (const n of node) readSchema(n, types, visible); return; }
+  const o = node as Record<string, unknown>, raw = o["@type"];
+  for (const t of (Array.isArray(raw) ? raw : [raw]).filter((x): x is string => typeof x === "string")) {
+    types.add(t);
+    for (const f of CLAIMED_ON_PAGE[t] ?? []) { const v = o[f]; if (typeof v === "string" && v.trim()) visible.push(v.trim()); } }
+  for (const v of Object.values(o)) if (v && typeof v === "object") readSchema(v, types, visible); }
+/** The block as JSON, whatever wrapper travelled with it. `parsed` null means it is not readable JSON at all. */
+function schemaVisible(after: string): { parsed: unknown; types: Set<string>; visible: string[] } {
+  const types = new Set<string>(), visible: string[] = [];
+  let parsed: unknown = null;
+  try { parsed = JSON.parse(after.trim().replace(/^<script[^>]*>/i, "").replace(/<\/script>$/i, "").trim()); } catch { return { parsed: null, types, visible }; }
+  readSchema(parsed, types, visible);
+  return { parsed, types, visible }; }
+/** FAQ RICH RESULTS ARE GONE FOR ALMOST EVERY SITE (Google, August 2023): the display is limited to well known
+ *  authoritative government and health sites, so a card selling an FAQ block as a richer listing is selling
+ *  this customer something Google will not give them. The markup still helps a machine read the page, which is
+ *  exactly what the row may say instead. */
+const RICH_CLAIM = /\brich (?:result|snippet)|\bricher (?:display|listing|result|search)|\benhanced result|\beligib\w*/i;
+export const FAQ_SCHEMA_LIMIT = "FAQPage markup helps search engines and assistants read these questions and answers, and it does not change how Google displays the page.";
+
+/** STRUCTURED DATA ANSWERS TO ITS OWN QUESTIONS. Every prose rule in this file fires on a JSON-LD block by
+ *  construction, and both live schema rows were refused four times over for exactly that (raw markup, a
+ *  length band written for a sentence, an entity check reading JSON keys, a link removal reading the old
+ *  block's @context) while the one question that matters went unasked. These are the questions: does it
+ *  PARSE, does it satisfy the same validator the crawler runs on live pages, does the page really carry every
+ *  word this block claims for it, does it add a second block of a type the page already has, and does it
+ *  promise a rich result Google stopped granting. */
+function schemaFailures(p: ChangeProposal, change: Extract<RecommendedChange, { kind: "existing_edit" }>,
+  opts: ValidateProposalOptions): { failures: string[]; limitations: string[] } {
+  const { parsed, types, visible } = schemaVisible(change.after);
+  if (parsed == null) return { failures: ["This structured data is not valid JSON, so no search engine could read it and nobody should paste it."], limitations: [] };
+  if (types.size === 0) return { failures: ["This structured data names no type, so nothing in it tells a search engine what the page is."], limitations: [] };
+  // THE VALIDATOR'S OWN WORDS, minus the dash Beacon never writes: these strings were written for a crawler's warning list and they land in front of the operator here.
+  const warnings = validateSchemaToStrings(parsed).map((w) => w.replace(/\s*[–—]\s*/g, ", "));
+  const failures = warnings.filter((w) => w.startsWith("schema_critical:")).map((w) => `This structured data is incomplete: ${w.slice("schema_critical:".length).trim()}`);
+  const limitations = warnings.filter((w) => !w.startsWith("schema_critical:")).map((w) => w.replace(/^schema_\w+:\s*/, ""));
+  // THE PAGE HAS TO REALLY SAY IT. Structured data marks up what a reader can see, so a question, an answer or
+  // a caption that exists only inside the block is a claim about a page that does not make it.
+  const banked = [opts.pageBodyText ?? "", ...(p.supportFacts ?? []).map((f) => f.fact)].join(" ");
+  const carried = flatten(banked);
+  const missing = visible.find((v) => !carried.includes(flatten(v)));
+  if (missing) failures.push(`The page does not visibly carry "${missing.slice(0, 70)}", and structured data may only mark up words that are already on the page.`);
+  // ONE BLOCK PER TYPE. A second FAQPage or ImageObject beside the one the page already carries reads to Google
+  // as a mistake, never as more coverage. The page's own types come from the caller when it holds a snapshot,
+  // else from the block this row banked as the page's current state.
+  const live = new Set([...(opts.pageSchemaTypes ?? []), ...[...banked.matchAll(/"@type"\s*:\s*"([A-Za-z]+)"/g)].map((m) => m[1]!)]);
+  const already = change.before == null ? [...types].find((t) => live.has(t)) : null;
+  if (already) failures.push(`The page already carries a ${already} block, so this must replace it, not add a second one.`);
+  if (types.has("FAQPage")) {
+    const said = [p.opportunityType, p.whyItMatters, change.where ?? "", ...p.limitations, ...(p.claims ?? []).map((c) => c.text), ...(p.operatorSteps ?? [])].join(" ");
+    if (RICH_CLAIM.test(said)) failures.push("This sells an FAQ block as a richer search listing, and since 2023 Google shows those only for well known government and health sites, so that is not a promise this change can make.");
+    limitations.push(FAQ_SCHEMA_LIMIT);
+  }
+  return { failures, limitations };
 }
 
 const NUMBER_RE = /\d[\d,.]*/g;
@@ -270,6 +338,25 @@ function componentFailures(components: readonly BundleComponent[], heldHeadings:
   return out;
 }
 
+/** THE $0 RE-ADMISSION OF A STORED SCHEMA ROW. Two live rows drafted JSON-LD into `field: "section"` before the
+ *  typed treatment existed, so every prose rule in this file fired on them and the queue held them four times
+ *  over for reasons that were never about structured data. Nothing in them needs rewriting: the block is
+ *  written, its placement is stated, and the only thing missing is the type it should have been filed under.
+ *  This converts ONE stored row in place, with no model and no spend: the script wrapper comes off, the field
+ *  becomes `schema`, the rich-result promise Google withdrew in 2023 leaves the limitations and the honest
+ *  sentence takes its place. Null when the row is not one of these, so a caller may run it over a whole
+ *  queue. Idempotent: a row already typed `schema` converts to null, not to itself again. PURE. */
+export function convertSectionToSchema(p: ChangeProposal): ChangeProposal | null {
+  const c = p.recommendedChange;
+  if (c.kind !== "existing_edit" || c.field === "schema") return null;
+  const after = c.after.trim().replace(/^<script[^>]*>/i, "").replace(/<\/script>$/i, "").trim();
+  if (!/^[[{]/.test(after)) return null;
+  const { parsed, types } = schemaVisible(after);
+  if (parsed == null || types.size === 0) return null;
+  const kept = p.limitations.filter((l) => !RICH_CLAIM.test(l));
+  return { ...p, recommendedChange: { ...c, field: "schema", after, where: c.where?.trim() || "Add this block to this page's own custom code, in the head of this page only. It adds no visible text and changes nothing a reader sees." },
+    limitations: types.has("FAQPage") ? [...new Set([...kept, FAQ_SCHEMA_LIMIT])] : kept }; }
+
 /** Destructive-change guard: an existing-page edit that empties or guts the
  *  current value. A rewrite should improve the field, never delete it. */
 function isDestructiveEdit(before: string | null, after: string): boolean {
@@ -298,6 +385,9 @@ type ValidateProposalOptions = {
   /** The sections this account's own page ACTUALLY carries, as held. A rebuild is checked against these:
    *  absent means I hold no outline for the page, so nothing is checked rather than everything passing. */
   heldHeadings?: readonly string[];
+  /** The structured-data types the page ALREADY carries, off the caller's own snapshot. Absent means the row's
+   *  own banked page copy is the only witness, so a duplicate is caught only where the block was banked. */
+  pageSchemaTypes?: readonly string[];
   now?: Date;
 };
 
@@ -312,6 +402,9 @@ export function validateProposal(
   const change = proposal.recommendedChange;
   const texts = operatorFacingText(proposal);
   const query = proposal.primaryQuery;
+  // STRUCTURED DATA IS JUDGED BY ITS OWN GATE, and by that gate ONLY: the prose rules below all read a JSON-LD
+  // block as broken prose, so they are asked of every field except this one.
+  const schema = change.kind === "existing_edit" && change.field === "schema" ? schemaFailures(proposal, change, opts) : null;
 
   // ── hard-safety scanners (deterministic, no LLM) ────────────────────────────
   const safetyFlags: string[] = [];
@@ -321,7 +414,7 @@ export function validateProposal(
     if (containsUuid(t)) safetyFlags.push("Leaks a raw id into operator copy.");
   }
   // RAW MARKUP IS NOT PASTE COPY (operator, 2026-08-31). A stored link row from before the typed-anchor contract carried '<a href="...">iran eagle</a>' in a section body and the $0 replay promoted it: nothing typed owned the rule that operator copy is TEXT. A tag in `after` is malformed for every existing_edit field, because the anchor words travel typed (anchorText) and the customer pastes prose, never HTML. Schema-block rows are already held by their own "describes the work" gap; this only adds the honest second reason.
-  if (change.kind === "existing_edit" && /<\/?[a-z][a-z0-9-]*(?:\s[^>]*)?>/i.test(change.after)) safetyFlags.push("Contains raw HTML markup, and operator copy is pasted as text.");
+  if (change.kind === "existing_edit" && !schema && /<\/?[a-z][a-z0-9-]*(?:\s[^>]*)?>/i.test(change.after)) safetyFlags.push("Contains raw HTML markup, and operator copy is pasted as text.");
   if (change.kind === "existing_edit" && isDestructiveEdit(change.before, change.after)) {
     safetyFlags.push("Rewrite deletes or guts the current value (destructive edit).");
   }
@@ -330,7 +423,7 @@ export function validateProposal(
   // page body / current value to check a new claim against, so an invented number or entity is a genuine violation (or a dated, sourced correction). A
   // brand-NEW page inherently introduces entities that are not yet on any page, so entity-entailment there is pure noise; its ungrounded-NUMBER protection
   // is already enforced upstream by the drafter's numeric-fidelity firewall at generation, so a persisted brief cannot carry an invented number.
-  const entail = change.kind === "existing_edit"
+  const entail = change.kind === "existing_edit" && !schema
     ? checkFactualEntailment({
         draftText: change.after,
         query,
@@ -343,7 +436,11 @@ export function validateProposal(
 
   // ── draft-quality gate (generic/thin/relevance/source-authority) ────────────
   let quality: DraftQualityResult;
-  if (change.kind === "existing_edit") {
+  if (schema) {
+    quality = schema.failures.length > 0
+      ? { status: "malformed", reasons: schema.failures, copyAllowed: false, canRegenerate: true, confidence: "low" }
+      : { status: "ready", reasons: [], copyAllowed: true, canRegenerate: true, confidence: "medium" };
+  } else if (change.kind === "existing_edit") {
     quality = evaluateTitleMetaQuality({
       before: change.before,
       after: change.after,
@@ -395,6 +492,7 @@ export function validateProposal(
     factViolations,
     corrections,
     safetyFlags,
+    limitations: schema?.limitations ?? [],
     confidence: quality.confidence,
   };
 }

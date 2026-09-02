@@ -415,7 +415,7 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
 /** The cheapest paid step a pass can take, used only to ask the budget door a REAL question: it refuses on
  *  `spend + projected > cap`, so a zero probe still answers "allowed" against a ceiling reached to the cent. */
 const VISIT_RESEARCH_PROBE_USD = 0.01;
-export type VisitBudgetProbe = (tenantId: string, projectedCostUsd: number) => Promise<{ allowed: boolean; reason?: string }>;
+type VisitBudgetProbe = (tenantId: string, projectedCostUsd: number) => Promise<{ allowed: boolean; reason?: string }>;
 const defaultVisitBudgetProbe: VisitBudgetProbe = async (tenantId, projectedCostUsd) =>
   (await import("@/domains/decision/llm/adjudicator-budget")).checkBudget({ tenantId, projectedCostUsd });
 

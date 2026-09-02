@@ -65,7 +65,8 @@ const STOP = new Set(["the", "and", "for", "with", "that", "this", "from", "its"
 const HINT_FOR: Record<ClaimType, string> = { word_meaning: " name meaning origin etymology",
   usage_or_register: " usage formal informal grammar", // a usage rule is settled by a grammar or instructional reference, never by a dictionary headword
   geography: " location region geography", date_or_event: " date period history",
-  quantity: "", definition: "", specification: "", entity_fact: "" };
+  // A COUNT ASKS HOW MANY. The proposition already carries the figure and its subject; this is the one word that makes a reference answer with the count rather than with an essay about the thing being counted.
+  quantity: " how many", definition: "", specification: "", entity_fact: "" };
 
 export function sourceQueryFor(type: ClaimType, subject: string, current: string): string {
   const seen = new Set<string>(); const toks: string[] = [];

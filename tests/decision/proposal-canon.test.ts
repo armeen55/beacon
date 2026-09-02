@@ -71,10 +71,9 @@ describe("rows written after the lifecycle contract", () => {
     basis: "basis_today::d6", case_id: "", page_key: id, action_family: "title-family",
     payload: JSON.parse(JSON.stringify({ v: 1, proposal: { ...proposal({ id, pagePath: id }), status: word } })),
     updated_at: "2026-07-30T00:00:00.000Z" });
-  it("22: the contract reads migrated history, and no historical proposal disappears", async () => {
-    db.state.rows.push(row("/a", "ready"), row("/b", "implemented_pending_verification"));
-    seedLegacy(proposal({ id: "/legacy-only", pagePath: "/legacy-only" }));
-    const queue = await loadChangeProposals(T); expect([[...queue.keys()].sort(), queue.get("/b")!.status]).toEqual([["/a", "/b", "/legacy-only"], "implemented_pending_verification"]); }); });
+  it("22: the queue is the canonical table alone, and a pre-canonical row is history rather than current work", async () => {
+    db.state.rows.push(row("/a", "ready"), row("/b", "implemented_pending_verification")); seedLegacy(proposal({ id: "/legacy-only", pagePath: "/legacy-only" }));
+    const queue = await loadChangeProposals(T); expect([[...queue.keys()].sort(), queue.get("/b")!.status]).toEqual([["/a", "/b"], "implemented_pending_verification"]); }); });
 describe("canonical proposal persistence", () => {
   it("keeps ONE current row per hypothesis: a re-draft supersedes its predecessor, points at it, and carries the next version", async () => {
     expect(await saveChangeProposal(proposal())).toBe("saved");
@@ -129,16 +128,18 @@ describe("canonical proposal persistence", () => {
     const a = db.state.rows.find((r) => r.tenant_id === T)!;
     expect(a.terminal_disposition).toBeNull(); // the predecessor keeps its place
   });
-  it("reads pre-cutover rows as history, never revives one the canonical table retired, and never crosses accounts", async () => {
-    const old = proposal({ id: `${T}::/older-page::existing_edit::title`, pagePath: "/older-page" });
-    seedLegacy(old); seedLegacy(proposal()); seedLegacy(proposal({ tenantId: "acct-b", id: "acct-b::/theirs::existing_edit::title" }));
-    expect([...(await loadChangeProposals(T)).keys()].sort()).toEqual([old.id, proposal().id].sort()); // both readable before anything is written
-    await saveChangeProposal(proposal());
-    await saveChangeProposal(deep()); // retires the title row the legacy store still holds a copy of
-    expect([...(await loadChangeProposals(T)).keys()].sort()).toEqual([deep().id, old.id].sort());
-    expect([...(await loadChangeProposals("acct-b")).keys()]).toEqual(["acct-b::/theirs::existing_edit::title"]); // each account sees its own work and nobody else's
-    db.state.missing = true; // before the migration is applied: history still renders, nothing is invented
-    expect((await loadChangeProposals(T)).size).toBe(2); expect(await saveChangeProposal(proposal({ status: "implemented_pending_verification" }))).toBe("failed"); });
+  it("serves the canonical table alone: a pre-cutover row is history, an unreadable table is an empty queue, and no account sees another's work", async () => {
+    seedLegacy(proposal({ id: `${T}::/older-page::existing_edit::title`, pagePath: "/older-page" })); seedLegacy(proposal({ tenantId: "acct-b", id: "acct-b::/theirs::existing_edit::title" }));
+    expect([...(await loadChangeProposals(T)).keys()]).toEqual([]); await saveChangeProposal(proposal()); await saveChangeProposal(deep()); // the deep row retires the title row the legacy store still holds a copy of
+    expect([[...(await loadChangeProposals(T)).keys()], [...(await loadChangeProposals("acct-b")).keys()]]).toEqual([[deep().id], []]);
+    db.state.missing = true; expect((await loadChangeProposals(T)).size).toBe(0); expect(await saveChangeProposal(proposal({ status: "implemented_pending_verification" }))).toBe("failed"); });
+  it("keeps the finished row when a stale pass writes its own brief over it, and hands back the row that stands", async () => {
+    const finished = proposal({ claims: [{ text: "c", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: "f" }], copyStamp: "T|H|D|O", workKey: "w1" });
+    expect(await saveChangeProposal(finished)).toBe("saved"); let stands: ChangeProposal | null = null; const stale = proposal({ status: "needs_review", researchOnly: true, copyStamp: "T|H|D|O", workKey: "w1", recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "The exact title is not written yet." } });
+    expect(await saveChangeProposal(stale, undefined, (r) => { stands = r; })).toBe("unchanged"); // the store merged, so nothing was written over the finished words
+    expect([stands!.status, (stands!.recommendedChange as { after: string }).after]).toEqual(["ready", "Nowruz Traditions and the Haft-Seen Table"]);
+    db.state.rows[0]!.status = "implemented_pending_verification"; const before = JSON.stringify(db.state.rows); // AND A CHANGE THE OPERATOR ALREADY MARKED DONE IS NOT REWRITTEN INTO A DRAFT: the measurement guard only ever inspected OTHER rows
+    expect(await saveChangeProposal(proposal({ status: "needs_review" }))).toBe("blocked"); expect(JSON.stringify(db.state.rows)).toBe(before); });
   it("proves the handover row belongs to this account BEFORE it writes, and names a missing supersession function for what it is", async () => {
     db.state.rows.push({ id: "held", tenant_id: "", site: "fixture-outdoors.example", case_id: "", page_key: PAGE,
       action_family: "title-family", status: "ready", terminal_disposition: null, proposal_version: 1,
@@ -316,3 +317,17 @@ describe("a bundle that touches both competing pages treats the split", () => {
     const { withholdReason } = await import("@/domains/decision/authorization");
     const row = (pages: string[]) => ({ changeFamily: "title-family", causeFinding: { cause: "cannibalization" }, recommendedChange: { kind: "existing_edit", field: "title", before: null, after: "x" }, bundle: { components: pages.map((page) => ({ kind: "title", page, after: "x", evidenceKeys: [], label: "t", before: null, risk: "safe" })) } });
     expect([withholdReason(row(["/iran-flags/iran-islamic-republic-flag-history", "/iran-flags"]) as never, "cannibalization"), (withholdReason(row(["/iran-flags"]) as never, "cannibalization") ?? "").includes("does not treat it")]).toEqual([null, true]); }); }); // and one page is still one page
+/** STRUCTURED DATA IS A TREATMENT, NOT BROKEN PROSE (live, 2026-09-01). Two rows drafted JSON-LD into a section field and the canon refused them four times over on rules written for sentences: raw markup, a length band for a paste, an entity check reading JSON keys, and a link removal reading the old block's own @context. The one question that decides a schema block, whether the page really carries the words it claims, was never asked. It is asked here, and the prose rules are not. */
+describe("structured data answers to its own gate", () => {
+  const FAQ = JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: [{ "@type": "Question", name: "What are Persian numerals?", acceptedAnswer: { "@type": "Answer", text: "Persian numerals are the symbols Iranians use to write numbers." } }] });
+  const COPY = "What are Persian numerals? Persian numerals are the symbols Iranians use to write numbers. The table below gives every digit.", SOLD = "Structured data makes a result eligible for a richer display, it never guarantees one.";
+  const row = (after: string, over: Partial<ChangeProposal> = {}) => proposal({ recommendedChange: { kind: "existing_edit", field: "schema", before: null, after, where: "Add this block to the page head." }, ...over });
+  const judge = async (p: ChangeProposal, opts: Record<string, unknown> = {}) => (await import("@/domains/decision/validate-proposal")).validateProposal(p, { pageBodyText: COPY, ...opts });
+  it("passes a block the page really carries, and refuses one it does not, a second block of a type the page has, JSON that does not parse, and a rich result Google stopped granting", async () => {
+    const { convertSectionToSchema, FAQ_SCHEMA_LIMIT } = await import("@/domains/decision/validate-proposal"); const ok = await judge(row(FAQ));
+    const [absent, dupe, broken, thin, sold] = await Promise.all([judge(row(FAQ.replace("write numbers.", "write numbers in every shop in Tehran."))), judge(row(FAQ), { pageSchemaTypes: ["FAQPage"] }), judge(row('{"@type":"FAQPage"')), judge(row(JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage" }))), judge(row(FAQ, { limitations: [SOLD] }))]);
+    expect([ok.verdict, ok.limitations.some((l) => l.includes("does not change how Google displays the page"))], "the questions and answers are on the page, and the row owes the one true sentence about what FAQ markup buys").toEqual(["ready", true]);
+    expect([absent, dupe, broken, thin, sold].map((v) => v.verdict), "an answer the page never makes, a second block of a type the page already carries, JSON that does not parse, an FAQPage with no questions in it, and a listing Google has given only to government and health sites since 2023").toEqual(["rejected", "rejected", "rejected", "rejected", "rejected"]);
+    expect([absent.reasons.some((r) => r.startsWith("The page does not visibly carry")), dupe.reasons.some((r) => r.includes("already carries a FAQPage block")), broken.reasons.some((r) => r.includes("not valid JSON")), thin.reasons.some((r) => r.includes("no mainEntity")), sold.reasons.some((r) => r.includes("richer search listing")), [ok, absent, dupe, broken, thin, sold].every((v) => v.reasons.every((r) => !/[–—]/.test(r)))], "each refusal names its own reason, and a warning written for a crawler's log never reaches the operator wearing a dash Beacon does not write").toEqual([true, true, true, true, true, true]);
+    const stored = proposal({ recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `<script type="application/ld+json">${FAQ}</script>` }, limitations: [SOLD] }), moved = convertSectionToSchema(stored)!;
+    expect([(await judge(stored)).verdict, moved.recommendedChange.kind === "existing_edit" ? [moved.recommendedChange.field, moved.recommendedChange.after.startsWith("{")] : null, moved.limitations, (await judge(moved)).verdict, convertSectionToSchema(moved)], "the same block is refused as prose, converts at no cost into the typed treatment with its wrapper off and the withdrawn promise replaced, then passes, and converts exactly once").toEqual(["rejected", ["schema", true], [FAQ_SCHEMA_LIMIT], "ready", null]); }); });

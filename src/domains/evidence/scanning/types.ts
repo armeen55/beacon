@@ -1,4 +1,4 @@
-export type FindingType =
+type FindingType =
   | "title_changed"
   | "meta_changed"
   | "h1_changed"

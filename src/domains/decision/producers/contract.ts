@@ -57,11 +57,14 @@ export type CauseKey = CauseFinding["cause"];
  *  three files, which is exactly how two of its kinds shipped with no buyer and the compiler never said so).
  *  `kind` says what to buy, `query` or `url` says exactly which one. Runtime's acquireEvidence must execute every
  *  member of this union: its switch is exhaustive, so adding a kind without an acquisition handler fails typecheck. */
-export type EvidenceRequirement = { kind: "serp" | "page_source" | "competitor_page" | "factual_source"; query: string; url?: string; reasonCode: string;
+/** `semantic_review` is the one member that buys no new reading: it is the paid evaluator reading copy that is ALREADY final against the sources already banked beside it. It exists because a review that was owed was filed as a `factual_source` acquisition, so the runtime went and bought facts while the reading nobody had taken stayed untaken. */
+export type EvidenceRequirement = { kind: "serp" | "page_source" | "competitor_page" | "factual_source" | "semantic_review"; query: string; url?: string; reasonCode: string;
   /** THE MISSING INFORMATION ITSELF, for a factual_source born from a rival comparison: the topic or question the owned page cannot answer today, phrased as the proposition to research. Acquisition researches THIS, never the page's existing claims, and only a checked fact banked for this topic satisfies the requirement; an unrelated stored fact does not. */
   missingTopic?: string;
   /** Where a rival treats that topic, as BRIEFING provenance only: it says why the topic was judged missing, and its copy may never support a claim. */
-  rivalUrl?: string };
+  rivalUrl?: string;
+  /** THE EXACT CHANGE THIS READING IS ABOUT, where the requirement is about one row rather than one search. `semantic_review` reads the words on ONE stored change, so naming it here is what lets the runtime load that single row instead of the whole account's queue. */
+  proposalId?: string };
 
 /** THE ONE RESOLUTION VOCABULARY for a refused draft, produced by BOTH refusal producers: the deterministic
  *  drafting gates (which run before any model call and often refuse without one) and the model evaluator reading

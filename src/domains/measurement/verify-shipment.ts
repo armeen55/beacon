@@ -49,7 +49,7 @@ type ComponentState = ShipmentVerification["components"][number]["state"];
 type VerifiableShipment = {
   id: string;
   url: string;
-  components: Array<{ kind: string; after: string; anchorAfter?: string | null; redirectTo?: string | null }>;
+  components: Array<{ kind: string; after: string; anchorAfter?: string | null; redirectTo?: string | null; before?: string | null }>;
   /** This is the ONE retry a site that did not answer earns. A recheck's own answer is final either way. */
   recheck?: boolean;
   /** How many live reads this shipment has already had, so the differs recheck loop stays bounded. */
@@ -96,8 +96,32 @@ function liveTextOf(snap: PageSnapshot, html: string): string {
   return norm(`${captured} ${html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ")}`);
 }
 
+/** WHAT A JSON-LD BLOCK CLAIMS: the @types it declares and the names a live read can be compared against (an
+ *  FAQ's questions, an image's own name). Returns nothing at all when the block is not readable JSON, which
+ *  is honestly unknown rather than a failure to find it on the page. */
+/** The types a live read harvests names for. An ImageObject's own name is NOT among them, so a block that
+ *  names only an image is confirmed as far as its type and honestly unknown past that, never graded wrong. */
+const NAMED_LIVE: ReadonlySet<string> = new Set(["Question", "Service", "Offer", "Product", "Organization",
+  "LocalBusiness", "HomeAndConstructionBusiness", "BreadcrumbList", "ListItem", "ItemList", "Place", "CreativeWork", "WebPage", "Article"]);
+function schemaClaim(block: string): { types: string[]; names: string[] } {
+  const body = block.trim().replace(/^<script[^>]*>/i, "").replace(/<\/script>$/i, "").trim();
+  const types: string[] = [], names: string[] = [];
+  const walk = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) { for (const n of node) walk(n); return; }
+    const o = node as Record<string, unknown>;
+    const raw = o["@type"];
+    const own = (Array.isArray(raw) ? raw : [raw]).filter((x): x is string => typeof x === "string");
+    types.push(...own);
+    if (own.some((t) => NAMED_LIVE.has(t)) && typeof o.name === "string" && o.name.trim()) names.push(o.name);
+    for (const v of Object.values(o)) if (v && typeof v === "object") walk(v);
+  };
+  try { walk(JSON.parse(body)); } catch { return { types: [], names: [] }; }
+  return { types, names };
+}
+
 /** ONE component, judged against the page as it stands right now. Pure. */
-function classify(component: { kind: string; after: string; anchorAfter?: string | null; redirectTo?: string | null }, live: LiveRead): { state: ComponentState; note: string } {
+function classify(component: { kind: string; after: string; anchorAfter?: string | null; redirectTo?: string | null; before?: string | null }, live: LiveRead): { state: ComponentState; note: string } {
   const { snap } = live, proposed = component.after ?? "";
   // NO COPY, NO CLAIM. Some kinds are visible without any wording at all (the address forwards, the page
   // asks to be left out of search, the page exists). Every other kind needs the exact wording that was
@@ -184,6 +208,32 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
     case "internal_link_remove":
       return !target || snap.internal_links == null ? judged("unverifiable", "That link on your page could not be checked this time.")
         : linkHit ? judged("not_verified", "That link is still on the page.") : judged("verified", "That link is gone.");
+    // STRUCTURED DATA IS CHECKED ON WHAT IT NAMES, never on the page's own words: no heading will ever match a
+    // JSON-LD block, so a block shipped as its field family read as a section nobody had written. The live read
+    // holds the types the page carries and the names inside them, which is exactly what a prepared block can be
+    // compared against. Where the live read harvests no name for a type (an image's own name is one), the type
+    // being there is all that can honestly be said, and a replacement that still reads as the OLD block is not
+    // a page carrying a different change, it is a change that has not landed.
+    case "schema_add": case "schema_replace": {
+      const want = schemaClaim(proposed);
+      if (want.types.length === 0) return judged("unverifiable", "What was applied here is not readable structured data, so this one is not called either way.");
+      const liveTypes = snap.schema_types ?? [];
+      const liveNames = [...(snap.schema_entity_names ?? []), ...(snap.faqs ?? []).filter((f) => f.source === "jsonld").map((f) => f.question)].map(norm).filter(Boolean);
+      if (liveTypes.length === 0 && liveNames.length === 0) {
+        return snap.extraction_certainty === "uncertain"
+          ? judged("unverifiable", "Your page builds its content in the browser, so its structured data cannot be read from the outside.")
+          : judged("not_verified", "No structured data is on your page at all.");
+      }
+      const type = want.types.find((t) => liveTypes.some((l) => norm(l) === norm(t)));
+      if (!type) return judged("not_verified", `Your page carries ${liveTypes.join(", ") || "structured data"}, and no ${want.types[0]} block is on it.`);
+      const wanted = want.names.map(norm).filter(Boolean);
+      if (wanted.length === 0) return judged("unverifiable", `Your page carries a ${type} block, and what is inside it cannot be read from the outside, so whether it is this exact block is not called either way.`);
+      if (wanted.every((n) => liveNames.some((l) => l.includes(n)))) return judged("verified", `Your page carries the ${type} block this change asked for.`);
+      const old = schemaClaim(component.before ?? "").names.map(norm).filter(Boolean);
+      return old.length > 0 && old.every((n) => liveNames.some((l) => l.includes(n)))
+        ? judged("not_verified", `Your page still carries the ${type} block that was there before this change.`)
+        : judged("changed_differently", `Your page carries a ${type} block, and it is not the one this change prepared.`);
+    }
     case "schema": {
       const types = snap.schema_types ?? [], named = (snap.schema_entity_names ?? []).length > 0;
       const askedFor = types.find((t) => norm(proposed).includes(norm(t)));
@@ -295,10 +345,10 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
  *  UNKNOWN when it cannot. Inventing wording to check against would be worse than saying I cannot tell. */
 function componentsOf(r: ShippedChangeRecord): VerifiableShipment["components"] {
   const copy = (r.after ?? "").trim();
-  const applied = (r.componentsApplied ?? []) as Array<{ kind: string; after?: string | null; anchorAfter?: string | null; redirectTo?: string | null }>;
+  const applied = (r.componentsApplied ?? []) as Array<{ kind: string; after?: string | null; anchorAfter?: string | null; redirectTo?: string | null; before?: string | null }>;
   if (applied.length === 0) return copy || r.actionType ? [{ kind: r.actionType || "content", after: copy }] : [];
   const lone = applied.length === 1;
-  return applied.map((c) => ({ kind: c.kind, anchorAfter: c.anchorAfter ?? null, redirectTo: c.redirectTo ?? null,
+  return applied.map((c) => ({ kind: c.kind, anchorAfter: c.anchorAfter ?? null, redirectTo: c.redirectTo ?? null, before: c.before ?? null,
     after: (c.after ?? "").trim() || (lone || c.kind === r.actionType ? copy : "") }));
 }
 

@@ -104,7 +104,10 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
       ?? [((c) => c?.kind === "existing_edit" && c.linkTo
         // AN ATOMIC LINK IS VERIFIED AS A LINK (operator, 2026-09-01): shipped as its field family it was read as a section and nineteen of them could never be confirmed. The destination rides in the address slot the live check reads and the anchor in the words slot.
         ? { id: null, kind: "internal_link_add", label: proposal.opportunityType, after: c.after, risk: null, redirectTo: c.linkTo, ...(c.anchorText ? { anchorAfter: c.anchorText } : {}) }
-        : { id: null, kind: proposal.changeFamily, label: proposal.opportunityType, after: c?.kind === "existing_edit" ? c.after : null, risk: null })(proposal.recommendedChange)];
+        // AND STRUCTURED DATA IS VERIFIED AS STRUCTURED DATA, by the same rule: a block shipped as its field family is read as a section, and no heading on the page will ever match a JSON-LD block. Whether it ADDS a block or REPLACES the one that was there is decided here, off the change's own before, because only a replacement can be told from a page that already had one.
+        : c?.kind === "existing_edit" && c.field === "schema"
+          ? { id: null, kind: c.before ? "schema_replace" : "schema_add", label: proposal.opportunityType, after: c.after, before: c.before, risk: null }
+          : { id: null, kind: proposal.changeFamily, label: proposal.opportunityType, after: c?.kind === "existing_edit" ? c.after : null, risk: null })(proposal.recommendedChange)];
     const componentsApplied = bundleIds.length > 0 ? all.filter((c) => c.id != null && covers(fresh, c.id)) : all;
 
     // The page as Beacon already holds it: canonical URL, path and the content hash from the last crawl, nothing fetched. THE OPERATOR'S OWN ADDRESS WINS for a new page: it is the only one that exists.

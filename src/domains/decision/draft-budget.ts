@@ -138,7 +138,8 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   for (const j of ranked) {
     const price = Math.max(1, Math.round(j.calls));
     if (j.blocked) declined.push({ key: j.key, family: j.family, calls: price, reason: j.blocked });
-    else if (skip.has(j.key) && !focusHits(focus, j.key)) declined.push({ key: j.key, family: j.family, calls: price, reason: "a pass today already spent on this page and it finished nothing, so the money moves to the next ranked one" });
+    // ALREADY BOUGHT NEVER BLOCKS A DIFFERENT OBLIGATION (operator, 2026-09-02). The skip was keyed on the mutation alone, so a page whose DRAFT was spent today declined the REVIEW that page owed as well, and a materially different job on one key could not be funded until tomorrow. A spend is a fact about one family's job; the entry carries that family and declines only it.
+    else if (skip.has(`${j.key}::${j.family}`) && !focusHits(focus, j.key)) declined.push({ key: j.key, family: j.family, calls: price, reason: "a pass today already spent on this exact job and it finished nothing, so the money moves to the next ranked one" });
     // TWO DIFFERENT THINGS, TWO DIFFERENT SENTENCES. A pass Beacon was ASKED not to spend on used to report the
     // provider's credit as exhausted, which is a cause the receipt invented: nothing had run out, and an
     // operator reading it would go looking at a billing page for a decision Beacon had made itself.

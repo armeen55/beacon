@@ -868,7 +868,7 @@ describe("a redraft request reopens the same-day stop", () => {
   it("funds the redraft-requested standing row this pass, where the untouched hold met the same-day sentence", async () => { reset(SEEN());
     const first = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1 });
     const landedId = first.proposals.find((p) => p.status === "ready" || p.status === "needs_review")?.id; expect(landedId, "the seed pass landed a row to hold").toBeTruthy();
-    const held0 = env.store.get(landedId!)!; const held = { ...held0, status: "needs_review" as const, researchOnly: false, limitations: ["the evaluator's exact objection: not yet"] }; env.store.set(held.id, held);
+    const held0 = env.store.get(landedId!)!; const held = { ...held0, status: "needs_review" as const, researchOnly: false, limitations: ["the evaluator's exact objection: not yet"], faults: ["the evaluator's exact objection: not yet"], obligation: { kind: "redraft" as const, attempt: 1, instruction: "not yet" } }; env.store.set(held.id, held);
     const focus = DRAFT_BUDGET.keyOf(held); // the standing-card re-entry passes the STORED ROW itself, the exact live path the stop blocked tonight
     const frozen = new Map([...env.store.entries()].map(([k, v]) => [k, { ...v }])); // two branches from ONE store state, because a pass rewrites rows and a second pass would compare against a moved target
     const blocked = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1, focusKeys: [focus] });

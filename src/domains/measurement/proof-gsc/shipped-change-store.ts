@@ -84,7 +84,7 @@ export type ShippedChangeRecord = {
   /** What applying the bundle was meant to achieve, in one sentence. */
   bundleHypothesis: string | null;
   /** The applied components, each with the EXACT copy the live check compares against, its graded risk, a renamed link's `anchorAfter` and a forward's `redirectTo`. Subset = partial bundle. */
-  componentsApplied: Array<{ id?: string | null; kind: string; label: string; after?: string | null; risk?: string | null; anchorAfter?: string | null; redirectTo?: string | null }> | null;
+  componentsApplied: Array<{ id?: string | null; kind: string; label: string; after?: string | null; risk?: string | null; anchorAfter?: string | null; redirectTo?: string | null; before?: string | null }> | null;
   /** THE STAMP. When the operator marked it done; the window is read from it. Write-once. */
   implementedAt: string | null;
   /** The owned page's HELD content hash at mark time, from the snapshot on file. */

@@ -115,7 +115,7 @@ const NOTHING_DUE: DueWork = { ...SOMETHING_DUE, due: [] }, NO_READING = { attem
 /** Benign no-op steps; a phase-truth test overrides the ONE step under test. */
 const BENIGN: ResearchCycleSteps = {
   dueWork: async () => SOMETHING_DUE, evidenceVersion: async () => null, reconcileCases: async () => {},
-  acquireEvidence: async () => ({ acquired: false, detail: "no acquisition in this fixture" }),
+  acquireEvidence: async () => ({ acquired: false, detail: "no acquisition in this fixture" }), collectBought: async () => ({ pending: 0, ready: 0 }),
   replenishReady: async () => null, // the inventory step's own pins drive a spy; a null is unreadable, so nothing is stamped
   dayStanding: async () => NO_CHECKS, // nothing owed and nothing landed: settled == intended, so the AI phase advances
   strandedToday: async () => [], // no account was left short of its day, so the dispatch opens no recovery pass
@@ -891,7 +891,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     vi.doMock("@/domains/decision", () => ({ resolveCurrentBasis: async () => "b", stockOf: (rows: unknown[]) => rows.length,
       loadProposalQueue: async () => ({ ready: Array.from({ length: M.ready }, () => ({})) }),
       produceProposalsForTenant: async (_t: string, o: Record<string, unknown>) => { M.calls.push(o);
-        return { persisted: 1, held: [], outcome: "proposals_persisted", paid: { declared: ["/x"], funded: ["/x"], attemptUnitsSpent: 3, receipts: [{ key: "/x", funded: true, treatment: "add_answer_section", impact: 5, allowance: 6, ops: 2, providerCalls: 3, costUsd: 0, providerAttempted: true, outcome: "produced" as const }] } }; } }));
+        return { persisted: 1, held: [], outcome: "proposals_persisted", paid: { declared: ["/x"], funded: ["/x"], attemptUnitsSpent: 3, receipts: [{ key: "/x", funded: true, treatment: "add_answer_section", impact: 5, allowance: 6, ops: 2, providerCalls: 3, costUsd: 0, providerAttempted: true, outcome: "deterministic_refusal" as const }] } }; } }));
     try {
       const { defaultSteps: live } = await import("@/domains/runtime/ops/research-steps");
       const r = await live.replenishReady(T, new Date(NOW), { fingerprint: null, attempted: [] });

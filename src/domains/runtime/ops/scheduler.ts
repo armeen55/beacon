@@ -113,24 +113,8 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
   /** ALREADY-BOUGHT TASKS FINISH FOR FREE, PAUSED OR NOT: the pause stranded posted tasks until they expired
    *  provider-side. Bounded per tick, GET-only through collectCapability, nothing posted, nothing reserved;
    *  the republish below rebuilds from what landed. */
-  const FREE_COLLECT_PER_TICK = 5;
-  const collectBoughtTasks = async (): Promise<void> => {
-    try {
-      const { pendingProviderTaskKeys } = await import("@/domains/evidence/dataforseo/default-deps");
-      const keys = await pendingProviderTaskKeys(FREE_COLLECT_PER_TICK);
-      if (keys.length === 0) return;
-      const { collectCapability } = await import("@/domains/evidence/dataforseo/capabilities");
-      let ready = 0;
-      for (const key of keys) {
-        if (nowFn().getTime() >= endsAt) break;
-        const collected = await collectCapability(key).catch(() => null);
-        if (collected?.state === "hit") ready += 1;
-      }
-      log.info("[research-run] tasks already paid for were checked for free", { pending: keys.length, ready });
-    } catch (error) {
-      log.warn("[research-run] the free task collection could not run on this tick", { error: error instanceof Error ? error.message.slice(0, 160) : String(error) });
-    }
-  };
+  // ONE COLLECTOR, TWO DOORS (falsifier, 2026-09-02): the tick's own copy was the only one, so with hosting paused the tick never ran and 51 already-paid tasks stayed pending for days. It lives beside the other phase bodies now (research-steps' `collectBought`) and the visit cycle runs the same one before it funds any drafting.
+  const collectBoughtTasks = async (): Promise<void> => { await defaultSteps.collectBought(Math.max(0, endsAt - nowFn().getTime())); };
   const PAUSED_REPUBLISH_PER_TICK = 3;
   const republishPaused = async (): Promise<void> => {
     try {

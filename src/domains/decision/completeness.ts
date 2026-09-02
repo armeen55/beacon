@@ -4,7 +4,7 @@ import { componentIdOf, dangerousComponents } from "./contracts";
 import { copyKey } from "./proof";
 import { domainOf } from "@/domains/evidence/relevance-gate";
 import type { ChangeProposal } from "./contracts";
-import { evidenceShortfall } from "./proof";
+import { CAUSE_LEVERS, evidenceShortfall } from "./proof";
 
 /** NO VERB LIST LIVES HERE ANY MORE. Whether copy is the finished words or a note about producing them is a question about meaning, and it was answered by spelling: a production verb near a deliverable noun. It is now answered where it is known. A PRODUCER handing over a brief says so in a typed field (`researchOnly`) as it mints the card. THE EDITOR's copy is read by decision/drafted-copy's editor contract, against the stored page and then by a judge. Only what stays deterministic for any writer is left below. */
 /** A blank somebody is expected to fill in before the copy is usable, or MARKUP WHERE A WORD BELONGS: a title reading "Colors &amp; History" is not final copy, because what an operator pastes is not what a reader sees. */
@@ -83,7 +83,7 @@ const UNJUDGED = "The exact words are written and nothing has read them for sens
 /** THE ONE HOLD THAT IS GENUINELY THE OPERATOR'S CALL, named so callers can tell it from a defect Beacon owns: stamping this sentence as a typed fault would flip a safety confirmation into "Beacon must improve this". */
 const DANGER = "This one moves or hides a page, so it takes the deliberate confirmation on its own page rather than a plain yes.";
 /** WHY A CHANGE SHORT OF READY IS SHORT OF READY, AND WHO MAY ANSWER IT. IMPERFECT WORK STAYS VISIBLE (operator, 2026-08-15): a gate decides which lane a genuine opportunity is shown in and which controls its card carries, never whether the operator sees it at all. `lane` is `research` while nothing exact is written and `review` once the exact copy exists; `why` is the reasons already stored on the row, said back where the work is read; `blocking` is the first reason THIS SCREEN offers to hold the yes back, a fast, friendlier read for the card, never the sole gate: the row itself is re-asked, by the real functions and not by their prose, at the one door that can actually write `ready` (proposal-store's answerReviewedProposal). HARD is a fact about the work: an unwritten deliverable, a blank, a claim the evidence it names does not carry, a page mapping its own diagnosis refuses, copy whose place on the page can no longer be checked, and a change that moves or hides a page (which keeps its own two-step confirmation). SOFT is editorial judgement alone: the words are there, every deterministic check passed, and nothing has read them for sense. PURE, so the queue, the card and the server action ask ONE question and no screen can offer a control the server refuses. */
-export function openHold(p: ChangeProposal): { lane: "review" | "research"; why: string[]; blocking: string | null; faulted: boolean; safetyHold: boolean; need?: { kind: "factual_source"; query: string; url?: string; reasonCode: string; missingTopic?: string } } {
+export function openHold(p: ChangeProposal): { lane: "review" | "research"; why: string[]; blocking: string | null; faulted: boolean; safetyHold: boolean; need?: { kind: "factual_source" | "serp"; query: string; url?: string; reasonCode: string; missingTopic?: string } } {
   const gaps = deliverableGaps(p), c = p.recommendedChange, faults = p.faults ?? p.limitations.filter((l) => GATE_WORDS.test(l));
   const hard = [...gaps, ...p.limitations.filter((l) => HARD_LIMITATION.test(l))];
   // COPY THAT LANDS IN THE BODY OWES A PLACE SOMEBODY CAN STILL FIND. The anchor is a sentence off the page as it read when the words were written, and banked copy is served on for ever without that page in hand, so the only honest re-read is against what the ROW ITSELF banked. An anchor no banked fact carries can no longer be checked, so the words, the claims and the evidence stay exactly as they are and the row goes back to review carrying this sentence. Never deleted, never hidden.
@@ -105,7 +105,7 @@ export function openHold(p: ChangeProposal): { lane: "review" | "research"; why:
   const declares = (p.claims ?? []).length > 0, bypass = !!p.bundle && !declares;
   const says = c.kind === "existing_edit" ? [c.after, ...(declares ? (p.bundle?.components ?? []).map((x) => x.after) : [])].join(" ") : "";
   // A CLAIM RULE MAY NOT FIRE ON A ROW THAT CARRIES NO CLAIMS BY CONSTRUCTION. A bundle's proposal literal never sets `claims` (its provenance is the receipt), so `(p.claims ?? []).some(...)` was false unconditionally and this rule held EVERY bundle whose components[0] copy said "national flag" or "official", vacuously and forever: the flag bundle sat stored `ready` and rendered in review off exactly this. The rule judges rows that DECLARE claims; a bundle answers on its receipt, whose integrity gate already ran at mint. AND THE HOLD NAMES ITS OWN CURE, TYPED: "held until a source is on file" was a dead end the customer could not act on and nothing was fetching, so the verdict now carries the exact factual_source requirement the runtime's acquisition already executes.
-  let need: { kind: "factual_source"; query: string; url?: string; reasonCode: string; missingTopic?: string } | null = null;
+  let need: { kind: "factual_source" | "serp"; query: string; url?: string; reasonCode: string; missingTopic?: string } | null = null;
   if (!bypass && /\bnational (?:animal|flag|symbol|language|bird)\b|\bofficial\b/i.test(says) && !(p.claims ?? []).some((x) => x.supportedBy.some((id) => id.startsWith("fact-")))) {
     hard.push("It states what a country's national symbol is and stands only on this page saying so, which is not a source, so it is held until one is on file.");
     need = { kind: "factual_source", query: p.primaryQuery, ...(p.pageUrl ? { url: p.pageUrl } : {}), reasonCode: "claim_unsourced" };
@@ -132,6 +132,11 @@ export function openHold(p: ChangeProposal): { lane: "review" | "research"; why:
   // THE PROOF BURDEN MATCHES THE PROMISE: what a change claims decides what it owes (decision/authorization's
   // evidenceShortfall). Asked here so every reader of the one servability verdict refuses together.
   const short = evidenceShortfall(p); if (short) hard.push(short);
+  // AND THE SHAPE HOLD NAMES ITS OWN CURE, TYPED. A replacement line held "until a diagnosis names what is wrong with the current one or a stored results page backs this shape" was a dead end nobody was buying: eight live meta and title rows sat behind it for ever, because `nextObligation` saw nothing owed and the $0 replay skipped them. The cure is one cheap read the runtime already executes, and the condition is recomputed from typed fields rather than read off the sentence.
+  const shapeCause = p.causeFinding?.cause ?? p.diagnosisCause;
+  if (!need && short && c.kind === "existing_edit" && (c.field === "title" || c.field === "meta" || c.field === "h1")
+    && (c.before ?? "").trim() !== "" && !p.modeledOn && !(shapeCause && CAUSE_LEVERS[shapeCause]?.has(c.field)))
+    need = { kind: "serp", query: p.primaryQuery, reasonCode: "shape_unbacked" };
   // AND AN UNSUPPORTED CLAIM NAMES ITS OWN CURE rather than leaving the operator holding a refusal nobody is acting on: the same factual_source requirement the runtime's acquisition already executes, minted off the row's own first unsupported claim. Only for the two shapes that can carry one and reach here internal, a whole new page and a deep bundle; an atomic row already has its two mints above.
   if (!need && short) { const unsupported = (p.claims ?? []).find((x) => !x.supportedBy.some((id) => /^fact-|^owned-page/.test(id)));
     if (unsupported && (c.kind === "new_page" || !!p.bundle)) need = { kind: "factual_source", query: p.primaryQuery, ...(p.pageUrl ? { url: p.pageUrl } : {}), reasonCode: "claim_unsupported", missingTopic: unsupported.text }; }
@@ -188,9 +193,14 @@ function identityMoves(prior: ChangeProposal, incoming: ChangeProposal): string 
  *  was wrong and the gate caught it: a prior whose own copy is unfinished returns early from the branches below,
  *  so a matching key at the call site never proved the reading would survive the merge. */
 export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal | null | undefined): ChangeProposal {
-  const row = decideFinished(incoming, prior);
-  return !row.semanticReview && prior?.semanticReview && prior.semanticReview.of === copyKey(row)
-    ? { ...row, semanticReview: prior.semanticReview } : row;
+  const row0 = decideFinished(incoming, prior);
+  const row = !row0.semanticReview && prior?.semanticReview && prior.semanticReview.of === copyKey(row0)
+    ? { ...row0, semanticReview: prior.semanticReview } : row0;
+  // THE SAME WORDS BACK AGAIN ARE NOT A SECOND ATTEMPT, THEY ARE THE ANSWER (operator, 2026-09-02): a writer handing
+  // back copy this row already retired has said everything it has to say, so the row settles rather than cycling.
+  const again = row.recommendedChange.kind === "existing_edit" && !!row.previousCopy
+    && row.recommendedChange.after.trim() === row.previousCopy.after.trim();
+  return again ? { ...row, obligation: { kind: "terminal", reason: "the writer handed back the exact words this change already retired, so it is settled rather than drafted again" } } : row;
 }
 
 function decideFinished(incoming0: ChangeProposal, prior: ChangeProposal | null | undefined): ChangeProposal {
@@ -208,7 +218,7 @@ function decideFinished(incoming0: ChangeProposal, prior: ChangeProposal | null 
     // words: a finished prior whose words do not survive into the incoming row stamps the retirement receipt.
     const incomingAfter = incoming.recommendedChange.kind === "existing_edit" ? incoming.recommendedChange.after.trim() : "";
     if (prior && deliverableGaps(prior).length === 0 && priorAfter && priorAfter !== incomingAfter) {
-      return { ...incoming, previousCopy: { after: priorAfter,
+      return { ...incoming, previousCopy: { after: priorAfter, attempts: (prior.previousCopy?.attempts ?? 0) + 1, // A REDRAFT OWNS ITS ATTEMPTS: nothing on the row counted them, so a row could cycle through the same gates for ever and every pass read it as a first try.
         retiredBecause: identityMoves(prior, incoming), at: incoming.createdAt } };
     }
     return { ...incoming, ...inherited };
@@ -247,7 +257,7 @@ function decideFinished(incoming0: ChangeProposal, prior: ChangeProposal | null 
   return kept;
 }
 /** THE FIELDS THAT BELONG TO THE BANKED COPY and must survive with it. `redraftRequested` is deliberately ABSENT: a person who asked for better words outranks preservation, and that path returns before this list is read. The day someone adds a copy-owned field to the contract and forgets it here, the typed faults lesson repeats; keep this list beside the contract change in the same commit. */
-const COPY_OWNED = ["claims", "supportFacts", "operatorSteps", "bundle", "confirmedVersion", "approval", "faults", "modeledOn", "informationGain", "preservation", "draftNotes"] as const satisfies readonly (keyof ChangeProposal)[];
+const COPY_OWNED = ["claims", "supportFacts", "operatorSteps", "bundle", "confirmedVersion", "approval", "faults", "modeledOn", "informationGain", "preservation", "draftNotes", "obligation"] as const satisfies readonly (keyof ChangeProposal)[]; // `obligation` rides the banked words so a SETTLED verdict survives every later pass that reaches this row under the same identity; a pass that genuinely moves the identity wins whole and the ladder decides again from nothing
 
 /** THE EXACT VERSION OF A CHANGE AN OPERATOR CAN SAY YES TO, and the ONE definition of it: the screen folds this and the server recomputes it byte for byte off the row it re-reads, so no second reading of "the same version" can exist. A confirmation is worthless unless it names WHAT was confirmed, and this used to name a third of it: the copy it replaces, where the copy lands, what survives a page move, the risks, the caveats, the steps, the reasons pages were left alone, every claim, the words behind every claim, the readings on the receipt and the days they were taken all moved without moving the version. It is now EVERYTHING MATERIAL THE OPERATOR READ. Any edit to any of it mints a different string, the stored stamp stops matching, and the stale confirmation refuses. UNORDERED SETS ARE SORTED, so re-listing the same caveats, support ids, readings or verdicts is not a rewrite; the ranking, the timestamps and the measurement figures are excluded because none of them is the change. SHORT and PURE: it folds through the same tiny fingerprint a bundle's pieces are already named by, so a server component can hand it to a browser. */
 export function confirmedVersion(p: ChangeProposal): string {

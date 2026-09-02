@@ -225,6 +225,9 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       const shortStock = (work?.due ?? []).includes("replenish_ready");
       const runway = deadline - nowFn().getTime() - (stockOnly || shortStock ? 0 : REPLENISH_RESERVE_MS);
       let answered = false, r: Awaited<ReturnType<ResearchCycleSteps["replenishReady"]>> = null;
+      // WHAT WAS ALREADY PAID FOR IS FINISHED FIRST, AND IT IS FREE (falsifier, 2026-09-02): posted provider tasks are charged at post and collected with a GET, and the only collector ran on a scheduler tick that never fires while hosting is paused, so results pages this account had already bought sat pending for days and every gate asking for one answered no. GET only, nothing posted, bounded, and before a cent of drafting is funded.
+      const collected = await steps.collectBought(Math.max(5_000, Math.min(20_000, deadline - nowFn().getTime()))).catch(() => null);
+      if (collected) progress = { ...progress, collected };
       if (runway > REPLENISH_MIN_MS) {
         const began = nowFn().getTime();
         // BOXED IS NOT THE SAME AS ANSWERED NOTHING. A step that ran and came back empty-handed HAD its chance, and the drive may go on; one the box cut off never got to look, and that is the case that must not turn into buying instead.

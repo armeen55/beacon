@@ -216,6 +216,7 @@ const NEUTRAL_VALIDATION: ProposalValidation = {
   verdict: "needs_review",
   qualityStatus: "useful_but_needs_review",
   reasons: [],
+  limitations: [],
   factViolations: [],
   corrections: [],
   safetyFlags: [],
