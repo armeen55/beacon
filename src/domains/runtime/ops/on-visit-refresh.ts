@@ -182,7 +182,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
   /** How many crawl rounds one drive may chain: four fifteen-page batches is sixty pages a pass, and the rest is owed to the next pass. The observation phase needs no such ceiling: it chains a window only while the day's
    *  settled count actually MOVES, so it terminates on its own arithmetic and a lane that moves nothing yields the phase instead of spending twelve rounds proving it. */
   const MAX_CRAWL_ROUNDS = 4; let crawlRounds = 0;
-  const REPLENISH_MIN_MS = 45_000, REPLENISH_RESERVE_MS = 60_000, REPLENISH_BOX_MS = 240_000, LEASE_REPROVE_AFTER_MS = 1_000, STOP_STARTING_MS = 40_000;
+  const REPLENISH_MIN_MS = 45_000, REPLENISH_RESERVE_MS = 60_000, REPLENISH_BOX_MS = 240_000, LEASE_REPROVE_AFTER_MS = 1_000, STOP_STARTING_MS = 40_000, OWED_PER_DRIVE = 8;
   /** THE RECEIPTS THAT SPENT ARE THE DAY'S RECEIPTS (operator, 2026-09-02): a later $0 produce in the same day filed every funded key as not reached and wrote that over the paid pass's real outcomes, so a pass that made no call keeps the receipts already on the row. */
   type Outcomes = NonNullable<ResearchRunProgress["replenish"]>["outcomes"]; const calls = (o: Outcomes): number => ((o?.receipts ?? []) as { providerCalls?: number }[]).reduce((n, r) => n + (r.providerCalls ?? 0), 0);
   const keepOutcomes = (next: Outcomes): Outcomes => { const prev = progress.replenish?.outcomes; return next && (calls(next) > 0 || !prev) ? next : prev; };
@@ -250,7 +250,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       const runway = deadline - nowFn().getTime() - (stockOnly || shortStock ? 0 : REPLENISH_RESERVE_MS);
       let answered = false, r: Awaited<ReturnType<ResearchCycleSteps["replenishReady"]>> = null;
       // WHAT WAS ALREADY PAID FOR IS FINISHED FIRST, AND IT IS FREE (falsifier, 2026-09-02): posted provider tasks are charged at post and collected with a GET, and the only collector ran on a scheduler tick that never fires while hosting is paused, so results pages this account had already bought sat pending for days and every gate asking for one answered no. GET only, nothing posted, bounded, and before a cent of drafting is funded.
-      const collected = await steps.collectBought(Math.max(5_000, Math.min(20_000, deadline - nowFn().getTime()))).catch(() => null);
+      const collected = await steps.collectBought(Math.max(5_000, Math.min(45_000, deadline - nowFn().getTime()))).catch(() => null);
       if (collected) progress = { ...progress, collected };
       if (runway > REPLENISH_MIN_MS) {
         const began = nowFn().getTime();
@@ -282,7 +282,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       const owedFacts = (r?.evidenceOwed ?? []).length > 0; // TYPED, never a regex over English (Codex, 2026-08-23): "No results page for X is on file" matched no phrase the old pattern knew, so the one reading that finishes the account's strongest page was never fetched.
       // AND THE DISPATCH GOES AND GETS IT (Codex, 2026-08-23). Storing the requirement, logging it and checking it as a boolean is not acquisition: the reading was never bought, so the next drive drafted from the same missing evidence. The exact search a funded candidate named is fetched HERE, through the transport the funnel already uses, whatever phase set this dispatch opened with. A reading that lands leaves the work resumable; one that does not stays owed with its own receipt and is never called settled.
       let remaining = [...(r?.evidenceOwed ?? [])]; // the persisted remainder shrinks as needs land: recomputing it from the pre-loop list re-listed the first landed need whenever a pass acquired two
-      for (const need of (r?.evidenceOwed ?? []).slice(0, 2)) {
+      for (const need of (r?.evidenceOwed ?? []).slice(0, OWED_PER_DRIVE)) { if (deadline - nowFn().getTime() < STOP_STARTING_MS + 20_000) break; // AS MANY OWED READINGS AS THE BOX ALLOWS, not two (operator, 2026-09-02): nineteen rows owed a results page and two per drive left seventeen waiting
         const got = await steps.acquireEvidence(tenantId, need, basis || null, Math.max(20_000, Math.min(90_000, deadline - nowFn().getTime() - STOP_STARTING_MS))).catch(() => ({ acquired: false, detail: "the acquisition threw" }));
         log.info("[research-run] the exact reading a funded candidate was refused for", { tenantId, key: need.key, kind: need.kind, query: need.query, acquired: got.acquired, detail: got.detail });
         if (got.acquired) remaining = remaining.filter((n) => n.key !== need.key);

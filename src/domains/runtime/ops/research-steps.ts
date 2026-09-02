@@ -42,7 +42,7 @@ const BENIGN_BACKFILL_SKIPS = new Set(["not_started", "already_complete", "no_sy
 /** How many accounts one recovery probe may look at, and how the fleet ROTATES past that bound. Twenty was a fixed HEAD of the account list, so account twenty one was never probed, ever: it could be short every day forever and
  *  nothing would find it. The window MOVES now, by a deterministic offset off the clock in id order, wrapping at the end of the fleet, so consecutive dispatches walk the whole list whatever its size with no cursor to persist, no
  *  fleet held in memory and no second scheduler. Still bounded: this is a recovery sweep, not a fleet scan. */
-const RECOVERY_PROBE_ACCOUNTS = 20, PROBE_ROTATION_MS = 3_600_000, FREE_COLLECT_PER_RUN = 5;
+const RECOVERY_PROBE_ACCOUNTS = 20, PROBE_ROTATION_MS = 3_600_000, FREE_COLLECT_PER_RUN = 40; // COLLECTION IS FREE AND TIME-BOXED, NEVER RATIONED (operator, 2026-09-02): receiving a result is not charged, so a drive collects everything ready within its window; five per drive left 21 paid results pages waiting while rows owed exactly those readings
 /** How many banked claims one drive derives missing source support for, at $0 and from quotes already on file. Bounded because it is a backfill of standing inventory, not the pass's own work. */
 const SUPPORT_BACKFILL_PER_DRIVE = 12;
 /** The refresh_sources phase outcome: how many sources were attempted, the identities of the ones that actually synced, and the bounded per-source failure detail for the rest. `succeeded` is a list of provider identities (not a
