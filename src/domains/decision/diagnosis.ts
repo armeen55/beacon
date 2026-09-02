@@ -24,15 +24,15 @@ type CandidateCause =
   | "measuring_change" | "no_problem";
 
 /** WHAT THE CAUSE WAS READ OFF, KEPT: the SAME values the explanation is written from, so a cause that can explain a loss can also produce work. Absent = no structure worth keeping, never "the reading failed". */
-export type CausePayload =
+type CausePayload =
   | { cause: "weak_opening"; want: string[] }
   | { cause: "incomplete_coverage"; absentHeadings: string[]; absentEntities: string[] }
   | { cause: "competitor_content_gap"; gaps: Array<{ gap: string; seenOn: number[]; publishers: string[] }> }
   | { cause: "internal_link_weakness"; medianWinnerLinks: number; ownedLinks: number }
   | { cause: "serp_shape_shift"; ownShape: string; settledShape: string }
   | { cause: "intent_shift"; intent: string; ownShape: string }
-  | { cause: "retrieved_not_cited"; engine: string; promptText: string }
-  | { cause: "ai_citation_gap"; engine: string; promptText: string }
+  | { cause: "retrieved_not_cited"; engine: string; promptText: string; missing?: string; aeoKind?: string }
+  | { cause: "ai_citation_gap"; engine: string; promptText: string; missing?: string; aeoKind?: string } /* THE PROPOSITION, TYPED (operator, 2026-09-02): the AEO reader names the missing information and its kind, and the producer put both only into prose, so the one thing a section exists to add reached the row as display text nobody could read back. */
   | { cause: "cannibalization"; competingPaths: string[]; comparison: SplitRow[]; survivor: string | null }
   | { cause: "technical_indexability"; findings: TechnicalFinding[] };
 
@@ -386,8 +386,7 @@ const RULES: Rule[] = [
 
 /** A page built to help somebody choose or buy. Everything else reads as a page built to explain. */
 const SELLING = new Set(["product", "category", "comparison", "tool"]);
-/** Under this many links, nobody on that results page is pointing readers anywhere, so nobody is accused. */
-const MIN_LINK_FLOOR = 5;
+/** Under this many links, nobody on that results page is pointing readers anywhere, so nobody is accused. */ const MIN_LINK_FLOOR = 5;
 
 /** Does one stored page address NAME this page? A bare path is matched as the tail of this page's own
  *  key, so "/guide" and "https://site.example/guide" both name it and "/other-guide" never does. */
@@ -508,4 +507,5 @@ export function noProblemFinding(explanation: string, ruledOut: string): CauseFi
   return { cause: "no_problem", action: null, evidenceKeys: [RECEIPT.gsc], explanation, notConsidered: [...NOT_TOLD_DECLINE, NOT_READ_TECHNICAL, NOT_TOLD_MEASURING],
     competingExplanations: [{ cause: "ctr_snippet", reason: ruledOut }],
     falsifier: "If this page's click rate falls below what pages at its position usually earn, this stops being the answer." };
-}
+} /** THE ONE TYPED SUBSTANTIVE GAP BODY WORK MAY BE WRITTEN FROM (operator, 2026-09-02). `causeFinding.explanation` is an operator-facing sentence about traffic and `whyItMatters` is display prose, and both were reaching the writer as the brief, so a section was ordered to solve "the click gap is measured and nothing on file names a cause". A gap is the missing PROPOSITION and nothing else: the competitor gaps the ladder read, the headings and entities a complete page provably lacks, the opening a page owes, the statement its own sources contradict, and the AEO reader's named missing information. Null means no typed payload names one, which is a research row rather than a writer. Word count, impressions, position decline, a People Also Ask box and a rival's length never appear here, because none of them says what a reader would learn. The kind is the operator's own vocabulary, refined by the shape of the proposition itself so a comparison, a procedure, a source gap and a broken page promise each ask for the treatment they need. PURE. */
+export function substantiveGapOf(card: { causeFinding?: CauseFinding; supportFacts?: readonly { id: string; fact: string }[] }): { kind: "missing_answer" | "incomplete_answer" | "scattered_answer" | "stale_fact" | "weak_extractability" | "missing_comparison" | "missing_procedure" | "missing_evidence" | "intent_mismatch" | "false_page_promise" | "no_substantive_gap"; propositions: string[] } | null { const p = card.causeFinding?.payload, clean = (xs: readonly string[]): string[] => [...new Set(xs.map((x) => (x ?? "").trim()).filter((x) => x.length > 2))].slice(0, 6); const read = p?.cause === "competitor_content_gap" ? { kind: "missing_answer" as const, propositions: clean(p.gaps.map((g) => g.gap)) } : p?.cause === "incomplete_coverage" ? { kind: "incomplete_answer" as const, propositions: clean([...p.absentHeadings, ...p.absentEntities]) } : p?.cause === "weak_opening" ? { kind: "weak_extractability" as const, propositions: clean(p.want) } : (p?.cause === "ai_citation_gap" || p?.cause === "retrieved_not_cited") && (p.missing ?? "").trim() ? { kind: p.aeoKind === "scattered_answer" ? "scattered_answer" as const : p.aeoKind === "extraction_or_structure_gap" ? "weak_extractability" as const : "missing_answer" as const, propositions: clean([p.missing!]) } : card.causeFinding?.cause === "factual_error" ? { kind: "stale_fact" as const, propositions: clean((card.supportFacts ?? []).filter((f) => f.id.startsWith("fact-")).map((f) => f.fact)) } : null; if (!read || read.propositions.length === 0) return null; const said = read.propositions.join(" ").toLowerCase(), shaped = /\bvs\.?\b|\bversus\b|\bcompare[ds]?\b|\bcomparison\b|\bdifferences?\b/.test(said) ? "missing_comparison" as const : /\bhow to\b|\bsteps?\b|\bprocedure\b|\brecipe\b|\binstructions?\b/.test(said) ? "missing_procedure" as const : /\bsource[sd]?\b|\bcitations?\b|\bcited\b|\bstud(?:y|ies)\b/.test(said) ? "missing_evidence" as const : /\bpromis\w*\b|\bnever (?:gives|delivers|says)\b|\bclaims to\b/.test(said) ? "false_page_promise" as const : null; /* THE SHAPE OF THE PROPOSITION CHOOSES THE TREATMENT: a comparison opens on the distinction, a procedure on the action, a source gap owes a citation, and a page promising what it never gives owes the promise kept. */ return { kind: shaped && (read.kind === "missing_answer" || read.kind === "incomplete_answer") ? shaped : read.kind, propositions: read.propositions }; }

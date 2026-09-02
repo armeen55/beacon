@@ -9,12 +9,12 @@ import { draftAtomicEditStructured, draftInternalLinkStructured } from "@/domain
 import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, ComponentPlan, EvidenceReadiness, RecommendedChange } from "./contracts"; import { componentIdOf, confidenceFor, CTR_DEFICIT_SHARE, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction, receiptComposition } from "./contracts"; import { copyKey, evidenceShortfall, REVIEW_CONTRACT } from "./proof";
 import { technicalKey, type TechnicalFinding } from "./technical-findings";
 import { diagnoseCandidate, ownedResultOf, recurringPattern, RECEIPT, type DiagnosisInput } from "./diagnose";
-import { causeLabel, diagnoseCauses, type CauseFinding } from "./diagnosis";
+import { causeLabel, diagnoseCauses, substantiveGapOf, type CauseFinding } from "./diagnosis";
 import type { DecidedTopic } from "./coverage-pass";
 import type { WinningPattern } from "./winning-pattern";
 import { CORE_PRODUCERS } from "./producers/core"; import { produceFullRewriteRecommendation } from "./producers/extended"; import { effortMinutesFor, fieldForComponent, type EvidenceRequirement, type ProducerCtx, type ProducerDraft } from "./producers/contract";
 import type { ProposeOptions } from "./propose"; import { receiptIntegrityFailures, validateProposal } from "./validate-proposal";
-import { anchoredTopicMatch, canonicalQueryKey, templateHeadings, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import { demandUnitsOf } from "@/domains/evidence/demand-units"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
+import { anchoredTopicMatch, canonicalQueryKey, templateHeadings, topicTokens, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import { demandUnitsOf } from "@/domains/evidence/demand-units"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { answerIntelFacts, answerIntelOf } from "@/domains/evidence/answer-intel";
 import { biggerSearchesLine } from "./suggested-edits"; import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split"; import { actionFamilyOf } from "./proposal-store"; import { draftFieldForPage } from "./drafted-copy";
 
@@ -357,7 +357,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   const alternatives = wording
     ? diagnosis.alternativesRuledOut.map((a) => ({ option: a.alternative, reason: a.reason }))
     : finding.competingExplanations.map((a) => ({ option: causeLabel(a.cause), reason: a.reason }));
-  const components: BundleComponent[] = []; let heldForReview = false; const authed = new Map<string, AuthorizedPiece>();
+  const components: BundleComponent[] = []; let heldForReview = false; const authed = new Map<string, AuthorizedPiece>(); /** ONE TYPED GAP PER SECTION, AND NEVER THE SAME ONE TWICE (operator, 2026-09-02). Work too big for one block is split into sections, and nothing was stopping two of them being written against the same missing proposition: the reader then gets the same answer under two headings and the change cannot say which one closes the gap. Each section claims the proposition it is closest to, and a section whose nearest proposition is already claimed is dropped by name. Only asked where the cause payload actually names propositions; a finding that names none leaves the sections exactly as its producer wrote them. */ const gapProps = substantiveGapOf({ causeFinding: finding })?.propositions ?? [], claimed = new Set<string>(), gapFor = (c: BundleComponent): string | null => { const said = topicTokens(`${c.label} ${c.objective ?? ""} ${c.after}`); return gapProps.map((g) => ({ g, n: topicTokens(g).filter((w) => said.includes(w)).length })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n)[0]?.g ?? null; };
   /** WHAT TO DO WHEN THE CHANGE IS A JOB: a producer whose work cannot be pasted hands its instructions over
    *  here instead of writing them into the copy an operator clicks Copy on. Null means the copy IS the work. */
   let steps: string[] | null = null; let dispositions: ChangeBundle["dispositions"] | null = null;
@@ -379,8 +379,8 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     // DANGEROUS SURVIVES THE GATE: downgrading it to "review" took the two-step hold off the one change that needs it, and the stored row then failed its own re-validation as mislabelled.
     const risk = c.risk === "dangerous" ? "dangerous"
       : verdict.verdict === "ready" && c.risk !== "review" ? "safe" : "review";
-    if (risk !== "safe") heldForReview = true;
-    components.push({ ...c, evidenceKeys, risk });
+    if (risk !== "safe") heldForReview = true; if (gapProps.length > 0 && COVERS_A_GAP.has(c.kind)) { const g = gapFor(c), mine = g ? new Set(topicTokens(g)) : null; const twin = mine && [...claimed].find((t) => { const his = new Set(topicTokens(t)); return [...mine].every((w) => his.has(w)) || [...his].every((w) => mine.has(w)); }); if (twin) return drop(`Another section of this change already answers ${twin}, and two sections closing one gap hand the reader the same thing twice.`); if (g) claimed.add(g); }
+    components.push({ ...c, evidenceKeys, risk, ...(gapProps.length > 0 && COVERS_A_GAP.has(c.kind) && gapFor(c) ? { objective: c.objective ?? `Close the gap: ${gapFor(c)}` } : {}) });
   };
 
   if (wording) {
