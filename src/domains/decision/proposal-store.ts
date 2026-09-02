@@ -277,6 +277,7 @@ export async function answerReviewedProposal(tenantId: string, id: string, versi
 
 /** BEACON'S OWN RETRACTION. A draft a safety gate refused is not queued work and not a rejection the operator has to read: it lands as history under the disposition that says I took it back. Fail-soft. */
 export async function withdrawChangeProposal(proposal: ChangeProposal, reason?: string): Promise<boolean> {
+  if (proposal.status === "implemented_pending_verification") { log.warn("[proposal-store] a change the operator applied is never withdrawn by a producer; the shipment stands and measurement continues", { tenantId: proposal.tenantId, id: proposal.id }); return false; } // THE OPERATOR'S APPLIED CHANGE STANDS (operator, 2026-09-02): the factual-defects producer withdrew the Hamid correction, one of the six changes applied on September 1, because its fact evidence moved
   const saved = await saveChangeProposal(proposal, NO_HANDOVER);
   if (saved === "failed") return false;
   if (saved === "refused") return true; // already withdrawn or dismissed under this basis

@@ -393,7 +393,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
       const id = p.id.split("::");
       // A PAGE WHOSE BODY DID NOT LOAD IS NOT A PAGE WHOSE CORRECTIONS DIED. `authorizedCorrections` compares a
       // page hash, so without one every correction on the site reads as unauthorized at once.
-      if (!id[3]?.startsWith("fact-") || emitted.has(p.id) || !judged.has(id[1] ?? "")) continue;
+      if (!id[3]?.startsWith("fact-") || emitted.has(p.id) || !judged.has(id[1] ?? "") || p.status === "implemented_pending_verification") continue; // an applied correction is the operator's, never this producer's to take back
       const slug = `${id[1] ?? ""}::${id[3] ?? ""}`, said = why.get(slug);
       if (!said && liveChecked.has(slug)) {
         log.warn("[factual-defects] a correction went unminted with NO named reason while its checked row stands; the card is KEPT and this pass is the anomaly", { tenantId, id: p.id });
