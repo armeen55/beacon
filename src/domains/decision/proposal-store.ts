@@ -386,7 +386,7 @@ export async function readQueuePage(
         rows.push(p);
         const stamped = (r.queue_lane ?? "").split("::")[1];
         // A STAMP NEVER OUTRANKS THE ROW IT STAMPS (operator, 2026-09-02): a release stamped a finished description "ready", a later pass re-minted the row as a brief, and the lane read the stamp and painted the brief as finished work with a Mark done button.
-        laneById[p.id] = stamped === "ready" && p.status === "ready" && p.researchOnly !== true ? "ready" : stamped === "research" || p.researchOnly === true ? "research" : "todo";
+        laneById[p.id] = p.status === "ready" && p.researchOnly !== true ? "ready" : p.researchOnly === true ? "research" : stamped === "research" ? "research" : "todo"; // the row's own state decides both ways; the stamp only sorts review rows
       }
     }
     // A RECEIPT FROM RULES THAT NO LONGER DECIDE IS NOT AN EXPLANATION. The ORDER is recomputed at every
