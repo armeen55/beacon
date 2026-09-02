@@ -228,7 +228,7 @@ export async function readWinningPattern(
   const call = await callStructuredLLM({
     kind: "winning_pattern", tenantId, system: SYSTEM, user, grounded: lines.join(" "),
     projectedCostUsd: PATTERN_COST_USD, maxTokens: 1800,
-    complete: opts.complete, cacheImpl: opts.cacheImpl, now: opts.now, bypassCache: !!opts.lesson,
+    complete: opts.complete, cacheImpl: opts.cacheImpl, now: opts.now, // the lesson is part of the prompt, so the retry has its own cache entry: a reading that passed on the retry is served at $0 on every later walk, and the refused first reading stays cached at $0 too (reviewer, 2026-09-02)
   });
   opts.attempts?.record?.(call); // real requests and real dollars, onto this page's own allowance
   if (call.status !== "drafted") {
