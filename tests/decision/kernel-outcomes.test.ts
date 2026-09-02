@@ -724,8 +724,7 @@ describe("canonical bundle status", () => { // ── the re-read sweep reconcil
     expect(env.store.get(row.id)!.status).toBe("ready"); // the national-symbol rule no longer holds a row that cannot declare claims
     const q = await loadProposalQueue("fixture-tenant", { currentBasis: "basis_test::d8", now: NOW });
     expect(q.ready.some((p) => p.id === row.id)).toBe(true); }); // stored ready = rendered ready: one canonical status
-  it("a REAL blocker demotes the stored bundle with a typed fault, so the store says what every screen shows", async () => {
-    reset(SEEN()); const row = bundleRow({ diagnosisCause: "cannibalization", whyItMatters: "This search comes up about 176 clicks short beside its sibling." });
+  it("a REAL blocker demotes the stored bundle with a typed fault, so the store says what every screen shows", async () => { reset(SEEN()); const row = bundleRow({ diagnosisCause: "cannibalization", whyItMatters: "This search comes up about 176 clicks short beside its sibling." });
     env.store = new Map([[row.id, row]]);
     await produceProposalsForTenant("fixture-tenant", { now: NOW, maxDrafts: 0, zeroSpend: true });
     const now = env.store.get(row.id)!;
@@ -737,11 +736,9 @@ describe("canonical bundle status", () => { // ── the re-read sweep reconcil
 describe("a synthesis replacement is not demoted for standing on the page's own words", () => { // ── the sweep's thin-coverage rule and the synthesis charter agree ─────────────
   const COPY = "Funny Persian phrases are everyday slang and insults, and the clearest examples are the playful ones that follow, each carrying the meaning a reader needs to use it well in ordinary conversation with friends and family members across generations of speakers.";
   const row = (where: string, id: string): ChangeProposal => baseProposal({ id, pagePath: "/funny", pageUrl: "https://fixture-outdoors.example/funny", basis: "basis_test::d8",
-    changeFamily: "section", primaryQuery: "funny persian phrases", status: "ready",
-    claims: [{ text: COPY, supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: `${COPY} the anchor heading stays here` }],
+    changeFamily: "section", primaryQuery: "funny persian phrases", status: "ready", claims: [{ text: COPY, supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: `${COPY} the anchor heading stays here` }],
     recommendedChange: { kind: "existing_edit", field: "section", before: "Funny Persian phrases are everyday slang and insults.", after: COPY, where } });
-  it("the replace-marked row stays ready while the add-shaped twin is demoted with a typed fault", async () => {
-    reset(SEEN());
+  it("the replace-marked row stays ready while the add-shaped twin is demoted with a typed fault", async () => { reset(SEEN());
     const keep0 = row('Replaces the existing passage under "Popular Phrases"', "fixture-tenant::/funny::existing_edit::ai_answer_gap");
     const keep = { ...keep0, semanticReview: { of: copyKey(keep0), version: REVIEW_CONTRACT, claims: (keep0.claims ?? []).map((x, n) => ({ i: n, by: [...x.supportedBy], entailed: true })) }, informationGain: { adds: "puts every phrase and its meaning in one liftable block", by: ["page-copy-1"], pageWhole: true } } as ChangeProposal;
     const demote = row('A new section headed "Meanings", placed after "the anchor heading"', "fixture-tenant::/funny2::existing_edit::engine_followup");
@@ -751,13 +748,10 @@ describe("a synthesis replacement is not demoted for standing on the page's own 
     expect([env.store.get(demote.id)!.status, (env.store.get(demote.id)!.faults ?? []).join(" ")]).toEqual(["needs_review", expect.stringContaining("what a reader gains")]); });});
 
 describe("the unruled review pass", () => { // ── a pass whose review never ruled keeps its hands off a banked reading ───────
-  const mint = (): ChangeProposal => baseProposal({ id: "fixture-tenant::/x::existing_edit::fact-noor", changeFamily: "factual_correction", status: "needs_review",
-    diagnosisCause: "factual_error", primaryQuery: "noor meaning", impactScore: 400, upsidePerMonth: 120,
-    claims: [{ text: "Noor means light.", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "encyclopedia: the name Noor means light." }],
-    recommendedChange: { kind: "existing_edit", field: "section", where: 'The "Noor" entry', before: "Meaning:Bright, radiant, or glowing.", after: "Meaning:Light." },
+  const mint = (): ChangeProposal => baseProposal({ id: "fixture-tenant::/x::existing_edit::fact-noor", changeFamily: "factual_correction", status: "needs_review", diagnosisCause: "factual_error", primaryQuery: "noor meaning", impactScore: 400, upsidePerMonth: 120,
+    claims: [{ text: "Noor means light.", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "encyclopedia: the name Noor means light." }], recommendedChange: { kind: "existing_edit", field: "section", where: 'The "Noor" entry', before: "Meaning:Bright, radiant, or glowing.", after: "Meaning:Light." },
     limitations: ["Beacon's own sense review has not read this correction yet, so it waits for that reading rather than for the operator to do Beacon's checking."] });
-  it("rewrites no reviewed row, and still lands the owed card where nothing is on file", async () => {
-    reset(SEEN());
+  it("rewrites no reviewed row, and still lands the owed card where nothing is on file", async () => { reset(SEEN());
     const reviewed0 = { ...mint(), status: "ready" as const, limitations: ["Beacon's own reviewer read this correction for grammar, source fit and contradictions before it was offered."] };
     const reviewed = { ...reviewed0, semanticReview: { of: copyKey(reviewed0), version: REVIEW_CONTRACT, claims: [{ i: 0, by: ["fact-1"], entailed: true }] } };
     env.store = new Map([[reviewed.id, reviewed]]);
@@ -776,8 +770,7 @@ describe("the $0 replay: a held finished draft promotes when its evidence lands,
   const gateLine = "it replaces the description this page already has on demand evidence alone: demand proves the page matters, never that these words beat the current ones, so it is held until a diagnosis names what is wrong with the current description or a stored results page backs this shape";
   const meta = (id: string, after: string, over: Partial<ChangeProposal> = {}): ChangeProposal => baseProposal({
     id: `fixture-tenant::${id}::existing_edit::replay-fixture`, pagePath: id, pageUrl: `https://${GAP_URL}`, changeFamily: "meta", status: "needs_review",
-    primaryQuery: "nowruz traditions", limitations: [gateLine], basis: "basis_test::d8",
-    recommendedChange: { kind: "existing_edit", field: "meta", before: "Old line about the holiday.", after }, ...over });
+    primaryQuery: "nowruz traditions", limitations: [gateLine], basis: "basis_test::d8", recommendedChange: { kind: "existing_edit", field: "meta", before: "Old line about the holiday.", after }, ...over });
   it("promotes the exact stored copy at $0, and holds the malformed sibling with its reasons intact", async () => {
     const page = { ...GAP, content: { ...GAP.content!, metaDescription: "Old line about the holiday." } };
     reset(snap([page], looked([["nowruz traditions", GAP_URL]])));
@@ -790,8 +783,13 @@ describe("the $0 replay: a held finished draft promotes when its evidence lands,
     expect([held.status, held.limitations.includes(gateLine)], "the defective sibling stays held with every word and reason").toEqual(["needs_review", true]);
     expect([paidCalls, out.outcome !== "evidence_unreadable"], "no provider was called for any of it").toEqual([0, true]); });
   const OBJECTION = "the evaluator's exact objection: this reads as a list of searches rather than a sentence";
-  it("never promotes a row carrying a reading no rule of ours can re-derive, and drops the stale ones it can", async () => {
-    reset(snap([{ ...GAP, content: { ...GAP.content!, metaDescription: "Old line about the holiday." } }], looked([["nowruz traditions", GAP_URL]])));
+  /** A RESULTS PAGE THAT DOES NOT BACK THE SHAPE IS AN ANSWER, NOT A WAIT (falsifier, 2026-09-02): eight held descriptions had their results page on file, `shapeBackingOf` found fewer than two ranked titles leading with the copy's first token, and the row still answered `{evidence: serp}` for ever. */
+  it("turns a results page that refuses the shape into the redraft instruction that would earn it", async () => { reset(snap([{ ...GAP, content: { ...GAP.content!, metaDescription: "Old line about the holiday." } }], looked([["nowruz traditions", GAP_URL]])));
+    const off = meta("/nowruz-guide", "Haft-Seen table customs and the spring timing of the Persian new year, described in plain language for a first visit.", { modeledOn: undefined });
+    env.store = new Map([[off.id, off]]); await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true });
+    const out = env.store.get(off.id)!;
+    expect([out.obligation?.kind, out.obligation?.kind === "redraft" ? out.obligation.instruction : ""], "the page on file is the answer: it says which word the ranked titles lead with, and that is what the next draft owes").toEqual(["redraft", 'the ranked titles for this search lead with "nowruz"; lead with it or this line has no backing']); });
+  it("never promotes a row carrying a reading no rule of ours can re-derive, and drops the stale ones it can", async () => { reset(snap([{ ...GAP, content: { ...GAP.content!, metaDescription: "Old line about the holiday." } }], looked([["nowruz traditions", GAP_URL]])));
     const COPY = "Nowruz traditions explained: the customs, the Haft-Seen table and the spring timing of Persian New Year, in plain language.";
     const judged = meta("/nowruz-guide", COPY, { faults: [OBJECTION] });
     // AND A DETERMINISTIC FAULT IS A PAST READING (falsifier, 2026-09-02): the rule that wrote "it uses words this account does not publish: Farsi" was withdrawn by the demand-vocabulary exemption, and nothing re-asked it, so the row could never replay. It is dropped and re-earned, or not, by the re-read.
@@ -823,11 +821,9 @@ describe("the canon refuses raw HTML in operator copy", () => {
 describe("a stampless re-mint never replaces finished work", () => {
   it("keeps the finished copy, the backing and the status under the re-minted template", async () => {
     const { preferFinished } = await import("@/domains/decision/completeness");
-    const finished = baseProposal({ id: "fixture-tenant::/w::existing_edit::missing_description", pagePath: "/w", changeFamily: "meta", status: "ready", copyStamp: "T|H|D|O", workKey: "wk-meta-1", modeledOn: "the results page for \"persian wolf\": 3 ranked titles read",
-      claims: [{ text: "The page is about the Persian Wolf.", supportedBy: ["page-h1"] }], supportFacts: [{ id: "page-h1", fact: "Persian Wolf" }],
+    const finished = baseProposal({ id: "fixture-tenant::/w::existing_edit::missing_description", pagePath: "/w", changeFamily: "meta", status: "ready", copyStamp: "T|H|D|O", workKey: "wk-meta-1", modeledOn: "the results page for \"persian wolf\": 3 ranked titles read", claims: [{ text: "The page is about the Persian Wolf.", supportedBy: ["page-h1"] }], supportFacts: [{ id: "page-h1", fact: "Persian Wolf" }],
       recommendedChange: { kind: "existing_edit", field: "meta", before: "Old.", after: "Persian Wolf explained: habitat, diet and lifespan in plain language, from the page itself." } });
-    const remint = baseProposal({ id: finished.id, pagePath: "/w", changeFamily: "meta", status: "needs_review", researchOnly: true,
-      recommendedChange: { kind: "existing_edit", field: "meta", before: "Old.", after: "Write a description of about 150 characters." } });
+    const remint = baseProposal({ id: finished.id, pagePath: "/w", changeFamily: "meta", status: "needs_review", researchOnly: true, recommendedChange: { kind: "existing_edit", field: "meta", before: "Old.", after: "Write a description of about 150 characters." } });
     const kept = preferFinished(remint, finished);
     expect([kept.status, kept.researchOnly, (kept.recommendedChange as { after: string }).after, kept.modeledOn ?? null], "the finished words, the earned backing and Ready all survive a template that read nothing").toEqual(["ready", false, (finished.recommendedChange as { after: string }).after, finished.modeledOn]);
     const rewrite = { ...remint, copyStamp: "T2|H2|D2|O2" }; // a producer that DID re-read the page and saw it move still replaces, with the retirement receipt
@@ -851,6 +847,14 @@ describe("the $0 release loop converts what it can, and never touches what is be
     expect([c.field, c.after.startsWith("{"), (c.where ?? "").length > 0, out.row.limitations.some((l) => /^Contains raw HTML markup/.test(l)), validateProposal(out.row, { pageBodyText: `${Q} ${ANSWER}` }).verdict, out.paid], "the block is filed as structured data with its wrapper off and its placement stated, no rule written for sentences refuses it as markup, the canon's own JSON-LD gate passes it, and none of it costs a call").toEqual(["schema", true, true, false, "ready", 0]);
     expect([out.done.status, out.done.researchOnly ?? false, out.done.limitations], "and a change the operator already marked done is never re-minted as research, whatever its claims lean on").toEqual(["implemented_pending_verification", false, shipped.limitations]); });
   // A STORED BLOCK THAT ALREADY WEARS READY STAYS THERE: `deliverableGaps` reads a schema field as JSON rather than as prose now, so no rule written for sentences can demote finished markup.
+  /** THE REPLAY READS THE WHOLE PAGE FOR A SCHEMA ROW (falsifier, 2026-09-02): the canon proves structured data against what the page VISIBLY carries, and the candidate was judged against the four stored fields plus whatever the sweep window held, so an answer the page really carries read as absent off a 160-character excerpt. */
+  it("proves a schema block against the page's own body, clearing an answer it carries and refusing one it invents", async () => {
+    reset(snap([GAP], looked([["nowruz traditions", GAP_URL]]))); // Q and ANSWER are NOT among this page's four stored fields: only its body carries the answer
+    const carried = block("ready");
+    env.store = new Map([[carried.id, carried]]);
+    await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true });
+    const out = env.store.get(carried.id)!;
+    expect([out.status, (out.recommendedChange as { field: string }).field], "the page's own body carries this answer, so the canon's visible-content proof is satisfied off the whole page rather than a stored excerpt").toEqual(["ready", "schema"]); });
   it("leaves a stored JSON-LD block that already wears Ready exactly where it stands", async () => {
     const out = await pass(block("ready"));
     expect([out.row.status, out.row.faults ?? []], "structured data is not prose, so no rule about unwritten copy may touch it").toEqual(["ready", []]); });});

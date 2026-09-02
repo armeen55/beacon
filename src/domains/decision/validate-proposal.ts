@@ -353,8 +353,9 @@ export function convertSectionToSchema(p: ChangeProposal): ChangeProposal | null
   if (!/^[[{]/.test(after)) return null;
   const { parsed, types } = schemaVisible(after);
   if (parsed == null || types.size === 0) return null;
-  const kept = p.limitations.filter((l) => !RICH_CLAIM.test(l));
-  return { ...p, recommendedChange: { ...c, field: "schema", after, where: c.where?.trim() || "Add this block to this page's own custom code, in the head of this page only. It adds no visible text and changes nothing a reader sees." },
+  const kept = p.limitations.filter((l) => !RICH_CLAIM.test(l)); // AND THE SAME LINE IS NOT A CLAIM EITHER (falsifier, 2026-09-02): the FAQ row's own "FAQ rich results" claim asserted an outcome no source carries, so the row refused itself for ever on the very sentence this conversion exists to retire.
+  const claims = (p.claims ?? []).filter((x) => !RICH_CLAIM.test(x.text));
+  return { ...p, ...(p.claims ? { claims } : {}), recommendedChange: { ...c, field: "schema", after, where: c.where?.trim() || "Add this block to this page's own custom code, in the head of this page only. It adds no visible text and changes nothing a reader sees." },
     limitations: types.has("FAQPage") ? [...new Set([...kept, FAQ_SCHEMA_LIMIT])] : kept }; }
 
 /** Destructive-change guard: an existing-page edit that empties or guts the

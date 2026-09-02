@@ -4,7 +4,7 @@ import { canonicalUrlKey, jobEvidenceHash, type EvidenceSnapshot, type OwnedPage
 import { pagesUnderMeasurement, resolveCurrentBasis } from "./load-proposals"; import { candidatesToEvidenceInputs, compileCandidates, type QualifiedCandidate } from "./opportunities"; import type { CauseFinding } from "./diagnosis";
 import { selectDeepCandidates } from "./deep-candidates"; import { produceBundleForSnapshot } from "./produce-bundle"; import { proposeExistingPageChange, type ProposeOptions } from "./propose";
 import { loadChangeProposals, saveChangeProposal, withdrawChangeProposal, withdrawnProposalIds } from "./proposal-store"; import { actionableProposalFailures, convertSectionToSchema, validateProposal } from "./validate-proposal"; import { rankProposals, proposalValueScore } from "./rank-proposals";
-import { copyKey } from "./proof"; import { ownershipCards, researchingCards, unsettledCause, withholdReason } from "./authorization"; import { NO_FIELD_KIND } from "./proposal-store"; import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts"; import { GATE_WORDS, deliverableGaps, openHold, preferFinished } from "./completeness"; import { nextObligation } from "./obligation"; import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
+import { copyKey } from "./proof"; import { ownershipCards, researchingCards, unsettledCause, withholdReason } from "./authorization"; import { NO_FIELD_KIND } from "./proposal-store"; import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts"; import { GATE_WORDS, deliverableGaps, openHold, preferFinished } from "./completeness"; import { nextObligation, type Obligation } from "./obligation"; import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
 import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context"; import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evidence/topic-investigation"; import { earnedNewPage, type IntersectionEvidence } from "./coverage-adjudication";
 import { extractPageFacts, readWinningPattern } from "./winning-pattern"; import { readCoverage, recordCoverageNeeds, type DecidedTopic } from "./coverage-pass"; import { applyDraftedCopy, CLOSING_NOTE, shapeBackingOf, staleCopyReasons, withoutCta } from "./drafted-copy";
 import { DRAFT_BUDGET } from "./draft-budget"; import { creditBreakerHeld } from "./llm/gateway"; import { MAX_NEW_READS_PER_PASS } from "./producers/page-job";
@@ -242,6 +242,14 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const live = held.filter((p) => !retired.has(p.id));
   let persisted = 0, writeFailures = 0, reused = 0, heldForMeasurement = candidates.filter((c) => c.cause.cause === "measuring_change").length; // A HOLD HAPPENS WHERE THE DECISION IS MADE, NOT WHERE THE ROW IS WRITTEN
   /** Persist ONE material row, or nothing when the stored row already says exactly this. THE RANKING ON FILE SURVIVES A RE-STAMP: a producer mints its card before the pass has ranked anything, so dropping the stored receipt would make every pass rewrite every row twice and count it as new work each time. */
+  /** A RESULTS PAGE THAT DOES NOT BACK THE SHAPE IS AN ANSWER, NOT A WAIT (falsifier, 2026-09-02). Eight held descriptions had their results page on file and still answered `{evidence: serp}` for ever, because the need is minted from the ABSENCE of `modeledOn` and nothing ever asked what the page on file actually says. Asked here, where the snapshot is: backing found means nothing is owed and the replay attaches it; backing refused is a finding about the WORDS, so it comes back as the redraft instruction that would earn it, and settles terminal on the same attempt bound as any other. `nextObligation` stays pure. */
+  const obligationOf = (p: ChangeProposal): Obligation | null => { const o = nextObligation(p), c = p.recommendedChange;
+    if (o?.kind !== "evidence" || o.need.kind !== "serp" || c.kind !== "existing_edit") return o;
+    if (!snapshot.research.serpEvidence.some((e) => canonicalQueryKey(e.query) === canonicalQueryKey(p.primaryQuery))) return o;
+    if (shapeBackingOf(snapshot, p.primaryQuery, c.after)) return null;
+    const token = topicTokens(p.primaryQuery)[0] ?? p.primaryQuery.trim().split(/\s+/)[0] ?? "", attempt = (p.previousCopy?.attempts ?? 0) + 1;
+    const why = `the ranked titles for this search lead with "${token}"; lead with it or this line has no backing`;
+    return attempt > 2 ? { kind: "terminal", reason: why } : { kind: "redraft", attempt, instruction: why }; };
   const persistIfChanged = async (input0: ChangeProposal): Promise<"saved" | "unchanged" | "refused" | "blocked" | "failed" | "not_persisted"> => {
     const input: ChangeProposal = input0.workKey ? input0 : { ...input0, workKey: (input0.bundle ? declaredWorkKey.get(DRAFT_BUDGET.keyOf(input0)) : null) ?? workKeyOf(input0) }; // IDENTITY IS STAMPED AT THE ONE DOOR so no caller can forget it: a bundle keeps its declared key, everything else derives from the row itself
     const note = input.researchOnly === true && !input.bundle ? pageKeys(input.pageUrl).map((k) => blocked.get(k)).find(Boolean) : null; const notYet = note ? `Not yet, because ${note.reason}` : ""; // THE "NOT YET" NOTE GOES ON BEFORE THE ROW IS WRITTEN, never after it. Added once the row was already stored, the next pass re-minted the card WITHOUT the note, saved it because it differed from the stored one, then appended the note and saved again: two writes a pass, for ever, on a card nobody had touched. A refresh re-pays nothing only if it also re-writes nothing.
@@ -269,7 +277,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     // READY MEANS THE CHANGE TREATS THE CAUSE ITS OWN EVIDENCE NAMED. Four producers mint `ready`, each off its own drafting, and not one asked whether the lever fits the diagnosis: the ranking was discounting 25 points for exactly that mismatch on the very card it left in the paste-ready lane. Asked ONCE, here, where every producer's row and every reused row passes on its way to the store.
     const unfit = ranked.status === "ready" ? unsettledCause(ranked) ?? openHold(ranked).blocking : null; // the reason rides the ROW, not a log: the operator reads why it is held where they read the change. AND WORK NOBODY CAN RE-PLACE IS NOT READY EITHER, WITHOUT BEING DESTROYED FOR IT: banked body copy is served on without the page's own words in hand, so an anchor no banked fact carries can no longer be checked, and the words, the claims and the evidence are kept exactly as banked while the row goes back to review carrying the sentence that says why (decision/completeness's `openHold`)
     const p0: ChangeProposal = unfit ? { ...ranked, status: "needs_review", limitations: [...new Set([...ranked.limitations, unfit])], faults: [...new Set([...(ranked.faults ?? []), unfit])] } : ranked; // the demotion's reason is a TYPED fault: Beacon's own gate wrote it, so the queue must never hand it back as the operator's taste
-    const owes = nextObligation(p0); const p: ChangeProposal = owes ? { ...p0, obligation: owes } : p0.obligation ? { ...p0, obligation: undefined } : p0; // THE TYPED NEXT STEP IS STAMPED AT THE ONE PERSISTENCE DOOR, so every stored row says what it owes instead of leaving the machine to work it out from English on the next pass
+    const owes = obligationOf(p0); const p: ChangeProposal = owes ? { ...p0, obligation: owes } : p0.obligation ? { ...p0, obligation: undefined } : p0; // THE TYPED NEXT STEP IS STAMPED AT THE ONE PERSISTENCE DOOR, so every stored row says what it owes instead of leaving the machine to work it out from English on the next pass
     finalRow.set(p.id, p); if (!persist) return "not_persisted"; // THE EXACT ROW THE STORE WOULD RECEIVE, KEPT WHETHER OR NOT IT IS WRITTEN. Everything above this line is the same computation in both modes, so what a dry run hands back to be inspected is byte for byte what persistence would keep.
     let stands = p; const result = await saveChangeProposal(p, undefined, (row) => { stands = row; }); // AND WHAT THE STORE KEPT IS WHAT THIS PASS CARRIES ON WITH (operator, 2026-09-02): a stale pass whose brief lost to a finished stored row went on publishing that brief in the release blob while the database held the finished words.
     if (result === "failed") writeFailures += 1; else if (result === "saved") persisted += 1; else if (result === "blocked") heldForMeasurement += 1; // "unchanged" wrote nothing, so it counts as nothing
@@ -396,8 +404,10 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
       if (await saveChangeProposal(back) === "saved") { existing.set(back.id, back); released += 1; } continue; }
     const held = row.status === "needs_review"; if ((!held && row.status !== "ready") || row.researchOnly === true || row.recommendedChange.kind !== "existing_edit" || !row.recommendedChange.after.trim()) continue;
     const on = snapshot.ownedPages.find((x) => pageKeys(x.url).some((k) => pageKeys(row.pageUrl ?? row.pagePath).includes(k))); const kept = [...(on?.search?.topQueries ?? [])].filter((q) => q.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 10).map((q) => q.query);
+    // THE REPLAY READS THE WHOLE PAGE FOR A SCHEMA ROW (falsifier, 2026-09-02): the canon proves structured data against the text the page VISIBLY carries, and the candidate was judged against the stored four fields plus whatever the sweep window happened to hold, so an answer the page really carries read as absent off a 160-character excerpt. One bounded read of that page's own body, through the same loader the editor uses.
+    const schemaRow = row.recommendedChange.kind === "existing_edit" && row.recommendedChange.field === "schema" && !!row.pageUrl, schemaBody = schemaRow ? (await loadOwnedPageBodies(tenantId, [row.pageUrl!]).catch(() => null))?.get(canonicalUrlKey(row.pageUrl!)) ?? null : null;
     const hold2 = openHold(row); // ONE verdict, read once: the demotion reason and the typed-fault owner. WHAT TO GO AND DO comes off the row's OWN typed obligation now, so a semantic review that is owed is filed as a review rather than as a fact acquisition the runtime then executed instead of it.
-    const owes = nextObligation(row), k0 = DRAFT_BUDGET.keyOf(row);
+    const owes = obligationOf(row), k0 = DRAFT_BUDGET.keyOf(row);
     if (owes?.kind === "evidence" && !evidenceOwed.has(k0)) { evidenceOwed.set(k0, { ...owes.need, reason: hold2.blocking ?? owes.need.reasonCode, workKey: "" }); file(k0, "evidence_required", false, hold2.blocking ?? owes.need.reasonCode); }
     else if (owes?.kind === "review" && !evidenceOwed.has(k0)) { // THE READING IS THE WORK. Filed as a factual_source, the runtime bought facts for a page whose words were already final and the reading nobody had taken stayed untaken.
       evidenceOwed.set(k0, { kind: "semantic_review", query: row.primaryQuery, ...(row.pageUrl ? { url: row.pageUrl } : {}), proposalId: row.id, reasonCode: "review_owed", reason: "the words are written and nothing has read them against the sources they name, so that reading is owed before they are offered", workKey: "" });
@@ -412,9 +422,9 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const moved: ChangeProposal | null = why2.length > 0
       ? row.status === "ready" ? { ...row, status: "needs_review", limitations: [...new Set([...row.limitations, ...why2.slice(0, 2)])], ...(owned.length > 0 ? { faults: [...new Set([...(row.faults ?? []), ...owned])] } : {}) } : null
       // A SHAPE-HELD ROW IS REPLAYED THE MOMENT ITS RESULTS PAGE IS ON FILE (falsifier, 2026-09-02): the row owes `{evidence: serp}` until `modeledOn` exists, and only this replay attaches it, so the Farsi numbers title, whose page landed at 03:19Z, could never be promoted by the gate that was waiting for the very thing the promotion produces. readyToTry's own recomputation still decides, with the backing attached.
-      : held && (owes == null || (owes.kind === "evidence" && owes.need.kind === "serp" && snapshot.research.serpEvidence.some((e) => canonicalQueryKey(e.query) === canonicalQueryKey(row.primaryQuery))))
-        ? readyToTry(row, on ?? null, (sweepBodies?.get(canonicalUrlKey(row.pageUrl ?? "")) ?? null)) : null; // the replay speaks only to HELD rows: an already-ready row has nothing to promote and re-saving it is churn
-    if (!moved || (moved.status === "ready" && (unsettledCause(moved) ?? openHold(moved).blocking))) { if (row !== row0 && await saveChangeProposal(row) === "saved") existing.set(row.id, row); continue; } // THE CONVERSION IS A FACT ABOUT THE ROW, never a consequence of a demotion: it used to reach the store only when something else moved the row, so a schema block nothing else faulted stayed filed as prose for ever
+      : held && owes == null ? readyToTry(row, on ?? null, schemaBody ?? sweepBodies?.get(canonicalUrlKey(row.pageUrl ?? "")) ?? null) : null; // the replay speaks only to HELD rows: an already-ready row has nothing to promote and re-saving it is churn
+    const restamped = JSON.stringify(row.obligation ?? null) === JSON.stringify(owes ?? null) ? row : { ...row, ...(owes ? { obligation: owes } : { obligation: undefined }) }; // A STORED ROW CARRIES ITS CURRENT NEXT STEP even when nothing else about it moved, or the answer this pass worked out is thrown away and re-worked out for ever
+    if (!moved || (moved.status === "ready" && (unsettledCause(moved) ?? openHold(moved).blocking))) { if (restamped !== row0 && await saveChangeProposal(restamped) === "saved") existing.set(row.id, restamped); continue; } // THE CONVERSION IS A FACT ABOUT THE ROW, never a consequence of a demotion: it used to reach the store only when something else moved the row, so a schema block nothing else faulted stayed filed as prose for ever
     if (await saveChangeProposal(moved) === "saved") { existing.set(moved.id, moved); released += 1;
       log.info("[produce-proposals] row re-read against the rules that stand today", { tenantId, id: moved.id, now: moved.status }); } }
   if (quietDay) { log.info("[produce-proposals] nothing earned an action this pass", { tenantId, judged: candidates.length, watching: candidates.filter((c) => c.action === "watch").length + consolidating, researching: investigating });
@@ -469,9 +479,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     if (bundled.status !== "bundled" && bundled.requirement) { const k = DRAFT_BUDGET.keyOf({ pageUrl: d.pageUrl });
       evidenceOwed.set(k, { ...bundled.requirement, reason: bundled.reason, workKey: declaredWorkKey.get(k) ?? "" }); file(k, "evidence_required", true, bundled.reason); }
     else if (bundled.status !== "bundled") file(DRAFT_BUDGET.keyOf({ pageUrl: d.pageUrl }), "retryable_blocked", true, bundled.reason);
-    if (bundled.status !== "bundled" || (!selectedKeys.has(covered) && !selectedKeys.has(path))) {
-      log.info("[produce-proposals] no bundle this pass", { tenantId, page: d.pageUrl, door: d.door,
-        reason: bundled.status === "bundled" ? "page no door selected" : bundled.reason });
+    if (bundled.status !== "bundled" || (!selectedKeys.has(covered) && !selectedKeys.has(path))) { log.info("[produce-proposals] no bundle this pass", { tenantId, page: d.pageUrl, door: d.door, reason: bundled.status === "bundled" ? "page no door selected" : bundled.reason });
       if (bundled.status !== "bundled") { enteredBy.set(d.pageUrl, `${d.entry} ${bundled.reason}`); for (const k of pageKeys(d.pageUrl)) blocked.set(k, { reason: bundled.reason, ...(bundled.considered?.length ? { considered: bundled.considered } : {}) }); }
       continue;
     }
@@ -499,8 +507,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     }
     const slot = outOfTime() ? null : budget.draw(DRAFT_BUDGET.keyOf({ pagePath: input.page.path, pageUrl: input.page.url ?? null }), DRAFT_BUDGET.DELIVERABLE_CALLS);
     if (!slot || slot.left <= 0) { noDraft += 1; file(DRAFT_BUDGET.keyOf({ pagePath: input.page.path, pageUrl: input.page.url ?? null }), "retryable_blocked", false, (outOfTime() ? "the drive's time box ended before this page was started" : "this page's allowance was already spent by another family on the same page")); log.info("[produce-proposals] the pass's paid plan funded no allowance for this page", { tenantId, page: input.page.path }); continue; }
-    const outcome = await proposeExistingPageChange(input, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist, attempts: slot }).catch((e) => {
-      log.warn("[produce-proposals] propose threw (fail-soft)", { tenantId, id: input.opportunity.query, error: e instanceof Error ? e.message : String(e) });
+    const outcome = await proposeExistingPageChange(input, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist, attempts: slot }).catch((e) => { log.warn("[produce-proposals] propose threw (fail-soft)", { tenantId, id: input.opportunity.query, error: e instanceof Error ? e.message : String(e) });
       return { status: "no_draft" as const, reason: "threw", drafterStatus: "error" }; });
     if (outcome.status !== "ready") {
       const why = outcome.status === "no_draft" ? outcome.drafterStatus : "withdrawn";
@@ -535,10 +542,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const p = { ...card, ...(basis ? { basis } : {}) }, key = DRAFT_BUDGET.keyOf(p); settledIds.add(p.id);
     if (!(p.researchOnly === false && p.status === "ready")) { await persistIfChanged(p); return false; }
     return persistAndFile(p, key); };
-  const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, basis: basis ?? null, unsettled: new Set<string>(), refusals: gateWords, note: (k, o, why) => file(k, o, true, why),
-    owe: (k, need) => { evidenceOwed.set(k, { ...need, workKey: declaredWorkKey.get(k) ?? "" }); file(k, "evidence_required", true, need.reason); },
-    settle, ...(opts.stopBy != null ? { stopBy: opts.stopBy } : {}), now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, budget }).catch((e) => {
-    log.error("[produce-proposals] the editor run threw whole, so these cards go on unedited; this is a fault in the pass, never a fact about the cards", { tenantId, error: e instanceof Error ? e.message : String(e) });
+  const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, basis: basis ?? null, unsettled: new Set<string>(), refusals: gateWords, note: (k, o, why) => file(k, o, true, why), owe: (k, need) => { evidenceOwed.set(k, { ...need, workKey: declaredWorkKey.get(k) ?? "" }); file(k, "evidence_required", true, need.reason); },
+    settle, ...(opts.stopBy != null ? { stopBy: opts.stopBy } : {}), now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, budget }).catch((e) => { log.error("[produce-proposals] the editor run threw whole, so these cards go on unedited; this is a fault in the pass, never a fact about the cards", { tenantId, error: e instanceof Error ? e.message : String(e) });
     return allowed; }); // the account's own vocabulary AND the pass's ONE paid plan reach the editor
   for (const raw of drafted) { const p = { ...raw, ...(basis ? { basis } : {}) }, key = DRAFT_BUDGET.keyOf(p); proposals.push(p);
     if (settledIds.has(p.id)) continue; // already persisted the moment the editor finished it, and already counted or not by the store's own answer
@@ -568,14 +573,11 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   for (let i = 0; i < proposals.length; i += 1) {
     const p = proposals[i]!, block = pageKeys(p.pageUrl).map((k) => blocked.get(k)).find(Boolean), notYet = block ? `Not yet, because ${block.reason}` : ""; if (!block || p.bundle || p.researchOnly !== true || (p.operatorSteps ?? []).includes(block.reason) || (p.limitations ?? []).includes(notYet)) continue;
     proposals[i] = existing.get(p.id) ?? { ...p, limitations: [...(p.limitations ?? []), notYet], evidence: { ...p.evidence, hints: [...p.evidence.hints, block.reason], evidenceRefCount: p.evidence.evidenceRefCount + 1 } }; }
-  for (const card of researchingCards({ ...wiring(), judged: candidates, queryKeyOf: canonicalQueryKey, blocked,
-    serpQueryKeys: new Set(snapshot.research.serpEvidence.map((e) => canonicalQueryKey(e.query))),
-    skip: new Set(proposals.flatMap((p) => [(p.pagePath ?? "").toLowerCase(), (p.pageUrl ?? "").toLowerCase()])) })) {
-    proposals.push(card); await persistIfChanged(card);
+  for (const card of researchingCards({ ...wiring(), judged: candidates, queryKeyOf: canonicalQueryKey, blocked, serpQueryKeys: new Set(snapshot.research.serpEvidence.map((e) => canonicalQueryKey(e.query))),
+    skip: new Set(proposals.flatMap((p) => [(p.pagePath ?? "").toLowerCase(), (p.pageUrl ?? "").toLowerCase()])) })) { proposals.push(card); await persistIfChanged(card);
   }
   const extraFamilies = extra.families ?? [...EXTRA_FAMILIES]; // EACH PRODUCER SWEEPS ITS OWN FAMILIES, per family: `extra.families` lists only the ones whose evidence answered in full, so gating them on extra.complete froze finished sweeps for a neighbour's outage.
-  await sweepStale([suggested, { families: extraFamilies, complete: extraFamilies.length > 0 },
-    { families: ["demand_recovery"], complete: recovery.complete },
+  await sweepStale([suggested, { families: extraFamilies, complete: extraFamilies.length > 0 }, { families: ["demand_recovery"], complete: recovery.complete },
     { families: ["factual_correction"], complete: factual.complete }, // A page whose corrected words are live checks out on the next run, so its card retires itself here.
     { families: ["ownership", "researching"], complete: gscComplete },
     { families: ["consolidation", "title-family", "section-family"], complete: doorWalked.size > 0 }]); // The door's own families, swept on the pages above and nowhere else.
@@ -586,6 +588,5 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
           : investigating > 0 ? "investigating" : "no_actionable_candidate";
   log.info("[produce-proposals] paid work this pass", { tenantId, ...budget.spent(), callsUncommitted: Math.max(0, budget.calls.left), pageReadsMade: MAX_NEW_READS_PER_PASS - Math.max(0, pageReads.left), pageReadsLeft: Math.max(0, pageReads.left) });
   if (outcome !== "proposals_persisted") log.warn("[produce-proposals] pass produced no durable work", { tenantId, outcome, actionable: acted.length, noDraft, writeFailures });
-  return { proposals: await rankAndStamp(proposals), candidates: runReceipt(), outcome,
-    actionable: acted.length + consolidating, investigating, noDraft, persisted, reused, heldForMeasurement, paid: receipt(), ...research() };
+  return { proposals: await rankAndStamp(proposals), candidates: runReceipt(), outcome, actionable: acted.length + consolidating, investigating, noDraft, persisted, reused, heldForMeasurement, paid: receipt(), ...research() };
 }

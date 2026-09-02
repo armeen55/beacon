@@ -26,6 +26,11 @@ describe("the typed next step a stored change owes", () => {
     const reviewed = row({ status: "needs_review", changeFamily: "factual_correction", claims: [{ text: "c", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "f" }] });
     expect(nextObligation(reviewed), "with nothing known against it, the reading is what is owed").toEqual({ kind: "review" });
     expect(nextObligation({ ...reviewed, faults: ["a claim here was not shown to follow from the exact sources it names"] }), "and once that reading has refused it, the redraft is").toEqual({ kind: "redraft", attempt: 1, instruction: "a claim here was not shown to follow from the exact sources it names" }); });
+  /** STRUCTURED DATA IS REVIEWED BY ITS OWN GATE, NOT BY THE EDITOR'S CHECKLIST (falsifier, 2026-09-02): /farsi-numbers owed a semantic review that every paid reading refused with "the code adds no visible text", so it could never clear. */
+  it("owes no semantic reading on a schema block, whose truth is the canon's visible-content proof", () => {
+    const withFact = { claims: [{ text: "c", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "https://www.britannica.com/nowruz carries it" }], status: "needs_review" as const };
+    expect(nextObligation(row({ ...withFact, changeFamily: "section", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A finished section.", where: 'A new section headed "H"' } })), "prose citing a checked source owes the reading").toEqual({ kind: "review" });
+    expect(nextObligation(row({ ...withFact, changeFamily: "section", recommendedChange: { kind: "existing_edit", field: "schema", before: null, after: '{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[]}' } })), "the same claims inside JSON-LD owe nothing to a reader of prose").toBeNull(); });
   it("owes the one cheap reading a shape hold asks for, rather than sitting behind that sentence for ever", () =>
     expect(nextObligation(row({ modeledOn: undefined, primaryQuery: "nowruz traditions" }))).toEqual({ kind: "evidence", need: { kind: "serp", query: "nowruz traditions", reasonCode: "shape_unbacked" } }));
   it("owes a redraft carrying whatever still blocks final copy, and settles a lever its own diagnosed cause cannot use", () => {
