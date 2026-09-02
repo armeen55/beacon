@@ -416,7 +416,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const moved: ChangeProposal | null = why2.length > 0
       ? row.status === "ready" ? { ...row, status: "needs_review", limitations: [...new Set([...row.limitations, ...why2.slice(0, 2)])], ...(owned.length > 0 ? { faults: [...new Set([...(row.faults ?? []), ...owned])] } : {}) } : null
       : held ? readyToTry(row, on ?? null, (sweepBodies?.get(canonicalUrlKey(row.pageUrl ?? "")) ?? null)) : null; // the replay speaks only to HELD rows: an already-ready row has nothing to promote and re-saving it is churn
-    if (!moved || (moved.status === "ready" && (unsettledCause(moved) ?? openHold(moved).blocking))) continue;
+    if (!moved || (moved.status === "ready" && (unsettledCause(moved) ?? openHold(moved).blocking))) { if (row !== row0 && await saveChangeProposal(row) === "saved") existing.set(row.id, row); continue; } // THE CONVERSION IS A FACT ABOUT THE ROW, never a consequence of a demotion: it used to reach the store only when something else moved the row, so a schema block nothing else faulted stayed filed as prose for ever
     if (await saveChangeProposal(moved) === "saved") { existing.set(moved.id, moved); released += 1;
       log.info("[produce-proposals] row re-read against the rules that stand today", { tenantId, id: moved.id, now: moved.status }); } }
   if (quietDay) {

@@ -47,6 +47,13 @@ export function deliverableGaps(p: ChangeProposal): string[] {
     if (owed.length > 0) gaps.push(`${owed.length} of its ${c.outline.length} sections have no copy written`);
     return [...new Set(gaps)];
   }
+  // STRUCTURED DATA IS NOT PROSE (falsifier, 2026-09-02). Every rule below is about words a person reads, and a bracketed span is a blank still to be filled in copy while it is an ARRAY in JSON-LD: every real FAQPage block read as "it describes the work instead of being it", so the $0 loop demoted finished markup and `nextObligation` sent it to the paid writer as a draft. A schema block is unwritten when it is empty or will not parse; the canon's own JSON-LD gate judges everything else about it.
+  if (c.field === "schema") {
+    const json = c.after.replace(/^\s*<script[^>]*>/i, "").replace(/<\/script>\s*$/i, "").trim();
+    if (!json) gaps.push("it carries no structured data");
+    else try { JSON.parse(json); } catch { gaps.push("its structured data is not valid JSON, so no search engine could read it"); }
+    return [...new Set(gaps)];
+  }
   if (noCopy(c.after)) gaps.push("it carries no copy");
   else if (notFinal(c.after)) gaps.push("it describes the work instead of being it");
   // A LABEL GLUED TO ITS VALUE IS NOT FINISHED OPERATOR WORK. Without this, banked copy carrying the page's own
