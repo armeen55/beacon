@@ -183,6 +183,9 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
    *  settled count actually MOVES, so it terminates on its own arithmetic and a lane that moves nothing yields the phase instead of spending twelve rounds proving it. */
   const MAX_CRAWL_ROUNDS = 4; let crawlRounds = 0;
   const REPLENISH_MIN_MS = 45_000, REPLENISH_RESERVE_MS = 60_000, REPLENISH_BOX_MS = 240_000, LEASE_REPROVE_AFTER_MS = 1_000, STOP_STARTING_MS = 40_000;
+  /** THE RECEIPTS THAT SPENT ARE THE DAY'S RECEIPTS (operator, 2026-09-02): a later $0 produce in the same day filed every funded key as not reached and wrote that over the paid pass's real outcomes, so a pass that made no call keeps the receipts already on the row. */
+  type Outcomes = NonNullable<ResearchRunProgress["replenish"]>["outcomes"]; const calls = (o: Outcomes): number => ((o?.receipts ?? []) as { providerCalls?: number }[]).reduce((n, r) => n + (r.providerCalls ?? 0), 0);
+  const keepOutcomes = (next: Outcomes): Outcomes => { const prev = progress.replenish?.outcomes; return next && (calls(next) > 0 || !prev) ? next : prev; };
   // MIN gates entry, RESERVE stays banked for the phases behind, BOX bounds the wait, and STOP_STARTING is the margin the pass keeps back so whatever it starts can finish and be filed. Ninety-five seconds (one reasoning call's TIMEOUT FLOOR) proved far too cautious: it is a ceiling, not a typical latency, and reserving it left a 150-second runway with fifty-five usable seconds, so nothing was ever started. Forty-five covers a normal call; a rare one that runs to its floor gets cut off, and a cut-off is safe now because the receipt says not_reached and settles nothing.
   let replenished = false; // one inventory check per DAY before the first exploratory phase
   while (phase !== "done") {
@@ -262,7 +265,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
         // ONE ANSWER MAY END THE DAY'S OBLIGATION AND NO OTHER: every candidate on the current manifest was spent on and settled. A count is never that answer (operator, 2026-08-30). A quota failure, a provider failure, a boxed drive and an unreadable read all leave it OPEN, because none of them proves the next candidate would fail too. What the drive did learn is kept either way, so the following pass walks further down the ranking rather than paying for the same refusal again.
         if (r) {
           const closed = r.reason === "candidates_exhausted" ? r.reason : undefined;
-          progress = { ...progress, replenish: { day, fingerprint: r.fingerprint, attempted: r.attempted, ...(r.tried && r.tried.length > 0 ? { tried: r.tried } : {}), ...(r.spent && Object.keys(r.spent).length > 0 ? { spent: r.spent } : {}), ...(closed ? { closed } : {}), ...(r.outcomes ? { outcomes: r.outcomes } : {}) } };
+          progress = { ...progress, replenish: { day, fingerprint: r.fingerprint, attempted: r.attempted, ...(r.tried && r.tried.length > 0 ? { tried: r.tried } : {}), ...(r.spent && Object.keys(r.spent).length > 0 ? { spent: r.spent } : {}), ...(closed ? { closed } : {}), ...((o) => o ? { outcomes: o } : {})(keepOutcomes(r.outcomes)) } };
           if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return "lost_lease"; // the day's memory persists and the lease is re-proven before the phase spends
         // A STEP THAT TOOK REAL TIME RE-PROVES THE LEASE BEFORE THE PHASE SPENDS; one that answered at once proves nothing new and does not spend a renewal the phase behind it is counting on.
         } else if (nowFn().getTime() - began >= LEASE_REPROVE_AFTER_MS && !await renewLease(tenantId, run.id, ownerToken, attemptCursor)) return "lost_lease";
@@ -303,7 +306,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
             // meant the next dispatch re-funded and re-bought refusals this one already paid for.
             const closed2 = again.reason === "candidates_exhausted" ? again.reason : undefined;
             progress = { ...progress, evidenceOwed: remaining,
-              replenish: { day: reportingDay(nowFn().getTime()), fingerprint: again.fingerprint, attempted: again.attempted, ...(again.tried && again.tried.length > 0 ? { tried: again.tried } : {}), ...(again.spent && Object.keys(again.spent).length > 0 ? { spent: again.spent } : {}), ...(closed2 ? { closed: closed2 } : {}), ...(again.outcomes ? { outcomes: again.outcomes } : {}) } };
+              replenish: { day: reportingDay(nowFn().getTime()), fingerprint: again.fingerprint, attempted: again.attempted, ...(again.tried && again.tried.length > 0 ? { tried: again.tried } : {}), ...(again.spent && Object.keys(again.spent).length > 0 ? { spent: again.spent } : {}), ...(closed2 ? { closed: closed2 } : {}), ...((o) => o ? { outcomes: o } : {})(keepOutcomes(again.outcomes)) } };
             // WRITTEN, NOT JUST ASSIGNED: the pause below ends the run through finishRun, which never writes progress, so the memory only exists if it is stored HERE.
             if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return "lost_lease";
             log.info("[research-run] the reading landed, so the work that asked for it was drafted in the same turn", { tenantId, key: need.key, ready: again.ready, reason: again.reason }); } }
