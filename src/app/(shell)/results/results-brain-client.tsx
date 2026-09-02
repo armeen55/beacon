@@ -11,7 +11,7 @@ type Thought = BrainModel["thoughts"][number];
  *  reduced motion honoured, and every state is said in words beside its shape so colour is never the only encoding. */
 
 /** THE SAME WORDS THE ROWS WEAR (results-lines STATE_LABEL): one vocabulary, whether a row or a whole kind of work is being named. */
-const CONF_WORD: Record<Thought["confidence"], string> = { none: "No verified 28 day read yet", early: "Verified early signal", pattern: "Verified pattern", mixed: "Mixed" };
+const CONF_WORD: Record<Thought["confidence"], string> = { none: "No verified 28 day read yet", early: "Verified early signal", pattern: "Consistent verified record", mixed: "Split verified record" };
 const confWord = (t: Thought): string => (t.confidence === "pattern" ? `${CONF_WORD.pattern}, ${t.ahead >= t.behind ? "ahead" : "behind"}` : CONF_WORD[t.confidence]);
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2";
 /** The server paints the lattice at the desktop column's real width so hydration does not reflow it. */
@@ -98,7 +98,7 @@ export function ResultsBrain({ model, checkedAgo }: { model: BrainModel; checked
                 ); })}
             </svg>
           )}
-          <p className="px-2 pt-1 text-[10.5px] leading-relaxed text-muted-foreground">Size is verified 28 day reads. A dashed ring is older history that cannot teach. {reduced ? "A blue ring" : "A pulse"} is reading still in progress, wider when more is being read. A dashed arc joins kinds of work that overlapped on one page. Colour appears only with verified reads: green or red for a pattern, amber for a split record.</p>
+          <p className="px-2 pt-1 text-[10.5px] leading-relaxed text-muted-foreground">Size is verified 28 day reads. A dashed ring is older history that cannot teach. {reduced ? "A blue ring" : "A pulse"} is reading still in progress, wider when more is being read. A dashed arc joins kinds of work that overlapped on one page. Colour appears only with verified reads: green or red for a consistent record, amber for a split one.</p>
         </div>
 
         <aside className="rounded-xl border border-border-subtle bg-surface-raised px-4 py-3 lg:col-start-2 lg:row-span-2 lg:row-start-1" data-brain-inspector={current?.key ?? "none"}>

@@ -14,14 +14,12 @@ import { pageLabel } from "../changes/types";
 const { groupFor, happenedLine, judgedOnAi, liftLabel, liveConfirmed, rowState, stateWord } = RESULT_LINES;
 type ResultState = ReturnType<typeof rowState>;
 type Metric = ShipmentPresentation["read"]["metric"];
-/** THE CONFIDENCE CONTRACT, STATED (operator, 2026-09-01): no magic five. A pattern is claimed only when the verified reads agree so
- *  consistently that the chance of it under no effect at all (a fair coin per read) is at most one in fourteen: four of four, five of
- *  five, six of seven, seven of eight. Under four verified reads nothing is a pattern however consistent, and the inspector prints the
- *  count, the agreement and the odds so a small sample is read as a small sample. */
-const PATTERN_MIN = 4, PATTERN_ODDS = 0.07;
-const choose = (n: number, k: number): number => { let r = 1; for (let i = 1; i <= k; i += 1) r = (r * (n - k + i)) / i; return r; };
-/** The chance that a fair coin lands the majority side at least `agree` times in `n` throws. */
-const chanceOf = (agree: number, n: number): number => { let sum = 0; for (let k = agree; k <= n; k += 1) sum += choose(n, k); return sum / 2 ** n; };
+/** THE CONFIDENCE CONTRACT, STATED AND DESCRIPTIVE (operator, 2026-09-01): no magic five, and no probability either. A fair-coin
+ *  sign test was printed here for a day; it was one-sided after the direction had been chosen from the data, and these reads are one
+ *  site's own pages sharing dates, families and algorithm weather, never independent throws. So the Brain says what it can defend: how
+ *  many verified reads there are, how many agree, and that a small site-specific sample is consistent, not proven. A record is
+ *  called consistent from four verified reads with at most one in five pointing the other way; under four it is an early signal. */
+const CONSISTENT_MIN = 4;
 const isMature = (d: number | null): boolean => kernelIsMature(d as 7 | 14 | 28 | 56 | null);
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const plural = (n: number, one: string, many = `${one}s`): string => `${num(n)} ${n === 1 ? one : many}`;
@@ -57,7 +55,7 @@ export type BrainModel = {
     historicalAhead: number; historicalBehind: number; historicalUnclear: number; confounded: number; notMeasurable: number };
 };
 
-const CONF_LABEL: Record<Thought["confidence"], string> = { none: "nothing verified", early: "an early signal", pattern: "a pattern", mixed: "mixed" };
+const CONF_LABEL: Record<Thought["confidence"], string> = { none: "nothing verified", early: "an early signal", pattern: "a consistent record", mixed: "a split record" };
 const FAMILY_NAME: Record<string, string> = { title: "Titles", meta: "Meta descriptions", title_meta: "Titles and meta descriptions", h1: "Page headlines",
   answer: "Answers at the top", link: "Internal links", schema: "Structured data", content: "Page content", new_page: "New pages", full_rewrite: "Full rewrites", other: "Other changes" };
 /** THE SAME GROUPING THE KERNEL LEARNS BY: one row through treatment-learning yields the coarse family its own grouping would file it under, so the field and the ranking's history can never disagree about what kind of work a change was. */
@@ -79,15 +77,15 @@ function thoughtOf(family: string | null, rows: ShipmentPresentation[], now: Dat
   const sized = verified.filter((p) => p.read.metric === unit).map((p) => p.read.lift).sort((a, b) => a - b), m = sized.length >> 1;
   const median = sized.length === 0 ? null : sized.length % 2 ? sized[m]! : (sized[m - 1]! + sized[m]!) / 2;
   const typical = unit != null && median != null ? liftLabel(unit, median) : null;
-  const odds = verified.length > 0 ? chanceOf(agree, verified.length) : 1;
-  const confidence: Thought["confidence"] = verified.length >= PATTERN_MIN ? (odds <= PATTERN_ODDS ? "pattern" : "mixed") : verified.length > 0 ? "early" : "none";
+  const level = count("inconclusive"); // finished live-verified reads that moved nothing: part of the record, never dropped from the count
+  const confidence: Thought["confidence"] = verified.length >= CONSISTENT_MIN && verified.length >= level ? (verified.length - agree <= verified.length / 5 ? "pattern" : "mixed") : verified.length > 0 ? "early" : "none";
   // WHERE THIS KIND OF WORK HAPPENED, as context beside the belief: the site's own page families, most rows first.
   const families = [...rows.reduce((m, p) => { const f = `/${(p.read.path || p.read.page || "").replace(/^https?:\/\//, "").split("/").filter(Boolean).find((x, i) => i > 0 || !x.includes(".")) ?? ""}`; return m.set(f, (m.get(f) ?? 0) + 1); }, new Map<string, number>())].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([f, n]) => `${f === "/" ? "home" : f} (${n})`); // a stored path may carry its host; the family is the first path segment
   const historical = rows.filter((p) => HISTORICAL.has(rowState(p))).length, inFlight = rows.filter((p) => p.implementedAt != null && (rowState(p) === "reading" || rowState(p) === "live_verified")).length;
   const overlapping = rows.filter((p) => p.read.overlappingIds.length > 0).length, name = family == null ? "Older, untyped changes" : FAMILY_NAME[family] ?? "Other changes";
-  const belief = confidence === "pattern" ? `${name} have finished ${ahead >= behind ? "ahead" : "behind"} in ${agree} of ${plural(verified.length, "verified read")}${typical && typical !== "Level" ? `, typically ${typical.replace(/ (ahead|behind)$/, "")} against pages that were not changed` : ""}.`
-    : confidence === "mixed" ? `${name} point both ways: ${ahead} verified ${ahead === 1 ? "read" : "reads"} ahead, ${behind} behind. No pattern is claimed.`
-    : confidence === "early" ? `${name}: ${plural(verified.length, "verified read")} so far, ${ahead} ahead and ${behind} behind${typical ? `, ${typical} at the middle` : ""}. A signal, not yet a pattern.`
+  const belief = confidence === "pattern" ? `${name} have finished ${ahead >= behind ? "ahead" : "behind"} in ${agree} of ${plural(verified.length, "verified read")}${typical && typical !== "Level" ? `, typically ${typical.replace(/ (ahead|behind)$/, "")} against pages that were not changed` : ""}. Consistent so far, not proof.`
+    : confidence === "mixed" ? `${name} point both ways: ${ahead} verified ${ahead === 1 ? "read" : "reads"} ahead, ${behind} behind. No record is claimed.`
+    : confidence === "early" ? `${name}: ${plural(verified.length, "verified read")} so far, ${ahead} ahead and ${behind} behind${typical ? `, ${typical} at the middle` : ""}. A signal, not yet a record.`
     : historical > 0 ? `${name}: no live-verified reading yet. ${plural(historical, "historical read")} ${historical === 1 ? "gives" : "give"} context only.`
     : inFlight > 0 ? `${name}: no finished reading yet. ${plural(inFlight, "change")} confirmed live and still being read.`
     : `${name}: nothing verified on the live page yet.`;
@@ -95,11 +93,11 @@ function thoughtOf(family: string | null, rows: ShipmentPresentation[], now: Dat
     ...(count("waiting_verification") > 0 ? [`${plural(count("waiting_verification"), "reading")} cannot teach: the change was not confirmed on the live page.`] : []),
     ...(historical > 0 ? [`${plural(historical, "historical read")} predate live verification and never train recommendations.`] : []),
     ...(count("confounded") > 0 ? [`${plural(count("confounded"), "reading")} shared ${count("confounded") === 1 ? "its" : "their"} days with a later change and cannot be separated.`] : [])];
-  const owed = Math.max(0, PATTERN_MIN - verified.length), one = (n: number) => Math.max(2, Math.round(1 / Math.max(n, 1e-9)));
-  const agreement = verified.length === 0 ? null : `${agree} of ${plural(verified.length, "verified read")} point the same way; the chance of that with no real effect is about 1 in ${one(odds)}.`;
-  const changeMind = confidence === "pattern" ? `Verified reads finishing the other way would turn this back into a mixed record.`
-    : confidence === "mixed" ? `Verified reads that separate consistently, ahead or behind, would let a pattern form; today the split could still be chance.`
-    : `${plural(owed, "more verified 28 day read")} pointing the same way would make this a pattern; ${owed === PATTERN_MIN ? "the first" : "the next"} live-confirmed change finishing its read moves it.`;
+  const owed = Math.max(0, CONSISTENT_MIN - verified.length);
+  const agreement = verified.length + level === 0 ? null : `${agree} of ${plural(verified.length, "directional verified read")} point the same way${level > 0 ? `, and ${plural(level, "finished verified read")} moved nothing` : ""}. A small sample from one site: ${confidence === "pattern" ? "consistent, not proven" : confidence === "mixed" ? "split, and a split this small can still be noise" : "too few to call a record"}.`;
+  const changeMind = confidence === "pattern" ? `Verified reads finishing the other way would turn this back into a split record.`
+    : confidence === "mixed" ? `Verified reads that separate consistently, ahead or behind, would make this a consistent record.`
+    : `${plural(owed, "more verified 28 day read")} pointing the same way would make this a consistent record; ${owed === CONSISTENT_MIN ? "the first" : "the next"} live-confirmed change finishing its read moves it.`;
   const soon = rows.map((p) => p.read.windows.find((w) => w.state !== "closed")?.closesOn ?? null).filter((d): d is string => d != null).sort()[0] ?? null;
   const next = soon ? `For ${name.toLowerCase()}, the next read ${landsLabel(soon, now) ?? "lands soon"}.` : null;
   const watching = inFlight > 0 ? `${plural(inFlight, "confirmed change")} still being read.${next ? ` ${next}` : ""}` : count("waiting_verification") + count("recorded") > 0
@@ -135,7 +133,7 @@ export function buildResultsBrain(shipments: ReadonlyArray<ShipmentPresentation>
     historicalAhead: c("historical_ahead"), historicalBehind: c("historical_behind"), historicalUnclear: c("historical_unclear"), confounded: c("confounded"), notMeasurable: c("not_measurable") };
   const patterns = thoughts.filter((t) => t.confidence === "pattern"), early = thoughts.filter((t) => t.confidence === "early"), mixed = thoughts.filter((t) => t.confidence === "mixed");
   const confidence: Thought["confidence"] = patterns.length > 0 ? "pattern" : mixed.length > 0 && early.length === 0 ? "mixed" : early.length > 0 ? "early" : "none";
-  const headline = patterns.length > 0 ? `Beacon has a verified pattern for ${patterns.map((t) => t.name.toLowerCase()).join(", ")}.`
+  const headline = patterns.length > 0 ? `Beacon has a consistent verified record for ${patterns.map((t) => t.name.toLowerCase()).join(", ")}, not yet proof.`
     : early.length > 0 ? `Beacon has an early verified signal for ${early.map((t) => t.name.toLowerCase()).join(", ")}, not yet a pattern.`
     : counts.shipped === 0 ? "Nothing has been marked done yet, so Beacon has no result to believe."
     : "Beacon cannot claim a live-verified pattern yet.";

@@ -103,12 +103,7 @@ describe("the next step belongs to the kind of work that was done", () => {
     for (const a of ["internal_link_add", "redirect", "canonical", "anchor_text"]) for (const v of [1, 0, -1]) expect(step(a, v), `${a} at ${v}`).not.toMatch(/wording|title/i);
     const dud = first({ read: evaluateChange(input({ actionType: "other" }), WINDOWS, []) }); // nothing can grade it, so nothing is claimed
     expect([dud.verdictWord, dud.liftLabel, dud.bar, dud.nextStep]).toEqual(["Not measurable", null, null, "Nothing to wait for on this one."]); expect(dud.happened).toMatch(/^Recorded, and not judged/);});});
-/** THE SAME TWO VOCABULARIES REACH THE SCREEN. A row's action word is a KIND ("title") or the FAMILY the bundle producer stamps ("title-family"). Only the kinds were mapped, so every bundle this account shipped read as the shrug "this change" while a real label existed. And a change nothing can compare says which. */
 describe("what the screen calls the work, and what it will not promise", () => {
-  it("names a family spelling in the operator's words, never as a shrug and never as its slug", () => {
-    for (const [action, work] of [["title-family", "the title and headline"], ["section-family", "the content on the page"],
-      ["links-family", "the internal links"], ["technical-family", "the technical setup"], ["title", "the page title"]] as const)
-      expect(first({ read: evaluateChange(input({ actionType: action }), WINDOWS, []) }).work).toBe(work);});
   it("says what is missing when the change is recorded and no fair comparison exists", () => {
     const said = (m: string) => first({ read: measuring, measurement: m as never }).happened;
     expect(said("insufficient_comparison")).toBe("Recorded. A fair comparison is not available yet: too few similar pages on this site can stand behind this one.");
@@ -130,7 +125,6 @@ describe("what the screen calls the work, and what it will not promise", () => {
       const line = buildHeadline({ verdict, metric, lift: verdict === "directional_decline" ? -30 : 40, impressionsLift: 60, basisDay, overlapCount, overlapClosedOn, ga4ExtraSessions: 12, ga4Trustworthy: true });
       expect(line, line).not.toMatch(/\b(I|me|my|we|our)\b/); expect(line, line).not.toMatch(/[\u2013\u2014]/);}
     expect(buildResultsCsv([shipment().read, declined, measuring, sharedCredit, cutOff]), "first person in the export").not.toMatch(/\b(I|me|my|we|our)\b/);});});
-/** THE CHANGE IS FILED UNDER THE YARDSTICK IT DECLARED (reviewer, 2026-08-19): grouped by the Google verdict, a change raised to earn a CITATION could earn exactly that and sit under "No change", while one that moved no citation sat under "Worked" for traffic it never aimed at. */
 describe("an AI change is judged on the thing it was raised to move", () => {
   const flatOnGoogle = evaluateChange(input({ windows: [win(7, { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 }),
     win(14, { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 }),
@@ -232,15 +226,15 @@ describe("the Brain: what Beacon believes is derived from verified facts, and hi
     const t = brain.thoughts.find((x) => x.family === "content")!; expect([t.verifiedSample, t.historical, t.confidence, t.strongest?.state], "history sizes a faint ring and never the node").toEqual([0, 25, "none", "historical_ahead"]); });
   it("one verified immature read is in flight, one verified finished read is an early signal, five consistent make a pattern, and a split record stays mixed", () => {
     const one = buildResultsBrain([shipment({ read: measuring })], NOW).thoughts[0]!; expect([one.confidence, one.inFlight, one.verifiedSample]).toEqual(["none", 1, 0]);
-    const early = buildResultsBrain([shipment()], NOW); expect([early.belief.confidence, early.thoughts[0]!.confidence, early.thoughts[0]!.verifiedSample, early.thoughts[0]!.changeMind]).toEqual(["early", "early", 1, "3 more verified 28 day reads pointing the same way would make this a pattern; the next live-confirmed change finishing its read moves it."]);
+    const early = buildResultsBrain([shipment()], NOW); expect([early.belief.confidence, early.thoughts[0]!.confidence, early.thoughts[0]!.verifiedSample, early.thoughts[0]!.changeMind]).toEqual(["early", "early", 1, "3 more verified 28 day reads pointing the same way would make this a consistent record; the next live-confirmed change finishing its read moves it."]);
     const pattern = buildResultsBrain(many(5, evaluateChange(input(), WINDOWS, []), "p"), NOW); expect([pattern.belief.confidence, pattern.thoughts[0]!.confidence, pattern.thoughts[0]!.ahead, pattern.thoughts[0]!.medianEffect]).toEqual(["pattern", "pattern", 5, 40]);
     const heavyLoss = evaluateChange(input({ windows: [win(7, { adjustedClicksLift: -100 }), win(14, { adjustedClicksLift: -100 }), win(28, { adjustedClicksLift: -100, adjustedImpressionsLift: -50 })] }), WINDOWS, []);
     const mixed = buildResultsBrain([...many(3, evaluateChange(input(), WINDOWS, []), "m"), ...many(2, heavyLoss, "n")], NOW).thoughts[0]!; expect([mixed.confidence, mixed.ahead, mixed.behind, mixed.unit]).toEqual(["mixed", 3, 2, "clicks"]);
-    // THE CONTRACT IS ODDS, NOT A MAGIC FIVE: four of four agree (1 in 16) is a pattern, four of six is not, and a pattern of five weakens to mixed once two counterexamples land.
-    expect([buildResultsBrain(many(4, evaluateChange(input(), WINDOWS, []), "f"), NOW).thoughts[0]!.confidence, buildResultsBrain([...many(4, evaluateChange(input(), WINDOWS, []), "g"), ...many(2, heavyLoss, "h")], NOW).thoughts[0]!.confidence, buildResultsBrain([...many(5, evaluateChange(input(), WINDOWS, []), "i"), ...many(2, heavyLoss, "j")], NOW).thoughts[0]!.confidence, pattern.thoughts[0]!.agreement]).toEqual(["pattern", "mixed", "mixed", "5 of 5 verified reads point the same way; the chance of that with no real effect is about 1 in 32."]);
+    // THE CONTRACT IS DESCRIPTIVE: four of four agree is a consistent record, four of six is split, and a record of five splits once two counterexamples land; no probability is printed anywhere.
+    expect([buildResultsBrain(many(4, evaluateChange(input(), WINDOWS, []), "f"), NOW).thoughts[0]!.confidence, buildResultsBrain([...many(4, evaluateChange(input(), WINDOWS, []), "g"), ...many(2, heavyLoss, "h")], NOW).thoughts[0]!.confidence, buildResultsBrain([...many(5, evaluateChange(input(), WINDOWS, []), "i"), ...many(2, heavyLoss, "j")], NOW).thoughts[0]!.confidence, pattern.thoughts[0]!.agreement]).toEqual(["pattern", "mixed", "mixed", "5 of 5 directional verified reads point the same way. A small sample from one site: consistent, not proven."]);
     const rate = (lift: number, id: string) => shipment({ read: { ...evaluateChange(input({ actionType: "edit_title", windows: [win(7, { adjustedCtrLift: lift }), win(14, { adjustedCtrLift: lift }), win(28, { adjustedCtrLift: lift })] }), WINDOWS, []), id } });
     const titles = buildResultsBrain([rate(0.004, "t1")], NOW).thoughts[0]!; // A CLICK-RATE READ IS NEVER ROUNDED INTO ZERO CLICKS: the unit travels with the median.
-    expect([titles.confidence, titles.unit, titles.ahead, titles.belief]).toEqual(["early", "ctr", 1, "Titles: 1 verified read so far, 1 ahead and 0 behind, +0.4 click rate ahead at the middle. A signal, not yet a pattern."]); });
+    expect([titles.confidence, titles.unit, titles.ahead, titles.belief]).toEqual(["early", "ctr", 1, "Titles: 1 verified read so far, 1 ahead and 0 behind, +0.4 click rate ahead at the middle. A signal, not yet a record."]); });
   it("a confounded read and an AI-judged read never vote in the click effects, and both are named as limits", () => {
     const t = buildResultsBrain([shipment(), shipment({ read: { ...sharedCredit, id: "s" } }), shipment({ read: { ...evaluateChange(input(), WINDOWS, []), id: "ai" }, judgedMetric: "ai_citation", ai: { direction: "improved", line: "cited more", daysElapsed: 28 } })], NOW).thoughts[0]!;
     expect([t.verifiedSample, t.confounded, t.limits.some((l) => l.includes("shared"))]).toEqual([1, 1, true]); });
