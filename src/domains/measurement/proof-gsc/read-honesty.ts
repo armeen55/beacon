@@ -220,6 +220,13 @@ export function learningShape(args: {
 
 // ── The headline (directional, never causal) ─────────────────────────────────
 
+/** WHAT A READING TAKEN AGAINST THE SITE SAYS ABOUT ITS OWN BASIS, in one sentence, always the same one
+ *  and owned here so the live read and the frozen one can never word it differently. Too few untouched
+ *  pages matched, so the page is read against the rest of the site over the same days, which cannot see a
+ *  rise every page shared: the clause saying so is the sentence, not a footnote to it. */
+const SITE_BASIS_SAID =
+  " Measured against the site's own movement, because too few untouched pages matched this one. That is a weaker comparison than matched pages, and a rise the whole site shared shows up here as no change.";
+
 /** The SIZE of a move, never its sign: the sentence owns the direction. A signed number
  *  inside a sentence that already said "down" printed "+0.5pp" on a losing change. */
 function formatLift(metric: KernelMetric, lift: number): string {
@@ -246,10 +253,17 @@ export function buildHeadline(args: {
   overlapCount: number;
   /** The day a later change on this page closed the clean window, when one did. */
   overlapClosedOn: string | null;
+  /** WHAT THE PAGE WAS READ AGAINST, in the operator's words, and a closed set so no third spelling can
+   *  reach a sentence. The matched pages a fair read stands on by default; a read taken against the
+   *  site's own movement names that instead and carries the basis line below, because saying "similar
+   *  pages" over a comparison that was not similar pages is untrue, and a weaker basis sold as a fair
+   *  one is worse than a weaker basis said out loud. */
+  peers?: "similar pages" | "the rest of the site";
   ga4ExtraSessions: number | null;
   ga4Trustworthy: boolean;
 }): string {
-  const win = `${args.basisDay}-day`;
+  const win = `${args.basisDay}-day`, peers = args.peers ?? "similar pages";
+  const basis = peers === "the rest of the site" ? SITE_BASIS_SAID : "";
   const mature = args.basisDay >= 28;
   const ga4 =
     args.ga4Trustworthy && typeof args.ga4ExtraSessions === "number" && args.ga4ExtraSessions !== 0
@@ -258,19 +272,19 @@ export function buildHeadline(args: {
   switch (args.verdict) {
     case "confounded":
       return args.overlapClosedOn != null
-        ? `This page moved over the ${win} window, but the page changed again on ${monthDay(args.overlapClosedOn)}, so everything after that day belongs to both changes and this movement cannot be pinned on one.${ga4}`
-        : `This page moved over the ${win} window, but ${args.overlapCount} other change${args.overlapCount === 1 ? "" : "s"} landed on it at the same time, so this movement cannot be pinned on one.${ga4}`;
+        ? `This page moved over the ${win} window, but the page changed again on ${monthDay(args.overlapClosedOn)}, so everything after that day belongs to both changes and this movement cannot be pinned on one.${ga4}${basis}`
+        : `This page moved over the ${win} window, but ${args.overlapCount} other change${args.overlapCount === 1 ? "" : "s"} landed on it at the same time, so this movement cannot be pinned on one.${ga4}${basis}`;
     // Observational, never causal: the page MOVED after the change. A pre-28-day read is still measuring, so it never closes with a verdict.
     case "stronger_improvement":
-      return `This page moved up after the change: ${formatLift(args.metric, args.lift)} ahead of similar pages over the ${win} window.${mature ? " A clear, well supported move." : " This firms up when the 28-day window closes."}${ga4}`;
+      return `This page moved up after the change: ${formatLift(args.metric, args.lift)} ahead of ${peers} over the ${win} window.${mature ? " A clear, well supported move." : " This firms up when the 28-day window closes."}${ga4}${basis}`;
     case "directional_improvement":
-      return `This page moved up after the change: ${formatLift(args.metric, args.lift)} ahead of similar pages over the ${win} window. Still observational, not proof.${ga4}`;
+      return `This page moved up after the change: ${formatLift(args.metric, args.lift)} ahead of ${peers} over the ${win} window. Still observational, not proof.${ga4}${basis}`;
     case "directional_decline":
-      return `This page moved down after the change: ${formatLift(args.metric, args.lift)} behind similar pages over the ${win} window.${mature ? " Worth trying a different angle on this page." : " Still measuring. This firms up when the 28-day window closes."}${ga4}`;
+      return `This page moved down after the change: ${formatLift(args.metric, args.lift)} behind ${peers} over the ${win} window.${mature ? " Worth trying a different angle on this page." : " Still measuring. This firms up when the 28-day window closes."}${ga4}${basis}`;
     case "no_clear_movement":
     default: {
-      const vis = args.impressionsLift > 50 ? ` The page is showing for more searches though (+${Math.round(args.impressionsLift)} impressions vs similar pages).` : "";
-      return `No clear change yet: the movement sits inside the range of similar pages over the ${win} window.${vis}${ga4}`;
+      const vis = args.impressionsLift > 50 ? ` The page is showing for more searches though (+${Math.round(args.impressionsLift)} impressions vs ${peers}).` : "";
+      return `No clear change yet: the movement sits inside the range of ${peers} over the ${win} window.${vis}${ga4}${basis}`;
     }
   }
 }

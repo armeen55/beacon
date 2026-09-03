@@ -13,12 +13,10 @@ import type { ProofWindowDay, ProofWindowResult } from "@/domains/measurement/pr
 /** Outcome-level contract tests for the measurement kernel. These pin CUSTOMER TRUTH, not implementation: every historical shipment maps to exactly one read (nothing disappears); the 7/14/28 windows respect Google's reporting lag; overlapping changes on one page read as confounded; only cleanly-settled reads feed ranking; no operator string claims cause. */
 const NOW = new Date("2026-06-01T00:00:00Z");
 function win(day: 7 | 14 | 28, over: Partial<KernelInput["windows"][number]> = {}) {
-  return {
-    day, ran: true, adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedPosLift: 0,
+  return { day, ran: true, adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedPosLift: 0,
     adjustedImpressionsLift: 0, controlsUsed: 3, treatedPostImpressions: 5000, ...over,};}
 function baseInput(over: Partial<KernelInput> = {}): KernelInput {
-  return {
-    id: "c1", page: "https://site.com/a", path: "/a", actionType: "edit_title", shippedAt: "2026-05-01",
+  return { id: "c1", page: "https://site.com/a", path: "/a", actionType: "edit_title", shippedAt: "2026-05-01",
     baselineImpressions: 5000, baselineClicks: 400, windows: [win(7), win(14), win(28)], ...over,};}
 const CLOSED_WINDOWS = evaluateWindows("2026-05-01", NOW, "2026-06-01");
 describe("window evaluation and reporting lag", () => {
@@ -29,8 +27,7 @@ describe("window evaluation and reporting lag", () => {
 describe("individual directional reads", () => {
   it("reads a real click gain as an improvement, never as causal proof", () => {
     const read = evaluateChange(baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: 40 })] }), CLOSED_WINDOWS, []); expect(["directional_improvement", "stronger_improvement"]).toContain(read.verdict);
-    expect(read.rankingSignal).toBeGreaterThan(0);
-    expect(read.headline.toLowerCase()).not.toContain("caused"); expect(read.headline.toLowerCase()).toContain("similar pages");});
+    expect(read.rankingSignal).toBeGreaterThan(0); expect(read.headline.toLowerCase()).not.toContain("caused"); expect(read.headline.toLowerCase()).toContain("similar pages");});
   it("owns a decline observationally, with no plus sign on a loss and no verdict while it is still measuring", () => {
     const read = evaluateChange(baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: -40 })] }), CLOSED_WINDOWS, []); expect(read.verdict).toBe("directional_decline");
     expect(read.rankingSignal).toBeLessThan(0); expect(read.headline).toContain("moved down after the change");
@@ -41,8 +38,7 @@ describe("individual directional reads", () => {
   it("stays waiting with no closed window and never reads a dead end", () => {
     const read = evaluateChange(baseInput({ windows: [win(7, { ran: false })] }), evaluateWindows("2026-05-30", NOW, "2026-05-31"), []); expect([read.verdict, read.rankingSignal]).toEqual(["waiting", 0]);});
   it("reads insufficient evidence on a thin baseline, and on too few comparable pages", () => {
-    const thin = evaluateChange(baseInput({ baselineImpressions: 50, windows: [win(28, { adjustedClicksLift: 40 })] }), CLOSED_WINDOWS, []); expect([thin.verdict, thin.rankingSignal]).toEqual(["insufficient_evidence", 0]);
-    expect(thin.confidenceReasons.join(" ")).toContain("50 impressions");
+    const thin = evaluateChange(baseInput({ baselineImpressions: 50, windows: [win(28, { adjustedClicksLift: 40 })] }), CLOSED_WINDOWS, []); expect([thin.verdict, thin.rankingSignal]).toEqual(["insufficient_evidence", 0]); expect(thin.confidenceReasons.join(" ")).toContain("50 impressions");
     expect(evaluateChange(baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: 40, controlsUsed: 1 })] }), CLOSED_WINDOWS, []).verdict).toBe("insufficient_evidence");});});
 describe("overlap and confounding honesty", () => {
   it("flags same-page overlapping windows, names the day the clean one closed, and never two months apart", () => {
@@ -79,15 +75,13 @@ const lw = (day: number, adjustedLift: number, over: Partial<LedgerWindow> = {})
   ({ day, ran: true, adjustedLift, controlsUsed: 3, treatedPostImpressions: 5000, ...over });
 const ledgerRow = (over: Partial<LedgerRecordLike> = {}): LedgerRecordLike => ({
   id: "a", page: "https://site.com/x", path: "/x", actionType: "content", shippedAt: "2026-05-01",
-  baseline: { impressions: 5000, clicks: 400 },
-  windows: [lw(7, 40), lw(14, 40), lw(28, 40)], ...over,});
+  baseline: { impressions: 5000, clicks: 400 }, windows: [lw(7, 40), lw(14, 40), lw(28, 40)], ...over,});
 const LATE = new Date("2026-07-15T00:00:00Z");
 /** ONE stored shipment and ONE proof window, both anchored on the day the change shipped. Two describes below hand-rolled the same twenty five fields and drifted apart on the ones they never meant to vary. */
 const proofWindow = (stamp: string, day: ProofWindowDay, over: Partial<ProofWindowResult> = {}): ProofWindowResult => ({
   day, checkOn: addDays(stamp, day), ran: true, treatedDelta: 0, controlDelta: 0, adjustedLift: 0,
   treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0, treatedPosDelta: 0, controlPosDelta: 0,
-  adjustedPosLift: 0, controlsUsed: 3, treatedPostImpressions: 5000,
-  treatedImpressionsDelta: 0, controlImpressionsDelta: 0, adjustedImpressionsLift: 0, ...over,});
+  adjustedPosLift: 0, controlsUsed: 3, treatedPostImpressions: 5000, treatedImpressionsDelta: 0, controlImpressionsDelta: 0, adjustedImpressionsLift: 0, ...over,});
 const shippedRecord = (stamp: string, over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord => ({
   id: "s1", page: "https://site.com/x", path: "/x", actionType: "title-family", before: null, after: null,
   shippedAt: stamp, baseline: { clicks: 400, impressions: 5000, ctr: 0.08, position: 8, windowDays: 28 },
@@ -95,8 +89,7 @@ const shippedRecord = (stamp: string, over: Partial<ShippedChangeRecord> = {}): 
   windows: [proofWindow(stamp, 7), proofWindow(stamp, 14), proofWindow(stamp, 28)],
   verdict: "won", confidence: "medium", measuredAt: null, notes: null, verifiedLive: false,
   liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null, proposalId: "p1",
-  proposalVersion: "v1", basis: null, caseId: null, bundleHypothesis: null,
-  componentsApplied: [{ kind: "title", label: "Page title" }], implementedAt: stamp,
+  proposalVersion: "v1", basis: null, caseId: null, bundleHypothesis: null, componentsApplied: [{ kind: "title", label: "Page title" }], implementedAt: stamp,
   preChangeContentHash: null, preChangeHashUnavailable: false, measurementState: null, shipmentBaseline: null,
   verification: { status: "verified", checkedAt: stamp, components: [] },
   operatorNote: null, aiScope: null, treatmentStamp: null, pinnedRead: null, createdAt: stamp, updatedAt: stamp, ...over,});
@@ -105,10 +98,8 @@ describe("checkpoints count from the stamp", () => {
     expect(readLedger([ledgerRow({ implementedAt: "2026-05-10T09:30:00.000Z" })], LATE, "2026-07-01")[0] .windows.map((w) => w.closesOn)).toEqual(["2026-05-17", "2026-05-24", "2026-06-07"]);
     expect(readLedger([ledgerRow()], LATE, "2026-07-01")[0].windows.find((w) => w.day === 7)!.closesOn).toBe("2026-05-08");});});
 describe("overlap honesty: a later change closes the earlier one's clean window", () => {
-  const twoChanges = (secondStamp: string) => readLedger([
-    ledgerRow({ id: "first", implementedAt: "2026-05-01T00:00:00.000Z" }),
-    ledgerRow({ id: "second", shippedAt: secondStamp, implementedAt: secondStamp }),
-  ], LATE, "2026-07-01");
+  const twoChanges = (secondStamp: string) => readLedger([ledgerRow({ id: "first", implementedAt: "2026-05-01T00:00:00.000Z" }),
+    ledgerRow({ id: "second", shippedAt: secondStamp, implementedAt: secondStamp })], LATE, "2026-07-01");
   it("keeps the reads that closed before the second change and confounds the ones after it", () => {
     const [first] = twoChanges("2026-05-12T00:00:00.000Z"); expect(first.cleanUntil).toBe("2026-05-12");
     expect(first.windows.find((w) => w.day === 7)!.confounded).toBeUndefined(); expect(first.windows.filter((w) => w.confounded === "overlapping_change").map((w) => w.day)).toEqual([14, 28]);
@@ -293,7 +284,14 @@ describe("one comparison policy, one durable result", () => {
     const read = evaluateChange(baseInput({ actionType: "content",
       windows: [win(28, { adjustedClicksLift: 40, controlsUsed: 1, treatedDelta: 58 })] }), CLOSED_WINDOWS, []);
     expect([read.comparison, read.verdict, read.rankingSignal]).toEqual(["insufficient", "insufficient_evidence", 0]); expect(read.headline).toBe("The change is recorded. Its effect cannot be separated from the rest of the site yet.");
-    expect(read.unadjusted).toEqual({ basisDay: 28, clicksBefore: 400, clicksAfter: 458, impressionsBefore: 5000, impressionsAfter: 5000 }); expect(learningVerdictOf(read)).toBe("measuring"); });
+    expect(read.unadjusted).toEqual({ basisDay: 28, clicksBefore: 400, clicksAfter: 458, impressionsBefore: 5000, impressionsAfter: 5000 }); expect(learningVerdictOf(read)).toBe("measuring");
+    // AND THE SITE'S OWN MOVEMENT IS A BASIS, NOT A SHORTAGE (operator, 2026-09-03): the same window read against the rest of the site lands in the band a matched read lands in, and says what it stood against rather than borrowing "similar pages".
+    const at = (over: Partial<KernelInput["windows"][number]>) => evaluateChange(baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: 40, treatedDelta: 58, ...over })] }), CLOSED_WINDOWS, []);
+    const drift = at({ controlsUsed: 1, comparedToSite: true });
+    expect([drift.comparison, drift.verdict, bandOf(drift)]).toEqual(["site", "directional_improvement", bandOf(at({ controlsUsed: 3 }))]);
+    expect(drift.headline).toContain("40 clicks ahead of the rest of the site over the 28-day window");
+    expect(drift.headline).toContain("Measured against the site's own movement, because too few untouched pages matched this one. That is a weaker comparison than matched pages, and a rise the whole site shared shows up here as no change.");
+    expect([drift.confidence, drift.confidenceReasons[0]]).toEqual(["low", "Read on the 28-day window against the site's own movement, which is weaker than a comparison with matched pages."]); });
   it("teaches ranking the frozen reading, and records a recompute that disagrees beside it", () => {
     const pin = { verdict: "directional_improvement", metric: "clicks", lift: 1040, impressionsLift: 0, basisDay: 28,
       confidence: "high", controlsUsed: 4, pinnedAt: "2026-06-01T00:00:00.000Z", finalizedThrough: "2026-05-20" } as const;

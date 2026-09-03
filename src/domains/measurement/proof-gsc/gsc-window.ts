@@ -28,55 +28,31 @@ type Cumulative = { clicks: number; impressions: number; posWeighted: number };
  *  window across five windows, so a Results pass over 25 changes issued the same RPC 214 times in
  *  one walk. cache() collapses repeated (tenant, since) pairs to one call within a request and is a
  *  passthrough outside one. */
-export const readCumulativeSince = cache(async (
-  tenantId: string,
-  since: string,
-): Promise<Map<string, Cumulative>> => {
+export const readCumulativeSince = cache(async (tenantId: string, since: string): Promise<Map<string, Cumulative>> => {
   const out = new Map<string, Cumulative>();
   try {
     const admin = getSupabaseAdmin();
-    const { data, error } = await admin.rpc("gsc_page_totals_v1", {
-      p_tenant: tenantId,
-      p_since: since,
-    });
+    const { data, error } = await admin.rpc("gsc_page_totals_v1", { p_tenant: tenantId, p_since: since });
     if (error || !Array.isArray(data)) {
       // A DB error silently returns an empty map (every page reads as "no
       // clicks") - make the failure visible instead of a quiet zero.
       log.warn("gsc-window: cumulative-totals query errored; returning no page totals", {
-        tenant: tenantId,
-        store: "gsc_page_totals_v1",
-        error: error?.message ?? "non-array response",
+        tenant: tenantId, store: "gsc_page_totals_v1", error: error?.message ?? "non-array response",
       });
       return out;
     }
-    for (const r of data as Array<{
-      page: string;
-      clicks: number | string;
-      impressions: number | string;
-      pos_weighted: number | string;
-    }>) {
+    for (const r of data as Array<{ page: string; clicks: number | string; impressions: number | string; pos_weighted: number | string }>) {
       const canon = canonicalizeCitationUrl(r.page) ?? r.page;
-      const cur: Cumulative = {
-        clicks: Number(r.clicks) || 0,
-        impressions: Number(r.impressions) || 0,
-        posWeighted: Number(r.pos_weighted) || 0,
-      };
+      const cur: Cumulative = { clicks: Number(r.clicks) || 0, impressions: Number(r.impressions) || 0, posWeighted: Number(r.pos_weighted) || 0 };
       const prev = out.get(canon);
-      if (prev) {
-        prev.clicks += cur.clicks;
-        prev.impressions += cur.impressions;
-        prev.posWeighted += cur.posWeighted;
-      } else {
-        out.set(canon, cur);
-      }
+      if (prev) { prev.clicks += cur.clicks; prev.impressions += cur.impressions; prev.posWeighted += cur.posWeighted; }
+      else out.set(canon, cur);
     }
   } catch (err) {
     // Fail-soft returns an empty map, which downstream reads as "no clicks" -
     // a real read failure would silently zero every page's traffic proof.
     log.warn("gsc-window: cumulative-totals read failed; returning no page totals", {
-      tenant: tenantId,
-      store: "gsc_page_totals_v1",
-      error: err instanceof Error ? err.message : String(err),
+      tenant: tenantId, store: "gsc_page_totals_v1", error: err instanceof Error ? err.message : String(err),
     });
   }
   return out;
@@ -110,9 +86,7 @@ export const readLastFinalizedDate = cache(async (tenantId: string): Promise<str
     return typeof d === "string" ? d.slice(0, 10) : null;
   } catch (err) {
     log.warn("gsc-window: last-finalized-date probe failed; window gate reads as no data", {
-      tenant: tenantId,
-      store: "gsc_daily_page_totals",
-      error: err instanceof Error ? err.message : String(err),
+      tenant: tenantId, store: "gsc_daily_page_totals", error: err instanceof Error ? err.message : String(err),
     });
     return null;
   }
@@ -122,12 +96,7 @@ function subtract(start: Cumulative | undefined, end: Cumulative | undefined): G
   const clicks = Math.max(0, (start?.clicks ?? 0) - (end?.clicks ?? 0));
   const impressions = Math.max(0, (start?.impressions ?? 0) - (end?.impressions ?? 0));
   const posW = Math.max(0, (start?.posWeighted ?? 0) - (end?.posWeighted ?? 0));
-  return {
-    clicks,
-    impressions,
-    ctr: impressions > 0 ? clicks / impressions : 0,
-    position: impressions > 0 ? posW / impressions : 0,
-  };
+  return { clicks, impressions, ctr: impressions > 0 ? clicks / impressions : 0, position: impressions > 0 ? posW / impressions : 0 };
 }
 
 /**
@@ -140,11 +109,12 @@ export async function readWindowForPages(args: {
   pages: ReadonlyArray<string>;
   start: string; // YYYY-MM-DD inclusive
   end: string; // YYYY-MM-DD exclusive
+  /** THE SITE'S OWN MOVEMENT over the same window: every page on file EXCEPT `exclude`, summed into one
+   *  series and handed back under `key`. Off the same two snapshots the pages above are read from, so it
+   *  costs no extra read. It is what a change is compared against when too few untouched pages match. */
+  siteTotal?: { key: string; exclude: string };
 }): Promise<Map<string, GscWindowMetrics>> {
-  const [startCum, endCum] = await Promise.all([
-    readCumulativeSince(args.tenantId, args.start),
-    readCumulativeSince(args.tenantId, args.end),
-  ]);
+  const [startCum, endCum] = await Promise.all([readCumulativeSince(args.tenantId, args.start), readCumulativeSince(args.tenantId, args.end)]);
   const out = new Map<string, GscWindowMetrics>();
   for (const page of args.pages) {
     // THE PAGE IS RESOLVED BEFORE IT IS LOOKED UP, AND ANSWERED UNDER THE NAME IT WAS ASKED BY (operator, 2026-09-02): a scheme-less
@@ -153,6 +123,14 @@ export async function readWindowForPages(args: {
     const canon = canonicalPageKey(page), start = startCum.get(canon), end = endCum.get(canon);
     if (start === undefined && end === undefined) continue;
     out.set(page, subtract(start, end));
+  }
+  if (args.siteTotal) {
+    const skip = canonicalPageKey(args.siteTotal.exclude);
+    const total = (m: Map<string, Cumulative>): Cumulative => {
+      const t: Cumulative = { clicks: 0, impressions: 0, posWeighted: 0 };
+      for (const [page, c] of m) if (page !== skip) { t.clicks += c.clicks; t.impressions += c.impressions; t.posWeighted += c.posWeighted; }
+      return t; };
+    out.set(args.siteTotal.key, subtract(total(startCum), total(endCum)));
   }
   return out;
 }

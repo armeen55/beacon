@@ -56,13 +56,8 @@ export function withCorrection(
   if (!moved && !flipped) return pin;
   const held = pin.corrections ?? [];
   if (held.some((c) => c.verdict === read.verdict && Math.abs(c.lift - read.lift) <= CORRECTION_FLOOR)) return pin;
-  return {
-    ...pin,
-    corrections: [...held, {
-      at: now.toISOString(), verdict: read.verdict, lift: read.lift, basisDay: read.basisDay ?? pin.basisDay,
-      reason: "A later read of the same window returned a different number. The reading already shown is the one served.",
-    }].slice(-5),
-  };
+  return { ...pin, corrections: [...held, { at: now.toISOString(), verdict: read.verdict, lift: read.lift, basisDay: read.basisDay ?? pin.basisDay,
+    reason: "A later read of the same window returned a different number. The reading already shown is the one served." }].slice(-5) };
 }
 
 /** A reading is finished at the 28-day window, or at the day-56 follow up an unsettled or dangerous
@@ -93,15 +88,9 @@ export function pinFor(
   if (day56Followup(record, latestGscDate, now).runs) return null;
   const window = (record.windows ?? []).find((w) => w.day === read.basisDay && w.ran === true);
   return {
-    verdict: read.verdict,
-    metric: read.metric,
-    lift: read.lift,
-    impressionsLift: read.impressionsLift,
-    basisDay: read.basisDay,
-    confidence: read.confidence,
-    controlsUsed: window?.controlsUsed ?? 0,
-    pinnedAt: now.toISOString(),
-    finalizedThrough: latestGscDate,
+    verdict: read.verdict, metric: read.metric, lift: read.lift, impressionsLift: read.impressionsLift,
+    basisDay: read.basisDay, confidence: read.confidence, controlsUsed: window?.controlsUsed ?? 0,
+    pinnedAt: now.toISOString(), finalizedThrough: latestGscDate,
   };
 }
 
@@ -116,15 +105,15 @@ export function applyPinnedRead(read: KernelRead, pin: PinnedRead | null | undef
   const shared = read.verdict === "confounded" && pin.verdict !== "confounded";
   const verdict = shared ? "confounded" : pin.verdict;
   const confidence = shared ? "low" : pin.confidence;
-  const controls = `Read on the ${pin.basisDay}-day window against ${pin.controlsUsed} similar page${pin.controlsUsed === 1 ? "" : "s"}, and held at that reading because the window closed and Google finalized every day behind it.`;
+  // A FROZEN READING NAMES THE BASIS IT WAS TAKEN ON. One series that was the whole rest of the site is
+  // not "1 similar page", and printing it that way would sell a weaker comparison as a thinner fair one.
+  const site = read.comparison === "site";
+  const controls = site ? `Read on the ${pin.basisDay}-day window against the site's own movement, and held at that reading because the window closed and Google finalized every day behind it.`
+    : `Read on the ${pin.basisDay}-day window against ${pin.controlsUsed} similar page${pin.controlsUsed === 1 ? "" : "s"}, and held at that reading because the window closed and Google finalized every day behind it.`;
   return {
     ...read,
-    metric: pin.metric,
-    basisDay: pin.basisDay as KernelRead["basisDay"],
-    lift: pin.lift,
-    impressionsLift: pin.impressionsLift,
-    verdict,
-    confidence,
+    metric: pin.metric, basisDay: pin.basisDay as KernelRead["basisDay"],
+    lift: pin.lift, impressionsLift: pin.impressionsLift, verdict, confidence,
     // A read that cannot be fairly compared keeps its own honest sentence: rebuilding it here served
     // "inside the range of similar pages" for a change that had no similar pages at all.
     headline: read.comparison === "insufficient" || pin.verdict === "insufficient_evidence"
@@ -132,7 +121,7 @@ export function applyPinnedRead(read: KernelRead, pin: PinnedRead | null | undef
       : buildHeadline({
         verdict, metric: pin.metric, lift: pin.lift, impressionsLift: pin.impressionsLift,
         basisDay: pin.basisDay, overlapCount: read.overlappingIds.length,
-        overlapClosedOn: shared ? read.cleanUntil : null,
+        overlapClosedOn: shared ? read.cleanUntil : null, peers: site ? "the rest of the site" : "similar pages",
         ga4ExtraSessions: null, ga4Trustworthy: false,
       }),
     confidenceReasons: shared

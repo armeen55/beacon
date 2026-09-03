@@ -31,10 +31,12 @@ import {
   type ProofWindowResult,
 } from "./types";
 import type { ShippedChangeRecord } from "./shipped-change-store";
-import { addDays, evaluateWindows, readLedger } from "./kernel";
+import { addDays, evaluateWindows, MIN_CONTROLS, readLedger } from "./kernel";
 import { day56Followup, FOLLOW_UP_WINDOW_DAY } from "./measure-lifecycle";
 
 const NULL_METRICS: GscWindowMetrics = { clicks: 0, impressions: 0, ctr: 0, position: 0 };
+/** The key the site's own movement comes back under, beside the pages themselves. Not a URL, so it can never collide with one. */
+const SITE_SERIES = "site::every-other-page";
 
 /** GSC's reporting zone is Pacific and so is the operator's; default a ship date to that day, through the ONE definition of a reporting day
  *  rather than a second copy of the zone. */
@@ -67,18 +69,15 @@ function computeWindowLift(args: {
   treatedPre: GscWindowMetrics;
   treatedPost: GscWindowMetrics;
   controls: ReadonlyArray<{ pre: GscWindowMetrics; post: GscWindowMetrics }>;
+  /** TRUE where `controls` is the site's own movement rather than matched pages. A matched reading stores nothing at all, so its stored window is the one it always was. */
+  comparedToSite?: boolean;
   preWindowDays?: number;
 }): ProofWindowResult {
   const { treatedPre, treatedPost, controls } = args;
   if (!args.ran) {
-    return {
-      day: args.day, checkOn: args.checkOn, ran: false,
-      treatedDelta: 0, controlDelta: 0, adjustedLift: 0,
-      treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0,
-      treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0,
-      controlsUsed: 0, treatedPostImpressions: 0,
-      treatedImpressionsDelta: 0, controlImpressionsDelta: 0, adjustedImpressionsLift: 0,
-    };
+    return { day: args.day, checkOn: args.checkOn, ran: false, treatedDelta: 0, controlDelta: 0, adjustedLift: 0, treatedCtrDelta: 0, controlCtrDelta: 0,
+      adjustedCtrLift: 0, treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0, controlsUsed: 0, treatedPostImpressions: 0,
+      treatedImpressionsDelta: 0, controlImpressionsDelta: 0, adjustedImpressionsLift: 0 };
   }
   const preDays = args.preWindowDays ?? args.day;
   const scale = preDays > 0 ? args.day / preDays : 1;
@@ -96,32 +95,36 @@ function computeWindowLift(args: {
     treatedDelta, controlDelta: round2(controlDelta), adjustedLift: round2(treatedDelta - controlDelta),
     treatedCtrDelta: round4(treatedCtr), controlCtrDelta: round4(controlCtr), adjustedCtrLift: round4(treatedCtr - controlCtr),
     treatedPosDelta: round2(treatedPos), controlPosDelta: round2(controlPos), adjustedPosLift: round2(treatedPos - controlPos),
-    controlsUsed: controls.length, treatedPostImpressions: treatedPost.impressions,
+    controlsUsed: controls.length, comparedToSite: args.comparedToSite || undefined, treatedPostImpressions: treatedPost.impressions,
     treatedImpressionsDelta: round2(treatedImpr), controlImpressionsDelta: round2(controlImpr),
     adjustedImpressionsLift: round2(treatedImpr - controlImpr),
   };
 }
 
+/** THE FLOOR UNDER A DRIFT READING (methodology research, 2026-09-03): under six clicks before the change a page holds a share of the site too small to scale, and the subtraction is arithmetic with no power behind it. */
+const MIN_DRIFT_CLICKS = 6;
+/** WHETHER THE SITE CAN STAND BEHIND THIS PAGE AT ALL: search history on both sides, and a page whose own clicks clear that floor. ONE definition, asked by the reading below and by the revival further down, so a row can never be promoted to measuring on a basis the reading then refuses to form. PURE. */
+const driftable = (treatedPre?: GscWindowMetrics, site?: GscWindowMetrics): boolean =>
+  (site?.impressions ?? 0) > 0 && (treatedPre?.impressions ?? 0) > 0 && (treatedPre?.clicks ?? 0) >= MIN_DRIFT_CLICKS;
+
+/** THE SITE'S OWN MOVEMENT AS ONE COMPARISON SERIES, scaled to this page's share of it, or null when there
+ *  is no site history to read it against. PURE. A raw sum would not do: the rest of the site is many times
+ *  the size of one page, and subtracting it whole would read every page as a collapse. Scaled, the number
+ *  subtracted is what THIS page would have done had it drifted with everything else. */
+function siteDrift(treatedPre: GscWindowMetrics, pre?: GscWindowMetrics, post?: GscWindowMetrics): Array<{ pre: GscWindowMetrics; post: GscWindowMetrics }> | null {
+  if (pre == null || post == null || post.impressions <= 0 || !driftable(treatedPre, pre)) return null;
+  const share = (m: GscWindowMetrics): GscWindowMetrics => ({ clicks: m.clicks * (pre.clicks > 0 ? treatedPre.clicks / pre.clicks : 0),
+    impressions: m.impressions * (treatedPre.impressions / pre.impressions), ctr: m.ctr, position: m.position });
+  return [{ pre: share(pre), post: share(post) }];
+}
+
 /** Map the kernel's live directional read to the stored verdict vocabulary. */
-function storedVerdictFor(record: ShippedChangeRecord, now: Date, lastFinal: string | null): {
-  verdict: ShippedChangeRecord["verdict"];
-  confidence: ShippedChangeRecord["confidence"];
-} {
+const STORED_VERDICT: Record<string, ShippedChangeRecord["verdict"]> = { directional_improvement: "won", stronger_improvement: "won",
+  directional_decline: "lost", no_clear_movement: "inconclusive", insufficient_evidence: "insufficient_data" };
+
+function storedVerdictFor(record: ShippedChangeRecord, now: Date, lastFinal: string | null): { verdict: ShippedChangeRecord["verdict"]; confidence: ShippedChangeRecord["confidence"] } {
   const read = readLedger([record], now, lastFinal)[0];
-  const confidence = read.confidence;
-  switch (read.verdict) {
-    case "directional_improvement":
-    case "stronger_improvement":
-      return { verdict: "won", confidence };
-    case "directional_decline":
-      return { verdict: "lost", confidence };
-    case "no_clear_movement":
-      return { verdict: "inconclusive", confidence };
-    case "insufficient_evidence":
-      return { verdict: "insufficient_data", confidence };
-    default:
-      return { verdict: "measuring", confidence };
-  }
+  return { verdict: STORED_VERDICT[read.verdict] ?? "measuring", confidence: read.confidence };
 }
 
 /** Recompute the outcome for a shipped change from GSC. Reads the pre window once and each post window once, for the treated page + all
@@ -147,18 +150,22 @@ export async function measureRecord(
   const pages = [record.page, ...controlPages];
 
   const preStart = addDays(shipDate, -BASELINE_WINDOW_DAYS);
-  const pre = await readWindowForPages({ tenantId, pages, start: preStart, end: shipDate });
+  // THE SITE'S OWN MOVEMENT RIDES THE SAME SNAPSHOTS the pages are read from, so it costs no extra read:
+  // whole families ship at once, matched pages run out, and this is what stands behind the change then.
+  const siteTotal = { key: SITE_SERIES, exclude: record.page };
+  const pre = await readWindowForPages({ tenantId, pages, start: preStart, end: shipDate, siteTotal });
 
   const readWindow = async (day: ProofWindowDay, ran: boolean): Promise<ProofWindowResult> => {
-    const post = ran ? await readWindowForPages({ tenantId, pages, start: shipDate, end: addDays(shipDate, day) }) : null;
+    const post = ran ? await readWindowForPages({ tenantId, pages, start: shipDate, end: addDays(shipDate, day), siteTotal }) : null;
     const treatedPre = pre.get(record.page) ?? NULL_METRICS;
     const treatedPost = post?.get(record.page) ?? NULL_METRICS;
-    const controls = controlPages
+    const matched = controlPages
       .map((c) => ({ pre: pre.get(c) ?? NULL_METRICS, post: post?.get(c) ?? NULL_METRICS }))
       .filter((c) => c.pre.impressions > 0 && (!ran || c.post.impressions > 0));
+    const drift = matched.length >= MIN_CONTROLS ? null : siteDrift(treatedPre, pre.get(SITE_SERIES), post?.get(SITE_SERIES));
     return computeWindowLift({
-      day, checkOn: addDays(shipDate, day), ran, treatedPre, treatedPost, controls,
-      preWindowDays: BASELINE_WINDOW_DAYS,
+      day, checkOn: addDays(shipDate, day), ran, treatedPre, treatedPost, controls: drift ?? matched,
+      comparedToSite: drift != null, preWindowDays: BASELINE_WINDOW_DAYS,
     });
   };
 
@@ -173,11 +180,20 @@ export async function measureRecord(
   const readSomething = windows.some((w) => w.ran); // what THIS pass read, before the kept reading
   const kept56 = (record.windows ?? []).find((w) => w.day === FOLLOW_UP_WINDOW_DAY && w.ran);
   if (kept56) windows.push(kept56);
+  // USABLE, NEVER MERELY STORED: three comparison pages that hold no search data are no comparison, and a row promoted on the strength of them would carry "measuring" over a reading that says it cannot be separated from the rest of the site.
+  const usable = controlPages.filter((c) => (pre.get(c)?.impressions ?? 0) > 0).length;
+  const canCompare = lastFinal != null && (usable >= MIN_CONTROLS || driftable(pre.get(record.page), pre.get(SITE_SERIES)));
 
   const measured: ShippedChangeRecord = {
     ...record,
     baseline: record.baseline.impressions > 0 || (pre.get(record.page)?.impressions ?? 0) <= 0 ? record.baseline : { ...pre.get(record.page)!, windowDays: BASELINE_WINDOW_DAYS }, // A ZERO STARTING POINT IS REPLACED BY THE HISTORY IT NEVER READ (operator, 2026-09-02): 57 rows froze zeros because their page key had no scheme; the page's own pre-window is the starting point every later window is compared against
     windows,
+    // A ROW NOTHING COULD BE COMPARED AGAINST IS ASKED AGAIN ON EVERY PASS, and revives the moment a basis
+    // exists: 29 rows stamped at record time stopped being measured at all because whole families shipped
+    // together. FORWARD ONLY. A fair comparison is never demoted, a repair still owes its live check, and a
+    // row with no finalized Search data behind it stays exactly where it was.
+    measurementState: canCompare && (record.measurementState === "insufficient_comparison" || record.measurementState === "measurement_unavailable")
+      ? "measuring" : record.measurementState,
     measuredAt: readSomething ? now.toISOString() : record.measuredAt,
     updatedAt: now.toISOString(),
   };
@@ -303,10 +319,8 @@ type ShipmentOrigin = {
 export async function openChangePaths(tenantId: string): Promise<string[]> {
   const store = await loadChangeProposals(tenantId).catch(() => null);
   if (store == null) return [];
-  return [...store.values()]
-    .filter((p) => p.status === "ready" || p.status === "implemented_pending_verification")
-    .map((p) => p.pagePath ?? "")
-    .filter((p) => p.length > 0);
+  return [...store.values()].filter((p) => p.status === "ready" || p.status === "implemented_pending_verification")
+    .map((p) => p.pagePath ?? "").filter((p) => p.length > 0);
 }
 
 /** How many demand-ranked pages the matcher considers before picking three. Wider than the three it
@@ -332,11 +346,8 @@ export async function matchedControlsFor(
   /** A BATCH'S ONE READ OF EACH (operator, 2026-09-01): a twenty-card press re-read the whole ledger and the whole proposal store per card here. Handed through, they are read once. */
   batch?: { ledger?: readonly ShippedChangeRecord[] | null; open?: readonly string[] | null },
 ): Promise<{ controls: string[]; receipts: ControlReceipt[] } | null> {
-  const [ledger, ctx, open] = await Promise.all([
-    batch?.ledger ?? loadShippedChangesForTenant(tenantId).catch(() => null),
-    loadPageSurgeonContext(tenantId).catch(() => null),
-    batch?.open ?? openChangePaths(tenantId),
-  ]);
+  const [ledger, ctx, open] = await Promise.all([batch?.ledger ?? loadShippedChangesForTenant(tenantId).catch(() => null),
+    loadPageSurgeonContext(tenantId).catch(() => null), batch?.open ?? openChangePaths(tenantId)]);
   if (ledger == null || ctx == null) return null;
   const pool = topPagesByDemand(ctx, CONTROL_CANDIDATE_POOL)
     .map((u) => canonicalizeCitationUrl(u) ?? u)
@@ -350,15 +361,9 @@ export async function matchedControlsFor(
   const jobs = await cachedPageJobs(tenantId, ctx, [treatedPage, ...pool]);
   const typeOf = (u: string): string | null => jobs.get(canonicalUrlKey(u))?.pageType ?? null;
   return selectMatchedControls({
-    treated: {
-      path: toPath(treatedPage), pageType: typeOf(treatedPage),
-      baselineImpressions: baseline.get(treatedPage)?.impressions ?? 0,
-    },
-    candidates: pool.map((url) => ({
-      url, path: toPath(url), pageType: typeOf(url),
-      baselineImpressions: baseline.get(url)?.impressions ?? 0,
-      hasBaseline: (baseline.get(url)?.impressions ?? 0) > 0,
-    })),
+    treated: { path: toPath(treatedPage), pageType: typeOf(treatedPage), baselineImpressions: baseline.get(treatedPage)?.impressions ?? 0 },
+    candidates: pool.map((url) => ({ url, path: toPath(url), pageType: typeOf(url),
+      baselineImpressions: baseline.get(url)?.impressions ?? 0, hasBaseline: (baseline.get(url)?.impressions ?? 0) > 0 })),
     excluded,
   });
 }

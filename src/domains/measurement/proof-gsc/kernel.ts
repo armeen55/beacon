@@ -91,6 +91,8 @@ export type KernelInput = {
     adjustedPosLift: number;
     adjustedImpressionsLift: number;
     controlsUsed: number;
+    /** TRUE where that one comparison series was the site's own movement rather than matched pages. */
+    comparedToSite?: boolean;
     treatedPostImpressions: number;
     /** The page's OWN click movement over the window, with nothing subtracted. Absent on a legacy row. */
     treatedDelta?: number;
@@ -127,9 +129,10 @@ export type KernelRead = {
   /** The basis window's adjusted impressions (visibility) lift. */
   impressionsLift: number;
   verdict: KernelVerdict;
-  /** Whether enough untouched pages stood behind this change. "insufficient" means no directional
-   *  verdict is claimed and nothing is taught to ranking: the numbers below are the page's own. */
-  comparison: "fair" | "insufficient";
+  /** WHAT THIS READING STOOD AGAINST. "fair" = matched untouched pages. "site" = the rest of the site's
+   *  own movement, because too few of those matched: a real reading, weaker, and every sentence says so.
+   *  "insufficient" = no directional verdict is claimed and nothing is taught to ranking. */
+  comparison: "fair" | "site" | "insufficient";
   /** THE PAGE'S OWN BEFORE AND AFTER over the basis window, with nothing subtracted and nothing
    *  compared. Surfaced so an unreadable change can still show what happened, labelled unadjusted,
    *  without a verdict riding on it. Null while no window has closed with data. */
@@ -406,6 +409,9 @@ export function evaluateChange(
   const lift = liftOnMetric(basisWindow, metric);
   const impressionsLift = basisWindow.adjustedImpressionsLift;
   const controls = basisWindow.controlsUsed;
+  // THE ONE SERIES BEHIND THIS READING WAS THE REST OF THE SITE. Counting it as a single comparison page
+  // would read as too few pages and kill the verdict; it is a real basis, and a weaker one, and it says so.
+  const site = basisWindow.comparedToSite === true;
   // THE PAGE'S OWN BEFORE AND AFTER, pro-rated onto the basis window from the 28-day baseline. No
   // comparison page touches these, which is exactly why they can be shown when the comparison fails.
   const share = basisDay! / BASELINE_WINDOW_DAYS;
@@ -418,7 +424,7 @@ export function evaluateChange(
 
   // Point 6: insufficient when the sample can not support a directional read.
   const thinBaseline = input.baselineImpressions < MIN_BASELINE_IMPRESSIONS;
-  const thinControls = controls < MIN_CONTROLS;
+  const thinControls = controls < MIN_CONTROLS && !site;
   const noRateData =
     (metric === "ctr" || metric === "position") && basisWindow.treatedPostImpressions === 0;
   // TOO FEW FAIR COMPARISONS IS ITS OWN STATE, not thin data: the work landed, and what it did cannot
@@ -431,7 +437,7 @@ export function evaluateChange(
     return {
       id: input.id, page: input.page, path: input.path, actionType: input.actionType, metric,
       windows: marked, basisDay, lift, impressionsLift, verdict: "insufficient_evidence",
-      comparison: unfairComparison ? "insufficient" : "fair", unadjusted,
+      comparison: unfairComparison ? "insufficient" : site ? "site" : "fair", unadjusted,
       headline: unfairComparison ? NO_FAIR_COMPARISON
         : "No confident read yet. There is not enough Search data or enough similar pages to compare against.",
       confidence: "low", confidenceReasons,
@@ -466,7 +472,7 @@ export function evaluateChange(
   // "compared to similar pages" and never "caused".
   const headline = buildHeadline({
     verdict, metric, lift, impressionsLift, basisDay: basisDay!,
-    overlapCount: overlappingIds.length,
+    overlapCount: overlappingIds.length, peers: site ? "the rest of the site" : "similar pages",
     overlapClosedOn: basisConfounded ? cleanUntil : null,
     ga4ExtraSessions: input.ga4ExtraSessions ?? null,
     ga4Trustworthy: input.ga4Trustworthy === true,
@@ -483,7 +489,8 @@ export function evaluateChange(
   } else if (controls >= MIN_CONTROLS && input.baselineImpressions >= 800) {
     confidence = "medium";
   }
-  confidenceReasons.push(`Read on the ${basisDay}-day window against ${controls} similar page${controls === 1 ? "" : "s"}.`);
+  confidenceReasons.push(site ? `Read on the ${basisDay}-day window against the site's own movement, which is weaker than a comparison with matched pages.`
+    : `Read on the ${basisDay}-day window against ${controls} similar page${controls === 1 ? "" : "s"}.`);
   if (!mature) confidenceReasons.push("This will firm up when the 28-day window closes.");
 
   // Point 8: the ranking outcome signal. Only a cleanly settled directional read
@@ -496,29 +503,12 @@ export function evaluateChange(
   else if (verdict === "directional_decline") rankingSignal = -0.6 * confScale;
 
   return {
-    id: input.id,
-    page: input.page,
-    path: input.path,
-    actionType: input.actionType,
-    metric,
-    windows: marked,
-    basisDay,
-    lift,
-    impressionsLift,
-    verdict,
-    comparison: "fair",
-    unadjusted,
-    headline,
-    confidence,
-    confidenceReasons,
-    caveats,
-    overlappingIds,
-    cleanUntil,
-    learning: shape(
-      verdict === "stronger_improvement" || verdict === "directional_improvement" ? "up"
-        : verdict === "directional_decline" ? "down"
-          : verdict === "no_clear_movement" ? "flat" : "unclear",
-    ),
+    id: input.id, page: input.page, path: input.path, actionType: input.actionType, metric,
+    windows: marked, basisDay, lift, impressionsLift, verdict, comparison: site ? "site" : "fair",
+    unadjusted, headline, confidence, confidenceReasons, caveats, overlappingIds, cleanUntil,
+    learning: shape(verdict === "stronger_improvement" || verdict === "directional_improvement" ? "up"
+      : verdict === "directional_decline" ? "down"
+        : verdict === "no_clear_movement" ? "flat" : "unclear"),
     rankingSignal: Math.round(rankingSignal * 100) / 100,
   };
 }
@@ -575,6 +565,7 @@ export type LedgerRecordLike = {
     adjustedPosLift?: number;
     adjustedImpressionsLift?: number;
     controlsUsed?: number;
+    comparedToSite?: boolean;
     treatedPostImpressions?: number;
     treatedDelta?: number;
   }> | null;
@@ -606,32 +597,18 @@ export function toKernelInput(r: LedgerRecordLike): KernelInput {
     .filter((w): w is NonNullable<typeof w> =>
       w != null && (w.day === 7 || w.day === 14 || w.day === 28 || w.day === FOLLOW_UP_DAY))
     .map((w) => ({
-      day: w.day as CheckpointDay,
-      ran: w.ran === true,
-      checkOn: w.checkOn ?? null,
-      adjustedClicksLift: w.adjustedLift ?? 0,
-      adjustedCtrLift: w.adjustedCtrLift ?? 0,
-      adjustedPosLift: w.adjustedPosLift ?? 0,
-      adjustedImpressionsLift: w.adjustedImpressionsLift ?? 0,
-      controlsUsed: w.controlsUsed ?? 0,
-      treatedPostImpressions: w.treatedPostImpressions ?? 0,
-      treatedDelta: w.treatedDelta ?? 0,
+      day: w.day as CheckpointDay, ran: w.ran === true, checkOn: w.checkOn ?? null,
+      adjustedClicksLift: w.adjustedLift ?? 0, adjustedCtrLift: w.adjustedCtrLift ?? 0,
+      adjustedPosLift: w.adjustedPosLift ?? 0, adjustedImpressionsLift: w.adjustedImpressionsLift ?? 0,
+      controlsUsed: w.controlsUsed ?? 0, comparedToSite: w.comparedToSite === true,
+      treatedPostImpressions: w.treatedPostImpressions ?? 0, treatedDelta: w.treatedDelta ?? 0,
     }));
   return {
-    id: r.id,
-    page: r.page,
-    path: r.path,
-    actionType: r.actionType,
-    shippedAt: r.shippedAt,
-    implementedAt: r.implementedAt ?? null,
-    baselineImpressions: r.baseline?.impressions ?? 0,
-    baselineClicks: r.baseline?.clicks ?? 0,
-    windows,
-    ga4ExtraSessions: r.ga4ExtraSessions ?? null,
-    ga4Trustworthy: r.ga4Trustworthy === true,
-    componentKinds: (r.componentsApplied ?? []).map((c) => c.kind),
-    diagnosisCause: r.diagnosisCause ?? null,
-    evidenceItemCount: r.evidenceItemCount ?? null,
+    id: r.id, page: r.page, path: r.path, actionType: r.actionType, shippedAt: r.shippedAt,
+    implementedAt: r.implementedAt ?? null, baselineImpressions: r.baseline?.impressions ?? 0,
+    baselineClicks: r.baseline?.clicks ?? 0, windows, ga4ExtraSessions: r.ga4ExtraSessions ?? null,
+    ga4Trustworthy: r.ga4Trustworthy === true, componentKinds: (r.componentsApplied ?? []).map((c) => c.kind),
+    diagnosisCause: r.diagnosisCause ?? null, evidenceItemCount: r.evidenceItemCount ?? null,
     // A shipment-born row with no stored state is a row whose column was dropped by a pre-migration
     // deploy, and reading that gap as a FAIR comparison invents fairness: it fails closed instead.
     measurementState: r.measurementState ?? (r.shipment != null ? "measurement_unavailable" : null),

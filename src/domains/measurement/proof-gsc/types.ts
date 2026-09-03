@@ -45,6 +45,8 @@ export type ProofWindowResult = {
   controlPosDelta: number;
   adjustedPosLift: number;
   controlsUsed: number;
+  /** TRUE where the comparison was the site's own movement, because too few untouched pages matched. Absent on every matched-page reading. */
+  comparedToSite?: boolean;
   treatedPostImpressions?: number;
   treatedImpressionsDelta?: number;
   controlImpressionsDelta?: number;

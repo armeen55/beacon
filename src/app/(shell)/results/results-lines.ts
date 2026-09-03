@@ -218,7 +218,8 @@ const REASON_LABEL: [RegExp, string][] = [[/^same page type/, "same kind of page
 const reasonWords = (reasons: readonly string[]): string[] =>
   reasons.map((r) => REASON_LABEL.find(([re]) => re.test(r.trim().toLowerCase()))?.[1]).filter((s): s is string => s != null);
 const peersWord = (p: ShipmentPresentation): string =>
-  receiptOf(p).length > 0 ? "similar pages that were not changed" : "pages that were not changed";
+  p.read.comparison === "site" ? "the rest of the site" // too few untouched pages matched, so the site's own movement is what this stood against
+    : receiptOf(p).length > 0 ? "similar pages that were not changed" : "pages that were not changed";
 
 /** WHAT WAS RECORDED WHEN NO FAIR COMPARISON EXISTS. Marking a change done is a fact about the work and is kept whatever
  *  the data says; whether it can be compared is a separate fact. One sentence each, naming which one is missing. */

@@ -61,29 +61,24 @@ beforeEach(() => {
   ai.views.mockResolvedValue([seen(0, "2026-07-30", true), seen(0, "2026-07-30", false), seen(1, "2026-07-30", true), seen(0, "2026-06-01", true)]);});
 describe("the canonical Shipment", () => {
   it("a measure loop invalidates the release once, never once per record", async () => {
-    const { upsertShippedChange, invalidateResultsSurfaceSafe } = await import("@/domains/measurement/proof-gsc/shipped-change-store");
-    invalidations.n = 0;
+    const { upsertShippedChange, invalidateResultsSurfaceSafe } = await import("@/domains/measurement/proof-gsc/shipped-change-store"); invalidations.n = 0;
     for (let i = 0; i < 3; i += 1) await upsertShippedChange(await ship({ path: `/loop-${i}` }), T, { invalidate: false });
-    expect(invalidations.n, "silent per-record writes").toBe(0);
-    await invalidateResultsSurfaceSafe();
+    expect(invalidations.n, "silent per-record writes").toBe(0); await invalidateResultsSurfaceSafe();
     expect(invalidations.n, "one invalidation for the whole pass").toBe(1);
     await upsertShippedChange(await ship({ path: "/single" }), T);
     expect(invalidations.n, "a lone upsert still tells the surface").toBe(2); });
-
   it("records ONE shipment with the stamp, the components and both starting numbers", async () => {
     await upsertShippedChange(await ship()); expect(db.state.rows).toHaveLength(1);
     const [stored] = await loadShippedChangesForTenant(T); expect(stored.proposalId).toBe(`${T}::/nowruz-guide::existing_edit::bundle`);
     expect(stored.proposalVersion).toBe("v-abc123"); expect(stored.basis).toBe("basis_today::d6");
     expect(stored.bundleHypothesis).toMatch(/line Google shows/); expect(stored.implementedAt).toBe(NOW.toISOString());
-    expect(stored.preChangeContentHash).toBe("hash-before"); expect(stored.componentsApplied).toEqual(COMPONENTS);
-    expect(stored.shipmentBaseline?.search?.clicks).toBe(9);
+    expect(stored.preChangeContentHash).toBe("hash-before"); expect(stored.componentsApplied).toEqual(COMPONENTS); expect(stored.shipmentBaseline?.search?.clicks).toBe(9);
     expect(stored.shipmentBaseline?.ai).toEqual({ day: "2026-07-30", checked: 2, analyzed: 2, mentioning: 1 });
     expect(stored.verification).toBeNull(); // nobody has checked it, and that null makes it due
     db.state.rows = []; db.state.file = []; // AND THEIR OWN ACCOUNT OF IT IS A NOTE, NEVER AN ANSWER: it rides along and the live check is still owed
     await upsertShippedChange(await ship({ shipment: origin({ operatorNote: "I pasted it into my site myself." }) as never }));
     const [noted] = await loadShippedChangesForTenant(T);
-    expect([noted.operatorNote, noted.verification]).toEqual(["I pasted it into my site myself.", null]);
-  });
+    expect([noted.operatorNote, noted.verification]).toEqual(["I pasted it into my site myself.", null]); });
   it("counts the AI starting number over the WHOLE day, and writes down how many of it were read closely", async () => {
     const DAY = "2026-07-30";
     const day = (analysed: number) => Array.from({ length: 140 }, (_, i) => ({ slot: 0, status: "observed", day: DAY,
@@ -91,13 +86,11 @@ describe("the canonical Shipment", () => {
       analysisHash: i < analysed ? "x" : null, answerHash: "x" }));
     const serve = (rows: Record<string, unknown>[]) => ai.views.mockImplementation(
       async (_t: string, o: { day?: string; limit?: number }) => (o?.day === DAY ? rows : rows.slice(0, o?.limit ?? 60)));
-    serve(day(140));
-    await upsertShippedChange(await ship()); expect((await loadShippedChangesForTenant(T))[0].shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 140, mentioning: 84 });
+    serve(day(140)); await upsertShippedChange(await ship()); expect((await loadShippedChangesForTenant(T))[0].shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 140, mentioning: 84 });
     db.state.rows = []; db.state.file = []; serve(day(100));
     await upsertShippedChange(await ship()); expect((await loadShippedChangesForTenant(T))[0].shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 100, mentioning: 60 });});
   it("heals a retried press instead of recording the change twice", async () => {
-    const first = await ship(); await upsertShippedChange(first);
-    const retry = await ship(); await upsertShippedChange(retry);
+    const first = await ship(); await upsertShippedChange(first); const retry = await ship(); await upsertShippedChange(retry);
     expect(retry.id).toBe(first.id); expect(db.state.rows).toHaveLength(1);});
   it("stores a partial bundle as a partial bundle, and keeps the exact copy each piece carried", async () => {
     await upsertShippedChange(await ship({ shipment: origin({ componentsApplied: [COMPONENTS[0]] }) as never })); expect((await loadShippedChangesForTenant(T))[0].componentsApplied).toEqual([COMPONENTS[0]]);
@@ -112,8 +105,7 @@ describe("the canonical Shipment", () => {
     expect(after.shipmentBaseline?.search?.clicks).toBe(9);});
   it("still decodes a record written before there were Shipments", async () => {
     db.state.rows.push(legacyRow());
-    const [stored] = await loadShippedChangesForTenant(T); expect(stored.path).toBe("/cities");
-    expect(stored.baseline.clicks).toBe(5);
+    const [stored] = await loadShippedChangesForTenant(T); expect(stored.path).toBe("/cities"); expect(stored.baseline.clicks).toBe(5);
     expect([stored.proposalId, stored.implementedAt, stored.shipmentBaseline, stored.verification]) .toEqual([null, null, null, null]);});});
 /** THE FOURTH CHECKPOINT IS BOUGHT ONCE. A recompute rebuilds 7/14/28 from scratch, so a day-56 reading already taken and already judged on must be carried through it untouched. */
 describe("recording what the live check found", () => {
@@ -151,16 +143,13 @@ describe("measurement waits for the change to be found on the page", () => {
   const LATER = new Date("2026-08-20T12:00:00.000Z"), FINAL = "2026-08-19";
   const due = async (v: ShipmentVerification | null) => isDueForMeasure({ ...(await ship()), verification: v }, FINAL, LATER);
   it("measures a verified or partly verified change, and nothing else", async () => {
-    expect(await due(verification("verified"))).toBe(true); expect(await due(verification("partially_verified"))).toBe(true);
-    expect(await due(verification("operator_confirmed"))).toBe(false);
+    expect(await due(verification("verified"))).toBe(true); expect(await due(verification("partially_verified"))).toBe(true); expect(await due(verification("operator_confirmed"))).toBe(false);
     expect(await due(null)).toBe(false);            // never checked: there is nothing honest to measure yet
-    expect(await due(verification("not_found"))).toBe(false); expect(await due(verification("blocked"))).toBe(false);
-    expect(await due(verification("differs"))).toBe(false);});
+    expect(await due(verification("not_found"))).toBe(false); expect(await due(verification("blocked"))).toBe(false); expect(await due(verification("differs"))).toBe(false);});
   it("keeps measuring a record written before there were Shipments, which has no answer to wait for", async () => {
     const legacy = { ...(await ship()), implementedAt: null, verification: null }; expect(isDueForMeasure(legacy, FINAL, LATER)).toBe(true);});});
 describe("what is still under measurement", () => {
-  const row = (id: string, implementedAt: string, path: string, v: ShipmentVerification | null): Row =>
-    ({ ...legacyRow(), id, path, implemented_at: implementedAt, verification: v, proposal_id: `p-${id}` });
+  const row = (id: string, implementedAt: string, path: string, v: ShipmentVerification | null): Row => ({ ...legacyRow(), id, path, implemented_at: implementedAt, verification: v, proposal_id: `p-${id}` });
   beforeEach(() => {
     db.state.rows = [
       row("s1", "2026-07-25T00:00:00.000Z", "/nowruz-guide", null),              // waiting on its first check
@@ -177,12 +166,10 @@ describe("the measurement pass settles itself, all the way to the screen", () =>
   const result = (over: Record<string, number>) => ({ considered: 16, due: 16, measured: 0, changed: 0, settled: 0, failed: 0, outcomes: [], ...over });
   beforeEach(() => { settle.rebuilt.length = 0; settle.harvested.length = 0; settle.pass.mockReset(); });
   it("rebuilds Results the moment a reading lands, harvests only once a verdict settled, and never throws into the run", async () => {
-    settle.pass.mockResolvedValue(result({ measured: 16, changed: 3 }));
-    expect([await settleDueMeasurements(T), settle.rebuilt, settle.harvested]).toEqual([16, [T], []]); // the first view serves the fresh truth, and nothing settled yet
-    settle.pass.mockResolvedValue(result({ due: 0 }));
+    settle.pass.mockResolvedValue(result({ measured: 16, changed: 3 })); // the first view serves the fresh truth
+    expect([await settleDueMeasurements(T), settle.rebuilt, settle.harvested]).toEqual([16, [T], []]); settle.pass.mockResolvedValue(result({ due: 0 })); // and nothing settled yet
     expect([await settleDueMeasurements(T), settle.rebuilt]).toEqual([0, [T]]); // nothing read, so nothing is rebuilt a second time
-    settle.pass.mockResolvedValue(result({ due: 1, measured: 1, changed: 1, settled: 1 }));
-    await settleDueMeasurements(T); expect(settle.harvested).toEqual([T]); // a won or lost verdict reaches ranking
+    settle.pass.mockResolvedValue(result({ due: 1, measured: 1, changed: 1, settled: 1 })); await settleDueMeasurements(T); expect(settle.harvested).toEqual([T]); // a won or lost verdict reaches ranking
     settle.pass.mockRejectedValue(new Error("the ledger did not answer"));
     expect(await settleDueMeasurements(T)).toBe(0); // fail-soft: a reading I could not take never pauses the pass that asked for it
   });});
@@ -205,34 +192,48 @@ describe("the recording seam", () => {
     for (const f of ten) await recordShipment(f as never, { preloadedLedger: await loadShippedChangesForTenant(T), openPaths: ["/elsewhere"], invalidate: false });
     expect(db.state.rows.length, "a retry of the same ten writes nothing").toBe(10); });
   it("records a change with NO comparison pages at all, and names what is missing instead of refusing", async () => {
-    ctl.pages = [];
-    expect((await recordShipment(facts())).measurement).toBe("insufficient_comparison");
-    expect(db.state.rows).toHaveLength(1); // the implementation landed anyway, stamp and all
-    expect([(await stored()).measurementState, (await stored()).implementedAt]).toEqual(["insufficient_comparison", NOW.toISOString()]);});
+    ctl.pages = []; // NOTHING MATCHED IS NOT NOTHING TO MEASURE (operator, 2026-09-03): whole families ship on one day, so the site's own movement stands in and the row stays measurable instead of being stamped dead at record time with nothing ever asking again.
+    gsc.window.mockImplementation(async (a: { siteTotal?: { key: string } }) => new Map<string, unknown>([[PAGE, { clicks: 9, impressions: 1200, ctr: 0.0075, position: 14 }], ...(a.siteTotal ? [[a.siteTotal.key, { clicks: 900, impressions: 120000, ctr: 0.0075, position: 14 }] as [string, unknown]] : [])]));
+    expect((await recordShipment(facts())).measurement).toBe("measuring"); expect(db.state.rows).toHaveLength(1); // the implementation landed anyway, stamp and all
+    expect([(await stored()).measurementState, (await stored()).implementedAt]).toEqual(["measuring", NOW.toISOString()]);
+    const measured = await measureRecord(T, await stored(), new Date("2026-10-01T00:00:00.000Z"), "2026-09-05", new Set()); const { readLedger } = await import("@/domains/measurement/proof-gsc/kernel");
+    expect(measured.windows.find((w) => w.day === 28)?.comparedToSite).toBe(true);
+    expect(readLedger([measured], new Date("2026-10-01T00:00:00.000Z"), "2026-09-05")[0].headline).toContain("Measured against the site's own movement, because too few untouched pages matched this one. That is a weaker comparison than matched pages, and a rise the whole site shared shows up here as no change.");
+    await upsertShippedChange(measured, T); expect((await stored()).windows.find((w) => w.day === 28)?.comparedToSite, "the basis survives the store, so a reader downstream can tell a site reading from a matched one").toBe(true);
+    // AND UNDER SIX CLICKS BEFORE THE CHANGE THERE IS NO SHARE WORTH SCALING: no drift verdict is formed at all, and the row reads as the too-little-history one it is rather than carrying a vacuous number.
+    gsc.window.mockImplementation(async (a: { siteTotal?: { key: string } }) => new Map<string, unknown>([[PAGE, { clicks: 5, impressions: 1200, ctr: 0.004, position: 14 }], ...(a.siteTotal ? [[a.siteTotal.key, { clicks: 900, impressions: 120000, ctr: 0.0075, position: 14 }] as [string, unknown]] : [])]));
+    const thin = readLedger([await measureRecord(T, await stored(), new Date("2026-10-01T00:00:00.000Z"), "2026-09-05", new Set())], new Date("2026-10-01T00:00:00.000Z"), "2026-09-05")[0];
+    expect([thin.comparison, thin.headline]).toEqual(["insufficient", "The change is recorded. Its effect cannot be separated from the rest of the site yet."]);});
   it("records it when Google has nothing finalized, and when this page has no history to count from", async () => {
-    gsc.lastFinal.mockResolvedValue(null);
-    expect((await recordShipment(facts())).measurement).toBe("measurement_unavailable");
+    gsc.lastFinal.mockResolvedValue(null); expect((await recordShipment(facts())).measurement).toBe("measurement_unavailable");
     db.state.rows = []; gsc.lastFinal.mockResolvedValue("2026-07-30"); gsc.window.mockResolvedValue(new Map());
     expect([(await recordShipment(facts())).measurement, db.state.rows.length]).toEqual(["measurement_unavailable", 1]);
     expect((await stored()).shipmentBaseline).toBeNull(); // nothing on file is not zero: no starting point rather than a row of zeros
-  });
+    // AND A ROW STAMPED UNMEASURABLE IS ASKED AGAIN ON THE NEXT ORDINARY PASS: 29 of them had stopped being measured at all. It revives FORWARD only, only where a basis now exists, and never over a live check that is still owed.
+    gsc.window.mockImplementation(async (a: { siteTotal?: { key: string } }) => new Map<string, unknown>([[PAGE, { clicks: 9, impressions: 1200, ctr: 0.0075, position: 14 }], ...(a.siteTotal ? [[a.siteTotal.key, { clicks: 900, impressions: 120000, ctr: 0.0075, position: 14 }] as [string, unknown]] : [])]));
+    const revive = async (state: string, final: string | null = "2026-09-05", controls: string[] = []) => (await measureRecord(T, { ...(await ship({ controlPages: controls })), measurementState: state as never }, new Date("2026-10-01T00:00:00.000Z"), final, new Set())).measurementState;
+    expect([await revive("insufficient_comparison"), await revive("measurement_unavailable"), await revive("verification_needed"), await revive("measuring"), await revive("insufficient_comparison", null)]).toEqual(["measuring", "measuring", "verification_needed", "measuring", "insufficient_comparison"]);
+    gsc.window.mockResolvedValue(new Map([[PAGE, { clicks: 9, impressions: 1200, ctr: 0.0075, position: 14 }]])); // three comparison pages stored, none of them carrying search data, and no site history either
+    expect(await revive("insufficient_comparison", "2026-09-05", ["https://x.test/a", "https://x.test/b", "https://x.test/c"]), "stored is not usable: with no basis at all nothing is promoted over a reading that says so").toBe("insufficient_comparison"); });
   it("measures when the comparison is really there, and a second press rewrites nothing", async () => {
     const first = await recordShipment(facts()); expect([first.measurement, (await stored()).measurementState]).toEqual(["measuring", "measuring"]);
     await recordVerification(T, first.shipmentId, verification("verified")); const again = await recordShipment(facts());
     expect([again.shipmentId, again.measurement, db.state.rows.length]).toEqual([first.shipmentId, "measuring", 1]);
     expect((await stored()).verification?.status).toBe("verified"); // the check was not erased back to due
-  });
+    // AND MATCHED PAGES ARE STILL THE WHOLE COMPARISON where there are two of them with search data behind them: the reading is the one it always was, and nothing about the site's own movement rides it.
+    gsc.window.mockImplementation(async (a: { siteTotal?: { key: string } }) => new Map<string, unknown>([[PAGE, { clicks: 9, impressions: 1200, ctr: 0.0075, position: 14 }], ["https://x.test/a", { clicks: 20, impressions: 4000, ctr: 0.005, position: 11 }], ["https://x.test/b", { clicks: 30, impressions: 5000, ctr: 0.006, position: 9 }], ...(a.siteTotal ? [[a.siteTotal.key, { clicks: 900, impressions: 120000, ctr: 0.0075, position: 14 }] as [string, unknown]] : [])]));
+    const w28 = (await measureRecord(T, await stored(), new Date("2026-10-01T00:00:00.000Z"), "2026-09-05", new Set())).windows.find((w) => w.day === 28)!;
+    expect([w28.controlsUsed, w28.comparedToSite]).toEqual([2, undefined]); });
   it("records a change that was already live, claims no before-state, and still owes the live check", async () => {
     expect((await repair()).measurement).toBe("verification_needed"); const row = await stored();
-    expect([row.preChangeHashUnavailable, row.preChangeContentHash, row.before, row.verification]).toEqual([true, null, null, null]);
+    expect([row.preChangeHashUnavailable, row.preChangeContentHash, row.before, row.verification]).toEqual([true, null, null, null]); // no before-state is held or claimed
     expect([row.implementedAt, row.componentsApplied?.[0]?.after]).toEqual([LIVE_ON, WORDING]); // windows count from the day it went live; the check looks for this
     expect(row.operatorNote).toMatch(/Placement: the page title\. Source: pasted in the CMS\./);
-    expect(gsc.window.mock.calls.some((c) => (c[0] as { start?: string }).start === "2026-06-12")).toBe(true); // the 28 days BEFORE it went live
-  });
+    expect(gsc.window.mock.calls.some((c) => (c[0] as { start?: string }).start === "2026-06-12")).toBe(true); }); // the 28 days BEFORE it went live
   it("repairs idempotently on the same account of it, and stays honest when there is nothing to compare", async () => {
     const first = await repair(); expect([(await repair()).shipmentId, db.state.rows.length]).toEqual([first.shipmentId, 1]);
     db.state.rows = []; ctl.pages = [];
-    expect((await repair()).measurement).toBe("insufficient_comparison");});});
+    expect((await repair()).measurement).toBe("verification_needed");});}); // no page matched it, so the site's own movement is the comparison, and the live check is owed before any of it
 /** THE STARTING NUMBERS ARE FROZEN OVER THIS CHANGE'S OWN SEARCHES, at mark time, once: the account-wide day compared an account-wide before against a scope-filtered after, two different measures. */
 describe("the AI baseline is frozen over the change's own scope (AEO reconstruction, 2026-08-19)", () => {
   const SITE = "https://www.fixture-outdoors.example", DAY = "2026-07-30";

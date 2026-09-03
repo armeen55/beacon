@@ -25,7 +25,6 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 import { log } from "@/lib/logger";
-import { MIN_CONTROLS } from "./kernel";
 import { readLastFinalizedDate } from "./gsc-window";
 import { matchedControlsFor, recordShippedChange } from "./measure-pass";
 import type { ControlReceipt } from "./contamination";
@@ -79,9 +78,14 @@ type ShipmentFacts = {
 };
 
 /**
- * CAN THIS ONE BE FAIRLY COMPARED? Asked BEFORE the write and answered without ever refusing it.
+ * CAN THIS ONE BE COMPARED AT ALL? Asked BEFORE the write and answered without ever refusing it.
  * Never throws: every read degrades to the honest state rather than to an exception, because the
  * only thing this answer may change is what Results says, not whether the work is recorded.
+ *
+ * TOO FEW MATCHED PAGES IS NO LONGER A DEAD END (operator, 2026-09-03). Changes land on whole page
+ * families on the same day, so matched pages run out and 21 rows were stamped unmeasurable at record
+ * time with nothing ever asking again. The site's own movement stands in as the comparison instead
+ * (measure-pass), and the reading itself names which basis it used.
  */
 async function comparisonFor(
   tenantId: string, treatedPage: string, stamp: string, now: Date, batch?: Parameters<typeof matchedControlsFor>[4],
@@ -95,7 +99,6 @@ async function comparisonFor(
   // comparison set looks like, so it is named first.
   const finalized = await readLastFinalizedDate(tenantId).catch(() => null);
   if (finalized == null) return { ...held, measurement: "measurement_unavailable" };
-  if (matched.controls.length < MIN_CONTROLS) return { ...held, measurement: "insufficient_comparison" };
   return { ...held, measurement: "measuring" };
 }
 
