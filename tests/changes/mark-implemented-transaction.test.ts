@@ -1,7 +1,7 @@
 /** THE MARK-IMPLEMENTED TRANSACTION. There is no bare status flip on the decision facade: the record is written FIRST and the change is flipped SECOND, carrying that record's own id, so a crash between the two leaves a record the next press heals where the reverse would leave a change marked done that nothing on earth is measuring. A piece is named by its exact copy too, so a redraft is genuinely new work while pressing the SAME version twice stays one record. AN UNFINISHED DELIVERABLE IS NOT WORK SOMEBODY CAN HAVE DONE. The server asks the ONE completeness boundary, never the prose, so no stale tab opens a 28 day reading on work nobody wrote. THE BOUNDARY IS THE TYPED FACT: a producer that writes a brief instead of copy stamps it as it mints the card, and a blank nobody filled in is still a blank, whoever wrote it. THE ONE DOOR, standing in for the real one: it always writes and always answers with the row's id, it is idempotent on (proposal, version), and the row is durable the moment it lands, which is exactly what a retry after a crash finds. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ChangeProposal } from "@/domains/decision";
-type Rec = { id: string; proposalId: string; proposalVersion: string; componentsApplied: Array<{ id: string }>; path: string; page: string; implementedAt: string | null; treatmentStamp: { signature: Record<string, string | null>; overlapAtShip: number } | null };
+type Rec = { id: string; proposalId: string; proposalVersion: string; componentsApplied: Array<{ id: string; kind?: string; anchorAfter?: string; redirectTo?: string }>; path: string; page: string; implementedAt: string | null; treatmentStamp: { signature: Record<string, string | null>; overlapAtShip: number } | null };
 const led = vi.hoisted(() => ({ verified: [] as string[], records: [] as Rec[], breakWrite: false, flip: vi.fn(async (..._a: unknown[]) => true) }));
 const stored = vi.hoisted(() => ({ proposal: null as unknown, disposition: null as string | null }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -36,30 +36,32 @@ const change = (after = AFTER): ChangeProposal => ({
     components: [{ kind: "title", label: "Title", risk: "safe", before: "Comedians", after, evidenceKeys: ["k1"] }],
     receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "163 clicks lost in 4 weeks.", observedAt: SEEN }], missing: [], freshestObservedAt: SEEN } },
 } as unknown as ChangeProposal);
+/** ONE LINK CHANGE, as the editor hands one over: the destination and the exact words typed on the change itself, and a link piece inside the bundle that types neither of them. The live check reads a link on both its address and its words, so both have to reach the record. */
+const linkChange = (): ChangeProposal => { const p = change("One sentence pointing readers to the haft seen page.") as ChangeProposal & { recommendedChange: unknown };
+  p.recommendedChange = { kind: "existing_edit", field: "section", before: null, after: "One sentence pointing readers to the haft seen page.", where: 'In the body copy, with "the haft seen explained" linked to /haft-seen', linkTo: "/haft-seen", anchorText: "the haft seen explained" }; (p.bundle as { components: unknown[] }).components = [{ kind: "internal_link_add", label: "Link to the haft seen page", risk: "safe", before: null, after: "One sentence pointing readers to the haft seen page.", evidenceKeys: ["k1"] }]; return p; };
 const press = async (p: ChangeProposal) => { stored.proposal = p;
   return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id }); };
-beforeEach(() => { led.records = []; led.breakWrite = false; stored.disposition = null; led.flip.mockReset(); led.flip.mockResolvedValue(true); });
+beforeEach(() => { led.records = []; led.breakWrite = false; stored.disposition = null; surf.rebuilds = 0; led.flip.mockReset(); led.flip.mockResolvedValue(true); }); // the rebuild count is reset with every other fixture, so no assertion about it depends on the test before it
 describe("many at once is one trip, and still one shipment each", () => {
   it("records twenty changes on one press and rebuilds the surfaces once, not twenty times", async () => {
     const ids = Array.from({ length: 20 }, (_, i) => `t::/p-${i}::existing_edit::bundle`);
-    stored.proposal = change(); surf.rebuilds = 0;
+    stored.proposal = linkChange();
     const mark = (await import("@/app/(shell)/changes/actions")).markManyImplementedAction; const out = await mark({ proposalIds: ids }); expect(surf.rebuilds, "one rebuild for the whole batch").toBe(1); expect(out.done + out.already, "and every id is answered").toBe(20);
-    expect(led.flip).toHaveBeenCalledTimes(20); // still one atomic transition each
+    expect(led.flip).toHaveBeenCalledTimes(20); expect(led.records[0]!.componentsApplied[0], "and the words the link has to carry reach the record through the batch door too").toMatchObject({ kind: "internal_link_add", anchorAfter: "the haft seen explained" }); // still one atomic transition each
     surf.rebuilds = 0; led.flip.mockClear();
     const again = await mark({ proposalIds: ids }); expect(again.done, "nothing is recorded twice").toBe(0); expect(again.already).toBe(20); });});
 describe("nothing is marked done that no record stands behind", () => {
   it("schedules the exact shipment it just wrote, on the full press and on a partial bundle alike", async () => {
     led.verified = [];
-    const whole = change("Whole-press verification target");
+    const whole = linkChange();
     await press(whole);
-    expect(led.verified, "the full press schedules its own shipment").toEqual([led.records[led.records.length - 1]!.id]);
+    expect(led.verified, "the full press schedules its own shipment").toEqual([led.records[led.records.length - 1]!.id]); expect(led.records[0]!.componentsApplied[0], "and the link's own words travel with it through the single door").toMatchObject({ kind: "internal_link_add", anchorAfter: "the haft seen explained" });
     led.verified = [];
     const two = change("Partial-press verification target");
-    (two.bundle as { components: unknown[] }).components = [
-      { kind: "title", label: "Title", risk: "safe", before: "Comedians", after: "A", evidenceKeys: ["k1"] },
+    (two.bundle as { components: unknown[] }).components = [{ kind: "title", label: "Title", risk: "safe", before: "Comedians", after: "A", anchorAfter: "smuggled", evidenceKeys: ["k1"] },
       { kind: "meta", label: "Meta", risk: "safe", before: null, after: "B", evidenceKeys: ["k1"] }];
     stored.proposal = two;
-    const r = await (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: two.id, componentIds: ["0:title"] }); expect([r.success, r.note ?? ""], "and it really was the partial branch").toEqual([true, expect.stringContaining("still on your list")]); expect(led.verified, "the partial press schedules the same shipment").toEqual([led.records[led.records.length - 1]!.id]); });
+    const r = await (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: two.id, componentIds: ["0:title"] }); expect([r.success, r.note ?? ""], "and it really was the partial branch").toEqual([true, expect.stringContaining("still on your list")]); expect(led.verified, "the partial press schedules the same shipment").toEqual([led.records[led.records.length - 1]!.id]); expect(led.records[led.records.length - 1]!.componentsApplied[0]!.anchorAfter, "and words riding a piece the live check would never read them off are not recorded at all").toBeUndefined(); });
   it("stamps what kind of work it was, and how much of theirs was already being measured on that page", async () => {
     const first = { ...change(), treatment: "title_or_h1", diagnosisCause: "ctr_snippet" } as ChangeProposal; // THE PRESS IS THE LAST MOMENT THE CARD EXISTS: the treatment and the diagnosed cause live nowhere on a shipment, so a Results screen asking which of this account's bets pay would have nothing but the coarse action word to group by.
     expect((await press(first)).success).toBe(true);
@@ -72,8 +74,7 @@ describe("nothing is marked done that no record stands behind", () => {
   it("refuses to record unfinished work as done, whatever a stale screen sends", async () => {
     const research = await press({ ...change(), researchOnly: true } as ChangeProposal); // full copy on the row, so only the typed fact can be refusing it
     const errand = await press({ ...change(), researchOnly: true, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Write a description of about 150 characters that names this page's subject." } } as ChangeProposal);
-    expect([research.success, errand.success, led.records.length, led.flip.mock.calls.length, research.error, errand.error])
-      .toEqual([false, false, 0, 0, expect.stringContaining("nothing has been written for it yet"), expect.stringContaining("nothing has been written for it yet")]);
+    expect([research.success, errand.success, led.records.length, led.flip.mock.calls.length, research.error, errand.error]).toEqual([false, false, 0, 0, expect.stringContaining("nothing has been written for it yet"), expect.stringContaining("nothing has been written for it yet")]);
     expect([(await press({ ...change(), limitations: ["Nothing here is ready to paste: this card is research, not an edit."] } as ChangeProposal)).success, led.records.length]).toEqual([true, 1]); }); // that sentence on finished copy stops nothing
   it("the press outvotes a reconciliation withdrawal, and never a dismissal", async () => {
     stored.disposition = "withdrawn"; // THE LIVE RACE (2026-08-29): Noor's row was withdrawn by the producer seconds before the press loaded it, and "could not be found" recorded NOTHING the operator did. A reconciliation-withdrawn row is still theirs to finish; a DISMISSAL was the operator's own decision, asked BEFORE any shipment is written so a stale tab can neither undo it nor orphan a record (Mahsa's orphan was a shipment written before a doomed flip).

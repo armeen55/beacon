@@ -148,7 +148,7 @@ describe("what Beacon says overall, and what it refuses to say", () => {
     expect(robots.components[0]!.note).toContain("robots rules"); expect((await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "timeout"))).status).toBe("blocked");
     const gone = await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "http_404")); // NOT_FOUND INSIDE THE PUBLISH LAG IS THE SAME LAG (operator, 2026-08-29): work is marked done in the editor and the site publishes later, so read one schedules a bounded recheck instead of burying the change
     expect([gone.status, gone.recheckAfter != null]).toEqual(["not_found", true]); expect((await check([{ kind: "new_page", after: "" }], refuse("fetch_failed", "http_404"))).status).toBe("not_found");
-    expect((await check([{ kind: "noindex", after: "" }])).status).toBe("blocked");});
+    const graded = await check([{ kind: "noindex", after: "" }]), bound = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "noindex", after: "" }], priorChecks: 2 }, { ...base, fetchPage: serve(PAGE) }); expect([graded.status, graded.checks, graded.recheckAfter, bound.recheckAfter], "R-059: a reading that could grade nothing is owed the same bounded rechecks a difference gets, and the third one stands").toEqual(["blocked", 1, "2026-08-02", null]);});
   it("reads a difference inside the publish grace window as not published yet: no bounded check is spent and it is read again tomorrow", async () => { const at = (h: number) => new Date(NOW - h * 3_600_000).toISOString(); const early = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }], implementedAt: at(1) }, { ...base, fetchPage: serve(PAGE) }), late = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }], implementedAt: at(8) }, { ...base, fetchPage: serve(PAGE) });
     expect([early.status, early.checks, early.recheckAfter, (early.components[0]!.note ?? "").includes("published later"), late.status, late.checks, late.recheckAfter]).toEqual(["differs", 0, "2026-08-01", true, "differs", 1, "2026-08-02"]); });
   it("resolves a scheme-less page key and an absolute address to the same Search history, and answers nothing at all for a page with none", async () => { const { readWindowForPages } = await import("@/domains/measurement/proof-gsc/gsc-window"); const m = await readWindowForPages({ tenantId: T, pages: ["own.com/nowruz", "https://www.own.com/nowruz/", "own.com/never"], start: "2026-08-05", end: "2026-09-02" }); expect([m.get("own.com/nowruz")?.impressions, m.get("https://www.own.com/nowruz/")?.impressions, m.has("own.com/never")]).toEqual([900, 900, false]); }); // NOTHING ON FILE IS NOT ZERO
@@ -190,16 +190,15 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
       fetchPage: (async () => { reads += 1; return { ok: true as const, html: PAGE, status: 200 }; }),});
     expect([written, reads]).toEqual([0, 1]);});
   it("gives a site that did not answer ONE retry on a later day, and a robots denial none at all", async () => {
-    const dead = await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "timeout")); expect([dead.status, dead.recheckAfter]).toEqual(["blocked", "2026-08-01"]);
+    const dead = await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "timeout")); expect([dead.status, dead.checks, dead.recheckAfter]).toEqual(["blocked", 1, "2026-08-01"]);
     const robots = await check([{ kind: "title", after: "x" }], refuse("robots_blocked")); expect([robots.status, robots.recheckAfter ?? null]).toEqual(["blocked", null]);
-    const again = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "x" }], recheck: true },
-      { ...base, fetchPage: refuse("fetch_failed", "timeout") });
-    expect(again.recheckAfter ?? null).toBeNull();});
+    const silent = async (priorChecks: number) => (await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "x" }], priorChecks }, { ...base, fetchPage: refuse("fetch_failed", "timeout") })).recheckAfter ?? null;
+    expect([await silent(1), await silent(2)], "R-059: a silent site is read again on the promised day until the bound, and the third answer stands whatever it is").toEqual(["2026-08-01", null]);});
   it("owes that retry only once the promised day arrives, and never owes one for a robots denial", async () => {
     const blocked = (recheckAfter: string | null) => ({ status: "blocked", checkedAt: "2026-07-30T09:00:00Z", components: [], recheckAfter });
     ROWS.push(row({ id: "waiting", verification: blocked("2026-08-01") }), row({ id: "refused", verification: blocked(null) }));
     expect(await shipmentsAwaitingVerification(T, 3, { now: () => NOW })).toEqual([]); // 2026-07-31: not yet
-    const tomorrow = await shipmentsAwaitingVerification(T, 3, { now: () => NOW + DAY }); expect(tomorrow.map((s) => [s.id, s.recheck])).toEqual([["waiting", true]]);});
+    const tomorrow = await shipmentsAwaitingVerification(T, 3, { now: () => NOW + DAY }); expect(tomorrow.map((s) => [s.id, s.priorChecks])).toEqual([["waiting", 1]]);});
   /** THE PROMISED DAY IS THE OPERATOR'S DAY, not the UTC one. Read off a UTC instant, a retry promised for the 5th came due at 5 PM Pacific on the 4th, so the one retry a silent site earns was spent a day early and its answer, which is final either way, stood. */
   it("owes the retry on the promised day where the operator lives, not from 5 PM the evening before", async () => {
     const blocked = { status: "blocked", checkedAt: "2026-08-01T09:00:00Z", components: [], recheckAfter: "2026-08-05" };

@@ -17,12 +17,12 @@ import "server-only";
  * that kind of change from outside the page (a noindex sent in a header, structured data a raw fetch never
  * renders): that is `unverifiable`, said out loud, every time.
  *
- * WHY IT IS NOT A LOOP. A verification is written ONCE per shipment, so a page that refuses me is never
- * refetched on the next visit, or the one after that. That is the promise the owned-read retry memory
- * makes, kept by a simpler mechanism: the shipment stops being due. The single exception is a site that
- * did not answer at all, which is a fact about the transport and not about the change, so it earns ONE
- * retry on a later day and then stands. Bounded to three shipments per pass on top of that, and to one
- * read per address inside a pass whose answers are not landing.
+ * WHY IT IS NOT A LOOP. Every ending is bounded by MAX_CHECKS live reads and nothing reopens after them: a
+ * difference, a site that stayed silent and a page whose pieces could none of them be graded all come back
+ * on the promised day and stand for good on the third read. A verified reading is final the moment it lands,
+ * and so is a robots rule refusing the read, which is the site's own standing instruction and is said out
+ * loud. Bounded to fifteen shipments per pass on top of that, and to one read per address inside a pass
+ * whose answers are not landing.
  */
 
 import { loadBusinessProfile } from "@/domains/account";
@@ -50,9 +50,7 @@ type VerifiableShipment = {
   id: string;
   url: string;
   components: Array<{ kind: string; after: string; anchorAfter?: string | null; redirectTo?: string | null; before?: string | null }>;
-  /** This is the ONE retry a site that did not answer earns. A recheck's own answer is final either way. */
-  recheck?: boolean;
-  /** How many live reads this shipment has already had, so the differs recheck loop stays bounded. */
+  /** How many live reads this shipment has already had, so every recheck loop stays bounded. */
   priorChecks?: number;
   /** When the operator marked it done, so a read inside the publish grace window is never counted against the bounded checks. */
   implementedAt?: string | null;
@@ -297,26 +295,26 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
   const now = deps.now ?? Date.now, checkedAt = new Date(now()).toISOString();
   const requested = /^https?:\/\//i.test(shipment.url) ? shipment.url : `https://${shipment.url}`;
   const fetchPage = deps.fetchPage ?? fetchPageHtml;
-  // THE ONE ANSWER THAT IS NOT FINAL. A site that did not answer at all says nothing about the change, so
-  // it earns exactly one retry on a LATER day. Every other ending is written once: a robots denial is the
-  // site's standing instruction, a missing page and a difference are facts about the page itself.
+  // NO READ THAT SAW NOTHING IS FINAL ON ITS FIRST ANSWER (R-059, 2026-09-03). A read that could not see the
+  // change says nothing about the change, so a site that did not answer counts ONE check and comes back the
+  // next day; the third blocked answer stands, exactly as a difference does.
   const early = !!shipment.implementedAt && now() - Date.parse(shipment.implementedAt) < PUBLISH_GRACE_MS;
   const checks = (shipment.priorChecks ?? 0) + (early ? 0 : 1); // a read inside the grace window is free: it informs, it never counts
-  const transportBlocked = (note: string): ShipmentVerification => ({
+  const blockedRead = (note: string): ShipmentVerification => ({
     status: "blocked", checkedAt, components: allUnknown(shipment, note), checks,
-    recheckAfter: shipment.recheck === true ? null : reportingDay(now() + 86_400_000),
+    recheckAfter: checks < MAX_CHECKS ? reportingDay(now() + 86_400_000) : null,
   });
   let res: Awaited<ReturnType<typeof fetchPageHtml>>;
   try { res = await fetchPage(requested, new Map(), {}); }
-  catch { return transportBlocked("Your website did not answer, so this change could not be checked."); }
+  catch { return blockedRead("Your website did not answer, so this change could not be checked."); }
   if (!res.ok) {
     if (/^http_(404|410)$/.test(res.detail ?? "")) {
       // NOT_FOUND INSIDE THE PUBLISH LAG IS THE SAME LAG (operator, 2026-08-29): Mark Done means applied in the editor and the site may be published once at the end of the session, so a page not there yet is re-read on the same bounded schedule rather than buried on read one.
       return { status: "not_found", checkedAt, checks, components: allUnknown(shipment, early ? "There is no page at that address yet. Sites are often published later in the session, so it is read again tomorrow." : "There is no page at that address right now."), recheckAfter: early ? reportingDay(now() + 86_400_000) : checks < MAX_CHECKS ? reportingDay(now() + 2 * 86_400_000) : null };
     }
-    return res.reason === "robots_blocked"
+    return res.reason === "robots_blocked" // the site's own standing instruction, answered once and never re-fetched
       ? { status: "blocked", checkedAt, checks, components: allUnknown(shipment, "Your site's robots rules ask for this page not to be read, so it was not.") }
-      : transportBlocked("Your website did not answer, so this change could not be checked.");
+      : blockedRead("Your website did not answer, so this change could not be checked.");
   }
   const profile = deps.loadProfile ? await deps.loadProfile(tenantId).catch(() => null) : await loadBusinessProfile(tenantId).catch(() => null);
   const snap = extractPageSnapshot(res.html, requested, pageIdFor(canonicalUrlKey(shipment.url)), tenantId, res.status, profile ?? undefined); // ONE PAGE IDENTITY (operator, 2026-09-01): the raw address minted a second page id for eight pages beside the crawler's canonical one
@@ -337,11 +335,11 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
       : seen.every((c) => c.state === "verified") ? "verified"
         : seen.some((c) => c.state === "verified") ? "partially_verified"
           : "differs";
-  // A DIFFERENCE INSIDE THE PUBLISH LAG IS RE-READ, NEVER BURIED. CMSes serve the old page through caches
-  // and build queues for hours after a paste, so the first read routinely differs and that one reading used
-  // to stand as final: three of eight real shipments sat "differs" for good. Up to MAX_CHECKS bounded reads,
-  // two days apart; a verified answer is final on any read, and the last read's answer stands whatever it is.
-  const again = (status === "differs" || status === "partially_verified") && (early || checks < MAX_CHECKS);
+  // A DIFFERENCE, OR A READING THAT GRADED NOTHING, IS RE-READ AND NEVER BURIED. CMSes serve the old page
+  // through caches and build queues for hours after a paste, so the first read routinely differs, and a page
+  // where every piece came back unreadable is a fact about that one read. Up to MAX_CHECKS bounded reads, two
+  // days apart; a verified answer is final on any read, and the third read's answer stands whatever it is.
+  const again = status !== "verified" && (early || checks < MAX_CHECKS);
   return { status, checkedAt, checks, components: early && again ? components.map((c) => c.state !== "verified" && c.state !== "unverifiable" ? { ...c, note: `${c.note} Sites are often published later in the session, so this is read again tomorrow without counting against the check limit.` } : c) : components, recheckAfter: again ? reportingDay(now() + (early ? 1 : 2) * 86_400_000) : null };
 }
 
@@ -359,10 +357,10 @@ function componentsOf(r: ShippedChangeRecord): VerifiableShipment["components"] 
     after: (c.after ?? "").trim() || (lone || c.kind === r.actionType ? copy : "") }));
 }
 
-/** One Shipment row, as verification reads it. A row that already holds an answer is only ever here as
- *  the one retry a silent site earns, and it is told so, because a recheck's answer is final. */
+/** One Shipment row, as verification reads it. A row that already holds an answer is here on the day that
+ *  answer promised, carrying the reads it has had so the bound is counted from them and never from zero. */
 const toVerifiable = (r: ShippedChangeRecord): VerifiableShipment =>
-  ({ id: r.id, url: r.page, components: componentsOf(r), implementedAt: r.implementedAt ?? null, ...(r.verification != null ? { recheck: true, priorChecks: r.verification.checks ?? 1 } : {}) });
+  ({ id: r.id, url: r.page, components: componentsOf(r), implementedAt: r.implementedAt ?? null, ...(r.verification != null ? { priorChecks: r.verification.checks ?? 1 } : {}) });
 
 /** The most live reads one shipment ever gets. */
 const MAX_CHECKS = 3;
@@ -375,10 +373,10 @@ export async function shipmentsAwaitingVerification(tenantId: string, limit = MA
   if (!tenantId?.trim()) return [];
   const rows = await loadRows(tenantId, deps);
   // TODAY IS THE OPERATOR'S DAY, never the UTC one. A retry promised for the 5th was owed from 5 PM Pacific
-  // on the 4th when today came off a UTC instant, so the one retry a silent site earns was taken a day early
-  // and its answer, taken before the site had a chance, stood as final.
+  // on the 4th when today came off a UTC instant, so a read a silent site was owed was taken a day early and
+  // its answer, taken before the site had a chance, spent one of the bounded checks.
   const today = reportingDay(deps.now ? deps.now() : Date.now());
-  /** Never checked, or a site that did not answer whose one promised retry day has arrived. A row carrying
+  /** Never checked, or a read whose own promised recheck day has arrived. A row carrying
    *  the retired `operator_confirmed` label was never checked at all, whatever it says, so it is owed the
    *  one real reading it never got; the answer it writes back is a real state and the row is done. */
   const due = (r: ShippedChangeRecord): boolean => {

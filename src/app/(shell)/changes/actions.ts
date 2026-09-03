@@ -32,6 +32,10 @@ function shippedVersionOf(p: ChangeProposal, appliedIds: readonly string[]): str
   return createHash("sha256").update(JSON.stringify(material)).digest("hex").slice(0, 16);
 }
 
+/** THE WORDS THAT HAVE TO END UP ON THE LINK, carried the same way by whichever door records the press. The live check reads a link on BOTH its address and its words, and a shipment that hands it only the address is confirmed by any link to that page under any wording at all, which is not the change that was asked for. The piece's own typed words win; a link piece that carries none takes the ones typed on the change itself, and nothing is stamped on a kind the live check would not read it off. */
+const LINK_KIND: ReadonlySet<string> = new Set(["internal_link_add", "internal_links", "anchor_text"]);
+const anchorFor = (p: ChangeProposal, kind: string, own?: string | null): { anchorAfter?: string } => { const c = p.recommendedChange, words = (!LINK_KIND.has(kind) ? "" : (own ?? (c.kind === "existing_edit" ? c.anchorText : null)) ?? "").trim(); return words ? { anchorAfter: words } : {}; };
+
 /** WHERE THE NEW PAGE ACTUALLY LIVES. A page that did not exist has no address until the operator publishes it, so a new-page change marked done with no address left verification fetching the page LABEL as if it were a website. The address is owed, and it has to be one I can keep reading: on their own site, secure, and one plain page address with no query, because a tracking link is not the page. */
 function liveUrlFor(raw: string, domain: string): { url: string } | { error: string } {
   const site = domain.trim().toLowerCase().replace(/^www\./, "");
@@ -96,18 +100,16 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
     const version = shippedVersionOf(proposal, fresh);
     // Every component unless the operator named the ones they applied; an atomic change has no bundle, so the change itself is its one component. THE EXACT COPY TRAVELS, because verifying is comparing what was proposed against what is on the page. THE RISK GRADE TRAVELS TOO: measurement saw only the kind, so a dangerous grade on an ordinary kind lost its day-56 follow up.
     const all = proposal.bundle?.components.map((c, i) => ({ id: componentIdOf(c, i), kind: c.kind, label: c.label, after: c.after ?? null, risk: c.risk ?? null,
-      // A renamed link is verified against the words that should now be ON it, so those words ride along.
-      ...(c.anchorAfter ? { anchorAfter: c.anchorAfter } : {}),
-      // AND A FORWARD RIDES WITH ITS DESTINATION. Without it the live check read the first address out of the sentence, which is the one being MOVED, and graded a correct forward as a wrong one.
-      ...(c.redirectTo ? { redirectTo: c.redirectTo } : {}) }))
+      // A LINK RIDES WITH ITS WORDS AND A FORWARD WITH ITS DESTINATION. Without the destination the live check read the first address out of the sentence, which is the one being MOVED, and graded a correct forward as a wrong one.
+      ...anchorFor(proposal, c.kind, c.anchorAfter), ...(c.redirectTo ? { redirectTo: c.redirectTo } : {}) }))
       // An atomic change has no component to carry a grade, so it reads null rather than a guess.
       ?? [((c) => c?.kind === "existing_edit" && c.linkTo
         // AN ATOMIC LINK IS VERIFIED AS A LINK (operator, 2026-09-01): shipped as its field family it was read as a section and nineteen of them could never be confirmed. The destination rides in the address slot the live check reads and the anchor in the words slot.
-        ? { id: null, kind: "internal_link_add", label: proposal.opportunityType, after: c.after, risk: null, redirectTo: c.linkTo, ...(c.anchorText ? { anchorAfter: c.anchorText } : {}) }
+        ? { id: null, kind: "internal_link_add", label: proposal.opportunityType, after: c.after, risk: null, redirectTo: c.linkTo, ...anchorFor(proposal, "internal_link_add") }
         // AND STRUCTURED DATA IS VERIFIED AS STRUCTURED DATA, by the same rule: a block shipped as its field family is read as a section, and no heading on the page will ever match a JSON-LD block. Whether it ADDS a block or REPLACES the one that was there is decided here, off the change's own before, because only a replacement can be told from a page that already had one.
         : c?.kind === "existing_edit" && c.field === "schema"
           ? { id: null, kind: c.before ? "schema_replace" : "schema_add", label: proposal.opportunityType, after: c.after, before: c.before, risk: null }
-          : { id: null, kind: proposal.changeFamily, label: proposal.opportunityType, after: c?.kind === "existing_edit" ? c.after : null, risk: null })(proposal.recommendedChange)];
+          : { id: null, kind: proposal.changeFamily, label: proposal.opportunityType, after: c?.kind === "existing_edit" ? c.after : null, risk: null, ...anchorFor(proposal, proposal.changeFamily) })(proposal.recommendedChange)];
     const componentsApplied = bundleIds.length > 0 ? all.filter((c) => c.id != null && covers(fresh, c.id)) : all;
 
     // The page as Beacon already holds it: canonical URL, path and the content hash from the last crawl, nothing fetched. THE OPERATOR'S OWN ADDRESS WINS for a new page: it is the only one that exists.
