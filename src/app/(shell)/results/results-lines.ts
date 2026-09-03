@@ -13,7 +13,7 @@ import { groupOf, landsLabel, nextCloseOn, type ResultsGroup, type ShipmentPrese
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const cap = (s: string): string => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
 const signed = (n: number): string => `${n > 0 ? "+" : n < 0 ? "-" : ""}${num(Math.abs(n))}`;
-const isMature = (d: number | null): boolean => kernelIsMature(d as 7 | 14 | 28 | 56 | null);
+const isMature = (d: number | null): boolean => kernelIsMature(d as 7 | 14 | 28 | 56 | null), countsForLearning = (d: number | null): boolean => d != null && d >= 14; // TWO DIFFERENT QUESTIONS SINCE 2026-09-03: what the engine may learn from is a window closed at 14 days or beyond (treatment-learning), and what may be called a win is still the 28 day read alone.
 
 /** What the change actually was, said the way an operator would say it. */
 const WORK_LABEL: Record<string, string> = {
@@ -297,8 +297,8 @@ function taughtLine(p: ShipmentPresentation): string {
   const family = /schema|json.?ld|structured/i.test(r.actionType) ? "a structured data change" : FAMILY_LABEL[l.actionFamily];
   const cause = l.diagnosisCause ? CAUSE_LABEL[l.diagnosisCause] : undefined;
   const ai = judgedOnAi(p) ? aiMove(p) : null;
-  // SETTLED MEANS WHAT TRAINS: treatment-learning learns only from a closed 28 day window with a nonzero read, so a 7 day lean or a level read carries nothing forward.
-  const settled = judgedOnAi(p) ? ai != null : !!l.outcomeDirection && l.outcomeDirection !== "unclear" && kernelIsMature(r.basisDay as 7 | 14 | 28 | 56 | null) && r.lift !== 0;
+  // SETTLED MEANS WHAT TRAINS: treatment-learning takes a closed 14 day window with a nonzero read, so the first reading carries forward on day 14 and a 7 day lean or a level read still carries nothing. The win itself is called at 28 and nowhere earlier. BLIND is the reading measured against the site's own movement: too few untouched pages matched, and on a day a whole family ships that comparison subtracts the shared gain from itself, so treatment-learning refuses it however long it ran and this row may not promise otherwise.
+  const blind = !judgedOnAi(p) && r.comparison === "site", settled = judgedOnAi(p) ? ai != null : !blind && !!l.outcomeDirection && l.outcomeDirection !== "unclear" && countsForLearning(r.basisDay) && r.lift !== 0;
   const moved = judgedOnAi(p)
     ? (ai ? `${aiStory(p)[2]} ${AI_MOVE[ai]}` : "it is too early to say which way this went")
     : l.outcomeDirection === "up" ? "the page moved up after it"
@@ -309,11 +309,11 @@ function taughtLine(p: ShipmentPresentation): string {
   if (cause) parts.push(`this page read as ${cause}`);
   if (family) parts.push(`it was answered with ${family}`);
   parts.push(moved);
-  // NOTHING IS CARRIED FORWARD FROM A READ THAT HAS NOT LANDED, AND NOTHING TRAINS FROM A CHANGE NEVER CONFIRMED ON THE LIVE
-  // PAGE: the kernel learns only from live-confirmed changes, so a row may not promise otherwise (Results Brain, 2026-09-01).
-  const carried = !settled ? "Nothing carries forward from this one until it settles."
-    : liveConfirmed(p) ? "That carries into what gets recommended next on pages like this one."
-      : "Context only: a read never confirmed on the live page does not shape what gets recommended.";
+  // NOTHING IS CARRIED FORWARD FROM A READ THAT HAS NOT LANDED, AND NOTHING TRAINS FROM A CHANGE NEVER CONFIRMED ON THE LIVE PAGE: the kernel learns only from live-confirmed changes, so a row may not promise otherwise (Results Brain, 2026-09-01). A blind read is named first, because "until it settles" would promise a lesson that is never coming.
+  const carried = blind ? "Nothing is learned from this one. Too few untouched pages matched it, so the comparison was the rest of the site, and that cannot tell a gain this change made from one the whole site shared."
+    : !settled ? (judgedOnAi(p) || countsForLearning(r.basisDay) ? "Nothing carries forward from this one until it settles." : "Nothing carries forward from this one until the 14 day reading lands.")
+      : !liveConfirmed(p) ? "Context only: a read never confirmed on the live page does not shape what gets recommended."
+        : `That carries into what gets recommended next on pages like this one.${judgedOnAi(p) || isMature(r.basisDay) ? "" : " A win is only called at 28 days."}`;
   const backing = typeof l.evidenceCompleteness === "number" && l.evidenceCompleteness > 0
     ? `Backed by ${l.evidenceCompleteness} check${l.evidenceCompleteness === 1 ? "" : "s"}.`
     : "Read once so far.";

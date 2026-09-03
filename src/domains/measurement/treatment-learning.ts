@@ -39,12 +39,12 @@ export type TreatmentGroup = {
    *  shared with a later change on the same page, are both inconclusive: neither is a result this kind of work may claim. */
   ahead: number; behind: number; inconclusive: number;
   /** Rows from before live verification existed: shown as history, never counted as verified and never taught from. */ legacy: number;
-  /** How many finished readings are behind the two numbers below. Never the number shipped. */
+  /** How many finished readings are behind the two numbers below. Never the number shipped. A window closed at 14 days is one of them. */
   sampleSize: number;
   /** The measured clicks these readings moved against comparable pages, summed and at the middle. Null with no finished reading at all: an
    *  average of nothing is not zero. */
   netEffect: number; medianEffect: number | null;
-  /** Under five finished readings this is a story and not a measurement, and the consumer has to say so. */
+  /** Under five readings that have run the full 28 days this is a story and not a measurement, and the consumer has to say so. A reading closed at 14 days moves the numbers above and never clears this: an early lean is not a result. */
   early: boolean;
   /** Of the finished readings, how many landed on a page that was already carrying other changes of theirs. The number still stands; what it
    *  cannot claim is that one edit caused all of it. */
@@ -53,14 +53,14 @@ export type TreatmentGroup = {
 
 /** The one group for rows whose own record does not say what kind of work they were. */
 const UNSIGNED = "unsigned";
-/** A reading only counts once its window has closed at or past the longest reading Beacon takes. */
-const SETTLED_WINDOW_DAYS = 28;
+/** A READING COUNTS ONCE ITS WINDOW HAS CLOSED AT THE FIRST REAL CHECKPOINT, AND A WIN IS STILL ONLY CALLED AT THE LAST (operator, 2026-09-03): waiting for 28 days meant this engine learned nothing from one month's shipments in time to aim the next month's, so a wave of edits could never inform the wave behind it. Fourteen days of closed, comparison-backed data is a reading and enters the numbers; it is not a verdict, which is why the group stays early until five readings have run the full 28. */
+const FIRST_READING_DAYS = 14, MATURE_WINDOW_DAYS = 28;
 /** A SHIPMENT WHOSE RECORDED WORDING STILL CARRIES BLANKS IS NOT WHAT WENT LIVE: two pages hold "population of NUMBER as of YEAR (SOURCE)" on
  *  the ledger while the live pages hold real figures the operator typed, so the stored copy is a template and it votes on nothing. */
 const TEMPLATE_BLANKS = /\[[^\]]*\]|_{3,}|\b(?:NUMBER|YEAR|SOURCE|TBD|XXX+)\b/;
 /** The only two answers that mean the change was really found on the page. A claim, a note and a legacy override row are all "not read yet". */
 const CONFIRMED: ReadonlySet<string> = new Set(["verified", "partially_verified"]);
-/** Finished readings before a group stops being early. Five is the smallest sample at which a median is not simply the loudest reading. */
+/** Readings that have run the full 28 days before a group stops being early. Five is the smallest sample at which a median is not simply the loudest reading, and a 14 day reading is not one of the five. */
 const EARLY_UNDER = 5;
 /** HOW HARD A SMALL SAMPLE IS PULLED TOWARDS NOTHING before it may order anything, which is what the ranking's own comment demands of this
  *  input: n/(n+5) hands over a sixth of the record at one reading, half of it at five, and converges on the whole of it as readings pile up.
@@ -74,15 +74,15 @@ function medianOf(xs: readonly number[]): number | null {
   return s.length % 2 === 1 ? s[m]! : Math.round((s[m - 1]! + s[m]!) / 2);
 }
 
-/** THE ONE FINISHED READING on a row, in clicks against comparable pages, or null. Longest window wins, and it has to have actually run, have
- *  had real comparison pages behind it, and have closed at or past the horizon. Same rule the ranking has always read, kept identical on
- *  purpose: this file changes WHAT is grouped, never what counts as a reading. */
-function settledLift(r: LearningRow): number | null {
+/** THE ONE FINISHED READING on a row, in clicks against comparable pages, with the day it closed on, or null. Longest window wins, so a row whose
+ *  28 day window has since closed is read at 28 and never counted twice, and it still has to have actually run, have had real comparison pages
+ *  behind it, and have closed at or past the first checkpoint. A READING TAKEN AGAINST THE SITE'S OWN MOVEMENT IS REFUSED HERE whatever day it closed on (reviewer, 2026-09-03): too few untouched pages matched, so on the very day a whole family ships at once that comparison subtracts the shared gain from itself and reports that nothing moved. Learning from it would teach this engine that the work does nothing, when what happened is that the comparison went blind. It still renders on its own row. The DAY rides out too: one reading owes the caller two answers, whether it may move the numbers and whether it may end the early standing. */
+function settledLift(r: LearningRow): { lift: number; day: number } | null {
   if (TEMPLATE_BLANKS.test(r.after ?? "")) return null;
   const w = [...(r.windows ?? [])]
-    .filter((x) => x.ran && (x.controlsUsed ?? 0) > 0 && x.adjustedLift != null && x.day >= SETTLED_WINDOW_DAYS)
+    .filter((x) => x.ran && (x.controlsUsed ?? 0) > 0 && x.adjustedLift != null && x.comparedToSite !== true && x.day >= FIRST_READING_DAYS)
     .sort((a, b) => b.day - a.day)[0];
-  return w ? Math.round(w.adjustedLift) : null;
+  return w ? { lift: Math.round(w.adjustedLift), day: w.day } : null;
 }
 
 /** Whether this row's reading may count at all. See the header: an unverified Shipment is a claim, and a row with no stamp was never owed a
@@ -108,7 +108,7 @@ export function signatureOfShipment(r: LearningRow): TreatmentSignature | null {
  * finished reading reaches the effect numbers. Groups come back in the order their first row appeared, so the caller decides the ordering.
  */
 export function treatmentLearning(rows: readonly LearningRow[]): TreatmentGroup[] {
-  type Acc = Omit<TreatmentGroup, "key" | "sampleSize" | "netEffect" | "medianEffect" | "early"> & { effects: number[] };
+  type Acc = Omit<TreatmentGroup, "key" | "sampleSize" | "netEffect" | "medianEffect" | "early"> & { effects: number[]; mature: number };
   const acc = new Map<string, Acc>();
   for (const r of rows) {
     const sig = signatureOfShipment(r);
@@ -117,19 +117,19 @@ export function treatmentLearning(rows: readonly LearningRow[]): TreatmentGroup[
     const family = sig ? actionFamilyOf(sig.family) : null;
     const key = family == null ? UNSIGNED : `${family}::${sig!.treatment ?? ""}`;
     const g = acc.get(key)
-      ?? { family, treatment: sig?.treatment ?? null, shipped: 0, verified: 0, legacy: 0, ahead: 0, behind: 0, inconclusive: 0, overlapping: 0, effects: [] };
+      ?? { family, treatment: sig?.treatment ?? null, shipped: 0, verified: 0, legacy: 0, ahead: 0, behind: 0, inconclusive: 0, overlapping: 0, effects: [], mature: 0 };
     g.shipped += 1;
     // A LEGACY ROW IS HISTORY, NEVER A TEACHER (operator, 2026-08-30): rows from before live verification existed were counting as verified and training rank. They keep their own honestly labelled count and touch nothing else.
     if (r.implementedAt == null) { g.legacy += 1; acc.set(key, g); continue; }
     if (!CONFIRMED.has(r.verification?.status ?? "")) { acc.set(key, g); continue; }
     g.verified += 1;
-    const lift = settledLift(r);
-    if (lift != null) {
+    const read = settledLift(r);
+    if (read != null) {
       if ((r.treatmentStamp?.overlapAtShip ?? 0) > 0) g.overlapping += 1;
       // MUTED AND ZERO READINGS ARE HISTORY, NEVER SAMPLES (operator, 2026-08-30): an operator's inconclusive pin, a confounded frozen reading, and a clean no-movement each increment the visible count and enter NO effect, sample, median, or family history. They used to be pushed into effects first and excluded only from the direction tally, so three confounded readings could still swing a treatment's net.
       const muted = r.operatorVerdictOverride === "inconclusive" || r.pinnedRead?.verdict === "confounded";
-      if (muted || lift === 0) g.inconclusive += 1;
-      else { g.effects.push(lift); if (lift > 0) g.ahead += 1; else g.behind += 1; }
+      if (muted || read.lift === 0) g.inconclusive += 1;
+      else { g.effects.push(read.lift); if (read.day >= MATURE_WINDOW_DAYS) g.mature += 1; if (read.lift > 0) g.ahead += 1; else g.behind += 1; }
     }
     acc.set(key, g);
   }
@@ -137,7 +137,7 @@ export function treatmentLearning(rows: readonly LearningRow[]): TreatmentGroup[
     key, family: g.family, treatment: g.treatment, shipped: g.shipped, verified: g.verified, legacy: g.legacy,
     ahead: g.ahead, behind: g.behind, inconclusive: g.inconclusive, overlapping: g.overlapping,
     sampleSize: g.effects.length, netEffect: g.effects.reduce((a, b) => a + b, 0), medianEffect: medianOf(g.effects),
-    early: g.effects.length < EARLY_UNDER,
+    early: g.mature < EARLY_UNDER,
   }));
 }
 

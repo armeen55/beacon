@@ -69,7 +69,7 @@ const direction = (p: ShipmentPresentation): "ahead" | "behind" | null => {
 
 function thoughtOf(family: string | null, rows: ShipmentPresentation[], now: Date, edges: string[]): Thought {
   const states = rows.map(rowState), count = (s: ResultState) => states.filter((x) => x === s).length;
-  const verified = rows.filter((p) => rowState(p) === "verified_early" && !judgedOnAi(p));
+  const finished = (p: ShipmentPresentation): boolean => rowState(p) === "verified_early" && !judgedOnAi(p), verified = rows.filter((p) => finished(p) && p.read.comparison !== "site"), blind = rows.filter((p) => finished(p) && p.read.comparison === "site").length; // A READING AGAINST THE SITE'S OWN MOVEMENT SIZES NO BELIEF (reviewer, 2026-09-03): treatment-learning refuses it, so counting it here would have the Brain claim a signal off readings the engine will not learn from. It is named below instead.
   const ahead = verified.filter((p) => direction(p) === "ahead").length, behind = verified.length - ahead, agree = Math.max(ahead, behind);
   // ONE UNIT AT A TIME: a title is read on click rate, a section on clicks, a link on position. Reads are counted by direction across
   // units and sized only inside the unit most of them share.
@@ -86,13 +86,13 @@ function thoughtOf(family: string | null, rows: ShipmentPresentation[], now: Dat
   const belief = confidence === "pattern" ? `${name} have finished ${ahead >= behind ? "ahead" : "behind"} in ${agree} of ${plural(verified.length, "verified read")}${typical && typical !== "Level" ? `, typically ${typical.replace(/ (ahead|behind)$/, "")} against pages that were not changed` : ""}. Consistent so far, not proof.`
     : confidence === "mixed" ? `${name} point both ways: ${ahead} verified ${ahead === 1 ? "read" : "reads"} ahead, ${behind} behind. No record is claimed.`
     : confidence === "early" ? `${name}: ${plural(verified.length, "verified read")} so far, ${ahead} ahead and ${behind} behind${typical ? `, ${typical} at the middle` : ""}. A signal, not yet a record.`
+    : blind > 0 ? `${name}: ${plural(blind, "finished reading")} that could not be compared. Too few untouched pages matched, so nothing is learned from ${blind === 1 ? "it" : "them"} yet.`
     : historical > 0 ? `${name}: no live-verified reading yet. ${plural(historical, "historical read")} ${historical === 1 ? "gives" : "give"} context only.`
-    : inFlight > 0 ? `${name}: no finished reading yet. ${plural(inFlight, "change")} confirmed live and still being read.`
-    : `${name}: nothing verified on the live page yet.`;
+    : inFlight > 0 ? `${name}: no finished reading yet. ${plural(inFlight, "change")} confirmed live and still being read.` : `${name}: nothing verified on the live page yet.`;
   const limits = [...(overlapping > 0 ? [`${plural(overlapping, "reading")} ${overlapping === 1 ? "was" : "were"} taken beside other changes on the same page, so no single edit gets all the credit.`] : []),
     ...(count("waiting_verification") > 0 ? [`${plural(count("waiting_verification"), "reading")} cannot teach: the change was not confirmed on the live page.`] : []),
     ...(historical > 0 ? [`${plural(historical, "historical read")} predate live verification and never train recommendations.`] : []),
-    ...(count("confounded") > 0 ? [`${plural(count("confounded"), "reading")} shared ${count("confounded") === 1 ? "its" : "their"} days with a later change and cannot be separated.`] : [])];
+    ...(count("confounded") > 0 ? [`${plural(count("confounded"), "reading")} shared ${count("confounded") === 1 ? "its" : "their"} days with a later change and cannot be separated.`] : []), ...(blind > 0 ? [`${plural(blind, "reading")} stood against the rest of the site because too few untouched pages matched, so ${blind === 1 ? "it teaches" : "they teach"} nothing.`] : [])];
   const owed = Math.max(0, CONSISTENT_MIN - verified.length);
   const agreement = verified.length + level === 0 ? null : `${agree} of ${plural(verified.length, "directional verified read")} point the same way${level > 0 ? `, and ${plural(level, "finished verified read")} moved nothing` : ""}. A small sample from one site: ${confidence === "pattern" ? "consistent, not proven" : confidence === "mixed" ? "split, and a split this small can still be noise" : "too few to call a record"}.`;
   const changeMind = confidence === "pattern" ? `Verified reads finishing the other way would turn this back into a split record.`
