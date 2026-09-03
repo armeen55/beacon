@@ -5,7 +5,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
 import { recordFactChecks, recordOwedClaims, reopenObsoleteChecks, supersedeStaleFacts, statementKeyOf,
-  rulesVersionFor, unauthorizedReason, type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
+  MISSING_ANSWER_RULES_VERSION, rulesVersionFor, unauthorizedReason, type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
 import { SUPPORT_ARTIFACT_VERSION, supportIdentity, supportFailure, unsupportedArtifact, deriveSupport, claimTypeOf, AUTHORITATIVE_KIND as AUTHORITATIVE, type ClaimSupport, type ClaimType, type SupportContext } from "./claim-support";
 export { claimTypeOf } from "./claim-support";
 
@@ -211,7 +211,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     inventory = inventory.map((h) => (obsolete.includes(h) ? { ...h, state: "owed" as const, rulesVersion: rulesVersionFor(h) } : h));}
   // THE SEEDED PROPOSITION IS RESEARCHED FIRST. A row whose locator is `missing` exists only because an acquisition seeded it for a funded candidate that was refused for lacking exactly that fact, so it outranks
   // rotation over the page's own existing statements: without this the pass spent its budget re-checking claims the page already makes and reported the reading as acquired, while the writer had nothing new to cite.
-  const seededFirst = (rows: typeof inventory) => [...rows].sort((a, b) => (b.pageLocator === "missing" ? 1 : 0) - (a.pageLocator === "missing" ? 1 : 0));
+  const waiting = (h: FactCheck): boolean => h.pageLocator === "missing" || rulesVersionFor(h) === MISSING_ANSWER_RULES_VERSION, seededFirst = (rows: typeof inventory) => [...rows].sort((a, b) => (waiting(b) ? 1 : 0) - (waiting(a) ? 1 : 0)); // and a question this page does not answer outranks its inventory whatever its locator says, because a reopened row keeps the locator it was banked with
   let owed = seededFirst(inventory.filter((h) => h.state === "owed"));
   if (cov.coveredChars < cov.totalChars) {
     // EXTRACT THE NEXT SECTION, WHATEVER IS ALREADY OWED. Waiting for the owed queue to empty is a deadlock: a another character. Live: rules v4 re-opened 21 claims, the queue stood at 33, and eighteen passes left coverage at 0 of 11,589 while ~160 entries were neither owed nor checked. Extraction is what gives an entry a disposition at all and costs about two cents a section, so it no longer queues behind research.

@@ -447,10 +447,11 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
       const coverage = new Map<string, number>();
       for (const h of held) coverage.set(h.page, Math.min(coverage.get(h.page) ?? Infinity, Date.parse(h.checkedAt) || 0));
       // FINISH WHAT IS ALREADY BOUGHT FIRST: a page holding owed claims outranks an unopened one. THEN DEMAND OUTRANKS ROTATION (operator, 2026-08-30): the wave spent most of its $0.60 judging low-value claims because oldest-coverage rotation came before audience, so the audience the account actually has decides next and rotation only breaks the tie. Nothing is dropped: every owed claim stays owed and typed exhaustion still reaches the tail. A NAMED TARGET OUTRANKS EVERYTHING: an acquisition runs for one page's owed claims.
-      const owedPage = new Set(held.filter((h) => h.state === "owed").map((h) => h.page));
+      const owedPage = new Set(held.filter((h) => h.state === "owed").map((h) => h.page)), askedPage = new Set(held.filter((h) => h.state === "owed" && facts.rulesVersionFor(h) === facts.MISSING_ANSWER_RULES_VERSION).map((h) => h.page)); // A MISSING ANSWER IS A CUSTOMER WAITING FOR AN ANSWER BLOCK, INVENTORY IS THE PAGE TALKING TO ITSELF (live, 0c2059ec): three question rows reopened and the drive spent every unit on one hub's "Quick Facts" claims, because holding owed claims at all was the whole tie-break.
       const want = firstPage ? pathOf(firstPage) : null, named = (u: string): number => (want != null && pathOf(u) === want ? 1 : 0);
       const ranked = [...snapshot.ownedPages]
         .sort((a, b) => named(b.url) - named(a.url)
+          || (askedPage.has(pathOf(b.url)) ? 1 : 0) - (askedPage.has(pathOf(a.url)) ? 1 : 0)
           || (owedPage.has(pathOf(b.url)) ? 1 : 0) - (owedPage.has(pathOf(a.url)) ? 1 : 0)
           || (b.search?.impressions90d ?? 0) - (a.search?.impressions90d ?? 0)
           || (coverage.get(pathOf(a.url)) ?? -1) - (coverage.get(pathOf(b.url)) ?? -1));
@@ -505,18 +506,17 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
           return text.trim() ? { text, title: parsed?.title ?? null } : { hold: "refused" as const }; // the FETCHED document's own title rides along: it identifies the subject of an anaphoric passage, which a SERP title or slug never can
         },
       });
-      // AND THE SUPPORT ARTIFACT EVERY BANKED SOURCE OWES, DERIVED AT $0 AND BOUNDED PER DRIVE. Nothing in the runtime ever ran this, so 1,023 of 1,194 banked sources carry no artifact at all and not one of the rows they
-      // back may be spent on a correction: evidence this account already paid for, sitting unusable. Deterministic derivation from the quote ALREADY ON FILE only, so no search, no fetch and no cent; a claim its own
+      // AND THE SUPPORT ARTIFACT EVERY BANKED SOURCE OWES, DERIVED AT $0 AND BOUNDED PER DRIVE. Nothing in the runtime ever ran this, so 1,023 of 1,194 banked sources carry no artifact at all and not one of the rows they back may be spent on a correction: evidence this account already paid for, sitting unusable. Deterministic derivation from the quote ALREADY ON FILE only, so no search, no fetch and no cent; a claim its own
       // quote genuinely cannot carry is banked unsupported with its reason rather than reopened, because reopening buys fresh research and this is the free half. Fail-soft: it never decides the phase's own answer.
       const owedSupport = held.filter((h) => h.state === "checked" && h.sources.some((s) => s.says.trim() !== "" && s.support == null)).slice(0, SUPPORT_BACKFILL_PER_DRIVE);
       // AND THE MISSING-INFORMATION ROWS WHOSE ARTIFACTS WERE JUDGED BY THE HEADWORD RULE. A row that corrects nothing is supported by PROPOSITION CARRIAGE, so its banked artifacts were decided under a question that never applied to it and are stale by identity; they are re-derived here at $0, and a row still below confirmed is handed back to the fact pass once so the proposition rule may settle it. Its own slice, so this never crowds out the rows that carry no artifact at all.
-      const gap = (h: (typeof held)[number]): boolean => h.current.trim() === "" && !!h.proposed?.trim();
+      const gap = (h: (typeof held)[number]): boolean => h.current.trim() === "" && !!h.proposed?.trim(), stale = (h: (typeof held)[number]): boolean => h.current.trim() === "" && h.rulesVersion !== facts.rulesVersionFor(h);
       const gapSupport = held.filter((h) => h.state === "checked" && gap(h) && !owedSupport.includes(h)
         && h.sources.some((s) => s.says.trim() !== "" && s.support != null)).slice(0, SUPPORT_BACKFILL_PER_DRIVE);
       // AND THE MISSING-ANSWER ROWS JUDGED UNDER RULES SINCE REPLACED FOR THEIR SHAPE. A question the page does not answer is judged under rules of its own now, and nothing else re-judges a row already checked: the artifacts above are current, the unit's own sweep waits for the page to come up by cursor, and the seed reads the row as satisfied. Its own slice, bounded like the others, and every row it feeds is reopened at $0 for one paid re-research at its turn.
-      const rulesMoved = held.filter((h) => h.state === "checked" && h.current.trim() === "" && h.rulesVersion !== facts.rulesVersionFor(h) && !owedSupport.includes(h) && !gapSupport.includes(h)).slice(0, SUPPORT_BACKFILL_PER_DRIVE);
+      const rulesMoved = held.filter((h) => h.state === "checked" && stale(h) && !owedSupport.includes(h) && !gapSupport.includes(h)).slice(0, SUPPORT_BACKFILL_PER_DRIVE);
       const targets = [...owedSupport, ...gapSupport, ...rulesMoved].map((h) => ({ page: h.page, statementKey: h.statementKey,
-        onUnsupported: gap(h) && h.confidence !== "confirmed" ? "reopen" as const : "bank" as const, ...(rulesMoved.includes(h) ? { rulesStale: true } : {}) }));
+        onUnsupported: gap(h) && h.confidence !== "confirmed" ? "reopen" as const : "bank" as const, ...(stale(h) ? { rulesStale: true } : {}) })); // THE FLAG IS THE ROW'S OWN, NEVER THE SLICE IT ARRIVED IN (live, 0c2059ec): the flag row carries two current artifacts, so slice 2 took it, reported already_current and the third slice then subtracted it for ever. Every selected row is asked the same question.
       if (targets.length > 0 && Date.now() < deadlineAt) {
         const { backfillClaimSupport } = await import("@/domains/evidence/pages/claim-support");
         const page = new Map<string, ReturnType<typeof facts.readFactChecks>>(); // one read per PAGE, not per claim: a page's rows answer every target on it
