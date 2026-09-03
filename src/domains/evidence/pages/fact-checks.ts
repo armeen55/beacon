@@ -15,7 +15,7 @@ import "server-only";
  *  IS PART OF THE FACT TOO: `pageContentHash` is what tells a corrected statement from an untouched one. */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { AUTHORITATIVE_KIND, GLOSS_STOP, supportShortfall } from "./claim-support";
+import { asksAQuestion, AUTHORITATIVE_KIND, GLOSS_STOP, supportShortfall } from "./claim-support";
 import type { ClaimSupport } from "./claim-support";
 import { log } from "@/lib/logger";
 
@@ -31,18 +31,11 @@ export type SourceKind = "scholarly" | "dictionary" | "encyclopedia" | "referenc
  *  it yet. `checked` = researched at this version. `superseded` = history, kept, never deleted, never work. */
 type ClaimState = "owed" | "checked" | "superseded";
 
-/** WHICH RULES PRODUCED A VERDICT. Version 1 is everything researched before 2026-08-18: it searched the
- *  SUBJECT alone, and it banked `checked` on sources it never managed to read. Version 2 searches the whole
- *  proposition and leaves an unread source owed. A row from an older version is not current evidence, so
- *  Decision may not act on it and the engine owes the claim again (Codex, 2026-08-18). Null reads as 1.
- *  VERSION 4 ASKS WHAT THE SOURCE WAS ABOUT. Versions 1 to 3 proved a quote was really in the passage they read
- *  and never once asked whether that passage was about the same subject, so a quote proving the source SAID it
- *  was taken as proof it said it about THIS name. Live, that banked Cambridge's thesaurus entry for the English
- *  word "alluring" as confirmation of a Persian name, the OED on "dream" and on "reliable" for two more,
- *  Wikipedia's Slavic "Daria" as the meaning of Persian darya, and one page cited as its own source. Version 4
- *  also requires that the words a correction proposes are carried by a passage somebody actually read. So every
- *  verdict from an earlier version is an unasked question rather than a finding, and its claim is owed again. */
-export const VERIFICATION_RULES_VERSION = 4;
+/** WHICH RULES PRODUCED A VERDICT, AND THERE ARE TWO SETS OF THEM. Version 1 searched the SUBJECT alone and banked `checked` on sources nobody read; version 2 searches the whole proposition; version 4 asks what the source was ABOUT, because versions 1 to 3 proved a quote was really in the passage they read and never once asked whether that passage was about the same subject, which live banked Cambridge on the English word "alluring", the OED on "dream" and Wikipedia's Slavic "Daria" as the meanings of Persian names, and version 4 also requires that the words a correction proposes are carried by a passage somebody actually read. A verdict from an earlier version is an unasked question rather than a finding: Decision may not act on it and the engine owes the claim again (Codex, 2026-08-18). Null reads as 1.
+ *  AND A QUESTION THE PAGE DOES NOT ANSWER IS JUDGED UNDER RULES OF ITS OWN (reviewer, 2026-09-02). Version 5 is the prompt that names the page's own subject and the door that authorizes such a row on `page_correct` alone; before it, "are there cobras in iran" banked "Iran has AH-1 Cobra attack helicopters." as confirmed and the door let it through. Moving the one version would have owed all 974 checked rows on the account a paid unit each, so the rules a row is judged under follow its SHAPE: a question with no current wording is judged under 5, every other row under 4, unchanged. This is the one function that says which, asked wherever a version is stamped or compared. */
+export const VERIFICATION_RULES_VERSION = 4, MISSING_ANSWER_RULES_VERSION = 5,
+  rulesVersionFor = (c: { subject: string; current: string }): number =>
+    c.current.trim() === "" && asksAQuestion(c.subject) ? MISSING_ANSWER_RULES_VERSION : VERIFICATION_RULES_VERSION;
 
 export type FactCheck = {
   page: string;
@@ -149,7 +142,7 @@ export async function recordFactChecks(tenantId: string, page: string, checks: r
     sources: c.sources, agreement: c.agreement, confidence: c.confidence, verdict: c.verdict,
     also_at: c.alsoAt, note: c.note.slice(0, 800), evidence_basis: c.evidenceBasis,
     page_locator: c.pageLocator, source_read_at: c.sourceReadAt, claim_state: c.state ?? "checked", superseded_at: null,
-    rules_version: c.rulesVersion ?? VERIFICATION_RULES_VERSION,
+    rules_version: c.rulesVersion ?? rulesVersionFor(c),
     checked_at: c.checkedAt || new Date().toISOString(), updated_at: new Date().toISOString(),
   }));
   if (rows.length === 0) return 0;
@@ -182,7 +175,7 @@ export async function recordOwedClaims(tenantId: string, page: string,
     subject: c.subject.trim(), current_wording: c.current, page_locator: c.locator,
     sources: [], agreement: "none_found", confidence: "unsupported", verdict: "undecidable",
     also_at: [], note: "Owed: this page version makes this claim and no source has been read for it yet.",
-    evidence_basis: evidenceBasis, claim_state: "owed", rules_version: VERIFICATION_RULES_VERSION,
+    evidence_basis: evidenceBasis, claim_state: "owed", rules_version: rulesVersionFor(c),
     checked_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   }));
   if (rows.length === 0) return 0;
@@ -228,7 +221,7 @@ export async function reopenObsoleteChecks(tenantId: string, page: string, stale
     { tenant_id: tenantId, page_key: page, statement_key: g.statementKey, subject: g.subject,
       current_wording: g.current, proposed: null, sources: [], agreement: "none_found", confidence: "unsupported",
       verdict: "undecidable", page_content_hash: g.pageContentHash, page_locator: g.pageLocator,
-      source_read_at: null, evidence_basis: g.evidenceBasis, rules_version: VERIFICATION_RULES_VERSION,
+      source_read_at: null, evidence_basis: g.evidenceBasis, rules_version: rulesVersionFor(g),
       note: why ?? "Owed again: the rules that produced the earlier verdict were replaced.", // the caller names the rule that sent it back when the replaced rules are not the reason
       claim_state: "owed", superseded_at: null, checked_at: at, updated_at: at },
   ]);
@@ -341,8 +334,8 @@ export function unauthorizedReason(c: CorrectionCandidate): string | null {
   const qualified = c.sources.filter((s) => s.says.trim() !== "" && !HEDGED.test(s.says) && !definesOtherName(s.says, c.subject));
   const authoritative = qualified.filter((s) => AUTHORITATIVE_KIND.has(s.kind));
   if (authoritative.length === 0) return "no authoritative source that was read, is unhedged and is about this subject stands behind it";
-  // A ROW WITH NO CURRENT WORDING IS TESTED BY ITS VERDICT, AND HERE BY NOTHING ELSE (reviewer, 2026-09-02): it proposes what the page LACKS, so there is no quotation to grade, and the only thing that says the researched statement answers the question this page's own subject was researched for is `page_correct`. Live at 17:03 PDT on /iran-animals/persian-cobra: the sources were about AH-1 Cobra attack helicopters, the judge said exactly that and answered `undecidable`, and this door read the confirmed reading alone and authorized "Iran has AH-1 Cobra attack helicopters." as the missing fact for a page about a snake.
-  if (c.current.trim() === "" || !c.proposed?.trim()) return c.current.trim() === "" && c.verdict !== "page_correct" ? "the judge did not answer the question about this page's own subject, so the statement proposed is about something else" : null;
+  // A ROW WITH NO CURRENT WORDING IS TESTED BY ITS VERDICT, AND HERE BY NOTHING ELSE (reviewer, 2026-09-02): it proposes what the page LACKS, so there is no quotation to grade, and the only thing that says the researched statement answers the question this page's own subject was researched for is `page_correct`. Live at 17:03 PDT on /iran-animals/persian-cobra: the sources were about AH-1 Cobra attack helicopters, the judge said exactly that and answered `undecidable`, and this door read the confirmed reading alone and authorized "Iran has AH-1 Cobra attack helicopters." as the missing fact for a page about a snake. AND THE REFUSAL NAMES WHICH FAILURE IT IS: under `page_wrong` or `page_imprecise` the judge DID answer and returned a correction verdict for a question the page does not answer, so the sentence about a different subject is false there, and three live rows on /persian-female-first-names carry exactly that shape.
+  if (c.current.trim() === "" || !c.proposed?.trim()) return c.current.trim() === "" && c.verdict !== "page_correct" ? (c.verdict === "page_wrong" || c.verdict === "page_imprecise" ? "the judge returned a correction verdict for a question the page does not answer, so no statement is authorized" : "the judge did not answer the question about this page's own subject, so the statement proposed is about something else") : null;
   const quotes = authoritative.map((s) => s.says);
   if (!glossCarriedBy(c.proposed, quotes)) return "the authoritative quotes do not carry every word of the proposal, so part of the wording stands only on an ordinary source";
   if (citationOfQuote(c.proposed, quotes, c.current)) return "the proposal restates the source's own sentence instead of giving the page's line a meaning";
@@ -353,7 +346,7 @@ export function authorizedCorrections(checks: readonly FactCheck[],
   current: { pageContentHash: string | null; evidenceBasis?: string | null } | undefined,
   tenantId: string): FactCheck[] {
   return checks.filter((c) => c.state === "checked"
-    && c.rulesVersion === VERIFICATION_RULES_VERSION
+    && c.rulesVersion === rulesVersionFor(c)
     && c.confidence === "confirmed"
     // A CORRECTION corrects wording the page carries, so only a wrong or imprecise verdict authorizes one. A row
     // with NO current wording is the other authorized shape: information the page LACKS, researched by the

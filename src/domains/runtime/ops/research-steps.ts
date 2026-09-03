@@ -412,11 +412,11 @@ async function seedMissingProposition(tenantId: string, pageUrl: string, topic: 
   const hash = pageHashOf(body), key = claimIdentity(topic, "", "missing");
   // A ROW THE STALE SWEEP RETIRED IS REOPENED AT THE CURRENT VERSION, never insert-ignored into a lie: the seed's upsert used ignoreDuplicates, so a superseded row from an older page version blocked the insert, the seed still reported success, and the requirement re-minted every drive with no research ever happening (audit, 2026-08-26).
   const held = await facts.readFactChecks(tenantId, path).catch(() => [] as Awaited<ReturnType<typeof facts.readFactChecks>>);
-  const mine = held.find((h) => h.statementKey === key), astray = !!mine && mine.state === "checked" && mine.verdict === "undecidable" && !!mine.proposed?.trim(); // A CHECKED ROW HOLDING AN UNDECIDED STATEMENT ANSWERED A DIFFERENT SUBJECT (reviewer, 2026-09-02): live, "are there cobras in iran" came back "Iran has AH-1 Cobra attack helicopters." with the judge's own note saying the sources do not address snakes. ONCE: a re-researched row banks its statement only under `page_correct`, so this holds for rows banked before that rule and never again.
-  if (mine?.state === "checked" && mine.pageContentHash === hash && !astray) return true; // already researched at this version: the requirement is satisfied, not re-seeded
-  if (mine && (mine.state !== "owed" || mine.pageContentHash !== hash || astray)) {
-    const n0 = await facts.recordFactChecks(tenantId, path, [{ ...mine, state: "owed", pageContentHash: hash, evidenceBasis: basis,
-      note: astray ? "Reopened: the answer must be about this page's own subject." : "Reopened: the page moved to a new version and this missing proposition is owed again.", checkedAt: new Date().toISOString() }]).catch(() => 0);
+  const mine = held.find((h) => h.statementKey === key), astray = !!mine && mine.state === "checked" && mine.verdict === "undecidable" && !!mine.proposed?.trim(), rulesMoved = !!mine && mine.state === "checked" && mine.rulesVersion !== facts.rulesVersionFor(mine); // A CHECKED ROW HOLDING AN UNDECIDED STATEMENT ANSWERED A DIFFERENT SUBJECT (reviewer, 2026-09-02): live, "are there cobras in iran" came back "Iran has AH-1 Cobra attack helicopters." with the judge's own note saying the sources do not address snakes. ONCE: a re-researched row banks its statement only under `page_correct`, so this holds for rows banked before that rule and never again. AND A ROW JUDGED UNDER RULES SINCE REPLACED FOR ITS SHAPE IS NOT RESEARCHED AT THIS VERSION AT ALL: every question-shaped row checked before the rules that judge a missing answer moved reads as satisfied here, so nothing would ever re-judge it.
+  if (mine?.state === "checked" && mine.pageContentHash === hash && !astray && !rulesMoved) return true; // already researched at this version, under the rules its own shape is judged by: the requirement is satisfied, not re-seeded
+  if (mine && (mine.state !== "owed" || mine.pageContentHash !== hash || astray || rulesMoved)) {
+    const n0 = await facts.recordFactChecks(tenantId, path, [{ ...mine, state: "owed", rulesVersion: facts.rulesVersionFor(mine), pageContentHash: hash, evidenceBasis: basis, // the reopened row carries the version its shape is judged under, or the same rule would hand it back every drive
+      note: astray ? "Reopened: the answer must be about this page's own subject." : rulesMoved ? "Reopened: the rules that judge a missing answer changed." : "Reopened: the page moved to a new version and this missing proposition is owed again.", checkedAt: new Date().toISOString() }]).catch(() => 0);
     if (n0 <= 0) return false;
   } else if (!mine) {
     await facts.recordOwedClaims(tenantId, path, [{ statementKey: key, subject: topic, current: "", locator: "missing" }], hash, basis).catch(() => -1);
@@ -513,8 +513,10 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
       const gap = (h: (typeof held)[number]): boolean => h.current.trim() === "" && !!h.proposed?.trim();
       const gapSupport = held.filter((h) => h.state === "checked" && gap(h) && !owedSupport.includes(h)
         && h.sources.some((s) => s.says.trim() !== "" && s.support != null)).slice(0, SUPPORT_BACKFILL_PER_DRIVE);
-      const targets = [...owedSupport, ...gapSupport].map((h) => ({ page: h.page, statementKey: h.statementKey,
-        onUnsupported: gap(h) && h.confidence !== "confirmed" ? "reopen" as const : "bank" as const }));
+      // AND THE MISSING-ANSWER ROWS JUDGED UNDER RULES SINCE REPLACED FOR THEIR SHAPE. A question the page does not answer is judged under rules of its own now, and nothing else re-judges a row already checked: the artifacts above are current, the unit's own sweep waits for the page to come up by cursor, and the seed reads the row as satisfied. Its own slice, bounded like the others, and every row it feeds is reopened at $0 for one paid re-research at its turn.
+      const rulesMoved = held.filter((h) => h.state === "checked" && h.current.trim() === "" && h.rulesVersion !== facts.rulesVersionFor(h) && !owedSupport.includes(h) && !gapSupport.includes(h)).slice(0, SUPPORT_BACKFILL_PER_DRIVE);
+      const targets = [...owedSupport, ...gapSupport, ...rulesMoved].map((h) => ({ page: h.page, statementKey: h.statementKey,
+        onUnsupported: gap(h) && h.confidence !== "confirmed" ? "reopen" as const : "bank" as const, ...(rulesMoved.includes(h) ? { rulesStale: true } : {}) }));
       if (targets.length > 0 && Date.now() < deadlineAt) {
         const { backfillClaimSupport } = await import("@/domains/evidence/pages/claim-support");
         const page = new Map<string, ReturnType<typeof facts.readFactChecks>>(); // one read per PAGE, not per claim: a page's rows answer every target on it

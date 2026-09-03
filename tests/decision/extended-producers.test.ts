@@ -1,5 +1,5 @@
 /** The four causes that used to reach the operator as a sentence and a shrug: links to somewhere real, sources and subjects assembled ONLY from evidence held, a merge that arrives as a question, a rebuild only when the causes agree. Each runs on a fixture context and then the REAL validator, plus the pinned dangerous-kind list. */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { BundleComponent, ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
 import { DANGEROUS_COMPONENT_KINDS as DECISION_DANGEROUS } from "@/domains/decision/contracts";
 import { DANGEROUS_COMPONENT_KINDS as MEASUREMENT_DANGEROUS } from "@/domains/measurement/proof-gsc/measure-lifecycle";
@@ -113,8 +113,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
   /** A CARD IS ABOUT ONE PAGE AND ITS CHANGE IS A CHANGE TO THAT PAGE. The row persists ONE recommendedChange taken from the first component while the headline and address come from the page the card is filed on, so a bundle whose only piece was on /iran-flags got STORED under /iran-flags/iran-islamic-republic-flag-history and would have read "Update the title on [the child]" above the hub's broad wording. Live proof of the harm: that exact row sat in production reading "Iran Flag History: Meaning, Colors & Full Timeline" under the child's address. */
   it("hands over nothing when the only wording that came back is for another page", async () => {
     const elsewhere = async (i: { body: OwnedPageBody }) => (i.body.url === KID ? { before: i.body.title, after: "Steel Rain Barrels: Galvanized Sizes & Care", anchor: "top", heading: null, minutes: 5 } : null);
-    const out = await produceConsolidation(ctxOf({ heldBodies: nestedBodies(), draft: { ...ctxOf().draft, pageField: elsewhere }, finding: nestedSplit() }));
-    expect(out.components).toHaveLength(0);
+    const out = await produceConsolidation(ctxOf({ heldBodies: nestedBodies(), draft: { ...ctxOf().draft, pageField: elsewhere }, finding: nestedSplit() })); expect(out.components).toHaveLength(0);
     expect(out.refusal).toContain("The only wording that came back is for /rain-barrels/steel-barrels, not for this page");
     expect(new Set((out.dispositions ?? []).map((d) => d.page))).toEqual(new Set(["/rain-barrels", "/rain-barrels/steel-barrels"])); }); // the other page's decision is still on the record, never silently dropped
   it("assembles a source pack out of claims that belong on the page, never my own numbers", async () => {
@@ -125,8 +124,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const gap = await produceSourceExpansion(ctxOf({
       finding: finding("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what size rain barrel do I need" }),
       draft: { section, internalLink: async () => null },}));
-    const c = gap.components[0]!;
-    expect([gap.components.length, c.kind, c.risk, answered(c)]).toEqual([1, "entity_expansion", "review", true]);
+    const c = gap.components[0]!; expect([gap.components.length, c.kind, c.risk, answered(c)]).toEqual([1, "entity_expansion", "review", true]);
     expect(c.sourcePack!.factRequirements).toEqual(["Downspout diverter."]);
     expect(c.sourcePack!.sourceRequirements).toEqual(['Downspout diverter has no verified source on file yet, so the fact pass acquires one of the kind the pages cited for "rain barrel sizing" point at (a.example, b.example, c.example) before this line ships. Nothing here asks anybody to pick a source.']);
     for (const beaconFact of FACTS) expect(JSON.stringify(c)).not.toContain(beaconFact);
@@ -138,6 +136,9 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
       draft: { section, internalLink: async () => null },}));
     expect([read.components[0]!.kind, read.components[0]!.mechanism!.includes("seen and passed over")]).toEqual(["source_update", true]);
     expect(read.components[0]!.sourcePack!.factRequirements).toEqual(["Rain barrels catch what runs off a roof."]);
+    vi.resetModules(); vi.doMock("@/domains/evidence/pages/fact-checks", async (a) => ({ ...(await a<Record<string, unknown>>()), readFactChecks: async () => [{ page: "/rain-barrels", statementKey: "gap", subject: "rain barrels", current: "", proposed: "Iran has AH-1 Cobra attack helicopters.", literal: null, usage: null, sources: [{ url: "https://en.wikipedia.org/x", kind: "encyclopedia", says: "Iran operates AH-1 Cobra attack helicopters." }], agreement: "single_source", confidence: "confirmed", verdict: "undecidable", alsoAt: [], note: "", pageContentHash: null, pageLocator: "missing", sourceReadAt: "2026-09-01T00:00:00.000Z", state: "checked", rulesVersion: 4, evidenceBasis: null, checkedAt: "2026-09-01T00:00:00.000Z" }] }));
+    const cited = await (await import("@/domains/decision/producers/extended")).produceSourceExpansion(ctxOf({ finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }), draft: { section, internalLink: async () => null } })); vi.doUnmock("@/domains/evidence/pages/fact-checks"); vi.resetModules();
+    expect(cited.components[0]!.sourcePack!.sourceRequirements![0], "THE WRITER IS HANDED WHAT THE ONE DOOR AUTHORIZES: this row is checked, its source was read and its rules version is current, which was the whole test here, and it answers a question about something else entirely, so pointing a claim about rain barrels at it is exactly the helicopter defect one reader further down the line").toContain("has no verified source on file yet");
     for (const beaconFact of FACTS) expect(JSON.stringify(read.components[0])).not.toContain(beaconFact);
     const dry = await produceSourceExpansion(ctxOf({ finding: finding("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what size rain barrel do I need" }) }));
     expect([dry.components.length, dry.refusal ?? ""]).toEqual([0, expect.stringContaining("nothing is handed over rather than filler")]); expect(validate(read.components).verdict).toBe("ready");
@@ -197,8 +198,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect([c.objective!.includes("a guide that answers the question from end to end"), c.mechanism!.includes("2 things are wrong at once")]).toEqual([true, true]);
     expect([componentRefusals(validate(many.components)), validate(many.components).verdict]).toEqual([[], "ready"]);
     expect(c.preserves!.keeps).toEqual(["Roof area", "Storm"]); expect(c.preserves!.losses.map((l) => l.what)).toEqual(["Rain Barrels", "How much rain a roof collects", "Barrel sizes"]);
-    expect(c.preserves!.losses.every((l) => l.why.includes(`Not one of the 3 pages that win "${QUERY}" carries it`))).toBe(true);
-    const silent = validate([{ ...c, preserves: { keeps: [], losses: [] } }]);
+    expect(c.preserves!.losses.every((l) => l.why.includes(`Not one of the 3 pages that win "${QUERY}" carries it`))).toBe(true); const silent = validate([{ ...c, preserves: { keeps: [], losses: [] } }]);
     expect([silent.verdict, silent.reasons.some((r) => r === 'The rebuild drops "Barrel sizes" and never says why, so I am not putting it in front of you.')]).toEqual(["rejected", true]);
     const bare = { ...bundleOf(many.components), receipt: { items: KEYS.map((key) => ({ key, kind: "gsc_demand" as const, fact: FACTS[0]!, observedAt: null })), missing: [], freshestObservedAt: null } };
     const narrow = validate(many.components, RECEIPT_ONLY, { bundle: bare });

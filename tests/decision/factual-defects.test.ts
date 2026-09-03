@@ -80,6 +80,8 @@ describe("a page's own statements against their sources", () => {
     checks.rows = [stripped]; store.rows = [{ id: "t::/persian-female-first-names::existing_edit::fact-afsaneh" }]; store.withdrew = []; store.why = [];
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(store.why.join(" "), "the support shortfall names itself").toContain("no source's own passage has been shown to support this exact claim");
+    checks.rows = [check({ current: "", proposed: "Iran has AH-1 Cobra attack helicopters.", verdict: "undecidable" })]; store.rows = [{ id: live }]; store.withdrew = []; store.why = []; // A ROW WITH NO CURRENT WORDING NAMES NO WITHDRAWAL: it mints no card of its own, and it carries the standing Afsaneh card's own 48-character slug, so a refusal read off it would take that card down for a claim it was never about
+    await factualDefectCards({ tenantId: "t", snapshot, now: NOW }); expect([store.withdrew, store.why], "it contributes null exactly as it did before a missing answer could be refused, so the correction's card is kept").toEqual([[], []]);
     store.withdrew = []; store.bodyFails = true;
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(store.withdrew).toEqual([]); });
@@ -87,8 +89,7 @@ describe("a page's own statements against their sources", () => {
   it("turns forty sourced corrections into forty separately ranked changes that nothing can retire together", async () => {
     checks.rows = many(40);
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
-    expect(cards).toHaveLength(40); expect(new Set(cards.map((c) => c.id)).size, "each correction owns its own row").toBe(40);
-    expect(new Set(cards.map((c) => [...mutationFootprint(c)].join("|"))).size).toBe(40); expect(footprintsOverlap(cards[0]!, cards[1]!)).toBe(false);
+    expect(cards).toHaveLength(40); expect(new Set(cards.map((c) => c.id)).size, "each correction owns its own row").toBe(40); expect(new Set(cards.map((c) => [...mutationFootprint(c)].join("|"))).size).toBe(40); expect(footprintsOverlap(cards[0]!, cards[1]!)).toBe(false);
     expect(cards.every((c) => c.bundle === undefined)).toBe(true); expect(cards.every((c) => !/batch/i.test(c.opportunityType))).toBe(true); });
   it("gives every correction its exact current wording, its replacement, its place and its source", async () => {
     checks.rows = [check({ alsoAt: ["the FAQ answer on this page"] })];
@@ -292,8 +293,7 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
       check({ subject: "Parsi", current: "\u0645\u0639\u0646\u06cc:\u0631\u0648\u0634\u0646\u0627\u06cc\u06cc", proposed: "light", sources: q1('The name Parsi means "light"') }),
       check({ subject: "Prose", current: "One meaning here: the old one.", proposed: "light", sources: q1('The name Prose means "light"') })];
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
-    const by = new Map(cards.map((c) => [c.id.split("fact-")[1], c]));
-    const after = (k: string) => (by.get(k)!.recommendedChange as { after: string }).after;
+    const by = new Map(cards.map((c) => [c.id.split("fact-")[1], c])); const after = (k: string) => (by.get(k)!.recommendedChange as { after: string }).after;
     expect(["link", "clock", "parsi", "prose"].map(after)).toEqual(["Light", "Light.", "\u0645\u0639\u0646\u06cc:Light", "One meaning here: Light."]); // An address is not a label, a clock time never opens one, another script keeps its own spacing, and a colon the page already spaced is left alone.
     const glued = { ...by.get("noor")!, recommendedChange: { ...by.get("noor")!.recommendedChange, after: "Meaning:Light." } } as ChangeProposal; // AND THE READY GATE HOLDS A GLUED LINE EVEN IF A FUTURE PRODUCER BYPASSES THE COMPOSER ENTIRELY.
     const ok = async () => ({ status: "drafted" as const, value: { rulings: [{ index: 0, publish: true, reason: "reads cleanly", claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "the passage carries it" }] }] } });

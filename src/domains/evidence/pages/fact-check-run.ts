@@ -5,13 +5,12 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
 import { recordFactChecks, recordOwedClaims, reopenObsoleteChecks, supersedeStaleFacts, statementKeyOf,
-  VERIFICATION_RULES_VERSION, unauthorizedReason, type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
+  rulesVersionFor, unauthorizedReason, type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
 import { SUPPORT_ARTIFACT_VERSION, supportIdentity, supportFailure, unsupportedArtifact, deriveSupport, claimTypeOf, AUTHORITATIVE_KIND as AUTHORITATIVE, type ClaimSupport, type ClaimType, type SupportContext } from "./claim-support";
 export { claimTypeOf } from "./claim-support";
 
 const EMPTY_ROW = { proposed: null, literal: null, usage: null, sources: [], agreement: "none_found" as const,
-  confidence: "unsupported" as const, verdict: "undecidable" as const, alsoAt: [], note: "", sourceReadAt: null,
-  rulesVersion: VERIFICATION_RULES_VERSION };
+  confidence: "unsupported" as const, verdict: "undecidable" as const, alsoAt: [], note: "", sourceReadAt: null };
 
 /** How many candidate sources one claim weighs, and how many it will actually fetch. */
 const CANDIDATES = 6, FETCH_PER_CLAIM = 2;
@@ -206,10 +205,10 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     ? covRead : { pageContentHash: hash, coveredChars: 0, totalChars: page.body.length };
   // A VERDICT FROM OBSOLETE RULES IS NOT CURRENT EVIDENCE (Codex, 2026-08-18): the one live checked row was
   // AND A CONFIRMED VERDICT THE QUOTE-BOUND CONTRACT NOW REFUSES IS A CLAIM STILL OWED, not a settled finding: withdrawing the card without reopening the claim would strand the exact live defects this contract was written about (Alborz, Jasmine) as permanent dead findings, because a checked row is never re-inventoried. TARGETED, never a blanket version bump: only the rows the new authorization refuses reopen, so the four sound live corrections keep their verdicts and cards. Loop-safe: generation now binds to quotes too, so a re-researched claim either banks a carried gloss or holds below confirmed, where unauthorizedReason is null.
-  const obsolete = inventory.filter((h) => (h.state === "checked" && h.rulesVersion !== VERIFICATION_RULES_VERSION)
+  const obsolete = inventory.filter((h) => (h.state === "checked" && h.rulesVersion !== rulesVersionFor(h))
     || (h.state === "checked" && h.confidence === "confirmed" && unauthorizedReason(h) != null));
   if (obsolete.length > 0 && await reopenObsoleteChecks(tenantId, page.path, obsolete).catch(() => 0) > 0) {
-    inventory = inventory.map((h) => (obsolete.includes(h) ? { ...h, state: "owed" as const, rulesVersion: VERIFICATION_RULES_VERSION } : h));}
+    inventory = inventory.map((h) => (obsolete.includes(h) ? { ...h, state: "owed" as const, rulesVersion: rulesVersionFor(h) } : h));}
   // THE SEEDED PROPOSITION IS RESEARCHED FIRST. A row whose locator is `missing` exists only because an acquisition seeded it for a funded candidate that was refused for lacking exactly that fact, so it outranks
   // rotation over the page's own existing statements: without this the pass spent its budget re-checking claims the page already makes and reported the reading as acquired, while the writer had nothing new to cite.
   const seededFirst = (rows: typeof inventory) => [...rows].sort((a, b) => (b.pageLocator === "missing" ? 1 : 0) - (a.pageLocator === "missing" ? 1 : 0));
@@ -250,7 +249,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     cov = { pageContentHash: hash, coveredChars: Math.min(cov.coveredChars + read, page.body.length), totalChars: page.body.length };
     if (d.writeCoverage && !(await d.writeCoverage(cov).catch(() => false)))
       return fail("inventory_write_failed", null, "the section's coverage could not be stored, so it would be read and paid for again");
-    inventory = [...inventory, ...claims.map((c) => ({ ...EMPTY_ROW, page: page.path, statementKey: c.statementKey,
+    inventory = [...inventory, ...claims.map((c) => ({ ...EMPTY_ROW, page: page.path, statementKey: c.statementKey, rulesVersion: rulesVersionFor(c),
       subject: c.subject, current: c.current, pageLocator: c.locator, pageContentHash: hash, evidenceBasis: d.basis,
       state: "owed" as const, checkedAt: now.toISOString() }))];
     owed = seededFirst(inventory.filter((h) => h.state === "owed")); // a freshly inventoried section may not bury it either
@@ -283,7 +282,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     // A WRITE THAT DID NOT LAND IS A FAILED UNIT: advancing past a claim nothing stored would skip it forever.
     return banked > 0 ? { status: "advanced", banked, cursor: advance }
       : fail("store_write_failed", cursor, "the result could not be stored, so this claim is still owed");};
-  const base = { page: page.path, statementKey: next.statementKey, state: "checked" as const, rulesVersion: VERIFICATION_RULES_VERSION, subject: claim.subject, current: claim.current,
+  const base = { page: page.path, statementKey: next.statementKey, state: "checked" as const, rulesVersion: rulesVersionFor(claim), subject: claim.subject, current: claim.current,
     literal: null, usage: null, alsoAt: claim.locator ? [claim.locator] : [],
     pageContentHash: hash, pageLocator: claim.locator, sourceReadAt: null as string | null,
     evidenceBasis: d.basis, checkedAt: now.toISOString() };

@@ -11,7 +11,7 @@ vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {
     supersedeStaleFacts: async (_t: string, _p: string, _h: string, present: (c: string) => boolean) => {
       const gone = db.rows.filter((r) => !present(String(r.current))); db.superseded.push(...gone.map((g) => String(g.subject))); return gone.length; },};});
 import { runFactCheckUnit, runFactCheckPass, pageHashOf, claimTypeOf, sourceQueryFor, claimIdentity, tokenFingerprintOf, ATTEMPTS_PER_PASS, EXTRACT_CHUNK } from "@/domains/evidence/pages/fact-check-run";
-import { VERIFICATION_RULES_VERSION, type FactCheck, type InventoryCoverage } from "@/domains/evidence/pages/fact-checks";
+import { rulesVersionFor, VERIFICATION_RULES_VERSION, type FactCheck, type InventoryCoverage } from "@/domains/evidence/pages/fact-checks";
 import { SUPPORT_ARTIFACT_VERSION, supportFailure, supportIdentity, deriveSupport, backfillClaimSupport, type ClaimSupport, type SupportContext, type UnsupportedReason } from "@/domains/evidence/pages/claim-support"; const NOW = new Date("2026-08-18T00:00:00.000Z"); const PAGE = { url: "https://x.example/names", path: "/names", body: "Afsaneh means Goddess. Darya means Beauty." }; const reader = (byStage: { claims?: unknown; judge?: unknown }) => async (input: { system: string }) => {
   const a = input.system.startsWith("You read one web page") ? byStage.claims : byStage.judge; return (a == null ? { hold: "unavailable" } : { value: a }) as { value: Record<string, unknown> } | { hold: "unavailable" }; };
 const CLAIMS = { statements: [{ subject: "Afsaneh", current: "Goddess", locator: "Afsaneh" }] }; const CONFIRMS = { verdict: "page_wrong", proposed: "Legend, myth, fable", confidence: "confirmed", note: "",
@@ -65,7 +65,7 @@ describe("a missing proposition is researched, never graded", () => { beforeEach
           : { value: { verdict, proposed: SAID, confidence: "confirmed", note: "",
               supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable" }] } }; };
     const out = await unit({ held: [missing], read: judge("page_correct") }); expect(out.status).toBe("advanced");
-    const banked = db.rows.find((r) => r.statementKey === "missing#1")!; expect([banked.state, banked.proposed]).toEqual(["checked", SAID]);
+    const banked = db.rows.find((r) => r.statementKey === "missing#1")!; expect([banked.state, banked.proposed, banked.rulesVersion], "banked under the rules a question the page does not answer is judged by, where the correction two tests down banks 4").toEqual(["checked", SAID, 5]);
     expect(String(banked.sources && (banked.sources as unknown[]).length)).toBe("1"); // the quote verified against the fetched passage
     expect(asked.join(" ")).toContain("The page does not answer this yet"); // researched as a gap, not compared to an empty quote
     expect([asked.join(" ").includes('The page says: ""'), asked.join(" ").includes(`This page is about: ${PAGE.body}`), asked.join(" ").includes("ONE sentence that answers this question ABOUT THAT SUBJECT")], "the judge is told what the PAGE is about and asked for one sentence from one quotable passage, which is what the live cobra row never was").toEqual([false, true, true]);
@@ -89,8 +89,7 @@ describe("a missing proposition is researched, never graded", () => { beforeEach
     const out = await unit({ held: [missing], read: reader({ claims: { statements: [] },
       judge: { verdict: "undecidable", proposed: "", confidence: "unsupported", note: "nothing relevant", supporting: [] } }) });
     expect(out.status).toBe("advanced");
-    const banked = db.rows.find((r) => r.statementKey === "missing#2")!;
-    expect([banked.confidence, banked.proposed]).toEqual(["unsupported", null]); }); });
+    const banked = db.rows.find((r) => r.statementKey === "missing#2")!; expect([banked.confidence, banked.proposed]).toEqual(["unsupported", null]); }); });
 describe("every failure is typed and leaves the claim owed", () => { beforeEach(reset);
   it("a failed source read leaves the row OWED, never checked", async () => {
     const out = await unit({ held: [row({ statementKey: "k1" })], fetchSource: async () => ({ hold: "capped" }) }); // sources found, reading them refused
@@ -217,8 +216,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     await unit({ held: [row({ statementKey: "d1", subject: "Darya", current: "Beauty, elegance, and charm." })],
       searchSources: async () => enc, fetchSource: async () => ({ text: daria }),
       read: reader({ claims: claim, judge: judged(daria, false, "Slavic", null) }) });
-    const wrong = db.rows[0] as FactCheck;
-    expect([wrong.agreement, wrong.confidence === "confirmed"]).toEqual(["none_found", false]);
+    const wrong = db.rows[0] as FactCheck; expect([wrong.agreement, wrong.confidence === "confirmed"]).toEqual(["none_found", false]);
     expect(wrong.note).toContain("about a different subject or language");
     db.rows = [];
     await unit({ held: [row({ statementKey: "d1", subject: "Darya", current: "Beauty, elegance, and charm." })],
@@ -229,8 +227,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     await unit({ held: [row({ statementKey: "d1", subject: "Darya", current: "Beauty, elegance, and charm." })],
       searchSources: async () => enc, fetchSource: async () => ({ text: darya }),
       read: reader({ claims: claim, judge: { ...judged(darya, true, "Persian", "دریا", { supported: true, supportSpan: darya, subjectSpan: "دریا", subjectFrom: "quote", relationSpan: "دریا (daryā):", meaningSpans: ["sea", "ocean"] }), proposed: "sea, ocean" } }) });
-    const right = db.rows[0] as FactCheck;
-    expect([right.confidence, right.proposed]).toEqual(["confirmed", "sea, ocean"]); });
+    const right = db.rows[0] as FactCheck; expect([right.confidence, right.proposed]).toEqual(["confirmed", "sea, ocean"]); });
 
   it("the site being corrected is never its own source, and a wording no source carries is not confirmed", async () => {
     const fetched: string[] = [];
@@ -281,8 +278,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     const known = full.slice(0, 35).map((c, i) => row({ statementKey: claimIdentity(c.subject, c.current, null), subject: c.subject, current: c.current, state: "checked" as const, pageContentHash: pageHashOf(body) }));
     await unit({ page: { ...PAGE, body }, held: known, searchSources: async () => ({ hold: "unavailable" as const }),
       read: reader({ claims: { statements: full }, judge: CONFIRMS }) });
-    const advanced = (db.cov as unknown as { coveredChars: number }).coveredChars;
-    expect(advanced, "a chunk that filled up may not advance past the last statement it actually read").toBeLessThan(Math.min(body.length, 3_000)); });
+    const advanced = (db.cov as unknown as { coveredChars: number }).coveredChars; expect(advanced, "a chunk that filled up may not advance past the last statement it actually read").toBeLessThan(Math.min(body.length, 3_000)); });
 
   it("sets aside a claim whose sources will not resolve and reaches the next one, instead of stopping the pass", async () => {
     const body = "Alpha means one. Beta means two. Gamma means three. Delta four. Epsilon five. Zeta six.";
@@ -318,7 +314,8 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     expect(authorizedCorrections([{ ...read, state: "owed" }], undefined, "t")).toHaveLength(0);
     expect(authorizedCorrections([{ ...read, rulesVersion: 1 }], undefined, "t")).toHaveLength(0); // verdict from replaced rules
     expect(authorizedCorrections([read], { pageContentHash: "h1", evidenceBasis: "b1" }, "t")).toHaveLength(1);
-    const gap = (verdict: string) => authorizedCorrections([{ ...read, current: "", verdict, proposed: "Iran has AH-1 Cobra attack helicopters." } as FactCheck], undefined, "t").length; expect([gap("undecidable"), gap("page_correct")], "A ROW WITH NO CURRENT WORDING IS AUTHORIZED BY ITS VERDICT: the live cobra row banked confirmed on an undecidable reading whose own note said the sources are about attack helicopters, and this door let it through to the writer").toEqual([0, 1]);});
+    const gap = (verdict: string, over: Partial<FactCheck> = {}) => authorizedCorrections([{ ...read, current: "", verdict, proposed: "Iran has AH-1 Cobra attack helicopters.", ...over } as FactCheck], undefined, "t").length, ask = { subject: "are there cobras in iran", sources: [{ url: "https://en.wikipedia.org/x", kind: "encyclopedia" as const, says: "Iran operates AH-1 Cobra attack helicopters." }] };
+    expect([gap("undecidable"), gap("page_correct"), gap("page_correct", ask), gap("page_correct", { ...ask, rulesVersion: 5 }), [rulesVersionFor({ subject: "are there cobras in iran", current: "" }), rulesVersionFor({ subject: "Afsaneh", current: "" }), rulesVersionFor(read)]], "A ROW WITH NO CURRENT WORDING IS AUTHORIZED BY ITS VERDICT: the live cobra row banked confirmed on an undecidable reading whose own note said the sources are about attack helicopters, and this door let it through to the writer. AND A QUESTION IS JUDGED UNDER RULES OF ITS OWN: the same confirmed page_correct row authorizes nothing while it carries 4, the version a correction is judged under, and authorizes again once it has been judged under 5; a headword with no current wording and a correction both stay on 4, byte for byte").toEqual([0, 1, 0, 1, [5, 4, 4]]);});
   it("the real schema registry can express a claim list and a claim judgement", async () => {
     const { SCHEMA_BY_KIND } = await import("@/domains/decision/llm/schemas"); expect(SCHEMA_BY_KIND.fact_claim_extraction.safeParse({ statements: [{ subject: "A", current: "means B", locator: "A" }] }).success).toBe(true);
     expect(SCHEMA_BY_KIND.fact_claim_judgement.safeParse({ verdict: "page_wrong", confidence: "confirmed", proposed: "Legend", literal: "legend", usage: "",
@@ -412,7 +409,10 @@ describe("backfilling support onto already-banked facts", () => {
     const first = await backfillClaimSupport("t", target, deps([gapRow(headword), mk("bystander", "Yasmin", "unrelated")]));
     expect([first[0]!.action, back.length, back[0]?.why], "two stale artifacts, so the claim is owed again once and says why").toEqual(["reopened", 1, "Reopened: support is now judged on the proposition the page lacks."]);
     const again = await backfillClaimSupport("t", target, deps([gapRow(deriveSupport(ctx)!, deriveSupport(other)!)]));
-    expect([again[0]!.action, again[0]!.supported, back.length], "MUTATION: re-banked under the proposition identity it is current, so nothing is written and it is never handed back twice").toEqual(["already_current", 2, 1]); });});
+    expect([again[0]!.action, again[0]!.supported, back.length], "MUTATION: re-banked under the proposition identity it is current, so nothing is written and it is never handed back twice").toEqual(["already_current", 2, 1]);
+    const flagged = [{ ...target[0]!, rulesStale: true }, { page: target[0]!.page, statementKey: "head", onUnsupported: "bank" as const, rulesStale: true }, { page: target[0]!.page, statementKey: "bystander", onUnsupported: "bank" as const, rulesStale: true }];
+    const moved = await backfillClaimSupport("t", flagged, deps([gapRow(deriveSupport(ctx)!, deriveSupport(other)!), { ...mk("head", "Delnaz", "unrelated"), current: "", proposed: "Delnaz means heart's delight" }, mk("bystander", "Yasmin", "unrelated")]));
+    expect([moved.map((o) => o.action), back.at(-1)!.why, back.length, rulesVersionFor({ subject: "iran flag before 1979", current: "" })], "THE RULES THAT JUDGE A MISSING ANSWER MOVED: the question is owed again once and says so, even though every artifact under it is current and nothing else would ever re-judge it; a headword row with no current wording and a correction flagged the same way are judged by their SHAPE, not by the flag, and neither is handed back; and the re-banked row carries 5, which is what the selection compares, so it is never flagged again").toEqual([["reopened", "banked_unsupported", "banked_unsupported"], "Reopened: the rules that judge a missing answer changed.", 2, 5]); });});
 
 /** DOES THIS PASSAGE SUPPORT THIS WORDING. Verification asks whether a source was read, whether its quote exists and whether it may speak; none of that asks the one question that authorizes a correction. The model may LOCATE spans. Only this may accept them, and it accepts nothing it cannot find verbatim in the exact text that source banked, which is why a biography of a man who held a title can never authorize a given name's meaning however true the biography is. */
 describe("a source supports a claim only when its own passage says so", () => {

@@ -10,7 +10,7 @@
  */
 
 import { topicTokens } from "@/domains/evidence/relevance-gate";
-import { readFactChecks, VERIFICATION_RULES_VERSION } from "@/domains/evidence/pages/fact-checks";
+import { authorizedCorrections, readFactChecks } from "@/domains/evidence/pages/fact-checks";
 import { classifyResult } from "@/domains/evidence/serp-shape"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { BundleComponent } from "../contracts";
 import type { CauseFinding } from "../diagnosis"; import { RECEIPT } from "../diagnose";
@@ -164,8 +164,8 @@ export const produceSourceExpansion: Producer = async (ctx) => {
   // page" was operator homework wearing a recommendation's clothes, and it is gone: a claim either stands on
   // a verified source by url, or the requirement names the acquisition the fact pass still owes.
   const pagePath = (() => { try { return new URL(ctx.page.url.startsWith("http") ? ctx.page.url : `https://${ctx.page.url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return ctx.page.url; } })();
-  const verified = (await readFactChecks(ctx.tenantId, pagePath).catch(() => []))
-    .filter((f) => f.state === "checked" && f.sourceReadAt != null && f.rulesVersion === VERIFICATION_RULES_VERSION && f.sources.length > 0);
+  const verified = authorizedCorrections(await readFactChecks(ctx.tenantId, pagePath).catch(() => []), undefined, ctx.tenantId)
+    .filter((f) => f.sources.length > 0); // THROUGH THE ONE DOOR, NOT A FOURTH READING OF THE BANK (reviewer, 2026-09-02): state, read source and rules version were the whole test here, so the reopened cobra row, which keeps its army-aviation source and quote, could still be handed to a writer as the source a claim about cobras in Iran stands on. What may be published and what may be cited are the same question.
   const backing = (c: string): string => {
     const tokens = new Set(topicTokens(c));
     const fact = verified.find((f) => c.toLowerCase().includes(f.subject.toLowerCase()) || topicTokens(f.subject).filter((t) => tokens.has(t)).length >= 2) ?? null;

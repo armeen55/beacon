@@ -6,7 +6,7 @@ import { log } from "@/lib/logger";
 import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { REVIEW_CONTRACT, copyKey, wordingOnlySuspicion } from "@/domains/decision/proof";
 import { labelOf } from "@/domains/decision/completeness";
-import { authorizedCorrections, correctionSeverity, readFactChecks, unauthorizedReason, VERIFICATION_RULES_VERSION, type FactCheck } from "@/domains/evidence/pages/fact-checks";
+import { authorizedCorrections, correctionSeverity, readFactChecks, rulesVersionFor, unauthorizedReason, type FactCheck } from "@/domains/evidence/pages/fact-checks";
 import { supportShortfall } from "@/domains/evidence/pages/claim-support";
 import type { BundleComponent, ChangeProposal } from "@/domains/decision/contracts";
 
@@ -377,7 +377,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
     // true one belonging to a different reading.
     const why = noOpWhy; // seeded by the mint's own no-op skips, so the sweep withdraws them WITH the named reason instead of the fail-closed keep
     for (const [key, rows] of byPage) { const pg = owned.get(key); if (!pg) continue;
-      for (const r of rows) { if (r.state !== "checked" || r.rulesVersion !== VERIFICATION_RULES_VERSION) continue;
+      for (const r of rows) { if (r.state !== "checked" || r.current.trim() === "" || r.rulesVersion !== rulesVersionFor(r)) continue; // A ROW WITH NO CURRENT WORDING NAMES NO WITHDRAWAL (reviewer, 2026-09-02): it mints no card, and a reason in this map is what turns an unminted card from KEPT into withdrawn, so a question row sharing a correction's 48-character slug prefix would take that correction's card down. It contributed null before the missing-answer refusal existed and it contributes null now.
         const reason = unauthorizedReason(r) ?? supportShortfall(r, tenantId); if (reason) why.set(`${pathOf(pg.url).toLowerCase()}::fact-${slugOf(r.subject) || ""}`, reason); } }
     const { loadChangeProposals, withdrawChangeProposal } = await import("@/domains/decision/proposal-store");
     // A LIVE CHECKED ROW UNDER CURRENT RULES, per subject slug: the one state in which the generic "evidence no
@@ -388,7 +388,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
     // destroying finished work is the one failure this producer has already committed twice.
     const liveChecked = new Set<string>();
     for (const [key, rows] of byPage) { const pg = owned.get(key); if (!pg) continue;
-      for (const r of rows) if (r.state === "checked" && r.rulesVersion === VERIFICATION_RULES_VERSION) liveChecked.add(`${pathOf(pg.url).toLowerCase()}::fact-${slugOf(r.subject) || ""}`); }
+      for (const r of rows) if (r.state === "checked" && (r.current.trim() === "" || r.rulesVersion === rulesVersionFor(r))) liveChecked.add(`${pathOf(pg.url).toLowerCase()}::fact-${slugOf(r.subject) || ""}`); } // a row with no current wording vouches exactly as it did before the rules a missing answer is judged under moved, so no card changes hands on a slug collision either way
     for (const p of (await loadChangeProposals(tenantId).catch(() => null))?.values() ?? []) {
       const id = p.id.split("::");
       // A PAGE WHOSE BODY DID NOT LOAD IS NOT A PAGE WHOSE CORRECTIONS DIED. `authorizedCorrections` compares a
