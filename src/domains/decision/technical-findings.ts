@@ -55,16 +55,17 @@ const at = (u: string): string => {
   try { return new URL(u.startsWith("http") ? u : `https://${u}`).pathname.replace(/\/+$/, "") || "/"; } catch { return u; }
 };
 const addressOf = (u: string): string => canonicalUrlKey(u).toLowerCase().replace(/\/index\.html?$/, "").replace(/\/+$/, ""); // ONE PAGE, ONE ADDRESS: host without www, path without case, index file or slash. `at` prints, this compares.
+const oneEach = <T extends { url: string }>(xs: readonly T[]): T[] => [...xs.reduce((m, x) => { const k = addressOf(x.url), had = m.get(k); return had && (canonicalUrlKey(x.url) !== k || canonicalUrlKey(had.url) === k) ? m : m.set(k, x); }, new Map<string, T>()).values()];
 
 /**
  * Every fault this account's own rows prove, in address order. Deterministic, free, and empty whenever nothing is held: an account with no inventory and no capture gets no findings rather than a clean bill.
  */
 export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
-  const rows = (held.inventory ?? []).filter((r) => !!r?.url?.trim());
-  const pages = (held.pages ?? []).filter((p) => !!p?.url?.trim());
+  const rows = oneEach((held.inventory ?? []).filter((r) => !!r?.url?.trim())); // ONE ROW PER ADDRESS before any rule reads them: an alias that doubles every fault on a page fills the twelve on its own and deletes a real page from the list.
+  const pages = oneEach((held.pages ?? []).filter((p) => !!p?.url?.trim())); // and the same for the capture: upstream collapses www and scheme, never path case or an index file.
   const out: TechnicalFinding[] = [];
   const add = (url: string, kind: TechnicalKind, exactFix: string, evidence: string, exact: string | null = null, redirectTo?: string): void => { out.push({ url, kind, exactFix, evidence, exact, ...(redirectTo ? { redirectTo } : {}) }); };
-  const byKey = new Map(rows.map((r) => [canonicalUrlKey(r.url), r]));
+  const byKey = new Map((held.inventory ?? []).filter((r) => !!r?.url?.trim()).map((r) => [canonicalUrlKey(r.url), r])); // EVERY spelling stays LOOKUP-able: a link or a forward naming an alias still finds the row it points at.
   const day = (s?: string | null): string => (s ?? "").slice(0, 10);
   // THE SUPPORT IS GONE, AND THAT IS THE ONLY THING THAT COUNTS AS GONE. 404 and 410 are the site saying there is no page here. 401, 403, 429 and a robots refusal are ACCESS states: they say I was not let in,
   // which is a fact about me, not about the page, and telling an operator their live page is dead because their firewall rate-limited my crawler is the worst kind of confident wrong. A 5xx is a bad minute
@@ -79,8 +80,7 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
     return code != null && code >= 500 && twice;
   };
   const answers = (r: InventoryRow): string => (typeof r.http_status === "number" ? `${r.http_status}` : "nothing at all");
-  const because = (r: InventoryRow): string => (typeof r.http_status === "number" && r.http_status >= 500
-    ? ` I read it twice, on two different days, and it answered the same both times.` : "");
+  const because = (r: InventoryRow): string => (typeof r.http_status === "number" && r.http_status >= 500 ? ` I read it twice, on two different days, and it answered the same both times.` : "");
 
   for (const r of rows) {
     const to = (r.redirects_to ?? "").trim();
