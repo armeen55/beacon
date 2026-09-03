@@ -521,7 +521,7 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
         const { backfillClaimSupport } = await import("@/domains/evidence/pages/claim-support");
         const page = new Map<string, ReturnType<typeof facts.readFactChecks>>(); // one read per PAGE, not per claim: a page's rows answer every target on it
         const banked = await backfillClaimSupport(tenantId, targets,
-          { rows: (p) => { const held0 = page.get(p) ?? facts.readFactChecks(tenantId, p); page.set(p, held0); return held0; },
+          { rows: (p) => { const held0 = page.get(p) ?? facts.readFactChecks(tenantId, p); page.set(p, held0); return held0; }, rulesVersionFor: facts.rulesVersionFor,
             rebank: (p, rows) => facts.recordFactChecks(tenantId, p, rows), reopen: (p, rows, why) => facts.reopenObsoleteChecks(tenantId, p, rows, why) }).catch(() => []);
         log.info("[research-steps] source support derived for claims already paid for", { tenantId, asked: targets.length, supported: banked.filter((o) => o.action === "banked_supported").length, reopened: banked.filter((o) => o.action === "reopened").length });
       }
