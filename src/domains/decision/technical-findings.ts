@@ -54,6 +54,7 @@ const flat = (s: string | null | undefined): string => (s ?? "").trim().toLowerC
 const at = (u: string): string => {
   try { return new URL(u.startsWith("http") ? u : `https://${u}`).pathname.replace(/\/+$/, "") || "/"; } catch { return u; }
 };
+const addressOf = (u: string): string => canonicalUrlKey(u).toLowerCase().replace(/\/index\.html?$/, "").replace(/\/+$/, ""); // ONE PAGE, ONE ADDRESS: host without www, path without case, index file or slash. `at` prints, this compares.
 
 /**
  * Every fault this account's own rows prove, in address order. Deterministic, free, and empty whenever nothing is held: an account with no inventory and no capture gets no findings rather than a clean bill.
@@ -121,16 +122,15 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
       `I would put this heading at the top of ${here}: "${ownTitle}".`,
       `${here} has no main heading at all, so the first thing a reader sees never says what the page is.`, ownTitle);
   }
-  // TWO PAGES WEARING ONE NAME. Both addresses are named. I do NOT invent the replacement wording here: nothing this account holds says what only that page answers, so the finding carries no exact text and
-  // the producer keeps it out of Ready rather than handing over an instruction dressed as a change.
+  // TWO PAGES WEARING ONE NAME, NEVER ONE PAGE WEARING ITS OWN: ONE member per address, so an alias groups with nobody, a twin on another host is a real duplicate named WITH its host, and no wording is invented, so it stays out of Ready.
   const duplicates = (of: "title" | "h1", kind: TechnicalKind, what: string): void => {
     const groups = new Map<string, CapturedPage[]>();
-    for (const p of pages) { const v = flat(p[of]); if (v) groups.set(v, [...(groups.get(v) ?? []), p]); }
+    for (const p of pages) { const v = flat(p[of]), group = groups.get(v) ?? []; if (v && !group.some((x) => addressOf(x.url) === addressOf(p.url))) groups.set(v, [...group, p]); }
     for (const group of groups.values()) {
       if (group.length < 2) continue;
-      const said = (group[0]![of] ?? "").trim();
-      for (const p of group) add(p.url, kind, `I would give ${at(p.url)} a ${what} of its own that says what only that page answers, instead of "${said}".`,
-        `${group.length} of your pages carry the same ${what}, "${said}": ${group.map((x) => at(x.url)).join(", ")}.`);
+      const said = (group[0]![of] ?? "").trim(), paths = group.map((x) => at(x.url)), shown = new Set(paths).size === paths.length ? paths : group.map((x) => canonicalUrlKey(x.url));
+      group.forEach((p, i) => add(p.url, kind, `I would give ${shown[i]!} a ${what} of its own that says what only that page answers, instead of "${said}".`,
+        `${group.length} of your pages carry the same ${what}, "${said}": ${shown.join(", ")}.`));
     }
   };
   duplicates("title", "duplicate_title", "title");
