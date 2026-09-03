@@ -95,7 +95,7 @@ export function openHold(p: ChangeProposal): { lane: "review" | "research"; why:
   const hard = [...gaps, ...p.limitations.filter((l) => HARD_LIMITATION.test(l))];
   // COPY THAT LANDS IN THE BODY OWES A PLACE SOMEBODY CAN STILL FIND. The anchor is a sentence off the page as it read when the words were written, and banked copy is served on for ever without that page in hand, so the only honest re-read is against what the ROW ITSELF banked. An anchor no banked fact carries can no longer be checked, so the words, the claims and the evidence stay exactly as they are and the row goes back to review carrying this sentence. Never deleted, never hidden.
   const anchor = c.kind === "existing_edit" && (c.field === "section" || c.field === "answer_block")
-    ? /placed after "([^"]+)"/.exec(c.where ?? "")?.[1]?.trim().toLowerCase() ?? null : null;
+    ? /placed after (?:the heading )?"([^"]+)"/.exec(c.where ?? "")?.[1]?.trim().toLowerCase() ?? null : null;
   // AND THE CARD'S OWN RECORD OF THE PAGE COUNTS AS THAT PROOF, not only the passages its claims happened to cite.
   // Beacon picks this anchor itself, mechanically, from the page's H1, title and headings; `supportFacts` carries the
   // body passages the claims name, and a heading is never a body passage, so an added section was refused for a

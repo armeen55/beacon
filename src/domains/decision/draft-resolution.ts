@@ -15,7 +15,7 @@ import type { ChangeProposal } from "./contracts";
 import type { DraftResolution, EvidenceRequirement } from "./producers/contract";
 
 const GAIN_LINES = new Set<string>();
-const GAIN_TEXT = {
+const GAIN_TEXT = { SAME_WORDS: "every line of it is already on this page, so it hands the reader the same words twice under a new heading: add what the page does not carry, or nothing is owed here",
   ADDS_NOTHING: "every claim stands only on this page's own words, so a reader already on the page learns nothing: add a checked fact (a fact- id) or relate this page to another the account owns (an owned-page id)",
   REPEATS_BELOW: "it repeats what stays on the page below it, so a reader gets the same thing twice",
   TOO_THIN: "this rearranges the page into one more paragraph: a synthesis owes a direct answer and then the items, meanings or comparison the reader came for, each on its own line",
@@ -24,7 +24,7 @@ const GAIN_TEXT = {
    *  synthesis path was already chosen, which means the material exists and the defect is SHAPE, exactly what the
    *  corrective retry fixes; no acquisition can make one paragraph into three lines. */
 } as const;
-GAIN_LINES.add(GAIN_TEXT.ADDS_NOTHING); GAIN_LINES.add(GAIN_TEXT.REPEATS_BELOW); GAIN_LINES.add(GAIN_TEXT.NOT_IMPROVING);
+GAIN_LINES.add(GAIN_TEXT.ADDS_NOTHING); GAIN_LINES.add(GAIN_TEXT.SAME_WORDS); GAIN_LINES.add(GAIN_TEXT.REPEATS_BELOW); GAIN_LINES.add(GAIN_TEXT.NOT_IMPROVING);
 /** How many surviving entries a replacement must swallow before it is a consolidation rather than a rewrite, how many words an entry owes before its own section may be deleted for it, and how much of what that section says has to survive here. A single incidental mention is not duplication, and naming a term without its meaning does not carry it. */
 /** How many surviving sections a replacement must swallow before it is a consolidation rather than a rewrite, and how short a sentence may be before it carries no material claim. */
 const MIN_ABSORBED = 2, KEEPS_MEANING = 0.75; // deleting a section is destructive, so the bar for "this copy carries it" sits high: three lost words of nine ("literally father dog") is lost meaning, not a paraphrase
