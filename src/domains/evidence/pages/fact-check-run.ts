@@ -58,7 +58,7 @@ export const pageHashOf = (body: string): string => createHash("sha256").update(
 const STOP = new Set(["the", "and", "for", "with", "that", "this", "from", "its", "are", "was", "were", "has",
   "have", "had", "holds", "hold", "held", "also", "ever", "been", "not", "which", "their", "there", "into", "over"]);
 
-/** THE SEARCH IS THE PROPOSITION. The subject alone researched "Ahvaz, Iran definition reference" for the claim that Ahvaz holds Asia's 54 degree heat record (Codex, 2026-08-18): the claim type may shape the query, but it may never erase the date, number, relationship or assertion being verified. */
+/** THE SEARCH IS THE PROPOSITION. The subject alone researched "Ahvaz, Iran definition reference" for the claim that Ahvaz holds Asia's 54 degree heat record (Codex, 2026-08-18): the claim type may shape the query, but it may never erase the date, number, relationship or assertion being verified. AND FOR A ROW WITH NO CURRENT WORDING THE SEARCH CARRIES THE PAGE'S OWN SUBJECT (reviewer, 2026-09-02): such a row's subject is the bare question, so "are there cobras in iran" searched the world at large and came back with Iran's army aviation, and the judge was then handed passages about AH-1 Cobra attack helicopters for a page about a snake. `about` is the page's title and h1 and leads the query; a correction has its own wording to search and never takes it. */
 /** WHAT KIND OF SOURCE WOULD SETTLE THIS, one small hint per type. The claim itself is preserved whole below. */
 const HINT_FOR: Record<ClaimType, string> = { word_meaning: " name meaning origin etymology",
   usage_or_register: " usage formal informal grammar", // a usage rule is settled by a grammar or instructional reference, never by a dictionary headword
@@ -66,9 +66,9 @@ const HINT_FOR: Record<ClaimType, string> = { word_meaning: " name meaning origi
   // A COUNT ASKS HOW MANY. The proposition already carries the figure and its subject; this is the one word that makes a reference answer with the count rather than with an essay about the thing being counted.
   quantity: " how many", definition: "", specification: "", entity_fact: "" };
 
-export function sourceQueryFor(type: ClaimType, subject: string, current: string): string {
+export function sourceQueryFor(type: ClaimType, subject: string, current: string, about = ""): string {
   const seen = new Set<string>(); const toks: string[] = [];
-  for (const raw of `${subject} ${current}`.replace(/[()"]/g, " ").split(/\s+/)) {
+  for (const raw of `${current.trim() ? "" : about} ${subject} ${current}`.replace(/[()"]/g, " ").split(/\s+/)) {
     const t = raw.replace(/[.,;:!?]+$/g, "");
     const k = t.toLowerCase();
     if (!t || seen.has(k)) continue;
@@ -196,7 +196,7 @@ const fail = (failure: UnitFailure, cursor: FactCheckCursor | null, reason: stri
 export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckUnitResult> {
   const { tenantId, page, now } = d;
   if (!page.body.trim()) return fail("no_page_body", null, "no stored words for this page");
-  const hash = pageHashOf(page.body);
+  const hash = pageHashOf(page.body), own = [...new Set(page.body.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 2))].join(" ").split(/\s+/).slice(0, 8).join(" "); // THE PAGE'S OWN SUBJECT: its title and its h1, which owned-context joins as the first two lines of the stored body, an identical pair counted once and eight words at most so a long title can never crowd the question out of the query. A row with no current wording is researched ABOUT THIS, never about its question alone.
   // 1. THE CLAIM INVENTORY FOR THIS PAGE VERSION AND ITS COVERAGE, READ BACK FROM THE STORE: a lease lost mid page resumes where it stopped, and completeness outlives the pass. Coverage is what keeps a long page
   // honest: the first 12,000 characters are a SECTION, never the page (Codex, 2026-08-18).
   const mine = (d.held ?? []).filter((h) => h.page === page.path);
@@ -292,8 +292,8 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   if (!d.searchSources || !enough(d.deadlineAt, 15_000)) return fail("lease_exhausted", cursor, "no lease left to look for sources");
   // THE SUCCESSOR'S SEARCH IS POSTED BEFORE THIS ONE IS AWAITED, so both tasks grind at the provider while this claim fetches and judges: the posted-SERP wait was the whole p95 tail (129s against a 20.6s median, live waves 2026-08-30).
   const succ = owed.find((o) => o !== next && !d.skip?.has(o.statementKey) && !settled.has(propOf(o)) && propOf(o) !== propOf(next!));
-  if (succ) d.warmSearch?.(sourceQueryFor(claimTypeOf(succ.subject, succ.current, succ.pageLocator), succ.subject, succ.current));
-  const found = await d.searchSources(sourceQueryFor(type, claim.subject, claim.current)).catch(() => ({ hold: "unavailable" as const }));
+  if (succ) d.warmSearch?.(sourceQueryFor(claimTypeOf(succ.subject, succ.current, succ.pageLocator), succ.subject, succ.current, own));
+  const found = await d.searchSources(sourceQueryFor(type, claim.subject, claim.current, own)).catch(() => ({ hold: "unavailable" as const }));
   // A PROVIDER THAT DID NOT ANSWER IS NOT A WORLD WITH NO SOURCES: capped, waiting, refused and unreachable each leave the claim OWED under their own name, and only a readable answer with no qualifying source banks `none_found`.
   if ("hold" in found) return fail(`search_${found.hold}`, cursor, `the source search is ${found.hold}, so this claim is still owed`, next.statementKey);
   // EXCLUSIONS COME BEFORE THE LIMIT, and ONE CANDIDATE PER PUBLISHER. Taking the first six raw results and filtering afterwards threw away a whole results page: six credible outlets were cut before the policy ever saw them, and the claim would have been buried as an empty world (Codex, 2026-08-19). The allowance counts QUALIFYING candidates.
@@ -331,9 +331,9 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // 5. JUDGE against the passages only.
   if (!enough(d.deadlineAt, 20_000)) return fail("lease_exhausted", cursor, "no lease left to judge this claim");
   const verdict = await d.read({ kind: "fact_claim_judgement", system: JUDGE_SYSTEM,
-    // A MISSING PROPOSITION IS RESEARCHED, NOT COMPARED: an owed claim with no current wording is the page's acknowledged gap (the missing-information loop seeds exactly these), so the judge is asked what the passages establish about the subject rather than to grade an empty quotation. `proposed` then carries the researched statement, which is what the writer's fact-* evidence renders.
+    // A MISSING PROPOSITION IS RESEARCHED, NOT COMPARED: an owed claim with no current wording is the page's acknowledged gap (the missing-information loop seeds exactly these), so the judge is asked what the passages establish about the subject rather than to grade an empty quotation. `proposed` then carries the researched statement, which is what the writer's fact-* evidence renders. AND IT ANSWERS THE QUESTION ABOUT THIS PAGE'S OWN SUBJECT OR IT PROPOSES NOTHING (reviewer, 2026-09-02): asked for "the accurate, source-supported statement of this subject" over passages about Iran's army aviation, the judge wrote "Iran has AH-1 Cobra attack helicopters." for the Persian cobra page and noted that the sources do not address snakes. The page's own subject is named, one sentence from one quotable passage is what may be proposed, and `page_correct` is what says both held.
     user: [`Claim type: ${type}`, `Subject: ${claim.subject}`,
-      claim.current.trim() ? `The page says: "${claim.current}"` : "The page does not answer this yet. From the passages alone, state in `proposed` the accurate, source-supported statement of this subject; if the passages cannot support one, answer unsupported.",
+      claim.current.trim() ? `The page says: "${claim.current}"` : `The page does not answer this yet. This page is about: ${own}. From the passages alone, state in \`proposed\` ONE sentence that answers this question ABOUT THAT SUBJECT, taken from a single passage you can quote from one source; verdict page_correct means that sentence answers the question and the passage you quote supports it. If no passage answers this question about that subject, propose nothing, answer unsupported, and return verdict undecidable.`,
       "Passages fetched from real sources:",
       ...passages.map((p) => `--- [${p.kind}] ${p.url}${p.title ? ` (document title: ${p.title})` : ""}\n${p.text}`), "", "Return the JSON now."].join("\n"),
     grounded: passages.map((p) => p.text).join("\n"), projectedCostUsd: 0.02, maxTokens: 1500 }).catch(() => ({ hold: "unavailable" as const }));
@@ -412,13 +412,13 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const words = (v.proposed ?? "").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4 && !FILLER.has(w));
   const share = words.length === 0 ? 1 : words.filter((w) => read.includes(w)).length / words.length;
   // A CORRECTION IS JUDGED HERE BY THE RULE THE CARD DOOR WILL APPLY, so nothing is banked `confirmed` that the door then refuses for ever: such a row reopens, is re-researched, and is refused again. Below confirmed it stays an honest finding and never reopens. Missing information keeps its own share against the quotes.
-  const blocked = unauthorizedReason({ subject: claim.subject, current: claim.current, proposed: v.proposed ?? null,
+  const blocked = unauthorizedReason({ subject: claim.subject, current: claim.current, proposed: v.proposed ?? null, verdict: v.verdict, // THE VERDICT RIDES INTO THE ONE RULE, so a row with no current wording is banked confirmed only where the judge answered the question about this page's own subject, which is the same test the card door asks
     sources: supporters.map((p) => ({ kind: p.kind, says: bankedSays.get(p.url) ?? "" })) });
   const carried = blocked == null && (claim.current.trim() !== "" || share >= SUPPORTED_SHARE);
   const confidence: FactCheck["confidence"] = v.confidence === "confirmed" && confirmable && carried ? "confirmed"
     : v.confidence === "unsupported" ? "unsupported" : v.confidence === "disputed" ? "disputed" : "likely";
   return bank({ ...base,
-    proposed: confidence === "unsupported" ? null : (v.proposed?.trim() || null),
+    proposed: confidence === "unsupported" || (claim.current.trim() === "" && v.verdict !== "page_correct") ? null : (v.proposed?.trim() || null), // A STATEMENT ABOUT THE WRONG SUBJECT IS NOT BANKED AT ALL: it would be re-read as the researched answer by every later pass, and the row would be handed back for research for ever
     literal: v.literal?.trim() || null, usage: v.usage?.trim() || null,
     sources: bankedSources,
     sourceReadAt: supporters[0]?.readAt ?? null,

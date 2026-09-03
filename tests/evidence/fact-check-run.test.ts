@@ -32,7 +32,7 @@ describe("the search is the proposition", () => {
     const flag = (over: Partial<SupportContext>): SupportContext => ({ tenantId: "t", page: "/iran-flags/x", statementKey: "takbir", pageLocator: null, subject: "Takbir", claimKind: "quantity", current: "", proposed: "the Takbir is repeated 22 times in white Kufic script on the Islamic Republic of Iran flag", url: "https://en.wikipedia.org/wiki/Flag_of_Iran", kind: "encyclopedia", quote: "Along each band the Takbir occurs 22 times, rendered in a stylised Kufic hand.", titleContext: null, ...over }); expect([claimTypeOf("Takbir", "is repeated 22 times in Kufic script"), claimTypeOf("flag", "the change took effect on 22 Bahman"), claimTypeOf("Noor", "Meaning: Light")], "a count with no unit and a day with no year are not definitions").toEqual(["quantity", "date_or_event", "word_meaning"]);
     expect([!!deriveSupport(flag({})), deriveSupport(flag({}))?.meaningSpans], "the passage owes the NUMBER and the word beside it, never every gloss word of a claim no encyclopedia sentence would repeat").toEqual([true, ["22", "times"]]);
     expect([deriveSupport(flag({ quote: "Iran is divided into 22 provinces." })), deriveSupport(flag({ quote: "The Takbir appears on the flag of Iran." })), deriveSupport(flag({ claimKind: "date_or_event", proposed: "redesigned in 1980 and adopted in 1979", quote: "The current flag was adopted in 1980." })), deriveSupport(flag({ claimKind: "date_or_event", proposed: "the flag changed on 22 Bahman", quote: "Government offices close on 22 Bahman every year.", titleContext: "Public holidays in Iran" }))], "the number on something else, no number at all, one of the two years owed, and a date about another subject with nothing anaphoric to bridge it").toEqual([null, null, null, null]);
-    expect(sourceQueryFor("quantity", "Iran", "has a population of 89 million")).toContain("89"); expect(claimIdentity("Cyrus", "founded it", "History")).not.toBe(claimIdentity("Cyrus", "died 530 BCE", "Death"));});});
+    expect(sourceQueryFor("quantity", "Iran", "has a population of 89 million")).toContain("89"); expect(claimIdentity("Cyrus", "founded it", "History")).not.toBe(claimIdentity("Cyrus", "died 530 BCE", "Death")); const cobra = sourceQueryFor("entity_fact", "are there cobras in iran", "", "Persian Cobra"); expect([cobra.startsWith("Persian Cobra"), cobra.includes("cobras"), sourceQueryFor("quantity", "Iran", "has a population of 89 million", "Iran Population")], "a row with no current wording searches the PAGE'S OWN SUBJECT first, so the live cobra question stops asking the world at large and coming back with army aviation; a correction carries its own wording and never takes it").toEqual([true, true, sourceQueryFor("quantity", "Iran", "has a population of 89 million")]);});});
 describe("the page slot is part of the proposition", () => {
   const NAMES = "Popular Persian Male(Boy) First Names and their Meanings";
   it("lets a heading break a tie, never overrule, and keeps two roles apart in one proposition identity", () => {
@@ -58,19 +58,19 @@ describe("a missing proposition is researched, never graded", () => { beforeEach
   /** THE LOOP'S MISSING HALF, at the unit: an owed claim with NO current wording is information the page LACKS (the missing-information requirement seeds exactly these), so the unit searches the subject, reads real sources, and banks `proposed` as the researched statement with verified quotes. The judge is asked what the passages establish, never to grade an empty quotation. */
   it("an owed claim with no current wording banks the researched statement from real sources", async () => {
     db.cov = { pageContentHash: pageHashOf(PAGE.body), coveredChars: PAGE.body.length, totalChars: PAGE.body.length };
-    const asked: string[] = [];
+    const asked: string[] = []; const SAID = "Persian girls' names are typically chosen for meaning, drawn from nature, virtues and classical literature.";
     const missing = row({ statementKey: "missing#1", subject: "How Persian names are chosen for girls", current: "", pageLocator: "missing" });
-    const out = await unit({ held: [missing],
-      read: async (input: { system: string; user: string }) => { asked.push(input.user);
+    const judge = (verdict: string) => async (input: { system: string; user: string }) => { asked.push(input.user);
         return input.system.startsWith("You read one web page") ? { value: { statements: [] } }
-          : { value: { verdict: "undecidable", proposed: "Persian girls' names are typically chosen for meaning, drawn from nature, virtues and classical literature.", confidence: "confirmed", note: "",
-              supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable" }] } }; } });
-    expect(out.status).toBe("advanced");
-    const banked = db.rows.find((r) => r.statementKey === "missing#1")!;
-    expect([banked.state, banked.proposed]).toEqual(["checked", "Persian girls' names are typically chosen for meaning, drawn from nature, virtues and classical literature."]);
+          : { value: { verdict, proposed: SAID, confidence: "confirmed", note: "",
+              supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable" }] } }; };
+    const out = await unit({ held: [missing], read: judge("page_correct") }); expect(out.status).toBe("advanced");
+    const banked = db.rows.find((r) => r.statementKey === "missing#1")!; expect([banked.state, banked.proposed]).toEqual(["checked", SAID]);
     expect(String(banked.sources && (banked.sources as unknown[]).length)).toBe("1"); // the quote verified against the fetched passage
     expect(asked.join(" ")).toContain("The page does not answer this yet"); // researched as a gap, not compared to an empty quote
-    expect(asked.join(" ")).not.toContain('The page says: ""'); });
+    expect([asked.join(" ").includes('The page says: ""'), asked.join(" ").includes(`This page is about: ${PAGE.body}`), asked.join(" ").includes("ONE sentence that answers this question ABOUT THAT SUBJECT")], "the judge is told what the PAGE is about and asked for one sentence from one quotable passage, which is what the live cobra row never was").toEqual([false, true, true]);
+    db.rows = []; await unit({ held: [missing], read: judge("undecidable") }); const astray = db.rows.find((r) => r.statementKey === "missing#1")!;
+    expect([astray.state, astray.proposed, astray.confidence], "and a statement the judge would not say answers the question is banked as no statement at all, so a confirmed undecidable row can no longer exist").toEqual(["checked", null, "likely"]); });
   /** AND THE QUOTE IT BANKS IS THE PASSAGE THAT CARRIES THE PROPOSITION, not whichever sentence the judge reached for first. Live, the judge quoted the 1979 change, wrote that the passages support the pre-1979 colours and emblem, and they did, three sentences away; the row banked `likely` and its demand row was refused every pass after that. */
   it("banks the carrying window of the fetched document, and the judge's own quote when nothing carries", async () => {
     const PROP = "Before 1979, Iran used a tricolour flag of green, white, and red with the Lion and Sun emblem at the center; it remained in use until the 1979 Islamic Revolution", CARRIES = "Before 1979 the flag of Iran was a tricolour of green, white and red charged at the center with the Lion and Sun emblem of the Islamic state.";
@@ -109,7 +109,7 @@ describe("every failure is typed and leaves the claim owed", () => { beforeEach(
     const filler = "unrelated preamble words ".repeat(400), text = `${filler}Afsaneh. ${PASSAGE}${filler}`; // the defining sentence sits 10,000 characters in
     let asked = ""; const read = async (i: { system: string; user: string }) => { const claims = i.system.startsWith("You read one web page"); if (!claims) asked = i.user; return { value: (claims ? CLAIMS : CONFIRMS) as Record<string, unknown> }; };
     await unit({ held: [row({ statementKey: "k1" })], read, fetchSource: async () => ({ text }) });
-    expect([asked.includes(PASSAGE), asked.includes("Afsaneh."), asked.length < text.length]).toEqual([true, true, true]); });
+    expect([asked.includes(PASSAGE), asked.includes("Afsaneh."), asked.length < text.length, asked.includes('The page says: "Goddess"'), asked.includes("This page is about:")], "and a correction's own prompt is untouched: it grades the page's wording and is never told what the page is about").toEqual([true, true, true, true, false]); });
   it("only an EMPTY results page is none_found; results that fail the policy leave the claim owed", async () => {
     const held = [row({ statementKey: "k1" })]; // a page of results none of which clears the policy is unresolved, never an empty world
     const bad = await unit({ held, searchSources: async () => ({ organic: [{ domain: "babynames.example", url: "https://babynames.example/x", title: "x" }] }) });
@@ -263,8 +263,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
       read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, proposed: "Mountain Rampart",
         supporting: [{ url: "https://en.wiktionary.org/x", quote: "The name Alborz is derived from Hara Barazaiti, a legendary mountain." }],
         subjects: [{ url: "https://en.wiktionary.org/x", sameEntity: true, language: "Persian", script: "البرز", why: "about this name" }] } }) });
-    const r = db.rows[0] as FactCheck;
-    expect([r.confidence, r.verdict]).toEqual(["likely", "page_wrong"]);
+    const r = db.rows[0] as FactCheck; expect([r.confidence, r.verdict]).toEqual(["likely", "page_wrong"]);
     expect(r.note).toContain("Held below confirmed:"); });
 
   it("reads the next section even while claims are owed, and a chunk that filled up does not advance past what it read", async () => {
@@ -299,8 +298,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
       fetchSource: async () => ({ hold: "refused" as const }) } as never);
     const subjects = new Set(["alpha", "beta", "gamma", "delta"].filter((n) => asked.some((q) => q.toLowerCase().includes(n))));
     expect(subjects.size, `only reached ${JSON.stringify([...subjects])} of the owed claims across ${asked.length} searches`).toBeGreaterThanOrEqual(3);
-    expect(out.attempts).toBeGreaterThanOrEqual(3);
-    expect(out.failure).not.toBe("lease_exhausted");
+    expect(out.attempts).toBeGreaterThanOrEqual(3); expect(out.failure).not.toBe("lease_exhausted");
     expect(out.failure).toBe("fetch_refused");
     const waited: string[] = []; // A POSTED SEARCH IS THE MOST SELF-RESOLVING PER-CLAIM CONDITION THERE IS: the provider takes the task and hands it back on a free follow-up, so ending the pass on it posts ONE task per pass and leaves every other owed claim untouched (live on /persian-male-names: 167 owed, one attempt per pass).
     const wait = await runFactCheckPass({ tenantId: "t", basis: "b1", deadlineAt: Date.now() + 600_000, held: owed, pages: [{ url: PAGE.url, path: PAGE.path, loadBody: async () => body }], refreshHeld: async () => null, readCoverage: async () => db.cov as never, writeCoverage: async () => true, read: reader({ claims: { statements: [] }, judge: CONFIRMS }), searchSources: async (query: string) => { waited.push(query); return { hold: "waiting" as const }; }, fetchSource: async () => ({ hold: "refused" as const }) } as never);
@@ -319,7 +317,8 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     expect(authorizedCorrections([read], { pageContentHash: "h2" }, "t")).toHaveLength(0); // stale page version
     expect(authorizedCorrections([{ ...read, state: "owed" }], undefined, "t")).toHaveLength(0);
     expect(authorizedCorrections([{ ...read, rulesVersion: 1 }], undefined, "t")).toHaveLength(0); // verdict from replaced rules
-    expect(authorizedCorrections([read], { pageContentHash: "h1", evidenceBasis: "b1" }, "t")).toHaveLength(1);});
+    expect(authorizedCorrections([read], { pageContentHash: "h1", evidenceBasis: "b1" }, "t")).toHaveLength(1);
+    const gap = (verdict: string) => authorizedCorrections([{ ...read, current: "", verdict, proposed: "Iran has AH-1 Cobra attack helicopters." } as FactCheck], undefined, "t").length; expect([gap("undecidable"), gap("page_correct")], "A ROW WITH NO CURRENT WORDING IS AUTHORIZED BY ITS VERDICT: the live cobra row banked confirmed on an undecidable reading whose own note said the sources are about attack helicopters, and this door let it through to the writer").toEqual([0, 1]);});
   it("the real schema registry can express a claim list and a claim judgement", async () => {
     const { SCHEMA_BY_KIND } = await import("@/domains/decision/llm/schemas"); expect(SCHEMA_BY_KIND.fact_claim_extraction.safeParse({ statements: [{ subject: "A", current: "means B", locator: "A" }] }).success).toBe(true);
     expect(SCHEMA_BY_KIND.fact_claim_judgement.safeParse({ verdict: "page_wrong", confidence: "confirmed", proposed: "Legend", literal: "legend", usage: "",
@@ -467,6 +466,7 @@ describe("a source supports a claim only when its own passage says so", () => {
     expect([!!carried, carried?.supportSpan === CARRIES, carried?.meaningSpans.length, supportFailure(carried, gap()), deriveSupport(gap({ quote: REPLACEMENT, proposed: PROP.replace("1979 Islamic Revolution", "1979 revolution") })), deriveSupport(gap({ quote: REPLACEMENT }))?.meaningSpans.length], "7 of the 10 words the question does NOT supply, so the whole banked passage is the span and the artifact validates under the rule that minted it; the passage about the flag that REPLACED it carries five of nine and is refused, and the residual is named here: end the same proposal on the Islamic Revolution and its own vocabulary lifts that window to exactly six of ten, the bar itself").toEqual([true, true, 7, null, null, 6]);
     expect([deriveSupport(thin), supportFailure({ ...carried!, identity: supportIdentity(thin), supportSpan: thin.quote, subjectSpan: "Islamic", meaningSpans: ["Islamic"] }, thin)], "and a passage naming the revolution alone carries nothing").toEqual([null, "proposition_absent"]);
     expect([deriveSupport(gap({ proposed: "tale, story, fable" })), deriveSupport(gap({ subject: "kire khar meaning", proposed: "Kire khar is a crude Persian insult." })), deriveSupport(gap({ subject: AZADEH, proposed: "Azadeh is a Persian female given name meaning free or free-minded, and also someone noble.", quote: "Azadeh is a Persian female given name meaning free or free-minded, and also someone noble." })), supportIdentity(gap({ subject: AZADEH }))], "a three word gloss the passage never carries is not support; a name with a gloss for a subject is a headword row that never takes this route at all, however long the gloss is; and its identity carries no marker, so the four live name rows keep the artifacts, the authorization and the Ready card they already have").toEqual([null, null, null, "899889f8ff3b70e9202dd6e7828882d75bef887c4aee4e4dd89d742f2308b88a"]);
+    const HISTORY = "The Lion and Sun emblem was charged on the centre band of the green, white and red tricolour that Iran flew until the revolution of 1979.", ONE = "Before the 1979 revolution, Iran's flag was a green, white and red tricolour bearing the Lion and Sun emblem.", BOTH = `${ONE} It was replaced after the revolution by the current flag of the Islamic Republic, which carries the Takbir twenty-two times.`; expect([!!deriveSupport(gap({ proposed: ONE, quote: HISTORY })), deriveSupport(gap({ proposed: BOTH, quote: HISTORY }))], "ONE PASSAGE CARRIES THE ANSWER, at the 0.6 bar this contract keeps: the History sentence carries six of the seven words the question does not supply, and the composite the live judge assembled from two sources carries six of sixteen, because the half about what replaced the flag is in no passage at all").toEqual([true, null]);
     expect([verdict(base), supportIdentity(base), supportIdentity(gap())], "MUTATION: drop the marker and the second hash moves back onto the first rule; a correction's is pinned byte for byte, so no banked correction artifact goes stale").toEqual([null, "32aadde8e93bfc1337c2f54bcd4f4f86f605d7a4798901fd40466c2a7a55ec13", "cd4c65c0a308528e07650fc3329a04f9a22019a74c0767666a0b45076f205893"]); });
 
   it("retires itself the moment any input it was signed over moves", () => {

@@ -324,7 +324,7 @@ function citationOfQuote(proposed: string, quotes: readonly string[], current = 
 /** THE CORRECTION AS BOTH ENDS SEE IT: the evidence run judges a candidate before banking it and the card door
  *  judges the banked row, through the ONE rule below, so a row can never be banked `confirmed` and then be
  *  refused at the door for ever, reopened, re-researched and refused again. `FactCheck` satisfies this. */
-type CorrectionCandidate = { subject: string; current: string; proposed: string | null;
+type CorrectionCandidate = { subject: string; current: string; proposed: string | null; verdict?: string;
   sources: readonly { kind: SourceKind; says: string }[] };
 
 /** WHY A CORRECTION MAY NOT BE PUBLISHED, in one typed sentence, or null. THE ONE AUTHORIZATION RULE, asked by
@@ -341,9 +341,8 @@ export function unauthorizedReason(c: CorrectionCandidate): string | null {
   const qualified = c.sources.filter((s) => s.says.trim() !== "" && !HEDGED.test(s.says) && !definesOtherName(s.says, c.subject));
   const authoritative = qualified.filter((s) => AUTHORITATIVE_KIND.has(s.kind));
   if (authoritative.length === 0) return "no authoritative source that was read, is unhedged and is about this subject stands behind it";
-  // A missing-information row proposes what the page LACKS, has no quotation to grade, and keeps the contract
-  // it was banked under; only the correction shape is bound to its quotes here.
-  if (c.current.trim() === "" || !c.proposed?.trim()) return null;
+  // A ROW WITH NO CURRENT WORDING IS TESTED BY ITS VERDICT, AND HERE BY NOTHING ELSE (reviewer, 2026-09-02): it proposes what the page LACKS, so there is no quotation to grade, and the only thing that says the researched statement answers the question this page's own subject was researched for is `page_correct`. Live at 17:03 PDT on /iran-animals/persian-cobra: the sources were about AH-1 Cobra attack helicopters, the judge said exactly that and answered `undecidable`, and this door read the confirmed reading alone and authorized "Iran has AH-1 Cobra attack helicopters." as the missing fact for a page about a snake.
+  if (c.current.trim() === "" || !c.proposed?.trim()) return c.current.trim() === "" && c.verdict !== "page_correct" ? "the judge did not answer the question about this page's own subject, so the statement proposed is about something else" : null;
   const quotes = authoritative.map((s) => s.says);
   if (!glossCarriedBy(c.proposed, quotes)) return "the authoritative quotes do not carry every word of the proposal, so part of the wording stands only on an ordinary source";
   if (citationOfQuote(c.proposed, quotes, c.current)) return "the proposal restates the source's own sentence instead of giving the page's line a meaning";
@@ -358,8 +357,8 @@ export function authorizedCorrections(checks: readonly FactCheck[],
     && c.confidence === "confirmed"
     // A CORRECTION corrects wording the page carries, so only a wrong or imprecise verdict authorizes one. A row
     // with NO current wording is the other authorized shape: information the page LACKS, researched by the
-    // missing-information loop; there is no quotation to grade, so the verdict is not the test, and the
-    // authorization rests on the confirmed reading, the proposed statement, and the authoritative source below.
+    // missing-information loop, and ITS verdict is the test too, asked once by the one rule below, which
+    // authorizes such a row on `page_correct` alone: the answer has to be about this page's own subject.
     && (c.verdict === "page_wrong" || c.verdict === "page_imprecise" || c.current.trim() === "")
     && !!c.proposed?.trim()
     && !!c.sourceReadAt

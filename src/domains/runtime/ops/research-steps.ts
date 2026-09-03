@@ -412,11 +412,11 @@ async function seedMissingProposition(tenantId: string, pageUrl: string, topic: 
   const hash = pageHashOf(body), key = claimIdentity(topic, "", "missing");
   // A ROW THE STALE SWEEP RETIRED IS REOPENED AT THE CURRENT VERSION, never insert-ignored into a lie: the seed's upsert used ignoreDuplicates, so a superseded row from an older page version blocked the insert, the seed still reported success, and the requirement re-minted every drive with no research ever happening (audit, 2026-08-26).
   const held = await facts.readFactChecks(tenantId, path).catch(() => [] as Awaited<ReturnType<typeof facts.readFactChecks>>);
-  const mine = held.find((h) => h.statementKey === key);
-  if (mine?.state === "checked" && mine.pageContentHash === hash) return true; // already researched at this version: the requirement is satisfied, not re-seeded
-  if (mine && (mine.state !== "owed" || mine.pageContentHash !== hash)) {
+  const mine = held.find((h) => h.statementKey === key), astray = !!mine && mine.state === "checked" && mine.verdict === "undecidable" && !!mine.proposed?.trim(); // A CHECKED ROW HOLDING AN UNDECIDED STATEMENT ANSWERED A DIFFERENT SUBJECT (reviewer, 2026-09-02): live, "are there cobras in iran" came back "Iran has AH-1 Cobra attack helicopters." with the judge's own note saying the sources do not address snakes. ONCE: a re-researched row banks its statement only under `page_correct`, so this holds for rows banked before that rule and never again.
+  if (mine?.state === "checked" && mine.pageContentHash === hash && !astray) return true; // already researched at this version: the requirement is satisfied, not re-seeded
+  if (mine && (mine.state !== "owed" || mine.pageContentHash !== hash || astray)) {
     const n0 = await facts.recordFactChecks(tenantId, path, [{ ...mine, state: "owed", pageContentHash: hash, evidenceBasis: basis,
-      note: "Reopened: the page moved to a new version and this missing proposition is owed again.", checkedAt: new Date().toISOString() }]).catch(() => 0);
+      note: astray ? "Reopened: the answer must be about this page's own subject." : "Reopened: the page moved to a new version and this missing proposition is owed again.", checkedAt: new Date().toISOString() }]).catch(() => 0);
     if (n0 <= 0) return false;
   } else if (!mine) {
     await facts.recordOwedClaims(tenantId, path, [{ statementKey: key, subject: topic, current: "", locator: "missing" }], hash, basis).catch(() => -1);
