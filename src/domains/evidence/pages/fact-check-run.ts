@@ -341,13 +341,25 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // EVERY CLAIMED SUPPORT IS VERIFIED IN ITS OWN SOURCE. A quote is credited only to the passage that actually
   // contains it, so one sentence attributed to several publishers supports exactly the one it came from.
   const norm = (t: string): string => t.toLowerCase().replace(/\s+/g, " ").trim();
-  const verified = new Map<string, string>(); // passage url -> its own verified quote
-  const vouchedAs = new Map<string, string>(); // passage url -> the url the reader NAMED for it, so the subject it vouched for is found even when a quote resolves to a different passage than the one claimed
+  const proposedNow = (v.proposed ?? "").trim(), kind = claimTypeOf(claim.subject, claim.current || proposedNow, claim.locator); // ONE CLASSIFICATION, BOTH DOORS (reviewer, 2026-09-02). The kind above is read from the page's own wording, which a missing-information row does not have, while the authorization door rebuilds it from the wording OR the researched statement: the two disagreed, the identity never matched, the artifact read `stale` on every drive, and two live rows were handed back and re-bought for ever. What a row asserts is what classifies it at both doors.
+  const ctxOf = (p: (typeof passages)[number], quote: string): SupportContext => ({ tenantId, page: page.path, statementKey: next!.statementKey, pageLocator: claim.locator, subject: claim.subject, claimKind: kind, current: claim.current, proposed: proposedNow, url: p.url, kind: p.kind, quote, titleContext: p.title ?? null });
+  /** THE ONE TO THREE CONSECUTIVE SENTENCES OF THIS SOURCE'S OWN FETCHED TEXT THAT CARRY THE PROPOSAL, or null: a window of the text this fetch already read, in its own words and order, never assembled from pieces, at most 600 characters, accepted only when it clears the carriage bar, and the TIGHTEST window wins a tie so no sentence rides along that carries nothing. */
+  const carrying = (p: (typeof passages)[number]): string | null => {
+    const sents = (p.text.match(/[^.!?\n]+[.!?]+["')\]]?|[^.!?\n]+$/g) ?? []).map((x) => x.trim()).filter((x) => x.length > 2); let best: { window: string; carried: number } | null = null;
+    for (let i = 0; i < sents.length; i += 1) for (let k = 1; k <= 3 && i + k <= sents.length; k += 1) {
+      const window = sents.slice(i, i + k).join(" "); if (window.length > 600) break;
+      const a = deriveSupport(ctxOf(p, window));
+      if (a && (!best || a.meaningSpans.length > best.carried || (a.meaningSpans.length === best.carried && window.length < best.window.length))) best = { window, carried: a.meaningSpans.length }; }
+    return best?.window ?? null; };
+  const verified = new Map<string, string>(), vouchedAs = new Map<string, string>(); // passage url -> its own verified quote, and passage url -> the url the reader NAMED for it, so the subject it vouched for is found even when a quote resolves to a different passage than the one claimed
   for (const sup of v.supporting ?? []) {
     const quote = (sup.quote ?? "").trim();
-    if (quote.length === 0) continue;
-    const p = passages.find((x) => x.url === sup.url) ?? passages.find((x) => norm(x.text).includes(norm(quote)));
-    if (p && norm(p.text).includes(norm(quote)) && !verified.has(p.url)) { verified.set(p.url, quote); vouchedAs.set(p.url, sup.url); }}
+    const p = quote.length === 0 ? undefined : passages.find((x) => x.url === sup.url) ?? passages.find((x) => norm(x.text).includes(norm(quote)));
+    if (!p || verified.has(p.url)) continue;
+    if (norm(p.text).includes(norm(quote))) { verified.set(p.url, quote); vouchedAs.set(p.url, sup.url); continue; }
+    // AND A NAMED SOURCE WHOSE QUOTE IS NOT IN ITS OWN PASSAGE MAY STILL HOLD THE ANSWER (live 19:00 PDT on /iran-flags/iran-islamic-republic-flag-history): the judge answered the pre-1979 flag question correctly from the History passage and paraphrased it into `quote`, both named sources failed the verbatim test, nothing was verified, so nothing was selected and both banked says "" while the row stayed `likely`. For a row with no current wording the passage the judge READ is searched for the window that carries the proposal, exactly as a verified quote that falls short is; the window is the source's own words, so it verifies by construction. A correction is untouched: its failed quote still banks nothing.
+    const rescued = claim.current.trim() === "" && proposedNow ? carrying(p) : null;
+    if (rescued) { verified.set(p.url, rescued); vouchedAs.set(p.url, sup.url); }}
   // A QUOTE PROVES THE SOURCE SAID IT, NEVER THAT IT SAID IT ABOUT THIS SUBJECT: a passage has to be about the SAME name in the SAME language. The reader names the subject it read and the code checks the half it can. Live, Wikipedia's "Daria (given name)" is quotable and lists "Darya" as a variant, so it authorized a Slavic name descended from Darius as the meaning of Persian دریا, sea. Every test the old chain ran was passing.
   const said = new Map((v.subjects ?? []).map((x) => [x.url, x]));
   const vouched = passages.filter((p) => {
@@ -367,26 +379,14 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const dropped = passages.filter((p) => verified.has(p.url) && !identified.includes(p));
   const supporters = identified;
   // EVERY SOURCE EARNS ITS OWN RULING, AND THE CODE ACCEPTS ONLY WHAT IT CAN VERIFY (claim-support, 2026-08-29). The model locates the supporting sentence and its spans; supportFailure accepts nothing it cannot find verbatim in the exact quote this row banks, localized to ONE sentence, whole words only, the subject named in that sentence or by this same fetch's own document title. What stood here was glossCarriedBy, a bag-of-words provenance test that let a passage about the man who held a title carry a name's meaning; provenance remains a refusal inside unauthorizedReason and authorizes nothing.
-  const rulings = new Map((v.supporting ?? []).map((x) => [x.url, x] as const)); const proposedNow = (v.proposed ?? "").trim();
-  const kind = claimTypeOf(claim.subject, claim.current || proposedNow, claim.locator); // ONE CLASSIFICATION, BOTH DOORS (reviewer, 2026-09-02). The kind above is read from the page's own wording, which a missing-information row does not have, while the authorization door rebuilds it from the wording OR the researched statement: the two disagreed, the identity never matched, the artifact read `stale` on every drive, and two live rows were handed back and re-bought for ever. What a row asserts is what classifies it at both doors.
+  const rulings = new Map((v.supporting ?? []).map((x) => [x.url, x] as const));
   const bankedSources = passages.map((p) => {
-    const ctxAt = (quote: string): SupportContext => ({ tenantId, page: page.path, statementKey: next!.statementKey,
-      pageLocator: claim.locator, subject: claim.subject, claimKind: kind, current: claim.current,
-      proposed: proposedNow, url: p.url, kind: p.kind, quote, titleContext: p.title ?? null });
     let says = (verified.get(p.url) ?? "").slice(0, 600);
     // THE QUOTE A MISSING-INFORMATION ROW BANKS IS THE PASSAGE THAT CARRIES THE PROPOSITION, not whichever sentence the judge reached for first. Live on /iran-flags the judge quoted two sentences about the flag CHANGING in 1979 and wrote that the passages support the pre-1979 colours and emblem; they did, three sentences away, so the row banked `likely` and its demand row was refused for months. When the verified quote falls short, the one to three consecutive sentences of THIS source's own fetched text that carry the most of the proposal are banked instead: a window of the text this fetch already read, in its own words and order, never assembled from pieces, banked only when it clears the carriage bar, and the TIGHTEST window wins a tie so no sentence rides along that carries nothing.
-    if (proposedNow && says && claim.current.trim() === "" && supporters.includes(p) && !deriveSupport(ctxAt(says))) {
-      const sents = (p.text.match(/[^.!?\n]+[.!?]+["')\]]?|[^.!?\n]+$/g) ?? []).map((s) => s.trim()).filter((s) => s.length > 2);
-      let best: { window: string; carried: number } | null = null;
-      for (let i = 0; i < sents.length; i += 1) for (let k = 1; k <= 3 && i + k <= sents.length; k += 1) {
-        const window = sents.slice(i, i + k).join(" ");
-        if (window.length > 600) break;
-        const a = deriveSupport(ctxAt(window));
-        if (a && (!best || a.meaningSpans.length > best.carried || (a.meaningSpans.length === best.carried && window.length < best.window.length))) best = { window, carried: a.meaningSpans.length }; }
-      if (best) says = best.window; }
+    if (proposedNow && says && claim.current.trim() === "" && supporters.includes(p) && !deriveSupport(ctxOf(p, says))) says = carrying(p) ?? says;
     const stamp = { url: p.url, kind: p.kind, says, ...(p.title ? { titleContext: p.title, titleContextFrom: "fetched_document" as const } : {}) };
     if (!says || !proposedNow || !supporters.includes(p)) return stamp;
-    const ctx = ctxAt(says);
+    const ctx = ctxOf(p, says);
     const r = rulings.get(p.url) ?? rulings.get(vouchedAs.get(p.url) ?? "");
     const candidate: ClaimSupport | null = r ? { version: SUPPORT_ARTIFACT_VERSION, identity: supportIdentity(ctx),
       supported: r.supported === true, supportSpan: r.supportSpan ?? "", subjectSpan: r.subjectSpan ?? "",
