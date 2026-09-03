@@ -474,7 +474,10 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
       if (out.status === "done" || out.cursor?.pageComplete) { if (!held.some((h) => h.page === page.path && setAside.has(h.statementKey))) pagesComplete += 1; break; }}}
   // AN ACCOUNT WITH NO STORED PAGE WORDS OWES NOTHING HERE. Reading that as a failure would pause a fresh
   // account at this phase for ever, now that it runs ahead of the crawl that fills the store.
-  if (opened === 0) return { status: "done", banked: 0, bankedPages: [], pagesComplete: 0, attempts, reason: "no stored page words to check yet" };
+  // AND A PASS THAT OPENED NO PAGE SAYS WHY (live 04:32Z on 2026-09-03): a drive whose walk had already spent the clock handed the units a deadline that had passed, they broke out before the first page, and the receipt read "no stored page words to check yet" of an account holding hundreds. An empty store and a spent box are different facts and the row now carries the one that happened.
+  if (opened === 0) return attempts >= ATTEMPTS_PER_PASS || Date.now() >= d.deadlineAt
+    ? { status: "failed", banked: 0, bankedPages: [], pagesComplete: 0, attempts, failure: "lease_exhausted" as const, reason: "the drive's time box ended before the check began" }
+    : { status: "done", banked: 0, bankedPages: [], pagesComplete: 0, attempts, reason: "no stored page words to check yet" };
   // A PASS THAT SET EVERY CLAIM ASIDE DID NOT RUN OUT OF LEASE, and saying so PAUSES the run: `lease_exhausted`
   // is a hard stop. The last real reason is carried out of the loop and reported as itself.
   return { status: progressed ? "advanced" : pagesComplete > 0 ? "done" : "failed", banked, bankedPages: [...bankedPages], pagesComplete, attempts, ...(progressed || pagesComplete > 0 ? {} : lastPerClaim
