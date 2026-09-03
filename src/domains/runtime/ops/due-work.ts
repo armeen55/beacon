@@ -358,8 +358,8 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   // very same pages makes the stock owed again today rather than tomorrow. Or the stock itself moved: a day closed
   // because it REACHED five says nothing once the operator implements one and four are left, so only a proven
   // exhaustion may hold the day shut (Codex, 2026-08-22).
-  const stockClosed = progress.replenish?.day === day && progress.replenish.closed === "candidates_exhausted"
-    && progress.replenish.fingerprint.startsWith(`${basis.value ?? ""}::v${version.value ?? ""}::`);
+  const stockClosed = progress.replenish?.day === day && progress.replenish.closed === "candidates_exhausted" // AND WORK A FACT WOKE UP IS WORK STILL OWED, whatever the exhaustion said: that answer was earned before this evidence existed
+    && (progress.replenish.awakened ?? []).length === 0 && progress.replenish.closedUnder === `${basis.value ?? ""}::v${version.value ?? ""}`;
   // A COUNT IS NOT A REASON TO STOP WORKING. This asked for a top-up only while the stock sat BELOW five, so an
   // account holding fourteen finished changes was never even asked, and a press returned "nothing due" with real
   // evidenced work standing unwritten. The floor still decides URGENCY everywhere else; what ends the day is a

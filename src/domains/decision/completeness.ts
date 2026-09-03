@@ -174,10 +174,11 @@ export function openHold(p: ChangeProposal): { lane: "review" | "research"; why:
  *  dimension this identity added (review, 2026-08-22). Sorted tokens make every reordering of the same words
  *  one intent, which is the same subject rule the canonical query key applies on the server. */
 const normIntent = (q: string): string => (q ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").sort().join(" ");
+const slotOf = (f: string): string => (f === "answer_block" || f === "section" ? "body" : f); /** WHICH SLOT A FIELD WRITES, the field half of mutation-footprint's own table: `answer_block` and `section` are two names for ONE body edit and land on the same words. Read as the raw field, a brief minted `answer_block` and the finished section the writer handed back for that very brief were two kinds of change, so every re-mint retired the finished copy with "the kind of change moved" and put the brief back on the row: twice in one live drive (2026-09-03), both receipts still saying produced. */
 function copyIdentity(p: ChangeProposal): string {
   const parts = p.bundle?.components ?? [];
   return JSON.stringify([p.copyStamp ?? null, p.changeFamily, p.diagnosisCause ?? null, normIntent(p.primaryQuery),
-    p.recommendedChange.kind === "existing_edit" ? [p.recommendedChange.field] : ["new_page"],
+    p.recommendedChange.kind === "existing_edit" ? [slotOf(p.recommendedChange.field)] : ["new_page"],
     [...new Set(parts.map((c) => c.page ?? p.pagePath ?? ""))].sort(),
     parts.map((c) => [c.kind, c.page ?? null]),
     (p.bundle?.dispositions ?? []).map((d) => [d.page, d.verdict])]);
@@ -189,8 +190,8 @@ function identityMoves(prior: ChangeProposal, incoming: ChangeProposal): string 
   if ((prior.diagnosisCause ?? null) !== (incoming.diagnosisCause ?? null)) moves.push("the diagnosed cause changed");
   if (normIntent(prior.primaryQuery) !== normIntent(incoming.primaryQuery)) moves.push("the search it answers changed");
   if (prior.changeFamily !== incoming.changeFamily
-    || (prior.recommendedChange.kind === "existing_edit" ? prior.recommendedChange.field : "new_page")
-      !== (incoming.recommendedChange.kind === "existing_edit" ? incoming.recommendedChange.field : "new_page")) moves.push("the kind of change moved");
+    || (prior.recommendedChange.kind === "existing_edit" ? slotOf(prior.recommendedChange.field) : "new_page")
+      !== (incoming.recommendedChange.kind === "existing_edit" ? slotOf(incoming.recommendedChange.field) : "new_page")) moves.push("the kind of change moved");
   return moves.join("; ") || "the pages this change writes on moved";
 }
 

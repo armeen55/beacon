@@ -25,12 +25,15 @@ type Keyable = Parameters<typeof mutationKeyOf>[0];
  *  by the row stored as `farsi insults`. A page with nothing on it still keys the page alone, and `take` below lets
  *  a mutation-keyed draw fall back to a page-keyed allowance, so a job declared before its card exists is reachable. */
 const keyOf = (p: Keyable): string => { try { return mutationKeyOf(p); } catch { return `unknown-page::${(p.id ?? p.primaryQuery ?? "").trim().toLowerCase() || "none"}`; } }; // its OWN name, so two page-less jobs never share one slot // a job with no page at all can never be drawn against and must not take the pass down with it
-/** Whether a focus entry names this job: exactly, or as the page every mutation on it extends. */
-const focusHits = (focus: ReadonlySet<string>, key: string): boolean => {
-  if (focus.has(key)) return true;
-  for (const f of focus) if (key.startsWith(`${f}::`)) return true;
-  return false;
-};
+/** WHAT ONE DAY ALREADY DID TO ONE PIECE OF WORK, under that work's OWN identity (`workKey`: the mutation, the
+ *  writer contract, the basis, the evidence bound to the row, the obligation it carries and the rules it is
+ *  judged under). It replaces the four day lists that keyed on the bare mutation and family: `attempted`,
+ *  `tried`, `spent` and `settled` all answered "the same page again" for work whose evidence, obligation or
+ *  rules had moved, so a corrected job could not run again until tomorrow (live, an answer block whose fact banked mid day, 2026-09-03).
+ *  `calls` counts the ATTEMPTS that took real provider calls and finished nothing, never the requests
+ *  themselves; `last` is the outcome that attempt filed; `settled` means there is nothing left to do for this
+ *  exact work under this exact evidence. A workKey nobody remembers is new work by construction. */
+export type JobMemory = { calls: number; last: string; settled: boolean };
 
 /** THE DRAFTING POLICY, AS ONE CONTRACT THE LOOP AND THE PRICE BOTH READ. They diverged twice, and each time the allowance ran out mid-deliverable and the card was refused with "this pass has spent its whole attempt budget" (live receipts, 2026-08-22 22:30Z and 2026-08-23 00:32Z). So the retry count is stated ONCE and the price is DERIVED from it rather than written down separately: one writing round is a draft and its judge, the editor may make the first attempt plus EDITOR_RETRIES more, and one mandatory adversarial review reads the survivor before it may wear Ready. Change the retry count and the price follows; they cannot drift apart again. */
 const EDITOR_RETRIES = 2, CALLS_PER_ROUND = 2;
@@ -57,21 +60,13 @@ type DeclinedJob = { key: string; family: string; calls: number; reason: string 
 /** THE ONE RANKING, AND THE ONE SELECTION. Ranked by what each job is worth PER CHARGED CALL, not by worth alone: ranking on impact by itself let one twelve-call bundle swallow a pass that could have finished four changes worth more together, which is the starvation the operator saw as "239 calls, nothing ready". Impact breaks ties so two jobs at the same price still order by value, and the key breaks the last tie so the same manifest always plans the same way. Then a single walk: take a job when a candidate slot and its full price are both left, otherwise record why and keep walking, so a cheap strong job behind an unaffordable bundle is still funded. */
 /** THERE IS NO INVENTORY TARGET IN THIS PLAN (operator, 2026-08-30). A `readyTarget` used to close every family's `take()` the moment that many Ready rows landed, which made a full-enough queue a reason to stop buying work the evidence had already earned. Deleted whole: what bounds a pass is the money above, the caller's time box, and each candidate's own typed settlement. Nothing here may ever read how much finished work already exists. */
 function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean; quiet?: boolean;
-  /** Pages a previous pass TODAY already spent real calls on and got nothing from. They stay DECLARED, so the caller can still tell a manifest that is finished from one that is not, and they are not funded again: the money moves down the ranking instead of buying the same refusal twice. */ skip?: readonly string[];
-  /** Pages this day ALREADY SPENT REAL CALLS ON that came back transiently blocked. They are still owed and still
-   *  fundable, but they rank behind work nobody has tried, because a candidate that fails the same way every time
-   *  must never re-consume a whole drive ahead of untried candidates (Codex, 2026-08-23). THIS IS NOT THE DEFERRAL
-   *  THAT WAS DELETED: that one demoted work never STARTED, which sent the account's strongest page to the back
-   *  behind pages worth a hundredth of it. This demotes only work that was started and spent. */ retry?: readonly string[];
-  /** Pages the CALLER NAMES to finish first. Live (2026-08-30): a standing card one review from Ready could not
-   *  be funded by any means, because fresh page candidates outrank it and skip only declines. A focused key funds
-   *  ahead of the impact order and is exempt from skip; everything else about the walk is unchanged, so this aims
-   *  the same money, never more of it. */ focus?: readonly string[];
-  /** HOW MANY TIMES TODAY EACH `key::family` WAS SPENT ON AND FINISHED NOTHING, from the day's own memory. The
-   *  two-attempts-then-settled contract, applied to the day: a candidate that has taken real calls twice and
-   *  produced nothing waits for new evidence or for tomorrow, instead of holding the top slot and the time box
-   *  on every drive. `tried` alone only DEMOTED such a job, which a stuck new-page draft outranked six times
-   *  in one night while seven funded editor keys behind it were never started. */ spent?: Readonly<Record<string, number>> }) {
+  /** THE DAY'S ONE ATTEMPT LEDGER, keyed by each job's own `workKey`, and the ONLY thing this plan remembers
+   *  about earlier passes. Settled under the SAME identity is declined; two spent attempts under it are declined
+   *  with the two-attempts-then-settled sentence; an unfinished attempt that took real calls is DEMOTED behind
+   *  work nobody has tried, because a candidate that fails the same way every drive must never re-consume the
+   *  whole box ahead of untried candidates. Work never started is absent, so it is owed at its own rank. There
+   *  is no operator focus and no exemption: the money follows the evidence and the ranking, and nothing else. */
+  memory?: Readonly<Record<string, JobMemory>> }) {
   const ceiling = Math.max(0, input.calls ?? MAX_PAID_CALLS);
   // ONE ENTRY PER PAGE, AND THE PAGE GETS THE TREATMENT WITH THE HIGHEST EXPECTED SITE IMPACT (Codex, 2026-08-23).
   // Two corrections carved into this line. Dearest-wins buried strong cheap work behind bundles; value-per-call then
@@ -119,25 +114,28 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
       // THE SLOT IS PRICED AT THE DELIVERABLE THAT WON IT (reviewer, 2026-09-02): a live page job that outscores the live mutation takes the slot's family and calls too, or a whole-page rewrite ranked at 90 was funded at a description's six calls and its own door could never open.
       const takes = live || (!j.blocked && !strongest.blocked && j.impact > strongest.impact);
       byKey.delete(j.key); alias.set(j.key, strongest.key);
-      byKey.set(strongest.key, { ...strongest, impact: Math.max(strongest.impact, j.impact), ...(takes ? { blocked: undefined, family: j.family, calls: j.calls } : {}),
+      // AND THE SLOT IS REMEMBERED UNDER THE IDENTITY THAT WILL ACTUALLY RUN (reviewer, 2026-09-02): it took the page job's family and its price, so taking the mutation job's `workKey` with them filed the day's attempt against work this slot never does.
+      byKey.set(strongest.key, { ...strongest, impact: Math.max(strongest.impact, j.impact), ...(takes ? { blocked: undefined, family: j.family, calls: j.calls, ...(j.workKey ? { workKey: j.workKey } : {}) } : {}),
         fallbacks: [...new Set([...(strongest.fallbacks ?? []), ...(j.fallbacks ?? []), takes ? strongest.family : j.family])].filter((f) => f !== (takes ? j.family : strongest.family)) });
     }
   }
-  const tried = new Set(input.retry ?? []);
+  /** WHAT THE DAY REMEMBERS ABOUT THIS EXACT WORK, or null when nothing does. A job that declares no identity is
+   *  remembered by nothing and is therefore new work: identity is declared with the job or it does not exist. */
+  const seen = (j: PaidJob): JobMemory | null => (j.workKey ? input.memory?.[j.workKey] ?? null : null);
+  const started = (j: PaidJob): boolean => { const m = seen(j); return m != null && m.calls > 0 && !m.settled; };
   // FINISHING IS A TIE-BREAK, NEVER A BAND (operator, 2026-08-30): the absolute correction-first order put
   // every one-cent finish above every new section, answer, link, and page whatever their traffic was worth,
   // which is the names-only queue. Expected value orders everything; a cheap finish wins only when values tie.
-  const focus = new Set(input.focus ?? []); // a focus entry may name a page, and then it names every mutation on it
   const ranked = [...byKey.values()].sort((a, b) =>
-    Number(focusHits(focus, b.key)) - Number(focusHits(focus, a.key)) || Number(tried.has(a.key)) - Number(tried.has(b.key)) || b.impact - a.impact || finishes(b) - finishes(a) || a.calls - b.calls || a.key.localeCompare(b.key));
-  const funded = new Map<string, number>(), declined: DeclinedJob[] = [], skip = new Set(input.skip ?? []);
+    Number(started(a)) - Number(started(b)) || b.impact - a.impact || finishes(b) - finishes(a) || a.calls - b.calls || a.key.localeCompare(b.key));
+  const funded = new Map<string, number>(), declined: DeclinedJob[] = [];
   let slots = Math.max(0, input.candidates), callsLeft = ceiling;
   for (const j of ranked) {
     const price = Math.max(1, Math.round(j.calls));
     if (j.blocked) declined.push({ key: j.key, family: j.family, calls: price, reason: j.blocked });
-    // ALREADY BOUGHT NEVER BLOCKS A DIFFERENT OBLIGATION (operator, 2026-09-02). The skip was keyed on the mutation alone, so a page whose DRAFT was spent today declined the REVIEW that page owed as well, and a materially different job on one key could not be funded until tomorrow. A spend is a fact about one family's job; the entry carries that family and declines only it.
-    else if (skip.has(`${j.key}::${j.family}`) && !focusHits(focus, j.key)) declined.push({ key: j.key, family: j.family, calls: price, reason: "a pass today already spent on this exact job and it finished nothing, so the money moves to the next ranked one" });
-    else if ((input.spent?.[`${j.key}::${j.family}`] ?? 0) >= DAY_ATTEMPTS && !focusHits(focus, j.key)) declined.push({ key: j.key, family: j.family, calls: price, reason: "spent on twice today and finished nothing, so it waits for new evidence or tomorrow" });
+    // ALREADY BOUGHT NEVER BLOCKS A DIFFERENT OBLIGATION (operator, 2026-09-02). The skip was keyed on the mutation and the family, so a page whose DRAFT was spent today declined the REVIEW that page owed as well, and a job whose evidence, obligation or rules had genuinely moved could not be funded until tomorrow. Both answers are asked of the WORK'S OWN IDENTITY now: a corrected job wears a different `workKey`, so it is simply not the job the day remembers.
+    else if (seen(j)?.settled === true) declined.push({ key: j.key, family: j.family, calls: price, reason: "finished work or a settled refusal already stands under this exact evidence" });
+    else if ((seen(j)?.calls ?? 0) >= DAY_ATTEMPTS) declined.push({ key: j.key, family: j.family, calls: price, reason: "spent on twice today and finished nothing, so it waits for new evidence or tomorrow" });
     // TWO DIFFERENT THINGS, TWO DIFFERENT SENTENCES. A pass Beacon was ASKED not to spend on used to report the
     // provider's credit as exhausted, which is a cause the receipt invented: nothing had run out, and an
     // operator reading it would go looking at a billing page for a decision Beacon had made itself.

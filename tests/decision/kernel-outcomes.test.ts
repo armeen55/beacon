@@ -21,7 +21,6 @@ import { proposeExistingPageChange } from "@/domains/decision/propose";
 import { convertSectionToSchema, validateProposal } from "@/domains/decision/validate-proposal";
 import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals";
 import { actionFamilyOf } from "@/domains/measurement/proof-gsc/change-family";
-import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import { fitTenantCtrCurve, defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import { compileCandidates, snapshotToEvidenceInputs } from "@/domains/decision/opportunities"; import { suggestedEdits } from "@/domains/decision/suggested-edits";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
@@ -244,7 +243,9 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     const refused = (await run(counting().complete)).paid.receipts.filter((r) => r.outcome === "deterministic_refusal");
     expect(refused.length).toBeGreaterThan(0);
     expect(refused.every((r) => (r.why ?? "").endsWith("to be offered"))).toBe(true); // the sentence ENDS where it ends, not at 200 characters
-    expect(refused.every((r) => r.persistence === "refused")).toBe(true); });
+    expect(refused.every((r) => r.persistence === "refused")).toBe(true); }); /** PRODUCED MEANS A READY ROW IS ON FILE WHEN THE PASS ENDS (live, two answer blocks in one drive, 2026-09-03). The receipt was bound to the SAVE, and a later save in the same pass then put the re-minted brief back on the row: two receipts said produced at 02:11 and 02:32, the ready queue never moved, and the day's memory wrote both keys off as finished work. Every produced claim is re-read against the row that really stands before the receipt leaves the pass. */
+  it("never calls work produced that its own final rows cannot show as Ready", async () => { reset(SEEN()); const out = await run(counting().complete);
+    const ready = out.proposals.filter((p) => p.status === "ready" && p.researchOnly !== true), produced = out.paid.receipts.filter((r) => r.outcome === "produced"); expect([produced.length > 0, produced.length <= ready.length, produced.every((r) => ["saved", "unchanged"].includes(r.persistence ?? "")), out.paid.receipts.filter((r) => r.outcome === "review_saved").every((r) => (r.why ?? "").includes("so nothing finished reached the queue"))], "the pass really does finish work, it never claims more finished rows than it hands back, every claim is one the store took, and a draft that was written and stored says exactly that whichever door filed it").toEqual([true, true, true, true]); });
   it("writes a new generation the moment the material content changes, and ignores a moved clock", () => {
     const p = baseProposal(); expect(proposalFingerprint({ ...p, createdAt: "2026-07-27T09:00:00.000Z" })).toBe(proposalFingerprint(p)); // a new timestamp is not new thinking
     for (const changed of [{ ...p, status: "needs_review" as const }, { ...p, confidence: "low" as const }, { ...p, basis: "after the business changed" }, { ...p, whyItMatters: `${p.whyItMatters} Said again, sharper.` }, { ...p, opportunityType: "A headline that says the thing itself" },
@@ -842,19 +843,3 @@ describe("the $0 release loop converts what it can, and never touches what is be
   it("leaves a stored JSON-LD block that already wears Ready exactly where it stands", async () => {
     const out = await pass(block("ready"));
     expect([out.row.status, out.row.faults ?? []], "structured data is not prose, so no rule about unwritten copy may touch it").toEqual(["ready", []]); });});
-/** A REDRAFT REQUEST IS THE EVIDENCE MOVING, IN THE OPERATOR'S HAND (operator, 2026-09-01). The same-day stop refused to re-buy a held draft until "the evidence moves", and a person reading the words and asking for better ones is exactly that, the same way preferFinished already lets a redraft request outrank preservation. Without this, the review door's own "ask the next funded pass to write better words" answer pointed at a pass that could never fund it. */
-describe("a redraft request reopens the same-day stop", () => {
-  it("funds the redraft-requested standing row this pass, where the untouched hold met the same-day sentence", async () => { reset(SEEN());
-    const first = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1 });
-    const landedId = first.proposals.find((p) => p.status === "ready" || p.status === "needs_review")?.id; expect(landedId, "the seed pass landed a row to hold").toBeTruthy();
-    const held0 = env.store.get(landedId!)!; const held = { ...held0, status: "needs_review" as const, researchOnly: false, limitations: ["the evaluator's exact objection: not yet"], faults: ["the evaluator's exact objection: not yet"], obligation: { kind: "redraft" as const, attempt: 1, instruction: "not yet" } }; env.store.set(held.id, held);
-    const focus = DRAFT_BUDGET.keyOf(held); // the standing-card re-entry passes the STORED ROW itself, the exact live path the stop blocked tonight
-    const frozen = new Map([...env.store.entries()].map(([k, v]) => [k, { ...v }])); // two branches from ONE store state, because a pass rewrites rows and a second pass would compare against a moved target
-    const blocked = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1, focusKeys: [focus] });
-    const sentence = (blocked.paid.declined ?? []).find((d) => d.key === focus)?.reason ?? "";
-    expect(sentence, "the untouched held row meets the same-day sentence at the focus").toContain("already made on today's evidence");
-    env.store = new Map([...frozen.entries()].map(([k, v]) => [k, { ...v }])); env.store.set(held.id, { ...env.store.get(held.id)!, redraftRequested: new Date().toISOString() });
-    const reopened = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1, focusKeys: [focus] });
-    const still = (reopened.paid.declined ?? []).some((d) => d.key === focus && /already made on today's evidence/.test(d.reason));
-    expect([still, reopened.paid.funded.includes(focus)], "the redraft request never meets the sentence, and the row is funded again").toEqual([false, true]); });
-});

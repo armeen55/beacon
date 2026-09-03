@@ -343,13 +343,13 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const norm = (t: string): string => t.toLowerCase().replace(/\s+/g, " ").trim();
   const proposedNow = (v.proposed ?? "").trim(), kind = claimTypeOf(claim.subject, claim.current || proposedNow, claim.locator); // ONE CLASSIFICATION, BOTH DOORS (reviewer, 2026-09-02). The kind above is read from the page's own wording, which a missing-information row does not have, while the authorization door rebuilds it from the wording OR the researched statement: the two disagreed, the identity never matched, the artifact read `stale` on every drive, and two live rows were handed back and re-bought for ever. What a row asserts is what classifies it at both doors.
   const ctxOf = (p: (typeof passages)[number], quote: string): SupportContext => ({ tenantId, page: page.path, statementKey: next!.statementKey, pageLocator: claim.locator, subject: claim.subject, claimKind: kind, current: claim.current, proposed: proposedNow, url: p.url, kind: p.kind, quote, titleContext: p.title ?? null });
-  /** THE ONE TO THREE CONSECUTIVE SENTENCES OF THIS SOURCE'S OWN FETCHED TEXT THAT CARRY THE PROPOSAL, or null: a window of the text this fetch already read, in its own words and order, never assembled from pieces, at most 600 characters, accepted only when it clears the carriage bar, and the TIGHTEST window wins a tie so no sentence rides along that carries nothing. */
+  /** THE ONE TO THREE CONSECUTIVE SENTENCES OF THIS SOURCE'S OWN FETCHED TEXT THAT CARRY THE PROPOSAL, or null: A SLICE OF THE DOCUMENT BY OFFSETS, exactly as askedWindow above reads one, at most 600 characters, accepted only when it clears the carriage bar, and the TIGHTEST window wins a tie so no sentence rides along that carries nothing. It was `join(" ")` over the matched sentences (reviewer, 2026-09-02), and a heading line carries no terminator so it matches nothing at all: two sentences with a heading between them came back joined by a single space, and the quote on the customer's receipt, and the span the artifact claimed, were words the source never wrote side by side. A slice is verbatim by construction, so `text.includes(says)` holds for every banked quote. */
   const carrying = (p: (typeof passages)[number]): string | null => {
-    const sents = (p.text.match(/[^.!?\n]+[.!?]+["')\]]?|[^.!?\n]+$/g) ?? []).map((x) => x.trim()).filter((x) => x.length > 2); let best: { window: string; carried: number } | null = null;
+    const sents = p.text.match(/[^.!?\n]+[.!?]+["')\]]?|[^.!?\n]+$/g) ?? [], at: number[] = []; let cut = 0, best: { window: string; carried: number } | null = null;
+    for (const x of sents) { const i = p.text.indexOf(x, cut); at.push(i < 0 ? cut : i); cut = (i < 0 ? cut : i) + x.length; }
     for (let i = 0; i < sents.length; i += 1) for (let k = 1; k <= 3 && i + k <= sents.length; k += 1) {
-      const window = sents.slice(i, i + k).join(" "); if (window.length > 600) break;
-      const a = deriveSupport(ctxOf(p, window));
-      if (a && (!best || a.meaningSpans.length > best.carried || (a.meaningSpans.length === best.carried && window.length < best.window.length))) best = { window, carried: a.meaningSpans.length }; }
+      const window = p.text.slice(at[i]!, at[i + k - 1]! + sents[i + k - 1]!.length).trim(); if (window.length > 600) break;
+      const a = window.length > 2 ? deriveSupport(ctxOf(p, window)) : null; if (a && (!best || a.meaningSpans.length > best.carried || (a.meaningSpans.length === best.carried && window.length < best.window.length))) best = { window, carried: a.meaningSpans.length }; }
     return best?.window ?? null; };
   const verified = new Map<string, string>(), vouchedAs = new Map<string, string>(); // passage url -> its own verified quote, and passage url -> the url the reader NAMED for it, so the subject it vouched for is found even when a quote resolves to a different passage than the one claimed
   for (const sup of v.supporting ?? []) {
@@ -416,13 +416,12 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const carried = blocked == null && (claim.current.trim() !== "" || share >= SUPPORTED_SHARE);
   const confidence: FactCheck["confidence"] = v.confidence === "confirmed" && confirmable && carried ? "confirmed"
     : v.confidence === "unsupported" ? "unsupported" : v.confidence === "disputed" ? "disputed" : "likely";
-  return bank({ ...base,
-    proposed: confidence === "unsupported" || (claim.current.trim() === "" && v.verdict !== "page_correct") ? null : (v.proposed?.trim() || null), // A STATEMENT ABOUT THE WRONG SUBJECT IS NOT BANKED AT ALL: it would be re-read as the researched answer by every later pass, and the row would be handed back for research for ever
-    literal: v.literal?.trim() || null, usage: v.usage?.trim() || null,
-    sources: bankedSources,
-    sourceReadAt: supporters[0]?.readAt ?? null,
-    agreement, confidence, verdict: v.verdict,
-    note: `${v.note ?? ""}${supporters.length > 0 ? "" : " No fetched passage carries a quote it relied on, so this is held below confirmed."}${readNotCarrying ? ` ${supporters.length} ${supporters.length === 1 ? "source was" : "sources were"} read and none of them carries the wording proposed here, so no source is named as standing behind it.` : ""}${dropped.length > 0 ? ` ${dropped.length} quoted ${dropped.length === 1 ? "source was" : "sources were"} set aside for being about a different subject or language than this page's.` : ""}${carried || confidence === "unsupported" ? "" : blocked ? ` Held below confirmed: ${blocked}.` : " The wording proposed here is not carried by the verified quote, so it is held below confirmed until a source says it."}`.trim() });
+  const kept = confidence === "unsupported" || (claim.current.trim() === "" && v.verdict !== "page_correct") ? null : (v.proposed?.trim() || null); // A STATEMENT ABOUT THE WRONG SUBJECT IS NOT BANKED AT ALL: it would be re-read as the researched answer by every later pass, and the row would be handed back for research for ever
+  // AND A ROW BANKED WITH AN ANSWER NO FETCHED PASSAGE QUOTES SAYS SO ON THE ROW (reviewer, 2026-09-02). The free backfill sends exactly that shape back for one more paid unit and guards "once" on a sentence in the NOTE, which this bank overwrites, so the row was reopened, re-researched, banked identically and reopened again, indefinitely, at one judge call a drive. The marker goes down HERE, by the bank that already searched every fetched passage for a carrying window and found none, so the row is sent back at most once whatever the re-research finds. The words are the ones claim-support.ts guards on.
+  const unquoted = claim.current.trim() === "" && !!kept && confidence !== "confirmed" && bankedSources.length > 0 && bankedSources.every((b) => b.says.trim() === "");
+  return bank({ ...base, proposed: kept, literal: v.literal?.trim() || null, usage: v.usage?.trim() || null,
+    sources: bankedSources, sourceReadAt: supporters[0]?.readAt ?? null, agreement, confidence, verdict: v.verdict,
+    note: `${v.note ?? ""}${supporters.length > 0 ? "" : " No fetched passage carries a quote it relied on, so this is held below confirmed."}${unquoted ? " Every passage fetched here was searched and the passage behind this answer was not found." : ""}${readNotCarrying ? ` ${supporters.length} ${supporters.length === 1 ? "source was" : "sources were"} read and none of them carries the wording proposed here, so no source is named as standing behind it.` : ""}${dropped.length > 0 ? ` ${dropped.length} quoted ${dropped.length === 1 ? "source was" : "sources were"} set aside for being about a different subject or language than this page's.` : ""}${carried || confidence === "unsupported" ? "" : blocked ? ` Held below confirmed: ${blocked}.` : " The wording proposed here is not carried by the verified quote, so it is held below confirmed until a source says it."}`.trim() });
 }
 
 type FactCheckPassDeps = {
@@ -441,12 +440,12 @@ type FactCheckPassDeps = {
   readCoverage: (page: string) => Promise<InventoryCoverage | null>;
   writeCoverage: (page: string, cov: InventoryCoverage) => Promise<boolean>;};
 
-type FactCheckPassResult = { status: "advanced" | "done" | "failed"; banked: number;
+type FactCheckPassResult = { status: "advanced" | "done" | "failed"; banked: number; /** THE PAGES THIS PASS BANKED EVIDENCE ON, so the drive can hire the writer that was waiting on exactly one of them in the same turn instead of the next day. */ bankedPages: string[];
   pagesComplete: number; attempts: number; failure?: UnitFailure; reason?: string };
 
 /** ONE PASS: at most ATTEMPTS_PER_PASS claim attempts GLOBALLY, however many pages that spans. A failed unit ends the pass with its typed identity, because a cap or an outage repeats on the next attempt and burning the remaining allowance against it proves nothing. */
 export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckPassResult> {
-  let banked = 0, pagesComplete = 0, attempts = 0, progressed = false, opened = 0;
+  let banked = 0, pagesComplete = 0, attempts = 0, progressed = false, opened = 0; const bankedPages = new Set<string>();
   const setAside = new Set<string>(); let lastPerClaim: { failure: UnitFailure; reason: string } | null = null;
   let held = d.held;
   for (const page of d.pages) {
@@ -456,7 +455,7 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
     opened += 1;
     while (attempts < ATTEMPTS_PER_PASS && Date.now() < d.deadlineAt) {
       if (d.renew && !(await d.renew().catch(() => false)))
-        return { status: banked > 0 ? "advanced" : "failed", banked, pagesComplete, attempts, failure: "lease_lost", reason: "the lease was lost, so nothing further was researched" };
+        return { status: banked > 0 ? "advanced" : "failed", banked, bankedPages: [...bankedPages], pagesComplete, attempts, failure: "lease_lost", reason: "the lease was lost, so nothing further was researched" };
       attempts += 1; // EVERY attempt counts: banked, failed and waiting alike.
       const out = await runFactCheckUnit({ tenantId: d.tenantId, now: new Date(), basis: d.basis, deadlineAt: d.deadlineAt,
         held: held.filter((h) => h.page === page.path), page: { url: page.url, path: page.path, body }, skip: setAside,
@@ -466,18 +465,18 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
       if (out.status === "failed" && out.attempted && PER_CLAIM.has(out.failure ?? "")) {
         setAside.add(out.attempted); lastPerClaim = { failure: out.failure!, reason: out.reason ?? "" }; continue; }
       if (out.status === "failed")
-        return { status: banked > 0 ? "advanced" : "failed", banked, pagesComplete, attempts, failure: out.failure, reason: out.reason };
+        return { status: banked > 0 ? "advanced" : "failed", banked, bankedPages: [...bankedPages], pagesComplete, attempts, failure: out.failure, reason: out.reason };
       if (out.status === "advanced") {
-        progressed = true; banked += out.banked;
+        progressed = true; banked += out.banked; if (out.banked > 0) bankedPages.add(page.path); // WHICH PAGE, not just how many: the drive hires the writer this landed for in the same turn
         const back = await d.refreshHeld(page.path).catch(() => null);
         if (back) held = [...held.filter((h) => h.page !== page.path), ...back];}
       // A PAGE IS COMPLETE ONLY IF NOTHING ON IT WAS SHELVED: with the allowance no longer cutting the walk short, a pass that set every claim aside reaches "no next claim" and would stamp the page done with no failure, burying the typed holds it just recorded.
       if (out.status === "done" || out.cursor?.pageComplete) { if (!held.some((h) => h.page === page.path && setAside.has(h.statementKey))) pagesComplete += 1; break; }}}
   // AN ACCOUNT WITH NO STORED PAGE WORDS OWES NOTHING HERE. Reading that as a failure would pause a fresh
   // account at this phase for ever, now that it runs ahead of the crawl that fills the store.
-  if (opened === 0) return { status: "done", banked: 0, pagesComplete: 0, attempts, reason: "no stored page words to check yet" };
+  if (opened === 0) return { status: "done", banked: 0, bankedPages: [], pagesComplete: 0, attempts, reason: "no stored page words to check yet" };
   // A PASS THAT SET EVERY CLAIM ASIDE DID NOT RUN OUT OF LEASE, and saying so PAUSES the run: `lease_exhausted`
   // is a hard stop. The last real reason is carried out of the loop and reported as itself.
-  return { status: progressed ? "advanced" : pagesComplete > 0 ? "done" : "failed", banked, pagesComplete, attempts, ...(progressed || pagesComplete > 0 ? {} : lastPerClaim
+  return { status: progressed ? "advanced" : pagesComplete > 0 ? "done" : "failed", banked, bankedPages: [...bankedPages], pagesComplete, attempts, ...(progressed || pagesComplete > 0 ? {} : lastPerClaim
       ? { failure: lastPerClaim.failure, reason: lastPerClaim.reason }
       : { failure: "lease_exhausted" as const, reason: "no page could be worked this pass" }) };}
