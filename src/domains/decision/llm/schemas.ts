@@ -361,7 +361,7 @@ export type StructuredDraftKind =
 /** `claims` REPLACES a coarse `claimsEntailed` boolean: the editor is already handed every claim with the exact evidence ids it cites and the stored words behind each, and answered yes or no about all of them at once, so the only answer the store may trust was thrown away and substantive work could never earn the receipt the factual family earns. One ruling per claim, in the canonical shape ChangeProposal.semanticReview persists. */
 const EditorJudgementSchema = z.object({ pageFit: z.boolean(), usefulAndNatural: z.boolean(), placementCorrect: z.boolean(), resolvesDiagnosis: z.boolean(),
   claims: z.array(z.object({ i: z.number().int().min(0), by: z.array(z.string()), entailed: z.boolean() })).max(24),
-  implementableNow: z.boolean(), improvesPage: z.boolean(), wouldHandToCustomer: z.boolean(), notes: z.string().min(1).max(300),
+  implementableNow: z.boolean(), improvesPage: z.boolean(), wouldHandToCustomer: z.boolean(), notes: z.string().min(1).max(300), contested: z.boolean().optional(), // OPTIONAL BY CONSTRUCTION (bar 5, 2026-09-03): a yes is the refusal, so an evaluator that never answered has said nothing and must not be read as an all-clear on a required field it happened to default
   resolution: z.enum(["none", "structural_synthesis", "use_stored_verified_evidence", "acquire_serp", "acquire_page_source", "acquire_competitor_page", "acquire_factual_source", "no_valid_treatment"]) });
 
 /** THE CLAIMS A PAGE MAKES, and ONE OF THEM JUDGED against passages actually fetched. Their own schemas because Structured Outputs returns the schema it is given: asking `editor_judgement` for a claim list returns an editor's verdict on one finished edit and reads zero statements forever (Codex, 2026-08-18). */

@@ -147,7 +147,7 @@ describe("the proof burden matches the promise, at the one door every surface re
     expect(evidenceShortfall(reviewed(claimed(), [{ i: 0, by: ["fact-1"], entailed: true }, { i: 1, by: ["fact-1"], entailed: true }])), "a ruling for a claim it never made").toContain("did not rule on every claim");
     const stale = reviewed(claimed(), [{ i: 0, by: ["fact-1"], entailed: true }]);
     expect(evidenceShortfall(stale), "a whole, matching reading passes").toBeNull();
-    expect(evidenceShortfall({ ...stale, semanticReview: { ...stale.semanticReview!, version: REVIEW_CONTRACT - 1 } } as ChangeProposal), "an older review contract").toContain("older review contract");
+    expect([evidenceShortfall({ ...stale, semanticReview: { ...stale.semanticReview!, version: REVIEW_CONTRACT - 1 } } as ChangeProposal)?.includes("older review contract"), evidenceShortfall({ ...stale, semanticReview: { ...stale.semanticReview!, version: 4 } } as ChangeProposal)?.includes("older review contract"), evidenceShortfall(stale)], "a reading banked under the token that predates the meaning bars is re-asked at the door, and one banked under today's token is not").toEqual([true, true, null]);
     for (const [what, mutated] of [["the fact's own words", { supportFacts: [{ id: "fact-1", fact: "Tehran is a city." }] }],
       ["the claim's text", { claims: [{ text: "Noor means brightness", supportedBy: ["fact-1"] }] }],
       ["which fact the claim names", { claims: [{ text: "Noor means light", supportedBy: ["fact-2"] }] }]] as const)
