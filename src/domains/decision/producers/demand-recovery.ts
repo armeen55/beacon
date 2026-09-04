@@ -142,14 +142,14 @@ export async function demandRecoveryCards(input: { tenantId: string; snapshot: E
             ? `Rewrite the line searchers read for "${u.label}" on ${path}: position held while the click rate collapsed, ${n(h.lostClicksPerMonth)} clicks a month LOST, about ${n(recoverable)} supported as recoverable today`
             : `Explain the "${u.label}" decline on ${path}: ${n(h.lostClicksPerMonth)} clicks a month LOST and the cause is not yet separable`,
         changeFamily: d.field, status: "needs_review",
-        recommendedChange: { kind: "existing_edit", field: d.field, before: null,
-          after: d.cause === "ranking_loss"
+        // THE ASSIGNMENT LIVES IN THE TYPED BRIEF, NEVER IN THE COPY FIELD (incident recovery, 2026-09-04): `after` means the exact words to paste, and an instruction sitting there is indistinguishable from finished work to anything that reads the words alone.
+        recommendedChange: { kind: "existing_edit", field: d.field, before: null, after: "The exact wording has not been written yet." },
+        researchOnly: true, research: {
+          missing: d.cause === "ranking_loss"
             ? `Strengthen this page's coverage of ${u.label} with a section that answers, in the searchers' own words (${phrasings}), what the pages now above it answer.`
             : d.cause === "ctr_snippet"
               ? `Rewrite the line searchers read for "${u.label}" so it says what earned the clicks when the click rate was whole, keeping every word the page still earns on.`
-              : `Read the current results page for "${u.label}" and name the cause before any wording changes.` },
-        researchOnly: true, research: {
-          missing: d.cause == null ? "The current results page has not been read, so the cause is not named." : "The exact copy is not written yet.",
+              : `The current results page for "${u.label}" has not been read, so the cause is not named and no wording may change yet.`,
           next: d.cause == null ? "The results page for this search is read on the next pass, and the cause lands here with the work it authorizes."
             : "The exact wording lands here once the editor writes it from the page's own stored copy under this diagnosis." },
         whyItMatters: `${story}${moved} ${d.line}`, operatorSteps: [], estimatedEffortMinutes: d.field === "title" ? 2 : 30,

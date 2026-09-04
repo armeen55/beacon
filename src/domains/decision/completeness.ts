@@ -10,6 +10,7 @@ import { CAUSE_LEVERS, evidenceShortfall } from "./proof";
 /** A blank somebody is expected to fill in before the copy is usable, or MARKUP WHERE A WORD BELONGS: a title reading "Colors &amp; History" is not final copy, because what an operator pastes is not what a reader sees. */
 const BLANK_TO_FILL = /\[[^\]]*\]|_{3,}|\b(?:NUMBER|YEAR|SOURCE|TBD|XXX+)\b|&(?:[a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);/;
 /** Copy that says out loud that the work has not been done. */
+const OWED_NOTE = /^The exact .* lands on the next pass/; /* the drafter's "lands on the next pass" note: display, never identity, never a hold */
 const SAYS_UNFINISHED = /\b(?:not been (?:drafted|read|written)|is not settled|not on this card|still owed|nothing here is)\b/i;
 
 const noCopy = (t: string | null | undefined): boolean => !t || t.trim().length === 0;
@@ -91,8 +92,9 @@ const UNJUDGED = "The exact words are written and nothing has read them for sens
 const DANGER = "This one moves or hides a page, so it takes the deliberate confirmation on its own page rather than a plain yes.";
 /** WHY A CHANGE SHORT OF READY IS SHORT OF READY, AND WHO MAY ANSWER IT. IMPERFECT WORK STAYS VISIBLE (operator, 2026-08-15): a gate decides which lane a genuine opportunity is shown in and which controls its card carries, never whether the operator sees it at all. `lane` is `research` while nothing exact is written and `review` once the exact copy exists; `why` is the reasons already stored on the row, said back where the work is read; `blocking` is the first reason THIS SCREEN offers to hold the yes back, a fast, friendlier read for the card, never the sole gate: the row itself is re-asked, by the real functions and not by their prose, at the one door that can actually write `ready` (proposal-store's answerReviewedProposal). HARD is a fact about the work: an unwritten deliverable, a blank, a claim the evidence it names does not carry, a page mapping its own diagnosis refuses, copy whose place on the page can no longer be checked, and a change that moves or hides a page (which keeps its own two-step confirmation). SOFT is editorial judgement alone: the words are there, every deterministic check passed, and nothing has read them for sense. PURE, so the queue, the card and the server action ask ONE question and no screen can offer a control the server refuses. */
 export function openHold(p: ChangeProposal): { lane: "review" | "research"; why: string[]; blocking: string | null; faulted: boolean; safetyHold: boolean; need?: { kind: "factual_source" | "serp"; query: string; url?: string; reasonCode: string; missingTopic?: string } } {
-  const gaps = deliverableGaps(p), c = p.recommendedChange, faults = p.faults ?? p.limitations.filter((l) => GATE_WORDS.test(l));
-  const hard = [...gaps, ...p.limitations.filter((l) => HARD_LIMITATION.test(l))];
+  const lims = p.limitations.filter((l) => !OWED_NOTE.test(l)); /* THE OWED NOTE IS NEVER A HOLD (reviewer, 2026-09-04): "no action needed from you until it does" read as a hard limitation, minted a redraft whose instruction was the note itself, and the obligation flipped every pass with the note */
+  const gaps = deliverableGaps(p), c = p.recommendedChange, faults = p.faults ?? lims.filter((l) => GATE_WORDS.test(l));
+  const hard = [...gaps, ...lims.filter((l) => HARD_LIMITATION.test(l))];
   // COPY THAT LANDS IN THE BODY OWES A PLACE SOMEBODY CAN STILL FIND. The anchor is a sentence off the page as it read when the words were written, and banked copy is served on for ever without that page in hand, so the only honest re-read is against what the ROW ITSELF banked. An anchor no banked fact carries can no longer be checked, so the words, the claims and the evidence stay exactly as they are and the row goes back to review carrying this sentence. Never deleted, never hidden.
   const anchor = c.kind === "existing_edit" && (c.field === "section" || c.field === "answer_block")
     ? /placed after (?:the heading )?"([^"]+)"/.exec(c.where ?? "")?.[1]?.trim().toLowerCase() ?? null : null;
@@ -187,12 +189,30 @@ function copyIdentity(p: ChangeProposal): string {
 function identityMoves(prior: ChangeProposal, incoming: ChangeProposal): string {
   const moves: string[] = [];
   if ((prior.copyStamp ?? null) !== (incoming.copyStamp ?? null)) moves.push("the page's own content changed under it");
-  if ((prior.diagnosisCause ?? null) !== (incoming.diagnosisCause ?? null)) moves.push("the diagnosed cause changed");
+  if ((prior.diagnosisCause ?? null) !== (incoming.diagnosisCause ?? null)) moves.push(CAUSE_STAMPED);
   if (normIntent(prior.primaryQuery) !== normIntent(incoming.primaryQuery)) moves.push("the search it answers changed");
   if (prior.changeFamily !== incoming.changeFamily
     || (prior.recommendedChange.kind === "existing_edit" ? slotOf(prior.recommendedChange.field) : "new_page")
       !== (incoming.recommendedChange.kind === "existing_edit" ? slotOf(incoming.recommendedChange.field) : "new_page")) moves.push("the kind of change moved");
   return moves.join("; ") || "the pages this change writes on moved";
+}
+
+/** THE ONE SENTENCE A CAUSE MOVE WRITES, shared by the receipt above and the recovery below so the two can never drift apart. */
+const CAUSE_STAMPED = "the diagnosed cause changed";
+/** THE CAUSE-STAMPING INCIDENT, NAMED BY ITS OWN CLOCK (2026-09-04, 16:30:08Z and 16:33:59Z). The sweep producers began stamping a typed cause on rows that had recorded none, the retirement above compared a recorded null against it, and one drive turned thirty-two drafted rows into their own briefs. The predicate is fixed, so a first-named cause never retires anything again; these rows are the ones it already retired. Bounded to the minutes the faulty code was serving, because AFTER that fix the same sentence means a recorded cause was REPLACED by a different one, which is a real change and whose copy really is stale. A window is what makes this a recovery rather than a standing rule: it can fire on no row minted before or after, and it goes quiet on its own. */
+const INCIDENT_FROM = "2026-09-04T16:30:00.000Z", INCIDENT_TO = "2026-09-04T16:35:00.000Z";
+const RECOVERED = "a cause named for the first time was not a change, so the words this row already carried came back and the brief that displaced them stood down";
+/** THE WORDS THAT INCIDENT RETIRED, PUT BACK ON THE ROW THAT CARRIES THEM, before anything below compares a thing. `identityMoves` names EVERY dimension of `copyIdentity`, so a receipt saying ONLY the cause moved is the proof that the page, the search, the family and the slot all still matched: the copy was never stale, only displaced. Restoring it here rather than in a lane of its own is the whole point, because the rules below are then the ones that decide it: identity must still match, a competing finished draft still wins, the banked-provenance rule still refuses copy whose claims name evidence nobody kept, and the row re-enters review and earns Ready only through the doors every other row uses. REFUSED, in the row's own typed terms: a whole page (four written fields cannot be rebuilt from one string), a retirement of the row's own brief, words that are not a finished deliverable under today's rules, and a claim naming an id no banked fact carries. ONE RECEIPT PER TRANSITION: the brief that was standing in the copy's place takes the retired slot, so the row still says what it gave up, the settle rule never reads the restored words as a writer handing back what it retired, and a second pass finds no incident receipt and recovers nothing. The attempt that retirement charged is given back, because no draft was ever written for it. */
+function unretire(p: ChangeProposal | null | undefined): ChangeProposal | null | undefined {
+  const was = p?.previousCopy, c = p?.recommendedChange, banked = new Set((p?.supportFacts ?? []).map((f) => f.id));
+  if (!p || !was || c?.kind !== "existing_edit" || was.retiredBecause !== CAUSE_STAMPED || was.at < INCIDENT_FROM || was.at >= INCIDENT_TO || !(p.researchOnly === true || deliverableGaps(p).length > 0)) return p; /* ONLY ONTO A ROW STILL UNWRITTEN (reviewer, 2026-09-04): a later pass drafted paid copy onto the Achaemenid description before this landed, and putting the older line back over it would have been the incident's own move under a receipt that said the opposite */
+  const words = was.after.trim(), brief = (p.research?.missing ?? "").trim() || c.after.trim();
+  if (!words || words === brief || (p.claims ?? []).some((x) => x.supportedBy.some((id) => !banked.has(id)))) return p;
+  const { research: _brief, redraftRequested: _asked, ...rest } = p;
+  const back: ChangeProposal = { ...rest, recommendedChange: { ...c, after: words }, researchOnly: false, status: "needs_review",
+    faults: [], limitations: p.limitations.filter((l) => !GATE_WORDS.test(l)), obligation: undefined,
+    previousCopy: { after: brief, retiredBecause: RECOVERED, at: was.at, attempts: Math.max(0, (was.attempts ?? 1) - 1) } };
+  return deliverableGaps(back).length === 0 ? back : p;
 }
 
 /** THE PAID READING RIDES ITS OWN WORDS, whichever branch below decided the row. `semanticReview.of` IS the copy
@@ -211,14 +231,16 @@ export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal |
   return again ? { ...row, obligation: { kind: "terminal", reason: "the writer handed back the exact words this change already retired, so it is settled rather than drafted again" } } : row;
 }
 
-function decideFinished(incoming0: ChangeProposal, prior0: ChangeProposal | null | undefined): ChangeProposal {
+function decideFinished(incoming0: ChangeProposal, prior00: ChangeProposal | null | undefined): ChangeProposal {
+  const prior0 = unretire(prior00); // THE INCIDENT IS UNDONE BEFORE ANYTHING IS COMPARED, so every rule below judges the row as it stood before a first-named cause displaced its words
   // A PRODUCER THAT READ NOTHING CANNOT CLAIM THE PAGE MOVED (operator, 2026-08-31). The re-mint of a $0 card
   // arrives with no copyStamp, the finished prior carries the page as the drafting pass read it, and comparing
   // null against that stamp broke identity: the template then replaced the finished description whole, copy to
   // a receipt, backing and status gone. A stampless incoming inherits the prior's stamp; a producer that DID
   // re-read the page and saw it change still breaks identity exactly as before, which is the honest trigger.
-  const incoming = incoming0.copyStamp == null && prior0?.copyStamp ? { ...incoming0, copyStamp: prior0.copyStamp } : incoming0;
-  // A CAUSE NAMED FOR THE FIRST TIME IS NOT A CAUSE THAT CHANGED (live 16:31Z on 2026-09-04): the sweep producers began stamping the typed cause they had always known, the retirement below compared a recorded null against it, and one tick retired forty-four drafted rows into their own briefs with "the diagnosed cause changed" as the receipt. A prior written under no recorded cause adopts the incoming's cause before identity is compared, so its finished words survive and the row carries the cause from here on; a recorded cause replaced by a different one still moves identity exactly as before.
+  const stamped0 = incoming0.copyStamp == null && prior0?.copyStamp ? { ...incoming0, copyStamp: prior0.copyStamp } : incoming0;
+  // A CAUSE NAMED FOR THE FIRST TIME IS NOT A CAUSE THAT CHANGED, AND A CAUSE NOBODY NAMED THIS PASS IS NOT A CAUSE UNNAMED (live 16:31Z on 2026-09-04, both directions from the reviewer, 2026-09-04). The sweep producers began stamping the typed cause they had always known, the retirement below compared a recorded null against it, and one tick retired thirty-one drafted rows into their own briefs with "the diagnosed cause changed" as the receipt. The first repair covered null-to-named ONLY, which left the identical destruction available in reverse and made it LARGER than before: the demand-recovery producer mints causeless whenever the results page for its unit is not on file, and nine open rows now hold both finished copy and a cause. Silence is not a finding on either side, so the pair is reconciled once, here, before identity is compared; two DIFFERENT recorded causes still move identity exactly as before.
+  const incoming = stamped0.diagnosisCause == null && prior0?.diagnosisCause != null ? { ...stamped0, diagnosisCause: prior0.diagnosisCause, ...(prior0.causeFinding ? { causeFinding: prior0.causeFinding } : {}) } : stamped0;
   const prior = prior0 && prior0.diagnosisCause == null && incoming.diagnosisCause != null ? { ...prior0, diagnosisCause: incoming.diagnosisCause, ...(incoming.causeFinding ? { causeFinding: incoming.causeFinding } : {}) } : prior0;
   // THE RECEIPT OUTLIVES THE PASS THAT STAMPED IT (review, 2026-08-22): every return carries the newest retirement receipt available, so the retired words stay inspectable under whatever replaced them instead of living exactly one pass. A NEW receipt below outranks an inherited one.
   const inherited = prior?.previousCopy && !incoming.previousCopy ? { previousCopy: prior.previousCopy } : {};
@@ -246,13 +268,13 @@ function decideFinished(incoming0: ChangeProposal, prior0: ChangeProposal | null
   // COPY NOBODY CAN TRACE IS NOT FINISHED WORK. An atomic card's words are written by the editor, which hands back every claim beside the evidence ids carrying it, and this branch banked the words and dropped the claims: all three ready cards on the live account carried `claims: null` and no persisted mapping from a sentence to the thing behind it, so nothing on the row could ever be re-checked. Banked words survive only WITH their provenance now, and copy that reached the row before this did is redrafted once rather than served on for ever as an unsupported claim. A bundle answers on its receipt instead and is left alone.
   if (!prior.bundle && (prior.claims ?? []).length === 0) { // A BRIEF NEVER SILENTLY DISPLACES FINISHED WORDS (operator, 2026-09-02): a finished description was replaced by its own re-minted brief with no receipt. Claimless copy is held with its fault, words kept, for the reviewer; only a competing finished draft may take its place.
     const fault = "its copy carries no record of what it stands on";
-    return incoming.researchOnly === true && prior.status === "ready" ? { ...prior, ...inherited, status: "needs_review", faults: [...new Set([...(prior.faults ?? []), fault])], limitations: [...new Set([...prior.limitations, fault])] } : { ...incoming, ...inherited }; }
+    return incoming.researchOnly === true ? { ...prior, ...inherited, status: "needs_review", faults: [...new Set([...(prior.faults ?? []), fault])], limitations: [...new Set([...prior.limitations, fault])] } : { ...incoming, ...inherited }; } // AND A ROW IN REVIEW IS FINISHED WORK TOO (incident recovery, 2026-09-04): the hold was written for `ready` alone, so a claimless description sitting in review was displaced by its own re-minted brief with no receipt at all, which is the very loss this rule is named for and the one that would have undone the recovery above on the pass after it landed
   // AND A CLAIM POINTING AT AN ID NOBODY BANKED THE WORDS FOR IS NOT PROVENANCE EITHER. The ids resolve inside the pass that drafted the copy and nowhere else, so banked words survive only while every id their claims name has its exact quoted fact banked beside them. Copy banked before the pairs existed is redrafted once, exactly as copy banked before the claims existed was.
   const banked = new Set((prior.supportFacts ?? []).map((f) => f.id));
   if (!prior.bundle && (prior.claims ?? []).some((c) => c.supportedBy.some((id) => !banked.has(id)))) return { ...incoming, ...inherited };
   // The words, where they land, what they cost, what was said about them AND what each claim stands on stay as banked; THIS pass's evidence, ranking and receipt still land on the row, so the card keeps arguing from what is true today.
   // EVERY COPY-OWNED FIELD RIDES WITH THE COPY, off ONE named list rather than a hand-copied spread that drifts: the hand list carried limitations and dropped `faults`, so the one path that KEEPS a defective row's words silently lost Beacon's own typed statement of the defect and the lane fell back to guessing owners from sentence shape. The operator's yes (`approval`) travels with `confirmedVersion` for the same reason: they are one fact. A pass that changes the work fails the identity above and `incoming` wins whole, faults and all.
-  const kept: ChangeProposal = { ...incoming, ...inherited, recommendedChange: prior.recommendedChange, researchOnly: false, status: prior.status,
+  const kept: ChangeProposal = { ...incoming, ...inherited, recommendedChange: prior.recommendedChange, researchOnly: false, research: undefined, status: prior.status, // AND A ROW WHOSE WORDS ARE FINISHED CARRIES NO BRIEF (incident recovery, 2026-09-04): the incoming re-mint's assignment rode onto the preserved copy, so a row holding a deliverable still had an instruction to write it stored beside the words
     limitations: prior.limitations, estimatedEffortMinutes: prior.estimatedEffortMinutes };
   const fits = copyKey(kept) === copyKey(incoming); // A RECEIPT MAY ARRIVE LATE ONLY IF IT WAS WRITTEN FOR THESE WORDS: the exception claimed identity proved the copy byte-identical, but `copyIdentity` EXCLUDES the copy and `workKey` names the job, so a redraft's receipts rode the banked words (Codex, 2026-08-28)
   // THE STEPS FOLLOW THE WORDS THEY DESCRIBE. `fits` means the kept copy is byte for byte what this pass would
@@ -276,7 +298,7 @@ export function confirmedVersion(p: ChangeProposal): string {
   // THE CONFIRMATION STILL PINS THE BASIS AND EVERY RENDERED SENTENCE: copy PRESERVATION dropped them from its
   // own identity (a reworded producer must not destroy finished words), but an operator's yes was given to one
   // account truth and one exact screen, so those stay part of THIS stamp explicitly.
-  const material = [p.basis ?? null, p.riskLevel, copyIdentity(p), p.diagnosisCause ?? null, sorted(p.limitations), p.operatorSteps ?? [],
+  const material = [p.basis ?? null, p.riskLevel, copyIdentity(p), p.diagnosisCause ?? null, sorted(p.limitations.filter((l) => !OWED_NOTE.test(l))), p.operatorSteps ?? [],
     c.kind === "existing_edit" ? [c.field, c.before, c.after, c.where ?? null] : [c.proposedTitle, c.metaDescription, c.openingAnswer, c.outline, c.faqQuestions, c.schemaTypes],
     (p.claims ?? []).map((x) => [x.text, [...x.supportedBy].sort()]), sorted((p.supportFacts ?? []).map((x) => [x.id, x.fact])), p.informationGain ?? null, p.preservation ?? null,
     f ? [f.cause, f.explanation, f.falsifier, sorted(f.competingExplanations.map((x) => [x.cause, x.reason])), sorted(f.notConsidered.map((x) => [x.cause, x.missing]))] : null,

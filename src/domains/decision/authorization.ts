@@ -185,10 +185,10 @@ function ownershipCard(b: CardBase & { competingPaths: readonly string[]; surviv
     opportunityType: settled ? `Decide "${b.query}": your own figures show ${settled} as the page to keep`
       : `Decide which of your pages should own "${b.query}"`,
     recommendedChange: { kind: "existing_edit", field: "section", before: null,
-      after: `${num(named.length)} of your own pages come up for "${b.query}": ${list}. ${plan} ${owed}` },
+      after: "The exact wording has not been written yet." }, /* THE ASSIGNMENT IS NOT THE COPY (2026-09-04): the pages, the plan and what is owed live in research.missing below, where the writer reads them; the copy field says only that its words are not written */
     whyItMatters: `${b.finding.explanation} Adding copy to one of them on its own leaves them competing, so which page owns which search is decided first and every other change on these pages waits behind it. ${plan}`,
     estimatedEffortMinutes: 0, confidence: "low",
-    research: { missing: owed, next: "Beacon reads every named page whole, then writes the exact title and opening for each or records why it stays as it is. The finished set lands here as one change." },
+    research: { missing: `${num(named.length)} of your own pages come up for "${b.query}": ${list}. ${plan} ${owed}`, next: "Beacon reads every named page whole, then writes the exact title and opening for each or records why it stays as it is. The finished set lands here as one change." },
     limitations: [RESEARCH_MARKER,
       "Which pages come up for that search is read off the last stored search data, so a page that stopped coming up since then is still counted here."],
     evidence: { query: b.query, hints: [b.finding.explanation, `Competing pages on file: ${list}`, plan, owed], evidenceRefCount: 4 },
@@ -234,7 +234,7 @@ function researchingCard(b: CardBase & { recoverable: number; blocker: ResearchB
   return {
     ...shell(b, RESEARCHING_FAMILY, b.recoverable),
     opportunityType: `Find out what took the clicks from ${path}`,
-    recommendedChange: { kind: "existing_edit", field: "section", before: null, after: missing },
+    recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "The exact wording has not been written yet." }, /* the assignment stays in research.missing beside it */
     whyItMatters: `${b.finding.explanation} ${missing}`, operatorSteps: [missing, next], research: { missing, next },
     estimatedEffortMinutes: 15, confidence: "low",
     limitations: [RESEARCH_MARKER, ...ruled,

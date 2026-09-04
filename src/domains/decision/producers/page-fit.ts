@@ -9,7 +9,6 @@ import { topicTokens } from "@/domains/evidence/relevance-gate";
 import { type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import type { CauseFinding } from "@/domains/decision/diagnosis"; import type { Obligation } from "../obligation";
-import { actionFamilyOf } from "../proposal-store";
 import { pageUnderstanding, sectionFit } from "./page-job";
 /** `headline` IS the card's action line: it names the page, the thing to do and the number behind it, so the queue reads as work without being opened. Never "update the section to sharpen it", which says nothing. */
 export type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1" | "section" | "answer_block"; headline: string; /** For an internal link: the destination path, typed rather than left inside the instruction prose. */ linkTo?: string;
@@ -33,7 +32,6 @@ export type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1
    *  question's stored answers credit rivals and never this site: that is a citation gap by name, and the card
    *  says so in the same currency the boundary and the ranking read everywhere else. */
   cause?: CauseFinding };
-const THIN_WORDS = 200, TOP_PAGES_PER_CLASS = 3; // NEAR_MISS_MIN, NEAR_MISS_MAX and MIN_IMPRESSIONS lived here too, exported and imported by nothing: `producers/extra` declares its own. Deleted rather than left to read as a shared bound.
 /** THE PAGES AN ESSAY NEVER GOES ON: the home page, and the shop rails. A storefront answers with products, so "add a section answering this question" there is work nobody would ever publish. */
 export const STOREFRONT = /(^|[/-])(explore|shop|store|categor(y|ies)|collections?|product|cart|checkout)([/-]|$)/i;
 /** A search asking WHICH SITES cover something wants a directory, and no page of this account is the answer to it. A question where somebody DESCRIBES THEMSELVES is their own situation, not a search. */
@@ -58,10 +56,6 @@ export const count = (n: number, one: string, many = `${one}s`): string => `${n.
 export const pageWords = (p: OwnedPageEvidence, weak: ReadonlySet<string>): Set<string> => new Set(topicTokens([p.content?.title, p.content?.h1, ...(p.content?.outline ?? []), pathOf(p.url).replace(/[-/]/g, " ")].filter(Boolean).join(" ")).filter((t) => !weak.has(t)));
 /** The words of a question that carry its subject: a site wide word this account puts on everything proves no  connection at all, so it never makes a page look like the answer to anything. */
 export const subjectWords = (text: string, weak: ReadonlySet<string>): string[] => [...new Set(topicTokens(text))].filter((t) => t.length > 2 && !weak.has(t));
-/** Matching runs on stems and an operator must never be told to write "persepoli", so every stem is handed  back the word it was cut from, spelled as the search spelled it. */
-const asWritten = (text: string, stems: readonly string[]): string[] => {
-  const words = plain(text).split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}'-]/gu, "")).filter(Boolean);
-  return stems.map((s) => words.find((w) => topicTokens(w).includes(s)) ?? s); };
 
 export type Match = { page: OwnedPageEvidence; hits: string[]; missing: string[] };
 /** WHERE A REAL SEARCH BELONGS. `fits` names the page. `needs_own_page` means pages shared the words and every one is FOR something else, a routing fact only the coverage path acts on. `held` means the best page for it has never been read, so the work is research and not a card. `no_candidate` is silence. */
@@ -101,6 +95,8 @@ export const noteNeedsOwnPage = (tenantId: string, text: string, bank?: { query:
   log.info("[extra] no page of this account is for this search", { tenantId, query: text.slice(0, 120) });
   bank?.push({ query: text, ...(refused?.length ? { refusedPages: refused } : {}) }); };
 /** WHAT THIS PAGE IS LEAVING BEHIND at the position it holds: at its biggest search, the clicks pages at that position usually earn against the clicks it earns. The only figure on these cards that is a recovery and not an audience, so it MUST be held to the same bar the strict path uses: on the industry table this account's own position 1 read as 28 percent against the 1.34 it truly earns, sizing one extras card at 6,600 clicks where the opportunity path scored 539 on identical rows. The caller threads the fitted curve; the industry table is only the fallback. NULL, never zero, with no row worth reading or a page already earning its share. */
+/** WHAT A ROW WITH NO COPY YET CARRIES IN ITS COPY FIELD. Written out at each brief mint rather than shared through an export, because nothing may depend on the exact string: `deliverableGaps` reads it by MEANING (a line saying its words are not written), so a reworded one is caught just the same and no drift can turn a brief into a deliverable. */
+const NOT_WRITTEN = "The exact wording has not been written yet.";
 /** ONE card, in the ONE shape the store files and every surface renders. */
 export function mint(tenantId: string, d: Draft, now: Date): ChangeProposal {
   const path = pathOf(d.page.url);
@@ -108,7 +104,13 @@ export function mint(tenantId: string, d: Draft, now: Date): ChangeProposal {
     id: `${tenantId}::${path.toLowerCase()}::existing_edit::${d.slug}`, tenantId, kind: "existing_edit",
     pagePath: path, pageUrl: d.page.url, pageLabel: labelOf(d.page), primaryQuery: d.query,
     opportunityType: d.headline, changeFamily: d.field, status: "needs_review",
-    recommendedChange: { kind: "existing_edit", field: d.field, before: d.before, after: d.after, ...(d.linkTo ? { linkTo: d.linkTo } : {}) },
+    // AN ASSIGNMENT IS NOT COPY, AND `after` IS THE COPY FIELD (incident recovery, 2026-09-04). Every card here is a
+    // brief, and its instruction sat in the one field that means "the exact words to paste": a stored brief was
+    // therefore indistinguishable from finished work to anything reading the words alone, and the day a merge chose
+    // between them it chose the instruction. The brief lives in `research.missing` below, where the writer reads it
+    // and no customer surface ever offers it as a deliverable; the copy field says plainly that there is no copy yet,
+    // in a sentence `deliverableGaps` recognises by meaning, so a row that ever loses this flag is still unwritten.
+    recommendedChange: { kind: "existing_edit", field: d.field, before: d.before, after: NOT_WRITTEN, ...(d.linkTo ? { linkTo: d.linkTo } : {}) },
     // EVERY CARD THIS FILE WRITES IS A BRIEF, so researchOnly is DERIVED from who minted it, never declared
     // per card: this producer names the work and the number behind it and writes no finished copy, and one
     // forgotten flag (the duplicate-heading card shipped "rewrite this heading" as if it were paste-ready)
