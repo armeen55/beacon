@@ -17,6 +17,13 @@ import "server-only";
  * that kind of change from outside the page (a noindex sent in a header, structured data a raw fetch never
  * renders): that is `unverifiable`, said out loud, every time.
  *
+ * DELIVERED IS NOT SHOWING. New words on the page are not the same fact as Google putting them on screen, so
+ * a title or description shipment also asks ONE results-page read for that page's own top search, through the
+ * shared cache on the cheapest queue, bounded per pass and silent when no provider is configured. It is
+ * stored BESIDE the page components and never inside the roll-up, so what Google shows can never move a
+ * shipment's own status. No position is read or shown anywhere: a page that starts answering more questions
+ * is found by more searches, so its average position gets worse exactly as the page gets better.
+ *
  * WHY IT IS NOT A LOOP. Every ending is bounded by MAX_CHECKS live reads and nothing reopens after them: a
  * difference, a site that stayed silent and a page whose pieces could none of them be graded all come back
  * on the promised day and stand for good on the third read. A verified reading is final the moment it lands,
@@ -26,6 +33,8 @@ import "server-only";
  */
 
 import { loadBusinessProfile } from "@/domains/account";
+import { isDataForSeoConfigured } from "@/domains/evidence/dataforseo/client";
+import { parseCapability, providerCall } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { fetchPageHtml } from "@/domains/evidence/competitor-intel/polite-fetch";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import type { PageSnapshot } from "@/domains/evidence/pages/types";
@@ -47,9 +56,10 @@ type ComponentState = ShipmentVerification["components"][number]["state"];
  *  component arrives as a kind and the exact copy the operator was handed, nothing else. `after` is the
  *  proposal (the copy, or the exact structural instruction). */
 type VerifiableShipment = {
-  id: string;
-  url: string;
+  id: string; url: string;
   components: Array<{ kind: string; after: string; anchorAfter?: string | null; redirectTo?: string | null; before?: string | null }>;
+  /** The searches this change was recorded against; the first of them is the one Google is asked about. */
+  targetQueries?: string[];
   /** How many live reads this shipment has already had, so every recheck loop stays bounded. */
   priorChecks?: number;
   /** When the operator marked it done, so a read inside the publish grace window is never counted against the bounded checks. */
@@ -59,13 +69,15 @@ type VerifiableShipment = {
 const PUBLISH_GRACE_MS = 6 * 60 * 60 * 1000;
 
 type VerifyDeps = {
-  fetchPage?: typeof fetchPageHtml;
+  fetchPage?: typeof fetchPageHtml; now?: () => number;
   loadProfile?: (tenantId: string) => Promise<Awaited<ReturnType<typeof loadBusinessProfile>> | null>;
   writeOwnedPage?: (snapshot: PageSnapshot, tenantId: string) => Promise<void>;
+  /** ONE results page for ONE search, seamed so a test never reaches a provider, and what is left of the whole pass's bound on those reads. */
+  readSerp?: (query: string, tenantId: string) => Promise<SerpRow[] | null>;
+  serpReads?: { left: number };
   /** The Shipment store's own reads and writes, injected in tests and nowhere else. */
   loadShipments?: (tenantId: string) => Promise<ShippedChangeRecord[]>;
   record?: (tenantId: string, shipmentId: string, verification: ShipmentVerification) => Promise<boolean>;
-  now?: () => number;
 };
 
 /** How many live pages ONE pass may read for verification. A verification is one free read of a page the
@@ -93,9 +105,35 @@ const judged = (state: ComponentState, note: string): { state: ComponentState; n
 type LiveRead = { snap: PageSnapshot; text: string; finalUrl: string | null; requestedUrl: string; sitemap: string | null };
 
 function liveTextOf(snap: PageSnapshot, html: string): string {
-  const captured = [snap.title, snap.h1, ...(snap.h2_list ?? []), ...(snap.h3_list ?? []),
-    ...(snap.body_paragraph_sample ?? []), ...(snap.card_texts ?? [])].filter(Boolean).join(" ");
+  const captured = [snap.title, snap.h1, ...(snap.h2_list ?? []), ...(snap.h3_list ?? []), ...(snap.body_paragraph_sample ?? []), ...(snap.card_texts ?? [])].filter(Boolean).join(" ");
   return norm(`${captured} ${html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ")}`);
+}
+
+/** WHAT GOOGLE PUTS ON SCREEN for one search: the rows of a results page, reduced to the address and the two
+ *  pieces of wording Google writes there. No rank travels with them, so no surface can print one. */
+type SerpRow = { url: string; title: string | null; snippet: string | null };
+/** The whole pass's ceiling on paid results-page reads, and the tag the Results surface reads this one reading back by (app/(shell)/results/results-presentation.ts). */
+const SERP_READS_PER_PASS = 12, GOOGLE_SHOWS = "google_display";
+const serpRows = async (query: string, tenantId: string): Promise<SerpRow[] | null> => {
+  if (!isDataForSeoConfigured()) return null; // no provider on file: the question is skipped in silence and the page reading is exactly what it was
+  const got = await providerCall("serp_organic", { keyword: query }, { tenantId, unitKey: `shipment-display:${query}`.slice(0, 80) }).catch(() => null);
+  return got && (got.state === "hit" || got.state === "ok") ? parseCapability("serp_organic", got.envelope)?.organic ?? null : null;
+};
+/** IS GOOGLE SHOWING THE NEW WORDS? Asked only where a title or a search description was applied, only for a
+ *  shipment that named a search, and only while the pass has a read left. Returns the ONE extra component to
+ *  store beside the page's own, or nothing at all, which is what every unanswerable case comes back as. */
+async function googleShows(s: VerifiableShipment, tenantId: string, live: LiveRead, deps: VerifyDeps, checkedAt: string): Promise<ShipmentVerification["components"][number] | null> {
+  const part = s.components.find((c) => (c.kind === "title" || c.kind === "meta") && !!norm(c.after ?? "")), budget = deps.serpReads ?? { left: 1 };
+  const query = (s.targetQueries ?? []).map((q) => (q ?? "").trim()).find(Boolean);
+  if (!part || !query || budget.left <= 0) return null; budget.left -= 1;
+  const rows = await (deps.readSerp ?? serpRows)(query, tenantId).catch(() => null); if (!rows) return null;
+  const here = canonicalUrlKey(live.requestedUrl), mine = rows.find((r) => canonicalUrlKey(r.url) === here), what = part.kind === "title" ? "title" : "search description";
+  if (!mine) return { kind: GOOGLE_SHOWS, state: "unverifiable", note: "That search did not bring your page back, so what Google shows for it could not be read." };
+  const days = Math.floor((Date.parse(checkedAt) - Date.parse(s.implementedAt ?? "")) / 86_400_000);
+  const when = !Number.isFinite(days) ? "" : days < 1 ? ", checked the same day the change was made" : `, checked ${days} ${days === 1 ? "day" : "days"} after the change`;
+  return norm((part.kind === "title" ? mine.title : mine.snippet) ?? "").includes(opener(firstLine(part.after ?? ""), 8))
+    ? { kind: GOOGLE_SHOWS, state: "verified", note: `Google is showing your new ${what}.` }
+    : { kind: GOOGLE_SHOWS, state: "not_verified", note: `Google still shows the old ${what}${when}.` };
 }
 
 /** WHAT A JSON-LD BLOCK CLAIMS: the @types it declares and the names a live read can be compared against (an
@@ -111,10 +149,8 @@ function schemaClaim(block: string): { types: string[]; names: string[] } {
   const walk = (node: unknown): void => {
     if (!node || typeof node !== "object") return;
     if (Array.isArray(node)) { for (const n of node) walk(n); return; }
-    const o = node as Record<string, unknown>;
-    const raw = o["@type"];
-    const own = (Array.isArray(raw) ? raw : [raw]).filter((x): x is string => typeof x === "string");
-    types.push(...own);
+    const o = node as Record<string, unknown>, raw = o["@type"];
+    const own = (Array.isArray(raw) ? raw : [raw]).filter((x): x is string => typeof x === "string"); types.push(...own);
     if (own.some((t) => NAMED_LIVE.has(t)) && typeof o.name === "string" && o.name.trim()) names.push(o.name);
     for (const v of Object.values(o)) if (v && typeof v === "object") walk(v);
   };
@@ -131,21 +167,17 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
   if (!norm(proposed) && !COPY_FREE_KINDS.has(component.kind)) {
     return judged("unverifiable", "The exact wording that was applied here is not on file, so this one is not called either way.");
   }
-  const field = (value: string | null, what: string) =>
-    !value?.trim() ? judged("not_verified", `Your page has no ${what} at all.`)
-      : norm(value) === norm(proposed) ? judged("verified", `Your ${what} matches the prepared wording exactly.`)
-        : judged("changed_differently", `Your ${what} is live, and it is not the prepared wording.`);
+  const field = (value: string | null, what: string) => !value?.trim() ? judged("not_verified", `Your page has no ${what} at all.`)
+    : norm(value) === norm(proposed) ? judged("verified", `Your ${what} matches the prepared wording exactly.`) : judged("changed_differently", `Your ${what} is live, and it is not the prepared wording.`);
   const headings = [...(snap.h2_list ?? []), ...(snap.h3_list ?? [])].map(norm).filter(Boolean);
-  const wanted = opener(firstLine(proposed), 8);
-  const wantedWords = wanted.split(" ").filter(Boolean);
+  const wanted = opener(firstLine(proposed), 8), wantedWords = wanted.split(" ").filter(Boolean);
   // A HEADING VERIFIES A SECTION ONLY IF IT COVERS IT. Either the proposed heading is on the page in full,
   // or the live heading carries at least half of its words and never fewer than three. Measured by chars,
   // a two word fragment ("our prices") passed for a nine word section, so a page that answered almost none
   // of what was asked for read as verified.
   const covers = (h: string): boolean => {
     if (h.includes(wanted)) return true;
-    const words = new Set(h.split(" ").filter(Boolean));
-    const shared = wantedWords.filter((w) => words.has(w)).length;
+    const words = new Set(h.split(" ").filter(Boolean)), shared = wantedWords.filter((w) => words.has(w)).length;
     return shared >= Math.max(3, Math.ceil(wantedWords.length / 2));
   };
   const headingHit = !!wanted && headings.some(covers);
@@ -155,25 +187,20 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
   // THE ADDRESS THE CHANGE NAMED, off the change itself. Picking the first url-shaped word out of the
   // instruction picked the address being MOVED, so a correct forward read as one that went elsewhere. The
   // sentence is the last resort now, kept for rows on file that carry no destination of their own.
-  const target = (component.redirectTo ?? "").trim() || urlIn(proposed);
-  const targetKey = target ? canonicalUrlKey(absolute(target)) : null;
+  const target = (component.redirectTo ?? "").trim() || urlIn(proposed), targetKey = target ? canonicalUrlKey(absolute(target)) : null;
   const linkHit = !!targetKey && (snap.internal_links ?? []).some((l) => canonicalUrlKey(absolute(l.href)) === targetKey);
-
   switch (component.kind) {
     case "title": return field(snap.title, "page title");
     case "meta": return field(snap.meta_description, "search description");
     case "h1": return field(snap.h1, "headline");
     case "opening_answer": {
-      const sample = norm((snap.body_paragraph_sample ?? []).join(" "));
-      const want = opener(proposed);
+      const sample = norm((snap.body_paragraph_sample ?? []).join(" ")), want = opener(proposed);
       if (!sample) return judged("unverifiable", "The opening of your page could not be read, so this one is not called either way.");
-      return sample.includes(want) ? judged("verified", "Your page opens with the prepared answer.")
-        : judged("changed_differently", "Your page opens with different words than the prepared ones.");
+      return sample.includes(want) ? judged("verified", "Your page opens with the prepared answer.") : judged("changed_differently", "Your page opens with different words than the prepared ones.");
     }
     case "section": case "section_add": case "section_rewrite": case "restructure": case "table_or_list_add":
       return headingHit ? judged("verified", "The section this change asked for is on the page.")
-        : !wanted ? judged("unverifiable", "This change names no heading to look for.")
-          : judged("not_verified", "Every heading on your page was read, and this section is not one of them.");
+        : !wanted ? judged("unverifiable", "This change names no heading to look for.") : judged("not_verified", "Every heading on your page was read, and this section is not one of them.");
     case "section_remove":
       return !wanted ? judged("unverifiable", "This change names no heading to look for.")
         : headingHit ? judged("not_verified", "That section is still on the page.") : judged("verified", "That section is gone.");
@@ -185,15 +212,12 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
       const want = norm(component.anchorAfter ?? "");
       if (!want) return judged("unverifiable", "The exact words that link was meant to read are not on file, so this one is not called either way.");
       if (snap.internal_links == null) return judged("unverifiable", "The links on your page could not be read this time.");
-      const onTarget = targetKey ? snap.internal_links.filter((l) => canonicalUrlKey(absolute(l.href)) === targetKey) : snap.internal_links;
-      const links = onTarget.length > 0 ? onTarget : snap.internal_links;
-      return links.some((l) => norm(l.anchor_text ?? "").includes(want))
-        ? judged("verified", "That link now reads the way this change asked.")
+      const onTarget = targetKey ? snap.internal_links.filter((l) => canonicalUrlKey(absolute(l.href)) === targetKey) : snap.internal_links, links = onTarget.length > 0 ? onTarget : snap.internal_links;
+      return links.some((l) => norm(l.anchor_text ?? "").includes(want)) ? judged("verified", "That link now reads the way this change asked.")
         : judged("not_verified", "That link is on your page, and it still does not read the way this change asked.");
     }
     case "internal_links": case "internal_link_add": { // BOTH THE ADDRESS AND THE WORDS (operator, 2026-09-02): a link is verified only when the live link to the named address carries the anchor words the change asked for
-      const want = norm(component.anchorAfter ?? "");
-      const worded = !want || (snap.internal_links ?? []).some((l) => canonicalUrlKey(absolute(l.href)) === targetKey && norm(l.anchor_text ?? "").includes(want));
+      const want = norm(component.anchorAfter ?? ""), worded = !want || (snap.internal_links ?? []).some((l) => canonicalUrlKey(absolute(l.href)) === targetKey && norm(l.anchor_text ?? "").includes(want));
       return !target ? judged("unverifiable", "This change names no address to look for.")
         : snap.internal_links == null ? judged("unverifiable", "The links on your page could not be read this time.")
           : linkHit && worded ? judged("verified", "The link this change asked for is on the page.") : linkHit ? judged("not_verified", "A link to that address is on the page, and it does not carry the words this change asked for.") : judged("not_verified", "That link is not on the page yet."); }
@@ -202,11 +226,9 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
     case "navigation": {
       if (live.sitemap == null) return judged("unverifiable", `No sitemap answered at ${SITEMAP_PATH} on your site, so this one is not called either way. Publish your sitemap at that address and the next check reads it.`);
       if (/<sitemapindex/i.test(live.sitemap)) return judged("unverifiable", `Your ${SITEMAP_PATH} lists other sitemap files rather than pages, so it cannot say whether this page is on one.`);
-      const listed = [...live.sitemap.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1]!);
+      const listed = [...live.sitemap.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1]!), here = canonicalUrlKey(live.requestedUrl);
       if (listed.length === 0) return judged("unverifiable", `Your ${SITEMAP_PATH} answered and lists no readable addresses, so this one is not called either way.`);
-      const here = canonicalUrlKey(live.requestedUrl);
-      return listed.some((u) => canonicalUrlKey(absolute(u)) === here)
-        ? judged("verified", "Your sitemap now lists this page.")
+      return listed.some((u) => canonicalUrlKey(absolute(u)) === here) ? judged("verified", "Your sitemap now lists this page.")
         : judged("not_verified", `Your sitemap lists ${listed.length} ${listed.length === 1 ? "address" : "addresses"}, and this page is not one of them.`);
     }
     case "internal_link_remove":
@@ -219,32 +241,26 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
     // being there is all that can honestly be said, and a replacement that still reads as the OLD block is not
     // a page carrying a different change, it is a change that has not landed.
     case "schema_add": case "schema_replace": {
-      const want = schemaClaim(proposed);
+      const want = schemaClaim(proposed), liveTypes = snap.schema_types ?? [];
       if (want.types.length === 0) return judged("unverifiable", "What was applied here is not readable structured data, so this one is not called either way.");
-      const liveTypes = snap.schema_types ?? [];
       const liveNames = [...(snap.schema_entity_names ?? []), ...(snap.faqs ?? []).filter((f) => f.source === "jsonld").map((f) => f.question)].map(norm).filter(Boolean);
       if (liveTypes.length === 0 && liveNames.length === 0) {
-        return snap.extraction_certainty === "uncertain"
-          ? judged("unverifiable", "Your page builds its content in the browser, so its structured data cannot be read from the outside.")
+        return snap.extraction_certainty === "uncertain" ? judged("unverifiable", "Your page builds its content in the browser, so its structured data cannot be read from the outside.")
           : judged("not_verified", "No structured data is on your page at all.");
       }
-      const type = want.types.find((t) => liveTypes.some((l) => norm(l) === norm(t)));
+      const type = want.types.find((t) => liveTypes.some((l) => norm(l) === norm(t))), wanted = want.names.map(norm).filter(Boolean);
       if (!type) return judged("not_verified", `Your page carries ${liveTypes.join(", ") || "structured data"}, and no ${want.types[0]} block is on it.`);
-      const wanted = want.names.map(norm).filter(Boolean);
       if (wanted.length === 0) return judged("unverifiable", `Your page carries a ${type} block, and what is inside it cannot be read from the outside, so whether it is this exact block is not called either way.`);
       if (wanted.every((n) => liveNames.some((l) => l.includes(n)))) return judged("verified", `Your page carries the ${type} block this change asked for.`);
       const old = schemaClaim(component.before ?? "").names.map(norm).filter(Boolean);
-      return old.length > 0 && old.every((n) => liveNames.some((l) => l.includes(n)))
-        ? judged("not_verified", `Your page still carries the ${type} block that was there before this change.`)
+      return old.length > 0 && old.every((n) => liveNames.some((l) => l.includes(n))) ? judged("not_verified", `Your page still carries the ${type} block that was there before this change.`)
         : judged("changed_differently", `Your page carries a ${type} block, and it is not the one this change prepared.`);
     }
     case "schema": {
-      const types = snap.schema_types ?? [], named = (snap.schema_entity_names ?? []).length > 0;
-      const askedFor = types.find((t) => norm(proposed).includes(norm(t)));
+      const types = snap.schema_types ?? [], named = (snap.schema_entity_names ?? []).length > 0, askedFor = types.find((t) => norm(proposed).includes(norm(t)));
       if (askedFor) return judged("verified", `Your page carries ${askedFor} structured data.`);
       if (types.length > 0 || named) return judged("unverifiable", "Your page carries structured data, and none of it matches this change.");
-      return snap.extraction_certainty === "uncertain"
-        ? judged("unverifiable", "Your page builds its content in the browser, so its structured data cannot be read from the outside.")
+      return snap.extraction_certainty === "uncertain" ? judged("unverifiable", "Your page builds its content in the browser, so its structured data cannot be read from the outside.")
         : judged("not_verified", "No structured data is on your page.");
     }
     case "canonical":
@@ -254,15 +270,11 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
             : judged("changed_differently", "Your page points at a different address than the one this change asked for.");
     case "redirect": case "consolidation": {
       if (!live.finalUrl) return judged("unverifiable", "Where that address ended up could not be seen.");
-      const moved = canonicalUrlKey(live.finalUrl) !== canonicalUrlKey(live.requestedUrl);
-      if (!moved) return judged("not_verified", "That address still serves its own page, so nothing is forwarding yet.");
+      if (canonicalUrlKey(live.finalUrl) === canonicalUrlKey(live.requestedUrl)) return judged("not_verified", "That address still serves its own page, so nothing is forwarding yet.");
       // MOVED IS NOT ARRIVED. A forward with no destination named could be landing anywhere, a login wall
       // included, so it is honestly unknown rather than a pass I cannot stand behind.
-      if (!targetKey) {
-        return judged("unverifiable", "It forwards somewhere, and the change named no destination, so there is nothing to confirm it against.");
-      }
-      return canonicalUrlKey(live.finalUrl) === targetKey
-        ? judged("verified", "That address now forwards visitors on.")
+      if (!targetKey) return judged("unverifiable", "It forwards somewhere, and the change named no destination, so there is nothing to confirm it against.");
+      return canonicalUrlKey(live.finalUrl) === targetKey ? judged("verified", "That address now forwards visitors on.")
         : judged("changed_differently", "That address forwards somewhere other than where this change asked.");
     }
     case "noindex":
@@ -275,15 +287,12 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
     default: {
       const want = opener(proposed);
       return !want ? judged("unverifiable", "This change names no wording to look for.")
-        : live.text.includes(want) ? judged("verified", "This wording is on your page.")
-          : judged("not_verified", "Your whole page was read, and this wording is not on it.");
+        : live.text.includes(want) ? judged("verified", "This wording is on your page.") : judged("not_verified", "Your whole page was read, and this wording is not on it.");
     }
   }
 }
-
 /** Every component unverifiable, for the cases where the page itself could not be read. */
-const allUnknown = (shipment: VerifiableShipment, note: string) =>
-  shipment.components.map((c) => ({ kind: c.kind, state: "unverifiable" as ComponentState, note }));
+const allUnknown = (shipment: VerifiableShipment, note: string) => shipment.components.map((c) => ({ kind: c.kind, state: "unverifiable" as ComponentState, note }));
 
 /**
  * VERIFY ONE SHIPMENT against the live page. One fetch, on the free owned-page path, and the answer is
@@ -292,21 +301,17 @@ const allUnknown = (shipment: VerifiableShipment, note: string) =>
  * hold instead of going back out to the customer's website.
  */
 export async function verifyShipment(tenantId: string, shipment: VerifiableShipment, deps: VerifyDeps = {}): Promise<ShipmentVerification> {
-  const now = deps.now ?? Date.now, checkedAt = new Date(now()).toISOString();
+  const now = deps.now ?? Date.now, checkedAt = new Date(now()).toISOString(), fetchPage = deps.fetchPage ?? fetchPageHtml;
   const requested = /^https?:\/\//i.test(shipment.url) ? shipment.url : `https://${shipment.url}`;
-  const fetchPage = deps.fetchPage ?? fetchPageHtml;
   // NO READ THAT SAW NOTHING IS FINAL ON ITS FIRST ANSWER (R-059, 2026-09-03). A read that could not see the
   // change says nothing about the change, so a site that did not answer counts ONE check and comes back the
   // next day; the third blocked answer stands, exactly as a difference does.
   const early = !!shipment.implementedAt && now() - Date.parse(shipment.implementedAt) < PUBLISH_GRACE_MS;
   const checks = (shipment.priorChecks ?? 0) + (early ? 0 : 1); // a read inside the grace window is free: it informs, it never counts
-  const blockedRead = (note: string): ShipmentVerification => ({
-    status: "blocked", checkedAt, components: allUnknown(shipment, note), checks,
-    recheckAfter: checks < MAX_CHECKS ? reportingDay(now() + 86_400_000) : null,
-  });
+  const blockedRead = (note: string): ShipmentVerification =>
+    ({ status: "blocked", checkedAt, components: allUnknown(shipment, note), checks, recheckAfter: checks < MAX_CHECKS ? reportingDay(now() + 86_400_000) : null });
   let res: Awaited<ReturnType<typeof fetchPageHtml>>;
-  try { res = await fetchPage(requested, new Map(), {}); }
-  catch { return blockedRead("Your website did not answer, so this change could not be checked."); }
+  try { res = await fetchPage(requested, new Map(), {}); } catch { return blockedRead("Your website did not answer, so this change could not be checked."); }
   if (!res.ok) {
     if (/^http_(404|410)$/.test(res.detail ?? "")) {
       // NOT_FOUND INSIDE THE PUBLISH LAG IS THE SAME LAG (operator, 2026-08-29): Mark Done means applied in the editor and the site may be published once at the end of the session, so a page not there yet is re-read on the same bounded schedule rather than buried on read one.
@@ -322,25 +327,20 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
   // save changes nothing about what I read with my own eyes.
   await (deps.writeOwnedPage ?? ((s: PageSnapshot, t: string) => syncPageSnapshots([s], t)))(snap, tenantId).catch(() => {});
   // ONE extra read, only when a change asked to be listed in the sitemap, and never a second time.
-  let sitemap: string | null = null;
-  if (shipment.components.some((c) => c.kind === "navigation")) {
-    const got = await fetchPage(`${new URL(requested).origin}${SITEMAP_PATH}`, new Map(), {}).catch(() => null);
-    sitemap = got?.ok ? got.html : null;
-  }
-  const live: LiveRead = { snap, text: liveTextOf(snap, res.html), finalUrl: res.finalUrl ?? null, requestedUrl: requested, sitemap };
-  const components = shipment.components.map((c) => ({ kind: c.kind, ...classify(c, live) }));
-  const seen = components.filter((c) => c.state !== "unverifiable");
-  const status: ShipmentVerification["status"] =
-    seen.length === 0 ? "blocked"
-      : seen.every((c) => c.state === "verified") ? "verified"
-        : seen.some((c) => c.state === "verified") ? "partially_verified"
-          : "differs";
+  const got = shipment.components.some((c) => c.kind === "navigation") ? await fetchPage(`${new URL(requested).origin}${SITEMAP_PATH}`, new Map(), {}).catch(() => null) : null;
+  const live: LiveRead = { snap, text: liveTextOf(snap, res.html), finalUrl: res.finalUrl ?? null, requestedUrl: requested, sitemap: got?.ok ? got.html : null };
+  const components = shipment.components.map((c) => ({ kind: c.kind, ...classify(c, live) })), seen = components.filter((c) => c.state !== "unverifiable");
+  const status: ShipmentVerification["status"] = seen.length === 0 ? "blocked"
+    : seen.every((c) => c.state === "verified") ? "verified" : seen.some((c) => c.state === "verified") ? "partially_verified" : "differs";
   // A DIFFERENCE, OR A READING THAT GRADED NOTHING, IS RE-READ AND NEVER BURIED. CMSes serve the old page
   // through caches and build queues for hours after a paste, so the first read routinely differs, and a page
   // where every piece came back unreadable is a fact about that one read. Up to MAX_CHECKS bounded reads, two
   // days apart; a verified answer is final on any read, and the third read's answer stands whatever it is.
   const again = status !== "verified" && (early || checks < MAX_CHECKS);
-  return { status, checkedAt, checks, components: early && again ? components.map((c) => c.state !== "verified" && c.state !== "unverifiable" ? { ...c, note: `${c.note} Sites are often published later in the session, so this is read again tomorrow without counting against the check limit.` } : c) : components, recheckAfter: again ? reportingDay(now() + (early ? 1 : 2) * 86_400_000) : null };
+  // WHAT GOOGLE SHOWS IS BANKED AFTER THE ROLL-UP AND NEVER INSIDE IT: a results page that has not caught up
+  // yet is a fact about Google, and letting it into `status` would take a landed change back off the board.
+  const graded = early && again ? components.map((c) => c.state !== "verified" && c.state !== "unverifiable" ? { ...c, note: `${c.note} Sites are often published later in the session, so this is read again tomorrow without counting against the check limit.` } : c) : components, shows = await googleShows(shipment, tenantId, live, deps, checkedAt);
+  return { status, checkedAt, checks, components: shows ? [...graded, shows] : graded, recheckAfter: again ? reportingDay(now() + (early ? 1 : 2) * 86_400_000) : null };
 }
 
 /** WHAT THE OPERATOR SAID THEY APPLIED, with the exact copy WHERE I HOLD IT. A Shipment names the
@@ -360,7 +360,7 @@ function componentsOf(r: ShippedChangeRecord): VerifiableShipment["components"] 
 /** One Shipment row, as verification reads it. A row that already holds an answer is here on the day that
  *  answer promised, carrying the reads it has had so the bound is counted from them and never from zero. */
 const toVerifiable = (r: ShippedChangeRecord): VerifiableShipment =>
-  ({ id: r.id, url: r.page, components: componentsOf(r), implementedAt: r.implementedAt ?? null, ...(r.verification != null ? { priorChecks: r.verification.checks ?? 1 } : {}) });
+  ({ id: r.id, url: r.page, components: componentsOf(r), targetQueries: r.targetQueries ?? [], implementedAt: r.implementedAt ?? null, ...(r.verification != null ? { priorChecks: r.verification.checks ?? 1 } : {}) });
 
 /** The most live reads one shipment ever gets. */
 const MAX_CHECKS = 3;
@@ -400,12 +400,12 @@ export const verifyShipmentNow = (tenantId: string, shipmentId: string, deps: Ve
 
 export async function verifyDueShipments(tenantId: string, deps: VerifyDeps = {}, only?: (s: { id: string }) => boolean): Promise<number> { // `only` narrows the SAME due read to one shipment
   // A TARGETED CHECK SELECTS ITS SHIPMENT BEFORE ANY SWEEP LIMIT: filtering after the three-row cap meant a target fourth in line was never the one verified (Codex, 2026-08-28). The sweep keeps its own cap.
-  const due = (await shipmentsAwaitingVerification(tenantId, only ? TARGET_SCAN_BOUND : MAX_VERIFICATIONS_PER_PASS, deps)).filter((s) => !only || only(s)).slice(0, MAX_VERIFICATIONS_PER_PASS); let written = 0;
+  const due = (await shipmentsAwaitingVerification(tenantId, only ? TARGET_SCAN_BOUND : MAX_VERIFICATIONS_PER_PASS, deps)).filter((s) => !only || only(s)).slice(0, MAX_VERIFICATIONS_PER_PASS); let written = 0; const serpReads = { left: SERP_READS_PER_PASS }; // ONE ceiling for the whole pass, carried across every shipment in it
   const unsavable = new Set<string>(); // BOUNDED IN-RUN SKIP, carried on the pass and nowhere else: an answer that could not be SAVED means the shipment is still due, so a second shipment at the SAME address would send me back to the customer's website inside one pass for a result I already know I cannot store
   for (const shipment of due) {
     const address = canonicalUrlKey(shipment.url);
     if (unsavable.has(address)) continue;
-    const verification = await verifyShipment(tenantId, shipment, deps).catch(() => null);
+    const verification = await verifyShipment(tenantId, shipment, { serpReads, ...deps }).catch(() => null);
     if (!verification) continue;
     // A verification that could not be SAVED is not a verification: the shipment stays due and I check it
     // again on the next visit, which is the ONE case where the same page is read twice.

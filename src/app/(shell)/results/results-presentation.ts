@@ -95,8 +95,7 @@ export type ResultsView = {
   defaultGroup: ResultsGroup;
 };
 
-const num = (n: number): string => Math.round(n).toLocaleString("en-US");
-const signed = (n: number): string => `${n > 0 ? "+" : n < 0 ? "-" : ""}${num(Math.abs(n))}`;
+const num = (n: number): string => Math.round(n).toLocaleString("en-US"), signed = (n: number): string => `${n > 0 ? "+" : n < 0 ? "-" : ""}${num(Math.abs(n))}`;
 // -- the closed label maps (a slug never reaches the screen) -------------------
 
 /** ONE shared scale for every bar on the screen: a move of a quarter against this page's own  starting point fills the bar, and everything larger is held at the edge. */
@@ -162,14 +161,16 @@ const showsImpressions = (p: ShipmentPresentation): boolean => !(p.baseline && p
 
 /** Marked done, the live check, the last read that landed and the next one owed. */
 function timelineLines(p: ShipmentPresentation): Array<{ label: string; done: boolean }> {
-  const marked = monthDayLabel(p.implementedAt);
-  const checked = monthDayLabel(p.verification?.checkedAt ?? null);
+  const marked = monthDayLabel(p.implementedAt), checked = monthDayLabel(p.verification?.checkedAt ?? null);
   const done = lastClosed(p.read), next = p.read.windows.find((w) => w.state !== "closed");
   const out = [
     { label: marked ? `Marked done ${marked}` : "Marked done, date not kept", done: true },
     p.verification && checked ? { label: `Live page checked ${checked}`, done: true }
       : { label: p.implementedAt == null ? "Live page never checked; predates verification" : "Live page not read yet", done: false },
   ];
+  // ON THE PAGE IS NOT THE SAME AS ON GOOGLE, so the results-page reading stored beside the page components (kind "google_display", measurement/verify-shipment.ts) gets its own line. Never a position, only what Google puts on screen.
+  const shows = p.verification?.components?.find((c) => c.kind === "google_display");
+  if (shows?.note) out.push({ label: shows.note, done: shows.state === "verified" });
   // A ROW JUDGED ON AI IS READ OVER ITS OWN 28 DAYS FROM THE STAMP, not over the Google windows: a change three days into its
   // citation read carried "28 day read May 29, done" beside its own "Reading". No date is printed for it, because none is on file.
   if (judgedOnAi(p)) {
@@ -202,8 +203,7 @@ function chipOf(p: ShipmentPresentation): { text: string; amber: boolean } | nul
 
 /** This page's own before and after over the read that was used. */
 function numbersOf(p: ShipmentPresentation): { numbers: ResultsRow["numbers"]; note: string | null } {
-  const r = p.read;
-  const b = p.baseline;
+  const r = p.read, b = p.baseline;
   if (!b) return { numbers: null, note: "No starting point was kept for this one." };
   if (b.impressions <= 0) return { numbers: null, note: "No starting point could be read for this one." }; // a zero row is never called "no traffic": nothing on file is not zero (operator, 2026-09-02)
   if (r.basisDay == null || !p.basisMove) return { numbers: null, note: "Nothing read yet." };

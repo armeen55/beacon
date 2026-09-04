@@ -17,6 +17,8 @@ vi.mock("@/domains/evidence", () => {
 import { isCurrent } from "@/domains/evidence/freshness";
 import { shipmentBustedAt, shipmentsAwaitingVerification, verifyDueShipments, verifyShipment, verifyShipmentNow } from "@/domains/measurement/verify-shipment";
 import { readTechnicalFindings, technicalComponents } from "@/domains/decision/technical-findings";
+import { evaluateChange, evaluateWindows } from "@/domains/measurement/proof-gsc/kernel";
+import { buildResultsView } from "@/app/(shell)/results/results-presentation";
 const T = "tenant-1", URL_ = "https://own.com/nowruz", NOW = Date.parse("2026-07-31T12:00:00Z"), DAY = 86_400_000;
 const PAGE = `<html><head><title>How to set a nowruz table</title>
 <meta name="description" content="Set a nowruz table in seven steps."/>
@@ -43,52 +45,42 @@ const check = async (components: Array<{ kind: string; after: string; anchorAfte
 const state = async (kind: string, after: string, page: Fetcher = serve(PAGE), over: Record<string, unknown> = {}) =>
   (await check([{ kind, after }], page, over)).components[0]!.state;
 describe("what Beacon can see on the live page, component by component", () => {
-  it("reads the page's own fields exactly: the wording I gave, other wording, or no field at all", async () => {
-    expect(await state("title", "How to set a nowruz table")).toBe("verified");
+  it("reads the page's own fields exactly: the wording I gave, other wording, or no field at all", async () => { expect(await state("title", "How to set a nowruz table")).toBe("verified");
     expect(await state("title", "how to set a NOWRUZ table.")).toBe("verified"); // the same words are the same title
     expect(await state("title", "Nowruz gift ideas")).toBe("changed_differently"); expect(await state("meta", "Set a nowruz table in seven steps.")).toBe("verified");
     expect(await state("h1", "How to set a nowruz table")).toBe("verified"); expect(await state("meta", "anything", serve("<html><head><title>t</title></head><body><p>x</p></body></html>"))).toBe("not_verified");});
-  it("checks the opening answer against the words the page actually opens with", async () => {
-    expect(await state("opening_answer", "A nowruz table is set with seven symbolic items known together as the haft seen")).toBe("verified");
+  it("checks the opening answer against the words the page actually opens with", async () => { expect(await state("opening_answer", "A nowruz table is set with seven symbolic items known together as the haft seen")).toBe("verified");
     expect(await state("opening_answer", "Nowruz is celebrated on the spring equinox by millions of people every year")).toBe("changed_differently");
     expect(await state("opening_answer", "anything at all", serve("<html><head><title>t</title></head><body></body></html>"))).toBe("unverifiable");});
-  it("looks for a section by its heading, and reads a removal the other way round", async () => {
-    expect(await state("section_add", "What goes on the table\nEvery item stands for a wish.")).toBe("verified"); expect(await state("section", "Where to buy a haft seen set")).toBe("not_verified");
+  it("looks for a section by its heading, and reads a removal the other way round", async () => { expect(await state("section_add", "What goes on the table\nEvery item stands for a wish.")).toBe("verified"); expect(await state("section", "Where to buy a haft seen set")).toBe("not_verified");
     expect(await state("section_remove", "Where to buy a haft seen set")).toBe("verified");
     expect(await state("section_remove", "What goes on the table")).toBe("not_verified");});
-  it("never lets a two-word heading stand in for the section that was actually asked for", async () => {
-    const fragment = serve(PAGE.replace("<h2>What goes on the table</h2>", "<h2>The table</h2>"));
+  it("never lets a two-word heading stand in for the section that was actually asked for", async () => { const fragment = serve(PAGE.replace("<h2>What goes on the table</h2>", "<h2>The table</h2>"));
     expect(await state("section_add", "The table settings every family in Tehran uses at Nowruz", fragment)).toBe("not_verified");
     expect(await state("section_add", "What goes on the table at Nowruz and why", serve(PAGE))).toBe("verified");});
-  it("compares an internal link as an address, and says unknown when it could not read the page's links", async () => {
-    expect(await state("internal_link_add", "Link to https://own.com/haft-seen from the opening")).toBe("verified");
+  it("compares an internal link as an address, and says unknown when it could not read the page's links", async () => { expect(await state("internal_link_add", "Link to https://own.com/haft-seen from the opening")).toBe("verified");
     expect(await state("internal_link_add", "Link to /haft-seen")).toBe("verified"); // relative and absolute are one address
     expect(await state("internal_link_add", "Link to /chaharshanbe-suri")).toBe("not_verified");
     expect(await state("internal_link_add", "Add a link to the guide")).toBe("unverifiable"); // no address named
     const noLinks = serve("<html><head><title>t</title></head><body><main><p>words enough to count as a paragraph here</p></main></body></html>"); expect(await state("internal_link_add", "Link to /haft-seen", noLinks)).toBe("unverifiable");});
   it("verifies a new link only when the live link to the named address also carries the words the change asked for", async () => { const to = { kind: "internal_link_add", after: "Link to /haft-seen" }; expect([(await check([{ ...to, anchorAfter: "the haft seen explained" }])).components[0]!.state, (await check([{ ...to, anchorAfter: "seven items of spring" }])).components[0]!.state, ((await check([{ ...to, anchorAfter: "seven items of spring" }])).components[0]!.note ?? "").includes("does not carry the words")]).toEqual(["verified", "not_verified", true]); });
   it("checks a renamed link on the words that are actually on it, both ways, and says unknown without them", async () => {
-    const swap = async (anchorAfter: string | null) => (await check([{ kind: "anchor_text",
-      after: 'I would change the words "read more" that already point at /haft-seen so they read "the haft seen explained".',
-      anchorAfter }])).components[0]!.state;
+    const swap = async (anchorAfter: string | null) => (await check([{ kind: "anchor_text", after: 'I would change the words "read more" that already point at /haft-seen so they read "the haft seen explained".', anchorAfter }])).components[0]!.state;
     expect(await swap("the haft seen explained")).toBe("verified"); // the live link carries the new words
     expect(await swap("what each haft seen item means")).toBe("not_verified"); // the link is there, the wording is not
     expect(await swap(null)).toBe("unverifiable"); // no new wording on file, so no claim either way
   });
-  it("reads structured data as the weak signal it is, and never as proof of absence when the page builds itself in the browser", async () => {
-    expect(await state("schema", "Add FAQPage structured data")).toBe("verified");
+  it("reads structured data as the weak signal it is, and never as proof of absence when the page builds itself in the browser", async () => { expect(await state("schema", "Add FAQPage structured data")).toBe("verified");
     expect(await state("schema", "Add HowTo structured data")).toBe("unverifiable"); // something is there, but not what was asked for
     const bare = serve(`<html><head><title>t</title></head><body><main><p>${"a real sentence about setting the table ".repeat(10)}</p></main></body></html>`);
     expect(await state("schema", "Add FAQPage structured data", bare)).toBe("not_verified");
     expect(await state("schema", "Add FAQPage structured data", serve("<html><head><title>t</title></head><body><div id=app></div></body></html>"))).toBe("unverifiable");});
   // A PREPARED BLOCK IS CHECKED ON THE NAMES INSIDE IT. Shipped as its field family a schema change was read as a section, and no heading on any page will ever match a JSON-LD block, so every one of them read as work the operator had not done.
-  it("reads a prepared structured-data block on the names inside it, never on the page's own headings", async () => {
-    const ASKED = "What goes on the table?", qa = (qs: string[]) => JSON.stringify(qs.map((q) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: "yes" } })));
+  it("reads a prepared structured-data block on the names inside it, never on the page's own headings", async () => { const ASKED = "What goes on the table?", qa = (qs: string[]) => JSON.stringify(qs.map((q) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: "yes" } })));
     const block = (qs: string[]) => `{"@context":"https://schema.org","@type":"FAQPage","mainEntity":${qa(qs)}}`, live = (qs: string[]) => serve(PAGE.replace('"mainEntity":[]', `"mainEntity":${qa(qs)}`));
     expect([await state("schema_add", block([ASKED]), live([ASKED])), await state("schema_add", block([ASKED]), live(["Something else entirely?"])), await state("schema_add", block([ASKED]), serve(PAGE.replace(/<script[\s\S]*?<\/script>/, ""))), await state("schema_add", "not json at all", live([ASKED]))], "the block it asked for, a block of that type carrying other questions, a page with no structured data on it at all, and a block nobody can read").toEqual(["verified", "changed_differently", "not_verified", "unverifiable"]);
     expect((await check([{ kind: "schema_replace", after: block([ASKED]), before: block(["Old question?"]) }], live(["Old question?"]))).components[0], "a replacement the page still answers with the OLD block has not landed, which is not the same thing as a page carrying a different change").toEqual({ kind: "schema_replace", state: "not_verified", note: "Your page still carries the FAQPage block that was there before this change." });});
-  it("checks the preferred address, the forward and the search setting from what the page itself reports", async () => {
-    expect(await state("canonical", "Point the canonical at https://own.com/nowruz")).toBe("verified"); expect(await state("canonical", "Point the canonical at https://own.com/nowruz-guide")).toBe("changed_differently");
+  it("checks the preferred address, the forward and the search setting from what the page itself reports", async () => { expect(await state("canonical", "Point the canonical at https://own.com/nowruz")).toBe("verified"); expect(await state("canonical", "Point the canonical at https://own.com/nowruz-guide")).toBe("changed_differently");
     const noCanonical = serve("<html><head><title>t</title></head><body><main><p>a paragraph with quite enough words in it</p></main></body></html>");
     expect(await state("canonical", "Point the canonical at https://own.com/x", noCanonical)).toBe("not_verified");
     expect(await state("redirect", "Forward it to https://own.com/haft-seen", serve(PAGE, { finalUrl: "https://own.com/haft-seen" }))).toBe("verified");
@@ -99,34 +91,24 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect(await state("noindex", "Take it out of search", noindex)).toBe("verified");
     expect(await state("noindex", "Take it out of search")).toBe("unverifiable"); // a header I cannot see could carry it
   });
-  it("verifies a forward against the destination the change named, never the address it moved", async () => {
-    const chain = (url: string, to: string) => ({ url, discovered_via: "nav", crawl_state: "crawled", http_status: 200, redirects_to: to });
-    const found = readTechnicalFindings({ inventory: [chain(URL_, "https://own.com/mid"), chain("https://own.com/mid", "https://own.com/haft-seen")] })
-      .filter((f) => f.kind === "redirect_chain");
+  it("verifies a forward against the destination the change named, never the address it moved", async () => { const chain = (url: string, to: string) => ({ url, discovered_via: "nav", crawl_state: "crawled", http_status: 200, redirects_to: to });
+    const found = readTechnicalFindings({ inventory: [chain(URL_, "https://own.com/mid"), chain("https://own.com/mid", "https://own.com/haft-seen")] }).filter((f) => f.kind === "redirect_chain");
     const parts = technicalComponents(found, "nowruz table"); expect(parts.map((c) => [c.kind, c.redirectTo])).toEqual([["redirect", "https://own.com/haft-seen"]]);
     expect(parts[0]!.after).toContain("/nowruz"); // the address being moved is still the first one in the sentence
     const applied = parts.map((c) => ({ kind: c.kind, after: c.after, redirectTo: c.redirectTo ?? null }));
-    const seen = await verifyShipment(T, { id: "s1", url: URL_, components: applied },
-      { ...base, fetchPage: serve(PAGE, { finalUrl: "https://own.com/haft-seen" }) });
+    const seen = await verifyShipment(T, { id: "s1", url: URL_, components: applied }, { ...base, fetchPage: serve(PAGE, { finalUrl: "https://own.com/haft-seen" }) });
     expect([seen.status, seen.components[0]!.state]).toEqual(["verified", "verified"]);
-    const wrong = await verifyShipment(T, { id: "s1", url: URL_, components: applied },
-      { ...base, fetchPage: serve(PAGE, { finalUrl: "https://own.com/login" }) });
+    const wrong = await verifyShipment(T, { id: "s1", url: URL_, components: applied }, { ...base, fetchPage: serve(PAGE, { finalUrl: "https://own.com/login" }) });
     expect(wrong.components[0]!.state).toBe("changed_differently");});
-  it("reads a sitemap change in the sitemap itself, and refuses to grade one it could not read", async () => {
-    const listing = (...locs: string[]) => `<urlset>${locs.map((l) => `<url><loc>${l}</loc></url>`).join("")}</urlset>`;
-    const graded = async (xml: string | null) => (await check([{ kind: "navigation", after: "I would add /nowruz to the sitemap you already publish." }],
-      (async (u: string) => (!u.endsWith("/sitemap.xml") ? { ok: true, html: PAGE, status: 200 }
-        : xml == null ? { ok: false, reason: "fetch_failed" } : { ok: true, html: xml, status: 200 })) as unknown as Fetcher)).components[0]!;
+  it("reads a sitemap change in the sitemap itself, and refuses to grade one it could not read", async () => { const listing = (...locs: string[]) => `<urlset>${locs.map((l) => `<url><loc>${l}</loc></url>`).join("")}</urlset>`;
+    const graded = async (xml: string | null) => (await check([{ kind: "navigation", after: "I would add /nowruz to the sitemap you already publish." }], (async (u: string) => (!u.endsWith("/sitemap.xml") ? { ok: true, html: PAGE, status: 200 } : xml == null ? { ok: false, reason: "fetch_failed" } : { ok: true, html: xml, status: 200 })) as unknown as Fetcher)).components[0]!;
     expect((await graded(listing(URL_, "https://own.com/haft-seen"))).state).toBe("verified"); const absent = await graded(listing("https://own.com/haft-seen"));
     expect([absent.state, absent.note]).toEqual(["not_verified", "Your sitemap lists 1 address, and this page is not one of them."]); expect((await graded(null)).state).toBe("unverifiable");
     expect((await graded("<sitemapindex><sitemap><loc>https://own.com/s1.xml</loc></sitemap></sitemapindex>")).state).toBe("unverifiable");
     expect((await graded(listing())).state).toBe("unverifiable"); // a sitemap answering with no addresses grades nothing
   });
   it("checks a broken link fix on the dead address it named, in both directions", async () => {
-    const found = readTechnicalFindings({
-      inventory: [{ url: "https://own.com/old-price", discovered_via: "nav", crawl_state: "crawled", http_status: 404 }],
-      pages: [{ url: URL_, internal_links: ["https://own.com/old-price"] }],
-    }).filter((f) => f.kind === "broken_internal_link");
+    const found = readTechnicalFindings({ inventory: [{ url: "https://own.com/old-price", discovered_via: "nav", crawl_state: "crawled", http_status: 404 }], pages: [{ url: URL_, internal_links: ["https://own.com/old-price"] }], }).filter((f) => f.kind === "broken_internal_link");
     const parts = technicalComponents(found, "nowruz table"); expect(parts.map((c) => [c.kind, c.redirectTo])).toEqual([["internal_link_remove", "https://own.com/old-price"]]);
     const applied = parts.map((c) => ({ kind: c.kind, after: c.after, redirectTo: c.redirectTo ?? null })); const still = serve(PAGE.replace("</main>", '<p><a href="/old-price">old prices</a></p></main>'));
     expect((await verifyShipment(T, { id: "s1", url: URL_, components: applied }, { ...base, fetchPage: still })).components[0]!.state).toBe("not_verified");
@@ -152,6 +134,21 @@ describe("what Beacon says overall, and what it refuses to say", () => {
   it("reads a difference inside the publish grace window as not published yet: no bounded check is spent and it is read again tomorrow", async () => { const at = (h: number) => new Date(NOW - h * 3_600_000).toISOString(); const early = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }], implementedAt: at(1) }, { ...base, fetchPage: serve(PAGE) }), late = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }], implementedAt: at(8) }, { ...base, fetchPage: serve(PAGE) });
     expect([early.status, early.checks, early.recheckAfter, (early.components[0]!.note ?? "").includes("published later"), late.status, late.checks, late.recheckAfter]).toEqual(["differs", 0, "2026-08-01", true, "differs", 1, "2026-08-02"]); });
   it("resolves a scheme-less page key and an absolute address to the same Search history, and answers nothing at all for a page with none", async () => { const { readWindowForPages } = await import("@/domains/measurement/proof-gsc/gsc-window"); const m = await readWindowForPages({ tenantId: T, pages: ["own.com/nowruz", "https://www.own.com/nowruz/", "own.com/never"], start: "2026-08-05", end: "2026-09-02" }); expect([m.get("own.com/nowruz")?.impressions, m.get("https://www.own.com/nowruz/")?.impressions, m.has("own.com/never")]).toEqual([900, 900, false]); }); // NOTHING ON FILE IS NOT ZERO
+  /** DELIVERED IS NOT SHOWING: the page carrying the new title and Google displaying it are two different facts, and only the first one is what "verified" means. */
+  it("banks what Google shows beside the page reading, prints it on the card, and never lets it move the change's own status", async () => { const serp = (title: string) => async () => [{ url: URL_, title, snippet: "Set a nowruz table in seven steps." }];
+    const ship = (over: Record<string, unknown>) => verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "How to set a nowruz table" }], targetQueries: ["nowruz table"], implementedAt: new Date(NOW - 3 * DAY).toISOString() }, { ...base, fetchPage: serve(PAGE), ...over });
+    const showing = await ship({ readSerp: serp("How to set a nowruz table | Iranopedia") }), behind = await ship({ readSerp: serp("Nowruz gift ideas") });
+    expect([showing.status, showing.components.map((c) => c.kind), showing.components[1]!.note], "a brand suffix is still the words that were shipped").toEqual(["verified", ["title", "google_display"], "Google is showing your new title."]);
+    expect([behind.status, behind.components[1]!.state, behind.components[1]!.note], "the results page has not caught up, and the change itself is still verified").toEqual(["verified", "not_verified", "Google still shows the old title, checked 3 days after the change."]);
+    const missing = await ship({ readSerp: async () => [{ url: "https://rival.com/nowruz", title: "Nowruz table", snippet: null }] }); expect([missing.status, missing.components[1]!.state, missing.components[1]!.note]).toEqual(["verified", "unverifiable", "That search did not bring your page back, so what Google shows for it could not be read."]);
+    const read = evaluateChange({ id: "s1", page: URL_, path: "/nowruz", actionType: "title", shippedAt: "2026-07-28", baselineImpressions: 900, baselineClicks: 30, windows: [] }, evaluateWindows("2026-07-28", new Date(NOW), "2026-07-31"), []);
+    const card = Object.values(buildResultsView([{ read, implementedAt: new Date(NOW - 3 * DAY).toISOString(), verification: behind, baseline: null }], new Date(NOW)).rows).flat()[0]!;
+    expect(card.timeline.map((t) => t.label), "the operator reads it on the change's own timeline, with no position anywhere near it").toContain("Google still shows the old title, checked 3 days after the change.");});
+  it("asks Google nothing for a body change, and nothing at all when no provider is on file", async () => { let asked = 0; const count = async () => { asked += 1; return []; };
+    const body = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "section_add", after: "What goes on the table" }], targetQueries: ["nowruz table"] }, { ...base, fetchPage: serve(PAGE), readSerp: count });
+    expect([asked, body.components.map((c) => c.kind)], "a body change never buys a results page").toEqual([0, ["section_add"]]); vi.stubEnv("DATAFORSEO_LOGIN", ""); vi.stubEnv("DATAFORSEO_PASSWORD", ""); vi.stubEnv("DATAFORSEO_AUTH_B64", "");
+    const blanked = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "How to set a nowruz table" }], targetQueries: ["nowruz table"] }, { ...base, fetchPage: serve(PAGE) });
+    expect(blanked, "keys blanked: the page reading is exactly what it was before any of this").toEqual({ status: "verified", checkedAt: new Date(NOW).toISOString(), checks: 1, recheckAfter: null, components: [{ kind: "title", state: "verified", note: "Your page title matches the prepared wording exactly." }] }); vi.unstubAllEnvs();});
   it("goes and reads the page whatever the operator claimed, and cannot land verified without page evidence", async () => { let fetched = 0; const claimed = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }] }, { ...base, fetchPage: async () => { fetched += 1; return { ok: true as const, html: PAGE, status: 200 }; } });
     expect([claimed.status, fetched, claimed.components[0]!.state]).toEqual(["differs", 1, "changed_differently"]);});});
 describe("the pass: what is due, how much of it runs, and what it writes", () => {
@@ -175,6 +172,9 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     const written2 = await verifyShipmentNow(T, "b", { ...base, fetchPage: (async (u: string) => { read2.push(u); return { ok: true as const, html: PAGE, status: 200 }; }) });
     expect([written, read.length, WRITES.map((w) => w[1])], "one shipment, one read, one record").toEqual([1, 1, ["b"]]);
     expect(await verifyShipmentNow(T, "nope", { ...base, fetchPage: serve(PAGE) }), "a shipment that is not due reads nothing").toBe(0); });
+  it("reads at most twelve results pages in one pass, however many changes are owed one", async () => { for (const id of [..."abcdefghijklmno"]) ROWS.push(row({ id, targetQueries: ["nowruz table"] })); let asked = 0;
+    const written = await verifyDueShipments(T, { ...base, fetchPage: serve(PAGE), readSerp: async () => { asked += 1; return []; } });
+    expect([written, asked], "fifteen pages read for free, twelve results pages bought, and the rest are owed the next pass").toEqual([15, 12]);});
   it("records a page it was refused rather than retrying it forever: the answer lands, so the change stops being due", async () => {
     ROWS.push(row({ id: "a" }));
     let reads = 0; const pass = () => verifyDueShipments(T, { ...base, fetchPage: (async () => { reads += 1; return { ok: false as const, reason: "robots_blocked" as const }; }) });
