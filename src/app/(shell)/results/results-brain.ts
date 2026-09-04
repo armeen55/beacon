@@ -1,9 +1,4 @@
-/** results-brain - WHAT BEACON BELIEVES ABOUT EACH KIND OF WORK ON THIS SITE, derived once, deterministically, from the
- * shipments the surface already holds. Results used to be a ledger wearing a header: "6 wins banked" over a strip saying
- * no reading had been verified, both true under two rules sharing one label. This is the ONE argument the page makes,
- * in four layers: the belief, the field of thoughts, the evidence behind a selected thought, and what is still owed.
- * PURE: no clock reads, no prose from a model, no I/O; hand it the same shipments and it says the same thing.
- * ONE CLASSIFICATION: every row's state comes from RESULT_LINES.rowState, the same rule the ledger below prints, so the
+/** results-brain - WHAT BEACON BELIEVES ABOUT EACH KIND OF WORK ON THIS SITE, derived once, deterministically, from the shipments the surface already holds. Results used to be a ledger wearing a header: "6 wins banked" over a strip saying no reading had been verified, both true under two rules sharing one label. This is the ONE argument the page makes, in four layers: the belief, the field of thoughts, the evidence behind a selected thought, and what is still owed. PURE: no clock reads, no prose from a model, no I/O; hand it the same shipments and it says the same thing. ONE CLASSIFICATION: every row's state comes from RESULT_LINES.rowState, the same rule the ledger below prints, so the
  * belief and the list reconcile by construction rather than by a test. */
 
 import { isMature as kernelIsMature, treatmentLearning } from "@/domains/measurement";
@@ -58,8 +53,10 @@ export type BrainModel = {
 const CONF_LABEL: Record<Thought["confidence"], string> = { none: "nothing verified", early: "an early signal", pattern: "a consistent record", mixed: "a split record" };
 const FAMILY_NAME: Record<string, string> = { title: "Titles", meta: "Meta descriptions", title_meta: "Titles and meta descriptions", h1: "Page headlines",
   answer: "Answers at the top", link: "Internal links", schema: "Structured data", content: "Page content", new_page: "New pages", full_rewrite: "Full rewrites", other: "Other changes" };
-/** THE SAME GROUPING THE KERNEL LEARNS BY: one row through treatment-learning yields the coarse family its own grouping would file it under, so the field and the ranking's history can never disagree about what kind of work a change was. */
-const familyOf = (p: ShipmentPresentation): string | null => treatmentLearning([{ actionType: p.read.actionType, after: null, windows: [], implementedAt: null, verification: null, operatorVerdictOverride: null, pinnedRead: null, treatmentStamp: null, componentsApplied: null }])[0]?.family ?? null;
+/** THE SAME GROUPING THE KERNEL LEARNS BY: one row through treatment-learning yields the coarse family its own grouping would file it under, so the field and the ranking's history can never disagree about what kind of work a change was. THE PROJECTION IS THE KERNEL'S OWN ADJUDICATED READING and never a second opinion: the basis day, the lift it settled on and whether it stood against the site are the only window facts treatment-learning reads, the rest of the stored shape is required and carries no meaning here, and a read on click rate or judged on assistants projects no window at all rather than handing clicks arithmetic a rate. */
+const learningRowOf = (p: ShipmentPresentation): Parameters<typeof treatmentLearning>[0][number] => ({ actionType: p.read.actionType, after: null, implementedAt: p.implementedAt, verification: p.verification, operatorVerdictOverride: null, pinnedRead: null, treatmentStamp: null, componentsApplied: null, baseline: p.baseline == null ? undefined : { ...p.baseline, ctr: 0, position: 0 },
+  windows: p.read.basisDay == null || p.read.metric !== "clicks" || judgedOnAi(p) ? [] : [{ day: p.read.basisDay, checkOn: "", ran: true, adjustedLift: p.read.lift, controlsUsed: 1, comparedToSite: p.read.comparison === "site", treatedDelta: 0, controlDelta: 0, treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0, treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0 }] });
+const familyOf = (p: ShipmentPresentation): string | null => treatmentLearning([{ ...learningRowOf(p), windows: [] }])[0]?.family ?? null;
 const exampleOf = (p: ShipmentPresentation, now: Date): Example => ({ id: p.read.id, label: pageLabel(p.read.path || p.read.page), url: p.read.page, state: rowState(p), line: `${happenedLine(p, now)} ${stateWord(p)}.` });
 /** The direction a finished read points, off the group the ledger files it under; a shared or level read points nowhere. */
 const direction = (p: ShipmentPresentation): "ahead" | "behind" | null => {
@@ -67,7 +64,7 @@ const direction = (p: ShipmentPresentation): "ahead" | "behind" | null => {
   return s === "historical_ahead" || (s === "verified_early" && g === "worked") ? "ahead" : s === "historical_behind" || (s === "verified_early" && g === "down") ? "behind" : null;
 };
 
-function thoughtOf(family: string | null, rows: ShipmentPresentation[], now: Date, edges: string[]): Thought {
+function thoughtOf(family: string | null, rows: ShipmentPresentation[], now: Date, edges: string[], pooled: { percent: number; readings: number } | null = null): Thought {
   const states = rows.map(rowState), count = (s: ResultState) => states.filter((x) => x === s).length;
   const finished = (p: ShipmentPresentation): boolean => rowState(p) === "verified_early" && !judgedOnAi(p), verified = rows.filter((p) => finished(p) && p.read.comparison !== "site"), blind = rows.filter((p) => finished(p) && p.read.comparison === "site").length; // A READING AGAINST THE SITE'S OWN MOVEMENT SIZES NO BELIEF (reviewer, 2026-09-03): treatment-learning refuses it, so counting it here would have the Brain claim a signal off readings the engine will not learn from. It is named below instead.
   const ahead = verified.filter((p) => direction(p) === "ahead").length, behind = verified.length - ahead, agree = Math.max(ahead, behind);
@@ -93,6 +90,8 @@ function thoughtOf(family: string | null, rows: ShipmentPresentation[], now: Dat
     ...(count("waiting_verification") > 0 ? [`${plural(count("waiting_verification"), "reading")} cannot teach: the change was not confirmed on the live page.`] : []),
     ...(historical > 0 ? [`${plural(historical, "historical read")} predate live verification and never train recommendations.`] : []),
     ...(count("confounded") > 0 ? [`${plural(count("confounded"), "reading")} shared ${count("confounded") === 1 ? "its" : "their"} days with a later change and cannot be separated.`] : []), ...(blind > 0 ? [`${plural(blind, "reading")} stood against the rest of the site because too few untouched pages matched, so ${blind === 1 ? "it teaches" : "they teach"} nothing.`] : [])];
+  // WHAT THIS KIND OF WORK HAS RETURNED, off the readings the engine actually learns from and said in the one unit that compares across pages: percent of what those pages were already earning. Under three usable readings there is no such number, and then the sentences above stand exactly as they were, because an average of almost nothing is not a measurement and a flat sentence invented for it would read as one.
+  const record = pooled == null ? "" : ` ${name} on this site: about ${pooled.percent >= 0 ? "plus" : "minus"} ${num(Math.abs(pooled.percent))} percent across ${plural(pooled.readings, "reading")}.`;
   const owed = Math.max(0, CONSISTENT_MIN - verified.length);
   const agreement = verified.length + level === 0 ? null : `${agree} of ${plural(verified.length, "directional verified read")} point the same way${level > 0 ? `, and ${plural(level, "finished verified read")} moved nothing` : ""}. A small sample from one site: ${confidence === "pattern" ? "consistent, not proven" : confidence === "mixed" ? "split, and a split this small can still be noise" : "too few to call a record"}.`;
   const changeMind = confidence === "pattern" ? `Verified reads finishing the other way would turn this back into a split record.`
@@ -112,7 +111,7 @@ function thoughtOf(family: string | null, rows: ShipmentPresentation[], now: Dat
     liveVerified: rows.filter(liveConfirmed).length, waitingVerification: count("waiting_verification"), recorded: count("recorded"),
     ahead, behind, inconclusive: count("inconclusive"), confounded: count("confounded"), notMeasurable: count("not_measurable"), overlapping,
     historicalAhead: count("historical_ahead"), historicalBehind: count("historical_behind"), historicalUnclear: count("historical_unclear"), unit, medianEffect: median, agreement, pageFamilies: families,
-    belief, strongest: pick("ahead"), counterexample: pick("behind"), limits, changeMind, watching, edges };
+    belief: belief + record, strongest: pick("ahead"), counterexample: pick("behind"), limits, changeMind, watching, edges };
 }
 
 /** THE WHOLE ARGUMENT. Thoughts are ordered by what may be believed first: patterns, then signals, then the largest in flight. */
@@ -122,7 +121,8 @@ export function buildResultsBrain(shipments: ReadonlyArray<ShipmentPresentation>
   // REAL COMBINATIONS ONLY: two kinds of work are joined when the kernel found their windows overlapping on one page.
   const familyById = new Map(shipments.map((p) => [p.read.id, familyOf(p) ?? "unsigned"] as const));
   const edgesOf = (f: string | null): string[] => [...new Set((byFamily.get(f) ?? []).flatMap((p) => p.read.overlappingIds.map((id) => familyById.get(id))).filter((k): k is string => !!k && k !== (f ?? "unsigned")))];
-  const thoughts = [...byFamily].map(([f, rows]) => thoughtOf(f, rows, now, edgesOf(f)))
+  const pooled = new Map(treatmentLearning(shipments.map(learningRowOf)).map((g) => [g.family, g.estimate == null ? null : { percent: g.estimate.percent, readings: g.sampleSize }] as const));
+  const thoughts = [...byFamily].map(([f, rows]) => thoughtOf(f, rows, now, edgesOf(f), pooled.get(f) ?? null))
     .sort((a, b) => ["pattern", "mixed", "early", "none"].indexOf(a.confidence) - ["pattern", "mixed", "early", "none"].indexOf(b.confidence) || b.verifiedSample - a.verifiedSample || b.inFlight - a.inFlight || b.shipped - a.shipped);
   const states = shipments.map(rowState), c = (s: ResultState) => states.filter((x) => x === s).length;
   // NEWER CHANGES ARE THE ONES WITH A STAMP THAT HAVE NOT FINISHED; a change that predates verification is history however young its read.
