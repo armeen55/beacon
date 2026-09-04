@@ -42,7 +42,7 @@ const MEASUREMENT_WINDOW_DAYS = 28;
 async function familyHistoryFor(tenantId: string): Promise<Map<string, { readings: number; netLift: number }>> {
   const ledger = await import("@/domains/measurement/proof-gsc/load-ledger").then((m) => m.loadProofLedgerCached(tenantId)).catch(() => null);
   if (!ledger) return new Map();
-  return (await import("@/domains/measurement/treatment-learning")).familyHistoryFromShipments(ledger);
+  return (await import("@/domains/measurement/treatment-learning")).familyHistoryFromShipments(ledger.map((r) => r.judgedMetric != null && r.judgedMetric !== "clicks" ? { ...r, windows: [] } : r)); // THE SAME REFUSAL THE PRODUCING PASS MAKES (decision/produce-proposals, `familyHistoryOf`): a change judged on assistants hands the click record none of its Google movement. The two doors read one ledger and must read it the same way, or the screen ranks on a record the pass refused.
 }
 
 /**

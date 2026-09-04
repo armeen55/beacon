@@ -59,7 +59,7 @@ async function twoWindows(tenantId: string, now: Date | undefined): Promise<Wind
 async function familyHistoryOf(tenantId: string): Promise<Map<string, { readings: number; netLift: number }>> {
   const ledger = await import("@/domains/measurement/proof-gsc/load-ledger").then((m) => m.loadProofLedgerPersisted(tenantId)).catch(() => null);
   if (!ledger) return new Map();
-  return (await import("@/domains/measurement/treatment-learning")).familyHistoryFromShipments(ledger);
+  return (await import("@/domains/measurement/treatment-learning")).familyHistoryFromShipments(ledger.map((r) => r.judgedMetric != null && r.judgedMetric !== "clicks" ? { ...r, windows: [] } : r)); // A CHANGE RAISED TO WIN A CITATION TEACHES NOTHING ABOUT CLICKS (2026-09-03). The yardstick is frozen at the press and the click windows keep accruing underneath it, so an assistant bet's Google movement was sizing the click record its whole family is then ranked on. The row keeps every window it has; what it hands the ranking is nothing. Results refuses the identical reading at its own seam, and this is the same rule said once more where the ranking eats.
 } /** WHAT ONE PASS MAY SPEND ON READING PAGES FOR AEO GAPS. Separate from the drafting plan on purpose: a diagnosis that REFUSES emits no card, so the card-output bound never notices it and an unmetered pass could buy readings all day. Raised 5 to 200, a runaway stop only (operator, 2026-08-30, "i dont want any limits"): the adjudicator ledger and the zero-spend scope are the brakes. A zero-spend pass funds none, and unread cases stay owed. */
 const AEO_DIAGNOSES_PER_PASS = 200;
 const NEEDS_DECISION: ReadonlySet<string> = new Set(["technical_reachability", "consolidate_or_differentiate", "new_page"]);

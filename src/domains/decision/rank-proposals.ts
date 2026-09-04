@@ -127,7 +127,7 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const share = !sized ? 0 : calibrated ? clamp01(record!.netLift / Math.max(1, record!.readings) / 100 + 0.5)
     : addressed ? COLLECTS.diagnosed : COLLECTS.undiagnosed;
   const priority = !sized ? null : Math.round(clicks! * share);
-  const basis = calibrated ? `a ${Math.round(share * 100)} percent share measured across ${num(record!.readings)} finished readings of this kind of change here`
+  const basis = calibrated ? `a ${Math.round(share * 100)} percent share measured across ${num(record!.readings)} readings of this kind of change here, each closed at 14 days or later`
     : `an assumed ${Math.round(share * 100)} percent share, which is this product's policy and not a figure measured here`;
   const proven = priority == null ? null : addressed
     ? { input: `${num(clicks!)} clicks over 28 days measured as recoverable and the cause diagnosed, so ${num(priority)} is what it is ranked on: ${basis}`,
@@ -257,7 +257,7 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   1 - Math.min(0.3, peers * 0.1));
 
   // WHAT THIS KIND OF CHANGE HAS ALREADY DONE HERE. Two changes of equal worth are not equal bets when one
-  // family is three readings deep and down on every one of them. Only finished readings vote, and never enough
+  // family is three readings deep and down on every one of them. A READING IS CLOSED AT 14 DAYS AND A WIN IS STILL ONLY CALLED AT 28 (2026-09-03), so this receipt says closed and never finished: Results files the same reading as an early one, and two surfaces calling one number by two names is how a queue starts contradicting itself. Only closed readings vote, and never enough
   // to invert an order: a family with a bad run is ranked lower, never refused, and a good run buys nothing,
   // because THE KIND OF CHANGE NEVER DECIDES, THE EXPECTED TRAFFIC DOES (operator, 2026-08-26). A `treatment`
   // factor sat here paying +45 to "substantive" families and -45 to metadata ones, a ninety point swing keyed
@@ -267,8 +267,8 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const votes = seen && seen.readings >= MIN_FINISHED_READINGS;
   const pull = votes && seen!.netLift < 0 ? (seen!.readings / (seen!.readings + HISTORY_SHRINK)) : 0;
   discount("history", !ridden ? "too little of an audience on this page for what this kind of change has done elsewhere to mean anything here"
-    : !votes ? "not enough finished readings of this kind of change here to judge it"
-    : `this kind of change is ${num(Math.abs(seen!.netLift))} clicks ${seen!.netLift > 0 ? "up" : "down"} across ${num(seen!.readings)} finished readings here, which is too few to weigh heavily`,
+    : !votes ? "too few readings of this kind of change have closed here to judge it"
+    : `this kind of change is ${num(Math.abs(seen!.netLift))} clicks ${seen!.netLift > 0 ? "up" : "down"} across ${num(seen!.readings)} readings here, each closed at 14 days or later, which is too few to weigh heavily`,
   1 - pull * 0.1);
 
   return { factors: f, directional };
