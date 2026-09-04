@@ -149,12 +149,12 @@ function weekStrip(rows: Awaited<ReturnType<typeof loadProofLedgerCached>>, nowM
   if (rows.length === 0) return null;
   const b = splitLedgerLifecycle(rows, new Date(nowMs));
   const made = rows.filter((r) => Date.parse(r.implementedAt ?? r.shippedAt) >= nowMs - WEEK_MS);
-  const conf = (r: LedgerRow): boolean => r.verification?.status === "verified" || r.verification?.status === "partially_verified", flight = [...b.measuring, ...b.promising], live = flight.filter(conf).length; /* TWO STATES, NOT ONE COUNT (2026-09-04): "124 changes measuring" merged the changes confirmed on the live page with the ones nothing has read back yet, which are different facts about different work. The rows already carry the live check, and splitLedgerLifecycle reads that same field to keep an unconfirmed read out of "won", so the split is printed rather than hidden. */
+  const measuring = b.measuring.length + b.promising.length;
   const settled = b.won.length + b.learned.length;
   return {
     made: {
       label: "made", value: made.length > 0 ? `${made.length} ${made.length === 1 ? "change" : "changes"} this week` : "No changes this week",
-      sub: flight.length === 0 ? "nothing measuring right now" : [live > 0 ? `${live} confirmed live and measuring` : "", flight.length - live > 0 ? `${flight.length - live} waiting on a live check` : ""].filter(Boolean).join(", "),
+      sub: measuring > 0 ? `${measuring} measuring now` : "nothing measuring right now",
       pages: pagesHover(made),
     },
     // ALL TIME, SAID ON THE TILE. "3 wins all time" sat beside "2 edits this week" under one week framing, so the

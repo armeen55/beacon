@@ -77,7 +77,7 @@ export type ResearchCycleSteps = {
   /** CHECK ONE PAGE'S OWN CLAIMS AGAINST SOURCES OUTSIDE IT. Bounded, budgeted and fail-soft: this phase never blocks a run, because a page whose statements could not be checked today is not an outage. */
   /** ONE RESEARCH UNIT'S WORTH of source checking. `budgetMs` is what is LEFT of the drive's own deadline, not a fresh allowance of its own, and `renew` is the caller's lease: a claim is only ever started while the lease is genuinely
    *  held. Answers in the run's vocabulary (advanced / done / failed) so a pass that checked one claim cannot be read as a page, or an account, that is finished. */
-  factCheck: (tenantId: string, budgetMs: number, renew?: () => Promise<boolean>, /** THE PAGE THAT OPENS THE PASS: the highest-ranked open source need, so a drive checks the page whose funded work is waiting rather than the audience's most-read one. Null keeps the rotation order. */ firstPage?: string | null)
+  factCheck: (tenantId: string, budgetMs: number, renew?: () => Promise<boolean>)
     => Promise<{ status: "advanced" | "done" | "failed"; banked: number; /** The pages this pass banked evidence ON, so a drive can hire the writer that was waiting on one of them in the same turn. */ bankedPages: string[]; pagesComplete: number; failure?: string; reason?: string }>;
   surfaceStale: (tenantId: string, nowMs: number) => Promise<boolean>;
   /** Read back the day's NEW answers (bounded, $0 when nothing changed). Returns THE PASS'S OWN RECEIPT, not a bare number: how many answers it took on, how many ended with a durable verdict, how many of those were a non-reading, and
@@ -381,7 +381,7 @@ export const defaultSteps: ResearchCycleSteps = {
   // publishCustomerSurfaces PROPAGATES failure (no internal swallow): a throw pauses publish_surface and the previously saved surface stays visible.
   async publishSurface(tenantId) { await publishCustomerSurfaces(tenantId); },
   // THE PAGE THIS ACCOUNT IS MOST SHOWN FOR, checked against the sources for its own subjects. One page a pass, statements it has not already checked at this version of the page, and every finding banked as a row of its own. Fail-soft by construction: the answer is a count and a reason, never a thrown run. ONE CLAIM, ON A PAGE CHOSEN BY WHAT IS ACTUALLY OWED. Rotation is the point: the first version always took the single most-shown page, so once that page was exhausted every later pass took it again and page two was unreachable (Codex, 2026-08-18). A page is eligible while it has claims not yet current at its CURRENT content hash; the account's oldest-covered eligible page goes first. Fail-soft: a count and a reason.
-  async factCheck(tenantId, budgetMs, renew, firstPage) { return factCheckPass(tenantId, budgetMs, renew, firstPage ?? null); },
+  async factCheck(tenantId, budgetMs, renew) { return factCheckPass(tenantId, budgetMs, renew, null); },
   async surfaceStale(tenantId, nowMs) {
     const { readCustomerSurface, isCustomerSurfaceStale } = await import("@/app/(shell)/surface-release");
     const surface = await readCustomerSurface(tenantId).catch(() => null);

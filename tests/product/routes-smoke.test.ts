@@ -1,11 +1,15 @@
 /** Four-surface smoke (Core 100K product contract): Today, Changes, Results, Connections each render their frame without throwing, plus the Today claims a stranger reads first (the ready count, the one CTA, the hero chart sentence). Deep behavior lives in the kept behavioral contract suites. */
 import { describe, it, expect, vi } from "vitest";
-import { renderToReadableStream, renderToStaticMarkup } from "react-dom/server"; import type { ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server"; import type { ReactElement } from "react";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("next/navigation", () => { const redirected = (url: string) => { throw new Error(`NEXT_REDIRECT:${url}`); };
-  return { permanentRedirect: redirected, redirect: redirected, useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }), useSearchParams: () => new URLSearchParams(), usePathname: () => "/settings/connectors" }; });
-vi.mock("@/lib/connector-store", async () => ({ ...(await vi.importActual<typeof import("@/lib/connector-store")>("@/lib/connector-store")),
-  getConnectorInfo: vi.fn(async () => ({ status: "disconnected" as const, connected_at: null, expires_at: null, last_synced_at: null })), getGoogleConnectorToken: vi.fn(async () => null), getYelpConnectorToken: vi.fn(async () => null) }));
+vi.mock("next/navigation", () => {
+  const redirected = (url: string) => { throw new Error(`NEXT_REDIRECT:${url}`); };
+  return { permanentRedirect: redirected, redirect: redirected, useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+    useSearchParams: () => new URLSearchParams(), usePathname: () => "/settings/connectors" }; });
+vi.mock("@/lib/connector-store", async () => ({
+  ...(await vi.importActual<typeof import("@/lib/connector-store")>("@/lib/connector-store")),
+  getConnectorInfo: vi.fn(async () => ({ status: "disconnected" as const, connected_at: null, expires_at: null, last_synced_at: null })),
+  getGoogleConnectorToken: vi.fn(async () => null), getYelpConnectorToken: vi.fn(async () => null) }));
 vi.mock("@/domains/runtime/ops/refresh-runs-store", () => ({ latestRefreshBySource: vi.fn(async () => ({})) }));
 vi.mock("@/domains/runtime/research-run", () => ({ researchRunStatus: vi.fn(async () => ({ state: "none",
   phaseLabel: "", stepsDone: 0, stepsTotal: 3, counters: {}, updatedAt: null, completedAt: null })) })); // The smoke suite pins frames; lifecycle gating has its own behavioral tests.
@@ -18,31 +22,28 @@ vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...(await orig<Record<s
   getSupabaseAdmin: () => ({ from: (table: string) => { const q: Record<string, unknown> = {};
     const answer = () => Promise.resolve(table === "shipped_change_proof" && DB.ledgerError ? { data: null, error: DB.ledgerError } : { data: [], error: null });
     for (const k of ["select", "eq", "in", "not", "is", "gte", "lte", "order", "limit"]) q[k] = () => q;
-    q.maybeSingle = async () => ({ data: null, error: null }); q.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => answer().then(res, rej);
+    q.maybeSingle = async () => ({ data: null, error: null });
+    q.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => answer().then(res, rej);
     return q; } }) }));
 describe("Today renders, and tells the truth about its own queue", () => {
   it.each([["@/app/(shell)/page", ["max-w-3xl", 'aria-label="Loading today"']], ["@/app/(shell)/changes/page", ["Changes", "Finished changes first"]],
     ["@/app/(shell)/results/page", ["Results", "7, 14 and 28 days"]]] as const)("renders the %s frame without throwing", async (mod, claims) => {
     const { default: Page } = await import(mod) as { default: (a?: unknown) => Promise<ReactElement> }; const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
-    for (const claim of claims) expect(html).toContain(claim); }, 15_000);
-  /** "124 changes measuring" merged two different facts about two different pieces of work (2026-09-04): a change confirmed on the live page, and one nothing has read back yet. The rows already carry that check, and the strip prints the split rather than one number over both. */
-  it("splits what is measuring into the changes confirmed live and the ones still waiting on that check", async () => {
-    vi.resetModules(); const ago = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString(), row = (id: string, status: string | null) => ({ id, path: "/p", page: "/p", shippedAt: ago(3), implementedAt: ago(3), verdict: "measuring", verification: status ? { status } : null, windows: [], baseline: { impressions: 0, clicks: 0 } });
-    vi.doMock("@/domains/measurement", async (o) => ({ ...(await o<Record<string, unknown>>()), loadProofLedgerCached: async () => [row("a", "verified"), row("b", null), row("c", "not_found")] }));
-    vi.doMock("@/app/(shell)/today-gate-data", () => ({ loadTodayV2GateData: async () => ({ unreadable: false, isDemoMode: false, firstReading: { isFirstReading: false, context: null } }) }));
-    vi.doMock("@/app/(shell)/today-view-data", async (o) => ({ ...(await o<Record<string, unknown>>()), loadTodayView: async () => ({ hasChanges: true, today: { headerSentence: "", nextOpportunities: [], readyTotal: 0, toDoTotal: 0 } }) }));
-    const { default: Page } = await import("@/app/(shell)/page") as { default: (a?: unknown) => Promise<ReactElement> };
-    const html = await new Response(await renderToReadableStream(await Page({ searchParams: Promise.resolve({}) }), { onError: () => {} })).text();
-    expect(html).toContain("1 confirmed live and measuring, 2 waiting on a live check"); // one live check landed, two changes are still owed one
-    for (const m of ["@/domains/measurement", "@/app/(shell)/today-gate-data", "@/app/(shell)/today-view-data"]) vi.doUnmock(m); vi.resetModules(); }, 15_000);
+    for (const claim of claims) expect(html).toContain(claim);
+  }, 15_000);
   it("says it could not read the measured changes, and never that there are none, when THE STORE itself errors", async () => {
     const { default: Page } = await import("@/app/(shell)/results/page") as { default: (a?: unknown) => Promise<ReactElement> };
     DB.ledgerError = { code: "PGRST301", message: "JWT expired" }; // The failure enters where it really enters: Supabase hands the ledger table back an error, three layers under the page.
-    const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) })); expect(html).toContain("Your measured changes could not be read just now, so none is not the answer."); expect(html).not.toContain("No changes are being measured yet");
+    const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) })); expect(html).toContain("Your measured changes could not be read just now, so none is not the answer.");
+    expect(html).not.toContain("No changes are being measured yet");
     DB.ledgerError = { code: "PGRST205", message: "Could not find the table in the schema cache" }; // AND THE MISSING-TABLE CASE IS STILL A VALID EMPTY: the file fallback is how a pre-migration deploy reads, not an outage.
     const fallback = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) })); expect(fallback).not.toContain("could not be read just now");
     DB.ledgerError = null; }, 15_000);
-  const readyView = (n: number, measuring: number) => ({ ready: Array.from({ length: n }, (_, i) => ({ id: `t::/p${i}::existing_edit::title`, pagePath: `/p${i}`, pageUrl: null, pageLabel: `P${i}`, primaryQuery: "q", opportunityType: "Sharpen the title", recommendedChange: { kind: "existing_edit", field: "title" } })), toDo: [], measuringCountCanonical: measuring } as unknown as import("@/app/(shell)/changes-data").ChangesView);
+  const readyView = (n: number, measuring: number) => ({
+    ready: Array.from({ length: n }, (_, i) => ({ id: `t::/p${i}::existing_edit::title`, pagePath: `/p${i}`, pageUrl: null, pageLabel: `P${i}`, primaryQuery: "q",
+      opportunityType: "Sharpen the title", recommendedChange: { kind: "existing_edit", field: "title" } })),
+    toDo: [], measuringCountCanonical: measuring,
+  } as unknown as import("@/app/(shell)/changes-data").ChangesView);
   const NO_WORK = "No finished change is ready today. The next one lands here the moment the exact work is written.";
   it("counts every finished change, previews three, and says no finished change is ready when there are none", async () => { // EVERY CHANGE THE HEADER COUNTS IS FINISHED WORK, three of them are previewed, and an empty day says which empty it is: a quiet queue is not a quiet account and not a report either, and an unfinished opportunity is a status count, never an edit.
     const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data"); const view = buildTodayViewFromChanges(readyView(12, 3));
