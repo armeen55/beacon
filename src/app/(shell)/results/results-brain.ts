@@ -6,7 +6,7 @@ import { landsLabel, type ShipmentPresentation } from "./results-presentation";
 import { RESULT_LINES } from "./results-lines";
 import { pageLabel } from "../changes/types";
 
-const { causeWords, groupFor, happenedLine, isRetired, judgedOnAi, liftLabel, liveConfirmed, rowState, stateWord } = RESULT_LINES;
+const { aiStory, causeWords, groupFor, happenedLine, isRetired, judgedOnAi, liftLabel, liveConfirmed, rowState, stateWord } = RESULT_LINES;
 type ResultState = ReturnType<typeof rowState>;
 type Metric = ShipmentPresentation["read"]["metric"];
 type LearningRow = NonNullable<ShipmentPresentation["learning"]>;
@@ -35,7 +35,7 @@ type Thought = {
   confidence: "none" | "early" | "pattern" | "mixed";
   /** What the field draws: the verified sample sizes the node, the historical ring, and whether confirmed readings are in flight. */
   verifiedSample: number; historical: number; inFlight: number;
-  shipped: number; liveVerified: number; waitingVerification: number; recorded: number;
+  shipped: number; liveVerified: number; waitingVerification: number; recorded: number; early: number;
   ahead: number; behind: number; inconclusive: number; confounded: number; notMeasurable: number; overlapping: number;
   historicalAhead: number; historicalBehind: number; historicalUnclear: number;
   /** The yardstick most of the verified reads share, and the middle read in that unit; a click-rate fraction is never printed as clicks. */
@@ -43,7 +43,7 @@ type Thought = {
   /** The agreement behind the confidence, said as a count and the odds of it by chance, so a small sample reads as one. */
   /** `causes` is what the pages under this one bet were diagnosed with: two causes answered by the same treatment stay separable here. */
   agreement: string | null; pageFamilies: string[]; causes: string[];
-  belief: string; strongest: Example | null; counterexample: Example | null; limits: string[]; changeMind: string; watching: string;
+  belief: string; strongest: Example | null; counterexample: Example | null; limits: string[]; changeMind: string; watching: string; teaches: string; // `teaches` answers what a reader asks straight after a belief: is this already changing what gets recommended, or is it only on the screen
   /** Keys of thoughts whose changes overlapped this one's on the same page: real combinations off the kernel's own overlap ids. */
   edges: string[];
 };
@@ -56,11 +56,14 @@ export type BrainModel = {
   nextStep: { text: string; href: string | null };
   /** The ladder, one rung per row and nothing counted twice, so `shipped` is the sum of the six. */
   counts: { shipped: number; recorded: number; liveConfirmed: number; early: number; mature: number; historical: number; blocked: number };
+  funnel: ReadonlyArray<{ label: string; ai: boolean; shipped: number; read: number }>; // every yardstick this account has changes on, counted apart and never summed; `read` is the finished readings inside `shipped`
 };
 
 const CONF_LABEL: Record<Thought["confidence"], string> = { none: "nothing verified", early: "an early signal", pattern: "a consistent record", mixed: "a split record" };
 const FAMILY_NAME: Record<string, string> = { title: "Titles", meta: "Meta descriptions", title_meta: "Titles and meta descriptions", h1: "Page headlines",
   answer: "Answers at the top", link: "Internal links", schema: "Structured data", content: "Page content", new_page: "New pages", full_rewrite: "Full rewrites", other: "Other changes" };
+/** THE FIVE YARDSTICKS A CHANGE MAY BE JUDGED ON, IN THE ORDER AN ANSWER IS EARNED: read by an assistant, credited, read and then credited, named, and clicks from Google. Five questions, never one number. Each one's words come from the row's own objective story, so this can never drift into a second vocabulary for the same five things. */
+const STAGES = ["ai_retrieval", "ai_citation", "ai_citation_conversion", "ai_mentions", "clicks"] as const;
 /** The bet inside the family, in the operator's own words. An unmapped one falls back to the family alone rather than printing its own slug. */
 const TREATMENT_NAME: Record<string, string> = { rewrite_existing_section: "rewritten sections", add_answer_section: "added answer sections", title_or_h1: "titles and headlines",
   meta_description: "search descriptions", internal_link_or_navigation: "internal links", technical_reachability: "technical fixes",
@@ -77,7 +80,7 @@ const direction = (p: ShipmentPresentation): "ahead" | "behind" | null => {
   return s === "historical_ahead" || (s === "verified_mature" && g === "worked") ? "ahead" : s === "historical_behind" || (s === "verified_mature" && g === "down") ? "behind" : null;
 };
 
-function thoughtOf(bet: TreatmentGroup, rows: ShipmentPresentation[], now: Date, edges: string[], pooled: { percent: number; readings: number; early: boolean } | null = null): Thought {
+function thoughtOf(bet: TreatmentGroup, rows: ShipmentPresentation[], now: Date, edges: string[], pooled: { percent: number | null; readings: number; early: boolean } | null = null): Thought {
   const states = rows.map(rowState), count = (s: ResultState) => states.filter((x) => x === s).length, family = bet.family;
   const finished = (p: ShipmentPresentation): boolean => rowState(p) === "verified_mature" && !judgedOnAi(p) && p.learning?.operatorVerdictOverride !== "inconclusive", verified = rows.filter((p) => finished(p) && p.read.comparison !== "site"), blind = rows.filter((p) => finished(p) && p.read.comparison === "site").length; // A READING AGAINST THE SITE'S OWN MOVEMENT SIZES NO BELIEF (reviewer, 2026-09-03): treatment-learning refuses it, so counting it here would have the Brain claim a signal off readings the engine will not learn from. It is named below instead.
   const ahead = verified.filter((p) => direction(p) === "ahead").length, behind = verified.length - ahead, agree = Math.max(ahead, behind);
@@ -106,17 +109,18 @@ function thoughtOf(bet: TreatmentGroup, rows: ShipmentPresentation[], now: Date,
     ...(historical > 0 ? [`${plural(historical, "historical read")} predate live verification and never train recommendations.`] : []),
     ...(count("confounded") > 0 ? [`${plural(count("confounded"), "reading")} shared ${count("confounded") === 1 ? "its" : "their"} days with a later change and cannot be separated.`] : []), ...(blind > 0 ? [`${plural(blind, "reading")} stood against the rest of the site because too few untouched pages matched, so ${blind === 1 ? "it teaches" : "they teach"} nothing.`] : [])];
   // WHAT THIS KIND OF WORK HAS RETURNED, off the readings the engine actually learns from and said in the one unit that compares across pages: percent of what those pages were already earning. Under three usable readings there is no such number, and then the sentences above stand exactly as they were, because an average of almost nothing is not a measurement and a flat sentence invented for it would read as one. AND IT SAYS WHICH READINGS BUILT IT: this number was printed straight after "no finished reading yet" on a group whose every reading closed at 14 days, because the engine's own `early` answer sat unread beside the percent it handed over.
-  const record = pooled == null ? "" : ` ${name} on this site: about ${pooled.percent >= 0 ? "plus" : "minus"} ${num(Math.abs(pooled.percent))} percent across ${plural(pooled.readings, "reading")}${pooled.early ? ", read early and not yet a record" : ""}.`;
+  const record = pooled?.percent == null ? "" : ` ${name} on this site: about ${pooled.percent >= 0 ? "plus" : "minus"} ${num(Math.abs(pooled.percent))} percent across ${plural(pooled.readings, "reading")}${pooled.early ? ", read early and not yet a record" : ""}.`;
+  const teaches = family != null && pooled != null && pooled.readings > 0 ? `${plural(pooled.readings, "reading")} here ${pooled.readings === 1 ? "is" : "are"} already shaping what gets recommended next.` : "Nothing here shapes what gets recommended next yet."; // IS THIS ALREADY AIMING THE NEXT RECOMMENDATION? The ranking learns from a family's pooled readings (familyHistoryFromShipments), so the answer is the count it would read, and a bet that has taught nothing says so rather than implying it is in use
   const owed = Math.max(0, CONSISTENT_MIN - verified.length);
   const agreement = verified.length + level === 0 ? null : `${agree} of ${plural(verified.length, "directional verified read")} point the same way${level > 0 ? `, and ${plural(level, "finished verified read")} moved nothing` : ""}. A small sample from one site: ${confidence === "pattern" ? "consistent, not proven" : confidence === "mixed" ? "split, and a split this small can still be noise" : "too few to call a record"}.`;
   const changeMind = confidence === "pattern" ? `Verified reads finishing the other way would turn this back into a split record.`
     : confidence === "mixed" ? `Verified reads that separate consistently, ahead or behind, would make this a consistent record.`
     // AND THE WORD COUNTS WHAT THE PARAGRAPH ABOVE JUST COUNTED (reviewer, 2026-09-03): `owed` counts mature reads only, so a bet standing on three finished 14 day readings called the next one "the first" one sentence after naming all three.
     : `${plural(owed, "more verified 28 day read")} pointing the same way would make this a consistent record; ${owed === CONSISTENT_MIN && count("verified_early") + count("verified_mature") + count("inconclusive") === 0 ? "the first" : "the next"} live-confirmed change finishing its read moves it.`;
-  const soon = rows.map((p) => p.read.windows.find((w) => w.state !== "closed")?.closesOn ?? null).filter((d): d is string => d != null).sort()[0] ?? null;
-  const next = soon ? `For ${name.toLowerCase()}, the next read ${landsLabel(soon, now) ?? "lands soon"}.` : null;
-  const watching = inFlight > 0 ? `${plural(inFlight, "confirmed change")} still being read.${next ? ` ${next}` : ""}` : count("waiting_verification") + count("recorded") > 0
-    ? `${plural(count("waiting_verification") + count("recorded"), "change")} recorded and not yet confirmed on the live page.` : "Nothing in flight for this kind of work.";
+  const soon = rows.map((p) => p.read.windows.find((w) => w.day === 28 && w.state !== "closed")?.closesOn ?? null).filter((d): d is string => d != null).sort()[0] ?? null;
+  const next = soon ? `The next decision here ${landsLabel(soon, now) ?? "lands soon"}.` : "No decision is open here; the next change marked done starts one."; // AND THE DATE THE NEXT DECISION LANDS IS SAID WHATEVER ELSE IS TRUE: it hung off the in-flight branch alone, so the two states a reader most wants a date on, nothing confirmed yet and everything already read, were the two that never carried one
+  const watching = `${inFlight > 0 ? `${plural(inFlight, "confirmed change")} still being read.` : count("waiting_verification") + count("recorded") > 0
+    ? `${plural(count("waiting_verification") + count("recorded"), "change")} recorded and not yet confirmed on the live page.` : "Nothing in flight for this kind of work."} ${next}`;
   // EXAMPLES ARE CHOSEN BY DIRECTION, verified before historical, and sized inside one unit: the largest read is not the largest number.
   const pick = (want: "ahead" | "behind"): Example | null => {
     const list = rows.filter((p) => direction(p) === want && !judgedOnAi(p)).sort((a, b) => Number(rowState(b) === "verified_mature") - Number(rowState(a) === "verified_mature"));
@@ -124,7 +128,7 @@ function thoughtOf(bet: TreatmentGroup, rows: ShipmentPresentation[], now: Date,
     const best = same[0] ?? list[0]; return best ? exampleOf(best, now) : null;
   };
   return { key: bet.key, family, name, confidence, verifiedSample: verified.length, historical, inFlight, shipped: rows.length,
-    liveVerified: rows.filter(liveConfirmed).length, waitingVerification: count("waiting_verification"), recorded: count("recorded"),
+    liveVerified: rows.filter(liveConfirmed).length, waitingVerification: count("waiting_verification"), recorded: count("recorded"), early: count("verified_early"), teaches,
     ahead, behind, inconclusive: count("inconclusive"), confounded: count("confounded"), notMeasurable: count("not_measurable"), overlapping,
     historicalAhead: count("historical_ahead"), historicalBehind: count("historical_behind"), historicalUnclear: count("historical_unclear"), unit, medianEffect: median, agreement, pageFamilies: families, causes,
     belief: belief + record, strongest: pick("ahead"), counterexample: pick("behind"), limits, changeMind, watching, edges };
@@ -137,7 +141,7 @@ export function buildResultsBrain(shipments: ReadonlyArray<ShipmentPresentation>
   // REAL COMBINATIONS ONLY: two kinds of work are joined when the kernel found their windows overlapping on one page.
   const betById = new Map(shipments.map((p) => [p.read.id, betOf(p).key] as const));
   const edgesOf = (key: string): string[] => [...new Set((bets.get(key)?.rows ?? []).flatMap((p) => p.read.overlappingIds.map((id) => betById.get(id))).filter((k): k is string => !!k && k !== key))];
-  const pooled = new Map(treatmentLearning(shipments.map(learningRowOf)).map((g) => [g.key, g.estimate == null ? null : { percent: g.estimate.percent, readings: g.sampleSize, early: g.early }] as const));
+  const pooled = new Map(treatmentLearning(shipments.map(learningRowOf)).map((g) => [g.key, { percent: g.estimate?.percent ?? null, readings: g.sampleSize, early: g.early }] as const)); // the readings ride even where the percent does not: how many the ranking has learned from is a fact under three of them, and only the percent is not
   const thoughts = [...bets].map(([key, g]) => thoughtOf(g.bet, g.rows, now, edgesOf(key), pooled.get(key) ?? null))
     .sort((a, b) => ["pattern", "mixed", "early", "none"].indexOf(a.confidence) - ["pattern", "mixed", "early", "none"].indexOf(b.confidence) || b.verifiedSample - a.verifiedSample || b.inFlight - a.inFlight || b.shipped - a.shipped);
   const states = shipments.map(rowState), c = (s: ResultState) => states.filter((x) => x === s).length;
@@ -145,11 +149,15 @@ export function buildResultsBrain(shipments: ReadonlyArray<ShipmentPresentation>
   const newer = shipments.filter((p) => p.implementedAt != null && !FINISHED.has(rowState(p))), inFlight = newer.filter(liveConfirmed).length, unconfirmed = newer.length - inFlight;
   const rungs = RUNG.map(([key, held, said]) => [key, held.reduce((n, s) => n + c(s), 0), said] as const);
   const counts = { shipped: shipments.length, ...Object.fromEntries(rungs.map(([key, n]) => [key, n])) } as BrainModel["counts"];
-  const patterns = thoughts.filter((t) => t.confidence === "pattern"), early = thoughts.filter((t) => t.confidence === "early"), mixed = thoughts.filter((t) => t.confidence === "mixed");
+  const funnel = STAGES.map((metric) => ((rows: ShipmentPresentation[]) => ({ label: (rows[0] && aiStory(rows[0])?.[1]) ?? "Clicks from Google", ai: metric !== "clicks", shipped: rows.length, read: rows.filter((p) => ["verified_early", "verified_mature", "inconclusive"].includes(rowState(p))).length }))(shipments.filter((p) => (p.judgedMetric ?? "clicks") === metric))).filter((s) => s.shipped > 0);
+  const patterns = thoughts.filter((t) => t.confidence === "pattern"), early = thoughts.filter((t) => t.confidence === "early"), mixed = thoughts.filter((t) => t.confidence === "mixed"), hurting = patterns.find((t) => t.behind > t.ahead) ?? null;
   const confidence: Thought["confidence"] = patterns.length > 0 ? "pattern" : mixed.length > 0 && early.length === 0 ? "mixed" : early.length > 0 ? "early" : "none";
-  const headline = patterns.length > 0 ? `Beacon has a consistent verified record for ${patterns.map((t) => t.name.toLowerCase()).join(", ")}, not yet proof.`
+  const openOn = (day: number | null): string | null => shipments.flatMap((p) => p.read.windows.filter((w) => w.state !== "closed" && (day == null || w.day === day)).map((w) => w.closesOn)).filter((d): d is string => d != null).sort()[0] ?? null;
+  const soonest = openOn(null), matureOn = openOn(28); // the soonest open read of any length, and the soonest open 28 day one, which is the only read that may call a win and therefore the only date a decision lands on
+  const headline = patterns.length > 0 ? `Beacon has a consistent verified record, not yet proof: ${patterns.map((t) => `${t.name.toLowerCase()} ${t.ahead >= t.behind ? "ahead" : "behind"}`).join(", ")}.` // AND THE DIRECTION IS IN THE HEADLINE: four readings that all finished BEHIND printed the same sentence as four that finished ahead, under a green chip, over a step telling the operator to stop shipping it
     : early.length > 0 ? `Beacon has an early verified signal for ${early.map((t) => t.name.toLowerCase()).join(", ")}, not yet a pattern.`
-    : counts.shipped === 0 ? "Nothing has been marked done yet, so Beacon has no result to believe."
+    : counts.shipped === 0 ? "Nothing has been marked done yet, so Beacon has no result to believe." // AN EARLY READING IS A STATE OF ITS OWN AT THE TOP OF THE PAGE TOO: changes read at 14 days sat under "cannot claim a pattern yet", true, and silent about both the reading that exists and the day the first decision on it lands
+    : counts.early > 0 ? `${plural(counts.early, "live-confirmed change")} ${counts.early === 1 ? "has" : "have"} an early reading at 14 days and no 28 day decision yet: the first one ${landsLabel(matureOn, now) ?? "starts with the next change marked done"}.`
     : "Beacon cannot claim a live-verified pattern yet.";
   // THE LADDER IS THE ARGUMENT: one sentence per rung that holds anything, then the line that says they add back, so a reader can check the page against itself.
   const lines = [...rungs.filter(([, n]) => n > 0).map(([, n, said]) => `${plural(n, "change")} ${said}.`),
@@ -166,19 +174,19 @@ export function buildResultsBrain(shipments: ReadonlyArray<ShipmentPresentation>
   const ahead = recent.filter((p) => direction(p) === "ahead").length, behind = recent.filter((p) => direction(p) === "behind").length, hist = recent.filter((p) => HISTORICAL.has(rowState(p))).length;
   const split = [[ahead, "ahead"], [behind, "behind"], [recent.length - ahead - behind, "unclear"]].filter(([n]) => (n as number) > 0).map(([n, w]) => `${n} ${w}`).join(", ");
   const changed = recent.length === 0 ? null : `${moved.length > 0 ? `${moved.join("; ")}. ` : "No belief moved in the last two weeks. "}${plural(recent.length, "read")} finished in that time: ${split}${hist === recent.length ? ", all of them historical" : hist > 0 ? `, ${hist} of them historical` : ""}.`;
-  const soonest = shipments.map((p) => p.read.windows.find((w) => w.state !== "closed")?.closesOn ?? null).filter((d): d is string => d != null).sort()[0] ?? null;
   // THE FACTS BEHIND THE LIVE CHECK, said as facts: a page whose live copy differs from the approved words, and a page that could not be read.
-  const differs = shipments.filter((p) => p.implementedAt != null && p.verification?.status === "differs" && !isRetired(p)), unread = shipments.filter((p) => p.verification?.status === "blocked" && p.verification.recheckAfter != null).length;
+  const differs = shipments.filter((p) => p.implementedAt != null && p.verification?.status === "differs" && !isRetired(p)), unread = shipments.filter((p) => p.verification?.status === "blocked" && p.verification.recheckAfter != null).length, lands = soonest ? landsLabel(soonest, now) ?? "lands soon" : null;
   const watching = [...(counts.liveConfirmed > 0 ? [`${plural(counts.liveConfirmed, "change")} confirmed on the live page, whose reads decide the first verified pattern.`] : []),
-    ...(soonest ? [`The next read ${landsLabel(soonest, now) ?? "lands soon"}.`] : []),
+    ...(lands ? [`The next read ${lands}.`] : []),
     ...(differs.length > 0 ? [`${plural(differs.length, "marked-done change")} ${differs.length === 1 ? "does" : "do"} not yet show on the live page as approved: check ${differs.length === 1 ? "it is" : "they are"} published, and Beacon re-reads ${differs.length === 1 ? "it" : "them"}.`] : []),
     ...(unread > 0 ? [`${plural(unread, "page")} could not be read on the last check; Beacon retries ${unread === 1 ? "it" : "them"}.`] : []),
     ...(unconfirmed > 0 ? [`${plural(unconfirmed, "change")} recorded and not yet confirmed live: their numbers are context only.`] : [])];
-  // ALWAYS A NEXT STEP, AND AN IMPERATIVE, OFF ACTIONABLE STATE (truth review, 2026-09-01): the finished changes the saved release
-  // serves on Changes come first; a page whose live copy differs is the operator's to check; otherwise the next read is the wait.
-  const nextStep = actionable.ready != null && actionable.ready > 0 ? { text: `Make the ${plural(actionable.ready, "finished change")} waiting on Changes; each one starts its read the day you mark it done.`, href: "/changes" }
+  // ALWAYS A NEXT STEP, AND AN IMPERATIVE, OFF ACTIONABLE STATE (truth review, 2026-09-01): a kind of work that keeps finishing behind is read before more of it ships; then
+  // the finished changes the release serves on Changes; then a page whose live copy differs; otherwise the wait, which names the date it ends on, or the reason it has not, and never runs the two into one broken sentence.
+  const nextStep = hurting ? { text: `${hurting.name} have finished behind in ${hurting.behind} of ${plural(hurting.verifiedSample, "verified read")}. Open that kind of work above, read the example under it, and hold off repeating it until one finishes ahead.`, href: null }
+    : actionable.ready != null && actionable.ready > 0 ? { text: `Make the ${plural(actionable.ready, "finished change")} waiting on Changes; each one starts its read the day you mark it done.`, href: "/changes" }
     : differs.length > 0 ? { text: `Check that ${differs.length === 1 ? "the marked-done change on" : `the ${differs.length} marked-done changes on`} ${[...new Set(differs.map((p) => p.read.path || p.read.page))].slice(0, 2).join(" and ")} ${differs.length === 1 ? "is" : "are"} published as approved; Beacon re-reads ${differs.length === 1 ? "it" : "them"} after that.`, href: `#change-${differs[0]!.read.id}` }
-    : soonest ? { text: `Nothing to do until the next read ${landsLabel(soonest, now) ?? "lands soon"}; mark the next change done on Changes and its read starts that day.`, href: "/changes" }
+    : lands ? { text: `The next read ${lands}${lands.startsWith("lands") ? ", so nothing is needed until then" : ", and it lands as soon as those numbers do"}. Mark the next change done on Changes and its read starts that day.`, href: "/changes" }
       : { text: "Mark the next change done on Changes; its read starts from that day.", href: "/changes" };
-  return { belief: { headline, lines, confidence }, changed, watching, thoughts, counts, nextStep };
+  return { belief: { headline, lines, confidence }, changed, watching, thoughts, counts, funnel, nextStep };
 }

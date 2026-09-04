@@ -24,11 +24,7 @@ function place(n: number, i: number, width: number): { x: number; y: number } {
   return { x: gapX * (i % cols) + gapX / 2, y: 78 + Math.floor(i / cols) * 118 };
 }
 
-function nodeFill(t: Thought): string {
-  if (t.confidence === "pattern") return t.ahead >= t.behind ? "var(--status-success)" : "var(--status-danger)";
-  if (t.confidence === "mixed") return "var(--status-warning)";
-  return "var(--foreground)";
-}
+const nodeFill = (t: Thought): string => t.confidence === "pattern" ? (t.ahead >= t.behind ? "var(--status-success)" : "var(--status-danger)") : t.confidence === "mixed" ? "var(--status-warning)" : "var(--foreground)";
 
 export function ResultsBrain({ model, checkedAgo }: { model: BrainModel; checkedAgo: string | null }) {
   const [selected, setSelected] = useState<string | null>(model.thoughts[0]?.key ?? null);
@@ -45,14 +41,14 @@ export function ResultsBrain({ model, checkedAgo }: { model: BrainModel; checked
   const height = Math.max(150, 40 + rows * 118);
   const pos = new Map(thoughts.map((t, i) => [t.key, place(thoughts.length, i, width)] as const));
   const current = thoughts.find((t) => t.key === selected) ?? null;
-  const conf = model.belief.confidence;
+  const conf = model.belief.confidence, losing = model.thoughts.some((t) => t.confidence === "pattern" && t.behind > t.ahead); // A CONSISTENT RECORD OF LOSSES WORE THE WINNING COLOUR: green, "Consistent verified record", over four readings that all finished behind and a step saying to stop shipping it.
   return (
     <section aria-label="What Beacon believes" data-results-brain="true">
       <div className="mb-5" data-brain-belief={conf}>
         <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Beacon&apos;s current belief</p>
         <h2 className="mt-1 text-[22px] font-semibold leading-snug tracking-tight text-foreground" style={{ textWrap: "balance" }}>{model.belief.headline}</h2>
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${conf === "pattern" ? "border-emerald-300 bg-emerald-50 text-emerald-800" : conf === "mixed" ? "border-amber-300 bg-amber-50 text-amber-800" : conf === "early" ? "border-sky-300 bg-sky-50 text-sky-800" : "border-border bg-surface-inset text-muted-foreground"}`} data-brain-confidence={conf}>{CONF_WORD[conf]}</span>
+          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${losing ? "border-rose-300 bg-rose-50 text-rose-800" : conf === "pattern" ? "border-emerald-300 bg-emerald-50 text-emerald-800" : conf === "mixed" ? "border-amber-300 bg-amber-50 text-amber-800" : conf === "early" ? "border-sky-300 bg-sky-50 text-sky-800" : "border-border bg-surface-inset text-muted-foreground"}`} data-brain-confidence={conf}>{losing ? `${CONF_WORD.pattern}, behind` : CONF_WORD[conf]}</span>
           {checkedAgo ? <span className="text-[11px] text-muted-foreground">Checked {checkedAgo}</span> : null}
         </div>
         {model.belief.lines.length > 0 ? (
@@ -61,6 +57,9 @@ export function ResultsBrain({ model, checkedAgo }: { model: BrainModel; checked
             <ul className="mt-1 space-y-1">{model.belief.lines.map((l) => <li key={l} className="text-[13px] leading-relaxed text-foreground/85">{l}</li>)}</ul>
           </div>
         ) : null}
+        {/* FIVE YARDSTICKS, NEVER ONE NUMBER: shown only where AI answers are being judged too, because that is the only place a reader could mistake one for the other. */}
+        {model.funnel.some((s) => s.ai) ? (<div className="mt-3" data-brain-funnel="true"><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">What each change is judged on</p>
+          <ul className="mt-1 space-y-1">{model.funnel.map((s) => <li key={s.label} className="text-[13px] leading-relaxed text-foreground/85">{s.label}: {s.shipped} marked done, {s.read} read so far.</li>)}</ul></div>) : null}
         {/* THE ONE THING TO DO, on the belief itself: a fact about waiting is not a next step. */}
         <p className="mt-3 text-[13px] font-medium text-foreground" data-brain-next="true">
           {model.nextStep.href ? <Link href={model.nextStep.href} className={`text-accent-primary underline underline-offset-2 ${FOCUS}`}>{model.nextStep.text}</Link> : model.nextStep.text}
@@ -110,12 +109,12 @@ export function ResultsBrain({ model, checkedAgo }: { model: BrainModel; checked
                 <p className="mt-1 text-[11px] text-muted-foreground">{confWord(current)}</p>
               </div>
               <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-[12px] tabular-nums">
-                {([["Marked done", current.shipped], ["Confirmed live", current.liveVerified], ["Verified 28 day reads", current.verifiedSample], ["Historical reads", current.historical],
+                {([["Marked done", current.shipped], ["Confirmed live", current.liveVerified], ["Read at 14 days, early", current.early], ["Verified 28 day reads", current.verifiedSample], ["Historical reads", current.historical],
                   ["Ahead", current.ahead], ["Behind", current.behind], ["Inconclusive", current.inconclusive], ["Still reading", current.inFlight], ["Recorded, waiting for live verification", current.waitingVerification + current.recorded], ["Shared with other changes", current.overlapping]] as const)
                   .filter(([k, v]) => v > 0 || k === "Marked done" || k === "Verified 28 day reads").map(([k, v]) => (<div key={k} className="contents"><dt className="text-muted-foreground">{k}</dt><dd className="text-right text-foreground">{v}</dd></div>))}
               </dl>
               {current.historical > 0 ? <p className="mt-2 text-[11px] text-muted-foreground">Historical: {current.historicalAhead} ahead, {current.historicalBehind} behind, {current.historicalUnclear} unclear. Context only.</p> : null}
-              {current.agreement ? <p className="mt-1 text-[11px] text-muted-foreground">{current.agreement}</p> : null}
+              {current.agreement ? <p className="mt-1 text-[11px] text-muted-foreground">{current.agreement}</p> : null}<p className="mt-1 text-[11px] text-muted-foreground" data-brain-teaches="true">{current.teaches}</p>{/* WHETHER THIS IS ALREADY AIMING THE NEXT RECOMMENDATION, said on the thought itself: a reader cannot tell a belief that is only on the screen from one the queue is already using. */}
               {current.pageFamilies.length > 0 ? <p className="mt-1 text-[11px] text-muted-foreground">Where: {current.pageFamilies.slice(0, 4).join(", ")}{current.pageFamilies.length > 4 ? ` and ${current.pageFamilies.length - 4} more` : ""}.{current.causes.length > 0 ? ` Raised against: ${current.causes.join("; ")}.` : ""}</p> : null}
               <div className="mt-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Strongest example</p>
                 {current.strongest ? <p className="text-[12px] text-foreground/85"><a href={`#change-${current.strongest.id}`} className={`font-medium text-accent-primary underline underline-offset-2 ${FOCUS}`}>{current.strongest.label}</a> {current.strongest.line}</p>
