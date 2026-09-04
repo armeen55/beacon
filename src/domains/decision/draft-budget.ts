@@ -3,27 +3,25 @@ import { mutationKeyOf } from "./mutation-footprint";
 
 /** decision/draft-budget - THE ONE PAID DRAFTING BUDGET, and there is no second one. Every family that spends model money on a deliverable (the winning-pattern reading, the new page, the correction review, the shallow field drafts, the deep bundles and the editor) is DECLARED here before the pass spends anything, ranked here once, and funded here once. It lives beside the drafting rather than inside it because the money is the one thing every family shares (operator, 2026-08-22, after 239 charged calls bought nothing). WHY A MANIFEST AND NOT A CLAIM COUNTER (Codex, 2026-08-22). The first repair gave every family one shared pool and a ranked window, which stopped the private pools but left the order to whoever asked first: a family with no entry in the ranking claimed the moment it was reached, so an unranked new page or a correction review still took the pass's first slot ahead of the strongest completable change. Asking-order is not a ranking. So nothing claims any more. The pass compiles EVERY paid job it could run into one zero-cost manifest, `plan` ranks the whole manifest once and decides the funded set once, and each family then collects an allowance already decided for it. A key that is not on the funded list gets nothing, whenever it asks and whatever family it belongs to. */
 
-/** EVERY CHARGED CALL ONE PASS MAY MAKE, drafts and judgings together, failures counted the same as successes. It is a RUNAWAY STOP, not a spending policy: what the money buys is decided by the ranked manifest below, and this only says how far one pass may go before it stops and lets the next one continue. Raised from thirty to sixty (operator, 2026-08-22, "no guardrails, unlimited money") so a drive that may now finish five candidates can actually afford five, bundles included, instead of running out at two of them. The 2026-08-21 raise to ninety is NOT what this is: back then nothing capped a single candidate, so the extra ceiling bought 239 retries on the same few pages and nothing finished. Every candidate is priced and bounded now, so the ceiling buys candidates. */
+/** EVERY CHARGED CALL ONE PASS MAY MAKE, drafts and judgings together, failures counted the same as successes. It is a RUNAWAY STOP, not a spending policy: what the money buys is decided by the ranked manifest below, and this only says how far one pass may go before it stops and lets the next one continue. Raised from thirty to sixty (operator, 2026-08-22, "no guardrails, unlimited money") so a drive that may now finish five candidates can actually afford five, bundles included, instead of running out at two of them. The 2026-08-21 raise to ninety is NOT what this is: back then nothing capped a single candidate, so the extra ceiling bought 239 retries on the same few pages and nothing finished. Every candidate is priced and bounded now, so the ceiling buys candidates. IT IS SPENT, NOT COMMITTED: the plan commits one round per job and every call past that is reserved against this number as it is made (see `unspent` below), so a pass stops after sixty REAL calls instead of after committing sixty it never makes. */
 const MAX_PAID_CALLS = 60;
 /** HOW MANY TIMES ONE JOB MAY TAKE REAL CALLS IN A DAY AND FINISH NOTHING. The same number the copy contract settles on, applied to the money. */
 const DAY_ATTEMPTS = 2;
 
-/** THE KEY ONE PAID JOB IS FUNDED UNDER: THE MUTATION, when the object in hand says which one, and the page when
- *  it does not. ONE PAGE IS NOT ONE OPPORTUNITY (Product Truth; operator, 2026-08-31): keying the money by page
- *  meant two rows on one address spent one allowance, and whichever was reached first took it, which is how
- *  /famous-iranian-comedians at 324 words under 22,509 impressions bought a link out to another page instead of
- *  its own copy. The suffix mirrors mutation-footprint's slots, so what funds separately is exactly what can land
- *  together: a title, a description, a heading, each distinct body topic, each link destination. The OLD failures
- *  stay fixed: two spellings of one page still collapse (path normalization), and two families wanting the SAME
- *  mutation still collapse to one job in `plan` exactly as two families wanting one page used to. A bare
- *  `{pagePath}` with no change on it still keys the page alone, and `take` below lets a mutation-keyed draw fall
- *  back to a page-keyed allowance so a job declared before its card exists is still reachable. */
 type Keyable = Parameters<typeof mutationKeyOf>[0];
-/** THE KEY ONE PAID JOB IS FUNDED UNDER IS THE MUTATION ITSELF, computed by the ONE definition of a mutation
- *  (decision/mutation-footprint) and never spelled a second time here. It was spelled twice, and the two spellings
- *  of a body topic disagreed, so money committed to `/funny-farsi-phrases::body::farsi-insults` could never be drawn
- *  by the row stored as `farsi insults`. A page with nothing on it still keys the page alone, and `take` below lets
- *  a mutation-keyed draw fall back to a page-keyed allowance, so a job declared before its card exists is reachable. */
+/** THE KEY ONE PAID JOB IS FUNDED UNDER: THE MUTATION when the object in hand says which one, the page when it does
+ *  not, computed by the ONE definition of a mutation (decision/mutation-footprint) and never spelled a second time
+ *  here. ONE PAGE IS NOT ONE OPPORTUNITY (Product Truth; operator, 2026-08-31): keying the money by page meant two
+ *  rows on one address spent one allowance, and whichever was reached first took it, which is how
+ *  /famous-iranian-comedians at 324 words under 22,509 impressions bought a link out to another page instead of its
+ *  own copy. The suffix mirrors mutation-footprint's slots, so what funds separately is exactly what can land
+ *  together: a title, a description, a heading, each distinct body topic, each link destination. Spelled twice, the
+ *  two spellings of a body topic disagreed and money committed to `/funny-farsi-phrases::body::farsi-insults` could
+ *  never be drawn by the row stored as `farsi insults`. The OLD failures stay fixed: two spellings of one page still
+ *  collapse (path normalization), and two families wanting the SAME mutation still collapse to one job in `plan`
+ *  exactly as two families wanting one page used to. A bare `{pagePath}` with no change on it still keys the page
+ *  alone, and `take` below lets a mutation-keyed draw fall back to a page-keyed allowance, so a job declared before
+ *  its card exists is still reachable. */
 const keyOf = (p: Keyable): string => { try { return mutationKeyOf(p); } catch { return `unknown-page::${(p.id ?? p.primaryQuery ?? "").trim().toLowerCase() || "none"}`; } }; // its OWN name, so two page-less jobs never share one slot // a job with no page at all can never be drawn against and must not take the pass down with it
 /** WHAT ONE DAY ALREADY DID TO ONE PIECE OF WORK, under that work's OWN identity (`workKey`: the mutation, the
  *  writer contract, the basis, the evidence bound to the row, the obligation it carries and the rules it is
@@ -39,10 +37,11 @@ export type JobMemory = { calls: number; last: string; settled: boolean };
 const EDITOR_RETRIES = 2, CALLS_PER_ROUND = 2;
 /** LOGICAL OPERATIONS, NEVER PROVIDER CALLS (Codex, 2026-08-23: a seven-unit price met a sixteen-call dispatch, because one structured operation retries internally and can be two real calls). One round is a draft and its ONE evaluation; the last evaluation IS the promotion decision, so no final-review unit exists any more. Real calls and real dollars are metered off the gateway's own receipts, per page, and reported as themselves. */
 const PER_DELIVERABLE_CALLS = (1 + EDITOR_RETRIES) * CALLS_PER_ROUND;
+/** WHAT THE PLAN COMMITS FOR ONE JOB: ITS FIRST ROUND, derived from the SAME retry count the price above is derived from, so the commitment and the price can never drift apart. A job that is reached at all costs this much; its retries are drawn from the pass's own ceiling at the moment each one is made. */
+const firstRound = (calls: number): number => Math.max(1, Math.round(calls / (1 + EDITOR_RETRIES)));
 const WRITER = 8; // w8 (2026-08-26): a NEW section must name its heading, said where the writer can act on it. The homework note allows `naturalHeading: null` "when the edit replaces an existing field", and an add_answer_section draft read that as permission: /cities was written, judged and refused as "it lands somewhere new and names no heading" on the first funded substantive pass this account ever ran. (w7, 2026-08-26): the information-gain DEADLOCK is gone. The card brief, the last drafting hint and the answer-block system clause each ordered the writer to use only the page's own material, while the gain gate refused copy that used only the page's own material, so no body section could ever land: every settlement made under w6 was made under a contract no copy could satisfy, and they all reopen. The gate now arms only where a citable `fact-` or `owned-page` id is actually in hand, `owned-page` ids are echo-able, the packet holds the page ONCE, and a page whose gain is FORM reaches the synthesis route. (w6, 2026-08-25): the writer is handed the pages that already win this search as `rival-*` briefing, so it can be told what is MISSING instead of only what the page already says. Every candidate written off under w5 was written off without that evidence, which is exactly the refusal the briefing exists to answer, so those settlements say nothing about this policy and reopen. (w5, 2026-08-24: a rewrite target became the SECTION under its heading rather than a crawler chunk that matched nothing.)
 const POLICY = `w${WRITER}r${EDITOR_RETRIES}c${PER_DELIVERABLE_CALLS}`;
-/** WHAT A WHOLE PAGE OR A DEEP BUNDLE OWES: a brief plus its sections, four deliverables, so TWELVE charged calls. Said out loud rather than hidden inside a multiplier, because it is the most expensive thing a pass can buy and the ranking has to see the price before it funds it (Codex, 2026-08-22: "it must be named, ranked and tested as a 12-call proposal, not reported as a three-call candidate"). */
-/** A WHOLE PAGE IS STILL TWELVE, unchanged and deliberately not raised with the number above: no receipt has named a bundle running out, so nothing here moves on a guess. When one does, it will say so and this follows the evidence. */
+/** WHAT A WHOLE PAGE OR A DEEP BUNDLE OWES: a brief plus its sections, four deliverables, so TWELVE charged calls. Said out loud rather than hidden inside a multiplier, because it is the most expensive thing a pass can buy and the ranking has to see the price before it funds it (Codex, 2026-08-22: "it must be named, ranked and tested as a 12-call proposal, not reported as a three-call candidate"). It is STILL twelve and deliberately not raised: no receipt has named a bundle running out, so nothing here moves on a guess, and when one does this follows the evidence. */
 const BUNDLE_CALLS_TOTAL = 12;
 
 /** ONE PAID JOB, PRICED BEFORE IT RUNS. `impact` is in ONE unit across every family: the clicks this account could plausibly win back, so a bundle, a new page and a description are comparable at all. `calls` is the whole allowance, already multiplied out. */
@@ -129,9 +128,10 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   const ranked = [...byKey.values()].sort((a, b) =>
     Number(started(a)) - Number(started(b)) || b.impact - a.impact || finishes(b) - finishes(a) || a.calls - b.calls || a.key.localeCompare(b.key));
   const funded = new Map<string, number>(), declined: DeclinedJob[] = [];
-  let slots = Math.max(0, input.candidates), callsLeft = ceiling;
+  // THE CEILING IS SPENT, NOT COMMITTED (measured on production receipts, 2026-09-04). Committing each job's WORST-CASE price here reserved the whole sixty-call ceiling on eight to ten jobs: twenty-two consecutive dispatches reserved 60 (once 54), reached every funded job, and metered one to sixteen real calls, so the rest of a manifest of seventy-odd ranked candidates was declined for money nobody ever spent. `callsLeft` commits each job's FIRST ROUND, which is what a job that is reached at all actually costs; `unspent` is the pass's real ceiling, and every call past that first round is reserved against it in `draw` below at the moment it is made, so the runaway stop is exactly as hard as it was and the ranking is actually reached.
+  let slots = Math.max(0, input.candidates), callsLeft = ceiling, unspent = ceiling;
   for (const j of ranked) {
-    const price = Math.max(1, Math.round(j.calls));
+    const price = Math.max(1, Math.round(j.calls)), start = firstRound(price);
     if (j.blocked) declined.push({ key: j.key, family: j.family, calls: price, reason: j.blocked });
     // ALREADY BOUGHT NEVER BLOCKS A DIFFERENT OBLIGATION (operator, 2026-09-02). The skip was keyed on the mutation and the family, so a page whose DRAFT was spent today declined the REVIEW that page owed as well, and a job whose evidence, obligation or rules had genuinely moved could not be funded until tomorrow. Both answers are asked of the WORK'S OWN IDENTITY now: a corrected job wears a different `workKey`, so it is simply not the job the day remembers.
     else if (seen(j)?.settled === true) declined.push({ key: j.key, family: j.family, calls: price, reason: "finished work or a settled refusal already stands under this exact evidence" });
@@ -142,8 +142,8 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
     else if (input.quiet === true) declined.push({ key: j.key, family: j.family, calls: price, reason: "this pass was asked to spend nothing, so the work is still owed and nothing was bought for it" });
     else if (input.breakerOpen === true) declined.push({ key: j.key, family: j.family, calls: price, reason: "the provider's own credit is spent, so this pass funded nothing" });
     else if (slots <= 0) declined.push({ key: j.key, family: j.family, calls: price, reason: `the pass funds ${Math.max(0, input.candidates)} candidates and stronger work filled them` });
-    else if (price > callsLeft) declined.push({ key: j.key, family: j.family, calls: price, reason: `this needs ${price} charged calls and ${callsLeft} were left` });
-    else { funded.set(j.key, price); slots -= 1; callsLeft -= price; }
+    else if (start > callsLeft) declined.push({ key: j.key, family: j.family, calls: price, reason: `starting this needs ${start} charged calls and ${callsLeft} were left` });
+    else { funded.set(j.key, price); slots -= 1; callsLeft -= start; }
   }
   const held = new Map<string, { left: number }>();
   const resolveKey = (key: string): string => {
@@ -169,7 +169,7 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
     spend.set(key, rec);
   };
   return {
-    /** The charged calls the plan left unfunded: money this pass decided not to commit, not money it has yet to spend. */
+    /** The charged calls the plan committed to no job's first round: money this pass decided not to start work with, never money it has yet to spend. What is still spendable is the pass ceiling less what `spent()` reports. */
     calls: { left: callsLeft },
     /** EVERY candidate this pass COULD WORK ON, funded or not, best first. It is what says whether a manifest is FINISHED: a pass that funded two of nine has seven candidates left, and calling that exhausted is how a day closed on two failures (Codex, 2026-08-22). A BLOCKED job is not on it (Codex, 2026-08-23): it can never be funded, so it can never settle, and leaving it here made "every declared candidate is settled" unreachable for any account with one page under measurement, which held the day open and re-drove it on every visit. Blocked work is named in `declined`, with its reason. */
     declared: ranked.filter((j) => !j.blocked).map((j) => j.key),
@@ -192,7 +192,7 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
     /** WHAT ONE PAGE SPENT, off the records above: real operations, real requests, real dollars, or null when
      *  nothing was ever drawn for it. Arithmetic the caller can print on a receipt, never a claim. */
     meterOf(key: string) { const m = spend.get(key); return m ? { ops: m.ops, providerCalls: m.providerCalls, costUsd: Number(m.costUsd.toFixed(6)) } : null; },
-    /** WHAT ONE FAMILY MAY DRAW FROM THAT PAGE'S ALLOWANCE: a bounded VIEW of it, never a second purse. `price` is what this family's own deliverable costs, so a three-call editor beside a twelve-call rewrite can spend three and only three, and everything it spends comes off the page's one allowance as it spends it. Null when the page was not funded or has nothing left, which is a refusal, not an error. */
+    /** WHAT ONE FAMILY MAY DRAW FROM THAT PAGE'S ALLOWANCE: a bounded VIEW of it, never a second purse. `price` is what this family's own deliverable costs, so a three-call editor beside a twelve-call rewrite can spend three and only three, and everything it spends comes off the page's one allowance as it spends it. Null when the page was not funded or has nothing left, which is a refusal, not an error. The view is bounded by THREE numbers: this family's own price, the page's allowance, and the charged calls the whole pass has left. */
     draw(key: string, price: number) {
       const open = this.take(key);
       if (!open || open.left <= 0) return null;
@@ -200,9 +200,9 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
       if (cap <= 0) return null;
       const at = resolveKey(key);
       return {
-        get left() { return Math.min(cap, open.left); },
-        set left(v: number) { const now = Math.min(cap, open.left), spent = now - v; // NEGATIVE IS A REFUND, and it must actually land: a cache hit reached no provider, and clamping the give-back at zero let twelve cached refusals eat a pass (Codex, 2026-08-23, proved by execution)
-          if (spent >= 0) { open.left -= spent; cap = Math.max(0, cap - spent); } else { const back = Math.min(-spent, price - cap); open.left += back; cap += back; } },
+        get left() { return Math.min(cap, open.left, unspent); }, // THE PASS'S OWN CEILING IS THE THIRD BOUND: a family sees the money it can still really reserve, so the sixty-call runaway stop holds on real calls rather than on a commitment made before anything ran
+        set left(v: number) { const now = Math.min(cap, open.left, unspent), spent = now - v; // NEGATIVE IS A REFUND, and it must actually land: a cache hit reached no provider, and clamping the give-back at zero let twelve cached refusals eat a pass (Codex, 2026-08-23, proved by execution)
+          if (spent >= 0) { open.left -= spent; cap = Math.max(0, cap - spent); unspent = Math.max(0, unspent - spent); } else { const back = Math.min(-spent, price - cap); open.left += back; cap += back; unspent = Math.min(ceiling, unspent + back); } },
         /** ONE completed provider result, onto this page's own record. Every family calls it where its result
          *  comes back, so the receipt reports what the pass really did rather than what it was allowed to do. */
         record: (r: unknown) => recordOn(at, r),
