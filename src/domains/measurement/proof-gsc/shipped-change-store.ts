@@ -28,6 +28,10 @@ export type ShipmentVerification = {
   /** A DAY-SCOPED RECHECK (the reporting day this may be looked at again). Set when the site did not answer at all (a timeout is transport, not the change) and when the page DIFFERS: a CMS publishes through caches and build queues, so the first read after a paste routinely sees the old page, and one early "differs" buried three real shipments for good. Bounded by `checks`; null when final. */
   recheckAfter?: string | null;
   /** Live reads so far; the recheck loop stops at its bound whatever the answer. */ checks?: number;
+  /** WHY THIS READING IS NOT A CONFIRMATION, in ONE typed cause, so an unconfirmed backlog partitions by what is actually wrong and never by the
+   *  outcome. The status says what was seen, this says what to do about it. Null on a confirmed reading and on every row written before the cause was named. */
+  reason?: "not_published_yet" | "page_unreachable" | "rendered_content_gap" | "address_mismatch"
+    | "stale_reading" | "applied_wording_missing" | "published_differently" | "google_not_updated" | "unmeasurable" | null;
 };
 /** The immutable numbers this page stood at when the operator marked the change done. */
 type ShipmentBaseline = {
@@ -454,7 +458,7 @@ export async function pagesUnderMeasurementFromShipments(
     for (const r of data as Array<Pick<LedgerRow, "path" | "page" | "implemented_at" | "verification">>) {
       const status = r.verification?.status ?? null;
       if (status === "not_found") continue;
-      const key = (r.path || r.page || "").trim();
+      const key = (r.page || r.path || "").trim(); // THE SPELLING THAT CARRIES A HOST, first: `path` is bare on 33 rows and a bare path is matched downstream by a suffix test, so `/isfahan` claimed every address ending in it and matched its own page by luck rather than by identity
       if (key && !out.includes(key)) out.push(key);
     }
     return out;

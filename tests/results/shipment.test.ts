@@ -124,7 +124,7 @@ describe("recording what the live check found", () => {
     const record = await ship(); await upsertShippedChange(record); expect(await recordVerification("acct-b", record.id, verification("verified"))).toBe(false);
     expect(await recordVerification(T, "shp_nothing", verification("not_found"))).toBe(false);
     expect((await loadShippedChangesForTenant(T))[0].verification).toBeNull(); expect(await recordVerification(T, record.id, verification("verified"))).toBe(true);
-    expect([(await loadShippedChangesForTenant(T))[0]].map((s) => [s.verification?.status, s.implementedAt, s.shipmentBaseline?.search?.clicks])).toEqual([["verified", NOW.toISOString(), 9]]);});});
+    expect([(await loadShippedChangesForTenant(T)).length, ...[(await loadShippedChangesForTenant(T))[0]].map((s) => [s.verification?.status, s.implementedAt, s.shipmentBaseline?.search?.clicks, s.after])], "A FAILED CHECK CANNOT ERASE, DUPLICATE OR ROLL BACK AN APPLIED CHANGE: two refusals and one write later the shipment is there exactly once, with the stamp, the starting numbers and the applied copy it was recorded with").toEqual([1, ["verified", NOW.toISOString(), 9, record.after]]);});});
 /** THE PRE-MIGRATION WINDOW. The columns are not there yet, the table is, and production reads the table: a write that quietly lands in a file is a write nobody will ever read back. */
 describe("when the Shipment columns are not there yet", () => {
   const MISSING_COLUMN = { code: "PGRST204", message: "Could not find the 'implemented_at' column of 'shipped_change_proof' in the schema cache" };
@@ -153,14 +153,14 @@ describe("measurement waits for the change to be found on the page", () => {
   it("keeps measuring a record written before there were Shipments, which has no answer to wait for", async () => {
     const legacy = { ...(await ship()), implementedAt: null, verification: null }; expect(isDueForMeasure(legacy, FINAL, LATER)).toBe(true);});});
 describe("what is still under measurement", () => {
-  const row = (id: string, implementedAt: string, path: string, v: ShipmentVerification | null): Row => ({ ...legacyRow(), id, path, implemented_at: implementedAt, verification: v, proposal_id: `p-${id}` });
+  const row = (id: string, implementedAt: string, path: string, v: ShipmentVerification | null): Row => ({ ...legacyRow(), id, path, page: `https://www.fixture-outdoors.example${path}`, implemented_at: implementedAt, verification: v, proposal_id: `p-${id}` });
   beforeEach(() => {
     // s1 waits on its first check; s3 was looked for and is not there, so the page is free; s4 could not be looked at, which is when I am least sure, so it HOLDS; s5 is past the window and s6 carries no stamp at all.
     db.state.rows = [row("s1", "2026-07-25T00:00:00.000Z", "/nowruz-guide", null), row("s2", "2026-07-20T00:00:00.000Z", "/tehran", verification("verified")),
       row("s3", "2026-07-28T00:00:00.000Z", "/shiraz", verification("not_found")), row("s4", "2026-07-29T00:00:00.000Z", "/isfahan", verification("blocked")),
       row("s5", "2026-05-01T00:00:00.000Z", "/kish", verification("verified")), { ...legacyRow(), id: "s6", path: "/never-shipped" }];});
   it("windows on the stamp, keeps only what is really being measured, and belongs to one account", async () => {
-    expect(await pagesUnderMeasurementFromShipments(T, NOW)).toEqual(["/nowruz-guide", "/tehran", "/isfahan"]); expect(await pagesUnderMeasurementFromShipments("acct-b", NOW)).toEqual([]);});});
+    expect(await pagesUnderMeasurementFromShipments(T, NOW), "named by the spelling that carries a host: a bare path is matched downstream by a suffix test, so /isfahan claimed every address ending in it").toEqual(["https://www.fixture-outdoors.example/nowruz-guide", "https://www.fixture-outdoors.example/tehran", "https://www.fixture-outdoors.example/isfahan"]); expect(await pagesUnderMeasurementFromShipments("acct-b", NOW)).toEqual([]);});});
 /** MEASUREMENT USED TO NEED A VISITOR: the engine fired only from a Results render, so a verdict waited on somebody opening the page and production sat on sixteen measurable shipments. The scheduled run drives this now, and a reading is only true on screen once Results is rebuilt and only reaches ranking once winner memory re-harvests. */
 describe("the measurement pass settles itself, all the way to the screen", () => {
   const result = (over: Record<string, number>) => ({ considered: 16, due: 16, measured: 0, changed: 0, settled: 0, revived: 0, reopened: 0, crawlStamped: 0, failed: 0, outcomes: [], ...over });
