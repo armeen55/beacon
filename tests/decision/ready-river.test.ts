@@ -84,4 +84,9 @@ describe("the store merge protects words, never a caller's decision about the sa
       db.rows = []; expect(await saveChangeProposal(p)).toBe("saved");
       const back = deserializeChangeProposal(JSON.stringify(db.rows[0]!.payload))!; // the stored payload, decoded exactly as any later pass reads it back
       expect([back.obligation?.kind, nextObligation(back)?.kind], `${p.id} owes ${owed ?? "nothing"} on file and computes the same answer from the row alone`).toEqual([owed, owed]); } });
+  it("key order is not identity: a finding minted in the producer's order and the same finding in schema order hash alike, and a re-mint carrying one reads unchanged (reviewer, 2026-09-04: the fingerprint was key-order sensitive, so an identical re-mint wrote a new version every tick and erased the retirement receipt on the way)", async () => {
+    const producerOrder = { cause: "ctr_snippet", action: "meta", evidenceKeys: ["e1"], competingExplanations: [], notConsidered: [], explanation: "x", falsifier: "y" } as unknown as ChangeProposal["causeFinding"];
+    const schemaOrder = { cause: "ctr_snippet", action: "meta", evidenceKeys: ["e1"], competingExplanations: [], falsifier: "y", explanation: "x", notConsidered: [] } as unknown as ChangeProposal["causeFinding"];
+    const base = row(); expect(proposalFingerprint({ ...base, causeFinding: producerOrder })).toBe(proposalFingerprint({ ...base, causeFinding: schemaOrder }));
+    db.rows = []; expect(await saveChangeProposal({ ...base, causeFinding: producerOrder })).toBe("saved"); expect(await saveChangeProposal({ ...base, causeFinding: producerOrder }), "decoded in schema order, minted in the producer's, one identity").toBe("unchanged"); });
 });

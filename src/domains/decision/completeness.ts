@@ -211,13 +211,15 @@ export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal |
   return again ? { ...row, obligation: { kind: "terminal", reason: "the writer handed back the exact words this change already retired, so it is settled rather than drafted again" } } : row;
 }
 
-function decideFinished(incoming0: ChangeProposal, prior: ChangeProposal | null | undefined): ChangeProposal {
+function decideFinished(incoming0: ChangeProposal, prior0: ChangeProposal | null | undefined): ChangeProposal {
   // A PRODUCER THAT READ NOTHING CANNOT CLAIM THE PAGE MOVED (operator, 2026-08-31). The re-mint of a $0 card
   // arrives with no copyStamp, the finished prior carries the page as the drafting pass read it, and comparing
   // null against that stamp broke identity: the template then replaced the finished description whole, copy to
   // a receipt, backing and status gone. A stampless incoming inherits the prior's stamp; a producer that DID
   // re-read the page and saw it change still breaks identity exactly as before, which is the honest trigger.
-  const incoming = incoming0.copyStamp == null && prior?.copyStamp ? { ...incoming0, copyStamp: prior.copyStamp } : incoming0;
+  const incoming = incoming0.copyStamp == null && prior0?.copyStamp ? { ...incoming0, copyStamp: prior0.copyStamp } : incoming0;
+  // A CAUSE NAMED FOR THE FIRST TIME IS NOT A CAUSE THAT CHANGED (live 16:31Z on 2026-09-04): the sweep producers began stamping the typed cause they had always known, the retirement below compared a recorded null against it, and one tick retired forty-four drafted rows into their own briefs with "the diagnosed cause changed" as the receipt. A prior written under no recorded cause adopts the incoming's cause before identity is compared, so its finished words survive and the row carries the cause from here on; a recorded cause replaced by a different one still moves identity exactly as before.
+  const prior = prior0 && prior0.diagnosisCause == null && incoming.diagnosisCause != null ? { ...prior0, diagnosisCause: incoming.diagnosisCause, ...(incoming.causeFinding ? { causeFinding: incoming.causeFinding } : {}) } : prior0;
   // THE RECEIPT OUTLIVES THE PASS THAT STAMPED IT (review, 2026-08-22): every return carries the newest retirement receipt available, so the retired words stay inspectable under whatever replaced them instead of living exactly one pass. A NEW receipt below outranks an inherited one.
   const inherited = prior?.previousCopy && !incoming.previousCopy ? { previousCopy: prior.previousCopy } : {};
   const priorAfter = prior?.recommendedChange.kind === "existing_edit" ? prior.recommendedChange.after.trim() : "";
