@@ -64,9 +64,8 @@ export function withholdReason(p: ChangeProposal, cause: Cause | null | undefine
   // page's single strongest ladder cause refused an accuracy correction for not treating a ranking loss,
   // which is exactly the merge the operator forbade. The card's own diagnosis wins where it carries one AND
   // its lever treats it; the page-level cause still governs every card that names nothing.
-  // ...EXCEPT WHERE THE CARD'S OWN LEVER IS THE ONE THING A SPLIT ALREADY OWNS (operator, 2026-09-04). Telling competing pages apart is a WORDING change and a split authorizes it on ALL of them, which is the rule stated below and, until the sweep producers stamped their findings, one no wording card could reach: a description card carried no cause at all, so the page's verdict governed it. A sharper line on one of two pages fighting over a search, with the other left as it was, makes the fight worse whatever else is true about that line, so the split outranks it here. Every other finding still stands on its own: a page can be losing a search AND stating something untrue, and body work, an answer block and a correction are none of them the split's own lever.
-  const own = p.causeFinding?.cause ?? p.diagnosisCause, wordingLever = p.recommendedChange.kind === "existing_edit" && ["title", "meta", "h1"].includes(p.recommendedChange.field);
-  if (own && own !== cause && treatsCause(p, own) && !(cause === "cannibalization" && wordingLever)) return null;
+  const own = p.causeFinding?.cause ?? p.diagnosisCause;
+  if (own && own !== cause && treatsCause(p, own)) return null;
   if (!cause || !treatable(cause) || treatsCause(p, cause)) return null;
   const lever = p.recommendedChange.kind === "new_page" ? "new_page" : p.recommendedChange.field;
   return `held: this page's own evidence names ${causeLabel(cause)}, and ${LEVER_WORDS[lever] ?? "this change"} does not treat it. Once that is dealt with, this card comes back.`;

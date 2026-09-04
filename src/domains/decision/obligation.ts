@@ -47,7 +47,9 @@ const UNWRITTEN = /no copy|describes the work instead|nothing has been written|c
 
 /** How many sections a new page still owes, off the one gap only `deliverableGaps` can compute. */
 const owedSections = (gaps: readonly string[]): number => {
-  const said = gaps.find((g) => g.includes("sections have no copy written")); return said ? Number(/^(\d+)/.exec(said)?.[1] ?? 0) : 0; };
+  const said = gaps.find((g) => g.includes("sections have no copy written"));
+  return said ? Number(/^(\d+)/.exec(said)?.[1] ?? 0) : 0;
+};
 
 /** THE NEXT TYPED STEP, or null when nothing is owed. Null is a real answer and the one the $0 release loop
  *  acts on: a held row whose obligation recomputes to null has nothing typed against it, so it may replay.
@@ -72,17 +74,13 @@ export function nextObligation(p: ChangeProposal): Obligation | null {
     if (unwritten || owed > 0) return { kind: "sections", owed: Math.max(owed, 1) };
   } else if (p.researchOnly === true || unwritten) return { kind: "draft" };
   if (hold.need) return { kind: "evidence", need: hold.need };
-  // A REVIEW THAT IS OWED IS NOT A REDRAFT WEARING A FAULT (live, 2026-09-04). The sweep writes whatever blocks a
-  // ready row into `faults`, so "the reading on file was made under an older review contract" sat as a typed fault
-  // on sixteen live rows and, redraft outranking review, each owed a PAID rewrite of words no gate faulted while the
-  // cheap re-read went untaken. Matched against the sentence THIS row's own verdict composes now, as UNWRITTEN above
-  // is matched against live output: no stored phrasing decides anything, and a real fault is never dropped.
-  const owedReview = unreviewed(p), faults = (p.faults ?? []).filter((f) => f !== owedReview);
+  const faults = p.faults ?? [];
   // A ROW BANKED BEFORE THE COUNT EXISTED IS ON ATTEMPT ONE, never on its cap: absent is zero attempts consumed, so the two-attempt settlement can only ever bite on drafts this contract actually counted.
-  const attempt = (p.previousCopy?.attempts ?? 0) + 1, redraft = (instruction: string): Obligation => attempt > MAX_ATTEMPTS ? { kind: "terminal", reason: SETTLED_AFTER_RETRIES } : { kind: "redraft", attempt, instruction };
+  const attempt = (p.previousCopy?.attempts ?? 0) + 1;
+  const redraft = (instruction: string): Obligation => attempt > MAX_ATTEMPTS ? { kind: "terminal", reason: SETTLED_AFTER_RETRIES } : { kind: "redraft", attempt, instruction };
   // A REFUSED REVIEW IS NOT BOUGHT AGAIN THE SAME DAY (falsifier, 2026-09-02). Review outranked redraft, so /farsi-numbers, whose paid reviewer refused it at 02:56Z and again at 03:08Z with the same objection sitting on the row as a typed fault, still answered `review` and the runtime paid the evaluator every drive. A reading is for copy with no KNOWN defect; a row that carries one owes the corrective draft first, and the reading is owed again only once the words have moved.
   if (faults.length > 0) return redraft(faults[0]!);
-  if (owedReview != null) return { kind: "review" };
+  if (unreviewed(p) != null) return { kind: "review" };
   // A LEVER THAT CANNOT TREAT THE CAUSE ITS OWN EVIDENCE NAMED IS SETTLED, NOT RETRIED: no redraft of the same treatment ever fits a cause that treatment does not touch, so buying another one buys the same refusal.
   const unfit = unsettledCause(p); if (unfit) return { kind: "terminal", reason: unfit };
   // AND FINAL COPY MAY NOT SIT BEHIND A BLOCKER NOBODY OWNS (falsifier, 2026-09-02). A section held on "nothing on file says what a reader gains from it" owed nothing typed, so the $0 replay skipped it for ever while the one servability verdict went on refusing it. Whatever still blocks these exact words is the instruction the next draft writes against; the safety confirmation is the operator's and already returned above.

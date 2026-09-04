@@ -122,13 +122,11 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
       hints: [`${pathOf(from.url)} links to ${count(links.size, "page")} of this site and none of them is ${to}`, `${support}, counted across every page of this site read so far`, `${to} ranks at position ${position} for "${target.query.query}" with ${count(target.query.impressions, "impression")} in Search Console`, `${pathOf(from.url)} earns ${count(clicksOf(from), "click")} in the last 90 days`],
       // Every page whose stored link graph was read for the counts above, plus the destination's own search row.
       minutes: 5, confidence: "medium", refs: linksByPage.size + 1,
-      limitation: "The link list comes from the last stored read of this page, so a link added since then is not counted here.", cause: structural("internal_link_weakness", "section", [RECEIPT.copy, RECEIPT.gsc], `${support}, and it sits at position ${position} for "${target.query.query}", so nothing on this site sends a reader from ${pathOf(from.url)} to the page already ranking for that search.`, `If a link from ${pathOf(from.url)} to ${to} is found the next time this page's links are read, nothing is missing here.`),
+      limitation: "The link list comes from the last stored read of this page, so a link added since then is not counted here.",
     }); }
   }
   return { drafts: out, complete: true };
 }
-/** THE FINDING A SWEEP CARD ALREADY MADE, SAID IN THE LADDER'S OWN WORDS (operator, 2026-09-04). Thirty-two live descriptions were minted off a named defect in the page's own line and carried no cause at all: the detail page printed "No cause is named for it yet" over a finding the card's own headline states, and the wording gate went on holding every replacement "until a diagnosis names what is wrong with the current description" while that diagnosis sat unsaid in the same object. NO NEW VOCABULARY, because none is needed: a description missing or repeated across siblings IS the line Google displays for the page, a page missing what every winner covers IS incomplete coverage, and a page nothing links to IS where a reader gets sent next. `evidenceKeys` name the readings the card was actually made from. */
-const structural = (cause: CauseFinding["cause"], action: CauseFinding["action"], evidenceKeys: string[], explanation: string, falsifier: string): CauseFinding => ({ cause, action, evidenceKeys, competingExplanations: [], notConsidered: [], explanation, falsifier });
 /** 3. THE THREE DEFECTS WORTH A SWEEP, ONE CARD PER PAGE. A card that fixes one page and then says "repeat on nine more" cannot be done in one sitting, marked done, or measured, so each of the busiest TOP_PAGES_PER_CLASS pages per defect gets its own card and figures and the class total rides along as context. */
 function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, expectedCtrAt: (position: number) => number): Draft[] {
   const impressions = (p: OwnedPageEvidence): number => p.search?.impressions90d ?? 0;
@@ -155,7 +153,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     steps: [`Open the site editor on ${pathOf(p.url)}`, "Paste a description of about 150 characters", "Mark it done here and the click rate gets read again"],
     hints: [`${pathOf(p.url)} holds no description of its own`, `${pathOf(p.url)} earns ${count(impressions(p), "impression")} and ${count(clicksOf(p), "click")} in 90 days`, `${count(noMeta.length, "page")} with content stored carry no description`],
     minutes: 1, confidence: "medium", refs: 2, impact: recoverableClicks(p, expectedCtrAt),
-    limitation: "Read off the last stored copy of this page, so a description added since that read is not counted here.", cause: structural("ctr_snippet", "meta", [RECEIPT.copy, RECEIPT.gsc], `${pathOf(p.url)} carries no description of its own, so the line under its title in the results is Google's writing rather than this page's.`, `If a description of its own is found on ${pathOf(p.url)} the next time its copy is read, nothing is missing here.`),
+    limitation: "Read off the last stored copy of this page, so a description added since that read is not counted here.",
   });
 
   // A TEMPLATED DESCRIPTION IS A MISSING ONE WEARING WORDS: strip each page's own name out of its meta and what is left, when five or more pages share it, is one boilerplate line stamped across a template. Busiest first.
@@ -177,7 +175,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
       why: `${count(family, "page")} carry the same templated description with only the name swapped, and ${pathOf(p.url)} is the busiest of them at ${count(impressions(p), "impression")} in 90 days. A line every sibling repeats gives nobody a reason to click this one.`,
       steps: [`Open the site editor on ${pathOf(p.url)}`, "Replace the templated description with one written for this page", "Mark it done here and the click rate gets read again"],
       hints: [`${count(family, "page")} share one templated description`],
-      limitation: "Read off the last stored copy of each page, so a description rewritten since that read is not counted here.", cause: structural("ctr_snippet", "meta", [RECEIPT.copy, RECEIPT.gsc], `${count(family, "page")} of this site carry the same templated description with only the name swapped, so the line under ${pathOf(p.url)} in the results gives nobody a reason to click this one rather than a sibling.`, `If ${pathOf(p.url)} is found carrying a description no sibling repeats, there is nothing wrong with the line it has.`),
+      limitation: "Read off the last stored copy of each page, so a description rewritten since that read is not counted here.",
     });
   }
 
@@ -194,7 +192,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
       steps: [`Open the site editor on ${pathOf(p.url)}`, "Rewrite the heading so it names what only this page covers", "Mark it done here and the positions get read again"],
       hints: [`${pathOf(p.url)} and ${count(sharers, "other page")} carry the heading "${heading}"`, `${pathOf(p.url)} earns ${count(impressions(p), "impression")} in 90 days`, `${count(dupes.length, "heading")} are duplicated across this site`],
       minutes: 1, confidence: "medium", refs: sharers + 1, impact: recoverableClicks(p, expectedCtrAt),
-      limitation: "Headings are compared exactly as stored, so two headings that differ only by a stray word read as separate here.", cause: structural("ctr_snippet", null, [RECEIPT.copy, RECEIPT.gsc], `"${heading}" is the heading on ${count(sharers + 1, "page")} of this site, so nothing on ${pathOf(p.url)} tells a reader or Google which of them this search is for.`, `If ${pathOf(p.url)} is found carrying a heading no other page of this site repeats, there is nothing duplicated here.`),
+      limitation: "Headings are compared exactly as stored, so two headings that differ only by a stray word read as separate here.",
     });
   }
 
@@ -234,7 +232,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
       hints: [`The winners of "${topQueryOf(p)}" agree on: ${named.join(", ")}`, `${pathOf(p.url)} is shown ${count(impressions(p), "time")} and earns ${count(clicksOf(p), "click")} in 90 days`, `${count(expandable.length, "page")} of the ${pages.length} stored pages are missing a subject their search's winners agree on`],
       // This page's stored copy, its search row, and the stored results page the missing subjects came from.
       minutes: 30, confidence: "medium", refs: 3, impact: recoverableClicks(p, expectedCtrAt),
-      limitation: "The missing subjects are read off the stored results page and the winners' own headings as last read; a subject added to the page since that read is not counted here.", cause: structural("incomplete_coverage", "section", [RECEIPT.copy, RECEIPT.pattern], `Every page winning "${topQueryOf(p)}" covers ${named.map((g) => `"${g}"`).join(", ")} and ${pathOf(p.url)} does not, on ${count(impressions(p), "impression")} in 90 days.`, `If ${pathOf(p.url)} is found covering ${named.map((g) => `"${g}"`).join(", ")} the next time its headings are read, nothing is missing here.`),
+      limitation: "The missing subjects are read off the stored results page and the winners' own headings as last read; a subject added to the page since that read is not counted here.",
     });
   }
   // A ZERO-WORD 200 IS AN UNREAD PAGE, NEVER A THIN ONE. A page built with javascript answers a raw fetch
