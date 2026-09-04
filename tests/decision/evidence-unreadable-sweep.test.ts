@@ -30,25 +30,18 @@ vi.mock("@/lib/persistence/supabase", () => {
         return chain(next(name));},
       from: (table: string) => table === "ai_case_dispositions" ? chain({ data: [...env.dispositions.values()] as unknown as unknown[] }) : chain({ data: [] }),}), }; });
 /** The producer's own window read, failable on demand. */
-vi.mock("@/domains/evidence/ai-visibility/ai-observations", async (orig) => {
-  const actual = (await orig()) as typeof import("@/domains/evidence/ai-visibility/ai-observations");
+vi.mock("@/domains/evidence/ai-visibility/ai-observations", async (orig) => { const actual = (await orig()) as typeof import("@/domains/evidence/ai-visibility/ai-observations");
   return { ...actual, readAiObservations: async () => { if (env.aiWindow === "fail") throw new Error("canceling statement due to statement timeout"); return env.aiWindow; } }; });
-vi.mock("@/domains/decision/coverage-pass", async (orig) => {
-  const actual = (await orig()) as typeof import("@/domains/decision/coverage-pass");
+vi.mock("@/domains/decision/coverage-pass", async (orig) => { const actual = (await orig()) as typeof import("@/domains/decision/coverage-pass");
   return { ...actual, readCoverage: async () => null, recordCoverageNeeds: async () => undefined }; });
-vi.mock("@/domains/evidence/ai-visibility/answer-journeys", async (orig) => {
-  const actual = (await orig()) as typeof import("@/domains/evidence/ai-visibility/answer-journeys");
+vi.mock("@/domains/evidence/ai-visibility/answer-journeys", async (orig) => { const actual = (await orig()) as typeof import("@/domains/evidence/ai-visibility/answer-journeys");
   return { ...actual, readAnswerJourneys: async () => [] }; });
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "tenant-fx", domain: "fixture.example", growth_goal: null }), basisTag: () => "basis_fx",}));
 /** The real loader unless a test pins a snapshot: part of this file exercises it, part feeds the producer. */
-vi.mock("@/domains/evidence/snapshot-loader", async (orig) => {
-  const actual = (await orig()) as typeof import("@/domains/evidence/snapshot-loader");
+vi.mock("@/domains/evidence/snapshot-loader", async (orig) => { const actual = (await orig()) as typeof import("@/domains/evidence/snapshot-loader");
   return { ...actual, loadEvidenceSnapshot: async (t: string, o: never) => env.snapshot ?? actual.loadEvidenceSnapshot(t, o) }; });
-vi.mock("@/domains/decision/proposal-store", async (orig) => {
-  const actual = (await orig()) as typeof import("@/domains/decision/proposal-store");
-  return { ...actual,
-    loadChangeProposals: async () => new Map(env.store as Map<string, ChangeProposal>),
-    withdrawnProposalIds: async () => new Set<string>(),
+vi.mock("@/domains/decision/proposal-store", async (orig) => { const actual = (await orig()) as typeof import("@/domains/decision/proposal-store");
+  return { ...actual, loadChangeProposals: async () => new Map(env.store as Map<string, ChangeProposal>), withdrawnProposalIds: async () => new Set<string>(),
     withdrawChangeProposal: async (p: ChangeProposal) => { env.withdrawn.push(p.id); return true; },
     publishCustomerRelease: async () => { env.wrote.push("publishCustomerRelease"); return true; },
     saveChangeProposal: async (p: ChangeProposal) => { env.wrote.push(`saveChangeProposal:${p.id}`); env.saved.set(p.id, p); return "unchanged" as const; } }; });
@@ -65,36 +58,24 @@ import type { ChangeProposal } from "@/domains/decision/contracts";
 const TENANT = "tenant-fx";
 const TIMEOUT = { message: "canceling statement due to statement timeout", code: "57014" };
 /** One full PostgREST page, so the reader asks for a second one and meets the error on it. */
-const fullPage = () => Array.from({ length: 1_000 }, (_v, i) => ({
-  page: `https://fixture.example/p${String(i).padStart(4, "0")}`,
-  clicks: 5, impressions: 100, pos_weighted: 800, top_queries: [],}));
+const fullPage = () => Array.from({ length: 1_000 }, (_v, i) => ({ page: `https://fixture.example/p${String(i).padStart(4, "0")}`, clicks: 5, impressions: 100, pos_weighted: 800, top_queries: [],}));
 /** A snapshot whose GSC leg says exactly what the test needs it to say. */
 function snapshotWith(status: "failed" | "fresh" | "empty"): unknown {
-  const gscPayload = status === "fresh"
-    ? [{ url: "https://fixture.example/a", clicks90d: 40, impressions90d: 900, ctr90d: 0.04, position90d: 12, topQueries: [] }]
-    : [];
-  const input: EvidenceSnapshotInput = {
-    scope: { tenantId: TENANT, site: "fixture.example", builtAt: "2026-08-12T00:00:00.000Z" },
-    gsc: { status, lastSyncedAt: null, payload: gscPayload },
-    ga4: { status: "empty", lastSyncedAt: null, payload: [] },
-    wix: { status: "empty", lastSyncedAt: null, payload: [] },
-    clarity: { status: "empty", lastSyncedAt: null, payload: [] },
-    dataforseo: { status: "empty", lastSyncedAt: null, payload: [] },
-    research: { status: "empty", lastSyncedAt: null, payload: emptyResearchEvidence() },
-    aiAnswersUnread: false,};
+  const gscPayload = status === "fresh" ? [{ url: "https://fixture.example/a", clicks90d: 40, impressions90d: 900, ctr90d: 0.04, position90d: 12, topQueries: [] }] : [];
+  const empty = { status: "empty" as const, lastSyncedAt: null, payload: [] };
+  const input: EvidenceSnapshotInput = { scope: { tenantId: TENANT, site: "fixture.example", builtAt: "2026-08-12T00:00:00.000Z" },
+    gsc: { status, lastSyncedAt: null, payload: gscPayload }, ga4: empty, wix: empty, clarity: empty, dataforseo: empty,
+    research: { status: "empty", lastSyncedAt: null, payload: emptyResearchEvidence() }, aiAnswersUnread: false,};
   return buildEvidenceSnapshot(input);}
 /** One untouched card the operator can still act on, in a family the sweep rewrites. */
 const openCard = (suffix: string): ChangeProposal => ({
-  id: `${TENANT}::/shiraz::existing_edit::${suffix}`, tenantId: TENANT, kind: "existing_edit",
-  pagePath: "/shiraz", pageUrl: "https://fixture.example/shiraz", pageLabel: "Shiraz",
+  id: `${TENANT}::/shiraz::existing_edit::${suffix}`, tenantId: TENANT, kind: "existing_edit", pagePath: "/shiraz", pageUrl: "https://fixture.example/shiraz", pageLabel: "Shiraz",
   primaryQuery: "things to do in shiraz", opportunityType: "Answer the question", changeFamily: suffix,
   status: "needs_review", researchOnly: true, evidence: { query: "things to do in shiraz", hints: [], evidenceRefCount: 1 }, // A BRIEF, said out loud: the sweep retires cards nobody has written words for, and drafted copy leaves only through a receipt about the words (falsifier, 2026-09-02)
   recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A short answer block." },
-  whyItMatters: "The page never answers the question it ranks for.", estimatedEffortMinutes: 10,
-  riskLevel: "low", confidence: "medium", limitations: [], impactScore: 20, upsidePerMonth: 5,
+  whyItMatters: "The page never answers the question it ranks for.", estimatedEffortMinutes: 10, riskLevel: "low", confidence: "medium", limitations: [], impactScore: 20, upsidePerMonth: 5,
   publish: "manual", createdAt: "2026-08-10T00:00:00.000Z", });
-beforeEach(() => {
-  env.rpc = {}; env.calls = []; env.snapshot = null; env.store = new Map(); env.withdrawn = [];
+beforeEach(() => { env.rpc = {}; env.calls = []; env.snapshot = null; env.store = new Map(); env.withdrawn = [];
   env.aiWindow = []; env.dispositions = new Map(); env.upserts = 0; });
 describe("a search read that did not answer", () => {
   it("throws instead of handing back an account with no search data, and marks a read cut short after some rows INCOMPLETE while keeping what landed", async () => {
@@ -126,6 +107,17 @@ describe("the sweep only retires what a producer that FINISHED rewrote", () => {
     await produceProposalsForTenant(TENANT);
     expect(env.withdrawn).toEqual([stale.id]); }); // The AI family enters the sweep ONLY through a finished extras pass whose verdicts were durably filed (pinned below), so a failed AI read leaves the AI card standing while finished families still sweep.
   /** A DRY RUN WRITES NOTHING, AND IT IS THE PRODUCER THAT SAYS SO, not a reading of the code. A no-persist run was reported alongside 13 changed rows and nobody could tell whether the guard leaked or the harness had never run dry; the same pass answers both ways here, so the next such report is settled by running this. `withdrawn` is listed separately because it is the same act by another name. */
+  /** EVIDENCE IS BOUGHT DEPENDENCY FIRST (operator, 2026-09-04). The owed list was filled by walking the store in id order and the runtime buys the first eight of it, so the five most valuable rows on this account each owed a typed reading and not one of them was ever bought. */
+  it("stamps each owed reading with its own row's ranked position, so the biggest need is buyable first whatever order the store listed it in", async () => {
+    env.snapshot = snapshotWith("fresh");
+    const owing = (slug: string, impact: number): ChangeProposal => ({ ...openCard("meta"), id: `${TENANT}::/${slug}::existing_edit::meta`, pagePath: `/${slug}`, pageUrl: `https://fixture.example/${slug}`, researchOnly: false, changeFamily: "meta", impactScore: impact,
+      recommendedChange: { kind: "existing_edit", field: "meta", before: "The old description.", after: `A finished description for ${slug} that says what only this page answers.` } });
+    const small = owing("aaa-worth-little", 2), big = owing("zzz-worth-most", 900); // the store lists the small one first; the ranker, never the walk, decides which reading is bought first
+    env.store = new Map([[small.id, small], [big.id, big]]);
+    const owed = (await produceProposalsForTenant(TENANT)).paid.evidenceOwed ?? [];
+    const at = (slug: string) => owed.find((o) => o.key.includes(slug))!;
+    expect([owed.length >= 2, at("zzz-worth-most").kind, at("aaa-worth-little").kind], "both rows owe the same typed reading and both are on the list").toEqual([true, "serp", "serp"]);
+    expect([at("zzz-worth-most").rank! >= 1, at("zzz-worth-most").rank! < at("aaa-worth-little").rank!], "and the one worth 900 clicks is stamped above the one worth 2, whatever order the ids came back in").toEqual([true, true]); });
   it("writes nothing at all when it is told not to persist", async () => {
     env.snapshot = snapshotWith("fresh"); env.aiWindow = "fail";
     const stale = openCard("title"), theirs = openCard("ai_answer_gap");
