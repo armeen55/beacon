@@ -12,7 +12,6 @@
 export type {
   KernelVerdict,
   KernelMetric,
-  KernelWindowRead,
   KernelInput,
   KernelRead,
   LedgerRecordLike,
@@ -50,7 +49,6 @@ export {
   upsertShippedChange,
   recordVerification,
   recordPinnedRead,
-  recordPinnedReadCorrection,
   pagesUnderMeasurementFromShipments,
 } from "./shipped-change-store";
 
@@ -60,7 +58,7 @@ export { pinFor, applyPinnedRead, withCorrection } from "./pinned-read";
 
 // THE ONE COMPARISON POLICY: who may stand behind a change, and why they qualified
 export type { ControlReceipt } from "./contamination";
-export { contaminationFor, contaminatedPaths, selectMatchedControls } from "./contamination";
+export { contaminationFor, selectMatchedControls } from "./contamination";
 
 // Verdict schedule
 export type { VerdictScheduleRow, VerdictSchedule } from "./verdict-schedule";

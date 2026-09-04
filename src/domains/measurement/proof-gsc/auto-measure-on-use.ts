@@ -5,17 +5,14 @@ import { after } from "next/server";
 import { log } from "@/lib/logger";
 
 /**
- * auto-measure settlement. THE WHOLE SETTLE, not just the reading: a due proof row is measured, and because a
- * verdict that moved is only true on screen once the Results surface is rebuilt and only reaches ranking once
- * winner memory has re-harvested, both ride the pass itself rather than whichever caller remembered them.
+ * auto-measure settlement. THE WHOLE SETTLE, not just the reading: a due proof row is measured, and because a verdict that moved is only true
+ * on screen once the Results surface is rebuilt and only reaches ranking once winner memory has re-harvested, both ride the pass itself
+ * rather than whichever caller remembered them.
  *
- * WHO CALLS IT. The scheduled Research Run does, whenever due-work reports a measurement debt, which is what
- * makes measurement clear itself with nobody in the app: production held sixteen measurable shipments while
- * this engine fired ONLY from a Results render, so a verdict waited on somebody opening the page. The render
- * path below stays as a residual accelerator (a visit is a chance, never the trigger), throttled to one pass
- * per ten minutes and scheduled through next/after so it never costs the page a millisecond.
- *
- * Free (Search Console and Analytics are already synced), cache-first, bounded per pass, fail-soft per record.
+ * WHO CALLS IT. The scheduled Research Run does, once per pass, which is what makes measurement clear itself with nobody in the app: this
+ * engine fired ONLY from a Results render, so a verdict waited on somebody opening the page. The render path below stays as a residual
+ * accelerator (a visit is a chance, never the trigger), throttled to one pass per ten minutes and scheduled through next/after so it never
+ * costs the page a millisecond. Free (Search Console and Analytics are already synced), cache-first, bounded, fail-soft per record.
  */
 const lastRunAt = new Map<string, number>();
 const MIN_GAP_MS = 10 * 60_000;
@@ -32,8 +29,13 @@ export async function settleDueMeasurements(
   try {
     const { autoMeasureDuePass } = await import("./auto-measure-pass");
     const res = await autoMeasureDuePass(tenantId, { maxRecords: opts.maxRecords ?? PER_RUN_CAP, ...(opts.now ? { now: opts.now } : {}) });
+    // THE PASS RECEIPT, and it names the two numbers the operator is owed: how many changes were read, and how many came back from a state
+    // where nothing could be compared. A pass that only repaired stuck rows still says so instead of passing silently.
+    if (res.measured + res.reopened + res.crawlStamped > 0) {
+      log.info("[auto-measure] read how shipped changes are doing", { tenantId, due: res.due, measured: res.measured, revived: res.revived,
+        settled: res.settled, changed: res.changed, checksReopened: res.reopened, crawlDatesRead: res.crawlStamped });
+    }
     if (res.measured > 0) {
-      log.info("[auto-measure] read how shipped changes are doing", { tenantId, due: res.due, measured: res.measured, settled: res.settled, changed: res.changed });
       try {
         const { rebuildResultsSurface } = await import("@/app/(shell)/results/results-ledger-data");
         await rebuildResultsSurface(tenantId);

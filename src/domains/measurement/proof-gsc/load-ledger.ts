@@ -11,7 +11,7 @@ import { cache } from "react";
 import { loadShippedChangesForTenant, type ShippedChangeRecord } from "./shipped-change-store";
 import { measureRecord, openChangePaths } from "./measure-pass";
 import { readLastFinalizedDate } from "./gsc-window";
-import { contaminatedPaths, contaminationFor } from "./contamination";
+import { contaminationFor } from "./contamination";
 
 /** Re-measure every record against fresh GSC. The heavy engine; background/actions only. A LEDGER IT COULD NOT READ THROWS rather than
  *  re-measuring nothing: this feeds the snapshot rebuild, so swallowing the failure wrote an EMPTY snapshot over a good one. */
@@ -25,7 +25,7 @@ export async function loadProofLedger(tenantId: string, now: Date = new Date()):
   // THE ONE POLICY, asked once per record and scoped to THAT record's window: a page whose own
   // change closed before this window opened is comparable again, so the pool recovers.
   return Promise.all(records.map((r) =>
-    measureRecord(tenantId, r, now, lastFinal, contaminatedPaths(contaminationFor(records, open, now, r)))
+    measureRecord(tenantId, r, now, lastFinal, new Set(contaminationFor(records, open, now, r).keys()))
       .catch(() => r)));
 }
 

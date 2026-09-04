@@ -71,7 +71,8 @@ export type ShippedChangeRecord = {
   notes: string | null;
   verifiedLive: boolean;
   liveSourceUrl: string | null;
-  recrawlRequestedAt: string | null;
+  /** WHEN GOOGLE LAST CRAWLED THIS PAGE, as Search Console's own index inspection reports it and refreshed by the measure pass. At or after the stamp it is day zero for every window; before it, the change is not indexed yet and the row is waiting. Absent means nobody has asked. It rides `recrawl_requested_at`, a column added for a recrawl-request design that was never built: it holds nothing on any row and no line of this codebase read or wrote it. `recrawlRequestedAt` is retired and survives only so records written against the old shape still decode. */
+  lastCrawlAt?: string | null; recrawlRequestedAt?: string | null;
   /** Operator override pinning the learning verdict to inconclusive. */
   operatorVerdictOverride: "inconclusive" | null;
   // ── Shipment (null on every pre-Phase-6 row) ────────────────────────────────
@@ -157,8 +158,7 @@ type LedgerRow = {
 };
 
 function isUndefinedTableError(error: unknown): boolean {
-  if (error == null || typeof error !== "object") return false;
-  const e = error as { code?: unknown; message?: unknown };
+  const e = (error ?? {}) as { code?: unknown; message?: unknown };
   if (typeof e.code === "string" && ["42P01", "PGRST205", "PGRST204"].includes(e.code)) return true;
   return typeof e.message === "string" && /schema cache|could not find the (table|.*column)/i.test(e.message);
 }
@@ -169,6 +169,14 @@ const isMissingColumnError = (error: unknown): boolean => {
   return e.code === "PGRST204" || (typeof e.message === "string" && /could not find the .*column/i.test(e.message));
 };
 
+/** THE DAY `recrawl_requested_at` CHANGED MEANING, and the column is NOT empty. 17 live rows stamped between 2026-06-22 and 2026-07-01 hold a
+ *  recrawl REQUEST time under the old design, which is roughly the ship moment; read back as a crawl stamp, a value earlier than the row's own
+ *  day zero would move that day zero backwards or read a settled June row as still waiting for Google to visit, silently. A value from before
+ *  the crawl stamp existed is therefore not a crawl stamp: it decodes as nothing at all and those rows read exactly as they always did. The
+ *  rule lives HERE, at the one read seam, so every consumer sees the same truth (crawlClock in measure-lifecycle.ts counts the windows off it).
+ *  Compared by DAY, so a timestamptz that comes back "+00:00" rather than "Z" cannot fall the wrong side of midnight. */
+const CRAWL_STAMP_EPOCH = "2026-09-03";
+const crawlStampOf = (at: string | null | undefined): string | null => (at != null && at.slice(0, 10) >= CRAWL_STAMP_EPOCH ? at : null);
 const VALID_VERDICTS: ReadonlySet<string> = new Set(["measuring", "won", "lost", "inconclusive", "insufficient_data"]);
 const VALID_CONFIDENCES: ReadonlySet<string> = new Set(["high", "medium", "low"]);
 const VALID_MEASUREMENT_STATES: ReadonlySet<string> = new Set(["measuring", "measurement_unavailable", "insufficient_comparison", "verification_needed"]);
@@ -186,7 +194,7 @@ function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
     target_queries: r.targetQueries, control_pages: r.controlPages, controls_receipt: r.controlsReceipt, windows: r.windows,
     verdict: r.verdict, confidence: r.confidence, measured_at: r.measuredAt, notes: r.notes,
     verified_live: r.verifiedLive, live_source_url: r.liveSourceUrl,
-    recrawl_requested_at: r.recrawlRequestedAt, operator_verdict_override: r.operatorVerdictOverride,
+    recrawl_requested_at: r.lastCrawlAt ?? null, operator_verdict_override: r.operatorVerdictOverride,
     proposal_id: r.proposalId, proposal_version: r.proposalVersion, basis: r.basis,
     case_id: r.caseId, bundle_hypothesis: r.bundleHypothesis, components_applied: r.componentsApplied,
     implemented_at: r.implementedAt, pre_change_content_hash: r.preChangeContentHash,
@@ -205,7 +213,7 @@ function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     verdict: (VALID_VERDICTS.has(row.verdict) ? row.verdict : "inconclusive") as GscProofVerdict,
     confidence: (VALID_CONFIDENCES.has(row.confidence) ? row.confidence : "low") as GscProofConfidence,
     measuredAt: row.measured_at ?? null, notes: row.notes ?? null, verifiedLive: row.verified_live ?? false,
-    liveSourceUrl: row.live_source_url ?? null, recrawlRequestedAt: row.recrawl_requested_at ?? null,
+    liveSourceUrl: row.live_source_url ?? null, lastCrawlAt: crawlStampOf(row.recrawl_requested_at),
     operatorVerdictOverride: row.operator_verdict_override === "inconclusive" ? "inconclusive" : null,
     // A row written before Phase 6 has none of these and reads as a manual record with no proposal behind it, rather than failing to decode at all.
     judgedMetric: VALID_OBJECTIVES.has(row.judged_metric ?? "") ? (row.judged_metric as ShipmentObjective) : null,
@@ -223,19 +231,14 @@ function rowToRecord(row: LedgerRow): ShippedChangeRecord {
 
 async function readFile(): Promise<ShippedChangeRecord[]> {
   try { return (await readStore<ShippedChangeRecord>(STORE)) ?? []; }
-  catch (err) {
-    log.warn("shipped-change-store: file ledger read failed; treating as empty", { store: STORE, error: err instanceof Error ? err.message : String(err) });
-    return [];
-  }
+  catch (err) { log.warn("shipped-change-store: file ledger read failed; treating as empty", { store: STORE, error: err instanceof Error ? err.message : String(err) }); return []; }
 }
 
 const writeFile = (records: ShippedChangeRecord[]): Promise<void> => writeStore<ShippedChangeRecord>(STORE, records);
 
 async function resolveSlugForTenant(tenantId: string): Promise<string | null> {
-  const tenant = await getTenant(tenantId);
-  if (tenant) return tenant.slug;
-  const envId = process.env.BEACON_TENANT_ID, envSlug = process.env.BEACON_TENANT_SLUG;
-  return envId && envSlug && envId === tenantId ? envSlug : null;
+  const tenant = await getTenant(tenantId), envId = process.env.BEACON_TENANT_ID, envSlug = process.env.BEACON_TENANT_SLUG;
+  return tenant ? tenant.slug : envId && envSlug && envId === tenantId ? envSlug : null;
 }
 
 async function readShippedChangesFileForTenant(tenantId: string): Promise<ShippedChangeRecord[]> {
@@ -248,23 +251,16 @@ async function readShippedChangesFileForTenant(tenantId: string): Promise<Shippe
     return Array.isArray(parsed) ? (parsed as ShippedChangeRecord[]) : [];
   } catch (err) {
     log.warn("shipped-change-store: tenant ledger file unreadable/corrupt; treating as empty", { tenant: tenantId, store: STORE, file: filePath, error: err instanceof Error ? err.message : String(err) });
-    return [];
-  }
+    return []; }
 }
 /** All shipped-change records for the ambient tenant, newest ship first. Request-cached. */
 export const loadShippedChanges = cache(loadShippedChangesUncached);
 
 async function loadShippedChangesUncached(): Promise<ShippedChangeRecord[]> {
   let admin;
-  try {
-    admin = getSupabaseAdmin();
-  } catch {
-    return sortNewest(await readFile());
-  }
+  try { admin = getSupabaseAdmin(); } catch { return sortNewest(await readFile()); }
   let tid: string;
-  try {
-    tid = await currentTenantId();
-  } catch (err) {
+  try { tid = await currentTenantId(); } catch (err) {
     log.warn("shipped-change-store: tenant resolve failed; ledger reads as empty", { store: STORE, error: err instanceof Error ? err.message : String(err) });
     return [];
   }
@@ -274,11 +270,7 @@ async function loadShippedChangesUncached(): Promise<ShippedChangeRecord[]> {
 export async function loadShippedChangesForTenant(tenantId: string): Promise<ShippedChangeRecord[]> {
   if (!tenantId) return [];
   let admin;
-  try {
-    admin = getSupabaseAdmin();
-  } catch {
-    return sortNewest(await readShippedChangesFileForTenant(tenantId));
-  }
+  try { admin = getSupabaseAdmin(); } catch { return sortNewest(await readShippedChangesFileForTenant(tenantId)); }
   return queryTenantLedger(admin, tenantId, () => readShippedChangesFileForTenant(tenantId));
 }
 
@@ -366,14 +358,9 @@ export async function upsertShippedChange(record: ShippedChangeRecord, tenantId?
 }
 
 async function upsertFile(record: ShippedChangeRecord): Promise<void> {
-  const rows = await readFile();
-  const held = rows.find((r) => r.id === record.id);
-  const next = rows.filter((r) => r.id !== record.id);
-  next.push(
-    record.implementedAt != null && held?.implementedAt != null
-      ? { ...record, implementedAt: held.implementedAt, shipmentBaseline: held.shipmentBaseline ?? record.shipmentBaseline }
-      : record,
-  );
+  const rows = await readFile(), held = rows.find((r) => r.id === record.id), next = rows.filter((r) => r.id !== record.id);
+  next.push(record.implementedAt != null && held?.implementedAt != null
+    ? { ...record, implementedAt: held.implementedAt, shipmentBaseline: held.shipmentBaseline ?? record.shipmentBaseline } : record);
   await writeFile(next);
 }
 
@@ -404,32 +391,20 @@ export async function recordVerification(
     return false;
   }
 }
-/** THE SECOND SEAM: ONE column on ONE Shipment, ONLY while empty. A frozen reading is never rewritten; a
- *  later recompute that disagrees lands BESIDE it (withCorrection), never over it. False = nothing landed. */
-/** Replace an ALREADY-HELD reading with the same reading carrying one more audited correction. The  write is guarded to rows that hold a pin, so it can never race the first freeze. */
-export async function recordPinnedReadCorrection(tenantId: string, shipmentId: string, pinned: PinnedRead): Promise<boolean> {
+/** THE SECOND SEAM: ONE column on ONE Shipment, guarded both ways so a finished reading is never rewritten. The FIRST freeze is guarded to
+ *  rows holding no pin. An audited `correction` is guarded to rows that DO hold one, so it can never race that freeze and it lands beside the
+ *  held reading (withCorrection), never over it. False = nothing landed. One write with two guards: the correction door used to be a second
+ *  copy of this function differing in exactly one clause. */
+export async function recordPinnedRead(tenantId: string, shipmentId: string, pinned: PinnedRead, correction = false): Promise<boolean> {
   if (!tenantId || !shipmentId) return false;
   let admin;
   try { admin = getSupabaseAdmin(); } catch { return false; }
   try {
-    const { data, error } = await admin.from(TABLE)
-      .update({ pinned_read: pinned, updated_at: new Date().toISOString() })
-      .eq("tenant_id", tenantId).eq("id", shipmentId).not("pinned_read", "is", null).select("id");
-    if (error != null) return false;
-    return Array.isArray(data) && data.length > 0;
-  } catch { return false; }
-}
-
-export async function recordPinnedRead(tenantId: string, shipmentId: string, pinned: PinnedRead): Promise<boolean> {
-  if (!tenantId || !shipmentId) return false;
-  let admin;
-  try { admin = getSupabaseAdmin(); } catch { return false; }
-  try {
-    const { data, error } = await admin.from(TABLE)
-      .update({ pinned_read: pinned, updated_at: new Date().toISOString() })
-      .eq("tenant_id", tenantId).eq("id", shipmentId).is("pinned_read", null).select("id");
+    const guarded = admin.from(TABLE).update({ pinned_read: pinned, updated_at: new Date().toISOString() })
+      .eq("tenant_id", tenantId).eq("id", shipmentId);
+    const { data, error } = await (correction ? guarded.not("pinned_read", "is", null) : guarded.is("pinned_read", null)).select("id");
     if (error != null) {
-      if (!isUndefinedTableError(error)) log.warn("[shipment] the finished reading could not be held still", { tenant: tenantId, id: shipmentId, error: error.message });
+      if (!correction && !isUndefinedTableError(error)) log.warn("[shipment] the finished reading could not be held still", { tenant: tenantId, id: shipmentId, error: error.message });
       return false;
     }
     return Array.isArray(data) && data.length > 0;
@@ -443,12 +418,10 @@ export async function recordPinnedRead(tenantId: string, shipmentId: string, pin
  *  stamp and starting numbers untouched. False = the id is not in the file either, so it stays due. */
 async function recordVerificationInFile(shipmentId: string, verification: ShipmentVerification): Promise<boolean> {
   try {
-    const rows = await readFile();
-    const at = rows.findIndex((r) => r.id === shipmentId);
+    const rows = await readFile(), at = rows.findIndex((r) => r.id === shipmentId);
     if (at < 0) return false;
     rows[at] = { ...rows[at]!, verification, updatedAt: new Date().toISOString() };
-    await writeFile(rows);
-    await invalidateResultsSurfaceSafe();
+    await writeFile(rows); await invalidateResultsSurfaceSafe();
     return true;
   } catch (err) {
     log.warn("[shipment] I could not save what the check found to the local ledger", { id: shipmentId, error: err instanceof Error ? err.message : String(err) });

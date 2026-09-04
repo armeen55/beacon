@@ -11,46 +11,30 @@ import { reportingDay } from "@/lib/reporting-day";
 import { canonicalizeCitationUrl } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { isAnalysisSettled, readAiObservationViews } from "@/domains/evidence/ai-visibility/ai-observations";
-import {
-  loadPageSurgeonContext,
-  topPagesByDemand,
-  assemblePacketForUrl,
-} from "@/domains/decision/recommendation-intelligence/page-surgeon/assemble-packet";
+import { loadPageSurgeonContext, topPagesByDemand, assemblePacketForUrl } from "@/domains/decision/recommendation-intelligence/page-surgeon/assemble-packet";
 import { loadPageJobs } from "@/domains/decision/producers/page-job";
 import { loadChangeProposals } from "@/domains/decision/proposal-store";
-import { aiBaselineFor, type ShipmentObjective } from "../shipment-ai-outcome";
-import { contaminatedPaths, contaminationFor, pathOf as contaminationPathOf, selectMatchedControls, type ControlReceipt } from "./contamination";
+import { aiBaselineFor, objectiveOfStage, type ShipmentObjective } from "../shipment-ai-outcome";
+import { contaminationFor, pathOf as contaminationPathOf, selectMatchedControls, type ControlReceipt } from "./contamination";
 import { loadShippedChangesForTenant } from "./shipped-change-store";
 import { readWindowForPages, readLastFinalizedDate } from "./gsc-window";
-import {
-  BASELINE_WINDOW_DAYS,
-  PROOF_WINDOW_DAYS,
-  type GscWindowMetrics,
-  type MeasurementState,
-  type ProofWindowDay,
-  type ProofWindowResult,
-} from "./types";
+import { BASELINE_WINDOW_DAYS, PROOF_WINDOW_DAYS, type GscWindowMetrics, type MeasurementState, type ProofWindowDay, type ProofWindowResult } from "./types";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 import { addDays, evaluateWindows, MIN_CONTROLS, readLedger } from "./kernel";
-import { day56Followup, FOLLOW_UP_WINDOW_DAY } from "./measure-lifecycle";
+import { crawlClock, day56Followup, FOLLOW_UP_WINDOW_DAY } from "./measure-lifecycle";
+
+/** WHAT THE PLAN REPAIR DID, said once on the row and never twice. Three stored rows predate the declaration and carry no primary window at
+ *  all, so no checkpoint of theirs can ever close, and four more carry no yardstick. The ordinary pass stamps what a row recorded today gets. */
+const BACKFILL_NOTE = "Stamped the reading plan and the yardstick this change is judged on, where they were missing: a change without them can never resolve.";
 
 const NULL_METRICS: GscWindowMetrics = { clicks: 0, impressions: 0, ctr: 0, position: 0 };
 /** The key the site's own movement comes back under, beside the pages themselves. Not a URL, so it can never collide with one. */
 const SITE_SERIES = "site::every-other-page";
 
-/** GSC's reporting zone is Pacific and so is the operator's; default a ship date to that day, through the ONE definition of a reporting day
- *  rather than a second copy of the zone. */
-export function defaultPacificShipDate(now: Date = new Date()): string {
-  return reportingDay(now);
-}
-
-function dateOnly(iso: string): string {
-  return iso.length > 10 ? iso.slice(0, 10) : iso;
-}
-
-function toPath(u: string): string {
-  return u.replace(/^https?:\/\/[^/]+/, "").replace(/\/$/, "") || "/";
-}
+/** GSC's reporting zone is Pacific and so is the operator's; a ship date defaults to that day through the ONE definition of a reporting day, never a second copy of the zone. */
+export const defaultPacificShipDate = (now: Date = new Date()): string => reportingDay(now);
+const dateOnly = (iso: string): string => (iso.length > 10 ? iso.slice(0, 10) : iso);
+const toPath = (u: string): string => u.replace(/^https?:\/\/[^/]+/, "").replace(/\/$/, "") || "/";
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 const round4 = (n: number): number => Math.round(n * 10000) / 10000;
@@ -142,7 +126,8 @@ export async function measureRecord(
    *  `contaminationFor` (contamination.ts) and nothing else; the compiler now asks every caller. */
   excludeControlPaths: ReadonlySet<string>,
 ): Promise<ShippedChangeRecord> {
-  const shipDate = dateOnly(record.implementedAt ?? record.shippedAt);
+  // DAY ZERO IS THE DAY GOOGLE READ THE CHANGE, not the day it was pressed, wherever an inspection has said so; the ship clock otherwise.
+  const clock = crawlClock(record), shipDate = dateOnly(clock.anchor);
   const lastFinal = lastFinalizedDate !== undefined ? lastFinalizedDate : await readLastFinalizedDate(tenantId);
   // ONE normalizer governs the whole policy: the exclusion set is keyed by contamination's pathOf,
   // so the consumption side must ask with the same spelling or a query-carrying URL slips the filter.
@@ -172,7 +157,8 @@ export async function measureRecord(
   const windowStates = evaluateWindows(shipDate, now, lastFinal);
   const windows: ProofWindowResult[] = [];
   for (const day of PROOF_WINDOW_DAYS) {
-    windows.push(await readWindow(day, windowStates.find((w) => w.day === day)!.state === "closed"));
+    // A PAGE GOOGLE HAS NOT READ SINCE THE CHANGE CARRIES NO SIGNAL OF IT: no window runs, nothing is bought, and the row waits.
+    windows.push(await readWindow(day, !clock.awaiting && windowStates.find((w) => w.day === day)!.state === "closed"));
   }
   // A DAY-56 READING THAT HAS RUN IS KEPT, ALWAYS. The rebuild above covers 7/14/28 only, so a recompute that arrives when the fourth
   // checkpoint is not due again (the ordinary case: it is due exactly once) used to drop a reading Beacon already took and had already
@@ -183,6 +169,7 @@ export async function measureRecord(
   // USABLE, NEVER MERELY STORED: three comparison pages that hold no search data are no comparison, and a row promoted on the strength of them would carry "measuring" over a reading that says it cannot be separated from the rest of the site.
   const usable = controlPages.filter((c) => (pre.get(c)?.impressions ?? 0) > 0).length;
   const canCompare = lastFinal != null && (usable >= MIN_CONTROLS || driftable(pre.get(record.page), pre.get(SITE_SERIES)));
+  const repaired = (record.primaryWindowDays == null || record.judgedMetric == null) && !(record.notes ?? "").includes(BACKFILL_NOTE);
 
   const measured: ShippedChangeRecord = {
     ...record,
@@ -194,6 +181,13 @@ export async function measureRecord(
     // row with no finalized Search data behind it stays exactly where it was.
     measurementState: canCompare && (record.measurementState === "insufficient_comparison" || record.measurementState === "measurement_unavailable")
       ? "measuring" : record.measurementState,
+    // NO STORED SHIPMENT IS WINDOWLESS OR METRICLESS (operator, 2026-09-03). A row with no primary window can never resolve and a row with no
+    // yardstick lets every later reading pick its own, so the ordinary pass stamps the plan a row recorded today gets: the 28 day primary
+    // window, and the objective this change's own scope names, which is the same rule the AI outcome already reads. FORWARD ONLY: a plan, a
+    // metric, a verdict, an override and a pinned reading already on file are all left exactly as they are.
+    judgedMetric: record.judgedMetric ?? (record.aiScope ? objectiveOfStage(record.aiScope.stage) : "clicks"),
+    primaryWindowDays: record.primaryWindowDays ?? 28,
+    notes: repaired ? [record.notes, BACKFILL_NOTE].filter(Boolean).join(" ") : record.notes,
     measuredAt: readSomething ? now.toISOString() : record.measuredAt,
     updatedAt: now.toISOString(),
   };
@@ -443,8 +437,7 @@ export async function recordShippedChange(args: {
     measuredAt: null,
     notes: args.notes ?? null,
     verifiedLive: args.verifiedLive ?? false,
-    liveSourceUrl: args.liveSourceUrl ?? null,
-    recrawlRequestedAt: null,
+    liveSourceUrl: args.liveSourceUrl ?? null, lastCrawlAt: null, // nothing has asked Google when it last read this page
     operatorVerdictOverride: null,
     proposalId: ship?.proposalId ?? null,
     proposalVersion: ship?.proposalVersion ?? null,
@@ -484,5 +477,5 @@ export async function recordShippedChange(args: {
     args.openPaths ?? openChangePaths(args.tenantId), // and its one read of the open changes
   ]);
   return measureRecord(args.tenantId, draft, now, undefined,
-    contaminatedPaths(contaminationFor(ledger, open, now, draft)));
+    new Set(contaminationFor(ledger, open, now, draft).keys()));
 }

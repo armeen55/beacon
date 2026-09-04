@@ -83,10 +83,6 @@ export function contaminationFor(
   return out;
 }
 
-/** The paths this policy excludes, which is what the measure pass consumes. PURE. */
-export const contaminatedPaths = (m: ReadonlyMap<string, ContaminationReason>): ReadonlySet<string> =>
-  new Set(m.keys());
-
 // ── Matched comparison pages, and the receipt that says why ──────────────────
 
 /** WHY THIS PAGE QUALIFIED, in checkable facts and nothing else. Stored on the record. */

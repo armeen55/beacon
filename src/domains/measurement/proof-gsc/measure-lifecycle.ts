@@ -4,22 +4,23 @@
 
 import { reportingDay } from "@/lib/reporting-day";
 import { addDays } from "./kernel";
-import { PROOF_WINDOW_DAYS, type ProofWindowDay } from "./types";
+import { PROOF_WINDOW_DAYS } from "./types";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 
-/** The check-in dates after the stamp, one per checkpoint. Pure (UTC). */
-function proofCheckDates(anchorIso: string): Record<ProofWindowDay, string> {
-  return {
-    7: addDays(anchorIso, 7), 14: addDays(anchorIso, 14),
-    28: addDays(anchorIso, 28), 56: addDays(anchorIso, FOLLOW_UP_WINDOW_DAY),
-  };
+/** THE DAY ZERO EVERY CHECKPOINT COUNTS FROM, and whether the clock has started at all. The stamp is the day the operator marked the change
+ *  done, and a record written before there was a stamp counts from its ship date exactly as it always did, so no historical row moves. BUT
+ *  GOOGLE STARTS THE CLOCK, NOT THE PRESS: roughly two in five edited pages are not recrawled inside a week, so a day 3 to 7 reading taken
+ *  before the recrawl averages the changed page with the unchanged one Google is still serving and dilutes every early signal. `lastCrawlAt`
+ *  is what Search Console reports for this page: at or after the stamp it IS day zero, and before it the change is not indexed yet, so the
+ *  row is `awaiting` and no early signal is computed for it. Absent (never asked, or no inspection grant) is the ship clock, unchanged. A
+ *  stamp older than the crawl clock itself is not one and never reaches here: the store's own read seam decodes it as absent (CRAWL_STAMP_EPOCH,
+ *  shipped-change-store.ts), because the column carried a different meaning on 17 rows before this existed. Pure. */
+export function crawlClock(record: ShippedChangeRecord): { anchor: string; awaiting: boolean } {
+  const stamp = record.implementedAt ?? record.shippedAt, crawl = record.lastCrawlAt ?? null;
+  if (crawl == null) return { anchor: stamp, awaiting: false };
+  return crawl.slice(0, 10) >= stamp.slice(0, 10) ? { anchor: crawl, awaiting: false } : { anchor: stamp, awaiting: true }; // compared by DAY, because every window is
 }
-
-/** THE STAMP every checkpoint counts from: when the operator marked the change done. A record written before there was a stamp counts from
- *  its ship date exactly as it always did, so no historical row moves. Pure. */
-function anchorOf(record: ShippedChangeRecord): string {
-  return record.implementedAt ?? record.shippedAt;
-}
+const anchorOf = (record: ShippedChangeRecord): string => crawlClock(record).anchor;
 
 const MAX_MEASURE_WINDOW_DAYS = Math.max(...PROOF_WINDOW_DAYS);
 /** Grace after the last window before a still-"measuring" record is "stale". */
@@ -76,26 +77,13 @@ export function outcomeStateOf(record: ShippedChangeRecord, now: Date = new Date
   return "measuring";
 }
 
-/** E-39 D4 - verdict-lag repair, fail-closed and HONEST. For a record that has reached the 28-day + grace horizon without a settled mature
- *  verdict, decide what the measurement engine should do. PURE. - "in_window" still inside 28d + grace; ordinary measurement applies. -
- *  "settled" already has a mature won/lost/inconclusive verdict. - "recompute" horizon reached AND the 28-day GSC data is available now ->
- *  recompute + persist the provisional verdict, then settle + release the page/comparison reservations. - "release_unresolved" horizon
- *  reached but the required GSC data is NOT in -> RELEASE the page for editing (outcomeStateOf already reads "stale"), PRESERVE the
- *  unfinished measurement, NEVER fabricate a verdict. Wall-clock age never manufactures a verdict; missing data never permanently locks the
- *  operator out. Review P2 (E-39 D4 wiring): this used to also return `markState: "blocked_data"` and `retryEligible: boolean` on the
- *  "release_unresolved" branch, but nothing ever read either field - the ONLY consumer of this function (isDueForMeasure, below) reads
- *  `.kind === "recompute"` and nothing else. The honest outcomes those fields described are both already implemented by OTHER mechanisms:
- *  the "blocked_data" mark is deriveMeasurementMaturity's own independent derivation (measurement-maturity.ts, computed straight from the
- *  record's windows + the GSC watermark, no dependency on this function), and "release" is already outcomeStateOf's "stale" state once a
- *  never-measured record ages past the horizon. The one real gap - what an operator reads once the fair retry window itself is exhausted -
- *  is now handled directly inside deriveMeasurementMaturity with the SAME MAX_VERDICT_LAG_RETRY_DAYS bound used here (a distinct
- *  "unresolved" maturity + honest terminal copy), so it no longer needs a boolean threaded through this type. Narrowed to the shape that is
- *  actually consumed; dead fields removed. */
-type VerdictLagAction =
-  | { kind: "in_window" }
-  | { kind: "settled" }
-  | { kind: "recompute" }
-  | { kind: "release_unresolved" };
+/** E-39 D4 - verdict-lag repair, fail-closed and HONEST. For a record past the 28 day plus grace horizon with no settled mature verdict, what
+ *  the engine should do. "in_window" ordinary measurement still applies. "settled" a mature won, lost or inconclusive verdict is on file.
+ *  "recompute" the horizon is reached AND the 28 day data has finally arrived, so a provisional verdict can be computed, persisted, settled
+ *  and released. "release_unresolved" the horizon is reached and the data is NOT in, so the page is released for editing (outcomeStateOf
+ *  already reads "stale"), the unfinished measurement is preserved, and no verdict is fabricated. Wall-clock age never manufactures a verdict
+ *  and missing data never locks the operator out. Its one consumer is isDueForMeasure, which reads `.kind === "recompute"` and nothing else. PURE. */
+type VerdictLagAction = { kind: "in_window" | "settled" | "recompute" | "release_unresolved" };
 
 function resolveVerdictLag(
   record: ShippedChangeRecord,
@@ -117,9 +105,7 @@ function resolveVerdictLag(
 
   // Inside the bounded retry window: can the 28-day window run NOW (its required GSC data has finally arrived)? If so, recompute + persist
   // + settle + release.
-  const checks = proofCheckDates(anchorOf(record));
-  const required28 = addDays(checks[MAX_MEASURE_WINDOW_DAYS as ProofWindowDay], -1);
-  const dataAvailable = lastFinalizedDate != null && lastFinalizedDate >= required28;
+  const dataAvailable = lastFinalizedDate != null && lastFinalizedDate >= addDays(anchorOf(record), MAX_MEASURE_WINDOW_DAYS - 1);
   if (dataAvailable) return { kind: "recompute" };
 
   // Data still unavailable: never invent a verdict from age. Release + preserve, and stay eligible to retry as data arrives
@@ -170,6 +156,8 @@ export function day56Followup(
  *  note and a legacy override row are all "not read yet", and a reading taken over work I never found would credit whatever search does
  *  next to something that may never have happened. */
 const MEASURABLE_VERIFICATION: ReadonlySet<string> = new Set(["verified", "partially_verified"]);
+/** The two states a row is parked in when nothing could be found to stand behind it. Neither is a finished answer; both are asked again. */
+const DEAD_COMPARISON: ReadonlySet<string> = new Set(["insufficient_comparison", "measurement_unavailable"]);
 
 /** Is this record worth re-measuring now? PURE. True when a proof window can transition ran:false → true since the last measure (the GSC
  *  finalized watermark has advanced past a window's last day). Settled records still re-check inside the 28d window (a 7d "won" can flip at
@@ -184,6 +172,15 @@ export function isDueForMeasure(
 ): boolean {
   if (record.implementedAt != null && !MEASURABLE_VERIFICATION.has(record.verification?.status ?? "")) return false;
   if (lastFinalizedDate == null) return false; // no finalized GSC data → can't measure
+  // GOOGLE HAS NOT READ THE CHANGE YET, so there is nothing of it in the numbers: the row waits rather than banking a reading of the page as
+  // it still stands. Its crawl stamp is refreshed by the pass itself, so this releases the moment the recrawl lands.
+  if (crawlClock(record).awaiting) return false;
+  // THE REVIVAL IS REACHED (live pass 23, 2026-09-03). 26 rows sat in a dead comparison state and this gate answered "not due" for every one
+  // of them, so the clause in the reading that promotes them the moment a basis exists was never run at all, and the debt that opens a pass
+  // is counted with this very function, so the whole cohort kept itself invisible. A measurable row parked in one of those two states is due
+  // ONCE A DAY while Search has finalized data behind it: the reading either finds a basis and revives it, or finds none and leaves it
+  // exactly where it was. Once a day and not every pass, so a row that can never revive asks again tomorrow instead of forever.
+  if (DEAD_COMPARISON.has(record.measurementState ?? "")) return (record.updatedAt ?? "").slice(0, 10) < reportingDay(now);
   // The conditional day-56 read comes AFTER the ordinary horizon, so it is asked first.
   if (day56Followup(record, lastFinalizedDate, now).due) return true;
   if (ageDaysOf(record, now) > MAX_MEASURE_WINDOW_DAYS + STALE_GRACE_DAYS) {
@@ -192,11 +189,10 @@ export function isDueForMeasure(
     return resolveVerdictLag(record, lastFinalizedDate, now).kind === "recompute";
   }
 
-  const checks = proofCheckDates(anchorOf(record));
+  const anchor = anchorOf(record);
   const ranByDay = new Map<number, boolean>((record.windows ?? []).map((w) => [w.day, w.ran]));
   return PROOF_WINDOW_DAYS.some((day) => {
-    const checkOn = checks[day as ProofWindowDay];
-    const canRunNow = lastFinalizedDate >= addDays(checkOn, -1);
+    const canRunNow = lastFinalizedDate >= addDays(anchor, day - 1);
     const alreadyRan = ranByDay.get(day) ?? false;
     return canRunNow && !alreadyRan; // a newly-runnable window
   });

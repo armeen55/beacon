@@ -10,8 +10,7 @@ import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import { runSingleFlight } from "@/lib/single-flight";
 import { aiOutcomesForShipments, readLastFinalizedDate } from "@/domains/measurement";
 import { loadProofLedger, loadProofLedgerPersisted } from "@/domains/measurement";
-import { applyPinnedRead, pinFor, readLedger, recordPinnedRead, withCorrection,
-  recordPinnedReadCorrection, type ShippedChangeRecord } from "@/domains/measurement";
+import { applyPinnedRead, pinFor, readLedger, recordPinnedRead, withCorrection, type ShippedChangeRecord } from "@/domains/measurement";
 import {
   isResultsSurfaceStale,
   readResultsSurface,
@@ -198,7 +197,7 @@ async function pinFinishedReads(tenantId: string, records: ShippedChangeRecord[]
       const record = held[i]!;
       const corrected = withCorrection(record.pinnedRead, fresh[i]!, now);
       if (corrected && corrected !== record.pinnedRead) {
-        if (await recordPinnedReadCorrection(tenantId, record.id, corrected).catch(() => false)) record.pinnedRead = corrected;
+        if (await recordPinnedRead(tenantId, record.id, corrected, true).catch(() => false)) record.pinnedRead = corrected;
       }
     }
   }

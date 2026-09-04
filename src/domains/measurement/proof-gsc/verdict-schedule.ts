@@ -13,16 +13,9 @@
  */
 import { reportingDay } from "@/lib/reporting-day";
 import { addDays } from "./kernel";
-import { PROOF_WINDOW_DAYS, type ProofWindowDay } from "./types";
+import { PROOF_WINDOW_DAYS } from "./types";
 import { GSC_LAG_DAYS } from "@/domains/measurement/proof-gsc/kernel";
 
-/** The check-in dates after the stamp, one per window day. Pure (UTC). */
-function proofCheckDates(anchorIso: string): Record<ProofWindowDay, string> {
-  return {
-    7: addDays(anchorIso, 7), 14: addDays(anchorIso, 14),
-    28: addDays(anchorIso, 28), 56: addDays(anchorIso, 56),
-  };
-}
 import { splitLedgerLifecycle, type LedgerLifecycleRow } from "@/domains/decision/changes/lifecycle-counts";
 
 /** The final proof window; a change reaches its earliest final verdict at ship + this. */
@@ -41,14 +34,10 @@ export type VerdictScheduleRow = LedgerLifecycleRow & {
     checkOn?: string | null;
     controlsUsed?: number | null;
   }>;
-  /** Recrawl-gated SEARCH clock (measurement-maturity N11): once Google's index is
-   *  confirmed to hold the change, checkpoints count from here instead of shippedAt.
-   *  Absent falls back to the ship clock (legacy-identical). */
-  recrawlConfirmedAt?: string | null;
-  /** True while Google's index has NOT been observed holding the new content - the clock
-   *  has not started, so there is no known checkpoint yet (mirrors the deriveMeasurementMaturity
-   *  recrawlPending gate). */
-  recrawlPending?: boolean;
+  /** WHEN GOOGLE LAST CRAWLED THIS PAGE, the very field measure-lifecycle counts its windows from, so the date promised here and the day the
+   *  read actually lands can never be two different days. At or after the stamp it IS day zero; before it the change is not indexed yet, so
+   *  the clock has not started and this row has no checkpoint to promise. Absent is the ship clock, unchanged. */
+  lastCrawlAt?: string | null;
 };
 
 export type VerdictSchedule = {
@@ -74,23 +63,19 @@ function anchorOf(row: VerdictScheduleRow): string {
   return (row.implementedAt ?? row.shippedAt).slice(0, 10);
 }
 
-/** The day the SEARCH clock starts for a row: the confirmed recrawl date when it is known
- *  and not before the stamp, otherwise the stamp. Mirrors measurement-maturity's rule. */
-function searchClockStart(row: VerdictScheduleRow): string {
-  const anchor = anchorOf(row);
-  const confirmed = row.recrawlConfirmedAt;
-  if (confirmed && YMD.test(confirmed) && confirmed.slice(0, 10) >= anchor) return confirmed.slice(0, 10);
-  return anchor;
+/** The day the SEARCH clock starts for a row, and whether it has started at all: Google's last crawl where that is known and not before the
+ *  stamp, the stamp otherwise, and a crawl BEFORE the stamp means Google has not read the change yet, so this row has nothing to promise. */
+function searchClock(row: VerdictScheduleRow): { start: string; waiting: boolean } {
+  const anchor = anchorOf(row), crawl = row.lastCrawlAt ?? null;
+  if (crawl == null || !YMD.test(crawl)) return { start: anchor, waiting: false };
+  return crawl.slice(0, 10) >= anchor ? { start: crawl.slice(0, 10), waiting: false } : { start: anchor, waiting: true };
 }
 
-/** The earliest future unclosed checkpoint for ONE row, recrawl-aware; null when none. */
-function rowFirstRead(row: VerdictScheduleRow, nowYmd: string): string | null {
-  if (row.recrawlPending === true) return null; // clock not started -> no known checkpoint
-  const checks = proofCheckDates(searchClockStart(row));
+/** The earliest future unclosed checkpoint for ONE row on its own clock; null when none. */
+function rowFirstRead(row: VerdictScheduleRow, start: string, nowYmd: string): string | null {
   for (const d of PROOF_WINDOW_DAYS) {
-    const ran = row.windows.some((w) => w.day === d && w.ran);
-    const on = checks[d as ProofWindowDay];
-    if (!ran && on > nowYmd) return on;
+    const on = addDays(start, d);
+    if (!row.windows.some((w) => w.day === d && w.ran) && on > nowYmd) return on;
   }
   return null;
 }
@@ -111,9 +96,11 @@ export function verdictSchedule(
   let firstReadOn: string | null = null;
   let finalVerdictOn: string | null = null;
   for (const row of measuring) {
-    const first = rowFirstRead(row, nowYmd);
+    const clock = searchClock(row);
+    if (clock.waiting) continue; // Google has not read the change yet, so neither date of this row's is known
+    const first = rowFirstRead(row, clock.start, nowYmd);
     if (first != null && (firstReadOn == null || first < firstReadOn)) firstReadOn = first;
-    const final = addDays(anchorOf(row), FINAL_WINDOW_DAY);
+    const final = addDays(clock.start, FINAL_WINDOW_DAY);
     if (final > nowYmd && (finalVerdictOn == null || final < finalVerdictOn)) finalVerdictOn = final;
   }
   const reliableDataOn = finalVerdictOn != null ? addDays(finalVerdictOn, GSC_LAG_DAYS) : null;
