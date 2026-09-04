@@ -20,20 +20,20 @@ type Lane = "ready" | "todo" | "research";
 /** How long a skip stays takeable-back before the store is told. Nothing is written until it ends. */
 const UNDO_MS = 10_000;
 
-/** The plain-language kind of work a preparing row is, for the collapsed lane's tally: what a customer calls it, never a producer slug. */
+/** The plain-language kind of work a preparing row is, for the collapsed lane's tally: what a customer calls it, never a producer slug.
+ *  WHAT it is comes from the field; WHAT IS HAPPENING TO IT comes from the row's own typed obligation and nothing else (2026-09-04).
+ *  "being written and checked" was printed over every unfinished row of a field, so a change waiting on a source read, one waiting on
+ *  Beacon's own reviewer and one genuinely being written all said the same thing, and the lane could not be told apart from a stall. */
 const preparingKind = (p: ChangeProposal): string => {
-  const c = p.recommendedChange;
-  if (c.kind === "new_page") return "new pages being outlined and written";
-  if (p.id.endsWith("::internal_link")) return "links between your own pages being placed";
-  if (p.researchOnly === true) {
-    if (c.kind === "existing_edit" && c.field === "meta") return "page descriptions waiting on evidence";
-    if (c.kind === "existing_edit" && (c.field === "section" || c.field === "answer_block")) return "sections and answers waiting on evidence";
-    return "pages being read and diagnosed";
-  }
-  if (c.kind === "existing_edit" && c.field === "meta") return "page descriptions being written and checked";
-  if (c.kind === "existing_edit" && (c.field === "section" || c.field === "answer_block")) return "sections and answers being written and checked";
-  if (c.kind === "existing_edit" && (c.field === "title" || c.field === "h1")) return "titles and headings being written and checked";
-  return "changes being written and checked";
+  const c = p.recommendedChange, field = c.kind === "existing_edit" ? c.field : null;
+  const what = c.kind === "new_page" ? "new pages"
+    : p.id.endsWith("::internal_link") ? "links between your own pages"
+    : field === "meta" ? "page descriptions"
+    : field === "section" || field === "answer_block" ? "sections and answers"
+    : field === "title" || field === "h1" ? "titles and headings" : "changes";
+  const owed = p.obligation?.kind;
+  return `${what} ${owed === "evidence" ? "waiting on a source read" : owed === "review" ? "waiting on Beacon's own reviewer"
+    : owed === "draft" || owed === "sections" || owed === "redraft" ? "being written" : owed === "terminal" ? "settled until the evidence changes" : "waiting for the next pass"}`;
 };
 
 export function ChangesListClient({ view }: { view: ChangesView }) {
