@@ -1,37 +1,18 @@
 /** THE NIGHT THE SEARCH READ TIMED OUT. One statement timeout on the 90-day page-signal aggregate was served to every surface as an account with no search data at all: every page then judged clean, every $0 producer emitted nothing, and the sweep behind them read that silence as "the generator no longer stands behind these cards" and withdrew the operator's open queue mid-edit. Withdrawal is permanent in practice, so the cards were gone. Each test below pins one link of that chain. Fixture level: no live replay. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 type RpcAnswer = { data?: unknown; error?: { message: string; code?: string } | null };
-const env = vi.hoisted(() => ({
-  /** Queued answers per RPC name; the last one repeats. */
-  rpc: {} as Record<string, RpcAnswer[]>,
-  calls: [] as Array<{ name: string; args: unknown }>,
-  snapshot: null as unknown,
-  /** EVERY DURABLE WRITE THE PRODUCE PATH CAN MAKE, named as it happens, so a dry run can be asked to have made none. */
-  wrote: [] as string[],
-  /** THE LAST ROW THE STORE WAS HANDED FOR EACH ID: what persistence actually keeps. */
-  saved: new Map<string, ChangeProposal>(),
-  store: new Map<string, unknown>(),
-  withdrawn: [] as string[],
-  /** The 28-day AI window as the producer's read sees it: rows, or the read failing outright. */
-  aiWindow: [] as unknown[] | "fail",
-  /** The durable disposition table, shared across simulated cold instances. */
-  dispositions: new Map<string, Record<string, unknown>>(),
-  upserts: 0,}));
+const env = vi.hoisted(() => ({ /** Queued answers per RPC name; the last one repeats. */ rpc: {} as Record<string, RpcAnswer[]>, calls: [] as Array<{ name: string; args: unknown }>, snapshot: null as unknown,
+  /** EVERY DURABLE WRITE THE PRODUCE PATH CAN MAKE, named as it happens, so a dry run can be asked to have made none. */ wrote: [] as string[],
+  /** THE LAST ROW THE STORE WAS HANDED FOR EACH ID: what persistence actually keeps. */ saved: new Map<string, ChangeProposal>(), store: new Map<string, unknown>(), withdrawn: [] as string[],
+  /** The 28-day AI window as the producer's read sees it: rows, or the read failing outright. */ aiWindow: [] as unknown[] | "fail",
+  /** The durable disposition table, shared across simulated cold instances. */ dispositions: new Map<string, Record<string, unknown>>(), upserts: 0,}));
 /** A Supabase admin whose every builder method chains; the disposition writer implements its migration's documented semantics, so the durability tests exercise the contract. */
 vi.mock("@/lib/persistence/supabase", () => {
-  const chain = (answer: RpcAnswer): unknown =>
-    new Proxy({} as Record<string, unknown>, {
-      get: (_t, prop) => {
-        if (prop === "then") return (res: (v: RpcAnswer) => unknown, rej: (e: unknown) => unknown) =>
-          Promise.resolve({ data: answer.data ?? null, error: answer.error ?? null }).then(res, rej);
-        return () => chain(answer);
-      }, });
-  const next = (name: string): RpcAnswer => {
-    const queue = env.rpc[name];
-    if (!queue || queue.length === 0) return { data: [] };
-    return queue.length === 1 ? queue[0]! : queue.shift()!;};
-  const upsertDispositions = (tenant: string, raw: unknown[]): number => {
-    let landed = 0;
+  const chain = (answer: RpcAnswer): unknown => new Proxy({} as Record<string, unknown>, { get: (_t, prop) => {
+    if (prop === "then") return (res: (v: RpcAnswer) => unknown, rej: (e: unknown) => unknown) => Promise.resolve({ data: answer.data ?? null, error: answer.error ?? null }).then(res, rej);
+    return () => chain(answer); }, });
+  const next = (name: string): RpcAnswer => { const queue = env.rpc[name]; if (!queue || queue.length === 0) return { data: [] }; return queue.length === 1 ? queue[0]! : queue.shift()!;};
+  const upsertDispositions = (tenant: string, raw: unknown[]): number => { let landed = 0;
     for (const r of raw as Array<Record<string, unknown>>) {
       if (!r.caseKey || !r.reason) continue;
       const k = `${tenant}|${String(r.caseKey)}`, held = env.dispositions.get(k);
@@ -42,42 +23,27 @@ vi.mock("@/lib/persistence/supabase", () => {
         decided_at: r.decidedAt, diagnosis: r.diagnosis ?? held?.diagnosis ?? null }); // the migration's coalesce: an unruled pass strips no banked reading
       landed += 1;}
     return landed;};
-  return {
-    isSupabaseConfigured: () => true,
-    getSupabaseAdmin: () => ({
-      rpc: (name: string, args: unknown) => {
-        env.calls.push({ name, args });
-        if (name === "upsert_ai_case_dispositions") {
-          env.upserts += 1;
-          const a = args as { p_tenant_id: string; p_rows: unknown[] };
+  return { isSupabaseConfigured: () => true, getSupabaseAdmin: () => ({
+      rpc: (name: string, args: unknown) => { env.calls.push({ name, args });
+        if (name === "upsert_ai_case_dispositions") { env.upserts += 1; const a = args as { p_tenant_id: string; p_rows: unknown[] };
           return chain({ data: upsertDispositions(a.p_tenant_id, a.p_rows) as unknown as unknown[] });}
         return chain(next(name));},
-      from: (table: string) => table === "ai_case_dispositions"
-        ? chain({ data: [...env.dispositions.values()] as unknown as unknown[] })
-        : chain({ data: [] }),}),
-  }; });
+      from: (table: string) => table === "ai_case_dispositions" ? chain({ data: [...env.dispositions.values()] as unknown as unknown[] }) : chain({ data: [] }),}), }; });
 /** The producer's own window read, failable on demand. */
 vi.mock("@/domains/evidence/ai-visibility/ai-observations", async (orig) => {
   const actual = (await orig()) as typeof import("@/domains/evidence/ai-visibility/ai-observations");
-  return { ...actual, readAiObservations: async () => {
-    if (env.aiWindow === "fail") throw new Error("canceling statement due to statement timeout");
-    return env.aiWindow;
-  } }; });
+  return { ...actual, readAiObservations: async () => { if (env.aiWindow === "fail") throw new Error("canceling statement due to statement timeout"); return env.aiWindow; } }; });
 vi.mock("@/domains/decision/coverage-pass", async (orig) => {
   const actual = (await orig()) as typeof import("@/domains/decision/coverage-pass");
   return { ...actual, readCoverage: async () => null, recordCoverageNeeds: async () => undefined }; });
 vi.mock("@/domains/evidence/ai-visibility/answer-journeys", async (orig) => {
   const actual = (await orig()) as typeof import("@/domains/evidence/ai-visibility/answer-journeys");
   return { ...actual, readAnswerJourneys: async () => [] }; });
-vi.mock("@/domains/account", () => ({
-  loadBusinessProfile: async () => null,
-  getTenant: async () => ({ id: "tenant-fx", domain: "fixture.example", growth_goal: null }),
-  basisTag: () => "basis_fx",}));
+vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "tenant-fx", domain: "fixture.example", growth_goal: null }), basisTag: () => "basis_fx",}));
 /** The real loader unless a test pins a snapshot: part of this file exercises it, part feeds the producer. */
 vi.mock("@/domains/evidence/snapshot-loader", async (orig) => {
   const actual = (await orig()) as typeof import("@/domains/evidence/snapshot-loader");
-  return { ...actual, loadEvidenceSnapshot: async (t: string, o: never) =>
-    env.snapshot ?? actual.loadEvidenceSnapshot(t, o) }; });
+  return { ...actual, loadEvidenceSnapshot: async (t: string, o: never) => env.snapshot ?? actual.loadEvidenceSnapshot(t, o) }; });
 vi.mock("@/domains/decision/proposal-store", async (orig) => {
   const actual = (await orig()) as typeof import("@/domains/decision/proposal-store");
   return { ...actual,

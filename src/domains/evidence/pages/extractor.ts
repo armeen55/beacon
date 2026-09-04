@@ -366,8 +366,7 @@ export function extractPageSnapshot(
   // so a client-rendered page with zero extracted words graded "confirmed" (the 500-surname page stored
   // as blank while ranking position 4.9): markup in the head proves nothing about the body a reader sees.
   const hasBodyContent = wordCount > 50;
-  const extractionCertainty: import("./types").ExtractionCertainty =
-    hasBodyContent ? "confirmed" : "uncertain";
+  const extractionCertainty: "confirmed" | "uncertain" = hasBodyContent ? "confirmed" : "uncertain";
 
   return {
     id: `snap-${pageId}-${Date.now()}`,
