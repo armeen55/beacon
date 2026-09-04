@@ -35,8 +35,10 @@ const DAY_NOW = (): string => new Date().toLocaleDateString("en-US", { month: "l
 const fieldWord = (f: string): string => (f === "meta" ? "meta description" : f.replace(/_/g, " ")); // THE OFFICIAL TERM, EVERYWHERE (operator ruling, 2026-08-29): every SEO description is called "meta description"; bare "description" is reserved for visible content
 
 /** Effort in the operator's own units: sixty minutes is an hour, and "about 60 min" read like a rounding error. */
-const effortLabel = (m: number): string =>
-  m < 60 ? `${m} min` : ((h) => `${h} ${h === 1 ? "hour" : "hours"}`)(Math.round((m / 60) * 10) / 10);
+const effortLabel = (m: number): string => m < 60 ? `${m} min` : ((h) => `${h} ${h === 1 ? "hour" : "hours"}`)(Math.round((m / 60) * 10) / 10);
+/** WHAT THE READ AHEAD CAN AND CANNOT SETTLE, said at the press rather than a month later. The page's own floor is a Search
+ *  Console figure this card never carries, so the half that is true of every page is stated here and Results prints the number. */
+const MEASURING_PLAN = "Clicks are read after 28 days. A change too small for this page's own traffic to show is read across the batch.";
 
 /** A CONSOLIDATION IS NOT A PASTEABLE LINE: it merges or retires live pages, so it carries ordered steps and a
  *  confirmation instead of a copy box. A search naming a year dies every January, so it is worth redoing then. */
@@ -166,7 +168,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   if (done) return (
     <li className="rounded-2xl border border-accent-primary/50 bg-surface-raised p-4" data-change-card="done">
       <p className="text-[14px] font-semibold text-foreground">{pageTitle}</p>
-      <p className="mt-1 text-[13px] text-muted-foreground" data-card-done="true">Done. Measuring from {DAY_NOW()}.</p>
+      <p className="mt-1 text-[13px] text-muted-foreground" data-card-done="true">Done. Measuring from {DAY_NOW()}. {MEASURING_PLAN}</p>
     </li>
   );
 

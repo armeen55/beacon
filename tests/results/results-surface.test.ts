@@ -12,20 +12,17 @@ import { buildHeadline } from "@/domains/measurement/proof-gsc/read-honesty";
 const NOW = new Date("2026-06-01T00:00:00Z");
 const SHIPPED = "2026-05-01";
 const WINDOWS = evaluateWindows(SHIPPED, NOW, "2026-06-01");
-const win = (day: 7 | 14 | 28, over: Partial<KernelInput["windows"][number]> = {}) => ({
-  day, ran: true, adjustedClicksLift: 40, adjustedCtrLift: 0.02, adjustedPosLift: 0,
-  adjustedImpressionsLift: 120, controlsUsed: 3, treatedPostImpressions: 5000, ...over,});
+const win = (day: 7 | 14 | 28, over: Partial<KernelInput["windows"][number]> = {}) => ({ day, ran: true, adjustedClicksLift: 40,
+  adjustedCtrLift: 0.02, adjustedPosLift: 0, adjustedImpressionsLift: 120, controlsUsed: 3, treatedPostImpressions: 5000, ...over,});
 const input = (over: Partial<KernelInput> = {}): KernelInput => ({
-  id: "c1", page: "https://site.com/nowruz", path: "/nowruz", actionType: "section_add",
+  id: "c1", page: "https://site.com/nowruz", path: "/nowruz", actionType: "section_add", windows: [win(7), win(14), win(28)],
   shippedAt: SHIPPED, implementedAt: SHIPPED, baselineImpressions: 9100, baselineClicks: 200,
-  windows: [win(7), win(14), win(28)],
   componentKinds: ["title", "section_add"], diagnosisCause: "ctr_snippet", evidenceItemCount: 6, ...over,});
 const VERIFICATION: ShipmentVerification = { status: "partially_verified", checkedAt: "2026-05-03T09:00:00Z",
   components: [{ kind: "title", state: "verified", note: null }] };
 const shipment = (over: Partial<ShipmentPresentation> = {}): ShipmentPresentation => ({
   read: evaluateChange(input(), WINDOWS, []), implementedAt: `${SHIPPED}T12:00:00Z`, verification: VERIFICATION,
-  baseline: { clicks: 200, impressions: 9100, windowDays: 28, capturedAt: `${SHIPPED}T12:00:00Z` },
-  basisMove: { clicks: 61, impressions: 900 }, ...over,});
+  baseline: { clicks: 200, impressions: 9100, windowDays: 28, capturedAt: `${SHIPPED}T12:00:00Z` }, basisMove: { clicks: 61, impressions: 900 }, ...over,});
 const first = (over: Partial<ShipmentPresentation> = {}) => {
   const rows = buildResultsView([shipment(over)], NOW).rows;
   return (["worked", "down", "flat", "reading"] as const).map((g) => rows[g][0]).find((r) => r != null)!;};
@@ -44,7 +41,7 @@ describe("one change gets one line", () => {
     expect([row.liftLabel, row.impressionsLabel, row.readLabel, row.pipCaption, row.work]).toEqual(["+40 clicks ahead", "+120 shown", "28 day read done", "Done May 29", "a new section"]);
     expect(row.pips).toEqual([{ day: 7, state: "read" }, { day: 14, state: "read" }, { day: 28, state: "read" }]);});
   it("calls a loss a loss, holds an early lean as still reading, and never grades them on different rules", () => {
-    expect([first({ read: declined }).verdictWord, first({ read: declined }).liftLabel, first({ read: declined }).happened]).toEqual(["Verified early signal", "-30 clicks behind", "Ran 28 days. Estimated lift: 30 clicks behind pages that were not changed."]);
+    expect([first({ read: declined }).verdictWord, first({ read: declined }).liftLabel, first({ read: declined }).happened]).toEqual(["Verified early signal", "-30 clicks behind", "Ran 28 days. 30 clicks behind pages that were not changed, which this page's own clicks cannot prove: about 28 percent is the least a change here can show, and this one is 15 percent."]);
     const early = evaluateChange(input({ windows: [win(7)] }), evaluateWindows(SHIPPED, new Date("2026-05-09T00:00:00Z"), "2026-05-09"), []); // PIN: ONE MATURITY RULE. A 7 day lean is not a win and not a loss: until the window closes the row reads as Reading, which is what the header already claimed, and the running estimate stays on screen beside it.
     expect([first({ read: early }).group, first({ read: early }).verdictWord, first({ read: early }).happened]).toEqual(["reading", "Reading", "7 days in. Estimated lift: 40 clicks ahead of pages that were not changed."]);});
   it("claims no number on a read shared with a later change, and keeps the estimate visible as shared credit", () => {
@@ -57,13 +54,17 @@ describe("one change gets one line", () => {
   it("says what has been read instead of a number while a change is still reading", () => {
     const rows = buildResultsView([shipment({ read: measuring })], new Date("2026-05-03T00:00:00Z")).rows; const row = rows.reading[0]!;
     expect([row.group, row.verdictWord, row.dot, row.liftLabel, row.impressionsLabel, row.bar]).toEqual(["reading", "Live verified", "sky", null, null, null]);
-    expect([row.readLabel, row.pipCaption, row.happened, row.nextStep]).toEqual(["Nothing read yet", "Next May 8", "Nothing read yet. The first result lands May 8.", "Nothing to do until the next read lands May 8."]);});});
+    const crawl = (lastCrawlAt: string) => first({ read: evaluateChange(input({ lastCrawlAt, windows: [] }), evaluateWindows(SHIPPED, new Date("2026-05-03T00:00:00Z"), "2026-05-03"), []) });
+    expect([crawl("2026-04-28T09:00:00.000Z").happened, crawl("2026-04-28T09:00:00.000Z").nextStep, crawl("2026-05-02T09:00:00.000Z").happened], "AND GOOGLE STARTS THE CLOCK, NOT THE PRESS (2026-09-03): a page Google last read BEFORE the change is still serving the old copy, so the row says what it waits on and promises no date at all; once the crawl lands at or after the change the row reads exactly as it does without one.").toEqual(["Waiting for Google to recrawl this page, changed 31 days ago.", "Nothing to do until Google reads this page again.", first({ read: measuring }).happened]);
+    expect([row.readLabel, row.pipCaption, row.happened, row.nextStep], "AND THE PLAN IS STATED AT SHIP TIME IN THE PAGE'S OWN NUMBER (2026-09-03): 200 clicks over 28 days can show 28 percent and nothing smaller, so the row says what it will be able to prove before it claims anything.").toEqual(["Nothing read yet", "Next May 8", "Nothing read yet. The first result lands May 8. Clicks are read after 28 days; this page can show a change of about 28 percent or more on its own; smaller movement is read across the batch.", "Nothing to do until the next read lands May 8."]);});});
 describe("opening a change says what happened, against what, and what to do next", () => {
   it("gives one sentence, the before and after, the dates and what it carries forward", () => {
-    const row = first(), fortnight = evaluateChange(input({ windows: [win(7), win(14)] }), evaluateWindows(SHIPPED, new Date("2026-05-20T00:00:00Z"), "2026-05-20"), []), blindRead = evaluateChange(input({ windows: [win(7), win(14), win(28, { comparedToSite: true, controlsUsed: 1 })] }), WINDOWS, []); expect(row.happened).toBe("Ran 28 days. Estimated lift: 40 clicks ahead of pages that were not changed.");
+    const row = first(), fortnight = evaluateChange(input({ windows: [win(7), win(14)] }), evaluateWindows(SHIPPED, new Date("2026-05-20T00:00:00Z"), "2026-05-20"), []), blindRead = evaluateChange(input({ windows: [win(7), win(14), win(28, { comparedToSite: true, controlsUsed: 1 })] }), WINDOWS, []); expect(row.happened).toBe("Ran 28 days. 40 clicks ahead of pages that were not changed, which this page's own clicks cannot prove: about 28 percent is the least a change here can show, and this one is 20 percent.");
     expect(row.numbers).toEqual({ before: ["200", "9,100"], after: ["261", "10,000"] }); expect(row.timeline).toEqual([{ label: "Marked done May 1", done: true }, { label: "Live page checked May 3", done: true }, { label: "28 day read May 29", done: true }]);
     expect(row.taught).toBe("This page read as the line searchers saw not matching what they typed, it was answered with a content change, the page moved up after it. That carries into what gets recommended next on pages like this one. Backed by 6 checks.");
     expect([row.comparedAgainst, row.unadjustedNote]).toEqual([[], null]); // nothing to show is shown as nothing
+    expect(first({ read: evaluateChange(input({ baselineClicks: 2000, windows: [win(28, { adjustedClicksLift: 400 })] }), WINDOWS, []) }).happened, "AND A PAGE WITH THE CLICKS TO SHOW IT READS EXACTLY AS IT ALWAYS DID (2026-09-03): the same 20 percent on 2,000 clicks clears the floor that page's own traffic sets, so the estimate stands as the answer, where 40 on 200 does not.").toBe("Ran 28 days. Estimated lift: 400 clicks ahead of pages that were not changed.");
+    expect(first({ read: evaluateChange(input({ baselineClicks: 2, windows: [win(28, { adjustedClicksLift: 3 })] }), WINDOWS, []) }).happened, "and a page carrying under 6 clicks across the days before and after gets no result sentence of any kind").toBe("Ran 28 days. Too few clicks on this page for a change of any size to show, so no result is claimed for it on its own.");
     expect([fortnight.basisDay, bandOf(fortnight), first({ read: fortnight }).verdictWord, first({ read: fortnight }).taught], "A READING AT 14 DAYS TEACHES AND IS STILL NOT A WIN (operator, 2026-09-03): nothing reached the recommendation engine until a 28 day window closed, so one month of shipments could never aim the next. The first reading now carries forward on day 14, the band is still promising and never won, and the row says out loud when the win gets called.").toEqual([14, "promising", "Reading", "This page read as the line searchers saw not matching what they typed, it was answered with a content change, the page moved up after it. That carries into what gets recommended next on pages like this one. A win is only called at 28 days. Backed by 6 checks."]);
     expect([blindRead.comparison, blindRead.basisDay, first({ read: blindRead }).taught], "AND A READING AGAINST THE SITE'S OWN MOVEMENT TEACHES NOTHING AT ANY DAY (reviewer, 2026-09-03): on a day a whole family ships, that comparison subtracts the shared gain from itself and reports no movement, so treatment-learning refuses it and the row may not promise a lesson that is never coming.").toEqual(["site", 28, "This page read as the line searchers saw not matching what they typed, it was answered with a content change, the page moved up after it. Nothing is learned from this one. Too few untouched pages matched it, so the comparison was the rest of the site, and that cannot tell a gain this change made from one the whole site shared. Backed by 6 checks."]); });
   it("a read nobody confirmed on the live page is context only: it never promises to shape what gets recommended", () => {
@@ -76,7 +77,7 @@ describe("opening a change says what happened, against what, and what to do next
   it("names the pages it stood against, and only calls them similar once it can back that", () => {
     const row = first({ controlsReceipt: [{ path: "/a", reasons: ["same page type: city", "traffic within 5x", "4,000 impressions against 9,100 on the changed page"] }, { path: "/b", reasons: [] }] });
     expect(row.comparedAgainst).toEqual(["/a (same kind of page; similar traffic)", "/b"]); // said in words, and a reason with no plain wording is dropped rather than printed raw
-    expect(row.happened).toBe("Ran 28 days. Estimated lift: 40 clicks ahead of similar pages that were not changed.");});
+    expect(row.happened).toBe("Ran 28 days. 40 clicks ahead of similar pages that were not changed, which this page's own clicks cannot prove: about 28 percent is the least a change here can show, and this one is 20 percent.");});
   it("shows the site's own before and after, labeled unadjusted, where no fair comparison exists", () => {
     const row = first({ read: evaluateChange(input({ windows: [win(28, { controlsUsed: 1, treatedDelta: 17 })] }), WINDOWS, []) });  // Too few pages to stand behind it is NOT too little data: the days ran, so the page's own move is shown.
     expect(row.happened).toBe("Ran 28 days. A fair comparison is not available: too few pages on this site can stand behind this one."); expect(row.unadjustedNote).toBe("Before 200 clicks / After 217 clicks, unadjusted: the site moved too.");
@@ -126,9 +127,8 @@ describe("what the screen calls the work, and what it will not promise", () => {
       expect(line, line).not.toMatch(/\b(I|me|my|we|our)\b/); expect(line, line).not.toMatch(/[\u2013\u2014]/);}
     expect(buildResultsCsv([shipment().read, declined, measuring, sharedCredit, cutOff]), "first person in the export").not.toMatch(/\b(I|me|my|we|our)\b/);});});
 describe("an AI change is judged on the thing it was raised to move", () => {
-  const flatOnGoogle = evaluateChange(input({ windows: [win(7, { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 }),
-    win(14, { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 }),
-    win(28, { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 })] }), WINDOWS, []);
+  const level0 = { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 };
+  const flatOnGoogle = evaluateChange(input({ windows: [win(7, level0), win(14, level0), win(28, level0)] }), WINDOWS, []);
   const ai = (direction: "improved" | "worsened" | "no_clear_movement" | "unclear", daysElapsed = 28) => // A FINISHED AI READ, because the same maturity rule holds on both sides: a lean taken three days in is still reading rather than a verdict, exactly as a 7 day Google lean is.
     ({ direction, line: "Credited on 6 of the 20 answers that reported their sources, up from 1 of 18 before.", metricLines: [], boundary: null, daysElapsed });
   it("keeps an unfinished AI read in the reading lane rather than calling it early", () => {
@@ -153,13 +153,13 @@ describe("an AI change is judged on the thing it was raised to move", () => {
     const row = first({ read: declined, judgedMetric: "ai_citation", ai: ai("improved") }); expect([row.group, row.verdictWord, row.liftLabel, row.bar! > 0, row.impressionsLabel]).toEqual(["worked", "Verified early signal", "Credited more often", true, null]);
     expect([row.happened, row.nextStep]).toEqual(["Ran 28 days. Credited in AI answers more often than before.", "Do this again on the next page AI answers name without crediting."]);
     for (const s of fields(row)) expect(s, `contradicts the win: ${s}`).not.toMatch(CONTRADICTS);
-    expect(row.googleAside).toEqual({ heading: "Google search, for context", line: "Ran 28 days. Estimated lift: 30 clicks behind pages that were not changed." }); // NOT HIDDEN, JUST NOT THE ANSWER: the decline keeps its sentence and its before and after, under a heading that says whose number it is.
+    expect(row.googleAside).toEqual({ heading: "Google search, for context", line: "Ran 28 days. 30 clicks behind pages that were not changed, which this page's own clicks cannot prove: about 28 percent is the least a change here can show, and this one is 15 percent." }); // NOT HIDDEN, JUST NOT THE ANSWER: the decline keeps its sentence and its before and after, under a heading that says whose number it is.
     expect(row.numbers).toEqual({ before: ["200", "9,100"], after: ["261", "10,000"] });});
   it("refuses to read as a win when Google moved and the declared objective did not", () => {
     const row = first({ judgedMetric: "ai_citation", ai: ai("no_clear_movement") }); expect([row.group, row.verdictWord, row.liftLabel, row.bar]).toEqual(["flat", "Inconclusive", "Credited with no clear movement yet", 0]);
     expect(row.happened).toBe("Ran 28 days. Credited in AI answers with no clear movement yet."); expect(row.taught).toContain("it was credited in AI answers with no clear movement yet");
     expect(row.nextStep).toBe("Being credited has not moved. Put the fact those answers credit elsewhere on this page, in your own words, then measure again.");
-    expect(row.googleAside!.line).toBe("Ran 28 days. Estimated lift: 40 clicks ahead of pages that were not changed.");
+    expect(row.googleAside!.line).toBe("Ran 28 days. 40 clicks ahead of pages that were not changed, which this page's own clicks cannot prove: about 28 percent is the least a change here can show, and this one is 20 percent.");
     for (const s of fields(row)) expect(s, `reads as a win: ${s}`).not.toMatch(/\bworked\b|ahead|\bwin\b|more often/i); });
   it("speaks the same way on every objective: no slug, no first person, no dash, no lab word, and always a next step", () => { // FOUR OBJECTIVES, FOUR DIRECTIONS, THREE STRETCHES: hand-written copy on one objective is a sample, and the sample is how a branch gets rewritten while its sibling keeps saying the old thing. Walk the space instead.
     for (const m of ["ai_citation", "ai_citation_conversion", "ai_retrieval", "ai_mentions"] as const)
@@ -175,15 +175,13 @@ describe("an AI change is judged on the thing it was raised to move", () => {
       .toEqual([plain.liftLabel, plain.bar, plain.impressionsLabel, plain.readLabel, plain.pipCaption, plain.happened, plain.taught, plain.nextStep]);
     expect([declared.pips, declared.timeline, declared.googleAside, declared.group, declared.yardstick]).toEqual([plain.pips, plain.timeline, null, plain.group, null]); // grouped exactly as it always was, and nothing new is claimed on a row judged the old way
     expect([declared.liftLabel, declared.impressionsLabel, declared.happened, declared.nextStep]).toEqual(["+40 clicks ahead", "+120 shown",
-      "Ran 28 days. Estimated lift: 40 clicks ahead of pages that were not changed.", "Add the same kind of section to a similar page."]);});});
+      "Ran 28 days. 40 clicks ahead of pages that were not changed, which this page's own clicks cannot prove: about 28 percent is the least a change here can show, and this one is 20 percent.", "Add the same kind of section to a similar page."]);});});
 describe("the surface never renders uncertainty as No change", () => {
   const render = async (over: Partial<ShipmentPresentation>) => {
-    const [{ renderToStaticMarkup }, { createElement }, { ResultsRows }] = await Promise.all([
-      import("react-dom/server"), import("react"), import("@/app/(shell)/results/results-rows-client")]);
+    const [{ renderToStaticMarkup }, { createElement }, { ResultsRows }] = await Promise.all([import("react-dom/server"), import("react"), import("@/app/(shell)/results/results-rows-client")]);
     return renderToStaticMarkup(createElement(ResultsRows, { view: buildResultsView([shipment(over)], NOW) }));};
-  const aiRow = (direction: "no_clear_movement" | "mixed" | "unclear", terminal = false) =>
-    ({ judgedMetric: "ai_citation" as const, ai: { direction, terminal, daysElapsed: 28, metricLines: [], boundary: null,
-      line: terminal ? "Not measurable: where the AI answers stood when this was marked done was not on file." : "No clear movement." } });
+  const aiRow = (direction: "no_clear_movement" | "mixed" | "unclear", terminal = false) => ({ judgedMetric: "ai_citation" as const,
+    ai: { direction, terminal, daysElapsed: 28, metricLines: [], boundary: null, line: terminal ? "Not measurable: where the AI answers stood when this was marked done was not on file." : "No clear movement." } });
   it("names each silence as itself, and never as No change", async () => {
     for (const [row, said] of [[aiRow("no_clear_movement"), /No clear movement|no clear movement/],
       [aiRow("mixed"), /Assistants split|assistants split/], [aiRow("unclear", true), /Not measurable/]] as const) {

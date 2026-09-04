@@ -76,7 +76,6 @@ const FAMILY_LABEL: Record<string, string> = {
 
 // -- the shared shape of a read -----------------------------------------------
 
-
 /** THE CHANGE IS FILED UNDER THE YARDSTICK IT DECLARED. Every row was grouped by the Google verdict and the AI
  *  reading was a sentence underneath, so a change raised to win a CITATION could win exactly that and sit under
  *  "No change", while one that moved no citation at all sat under "Worked" for traffic it was never aimed at
@@ -186,13 +185,9 @@ const aiStory = (p: ShipmentPresentation) => AI_STORY[p.judgedMetric ?? ""];
 /** Days since the stamp, which is what the AI half is read over. A row that carries no count has had nothing read, never 28 days of nothing. */
 const aiDays = (p: ShipmentPresentation): number => Math.max(0, Math.min(28, Math.round(p.ai?.daysElapsed ?? 0)));
 
-
 /** The size of a move, never its sign: the sentence around it owns the direction. */
 function liftSize(metric: KernelRead["metric"], lift: number): string {
-  if (metric === "ctr") {
-    const pp = Math.abs(Math.round(lift * 1000) / 10);
-    return `${pp} point${pp === 1 ? "" : "s"} of click rate`;
-  }
+  if (metric === "ctr") { const pp = Math.abs(Math.round(lift * 1000) / 10); return `${pp} point${pp === 1 ? "" : "s"} of click rate`; }
   const n = metric === "position" ? Math.round(Math.abs(lift) * 10) / 10 : Math.abs(Math.round(lift));
   return `${n} ${metric === "position" ? "rank" : "click"}${n === 1 ? "" : "s"}`;
 }
@@ -203,7 +198,6 @@ function liftLabel(metric: KernelRead["metric"], lift: number): string {
   const size = liftSize(metric, lift).replace("points of click rate", "click rate").replace("point of click rate", "click rate");
   return `${lift > 0 ? "+" : "-"}${size} ${lift > 0 ? "ahead" : "behind"}`;
 }
-
 
 /** THE COMPARISON RECEIPT the measurement kernel keeps beside a change: which pages stood behind it and
  *  why each qualified. "Similar" is a claim, so a row whose receipt cannot back it says the smaller true
@@ -221,6 +215,29 @@ const peersWord = (p: ShipmentPresentation): string =>
   p.read.comparison === "site" ? "the rest of the site" // too few untouched pages matched, so the site's own movement is what this stood against
     : receiptOf(p).length > 0 ? "similar pages that were not changed" : "pages that were not changed";
 
+/** WHAT THIS PAGE'S OWN CLICKS CAN PROVE, SAID BEFORE THE FIRST READ AND AGAIN WHEN ONE LANDS UNDER IT (2026-09-03). Two stretches of
+ *  counted days swing against each other on their own, and the fewer the clicks the wider that swing: a page taking five a day cannot
+ *  tell a third of its traffic apart from an ordinary month, while a real edit moves five to fifteen percent. So the plan is stated at
+ *  ship time in the page's own number, and a settled reading that came in under it says so instead of offering the movement as a
+ *  result. The kernel owns the floor (measurement/detectable-lift); these two write it down. A level reading claims no effect and is
+ *  left alone; what carries forward is the row's own taught line, which already says whether this reading trains anything. */
+const wholePct = (v: number): number => Math.round(v * 100);
+/** WAITING ON GOOGLE, NOT ON A CLOCK BEACON OWNS. Roughly two in five edited pages are not recrawled inside a week, and until Google reads
+ *  the new copy no window may run (measurement/measure-lifecycle's crawlClock), so the row says what it is waiting for and promises no date
+ *  at all rather than a date its own reading will not honour. */
+const awaitingLine = (stamp: string, now: Date): string => {
+  const n = Math.max(0, Math.floor((now.getTime() - Date.parse(`${stamp}T00:00:00Z`)) / 86_400_000));
+  return `Waiting for Google to recrawl this page, changed ${n} ${n === 1 ? "day" : "days"} ago.`;
+};
+const planLine = (r: KernelRead): string => r.metric !== "clicks" ? ""
+  : r.ownProof.floor == null ? " Clicks are read after 28 days; this page has too few of them to show a change of any size on its own, so what it does is read across the batch."
+    : ` Clicks are read after 28 days; this page can show a change of about ${wholePct(r.ownProof.floor)} percent or more on its own; smaller movement is read across the batch.`;
+const cannotProveLine = (r: KernelRead, peers: string): string | null =>
+  r.metric !== "clicks" || !isMature(r.basisDay) ? null
+    : r.ownProof.floor == null ? `Ran ${r.basisDay} days. Too few clicks on this page for a change of any size to show, so no result is claimed for it on its own.`
+      : r.ownProof.unprovenHere && r.verdict !== "no_clear_movement"
+        ? `Ran ${r.basisDay} days. ${liftSize(r.metric, r.lift)} ${r.lift > 0 ? "ahead of" : "behind"} ${peers}, which this page's own clicks cannot prove: about ${wholePct(r.ownProof.floor)} percent is the least a change here can show, and this one is ${wholePct(r.ownProof.move ?? 0)} percent.` : null;
+
 /** WHAT WAS RECORDED WHEN NO FAIR COMPARISON EXISTS. Marking a change done is a fact about the work and is kept whatever
  *  the data says; whether it can be compared is a separate fact. One sentence each, naming which one is missing. */
 const MEASUREMENT_NOTE: Record<string, string> = {
@@ -233,11 +250,9 @@ const MEASUREMENT_NOTE: Record<string, string> = {
  *  its citation was told "the page did not move" directly under its own "Worked". Days are counted the way the Google half counts its own,
  *  and a read that cannot be called says exactly that: the objective's own numbers sit under this line and name which side is missing. */
 function aiHappenedLine(p: ShipmentPresentation): string {
-  const d = aiDays(p), move = aiMove(p);
-  const ran = d >= 28 ? "Ran 28 days." : `${d} ${d === 1 ? "day" : "days"} in.`;
+  const d = aiDays(p), move = aiMove(p), ran = d >= 28 ? "Ran 28 days." : `${d} ${d === 1 ? "day" : "days"} in.`;
   if (move) return `${ran} ${aiStory(p)[1]} ${AI_MOVE[move]}.`;
-  return d > 0 ? `${ran} The AI answers for this change's own searches do not add up to a direction yet.`
-    : "Nothing read yet on the AI answers for this change's own searches.";
+  return d > 0 ? `${ran} The AI answers for this change's own searches do not add up to a direction yet.` : "Nothing read yet on the AI answers for this change's own searches.";
 }
 
 /** One sentence for what happened, on the read that was actually used. On a row judged on AI this is the Google half, and it prints under
@@ -256,16 +271,15 @@ function happenedLine(p: ShipmentPresentation, now: Date = new Date()): string {
   const peers = peersWord(p);
   // SHARED CREDIT KEEPS ITS NUMBER AND NAMES THE DEMOTION: hiding the estimate read as if nothing had been measured.
   if (r.verdict === "confounded") {
-    const held = r.basisDay == null ? ""
-      : ` Estimated lift: ${liftSize(r.metric, r.lift)} ${r.lift > 0 ? "ahead of" : "behind"} ${peers}, held as shared credit rather than a win.`;
-    const day = monthDayLabel(r.cleanUntil);
+    const held = r.basisDay == null ? "" : ` Estimated lift: ${liftSize(r.metric, r.lift)} ${r.lift > 0 ? "ahead of" : "behind"} ${peers}, held as shared credit rather than a win.`;
+    const day = monthDayLabel(r.cleanUntil), n = r.overlappingIds.length;
     if (day) return `This page changed again on ${day}, so the days after that belong to both changes.${held}`;
-    const n = r.overlappingIds.length;
     return `${n} other ${n === 1 ? "change" : "changes"} landed on this page at the same time, so the credit is shared.${held}`;
   }
   if (r.basisDay == null) {
-    const next = landsLabel(nextCloseOn(r), now);
-    return next ? `Nothing read yet. The first result ${next}.` : "Nothing read yet. The first result lands once a read closes.";
+    if (r.awaitingCrawl) return awaitingLine(r.awaitingCrawl, now);
+    const next = landsLabel(r.promisedRead ?? nextCloseOn(r), now); // the crawl clock where Google has started one, so this date and Today's are one date
+    return `${next ? `Nothing read yet. The first result ${next}.` : "Nothing read yet. The first result lands once a read closes."}${planLine(r)}`;
   }
   // TOO FEW PAGES TO STAND BEHIND IT IS NOT TOO LITTLE DATA: the days ran and the page moved, and the pair below shows it.
   if (r.verdict === "insufficient_evidence") {
@@ -273,10 +287,11 @@ function happenedLine(p: ShipmentPresentation, now: Date = new Date()): string {
       ? `Ran ${r.basisDay} days. A fair comparison is not available: too few pages on this site can stand behind this one.`
       : `Ran ${r.basisDay} days, and there is too little Google data on this page to call it.`;
   }
+  // AND WHAT THIS PAGE COULD EVER SHOW ON ITS OWN, asked before its movement is offered as a result.
+  const alone = cannotProveLine(r, peers);
+  if (alone) return alone;
   // ESTIMATED, NEVER CAUSED: the number compares against pages left alone, so no sentence says the change added anything.
-  const estimate = r.verdict === "no_clear_movement"
-    ? `Estimated lift: level with ${peers}`
-    : `Estimated lift: ${liftSize(r.metric, r.lift)} ${r.lift > 0 ? "ahead of" : "behind"} ${peers}`;
+  const estimate = r.verdict === "no_clear_movement" ? `Estimated lift: level with ${peers}` : `Estimated lift: ${liftSize(r.metric, r.lift)} ${r.lift > 0 ? "ahead of" : "behind"} ${peers}`;
   return isMature(r.basisDay) ? `Ran ${r.basisDay} days. ${estimate}.` : `${r.basisDay} days in. ${estimate}.`;
 }
 
@@ -284,8 +299,7 @@ function happenedLine(p: ShipmentPresentation, now: Date = new Date()): string {
  *  only when the kernel exposes the unadjusted pair; nothing is scaled, guessed or filled in here. */
 function unadjustedLine(p: ShipmentPresentation): string | null {
   const u = p.read.unadjusted;
-  if (p.read.comparison !== "insufficient" || !u) return null;
-  return `Before ${num(u.clicksBefore)} clicks / After ${num(u.clicksAfter)} clicks, unadjusted: the site moved too.`;
+  return p.read.comparison !== "insufficient" || !u ? null : `Before ${num(u.clicksBefore)} clicks / After ${num(u.clicksAfter)} clicks, unadjusted: the site moved too.`;
 }
 
 /** What this read carries forward, plus how much stands behind it. Clauses drop rather than guess. THE OUTCOME CLAUSE IS THE ROW'S OWN
@@ -299,12 +313,9 @@ function taughtLine(p: ShipmentPresentation): string {
   const ai = judgedOnAi(p) ? aiMove(p) : null;
   // SETTLED MEANS WHAT TRAINS: treatment-learning takes a closed 14 day window with a nonzero read, so the first reading carries forward on day 14 and a 7 day lean or a level read still carries nothing. The win itself is called at 28 and nowhere earlier. BLIND is the reading measured against the site's own movement: too few untouched pages matched, and on a day a whole family ships that comparison subtracts the shared gain from itself, so treatment-learning refuses it however long it ran and this row may not promise otherwise.
   const blind = !judgedOnAi(p) && r.comparison === "site", settled = judgedOnAi(p) ? ai != null : !blind && !!l.outcomeDirection && l.outcomeDirection !== "unclear" && countsForLearning(r.basisDay) && r.lift !== 0;
-  const moved = judgedOnAi(p)
-    ? (ai ? `${aiStory(p)[2]} ${AI_MOVE[ai]}` : "it is too early to say which way this went")
-    : l.outcomeDirection === "up" ? "the page moved up after it"
-      : l.outcomeDirection === "down" ? "the page moved down after it"
-        : l.outcomeDirection === "flat" ? "the page did not clearly move"
-          : "it is too early to say which way this went";
+  const moved = judgedOnAi(p) ? (ai ? `${aiStory(p)[2]} ${AI_MOVE[ai]}` : "it is too early to say which way this went")
+    : l.outcomeDirection === "up" ? "the page moved up after it" : l.outcomeDirection === "down" ? "the page moved down after it"
+      : l.outcomeDirection === "flat" ? "the page did not clearly move" : "it is too early to say which way this went";
   const parts: string[] = [];
   if (cause) parts.push(`this page read as ${cause}`);
   if (family) parts.push(`it was answered with ${family}`);
@@ -314,9 +325,7 @@ function taughtLine(p: ShipmentPresentation): string {
     : !settled ? (judgedOnAi(p) || countsForLearning(r.basisDay) ? "Nothing carries forward from this one until it settles." : "Nothing carries forward from this one until the 14 day reading lands.")
       : !liveConfirmed(p) ? "Context only: a read never confirmed on the live page does not shape what gets recommended."
         : `That carries into what gets recommended next on pages like this one.${judgedOnAi(p) || isMature(r.basisDay) ? "" : " A win is only called at 28 days."}`;
-  const backing = typeof l.evidenceCompleteness === "number" && l.evidenceCompleteness > 0
-    ? `Backed by ${l.evidenceCompleteness} check${l.evidenceCompleteness === 1 ? "" : "s"}.`
-    : "Read once so far.";
+  const backing = typeof l.evidenceCompleteness === "number" && l.evidenceCompleteness > 0 ? `Backed by ${l.evidenceCompleteness} check${l.evidenceCompleteness === 1 ? "" : "s"}.` : "Read once so far.";
   return `${cap(parts.join(", "))}. ${carried} ${backing}`;
 }
 
@@ -364,7 +373,8 @@ function nextStepLine(p: ShipmentPresentation, now: Date = new Date()): string {
   // THE TECHNICAL FAMILY ALSO HOLDS STRUCTURED DATA AND CANONICALS: only a redirect row may be told to reverse a redirect.
   if (d === "down" && r.learning.actionFamily === "technical-family" && !/redirect/i.test(r.actionType)) return "This page lost ground after the technical change. Undo it only if the loss holds on the next read; otherwise leave it and measure again.";
   if (d !== "unclear") return (NEXT_STEP[r.learning.actionFamily] ?? GENERIC_NEXT)[d === "up" ? 0 : d === "down" ? 1 : 2];
-  const next = landsLabel(nextCloseOn(r), now);
+  if (r.awaitingCrawl) return "Nothing to do until Google reads this page again.";
+  const next = landsLabel(r.promisedRead ?? nextCloseOn(r), now);
   return next == null ? "Nothing to do until the next read lands."
     : next.startsWith("lands") ? `Nothing to do until the next read ${next}.`
       : "Nothing to do; the next read is overdue because Google reports a few days behind.";
@@ -373,20 +383,13 @@ function nextStepLine(p: ShipmentPresentation, now: Date = new Date()): string {
 /** At most two, and only the ones this row actually carries. `judgedOnAi` drops the one caveat that is purely about the Google
  *  comparison: "too few similar pages stood behind this one" is an unlabelled doubt cast over a verdict those pages did not decide. */
 function caveatLines(r: KernelRead, judgedOnAi: boolean): string[] {
-  const out: string[] = [];
-  const day = monthDayLabel(r.cleanUntil);
+  const out: string[] = [], day = monthDayLabel(r.cleanUntil), n = r.overlappingIds.length;
   if (day) out.push(`This page changed again on ${day}. The days after that belong to both changes.`);
-  else if (r.overlappingIds.length > 0) {
-    const n = r.overlappingIds.length;
-    out.push(`${n} other ${n === 1 ? "change" : "changes"} landed on this page at the same time.`);
-  }
-  if (r.windows.some((w) => w.state === "pending_data")) {
-    out.push("Google has not finalized the latest days yet. It reports a few days behind.");
-  }
+  else if (n > 0) out.push(`${n} other ${n === 1 ? "change" : "changes"} landed on this page at the same time.`);
+  if (r.windows.some((w) => w.state === "pending_data")) out.push("Google has not finalized the latest days yet. It reports a few days behind.");
   if (!judgedOnAi && r.confidence === "low" && r.basisDay != null && out.length < 2) out.push("Too few similar pages stood behind this one to call it a sure read.");
   return out.slice(0, 2);
 }
-
 
 /** ONE module surface: the sentence layer exports itself once, not eighteen times. */
 export const RESULT_LINES = { AI_MOVE, aiDays, aiHappenedLine, aiMove, aiStory, cap, caveatLines, groupFor, happenedLine, isRetired, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, retiredChip, rowState, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } as const;
