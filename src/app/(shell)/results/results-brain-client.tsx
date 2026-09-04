@@ -10,8 +10,8 @@ type Thought = BrainModel["thoughts"][number];
  *  verified reads exist. Selecting a thought opens the evidence beside it (under it on a narrow screen). Native SVG, no chart library,
  *  reduced motion honoured, and every state is said in words beside its shape so colour is never the only encoding. */
 
-/** THE SAME WORDS THE ROWS WEAR (results-lines STATE_LABEL): one vocabulary, whether a row or a whole kind of work is being named. */
-const CONF_WORD: Record<Thought["confidence"], string> = { none: "No verified 28 day read yet", early: "Verified early signal", pattern: "Consistent verified record", mixed: "Split verified record" };
+/** HOW SURE BEACON MAY BE ABOUT A WHOLE KIND OF WORK, which is a different question from what one row is: a row wears the rung it stands on (results-lines STATE_LABEL) and this counts the 28 day readings behind a bet, so neither borrows the other's word. */
+const CONF_WORD: Record<Thought["confidence"], string> = { none: "No verified 28 day read yet", early: "Early verified record", pattern: "Consistent verified record", mixed: "Split verified record" };
 const confWord = (t: Thought): string => (t.confidence === "pattern" ? `${CONF_WORD.pattern}, ${t.ahead >= t.behind ? "ahead" : "behind"}` : CONF_WORD[t.confidence]);
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2";
 /** The server paints the lattice at the desktop column's real width so hydration does not reflow it. */
@@ -116,7 +116,7 @@ export function ResultsBrain({ model, checkedAgo }: { model: BrainModel; checked
               </dl>
               {current.historical > 0 ? <p className="mt-2 text-[11px] text-muted-foreground">Historical: {current.historicalAhead} ahead, {current.historicalBehind} behind, {current.historicalUnclear} unclear. Context only.</p> : null}
               {current.agreement ? <p className="mt-1 text-[11px] text-muted-foreground">{current.agreement}</p> : null}
-              {current.pageFamilies.length > 0 ? <p className="mt-1 text-[11px] text-muted-foreground">Where: {current.pageFamilies.join(", ")}.</p> : null}
+              {current.pageFamilies.length > 0 ? <p className="mt-1 text-[11px] text-muted-foreground">Where: {current.pageFamilies.slice(0, 4).join(", ")}{current.pageFamilies.length > 4 ? ` and ${current.pageFamilies.length - 4} more` : ""}.{current.causes.length > 0 ? ` Raised against: ${current.causes.join("; ")}.` : ""}</p> : null}
               <div className="mt-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Strongest example</p>
                 {current.strongest ? <p className="text-[12px] text-foreground/85"><a href={`#change-${current.strongest.id}`} className={`font-medium text-accent-primary underline underline-offset-2 ${FOCUS}`}>{current.strongest.label}</a> {current.strongest.line}</p>
                   : <p className="text-[12px] text-muted-foreground">No read has finished ahead for {current.name.toLowerCase()} yet.</p>}</div>

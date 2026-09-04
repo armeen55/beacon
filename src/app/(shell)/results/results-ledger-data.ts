@@ -114,6 +114,11 @@ export async function presentShipments(tenantId: string, records: ShippedChangeR
       judgedMetric: r.judgedMetric ?? null,
       // A ROW THAT NAMES NO RECOMMENDATION, OR ONE NOTHING COULD BE READ FOR, SAYS NOTHING: history is never repainted on a silence.
       recommendation: (r.proposalId ? recommendations.get(r.proposalId) : null) ?? { state: "unknown" as const },
+      // THE FACTS THE ENGINE LEARNS FROM, HANDED OVER WHOLE. Only the applied copy is trimmed off the pieces, because the sole thing read
+      // from them is which field each one wrote; `after` stays because a stored template still holding blanks votes on nothing.
+      learning: { actionType: r.actionType, after: r.after, windows: r.windows, baseline: r.baseline, implementedAt: r.implementedAt,
+        verification: r.verification, operatorVerdictOverride: r.operatorVerdictOverride, pinnedRead: r.pinnedRead, treatmentStamp: r.treatmentStamp,
+        componentsApplied: r.componentsApplied?.map((c) => ({ kind: c.kind, label: c.label })) ?? null },
       // The days that have passed ride with it, because the group holds an AI direction as still reading until this change's own 28 days
       // have run: an early lean is never banked as a win, on either side of the same row.
       ai: aiReads[i]

@@ -6,9 +6,9 @@
 
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { isMature as kernelIsMature } from "@/domains/measurement";
-import type { ControlReceipt, KernelRead, MeasurementState, ShipmentObjective, ShipmentVerification } from "@/domains/measurement";
+import type { ControlReceipt, KernelRead, MeasurementState, ShipmentObjective, ShipmentVerification, treatmentLearning } from "@/domains/measurement";
 import { RESULT_LINES } from "./results-lines";
-const { AI_MOVE, aiDays, aiHappenedLine, aiMove, aiStory, caveatLines, groupFor, happenedLine, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, retiredChip, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } = RESULT_LINES;
+const { AI_MOVE, WHY_UNCONFIRMED, aiDays, aiHappenedLine, aiMove, aiStory, caveatLines, groupFor, happenedLine, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, retiredChip, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } = RESULT_LINES;
 
 
 /** What one measured change carries on the Results surface. */
@@ -37,6 +37,10 @@ export type ShipmentPresentation = {
    *  queue's own loop ("settled") is NOT a retirement: that reading is what this row already prints. Absent, or "unknown"
    *  (a snapshot written before this, a row that names no recommendation, a read that failed), says nothing rather than guessing. */
   recommendation?: { state: "current" | "retired" | "unknown"; disposition?: string } | null;
+  /** WHAT THIS ROW TEACHES FROM, carried off the canonical record and never rebuilt: the signature stamped at the press (family, treatment,
+   *  field, cause), the operator's mute, the frozen reading, the stored readings the ranking itself learns from. The belief above the list was
+   *  handed a shape built here with stamp, mute and pin all null, so every bet collapsed into its family. Absent on an older snapshot: pools nothing. */
+  learning?: Parameters<typeof treatmentLearning>[0][number] | null;
 };
 
 /** The four things a change can be, in the order All changes shows them. */
@@ -183,22 +187,20 @@ function timelineLines(p: ShipmentPresentation): Array<{ label: string; done: bo
   return out;
 }
 
-/** The one exception worth a chip, or none. Shared credit always wins the slot. AUTHORSHIP IS SAID OUT LOUD
- *  (Codex, 2026-08-21): a live page carrying wording that differs from what Beacon wrote is still measured,
- *  and its result is the operator's rather than Beacon-authored work, so the chip names whose wording won. */
+/** THE ONE EXCEPTION WORTH A CHIP, AND IT NAMES THE CAUSE. Shared credit always wins the slot. Every unconfirmed reading below is
+ *  told apart by the typed cause the verifier records, so a robots refusal, a site that did not answer and a page whose words were
+ *  never stored stop sharing one sentence that was true of the last of them only. Authorship is still said out loud: a live page
+ *  carrying wording that differs from what Beacon wrote is measured on the operator's words, and the row quotes them back. */
 function chipOf(p: ShipmentPresentation): { text: string; amber: boolean } | null {
   if (p.read.verdict === "confounded") return { text: "Shared with a later change", amber: true };
   const v = p.verification;
   // A ROW WITH NO STAMP WEARS ITS STATE WORD ON THE COLLAPSED LINE: the direction cell shows a number, so the chip is where the one vocabulary lands.
   if (!v) return { text: stateWord(p), amber: false };
-  if (v.status === "verified") return null;
-  if (v.status === "blocked" && v.recheckAfter == null) return { text: "Could not be checked: its exact words were never stored", amber: false };
+  if (v.status === "verified" && v.reason == null) return null;
   // A RECHECK STILL SCHEDULED MEANS THE VERDICT IS NOT IN (operator, 2026-08-29): work is marked done in the editor and the site publishes later, so an early read seeing the old page is the publish lag, not their wording winning. Only a FINAL differs says whose words the page kept.
   if (v.recheckAfter != null) return { text: "Waiting for your publish. Beacon checks the page again soon.", amber: false };
-  if (v.status === "differs" || v.components?.some((c) => c.state === "changed_differently"))
-    return { text: "Measured on your own wording, not Beacon's", amber: false };
   if (v.status === "partially_verified") return { text: "Part of it is live", amber: false };
-  return { text: "Not on the live page yet", amber: false };
+  return { text: WHY_UNCONFIRMED[v.reason ?? ""] ?? "Not confirmed on the live page", amber: false };
 }
 
 /** This page's own before and after over the read that was used. */
@@ -285,7 +287,7 @@ function rowOf(p: ShipmentPresentation, now: Date): ResultsRow {
     // THE CAVEAT NAMES THE YARDSTICK THAT MOVED AND WHY THE LIVE PAGE IS SILENT: "traffic improved" over a click-rate read whose impressions fell was a second claim, and "not verified yet" on a change that predates verification promised a check that will never run.
     caveats: [...(group === "worked" && !liveConfirmed(p)
       ? [`${onAi ? "This improved" : r.metric === "ctr" ? "The click rate read ahead" : r.metric === "position" ? "The position read ahead" : "Clicks read ahead"} after this marked change; ${p.implementedAt == null ? "the change predates live verification and was never checked on the page." : "the live implementation has not been verified yet."}`] : []),
-    ...caveatLines(r, onAi)].slice(0, 3),
+    ...caveatLines(r, onAi), ...(p.verification?.components ?? []).filter((c) => c.state === "changed_differently" && !!c.note).map((c) => c.note!)].slice(0, 3),
     timeline: timelineLines(p),
     taught: taughtLine(p),
     nextStep: nextStepLine(p, now),

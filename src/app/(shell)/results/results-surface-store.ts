@@ -37,8 +37,11 @@ export async function readResultsSurface(
   const rows = await readStore<ResultsSurfaceRow>(STORE, [], { tenantId }).catch(() => [] as ResultsSurfaceRow[]);
   const row = rows[0];
   // A READS-ONLY SNAPSHOT IS NOT SERVED (truth review, 2026-09-01): with no implementation stamps every confirmed change would paint
-  // as history. Returning null sends the loader to the persisted records, which carry the stamps.
+  // as history. Returning null sends the loader to the persisted records, which carry the stamps. A SNAPSHOT WRITTEN BEFORE THE ROW
+  // CARRIED ITS OWN LEARNING FACTS IS THE SAME KIND OF SILENCE (2026-09-03): the belief would size itself on nothing until this
+  // expired on its own clock, so the shape it is missing is what retires it. ONE row short of the facts retires the whole snapshot: it is the adapter filling them unconditionally that makes a half-shaped one impossible, and a guard should not rest on a fact stated nowhere near it.
   if (!row || !Array.isArray(row.reads) || !Array.isArray(row.shipments) || row.shipments.length !== row.reads.length) return null;
+  if (row.shipments.some((s) => s.learning == null)) return null;
   return { computedAt: row.computedAt, shipments: row.shipments };
 }
 

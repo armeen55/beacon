@@ -4,6 +4,7 @@ import "server-only";
  *  predicates that pick a row's direction, and the writers of happened/taught/next. Split from
  *  results-presentation at its ceiling; that file imports THIS, and this imports only helpers back. */
 
+import type { CauseFinding } from "@/domains/decision";
 import type { ControlReceipt } from "@/domains/measurement";
 import { isMature as kernelIsMature } from "@/domains/measurement";
 import { monthDayLabel } from "@/components/data/receipt-line";
@@ -12,7 +13,6 @@ import { groupOf, landsLabel, nextCloseOn, type ResultsGroup, type ShipmentPrese
 
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const cap = (s: string): string => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
-const signed = (n: number): string => `${n > 0 ? "+" : n < 0 ? "-" : ""}${num(Math.abs(n))}`;
 const isMature = (d: number | null): boolean => kernelIsMature(d as 7 | 14 | 28 | 56 | null), countsForLearning = (d: number | null): boolean => d != null && d >= 14; // TWO DIFFERENT QUESTIONS SINCE 2026-09-03: what the engine may learn from is a window closed at 14 days or beyond (treatment-learning), and what may be called a win is still the 28 day read alone.
 
 /** What the change actually was, said the way an operator would say it. */
@@ -50,22 +50,16 @@ const workLabel = (raw: string): string =>
   ?? WORK_LABEL[(raw || "").toLowerCase().replace(/^(edit|change|add|fix|update|create)_/, "")]
   ?? "this change";
 
-/** What the proposal said was wrong with the page. An unmapped cause is left out entirely. */
-const CAUSE_LABEL: Record<string, string> = {
-  cannibalization: "two of your own pages competing for the same search",
-  ctr_snippet: "the line searchers saw not matching what they typed",
-  competitor_content_gap: "the pages beating you answering something yours did not",
-  incomplete_coverage: "the page answering part of the question and stopping",
-  weak_opening: "the page taking too long to answer",
-  serp_shape_shift: "the results page changing shape around you",
-  intent_shift: "people wanting something different from that search",
-  internal_link_weakness: "the rest of your site barely pointing at this page",
-  ai_citation_gap: "AI assistants answering the question without crediting you",
-  demand_decline: "fewer people searching for this at all",
-  ranking_loss: "the page sliding down the results",
-  retrieved_not_cited: "AI assistants reading your page and crediting someone else",
-  technical_indexability: "search engines not being able to read the page properly",
+/** What the proposal said was wrong with the page. TOTAL OVER THE CAUSE LADDER, and the compiler is the pin: this map held thirteen of the sixteen causes, so `factual_error` (its own lever set, its own gap kind, its own entry in the Brain's treatment names, and the four name-meaning corrections this account is shipping right now) silently vanished out of every place a cause is named. The two that are not page defects map to nothing on purpose and drop out where causes are listed. */
+const CAUSE_LABEL: Record<CauseFinding["cause"], string> = {
+  cannibalization: "two of your own pages competing for the same search", ctr_snippet: "the line searchers saw not matching what they typed", competitor_content_gap: "the pages beating you answering something yours did not",
+  incomplete_coverage: "the page answering part of the question and stopping", weak_opening: "the page taking too long to answer", serp_shape_shift: "the results page changing shape around you",
+  intent_shift: "people wanting something different from that search", internal_link_weakness: "the rest of your site barely pointing at this page", ai_citation_gap: "AI assistants answering the question without crediting you",
+  factual_error: "statements on this page that independent sources contradict", demand_decline: "fewer people searching for this at all", ranking_loss: "the page sliding down the results",
+  retrieved_not_cited: "AI assistants reading your page and crediting someone else", technical_indexability: "search engines not being able to read the page properly", measuring_change: "", no_problem: "",
 };
+/** THE ONE READER OF THAT MAP, because a stored cause is a plain string: a value the ladder does not carry reads as unnamed rather than disappearing, which is how a real cause went missing without one surface saying so. */
+const causeWords = (cause: string | null | undefined): string => !cause ? "" : CAUSE_LABEL[cause as CauseFinding["cause"]] ?? "something not named yet";
 
 /** The family of work the change belonged to, in the operator's words. */
 const FAMILY_LABEL: Record<string, string> = {
@@ -106,15 +100,16 @@ const aiMove = (p: ShipmentPresentation): "improved" | "worsened" | "no_clear_mo
  *  whether its read is over are two different facts, and only the second one may be totalled. */
 const finishedReading = (p: ShipmentPresentation): boolean => (judgedOnAi(p) ? (p.ai?.daysElapsed ?? 0) >= 28 : true);
 
-/** THE ONE TRUTH VOCABULARY (operator, 2026-09-01). Every row is exactly one of these, derived from the SAME group the ledger files it
- *  under, so the Brain above the list and the list itself can never disagree by construction. Legacy first: a row with no implementation
- *  stamp predates live verification and can only ever be history. Then verification: a reading nobody confirmed live is a number nobody
- *  may learn from. Then the read itself. The confounded state is printed as shared days, the customer's word for it. */
+/** THE ONE TRUTH VOCABULARY (operator, 2026-09-01), AND THE RUNG EACH ROW STANDS ON. Every row is exactly one of these, derived from the SAME
+ *  group the ledger files it under, so the Brain above the list and the list itself can never disagree by construction. Legacy first: a row
+ *  with no stamp predates live verification and can only ever be history. Then verification: a reading nobody confirmed live is a number
+ *  nobody may learn from. TWO READINGS AND NEVER ONE WORD (2026-09-03): the one closing at 14 days against matched pages is what the engine
+ *  starts learning from and says early wherever it appears, and the 28 day one alone may call a win; both wore "early signal" over the other. */
 type ResultState = "recorded" | "waiting_verification" | "live_verified" | "reading" | "historical_ahead" | "historical_behind"
-  | "historical_unclear" | "verified_early" | "verified_pattern" | "mixed" | "confounded" | "inconclusive" | "not_measurable";
+  | "historical_unclear" | "verified_early" | "verified_mature" | "confounded" | "inconclusive" | "not_measurable";
 const STATE_LABEL: Record<ResultState, string> = { recorded: "Recorded", waiting_verification: "Waiting for live verification",
   live_verified: "Live verified", reading: "Reading", historical_ahead: "Historical read ahead", historical_behind: "Historical read behind",
-  historical_unclear: "Historical unclear", verified_early: "Verified early signal", verified_pattern: "Verified pattern", mixed: "Mixed",
+  historical_unclear: "Historical unclear", verified_early: "Early reading at 14 days", verified_mature: "Verified at 28 days",
   confounded: "Shared with a later change", inconclusive: "Inconclusive", not_measurable: "Not measurable" };
 /** ONLY A LIVE-CONFIRMED CHANGE MAY TEACH: the same two answers treatment-learning counts, and never a row with no implementation stamp. */
 const liveConfirmed = (p: ShipmentPresentation): boolean => p.implementedAt != null && (p.verification?.status === "verified" || p.verification?.status === "partially_verified");
@@ -145,11 +140,12 @@ function rowState(p: ShipmentPresentation): ResultState {
     const started = onAi ? (p.ai?.daysElapsed ?? 0) > 0 : r.basisDay != null;
     if (legacy) return "reading";
     if (!liveConfirmed(p)) return started ? "waiting_verification" : "recorded";
-    return started ? "reading" : "live_verified";
+    // A READING THAT CLOSED AT 14 DAYS AGAINST MATCHED PAGES IS NOT "still reading": it is the first reading the engine learns from, and hiding it under Reading meant nothing on screen ever showed the evidence the ranking had already taken. The 28 day window is still open, so it says early and claims nothing.
+    return !started ? "live_verified" : !onAi && countsForLearning(r.basisDay) && r.comparison === "fair" ? "verified_early" : "reading";
   }
   if (legacy) return group === "worked" ? "historical_ahead" : group === "down" ? "historical_behind" : "historical_unclear";
   if (!liveConfirmed(p)) return "waiting_verification";
-  return group === "flat" ? "inconclusive" : "verified_early";
+  return group === "flat" ? "inconclusive" : "verified_mature";
 }
 const stateWord = (p: ShipmentPresentation): string => STATE_LABEL[rowState(p)];
 /** Which yardstick judged this row, in the words the operator reads. Never a lab word. */
@@ -198,6 +194,12 @@ function liftLabel(metric: KernelRead["metric"], lift: number): string {
   const size = liftSize(metric, lift).replace("points of click rate", "click rate").replace("point of click rate", "click rate");
   return `${lift > 0 ? "+" : "-"}${size} ${lift > 0 ? "ahead" : "behind"}`;
 }
+
+/** WHY A READING IS NOT A CONFIRMATION, one phrase per typed cause the verifier now names (measurement/verify-shipment). SEVEN causes printed "its exact words were never stored", true of exactly one of them: a robots refusal, a site that did not answer, a page that builds itself in the browser and a spent recheck all told the operator their copy was missing. Beacon owns the reads it could not take and says it retries; the operator owns only a publish that has not happened and wording that went live differently, and that row quotes their own page back to them. */
+const WHY_UNCONFIRMED: Record<string, string> = {
+  not_published_yet: "Not on the live page yet", published_differently: "Measured on your own wording, not Beacon's", page_unreachable: "Your site did not answer; Beacon tries again", address_mismatch: "No page at that address", stale_reading: "The copy on file predates this change",
+  rendered_content_gap: "Built in the browser, so it could not be read", applied_wording_missing: "Its exact words were never stored", google_not_updated: "Live on your page; Google has not caught up", unmeasurable: "Your robots rules ask for this page not to be read",
+};
 
 /** THE COMPARISON RECEIPT the measurement kernel keeps beside a change: which pages stood behind it and
  *  why each qualified. "Similar" is a claim, so a row whose receipt cannot back it says the smaller true
@@ -309,7 +311,7 @@ function taughtLine(p: ShipmentPresentation): string {
   const r = p.read, l = r.learning;
   // A SCHEMA ROW IS STRUCTURED DATA ON THE ROW AS IT IS IN THE BRAIN: the technical family also holds forwards and canonicals.
   const family = /schema|json.?ld|structured/i.test(r.actionType) ? "a structured data change" : FAMILY_LABEL[l.actionFamily];
-  const cause = l.diagnosisCause ? CAUSE_LABEL[l.diagnosisCause] : undefined;
+  const cause = causeWords(l.diagnosisCause);
   const ai = judgedOnAi(p) ? aiMove(p) : null;
   // SETTLED MEANS WHAT TRAINS: treatment-learning takes a closed 14 day window with a nonzero read, so the first reading carries forward on day 14 and a 7 day lean or a level read still carries nothing. The win itself is called at 28 and nowhere earlier. BLIND is the reading measured against the site's own movement: too few untouched pages matched, and on a day a whole family ships that comparison subtracts the shared gain from itself, so treatment-learning refuses it however long it ran and this row may not promise otherwise.
   const blind = !judgedOnAi(p) && r.comparison === "site", settled = judgedOnAi(p) ? ai != null : !blind && !!l.outcomeDirection && l.outcomeDirection !== "unclear" && countsForLearning(r.basisDay) && r.lift !== 0;
@@ -366,7 +368,7 @@ function nextStepLine(p: ShipmentPresentation, now: Date = new Date()): string {
       : "Nothing can be read on this one. Try the next change on this page and measure that.";
   }
   if (r.metric === "unclassified") return "Nothing to wait for on this one.";
-  if (p.implementedAt != null && p.verification?.status === "blocked" && p.verification.recheckAfter == null) return "Nothing can be read on this one: the exact words it was meant to change were never stored, so the live page cannot confirm it. The next change on this page carries its exact words.";
+  if (p.implementedAt != null && p.verification?.status === "blocked" && p.verification.recheckAfter == null) return `Nothing can be read on this one. ${WHY_UNCONFIRMED[p.verification.reason ?? ""] ?? "The live page could not confirm it"}. Make the next change on this page and measure that.`;
   if (r.verdict === "confounded") return "Two changes share these days. Make the next change on this page on its own, then measure it.";
   const d = r.learning.outcomeDirection;
   if (d !== "unclear" && !liveConfirmed(p)) return unconfirmedStep(p);
@@ -392,4 +394,4 @@ function caveatLines(r: KernelRead, judgedOnAi: boolean): string[] {
 }
 
 /** ONE module surface: the sentence layer exports itself once, not eighteen times. */
-export const RESULT_LINES = { AI_MOVE, aiDays, aiHappenedLine, aiMove, aiStory, cap, caveatLines, groupFor, happenedLine, isRetired, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, retiredChip, rowState, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } as const;
+export const RESULT_LINES = { AI_MOVE, WHY_UNCONFIRMED, causeWords, aiDays, aiHappenedLine, aiMove, aiStory, cap, caveatLines, groupFor, happenedLine, isRetired, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, retiredChip, rowState, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } as const;
