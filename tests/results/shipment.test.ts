@@ -232,10 +232,11 @@ describe("the recording seam", () => {
     db.state.rows = []; db.state.file = []; const NEXT_DAY = new Date("2026-10-01T12:00:00.000Z");
     await upsertShippedChange({ ...(await ship({ path: "/dead" })), measurementState: "insufficient_comparison", verification: verification("verified"), updatedAt: "2026-09-30T00:00:00.000Z" }, T);
     await upsertShippedChange({ ...(await ship({ path: "/stuck" })), id: "shp_stuck", verification: { status: "blocked", checkedAt: "2026-08-02T00:00:00.000Z", components: [], checks: 1 } }, T);
+    await upsertShippedChange({ ...(await ship({ path: "/names-nothing" })), id: "shp_names_nothing", verification: { status: "blocked", checkedAt: "2026-08-02T00:00:00.000Z", components: [], checks: 1, reason: "applied_wording_missing" } }, T); // A RECORD RECONCILED FROM ITSELF IS NOT A STUCK ROW: it closes with no next date under the limit, so this repair rescheduled it, the reading closed it from the record again at zero cost, and the two wrote each other a row every pass for ever
     const pass = await autoMeasureDuePass(T, { now: NEXT_DAY });
-    expect([pass.due, pass.measured, pass.revived, pass.reopened], "one dead row read and revived, one stopped check put back on its schedule").toEqual([1, 1, 1, 1]);
+    expect([pass.due, pass.measured, pass.revived, pass.reopened], "one dead row read and revived, one stopped check put back on its schedule, and the record that names nothing to look for left alone: when THAT one comes back is the due door's own question").toEqual([1, 1, 1, 1]);
     expect((await loadShippedChangesForTenant(T)).map((r) => [r.path, r.measurementState, r.verification?.recheckAfter ?? null]).sort())
-      .toEqual([["/dead", "measuring", null], ["/stuck", null, "2026-10-01"]]); });
+      .toEqual([["/dead", "measuring", null], ["/names-nothing", null, null], ["/stuck", null, "2026-10-01"]]); });
   it("measures when the comparison is really there, and a second press rewrites nothing", async () => {
     const first = await recordShipment(facts()); expect([first.measurement, (await stored()).measurementState]).toEqual(["measuring", "measuring"]);
     await recordVerification(T, first.shipmentId, verification("verified")); const again = await recordShipment(facts());

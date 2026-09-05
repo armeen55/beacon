@@ -375,10 +375,10 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
       if (reading == null) {
         // A piece the call NAMED a reason for keeps that reason; one a returned call simply left out is incomplete.
         const why = classOf?.get(p.key) ?? "incomplete";
-        lost.push(`I asked for a reading of ${of} and ${WHY_SAID[why]}.`); dropped.push(p.part); named.push(why); continue; }
+        lost.push(`A reading of ${of} was asked for and ${WHY_SAID[why]}.`); dropped.push(p.part); named.push(why); continue; }
       // PER ANSWER GROUNDING. A number is checked against the text THIS piece was read from, never the batch.
       const invented = numberNotInOwnAnswer(reading, p.text);
-      if (invented != null) { lost.push(`The reading of ${of} used the number ${invented}, which that text never says, so I dropped it rather than store a number the answer cannot back.`); dropped.push(p.part); named.push("schema_invalid"); continue; }
+      if (invented != null) { lost.push(`The reading of ${of} used the number ${invented}, which that text never says, so it was dropped rather than stored as a number the answer cannot back.`); dropped.push(p.part); named.push("schema_invalid"); continue; }
       landed.push(reading); read.push(p.part);
     }
     const coverage: Coverage = { hash: String(row.answerHash), parts, read: [...read].sort((a, b) => a - b), dropped: [...dropped].sort((a, b) => a - b) },
@@ -390,13 +390,13 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
     if (merged == null) {
       // An unusable SHAPE outranks a missing piece: it is the more specific thing that went wrong, and the one the ledger exists for.
       const why = named.includes("schema_invalid") ? "schema_invalid" : named[0] ?? "incomplete";
-      await settleOne(row, null, `${lost.join(" ")} I recorded that rather than paying to be told nothing twice.`.trim(), book, hash, why);
+      await settleOne(row, null, `${lost.join(" ")} That is on the record rather than paid for a second time to be told the same thing.`.trim(), book, hash, why);
       return; }
     const note = [...lost, ...(owed > 0
-      ? [`I have read ${read.length} of this answer's ${parts} parts so far; the next pass reads part ${parts - owed + 1} onward and pays nothing for the parts already read.`]
+      ? [`${read.length} of this answer's ${parts} parts are read so far; the next pass reads part ${parts - owed + 1} onward and pays nothing for the parts already read.`]
       : [])].join(" ");
     await settleOne(row, merged, "", { ...(parts > 1 ? { readParts: read.length } : {}),
-      ...(note ? { answerReadInPart: true, reason: `${note} What I did read is stored, and a new answer is what asks again.` } : {}), ...book }, hash);
+      ...(note ? { answerReadInPart: true, reason: `${note} What was read is stored, and a new answer is what asks again.` } : {}), ...book }, hash);
   };
 
   /** The degrade: re-read what an UNUSABLE batch was carrying, ONE CALL PER PIECE, each grounded in that piece's own text. A provider fault ENDS the fallback where

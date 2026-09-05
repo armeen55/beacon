@@ -53,7 +53,7 @@ async function repairStuckRows(
   let reopened = 0, crawlStamped = 0;
   for (const r of out) {
     const v = r.verification;
-    if (v == null || v.status !== "blocked" || (v.checks ?? 1) >= VERIFIER_MAX_CHECKS || v.recheckAfter != null) continue;
+    if (v == null || v.status !== "blocked" || (v.checks ?? 1) >= VERIFIER_MAX_CHECKS || v.recheckAfter != null || v.reason === "applied_wording_missing") continue; // AND A RECORD RECONCILED FROM ITSELF IS NOT A STUCK ROW (found beside the re-derivation rule, 2026-09-05): a record that names nothing to look for closes with no next date and under the limit, so this repair put it back on the schedule, the reading closed it from the record again at zero cost, and the two wrote each other a row on every pass for ever. When such a record comes back is the due door's own question and it is asked there, from the one rule that decides what a record names.
     const verification = { ...v, recheckAfter: today }; // the verifier's own column, through the verifier's own seam
     if (!(await recordVerification(tenantId, r.id, verification).catch(() => false))) continue;
     r.verification = verification; r.notes = noteOnce(r.notes, REOPEN_NOTE); dirty.add(r.id); reopened += 1;

@@ -56,7 +56,7 @@ type DeclinedJob = { key: string; family: string; calls: number; reason: string 
 
 /** THE ONE RANKING, AND THE ONE SELECTION. Ranked by what each job is worth PER CHARGED CALL, not by worth alone: ranking on impact by itself let one twelve-call bundle swallow a pass that could have finished four changes worth more together, which is the starvation the operator saw as "239 calls, nothing ready". Impact breaks ties so two jobs at the same price still order by value, and the key breaks the last tie so the same manifest always plans the same way. Then a single walk: take a job when a candidate slot and its full price are both left, otherwise record why and keep walking, so a cheap strong job behind an unaffordable bundle is still funded. */
 /** THERE IS NO INVENTORY TARGET IN THIS PLAN (operator, 2026-08-30). A `readyTarget` used to close every family's `take()` the moment that many Ready rows landed, which made a full-enough queue a reason to stop buying work the evidence had already earned. Deleted whole: what bounds a pass is the money above, the caller's time box, and each candidate's own typed settlement. Nothing here may ever read how much finished work already exists. */
-function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean; quiet?: boolean;
+function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean; quiet?: boolean | string;
   /** THE DAY'S ONE ATTEMPT LEDGER, keyed by each job's own `workKey`, and the ONLY thing this plan remembers
    *  about earlier passes. Settled under the SAME identity is declined; two spent attempts under it are declined
    *  with the two-attempts-then-settled sentence; an unfinished attempt that took real calls is DEMOTED behind
@@ -145,8 +145,8 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
     else if ((seen(j)?.calls ?? 0) >= DAY_ATTEMPTS) declined.push({ key: j.key, family: j.family, calls: price, reason: "spent on twice today and finished nothing, so it waits for new evidence or tomorrow" });
     // TWO DIFFERENT THINGS, TWO DIFFERENT SENTENCES. A pass Beacon was ASKED not to spend on used to report the
     // provider's credit as exhausted, which is a cause the receipt invented: nothing had run out, and an
-    // operator reading it would go looking at a billing page for a decision Beacon had made itself.
-    else if (input.quiet === true) declined.push({ key: j.key, family: j.family, calls: price, reason: "this pass was asked to spend nothing, so the work is still owed and nothing was bought for it" });
+    // operator reading it would go looking at a billing page for a decision Beacon had made itself. AND A CALLER WITH A TRUER CAUSE SUPPLIES IT, exactly as a blocked job does above (measured, 2026-09-05): a drive whose remaining box cannot begin a single job spends nothing for a reason of its own, and "asked to spend nothing" would send that same operator looking for whoever asked. The plan never READS a sentence, it prints the one it was handed and the default one otherwise.
+    else if (input.quiet) declined.push({ key: j.key, family: j.family, calls: price, reason: typeof input.quiet === "string" ? input.quiet : "this pass was asked to spend nothing, so the work is still owed and nothing was bought for it" });
     else if (input.breakerOpen === true) declined.push({ key: j.key, family: j.family, calls: price, reason: "the provider's own credit is spent, so this pass funded nothing" });
     else if (slots <= 0) declined.push({ key: j.key, family: j.family, calls: price, reason: `the pass funds ${Math.max(0, input.candidates)} candidates and stronger work filled them` });
     else { funded.set(j.key, price); slots -= 1; }
