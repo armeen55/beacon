@@ -17,7 +17,7 @@ import { citedPublishers, confirmedVersion, openHold } from "@/domains/decision/
 import type { ChangeBundle, ChangeProposal } from "@/domains/decision";
 import { markProposalImplementedAction } from "./actions";
 import { pageLabel } from "./types";
-import { CopyButton, MarkImplemented, ReviewAnswer } from "./change-controls";
+import { CopyButton, MARK_PRESS, MarkImplemented, ReviewAnswer } from "./change-controls";
 
 /** The producer's own boilerplate. It said the same sentence on all 37 title cards, so it is dropped outright
  *  rather than reprinted anywhere: a sentence true of every row is a fact about the producer, not a reason. */
@@ -434,14 +434,20 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
 }
 
 /** ONE PRESS, ON THE COLLAPSED CARD: the edit is applied, so the record lands without opening anything. The
- *  server owns every refusal, and a refusal is said out loud here rather than swallowed. */
+ *  server owns every refusal, and a refusal is said out loud here rather than swallowed. THE ENDING IS READ BY THE ONE
+ *  PRESS RULE, so a bad moment (a reading that could not start, a write that threw, a connection that dropped) is kept
+ *  on this device and sent again rather than printed once and lost. This press is a plain whole-change mark by
+ *  construction: the card renders it only where nothing moves the page, nothing is a new address and no wording is
+ *  the operator's own, which is exactly what the device queue can re-send faithfully. */
 function MarkDoneNow({ proposalId, onRecorded, onToast }: { proposalId: string; onRecorded: () => void; onToast: (t: string) => void }) {
   const [pending, startTransition] = useTransition();
   return (
     <button type="button" data-mark-done-now="true" disabled={pending}
       onClick={() => startTransition(async () => {
-        const res = await markProposalImplementedAction({ proposalId });
-        if (res.success) onRecorded(); else onToast(res.error ?? "That could not be recorded just now.");
+        const end = MARK_PRESS.fresh(await markProposalImplementedAction({ proposalId }).catch(() => null), { queueable: true });
+        if (end.ending === "recorded") { onRecorded(); return; }
+        if (end.ending === "queued") MARK_PRESS.keep(proposalId);
+        onToast(end.said ?? "That could not be recorded just now.");
       })}
       className="rounded-md border border-border px-3 py-1.5 text-[13px] font-semibold text-foreground disabled:opacity-60">
       {pending ? "Saving…" : "Mark done"}

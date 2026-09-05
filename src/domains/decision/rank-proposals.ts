@@ -3,6 +3,7 @@
 import type { ChangeProposal } from "./contracts";
 import { dangerousComponents } from "./contracts";
 import { actionFamilyOf } from "@/domains/measurement/proof-gsc/change-family";
+import { treatmentSignatureOf } from "./mutation-footprint";
 import type { CauseFinding } from "./diagnosis";
 import { topicTokens } from "@/domains/evidence/relevance-gate";
 // THE TRUTH TABLE LIVES WHERE THE BOUNDARY LIVES. This ranking discounts a lever that cannot treat the cause the evidence named; decision/authorization REFUSES one. One table, read twice, never restated.
@@ -11,10 +12,10 @@ import { CAUSE_LEVERS, withholdReason } from "./authorization";
 /** WHAT ONE KIND OF CHANGE HAS ACTUALLY DONE ON THIS SITE, off the finished readings in its own ledger.
  *  A family only votes once enough of its readings have finished; under that it is noise wearing a number. */
 export const MIN_FINISHED_READINGS = 3; // EXPORTED, AND THE ONE PLACE THIS NUMBER LIVES (2026-09-05): the Results page carried its own copy of it to say what a family record has and has not changed, and a mirror is a second answer waiting to disagree
-type FamilyHistory = ReadonlyMap<string, { readings: number; netLift: number }>;
+type LearningHistory = ReadonlyMap<string, { readings: number; netLift: number }>; // keyed BOTH by `family::treatment` and by the coarse family (measurement/treatment-learning), so a consumer may ask the finer record first
 
 /** THE ONE SCORING CONTEXT A DRIVE HOLDS, read by every number this file produces: what this account's own closed readings say (`familyHistory`), which pages already carry a change under measurement, and `batch`, every change the decision is being made among, so "how many others land on this page" is one count over one population instead of a number each caller works out for itself. Funding used to pass none of it while the displayed queue passed all of it, so one row answered to two authorities. Every field is optional and absent means what it has always meant: nothing learned, nothing measuring, nothing else on the page. */
-type Scoring = { measuringPagePaths?: readonly (string | null)[]; familyHistory?: FamilyHistory; batch?: readonly ChangeProposal[]; /** WHAT THIS ACCOUNT SAID IT IS WORKING TOWARDS, in the operator's own words and only where the operator actually stated them (R2 residual 1, 2026-09-05). It is an INPUT of the ranking, not an attribute of a row, so it rides this context exactly as the learning and the batch do: one string per pass instead of a copy stamped on every row, no store write and no new field on any business record. Absent asks nothing of any card. */ accountGoal?: string };
+type Scoring = { measuringPagePaths?: readonly (string | null)[]; familyHistory?: LearningHistory; batch?: readonly ChangeProposal[]; /** WHAT THIS ACCOUNT SAID IT IS WORKING TOWARDS, in the operator's own words and only where the operator actually stated them (R2 residual 1, 2026-09-05). It is an INPUT of the ranking, not an attribute of a row, so it rides this context exactly as the learning and the batch do: one string per pass instead of a copy stamped on every row, no store write and no new field on any business record. Absent asks nothing of any card. */ accountGoal?: string };
 /** WHAT COUNTS AS ONE PAGE FOR NEIGHBOURS: the address, or the search a page that does not exist yet would answer. Spelled ONCE, so the money and the queue can never key the same page two ways. A change is one of the changes on its own page, so the count of the page always loses one: a job standing in for a page's work is counted the same way as a row on it. */
 const pageKeyOf = (p: ChangeProposal): string => p.pagePath ?? `new::${p.primaryQuery.trim().toLowerCase()}`;
 const countPeers = (batch: readonly ChangeProposal[]): Map<string, number> => { const m = new Map<string, number>(); for (const p of batch) m.set(pageKeyOf(p), (m.get(pageKeyOf(p)) ?? 0) + 1); return m; };
@@ -73,10 +74,17 @@ const LEVER_WORD: Partial<Record<Cause, string>> = {
 const DEPENDS: Readonly<Record<string, string>> = { evidence: "a source reading is owed before these words can be written", review: "the words are written and a reading of them against the sources they name is owed", redraft: "these words were faulted here, so a corrective draft is owed", draft: "the exact copy is still owed", sections: "sections of this page are still unwritten", operator: "this one waits on your confirmation", terminal: "this one is settled rather than retried" };
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 const clamp01 = (n: number): number => Math.min(1, Math.max(0.05, n));
-/** This account's finished readings for THIS change's family, or undefined. Read once so the discount above and the small history factor below can never disagree about the same ledger. */
-const seenFor = (history: FamilyHistory | null, p: ChangeProposal): { readings: number; netLift: number } | undefined =>
-  history?.get(actionFamilyOf(p.changeFamily));
+/** THIS ACCOUNT'S FINISHED READINGS FOR THIS EXACT CHANGE, and which record answered (2026-09-05). A family is not a bet: nine internal links that finished behind were discounting every internal link this account will ever ship, whatever its anchor, its page or the cause it was raised against. The change's OWN signature is asked first (family and treatment, exactly as the ledger groups them); the coarse family answers only where the finer record holds nothing at all; and the receipt says which of the two spoke, so an operator reading a discount can tell a record of this exact work from a record of its whole family. Read once, so the share above and the discount below can never disagree about one ledger. */
+const seenFor = (history: LearningHistory | null, p: ChangeProposal): { readings: number; netLift: number; of: "kind" | "family" } | undefined => {
+  const sig = treatmentSignatureOf(p), fine = history?.get(`${actionFamilyOf(sig.family || p.changeFamily)}::${sig.treatment ?? ""}`);
+  if (fine) return { ...fine, of: "kind" };
+  const whole = history?.get(actionFamilyOf(p.changeFamily));
+  return whole ? { ...whole, of: "family" } : undefined;
+};
 const num = (n: number): string => Math.round(n).toLocaleString();
+/** WHOSE RECORD IS SPEAKING, in the operator's words: the exact work, or the whole family it belongs to. Said out loud on both receipt lines, because "readings of this kind of change" over a family record is the collapse this split exists to end. */
+const RECORD_WORD = { kind: "this exact kind of change", family: "this whole family of changes" } as const;
+const cap = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
 
 /** HOW MUCH RECEIPT THIS ONE CAN SHOW, clamped to its own floor: a tampered `evidenceRefCount` must never
  *  drag a change down through the lifecycle tiers on nothing but a bad number. */
@@ -86,7 +94,7 @@ const shownEvidence = (p: ChangeProposal): number =>
 /** Every factor for ONE proposal, in reading order. `peers` is how many OTHER proposals
  *  in the same batch land on the same page; `measuring` is true when that page already
  *  has a change under measurement. */
-function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, history: FamilyHistory | null, accountGoal: string): { factors: Factor[]; directional: boolean } {
+function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, history: LearningHistory | null, accountGoal: string): { factors: Factor[]; directional: boolean } {
   const f: Factor[] = [];
   const add = (name: string, input: string, contribution: number, max: number): void =>
     void f.push({ name, input, contribution: round2(contribution), max });
@@ -135,7 +143,7 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const share = !sized ? 0 : calibrated ? clamp01(record!.netLift / Math.max(1, record!.readings) / 100 + 0.5)
     : addressed ? COLLECTS.diagnosed : COLLECTS.undiagnosed;
   const priority = !sized ? null : Math.round(clicks! * share);
-  const basis = calibrated ? `a ${Math.round(share * 100)} percent share measured across ${num(record!.readings)} readings of this kind of change here, each closed at 14 days or later`
+  const basis = calibrated ? `a ${Math.round(share * 100)} percent share measured across ${num(record!.readings)} readings of ${RECORD_WORD[record!.of]} here, each closed at 14 days or later`
     : `an assumed ${Math.round(share * 100)} percent share, which is this product's policy and not a figure measured here`;
   const proven = priority == null ? null : addressed
     ? { input: `${num(clicks!)} clicks over 28 days measured as recoverable and the cause diagnosed, so ${num(priority)} is what it is ranked on: ${basis}`,
@@ -270,19 +278,18 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   // because THE KIND OF CHANGE NEVER DECIDES, THE EXPECTED TRAFFIC DOES (operator, 2026-08-26). A `treatment`
   // factor sat here paying +45 to "substantive" families and -45 to metadata ones, a ninety point swing keyed
   // on a regex over `changeFamily`, read off four losses and one win. Deleted outright rather than shrunk.
-  const fam = actionFamilyOf(p.changeFamily);
-  const seen = ridden ? history?.get(fam) : undefined;
+  const seen = ridden ? seenFor(history, p) : undefined; // THE SAME LOOKUP THE SHARE ABOVE READ, and never a second one: this asked the coarse family directly while the share asked `seenFor`, so the two halves of one ledger were free to answer differently the moment either changed.
   const votes = seen && seen.readings >= MIN_FINISHED_READINGS;
   const pull = votes && seen!.netLift < 0 ? (seen!.readings / (seen!.readings + HISTORY_SHRINK)) : 0;
   discount("history", !ridden ? "too little of an audience on this page for what this kind of change has done elsewhere to mean anything here"
     : !votes ? "too few readings of this kind of change have closed here to judge it"
-    : `this kind of change is ${num(Math.abs(seen!.netLift))} clicks ${seen!.netLift > 0 ? "up" : "down"} across ${num(seen!.readings)} readings here, each closed at 14 days or later, which is too few to weigh heavily`,
+    : `${cap(RECORD_WORD[seen!.of])} is ${num(Math.abs(seen!.netLift))} clicks ${seen!.netLift > 0 ? "up" : "down"} across ${num(seen!.readings)} readings here, each closed at 14 days or later, which is too few to weigh heavily`,
   1 - pull * 0.1);
 
   return { factors: f, directional };
 }
 
-function receiptFor(p: ChangeProposal, peers: number, measuring: boolean, history: FamilyHistory | null = null, accountGoal = ""): Receipt {
+function receiptFor(p: ChangeProposal, peers: number, measuring: boolean, history: LearningHistory | null = null, accountGoal = ""): Receipt {
   const { factors, directional } = factorsFor(p, peers, measuring, history, accountGoal);
   const score = round2(factors.reduce((a, x) => a + x.contribution, 0));
   const items = shownEvidence(p);

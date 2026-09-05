@@ -16,7 +16,7 @@ import { invalidateCoreSurfaces } from "../surface-release";
 import { readChangesPage, type ChangesPage } from "../changes-data";
 
 /** changes/actions: the manual "Mark implemented" action. Publishing authority is MANUAL and server-enforced: the kernel never writes a live page and never flips this itself. THE SHIPMENT TRANSACTION: the press writes a Shipment FIRST and flips the proposal SECOND, never the other way, because a crash between the two leaves a Shipment nobody flipped (which the next press heals) where the reverse leaves a change marked done that nothing on earth is measuring. And nothing lands at all unless the ONE verdict passes at this moment. `note` says what is still theirs to do after a PARTIAL apply, in their own words. */
-/** `retryable` says this ending is a bad moment and not a verdict, so a press held on the device is sent again instead of being dropped. A refusal (skipped, unfinished, held for review, not found) is a verdict and is never retried. */
+/** `retryable` says this ending is a bad moment and not a verdict, so a press held on the device is sent again instead of being dropped. A refusal (skipped, unfinished, held for review, not found, pieces nobody recognizes, a confirmation nobody gave) is a verdict and is never retried. A SHIPMENT WRITE THAT THREW AND A READING THAT COULD NOT BE STARTED ARE BAD MOMENTS: both say "Press it again in a moment", and a device holding that press dropped it silently and then counted it as recorded. */
 type MarkProposalImplementedResponse = { success: boolean; error?: string; note?: string; retryable?: boolean };
 
 /** What one press landed: whether every piece is now on file, how many this press wrote, how many are genuinely still theirs to do (the remainder came off THIS press before, so press two of three said "the other 2" with one left), AND THE RECORD THAT IS MEASURING IT. The flip that follows will not run without that id, so a press can never close a change no record stands behind. */
@@ -82,7 +82,7 @@ function overlapAtShip(ledger: ReadonlyArray<{ id: string; proposalId: string | 
 /** Write the Shipment for one proposal. Idempotent: the id is derived from the proposal and the version applied, so a retry keeps the stamp and the starting numbers already on file, and the caller flips nothing when it did not land. A SECOND PRESS DOES NOTHING AT ALL: rebuilding the record erased the live check back to null, moved the ship date to today and recomputed the starting numbers over a window that now included days AFTER the change, so pressing twice quietly flattered its own result. */
 async function recordImplementation(tenantId: string, proposal: ChangeProposal,
   opts: { appliedIds: readonly string[]; appliedText?: string | null; liveUrl?: string; preloadedLedger?: Awaited<ReturnType<typeof loadShippedChanges>>; openPaths?: readonly string[]; invalidate?: boolean },
-): Promise<Shipped | { ok: false; error: string }> {
+): Promise<Shipped | { ok: false; error: string; retryable: true }> {
   const bundleIds = (proposal.bundle?.components ?? []).map(componentIdOf);
   try {
     // FAIL CLOSED ON THE DUPLICATE CHECK. A ledger I could not read is not proof there is no prior record: writing blind resets the live check and moves the ship date, the exact bug this lookup exists to stop. A batch press hands its ONE read through, so twenty cards no longer read the ledger twenty times.
@@ -93,12 +93,12 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
     for (const r of mine) for (const c of r.componentsApplied ?? []) if (c.id) already.add(c.id);
     const covers = (set: Iterable<string>, id: string) => [...set].some((a) => sameComponentId(a, id));
     const fresh = [...new Set(opts.appliedIds)].filter((id) => !covers(already, id));
-    const state = (recorded: number, shipmentId: string | null, measurement: MeasurementState): Shipped | { ok: false; error: string } => {
+    const state = (recorded: number, shipmentId: string | null, measurement: MeasurementState): Shipped | { ok: false; error: string; retryable: true } => {
       const covered = new Set([...already, ...(recorded > 0 ? fresh : [])]);
       const left = bundleIds.filter((id) => !covers(covered, id));
       if (!shipmentId) {
         log.error("markProposalImplemented: no record could be named for this press, so nothing was flipped", { proposalId: proposal.id });
-        return { ok: false, error: "Measuring this change could not start, so it is not recorded as done. Press it again in a moment." };
+        return { ok: false, retryable: true, error: "Measuring this change could not start, so it is not recorded as done. Press it again in a moment." };
       }
       return { ok: true, complete: left.length === 0, recorded, remaining: left.length, shipmentId, measurement };
     };
@@ -171,7 +171,7 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
     log.error("markProposalImplemented: the shipment did not land, so nothing was flipped", {
       proposalId: proposal.id, error: err instanceof Error ? err.message : String(err),
     });
-    return { ok: false, error: "Measuring this change could not start, so it is not recorded as done. Press it again in a moment." };
+    return { ok: false, retryable: true, error: "Measuring this change could not start, so it is not recorded as done. Press it again in a moment." };
   }
 }
 
@@ -265,7 +265,7 @@ export async function markProposalImplementedAction(args: {
     // SHIPMENT FIRST, FLIP SECOND. Never the other way around.
     const appliedIds = args.componentIds !== undefined ? args.componentIds : ids;
     const shipment = await recordImplementation(tenantId, stored, { appliedIds, appliedText: args.appliedText, liveUrl });
-    if (!shipment.ok) return { success: false, error: shipment.error };
+    if (!shipment.ok) return { success: false, retryable: true, error: shipment.error };
     // A PARTIAL APPLY CLOSES NOTHING: applying one piece of five used to mark the whole change done, so the four they never touched vanished. The change stays open carrying the rest, each subset measured alone, and the count is the TRUE remainder.
     const n = shipment.recorded, left = shipment.remaining;
     const one = (a: string, b: string) => (left === 1 ? a : b);

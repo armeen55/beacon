@@ -28,10 +28,21 @@ describe("Today says what the last drive left undone", () => {
   it.each(SITES)("names the step that has not run, after how many of the day's steps, and what happens next, on $t", async (s) => {
     RUN.row = run({ current_phase: s.phase });
     const line = (await loadTodayView()).researchLiveness ?? "";
-    expect(line, "the heartbeat still says what the drive did, and the paused day now says which step it never reached")
-      .toBe(`Read 10 new answers closely today at 10:33 AM. Research paused after ${s.phase === "publish_surface" ? 8 : 3} of 9 steps, so ${s.label} has not run yet. The next pass starts there.`);
+    expect(line, "the heartbeat still says what the drive did, the paused day says which step it never reached, and the step it could not pay for is said in the drive's own words with its own seconds instead of a made-up next step")
+      .toBe(`Read 10 new answers closely today at 10:33 AM. Research paused after ${s.phase === "publish_surface" ? 8 : 3} of 9 steps, so ${s.label} has not run yet. Publishing what this day found needs 40 seconds and this drive had 32 left, so nothing was started for it. The next pass runs it first.`);
     expect(renderToStaticMarkup(createElement("p", { "data-research-liveness": "true" }, line)), "and it paints as the one heartbeat element Today already carries")
       .toContain(`${s.label} has not run yet`); });
+  /** THE TWO DEADLINE ANSWERS ARE TWO SENTENCES (2026-09-05). A step the drive would not START because it could not pay for it is one fact: nothing is running and the next pass takes it first. A walk the drive STOPPED WAITING FOR is the other: the writing carried on, what it spent is remembered, and its work is owed again at its own rank. Read as one they told an operator "the drive ran out of time" and hid both the answer and what to expect next. */
+  it.each(SITES)("tells the drive giving up on a running walk apart from a step it never started, on $t", async (s) => {
+    const boxed = { replenish: { day: "2026-09-05", jobs: {}, outcomes: { readySaved: 0, evidenceBanked: 0, refused: 0, blocked: 1, unreached: 1, stuck: [], ended: "boxed" as const } } };
+    RUN.row = run({ current_phase: s.phase, progress: { ...run().progress, ...boxed } });
+    const both = (await loadTodayView()).researchLiveness ?? "";
+    expect(both, "both facts are said, each in its own sentence, and the one about work still owed comes first").toContain(
+      "Writing your changes was still running when this drive's time ran out, so what it had already spent is remembered and the rest is owed again at its own rank. The next pass picks it up there. Publishing what this day found needs 40 seconds");
+    RUN.row = run({ current_phase: s.phase, progress: { sourcesRefreshed: 3, funnel: { answersAnalyzed: 10 }, state: { checksDone: 133, checksTotal: 140, checksAnswers: 133 }, ...boxed } });
+    const alone = (await loadTodayView()).researchLiveness ?? "";
+    expect([alone.includes("still running when this drive's time ran out"), alone.includes("nothing was started for it")],
+      "and a drive that started everything it planned and only stopped waiting says that alone, with no invented second fact").toEqual([true, false]); });
   it.each(SITES)("says nothing extra on a day that finished its steps, and defers to a recorded reason where one exists, on $t", async (s) => {
     RUN.row = run({ status: "completed", current_phase: "done", completed_at: "2026-09-05T17:33:24.196Z" });
     const finished = (await loadTodayView()).researchLiveness ?? "";

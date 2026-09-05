@@ -32,7 +32,7 @@ export { treatmentSignatureOf } from "./mutation-footprint";
 
 // Ranked queue load (surface data)
 export type { RankedProposalQueue } from "./load-proposals";
-export { loadProposalQueue,
+export { loadProposalQueue, settledByRows,
   stockOf } from "./load-proposals";
 
 // Proposal persistence. THERE IS NO BARE STATUS FLIP ON THIS FACADE: `transitionProposalToImplemented` demands

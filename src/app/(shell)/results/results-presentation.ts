@@ -5,10 +5,10 @@
  * rules: no raw slug ever reaches the screen; no number is invented; every row ends on a next step. */
 
 import { monthDayLabel } from "@/components/data/receipt-line";
-import { isMature as kernelIsMature } from "@/domains/measurement";
+import { familyHistoryFromShipments, isMature as kernelIsMature } from "@/domains/measurement";
 import type { ControlReceipt, KernelRead, MeasurementState, ShipmentObjective, ShipmentVerification, treatmentLearning } from "@/domains/measurement";
 import { RESULT_LINES } from "./results-lines";
-const { AI_MOVE, WHY_UNCONFIRMED, aiDays, aiHappenedLine, aiMove, aiStory, cap, caveatLines, groupFor, happenedLine, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, retiredChip, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } = RESULT_LINES;
+const { AI_MOVE, WHY_UNCONFIRMED, aiDays, aiHappenedLine, aiMove, aiStory, cap, caveatLines, executionLine, fundingFor, fundingLine, groupFor, happenedLine, judgedOnAi, learningRowOf, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, retiredChip, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } = RESULT_LINES;
 
 
 /** What one measured change carries on the Results surface. */
@@ -77,6 +77,8 @@ type ResultsRow = {
   retired: { text: string; note: string } | null;
   pips: Array<{ day: number; state: "read" | "pending" | "shared" }>;
   pipCaption: string | null;
+  /** THE EXECUTION HALF, IN ONE SENTENCE: what was applied, when, whose wording is on the page and what the live check found. Kept apart from what the reading learned, because a paragraph carrying both let "the page moved up after it" sit in the same breath as "never confirmed on the live page". */
+  execution: string;
   happened: string;
   /** THE GOOGLE HALF OF A ROW JUDGED ON AI, under its own heading so it can never be read as this row's answer. Null on a row
    *  judged on clicks, whose Google sentence IS the story above. */
@@ -91,6 +93,8 @@ type ResultsRow = {
   caveats: string[];
   timeline: Array<{ label: string; done: boolean }>;
   taught: string;
+  /** WHAT THIS ROW'S RECORD HAS CHANGED IN WHAT GETS FUNDED NEXT, in the funding door's own rule and in the same words the belief above the list uses, because both read one map (measurement/treatment-learning) and ask it in one order: this exact kind of work first, its whole family only where that holds nothing. */
+  funded: string;
   nextStep: string;
   /** Ordering key inside the group, ascending. */
   sort: number;
@@ -226,7 +230,7 @@ function numbersOf(p: ShipmentPresentation): { numbers: ResultsRow["numbers"]; n
 
 // -- the whole surface --------------------------------------------------------
 
-function rowOf(p: ShipmentPresentation, now: Date): ResultsRow {
+function rowOf(p: ShipmentPresentation, now: Date, funding: ReadonlyMap<string, { readings: number; netLift: number }> | null = null): ResultsRow {
   const r = p.read;
   const group = groupFor(p);
   const onAi = judgedOnAi(p), aiDone = aiDays(p), move = onAi ? aiMove(p) : null;
@@ -277,6 +281,7 @@ function rowOf(p: ShipmentPresentation, now: Date): ResultsRow {
     pipCaption: onAi ? (aiDone >= 28 ? "Read over 28 days" : aiDone > 0 ? `Day ${aiDone} of 28` : "Nothing read yet")
       : next ? ((l) => l == null || l.startsWith("lands") ? `Next ${monthDayLabel(next.closesOn) ?? "soon"}` : "Overdue; Google reports a few days behind")(landsLabel(next.closesOn, now))
         : done ? `Done ${monthDayLabel(done.closesOn) ?? ""}`.trim() : null,
+    execution: executionLine(p),
     happened: onAi ? aiHappenedLine(p) : happenedLine(p, now),
     // GOOGLE STAYS ON THE ROW AND STOPS BEING THE ANSWER: same sentence, same before and after, under a heading that says whose they are.
     googleAside: onAi ? { heading: "Google search, for context", line: happenedLine(p, now) } : null,
@@ -294,6 +299,7 @@ function rowOf(p: ShipmentPresentation, now: Date): ResultsRow {
     ...caveatLines(r, onAi), ...(p.verification?.components ?? []).filter((c) => c.state === "changed_differently" && !!c.note).map((c) => c.note!)].slice(0, 3),
     timeline: timelineLines(p),
     taught: taughtLine(p),
+    funded: fundingLine(fundingFor(funding, p)),
     nextStep: nextStepLine(p, now),
     sort: group === "worked" ? -(bar ?? 0)
       : group === "down" ? (bar ?? 0)
@@ -307,7 +313,9 @@ function rowOf(p: ShipmentPresentation, now: Date): ResultsRow {
  */
 export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>, now: Date = new Date()): ResultsView {
   const rows: Record<ResultsGroup, ResultsRow[]> = { worked: [], down: [], flat: [], reading: [] };
-  for (const p of shipments) rows[groupFor(p)].push(rowOf(p, now));
+  // THE ONE RECORD THE QUEUE READS, built here off the same rows and the same rule the funding door uses, so a row can say what its own kind of work has changed about what gets funded next rather than describing it.
+  const funding = familyHistoryFromShipments(shipments.map((p) => learningRowOf(p, true)));
+  for (const p of shipments) rows[groupFor(p)].push(rowOf(p, now, funding));
   for (const g of Object.keys(rows) as ResultsGroup[]) rows[g].sort((a, b) => a.sort - b.sort);
   const counts = { worked: rows.worked.length, down: rows.down.length, flat: rows.flat.length, reading: rows.reading.length };
 

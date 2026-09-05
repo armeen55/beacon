@@ -138,16 +138,17 @@ export function treatmentLearning(rows: readonly LearningRow[]): TreatmentGroup[
 }
 
 /**
- * THE ADAPTER THE RANKING EATS. Its input is a map of coarse family to finished readings and the net clicks they moved, and its own comment says that record must be shrunk hard towards nothing, so the shrink is applied HERE rather than left for the ranking to remember: the treatments inside a family are summed back together, because the ranking has no place to put a treatment and adapting to it is the whole job.
+ * THE ONE RECORD THE QUEUE AND RESULTS BOTH EAT, KEYED BOTH WAYS (2026-09-05). It summed every treatment of a family back into one entry, so nine internal links that finished behind discounted every internal link this account will ever ship, whatever its anchor, its page or the cause it was raised against, and one batch of descriptions would have discounted a description somebody wrote by hand. A family is not a bet. The map now carries the SIGNATURE key (`family::treatment`, exactly as the groups above are keyed) AND the coarse family beside it, so a consumer asks the finer record first and reaches the family only where the finer one holds nothing at all. Both are shrunk towards nothing HERE rather than left for a consumer to remember, so the queue and the page can never apply two different shrinks to one ledger.
+ * THE NAME IS NARROWER THAN THE MAP and stays until the one caller outside this lane can be moved with it (decision/produce-proposals): it is read by the queue's ranking, by that producing pass and by Results, and all three ask the signature first.
  * Verified readings only, by construction: nothing without a finished reading reaches `sampleSize` above. THE RANKING STAYS ON CLICKS AND NOT ON THE POOLED PERCENT (2026-09-03): the two are different units, one family's 300 clicks would start competing against another family's 9 percent, and re-ranking the whole queue on a changed unit is the operator's call to make and not this adapter's.
  */
 export function familyHistoryFromShipments(rows: readonly LearningRow[]): Map<string, { readings: number; netLift: number }> {
   const out = new Map<string, { readings: number; netLift: number }>();
+  const add = (key: string, readings: number, netLift: number): void => { const cur = out.get(key) ?? { readings: 0, netLift: 0 }; out.set(key, { readings: cur.readings + readings, netLift: cur.netLift + netLift }); };
   for (const g of treatmentLearning(rows)) {
     if (g.family == null || g.sampleSize === 0) continue;
-    const cur = out.get(g.family) ?? { readings: 0, netLift: 0 };
-    out.set(g.family, { readings: cur.readings + g.sampleSize, netLift: cur.netLift + g.netEffect });
+    add(g.key, g.sampleSize, g.netEffect); add(g.family, g.sampleSize, g.netEffect);
   }
-  for (const [family, v] of out) out.set(family, { readings: v.readings, netLift: Math.round(v.netLift * v.readings / (v.readings + SHRINK)) });
+  for (const [key, v] of out) out.set(key, { readings: v.readings, netLift: Math.round(v.netLift * v.readings / (v.readings + SHRINK)) });
   return out;
 }

@@ -29,15 +29,50 @@ function readMarkQueue(): QueuedMark[] {
 function writeMarkQueue(rows: QueuedMark[]): void {
   try { window.localStorage.setItem(MARK_QUEUE_KEY, JSON.stringify(rows)); } catch { /* private mode: the press is simply not kept */ }
 }
-function queueMark(proposalId: string): void {
-  writeMarkQueue([...readMarkQueue().filter((r) => r.proposalId !== proposalId), { proposalId, at: Date.now() }]);
-}
+type PressAnswer = { success: boolean; retryable?: boolean; error?: string };
 
-/** ONE flush per page load, whichever card mounts first. A VERDICT SETTLES THE ENTRY AND A BAD MOMENT NEVER DOES:
- *  "already recorded" and "no longer eligible" are answers, so re-sending them forever would make the device argue with
- *  the server, but "press it again in a moment" is the same outage a throw is and was thrown away silently, losing a
- *  press the operator had already made. A throw and a returned `retryable` both keep it queued, and what the flush did
- *  is said on the card rather than settled behind the operator's back. */
+/** WHAT BECOMES OF A PRESS THAT RECORDS A CHANGE, as ONE rule at both moments a press is answered: the press made now
+ *  and the presses this device was holding. THREE ENDINGS, NEVER TWO. Only `success` is recorded. A verdict settles the
+ *  press and is said in the SERVER'S OWN WORDS, because "recorded" was printed over "Beacon has not finished this
+ *  one yet": the entry was correctly dropped and then counted as work that landed, so the operator was told a press
+ *  was on file that nothing was measuring. A bad moment (`retryable`, or a throw) is neither: where the press is one
+ *  this device can re-send faithfully it is kept and sent again on the next load, and where it is not, the server's own
+ *  sentence stands and the operator presses again. The fresh press read `success` alone, so the five endings the server
+ *  types as a bad moment were honoured on the flush and dropped on the first press, which is where they mostly arrive. */
+export const MARK_PRESS = {
+  /** THE PRESS MADE NOW, one answer in, one ending out (a throw is `null`). `queueable` is the caller's own fact: only a
+   *  plain whole-change mark carries nothing this device's queue cannot re-send, so only that one may be kept. */
+  fresh(answer: PressAnswer | null, opts: { queueable: boolean }): { ending: "recorded" | "queued" | "unrecorded"; said: string | null } {
+    if (answer?.success) return { ending: "recorded", said: null };
+    const moment = answer == null || answer.retryable === true;
+    if (moment && opts.queueable) return { ending: "queued", said: "Saved on this device. It records itself when the connection returns." };
+    return { ending: "unrecorded", said: answer?.error ?? (moment ? "It did not save. Check you are signed in, then press it again." : "Something went wrong.") };
+  },
+  /** WHAT BECAME OF EVERY PRESS THIS DEVICE WAS HOLDING, over the answers the server gave, in the order they were sent.
+   *  `keep` is the positions still owed, so the caller re-queues exactly those rows. */
+  flush(answers: readonly (PressAnswer | null)[]): { keep: number[]; said: string } {
+    const keep: number[] = [], refused: string[] = [];
+    let recorded = 0;
+    answers.forEach((a, i) => {
+      if (a?.success) recorded += 1;
+      else if (a == null || a.retryable) keep.push(i);
+      else refused.push(a.error ?? "That one can no longer be recorded.");
+    });
+    const many = (n: number, a: string, b: string) => (n === 1 ? a : b), held = keep.length;
+    return { keep, said: [
+      recorded > 0 ? `${recorded} press${many(recorded, "", "es")} held on this device ${many(recorded, "was", "were")} recorded.` : null,
+      refused.length > 0 ? `${refused.length} press${many(refused.length, "", "es")} could not be recorded: ${refused.join(" ")}` : null,
+      held > 0 ? `${held} press${many(held, "", "es")} held on this device could not be recorded yet and ${many(held, "is", "are")} still waiting. Reload this page to send ${many(held, "it", "them")} again.` : null,
+    ].filter(Boolean).join(" ") };
+  },
+  /** THE PRESS KEPT ON THIS DEVICE until the next load sends it again. */
+  keep(proposalId: string): void {
+    writeMarkQueue([...readMarkQueue().filter((r) => r.proposalId !== proposalId), { proposalId, at: Date.now() }]);
+  },
+};
+
+/** ONE flush per page load, whichever card mounts first. What the flush did is said on the card rather than settled
+ *  behind the operator's back. */
 let markQueueFlushed = false;
 function useMarkQueueFlush(): string | null {
   const [said, setSaid] = useState<string | null>(null);
@@ -48,14 +83,13 @@ function useMarkQueueFlush(): string | null {
     writeMarkQueue(pending);
     if (pending.length === 0) return;
     void (async () => {
-      const unsent: QueuedMark[] = [];
+      const answers: (PressAnswer | null)[] = [];
       for (const row of pending) {
-        try { const res = await markProposalImplementedAction({ proposalId: row.proposalId }); if (res.retryable) unsent.push(row); }
-        catch { unsent.push(row); }
+        try { answers.push(await markProposalImplementedAction({ proposalId: row.proposalId })); } catch { answers.push(null); }
       }
-      writeMarkQueue(unsent);
-      const n = pending.length - unsent.length, held = unsent.length, one = (a: string, b: string) => (held === 1 ? a : b);
-      setSaid(held === 0 ? `${n} press${n === 1 ? "" : "es"} held on this device ${n === 1 ? "was" : "were"} recorded.` : `${held} press${one("", "es")} held on this device could not be recorded yet and ${one("is", "are")} still waiting. Reload this page to send ${one("it", "them")} again.`);
+      const { keep, said: says } = MARK_PRESS.flush(answers);
+      writeMarkQueue(keep.map((i) => pending[i]!));
+      setSaid(says);
     })();
   }, []);
   return said;
@@ -220,25 +254,20 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
   function onClick() {
     startTransition(async () => {
       // A THROWN action is a FAILED action: a signed-out session made this reject silently and the press
-      // looked like it landed while the row never changed. Every ending now reaches the operator's eyes.
-      try {
-        const res = await markProposalImplementedAction({
-          proposalId,
-          ...(newPage ? { liveUrl: liveUrl.trim() } : {}),
-          ...(pickable && applied.size < pickable.length ? { componentIds: [...applied] } : {}),
-          ...(ownWording.trim() ? { appliedText: ownWording.trim() } : {}),
-          ...(movesPage ? { destructiveConfirmed: confirmed } : {}),
-        });
-        if (res.success) { setState({ done: true, error: null, note: res.note ?? null }); onRecorded?.(); }
-        else setState({ done: false, error: res.error ?? "Something went wrong.", note: null });
-      } catch {
-        if (queueable) {
-          queueMark(proposalId);
-          setState({ done: false, error: "Saved on this device. It records itself when the connection returns.", note: null, queued: true });
-        } else {
-          setState({ done: false, error: "It did not save. Check you are signed in, then press it again.", note: null });
-        }
-      }
+      // looked like it landed while the row never changed. Every ending now reaches the operator's eyes, and it
+      // is read by the SAME rule the flush reads, so a bad moment the server typed is kept here too instead of
+      // being printed once and lost.
+      const res = await markProposalImplementedAction({
+        proposalId,
+        ...(newPage ? { liveUrl: liveUrl.trim() } : {}),
+        ...(pickable && applied.size < pickable.length ? { componentIds: [...applied] } : {}),
+        ...(ownWording.trim() ? { appliedText: ownWording.trim() } : {}),
+        ...(movesPage ? { destructiveConfirmed: confirmed } : {}),
+      }).catch(() => null);
+      const end = MARK_PRESS.fresh(res, { queueable });
+      if (end.ending === "recorded") { setState({ done: true, error: null, note: res?.note ?? null }); onRecorded?.(); return; }
+      if (end.ending === "queued") MARK_PRESS.keep(proposalId);
+      setState({ done: false, error: end.said, note: null, queued: end.ending === "queued" });
     });
   }
 

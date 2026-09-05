@@ -1,8 +1,8 @@
 /** THE MARK-IMPLEMENTED TRANSACTION. There is no bare status flip on the decision facade: the record is written FIRST and the change is flipped SECOND, carrying that record's own id, so a crash between the two leaves a record the next press heals where the reverse would leave a change marked done that nothing on earth is measuring. A piece is named by its exact copy too, so a redraft is genuinely new work while pressing the SAME version twice stays one record. AN UNFINISHED DELIVERABLE IS NOT WORK SOMEBODY CAN HAVE DONE. The server asks the ONE completeness boundary, never the prose, so no stale tab opens a 28 day reading on work nobody wrote. THE BOUNDARY IS THE TYPED FACT: a producer that writes a brief instead of copy stamps it as it mints the card, and a blank nobody filled in is still a blank, whoever wrote it. THE ONE DOOR, standing in for the real one: it always writes and always answers with the row's id, it is idempotent on (proposal, version), and the row is durable the moment it lands, which is exactly what a retry after a crash finds. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ChangeProposal } from "@/domains/decision";
-type Rec = { id: string; proposalId: string; proposalVersion: string; componentsApplied: Array<{ id: string; kind?: string; anchorAfter?: string; redirectTo?: string }>; path: string; page: string; implementedAt: string | null; treatmentStamp: { signature: Record<string, string | null>; overlapAtShip: number } | null };
-const led = vi.hoisted(() => ({ verified: [] as string[], records: [] as Rec[], breakWrite: false, flip: vi.fn(async (..._a: unknown[]) => true) }));
+type Rec = { id: string; proposalId: string; proposalVersion: string; componentsApplied: Array<{ id: string; kind?: string; anchorAfter?: string; redirectTo?: string; appliedAfter?: string }>; path: string; page: string; implementedAt: string | null; operatorNote?: string | null; verification?: string | null; treatmentStamp: { signature: Record<string, string | null>; overlapAtShip: number } | null };
+const led = vi.hoisted(() => ({ verified: [] as string[], records: [] as Rec[], breakWrite: false, noRecordId: false, flip: vi.fn(async (..._a: unknown[]) => true) }));
 const stored = vi.hoisted(() => ({ proposal: null as unknown, byId: null as Map<string, unknown> | null, disposition: null as string | null, tenant: "t" }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => stored.tenant }));
@@ -20,6 +20,7 @@ vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof
   loadShippedChanges: async () => led.records, captureChangeMeta: async () => null,
   recordShipment: async (f: Omit<Rec, "id"> & { path: string }) => {
     if (led.breakWrite) throw new Error("relation shipped_change_proof does not exist");
+    if (led.noRecordId) return { shipmentId: "", measurement: "measuring" }; // the reading could not be started, so no row can be named
     const held = led.records.find((r) => r.proposalVersion === f.proposalVersion);
     if (held) return { shipmentId: held.id, measurement: "measuring" };
     led.records.push({ ...f, id: `rec-${led.records.length + 1}`, implementedAt: new Date().toISOString() }); // THE REAL STORE STAMPS `implementedAt` AT THE PRESS, so the fixture does too: the next press reads this ledger back to count what is already being measured on the same page.
@@ -41,7 +42,7 @@ const linkChange = (): ChangeProposal => { const p = change("One sentence pointi
   p.recommendedChange = { kind: "existing_edit", field: "section", before: null, after: "One sentence pointing readers to the haft seen page.", where: 'In the body copy, with "the haft seen explained" linked to /haft-seen', linkTo: "/haft-seen", anchorText: "the haft seen explained" }; (p.bundle as { components: unknown[] }).components = [{ kind: "internal_link_add", label: "Link to the haft seen page", risk: "safe", before: null, after: "One sentence pointing readers to the haft seen page.", evidenceKeys: ["k1"] }]; return p; };
 const press = async (p: ChangeProposal) => { stored.proposal = p;
   return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id }); };
-beforeEach(() => { led.records = []; led.breakWrite = false; stored.disposition = null; stored.byId = null; stored.tenant = "t"; surf.rebuilds = 0; led.flip.mockReset(); led.flip.mockResolvedValue(true); }); // the rebuild count is reset with every other fixture, so no assertion about it depends on the test before it
+beforeEach(() => { led.records = []; led.breakWrite = false; led.noRecordId = false; stored.disposition = null; stored.byId = null; stored.tenant = "t"; surf.rebuilds = 0; led.flip.mockReset(); led.flip.mockResolvedValue(true); }); // the rebuild count is reset with every other fixture, so no assertion about it depends on the test before it
 describe("many at once is one trip, and still one shipment each", () => {
   it("records twenty changes on one press and rebuilds the surfaces once, not twenty times", async () => {
     const ids = Array.from({ length: 20 }, (_, i) => `t::/p-${i}::existing_edit::bundle`);
@@ -145,4 +146,70 @@ describe("nothing is marked done that no record stands behind", () => {
     expect(led.records).toHaveLength(2); // new wording is a new piece, measured on its own
     led.records[1]!.componentsApplied = [{ id: "0:title" }]; // as an older era wrote it, before the copy was part of the name
     expect(/already on file/.test((await press(change(REDRAFT))).note ?? "")).toBe(true); }); // still matched, at that name's own precision
+});
+
+/** THE OPERATOR LOOP RECORDS EXACTLY WHAT HAPPENED (2026-09-05). Two accounts with nothing in common, the real action, the store faked: a
+ *  press that lands writes one record and never a second, a bad moment stays the operator's to send again, and a verdict is said in the
+ *  server's own sentence instead of being counted as work that landed. */
+const SITES = [
+  { t: "acct-tide", path: "/tide-pools", label: "Tide Pools", q: "tide pool safety", after: "Tide pools: when to go and how to stay upright on the rocks", mine: "The exact line that is on the page now." },
+  { t: "acct-bordado", path: "/bordado", label: "Bordado a mano", q: "puntadas de bordado", after: "Bordado a mano: las puntadas que lleva cada motivo", mine: "La linea exacta que quedo en la pagina." },
+];
+type Site = (typeof SITES)[number];
+const card = (s: Site, over: Partial<ChangeProposal> = {}): ChangeProposal => ({ ...change(s.after), id: `${s.t}::${s.path}::existing_edit::title`, tenantId: s.t,
+  pagePath: s.path, pageUrl: `https://${s.t}.example${s.path}`, pageLabel: s.label, primaryQuery: s.q, ...over } as ChangeProposal);
+const atomic = (s: Site, over: Partial<ChangeProposal> = {}): ChangeProposal => card(s, { bundle: undefined, ...over } as Partial<ChangeProposal>);
+const pressOn = async (s: Site, p: ChangeProposal, over: Record<string, unknown> = {}) => { stored.tenant = s.t; stored.proposal = p;
+  return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, ...over }); };
+
+describe("one press is one record, and every ending of a press is named", () => {
+  for (const s of SITES) {
+    it(`${s.t}: a second press of the same version writes no second record, moves no date, and never erases what the live check found`, async () => {
+      const first = await pressOn(s, atomic(s), { appliedText: s.mine });
+      const stamp = led.records[0]!.implementedAt;
+      led.records[0]!.verification = "confirmed on the page"; // the live check has since answered on this record
+      const again = await pressOn(s, atomic(s), { appliedText: s.mine });
+      expect([first.success, again.success, led.records.length], "the same press twice is one record").toEqual([true, true, 1]);
+      expect([led.records[0]!.implementedAt, led.records[0]!.verification], "the day it was applied does not move and the live check is untouched").toEqual([stamp, "confirmed on the page"]);
+      expect([led.records[0]!.componentsApplied[0]!.appliedAfter, led.records[0]!.operatorNote], "and their own wording survives the retry, on the piece it replaced and on the row").toEqual([s.mine, s.mine]); });
+
+    it(`${s.t}: a press on a change already recorded says it is being measured and writes nothing`, async () => {
+      expect((await pressOn(s, card(s))).success).toBe(true);
+      const again = await pressOn(s, card(s, { status: "implemented_pending_verification" }));
+      expect([again.success, again.retryable ?? null, led.records.length], "a row already on file answers yes, is never a bad moment, and mints no duplicate").toEqual([true, null, 1]);
+      expect(again.note, "and it says plainly that there is nothing left here for them to do").toContain("already on file and being measured"); });
+
+    it(`${s.t}: a bad moment keeps the press and a verdict settles it, each in the sentence the server gave`, async () => {
+      led.noRecordId = true; const noReading = await pressOn(s, atomic(s));
+      led.noRecordId = false; led.breakWrite = true; const noWrite = await pressOn(s, atomic(s));
+      led.breakWrite = false;
+      const review = await pressOn(s, atomic(s, { status: "needs_review" }));
+      const unfinished = await pressOn(s, atomic(s, { researchOnly: true }));
+      expect([noReading.retryable, noWrite.retryable], "a reading that could not start and a write that threw are bad moments, not verdicts").toEqual([true, true]);
+      expect([review.retryable ?? null, unfinished.retryable ?? null], "being held for review and being unfinished are verdicts, so they are never sent again").toEqual([null, null]);
+      expect([led.records.length, led.flip.mock.calls.length], "and none of the four wrote a record or flipped the change").toEqual([0, 0]);
+      expect([review.error, unfinished.error], "each refusal names its own reason").toEqual([expect.stringContaining("still being reviewed"), expect.stringContaining("has not finished this one yet")]); });
+
+    it(`${s.t}: a bad moment on the first press is kept on this device, and only a verdict ends it`, async () => {
+      const { MARK_PRESS } = await import("@/app/(shell)/changes/change-controls");
+      led.noRecordId = true; const moment = await pressOn(s, atomic(s)); led.noRecordId = false; // the reading could not be started: a bad moment the server types as retryable
+      const refused = await pressOn(s, atomic(s, { researchOnly: true }));
+      const landed = await pressOn(s, atomic(s));
+      const plain = [landed, moment, refused, null].map((a) => MARK_PRESS.fresh(a, { queueable: true }));
+      expect(plain.map((e) => e.ending), "the press that landed is recorded, the bad moment and the throw are kept on this device, and only the verdict ends the press").toEqual(["recorded", "queued", "unrecorded", "queued"]);
+      expect([plain[1]!.said, plain[2]!.said], "a kept press says it sends itself, and a verdict is said in the sentence the server gave").toEqual(["Saved on this device. It records itself when the connection returns.", refused.error]);
+      const narrower = [moment, null].map((a) => MARK_PRESS.fresh(a, { queueable: false }));
+      expect(narrower.map((e) => [e.ending, e.said]), "and a press this device cannot send again faithfully is never kept: the server's own sentence stands, and a press that never reached the server says what to check").toEqual(
+        [["unrecorded", moment.error], ["unrecorded", "It did not save. Check you are signed in, then press it again."]]); });
+
+    it(`${s.t}: the device counts only the presses that landed and repeats the server's own refusal`, async () => {
+      const { MARK_PRESS } = await import("@/app/(shell)/changes/change-controls");
+      const landed = await pressOn(s, atomic(s));
+      const refused = await pressOn(s, atomic(s, { researchOnly: true }));
+      led.breakWrite = true; const moment = await pressOn(s, atomic(s)); led.breakWrite = false;
+      const out = MARK_PRESS.flush([landed, refused, moment, null]);
+      expect(out.keep, "the bad moment and the throw stay on the device; the record and the verdict do not").toEqual([2, 3]);
+      expect(out.said, "one landed, one is refused in the server's own words, two are still waiting, and a refusal is never counted as recorded").toBe(
+        `1 press held on this device was recorded. 1 press could not be recorded: ${refused.error} 2 presses held on this device could not be recorded yet and are still waiting. Reload this page to send them again.`); });
+  }
 });

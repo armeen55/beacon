@@ -160,7 +160,10 @@ function Row({ row, group, open, onToggle }: { row: ResultsRow; group: ResultsGr
         <div className="bg-surface-inset px-3 py-3">
           <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">What happened</p>
+              {/* TWO THINGS, TWO SENTENCES (2026-09-05): what was applied and what the live page said about it is one fact, and what the reading learned is another. One block carried both, so "the page moved up after it" sat beside "never confirmed on the live page" with nothing saying which was which. */}
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">What was applied</p>
+              <p className="mt-1 text-[13px] text-foreground" data-execution="true">{row.execution}</p>
+              <p className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">What the reading says</p>
               <p className="mt-1 text-[13px] text-foreground">{row.happened}</p>
               {row.googleAside ? aiBlock : null}
               {/* GOOGLE UNDER ITS OWN HEADING, never in the answer slot. A citation win printed the click decline as its story, so the
@@ -190,6 +193,8 @@ function Row({ row, group, open, onToggle }: { row: ResultsRow; group: ResultsGr
             </ol>
           </div>
           <p className="mt-3 text-[12px] text-foreground/80">{row.taught}</p>
+          {/* AND WHAT THAT CHANGED IN WHAT GETS FUNDED NEXT, in the funding door's own rule and in the same words the belief at the top of this page uses. */}
+          <p className="mt-1 text-[12px] text-foreground/80" data-funded="true">{row.funded}</p>
           {/* ONE next step per row, and it is the row's own: a win used to be sent off with the title
               advice whatever the change had actually been. Clickable where there is somewhere to go. */}
           {group === "worked" && row.liveConfirmed

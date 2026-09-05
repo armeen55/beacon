@@ -72,6 +72,37 @@ export function stockOf(ready: readonly ChangeProposal[]): number {
   return (ready.length - thin) + Math.min(THIN_STOCK_MAX, thin);
 }
 
+/** WHAT THE ROWS THEMSELVES ALREADY ANSWERED ABOUT THE DAY'S UNSETTLED WORK (2026-09-05). A walk the caller's box cut off keeps
+ *  running: the job in flight lands its row a minute after the drive stopped waiting, and the day remembered that attempt as
+ *  `retryable_blocked`, so the next drive funded the same work again and paid a second time for words already on file. The answer
+ *  is on the row and nowhere else. A live row carrying that exact `workKey` IS what this work produces under this exact evidence
+ *  (the identity carries the page, the evidence, the family, the treatment, the cause and the search), so the memory takes the
+ *  row's own answer: `produced` where the row stands ready, and the draft it saved where a named check or a person still stands
+ *  between those words and ready. A key with no row of its own is untouched and still owed, and a row that owes a corrective
+ *  redraft wears a different identity, so settling here can never write off the work that redraft is.
+ *  AND ONLY A ROW THIS DAY'S WORK COULD HAVE WRITTEN MAY SETTLE IT (reviewer, 2026-09-05). With no moment to measure against, a
+ *  ready row standing since an earlier day settled today's blocked job, so a drive that produced nothing read as produced on its
+ *  own receipt and the day memory could repeat it. The row has to stand at or after the moment the caller names: its own update
+ *  moment where the store carries one, and the moment it was created otherwise. A row that can say neither settles nothing. */
+export function settledByRows(
+  memory: Readonly<Record<string, { calls: number; last: string; settled: boolean }>>,
+  rows: { ready: readonly ChangeProposal[]; toDo?: readonly ChangeProposal[] },
+  /** THE MOMENT A ROW MUST STAND AT OR AFTER: the drive's own start where the caller holds one, and the start of the day this memory belongs to where it does not. Omitted, it is today's start, because a day memory is only ever read back on the day that wrote it. */
+  since: Date | string | number = new Date().toISOString().slice(0, 10),
+): Record<string, { calls: number; last: string; settled: boolean }> {
+  const floor = new Date(since).getTime();
+  const stood = (p: ChangeProposal): boolean => Date.parse((p as { updatedAt?: string }).updatedAt ?? p.createdAt) >= floor;
+  const landed = new Map<string, string>();
+  for (const p of rows.toDo ?? []) if (p.workKey && stood(p)) landed.set(p.workKey, "review_saved");
+  for (const p of rows.ready) if (p.workKey && stood(p)) landed.set(p.workKey, "produced");
+  const out = { ...memory };
+  for (const [key, m] of Object.entries(out)) {
+    const answer = landed.get(key);
+    if (answer && !m.settled && m.calls > 0 && m.last === "retryable_blocked") out[key] = { ...m, last: answer, settled: true };
+  }
+  return out;
+}
+
 export type RankedProposalQueue = {
   /** Every live CURRENT-BASIS proposal, ranked most-valuable first. */
   ranked: ChangeProposal[];

@@ -5,12 +5,16 @@ import "server-only";
  *  results-presentation at its ceiling; that file imports THIS, and this imports only helpers back. */
 
 import type { CauseFinding } from "@/domains/decision";
+import { MIN_FINISHED_READINGS } from "@/domains/decision"; // THE FUNDING DOOR'S OWN NUMBER, IMPORTED: a copy of it is a second answer waiting to disagree
 import type { ControlReceipt } from "@/domains/measurement";
-import { isMature as kernelIsMature } from "@/domains/measurement";
+import { isMature as kernelIsMature, treatmentLearning, type TreatmentGroup } from "@/domains/measurement";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import type { KernelRead } from "@/domains/measurement";
 import { groupOf, landsLabel, nextCloseOn, type ResultsGroup, type ShipmentPresentation } from "./results-presentation";
 
+type LearningRow = Parameters<typeof treatmentLearning>[0][number];
+/** This account's closed readings for one row, and WHICH record answered: its own kind of work, or the whole family. */
+type Funding = { readings: number; netLift: number; of: "kind" | "family" } | null;
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const cap = (s: string): string => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
 const isMature = (d: number | null): boolean => kernelIsMature(d as 7 | 14 | 28 | 56 | null), countsForLearning = (d: number | null): boolean => d != null && d >= 14; // TWO DIFFERENT QUESTIONS SINCE 2026-09-03: what the engine may learn from is a window closed at 14 days or beyond (treatment-learning), and what may be called a win is still the 28 day read alone.
@@ -311,6 +315,37 @@ function unadjustedLine(p: ShipmentPresentation): string | null {
   return peersMoved == null ? `${own}, unadjusted: the site moved too.` : `${own}, while the pages compared against it ${peersMoved}.${which}${reading}`;
 }
 
+/** THE ROW THE FUNDING DOOR ITSELF LEARNS FROM, carried on the presentation off the canonical record: the signature stamped at the press, the operator's mute, the frozen reading and the stored readings. An older snapshot carries no facts and pools nothing rather than being handed a rebuilt shape. TWO READINGS ARE HELD OUT OF THE CLICK NUMBERS AND KEEP THEIR OWN ROWS: days two edits both moved belong to neither alone, and a change pressed to win a citation is answered on citations, so its Google clicks are context here and never one of the readings this bet is sized on. `forRanking` shapes the row exactly as the funding door shapes it (decision/load-proposals and produce-proposals both blank an assistant-judged row's windows and nothing else), so what this surface says about the queue is computed off the queue's own input. MOVED HERE FROM THE BELIEF ABOVE THE LIST (2026-09-05), because the rows underneath it need the same shape and a second copy is a second answer. */
+const learningRowOf = (p: ShipmentPresentation, forRanking = false): LearningRow => ((row: LearningRow): LearningRow => (forRanking ? judgedOnAi(p) : p.read.verdict === "confounded" || judgedOnAi(p)) ? { ...row, windows: [] } : row)(p.learning
+  ?? { actionType: p.read.actionType, after: null, implementedAt: p.implementedAt, verification: p.verification, operatorVerdictOverride: null, pinnedRead: null, treatmentStamp: null, componentsApplied: null, windows: [] });
+/** The family AND treatment one row files under: an answer section added because assistants never read the page and one added because the opening buried the answer are two bets, and they were one node. */
+const betOf = (p: ShipmentPresentation): TreatmentGroup => treatmentLearning([{ ...learningRowOf(p), windows: [] }])[0]!;
+/** WHOSE RECORD ANSWERS FOR THIS ROW, asked of the ONE map the queue reads (measurement/treatment-learning), in the ONE order every consumer asks it: this exact kind of work first, the whole family it belongs to only where the finer record holds nothing at all. A family is not a bet, and reading one as the other is what let nine internal links that finished behind discount every link this account will ever ship. */
+const fundingFor = (map: ReadonlyMap<string, { readings: number; netLift: number }> | null | undefined, p: ShipmentPresentation): Funding => {
+  const bet = betOf(p), fine = map?.get(bet.key); if (fine) return { ...fine, of: "kind" };
+  const whole = bet.family == null ? undefined : map?.get(bet.family); return whole ? { ...whole, of: "family" } : null; };
+/** WHAT THIS RECORD HAS CHANGED IN WHAT GETS FUNDED NEXT, in the funding door's own rule and in ONE spelling. The belief above the list and every row under it said this in their own words off the same map, which is two answers waiting to disagree. The order moves in exactly one way: three or more closed readings that are down between them rank the next change of that kind below the rest, and a good run buys nothing at all, because the traffic riding on a change decides the queue and never the kind of change. */
+function fundingLine(record: Funding): string {
+  const which = record?.of === "family" ? "this whole family of changes" : "this exact kind of change";
+  const learned = record?.readings ?? 0, net = record?.netLift ?? 0, closed = `${num(learned)} closed reading${learned === 1 ? "" : "s"}`;
+  if (learned === 0) return "Nothing here has changed what gets funded next yet.";
+  if (learned < MIN_FINISHED_READINGS) return `${closed} of ${which} here, and the next one is funded exactly as before: ${MIN_FINISHED_READINGS} closed readings that are down between them is what moves the order.`;
+  if (net < 0) return `${closed} of ${which} here are ${num(-net)} click${net === -1 ? "" : "s"} down between them, so the next one is funded below the rest until one finishes ahead.`;
+  return `${closed} of ${which} here ${net === 0 ? "are level between them" : `are ${num(net)} click${net === 1 ? "" : "s"} up between them`}, and a record that is not down buys no place in the queue: what gets funded next is decided on the traffic riding on each change.`;
+}
+
+/** WHAT THE OPERATOR ACTUALLY DID, AND WHAT THE LIVE PAGE SAID ABOUT IT (2026-09-05). One paragraph carried this and the reading together, so "the page moved up after it" sat in the same breath as "never confirmed on the live page" and nothing on the row told what happened to the PAGE apart from what the reading TAUGHT. This sentence answers only the first: what was applied, when, whose wording is on the page, what the live check found, and whether the page has moved again since. The typed cause the verifier names is what speaks, so a page that builds itself in the browser says it could not be read and never says the words were missing. */
+function executionLine(p: ShipmentPresentation): string {
+  const day = monthDayLabel(p.implementedAt), own = (p.applied ?? []).length > 0 ? ", in your own wording" : "";
+  const applied = p.implementedAt == null ? "Marked done before the day it was applied was recorded" : `Applied on ${day ?? "the day it was recorded"}${own}`;
+  const v = p.verification, why = v?.reason ? WHY_UNCONFIRMED[v.reason] : null;
+  const checked = v == null ? "It has not been read on the live page yet."
+    : v.status === "verified" || v.status === "partially_verified" ? `${v.status === "partially_verified" ? "Part of it was confirmed" : "Confirmed"} on the page on ${monthDayLabel(v.checkedAt) ?? "the day it was read"}.`
+      : why ? `${why}.` : v.status === "not_found" ? "Not found on the page." : "It could not be read on the page.";
+  const again = p.read.cleanUntil ? ` The page changed again on ${monthDayLabel(p.read.cleanUntil) ?? "a later day"}.` : "";
+  return `${applied}. ${checked}${again}`;
+}
+
 /** What this read carries forward, plus how much stands behind it. Clauses drop rather than guess. THE OUTCOME CLAUSE IS THE ROW'S OWN
  *  YARDSTICK: a change judged on citations carried "the page did not clearly move" out of Google into the lesson, and that lesson is what
  *  gets recommended next on pages like this one. */
@@ -401,4 +436,4 @@ function caveatLines(r: KernelRead, judgedOnAi: boolean): string[] {
 }
 
 /** ONE module surface: the sentence layer exports itself once, not eighteen times. */
-export const RESULT_LINES = { AI_MOVE, WHY_UNCONFIRMED, causeWords, aiDays, aiHappenedLine, aiMove, aiStory, cap, caveatLines, groupFor, happenedLine, isRetired, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, rawMoveOf, reasonWords, receiptOf, retiredChip, rowState, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } as const;
+export const RESULT_LINES = { AI_MOVE, WHY_UNCONFIRMED, betOf, causeWords, executionLine, fundingFor, fundingLine, learningRowOf, aiDays, aiHappenedLine, aiMove, aiStory, cap, caveatLines, groupFor, happenedLine, isRetired, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, rawMoveOf, reasonWords, receiptOf, retiredChip, rowState, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } as const;

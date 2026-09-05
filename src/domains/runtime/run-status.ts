@@ -49,6 +49,8 @@ export type ResearchRunStatusView = {
   pauseReason: string | null;
   /** WHAT THE LAST DRIVE COULD NOT PAY FOR, IN ITS OWN WORDS AND WITH ITS OWN SECONDS ("Publishing what this day found needs 40 seconds and this drive had 32 left, so nothing was started for it. The next pass starts there."). A pause reason is written by a step that FAILED; this is written by a step that was never started, which is a different fact and the one an operator reading a half-finished day needs. Straight off `progress.state.blocker`, which the drive writes and nothing else does, and null on a drive that started everything it planned. */
   blocker: string | null;
+  /** THE OTHER DEADLINE ANSWER, AND IT IS NOT THE SAME FACT (2026-09-05). `blocker` is a step the drive would not START because it could not pay for it: nothing is running and the next pass takes it first. This is the drive giving up on a walk that WAS running: the calls it had already made are remembered, its work is owed again at its own rank, and whatever it went on to save after the box still lands. Read as one sentence they told the operator "the drive ran out of time" and hid which of the two had happened, so the answer, and what to expect next, were both unreadable. Null on a drive that waited for everything it started. */
+  waiting: string | null;
   /** The earliest date a promised retry becomes legal, straight off the persisted row. */
   nextDueAt?: string | null;
   sourcesStale?: string | null; /** THE ONE SENTENCE A CONNECTOR THAT WOULD NOT SYNC OWES THE OPERATOR, carried off the pass receipt so a surface built on a stale source says so where that source's own last-synced time is printed. A connector failure stopped ending the drive on 2026-09-05 and the debt it left reached nobody: it was recorded and nothing read it. Null when every connected source synced. */
@@ -153,7 +155,7 @@ const PHASE_LABEL: Record<ResearchPhase, string> = {
  * forever. A row untouched for STALE_RUN_MS is reported as interrupted, which is true and cannot flicker, because updated_at only moves forward on a real write.
  */
 export function projectStatusView(run: ResearchRun | null, nowMs: number): ResearchRunStatusView {
-  if (run == null) return { state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: RESEARCH_RUN_STEPS_TOTAL, counters: {}, updatedAt: null, completedAt: null, pauseReason: null, blocker: null, liveness: livenessOf(null, nowMs, "none") };
+  if (run == null) return { state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: RESEARCH_RUN_STEPS_TOTAL, counters: {}, updatedAt: null, completedAt: null, pauseReason: null, blocker: null, waiting: null, liveness: livenessOf(null, nowMs, "none") };
 
   const touchedAt = Date.parse(run.updated_at ?? "");
   const interrupted = run.status === "running" && Number.isFinite(touchedAt) && nowMs - touchedAt >= STALE_RUN_MS;
@@ -199,6 +201,9 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
     pauseReason: interrupted ? INTERRUPTED_REASON
       : state === "paused" && run.last_error?.phase === run.current_phase ? (run.last_error?.message?.trim() || null) : null,
     blocker: (persisted.blocker ?? "").trim() || null, // the drive's own not-started sentence, carried whole so the surface prints the seconds rather than recomputing them
+    // AND THE WALK THE DRIVE STOPPED WAITING FOR, said as its own sentence off the walk's own typed ending (runtime/ops/research-steps): the work carried on, so the next pass picks it up where this one left it rather than beginning it again.
+    waiting: run.progress?.replenish?.outcomes?.ended === "boxed"
+      ? `Writing your changes was still running when this drive's time ran out, so what it had already spent is remembered and the rest is owed again at its own rank. The next pass picks it up there.` : null,
   };
 }
 
