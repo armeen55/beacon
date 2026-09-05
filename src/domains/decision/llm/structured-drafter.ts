@@ -793,7 +793,7 @@ type AtomicEditStructuredInput = {
   /** The owning account (Slice 3: REQUIRED, threaded to the drafter for cache + budget scoping). Also looks up this account's own measured winners (same field/lever) for the few-shot injection below. */
   tenantId: string;
   /** BEACON_500 item 74: the page's family (first path segment), used ONLY to look up a CONFIDENT winning pattern for this family. Optional - omitting it (or having no confident cell yet) leaves the prompt byte-identical, never an error. */
-  pageFamily?: string; /** THE DELIVERY SHAPE THE ASSIGNMENT ASKED FOR, for a body answer alone. `inline` is an addition or a direct answer that lands inside the page's own copy: it owes NO heading and its anchor is the exact stored wording the assignment named. Absent keeps the headed-section contract byte for byte. */ answerShape?: "inline";
+  pageFamily?: string; /** THE EXACT STORED PASSAGE THIS COPY REPLACES, for a body rewrite alone, and the whole of the superlative allowance a body edit gets (live 11:30Z, 2026-09-05): the prompt told the writer four times to keep everything true the replaced passage says and once never to write "the best", on a /cuisine passage that says "the best", and the firewall refused both drafts. A replacement may keep a ranking word the words it replaces already carry, because the page already says it; nothing wider, and an addition still carries none. */ replaces?: string; /** THE DELIVERY SHAPE THE ASSIGNMENT ASKED FOR, for a body answer alone. `inline` is an addition or a direct answer that lands inside the page's own copy: it owes NO heading and its anchor is the exact stored wording the assignment named. Absent keeps the headed-section contract byte for byte. */ answerShape?: "inline";
 };
 
 /** THE OPENING NAMES THE ACTUAL JOB (Codex, 2026-08-23). This system prompt opened "You improve ONE on-page field (a page title or meta description)" for EVERY field, so a model asked for a 40-to-90-word answer block was simultaneously told it was writing a title: two assignments in one prompt, and the live reviewer read the confusion as thin restatement. The head clause now names the field being written; every homework rule after it is shared and unchanged. */
@@ -875,7 +875,7 @@ export async function draftAtomicEditStructured(
 
   const result = await callStructuredLLM({
     kind: "atomic_edit",
-    tenantId: input.tenantId, ownWords: input.field === "answer_block" ? undefined : [input.pageLabel, ...outline].join(" "), // a summary field may repeat a superlative the page's own title or headings carry; body copy may not
+    tenantId: input.tenantId, ownWords: input.field === "answer_block" ? input.replaces : [input.pageLabel, ...outline].join(" "), // a summary field may repeat a superlative the page's own title or headings carry; a body REPLACEMENT may repeat one the exact passage it replaces carries, and a body addition carries none
     ...(input.unmarkPhrase ? { unmarkPhrase: input.unmarkPhrase } : {}),
     system: (ATOMIC_HEAD[input.field] ?? ATOMIC_HEAD.default!) + ATOMIC_EDIT_SYSTEM + (input.field === "answer_block" ? OPENING_ANSWER_CLAUSE + (input.answerShape === "inline" ? INLINE_ANSWER_CLAUSE : SECTION_ANSWER_CLAUSE) : input.field === "meta" ? META_SUBJECT_CLAUSE : input.field === "title" || input.field === "h1" ? TITLE_SHAPE_CLAUSE : "") + fewShots,
     user,

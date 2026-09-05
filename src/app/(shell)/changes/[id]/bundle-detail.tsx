@@ -428,7 +428,7 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
   const shownSteps = research && after && !(steps[0] ?? "").startsWith(after.slice(0, 25)) ? [after, ...steps] : steps;
   const checks = proposal.evidence?.hints ?? [];
   // TWO THINGS THE RENDERED APP CAUGHT ON 2026-09-05. A HEADLINE THAT CARRIES AN ADDRESS IS THE WRITER'S BRIEF, NOT THE CUSTOMER'S SENTENCE: the detail led with "Write a real description on /iran-flags/parthian-empire-flag: 7 pages share one templated line", a file name printed at the operator above the very address it names. AND BEACON'S OWN OBJECTIONS ARE NOT THE OPERATOR'S CAVEATS: the same row printed "its copy carries no record of what it stands on" under Keep in mind, which names an internal record and no next step; the hold this page already computed names those sentences, so no second vocabulary decides it here.
-  const brief = (proposal.opportunityType || "").trim().replace(/_/g, " "), edit = proposal.recommendedChange, caveats = ((f) => proposal.limitations.filter((l) => !f.has(l)))(new Set(hold1.why));
+  const brief = (proposal.opportunityType || "").trim().replace(/_/g, " "), edit = proposal.recommendedChange, caveats = hold1.caveats, tried = proposal.previousCopy; // THE HOLD ANSWERS BOTH HALVES (measured, 2026-09-05): filtering the row's raw limitations against the hold's reasons alone still served "its copy carries no record of what it stands on" on /california-persian-cities/fremont, the one sentence that verdict had just DISPROVED from the row's own claims and support facts. What a person should keep in mind is now the same function's answer, so no gate sentence reaches a customer as their own caveat and the typed fault and the obligation still say what is owed.
   const action = (/(^|\s)\//.test(brief) ? "" : brief) || (edit.kind === "new_page" ? `Build a new page that answers "${proposal.primaryQuery}"` : `Update the ${({ title: "page title", meta: "meta description", h1: "page headline", answer_block: "answer at the top of the page", section: "section", schema: "structured data" } as Record<string, string>)[edit.field] ?? "page"} to sharpen it for "${proposal.primaryQuery}"`); // never the bland shrug: the operator reads the page name and then what is being done to it
   return (
     <div className="space-y-5" data-simple-detail="true">
@@ -460,10 +460,10 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
         </div>
       ) : null}
       <p className="text-[14px] leading-relaxed text-foreground">{proposal.whyItMatters}</p>
-      {/* THE RETIREMENT RECEIPT: finished words a later pass genuinely replaced stay inspectable here. */}
-      {proposal.previousCopy ? (
+      {/* THE RETIREMENT RECEIPT: what was tried for this change and what refused it. "An earlier FINISHED version" was untrue of the case this round adds, a draft a door refused before it was ever finished, and a bare "Attempt 0" is what the recovery path's own count reads on 27 of the 44 live rows carrying a receipt (measured 2026-09-05), so the count is printed only where there is one. */}
+      {tried && tried.after.trim() ? (
         <p className="text-[12px] leading-relaxed text-muted-foreground" data-previous-copy="true">
-          An earlier finished version was retired because {proposal.previousCopy.retiredBecause}. Its words: &ldquo;{proposal.previousCopy.after.slice(0, 220)}&rdquo;
+          One earlier version of this change was retired{(tried.attempts ?? 0) >= 1 ? ` on attempt ${tried.attempts}` : ""}. Why: {tried.retiredBecause.replace(/\.?$/, ".")} Its words: &ldquo;{tried.after.slice(0, 220)}&rdquo;
         </p>
       ) : null}
       {caveats.length > 0 ? (
