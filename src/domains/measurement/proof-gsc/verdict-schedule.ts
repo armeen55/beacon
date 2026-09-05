@@ -40,7 +40,7 @@ export type VerdictScheduleRow = LedgerLifecycleRow & {
   lastCrawlAt?: string | null;
 };
 
-export type VerdictSchedule = {
+type VerdictSchedule = { // PRIVATE: no caller outside this file ever spelled this name, and public surface is capped, so a type nobody names is not surface
   /** Earliest FUTURE next-unclosed 7/14/28 checkpoint across measuring rows (recrawl clock). */
   firstReadOn: string | null;
   /** Earliest FUTURE stamp + 28 - the soonest final verdict any measuring row can reach. */

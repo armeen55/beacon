@@ -297,11 +297,14 @@ function happenedLine(p: ShipmentPresentation, now: Date = new Date()): string {
   return isMature(r.basisDay) ? `Ran ${r.basisDay} days. ${estimate}.` : `${r.basisDay} days in. ${estimate}.`;
 }
 
-/** THE SITE'S OWN BEFORE AND AFTER where no fair comparison exists, labeled as exactly that. Printed
- *  only when the kernel exposes the unadjusted pair; nothing is scaled, guessed or filled in here. */
+/** THE PAGE'S OWN MOVEMENT BESIDE THE ADJUSTED ONE where no fair comparison exists, so the reader can see which of the two moved. "Before 0 / After 0, unadjusted: the site moved too" stood here, true and unreadable: five live readings reported plus 75 clicks while the pages they were measured against fell 75 and the page itself never moved at all, and nothing on the row said which. Printed only when the kernel exposes the unadjusted pair; the comparison's own fall comes off the stored window and the clause drops when no window carries it. Nothing is scaled, guessed or filled in here. */
 function unadjustedLine(p: ShipmentPresentation): string | null {
-  const u = p.read.unadjusted;
-  return p.read.comparison !== "insufficient" || !u ? null : `Before ${num(u.clicksBefore)} clicks / After ${num(u.clicksAfter)} clicks, unadjusted: the site moved too.`;
+  const u = p.read.unadjusted; if (p.read.comparison !== "insufficient" || !u) return null;
+  const moved = u.clicksAfter - u.clicksBefore, fell = (p.learning?.windows ?? []).find((w) => w.day === u.basisDay)?.controlDelta ?? null;
+  const own = `This page went from ${num(u.clicksBefore)} to ${num(u.clicksAfter)} clicks, ${moved === 0 ? "flat" : moved > 0 ? `up ${num(moved)}` : `down ${num(-moved)}`}`;
+  const peersMoved = fell == null ? null : fell === 0 ? "did not move" : fell < 0 ? `fell ${num(-fell)}` : `rose ${num(fell)}`; /* THE GAP CLAIM IS ONLY TRUE IN CLICKS (reviewer, 2026-09-05): five live readings are judged on click rate, and "0.7 points of click rate is the gap between those two click movements" is arithmetic that does not hold */
+  return peersMoved == null ? `${own}, unadjusted: the site moved too.` : p.read.metric === "clicks" ? `${own}, while the pages compared against it ${peersMoved}. This reading reports ${liftSize(p.read.metric, p.read.lift)}, which is the gap between those two movements and not clicks this change won.`
+    : `${own}, while the pages compared against it ${peersMoved}. The reading itself is ${liftSize(p.read.metric, p.read.lift)}, judged on a different measure from the clicks above, and it is not clicks this change won.`;
 }
 
 /** What this read carries forward, plus how much stands behind it. Clauses drop rather than guess. THE OUTCOME CLAUSE IS THE ROW'S OWN

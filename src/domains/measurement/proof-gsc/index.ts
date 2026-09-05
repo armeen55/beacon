@@ -61,7 +61,7 @@ export type { ControlReceipt } from "./contamination";
 export { contaminationFor, selectMatchedControls } from "./contamination";
 
 // Verdict schedule
-export type { VerdictScheduleRow, VerdictSchedule } from "./verdict-schedule";
+export type { VerdictScheduleRow } from "./verdict-schedule";
 export { verdictSchedule } from "./verdict-schedule";
 
 // Change <-> proof linking (surface navigation)

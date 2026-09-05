@@ -226,7 +226,9 @@ function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     bundleHypothesis: row.bundle_hypothesis ?? null, componentsApplied: row.components_applied ?? null,
     implementedAt: row.implemented_at ?? null, preChangeContentHash: row.pre_change_content_hash ?? null,
     preChangeHashUnavailable: row.pre_change_hash_unavailable === true,
-    measurementState: VALID_MEASUREMENT_STATES.has(row.measurement_state ?? "") ? (row.measurement_state as MeasurementState) : null,
+    // A DEBT THE LIVE CHECK ALREADY PAID IS NOT STILL OWED (live, three rows, 2026-09-04): `verification_needed` says the page has not been read yet, `recordVerification` writes only the check itself, and three rows confirmed on the live page on 12 August still told the operator "the live page still has to be read before any result is claimed". Cleared HERE, on read, off the row's own confirmed check and nothing else, so the answer is the same on every surface and no script has to walk the store.
+    measurementState: !VALID_MEASUREMENT_STATES.has(row.measurement_state ?? "") ? null
+      : row.measurement_state === "verification_needed" && (row.verification?.status === "verified" || row.verification?.status === "partially_verified") ? "measuring" : (row.measurement_state as MeasurementState),
     shipmentBaseline: row.shipment_baseline ?? null, verification: row.verification ?? null,
     operatorNote: row.operator_override_reason ?? null, aiScope: row.ai_scope ?? null, treatmentStamp: row.baseline_snapshot ?? null, pinnedRead: row.pinned_read ?? null,
     createdAt: row.created_at, updatedAt: row.updated_at,

@@ -21,6 +21,7 @@ import { loadShippedChangesForTenant } from "./shipped-change-store";
 import { readLastFinalizedDate } from "./gsc-window";
 import { buildHeadline, learningShape, metricFor, monthDay, overlapClosures } from "./read-honesty";
 import { applyPinnedRead } from "./pinned-read";
+import { learningEligibility, MIN_CONTROLS } from "./types";
 export { metricFor };
 
 // ── The kernel's own small verdict vocabulary ──────────────────────────────
@@ -168,8 +169,8 @@ export type KernelRead = {
 
 /** Baseline impressions a page needs before any read. */
 const MIN_BASELINE_IMPRESSIONS = 200;
-/** At least this many comparable (control) pages before a directional read. */
-export const MIN_CONTROLS = 2;
+/** At least this many comparable (control) pages before a directional read. DECLARED ONCE, beside the stored window it is asked of (proof-gsc/types), and re-exported here so every caller that already knew it by this name still does. */
+export { MIN_CONTROLS };
 /** Comparable pages, and baseline impressions, for a stronger higher-confidence read. */
 const CONTROLS_FOR_STRONG = 3;
 const IMPRESSIONS_FOR_STRONG = 3000;
@@ -392,9 +393,8 @@ export function evaluateChange(input: KernelInput, windows: KernelWindowRead[], 
   }
 
   const lift = liftOnMetric(basisWindow, metric), impressionsLift = basisWindow.adjustedImpressionsLift, controls = basisWindow.controlsUsed;
-  // THE ONE SERIES BEHIND THIS READING WAS THE REST OF THE SITE. Counting it as a single comparison page
-  // would read as too few pages and kill the verdict; it is a real basis, and a weaker one, and it says so.
-  const site = basisWindow.comparedToSite === true;
+  // THE ONE ELIGIBILITY VERDICT decides all three answers below (proof-gsc/types, learningEligibility), so the screen and the engine can never call one reading two things again. THE ONE SERIES BEHIND THIS READING WAS THE REST OF THE SITE reads `confounded`: counting it as a single comparison page would read as too few pages and kill the verdict; it is a real basis, and a weaker one, and it says so.
+  const teachable = learningEligibility(basisWindow, { measurementState: input.measurementState }), site = teachable === "confounded";
   // THE PAGE'S OWN BEFORE AND AFTER, pro-rated onto the basis window from the 28-day baseline. No
   // comparison page touches these, which is exactly why they can be shown when the comparison fails.
   const share = basisDay! / BASELINE_WINDOW_DAYS, clicksBefore = Math.round(input.baselineClicks * share), impressionsBefore = Math.round(input.baselineImpressions * share);
@@ -403,11 +403,11 @@ export function evaluateChange(input: KernelInput, windows: KernelWindowRead[], 
 
   // Point 6: insufficient when the sample can not support a directional read.
   const thinBaseline = input.baselineImpressions < MIN_BASELINE_IMPRESSIONS;
-  const thinControls = controls < MIN_CONTROLS && !site;
+  const thinControls = teachable === "unknown" && controls < MIN_CONTROLS;
   const noRateData = (metric === "ctr" || metric === "position") && basisWindow.treatedPostImpressions === 0;
   // TOO FEW FAIR COMPARISONS IS ITS OWN STATE, not thin data: the work landed, and what it did cannot
   // be separated from the rest of the site. No direction is claimed and ranking learns nothing.
-  const unfairComparison = thinControls || input.measurementState === "insufficient_comparison" || input.measurementState === "measurement_unavailable";
+  const unfairComparison = teachable !== "eligible" && !site;
   if (thinBaseline || unfairComparison || noRateData) {
     if (thinBaseline) confidenceReasons.push(`This page had ${Math.round(input.baselineImpressions)} impressions before the change, below the ${MIN_BASELINE_IMPRESSIONS} a confident read needs.`);
     if (thinControls) confidenceReasons.push(`Compared against only ${controls} similar page${controls === 1 ? "" : "s"}, below the ${MIN_CONTROLS} a confident read needs.`);
