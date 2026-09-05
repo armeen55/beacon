@@ -15,7 +15,7 @@
  */
 
 import { deliverableGaps, openHold } from "./completeness";
-import { unreviewed } from "./proof";
+import { editorialStandard, unreviewed } from "./proof";
 import { unsettledCause } from "./authorization";
 import type { ChangeProposal } from "./contracts";
 import type { EvidenceRequirement } from "./producers/contract";
@@ -45,6 +45,8 @@ const SETTLED_AFTER_RETRIES = "two corrective drafts failed the same gates, so t
  *  it from typed structure on every call, never from a stored string a producer's voice can move. */
 const UNWRITTEN = /no copy|describes the work instead|nothing has been written|carries no (?:title|description|opening)/i;
 /** The sentence saying the RECORD behind finished words was lost, matched the same way: the store's own, written where a re-minted brief would have displaced real copy (completeness's `decideFinished`). */ const NO_RECORD = /no record of what it stands on/i;
+/** AN OBJECTION NO LIVE DOOR CAN WRITE FOR THIS ROW IS HISTORY, NOT A DEBT (operator, 2026-09-05). Two of the editor's sentences were composed under the universal rule that every edit owes information the page does not carry: the line-count refusal of a restructuring, which is deleted outright, and "it repeats the search instead of improving the page", which the editor now writes only where the standard genuinely owes information (a missing answer or a correction). A summary, a restructuring and a link are judged on their own standard and can never be handed either sentence again, so a stored row carrying one owes no paid rewrite for it. NARROW BY CONSTRUCTION: it retires these two sentences on exactly the three standards that cannot produce them, touches no other fault, and re-reads no stored reading at all (the review contract is unmoved, so nothing banked is re-bought). */
+const RETIRED = /^this rearranges the page into one more paragraph|^it repeats the search instead of improving the page/i;
 
 /** How many sections a new page still owes, off the one gap only `deliverableGaps` can compute. */
 const owedSections = (gaps: readonly string[]): number => {
@@ -83,8 +85,10 @@ export function nextObligation(p: ChangeProposal): Obligation | null {
   const markup = p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "schema";
   const records = !markup && (p.claims ?? []).length === 0 && gaps.length === 0
     && [...(p.faults ?? []), ...p.limitations].some((f) => NO_RECORD.test(f)); // the STORE's own finding that this row's record was lost, never a fresh guess: a row that never carried claims is not a row that lost them
+  const standard = editorialStandard({ field: p.recommendedChange.kind === "existing_edit" ? p.recommendedChange.field : null, link: p.recommendedChange.kind === "existing_edit" && !!p.recommendedChange.linkTo, assignment: p.assignment, changeFamily: p.changeFamily });
+  const ownsInformation = standard === "missing_answer" || standard === "correction"; // the two standards whose copy really does owe information the page does not carry; the other three answer to form, a route or the line they replace
   const owedReview = unreviewed(p), faults = (p.faults ?? []).filter((f) => f !== owedReview
-    && (!markup || /^this structured data/i.test(f)) && !NO_RECORD.test(f)); // the record sentence is never a statement about the words: it is answered by the reading below while the record is missing, and by the record itself once that reading has rebuilt it
+    && (!markup || /^this structured data/i.test(f)) && !NO_RECORD.test(f) && (ownsInformation || !RETIRED.test(f))); // the record sentence is never a statement about the words: it is answered by the reading below while the record is missing, and by the record itself once that reading has rebuilt it
   // A ROW BANKED BEFORE THE COUNT EXISTED IS ON ATTEMPT ONE, never on its cap: absent is zero attempts consumed, so the two-attempt settlement can only ever bite on drafts this contract actually counted.
   const attempt = (p.previousCopy?.attempts ?? 0) + 1, redraft = (instruction: string): Obligation => attempt > MAX_ATTEMPTS ? { kind: "terminal", reason: SETTLED_AFTER_RETRIES } : { kind: "redraft", attempt, instruction };
   // A REFUSED REVIEW IS NOT BOUGHT AGAIN THE SAME DAY (falsifier, 2026-09-02). Review outranked redraft, so /farsi-numbers, whose paid reviewer refused it at 02:56Z and again at 03:08Z with the same objection sitting on the row as a typed fault, still answered `review` and the runtime paid the evaluator every drive. A reading is for copy with no KNOWN defect; a row that carries one owes the corrective draft first, and the reading is owed again only once the words have moved.
