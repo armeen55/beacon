@@ -51,8 +51,8 @@ type EntailmentFindingKind = "violation" | "correction";
 
 type EntailmentFinding = {
   kind: EntailmentFindingKind;
-  /** Plain-English, operator-facing line. For a violation: "This draft says
-   *  ... but I could not find that ... Check it before you paste." For a
+  /** Plain-English, operator-facing line, never in the first person. For a violation: "This draft says
+   *  ..., and that ... is not on your page ... Check it before you paste." For a
    *  correction: "This draft updates 'X' to 'Y' based on <source>, <date>.
    *  Your page currently says 'X'." */
   message: string;
@@ -206,8 +206,8 @@ function depluralize(w: string): string {
 
 function haystackHasWord(word: string, haystackLower: string): boolean {
   if (haystackLower.includes(word)) return true;
-  const folded = depluralize(word);
-  return folded !== word && haystackLower.includes(folded);
+  const bare = word.replace(/['\u2019]s?$/, ""), folded = depluralize(bare); // AN APOSTROPHE OF POSSESSION IS NOT PART OF A NAME (live, the 12:00Z tick of 2026-09-05): the sourced pre-1979 flag answer was funded, drafted twice for $0.0099 and refused for naming Iran's, on a page whose every line prints Iran. A possessive belongs to the sentence's grammar, exactly as a hyphen and a plural already do here.
+  return (bare !== word && haystackLower.includes(bare)) || (folded !== word && haystackLower.includes(folded));
 }
 
 /** True when `entity` (case-insensitive) appears as a substring of `haystack`,
@@ -315,7 +315,7 @@ export function checkFactualEntailment(input: FactualEntailmentInput): FactualEn
     } else {
       findings.push({
         kind: "violation",
-        message: `This draft says "${n}" but I could not find that number in your page or my data. Check it before you paste.`,
+        message: `This draft says "${n}", and that number is not on your page or in the evidence read for it. Check it before you paste.`,
       });
     }
   }
@@ -339,7 +339,7 @@ export function checkFactualEntailment(input: FactualEntailmentInput): FactualEn
     } else {
       findings.push({
         kind: "violation",
-        message: `This draft names "${entity}" but I could not find that on your page, in the query, or in my data. Check it before you paste.`,
+        message: `This draft names "${entity}", and that name is not on your page, in the query, or in the evidence read for it. Check it before you paste.`,
       });
     }
   }
@@ -362,7 +362,7 @@ export function checkFactualEntailment(input: FactualEntailmentInput): FactualEn
     } else {
       findings.push({
         kind: "violation",
-        message: `This draft claims "${phrase}" but I have no source for that superlative on your page or in my data. Check it before you paste.`,
+        message: `This draft claims "${phrase}", and no source on your page or in the evidence read for it stands behind that superlative. Check it before you paste.`,
       });
     }
   }
