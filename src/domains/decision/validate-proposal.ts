@@ -452,7 +452,7 @@ export function validateProposal(
       evidenceText: opts.evidenceText,
       authoritativeFacts: opts.authoritativeFacts,
       sources: opts.sources,
-      authoritativeSourceDomains: opts.authoritativeSourceDomains, /* THE ROW'S OWN ADMITTED SUPPORT IS A CITED SOURCE, and it is read here rather than re-derived downstream (live 07:01Z): a `fact-` id is banked only from a reading `authorizedCorrections` admitted under the proportional bar, and it reaches the canon only where a claim of this proposal actually cites it, so a banked passage nothing stands on authorizes nothing. */ citedSupport: (proposal.supportFacts ?? []).filter((f) => /^fact-/.test(f.id) && (proposal.claims ?? []).some((c) => c.supportedBy.includes(f.id))),
+      authoritativeSourceDomains: opts.authoritativeSourceDomains, /* THE ROW'S OWN ADMITTED SUPPORT IS A CITED SOURCE, and it is read here rather than re-derived downstream (live 07:01Z): a `fact-` id is banked only from a reading `authorizedCorrections` admitted under the proportional bar, and it reaches the canon paired with the CLAIM that cites it, so a banked passage nothing stands on authorizes nothing and a reading one claim stands on never answers for another claim's figure. */ citedSupport: (proposal.claims ?? []).flatMap((c) => c.supportedBy.filter((id) => /^fact-/.test(id)).map((id) => ({ id, claim: c.text, fact: (proposal.supportFacts ?? []).find((f) => f.id === id)?.fact ?? "" }))).filter((s) => s.fact !== ""),
     });
   } else {
     quality = evaluateNewPageBrief(proposal, change, opts.evidenceText ?? null);

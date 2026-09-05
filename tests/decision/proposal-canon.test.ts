@@ -316,9 +316,11 @@ describe("promotion asks the canon's own quality status, not just its verdict", 
 describe("a claim standing on a reading the bar admitted is a cited authoritative source", () => {
   const ACCOUNTS = [
     { t: "tenant-one", q: "harbour seal pupping season", page: "Harbour seals haul out on the sandbar every summer, and the sandbar count was taken in 1996.", read: "Pupping runs from June to August and the survey of this colony was made in 1998.",
-      both: "Pupping runs from June to August, and the survey of this colony dates from 1998, while the sandbar count dates from 1996.", wrong: "Pupping runs from June to August, and the survey of this colony dates from 2011.", theirs: "2011" },
+      both: "Pupping runs from June to August, and the survey of this colony dates from 1998, while the sandbar count dates from 1996.", wrong: "Pupping runs from June to August, and the survey of this colony dates from 2011.", theirs: "2011",
+      aside: "The neighbouring bay survey report appeared in 2011.", quiet: "The neighbouring bay survey was published as well." },
     { t: "tenant-two", q: "temporada de bordado a mano", page: "El bordado a mano se trabaja sobre tela tensada, y el taller abrio en 1996.", read: "La escuela de bordado se fundo en 1998 y sus registros empiezan ese ano.",
-      both: "La escuela de bordado se fundo en 1998, y el taller abrio en 1996.", wrong: "La escuela de bordado se fundo en 2011, y sus registros empiezan ese ano.", theirs: "2011" },
+      both: "La escuela de bordado se fundo en 1998, y el taller abrio en 1996.", wrong: "La escuela de bordado se fundo en 2011, y sus registros empiezan ese ano.", theirs: "2011",
+      aside: "El informe del taller vecino aparecio en 2011.", quiet: "El informe del taller vecino tambien se publico." },
   ] as const;
   const canon = (a: (typeof ACCOUNTS)[number], after: string, cites: string) => validateProposal(proposal({ id: `${a.t}::/p::existing_edit::missing_answer`, tenantId: a.t, changeFamily: "section", primaryQuery: a.q, status: "needs_review",
     recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after }, claims: [{ text: after, supportedBy: [cites] }], supportFacts: [{ id: "fact-1", fact: `${a.q}: ${a.read}`, url: "https://reference.example/x" }, { id: "page-copy-1", fact: a.page }] }),
@@ -327,6 +329,15 @@ describe("a claim standing on a reading the bar admitted is a cited authoritativ
     const both = canon(a, a.both, "fact-1"), wrong = canon(a, a.wrong, "fact-1"), uncited = canon(a, a.both, "page-copy-1");
     expect([both.qualityStatus, wrong.qualityStatus, wrong.reasons.some((r) => r.includes(`("${a.theirs}")`)), uncited.qualityStatus],
       "an admitted reading a claim names is the citation, the rule then fires for the one figure no admitted support carries and says which, and a passage banked on the row that no claim stands on authorizes nothing").toEqual(["ready", "missing_source", true, "missing_source"]); });
+  /* AND THE READING THAT ANSWERS FOR A FIGURE IS THE ONE ITS OWN CLAIM CITES (reviewer, round five, reproduced on both accounts): matched against every admitted reading on the row joined together, a claim standing on a reading that never mentions the year was licensed to assert it because a SIBLING claim's reading happened to carry it, so a claim with no support of its own passed on another claim's. */
+  const sibling = (a: (typeof ACCOUNTS)[number]) => validateProposal(proposal({ id: `${a.t}::/p::existing_edit::missing_answer`, tenantId: a.t, changeFamily: "section", primaryQuery: a.q, status: "needs_review",
+    recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: a.wrong }, claims: [{ text: a.wrong, supportedBy: ["fact-2"] }, { text: a.quiet, supportedBy: ["fact-1"] }],
+    supportFacts: [{ id: "fact-1", fact: `${a.q}: ${a.aside}`, url: "https://reference.example/x" }, { id: "fact-2", fact: `${a.q}: ${a.read}`, url: "https://reference.example/y" }] }),
+    { pageBodyText: a.page, evidenceText: `${a.page} ${a.read} ${a.aside}`, now: new Date("2026-09-05T07:01:00.000Z") });
+  it.each(ACCOUNTS)("refuses a figure the asserting claim's own reading does not carry, however plainly a sibling claim's reading carries it, on $t", (a) => {
+    const said = sibling(a);
+    expect([said.qualityStatus, said.reasons.some((r) => r.includes(`("${a.theirs}")`))],
+      "the support that answers for an assertion is the support that assertion cites, so a second claim's admitted reading never licenses a year the first claim's reading never states").toEqual(["missing_source", true]); });
 });
 /** A SPLIT IS SETTLED BY THE PIECES, NOT BY THE FIELD THE FIRST ONE HAPPENS TO USE. A differentiation bundle is filed under its first component's field, so the two-page Iran flag bundle arrived as `title-family`, missed the ownership exception, and a FINISHED ready row was served from the research lane where nobody can act on it: the store said 3 ready and the customer queue showed 2. */
 describe("a bundle that touches both competing pages treats the split", () => {

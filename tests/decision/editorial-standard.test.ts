@@ -8,7 +8,7 @@ vi.mock("@/domains/evidence/pages/fact-checks", async (o) => ({ ...(await o<Reco
 vi.mock("@/domains/evidence/pages/owned-context", async (o) => ({ ...(await o<Record<string, unknown>>()), loadOwnedPageBodies: async () => bodies.map }));
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "t", domain: "fixture.example", growth_goal: null }), basisTag: () => "basis_test" }));
 import { applyDraftedCopy, draftFieldForPage, reviewFinishedCopy, staleCopyReasons } from "@/domains/decision/drafted-copy";
-import { nextObligation } from "@/domains/decision/obligation";
+import { nextObligation } from "@/domains/decision/obligation"; import { preferFinished } from "@/domains/decision/completeness";
 import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import { editorialStandard, REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
@@ -143,4 +143,22 @@ describe("the standard says what the work is, and the id says where the words ca
     const wrote = async (after: string) => (await run(s, gap, { field: "answer_block", before: null, after, ...TAIL, placementAnchor: s.h1, naturalHeading: s.heads[0]!, measurementTarget: s.q, claims: [{ text: after, supportedBy: ["page-copy-3"] }] })).why;
     expect([(await wrote(`${s.q}: ${s.lines[2]}`)).some((r) => r.includes(HEADWORD)), (await wrote(s.lines[2]!)).some((r) => r.includes(HEADWORD))],
       "the writer is refused for it before a cent is spent reading the copy for sense, and the same content in a reader's sentence is not").toEqual([true, false]); });
+  /* THE STANDARD THE WORDS WERE WRITTEN UNDER IS THE ONE EVERY LATER DOOR READS, AND IT HAS TO SURVIVE THE PASS THAT DID NOT WRITE THEM (measured on the production store, 2026-09-05: 0 of 451 stored rows carried an assignment, on any account and at any status, so every standard-gated rule at the serving door fell to the structural fallback and one door forged a standard to get past it). The drafting door computes and stores one; the next $0 re-mint of the same identity kept the prior's copy and let its own absent brief ride over the top of it, so the standard lived exactly one pass. */
+  it.each(SITES)("keeps the standard the writer was briefed with on the words it was briefed for when a later pass re-mints the same change, and lets no re-mint's brief ride onto finished copy, on $t", async (s) => {
+    const line = `${s.lines[0]} ${s.lines[1]}`.slice(0, 150);
+    const drafted = (await run(s, card(s), { field: "meta", before: "Old line.", after: line, ...TAIL, placementAnchor: s.h1, naturalHeading: null, measurementTarget: s.q, claims: [{ text: line, supportedBy: ["page-copy-1"] }] })).row;
+    const remint = (row: ChangeProposal): ChangeProposal => ({ ...card(s), researchOnly: true, changeFamily: row.changeFamily, recommendedChange: { ...row.recommendedChange, after: "The exact wording lands on the next funded pass." } as never, research: { missing: "the exact wording", next: "the next funded pass writes it" } });
+    const kept = preferFinished(remint(drafted), drafted);
+    const answer = card(s, { changeFamily: "section", claims: [{ text: s.lines[2]!, supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: s.lines[0]! }], assignment: ASSIGN({ standard: "missing_answer" }),
+      recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: s.lines[2]!, where: 'A new section headed "H"' } });
+    const keptAnswer = preferFinished(remint(answer), answer), brief = preferFinished({ ...remint(answer), assignment: answer.assignment }, { ...answer, assignment: undefined });
+    expect([drafted.assignment?.standard, kept.recommendedChange.kind === "existing_edit" ? kept.recommendedChange.after : "", kept.assignment?.standard,
+      keptAnswer.assignment?.standard, editorialStandard({ field: "answer_block", link: false, assignment: keptAnswer.assignment, changeFamily: keptAnswer.changeFamily }), brief.assignment?.standard ?? "none"],
+      "the drafting pass stores the standard it briefed the writer with, the re-mint keeps the finished words, the standard rides with them, a body row keeps the missing-answer standard it was written under, the one typed selector every door calls then answers it off the row instead of guessing from the field, and a brief for words that never landed is dropped rather than stored beside copy that did").toEqual(["summary", line, "summary", "missing_answer", "missing_answer", "none"]); });
+  /* AND AN ANSWER BLOCK ANSWERS A SEARCH WHATEVER STANDARD ITS ROW CARRIES, which is the rule the banked door used to get by forging "missing_answer" into the selector's place. Stated in the rule instead, so no door tells another door a standard the row does not answer to. */
+  it.each(SITES)("refuses the search words as a label on an answer block under any standard, and keeps the standard's own scope for a section under its own heading, on $t", (s) => {
+    const said = (field: "answer_block" | "section", standard: string): string[] => staleCopyReasons(card(s, { changeFamily: "section", claims: [{ text: "c", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: s.lines[0]! }],
+      recommendedChange: { kind: "existing_edit", field, before: null, after: `${s.q}: ${s.lines[2]}`, where: 'A new section headed "H"' }, assignment: ASSIGN({ standard }) }), new Map([[canonicalUrlKey(s.url), bodyOf(s)]]) as never, [], { title: s.title, h1: s.h1, outline: s.heads } as never, false, []);
+    expect([said("answer_block", "restructuring").some((r) => r.includes(HEADWORD)), said("answer_block", "summary").some((r) => r.includes(HEADWORD)), said("section", "restructuring").some((r) => r.includes(HEADWORD)), said("section", "missing_answer").some((r) => r.includes(HEADWORD))],
+      "the field whose whole job is to answer the tracked search may never open with that search as a label, and a section keeps the standard as its only gate").toEqual([true, true, false, true]); });
 });
