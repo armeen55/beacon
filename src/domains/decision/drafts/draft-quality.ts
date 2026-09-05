@@ -446,11 +446,11 @@ export function evaluateTitleMetaQuality(input: EvaluateTitleInput): DraftQualit
   if (STRONG_SUPERLATIVE.test(after)) {
     return { status: "unsupported_claim", reasons: ["Title makes an unsupported superlative claim."], copyAllowed: false, canRegenerate: true, confidence: "medium" };
   }
-  // A specific count introduced in the rewrite that wasn't in the original → verify.
-  if (COUNT_CLAIM.test(after) && !COUNT_CLAIM.test(before)) {
+  /* A COUNT THE PAGE'S OWN CAPTURED WORDS ALREADY CARRY IS DELIVERED, NOT "TO CONFIRM" (probe, 2026-09-05). /iran-animals/green-sea-turtle stood held on a description saying "80+ year lifespan" while the page's own stored body says "Average Lifespan: 80+ years", so the canon asked a person to check a figure it had been handed. The packet is read first, exactly as the SPECIFIC_FACT rule below already reads it: every count in the line must appear as its own number in the page text or the banked evidence, matched on the digits so "80+", "80 plus" and "Top 50" against "50 entries" all count as delivered. A count nothing on file carries still asks. */ const packet = `${input.pageBodyText ?? ""} ${input.evidenceText ?? ""}`.replace(/\s+/g, " "), counts = after.match(new RegExp(COUNT_CLAIM.source, "gi")) ?? [], delivered = counts.length > 0 && counts.every((c) => { const d = /\d+/.exec(c)?.[0] ?? ""; return d !== "" && new RegExp(`(?<!\\d)${d}(?!\\d)`).test(packet); });
+  if (COUNT_CLAIM.test(after) && !COUNT_CLAIM.test(before) && !delivered) {
     return {
       status: "useful_but_needs_review",
-      reasons: ["Introduces a specific count (e.g. “150+”) — confirm the page actually delivers it."],
+      reasons: ["Introduces a count (150+, Top 50) that this page's captured words do not carry, so confirm the page delivers it before publishing."],
       copyAllowed: true,
       canRegenerate: false,
       confidence: "medium",

@@ -86,7 +86,7 @@ const validate = (components: BundleComponent[], evidenceText?: string, over: Pa
   } as ChangeProposal, { ...GATE_OPTS, ...(evidenceText === undefined ? {} : { evidenceText }) });};
 /** THE COMPONENT GATE'S OWN ANSWER: every component refusal ends in the operator's words, never the validator's. */
 const componentRefusals = (v: ReturnType<typeof validateProposal>): string[] =>
-  v.reasons.filter((r) => r.endsWith("so I am not putting it in front of you."));
+  v.reasons.filter((r) => r.endsWith("so it stays held rather than offered."));
 const answered = (c: BundleComponent): boolean => !!c.where && !!c.objective && !!c.mechanism && !!c.measurementPlan;
 describe("the causes that had no copy now write one, or refuse in words", () => {
   it("says the page already carries them when the held page disproved every absence", async () => {
@@ -178,7 +178,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const bundle = bundleOf([link]); const merge: BundleComponent = { ...link, kind: "consolidation", label: "Settle which page owns this search", risk: "dangerous" };
     expect(validate([{ ...link, evidenceKeys: ["nowhere"] }]).verdict).toBe("rejected"); // a component citing a line that is not there
     const causeMissing = validate([link], undefined, { causeFinding: { ...finding("cannibalization"), evidenceKeys: ["demand-competing"] } });
-    expect([causeMissing.verdict, causeMissing.reasons.some((r) => r.includes("evidence I cannot show you"))]).toEqual(["rejected", true]);
+    expect([causeMissing.verdict, causeMissing.reasons.some((r) => r.includes("evidence that is not on the receipt"))]).toEqual(["rejected", true]);
     expect(validate([link], undefined, { causeFinding: finding("cannibalization") }).verdict).not.toBe("rejected"); // the same cause, citing lines that resolve
     expect(validate([link], undefined, { limitations: ["I do not hold this page's own opening words."], // two stories about one page's words
       bundle: { ...bundle, risks: ["I read this page's stored words, not today's live page, so read each line once."] } }).verdict).toBe("rejected");
@@ -199,10 +199,10 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect([componentRefusals(validate(many.components)), validate(many.components).verdict]).toEqual([[], "ready"]);
     expect(c.preserves!.keeps).toEqual(["Roof area", "Storm"]); expect(c.preserves!.losses.map((l) => l.what)).toEqual(["Rain Barrels", "How much rain a roof collects", "Barrel sizes"]);
     expect(c.preserves!.losses.every((l) => l.why.includes(`Not one of the 3 pages that win "${QUERY}" carries it`))).toBe(true); const silent = validate([{ ...c, preserves: { keeps: [], losses: [] } }]);
-    expect([silent.verdict, silent.reasons.some((r) => r === 'The rebuild drops "Barrel sizes" and never says why, so I am not putting it in front of you.')]).toEqual(["rejected", true]);
+    expect([silent.verdict, silent.reasons.some((r) => r === 'The rebuild drops "Barrel sizes" and never says why, so it stays held rather than offered.')]).toEqual(["rejected", true]);
     const bare = { ...bundleOf(many.components), receipt: { items: KEYS.map((key) => ({ key, kind: "gsc_demand" as const, fact: FACTS[0]!, observedAt: null })), missing: [], freshestObservedAt: null } };
     const narrow = validate(many.components, RECEIPT_ONLY, { bundle: bare });
-    expect([narrow.verdict, narrow.reasons.includes("Part of this change points at evidence I cannot show you, so I am not putting it in front of you."), narrow.factViolations]).toEqual(["rejected", true, []]);
+    expect([narrow.verdict, narrow.reasons.includes("Part of this change points at evidence that is not on the receipt, so it stays held rather than offered."), narrow.factViolations]).toEqual(["rejected", true, []]);
     expect(validate(many.components, RECEIPT_ONLY).verdict).toEqual("ready");
     const four = { pattern: { ...PATTERN, commonHeadings: FOUR.map((heading, i) => ({ heading, seenOn: [i] })) } }; const partial = await produceFullRewriteRecommendation(ctxOf({ ...four, draft: whole(2) }), causes); // ONE SECTION SHORT SHIPS WHAT IS FINISHED: the written sections leave as their own pasteable additions, the one still owed is named out loud, and resuming costs nothing a second time.
     expect([partial.components.length, partial.refusal, partial.components.every((x) => x.kind === "section_add")]).toEqual([3, null, true]); expect(partial.components[0]!.mechanism!.includes("still owes 1 section")).toBe(true);

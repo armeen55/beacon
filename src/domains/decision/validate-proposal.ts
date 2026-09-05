@@ -50,24 +50,24 @@ export function receiptIntegrityFailures(proposal: ChangeProposal, now: Date = n
   const items = some(bundle.receipt?.items), components = some(bundle.components);
   const keys = new Set(items.map((i) => i.key));
   const cited = [...components.flatMap((c) => some(c.evidenceKeys)), ...some(proposal.causeFinding?.evidenceKeys)];
-  if (cited.some((k) => !keys.has(k))) out.push("Part of this change points at evidence I cannot show you, so I am not putting it in front of you.");
+  if (cited.some((k) => !keys.has(k))) out.push("Part of this change points at evidence that is not on the receipt, so it stays held rather than offered.");
   // EVERYTHING THE OPERATOR READS ON THIS CHANGE, the copy itself included: a contradiction in the sentence being pasted is the one they act on, so it may not hide from a check the notes around it pass.
   const says = [...some(proposal.limitations), ...some(bundle.risks), ...some(bundle.confidenceReasons), ...some(bundle.receipt?.missing),
     ...items.map((i) => i.fact), ...components.map((c) => `${c.after} ${c.objective ?? ""} ${c.mechanism ?? ""}`),
     ...(proposal.causeFinding ? [proposal.causeFinding.explanation, ...some(proposal.causeFinding.notConsidered).map((n) => n.missing)] : [])].join(" ");
-  if (HOLDS_PAGE.test(says) && MISSING_PAGE.test(says)) out.push("I say two different things about whether I hold this page's own words, so I am not putting it in front of you.");
+  if (HOLDS_PAGE.test(says) && MISSING_PAGE.test(says)) out.push("Two lines here disagree about whether this page's own words are on file, so it stays held rather than offered.");
   const danger = dangerousComponents(components).length > 0;
-  if (danger && proposal.riskLevel !== "high") out.push("This change moves or hides a page and it is filed as something lighter than that, so I am not putting it in front of you.");
+  if (danger && proposal.riskLevel !== "high") out.push("This change moves or hides a page and it is filed as something lighter than that, so it stays held rather than offered.");
   // STEP TWO OF THE TWO-STEP HOLD, ASKED ON EVERY READ. `ready` on a change that moves or hides a page used to be unreachable and therefore unforgeable, which also meant no redirect, merge, canonical or de-index could ever become work an operator was allowed to make. It is reachable now, through one confirmation of one exact version, and this is where that yes is checked rather than trusted: the stamp on the row must still name the version on the row. An edit to the copy, the pieces, the destination, the risk grade, the evidence or the basis moves the version, the stamp goes stale, and the change falls back behind the hold instead of standing ready on a yes given to other words.
-  if (danger && proposal.status === "ready" && proposal.confirmedVersion !== confirmedVersion(proposal)) out.push("This change moves or hides a page and it has changed since you confirmed it, so I am not putting it in front of you until you read it again.");
+  if (danger && proposal.status === "ready" && proposal.confirmedVersion !== confirmedVersion(proposal)) out.push("This change moves or hides a page and it has changed since you confirmed it, so it stays held until you read it again.");
   // A READING IS CURRENT ONLY IF IT WAS TAKEN TODAY, and an UNDATED reading is not current either: skipping the
   // undated ones let the one line that carries no date say "today" and mean whenever it was last collected.
   const day = now.toISOString().slice(0, 10);
   for (const item of items) {
     const read = (item.observedAt ?? "").slice(0, 10);
     if (read === day || !CURRENT_CLAIM.test(item.fact)) continue;
-    out.push(read ? `I call what I read on ${read} what this page says today, so I am not putting it in front of you.`
-      : "I call a reading with no date on it what this page says today, so I am not putting it in front of you.");
+    out.push(read ? `A reading taken on ${read} is offered here as what this page says today, so it stays held rather than offered.`
+      : "A reading with no date on it is offered here as what this page says today, so it stays held rather than offered.");
   }
   return [...new Set(out)];
 }
@@ -93,17 +93,17 @@ export function actionableProposalFailures(
 ): string[] {
   const now = ctx.now ?? new Date();
   const out = [...receiptIntegrityFailures(p, now)];
-  if (p.tenantId !== ctx.tenantId) out.push("This change was drafted for another account, so I am not putting it in front of you.");
+  if (p.tenantId !== ctx.tenantId) out.push("This change was drafted for another account, so it stays held rather than offered.");
   // THE GENERATION SUFFIX IS THE KERNEL'S CLOCK, NOT THE ACCOUNT'S. A basis is the account's own fingerprint
   // plus ::dN, and bumping N used to set aside every standing row wholesale: 85 real opportunities the account
   // had already paid to find left the queue because the RULES improved, not because any check failed. The
   // account half still gates hard; the generation half hands the verdict to the checks themselves, which all
   // run right here and below, so an old row that clears today's bar rejoins and one that fails is refused for
   // the failure, named in words, never for its birthday.
-  if (ctx.currentBasis == null || !sameAccountBasis(p.basis, ctx.currentBasis)) out.push("I raised the bar for what counts as worth your time, and this one no longer clears it, so I am not putting it in front of you.");
-  if (p.status !== "ready" && p.status !== "needs_review") out.push("This one is not waiting on you any more, so I am not putting it in front of you.");
+  if (ctx.currentBasis == null || !sameAccountBasis(p.basis, ctx.currentBasis)) out.push("The bar for what counts as worth your time has risen and this one no longer clears it, so it stays held rather than offered.");
+  if (p.status !== "ready" && p.status !== "needs_review") out.push("This one is not waiting on you any more, so it stays held rather than offered.");
   if (staleReadings(p, now)) {
-    out.push("The readings behind this change are too old to stand on now, so I am taking them again before I put it in front of you.");
+    out.push("The readings behind this change are too old to stand on now, so they are taken again before it is offered.");
   }
   return [...new Set(out)];
 }
@@ -246,25 +246,25 @@ function evaluateNewPageBrief(
   const items = bundle?.receipt.items ?? [];
   // The earned verdict itself, carried as inspectable evidence beside the pages it compared.
   if (!bundle || !items.some((i) => i.key === "verdict" && i.kind === "diagnosis") || bundle.alternatives.length === 0) {
-    return bad("I cannot show you the research that proved this page is missing, so I am not putting it in front of you.");
+    return bad("The research that proved this page is missing is not on file, so it stays held rather than offered.");
   }
   const keys = new Set(items.map((i) => i.key));
   if (bundle.components.some((c) => c.evidenceKeys.length === 0 || c.evidenceKeys.some((k) => !keys.has(k)))) {
-    return bad("Part of this page cannot be traced back to anything I checked, so I am not putting it in front of you.");
+    return bad("Part of this page traces back to nothing that was checked, so it stays held rather than offered.");
   }
   const headings = change.outline.map((h) => h.trim().toLowerCase()).filter(Boolean);
   if (headings.length < 3 || new Set(headings).size !== headings.length) {
-    return bad("This page's sections are too thin or repeat each other, so I am not putting it in front of you.");
+    return bad("This page's sections are too thin or repeat each other, so it stays held rather than offered.");
   }
   const topic = new Set(proposal.primaryQuery.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2));
   const about = (t: string): boolean => topic.size === 0 || t.toLowerCase().split(/[^a-z0-9]+/).some((w) => topic.has(w));
   if (![change.proposedTitle, change.metaDescription, change.openingAnswer].every((t) => t.trim().length > 0 && about(t))) {
-    return bad("This page's title, description or opening does not say what the page is about, so I am not putting it in front of you.");
+    return bad("This page's title, description or opening does not say what the page is about, so it stays held rather than offered.");
   }
   const grounding = [evidenceText ?? "", ...items.map((i) => i.fact), ...proposal.evidence.hints].join(" ").toLowerCase();
   const copy = [...operatorFacingText(proposal), ...bundle.components.map((c) => c.after)].join(" ");
   if (AUTOPUBLISH_RE.test(copy) || SPELLED_PROPORTION_RE.test(copy) || proposal.publish !== "manual" || !MANUAL_RE.test([proposal.whyItMatters, ...bundle.risks].join(" "))) {
-    return bad("This page does not say plainly that you are the one who publishes it, so I am not putting it in front of you.");
+    return bad("This page does not say plainly that you are the one who publishes it, so it stays held rather than offered.");
   }
   const grounded = new Set((grounding.match(NUMBER_RE) ?? []).map(digits));
   // The one bare count a new page may carry: its own list length. "The 5 hardest languages" over exactly 5 sections is structure the draft holds, not a statistic; every other figure must come from evidence.
@@ -272,10 +272,10 @@ function evaluateNewPageBrief(
   grounded.add(String(change.outline.length));
   const copyProse = [...operatorFacingText(proposal), ...bundle.components.filter((c) => c.kind !== "source_pack").map((c) => c.after)].join(" ");
   const stray = (copyProse.match(NUMBER_RE) ?? []).map(digits).find((n) => !grounded.has(n));
-  if (stray) return bad(`This page quotes ${stray}, which is not a figure I actually hold, so I am not putting it in front of you.`);
+  if (stray) return bad(`This page quotes ${stray}, which no reading on file carries, so it stays held rather than offered.`);
   const strayHost = (copyProse.match(HOST_RE) ?? []).map((h) => h.toLowerCase()).filter((h) => !CODE_SUFFIX.test(h))
     .find((h) => !grounding.includes(h) && !grounding.includes(h.replace(/^www\./, "")));
-  if (strayHost) return bad(`This page names ${strayHost}, which is not a site I actually looked at, so I am not putting it in front of you.`);
+  if (strayHost) return bad(`This page names ${strayHost}, which is not a site any reading on file looked at, so it stays held rather than offered.`);
   // Everything this gate can check is checked. The caution a brand new page deserves rides on the bundle's own risks, where the operator reads it, not as a held status.
   return { status: "ready", reasons: [], copyAllowed: true, canRegenerate: true, confidence: "medium" };
 }
@@ -307,7 +307,7 @@ function componentFailures(components: readonly BundleComponent[], heldHeadings:
   const marked = new Set(components.filter((c) => c.risk === "dangerous"));
   for (const c of components) {
     const what = c.label.trim().toLowerCase() || c.kind.replace(/_/g, " ");
-    if (c.evidenceKeys.length === 0) { out.push(`I cannot show you anything behind the ${what}, so I am not putting it in front of you.`); continue; }
+    if (c.evidenceKeys.length === 0) { out.push(`Nothing on the receipt stands behind the ${what}, so it stays held rather than offered.`); continue; }
     // A REBUILD MAY NOT DROP A SECTION IN SILENCE. A page being replaced is the one change that can quietly delete something ranking, so every section I hold has to survive into the draft OR be named as a loss
     // with its own reason. Unnamed is refused: nobody loses a section they were never told about.
     if (c.kind === "full_rewrite") {
@@ -316,24 +316,24 @@ function componentFailures(components: readonly BundleComponent[], heldHeadings:
       for (const heading of heldHeadings) {
         const held = flatten(heading);
         if (!held || draft.includes(held) || named.includes(held)) continue;
-        out.push(`The rebuild drops "${heading.trim()}" and never says why, so I am not putting it in front of you.`);
+        out.push(`The rebuild drops "${heading.trim()}" and never says why, so it stays held rather than offered.`);
       }
     }
-    if (needsSourcePack(c) && !c.sourcePack) out.push(`The ${what} changes a fact and carries no sources to check it against, so I am not putting it in front of you.`);
+    if (needsSourcePack(c) && !c.sourcePack) out.push(`The ${what} changes a fact and carries no sources to check it against, so it stays held rather than offered.`);
     for (const m of MISLABELLED) {
       if (c.kind !== m.kind && m.re.test(c.after)) {
-        out.push(`The ${what} ${m.what}, and it is filed as an ordinary edit instead of that change, so I am not putting it in front of you.`);
+        out.push(`The ${what} ${m.what}, and it is filed as an ordinary edit instead of that change, so it stays held rather than offered.`);
       }
     }
     if (!LEGACY_KINDS.has(c.kind)) {
       const owed = [!c.where && "where on the page it goes", !c.objective && "what it is meant to achieve",
-        !c.mechanism && "why it fixes what I diagnosed", !c.measurementPlan && "what I will measure afterwards"].filter((x): x is string => !!x);
-      if (owed.length > 0) out.push(`I cannot tell you ${owed.join(", ")} for the ${what}, so I am not putting it in front of you.`);
+        !c.mechanism && "why it fixes the diagnosed cause", !c.measurementPlan && "what gets measured afterwards"].filter((x): x is string => !!x);
+      if (owed.length > 0) out.push(`The ${what} never says ${owed.join(", ")}, so it stays held rather than offered.`);
     }
   }
   // A dangerous lever that was not marked dangerous is a mislabelled change, and a mislabelled change is exactly the one that gets pasted without a second look.
   for (const c of dangerousComponents(components)) {
-    if (!marked.has(c)) out.push(`The ${c.label.trim().toLowerCase() || c.kind.replace(/_/g, " ")} changes where this page lives or whether people can find it, and it is not marked as one that needs your confirmation, so I am not putting it in front of you.`);
+    if (!marked.has(c)) out.push(`The ${c.label.trim().toLowerCase() || c.kind.replace(/_/g, " ")} changes where this page lives or whether people can find it, and it is not marked as one that needs your confirmation, so it stays held rather than offered.`);
   }
   return out;
 }

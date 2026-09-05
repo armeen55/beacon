@@ -7,7 +7,7 @@ vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: as
 vi.mock("@/domains/evidence/pages/fact-checks", async (o) => ({ ...(await o<Record<string, unknown>>()), readFactChecks: async () => facts.rows }));
 vi.mock("@/domains/evidence/pages/owned-context", async (o) => ({ ...(await o<Record<string, unknown>>()), loadOwnedPageBodies: async () => bodies.map }));
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "t", domain: "fixture.example", growth_goal: null }), basisTag: () => "basis_test" }));
-import { applyDraftedCopy, reviewFinishedCopy, staleCopyReasons } from "@/domains/decision/drafted-copy";
+import { applyDraftedCopy, draftFieldForPage, reviewFinishedCopy, staleCopyReasons } from "@/domains/decision/drafted-copy";
 import { nextObligation } from "@/domains/decision/obligation";
 import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import { editorialStandard, REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
@@ -101,8 +101,32 @@ describe("the editorial standard one edit is judged by", () => {
     expect(nextObligation(stored({ faults: [RETIRED] })), "a summary is judged on the line it replaces and can never be handed that sentence again, so it owes no paid rewrite for it").toBeNull();
     expect(nextObligation(stored({ faults: [RETIRED, REAL] }))?.kind, "a real fault standing beside it is untouched").toBe("redraft");
     expect(nextObligation(stored({ faults: [REAL] }))?.kind, "and a row that never carried the retired sentence is not touched at all").toBe("redraft");
-    const answer = stored({ changeFamily: "section", faults: [RETIRED], recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A finished section.", where: 'A new section headed "H"' } });
-    expect(nextObligation(answer), "and the standard that really does owe information keeps the objection and the redraft").toEqual({ kind: "redraft", attempt: 1, instruction: RETIRED });
+    const body = { kind: "existing_edit" as const, field: "section" as const, before: null, after: "A finished section.", where: 'A new section headed "H"' };
+    const answer = stored({ changeFamily: "section", faults: [RETIRED], recommendedChange: body, assignment: { page: S.url, standard: "missing_answer", treatment: "section", gapKind: "missing_answer", propositions: ["p"], diagnosedGap: "p", mustLeadWith: "p", opening: "o", format: "f", intent: [S.q], supportingFacts: [], pageContext: [], forbidden: [], rivals: [], briefing: [], mayReuse: "nothing", mustPreserve: "every heading", mustNotRepeat: "the page's own entries", placement: "additive", completionTest: "t" } });
+    expect(nextObligation(answer), "and ONLY a persisted assignment saying this work owes information keeps the objection and the redraft").toEqual({ kind: "redraft", attempt: 1, instruction: RETIRED });
+    expect((nextObligation(stored({ changeFamily: "section", faults: [RETIRED], recommendedChange: body })) as { instruction?: string } | null)?.instruction, "a body row that types nothing is judged on the material the page already has, so that sentence is history there and whatever still blocks these words is the instruction instead: the field name and the family never decide what a row owes").not.toBe(RETIRED);
     const reviewed = stored({ changeFamily: "factual_correction", claims: [{ text: "c", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "f" }] });
     expect(nextObligation({ ...reviewed, semanticReview: { of: copyKey(reviewed), version: REVIEW_CONTRACT, claims: [{ i: 0, by: ["fact-1"], entailed: true }] } }), "and a reading banked under the contract on file is not re-bought: the editorial rules moved, the evidence contract did not").toBeNull(); });
+});
+
+/** WHAT KIND OF WORK THIS IS, AND WHERE ITS WORDS CAME FROM: both typed, both read the same way at every door. */
+describe("the standard says what the work is, and the id says where the words came from", () => {
+  const ASSIGN = (over: Record<string, unknown>): ChangeProposal["assignment"] => ({ page: "p", treatment: "section", gapKind: "missing_answer", propositions: ["p"], diagnosedGap: "p", mustLeadWith: "p", opening: "o", format: "f", intent: [], supportingFacts: [], pageContext: [], forbidden: [], rivals: [], briefing: [], mayReuse: "n", mustPreserve: "n", mustNotRepeat: "n", placement: "additive", completionTest: "t", ...over } as ChangeProposal["assignment"]);
+  const POINTS = "it points at the page instead of answering";
+  it.each(SITES)("lets a page whose title promises what it never delivers say what it does today, and refuses the same sentence from every other kind of body work, on $t", (s) => {
+    const body = (standard: string): ChangeProposal => card(s, { changeFamily: "section", claims: [{ text: "c", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: s.lines[0]! }],
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `This guide covers ${s.heads[1]!.toLowerCase()} and nothing else, so a reader looking for anything wider is in the wrong place.`, where: 'A new section headed "H"' }, assignment: ASSIGN({ standard, gapKind: standard === "repositioning" ? "false_page_promise" : "missing_answer" }) });
+    const reasons = (standard: string): string[] => staleCopyReasons(body(standard), new Map([[canonicalUrlKey(s.url), bodyOf(s)]]) as never, [], { title: s.title, h1: s.h1, outline: s.heads } as never, false, []);
+    expect([reasons("repositioning").includes(POINTS), reasons("missing_answer").includes(POINTS), reasons("restructuring").includes(POINTS)],
+      "the honest treatment of a false promise IS a sentence about what this page delivers, so the container rule is not asked of it, and it is asked of every other body standard exactly as before").toEqual([false, true, true]); });
+  it.each(SITES)("reads the standard off the persisted assignment and never off the field, the family or which evidence landed, on $t", (s) => {
+    const at = (over: Record<string, unknown>): string => editorialStandard({ field: "section", link: false, changeFamily: "factual_correction", assignment: ASSIGN(over), ...(over.field ? { field: over.field as string } : {}) });
+    expect([at({ standard: "repositioning" }), at({ standard: "summary" }), at({ standard: "repositioning", field: "meta" }), at({ gapKind: "false_page_promise" }), editorialStandard({ field: "section", link: false, changeFamily: null })],
+      "a persisted standard outranks the field name, the change family and the link flag; a row that persisted a gap and no standard is read off that gap; and a body row that types nothing at all is judged on the material the page already has rather than sent shopping for information").toEqual(["repositioning", "summary", "repositioning", "repositioning", "restructuring"]); });
+  it.each(SITES)("keeps a page that does not exist yet out of its own observed-page evidence, on $t", async (s) => {
+    const asked: string[] = [], drafted = { ...bodyOf(s), contentHash: null, heldNote: "This page does not exist yet." };
+    const ask = async (unpublished: boolean): Promise<void> => { await draftFieldForPage({ field: "answer_block", body: drafted as never, query: s.q, ownedPaths: [], minutes: 5, evidenceHints: [], brief: "Write the section.", unpublished }, { tenantId: s.t, now: NOW, complete: async ({ user }: { user: string }) => (asked.push(user), { error: "none", retryable: false }) } as never); };
+    await ask(true); const madeUp = asked.join(" "); asked.length = 0; await ask(false); const observed = asked.join(" ");
+    expect([madeUp.includes("draft-so-far-1"), madeUp.includes("page-copy-1"), observed.includes("page-copy-1"), madeUp.includes(s.lines[0]!)],
+      "a new page's own earlier paragraphs still reach the writer, under the class that says a model wrote them, so no gate can read them as words observed on a live page; a real page's passages are unchanged").toEqual([true, false, true, true]); });
 });

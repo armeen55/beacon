@@ -22,7 +22,7 @@ import type { BusinessProfile } from "@/domains/account";
 import type { CanonicalPairObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import { caseIdByAnchor } from "@/domains/evidence/case-identity";
 import { isCurrent } from "@/domains/evidence/freshness";
-import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
+import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import type { CapabilityInputByKey, FunnelCounters, FunnelUnitFn, ParsedByCapability, ParsedKeywordItem } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { log } from "@/lib/logger";
@@ -55,7 +55,7 @@ function profileConfirmed(p: BusinessProfile): boolean {
  *  The old .slice(0, 5) silently starved most of an account's themes of any discovery
  *  at all, so their keywords never entered the funnel and could never be checked in
  *  search. Cost bound: 2 labs calls per seed (related + suggestions), so at most 24. */
-const MAX_SEEDS = 12;
+const MAX_SEEDS = 12, SEED_WORDS = 5; /** A SEED IS A TOPIC OR A READER NEED, NEVER AN ONBOARDING SENTENCE AND NEVER A DESTINATION (operator, 2026-09-05). The three confirmed lists went to the keyword endpoints exactly as a person typed them, so "customers cannot tell which one to buy for a beginner" was bought as a keyword and a publisher or a rival typed into a themes box was bought as a subject to own. A short phrase IS a topic and passes through untouched; anything longer or punctuated as a sentence is reduced to the subject words it names, in order; anything shaped like an address is a destination and is not a topic at all. Deterministic, universal, and it spends less rather than more. */ const seedOf = (raw: string): string | null => { const s = String(raw ?? "").replace(/\s+/g, " ").trim(); if (!s || /^(?:https?:\/\/|www\.)/i.test(s) || /\.[a-z]{2,}(?:\/|$)/i.test(s)) return null; const words = s.split(" "); return words.length <= SEED_WORDS && !/[.!?;:]/.test(s) ? s.toLowerCase() : topicTokens(s).slice(0, SEED_WORDS).join(" ") || null; };
 /** Candidates one OBSERVED route may contribute in a pass. Each is free, so this bounds the pool and the
  *  stored blob, never money. Case sets on file match the decoder's own bound. */
 /** RESERVE ARITHMETIC AT THE CEILING, stated once so it is checkable. A case set is ONE labs_serp_competitors
@@ -72,7 +72,7 @@ const MAX_PER_ROUTE = 300, MAX_CASE_SETS = 12;
 const OVERVIEW_BATCH = 700, COMPETITOR_KEYWORDS = 200;
 
 function seedsFrom(p: BusinessProfile): string[] {
-  const all = [...p.topicsToOwn.value, ...p.offerings.value, ...p.customerProblems.value].map((s) => s.trim()).filter(Boolean);
+  const all = [...p.topicsToOwn.value, ...p.offerings.value, ...p.customerProblems.value].map(seedOf).filter((s): s is string => !!s);
   return [...new Set(all)].slice(0, MAX_SEEDS);
 }
 
