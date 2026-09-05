@@ -350,7 +350,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
   it("reads a source through the REAL provider parser, not a shape invented to match", async () => {
     const { parseCapability } = await import("@/domains/evidence/dataforseo/capabilities");
     const envelope = { tasks: [{ result: [{ items: [{ page_content: { main_topic: [{ main_title: "Afsaneh", h_title: "Etymology", primary_content: [{ text: PASSAGE }] }] } }] }] }] };
-    const p = parseCapability("onpage_content_parsing", envelope as never) as { bodyText: string | null; openingSample: string | null; headings: string[] }; const text = [p.bodyText, p.openingSample, ...p.headings].filter(Boolean).join("\n");
+    const p = parseCapability("onpage_content_parsing", envelope as never) as { mainText: string | null; openingSample: string | null; headings: string[] }; const text = [p.mainText, p.openingSample, ...p.headings].filter(Boolean).join("\n");
     await unit({ held: [row({ statementKey: "k1" })], fetchSource: async () => ({ text }) }); expect([text.includes("fable"), (db.rows[0] as FactCheck).confidence]).toEqual([true, "confirmed"]); }); });
 describe("a verdict from obsolete rules is not current evidence", () => { beforeEach(reset);
   it("re-opens the live Ahvaz check produced under the old subject-only query, and leaves a current one settled", async () => {

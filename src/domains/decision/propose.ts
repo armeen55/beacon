@@ -181,11 +181,15 @@ export async function proposeExistingPageChange(
   const validation = validateProposal(provisional, {
     contextTokens,
     pageBodyText: input.evidence.pageBodyText,
-    // Ground the validator on the SAME blob the drafter grounded on (outline + current value + hints), so anything the drafter was allowed to draw on is grounding the entailment gate also accepts.
+    // THE PAGE'S OWN WORDS GROUND THE CLAIM, AND THE BRIEF NEVER DOES (campaign review, 2026-09-05). This grounded the
+    // validator on the same blob the drafter was briefed with, hints included, so a figure that existed only in the
+    // producer's own diagnosis line ("is shown 3,157 times in 90 days", `hintsFor` in opportunities.ts) was grounding
+    // for a title that quoted it, and the row came back `ready` and was served. Three doors already refuse exactly
+    // that: the writer's (`groundingOf`), the promotion door and the release sweep. This is the fourth and last.
+    // What stays is what the page itself carries: its outline and the line being replaced.
     evidenceText: [
       ...(input.evidence.outline ?? []),
       input.opportunity.currentValue ?? "",
-      ...(input.evidence.hints ?? []),
     ]
       .filter(Boolean)
       .join(" "),

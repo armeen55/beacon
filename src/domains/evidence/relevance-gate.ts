@@ -67,6 +67,20 @@ const GENERIC = new Set([
 /** THE WORDS THAT CARRY A RELATION RATHER THAN A SUBJECT, and the only vocabulary in this product that decides whether two texts are about the same QUESTION rather than the same topic. A period, a comparison, a rank, a meaning and a defining role are what a searcher asks ABOUT a subject, so a text that shares every subject word and matches none of these is answering a different question: "iran flag before 1979" is won by pages about the flag since 1979, and their sections and entities briefed a writer about the wrong period while reading as the pattern that wins. It lived privately in decision/diagnosis, where the demand classifier proved it over 227 pages; it is HERE because Evidence may not import Decision and a second copy of a vocabulary is the defect this codebase keeps paying for. Universal English relation words only: no account subject, no vertical, no page family. Two of them, "largest" and "vs", are struck out of `topicTokens` above, so they can decide whether a phrase asks something and can never be a token another text must carry. */
 export const RELATIONAL = /\b(?:before|after|meanings?|capital|largest|national|differences?|versus|vs\.?)\b/i;
 
+/** A NAVIGATION LABEL A PAGE REPEATS AROUND ITS CONTENT, matched WHOLE: the words a reader clicks past rather than
+ *  reads. ONE DEFINITION FOR EVERY DOOR (campaign review, 2026-09-05). Three copies of this vocabulary stood: the
+ *  replacement door and the writer's door read `FURNITURE_AT` in decision/proof, the thin-page comparison read a
+ *  prefix-matching `FURNITURE` in decision/drafted-copy, and the content comparison in evidence/comparison read
+ *  NEITHER, so one word of a winner's own chrome ("Newsletter", "Related articles", "Categories") minted a paid
+ *  observation, flipped the ranking-loss verdict to "names", reached the writer as a briefing line and became a paid
+ *  factual-source need. It lives HERE because Evidence may not import Decision and because a second copy of a
+ *  vocabulary is the defect this codebase keeps paying for. UNIVERSAL ENGLISH ONLY: the account token "iranopedia"
+ *  stood in the old copy from an earlier round and is RETIRED here, because a site's own name is not a navigation
+ *  word and no tenant string may decide what any account's pages carry. Matched whole rather than as a prefix, so an
+ *  ordinary sentence or heading that merely contains one of these words survives. */
+export const FURNITURE_LABEL =
+  /^\s*(?:explore more|related(?: (?:articles?|posts?|pages?|topics?))?|you may also like|more(?: (?:from|like|articles?))?|read more|learn more|see also|share(?: this)?|categor(?:y|ies)|tags?|menu|navigation|footer|header|sidebar|newsletter|subscribe|follow(?: us)?|shop(?: now)?|table of contents|contents|on this page|in this article|jump to|quick links|home|search|contact(?: us)?|about(?: us)?|comments?|advertisements?|privacy(?: policy)?|terms(?: of (?:use|service))?)\s*$/i;
+
 /** Domains that are noise for editorial intent (social / forum / UGC / recipe-aggregator /
  *  marketplace), suppressed unless the Move topic is explicitly about them. */
 const NOISE_DOMAINS = [

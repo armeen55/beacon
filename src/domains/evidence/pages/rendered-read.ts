@@ -86,7 +86,7 @@ export async function renderUnreadOwnedPages(tenantId: string, cap = RENDERED_RE
       continue;
     }
     const got = parseCapability("onpage_content_parsing", r.payload as never);
-    const body = (got?.bodyText ?? "").trim();
+    const body = (got?.mainText ?? "").trim();
     const words0 = body.split(/\s+/).filter(Boolean).length;
     if (!got || words0 < 20) {
       // A rendered read that still shows almost nothing settles a THIN page (the stub is real: store the

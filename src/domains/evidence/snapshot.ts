@@ -632,42 +632,12 @@ export function jobEvidenceHash(snapshot: Pick<EvidenceSnapshot, "ownedPages" | 
  *  missing here, so a winner read BECAUSE an assistant cited it never moved the job's identity and never reopened the
  *  work it was read for. ONE rule, read by the identity above and by the brief below, so what reopens a job is exactly
  *  what its writer is then handed. Deterministic and order-free. Exported for `serpAnswersOf` in serp-shape, so the passages a brief quotes come off exactly the pages this rule already calls this job's winners. */
-export function jobWinners(research: Pick<EvidenceSnapshot["research"], "serpEvidence" | "winningPages">, primaryQuery: string) {
-  const qk = canonicalQueryKey(primaryQuery ?? ""); if (!qk) return [];
-  const ranked = new Set((research.serpEvidence ?? []).filter((s) => canonicalQueryKey(s.query) === qk)
+export function jobWinners(research: Pick<EvidenceSnapshot["research"], "serpEvidence" | "winningPages">, primaryQuery: string | readonly string[]) {
+  // ONE GROUP, EVERY PHRASING (campaign, 2026-09-05): a reader asks one thing several ways and the diagnosis already groups them, so the winners of "boy farsi names" and "farsi boy names" are one job's winners. A single string is one phrasing and behaves exactly as it always did.
+  const keys = new Set((typeof primaryQuery === "string" ? [primaryQuery] : primaryQuery).map((q) => canonicalQueryKey(q ?? "")).filter(Boolean)); if (keys.size === 0) return [];
+  const ranked = new Set((research.serpEvidence ?? []).filter((s) => keys.has(canonicalQueryKey(s.query)))
     .flatMap((s) => (s.organic ?? []).map((o) => canonicalUrlKey(o.url))));
   return (research.winningPages ?? [])
-    .filter((w) => ranked.has(canonicalUrlKey(w.url)) || (w.appearances ?? []).some((a) => canonicalQueryKey(a.query ?? "") === qk))
+    .filter((w) => ranked.has(canonicalUrlKey(w.url)) || (w.appearances ?? []).some((a) => keys.has(canonicalQueryKey(a.query ?? ""))))
     .sort((a, b) => canonicalUrlKey(a.url).localeCompare(canonicalUrlKey(b.url)));
-}
-
-/** WHAT THE PAGES THAT WIN THIS SEARCH COVER AND THE OWNED PAGE DOES NOT, off the reads already paid for. Acquisition
- *  banked these extracts and nothing ever handed them to the writer, so a refusal for restating the page reopened the
- *  job and bought the same answer again. This is BRIEFING and never proof: candidate subjects, the questions those pages
- *  answer, their entities and the shape of the winning answer, each against its source address. A factual assertion still
- *  owes the fact-check path. WHAT IS MISSING IS ESTABLISHED, NEVER INFERRED FROM ONE WORD: a heading counted as something
- *  "this page does not cover" whenever a SINGLE token of it was absent, so "When to say each one" read as a gap on a page
- *  that says exactly that in its own words, and the writer was briefed to add what was already there. A heading is
- *  candidate material to weigh; it is called missing only where NO meaningful word of it appears on the owned page at all,
- *  which is the one comparison this function can actually make. Pure, deterministic, empty when nothing was acquired. */
-export function jobComparison(research: Pick<EvidenceSnapshot["research"], "serpEvidence" | "winningPages">,
-  primaryQuery: string, ownedText: string, ownedHeadings: readonly string[], max = 3): Array<{ line: string; url: string; missing: string[] }> {
-  const said = new Set(topicTokens(`${ownedText} ${ownedHeadings.join(" ")}`));
-  const clean = (xs: readonly string[], n: number) => [...new Set(xs.map((x) => x.replace(/\s+/g, " ").trim()))]
-    .filter((x) => x.length > 2 && x.length <= 120 && topicTokens(x).length > 0).slice(0, n);
-  const absent = (x: string): boolean => topicTokens(x).every((w) => !said.has(w)); // NO meaningful word of it on the page: the only gap this comparison establishes
-  return jobWinners(research, primaryQuery).filter((w) => w.extract && w.extract.wordCount > 0).slice(0, max).map((w) => {
-    const e = w.extract!, heads = clean(e.headings, 8), questions = heads.filter((h) => h.endsWith("?")), heading = heads.filter((h) => !h.endsWith("?"));
-    const subjects = heading.filter((h) => !absent(h)), missing = heading.filter(absent), entities = clean(e.entityNames ?? [], 8).filter(absent);
-    if (subjects.length + questions.length + missing.length + entities.length === 0) return null;
-    const shape = [`${e.wordCount} words`, e.faqCount > 0 ? `${e.faqCount} question entries` : "", e.hasList ? "a list" : "", e.hasTable ? "a table" : ""].filter(Boolean).join(", ");
-    const line = [`${w.domain || domainOf(w.url)} answers this search in ${shape} at ${w.url}.`,
-      missing.length > 0 ? `Nothing on this page mentions: ${missing.join("; ")}.` : "",
-      subjects.length > 0 ? `It also covers, which this page treats in its own words: ${subjects.join("; ")}.` : "",
-      questions.length > 0 ? `It answers: ${questions.join("; ")}.` : "",
-      entities.length > 0 ? `It names, and this page does not: ${entities.join(", ")}.` : "",
-      e.openingSample ? `It opens: "${e.openingSample.trim().slice(0, 320)}"` : ""].filter(Boolean).join(" ");
-    // ESTABLISHED gaps ride out as data beside the prose, so the refusal ladder can research the missing topic itself instead of parsing a sentence: subjects and entities no meaningful word of which appears on the owned page.
-    return { line, url: w.url, missing: [...missing, ...entities] };
-  }).filter((c): c is { line: string; url: string; missing: string[] } => c != null);
 }

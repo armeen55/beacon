@@ -20,12 +20,15 @@ const SITES = [
   { t: "tenant-one", url: "https://alpha.example/tide-pools", label: "Tide Pools", q: "tide pool safety", title: "Tide Pools", h1: "Tide Pools",
     /** THE SEARCH A READING WITH NO CURRENT WORDING IS BOUGHT FOR, which the fact bank stores as that reading's SUBJECT. `ask` is four words or more, so the rule that decides which version a reading is BANKED under (`rulesVersionFor`) reads it as a question; `narrow` is three words carrying two content words, which that same rule reads as no question at all. Both are searches, both are bought the same way, and how each one is SHOWN to the writer may not depend on which side of that width they fall. `word` is a name the page itself prints and gets wrong, which is the other shape entirely. */
     ask: "how cold is the water in tide pools", answer: "The water in a tide pool holds close to the ocean temperature until the sun warms the shallowest of them.",
+    /** THE SAME ANSWER CARRYING ONE FIGURE, so a pin can put that figure in the brief, in a rival's line or in the checked reading and change nothing else about the words. */
+    figured: "The water in a tide pool holds close to the ocean temperature until the sun warms the shallowest of them, and one shore survey counted 3157 pools along it.",
     narrow: "depth of pools", narrowAnswer: "Most pools along this shore sit under a foot of water at low tide.", word: "Anemone", wrong: "a plant that grows in gardens.", right: "a stinging animal fixed to the rock.",
     heads: ["When to visit", "What lives there", "Tide pool safety"], lines: ["Tide pools open up at low tide and close over again as the water returns.", "Sea stars, anemones and hermit crabs live in the shallow pools along this shore.", "The rocks stay slick for hours after the tide turns, which is when most falls happen."],
     /** A HEADING THE PAGE'S OWN BODY PRINTS, and the passage under it, so the rewrite treatment can find the exact words it replaces; that passage carries a ranking word, which is the whole of the superlative allowance a replacement gets. */
     section: "Tide pool safety", boast: "This shore has the best tide pools on the coast, and the rock shelves stay slick for hours after the tide turns, which is when nearly every fall happens and when a visitor should take the most care." },
   { t: "tenant-two", url: "https://beta.example/bordado", label: "Bordado", q: "puntadas de bordado", title: "Bordado a mano", h1: "Bordado a mano",
     ask: "cuanto hilo lleva un bastidor de bordado", answer: "Un bastidor mediano lleva alrededor de tres metros de hilo por cada motivo bordado.",
+    figured: "Un bastidor mediano lleva alrededor de tres metros de hilo por cada motivo bordado, y un censo del taller conto 3157 madejas en un ano.",
     narrow: "grosor del hilo", narrowAnswer: "El hilo de algodon se separa en seis hebras de grosor parejo.", word: "Bastidor", wrong: "una tela suelta que se borda.", right: "un aro que tensa la tela.",
     heads: ["Materiales", "Puntadas", "Puntadas de bordado"], lines: ["El bordado a mano se trabaja sobre tela tensada en un bastidor.", "La puntada de tallo se usa para contornos y la de nudo frances para los puntos.", "El hilo de algodon se separa en hebras antes de enhebrar la aguja."],
     section: "Puntadas de bordado", boast: "El taller vende la caja que su fabricante llama the best embroidery starter kit, con hilo de algodon, agujas de tres grosores y tela cortada a medida para el primer bastidor." },
@@ -38,10 +41,10 @@ const card = (s: Site, over: Partial<ChangeProposal> = {}): ChangeProposal => ({
 const PASS = { pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "It says what this page answers.", resolution: "none" };
 const rule = (cs: readonly { supportedBy: readonly string[] }[]) => cs.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })), TAIL = { evidenceRefs: [{ source: "gsc", detail: "real page demand" }], confidence: "high", risks: [], operatorSteps: ["Replace the field"], proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "untouched pages" }, rationale: "r", uncertaintyOrOmitted: [], implementationMinutes: 1 };
 /** ONE PASS, WITH THE WRITER AND THE READER OF MEANING BOTH INJECTED. `owed` and `settled` are what the runtime would go and BUY off the back of this pass, so a test can ask what a refusal actually cost. */
-const run = async (s: Site, c: ChangeProposal, draft: Record<string, unknown>, verdict: Record<string, unknown> | null | "throw" = PASS, rows: unknown[] = [], body: Record<string, unknown> = bodyOf(s)) => {
+const run = async (s: Site, c: ChangeProposal, draft: Record<string, unknown>, verdict: Record<string, unknown> | null | "throw" = PASS, rows: unknown[] = [], body: Record<string, unknown> = bodyOf(s), snap: Record<string, unknown> = snapOf(s)) => {
   bodies.map = new Map([[canonicalUrlKey(s.url), body]]); facts.rows = rows; /* THE CHECKED READINGS ON FILE FOR THIS PAGE, so a pass can be asked what the writer is handed when one exists. Empty is the default every earlier test already ran under. */
   const owed: unknown[] = [], settled = new Map<string, unknown>(), notes: string[] = [], why = new Map<string, string>(), unsettled = new Set<string>(), seen: { kind: string; text: string }[] = [];
-  const out = await applyDraftedCopy([c], { tenantId: s.t, snapshot: snapOf(s) as never, now: NOW, refusals: why, unsettled, owe: (_k: string, n: unknown) => owed.push(n), resolved: settled as never,
+  const out = await applyDraftedCopy([c], { tenantId: s.t, snapshot: snap as never, now: NOW, refusals: why, unsettled, owe: (_k: string, n: unknown) => owed.push(n), resolved: settled as never,
     note: (_k: string, o: string, w?: string) => notes.push(`${o}:${w ?? ""}`), budget: DRAFT_BUDGET.plan({ jobs: [{ key: c.pagePath!, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
     complete: async ({ kind, system, user }: { kind: string; system: string; user: string }) => { seen.push({ kind, text: kind === "editor_judgement" ? system : `${system}\n${user}` });
       if (kind !== "editor_judgement") return { value: draft };
@@ -213,6 +216,25 @@ describe("the standard says what the work is, and the id says where the words ca
     const leads = wrote.slice(wrote.indexOf("MUST LEAD WITH"), wrote.indexOf("SUPPORTING FACTS"));
     expect([wrote.includes(`${s.ask}: ${s.answer}`), wrote.includes(`${s.answer} This is about "${s.ask}".`), leads.includes(s.answer), leads.includes("https://ref.example/guide"), leads.includes("rated confirmed")],
       "the search words never stand in front of the sentence with a colon, the reading reaches the writer as its own sentence with the search behind it, and the one line telling the writer what to open with carries that sentence and neither a source address nor a confidence rating").toEqual([false, true, true, false, false]); });
+  /** A BRIEF MAY NOT GROUND A CLAIM (campaign, 2026-09-05). The canon's entailment half was handed the card's hints, which are the ASSIGNMENT's own instruction lines plus every evidence entry cut to 400 characters, briefing included: a draft repeating a figure out of its own diagnosis, or out of a rival's line, read as grounded, and renaming one assignment label moved three unrelated verdicts in the bundle pins. Grounding is the page's own words and the full text of the ids a claim may cite, and nothing else. */
+  const FIGURE = "3157", NUMBER = `This draft says "${FIGURE}"`;
+  const gapCard = (s: Site, explanation: string) => card(s, { changeFamily: "section", treatment: "add_answer_section", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Add the missing answer." },
+    causeFinding: { cause: "retrieved_not_cited", action: null, evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [], falsifier: "f", explanation, payload: { cause: "retrieved_not_cited", engine: "chatgpt", promptText: s.q, missing: s.ask, aeoKind: "missing_information" } } as never });
+  /** A PAGE THAT WINS THIS SEARCH, WITH NOTHING READ OFF IT BUT ITS LENGTH: the briefing line it mints says "answers this search in 3157 words", which is the figure, and it carries no observation, so no confirming reading is bought and nothing else about the pass moves. */
+  const winner = (s: Site) => ({ url: `https://winner.example${new URL(s.url).pathname}`, domain: "winner.example", engines: [], examplePrompts: [], appearances: [{ query: s.q }, { query: s.ask }],
+    extract: { title: s.title, h1: null, wordCount: Number(FIGURE), headings: [], faqCount: 0, entityNames: [], openingSample: "", hasList: false } });
+  it.each(SITES)("refuses a figure that stands only in the brief or in a rival's briefing line, and takes the same figure where the checked reading the copy cites carries it, on $t", async (s) => {
+    const c = gapCard(s, "This page is asked for a search it never answers.");
+    const draft = { field: "answer_block", before: null, after: s.figured, ...TAIL, placementAnchor: s.h1, naturalHeading: null, measurementTarget: s.q, claims: [{ text: s.figured, supportedBy: ["fact-1"] }] }; // the assignment asks for an inline addition, so the words carry no heading of their own
+    /* THE FIGURE IN THE ASSIGNMENT AND NOWHERE ELSE: a search this page ranks for and does not answer reaches the brief as "THE SEARCHES THIS COPY IS AIMED AT, as targeting and never as evidence", carrying its own 90 day count. */
+    const asked = { ...snapOf(s), ownedPages: [{ ...snapOf(s).ownedPages[0]!, search: { clicks90d: 0, impressions90d: 0, ctr90d: 0, position90d: 6, topQueries: [{ query: s.ask, impressions: Number(FIGURE), clicks: 0, position: 6 }] } }] };
+    const briefed = await run(s, c, draft, PASS, [await reading(s)], bodyOf(s), asked);
+    const carried = await run(s, c, draft, PASS, [await reading(s, s.ask, s.figured)], bodyOf(s), asked);
+    const rivalled = await run(s, c, draft, PASS, [await reading(s)], bodyOf(s),
+      { ...snapOf(s), research: { serpEvidence: [{ query: s.q, organic: [{ rank: 1, url: winner(s).url }] }], winningPages: [winner(s)] } });
+    expect([briefed.why.some((w) => w.includes(NUMBER)), rivalled.why.some((w) => w.includes(NUMBER)), carried.why, carried.row.status],
+      "a figure only the diagnosis printed and a figure only a rival's line carries are both refused as ungrounded, and the same figure inside the reading the copy cites is the one that stands").toEqual([true, true, [], "ready"]);
+    expect(rivalled.wrote.join(" ").includes("rival-1"), "the rival line still reaches the writer as briefing, which is exactly the text that may not ground the claim").toBe(true); });
   it.each(SITES)("keeps every word a bound reading is recognised by, so presenting it as a sentence never sends a writable answer back to buy another source, on $t", async (s) => {
     const { demandOf } = await import("@/domains/decision/drafted-copy"), { topicTokens } = await import("@/domains/evidence/relevance-gate"), r = await reading(s);
     const page = { url: s.url, content: { wordCount: 400, title: s.title, h1: s.h1, outline: s.heads }, search: { clicks90d: 0, impressions90d: 0, ctr90d: 0, position90d: 0, topQueries: [{ query: s.ask, impressions: 120, clicks: 0, position: 6 }] } };
@@ -304,4 +326,27 @@ describe("the standard says what the work is, and the id says where the words ca
     expect([(kept.row?.supportFacts ?? []).find((f) => f.id === "fact-1")?.sources, citedPublishers(kept.row as never).size, citedPublishers(row).size],
       "a reading that rebuilds the record of what each sentence stands on keeps the provenance the row already held, so the publisher count does not fall back to prose the moment a row is read")
       .toEqual([[{ url: "https://ref.example/guide", kind: "encyclopedia" }], 1, 1]); });
+});
+
+/** THE DRIVE'S DEADLINE IS ASKED BEFORE EVERY CALL THE EDITOR STARTS (campaign, 2026-09-05). `runEditor` asked it only between retry rounds, so a card begun a second before the drive's box ended ran its writer and then its reading of meaning tens of seconds past it, on a drive that had already handed back. A call already in flight finishes and files its receipt; a call the clock refuses spends nothing, leaves the card owed rather than refused, and never writes a verdict on the words. */
+describe("the deadline the editor asks before it starts a call", () => {
+  for (const s of SITES) {
+    const draft = { field: "meta", before: "Old line.", after: `${s.lines[0]} ${s.lines[1]}`.slice(0, 150), ...TAIL, placementAnchor: s.h1, naturalHeading: null, measurementTarget: s.q, claims: [{ text: s.lines[0]!, supportedBy: ["page-copy-1"] }] };
+    const drive = async (stopBy: number, jump: number | null) => {
+      bodies.map = new Map([[canonicalUrlKey(s.url), bodyOf(s)]]); facts.rows = [];
+      const c = card(s), kinds: string[] = [], unsettled = new Set<string>(), why = new Map<string, string>();
+      await applyDraftedCopy([c], { tenantId: s.t, snapshot: snapOf(s) as never, now: NOW, stopBy, unsettled, refusals: why,
+        budget: DRAFT_BUDGET.plan({ jobs: [{ key: c.pagePath!, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
+        complete: async ({ kind }: { kind: string }) => { kinds.push(kind); if (jump != null && kinds.length === 1) vi.setSystemTime(jump);
+          return kind === "editor_judgement" ? { value: { ...PASS, claims: rule(draft.claims) } } : { value: draft }; } } as never);
+      return { kinds, unsettled: [...unsettled], why: [...why.values()].join(" ") };
+    };
+    it(`${s.t}: a box that closes while the writer is in flight buys no reading of the words, and the card is owed rather than refused`, async () => {
+      vi.useFakeTimers({ toFake: ["Date"] }); const at = Date.now();
+      const cut = await drive(at + 300_000, at + 600_000); vi.setSystemTime(at); const ran = await drive(at + 600_000, null); vi.useRealTimers();
+      expect([cut.kinds, cut.unsettled.length, cut.why.includes("time box ended before this call could start")],
+        "the writer's call finished and the reading of meaning was never started, so nothing was bought past the box and the card is owed again at its own rank").toEqual([["atomic_edit"], 1, true]);
+      expect([ran.kinds, ran.unsettled], "a box with room ahead of it starts both calls exactly as before").toEqual([["atomic_edit", "editor_judgement"], []]);
+    });
+  }
 });

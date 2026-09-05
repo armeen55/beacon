@@ -9,7 +9,8 @@ import "server-only";
  *  typed next step (producers/contract's DraftResolution). */
 
 import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
-import { canonicalUrlKey, jobComparison, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
+import { canonicalUrlKey, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
+import { comparisonTopics, jobComparison } from "@/domains/evidence/comparison";
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { ChangeProposal } from "./contracts";
 import type { DraftResolution, EvidenceRequirement } from "./producers/contract";
@@ -114,9 +115,9 @@ function gainResolution(judge: DraftResolution, snapshot: EvidenceSnapshot, card
   // and the writer therefore never received one new authorized fact. The requirement carries the missing topic
   // as the proposition to research, and only a fact banked FOR THAT TOPIC satisfies it: an unrelated stored fact
   // leaves it standing, which is what `facts` (the authorized rows themselves, not a count) is here to prove.
-  const compared = jobComparison(snapshot.research, q, `${page.content?.title ?? ""} ${(body?.passages ?? []).join(" ")}`, page.content?.outline ?? []);
+  const compared = jobComparison(snapshot.research, [q], { url: page.url, text: `${page.content?.title ?? ""} ${(body?.passages ?? []).join(" ")}`, headings: page.content?.outline ?? [], passages: body?.passages ?? [] });
   const answered = new Set(facts.map((f) => f.subject.trim().toLowerCase()));
-  const owedTopic = compared.flatMap((c) => c.missing.map((m) => ({ topic: m, url: c.url }))).find((m) => !answered.has(m.topic.trim().toLowerCase()));
+  const owedTopic = comparisonTopics(compared).find((m) => !answered.has(m.topic.trim().toLowerCase()));
   if (owedTopic) return { resolution: "acquire_factual_source",
     need: { kind: "factual_source", query: `${owedTopic.topic} ${q}`.slice(0, 120), url: page.url, reasonCode: "missing_information", missingTopic: owedTopic.topic, rivalUrl: owedTopic.url } };
   // NO GAP ESTABLISHED YET, so read the next winner that could establish one. This is the FALLBACK now, never the toll gate.

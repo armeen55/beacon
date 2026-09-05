@@ -306,6 +306,19 @@ describe("a search a page already earns is classified against the page's own pas
     expect([verdictOf(s.t, s.path, s.title, [[s.spread, 20]], [s.a, s.b]), verdictOf(s.t, s.path, s.title, [[s.spread, 20], [s.also, 20]], [s.a, s.b])],
       "two ways of asking one question are one thing a reader wants to know, so the floor is asked of the group and never of a single phrasing").toEqual(["answered", "scattered_answer"]);
   });
+  /** THE COMPARISON IS THE ONE THING THE RATIO CANNOT SEE (campaign, 2026-09-05): a page that lexically answers a search owes nothing under the token verdict, and a page winning that same search may still answer something this one never says. Where a winner's own prose carries it the page is INCOMPLETE for that observation and the observation IS the proposition; with nothing acquired every verdict above stands byte for byte. */
+  it.each(SITES)("a page that answers a search in its own words is incomplete where a winner answers more, and unchanged where nothing was acquired, on $t", (s) => {
+    const url = `https://winner-${s.t}.example/page`, sentence = s.t === "tenant-one"
+      ? "Starfish in rock pools regrow a severed arm within eleven months, and the ochre variety dominates shaded ledges."
+      : "Punto cadena appears in colonial altar cloths and takes three strands of silk per centimetre.";
+    const research = { serpEvidence: [{ query: s.answered, observedAt: null, organic: [{ rank: 1, url, domain: "winner.example", title: null }], aiOverview: [], aiMode: [], paa: [], related: [] }],
+      winningPages: [{ url, domain: "winner.example", engines: [], examplePrompts: [], appearances: [{ query: s.answered }],
+        extract: { title: "Winner", h1: null, wordCount: 900, headings: [], faqCount: 0, entityNames: [], mainText: sentence, truncated: false, heldChars: sentence.length, totalChars: sentence.length } }] };
+    const demand = demandOf(OWNED(s.t, s.path, s.title, [[s.answered, 900]]), BODY(s.t, s.path, s.title, [s.one]) as never, [], null, s.t);
+    const read = substantiveGapOf({}, { ...demand, research } as never), blind = substantiveGapOf({}, demand);
+    expect([read?.kind, read?.propositions.length, (read?.propositions[0] ?? "").includes(`winner-${s.t}.example`), blind?.kind ?? "answered"],
+      "the observation becomes the proposition the writer is hired to state, and the same page with nothing acquired is still answering").toEqual(["incomplete_answer", 1, true, "answered"]);
+  });
   it.each(SITES)("a relational word the searcher used must be matched by the text that claims to answer, on $t", (s) => {
     /* "iran flag before 1979" read as answered by a passage about the flag SINCE 1979 (reviewer, 2026-09-05): the page's own subject words satisfied the ratio and the one word carrying the question was absent. */
     const subject = s.t === "tenant-one" ? "rock pools" : "bordado stitches", since = `The ${subject} have changed twice since 1990.`, at = (q: string, passages: string[]): string => verdictOf(s.t, s.path, s.title, [[q, 900]], passages);

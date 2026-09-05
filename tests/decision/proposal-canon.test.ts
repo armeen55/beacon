@@ -279,7 +279,10 @@ describe("done is only ever reached with a record behind it", () => {
 describe("the operator's yes lands on the exact version they read, or on nothing at all", () => {
   const mover = () => deep({ status: "needs_review", riskLevel: "high", diagnosisCause: "cannibalization",
     evidence: { query: "nowruz traditions", hints: ["Visitors already call this the Haft-Seen Table guide."], evidenceRefCount: 1 },
-    bundle: { ...bundle("consolidation"), risks: ["The old address stops answering."], components: [{ kind: "consolidation", label: "Merge the two pages", before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table", evidenceKeys: ["k1"], risk: "dangerous", redirectTo: "https://www.fixture-outdoors.example/nowruz",
+    /* THE WORDS THIS CHANGE STANDS ON ARE BANKED ON THE ROW (campaign, 2026-09-05): the promotion door grounds copy on the page and this receipt, and no longer on the diagnosis hint below, which carried "Haft-Seen Table" as if something had checked it. The hint stays exactly where it was, and now grounds nothing. */
+    bundle: { ...bundle("consolidation"), risks: ["The old address stops answering."],
+      receipt: { ...bundle("consolidation").receipt, items: [...bundle("consolidation").receipt.items, { key: "k2", kind: "page_extract", fact: "This page's own section is headed Nowruz Traditions and the Haft-Seen Table.", observedAt: "2026-07-25T00:00:00.000Z" }] },
+      components: [{ kind: "consolidation", label: "Merge the two pages", before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table", evidenceKeys: ["k1"], risk: "dangerous", redirectTo: "https://www.fixture-outdoors.example/nowruz",
       where: "This page's own address", objective: "Stop two pages from splitting one search.", mechanism: "One page answers the search once instead of two competing for it.", measurementPlan: "Clicks on the surviving page are read again after 14 days." }] } });
   const REWRITE = "A rewrite nobody has read yet";
   const rewriting = (p: ChangeProposal) => () => { const at = db.state.rows.findIndex((r) => r.id === p.id);

@@ -277,7 +277,7 @@ type FactCoverageResult = {
 };
 
 /** trust-230 (Codex P1), the fix for the vacuous single-token bug. The old check passed a factual draft the moment ANY authoritative + verified source shared ONE content token with the draft, so a generic topic word ("Iran") satisfied it while the draft's actual claims went unbacked. This replaces that with real, per-claim coverage, reusing `findSupportingSpan` SYMMETRICALLY (draft sentence as the claim, the source's evidence as the page text): (a) QUALIFYING SOURCES are authoritative (re-derived here, never the LLM's guess) AND generation-time verified. Each contributes its `supportingExcerpt` (what the fetch actually confirmed) or, absent one, its `claim`. Zero qualifying sources => nothing can be backed. (b) The draft is split into sentences; only PROTECTED sentences (a non-structural number, a named entity, or a superlative) need a source. (c) A protected sentence is COVERED when some qualifying source's evidence yields findSupportingSpan(sentence, evidence).supported AND the two agree in negation parity (an affirmative source cannot back a negated claim). The first match wins and is recorded as a receipt. (d) covered = EVERY protected sentence covered. A factual draft with NO isolable protected sentence (e.g. a lowercase definitional assertion) is covered only when >= 1 qualifying source exists - never vacuously, since the caller already established the draft is factual. PURE, no I/O, no LLM. Tenant-agnostic: no vertical vocabulary, callers thread in the tenant's own allowlist. */
-export function draftFactsCoveredBySources(
+function draftFactsCoveredBySources(
   draftText: string,
   sources: readonly ClassifiableSource[] | undefined,
   tenantAllowlist?: readonly string[],

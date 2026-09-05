@@ -15,7 +15,7 @@ import type { CanonicalDemandUnit } from "@/domains/evidence/demand-units";
 import { actionFamilyOf, loadChangeProposals } from "../proposal-store";
 import { mutationFootprint } from "../mutation-footprint";
 import { RECEIPT } from "../diagnose";
-import { demandOf, placementCandidatesOf, winnersCover } from "../drafted-copy";
+import { demandOf, placementCandidatesOf, winnersAgreeOn } from "../drafted-copy";
 import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { selectPageVersion } from "@/domains/evidence/pages/page-version";
 // THE SHARED PRIMITIVES live in page-fit now: two producers answer "which page of this account is this search
@@ -212,12 +212,8 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   // matters. What authorizes an expansion now is a NAMED missing subject: a heading the pages winning this
   // page's own head search agree on carrying, that this page's stored outline does not, with the demand and
   // the stored results page as the evidence. The card names the exact subjects; "add N words" is gone.
-  const carries = (p: OwnedPageEvidence, label: string): boolean => {
-    const bag = (t: string) => new Set(t.toLowerCase().normalize("NFKD").replace(/[^a-z0-9\s]+/g, " ").split(/\s+/).filter((w) => w.length > 2));
-    const want = bag(label); if (want.size === 0) return true;
-    const own = bag([p.content?.title ?? "", p.content?.h1 ?? "", ...(p.content?.outline ?? []), ...(p.content?.h2 ?? [])].join(" "));
-    return [...want].filter((w) => own.has(w)).length >= Math.max(1, Math.ceil(want.size / 2)); };
-  const gapsOf = (p: OwnedPageEvidence): string[] => winnersCover(snapshot, p).filter((label) => !carries(p, label));
+  // ONE COMPARISON DECIDES WHAT THIS PAGE HAS NO WORDS FOR (campaign review, 2026-09-05): a private word-overlap test stood here beside the older heading comparison, so two rules answered the same question and only one of them could tell a winner's chrome from its content. The typed comparison already asks it, of the page's own title, h1 and headings, and its answer is the one this producer mints on.
+  const gapsOf = (p: OwnedPageEvidence): string[] => winnersAgreeOn(snapshot, p);
   const expandable = rank(pages.filter((p) => (p.content?.wordCount ?? 0) > 0 && impressions(p) > 0 && winnersOnFile(p)))
     .map((p) => ({ p, gaps: gapsOf(p) })).filter((x) => x.gaps.length > 0);
   for (const { p, gaps } of expandable.slice(0, TOP_PAGES_PER_CLASS)) {

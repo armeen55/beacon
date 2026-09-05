@@ -6,6 +6,7 @@ import { collectResolvedTask, identityCacheKey, runResolvedCall, type ResolvedCa
 import { resolveDeps } from "./default-deps";
 import { normalizePageIntersection, parsePageIntersection, MAX_INTERSECTION_PAGES } from "../page-intersection";
 import { freshnessMsFor } from "../freshness";
+import { mainOf } from "../funnel/research-evidence";
 import type {
   CachedCallResult, CapabilityInputByKey, CapabilityKey, EngineModelResolution, FunnelBoundaryDeps,
   ObservationIdentity, ParsedAiAnswer, ParsedByCapability, ParsedKeywordItem, ParsedSerp, ProviderEnvelope,
@@ -459,13 +460,13 @@ function parseScraper(env: ProviderEnvelope): ParsedAiAnswer {
 function parseContentParsing(env: ProviderEnvelope): ParsedByCapability["onpage_content_parsing"] {
   const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
   const pc = (resultBlock(env).items[0]?.page_content ?? {}) as Record<string, unknown>;
-  const topics = [...arr(pc.main_topic), ...arr(pc.secondary_topic)];
-  const body = topics.flatMap((t) => arr(t.primary_content).map((p) => str(p.text) ?? "")).join(" ").replace(/\s+/g, " ").trim();
+  // MAIN AND SECONDARY TOPIC ONLY, WHICH IS THE MAIN CONTENT: the endpoint keeps the page's chrome in its own header and footer blocks and neither is read here, so what comes back is the same de-chromed reading the free crawl builds. An empty parse stays a zero-word gap and is never banked as a body.
+  const topics = [...arr(pc.main_topic), ...arr(pc.secondary_topic)], body = topics.flatMap((t) => arr(t.primary_content).map((p) => str(p.text) ?? "")).join(" ").replace(/\s+/g, " ").trim();
   return { title: str(topics[0]?.main_title), h1: str(topics[0]?.h_title), wordCount: body ? body.split(" ").length : 0,
     headings: topics.map((t) => str(t.h_title) ?? "").filter(Boolean).slice(0, 20), faqCount: 0,
     openingSample: body.slice(0, 600) || null, hasTable: topics.some((t) => arr(t.table_content).length > 0),
-    bodyText: body.slice(0, 100_000) || null, // the whole rendered body, under the crawler's own ceiling, so a javascript page is stored as the words a reader actually gets
-  };
+    // THE WHOLE RENDERED BODY, under the crawler's own 100,000 character ceiling, because the rendered read of a page the account OWNS stores exactly this text as that page's snapshot and a comparison-sized cut there would make a partial capture read as a page held whole. The winner path re-holds it to the comparison ceiling.
+    ...mainOf(body, 0, 100_000) };
 }
 function modelObjects(env: ProviderEnvelope): Record<string, unknown>[] {
   const result = env.tasks?.[0]?.result;

@@ -1,0 +1,152 @@
+/** evidence/comparison - WHAT THE PAGES WINNING ONE SEARCH GROUP CARRY THAT THE OWNED PAGE DOES NOT, read off the
+ *  winners' own words. This REPLACES the heading-label comparison that lived in snapshot.ts: that one held 20 headings
+ *  and 12 entity names per winner, called a heading missing whenever no meaningful word of it appeared on the owned
+ *  page, and could therefore only ever ask whether two labels matched. Three hub pages of the acceptance account were
+ *  refused every drive under it while an 8,751 word roster and a 5,363 word guide sat banked for their exact searches.
+ *
+ *  ONE SEARCH GROUP, NOT ONE PHRASING: the diagnosis already groups every way a reader asks one thing, and the winners
+ *  of every phrasing are read together, so a page that ranks under "boy farsi names" is compared for "farsi boy names"
+ *  as well. PURE: no store, no clock, no model, no I/O. The paid confirmation is the caller's (decision/llm), and it
+ *  may only ever narrow or extend what this pass already found in text it was shown.
+ *
+ *  A TRUNCATED CAPTURE IS UNKNOWN PAST THE CUT, NEVER EMPTY. `verdict` is the whole point of that distinction: a
+ *  winner read whole that carries nothing this page lacks earns "nothing", and the refusal that names it is true; a
+ *  winner cut at the ceiling, or never read at all, earns "unread", and no door may say the winners name nothing.
+ */
+import { createHash } from "node:crypto";
+import { classifyDomain, type CompetitorKind } from "./competitors/classify";
+import { canonicalQueryKey, FURNITURE_LABEL, topicTokens } from "./relevance-gate";
+import { publisherHost } from "./serp-shape";
+import { jobWinners } from "./snapshot";
+import type { FunnelResearchEvidence } from "./funnel/research-evidence";
+
+type Research = Pick<FunnelResearchEvidence, "serpEvidence" | "winningPages">;
+
+/** ONE thing a winner carries that the owned page does not, with the winner's own words behind it so a reviewer can
+ *  find it on the page. `text` is the plain sentence; `quote` is at most 160 characters lifted verbatim, and NEVER a
+ *  citable fact: a rival observation is briefing, and a claim that states it still owes the fact-check path a source. */
+type ComparisonObservation = { kind: "answers" | "covers" | "names" | "shape"; text: string; quote: string };
+/** ONE READ WINNER: its address, the publisher that owns it, what that publisher IS to this account (Product Truth's
+ *  eight classes, decided by the one classifier), the shape of its answer, whether its capture was cut, and what it
+ *  carries that the owned page does not. */
+type ComparedWinner = {
+  url: string; publisher: string; publisherClass: CompetitorKind;
+  shape: { words: number; lists: boolean; tables: boolean; questions: number };
+  /** THE WINNER'S OWN WORDS AS ONE READING GETS THEM, cut to READING_CHARS so three winners and the owned page fit inside one call. In memory only: what a row banks is the observations, never somebody else's page. */
+  truncated: boolean; held: string;
+  /** WHAT THIS READING IS OF, AS ONE STABLE KEY over the winner's WHOLE main text and not only the part shown
+   *  (campaign review, 2026-09-05). The confirming reading is cached on its own prompts, and the prompt carries
+   *  `held`, the first READING_CHARS; a winner that rewrote everything past that cut therefore re-served the earlier
+   *  answer for ever. The key moves whenever any word of the capture moves, so a changed page is a new reading and an
+   *  unchanged one is still never bought twice. */
+  bodyKey: string;
+  observations: ComparisonObservation[];
+};
+/** `keep` is the owned page's own material that already answers part of the group, which a rewrite must not lose.
+ *  `verdict`: "names" = at least one observation; "nothing" = every winner was read whole and named nothing this page
+ *  lacks; "unread" = no winner body is on file, or the only winners that named nothing were cut at the ceiling. */
+export type JobComparison = { queries: string[]; winners: ComparedWinner[]; keep: string[]; verdict: "names" | "nothing" | "unread" };
+
+/** How much of a search's own words one passage must carry to count as answering it, and how many leading characters
+ *  two tokens share to be one word wearing a different ending. THE SAME TWO CONSTANTS THE PAGE'S OWN GAP VERDICT USES
+ *  (decision/diagnosis), so a heading this page covers in its own words is never called missing here and minted there. */
+const COVERAGE = 2 / 3, SAME_LEMMA = 6;
+/** HOW MUCH OF EACH WINNER ONE READING IS SHOWN. 4,000 characters is about 650 words a winner, so three winners and the owned page's own passages sit inside one call with room for the candidates, and a page longer than that was already marked cut by the capture. Stated once here and applied wherever a winner is handed to a reader. */
+const READING_CHARS = 4_000;
+const MAX_WINNERS = 3, MAX_OBSERVATIONS = 6, QUOTE_CHARS = 160, MAX_KEEP = 4, KEEP_CHARS = 240;
+const said = (text: string): Set<string> => new Set(topicTokens(text));
+/** Does `text` carry this word, either exactly or as the same word wearing a different ending. */
+const carries = (bag: Set<string>, w: string): boolean => bag.has(w) || (w.length >= SAME_LEMMA && [...bag].some((t) => t.length >= SAME_LEMMA && t.slice(0, SAME_LEMMA) === w.slice(0, SAME_LEMMA)));
+const covers = (bag: Set<string>, label: string): boolean => { const ask = topicTokens(label); return ask.length === 0 || ask.filter((w) => carries(bag, w)).length >= Math.max(1, Math.ceil(ask.length * COVERAGE)); };
+const tidy = (s: string): string => s.replace(/\s+/g, " ").trim();
+const cut = (s: string, n: number): string => (s.length <= n ? s : `${s.slice(0, n - 3).trimEnd()}...`);
+/** The whole capture as one short stable key, so a reading is bought against every word the extract holds rather than against the part that fits in one prompt. */
+const keyOf = (s: string): string => createHash("sha256").update(s).digest("hex").slice(0, 16);
+
+/** What this publisher IS to the account, off the evidence already on file and the one classifier that owns the eight
+ *  classes. AN AUTHORITY IS NOT DROPPED, IT IS LABELLED: an encyclopedia is exactly what an assistant cites, so hiding
+ *  it from the writer hid the strongest reading of every encyclopedic search this account runs. */
+const classOf = (research: Research, host: string, ownedHost: string): CompetitorKind => {
+  const serps = (research.serpEvidence ?? []); let serpAppearances = 0; const queries = new Set<string>(); let aiCitations = 0;
+  for (const s of serps) { for (const o of s.organic ?? []) if (publisherHost(o.url) === host) { serpAppearances += 1; queries.add(canonicalQueryKey(s.query)); }
+    for (const c of [...(s.aiOverview ?? []), ...(s.aiMode ?? [])]) if (publisherHost(c.url) === host) aiCitations += 1; }
+  for (const w of research.winningPages ?? []) if (publisherHost(w.url) === host) aiCitations += (w.appearances ?? []).filter((a) => a.kind === "ai_answer").length;
+  return classifyDomain(host, { serpAppearances, aiCitations, competingQueries: queries.size, isOwned: host === ownedHost }).kind;
+};
+
+/** THE COMPARISON. Reads up to three winners' own main text beside the owned page's complete passages and returns what
+ *  each winner carries that this page does not: a sentence that answers the group, a section this page has no words
+ *  for, entities it never names, and a question-entry shape it does not use. Every observation carries the winner's own
+ *  wording so a reviewer can find it. Candidates only: a caller may confirm them with one reading, and where it does
+ *  not, what stands is what the words themselves establish. */
+export function jobComparison(research: Research, queries: readonly string[], owned: { url: string; text: string; headings: readonly string[]; passages?: readonly string[] }, max = MAX_WINNERS): JobComparison {
+  const asked = [...new Set(queries.flatMap((q) => topicTokens(q)))], askBag = new Set(asked);
+  const ownBag = said(`${owned.text} ${owned.headings.join(" ")}`), ownedHost = publisherHost(owned.url);
+  const passages = (owned.passages ?? []).map(tidy).filter(Boolean);
+  // MATERIAL TO KEEP IS ASKED OF ONE PHRASING AT A TIME, never of the union: every extra way the group is asked would
+  // otherwise raise the bar a passage has to clear, so a page that answers the question outright would keep nothing.
+  const answers = (p: string): boolean => { const bag = said(p); return queries.some((q) => { const ask = topicTokens(q); return ask.length > 0 && ask.filter((w) => carries(bag, w)).length >= Math.max(2, Math.ceil(ask.length * COVERAGE)); }); };
+  const keep = passages.filter(answers).slice(0, MAX_KEEP).map((p) => cut(p, KEEP_CHARS));
+  const winners: ComparedWinner[] = [], read = jobWinners(research, queries).filter((w) => w.extract && w.extract.wordCount > 0).slice(0, max);
+  for (const w of read) {
+    const e = w.extract!, host = publisherHost(w.url), body = tidy(e.mainText ?? ""), obs: ComparisonObservation[] = [];
+    // WHAT ITS OWN PROSE ANSWERS. A sentence counts when it speaks to the group AND carries content words the owned
+    // passages never carry: overlap alone would hand the writer the page's own subject said back to it.
+    for (const s of body.split(/(?<=[.!?])\s+/).map(tidy)) {
+      if (obs.length >= 2 || s.length < 40 || s.length > 600) continue;
+      const t = topicTokens(s); if (t.filter((x) => askBag.has(x)).length < 2) continue;
+      const novel = [...new Set(t.filter((x) => !askBag.has(x) && !carries(ownBag, x)))]; if (novel.length < 2) continue;
+      obs.push({ kind: "answers", text: `${host} answers this search in its own prose and this page carries none of ${novel.slice(0, 3).join(", ")}.`, quote: cut(s, QUOTE_CHARS) });
+    }
+    // WHAT IT GIVES A SECTION TO. A heading this page covers in its own words is not a gap, which is the whole of the
+    // rule the label match got wrong; the words are compared, not the labels.
+    // A WINNER'S OWN CHROME IS NOT A GAP IN ANOTHER PAGE (campaign review, 2026-09-05). The crawler builds `h2_list`
+    // and `h3_list` off the WHOLE document while only the main text is de-chromed, so "Newsletter", "Related
+    // articles" and "Categories" arrived here as subjects: one of them moved the verdict to "names", which is the
+    // only answer the ranking-loss door reads before it authorizes paid body work, handed the writer a briefing line
+    // about a signup box, and became a paid factual_source need through `comparisonTopics`. The one navigation-label
+    // definition the account already keeps decides it, at this door as at the other three.
+    for (const h of [...(e.headings ?? []), ...(e.h3s ?? [])].map(tidy)) {
+      if (obs.length >= 4 || h.length < 3 || h.length > 120 || topicTokens(h).length === 0 || FURNITURE_LABEL.test(h) || covers(ownBag, h)) continue;
+      if (obs.some((o) => o.quote === h)) continue;
+      obs.push({ kind: "covers", text: `${host} gives "${h}" a section of its own and nothing on this page covers it.`, quote: cut(h, QUOTE_CHARS) });
+    }
+    const names = [...new Set((e.entityNames ?? []).map(tidy).filter((n) => n.length > 2 && topicTokens(n).length > 0 && !FURNITURE_LABEL.test(n) && !covers(ownBag, n)))].slice(0, 6);
+    if (names.length > 0 && obs.length < MAX_OBSERVATIONS) obs.push({ kind: "names", text: `${host} names ${names.length} things this page does not name: ${names.join(", ")}.`, quote: cut(names.join(", "), QUOTE_CHARS) });
+    const asks = [...(e.headings ?? []), ...(e.h3s ?? [])].filter((h) => h.trim().endsWith("?"));
+    if (e.faqCount > 0 && asks.length > 0 && !owned.headings.some((h) => h.trim().endsWith("?")) && obs.length < MAX_OBSERVATIONS) {
+      obs.push({ kind: "shape", text: `${host} answers as ${e.faqCount} question entries and this page carries none.`, quote: cut(tidy(asks[0]!), QUOTE_CHARS) });
+    }
+    winners.push({ url: w.url, publisher: host, publisherClass: classOf(research, host, ownedHost),
+      shape: { words: e.wordCount, lists: e.hasList === true, tables: e.hasTable === true, questions: e.faqCount },
+      truncated: e.truncated === true, held: body.slice(0, READING_CHARS), bodyKey: keyOf(body), observations: obs.slice(0, MAX_OBSERVATIONS) });
+  }
+  return { queries: [...queries], winners, keep, verdict: verdictOf(winners) };
+}
+/** NOTHING IS A CLAIM AND UNKNOWN IS NOT. A winner cut at the comparison ceiling, or a winner with no body on file at
+ *  all, cannot support "the stored winners name nothing this page lacks", so it never earns that sentence. */
+const verdictOf = (winners: readonly ComparedWinner[]): JobComparison["verdict"] =>
+  winners.some((w) => w.observations.length > 0) ? "names" : winners.length === 0 || winners.some((w) => w.truncated) ? "unread" : "nothing";
+
+/** The comparison as the writer's briefing lines, one per winner, under the `rival-` ids no claim may ever cite. */
+export const comparisonLines = (c: JobComparison): string[] => c.winners.map((w) =>
+  [`${w.publisher} is ${LABEL[w.publisherClass]} and answers this search in ${w.shape.words} words${w.shape.questions > 0 ? ` across ${w.shape.questions} question entries` : ""} at ${w.url}.`,
+    w.truncated ? "Only the opening of it was captured, so what it carries past that is unknown rather than absent." : "",
+    ...w.observations.map((o) => `${o.text} Its own words: "${o.quote}"`)].filter(Boolean).join(" "));
+/** The eight classes in the words a reader uses, so a briefing line never prints a raw slug. */
+const LABEL: Readonly<Record<CompetitorKind, string>> = { commercial_competitor: "a business selling what this account sells", citation_authority: "a source assistants quote", publisher: "a publisher covering these topics", marketplace_directory: "a marketplace or directory", government_educational: "a government or school source", social_community: "a social platform", owned: "this account's own site", irrelevant_unknown: "a site whose part here is not settled" };
+/** Every observation the comparison holds, flattened, so a diagnosis can turn them into the propositions the writer is
+ *  hired to state. Ordered by winner and then by the order the pass found them, so two builds agree. */
+export const comparisonObservations = (c: JobComparison): ComparisonObservation[] => c.winners.flatMap((w) => w.observations);
+/** THE SUBJECTS A COMPARISON ESTABLISHES AND NOTHING CHECKED ANSWERS YET, each against the winner that carries it, so
+ *  the acquisition ladder researches a named subject rather than a whole sentence. A prose observation names no subject
+ *  a search can be built from, so only a section this page has no words for and a thing it never names ride here. */
+export const comparisonTopics = (c: JobComparison): { topic: string; url: string }[] => c.winners.flatMap((w) =>
+  w.observations.filter((o) => o.kind === "covers" || o.kind === "names").flatMap((o) => o.quote.split(", ").map((t) => ({ topic: tidy(t), url: w.url }))))
+  .filter((t) => t.topic.length > 2);
+/** THE SAME COMPARISON WITH A READING'S OWN OBSERVATIONS IN PLACE OF THE CANDIDATES, verdict recomputed off them, so a
+ *  confirmation that drops every candidate is honestly "nothing" on a winner read whole and stays "unread" on a cut one. */
+export const withObservations = (c: JobComparison, by: ReadonlyMap<string, ComparisonObservation[]>): JobComparison => {
+  const winners = c.winners.map((w) => ({ ...w, observations: (by.get(w.url) ?? []).slice(0, MAX_OBSERVATIONS) }));
+  return { ...c, winners, verdict: verdictOf(winners) };
+};

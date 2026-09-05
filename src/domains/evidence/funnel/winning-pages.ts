@@ -14,7 +14,7 @@ import { rankWinningPages } from "./normalize";
 import { type FunnelState, type FunnelWinningPage } from "./state";
 import { askIdentity, normalizePageIntersection, parsePageIntersection, type PageIntersectionAsk } from "@/domains/evidence/page-intersection";
 import { publisherHost } from "@/domains/evidence/serp-shape";
-import { pageExtractFrom, pageExtractFromRecord, type IntersectionUnavailable, type OwnedPageReadOutcome, type ResearchPageComparison, type ResearchPageExtract, type ResearchWinningAppearance, type WinnerReadOutcome } from "./research-evidence";
+import { mainOf, pageExtractFrom, pageExtractFromRecord, type IntersectionUnavailable, type OwnedPageReadOutcome, type ResearchPageComparison, type ResearchPageExtract, type ResearchWinningAppearance, type WinnerReadOutcome } from "./research-evidence";
 import { isCurrent } from "@/domains/evidence/freshness";
 import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, modeOf, NO_BASIS_DETAIL, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
 
@@ -186,7 +186,8 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
               const r = interp(await d.callProvider("onpage_content_parsing", { url: c.url }, ids)); track(state, r);
               const got = r.kind === "evidence" ? (d.parse("onpage_content_parsing", r.payload as never) as ResearchPageExtract | null) : null;
               // An empty parse is not a body: it stays a named gap, never a fake extract. Never invent freshness either, so the provider's OWN fetch time wins whenever it sends one.
-              if (got && got.wordCount > 0) { extract = { ...got, fetchedAt: got.fetchedAt ?? nowIso }; outcome = null; await bank(c.url, extract); }
+              // AND THE WINNER'S OWN WORDS ARE HELD TO THE COMPARISON CEILING BEFORE THEY ARE BANKED, carrying the provider's own total, so a cut read says how much of the page it stands on.
+              if (got && got.wordCount > 0) { extract = { ...got, ...mainOf(got.mainText, got.totalChars ?? 0), fetchedAt: got.fetchedAt ?? nowIso }; outcome = null; await bank(c.url, extract); }
               // A CAP OR A DAILY LIMIT IS NOT THE PAGE'S FAULT. Those cost nothing and read nothing, so stamping the 7 day hold on them froze pages the provider never even looked at, and one cap event stamped every remaining winner. They wait a day.
               else outcome = readOutcomeAt(r.kind === "evidence" ? "provider_unavailable" : "temporarily_unavailable", d.now());
             }

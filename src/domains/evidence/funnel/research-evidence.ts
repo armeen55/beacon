@@ -197,11 +197,34 @@ export type ResearchPageExtract = {
   internalLinkCount?: number;
   externalLinkCount?: number;
   fetchedAt?: string | null;
-  /** The whole rendered body when the read came through the rendering provider; absent on sampled reads. */
-  bodyText?: string | null;
+  /** THE PAGE'S OWN MAIN CONTENT, nav, header, footer and aside removed, which is the only field a comparison can
+   *  read what a winner ANSWERS from: 20 headings and 600 characters of opening were a fingerprint of the page and
+   *  the comparison built on them could only ever ask whether two labels matched. Null where the read carried no
+   *  words, which stays a named gap and is never a body. `truncated` says the capture was cut at the ceiling, so
+   *  everything past `heldChars` of `totalChars` is UNKNOWN rather than absent, at both doors that read it.
+   *  All four are absent on a row banked before they existed, and absent reads as "not captured", never as none. */
+  mainText?: string | null;
+  truncated?: boolean | null;
+  heldChars?: number | null;
+  totalChars?: number | null;
+  /** The subheadings under the h2s, and the structured-data types the page declares. */
+  h3s?: string[];
+  schemaTypes?: string[];
 };
 
 const OPENING_SAMPLE_CHARS = 600;
+/** HOW MUCH OF A WINNER'S OWN WORDS ONE COMPARISON READS. 12,000 characters is about 2,000 words: it holds the
+ *  whole body of every winning page this account has ever read except an encyclopedia roster, it leaves room for
+ *  three winners and the owned page inside one reading, and a page longer than it is marked cut rather than
+ *  silently shortened. Stated once here and applied wherever an extract is built or re-held. */
+const MAIN_TEXT_CEILING = 12_000;
+/** THE MAIN TEXT AS THIS READ HOLDS IT, with what was kept and what there was. `seen` carries a total an earlier
+ *  read already measured, so re-holding a provider's longer capture at the comparison ceiling never understates
+ *  the page. Whitespace-normalized, because a body arrives from a crawl as one run and from a provider as blocks. */
+export const mainOf = (text: string | null | undefined, seen = 0, ceiling = MAIN_TEXT_CEILING): Pick<ResearchPageExtract, "mainText" | "truncated" | "heldChars" | "totalChars"> => {
+  const whole = (text ?? "").replace(/\s+/g, " ").trim(), held = whole.slice(0, ceiling), total = Math.max(seen, whole.length);
+  return { mainText: held || null, truncated: total > held.length, heldChars: held.length, totalChars: total };
+};
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 const strings = (v: unknown, max: number): string[] =>
   (Array.isArray(v) ? v : []).filter((x): x is string => typeof x === "string" && !!x.trim()).slice(0, max);
@@ -212,7 +235,7 @@ type ExtractableSnapshot = {
   title: string | null; h1: string | null; word_count: number; h2_list?: string[]; faqs?: unknown[];
   meta_description?: string | null; body_paragraph_sample?: string[]; schema_entity_names?: string[];
   card_texts?: string[]; table_count?: number; internal_link_count?: number; external_link_count?: number;
-  fetched_at?: string;
+  fetched_at?: string; body_text?: string; h3_list?: string[]; schema_types?: string[];
 };
 
 /** ONE mapper from a freshly extracted page snapshot onto the extract. Pure. */
@@ -228,6 +251,9 @@ export function pageExtractFrom(snap: ExtractableSnapshot): ResearchPageExtract 
     internalLinkCount: snap.internal_link_count ?? 0,
     externalLinkCount: snap.external_link_count ?? 0,
     fetchedAt: str(snap.fetched_at),
+    // THE READING ITSELF: the crawler already strips nav, header, footer and aside before it counts a word, so the
+    // main content is on the snapshot and was being thrown away here every time a winner was read.
+    ...mainOf(snap.body_text), h3s: strings(snap.h3_list, 20), schemaTypes: strings(snap.schema_types, 12),
   };
 }
 
@@ -243,6 +269,10 @@ export function pageExtractFromRecord(rec: Record<string, unknown>): ResearchPag
     entityNames: strings(rec.entityNames, 12), hasList: bool(rec.hasList), hasTable: bool(rec.hasTable),
     internalLinkCount: num(rec.internalLinkCount), externalLinkCount: num(rec.externalLinkCount),
     fetchedAt: str(rec.fetchedAt),
+    // A ROW BANKED BEFORE THE READING EXISTED HELD NO WORDS, and that is honest absence: `mainText: null` with
+    // `truncated: null` says nothing was captured, which no door may read as a page that carries nothing.
+    mainText: str(rec.mainText), truncated: bool(rec.truncated) ?? null, heldChars: num(rec.heldChars) ?? null,
+    totalChars: num(rec.totalChars) ?? null, h3s: strings(rec.h3s, 20), schemaTypes: strings(rec.schemaTypes, 12),
   };
 }
 
