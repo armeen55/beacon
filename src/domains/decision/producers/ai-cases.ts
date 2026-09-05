@@ -56,11 +56,11 @@ function caseCopy(s: Standing): { headline: string; steps: string[] } {
   const steps = s.diagnosed
     ? [`Open the site editor on ${s.path}`, `Apply the change this card carries for ${q}`, "Mark it done here and the next answers get checked against it"]
     : ["Nothing to do yet: Beacon is reading this page against the question before it recommends anything"];
-  if (s.stage === "owned_retrieved_not_cited") return { headline: `Assistants read ${s.path} for ${q} and ${credit}`, steps };
+  if (s.stage === "owned_retrieved_not_cited") return { headline: `Assistants that read this page for ${q} and ${credit}`, steps };
   if (s.stage === "owned_mentioned_not_cited") return { headline: `Assistants name this brand for ${q} and ${credit}`, steps };
   if (s.stage === "rivals_cited_own_not_retrieved") return {
-    headline: `AI answers cite ${s.domain ?? "other sites"} for ${q} and none reports reading ${s.path}`, steps };
-  return { headline: `AI answers rely on other sites for ${q}; ${s.path} is not among the sources they report`, steps };
+    headline: `AI answers for ${q} that cite ${s.domain ?? "other sites"} and report reading nothing here`, steps };
+  return { headline: `AI answers for ${q} that rely on other sites and never name this one`, steps };
 }
 type FanoutCase = { caseKey: string; state: AiCaseState; stage?: FanoutStage; pageUrl?: string; reason: string };
 
@@ -157,7 +157,7 @@ async function diagnoseGap(c: { tenantId: string; caseKey: string; query: string
 type GapGate = { emit: false; state: AiCaseState; reason: string; diagnosis: AeoGapDiagnosis }
   | { emit: true; hire: boolean; treatment: "rewrite_existing_section" | "add_answer_section" | null; work: string; next?: string; diagnosis?: AeoGapDiagnosis };
 /** WHAT THE DIAGNOSIS AUTHORIZES, closed. `emit: false` files the verdict and mints no card; `hire: false` keeps the card visible while refusing the writer a call; a null treatment names no work at all, which is what an unruled case honestly is. MISSING INFORMATION NEVER HIRES (operator, 2026-08-28): the writer would have to STATE the missing proposition, and nothing on file binds that exact proposition to the facts that support it. A confirmed fact elsewhere on the same page is a page match, not claim support, and treating it as support is how "Tehran is in Iran" comes to authorize a claim about knot density. It stays acquisition-first, always. */
-/** WHETHER AN AUTHORIZED MISSING-INFORMATION FACT STANDS ON THIS PAGE: a checked, confirmed row with no current wording whose authority and quote-bound wording clear the one authorization rule. This is the hire condition acquisition-first was always waiting on; the writer's packet and the acceptance reading still verify every claim at draft time, so this unlocks the door and proves nothing. */
+/** WHETHER AN AUTHORIZED MISSING-INFORMATION FACT STANDS ON THIS PAGE: a checked row with no current wording whose grade and quote-bound wording clear the one authorization rule, which since 2026-09-05 asks a correction of published words for two agreeing sources and an addition for one publisher that was read and carries it. This is the hire condition acquisition-first was always waiting on; the writer's packet and the acceptance reading still verify every claim at draft time, so this unlocks the door and proves nothing. */
 async function authorizedMissingFactOn(tenantId: string, path: string): Promise<boolean> {
   const { readFactChecks, authorizedCorrections } = await import("@/domains/evidence/pages/fact-checks");
   const rows = await readFactChecks(tenantId, path).catch(() => []); return authorizedCorrections(rows.filter((r) => r.current.trim() === ""), undefined, tenantId).length > 0; }

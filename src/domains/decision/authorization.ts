@@ -233,7 +233,7 @@ function researchingCard(b: CardBase & { recoverable: number; blocker: ResearchB
   const ruled = (b.blocker?.considered ?? []).slice(0, 3).map((c) => `Already ruled out, ${c.option.toLowerCase()}: ${c.reason}`), next = "The exact change lands on this card once that read is on file";
   return {
     ...shell(b, RESEARCHING_FAMILY, b.recoverable),
-    opportunityType: `Find out what took the clicks from ${path}`,
+    opportunityType: "The cause of the clicks this page lost",
     recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "The exact wording has not been written yet." }, /* the assignment stays in research.missing beside it */
     whyItMatters: `${b.finding.explanation} ${missing}`, operatorSteps: [missing, next], research: { missing, next },
     estimatedEffortMinutes: 15, confidence: "low",

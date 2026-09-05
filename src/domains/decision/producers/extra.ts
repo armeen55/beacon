@@ -114,7 +114,7 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
       : `Only ${count(held, "page")} of this site ${held === 1 ? "links" : "link"} to ${to} today`;
     out.push({
       page: from, slug: `internal_link@${to}`, field: "section", query: target.query.query, linkTo: to, demand: target.query.impressions, impact: gain > 0 ? gain : null,
-      headline: `Link ${pathOf(from.url)} to ${to} with the words "${target.query.query}"`, before: null,
+      headline: `A route to ${labelOf(target.page)} for readers searching "${target.query.query}"`, before: null,
       after: `Add one link in the body of ${pathOf(from.url)} pointing to ${to}, with the anchor text "${target.query.query}".`,
       // THE LINK'S PURPOSE, OFF THE STORED GRAPH: what holds the destination up today, what the words on it tell Google that page is for, and why this source page is the one being asked to give it.
       why: `${support}, and it sits at position ${position} for "${target.query.query}" on ${count(target.query.impressions, "impression")} and ${count(target.query.clicks, "click")}. Adding it puts the words of that search on a link pointing at the page that already ranks for it. ${labelOf(from)} at ${pathOf(from.url)} earns ${count(clicksOf(from), "click")} in 90 days against that page's ${count(clicksOf(target.page), "click")} and already links to ${count(links.size, "page")} of this site, not one of them ${to}, so the help runs from the page that can spare it to the page that needs it.`,
@@ -131,7 +131,7 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
 const structural = (cause: CauseFinding["cause"], action: CauseFinding["action"], evidenceKeys: string[], explanation: string, falsifier: string): CauseFinding => ({ cause, action, evidenceKeys, competingExplanations: [], notConsidered: [], explanation, falsifier });
 /** 3. THE THREE DEFECTS WORTH A SWEEP, ONE CARD PER PAGE. A card that fixes one page and then says "repeat on nine more" cannot be done in one sitting, marked done, or measured, so each of the busiest TOP_PAGES_PER_CLASS pages per defect gets its own card and figures and the class total rides along as context. */
 function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, expectedCtrAt: (position: number) => number): Draft[] {
-  const impressions = (p: OwnedPageEvidence): number => p.search?.impressions90d ?? 0;
+  const impressions = (p: OwnedPageEvidence): number => p.search?.impressions90d ?? 0; /** A ZERO SUPPRESSES THE CLAUSE THAT RANKS IT (rendered app, 2026-09-05). A live description read "20 pages carry the same templated description ... and /california-persian-cities/berkeley is the busiest of them at 0 impressions in 90 days", which calls a page the busiest and then prints the figure that says it is not. A superlative is a claim about a figure, so where the figure is zero the claim is dropped and the sentence that survives is the one the evidence carries. */ const ranked = (p: OwnedPageEvidence): string => impressions(p) > 0 ? `, and ${pathOf(p.url)} is the busiest of them at ${count(impressions(p), "impression")} in 90 days` : "";
   const rank = (list: OwnedPageEvidence[]): OwnedPageEvidence[] => [...list].sort((a, b) => impressions(b) - impressions(a) || pathOf(a.url).localeCompare(pathOf(b.url)));
   // ONE ROW PER PAGE, not per address that reaches it. The address a read landed on decides which is which, so retired slugs never accuse the page they forward to of duplicating itself.
   const byIdentity = new Map<string, OwnedPageEvidence>();
@@ -148,7 +148,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   const noMeta = rank(pages.filter((p) => !p.content?.metaDescription?.trim()));
   for (const p of noMeta.slice(0, TOP_PAGES_PER_CLASS)) out.push({
     page: p, slug: "missing_description", field: "meta", query: topQueryOf(p),
-    headline: `Write the missing description on ${pathOf(p.url)} (Google is writing its own)`, before: null,
+    headline: "A search description of this page's own, where Google is writing one for it today", before: null,
     after: "Write a description of about 150 characters that names this page's subject and the one answer it gives, and ends on a fact about the page rather than an instruction to read it.",
     // A COUNT IS NOT AN ARGUMENT UNTIL IT IS BIG ENOUGH TO BE ONE. "3 views in 90 days, so that line is read a lot" was printed on a live card: the sentence was welded to the figure and stayed true only while the figure was large. It says what the figure actually shows now, and a small one says it is small.
     why: `${pathOf(p.url)} carries no description, so the line under its title in the results is Google's own writing. It was shown ${count(impressions(p), "time")} and earned ${count(clicksOf(p), "click")} in 90 days, ${impressions(p) >= 1000 ? "so that line is read a lot" : "so it is a small page today and this is a small fix"}.`,
@@ -172,9 +172,9 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     const family = templated.find((g) => g.includes(p))!.length;
     out.push({
       page: p, slug: "missing_description", field: "meta", query: topQueryOf(p), minutes: 3, confidence: "low", refs: family, impact: recoverableClicks(p, expectedCtrAt),
-      headline: `Write a real description on ${pathOf(p.url)}: ${family} pages share one templated line`, before: (p.content?.metaDescription ?? "").trim() || null,
+      headline: `A search description of this page's own, where ${family} pages share one line`, before: (p.content?.metaDescription ?? "").trim() || null,
       after: "Write a description of about 150 characters that says what only this page answers, and ends on a fact about the page rather than an instruction to read it.",
-      why: `${count(family, "page")} carry the same templated description with only the name swapped, and ${pathOf(p.url)} is the busiest of them at ${count(impressions(p), "impression")} in 90 days. A line every sibling repeats gives nobody a reason to click this one.`,
+      why: `${count(family, "page")} carry the same templated description with only the name swapped${ranked(p)}. A line every sibling repeats gives nobody a reason to click this one.`,
       steps: [`Open the site editor on ${pathOf(p.url)}`, "Replace the templated description with one written for this page", "Mark it done here and the click rate gets read again"],
       hints: [`${count(family, "page")} share one templated description`],
       limitation: "Read off the last stored copy of each page, so a description rewritten since that read is not counted here.", cause: structural("ctr_snippet", "meta", [RECEIPT.copy, RECEIPT.gsc], `${count(family, "page")} of this site carry the same templated description with only the name swapped, so the line under ${pathOf(p.url)} in the results gives nobody a reason to click this one rather than a sibling.`, `If ${pathOf(p.url)} is found carrying a description no sibling repeats, there is nothing wrong with the line it has.`),
@@ -188,9 +188,9 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     const heading = plain(p.content?.h1), sharers = (byH1.get((p.content?.h1 ?? "").trim().toLowerCase())?.length ?? 1) - 1;
     out.push({
       page: p, slug: "duplicate_heading", field: "h1", query: topQueryOf(p),
-      headline: `Give ${pathOf(p.url)} its own heading: ${sharers} other ${sharers === 1 ? "page shares" : "pages share"} it`,
+      headline: `A heading of this page's own, where ${count(sharers + 1, "page")} carry the same one`,
       before: heading, after: "Rewrite this heading so it names what only this page covers.",
-      why: `"${heading}" is the heading on ${count(sharers + 1, "page")} of this site, which asks Google to pick between them. ${pathOf(p.url)} earns ${count(impressions(p), "impression")} in 90 days, so it is the one to name first.`,
+      why: `"${heading}" is the heading on ${count(sharers + 1, "page")} of this site, which asks Google to pick between them.${impressions(p) > 0 ? ` ${pathOf(p.url)} earns ${count(impressions(p), "impression")} in 90 days, so it is the one to name first.` : ""}`,
       steps: [`Open the site editor on ${pathOf(p.url)}`, "Rewrite the heading so it names what only this page covers", "Mark it done here and the positions get read again"],
       hints: [`${pathOf(p.url)} and ${count(sharers, "other page")} carry the heading "${heading}"`, `${pathOf(p.url)} earns ${count(impressions(p), "impression")} in 90 days`, `${count(dupes.length, "heading")} are duplicated across this site`],
       minutes: 1, confidence: "medium", refs: sharers + 1, impact: recoverableClicks(p, expectedCtrAt),
@@ -226,7 +226,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     const named = gaps.slice(0, 4);
     out.push({
       page: p, slug: "thin_page", field: "section", query: topQueryOf(p),
-      headline: `Cover what this search's winners all carry on ${pathOf(p.url)}: ${named[0]}`,
+      headline: `The subject every page winning "${topQueryOf(p)}" covers and this one does not: ${named[0]}`,
       before: null,
       after: `Add a section to ${pathOf(p.url)} covering ${named.map((g) => `"${g}"`).join(", ")}: the pages winning "${topQueryOf(p)}" each carry ${named.length === 1 ? "this subject" : "these subjects"} and this page does not.`,
       why: `${pathOf(p.url)} is shown ${count(impressions(p), "time")} in 90 days for "${topQueryOf(p)}", and every page winning that search covers ${named.map((g) => `"${g}"`).join(", ")} while this page's own headings do not.`,
@@ -245,7 +245,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   for (const p of unread.slice(0, TOP_PAGES_PER_CLASS)) {
     out.push({
       page: p, slug: "thin_page", field: "section", query: topQueryOf(p),
-      headline: `Read ${pathOf(p.url)}: a page shown ${count(impressions(p), "time")} whose words a raw fetch cannot see`,
+      headline: `A rendered read of a page shown ${count(impressions(p), "time")} whose words a raw fetch cannot see`,
       before: null,
       after: `Capture the real words on ${pathOf(p.url)} with a rendered read; no judgment about its content stands until that read lands.`,
       why: `${pathOf(p.url)} answers with a normal page and zero readable words, so it is built with javascript a raw read cannot run. What it carries is unknown rather than thin, and it is still shown ${count(impressions(p), "time")} in 90 days.`,
@@ -268,7 +268,7 @@ function unansweredCards(snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[],
     const held = rows.map((r) => r.position).filter((n): n is number => n != null), at = row?.position ?? (held.length > 0 ? Math.min(...held) : 10); // A ROW WITH NO POSITION IS NOT A CARD WORTH NOTHING (reviewer, 2026-09-02): a null impact ranked Tehran's 8,531-impression question last and the plan funded it at zero, so the best receipt position this page holds stands in, and position 10 where it holds none
     const impact = Math.max(0, Math.round((expectedCtrAt(at) - Math.min(1, (row?.clicks ?? 0) / Math.max(1, row?.impressions ?? 1))) * gap.impressions)); // the same curve, the same arithmetic and the same unit as every other card here, run on the whole demand behind the missing answer rather than on one of the ways it is asked
     out.push({ page: p, slug: "missing_answer", field: spread ? "section" : "answer_block", query: q, asked: q, treatment: spread ? "rewrite_existing_section" : "add_answer_section", obligation: gap.owed ?? { kind: "draft" },
-      headline: spread ? `Bring this page's answer to "${q}" into one place on ${path}: ${seen} in 90 days` : unknown ? `Read ${path} in full before answering "${q}": ${seen} in 90 days and not all of its words are on file` : `Answer "${q}" on ${path}: ${seen} in 90 days and the page never says it`,
+      headline: spread ? `One place a reader can lift this page's answer to "${q}", worth ${seen} in 90 days` : unknown ? `A full read of this page before "${q}" is called unanswered, worth ${seen} in 90 days` : `An answer to "${q}" for the ${seen} in 90 days this page does not answer`,
       before: null, after: spread ? `One passage on ${path} that states this page's own answer to "${q}" outright, in one place a reader can lift.` : `One section on ${path} that answers "${q}" for a reader who asked exactly that, in this page's own voice.`, why: gap.why ?? `${seen} in 90 days put ${path} in front of people asking "${q}", and nothing in this page's own words answers it.`,
       steps: [`Open your site editor on ${path}`, spread ? "Put the passage above where a reader asking this would look first" : "Add the section above where a reader asking this would look for it", "Come back here and mark it done, and measurement starts"],
       hints: [`"${q}" is worth ${seen} in 90 days on ${path}`, spread ? `This page's own words answer "${q}" across several places and in none of them outright` : unknown ? `Not all of this page's own words are on file, so nothing here claims "${q}" is absent` : `Nothing in this page's stored title, headings or copy answers "${q}"`],
