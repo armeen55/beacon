@@ -92,7 +92,7 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
   const republished = new Set<string>();
   const republishStale = async (tenantId: string): Promise<void> => {
     if (republished.has(tenantId)) return;
-    republished.add(tenantId);
+    republished.add(tenantId); /** AND THE REBUILD ASKS THIS TICK'S OWN CLOCK BEFORE IT STARTS (live 15:00Z, 2026-09-05). The rebuild reads the account, judges every stored row again and writes one release: measured at 5.8, 7.0 and 22.3 seconds on the three afternoon drives, and begun 71.3, 86.3 and 94.1 seconds AFTER the drive's own deadline every time, because the drive handed its steps the deadline as a budget instead of asking it. On the third the tick was killed by the hosting ceiling six seconds into this rebuild, holding a release half written. WHY THE PRODUCER STILL RUNS INSIDE IT, rather than republishing the rows untouched: this is the one door that turns what the walk just wrote into the release Today and Changes read, and a republish that skipped the judgement would serve copy whose rules moved since it was banked. The second judgement is not what costs: measured over four consecutive drives, the eleven California descriptions and the Pahlavi answer were re-judged and refused twice a drive and not one of them moved a version, and the whole store moved 2, 5, 7 and 3 versions, every one of them the walk's own funded work. What cost was WHEN it ran. The dispatch keeps forty seconds back for this, the drive's deadline is that reserve, and now that every step of the drive asks the deadline the reserve is there by construction, so the first account worked publishes because it is inside the budget rather than because this loop ignores the budget for it. */ if (nowFn().getTime() >= endsAt) return void log.info("[research-run] this tick ran out of its own time before the surface rebuild, so the release on file stands and the next tick rebuilds it", { tenantId, overrunMs: nowFn().getTime() - endsAt });
     try {
       const { readCustomerSurface, isCustomerSurfaceStale, refreshCustomerSurface } = await import("@/app/(shell)/surface-release");
       const held = await runWithTenant(tenantId, () => readCustomerSurface(tenantId));
@@ -187,11 +187,10 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
   await republishPaused(); // the accounts the claim can never see, and the only work they are owed
   if (claimed === 0) log.info("[research-run] the daily dispatch found nothing owed right now", {});
   else {
-    // THE FIRST ACCOUNT WORKED ALWAYS PUBLISHES. The reserve above buys the time, and a drive that overran it by a
-    // second must not be what decides whether the customer sees today's work at all; the rest of the fleet still
-    // yields to the budget. The rebuild is zero-dollar and fail-soft, so the worst case is one slow tick.
-    let first = true;
-    for (const t of worked) { if (!first && nowFn().getTime() >= endsAt) break; first = false; await republishStale(t); }
+    // EVERY ACCOUNT WORKED PUBLISHES INSIDE THE BUDGET, and the first no longer publishes OUTSIDE it: the exception written here bought
+    // the customer nothing the reserve was not already buying, and the three drives of 2026-09-05 that overran the deadline by 71, 86 and
+    // 94 seconds are exactly the ones where publishing anyway meant a tick killed at the hosting ceiling with the release half written.
+    for (const t of worked) await republishStale(t); // the clock is asked once, inside the rebuild, so this path and the paused one cannot answer it differently
     log.info("[research-run] daily dispatch done", { claimed, succeeded, failed, paused });
   }
   return receipt();
