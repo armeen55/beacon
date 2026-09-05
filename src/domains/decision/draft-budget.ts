@@ -5,8 +5,8 @@ import { mutationKeyOf } from "./mutation-footprint";
 
 /** EVERY CHARGED CALL ONE PASS MAY MAKE, drafts and judgings together, failures counted the same as successes. It is a RUNAWAY STOP, not a spending policy: what the money buys is decided by the ranked manifest below, and this only says how far one pass may go before it stops and lets the next one continue. Raised from thirty to sixty (operator, 2026-08-22, "no guardrails, unlimited money") so a drive that may now finish five candidates can actually afford five, bundles included, instead of running out at two of them. The 2026-08-21 raise to ninety is NOT what this is: back then nothing capped a single candidate, so the extra ceiling bought 239 retries on the same few pages and nothing finished. Every candidate is priced and bounded now, so the ceiling buys candidates. IT IS SPENT, NOT COMMITTED: the plan commits one round per job and every call past that is reserved against this number as it is made (see `unspent` below), so a pass stops after sixty REAL calls instead of after committing sixty it never makes. */
 const MAX_PAID_CALLS = 60;
-/** HOW MANY TIMES ONE JOB MAY TAKE REAL CALLS IN A DAY AND FINISH NOTHING. The same number the copy contract settles on, applied to the money. */
-const DAY_ATTEMPTS = 2;
+/** HOW MANY TIMES ONE JOB MAY TAKE REAL CALLS IN A DAY AND FINISH NOTHING (the same number the copy contract settles on, applied to the money), and HOW MANY DRIVES RUNNING ONE JOB MAY BE FUNDED AND NEVER REACHED before it is demoted behind work nobody has tried. The second is the price of the first-in-line rule: work funded and not begun resumes at the head, and nothing could ever take that head away from it, so a job the clock or the money never reaches could hold the queue shut against everything behind it for the whole day. Three, because two is the number of real attempts a job gets and being unreached is weaker evidence than being tried. */
+const DAY_ATTEMPTS = 2, MAX_WAITS = 3;
 
 type Keyable = Parameters<typeof mutationKeyOf>[0];
 /** THE KEY ONE PAID JOB IS FUNDED UNDER: THE MUTATION when the object in hand says which one, the page when it does
@@ -31,7 +31,7 @@ const keyOf = (p: Keyable): string => { try { return mutationKeyOf(p); } catch {
  *  `calls` counts the ATTEMPTS that took real provider calls and finished nothing, never the requests
  *  themselves; `last` is the outcome that attempt filed; `settled` means there is nothing left to do for this
  *  exact work under this exact evidence. A workKey nobody remembers is new work by construction. */
-export type JobMemory = { calls: number; last: string; settled: boolean };
+export type JobMemory = { calls: number; last: string; settled: boolean; /** HOW MANY DRIVES RUNNING THIS EXACT WORK WAS FUNDED AND NEVER BEGUN. It is a count and never a verdict: nothing is declined for it, the work stays owed, and at MAX_WAITS the ordering below stops putting it ahead of work nobody has tried. Absent is zero, so a job nobody ever funded and skipped reads exactly as it always did. */ waited?: number };
 
 /** THE DRAFTING POLICY, AS ONE CONTRACT THE LOOP AND THE PRICE BOTH READ. They diverged twice, and each time the allowance ran out mid-deliverable and the card was refused with "this pass has spent its whole attempt budget" (live receipts, 2026-08-22 22:30Z and 2026-08-23 00:32Z). So the retry count is stated ONCE and the price is DERIVED from it rather than written down separately: one writing round is a draft and its judge, the editor may make the first attempt plus EDITOR_RETRIES more, and one mandatory adversarial review reads the survivor before it may wear Ready. Change the retry count and the price follows; they cannot drift apart again. */
 const EDITOR_RETRIES = 2, CALLS_PER_ROUND = 2;
@@ -125,7 +125,7 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   /** WHAT THE DAY REMEMBERS ABOUT THIS EXACT WORK, or null when nothing does. A job that declares no identity is
    *  remembered by nothing and is therefore new work: identity is declared with the job or it does not exist. */
   const seen = (j: PaidJob): JobMemory | null => (j.workKey ? input.memory?.[j.workKey] ?? null : null);
-  const started = (j: PaidJob): boolean => { const m = seen(j); return m != null && m.calls > 0 && !m.settled; };
+  const started = (j: PaidJob): boolean => { const m = seen(j); return m != null && !m.settled && (m.calls > 0 || (m.waited ?? 0) >= MAX_WAITS); }; /* A JOB FUNDED AND NEVER REACHED THREE DRIVES RUNNING IS DEMOTED EXACTLY AS AN ATTEMPTED ONE IS, and the count on its own memory is the receipt: `waiting` promotes work the last walk did not begin, and nothing could ever demote it again, so a job the money or the clock cannot reach held the head of the queue against every candidate behind it. It is never declined and never settled: it is owed at the back instead of at the front. */
   /** WAS THIS JOB FUNDED AND LEFT UNBEGUN BY THE LAST WALK. It resumes at the head of the untried work, so the next drive picks up where the last one stopped instead of re-walking the same head and running out at the same place. */
   const waiting = new Set(input.waiting ?? []);
   const waited = (j: PaidJob): boolean => !!j.workKey && waiting.has(j.workKey);

@@ -39,7 +39,8 @@ type ResearchRunStatus = "running" | "paused" | "completed";
 /** Evidence-based counters only, never a fabricated number. `refreshedProviders` is the set of providers that actually synced this cycle (unioned across retries); `sourcesRefreshed` is that set's size. */
 export type ResearchRunProgress = {
   refreshedProviders?: string[];
-  sourcesRefreshed?: number;
+  /** THE ONE SENTENCE A CONNECTOR THAT WOULD NOT SYNC OWES THE OPERATOR, on the same receipt as the count of the ones that did, because the surfaces already read this object. It was recorded on the run's private `state.blocker`, which nothing in the product reads, so an honesty claim reached nobody. Null when every connected source synced, so a debt that cleared leaves no stale claim behind. */
+  sourcesRefreshed?: number; sourcesStale?: string | null;
   backfill?: { ran: boolean; complete?: boolean; daysPulled?: number };
   /** THIS run's frozen INVESTIGATION, chosen ONCE at the results-page phase and reused unchanged by winning-pages, the comparison and the verdict: the ordered topic, the exact search it owes, the typed requirement that
    *  was open, and the basis it was all chosen under. A second independent pick would buy a comparison for a DIFFERENT topic than the searches were bought for. Durable on progress (the phase advance clears the cursor),

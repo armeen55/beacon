@@ -12,6 +12,13 @@ import { CAUSE_LEVERS, withholdReason } from "./authorization";
 const MIN_FINISHED_READINGS = 3;
 type FamilyHistory = ReadonlyMap<string, { readings: number; netLift: number }>;
 
+/** THE ONE SCORING CONTEXT A DRIVE HOLDS, read by every number this file produces: what this account's own closed readings say (`familyHistory`), which pages already carry a change under measurement, and `batch`, every change the decision is being made among, so "how many others land on this page" is one count over one population instead of a number each caller works out for itself. Funding used to pass none of it while the displayed queue passed all of it, so one row answered to two authorities. Every field is optional and absent means what it has always meant: nothing learned, nothing measuring, nothing else on the page. */
+type Scoring = { measuringPagePaths?: readonly (string | null)[]; familyHistory?: FamilyHistory; batch?: readonly ChangeProposal[] };
+/** WHAT COUNTS AS ONE PAGE FOR NEIGHBOURS: the address, or the search a page that does not exist yet would answer. Spelled ONCE, so the money and the queue can never key the same page two ways. A change is one of the changes on its own page, so the count of the page always loses one: a job standing in for a page's work is counted the same way as a row on it. */
+const pageKeyOf = (p: ChangeProposal): string => p.pagePath ?? `new::${p.primaryQuery.trim().toLowerCase()}`;
+const countPeers = (batch: readonly ChangeProposal[]): Map<string, number> => { const m = new Map<string, number>(); for (const p of batch) m.set(pageKeyOf(p), (m.get(pageKeyOf(p)) ?? 0) + 1); return m; };
+const measuredIn = (p: ChangeProposal, ctx: Scoring): boolean => !!p.pagePath && (ctx.measuringPagePaths ?? []).includes(p.pagePath);
+
 /** The cause ladder's own vocabulary. Read from there, never re-declared here. */
 type Cause = CauseFinding["cause"];
 
@@ -61,6 +68,8 @@ const LEVER_WORD: Partial<Record<Cause, string>> = {
   technical_indexability: "whether this page can be found at all",
 };
 
+/** WHAT THIS CHANGE IS WAITING ON BEFORE ANYBODY CAN DO IT, read off the row's own typed next step and named on the receipt at zero cost, exactly as readiness has always cost zero. An operator looking at a card ranked below a smaller one deserves to see that it is waiting on a reading rather than on them, and a queue that shows worth without showing dependencies reads as an order somebody could just work through. */
+const DEPENDS: Readonly<Record<string, string>> = { evidence: "a source reading is owed before these words can be written", review: "the words are written and a reading of them against the sources they name is owed", redraft: "these words were faulted here, so a corrective draft is owed", draft: "the exact copy is still owed", sections: "sections of this page are still unwritten", operator: "this one waits on your confirmation", terminal: "this one is settled rather than retried" };
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 const clamp01 = (n: number): number => Math.min(1, Math.max(0.05, n));
 /** This account's finished readings for THIS change's family, or undefined. Read once so the discount above and the small history factor below can never disagree about the same ledger. */
@@ -95,9 +104,7 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const owed = (p.limitations ?? []).some((l) => l.includes("is still owed, and this card is what is owed"));
   const blanks = /\b(NAME|SOUND|NUMBER|YEAR)\b/.test(after);
   add("readiness", research ? "this is research still owed, not an edit waiting on you"
-    : owed ? "the exact copy is still owed"
-      : blanks ? "the copy carries blanks nobody has filled"
-        : "its exact words are written", 0, 0);
+    : DEPENDS[p.obligation?.kind ?? ""] ?? (owed ? "the exact copy is still owed" : blanks ? "the copy carries blanks nobody has filled" : "its exact words are written"), 0, 0);
 
   // THE RECOVERY BELONGS TO THE CAUSE, NOT TO THE PAGE. Two changes on one page carry the same recoverable
   // click figure, and only the one that works on the cause the evidence NAMED can actually collect it. A
@@ -292,8 +299,8 @@ function receiptFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   return { score, factors, directional, basis };
 }
 
-/** The scalar the order is built from, for ONE proposal read on its own (no batch, so nothing overlaps and nothing confounds). Exposed so a caller can inspect exactly why the order came out as it did. */
-export function proposalValueScore(p: ChangeProposal): number { return receiptFor(p, 0, false).score; }
+/** THE SCALAR THE ORDER IS BUILT FROM, and the same one the money is spent on. `ctx` is the drive's ONE scoring context (below), so the buy order, the walk order, the queue order and the sentence under the card are one answer: funding read none of it and disagreed with the displayed order on 29 of 66 live positions, one card worth 2.15 to the funder and 71.26 to the operator. Absent means a proposal read entirely on its own, which is what a caller inspecting one card gets. */
+export function proposalValueScore(p: ChangeProposal, ctx: Scoring = {}): number { return receiptFor(p, Math.max(0, (countPeers(ctx.batch ?? []).get(pageKeyOf(p)) ?? 1) - 1), measuredIn(p, ctx), ctx.familyHistory ?? null).score; }
 
 /** The factor that actually separated two neighbours: the biggest contribution gap. */
 function separator(a: Receipt, b: Receipt): { name: string; a: Factor; b: Factor } | null {
@@ -307,15 +314,13 @@ function separator(a: Receipt, b: Receipt): { name: string; a: Factor; b: Factor
   return best ? { name: best.name, a: best.a, b: best.b } : null;
 }
 
-/** One plain sentence comparing a proposal to the one directly below it. */
+/** One plain sentence comparing a proposal to the one directly below it. TWO FACTORS CAN NEVER APPEAR HERE and their branches are deleted rather than left to look like rules: `readiness` is a label added at a flat zero, and `overlap` is recorded and never discounted (operator, 2026-08-29), so both contribute exactly the same to every card and `separator` needs a gap above 0.01. */
 function whyAbove(next: ChangeProposal, a: Receipt, b: Receipt): string {
   const other = `the change for "${next.primaryQuery}"`;
   const sep = separator(a, b);
   if (!sep) return `Ranked level with ${other}, so start with whichever suits your day.`;
   const lead = `Ranked ahead of ${other} because`;
   switch (sep.name) {
-    case "readiness":
-      return `${lead} its exact words are written and that one's are not.`;
     case "visibility":
       return `${lead} more is riding on it: ${sep.a.input}, against ${sep.b.input}.`;
     case "evidence":
@@ -330,8 +335,6 @@ function whyAbove(next: ChangeProposal, a: Receipt, b: Receipt): string {
       return `${lead} it is quicker for you: ${sep.a.input} against ${sep.b.input}.`;
     case "risk":
       return `${lead} ${sep.a.input}, while ${sep.b.input}.`;
-    case "overlap":
-      return `${lead} ${next.pagePath ? `${next.pagePath} ` : "that page "}already has a change under measurement, and a second one there would muddy the reading.`;
     case "history":
       return `${lead} ${sep.a.input}, while ${sep.b.input}.`;
     default:
@@ -340,25 +343,12 @@ function whyAbove(next: ChangeProposal, a: Receipt, b: Receipt): string {
 }
 
 /**
- * Rank proposals, most valuable first, and stamp each one with the receipt that explains where it landed. `measuringPagePaths` are the pages that already carry a change under
- * measurement; a proposal touching one of them is discounted hard. Stable + deterministic.
+ * Rank proposals, most valuable first, and stamp each one with the receipt that explains where it landed. It reads the SAME scoring context the funding decision reads,
+ * so one row can never be worth two different numbers at once. Stable + deterministic.
  */
-export function rankProposals(
-  proposals: readonly ChangeProposal[],
-  ctx: { measuringPagePaths?: readonly (string | null)[];
-    /** The finished readings this account already has, by change family. Absent means nothing has finished. */
-    familyHistory?: FamilyHistory } = {},
-): ChangeProposal[] {
-  const measuring = new Set((ctx.measuringPagePaths ?? []).filter((x): x is string => !!x));
-  const perPage = new Map<string, number>();
-  for (const p of proposals) {
-    const key = p.pagePath ?? `new::${p.primaryQuery.trim().toLowerCase()}`;
-    perPage.set(key, (perPage.get(key) ?? 0) + 1);
-  }
-  const scored = proposals.map((p, i) => {
-    const key = p.pagePath ?? `new::${p.primaryQuery.trim().toLowerCase()}`;
-    return { p, i, receipt: receiptFor(p, Math.max(0, (perPage.get(key) ?? 1) - 1), !!p.pagePath && measuring.has(p.pagePath), ctx.familyHistory ?? null) };
-  });
+export function rankProposals(proposals: readonly ChangeProposal[], ctx: Scoring = {}): ChangeProposal[] {
+  const perPage = countPeers(ctx.batch ?? proposals); // the caller's own batch when it holds one for the whole drive, otherwise exactly the proposals handed in
+  const scored = proposals.map((p, i) => ({ p, i, receipt: receiptFor(p, Math.max(0, (perPage.get(pageKeyOf(p)) ?? 1) - 1), measuredIn(p, ctx), ctx.familyHistory ?? null) }));
   scored.sort((a, b) => (b.receipt.score - a.receipt.score) || (a.i - b.i));
   return scored.map((row, idx) => {
     const next = scored[idx + 1];

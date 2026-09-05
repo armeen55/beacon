@@ -40,7 +40,8 @@ type InventoryRow = { url: string; discovered_via?: string | null; crawl_state?:
 type CapturedPage = { url: string; title?: string | null; h1?: string | null; canonical_url?: string | null;
   has_canonical_mismatch?: boolean | null; robots_meta?: string | null; internal_links?: readonly string[] };
 
-type TechnicalHeld = { inventory?: readonly InventoryRow[]; pages?: readonly CapturedPage[] };
+type TechnicalHeld = { inventory?: readonly InventoryRow[]; pages?: readonly CapturedPage[]; /** HOW MUCH IS RIDING ON ONE ADDRESS, from the caller that holds the account's own numbers. Absent is zero everywhere, which is the ordering this function had before it was asked. */ demandOf?: (url: string) => number };
+const SEVERITY: readonly TechnicalKind[] = ["non_200", "robots_noindex", "broken_internal_link", "redirect_chain", "canonical_conflict", "canonical_missing", "sitemap_omission", "orphaned_page", "missing_h1", "duplicate_title", "duplicate_h1"]; // WHAT A FAULT COSTS A READER, high to low, so the twelve that survive the cut are the twelve worth a morning rather than the twelve nearest the start of the alphabet: a page nobody can reach at all outranks a page with two headings the same.
 
 /** One page's worth of findings is a morning's work; past this it is a project, not a change. */
 const MAX_FINDINGS = 12;
@@ -183,7 +184,9 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
       `Not one of the ${graph.length} pages of yours whose links I hold points at ${at(r.url)}, so a reader can only reach it from search.`,
       anchor);
   }
-  return out.sort((a, b) => at(a.url).localeCompare(at(b.url)) || a.kind.localeCompare(b.kind)).slice(0, MAX_FINDINGS);
+  // ORDERED BY WHAT IT IS WORTH FIXING BEFORE ANYTHING IS CUT, never by address (measured, 2026-09-05): sorted alphabetically and cut at twelve, this account's 218 captured pages returned twelve findings that all began with a, b or c, so a fault on any page later in the alphabet was invisible for ever. Severity first, then the audience the caller measured, and the address only to break a genuine tie so the same inputs always produce the same twelve.
+  const rank = (k: TechnicalKind): number => (SEVERITY.indexOf(k) + 1 || SEVERITY.length + 1), riding = (u: string): number => held.demandOf?.(u) ?? 0;
+  return out.sort((a, b) => rank(a.kind) - rank(b.kind) || riding(b.url) - riding(a.url) || at(a.url).localeCompare(at(b.url)) || a.kind.localeCompare(b.kind)).slice(0, MAX_FINDINGS);
 }
 
 /** THE LEVER EACH FAULT IS, in the component vocabulary that already exists. Moving an address, hiding a
