@@ -455,9 +455,9 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   };
   // WHAT EVERY PIECE OF THIS CHANGE STANDS ON, carried onto the row it is judged by. Each claim names the piece it answers for through `componentIdOf`, which folds that piece's exact words, so one authorized section can never lend its ruling to another piece and a receipt copied onto different copy stops matching; the rulings are re-indexed onto the merged list because the reviewer's answer is per claim and the row's claims are the union of the pieces'.
   const claims: NonNullable<ChangeProposal["claims"]>[number][] = []; const review: { i: number; by: string[]; entailed: boolean }[] = [];
-  const banked = new Map<string, string>(); const preservation: NonNullable<ChangeProposal["preservation"]>[number][] = []; const gains: NonNullable<AuthorizedPiece["gain"]>[] = [];
+  const banked = new Map<string, NonNullable<ChangeProposal["supportFacts"]>[number]>(); /* TYPED PROVENANCE SURVIVES THE MERGE (measured, 2026-09-05): the authorized piece hands over each fact with the addresses its reading actually quoted and what kind of source each one is, and this map kept the id and the sentence alone, so every fact a new page or a bundle banks reaches the row with its provenance stripped and the publisher count falls back to hostnames parsed out of the fact's own prose. The map carries the fact itself. */ const preservation: NonNullable<ChangeProposal["preservation"]>[number][] = []; const gains: NonNullable<AuthorizedPiece["gain"]>[] = [];
   components.forEach((c, i) => { const a = authed.get(c.after); if (!a) return;
-    for (const f of a.supportFacts) banked.set(f.id, f.fact);
+    for (const f of a.supportFacts) banked.set(f.id, f);
     a.claims.forEach((x, n) => { const v = a.review.find((z) => z.i === n); if (v) review.push({ i: claims.length, by: [...v.by], entailed: v.entailed });
       claims.push({ text: x.text, supportedBy: [...x.supportedBy], of: componentIdOf(c, i) }); });
     if (a.gain) gains.push(a.gain); if (a.preservation) preservation.push(...a.preservation); });
@@ -484,7 +484,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       evidence: { query: primary, hints: facts.slice(0, 5), evidenceRefCount: receipt.items.length },
       // A SIZE ONLY WHERE ONE IS PROVEN: an unproven door ranks as a direction, never as zero clicks.
       impactScore: pick.gap >= MIN_RECOVERABLE_CLICKS ? Math.round(pick.gap) : null, upsidePerMonth: null, bundle, createdAt: now.toISOString(),
-      ...(claims.length > 0 ? { claims, supportFacts: [...banked].map(([id, fact]) => ({ id, fact })) } : {}),
+      ...(claims.length > 0 ? { claims, supportFacts: [...banked.values()] } : {}),
       ...(gain ? { informationGain: gain } : {}), ...(preservation.length > 0 ? { preservation } : {}),
   };
   // THE READING IS STAMPED ON THE FINISHED ROW, never on a draft: copyKey folds the copy, every piece, every claim with the piece it answers for, and the words behind every id, and excludes the reading itself, so the identity comes from the completed proposal without a cycle.

@@ -482,13 +482,13 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
           symbolic id and not a fact: nothing on the screen said what page-copy-1 says, so the one thing that makes
           drafted copy checkable was unreadable exactly where the operator decides whether to paste it. The exact
           quoted words the editor was shown ride on the row now, and an id with no quoted words behind it is shown
-          as unquoted rather than dressed up as evidence. */}
+          as unquoted rather than dressed up as evidence. AND A QUOTATION IS THE SENTENCE THAT WAS CHECKED, NEVER THE WHOLE ENTRY IT WAS BANKED IN (measured, 2026-09-05): 157 of one account's 409 banked facts run past 400 characters and 142 past 800, the longest is 1,000, and on 90 of its 171 rows the operator deciding whether to paste one line was handed a raw chunk of their own page's body under the words "Stands on", 347,094 characters across 350 rendered claim lines with a worst line of 5,074. The page's own copy is named as what it is and never reprinted, because a reader standing on the page already has it; a checked reading is quoted to its first sentence, which is what the writer was held to; and each id is said once. */}
       {(proposal.claims ?? []).length > 0 ? (
         <div className="space-y-1">
           <Heading>What each line stands on</Heading>
-          <Bullets items={(proposal.claims ?? []).map((c) => `${c.text}. Stands on: ${[...c.supportedBy]
-            .map((id) => { const f = (proposal.supportFacts ?? []).find((x) => x.id === id); return f ? `"${f.fact}"` : `${id} (the words behind this were not banked with the copy)`; })
-            .join(" ")}`)} />
+          <Bullets items={(proposal.claims ?? []).map((c) => `${c.text.replace(/[.\s]+$/, "")}. Stands on: ${[...new Set([...c.supportedBy]
+            .map((id) => { const f = (proposal.supportFacts ?? []).find((x) => x.id === id); const said = (f?.fact ?? "").trim(); return /^(?:page-|target-section|section-after|draft-so-far)/.test(id) ? "the words already on this page" : !said ? `${id} (the words behind this were not banked with the copy)` : `"${(/^[\s\S]{40,220}?[.!?]["'”’]?(?=\s|$)/.exec(said)?.[0] ?? said.slice(0, 220)).trim()}"`; }))]
+            .join(", ")}`)} />
         </div>
       ) : null}
       {/* A RESEARCH CARD HAS NOTHING TO MARK DONE: no copy has been written for this page, so recording it as

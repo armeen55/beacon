@@ -10,15 +10,15 @@ import "server-only";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 import { deserializeChangeProposal, serializeChangeProposal } from "./contracts";
+import { deliverableGaps } from "./completeness";
 import { PROPOSAL_TABLE } from "./proposal-store";
 
 /** THE ONE SENTENCE, plain and dated, ending in the one thing the operator can actually do. The marker keeps a second pass from stacking it. */
-const LOST_RECORD = /lost its record/;
-const lostItsRecord = (at: unknown): string => {
-  const t = typeof at === "string" ? Date.parse(at) : NaN;
-  const day = Number.isFinite(t) ? new Date(t).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" }) : "an earlier day";
-  return `A change marked done on ${day} lost its record; mark it done again when you confirm it is live.`;
-};
+const LOST_RECORD = /lost its record|was never finished/;
+const dayOf = (at: unknown): string => { const t = typeof at === "string" ? Date.parse(at) : NaN; return Number.isFinite(t) ? new Date(t).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" }) : "an earlier day"; };
+const lostItsRecord = (at: unknown): string => `A change marked done on ${dayOf(at)} lost its record; mark it done again when you confirm it is live.`;
+/** AND A ROW WHOSE DELIVERABLE WAS NEVER FINISHED IS NOT A SHIPMENT, WHATEVER THE LEDGER HOLDS (live, 2026-09-05). The ship door re-asks `deliverableGaps` before it will mark anything done, and it was added exactly because a population line whose number, year and source were still the generator's own capitalised slots went out, was verified on the page and was banked as a win that then taught the ranker. Two rows crossed before that door existed and still stand as done on one live account, each carrying that same template line and each being measured as a change: 108 rows read done there, 2 of them have a gap. A stamp is not a finished deliverable, so the same question the ship door asks is asked again of every row already wearing the stamp, and a row that fails it goes back to the queue saying what is missing instead of being counted as work that shipped. */
+const notFinished = (at: unknown, gap: string): string => `A change marked done on ${dayOf(at)} was never finished: ${gap}. Write the exact copy, then mark it done again.`;
 
 /** A FINISHED READING RETIRES THE ROW IT MEASURED. A change marked done stayed "pending verification" forever after its reading settled,
  *  so eight rows sat frozen: counted as in-flight on every lifecycle line, holding their pages against fresh work, waiting on nothing
@@ -43,7 +43,9 @@ export async function reconcileImplementedWithoutShipment(tenantId: string, ship
       return said;
     }
     for (const row of data as Array<{ id: string; payload: unknown; updated_at?: unknown }>) {
-      if (shipped.has(row.id)) {
+      const proposal = deserializeChangeProposal(JSON.stringify(row.payload));
+      const gap = proposal ? deliverableGaps(proposal)[0] : undefined; // an unfinished deliverable outranks the ledger: a stamp on copy nobody wrote is not a shipment, and a reading of it measures nothing
+      if (gap == null && shipped.has(row.id)) {
         const verdict = finished?.get(row.id);
         if (!verdict) continue;
         // Compare-and-set on the exact state read above, so a concurrent write is never overwritten: a row that moved settles on the next release instead.
@@ -54,9 +56,8 @@ export async function reconcileImplementedWithoutShipment(tenantId: string, ship
         else log.info("[implemented-repair] a finished reading retired its row", { tenantId, id: row.id, verdict });
         continue;
       }
-      const proposal = deserializeChangeProposal(JSON.stringify(row.payload));
       if (!proposal) continue;
-      const sentence = lostItsRecord(row.updated_at);
+      const sentence = gap != null ? notFinished(row.updated_at, gap) : lostItsRecord(row.updated_at);
       const payload = JSON.parse(serializeChangeProposal({ ...proposal, status: "needs_review",
         limitations: [sentence, ...proposal.limitations.filter((l) => !LOST_RECORD.test(l))] })) as unknown;
       // The stage it is LEAVING is part of the WHERE, so a press that landed a moment ago is never overwritten by this pass. The ranking stamp clears with it: a
@@ -68,7 +69,7 @@ export async function reconcileImplementedWithoutShipment(tenantId: string, ship
         log.error("[implemented-repair] a change marked done with no record could not be reverted", { tenantId, id: row.id, error: wErr?.message ?? "no row" });
         continue;
       }
-      log.warn("[implemented-repair] a change marked done carried no record, so it went back to the queue", { tenantId, id: row.id });
+      log.warn("[implemented-repair] a change marked done went back to the queue", { tenantId, id: row.id, why: gap ?? "no record" });
       said.push(sentence);
     }
   } catch (e) {

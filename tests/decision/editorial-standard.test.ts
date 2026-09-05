@@ -10,7 +10,7 @@ vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, get
 import { applyDraftedCopy, draftFieldForPage, reviewFinishedCopy, staleCopyReasons } from "@/domains/decision/drafted-copy";
 import { nextObligation } from "@/domains/decision/obligation"; import { openHold, preferFinished } from "@/domains/decision/completeness";
 import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
-import { editorialStandard, REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
+import { editorialStandard, evidenceShortfall, REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 
@@ -115,6 +115,39 @@ describe("the editorial standard one edit is judged by", () => {
     expect((nextObligation(stored({ changeFamily: "section", faults: [RETIRED], recommendedChange: body })) as { instruction?: string } | null)?.instruction, "a body row that types nothing is judged on the material the page already has, so that sentence is history there and whatever still blocks these words is the instruction instead: the field name and the family never decide what a row owes").not.toBe(RETIRED);
     const reviewed = stored({ changeFamily: "factual_correction", claims: [{ text: "c", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "f" }] });
     expect(nextObligation({ ...reviewed, semanticReview: { of: copyKey(reviewed), version: REVIEW_CONTRACT, claims: [{ i: 0, by: ["fact-1"], entailed: true }] } }), "and a reading banked under the contract on file is not re-bought: the editorial rules moved, the evidence contract did not").toBeNull(); });
+
+  /** AND THE SAME RULE, FOR THE OBJECTION THAT COST THE MOST (measured on the live store, 2026-09-05): ten rows carry "it calls the subject X, a word this page's own copy never carries" about a word their own page publishes, each owing a paid corrective draft for a sentence the repaired door would never write again. The question is the live door's own, put to the record of the page the row itself carries; the word is quoted in the objection, so no vocabulary is read and nothing is retired on shape. */
+  it.each(SITES)("retires the promise objection where the row's own record of the page carries the word, keeps it where the page never says it, and asks nothing of a row that holds no record at all, on $t", (s) => {
+    const promise = (w: string) => `it calls the subject "${w}", a word this page's own copy never carries, so the line promises a searcher warmth, fame or growth nothing on file backs`;
+    const carried = s.heads[0]!.split(" ")[0]!, never = "zzqx", stamp = `${s.title}|${s.h1}|${s.heads[0]}|${s.heads.join(">")}`;
+    const held = (over: Partial<ChangeProposal>) => card(s, { status: "needs_review", recommendedChange: { kind: "existing_edit", field: "meta", before: "Old line.", after: "A finished description of this page." }, ...over });
+    expect(nextObligation(held({ copyStamp: stamp, faults: [promise(carried)] })), "the page's own last-read words carry the word, so the objection is history and no corrective draft is owed for it").toBeNull();
+    expect(nextObligation(held({ copyStamp: stamp, faults: [promise(never)] })), "a word the page really never says keeps its objection and its redraft").toEqual({ kind: "redraft", attempt: 1, instruction: promise(never) });
+    expect(nextObligation(held({ faults: [promise(carried)] })), "and a row holding no record of the page retires nothing, because a door that has read nothing cannot say what the page never says").toEqual({ kind: "redraft", attempt: 1, instruction: promise(carried) });
+    expect(nextObligation(held({ copyStamp: stamp, faults: [promise(carried), "it lands in the wrong place"] }))?.kind, "a real fault standing beside it is untouched").toBe("redraft");
+    expect(nextObligation(held({ recommendedChange: { kind: "existing_edit", field: "meta", before: `Old line about ${carried}.`, after: "A finished description." }, faults: [promise(carried)] })), "and the line this change replaces is part of the record too").toBeNull();
+    expect(nextObligation(held({ supportFacts: [{ id: "page-copy-1", fact: s.lines[0]! }], faults: [promise(s.lines[0]!.split(" ")[1]!)] })), "as are the passages the row banked as the page's own").toBeNull(); });
+
+  /** A DOOR DEMANDS ONLY WHAT THE WRITER CAN GIVE (measured, 2026-09-05). The replacement-accounting arm asks every sentence of a replaced passage to survive letter for letter or ride a `preservation` ledger the drafter's schema has no field for, so a writer told to restructure a passage cannot answer it. The exemption is ONE treatment and is typed: a gain built only from the page's own material, judged against the whole page, is the page's own units in a better order. */
+  it.each(SITES)("lets a reorganization of the page's own material answer for the passage it replaces, and holds every other replacement to every unit, on $t", (s) => {
+    const before = `${s.lines[0]} ${s.lines[1]}`, after = `${s.heads[1]}. ${s.lines[2]}`;
+    const reorganized = card(s, { changeFamily: "section", status: "needs_review",
+      recommendedChange: { kind: "existing_edit", field: "section", before, after, where: `Replaces the existing passage under "${s.heads[0]}"` },
+      claims: [{ text: `The page groups this under ${s.heads[1]}.`, supportedBy: ["page-copy-1", "page-copy-2"] }],
+      supportFacts: [{ id: "page-copy-1", fact: s.lines[0]! }, { id: "page-copy-2", fact: s.lines[1]! }],
+      informationGain: { adds: "puts the page's own material in one place a reader can scan", by: ["page-copy-1", "page-copy-2"], pageWhole: true } });
+    const read = (p: ChangeProposal): ChangeProposal => ({ ...p, semanticReview: { of: copyKey(p), version: REVIEW_CONTRACT, materialChange: true, claims: (p.claims ?? []).map((x, i) => ({ i, by: [...x.supportedBy], entailed: true })) } });
+    expect(evidenceShortfall(read(reorganized)), "a gain made only of this page's own units, read against the whole page, answers for the passage it reorganizes").toBeNull();
+    const outside = { ...reorganized, claims: [{ text: `The page groups this under ${s.heads[1]}.`, supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: `an encyclopedia says ${s.heads[1]}` }],
+      informationGain: { adds: "adds a checked fact the page never carried", by: ["fact-1"], pageWhole: true } } as ChangeProposal;
+    expect(evidenceShortfall(read(outside)), "a replacement carrying anything from outside the page still accounts for every unit it drops").toContain("neither says it nor accounts for it");
+    expect(evidenceShortfall(read({ ...reorganized, informationGain: { ...reorganized.informationGain!, pageWhole: false } })), "a gain judged against part of the page is refused before the exemption is even asked").toContain("only part of this page");
+    const linked = read({ ...reorganized, recommendedChange: { ...reorganized.recommendedChange, linkTo: s.url } as ChangeProposal["recommendedChange"], informationGain: { ...reorganized.informationGain!, pageWhole: false } });
+    expect(evidenceShortfall(linked), "and link work skips the gain checks entirely, so the exemption asks the whole-page question itself rather than trusting a door that never ran").toContain("neither says it nor accounts for it");
+    expect(evidenceShortfall(read({ ...reorganized, claims: [{ text: "c", supportedBy: ["rival-1"] }], supportFacts: [{ id: "rival-1", fact: "a competing page covers it" }], informationGain: { ...reorganized.informationGain!, by: ["rival-1"] } })), "briefing is not the page's own material and never reaches the exemption").toContain("competes with this one");
+    const correction = card(s, { changeFamily: "factual_correction", status: "needs_review", recommendedChange: { kind: "existing_edit", field: "section", before: `${s.word}: ${s.wrong} ${s.heads[2]} today.`, after: `${s.word}: ${s.right}` },
+      preservation: [{ text: `${s.word}: ${s.wrong}`, disposition: "corrected", by: ["fact-1"], why: "the source of record says so" }], claims: [{ text: "c", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: `an encyclopedia says ${s.right}` }] });
+    expect(evidenceShortfall(read(correction)), "and a correction owes no gain receipt at all, so it never reaches the exemption and still answers for what it drops around the mistake").toContain("neither says it nor accounts for it"); });
 });
 
 /** WHAT KIND OF WORK THIS IS, AND WHERE ITS WORDS CAME FROM: both typed, both read the same way at every door. */

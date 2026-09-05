@@ -140,6 +140,15 @@ describe("canonical proposal persistence", () => {
     expect([stands!.status, (stands!.recommendedChange as { after: string }).after]).toEqual(["ready", "Nowruz Traditions and the Haft-Seen Table"]);
     db.state.rows[0]!.status = "implemented_pending_verification"; const before = JSON.stringify(db.state.rows); // AND A CHANGE THE OPERATOR ALREADY MARKED DONE IS NOT REWRITTEN INTO A DRAFT: the measurement guard only ever inspected OTHER rows
     expect(await saveChangeProposal(proposal({ status: "needs_review" }))).toBe("blocked"); expect(JSON.stringify(db.state.rows)).toBe(before); });
+  /** ONE OBJECTION STANDS ON A ROW ONCE (live, 2026-09-05). A refusal reaches a row twice, raw from the gate that composed it and again wrapped by the door that says which read it failed; the writer's guard is an exact-match test, so the two forms never match each other and the Pahlavi answer carries the same objection twice in `faults` and twice in `limitations`. Folded at the one door every producer's row passes through, on the composer's own shape and nothing wider. */
+  it.each(["acct-a", "acct-b"])("writes one objection once however many doors phrased it, and leaves a short line that merely reads like part of a longer one alone, on %s", async (acct) => {
+    db.state.rows = []; const raw = "it opens with the search words as a label and a colon", wrapped = `it did not pass the re-read of a stored change against the rules that stand today: ${raw}`;
+    const near = "Relies on one factual claim only", longer = `${near} and the page never states which one`;
+    const id = `${acct}::${PAGE}::existing_edit::title`;
+    expect(await saveChangeProposal(proposal({ id, tenantId: acct, status: "needs_review", faults: [wrapped, raw], limitations: [wrapped, raw, near, longer] })), "the row is written").toBe("saved");
+    const on = deserializeChangeProposal(JSON.stringify(db.state.rows[0]!.payload))!;
+    expect([on.faults, on.limitations], "the composed sentence stands and the bare one it already contains does not, in both fields, and a line another merely starts with is untouched").toEqual([[wrapped], [wrapped, near, longer]]);
+    expect(await saveChangeProposal(proposal({ id, tenantId: acct, status: "needs_review", faults: [wrapped], limitations: [wrapped, near, longer] })), "and the folded row is byte-stable: a pass writing what already stands writes nothing").toBe("unchanged"); });
   it("proves the handover row belongs to this account BEFORE it writes, and names a missing supersession function for what it is", async () => {
     db.state.rows.push({ id: "held", tenant_id: "", site: "fixture-outdoors.example", case_id: "", page_key: PAGE,
       action_family: "title-family", status: "ready", terminal_disposition: null, proposal_version: 1,
@@ -250,7 +259,22 @@ describe("done is only ever reached with a record behind it", () => {
     expect([await reconcileImplementedWithoutShipment(T, new Set<string>()), row.status]).toEqual([[], "implemented_pending_verification"]);
     db.state.missing = false; db.state.rows = [];
     const stale = done({ limitations: ["A change marked done on August 1 lost its record; mark it done again when you confirm it is live."] }); await reconcileImplementedWithoutShipment(T, new Set<string>());
-    expect(storedNow(stale)?.limitations).toHaveLength(1); });});
+    expect(storedNow(stale)?.limitations).toHaveLength(1); });
+  /** A STAMP IS NOT A FINISHED DELIVERABLE (live, 2026-09-05). The ship door re-asks `deliverableGaps` before it will mark anything done, and nothing ever asked it again of the rows that crossed before that door existed: two of this account's 108 done rows still carry "X has a population of NUMBER as of YEAR (SOURCE)." and are being measured as changes. The same question is now put to every row already wearing the stamp. */
+  it.each(["acct-a", "acct-b"])("sends a change marked done whose copy was never finished back to the queue saying what is missing, whatever the ledger holds, on %s", async (acct) => {
+    const slot = { kind: "existing_edit" as const, field: "answer_block" as const, before: null, after: "Nowruz has a population of NUMBER as of YEAR (SOURCE).", where: 'Under the h1 "Nowruz"' };
+    const id = `${acct}::${PAGE}::existing_edit::title`; db.state.rows = [];
+    const push = (p: ChangeProposal) => { db.state.rows.push({ tenant_id: acct, id, proposal_version: 1, status: p.status, terminal_disposition: null, superseded_by: null, basis: p.basis ?? null,
+      case_id: "", page_key: PAGE, action_family: "title-family", queue_lane: "rel::ready", queue_rank: 3, payload: JSON.parse(serializeChangeProposal(p)) as unknown, updated_at: "2026-08-12T04:50:00.000Z" }); return db.state.rows[0]!; };
+    const unfinished = push(proposal({ id, tenantId: acct, status: "implemented_pending_verification", recommendedChange: slot }));
+    const said = await reconcileImplementedWithoutShipment(acct, new Set([id]), 50, new Map([[id, "won"]]));
+    expect(said, "a record and a settled reading do not make an unfinished deliverable a shipment").toEqual(["A change marked done on August 12 was never finished: it describes the work instead of being it. Write the exact copy, then mark it done again."]);
+    expect([unfinished.status, unfinished.terminal_disposition, unfinished.queue_rank], "it is back in the queue, live, and earns its position again").toEqual(["needs_review", null, null]);
+    expect(storedNow(unfinished)?.limitations[0], "carrying the one sentence that says what is missing and what to do").toContain("was never finished");
+    db.state.rows = []; const finished = push(proposal({ id, tenantId: acct, status: "implemented_pending_verification", recommendedChange: { ...slot, after: "Nowruz falls on the spring equinox, which lands on March 20 or 21 each year." } }));
+    expect([await reconcileImplementedWithoutShipment(acct, new Set([id])), finished.status], "and a finished change the ledger is measuring is untouched").toEqual([[], "implemented_pending_verification"]);
+    await reconcileImplementedWithoutShipment(acct, new Set([id])); await reconcileImplementedWithoutShipment(acct, new Set([id]));
+    expect(storedNow(finished)?.limitations, "twice over").toHaveLength(0); });});
 /** STEP TWO OF THE TWO-STEP HOLD IS A COMPARE-AND-SET, NEVER A READ AND A SAVE. The confirmation used to read the row, check the version on the screen against it, and then hand the promoted copy to the ordinary save path, whose own read happens afterwards: a rewrite landing in between was overwritten by the version the operator had been looking at, and that version became ready. Here is that exact interleaving, both ways round. */
 describe("the operator's yes lands on the exact version they read, or on nothing at all", () => {
   const mover = () => deep({ status: "needs_review", riskLevel: "high", diagnosisCause: "cannibalization",

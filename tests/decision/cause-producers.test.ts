@@ -10,6 +10,11 @@ import { validateProposal } from "@/domains/decision/validate-proposal"; import 
 import { deserializeChangeProposal, serializeChangeProposal } from "@/domains/decision/contracts"; import { researchingCards } from "@/domains/decision/authorization"; import type { CauseFinding } from "@/domains/decision/diagnosis";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
+/** THE ONE SEAM THAT HANDS A BUILDER A PIECE CARRYING TYPED PROVENANCE. `packetForBody`, the packet both the new-page and bundle paths use, sets no `checkedSources` yet, so a real piece on those paths carries none and the merge below could never be exercised against live data; the piece is given the shape a checked reading really banks, and the assertion is about what the row assembled from it keeps. */
+const quoted = vi.hoisted(() => ({ on: false, at: [{ url: "https://source.example/a", kind: "encyclopedia" }] }));
+vi.mock("@/domains/decision/drafted-copy", async (orig) => { const real = await orig<Record<string, unknown>>(); type Piece = { supportFacts: readonly { id: string; fact: string }[] } | null;
+  return { ...real, draftFieldForPage: async (...a: unknown[]): Promise<Piece> => { const piece = await (real.draftFieldForPage as (...x: unknown[]) => Promise<Piece>)(...a);
+    return piece && quoted.on ? { ...piece, supportFacts: piece.supportFacts.map((f) => ({ ...f, sources: quoted.at })) } : piece; } }; });
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) }));
 import { proofOf } from "@/domains/decision/proof"; import type { ChangeProposal } from "@/domains/decision/contracts";
 import { produceBundleForSnapshot, type OwnedBody } from "@/domains/decision/produce-bundle"; import { buildNewPageProposal } from "@/domains/decision/new-page"; import { evidenceShortfall } from "@/domains/decision/proof";
@@ -140,6 +145,20 @@ describe("a named cause produces the change that fixes it", () => {
   const topic: DecidedTopic = { investigation: investigation(), candidates: [candidate()], reading: null,
     decision: { verdict: "create_new", topicKey: "inv_rain", ownedUrls: [], evidenceKeys: ["demand"], missing: [],
       alternativesRuledOut: [{ alternative: "Strengthen a page you already have", reason: "No page of yours comes up for this at all." }], explanation: "No page of yours answers this, and the pages that win it agree on what one has to cover." } };
+  /** TYPED PROVENANCE SURVIVES THE MERGE ONTO THE ROW (measured, 2026-09-05): two of the three supportFacts builders rebuilt each fact as `{ id, fact }`, so every address a reading actually quoted was stripped on the way from the authorized piece to the stored change, and the publisher count fell back to hostnames parsed out of the fact's own prose. */
+  it.each(["fixture-tenant", "second-tenant"])("carries the addresses a reading quoted from the piece that read them onto the row a new page and a bundle are assembled from, on %s", async (acct) => {
+    quoted.on = true;
+    try {
+      const page = await buildNewPageProposal(topic, acct, { complete: pageSeam(), now: NOW, bypassCache: true });
+      expect(page.status, "the page builds").toBe("built"); if (page.status !== "built") return;
+      expect((page.proposal.supportFacts ?? []).length > 0 && (page.proposal.supportFacts ?? []).every((f) => (f.sources ?? []).length === 1), "every fact the new page banks keeps the address its reading quoted and what kind of source it is").toBe(true);
+      const out = await produceBundleForSnapshot({ ...snapshot(), scope: { tenantId: acct, site: "fixture-content.example", builtAt: NOW.toISOString() } }, { ...OPTS, complete: seam(), coverage: decided(pattern()) });
+      expect(out.status, "the bundle builds").toBe("bundled"); if (out.status !== "bundled") return;
+      expect((out.proposal.supportFacts ?? []).length > 0 && (out.proposal.supportFacts ?? []).every((f) => (f.sources ?? []).length === 1), "and so does every fact a bundle banks").toBe(true);
+      quoted.on = false;
+      const bare = await buildNewPageProposal(topic, acct, { complete: pageSeam(), now: NOW, bypassCache: true });
+      expect(bare.status === "built" && (bare.proposal.supportFacts ?? []).every((f) => f.sources === undefined), "and a piece that quoted nothing writes no empty provenance").toBe(true);
+    } finally { quoted.on = false; } });
   it("writes and rules every piece against another page of this account, and refuses to hand over part of a page", async () => {
     const built = await buildNewPageProposal(topic, TENANT, { complete: pageSeam(), now: NOW, bypassCache: true }); expect(built.status).toBe("built"); if (built.status !== "built") return; const p = built.proposal;
     expect(bought.filter((k) => k === "atomic_edit")).toHaveLength(4); // the opening and all three sections, through the ONE canonical editor and never a second drafter

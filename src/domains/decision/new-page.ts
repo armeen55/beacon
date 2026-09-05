@@ -314,9 +314,9 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   }
   // WHAT THE PAGE ITSELF ASSERTS AND WHAT CARRIES IT, in the one authorization vocabulary. Every section's claims answer for the ONE piece that carries them, named by `componentIdOf` off that piece's exact words, so a reading taken over this page can never authorize different copy and the serving door asks a new page exactly what it asks a section: is each claim carried by the sources it names, and is any of it checked at all.
   const at = (k: string): number => components.findIndex((c) => c.kind === k);
-  const claims: NonNullable<ChangeProposal["claims"]>[number][] = []; const ruled: { i: number; by: string[]; entailed: boolean }[] = []; const banked = new Map<string, string>();
+  const claims: NonNullable<ChangeProposal["claims"]>[number][] = []; const ruled: { i: number; by: string[]; entailed: boolean }[] = []; const banked = new Map<string, NonNullable<ChangeProposal["supportFacts"]>[number]>(); /* TYPED PROVENANCE SURVIVES THE MERGE (measured, 2026-09-05): the authorized piece hands over each fact with the addresses its reading actually quoted and what kind of source each one is, and this map kept the id and the sentence alone, so every fact a new page or a bundle banks reaches the row with its provenance stripped and the publisher count falls back to hostnames parsed out of the fact's own prose. The map carries the fact itself. */
   pieces.forEach((a, n) => { const i = n === 0 ? at("opening_answer") : at("section"); // the opening answers for the opening piece and every section for the section piece, so no piece is authorized by another's reading
-    for (const f of a.supportFacts) banked.set(f.id, f.fact);
+    for (const f of a.supportFacts) banked.set(f.id, f);
     a.claims.forEach((x, k) => { const r = a.review.find((z) => z.i === k); if (r) ruled.push({ i: claims.length, by: [...r.by], entailed: r.entailed });
       claims.push({ text: x.text, supportedBy: [...x.supportedBy], of: componentIdOf(components[i]!, i) }); }); });
   const gains = pieces.map((a) => a.gain).filter((g): g is NonNullable<typeof g> => !!g);
@@ -368,7 +368,7 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     // THE QUESTIONS TRAVEL WITH THE DRAFT: the last gate grounds every address in the copy against this text.
     evidence: { query: inv.label, hints: [...facts.slice(0, 5), ...[...questions.values()].slice(0, 8)], evidenceRefCount: items.length },
     impactScore: null, upsidePerMonth: null, bundle, createdAt: now.toISOString(),
-    ...(claims.length > 0 ? { claims, supportFacts: [...banked].map(([id, fact]) => ({ id, fact })) } : {}), ...(gain ? { informationGain: gain } : {}),
+    ...(claims.length > 0 ? { claims, supportFacts: [...banked.values()] } : {}), ...(gain ? { informationGain: gain } : {}),
   };
   // THE QUESTIONS ARE EVIDENCE TOO: the facts alone never carried the list the prompt ordered it to copy.
   const verdict = validateProposal(proposal, { evidenceText: [...facts, ...questions.values()].join(" "), now });

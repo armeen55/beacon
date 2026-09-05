@@ -53,3 +53,26 @@ describe("Today says the one thing to do and whether the last thing worked", () 
     expect(await today(), "and an account with nothing settled prints no sentence at all rather than a zero").not.toContain("Your last change to");
   });
 });
+
+/** AND THE CARD THE OPERATOR OPENS BEFORE PASTING SAYS WHAT A LINE STANDS ON, IN WORDS (measured on a live account, 2026-09-05). "Stands on" printed the whole banked entry behind every cited id: 157 of 409 banked facts run past 400 characters and 142 past 800, the longest is 1,000, and 90 of 171 rows handed the operator a raw chunk of their own page's body, climate readings and bridge names included, under the one heading that is supposed to make a draft checkable. Across the account's 350 rendered claim lines that is 347,094 characters of evidence text, and the worst single line is 5,074. */
+describe("the card says what a line stands on in words a person can check", () => {
+  const card = (over: Record<string, unknown>) => ({ id: "tenant-one::/p::existing_edit::x", tenantId: "tenant-one", kind: "existing_edit", pagePath: "/p", pageUrl: "https://alpha.example/p", pageLabel: "P",
+    primaryQuery: "tide pool safety", opportunityType: "Capture clicks", changeFamily: "section", status: "needs_review",
+    recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Tide pools hold close to the ocean temperature until the sun warms the shallowest of them.", where: 'Under the heading "Tide pool safety"' },
+    whyItMatters: "w", estimatedEffortMinutes: 1, riskLevel: "low", confidence: "medium", limitations: [], evidence: { query: "tide pool safety", hints: [], evidenceRefCount: 1 },
+    impactScore: 10, upsidePerMonth: null, basis: "b", publish: "manual", createdAt: "2026-09-01T00:00:00.000Z", ...over });
+  it.each(["tenant-one", "tenant-two"])("quotes a checked reading to the sentence that was checked, names the page's own words instead of reprinting them, and says an id once, on %s", async (t) => {
+    const { SimpleDetail } = await import("@/app/(shell)/changes/[id]/bundle-detail");
+    const dump = `top of page< BackTide PoolsTable of Contents${"A pool holds close to the ocean temperature until the sun warms it. ".repeat(14)}`;
+    const html = renderToStaticMarkup(SimpleDetail({ proposal: card({ tenantId: t,
+      claims: [{ text: "The pools hold close to the ocean temperature.", supportedBy: ["fact-1", "page-copy-1", "page-copy-2"] }, { text: "A second line stands on an id nobody banked." , supportedBy: ["fact-9"] }],
+      supportFacts: [{ id: "fact-1", fact: `encyclopedia https://source.example/a says: "Tide pools track the ocean temperature closely." ${"Admitted at the confidence bar this reading was banked under. ".repeat(9)}` },
+        { id: "page-copy-1", fact: dump }, { id: "page-copy-2", fact: dump }] }) as never } as never) as ReactElement);
+    expect(html, "the checked reading is quoted to the sentence it was checked on").toContain("Tide pools track the ocean temperature closely.");
+    expect(html.includes("Table of Contents") || html.includes("Admitted at the confidence bar"), "and neither the page's own body nor the rest of the banked entry is reprinted at the customer").toBe(false);
+    expect(html, "the page's own words are named as what they are").toContain("the words already on this page");
+    expect(html.split("the words already on this page").length - 1, "once, however many of the page's own ids a line cites").toBe(1);
+    expect(html, "and an id with nothing banked behind it is still shown as unquoted rather than dressed up as evidence").toContain("the words behind this were not banked with the copy");
+    expect(html.includes("temperature..") || html.includes("evidence.."), "no claim reaches the screen with two full stops").toBe(false);
+  });
+});
