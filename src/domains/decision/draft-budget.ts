@@ -37,8 +37,6 @@ export type JobMemory = { calls: number; last: string; settled: boolean };
 const EDITOR_RETRIES = 2, CALLS_PER_ROUND = 2;
 /** LOGICAL OPERATIONS, NEVER PROVIDER CALLS (Codex, 2026-08-23: a seven-unit price met a sixteen-call dispatch, because one structured operation retries internally and can be two real calls). One round is a draft and its ONE evaluation; the last evaluation IS the promotion decision, so no final-review unit exists any more. Real calls and real dollars are metered off the gateway's own receipts, per page, and reported as themselves. */
 const PER_DELIVERABLE_CALLS = (1 + EDITOR_RETRIES) * CALLS_PER_ROUND;
-/** WHAT THE PLAN COMMITS FOR ONE JOB: ITS FIRST ROUND, derived from the SAME retry count the price above is derived from, so the commitment and the price can never drift apart. A job that is reached at all costs this much; its retries are drawn from the pass's own ceiling at the moment each one is made. */
-const firstRound = (calls: number): number => Math.max(1, Math.round(calls / (1 + EDITOR_RETRIES)));
 const WRITER = 8; // w8 (2026-08-26): a NEW section must name its heading, said where the writer can act on it. The homework note allows `naturalHeading: null` "when the edit replaces an existing field", and an add_answer_section draft read that as permission: /cities was written, judged and refused as "it lands somewhere new and names no heading" on the first funded substantive pass this account ever ran. (w7, 2026-08-26): the information-gain DEADLOCK is gone. The card brief, the last drafting hint and the answer-block system clause each ordered the writer to use only the page's own material, while the gain gate refused copy that used only the page's own material, so no body section could ever land: every settlement made under w6 was made under a contract no copy could satisfy, and they all reopen. The gate now arms only where a citable `fact-` or `owned-page` id is actually in hand, `owned-page` ids are echo-able, the packet holds the page ONCE, and a page whose gain is FORM reaches the synthesis route. (w6, 2026-08-25): the writer is handed the pages that already win this search as `rival-*` briefing, so it can be told what is MISSING instead of only what the page already says. Every candidate written off under w5 was written off without that evidence, which is exactly the refusal the briefing exists to answer, so those settlements say nothing about this policy and reopen. (w5, 2026-08-24: a rewrite target became the SECTION under its heading rather than a crawler chunk that matched nothing.)
 const POLICY = `w${WRITER}r${EDITOR_RETRIES}c${PER_DELIVERABLE_CALLS}`;
 /** WHAT A WHOLE PAGE OR A DEEP BUNDLE OWES: a brief plus its sections, four deliverables, so TWELVE charged calls. Said out loud rather than hidden inside a multiplier, because it is the most expensive thing a pass can buy and the ranking has to see the price before it funds it (Codex, 2026-08-22: "it must be named, ranked and tested as a 12-call proposal, not reported as a three-call candidate"). It is STILL twelve and deliberately not raised: no receipt has named a bundle running out, so nothing here moves on a guess, and when one does this follows the evidence. */
@@ -65,7 +63,13 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
    *  work nobody has tried, because a candidate that fails the same way every drive must never re-consume the
    *  whole box ahead of untried candidates. Work never started is absent, so it is owed at its own rank. There
    *  is no operator focus and no exemption: the money follows the evidence and the ranking, and nothing else. */
-  memory?: Readonly<Record<string, JobMemory>> }) {
+  memory?: Readonly<Record<string, JobMemory>>;
+  /** THE WORK THE LAST WALK FUNDED AND NEVER BEGAN, by its own `workKey`. A drive stops where its clock stops, so
+   *  the tail of one manifest is the head of the next: these sort ahead of work of equal standing that nobody has
+   *  waited on, which is what makes "funded and not reached" a queue position rather than a permanent fate. It
+   *  never outranks the day's own memory: work already attempted is still demoted, and settled work is still
+   *  declined, so a job that cannot finish can never hold the head of the queue against everything behind it. */
+  waiting?: readonly string[] }) {
   const ceiling = Math.max(0, input.calls ?? MAX_PAID_CALLS);
   // ONE ENTRY PER PAGE, AND THE PAGE GETS THE TREATMENT WITH THE HIGHEST EXPECTED SITE IMPACT (Codex, 2026-08-23).
   // Two corrections carved into this line. Dearest-wins buried strong cheap work behind bundles; value-per-call then
@@ -122,16 +126,19 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
    *  remembered by nothing and is therefore new work: identity is declared with the job or it does not exist. */
   const seen = (j: PaidJob): JobMemory | null => (j.workKey ? input.memory?.[j.workKey] ?? null : null);
   const started = (j: PaidJob): boolean => { const m = seen(j); return m != null && m.calls > 0 && !m.settled; };
+  /** WAS THIS JOB FUNDED AND LEFT UNBEGUN BY THE LAST WALK. It resumes at the head of the untried work, so the next drive picks up where the last one stopped instead of re-walking the same head and running out at the same place. */
+  const waiting = new Set(input.waiting ?? []);
+  const waited = (j: PaidJob): boolean => !!j.workKey && waiting.has(j.workKey);
   // FINISHING IS A TIE-BREAK, NEVER A BAND (operator, 2026-08-30): the absolute correction-first order put
   // every one-cent finish above every new section, answer, link, and page whatever their traffic was worth,
   // which is the names-only queue. Expected value orders everything; a cheap finish wins only when values tie.
   const ranked = [...byKey.values()].sort((a, b) =>
-    Number(started(a)) - Number(started(b)) || b.impact - a.impact || finishes(b) - finishes(a) || a.calls - b.calls || a.key.localeCompare(b.key));
+    Number(started(a)) - Number(started(b)) || Number(waited(b)) - Number(waited(a)) || b.impact - a.impact || finishes(b) - finishes(a) || a.calls - b.calls || a.key.localeCompare(b.key));
   const funded = new Map<string, number>(), declined: DeclinedJob[] = [];
-  // THE CEILING IS SPENT, NOT COMMITTED (measured on production receipts, 2026-09-04). Committing each job's WORST-CASE price here reserved the whole sixty-call ceiling on eight to ten jobs: twenty-two consecutive dispatches reserved 60 (once 54), reached every funded job, and metered one to sixteen real calls, so the rest of a manifest of seventy-odd ranked candidates was declined for money nobody ever spent. `callsLeft` commits each job's FIRST ROUND, which is what a job that is reached at all actually costs; `unspent` is the pass's real ceiling, and every call past that first round is reserved against it in `draw` below at the moment it is made, so the runaway stop is exactly as hard as it was and the ranking is actually reached.
-  let slots = Math.max(0, input.candidates), callsLeft = ceiling, unspent = ceiling;
+  // MONEY IS SPENT, NEVER COMMITTED, AND A COMMITMENT IS NOT ELIGIBILITY (measured on production receipts, 2026-09-04, and again 2026-09-05). Reserving each job's first round here declined thirty-four ranked candidates against money the pass never spent: one drive committed the whole sixty-call ceiling to twenty-nine rows, reached two of them, and refused the rest for a purse that ended the drive untouched. The reservation is deleted whole. What bounds a pass is `unspent`, the real ceiling, reserved in `draw` below at the moment each call is made: a job the money never reaches files `cost_blocked` in its own words rather than being refused before anything ran, and it is owed again at its own rank.
+  let slots = Math.max(0, input.candidates), unspent = ceiling;
   for (const j of ranked) {
-    const price = Math.max(1, Math.round(j.calls)), start = firstRound(price);
+    const price = Math.max(1, Math.round(j.calls));
     if (j.blocked) declined.push({ key: j.key, family: j.family, calls: price, reason: j.blocked });
     // ALREADY BOUGHT NEVER BLOCKS A DIFFERENT OBLIGATION (operator, 2026-09-02). The skip was keyed on the mutation and the family, so a page whose DRAFT was spent today declined the REVIEW that page owed as well, and a job whose evidence, obligation or rules had genuinely moved could not be funded until tomorrow. Both answers are asked of the WORK'S OWN IDENTITY now: a corrected job wears a different `workKey`, so it is simply not the job the day remembers.
     else if (seen(j)?.settled === true) declined.push({ key: j.key, family: j.family, calls: price, reason: "finished work or a settled refusal already stands under this exact evidence" });
@@ -142,8 +149,7 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
     else if (input.quiet === true) declined.push({ key: j.key, family: j.family, calls: price, reason: "this pass was asked to spend nothing, so the work is still owed and nothing was bought for it" });
     else if (input.breakerOpen === true) declined.push({ key: j.key, family: j.family, calls: price, reason: "the provider's own credit is spent, so this pass funded nothing" });
     else if (slots <= 0) declined.push({ key: j.key, family: j.family, calls: price, reason: `the pass funds ${Math.max(0, input.candidates)} candidates and stronger work filled them` });
-    else if (start > callsLeft) declined.push({ key: j.key, family: j.family, calls: price, reason: `starting this needs ${start} charged calls and ${callsLeft} were left` });
-    else { funded.set(j.key, price); slots -= 1; callsLeft -= start; }
+    else { funded.set(j.key, price); slots -= 1; }
   }
   const held = new Map<string, { left: number }>();
   const resolveKey = (key: string): string => {
@@ -169,8 +175,8 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
     spend.set(key, rec);
   };
   return {
-    /** The charged calls the plan committed to no job's first round: money this pass decided not to start work with, never money it has yet to spend. What is still spendable is the pass ceiling less what `spent()` reports. */
-    calls: { left: callsLeft },
+    /** THE CHARGED CALLS THIS PASS HAS LEFT TO SPEND, live: the ceiling less every call really reserved so far. It commits nothing in advance, so a reader of this number is reading money, never a plan. */
+    calls: { get left() { return unspent; } },
     /** EVERY candidate this pass COULD WORK ON, funded or not, best first. It is what says whether a manifest is FINISHED: a pass that funded two of nine has seven candidates left, and calling that exhausted is how a day closed on two failures (Codex, 2026-08-22). A BLOCKED job is not on it (Codex, 2026-08-23): it can never be funded, so it can never settle, and leaving it here made "every declared candidate is settled" unreachable for any account with one page under measurement, which held the day open and re-drove it on every visit. Blocked work is named in `declined`, with its reason. */
     declared: ranked.filter((j) => !j.blocked).map((j) => j.key),
     /** The funded set, best first, as the pass's own receipt of what it decided to buy before it bought anything. */

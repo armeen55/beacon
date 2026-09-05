@@ -48,6 +48,8 @@ type LoadEvidenceSnapshotOptions = {
   loadState?: (tenantId: string, basisTag: string) => Promise<{ state: FunnelState; rowVersion: number }>;
   /** The canonical AI evidence read; injectable so a test seeds observations without a store. */
   loadObservations?: (tenantId: string) => Promise<CanonicalPairObservation[]>;
+  /** ONE INVOCATION'S SHARED WORKING CONTEXT: the reads a drive makes once and every later step of the SAME drive reuses, keyed `<part>:<name>`. The runtime opens one map per drive, hands it to every step, and DROPS the parts a change touches (`evidence` when a reading lands or a fact banks, `proposals` when a walk persists), so nothing stale is served and nothing unchanged is read twice. Absent means no sharing at all, which is what every surface, script and test that is not a drive gets. */
+  shared?: Map<string, unknown>;
 };
 
 /** The account's current basis (same inputs Runtime folds into the funnel cursor). */
@@ -83,7 +85,16 @@ async function loadResearch(
  * ($0 — no paid API call). Deterministic given the cache; the only clock is
  * `now` (→ scope.builtAt).
  */
-export async function loadEvidenceSnapshot(
+export function loadEvidenceSnapshot(tenantId: string, options: LoadEvidenceSnapshotOptions = {}): Promise<EvidenceSnapshot> {
+  const share = options.shared; if (!share) return readEvidenceSnapshot(tenantId, options);
+  // THE ACCOUNT AND ITS INJECTED READS ARE PART OF THE QUESTION, so a second account, a second site or a test's own seams can never be answered with somebody else's snapshot. The clock is not: one working context is ONE view of the account, deliberately.
+  const key = `evidence:snapshot:${tenantId}:${options.site ?? ""}`, seams = [options.resolveBasis, options.loadState, options.loadObservations];
+  const held = share.get(key) as { seams: readonly unknown[]; read: Promise<EvidenceSnapshot> } | undefined;
+  if (held && held.seams.every((s, i) => s === seams[i])) return held.read;
+  const read = readEvidenceSnapshot(tenantId, options); share.set(key, { seams, read }); void read.catch(() => { share.delete(key); }); return read; // a read that threw is never the account's answer, so it is not kept
+}
+
+async function readEvidenceSnapshot(
   tenantId: string,
   options: LoadEvidenceSnapshotOptions = {},
 ): Promise<EvidenceSnapshot> {

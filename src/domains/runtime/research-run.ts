@@ -87,6 +87,7 @@ export type ResearchRunProgress = {
   collected?: { pending: number; ready: number };
   evidenceOwed?: readonly { key: string; kind: "serp" | "page_source" | "competitor_page" | "factual_source" | "semantic_review"; query: string; url?: string; reasonCode: string; reason: string; workKey: string; /** The missing proposition a factual_source researches, and the rival that identified it (briefing provenance only): declared here so a field-by-field rebuild can never silently drop the topic and degrade the acquisition to a plain re-check. */ missingTopic?: string; rivalUrl?: string; /** The exact change a `semantic_review` reads, so the runtime loads one row instead of the whole queue. */ proposalId?: string; /** THE ROW'S OWN STAMPED RANK, carried by the fill so the consumer buys in global opportunity order rather than store order; absent on a need whose row carries no rank yet, which sorts last. */ rank?: number; /** The reporting day this reading was last bought while the work still refused: not bought again that day, so the drive's slots go to needs a purchase can still answer. */ boughtOn?: string }[];
   replenish?: { day: string; /** THE DAY'S ONE ATTEMPT LEDGER, keyed on the row's own `workKey`: what each job's attempts cost, how the last one ended, and whether anything is left to do for it under this exact evidence. It replaced four page-keyed lists and the manifest fingerprint that reset them, every one of which asked "the same page again" of work whose evidence, obligation or rules had moved. */ jobs: Record<string, { calls: number; last: string; settled: boolean }>; closed?: "candidates_exhausted"; /** The account and evidence version an exhaustion was earned under: fresh evidence reopens the day, because a manifest settled against yesterday's readings says nothing about today's. */ closedUnder?: string; /** THE WORK A FACT BANKED LATER IN THE SAME DRIVE WOKE UP, and has not been walked yet: the exact next unit. Persisted before the walk, so a drive that runs out of time resumes at this point instead of losing the dependency until tomorrow, and a day may never close while it holds anything. */ awakened?: string[];
+    /** THE WORK THE LAST WALK FUNDED AND NEVER BEGAN, by `workKey`. A drive stops where its clock stops, and the tail of one manifest is the head of the next: these are picked up first by the next walk of this drive and, because the day's memory travels with the day, by the next pass too. It is a queue position, never a verdict, so nothing here settles, declines or writes off anything. */ waiting?: string[];
     /** What became of the funded work on the last drive, so a cycle that funded five and settled one can be READ rather than guessed at. */
     outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[];
       /** The COMPLETE per-page receipts and the ledger reconciliation, durable so a later read reconstructs the dispatch without logs (Codex, 2026-08-23). */
@@ -106,13 +107,8 @@ export type ResearchRunProgress = {
   };
 };
 
-/** Bounded error info stored on last_error when a phase pauses (throw or returned failure). `failures` carries per-source connector detail on a partial refresh. */
-export type ResearchRunError = {
-  phase: ResearchPhase;
-  message: string;
-  at: string;
-  failures?: Array<{ provider: string; detail: string }>;
-};
+/** Bounded error info stored on last_error when a phase pauses. The per-source `failures` list this used to carry is DELETED with the pause it belonged to: a connector that would not sync no longer ends the drive, so its debt is one sentence on the run's own blocker and the source's stale stamp is what owes the retry. */
+export type ResearchRunError = { phase: ResearchPhase; message: string; at: string };
 
 /** Mirrors the research_runs row (snake_case, like refresh-runs-store). */
 export type ResearchRun = {

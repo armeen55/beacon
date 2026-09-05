@@ -77,7 +77,7 @@ export type ResearchCycleSteps = {
   /** CHECK ONE PAGE'S OWN CLAIMS AGAINST SOURCES OUTSIDE IT. Bounded, budgeted and fail-soft: this phase never blocks a run, because a page whose statements could not be checked today is not an outage. */
   /** ONE RESEARCH UNIT'S WORTH of source checking. `budgetMs` is what is LEFT of the drive's own deadline, not a fresh allowance of its own, and `renew` is the caller's lease: a claim is only ever started while the lease is genuinely
    *  held. Answers in the run's vocabulary (advanced / done / failed) so a pass that checked one claim cannot be read as a page, or an account, that is finished. */
-  factCheck: (tenantId: string, budgetMs: number, renew?: () => Promise<boolean>, /** THE PAGE THAT OPENS THE PASS: the highest-ranked open source need, so a drive checks the page whose funded work is waiting rather than the audience's most-read one. Null keeps the rotation order. */ firstPage?: string | null)
+  factCheck: (tenantId: string, budgetMs: number, renew?: () => Promise<boolean>, /** THE PAGE THAT OPENS THE PASS: the highest-ranked open source need, so a drive checks the page whose funded work is waiting rather than the audience's most-read one. Null keeps the rotation order. */ firstPage?: string | null, /** The drive's working context: this phase runs before the walk and reads the same account, so it shares that read rather than making a second one. */ shared?: Map<string, unknown>)
     => Promise<{ status: "advanced" | "done" | "failed"; banked: number; /** The pages this pass banked evidence ON, so a drive can hire the writer that was waiting on one of them in the same turn. */ bankedPages: string[]; pagesComplete: number; failure?: string; reason?: string }>;
   surfaceStale: (tenantId: string, nowMs: number) => Promise<boolean>;
   /** Read back the day's NEW answers (bounded, $0 when nothing changed). Returns THE PASS'S OWN RECEIPT, not a bare number: how many answers it took on, how many ended with a durable verdict, how many of those were a non-reading, and
@@ -105,7 +105,9 @@ export type ResearchCycleSteps = {
   /** FINISH STORED OPPORTUNITIES THROUGH THE ONE CANONICAL PRODUCER before this cycle buys exploratory evidence. The count on the receipt is the LOW-STOCK ALARM ONLY (operator, 2026-08-30): `deficit` reports how far the stock sits under the alarm floor and sizes NOTHING; the buy runs the whole declared manifest to the pass's own money and time bounds, whatever the count. null = the count could not be read, which defers nothing and claims nothing. `seen` is the day's own memory: the manifest it was working through and the pages it has already spent on. */
   /** THE STORED WORK WAITING ON A READING FOR ONE OF THESE PAGES, named by its own funding key. $0 and bounded: one read of rows already on file, no provider and no model. A day closed `candidates_exhausted` remembers no unsettled job and owes no reading BY CONSTRUCTION, so when a fact lands after it this is the only thing left that can say whose work it was for. */
   researchOwed: (tenantId: string, pages: readonly string[]) => Promise<string[]>;
-  replenishReady: (tenantId: string, now: Date, seen?: { jobs?: Readonly<Record<string, JobMemory>>; /** How many charged calls this DRIVE has already spent on earlier walks. The ceiling is one pass, and a drive may run several walks (the stock walk, one per acquired reading, and the one a banked fact wakes), so a drive that reports its spend gets the REMAINDER of the one ceiling instead of a fresh one. */ callsSpent?: number },
+  replenishReady: (tenantId: string, now: Date, seen?: { jobs?: Readonly<Record<string, JobMemory>>; /** How many charged calls this DRIVE has already spent on earlier walks. The ceiling is one pass, and a drive may run several walks (the stock walk, one per acquired reading, and the one a banked fact wakes), so a drive that reports its spend gets the REMAINDER of the one ceiling instead of a fresh one. */ callsSpent?: number;
+    /** THE WORK THE LAST WALK FUNDED AND NEVER BEGAN, by `workKey`: this walk picks it up first, so a drive that runs out of clock hands its remainder to the next one instead of re-walking the same head. */ waiting?: readonly string[];
+    /** THE DRIVE'S OWN WORKING CONTEXT (evidence/snapshot-loader carries the contract): the reads this drive has already made, reused by every later walk and dropped part by part as the drive's own writes move them. */ shared?: Map<string, unknown> },
     /** The wall-clock moment this drive must stop starting paid work. The pass returns normally at it, with receipts, instead of being cut off by a timer and reporting nothing. */ stopBy?: number) => Promise<{ ready: number; deficit: number; persisted: number;
     /** TRUE only when a post-pass re-read PROVES the stock is AT THE TARGET. */ satisfied: boolean;
     /** HOW THIS DRIVE ENDED, as a machine word. Only two of these four may close a day. `candidates_exhausted` is the one that has to be EARNED: it means every candidate on the current manifest has now been spent on and none of them finished, which is a different fact from "the two I could afford this drive produced nothing" (Codex, 2026-08-22). */
@@ -113,6 +115,7 @@ export type ResearchCycleSteps = {
     /** THE DAY'S ONE ATTEMPT LEDGER, keyed on the row's own `workKey`: what each job's attempts cost, how the last one ended, and whether anything is left to do for it under this exact evidence. It replaces four page-keyed lists and the manifest fingerprint that reset them; a workKey nobody remembers is new work by construction. */ jobs: Record<string, JobMemory>;
     /** THE ACCOUNT AND EVIDENCE VERSION AN EXHAUSTION WAS EARNED UNDER, present only with `candidates_exhausted`: due-work reopens the day the moment fresh evidence lands, because a manifest settled against yesterday's readings says nothing about today's. */ closedUnder?: string;
     /** THE EXACT READINGS funded candidates were refused for, typed: the dispatch executes these instead of parsing a refusal sentence (Codex, 2026-08-23). */ evidenceOwed?: readonly OwedReading[];
+    /** THE FUNDED WORK THIS WALK NEVER BEGAN, by `workKey`. It is a queue position and never a verdict: the next walk of this drive, and the next drive after it, take these first. */ waiting?: readonly string[];
     /** WHAT BECAME OF THE FUNDED WORK. `readySaved` counts CHANGES the operator can act on; `evidenceBanked` counts work that succeeded and is not a change. `receipts` is the COMPLETE per-page record (key, treatment, impact, allowance, exact provider attempts, exact cost, outcome, full reason), durable on the run so a later read reconstructs the dispatch without logs. `ledger` is the adjudicator month total read before and after, beside the metered sum, so the receipt reconciles against real money or names the mismatch itself. */
     outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[];
       receipts?: unknown[]; ledger?: { before: number; after: number; delta: number; metered: number; unexplained?: number; reconciled: boolean } } } | null>;
@@ -120,7 +123,7 @@ export type ResearchCycleSteps = {
 /** The page meter is DELETED (operator, 2026-08-30): the pass takes the WHOLE ranked inventory and walks it under its own global claim allowance and deadline, so no owed page ever waits on rotation. Bodies load lazily per page, so an unreached page costs nothing. */
 
 /** What this run still allows the ONE advisory reading. `mark` is the runner's own receipt: the reading is bounded per RUN, never per unit iteration. */
-type CaseReconcilePlan = { planKeys: string[]; maySynthesize: boolean; mark: () => void };
+type CaseReconcilePlan = { planKeys: string[]; maySynthesize: boolean; mark: () => void; /** The drive's working context, so reconciliation reads the account the walk before it already read. */ shared?: Map<string, unknown> };
 
 /** DID THE REGISTRY ACTUALLY MOVE? Compared the way the registry is READ and never the way it happened to be written: the same rows in another order, or one
  *  row's anchors in another order, are the SAME registry, and a raw JSON compare called that a move, saved it, and bought a reading of a file nothing changed. */
@@ -131,7 +134,7 @@ const sameRegistry = (before: readonly ResearchCase[] = [], after: readonly Rese
  * the comparison it bought belonged to an id nothing on file agreed with. A losing row version is a failure too, because nothing was saved. Nothing here is a partial success. THEN, and only when the registry actually moved this pass AND this run has not asked yet, ONE advisory semantic reading of it (see decision/case-synthesis). That step is fail-soft by contract: the deterministic identities are already saved, so a reading I could not get, could not trust or could not write is simply absent. */
 async function reconcileCases(tenantId: string, basis: string, plan: CaseReconcilePlan): Promise<void> {
   const saved = await (async () => {
-    const snapshot = await loadEvidenceSnapshot(tenantId);
+    const snapshot = await loadEvidenceSnapshot(tenantId, plan.shared ? { shared: plan.shared } : {});
     const cases = reconcileResearchCases(snapshot);
     const loaded = await loadFunnelState(tenantId, basis);
     if (sameRegistry(loaded.state.cases, cases)) return true; // nothing moved: no save, and nothing to re-read
@@ -191,8 +194,8 @@ export const defaultSteps: ResearchCycleSteps = {
     // THE DAY REMEMBERS WORK, NOT PAGES (operator, 2026-09-02). Four page-keyed lists lived here (attempted under a manifest fingerprint, tried, spent, settled) and a fifth rule reset them whenever the fingerprint moved. Every one of them asked "the same page again" of work whose evidence, obligation or rules had already moved, so a corrected job could not run again until tomorrow and a banked reading wiped the spend memory of every other job in the account. ONE ledger keyed on the row's own `workKey` replaces all five: what a job's attempts cost, how its last attempt ended, and whether there is anything left to do for it under this exact evidence. A workKey nobody remembers is new work by construction, so nothing has to be reset.
     const jobs: Record<string, JobMemory> = { ...(seen?.jobs ?? {}) }; const floor = await readyStockFloor(tenantId).catch(() => READY_STOCK_ALARM); // the low-stock alarm level: it colors the receipt and nothing else
     const mark = (reason: "made_progress" | "retryable_blocked" | "candidates_exhausted", ready: number, persisted: number,
-      outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[] }, evidenceOwed?: readonly OwedReading[]) =>
-      ({ ready, deficit: Math.max(0, floor - ready), persisted, satisfied: reason === "candidates_exhausted", reason, jobs, ...(reason === "candidates_exhausted" ? { closedUnder } : {}), ...(evidenceOwed && evidenceOwed.length > 0 ? { evidenceOwed } : {}), ...(outcomes ? { outcomes } : {}) });
+      outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[] }, evidenceOwed?: readonly OwedReading[], waiting?: readonly string[]) =>
+      ({ ready, deficit: Math.max(0, floor - ready), persisted, satisfied: reason === "candidates_exhausted", reason, jobs, ...(reason === "candidates_exhausted" ? { closedUnder } : {}), ...(evidenceOwed && evidenceOwed.length > 0 ? { evidenceOwed } : {}), ...(waiting && waiting.length > 0 ? { waiting } : {}), ...(outcomes ? { outcomes } : {}) });
     // THE COUNT SIZES NOTHING (operator, 2026-08-30). The old drive computed a shortfall here and handed it down as the number of rows this pass might buy, so a full-enough queue closed every family's spending while evidenced work stood unwritten. The pass now walks the whole declared manifest bounded by its own call ceiling and time box; the day still ends on CANDIDATES, not a count: `attempted` accumulates every settled key and the pass closes as `candidates_exhausted` only once the manifest it declared is fully settled. The paid pass itself re-judges every stored row first (its deterministic families are rewritten in full), so the count the day reports is proven, not believed.
     // A SPENT PROVIDER BALANCE MAKES NO CALL AND CLAIMS NOTHING: nothing was tried, so nothing is written off as tried, and the day stays open for the moment the credit is back. This is the PURE read of the stop: the probe a cooldown grants is spent by the provider call itself, one door down, never by this guard.
     if (await creditBreakerHeld(tenantId).catch(() => true)) {
@@ -205,7 +208,7 @@ export const defaultSteps: ResearchCycleSteps = {
     const ledgerBefore = await getTenantSpentThisMonthUsd(tenantId, now, "adjudicator-openai").catch(() => null);
         // THE WALK IS THE DRIVE'S WHOLE ALLOWANCE, and nothing counts it down but money and time: no shortfall, no target, no "enough". THE TOP-UP NEVER SERVES A CACHED DRAFT, so it always pays for a fresh take.
     // AND A DRIVE SPENDS ONE CEILING, NOT ONE PER WALK (reviewer, 2026-09-02): `MAX_PAID_CALLS` bounds a PASS, and a drive runs the stock walk, one walk per acquired reading and one more when a banked fact wakes work, so ten fresh ceilings could run under a single deadline. A caller that reports what its earlier walks metered gets the remainder of the one ceiling; a caller that reports nothing gets the ceiling, exactly as before.
-    const out = await d.produceProposalsForTenant(tenantId, { now, produce: true, memory: jobs, bypassCache: Object.values(jobs).some((m) => m.calls > 0 && !m.settled), ...(seen?.callsSpent ? { maxCalls: Math.max(0, DRAFT_BUDGET.MAX_PAID_CALLS - seen.callsSpent) } : {}), ...(stopBy != null ? { stopBy } : {}) }).catch(() => null);
+    const out = await d.produceProposalsForTenant(tenantId, { now, produce: true, memory: jobs, bypassCache: Object.values(jobs).some((m) => m.calls > 0 && !m.settled), ...(seen?.callsSpent ? { maxCalls: Math.max(0, DRAFT_BUDGET.MAX_PAID_CALLS - seen.callsSpent) } : {}), ...(stopBy != null ? { stopBy } : {}), ...(seen?.waiting?.length ? { waiting: seen.waiting } : {}), ...(seen?.shared ? { shared: seen.shared } : {}) }).catch(() => null);
     const ledgerAfter = out ? await getTenantSpentThisMonthUsd(tenantId, now, "adjudicator-openai").catch(() => null) : null;
     if (out && out.held.length > 0) log.info("[research-run] candidates the replenish pass could not finish, each with its reason", { tenantId, held: out.held.slice(0, 6) });
     // A PASS THAT COULD NOT RUN, COULD NOT READ ITS EVIDENCE, OR COULD NOT SAVE WHAT IT MADE HAS SETTLED NOTHING. It tried nothing it can prove, so nothing is written off and the day stays open.
@@ -214,6 +217,8 @@ export const defaultSteps: ResearchCycleSteps = {
     // A COUNT I COULD NOT READ AFTERWARDS PROVES NOTHING EITHER WAY, least of all that a page is finished with.
     if (after == null) return mark("retryable_blocked", before, persisted);
     const count = (o: string) => out.paid.receipts.filter((r) => r.outcome === o).length;
+    // WHAT THIS WALK SELECTED AND NEVER BEGAN, by the work's own identity. A job the clock or the money never reached is not a job that failed: it is the head of the next walk's queue, in this drive and in the one after it, so funded work cannot be selected for ever and started never (live, twenty-seven of twenty-nine funded rows on one drive, 2026-09-04).
+    const waiting = out.paid.receipts.filter((r) => (r.outcome === "not_reached" || r.outcome === "cost_blocked") && !!r.workKey).map((r) => r.workKey).slice(0, 40); // in the plan's own rank order, bounded so a row carries a queue position and never a whole manifest
     const metered = Number(out.paid.receipts.reduce((n, r) => n + (r.costUsd ?? 0), 0).toFixed(6));
     const delta = ledgerBefore != null && ledgerAfter != null ? Number((ledgerAfter - ledgerBefore).toFixed(6)) : -1;
     const tally: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[]; receipts?: unknown[]; ledger?: { before: number; after: number; delta: number; metered: number; unexplained?: number; reconciled: boolean } } = { readySaved: count("produced"), evidenceBanked: count("evidence_banked"), refused: count("deterministic_refusal") + count("already_complete"), blocked: count("retryable_blocked") + count("provider_blocked") + count("cost_blocked"), unreached: count("not_reached") + count("superseded"),
@@ -226,13 +231,13 @@ export const defaultSteps: ResearchCycleSteps = {
     for (const r of out.paid.receipts) { const key = r.workKey; if (!key) continue; // work that declares no identity is remembered by nothing, exactly as the plan reads it
       const settled = r.outcome === "produced" || r.outcome === "evidence_banked" || r.outcome === "deterministic_refusal" || r.outcome === "already_complete"; if (!settled && (r.providerCalls ?? 0) === 0) continue; // A CAUSAL BLOCK IS NOT A VERDICT (incident, 2026-09-04): money, a provider that would not answer and a job never begun all leave the work owed, and only a finished row or a gate that read it settles it.
       jobs[key] = { calls: (jobs[key]?.calls ?? 0) + (settled ? 0 : 1), last: r.outcome, settled }; } // ONE ATTEMPT, not one request: a deliverable is three charged calls, and counting requests would decline a job the plan has funded exactly once
-    if (after > before) return mark("made_progress", after, persisted, tally, out.paid.evidenceOwed ?? []);
+    if (after > before) return mark("made_progress", after, persisted, tally, out.paid.evidenceOwed ?? [], waiting);
     // AND ONLY NOW MAY A DAY BE CALLED FINISHED: every candidate the current manifest declares carries a settled job, nothing the ledger holds for those candidates is still owed an attempt, and no reading is outstanding. A manifest that declared nothing proves nothing, and neither does one nobody could read. A READING STILL OWED IS WORK STILL OWED (falsifier, 2026-09-02): a day cannot be finished while an acquisition it minted has not landed, whatever its per-page receipts say. A workKey opens with the funding key it was declared under, so the longest declared key it opens with is its own; a remembered job no manifest declares any more belongs to evidence that has moved and holds nothing open.
     const owner = (w: string): string => out.paid.declared.filter((k) => w.startsWith(`${k}::`)).sort((a, b) => b.length - a.length)[0] ?? "", mine = Object.entries(jobs).map(([w, m]) => [owner(w), m] as const).filter(([k]) => k !== "");
     const exhausted = out.paid.declared.length > 0 && (out.paid.evidenceOwed ?? []).length === 0 && mine.every(([, m]) => m.settled)
       && out.paid.declared.every((k) => mine.some(([o, m]) => o === k && m.settled));
     log.info("[research-run] the ready inventory is still short", { tenantId, before, after, target: floor, declared: out.paid.declared.length, jobs: Object.keys(jobs).length, exhausted });
-    return mark(exhausted ? "candidates_exhausted" : "retryable_blocked", after, persisted, tally, out.paid.evidenceOwed ?? []);
+    return mark(exhausted ? "candidates_exhausted" : "retryable_blocked", after, persisted, tally, out.paid.evidenceOwed ?? [], waiting);
   },
   // ONE READ OF ROWS ALREADY ON FILE, and never a second store: the ranked queue this account already keeps names every opportunity still being researched, and a row that owes a reading for a page a fact just landed on is exactly the work that fact was bought for. Bounded to twenty, fail-soft to nothing, and it buys nothing at all.
   async researchOwed(tenantId, pages) {
@@ -382,7 +387,7 @@ export const defaultSteps: ResearchCycleSteps = {
   // publishCustomerSurfaces PROPAGATES failure (no internal swallow): a throw pauses publish_surface and the previously saved surface stays visible.
   async publishSurface(tenantId) { await publishCustomerSurfaces(tenantId); },
   // THE PAGE THIS ACCOUNT IS MOST SHOWN FOR, checked against the sources for its own subjects. One page a pass, statements it has not already checked at this version of the page, and every finding banked as a row of its own. Fail-soft by construction: the answer is a count and a reason, never a thrown run. ONE CLAIM, ON A PAGE CHOSEN BY WHAT IS ACTUALLY OWED. Rotation is the point: the first version always took the single most-shown page, so once that page was exhausted every later pass took it again and page two was unreachable (Codex, 2026-08-18). A page is eligible while it has claims not yet current at its CURRENT content hash; the account's oldest-covered eligible page goes first. Fail-soft: a count and a reason.
-  async factCheck(tenantId, budgetMs, renew, firstPage) { return factCheckPass(tenantId, budgetMs, renew, firstPage ?? null); },
+  async factCheck(tenantId, budgetMs, renew, firstPage, shared) { return factCheckPass(tenantId, budgetMs, renew, firstPage ?? null, shared); },
   async surfaceStale(tenantId, nowMs) {
     const { readCustomerSurface, isCustomerSurfaceStale } = await import("@/app/(shell)/surface-release");
     const surface = await readCustomerSurface(tenantId).catch(() => null);
@@ -420,7 +425,7 @@ async function seedMissingProposition(tenantId: string, pageUrl: string, topic: 
 }
 
 /** THE ONE FACT-CHECK PASS, shared by the daily phase (no target: rotation picks the page) and by a `factual_source` acquisition (the named page goes FIRST, because the requirement is that page's owed claims and rotation would spend the pass elsewhere). Same bounds, same stores, same receipts either way. */
-async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => Promise<boolean>) | undefined, firstPage: string | null): Promise<{ status: "advanced" | "done" | "failed"; banked: number; bankedPages: string[]; pagesComplete: number; failure?: string; reason?: string }> {
+async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => Promise<boolean>) | undefined, firstPage: string | null, shared?: Map<string, unknown>): Promise<{ status: "advanced" | "done" | "failed"; banked: number; bankedPages: string[]; pagesComplete: number; failure?: string; reason?: string }> {
     // THE OUTER DEADLINE, NOT AN ALLOWANCE OF ITS OWN: every call inside is bounded by what remains of it.
     const deadlineAt = Date.now() + Math.max(0, budgetMs);
     try {
@@ -428,7 +433,7 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
         import("@/domains/evidence/pages/fact-check-run"), import("@/domains/evidence/pages/fact-checks"),
         import("@/domains/evidence/snapshot-loader"), import("@/domains/evidence/pages/owned-context"),
       ]);
-      const snapshot = await loadEvidenceSnapshot(tenantId);
+      const snapshot = await loadEvidenceSnapshot(tenantId, shared ? { shared } : {});
       const pathOf = (u: string): string => { try { return new URL(u.startsWith("http") ? u : `https://${u}`).pathname.replace(/\/+$/, "") || "/"; } catch { return u; } };
       const held = await facts.readFactChecks(tenantId);
       // CLAIMS ARE CHECKED IN THE ORDER PEOPLE SEARCH THEM (operator, 2026-08-30): inventory order walked obscure entries while the names the audience actually asks about waited. Measured off stored query rows; unsearched subjects keep inventory order behind the searched ones.
