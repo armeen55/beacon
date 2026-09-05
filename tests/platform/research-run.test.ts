@@ -312,6 +312,23 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
       { started: ["walk", "unit"], stopBy: 70_400, endedAt: 170_400 },
       { started: ["walk"], stopBy: 83_650, endedAt: 123_650 },
       { started: ["walk"], stopBy: 155_400, endedAt: 195_400 }]); });
+  /** AND THE MARK THAT BUYS THE TURN IS CLEARED BY THE STEP THAT STARTS, NEVER BY THE ANSWER IT GIVES (round-twelve reviewer residual 1, 2026-09-05). The hold is 85,000 ms out of a 195,400 ms slice, so a mark left standing takes that room off a second consecutive drive at the same phase, and only the `waiting` answer rebuilds the row without it. A unit that answers `advanced` or `failed` is a unit that ran: it was given its turn, it spent it, and the next drive owes it nothing. The count itself is kept, so the drive a phase has stood still is still one drive per phase per run. */
+  it.each([T, U])("clears %s's unit hold the moment the step starts, so a step that answers anything but waiting leaves no hold standing for the next drive", async (t) => {
+    const rows = freshRepo(); let at = NOW; const started: string[] = [], boxes: number[] = [];
+    rows.push(mk({ tenant_id: t, cycle_key: ckey(t, NOW), current_phase: "serp_analysis", progress: { plan: { units: ["replenish_ready", "plan_cases"] }, waited: { phase: "serp_analysis", drives: 1, unpaid: true },
+      replenish: { day: ckey(t, NOW).slice(-10), jobs: {}, outcomes: { readySaved: 0, evidenceBanked: 0, refused: 0, blocked: 0, unreached: 0, stuck: [], preparedMs: 44_616 } } } }));
+    const drive = async (): Promise<{ waited: unknown; phase: string }> => { at = NOW;
+      await runResearchCycle(t, { now: () => new Date(at), deadlineMs: 195_400, steps: { ...BENIGN, ...healthySteps([]),
+        dueWork: async () => ({ ...SOMETHING_DUE, due: ["replenish_ready", "plan_cases"] as DueWork["due"] }),
+        replenishReady: async (_i, _n, _seen, by) => { started.push("walk"); boxes.push((by ?? at) - NOW); at = (by ?? at) + 40_000; return null; }, // the walk spends its whole box, which is what every live drive on this account does
+        funnelUnit: async () => (started.push("unit"), at += 20_000, { status: "failed" as const, cursor: null, progress: {}, detail: "the provider had nothing to give this pass" }) } });
+      const row = rows.at(-1)!; return { waited: row.progress?.waited, phase: row.current_phase }; };
+    const first = await drive(), second = await drive();
+    expect([first, second, boxes, started],
+      "the first drive owes the step a turn, holds 85,000 ms back for it and starts it; the step answers failed, which is a step that ran, so the row keeps the count and drops the mark; the second drive therefore takes no hold at all, the walk keeps the whole box, and the phase leaves on the count it already carried rather than standing still a second time").toEqual([
+      { waited: { phase: "serp_analysis", drives: 1 }, phase: "serp_analysis" },
+      { waited: { phase: "serp_analysis", drives: 2, unpaid: true }, phase: "done" },
+      [70_400, 155_400], ["walk", "unit", "walk"]]); });
   /** AND THE ANSWER READ-BACK AND THE WALK SHARE ONE SLICE BY RULE (RV10 residual 1, measured 2026-09-05). The read-back runs AHEAD of the walk out of the same 200-second slice and was bounded by nothing but the slice itself: on the 14:30Z drive it read 27 answers in 72 seconds and handed the walk 128 seconds; on the 15:00Z drive it read 3 in 19. It runs first because the buying lane behind it is blocked while answers already paid for sit unread, so it is bounded by what is genuinely spare over the walk's own measured floor and the reserve the phases behind it bank, exactly as the owed readings ahead of the walk already are. This account's drives arrive with 123,650 to 195,400 ms, and at the bottom of that band an unbounded read-back leaves the walk under the box it needs to begin one job. */
   it.each([T, U])("hands %s's read-back only what is spare over the walk's own floor, so the walk keeps its funded window across the whole 123,650 to 195,400 ms band", async (t) => {
     const drive = async (deadlineMs: number): Promise<{ readBudget: number | null; walkBox: number; noRoom: boolean; analyzed: number | undefined }> => {
@@ -559,35 +576,26 @@ describe("research-run frozen investigation: ONE topic, and the lease the compar
     await run(steps); expect(cold[0]!.progress.focus).toEqual(FOCUS); }); // the next visit asks again and the run recovers
 });
 describe("research-run Today copy", () => {
-  const view = (o: Partial<RR.ResearchRunStatusView>): RR.ResearchRunStatusView => ({ state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: 9, counters: {}, updatedAt: null, completedAt: null, pauseReason: null, ...o,});
   const NOON_PT = Date.parse("2026-07-23T19:00:00Z"); // noon Pacific on Jul 23
-  it("never says 'current', says how a finished day actually landed in checks, and stays quiet when there is nothing to own", () => {  // EVERY COUNT HERE IS A CHECK, NEVER AN ENGINE: one silent engine across forty questions is forty checks.
-    const completed = view({ state: "completed", completedAt: new Date(NOON_PT).toISOString() }); const sameDay = RR.researchStatusLine(completed, new Date(NOON_PT)); const older = RR.researchStatusLine(completed, new Date(NOON_PT + 2 * DAY));
-    expect([sameDay, older, `${sameDay} ${older}`.match(/current/i), RR.researchStatusLine(view({ state: "none" }))]).toEqual(["Latest research pass finished today at 12:00 PM.", "Latest research pass finished Jul 23 at 12:00 PM.", null, null]);
-    const done = (counters: RR.ResearchRunStatusView["counters"]) => RR.researchStatusLine(view({ state: "completed", completedAt: new Date(NOON_PT).toISOString(), counters }), new Date(NOON_PT));
-    expect(done({ aiChecksDone: 140, aiChecksIntended: 140, aiChecksAnswered: 137, aiChecksUnavailable: 2, aiChecksUnsupported: 1 })) .toBe("Latest research pass finished today at 12:00 PM. Today's checks finished: 137 answers, 2 checks came back empty, 1 on an engine that cannot be asked.");
-    expect(done({ aiChecksDone: 140, aiChecksIntended: 140, aiChecksAnswered: 139, aiChecksUnavailable: 1 })) .toContain("1 check came back empty."); // one is one check, never one engine
-    expect(done({ aiChecksDone: 140, aiChecksIntended: 140, aiChecksAnswered: 140, aiChecksUnavailable: 0, aiChecksUnsupported: 0 })) .toBe("Latest research pass finished today at 12:00 PM."); // every check answered: nothing to own, so nothing said
-    expect(done({ aiChecksDone: 96, aiChecksIntended: 140, aiChecksAnswered: 94 })) .toBe("Latest research pass finished today at 12:00 PM."); }); // the day is still open, so the running count carries it
   /** Today printed the COLLECTED count under the words "an answer I analyzed", so a day that bought 140 answers and had read 12 of them closely claimed 140 readings. */
   it("reports answers collected and answers read closely as two separate numbers, and withholds the reading count it does not hold", () => {
     const row = { state: { checksDone: 140, checksTotal: 140, checksAnswers: 140 }, funnel: { answersAnalyzed: 12 } }; const c = RR.projectStatusView(mk({ status: "running", current_phase: "serp_analysis", progress: row }), NOW).counters;
     expect([c.aiChecksAnswered, c.answersReadClosely]).toEqual([140, 12]); // the readback receipt is valid in every phase, and it is never the collected number
     expect(RR.projectStatusView(mk({ status: "running", progress: { state: row.state } }), NOW).counters.answersReadClosely).toBeUndefined(); }); // absent, never a zero I would print as a claim
-  it("gives an open error-free run ONE in-progress sentence with the persisted AI-check counts, identical whether the lease is live or released", () => {
-    const progress = { funnel: { promptsChecked: 35, enginePairsDone: 40, enginePairsIntended: 140 } };
-    const leased = mk({ status: "running", current_phase: "prompt_observations", progress, lease_owner: "o", lease_expires_at: iso(NOW + LEASE) });
-    const released = mk({ ...leased, status: "paused", lease_owner: null, lease_expires_at: null }); // same run, a normal provider wait persisted
-    const live = RR.researchStatusLine(RR.projectStatusView(leased, NOW)); expect(live).toBe("Research in progress: checking how AI assistants answer your questions. 40 of 140 AI checks collected.");
-    expect(RR.researchStatusLine(RR.projectStatusView(released, NOW))).toBe(live); }); // THE pin: the line never toggles on lease state alone
+  /** WHAT A DRIVE COULD NOT PAY FOR IS NOT WHAT A STEP FAILED AT (round-twelve, 2026-09-05). The drive writes its own sentence with its own seconds onto `progress.state.blocker` and NOTHING read it: Today could say which step had not run and never how close the drive came, so the operator saw a half-finished day with no number in it. It rides the same projection every surface already reads, whole, so no surface recomputes seconds it did not measure. */
+  it("carries the drive's own not-started sentence, with its seconds, onto the projection a surface reads, and carries nothing when the drive started everything it planned", () => {
+    const said = "Publishing what this day found needs 40 seconds and this drive had 32 left, so nothing was started for it. The next pass runs it first.";
+    const short = RR.projectStatusView(mk({ status: "paused", current_phase: "publish_surface", progress: { state: { blocker: said } } }), NOW);
+    expect([short.blocker, short.pauseReason], "the sentence the drive wrote is carried whole and is not confused with a pause reason, which no step here recorded").toEqual([said, null]);
+    expect([RR.projectStatusView(mk({ status: "running", current_phase: "serp_analysis", progress: { state: {} } }), NOW).blocker, RR.projectStatusView(null, NOW).blocker], "a drive that started everything it planned leaves no claim standing, and neither does an account with no run at all").toEqual([null, null]); });
   it("invents no numbers off the AI phase, names a real pause reason, and never resurrects a stale one", () => {
     const later = mk({ status: "running", current_phase: "serp_analysis", lease_owner: "o", lease_expires_at: iso(NOW + LEASE),  // Cumulative funnel counters survive onto later phases; the clause must not follow them.
       progress: { funnel: { promptsChecked: 35, enginePairsDone: 40, enginePairsIntended: 140 } } });
-    expect(RR.researchStatusLine(RR.projectStatusView(later, NOW))).toBe("Research in progress: reading the results pages for your strongest topics.");
+    expect([RR.projectStatusView(later, NOW).phaseLabel, RR.projectStatusView(later, NOW).pauseReason]).toEqual(["reading the results pages for your strongest topics", null]);
     const stuck = mk({ status: "paused", current_phase: "keyword_discovery", last_error: { phase: "keyword_discovery", message: "I need your confirmed business basics before I can research keywords.", at: iso() } });  // A pause the operator must clear names its reason instead of reading as ordinary progress.
-    expect(RR.researchStatusLine(RR.projectStatusView(stuck, NOW))).toBe("Research paused after 4 of 9 steps. I need your confirmed business basics before I can research keywords."); // fact_check now precedes keyword_discovery
+    expect([RR.projectStatusView(stuck, NOW).stepsDone, RR.projectStatusView(stuck, NOW).pauseReason]).toEqual([4, "I need your confirmed business basics before I can research keywords."]); // fact_check now precedes keyword_discovery
     const stale = mk({ ...stuck, current_phase: "serp_analysis" });  // A reason recorded by an already-passed phase never resurrects on the current one.
-    expect(RR.researchStatusLine(RR.projectStatusView(stale, NOW))).toBe("Research in progress: reading the results pages for your strongest topics.");});
+    expect([RR.projectStatusView(stale, NOW).phaseLabel, RR.projectStatusView(stale, NOW).pauseReason]).toEqual(["reading the results pages for your strongest topics", null]);});
   /** A SURFACE BUILT ON A STALE CONNECTOR SAYS SO. A connector that would not sync stopped ending the drive on 2026-09-05 and the debt it leaves was written to the pass receipt, where NOTHING read it: every figure in the app could be as old as a broken source and no screen said a word. The projection the connectors page reads carries it now, so the sentence lands where each source's own last-synced time is printed. A debt that cleared leaves nothing behind, because a stale claim outliving its cause is the same defect the other way round. */
   it.each(["tenant-one", "tenant-two"])("carries the stale-source sentence from the pass receipt onto the projection a surface reads, and carries nothing when every source synced [%s]", () => {
     const owed = "1 of 3 connected sources could not be refreshed, so their figures are as old as their last good sync. The next pass tries them again.";
@@ -597,10 +605,10 @@ describe("research-run Today copy", () => {
     expect(RR.projectStatusView(mk({ status: "running", current_phase: "crawl_pages", progress: {} }), NOW).sourcesStale, "and a pass that has not reached the sources yet claims nothing either way").toBeNull(); });
   it("stops calling a dead process work in progress: a freshly-touched running row reads in progress, one untouched for ten minutes reads interrupted", () => {
     const fresh = mk({ status: "running", current_phase: "serp_analysis", updated_at: iso(NOW - 60_000) }); // a minute since the last real write
-    expect(RR.researchStatusLine(RR.projectStatusView(fresh, NOW))).toBe("Research in progress: reading the results pages for your strongest topics.");
+    expect([RR.projectStatusView(fresh, NOW).state, RR.projectStatusView(fresh, NOW).phaseLabel]).toEqual(["running", "reading the results pages for your strongest topics"]);
     const dead = RR.projectStatusView(mk({ ...fresh, updated_at: iso(NOW - 11 * 60_000) }), NOW);  // The SAME row, untouched past the stale bound: the owner died, and saying so is the honest read.
     expect([dead.state, dead.pauseReason]).toEqual(["paused", "Research stopped part way through. The next daily round picks this back up."]);
-    expect(RR.researchStatusLine(dead)).toBe("Research paused after 6 of 9 steps. Research stopped part way through. The next daily round picks this back up.");
+    expect(dead.stepsDone).toBe(6);
     expect(RR.projectStatusView(mk({ ...fresh, lease_owner: "o", lease_expires_at: iso(NOW - LEASE) }), NOW)).toEqual(RR.projectStatusView(fresh, NOW)); });  // It reads off updated_at alone, so a lease that lived or died still moves nothing: no flicker.
   it("says whether research is alive at all: what the last pass produced, a day that owed nothing, and a silence with the press that ends it", () => {
     const at = new Date(NOON_PT).toISOString(), seen = (o: Partial<RR.ResearchRun>, ms = NOON_PT + 3_600_000) => RR.projectStatusView(mk({ status: "completed", updated_at: at, completed_at: at, ...o }), ms).liveness;
@@ -676,7 +684,7 @@ describe("research-run conflict-free research closure", () => {
       await run(steps);
       expect([rows[0]!.current_phase, rows[0]!.status, rows[0]!.progress.state?.checksDone, rows[0]!.progress.funnel?.answersAnalyzed]).toEqual(["serp_analysis", "paused", 140, undefined]); // the phase MOVED and the day's collection is on the row; not one analysis is claimed by it
       expect(budgets).toEqual([RESEARCH_CYCLE_DEADLINE_MS]); // the reading was handed what was left of the turn, never a count of answers standing in for a clock
-      expect(RR.researchStatusLine(await RR.researchRunStatus(T, new Date(NOW)), new Date(NOW))) .toBe("Research in progress: reading the results pages for your strongest topics. 140 of 140 AI checks collected."); // collected, never analysed, and never finished
+      expect([(await RR.researchRunStatus(T, new Date(NOW))).phaseLabel, (await RR.researchRunStatus(T, new Date(NOW))).counters.aiChecksDone, (await RR.researchRunStatus(T, new Date(NOW))).counters.aiChecksIntended]) .toEqual(["reading the results pages for your strongest topics", 140, 140]); // collected, never analysed, and never finished
       const later: string[] = []; // the pass due-work opens on the debt those answers left behind
       await run({ ...steps, dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers"] }), funnelUnit: async (phase) => (later.push(phase), { status: "done", cursor: null, progress: {} }),
         analyzeAnswers: async () => ({ attempted: 40, settled: 40, refused: 0, read: 40, outcomes: { settled: 40 } }) });
@@ -869,7 +877,7 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     await run({ ...healthySteps(log), dueWork: async () => ({ ...NOTHING_DUE, checks: { ...NO_CHECKS, done: 40, total: 40, answers: 37, unavailable: 2, unsupported: 1 }, cases: { active: 0, parked: 2 }, nextDueAt: "2026-08-02T00:00:00.000Z" }) });
     expect([log, rows[0]!.status, rows[0]!.current_phase]).toEqual([[], "completed", "done"]); // not one phase ran
     expect(rows[0]!.progress.state).toMatchObject({ checksDone: 40, checksTotal: 40, checksAnswers: 37, checksUnavailable: 2, checksUnsupported: 1, casesParked: 2, nextDueAt: "2026-08-02T00:00:00.000Z" });  // A pass that closed with nothing owed still says what it checked and when the waiting ends.
-    expect(RR.researchStatusLine(RR.projectStatusView(rows[0]!, NOW), new Date(NOW))) .toContain("Nothing more is due until August 1."); // the operator's own zone, the same one every other date on Today uses
+    expect(RR.projectStatusView(rows[0]!, NOW).nextDueAt) .toBe("2026-08-02T00:00:00.000Z"); // the operator's own zone, the same one every other date on Today uses
     NOW += DAY; await run(healthySteps(log)); expect([log, rows.length]).toEqual([["refresh", "backfill", "crawl", "publish"], 2]); }); // tomorrow is untouched by today's empty pass
   /** ONE PRESS, SERVER-OWNED. The old shape ran one hop per request, capped six per day, and the browser looped: closing the tab stopped the day and hop seven said done over an unfinished queue. The server now drives the one runtime internally; nothing due runs nothing and spends nothing, and a due list a whole pass could not move is a BLOCKER to report, never a loop to buy again. */
   it("two tabs cannot both open a same-day pass: the second insert loses to the one-open-run invariant", async () => { // the one-press continuation tests left with continueResearch itself (deleted 2026-08-30: zero callers)

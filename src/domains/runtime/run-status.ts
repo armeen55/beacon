@@ -47,6 +47,8 @@ export type ResearchRunStatusView = {
   completedAt: string | null;
   /** The paused phase's Beacon-voice reason: some pauses need the operator and never resume alone. */
   pauseReason: string | null;
+  /** WHAT THE LAST DRIVE COULD NOT PAY FOR, IN ITS OWN WORDS AND WITH ITS OWN SECONDS ("Publishing what this day found needs 40 seconds and this drive had 32 left, so nothing was started for it. The next pass starts there."). A pause reason is written by a step that FAILED; this is written by a step that was never started, which is a different fact and the one an operator reading a half-finished day needs. Straight off `progress.state.blocker`, which the drive writes and nothing else does, and null on a drive that started everything it planned. */
+  blocker: string | null;
   /** The earliest date a promised retry becomes legal, straight off the persisted row. */
   nextDueAt?: string | null;
   sourcesStale?: string | null; /** THE ONE SENTENCE A CONNECTOR THAT WOULD NOT SYNC OWES THE OPERATOR, carried off the pass receipt so a surface built on a stale source says so where that source's own last-synced time is printed. A connector failure stopped ending the drive on 2026-09-05 and the debt it left reached nobody: it was recorded and nothing read it. Null when every connected source synced. */
@@ -151,7 +153,7 @@ const PHASE_LABEL: Record<ResearchPhase, string> = {
  * forever. A row untouched for STALE_RUN_MS is reported as interrupted, which is true and cannot flicker, because updated_at only moves forward on a real write.
  */
 export function projectStatusView(run: ResearchRun | null, nowMs: number): ResearchRunStatusView {
-  if (run == null) return { state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: RESEARCH_RUN_STEPS_TOTAL, counters: {}, updatedAt: null, completedAt: null, pauseReason: null, liveness: livenessOf(null, nowMs, "none") };
+  if (run == null) return { state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: RESEARCH_RUN_STEPS_TOTAL, counters: {}, updatedAt: null, completedAt: null, pauseReason: null, blocker: null, liveness: livenessOf(null, nowMs, "none") };
 
   const touchedAt = Date.parse(run.updated_at ?? "");
   const interrupted = run.status === "running" && Number.isFinite(touchedAt) && nowMs - touchedAt >= STALE_RUN_MS;
@@ -196,57 +198,7 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
     // recorded reason at all, because nothing got the chance to write one.
     pauseReason: interrupted ? INTERRUPTED_REASON
       : state === "paused" && run.last_error?.phase === run.current_phase ? (run.last_error?.message?.trim() || null) : null,
+    blocker: (persisted.blocker ?? "").trim() || null, // the drive's own not-started sentence, carried whole so the surface prints the seconds rather than recomputing them
   };
 }
 
-/** PURE. HOW TODAY'S CHECKS ACTUALLY LANDED, in one sentence, and only when it is worth saying. A day whose
- *  last pair was honestly unavailable is a FINISHED day, and the count now says so; without this the same
- *  screen would read "140 of 140" and quietly imply 140 answers. Silent while the round is unfinished (the
- *  in-progress line already carries the running count) and silent when every check really did answer. */
-function settledChecksNote(c: ResearchRunStatusView["counters"]): string {
-  const { aiChecksDone: done, aiChecksIntended: total, aiChecksAnswered: answers } = c;
-  if (typeof done !== "number" || typeof total !== "number" || total === 0 || done < total) return "";
-  if (typeof answers !== "number" || answers >= total) return "";
-  const quiet = c.aiChecksUnavailable ?? 0, shut = c.aiChecksUnsupported ?? 0;
-  const parts = [`${answers} ${answers === 1 ? "answer" : "answers"}`];
-  // CHECKS, NEVER ENGINES. Every count here is a (question, engine) CHECK, so one silent engine across
-  // forty questions reads as forty checks: calling them engines told the operator four engines were down.
-  if (quiet > 0) parts.push(`${quiet} ${quiet === 1 ? "check" : "checks"} came back empty`);
-  if (shut > 0) parts.push(`${shut} on an engine that cannot be asked`);
-  return ` Today's checks finished: ${parts.join(", ")}.`;
-}
-
-/**
- * PURE: the ONE honest Beacon-voice Today status line for the durable Research Run,
- * or null (render nothing) for none/idle. An OPEN run with no bounded reason reads as
- * ONE in-progress sentence whether or not a lease is live, so the line can never
- * toggle on lease state alone; only a real pause reason changes it, because a pause
- * needing the operator must not promise a resume. No progress bar, percentage, ETA,
- * animation, and never "current": a completed row is a finished PASS at a stated time,
- * never a promise the data stays fresh, and an earlier day's pass shows its date.
- */
-export function researchStatusLine(view: ResearchRunStatusView, now: Date = new Date()): string | null {
-  if (view.state === "running" || (view.state === "paused" && view.pauseReason == null)) {
-    const { aiChecksDone: aiDone, aiChecksIntended: aiWanted } = view.counters;
-    const checks = typeof aiDone === "number" && typeof aiWanted === "number" && aiWanted > 0 ? ` ${aiDone} of ${aiWanted} AI checks collected.` : "";
-    return `Research in progress: ${view.phaseLabel}.${checks}`;
-  }
-  if (view.state === "paused") return `Research paused after ${view.stepsDone} of ${view.stepsTotal} steps. ${view.pauseReason}`;
-  if (view.state === "completed" && view.completedAt) {
-    // The reporting zone, and there is only one of it in V1: src/lib/reporting-day.ts holds the contract.
-    const tz = { timeZone: "America/Los_Angeles" } as const;
-    const finished = new Date(view.completedAt);
-    const at = finished.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", ...tz });
-    const sameDay = finished.toLocaleDateString("en-US", tz) === now.toLocaleDateString("en-US", tz);
-    // A WAIT IS PART OF THE ANSWER. A finished pass with everything else waiting on a date I
-    // promised used to read as a full stop, so the operator had no way to tell "done for now"
-    // from "done until August 2". The date is persisted on the row, never recomputed here.
-    const waiting = view.nextDueAt && Number.isFinite(Date.parse(view.nextDueAt))
-      ? ` Nothing more is due until ${new Date(view.nextDueAt).toLocaleDateString("en-US", { month: "long", day: "numeric", ...tz })}.`
-      : "";
-    if (sameDay) return `Latest research pass finished today at ${at}.${settledChecksNote(view.counters)}${waiting}`;
-    const day = finished.toLocaleDateString("en-US", { month: "short", day: "numeric", ...tz });
-    return `Latest research pass finished ${day} at ${at}.${waiting}`;
-  }
-  return null;
-}
