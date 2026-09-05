@@ -81,7 +81,7 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
     return code != null && code >= 500 && twice;
   };
   const answers = (r: InventoryRow): string => (typeof r.http_status === "number" ? `${r.http_status}` : "nothing at all");
-  const because = (r: InventoryRow): string => (typeof r.http_status === "number" && r.http_status >= 500 ? ` I read it twice, on two different days, and it answered the same both times.` : "");
+  const because = (r: InventoryRow): string => (typeof r.http_status === "number" && r.http_status >= 500 ? ` Read twice, on two different days, and it answered the same both times.` : "");
 
   for (const r of rows) {
     const to = (r.redirects_to ?? "").trim();
@@ -89,11 +89,11 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
     // A DEAD ADDRESS IS A CHANGE ONLY WHEN I KNOW WHERE IT LIVES NOW. "Put it back, or forward it" names no destination, so both correct answers read as failures afterwards. With a replacement this account's
     // own rows name it is one imperative forward; without one it is an investigation, held out of Ready.
     if (dead(r)) add(r.url, "non_200",
-      to ? `I would send ${at(r.url)} on to ${at(to)}, so everyone arriving at the old address lands on the page that replaced it.`
-        : `Tell me the address that replaced ${at(r.url)} and I will write you the forward. Until then I keep it out of your queue.`,
+      to ? `Send ${at(r.url)} on to ${at(to)}, so everyone arriving at the old address lands on the page that replaced it.`
+        : `Name the address that replaced ${at(r.url)} and the forward gets written for you. Until then it stays out of the queue.`,
       `Your own site answers ${answers(r)} for ${at(r.url)}, so nobody following a link to it lands on anything.${because(r)}`,
       null, to || undefined);
-    if (to && onward) add(r.url, "redirect_chain", `I would point ${at(r.url)} straight at ${at(onward)}, so there is one hop instead of two.`,
+    if (to && onward) add(r.url, "redirect_chain", `Point ${at(r.url)} straight at ${at(onward)}, so there is one hop instead of two.`,
       `${at(r.url)} sends people to ${at(to)}, and ${at(to)} sends them on again to ${at(onward)}.`, null, onward);
   }
   // A SITEMAP THIS ACCOUNT DOES NOT PUBLISH ACCUSES NOBODY: the omission is only readable against a sitemap
@@ -101,26 +101,26 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
   const listed = rows.filter((r) => SITEMAP.has(r.discovered_via ?? ""));
   if (listed.length > 0) for (const r of rows) {
     if (r.crawl_state !== "crawled" || SITEMAP.has(r.discovered_via ?? "") || dead(r) || (r.redirects_to ?? "").trim()) continue;
-    add(r.url, "sitemap_omission", `I would add ${at(r.url)} to the sitemap you already publish.`,
-      `Your sitemap lists ${listed.length} of your pages and never ${at(r.url)}: I only found that one by ${VIA[r.discovered_via ?? ""] ?? "following a link"}.`);
+    add(r.url, "sitemap_omission", `Add ${at(r.url)} to the sitemap you already publish.`,
+      `Your sitemap lists ${listed.length} of your pages and never ${at(r.url)}: that one turned up only by ${VIA[r.discovered_via ?? ""] ?? "following a link"}.`);
   }
 
   for (const p of pages) {
     const here = at(p.url);
     if (p.has_canonical_mismatch === true) add(p.url, "canonical_conflict",
-      `I would change the canonical link on ${here} so it names ${here} itself, unless you meant ${at(p.canonical_url ?? "")} to be the one page for this.`,
+      `Change the canonical link on ${here} so it names ${here} itself, unless ${at(p.canonical_url ?? "")} is meant to be the one page for this.`,
       `${here} names ${at(p.canonical_url ?? "")} as its real address, so search engines are told to keep that one and not this.`);
     else if ("canonical_url" in p && !(p.canonical_url ?? "").trim()) add(p.url, "canonical_missing",
-      `I would add a canonical link on ${here} naming ${here} itself.`,
+      `Add a canonical link on ${here} naming ${here} itself.`,
       `${here} names no address of its own, so the same page reached two ways can be counted as two pages.`);
     if (/\b(noindex|none)\b/i.test(p.robots_meta ?? "")) add(p.url, "robots_noindex",
-      `I would take "noindex" out of the robots tag on ${here} so it can come back into search.`,
+      `Take "noindex" out of the robots tag on ${here} so it can come back into search.`,
       `${here} carries a robots tag reading "${(p.robots_meta ?? "").trim()}", so search engines are told to leave it out.`);
     // A HEADING I CAN ACTUALLY WRITE. The page's own title is the exact wording, taken off the page itself rather than invented, so this arrives as text to paste. A page with no title either gives me nothing
     // to write from, so there is no finding at all rather than an instruction to go and think of something.
     const ownTitle = (p.title ?? "").trim();
     if ("h1" in p && !(p.h1 ?? "").trim() && ownTitle) add(p.url, "missing_h1",
-      `I would put this heading at the top of ${here}: "${ownTitle}".`,
+      `Put this heading at the top of ${here}: "${ownTitle}".`,
       `${here} has no main heading at all, so the first thing a reader sees never says what the page is.`, ownTitle);
   }
   // TWO PAGES WEARING ONE NAME, NEVER ONE PAGE WEARING ITS OWN: ONE member per address, so an alias groups with nobody, a twin on another host is a real duplicate named WITH its host, and no wording is invented, so it stays out of Ready.
@@ -130,7 +130,7 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
     for (const group of groups.values()) {
       if (group.length < 2) continue;
       const said = (group[0]![of] ?? "").trim(), paths = group.map((x) => at(x.url)), shown = new Set(paths).size === paths.length ? paths : group.map((x) => canonicalUrlKey(x.url));
-      group.forEach((p, i) => add(p.url, kind, `I would give ${shown[i]!} a ${what} of its own that says what only that page answers, instead of "${said}".`,
+      group.forEach((p, i) => add(p.url, kind, `Give ${shown[i]!} a ${what} of its own that says what only that page answers, instead of "${said}".`,
         `${group.length} of your pages carry the same ${what}, "${said}": ${shown.join(", ")}.`));
     }
   };
@@ -144,7 +144,7 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
     const target = byKey.get(href);
     if (!dead(target)) continue;
     add(p.url, "broken_internal_link",
-      `I would change the link on ${at(p.url)} that points at ${at(target!.url)} so it points at a page that answers, or take that link off the page.`,
+      `Change the link on ${at(p.url)} that points at ${at(target!.url)} so it points at a page that answers, or take that link off the page.`,
       `${at(p.url)} links to ${at(target!.url)}, and that address answers ${answers(target!)}.`,
       null, target!.url);
   }
@@ -180,8 +180,8 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
       ? `in the part of it about "${named}"`
       : "in the body of the page, under the first heading";
     add(r.url, "orphaned_page",
-      `I would add one link on ${at(source.url)}, ${where}, reading "${anchor}" and pointing at ${at(r.url)}.`,
-      `Not one of the ${graph.length} pages of yours whose links I hold points at ${at(r.url)}, so a reader can only reach it from search.`,
+      `Add one link on ${at(source.url)}, ${where}, reading "${anchor}" and pointing at ${at(r.url)}.`,
+      `Not one of the ${graph.length} pages of yours whose links are on file points at ${at(r.url)}, so a reader can only reach it from search.`,
       anchor);
   }
   // ORDERED BY WHAT IT IS WORTH FIXING BEFORE ANYTHING IS CUT, never by address (measured, 2026-09-05): sorted alphabetically and cut at twelve, this account's 218 captured pages returned twelve findings that all began with a, b or c, so a fault on any page later in the alphabet was invisible for ever. Severity first, then the audience the caller measured, and the address only to break a genuine tie so the same inputs always produce the same twelve.
@@ -224,6 +224,6 @@ export function technicalComponents(findings: readonly TechnicalFinding[], query
       ...(f.redirectTo ? { redirectTo: f.redirectTo } : {}),
       risk: lever.risk, where: `${at(f.url)}, and how it is served rather than the words on it`,
       objective: lever.objective, mechanism: f.evidence,
-      measurementPlan: `I will read clicks, views and average position for "${query}" on ${at(f.url)} at 7, 14 and 28 days after you make the change.` };
+      measurementPlan: `Clicks, views and average position for "${query}" on ${at(f.url)} get read at 7, 14 and 28 days after the change is made.` };
   });
 }

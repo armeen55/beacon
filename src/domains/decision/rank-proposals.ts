@@ -4,6 +4,7 @@ import type { ChangeProposal } from "./contracts";
 import { dangerousComponents } from "./contracts";
 import { actionFamilyOf } from "@/domains/measurement/proof-gsc/change-family";
 import type { CauseFinding } from "./diagnosis";
+import { topicTokens } from "@/domains/evidence/relevance-gate";
 // THE TRUTH TABLE LIVES WHERE THE BOUNDARY LIVES. This ranking discounts a lever that cannot treat the cause the evidence named; decision/authorization REFUSES one. One table, read twice, never restated.
 import { CAUSE_LEVERS, withholdReason } from "./authorization";
 
@@ -13,7 +14,7 @@ const MIN_FINISHED_READINGS = 3;
 type FamilyHistory = ReadonlyMap<string, { readings: number; netLift: number }>;
 
 /** THE ONE SCORING CONTEXT A DRIVE HOLDS, read by every number this file produces: what this account's own closed readings say (`familyHistory`), which pages already carry a change under measurement, and `batch`, every change the decision is being made among, so "how many others land on this page" is one count over one population instead of a number each caller works out for itself. Funding used to pass none of it while the displayed queue passed all of it, so one row answered to two authorities. Every field is optional and absent means what it has always meant: nothing learned, nothing measuring, nothing else on the page. */
-type Scoring = { measuringPagePaths?: readonly (string | null)[]; familyHistory?: FamilyHistory; batch?: readonly ChangeProposal[] };
+type Scoring = { measuringPagePaths?: readonly (string | null)[]; familyHistory?: FamilyHistory; batch?: readonly ChangeProposal[]; /** WHAT THIS ACCOUNT SAID IT IS WORKING TOWARDS, in the operator's own words and only where the operator actually stated them (R2 residual 1, 2026-09-05). It is an INPUT of the ranking, not an attribute of a row, so it rides this context exactly as the learning and the batch do: one string per pass instead of a copy stamped on every row, no store write and no new field on any business record. Absent asks nothing of any card. */ accountGoal?: string };
 /** WHAT COUNTS AS ONE PAGE FOR NEIGHBOURS: the address, or the search a page that does not exist yet would answer. Spelled ONCE, so the money and the queue can never key the same page two ways. A change is one of the changes on its own page, so the count of the page always loses one: a job standing in for a page's work is counted the same way as a row on it. */
 const pageKeyOf = (p: ChangeProposal): string => p.pagePath ?? `new::${p.primaryQuery.trim().toLowerCase()}`;
 const countPeers = (batch: readonly ChangeProposal[]): Map<string, number> => { const m = new Map<string, number>(); for (const p of batch) m.set(pageKeyOf(p), (m.get(pageKeyOf(p)) ?? 0) + 1); return m; };
@@ -29,7 +30,7 @@ type Factor = Receipt["factors"][number];
 const MAX = { visibility: 120 } as const;
 /** HOW FAR EACH FACTOR MAY DISCOUNT what is riding on a change, and none of them may ADD to it. These were
  *  additive ceilings, which put 66 points of promotion within reach of a card carrying no traffic at all. */
-const FLOOR = { evidence: 0.85, causeFit: 0.6, strategic: 0.95, effort: 0.75, risk: 0.6, overlap: 0.5, confounding: 0.7, history: 0.9 } as const;
+const FLOOR = { evidence: 0.85, causeFit: 0.6, strategic: 0.9, effort: 0.75, risk: 0.6, overlap: 0.5, confounding: 0.7, history: 0.9 } as const; // `strategic` carries TWO facts since 2026-09-05, the tracked questions in scope and the account's own stated goal, so its ceiling is the two five-percent arms it composes rather than the one it used to hold; a card missing only one of them is discounted exactly as much as it always was.
 /** How many readings it takes before a family's record pulls its full (small) weight. High on purpose: the account holds twelve settled readings in total, so nothing here may speak with confidence yet. */
 const HISTORY_SHRINK = 12;
 /** HOW FAR A MEASURED SHORTFALL IS DISCOUNTED BEFORE IT ORDERS THE QUEUE. THESE ARE POLICY PRIORS AND NOT MEASUREMENTS (operator, 2026-08-27), which is why nothing built from them is ever called expected clicks: a prior multiplied by a real number produces a PRIORITY, not a forecast, and printing it as a forecast makes invented certainty look empirical. What separates the two values is whether the cause is diagnosed and the lever treats it, never what family the change belongs to. They become measurements only when this account's own finished readings can calibrate them at `CALIBRATION_MIN` samples, and until then the receipt says "assumed" out loud and names the sample it does not have. */
@@ -85,7 +86,7 @@ const shownEvidence = (p: ChangeProposal): number =>
 /** Every factor for ONE proposal, in reading order. `peers` is how many OTHER proposals
  *  in the same batch land on the same page; `measuring` is true when that page already
  *  has a change under measurement. */
-function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, history: FamilyHistory | null): { factors: Factor[]; directional: boolean } {
+function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, history: FamilyHistory | null, accountGoal: string): { factors: Factor[]; directional: boolean } {
   const f: Factor[] = [];
   const add = (name: string, input: string, contribution: number, max: number): void =>
     void f.push({ name, input, contribution: round2(contribution), max });
@@ -238,10 +239,10 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   // A CARD BORN FROM A TRACKED QUESTION IS IN SCOPE OF THAT QUESTION. That is demand evidence, and demand
   // already enters through the figure above, so being in scope buys nothing and being out of it costs a little.
   const prompts = p.bundle?.scope.prompts.length ?? (p.aiImpact && p.aiImpact.answers > 0 ? 1 : 0);
-  discount("strategic", prompts > 0
-    ? `${num(prompts)} ${prompts === 1 ? "question" : "questions"} your customers actually ask are in scope`
-    : "none of the questions your customers ask cover this one",
-  prompts > 0 ? 1 : 0.95);
+  // AND BUSINESS RELEVANCE FROM WHAT THIS ACCOUNT SAID IT IS WORKING TOWARDS (R2 residual 1, 2026-09-05): a tracked question is what a reader asks, and the stated goal is what the business is for, and until now nothing in the order knew the difference between a change on a subject the operator named and one on a page that happens to have traffic. A TOKEN OVERLAP and nothing else: no word list, no language and no page family, so it reads the same on every account, and an account that stated no goal gets a factor of one. It DISCOUNTS and never adds, like every factor beside it.
+  const wanted = topicTokens(accountGoal), about = new Set<string>(topicTokens(`${p.pagePath ?? p.pageUrl ?? ""} ${p.primaryQuery ?? ""} ${p.recommendedChange.kind === "existing_edit" ? p.recommendedChange.after ?? "" : ""}`)), serves = wanted.length === 0 ? null : wanted.some((w: string) => about.has(w));
+  discount("strategic", `${prompts > 0 ? `${num(prompts)} ${prompts === 1 ? "question" : "questions"} your customers actually ask are in scope` : "none of the questions your customers ask cover this one"}${serves === true ? ", and it works towards what this account said it is for" : serves === false ? ", and nothing in it touches what this account said it is for" : ""}`,
+  (prompts > 0 ? 1 : 0.95) * (serves === false ? 0.95 : 1));
 
   const minutes = Math.max(0, p.estimatedEffortMinutes);
   discount("effort", `about ${num(minutes)} ${minutes === 1 ? "minute" : "minutes"} of your time`,
@@ -281,8 +282,8 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   return { factors: f, directional };
 }
 
-function receiptFor(p: ChangeProposal, peers: number, measuring: boolean, history: FamilyHistory | null = null): Receipt {
-  const { factors, directional } = factorsFor(p, peers, measuring, history);
+function receiptFor(p: ChangeProposal, peers: number, measuring: boolean, history: FamilyHistory | null = null, accountGoal = ""): Receipt {
+  const { factors, directional } = factorsFor(p, peers, measuring, history, accountGoal);
   const score = round2(factors.reduce((a, x) => a + x.contribution, 0));
   const items = shownEvidence(p);
   // "DIRECTIONAL" COVERS TWO DIFFERENT SITUATIONS AND ONLY ONE OF THEM HAS NO NUMBER. A card carrying a measured
@@ -300,7 +301,7 @@ function receiptFor(p: ChangeProposal, peers: number, measuring: boolean, histor
 }
 
 /** THE SCALAR THE ORDER IS BUILT FROM, and the same one the money is spent on. `ctx` is the drive's ONE scoring context (below), so the buy order, the walk order, the queue order and the sentence under the card are one answer: funding read none of it and disagreed with the displayed order on 29 of 66 live positions, one card worth 2.15 to the funder and 71.26 to the operator. Absent means a proposal read entirely on its own, which is what a caller inspecting one card gets. */
-export function proposalValueScore(p: ChangeProposal, ctx: Scoring = {}): number { return receiptFor(p, Math.max(0, (countPeers(ctx.batch ?? []).get(pageKeyOf(p)) ?? 1) - 1), measuredIn(p, ctx), ctx.familyHistory ?? null).score; }
+export function proposalValueScore(p: ChangeProposal, ctx: Scoring = {}): number { return receiptFor(p, Math.max(0, (countPeers(ctx.batch ?? []).get(pageKeyOf(p)) ?? 1) - 1), measuredIn(p, ctx), ctx.familyHistory ?? null, ctx.accountGoal ?? "").score; }
 
 /** The factor that actually separated two neighbours: the biggest contribution gap. */
 function separator(a: Receipt, b: Receipt): { name: string; a: Factor; b: Factor } | null {
@@ -348,7 +349,7 @@ function whyAbove(next: ChangeProposal, a: Receipt, b: Receipt): string {
  */
 export function rankProposals(proposals: readonly ChangeProposal[], ctx: Scoring = {}): ChangeProposal[] {
   const perPage = countPeers(ctx.batch ?? proposals); // the caller's own batch when it holds one for the whole drive, otherwise exactly the proposals handed in
-  const scored = proposals.map((p, i) => ({ p, i, receipt: receiptFor(p, Math.max(0, (perPage.get(pageKeyOf(p)) ?? 1) - 1), measuredIn(p, ctx), ctx.familyHistory ?? null) }));
+  const scored = proposals.map((p, i) => ({ p, i, receipt: receiptFor(p, Math.max(0, (perPage.get(pageKeyOf(p)) ?? 1) - 1), measuredIn(p, ctx), ctx.familyHistory ?? null, ctx.accountGoal ?? "") }));
   scored.sort((a, b) => (b.receipt.score - a.receipt.score) || (a.i - b.i));
   return scored.map((row, idx) => {
     const next = scored[idx + 1];

@@ -244,7 +244,7 @@ describe("the coverage verdict never invents a page this account already owns", 
       expect([d.verdict, d.missing, earnedNewPage(d), /experiment|control|baseline|treatment|SERP|[—–]/.test(d.explanation)]).toEqual(["do_nothing", [], false, false]); // terminal: nothing owed, so it is never queued again
       expect(d.explanation).toContain("This picks back up on its own the day one kind of page takes the lead"); } }); // and it says exactly what would reopen it
   it("refuses to write words for a page search engines are not being served, and names the one thing to fix", async () => { const blocked = await adjudicateCoverage(INV(), [ONE], TENANT, { technical: readTechnicalFindings({ pages: [{ url: ONE_URL, robots_meta: "noindex" }] }) });
-    expect([blocked.verdict, blocked.ownedUrls, blocked.missing, blocked.explanation.includes('I would take "noindex" out of the robots tag on /rain-barrels')]).toEqual(["technical_only", [ONE.url], [], true]);
+    expect([blocked.verdict, blocked.ownedUrls, blocked.missing, blocked.explanation.includes('Take "noindex" out of the robots tag on /rain-barrels')]).toEqual(["technical_only", [ONE.url], [], true]);
     const elsewhere = await adjudicateCoverage(INV(), [ONE], TENANT, { technical: readTechnicalFindings({ pages: [{ url: `${AT}/other`, robots_meta: "noindex" }] }) }); const cosmetic = await adjudicateCoverage(INV(), [ONE], TENANT, { technical: readTechnicalFindings({ pages: [{ url: ONE_URL, h1: null }] }) }); expect([elsewhere.verdict, cosmetic.verdict]).toEqual(["research_needed", "research_needed"]); });
   it("carries the one purchase that would change a refusal, and stops asking once buying has stopped paying", async () => { const buy = { kind: "buy_serp" as const, subject: "rain barrel sizing", why: "I have never looked at Google's results for this." };
     const asking = await adjudicateCoverage(INV({ exactSerps: [], serpFreshness: "missing", nextAcquisition: buy }), [ONE], TENANT, {}); expect([asking.verdict, asking.acquisition]).toEqual(["research_needed", buy]);
@@ -270,7 +270,7 @@ const SERVED = { inventory: [row(`${AT}/`), row(`${AT}/rain-barrels`), row(`${AT
 describe("what is wrong with how a page is served", () => { it("names every fault it can prove, on a concrete address, with the exact fix, ordered by what it costs a reader and never by the address", () => { const found = readTechnicalFindings(SERVED);
     expect(found.map((f) => f.kind), "a page nobody can reach at all leads, and a second heading the same trails: the list is bounded at twelve, so ordering it alphabetically and then cutting hid every fault on a page late in the alphabet (live, 218 captured pages returned twelve findings all beginning a, b or c)").toEqual(["non_200", "robots_noindex", "broken_internal_link", "redirect_chain", "canonical_conflict", "canonical_missing", "sitemap_omission", "orphaned_page", "missing_h1", "duplicate_title", "duplicate_title"]);
     expect(found.every((f) => f.url.startsWith(AT) && f.exactFix.length > 20 && f.evidence.length > 20)).toBe(true);
-    expect(found[0]!.exactFix).toBe("Tell me the address that replaced /gone and I will write you the forward. Until then I keep it out of your queue."); expect(found[0]!.redirectTo).toBeUndefined(); const chain = found.find((f) => f.kind === "redirect_chain")!; expect(chain.evidence).toBe("/old sends people to /mid, and /mid sends them on again to /rain-barrels.");
+    expect(found[0]!.exactFix).toBe("Name the address that replaced /gone and the forward gets written for you. Until then it stays out of the queue."); expect(found[0]!.redirectTo).toBeUndefined(); const chain = found.find((f) => f.kind === "redirect_chain")!; expect(chain.evidence).toBe("/old sends people to /mid, and /mid sends them on again to /rain-barrels.");
     expect(chain.redirectTo).toBe(`${AT}/rain-barrels`); // PIN (D, packet 19): a Ready technical change carries the EXACT edit, not a description of one
     expect(found.find((f) => f.kind === "missing_h1")!.exact).toBe("Rain Barrel Sizing Guide");
     const orphan = found.find((f) => f.kind === "orphaned_page")!; // PIN (D, packet 19): the orphan names a real source page, a real spot on it, and the words to type.
@@ -389,6 +389,18 @@ describe("traffic is the objective and every other factor may only discount it",
   it("never lets anything but traffic add to worth", () => { for (const p of rankProposals([clicky(), aeo(), prop({ id: "plain" })])) { for (const f of p.rankingReceipt!.factors) { if (f.name === "visibility" || f.name === "readiness") continue;
         expect(f.contribution, `${p.id}.${f.name} may only discount`).toBeLessThanOrEqual(0);
       } } });
+  /** BUSINESS RELEVANCE FROM WHAT THE ACCOUNT SAID IT IS WORKING TOWARDS (R2 residual 1, 2026-09-05). The order knew what a reader asks and never what the business is for, so a change on a subject the operator named ranked exactly beside one on a page that merely has traffic. It is an INPUT of the ranking and rides the one scoring context, never a field stamped on every row. */
+  it.each(["tenant-one", "tenant-two"])("ranks a change that serves the account's own stated goal above an equal one that touches nothing in it, discounts and never promotes, and says both facts in one sentence [%s]", (tenant) => {
+    const onGoal = clicky({ id: "on-goal", tenantId: tenant, pagePath: "/watering-cans", primaryQuery: "watering cans for balconies" });
+    const offGoal = clicky({ id: "off-goal", tenantId: tenant, pagePath: "/office-chairs", primaryQuery: "office chairs" });
+    const goal = { accountGoal: "Sell watering cans to balcony gardeners." };
+    const blind = rankProposals([offGoal, onGoal]), seeing = rankProposals([offGoal, onGoal], goal);
+    expect(blind.map((x) => x.id), "with no stated goal on file the two are ordered exactly as they were before, by input order at an equal score").toEqual(["off-goal", "on-goal"]);
+    expect(seeing.map((x) => x.id), "with the goal on file the change that serves it comes first").toEqual(["on-goal", "off-goal"]);
+    expect(factorOf(seeing[0]!, "strategic") <= 0 && factorOf(seeing[1]!, "strategic") <= 0, "the goal may only discount, never add").toBe(true);
+    expect(proposalValueScore(onGoal, goal), "and a card the goal covers is scored no lower than it was without one").toBe(proposalValueScore(onGoal, {}));
+    expect(seeing[1]!.rankingReceipt!.factors.find((f) => f.name === "strategic")!.input, "one sentence carries both facts, in plain words with no first person").toBe("none of the questions your customers ask cover this one, and nothing in it touches what this account said it is for");
+    expect(seeing[0]!.rankingReceipt!.factors.find((f) => f.name === "strategic")!.input).toBe("none of the questions your customers ask cover this one, and it works towards what this account said it is for"); });
   it("discounts a weakly supported large opportunity below a smaller proven one, and says why on the receipt", () => { const weak = clicky({ id: "weak", impactScore: 150, confidence: "low", researchOnly: true, status: "needs_review" });
     const solid = clicky({ id: "solid", impactScore: 120, pagePath: "/solid", confidence: "high" });
     const ranked = rankProposals([weak, solid]); expect(ranked.map((p) => p.id)).toEqual(["solid", "weak"]);

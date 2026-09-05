@@ -447,7 +447,7 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     env.store = new Map([["ghost", ghost]]); const q = await loadProposalQueue("fixture-tenant", { currentBasis: "basis_today" });
     expect([q.ranked, q.ready, q.toDo].map((l) => l.length)).toEqual([0, 0, 0]); expect(q.demotedStaleBasis).toBe(1); });
 }); // ── what the winning pages share, computed on the drafting pass ──────────────
-const HEADS = ["What a haft seen table is", "Setting out the table", "What each item stands for"];
+const HEADS = ["What a haft seen table is", "Setting out the table", "What each piece stands for"];
 const OPENS = "Families set one of these out at the turn of the year, and every piece on it carries a meaning.";
 const rich = (w: FunnelResearchEvidence["winningPages"][number], i: number) => ({ ...w, extract: { title: `${HAFT} guide`, h1: `${HAFT} guide`, wordCount: 900 + i, headings: HEADS, faqCount: 2, fetchedAt: LOOKED_AT, openingSample: OPENS, entityNames: ["Nowruz"] } });
 /** A FOURTH ranked winner whose read is months old: it ranks, and I do not currently hold its words. */
