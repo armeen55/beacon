@@ -64,7 +64,7 @@ export type EvidenceRequirement = { kind: "serp" | "page_source" | "competitor_p
   /** Where a rival treats that topic, as BRIEFING provenance only: it says why the topic was judged missing, and its copy may never support a claim. */
   rivalUrl?: string;
   /** THE EXACT CHANGE THIS READING IS ABOUT, where the requirement is about one row rather than one search. `semantic_review` reads the words on ONE stored change, so naming it here is what lets the runtime load that single row instead of the whole account's queue. */
-  proposalId?: string };
+  proposalId?: string; };
 
 /** THE ONE RESOLUTION VOCABULARY for a refused draft, produced by BOTH refusal producers: the deterministic
  *  drafting gates (which run before any model call and often refuse without one) and the model evaluator reading

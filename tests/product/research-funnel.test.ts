@@ -34,6 +34,19 @@ describe("research funnel - basis-scoped discovery + isolation", () => {
     expect(out.status).toBe("done"); const st = store.peek("t1", BASIS)!; expect(st.discovery.retained.length).toBeGreaterThan(0); expect(new Set(st.discovery.rejected.map((r) => r.reason))).toEqual(new Set(["banned_term", "excluded_topic", "junk", "irrelevant"])); expect(store.peek("t1", "basis_other")).toBeUndefined();
     await keywordDiscoveryUnit({ ...base(profileOf("t2", ["persian recipes"], ["persian food"])), ...store.deps, callProvider })("t2", cur(), 60_000); expect(store.peek("t2", BASIS)!.discovery.retained.length).toBeGreaterThan(0); expect(store.peek("t1", BASIS)!.discovery.retained.length).toBe(st.discovery.retained.length);
     const blind = await keywordDiscoveryUnit({ ...base(profile), ...memStore().deps, callProvider })("t1", cur(null), 60_000); expect([blind.status, !!blind.detail]).toEqual(["failed", true]); }); // fail closed with no basis
+  /** A SEED IS A TOPIC, NEVER AN ONBOARDING SENTENCE AND NEVER A DESTINATION (operator, 2026-09-05). The three confirmed profile lists went to the keyword endpoints exactly as a person typed them, so a sentence about what customers cannot tell was bought as a keyword and a publisher typed into a themes box was bought as a subject to own. Two paid calls ride every seed, so this is money as well as relevance. */
+  it.each(["tenant-one", "tenant-two"])("buys a topic and never an onboarding sentence or an address, on %s", async (tenant) => {
+    const p = profileOf(tenant, ["saffron"], ["saffron price", "https://example.org/guides"]);
+    p.customerProblems = confirmed(["Customers cannot tell which grade to buy for a beginner."]);
+    const asked: string[] = []; const store = memStore();
+    const out = await keywordDiscoveryUnit({ ...base(p), ...store.deps, callProvider: async (cap: CapabilityKey, input: unknown) => {
+      if (cap === "labs_related_keywords" || cap === "labs_keyword_suggestions") asked.push(String((input as { keyword?: unknown }).keyword ?? ""));
+      return ok(parsedKw(cap === "labs_keywords_for_site" ? [{ keyword: "saffron grades", volume: 300 }] : [])); } })(tenant, cur(), 60_000);
+    expect(out.status).toBe("done");
+    expect(asked, "a short phrase a person typed is already a topic and reaches the endpoint word for word").toContain("saffron price");
+    expect(asked.some((k) => k.includes("Customers cannot tell")), "the onboarding sentence is never bought as a keyword").toBe(false);
+    expect(asked.some((k) => /https?:|example\.org/.test(k)), "an address names a destination, not a subject, so it is not a seed at all").toBe(false);
+    expect(asked.filter((k) => /grade|beginner/i.test(k)).length, "the sentence is reduced to the subject words it names, so the need behind it is still researched").toBeGreaterThan(0); });
   it("reports a moved row as a STRUCTURED state conflict and corrupts nothing (Runtime never parses the copy)", async () => { const seed = emptyFunnelState("t1", BASIS); // a concurrent writer moved the row: every save now conflicts
     seed.discovery.retained = [{ keyword: "keep me", searchVolume: 9, competition: 0.2, difficulty: null, intent: null, discoveredVia: "site" }]; const store = memStore(seed); const out = await keywordDiscoveryUnit({ ...base(profile), ...store.deps, saveState: async () => null, callProvider })("t1", cur(), 60_000); expect([out.status, out.code, out.detail]).toEqual(["failed", "state_conflict", CONFLICT_DETAIL]); expect(store.peek("t1", BASIS)!.discovery.retained[0]!.keyword).toBe("keep me"); }); // persisted row untouched
 }); describe("research funnel - prompt observation honesty + history identity", () => {

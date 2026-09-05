@@ -53,6 +53,15 @@ const GENERIC = new Set([
   // DEMONSTRATIVES ARE NOT SUBJECTS EITHER. "this" and "that" were here and their plurals were not, so "these accessory types" carried "these" as a content token and a
   // sentence could be refused for a word that names nothing.
   "these", "those",
+  // AND NEITHER IS ANY OTHER BARE FUNCTION WORD (reviewer, 2026-09-05). "are there cobras in iran" tokenized to ["there","cobra","iran"], so a page that says outright that the Caspian
+  // cobra lives in Iran was one third short of naming what the searcher named, and the coverage rule needed a ratio purely to forgive that one word. These are closed-class English:
+  // existential and locative pro-forms, relative and interrogative words, pronouns, auxiliaries and the conjunctions and adverbs that join them. Not one of them can be the subject of
+  // anything, in any vertical or language, so dropping them makes every reader of these tokens more exact and none of them looser. Deliberately absent: "before" and "after", which name a
+  // period and are what "iran flag before 1979" is actually asking about; "may" and "might", also a month and a noun; "even", "still", "same" and "own", which lead real subjects.
+  "there", "here", "any", "each", "both", "such", "which", "whom", "whose", "whether", "they", "them", "their",
+  "she", "her", "hers", "his", "him", "its", "was", "were", "been", "has", "have", "had", "did", "should",
+  "would", "could", "shall", "but", "nor", "because", "while", "than", "then", "too", "very", "also", "only",
+  "again", "once", "ever", "never", "not",
 ]);
 
 /** Domains that are noise for editorial intent (social / forum / UGC / recipe-aggregator /

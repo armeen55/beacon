@@ -8,7 +8,7 @@ import type { PageUnderstanding } from "@/domains/decision/producers/page-unders
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 const extract = (path: string, h1 = "Tabriz, Iran") => ({ url: `https://mysite.example${path}`, title: "Tabriz, Iran: what to know before you go", h1, headings: ["Tabriz population", "Tabriz climate", "Things to see in Tabriz"], wordCount: 737 });
-const READING = { job: "This page tells a traveller what the city of Tabriz is like before they visit.", pageType: "city" as const, audience: "travellers planning a trip to Iran", topics: ["Tabriz", "iran travel", "city guide"], commercial: false };
+const READING = { job: "This page tells a traveller what the city of Tabriz is like before they visit.", pageType: "city" as const, audience: "travellers planning a trip to Iran", topics: ["Tabriz", "iran travel", "city guide"], commercial: false, promise: "a guide to what the city of Tabriz is like", missing: "what a visitor should do on a first day there", sells: [] };
 /** A completion seam that answers with one fixed reading and counts how many times it actually ran. */
 const seam = (value: unknown): { complete: CompleteFn; calls: () => number } => { let calls = 0; return { calls: () => calls, complete: async () => { calls += 1; return { value }; } }; };
 /** The durable store, in memory. `remember: false` is a site whose readings never land, which forces every pass to buy afresh and makes the rotation visible. */
@@ -18,7 +18,7 @@ const store = (remember = true) => { const rows = new Map<string, PageUnderstand
     cursor: async (_t: string, next?: string | null) => (next === undefined ? at : (at = next ? canonicalUrlKey(next) : null)) }; };
 const job = (over: Partial<OwnedPageJob> = {}): OwnedPageJob => ({ ...READING, topics: ["tabriz", "iran travel", "city guide"], url: "https://mysite.example/tabriz", ...over });
 /** Six readings of one account, the shape of a site about one country: "persian", "iranian" and "iran" are on most of its pages, which is why sharing one of them with a search proves nothing. */
-const page = (url: string, pageType: OwnedPageJob["pageType"], job: string, audience: string, topics: string[]): OwnedPageJob => ({ url: `https://mysite.example/${url}`, pageType, job, audience, topics, commercial: pageType === "product" });
+const page = (url: string, pageType: OwnedPageJob["pageType"], job: string, audience: string, topics: string[]): OwnedPageJob => ({ url: `https://mysite.example/${url}`, pageType, job, audience, topics, commercial: pageType === "product", promise: job, missing: `what ${topics[0]} costs`, sells: pageType === "product" ? ["add to basket"] : [] });
 const PAINTERS = page("painters", "guide", "Introduces the Persian painters of Iran and their work.", "art lovers", ["persian painter", "iranian art", "painting"]);
 const POETS = page("poets", "list", "Lists the Persian poets of Iran who shaped Iranian writing.", "readers", ["persian poet", "poetry", "literature"]);
 const RUGS = page("rugs", "product", "Sells hand woven Persian rugs made in Iran.", "rug buyers", ["persian rug", "carpet", "weaving"]);

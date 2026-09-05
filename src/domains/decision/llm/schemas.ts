@@ -336,6 +336,8 @@ const PageJobSchema = z.object({
   topics: z.array(z.string().min(2).max(40)).min(3).max(8),
   /** True when the page exists to sell something, false when it exists to explain something. */
   commercial: z.boolean(),
+  /** WHAT THE TITLE PROMISES A READER, in the title's own terms and never in the body's: a page is judged against what it announced, and a directory-style promise with no entries is a broken promise rather than a thin page. THE ONE CAPABILITY IT IS MISSING, read off the page alone: what a reader arriving for its own subject still cannot do or learn here, never a recommendation. AND THE PRODUCTS AND CONVERSION ACTIONS IT CARRIES, exactly as it names them, empty when the page only informs: `commercial` says which kind of page this is, `sells` says what an edit that ignored it would destroy. */
+  promise: z.string().min(3).max(200), missing: z.string().min(3).max(200), sells: z.array(z.string().min(2).max(60)).max(8),
 });
 export type PageJob = z.infer<typeof PageJobSchema>;
 

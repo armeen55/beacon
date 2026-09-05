@@ -62,6 +62,9 @@ const SYSTEM = [
   "4. audience: who the page is written for, in plain words.",
   "5. topics: 3 to 8 lowercase subject words or short phrases the page is actually about. No filler, no slogans, no site name.",
   "6. commercial: true only when the page exists to sell something.",
+  "7. promise: what this page's TITLE promises a reader, in one plain clause, taken from the title and heading alone. If the title announces a roster, a list or a comparison, say so in those words.",
+  "8. missing: the ONE capability a reader arriving for this page's own subject still cannot get here, in one plain clause. Never advice, never a change to make, never a subject the page was never about.",
+  "9. sells: the products and the conversion actions the given text names, in its own words (for example a price, an add to basket, a booking, a quote request, a sign up). Empty array when the page only informs.",
   "Write plain English. Use no dashes. Use no number you were not given.",
 ].join("\n");
 
@@ -123,8 +126,8 @@ async function readPageJob(
   const fingerprint = fingerprintOf(lines);
   // THE DURABLE ROW FIRST, always free. Its fingerprint decides whether it still describes this page.
   const held = opts.held !== undefined ? opts.held : (await store.read(tenantId, [extract.url]).catch(() => null))?.get(canonicalUrlKey(extract.url)) ?? null;
-  const asJob = (r: NonNullable<typeof held>): OwnedPageJob => ({ job: r.job, pageType: r.pageType, audience: r.audience, topics: r.topics, commercial: r.commercial, url: extract.url });
-  if (held && held.contentFingerprint === fingerprint) return { job: asJob(held), reason: "read", paid: false };
+  const asJob = (r: NonNullable<typeof held>): OwnedPageJob => ({ job: r.job, pageType: r.pageType, audience: r.audience, topics: r.topics, commercial: r.commercial, promise: r.promise, missing: r.missing, sells: r.sells, url: extract.url });
+  /* A ROW THAT PREDATES A FIELD STILL DESCRIBES THE PAGE, AND IS STALE (2026-09-05). The fingerprint is the hash of the EXTRACT, so adding a field to what a reading says does not move it and every row already on file would have answered "read" with the new fields empty for ever. A row missing them is served exactly as a row whose page moved under it is served: it answers now, free, and the ordinary rotation refreshes it when the pass can afford one. No site-wide reread, no second cursor, and no caller has to know the difference. */ if (held && held.contentFingerprint === fingerprint && held.promise.trim() !== "" && held.missing.trim() !== "") return { job: asJob(held), reason: "read", paid: false };
   const stale = (): { job: OwnedPageJob | null; reason: JobReason; paid: boolean } =>
     held ? { job: asJob(held), reason: "stale", paid: false } : { job: null, reason: "unaffordable", paid: false };
   if (opts.buy === false) return stale();

@@ -30,7 +30,7 @@ const TABLE = "page_understanding";
 const CURSOR_TABLE = "page_job_cursor";
 /** One read never returns more than this, and one batch never asks for more addresses than this. */
 const MAX_ROWS = 500;
-const COLUMNS = "page_key, url, content_fingerprint, job, page_type, audience, topics, commercial, read_at, source_extract_at";
+const COLUMNS = "page_key, url, content_fingerprint, job, page_type, audience, topics, commercial, promise, missing, sells, read_at, source_extract_at";
 
 /** One page's reading, as the store holds it. */
 export type PageUnderstanding = PageJob & {
@@ -45,6 +45,7 @@ export type PageUnderstanding = PageJob & {
 type Row = {
   page_key: string; url: string; content_fingerprint: string; job: string; page_type: string;
   audience: string; topics: string[] | null; commercial: boolean; read_at: string; source_extract_at: string | null;
+  /** NULLABLE BY MIGRATION, so a row written before these fields existed reads back as empty rather than as a page that promises nothing and is missing nothing. */ promise: string | null; missing: string | null; sells: string[] | null;
 };
 
 /** The table is not there yet, told apart from a real failure so the pre-migration window reads as
@@ -68,7 +69,7 @@ function failClosed(op: string, tenantId: string, error: unknown): void {
 const decode = (r: Row): PageUnderstanding => ({
   url: r.url, contentFingerprint: r.content_fingerprint, job: r.job,
   pageType: r.page_type as PageJob["pageType"], audience: r.audience,
-  topics: (r.topics ?? []).map((t) => t.toLowerCase()), commercial: !!r.commercial,
+  topics: (r.topics ?? []).map((t) => t.toLowerCase()), commercial: !!r.commercial, promise: r.promise ?? "", missing: r.missing ?? "", sells: r.sells ?? [],
   readAt: r.read_at, sourceExtractAt: r.source_extract_at,
 });
 
@@ -112,7 +113,7 @@ async function savePageUnderstanding(tenantId: string, reading: PageUnderstandin
     const { error } = await getSupabaseAdmin().from(TABLE).upsert({
       tenant_id: tenantId, page_key: key, url: reading.url, content_fingerprint: reading.contentFingerprint,
       job: reading.job, page_type: reading.pageType, audience: reading.audience,
-      topics: reading.topics, commercial: reading.commercial,
+      topics: reading.topics, commercial: reading.commercial, promise: reading.promise, missing: reading.missing, sells: reading.sells,
       read_at: reading.readAt, source_extract_at: reading.sourceExtractAt, updated_at: new Date().toISOString(),
     }, { onConflict: "tenant_id,page_key" });
     if (error) {
