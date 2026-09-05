@@ -7,14 +7,10 @@ export type DraftQualityStatus =
   | "useful_but_needs_review"
   | "generic_rejected"
   | "relevance_rejected"
-  | "fact_risk"
   | "unsupported_claim"
   | "too_thin"
   | "malformed"
   | "missing_source"
-  | "needs_source_check"
-  | "stale_data_changed"
-  | "not_quotable"
   | "unverified_claim";
 
 export type DraftQualityResult = {

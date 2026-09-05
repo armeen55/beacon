@@ -13,8 +13,7 @@ import { Pill, type PillIntent } from "@/components/ui/pill";
 // the ONE stable name for a piece come from the contract module itself rather than a copy of them living here.
 import { componentIdOf, dangerousComponents } from "@/domains/decision/contracts";
 import { copyKey, proofOf } from "@/domains/decision/proof";
-import { domainOf } from "@/domains/evidence/relevance-gate";
-import { confirmedVersion, openHold } from "@/domains/decision/completeness";
+import { citedPublishers, confirmedVersion, openHold } from "@/domains/decision/completeness";
 import type { ChangeBundle, ChangeProposal } from "@/domains/decision";
 import { markProposalImplementedAction } from "./actions";
 import { pageLabel } from "./types";
@@ -173,8 +172,8 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   const waiting = ((w: string) => (w ? `${w[0]!.toUpperCase()}${w.slice(1)}.` : null))((proposal.rankingReceipt?.factors ?? []).find((f) => f.name === "readiness")?.input?.trim() ?? "");
   const placement = proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.where ?? null : null;
   // WHAT STANDS BEHIND FINISHED WORK, SAID ON THE CARD THAT OFFERS IT (measured, 2026-09-05: all six Ready rows carry a paid reading bound to their exact copy, not one of them said so, and the only sentence the hold had for them was "nothing has read them for sense yet", which their own record disproves). Read off the row itself: the reading is claimed only while `semanticReview` names THESE exact words, and sources are counted by PUBLISHER and never by fact id, which is the same count the proportional evidence bar uses. A row with no outside publisher stands on words this account already publishes, its own page's or the page a link points at, and says that instead of a bare zero.
-  const cited = new Set((proposal.claims ?? []).flatMap((x) => x.supportedBy.filter((id) => id.startsWith("fact-")))), reading = ready && !merge && proposal.semanticReview?.of === copyKey(proposal);
-  const sources = reading ? new Set((proposal.supportFacts ?? []).filter((f) => cited.has(f.id)).flatMap((f) => f.fact.match(/https?:\/\/[^\s"';]+/g) ?? []).map((u) => domainOf(u)).filter(Boolean)).size : 0;
+  const reading = ready && !merge && proposal.semanticReview?.of === copyKey(proposal);
+  const sources = reading ? citedPublishers(proposal).size : 0;
 
   if (done || recorded) return (
     <li className="rounded-2xl border border-accent-primary/50 bg-surface-raised p-4" data-change-card="done">

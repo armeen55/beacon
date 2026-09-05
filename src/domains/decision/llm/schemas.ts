@@ -77,8 +77,7 @@ const base = {
 
 /** 1. AnswerBlockDraft, the 80-150 word extractable AEO answer block (J-71: "80-150 words WITH source citations - 40-60 is too thin"). `answer`'s max is widened to 1200 chars (150 words needs ~1050), the 80-150 word
  *  BAND itself is enforced by NOTHING at read time any more: the door that held it was deleted on 2026-09-05 for refusing all 56 stored body drafts including every finished one, and this schema only bounds the shape. `sources` is additive with a `[]` default so every persisted pre-W5 draft still deserializes clean. W5
- *  P2 (2026-07-09): the min is raised to 450 chars (a coarse floor for the 80-word contract) so the drafter cannot cache an obviously-too-thin answer the quality gate would reject; the precise 80-word check is the gate
- *  the drafter's own word-count retry (structured-drafter.ts), whose real floor is a 15-word sanity check and not the band. */
+ *  P2 (2026-07-09): the min is raised to 450 chars (a coarse floor for the 80-word contract) so the drafter cannot cache an obviously-too-thin answer the quality gate would reject. NEITHER THIS SCHEMA NOR THAT FLOOR IS REACHED (measured, 2026-09-05): nothing anywhere requests `kind: "answer_block"`, every body edit is drafted through `atomic_edit`, and all 43 stored body drafts with copy are under 450 characters (the longest is 437), so wiring this shape as it stands would refuse every body answer this account has ever written, exactly as the deleted band did. */
 const AnswerBlockDraftSchema = z.object({
   answer: z.string().min(450).max(1200),
   citationHook: z.string().max(200).nullable().default(null),

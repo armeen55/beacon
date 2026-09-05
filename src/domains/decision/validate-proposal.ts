@@ -23,7 +23,6 @@ import { confirmedVersion } from "./completeness";
 const REJECT_STATUSES: ReadonlySet<DraftQualityStatus> = new Set<DraftQualityStatus>([
   "generic_rejected",
   "relevance_rejected",
-  "fact_risk",
   "unsupported_claim",
   "too_thin",
   "malformed",
