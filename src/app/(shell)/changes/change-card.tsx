@@ -12,7 +12,8 @@ import { Pill, type PillIntent } from "@/components/ui/pill";
 // A client bundle cannot import the server-only kernel facade, so the ONE pure rule for what is dangerous and
 // the ONE stable name for a piece come from the contract module itself rather than a copy of them living here.
 import { componentIdOf, dangerousComponents } from "@/domains/decision/contracts";
-import { proofOf } from "@/domains/decision/proof";
+import { copyKey, proofOf } from "@/domains/decision/proof";
+import { domainOf } from "@/domains/evidence/relevance-gate";
 import { confirmedVersion, openHold } from "@/domains/decision/completeness";
 import type { ChangeBundle, ChangeProposal } from "@/domains/decision";
 import { markProposalImplementedAction } from "./actions";
@@ -171,6 +172,9 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   // WHAT THIS ONE IS WAITING ON BEFORE ANYBODY CAN DO IT, off the row's own typed next step: a card ranked above a smaller one that is ready reads as an order somebody could work straight through, so the dependency is printed where the card is and not folded into the ranking receipt behind an expander. A plain sentence, never a label: "Waiting on: this one waits on your confirmation" says the same thing twice.
   const waiting = ((w: string) => (w ? `${w[0]!.toUpperCase()}${w.slice(1)}.` : null))((proposal.rankingReceipt?.factors ?? []).find((f) => f.name === "readiness")?.input?.trim() ?? "");
   const placement = proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.where ?? null : null;
+  // WHAT STANDS BEHIND FINISHED WORK, SAID ON THE CARD THAT OFFERS IT (measured, 2026-09-05: all six Ready rows carry a paid reading bound to their exact copy, not one of them said so, and the only sentence the hold had for them was "nothing has read them for sense yet", which their own record disproves). Read off the row itself: the reading is claimed only while `semanticReview` names THESE exact words, and sources are counted by PUBLISHER and never by fact id, which is the same count the proportional evidence bar uses. A row with no outside publisher stands on words this account already publishes, its own page's or the page a link points at, and says that instead of a bare zero.
+  const cited = new Set((proposal.claims ?? []).flatMap((x) => x.supportedBy.filter((id) => id.startsWith("fact-")))), reading = ready && !merge && proposal.semanticReview?.of === copyKey(proposal);
+  const sources = reading ? new Set((proposal.supportFacts ?? []).filter((f) => cited.has(f.id)).flatMap((f) => f.fact.match(/https?:\/\/[^\s"';]+/g) ?? []).map((u) => domainOf(u)).filter(Boolean)).size : 0;
 
   if (done || recorded) return (
     <li className="rounded-2xl border border-accent-primary/50 bg-surface-raised p-4" data-change-card="done">
@@ -279,15 +283,20 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
         {waiting && !ready ? <p className="text-[13px] leading-relaxed text-muted-foreground" data-waiting-on="true">{waiting}</p> : null}
         {hold ? (
           <div className="space-y-1 rounded-md border border-border bg-surface-inset px-3 py-2" data-held-reason="true">
-            {/* Only the DECISION lane renders cards in review now, so this heading frames the operator's own
-                call rather than Beacon's internal QA ("A draft, not finished work" is banned customer language
-                under the 2026-08-27 contract: unfinished work never wears a card at all). */}
+            {/* THE ONE LANE THAT RENDERS A CARD IN REVIEW IS THE SAFETY LANE, so this heading frames the operator's own call and never Beacon's internal QA ("A draft, not finished work" is banned customer language under the 2026-08-27 contract: unfinished work never wears a card at all). WHAT THE BLOCK SAID WAS WRONG ABOUT ITS OWN LANE (measured, 2026-09-05): the lane admits a row only while it carries NO fault and every hard reason it holds is the safety confirmation, so "copying it takes an imperfect starting point, not proven work" was printed over copy that had passed every check, on the one card whose only open question is whether to move a page. It now says what passed and what to do next, with the pieces counted, and the row's own caveats ride with the hold's own answer instead of being composed a second time by the surface. */}
             <p className="text-[12px] font-semibold text-foreground">What you are deciding:</p>
             <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground">
-              {hold.why.map((w, i) => <li key={i}>{w}</li>)}
+              {[...hold.why, ...hold.caveats].map((w, i) => <li key={i}>{w}</li>)}
             </ul>
-            <p className="text-[12px] leading-relaxed text-muted-foreground">Copying it takes an imperfect starting point, not proven work.</p>
+            <p className="text-[12px] leading-relaxed text-muted-foreground">{hold.faulted
+              ? "Copying it takes an unfinished starting point, not proven work."
+              : `Every other check passed on ${parts === 1 ? "this change" : `all ${parts} pieces`}. Open it, confirm the move, then make the change.`}</p>
           </div>
+        ) : null}
+        {reading ? (
+          <p className="text-[12px] leading-relaxed text-muted-foreground" data-ready-backing="true">
+            {sources > 0 ? `Backed by ${sources} checked ${sources === 1 ? "source" : "sources"}` : "Written from words already on your own pages"} and read for sense before it was offered. Copy it, then press Mark done.
+          </p>
         ) : null}
 
         {/* THE FACTS, AS CHIPS. Everything they stand for opens in the ONE expander below, so a card is what to

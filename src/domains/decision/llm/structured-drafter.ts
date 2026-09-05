@@ -179,7 +179,7 @@ function stampAnySources(value: unknown, tenantAllowlist?: readonly string[]): u
   return { ...v, sources: stampSourceAuthority(v.sources as ClassifiableSource[], tenantAllowlist) };
 }
 
-/** W5 (J-71): an answer block runs 80-150 words; the drafter gives ONE word-count retry so a too-thin answer is never cached for the gate to reject. Matches evaluateDraftQuality's own floor + word count. */
+/** W5 (J-71): an answer block was once contracted at 80 to 150 words and the drafter still gives ONE word-count retry so a pathological answer is never cached. The gate that held that band had no production caller and was deleted on 2026-09-05 (it refused all 56 stored body drafts), so THIS constant is the only floor a body answer answers to, and it is a sanity floor. */
 const ANSWER_MIN_WORDS = 15; // a SANITY floor against pathological output only (lowered 2026-08-25): a 39-word complete answer was refused over one word by a 40-word constant, and completeness is the evaluator's question, never a count's
 function countWords(text: string): number {
   const t = (text ?? "").trim();

@@ -298,9 +298,9 @@ export function draftFactsCoveredBySources(
   );
 
   // No individually-isolable protected sentence. This function is only reached (via hasQualifyingAuthoritativeSource) once the CALLER already established
-  // the draft is factual (isFactualClaim / SPECIFIC_FACT), so a factual claim with nothing to pin per sentence (e.g. a lowercase definitional assertion)
+  // the draft is factual (the caller's own SPECIFIC_FACT signal), so a factual claim with nothing to pin per sentence (e.g. a lowercase definitional assertion)
   // must STILL be backed by at least one qualifying authoritative source - never waved through vacuously. A TRULY claim-free draft never reaches here (its
-  // caller's isFactualClaim is false), so it stays exempt at the call site, not here.
+  // caller never found a specific fact), so it stays exempt at the call site, not here.
   if (protectedSentences.length === 0) {
     if (qualifying.length === 0) return { covered: false, uncovered: [], receipts: [] };
     const backer = qualifying[0]!;

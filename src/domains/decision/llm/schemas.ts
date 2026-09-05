@@ -76,9 +76,9 @@ const base = {
 // ── the draft schemas (the Sprint 2 minimum set) ────────────────────────────
 
 /** 1. AnswerBlockDraft, the 80-150 word extractable AEO answer block (J-71: "80-150 words WITH source citations - 40-60 is too thin"). `answer`'s max is widened to 1200 chars (150 words needs ~1050), the 80-150 word
- *  BAND itself is enforced by draft-quality.ts's evaluateDraftQuality, not here; this schema only bounds the shape. `sources` is additive with a `[]` default so every persisted pre-W5 draft still deserializes clean. W5
+ *  BAND itself is enforced by NOTHING at read time any more: the door that held it was deleted on 2026-09-05 for refusing all 56 stored body drafts including every finished one, and this schema only bounds the shape. `sources` is additive with a `[]` default so every persisted pre-W5 draft still deserializes clean. W5
  *  P2 (2026-07-09): the min is raised to 450 chars (a coarse floor for the 80-word contract) so the drafter cannot cache an obviously-too-thin answer the quality gate would reject; the precise 80-word check is the gate
- *  plus the drafter's own word-count retry (structured-drafter.ts). */
+ *  the drafter's own word-count retry (structured-drafter.ts), whose real floor is a 15-word sanity check and not the band. */
 const AnswerBlockDraftSchema = z.object({
   answer: z.string().min(450).max(1200),
   citationHook: z.string().max(200).nullable().default(null),
@@ -94,7 +94,7 @@ const AtomicEditDraftSchema = z.object({
   before: z.string().max(2000).nullable().default(null),
   after: z.string().min(1).max(2000),
   rationale: z.string().min(1).max(400),
-  /** W5 (J-69): same additive sources list, only meaningful when the edit introduces a NEW factual claim the "before" value didn't already carry (see draft-quality.ts's isFactualClaim); a pure rephrase is never gated. */
+  /** W5 (J-69): same additive sources list, only meaningful when the edit introduces a NEW factual claim the "before" value didn't already carry (see draft-quality.ts's SPECIFIC_FACT signal); a pure rephrase is never gated. */
   sources: z.array(SourceRefSchema).default([]),
   proofPlan: ProofPlanSchema,
   /** THE EDITOR CONTRACT (decision/drafted-copy): the homework a finished edit shows, additive with defaults so every draft stored before it still deserializes. `claims` is what the copy asserts and the grounding ids that carry it; the deliverable check, never this schema, decides whether an empty one is finished. */

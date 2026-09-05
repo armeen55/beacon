@@ -73,9 +73,13 @@ export const statementKeyOf = (subject: string): string => subject.trim().toLowe
 
 type Row = Record<string, unknown>;
 
+/** WHAT A CHECK ACTUALLY PROPOSES, and never a wording that only names the subject again (measured 2026-09-05 over all 972 checked statements on the account: FIFTEEN of the 490 carrying a proposal propose their own subject back, seven byte for byte and eight differing only in case, seven of them `confirmed`, and ONE of the fifteen is admitted as correction work by `authorizedCorrections` today). A correction is a wording a page can be MADE to read, and "Caspian Red Deer" proposed for the subject "Caspian Red Deer" is not one: where the page already says exactly that, acting on it changes nothing, and where the current line carries more ("Mashhad (3 million)", "Meaning:Water lily, pure and serene.") acting on it DELETES what the page says and explains nothing. Canonicalized by `statementKeyOf`, which is already the identity of a subject here, so spacing and case decide nothing. Asked at the reader so the fifteen on file propose nothing today at $0 and no write, and at the bank so none is ever written again, off ONE predicate so the two doors cannot disagree. Nothing else about the row moves: its sources, its agreement, its confidence and its verdict are what the reading found. */
+const proposalOf = (subject: string, proposed: string | null): string | null =>
+  proposed != null && statementKeyOf(proposed) === statementKeyOf(subject) ? null : proposed;
+
 const decode = (r: Row): FactCheck => ({
   page: String(r.page_key ?? ""), statementKey: String(r.statement_key ?? ""), subject: String(r.subject ?? ""),
-  current: String(r.current_wording ?? ""), proposed: (r.proposed as string | null) ?? null,
+  current: String(r.current_wording ?? ""), proposed: proposalOf(String(r.subject ?? ""), (r.proposed as string | null) ?? null),
   literal: (r.literal as string | null) ?? null, usage: (r.usage as string | null) ?? null,
   sources: Array.isArray(r.sources) ? (r.sources as FactCheck["sources"]) : [],
   agreement: (r.agreement as FactCheck["agreement"]) ?? "none_found",
@@ -136,7 +140,7 @@ export async function recordFactChecks(tenantId: string, page: string, checks: r
   const rows = checks.filter((c) => c.subject.trim().length > 0).map((c) => ({
     tenant_id: tenantId, page_key: page, statement_key: c.statementKey || statementKeyOf(c.subject),
     page_content_hash: c.pageContentHash, subject: c.subject.trim(), current_wording: c.current,
-    proposed: c.confidence === "unsupported" ? null : c.proposed,
+    proposed: c.confidence === "unsupported" ? null : proposalOf(c.subject.trim(), c.proposed),
     literal: c.literal, usage: c.usage,
     source_url: c.sources[0]?.url ?? null, source_quote: c.sources[0]?.says ?? null, source_class: c.sources[0]?.kind ?? null,
     sources: c.sources, agreement: c.agreement, confidence: c.confidence, verdict: c.verdict,

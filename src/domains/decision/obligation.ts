@@ -75,7 +75,7 @@ export function nextObligation(p: ChangeProposal): Obligation | null {
   const attempt = (p.previousCopy?.attempts ?? 0) + 1, redraft = (instruction: string): Obligation => attempt > MAX_ATTEMPTS ? { kind: "terminal", reason: SETTLED_AFTER_RETRIES } : { kind: "redraft", attempt, instruction }, refused = p.previousCopy && (p.faults ?? []).includes(p.previousCopy.retiredBecause) ? p.previousCopy.retiredBecause : null;
   if (p.recommendedChange.kind === "new_page") {
     if (unwritten || owed > 0) return { kind: "sections", owed: Math.max(owed, 1) };
-  } else if (p.researchOnly === true || unwritten) return refused && attempt > MAX_ATTEMPTS ? { kind: "terminal", reason: SETTLED_AFTER_RETRIES } : { kind: "draft" };
+  } else if (p.researchOnly === true || unwritten) return refused ? redraft(refused) : { kind: "draft" }; // A REFUSED FUNDED DRAFT OWES A CORRECTIVE ONE, NOT A FIRST ONE (R9 and D2i, 2026-09-05): the objection rides as the instruction, the owed step moves from draft to redraft so the work identity moves and the day's memory hands the writer the second attempt today, and `redraft` still settles the third on the two-attempt rule.
   if (hold.need) return { kind: "evidence", need: hold.need };
   // A REVIEW THAT IS OWED IS NOT A REDRAFT WEARING A FAULT (live, 2026-09-04). The sweep writes whatever blocks a
   // ready row into `faults`, so "the reading on file was made under an older review contract" sat as a typed fault
