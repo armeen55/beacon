@@ -54,7 +54,7 @@ function expectRetiredCookieExpired(res: Response): void {
 const REQUIRED_ENV = {
   NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co",
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-stub",};
-describe("middleware account injection — one login, one account, fail-closed", () => {
+describe("middleware account injection: one login, one account, fail-closed", () => {
   beforeEach(() => {
     Object.assign(supabaseState, { user: null, tenantMembersRows: [], tenantMembersError: null, tenantQueryThrows: false, authHangs: false, authError: null, tenantHangs: false });
     process.env.NEXT_PUBLIC_SUPABASE_URL = REQUIRED_ENV.NEXT_PUBLIC_SUPABASE_URL;

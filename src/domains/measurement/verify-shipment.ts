@@ -103,7 +103,7 @@ const judged = (state: ComponentState, note: string, reason: Reason | null = nul
 /** A RECORD THAT NAMES NOTHING TO LOOK FOR, and the sentence that says so; null where the live page really can answer. Some kinds are visible with no wording at all (the address forwards, the page asks to be left out of search, the page exists); every other kind needs the exact wording that was applied, and what is on file is either empty or still the template with its slots unfilled. NO SECOND READ CAN CHANGE THAT ANSWER, so this is the one class reconciled from the record itself and never fetched again: two rows on file still read "has a population of NUMBER as of YEAR (SOURCE)" and were owed a live read each on a promised day. Wording is never invented to check against. */
 const noExpectation = (kind: string, after: string): string | null => (norm(after) && !TEMPLATE_SLOT.test(after)) || COPY_FREE_KINDS.has(kind) ? null : `${norm(after) ? "What was recorded here is still the template wording, with its NUMBER, YEAR or SOURCE never filled in, so no live page could be carrying it." : "The exact wording that was applied here was never recorded, so no reading of the page can confirm it."} Nothing more is read for it. Record the words that are on the page and the next check reads them.`;
 // THE WORDS A LINK WAS RENAMED TO where the Shipment stored them as the label itself: a single short line with no quotation marks IS the wording, a sentence written about the link is not. 27 applied renames read as unreadable while their new words sat on the row, each equal to a live anchor.
-const labelIn = (s: string): string => { const one = firstLine(s); return one === s.trim() && !/["'‘’“”]/.test(s) && one.split(/\s+/).filter(Boolean).length <= 12 ? one : ""; };
+const labelIn = (s: string): string => { const one = firstLine(s); return one === s.trim() && !/["“”]|(?<![A-Za-z0-9])['‘’]|['‘’](?![A-Za-z0-9])/.test(s) && one.split(/\s+/).filter(Boolean).length <= 12 ? one : ""; }; // AN APOSTROPHE INSIDE A WORD IS NOT A QUOTATION MARK (reviewer, 2026-09-05): every straight or curly single quote was rejected, so the one live rename reading "Pallas's Cat facts" read as unreadable while its exact new words sat on the row. A quote MARKS a passage and stands at a word boundary; a possessive stands between letters. Measured on the account's 27 stored renames: 1 unresolved before, 0 after.
 // THE PAGES AS THE STORE ALREADY HOLDS THEM, through the ONE canonical body reader: it picks the capture that IS the page (a newer blank never erases a confirmed body), so a javascript page answers from the rendered read already bought for it, and a closed reading learns its page moved. No second crawler, no spend.
 const heldBodies = (urls: string[], tenantId: string): Promise<Map<string, OwnedPageBody>> => loadOwnedPageBodies(tenantId, urls);
 
@@ -313,7 +313,7 @@ const allUnknown = (shipment: VerifiableShipment, note: string) => shipment.comp
  * hold instead of going back out to the customer's website.
  */
 export async function verifyShipment(tenantId: string, shipment: VerifiableShipment, deps: VerifyDeps = {}): Promise<ShipmentVerification> {
-  const now = deps.now ?? Date.now, checkedAt = new Date(now()).toISOString(), fetchPage = deps.fetchPage ?? fetchPageHtml;
+  const now = deps.now ?? Date.now, stamp = (): string => new Date(now()).toISOString(), fetchPage = deps.fetchPage ?? fetchPageHtml; /* A READING IS STAMPED WHEN IT ANSWERS, NEVER WHEN IT STARTS (measured on the live ledger, 2026-09-05). The stamp was taken before the fetch and this door writes the capture it just read, so every reading left behind a capture stamped AFTER itself: shp_d5a9862db7099a2d645c97139634540f read iranopedia.com/cities at 07:32:52.706Z and wrote a capture at 07:32:53.665Z, 959 ms later, which the closed-row door below reads as "the page moved since" and reopens. Twenty-eight live reads against a bound of three, each one manufacturing the capture that reopened it, and that pile of captures is what starved the body reader. Stamped on the way out, a reading's own capture can never be newer than it. */
   const requested = /^https?:\/\//i.test(shipment.url) ? shipment.url : `https://${shipment.url}`;
   // NO READ THAT SAW NOTHING IS FINAL ON ITS FIRST ANSWER (R-059, 2026-09-03). A read that could not see the
   // change says nothing about the change, so a site that did not answer counts ONE check and comes back the
@@ -322,18 +322,18 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
   const checks = (shipment.priorChecks ?? 0) + (early ? 0 : 1); // a read inside the grace window is free: it informs, it never counts
   // NO LIVE READ FOR A RECORD NO PAGE CAN ANSWER. Every piece names nothing to look for, so the answer is settled from the record itself: no fetch, no check spent, no day promised, and the row is never scheduled again. A historical record is reconciled from what it holds; only a page that could carry the change is read.
   const unanswerable = shipment.components.map((c) => noExpectation(c.kind, c.after ?? ""));
-  if (shipment.components.length > 0 && unanswerable.every((n) => n != null)) return { status: "blocked", checkedAt, checks: shipment.priorChecks ?? 0, reason: "applied_wording_missing", recheckAfter: null, components: shipment.components.map((c, i) => ({ kind: c.kind, state: "unverifiable" as ComponentState, note: unanswerable[i]! })) };
+  if (shipment.components.length > 0 && unanswerable.every((n) => n != null)) return { status: "blocked", checkedAt: stamp(), checks: shipment.priorChecks ?? 0, reason: "applied_wording_missing", recheckAfter: null, components: shipment.components.map((c, i) => ({ kind: c.kind, state: "unverifiable" as ComponentState, note: unanswerable[i]! })) };
   const blockedRead = (note: string, reason: Reason): ShipmentVerification =>
-    ({ status: "blocked", checkedAt, components: allUnknown(shipment, note), checks, reason, recheckAfter: checks < MAX_CHECKS ? reportingDay(now() + 86_400_000) : null });
+    ({ status: "blocked", checkedAt: stamp(), components: allUnknown(shipment, note), checks, reason, recheckAfter: checks < MAX_CHECKS ? reportingDay(now() + 86_400_000) : null });
   let res: Awaited<ReturnType<typeof fetchPageHtml>>;
   try { res = await fetchPage(requested, new Map(), {}); } catch { return blockedRead("Your website did not answer, so this change could not be checked.", "page_unreachable"); }
   if (!res.ok) {
     if (/^http_(404|410)$/.test(res.detail ?? "")) {
       // NOT_FOUND INSIDE THE PUBLISH LAG IS THE SAME LAG (operator, 2026-08-29): Mark Done means applied in the editor and the site may be published once at the end of the session, so a page not there yet is re-read on the same bounded schedule rather than buried on read one.
-      return { status: "not_found", checkedAt, checks, reason: early ? "not_published_yet" : "address_mismatch", components: allUnknown(shipment, early ? "There is no page at that address yet. Sites are often published later in the session, so it is read again tomorrow." : "There is no page at that address right now."), recheckAfter: early ? reportingDay(now() + 86_400_000) : checks < MAX_CHECKS ? reportingDay(now() + 2 * 86_400_000) : null };
+      return { status: "not_found", checkedAt: stamp(), checks, reason: early ? "not_published_yet" : "address_mismatch", components: allUnknown(shipment, early ? "There is no page at that address yet. Sites are often published later in the session, so it is read again tomorrow." : "There is no page at that address right now."), recheckAfter: early ? reportingDay(now() + 86_400_000) : checks < MAX_CHECKS ? reportingDay(now() + 2 * 86_400_000) : null };
     }
     return res.reason === "robots_blocked" // the site's own standing instruction, answered once and never re-fetched
-      ? { status: "blocked", checkedAt, checks, reason: "unmeasurable", recheckAfter: null, components: allUnknown(shipment, "Your site's robots rules ask for this page not to be read, so it was not.") }
+      ? { status: "blocked", checkedAt: stamp(), checks, reason: "unmeasurable", recheckAfter: null, components: allUnknown(shipment, "Your site's robots rules ask for this page not to be read, so it was not.") }
       : blockedRead("Your website did not answer, so this change could not be checked.", "page_unreachable");
   }
   const profile = deps.loadProfile ? await deps.loadProfile(tenantId).catch(() => null) : await loadBusinessProfile(tenantId).catch(() => null);
@@ -350,20 +350,16 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
   const components = shipment.components.map((c) => ({ kind: c.kind, ...classify(c, live) })), seen = components.filter((c) => c.state !== "unverifiable");
   const status: ShipmentVerification["status"] = seen.length === 0 ? "blocked"
     : seen.every((c) => c.state === "verified") ? "verified" : seen.some((c) => c.state === "verified") ? "partially_verified" : "differs";
-  // A DIFFERENCE, OR A READING THAT GRADED NOTHING, IS RE-READ AND NEVER BURIED. CMSes serve the old page
-  // through caches and build queues for hours after a paste, so the first read routinely differs, and a page
-  // where every piece came back unreadable is a fact about that one read. Up to MAX_CHECKS bounded reads, two
-  // days apart; a verified answer is final on any read, and the third read's answer stands whatever it is.
-  // AND A READING TAKEN OFF A CAPTURE OLDER THAN THE CHANGE IS NOT ANSWERED BY FETCHING AGAIN: the same shell comes back every time, so it closes here rather than promising a day. The page itself reopens it the moment a newer capture lands, which is the rule shipmentsAwaitingVerification already carries.
-  const again = status !== "verified" && (early || checks < MAX_CHECKS) && !(shell && held && !fresh);
-  // WHAT GOOGLE SHOWS IS BANKED AFTER THE ROLL-UP AND NEVER INSIDE IT: a results page that has not caught up
-  // yet is a fact about Google, and letting it into `status` would take a landed change back off the board.
-  const graded = early && again ? components.map((c) => c.state !== "verified" && c.state !== "unverifiable" ? { ...c, note: `${c.note} Sites are often published later in the session, so this is read again tomorrow without counting against the check limit.` } : c) : components, shows = await googleShows(shipment, tenantId, live, deps, checkedAt);
+  // A DIFFERENCE, OR A READING THAT GRADED NOTHING, IS RE-READ AND NEVER BURIED. CMSes serve the old page through caches and build queues for hours after a paste, so the first read routinely differs, and a page where every piece came back unreadable is a fact about that one read. Up to MAX_CHECKS bounded reads, two days apart; a verified answer is final on any read, and the third read's answer stands whatever it is. AND A READING TAKEN OFF A CAPTURE OLDER THAN THE CHANGE IS NOT ANSWERED BY FETCHING AGAIN: the same shell comes back every time, so it closes here rather than promising a day. The page itself reopens it the moment a newer capture lands, which is the rule shipmentsAwaitingVerification already carries.
+  const again = status !== "verified" && (early || checks < MAX_CHECKS) && !(shell && held && !fresh), spent = !again && checks >= MAX_CHECKS && status !== "verified"; /* AND THE READING THAT SPENDS THE LAST CHECK SAYS SO, ON THE RECORD (2026-09-05): `checks` at the bound with no day promised is where the recheck ends, and a record that does not say it reads as one still waiting its turn. */
+  // WHAT GOOGLE SHOWS IS BANKED AFTER THE ROLL-UP AND NEVER INSIDE IT: a results page that has not caught up yet is a fact about Google, and letting it into `status` would take a landed change back off the board.
+  const said = <T extends { state: ComponentState; note: string }>(c: T, tail: string): T => c.state !== "verified" && c.state !== "unverifiable" ? { ...c, note: `${c.note} ${tail}` } : c;
+  const graded = early && again ? components.map((c) => said(c, "Sites are often published later in the session, so this is read again tomorrow without counting against the check limit.")) : spent ? components.map((c) => said(c, `That is ${MAX_CHECKS} reads of this page, which is the limit, so this one stands and nothing more is read for it. Apply it again and mark it done, or make the next change on this page and measure that.`)) : components, shows = await googleShows(shipment, tenantId, live, deps, stamp());
   // ONE TYPED CAUSE FOR THE WHOLE READING, off the pieces that produced it, so an unconfirmed backlog partitions by what is actually wrong instead of by the outcome. The operator's own wording wins the tie: it is the one cause that ends the waiting rather than extending it. The cause never travels inside a component.
   const causes = graded.map((c) => c.reason).filter((r): r is Reason => !!r);
   const reason: Reason | null = status === "verified" ? (shows?.state === "not_verified" ? "google_not_updated" : null)
     : shell && held && !fresh ? "stale_reading" : causes.find((r) => r === "published_differently") ?? causes[0] ?? "unmeasurable";
-  return { status, checkedAt, checks, reason, components: (shows ? [...graded, shows] : graded).map(({ kind, state, note }) => ({ kind, state, note })), recheckAfter: again ? reportingDay(now() + (early ? 1 : 2) * 86_400_000) : null };
+  return { status, checkedAt: stamp(), checks, reason, components: (shows ? [...graded, shows] : graded).map(({ kind, state, note }) => ({ kind, state, note })), recheckAfter: again ? reportingDay(now() + (early ? 1 : 2) * 86_400_000) : null };
 }
 
 /** WHAT THE OPERATOR SAID THEY APPLIED, with the exact copy WHERE I HOLD IT. A Shipment names the
@@ -407,8 +403,8 @@ export async function shipmentsAwaitingVerification(tenantId: string, limit = MA
     if (r.verification == null) return true;
     const at = r.verification.recheckAfter ?? null;
     // A CLOSED READING IS REOPENED BY THE PAGE ITSELF, exactly once per capture. A row terminal since August carries a live headline equal to its applied copy byte for byte, and nothing could ever ask again. No fetch decides this: the capture already on file does, and the answer the re-read writes back is stamped later than that capture, so the same capture can never open it twice.
-    // AND A RECORD THAT HOLDS NO WORDING IS NOT REOPENED BY A CAPTURE EITHER: a newer read of the page cannot answer a record that names nothing to look for, so it is reconciled from what it holds and never queued for live work again.
-    if (!at) return r.verification.status !== "verified" && r.verification.reason !== "applied_wording_missing" && (moved.get(canonicalUrlKey(r.page))?.fetchedAt ?? "") > (r.verification.checkedAt ?? "");
+    // AND A RECORD THAT HOLDS NO WORDING IS NOT REOPENED BY A CAPTURE EITHER: a newer read of the page cannot answer a record that names nothing to look for, so it is reconciled from what it holds and never queued for live work again. AND THE BOUND HOLDS AT THIS DOOR TOO (measured, 2026-09-05): it was written into the reading and never into the door that reopens one, so a shipment on a page that keeps being captured came back for a twenty-eighth live read against a bound of three. A reading closed on its last check is the last one there is, whatever the page does next; the next change made to that page is measured on its own record.
+    if (!at) return r.verification.status !== "verified" && r.verification.reason !== "applied_wording_missing" && (r.verification.checks ?? 1) < MAX_CHECKS && (moved.get(canonicalUrlKey(r.page))?.fetchedAt ?? "") > (r.verification.checkedAt ?? "");
     return today >= at;
   };
   return rows
@@ -429,10 +425,13 @@ export async function verifyDueShipments(tenantId: string, deps: VerifyDeps = {}
   // A TARGETED CHECK SELECTS ITS SHIPMENT BEFORE ANY SWEEP LIMIT: filtering after the three-row cap meant a target fourth in line was never the one verified (Codex, 2026-08-28). The sweep keeps its own cap.
   const due = (await shipmentsAwaitingVerification(tenantId, only ? TARGET_SCAN_BOUND : MAX_VERIFICATIONS_PER_PASS, deps)).filter((s) => !only || only(s)).slice(0, MAX_VERIFICATIONS_PER_PASS); let written = 0; const serpReads = { left: SERP_READS_PER_PASS }; // ONE ceiling for the whole pass, carried across every shipment in it
   const unsavable = new Set<string>(); // BOUNDED IN-RUN SKIP, carried on the pass and nowhere else: an answer that could not be SAVED means the shipment is still due, so a second shipment at the SAME address would send me back to the customer's website inside one pass for a result I already know I cannot store
+  const read = new Map<string, ReturnType<NonNullable<VerifyDeps["fetchPage"]>>>(), stored = new Set<string>(); /** ONE ADDRESS IS READ ONCE A PASS, AND STORED ONCE (measured, 2026-09-05). Four shipments sit on iranopedia.com/iran-animals, so one pass fetched that page four times and wrote four captures of it inside five seconds; 79 of the account's 1,086 stored page versions are that one address, and a pile like that is what the body reader's row budget has to page around. The fetch is shared across the shipments at one address and the capture is written once, so every shipment still gets its own reading of the same words. */
+  const fetchOnce: NonNullable<VerifyDeps["fetchPage"]> = (url, ...rest) => { const k = canonicalUrlKey(url), had = read.get(k); if (had) return had; const got = (deps.fetchPage ?? fetchPageHtml)(url, ...rest); read.set(k, got); return got; },
+    writeOnce = async (snapshot: PageSnapshot, tenant: string): Promise<void> => { const k = canonicalUrlKey(snapshot.url); if (stored.has(k)) return; stored.add(k); await (deps.writeOwnedPage ?? ((s: PageSnapshot, t: string) => syncPageSnapshots([s], t)))(snapshot, tenant); };
   for (const shipment of due) {
     const address = canonicalUrlKey(shipment.url);
     if (unsavable.has(address)) continue;
-    const verification = await verifyShipment(tenantId, shipment, { serpReads, ...deps }).catch(() => null);
+    const verification = await verifyShipment(tenantId, shipment, { serpReads, ...deps, fetchPage: fetchOnce, writeOwnedPage: writeOnce }).catch(() => null);
     if (!verification) continue;
     // A verification that could not be SAVED is not a verification: the shipment stays due and I check it
     // again on the next visit, which is the ONE case where the same page is read twice.

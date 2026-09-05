@@ -3,7 +3,7 @@ import type { SignalType, AssetType } from "@/lib/constants";
 type HypothesisSource = "inferred" | "recommendation" | "operator";
 
 /**
- * Phase 1 — schema-experiment attribution pipeline.
+ * Phase 1: schema-experiment attribution pipeline.
  *
  * `change_family` groups edits by the lever they test. `schema_experiment` is
  * the first family; `content_experiment`, `metadata_experiment`, and
@@ -18,7 +18,7 @@ type ChangeFamily =
   | "linking_experiment";
 
 /**
- * Phase 1 — exactly three buckets for schema changes. `schema_content_edited`
+ * Phase 1: exactly three buckets for schema changes. `schema_content_edited`
  * must NEVER be conflated with `schema_added` (tweaking wording inside an
  * existing FAQPage is not the same lever as adding a BreadcrumbList).
  */
@@ -64,7 +64,7 @@ export type ChangelogEntry = {
   dedupe_reviewed_at?: string;
 
   // ---------------------------------------------------------------------
-  // Phase 1 — schema-experiment attribution fields.
+  // Phase 1: schema-experiment attribution fields.
   //
   // All optional. Legacy rows have these fields undefined; only rows
   // produced by `confirmFindingAsChange()` or the scanner's post-deploy
@@ -103,7 +103,7 @@ export type ChangelogEntry = {
   page_scope?: "single_url" | "sitewide";
 
   // ---------------------------------------------------------------------
-  // Fix 2 (2026-04-21) — rec → finding → changelog linkage
+  // Fix 2 (2026-04-21): rec to finding to changelog linkage
   //
   // Stamped by `confirmFindingAsChange` when the source finding was
   // auto-linked to a previously-accepted recommendation. Attribution
@@ -124,7 +124,7 @@ export type ChangelogEntry = {
   source_pattern_id?: string | null;
 
   // ---------------------------------------------------------------------
-  // Sprint 6A.1 Phase 1 (2026-04-24) — typed-edit attribution columns.
+  // Sprint 6A.1 Phase 1 (2026-04-24): typed-edit attribution columns.
   //
   // Stamped by `acceptRecommendation` when the source rec carried
   // `recommended_edits` rows (Phase 6A.1.11+). Each accepted rec
@@ -136,7 +136,7 @@ export type ChangelogEntry = {
   //   - legacy rows (pre-Phase-6A.1)
   //   - rows confirmed from findings (no SpecificEdit involved)
   //   - rows from recs that had no recommended_edits (Phase 6A.1.12
-  //     fallback path — preserves legacy single-changelog behavior)
+  //     fallback path, preserves legacy single-changelog behavior)
   // ---------------------------------------------------------------------
 
   /** ActionType from `ACTION_TYPE_REGISTRY` (e.g. "edit_title",
@@ -147,7 +147,7 @@ export type ChangelogEntry = {
   target_element_key?: string;
 
   // ---------------------------------------------------------------------
-  // Recommendation Lifecycle OS — Phase 1 (2026-04-27).
+  // Recommendation Lifecycle OS, Phase 1 (2026-04-27).
   //
   // ISO timestamp at which the (future Phase 3) match engine first
   // confirmed the underlying edit is live on the page. Source:

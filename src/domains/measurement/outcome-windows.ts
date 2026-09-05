@@ -6,7 +6,7 @@
  * nothing else, never to the whole ledger. PURE except for the read function the caller injects.
  */
 
-export type DayRange = { from: string; to: string };
+type DayRange = { from: string; to: string }; // INTERNAL: `mergeRanges` and `readPartitioned` hand this shape back, so a caller names it by what it gets rather than by a second public name (export ceiling, 2026-09-05)
 
 export const addDays = (day: string, n: number): string =>
   new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);

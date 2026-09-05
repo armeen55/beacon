@@ -10,7 +10,7 @@ import { CAUSE_LEVERS, withholdReason } from "./authorization";
 
 /** WHAT ONE KIND OF CHANGE HAS ACTUALLY DONE ON THIS SITE, off the finished readings in its own ledger.
  *  A family only votes once enough of its readings have finished; under that it is noise wearing a number. */
-const MIN_FINISHED_READINGS = 3;
+export const MIN_FINISHED_READINGS = 3; // EXPORTED, AND THE ONE PLACE THIS NUMBER LIVES (2026-09-05): the Results page carried its own copy of it to say what a family record has and has not changed, and a mirror is a second answer waiting to disagree
 type FamilyHistory = ReadonlyMap<string, { readings: number; netLift: number }>;
 
 /** THE ONE SCORING CONTEXT A DRIVE HOLDS, read by every number this file produces: what this account's own closed readings say (`familyHistory`), which pages already carry a change under measurement, and `batch`, every change the decision is being made among, so "how many others land on this page" is one count over one population instead of a number each caller works out for itself. Funding used to pass none of it while the displayed queue passed all of it, so one row answered to two authorities. Every field is optional and absent means what it has always meant: nothing learned, nothing measuring, nothing else on the page. */

@@ -95,7 +95,7 @@ export type ResearchRunProgress = {
     /** What became of the funded work on the last drive, so a cycle that funded five and settled one can be READ rather than guessed at. */
     outcomes?: { /** THE PASS THAT PRODUCED THESE RECEIPTS, by its own cycle key, so a reader of the row can prove whose answer it is holding rather than trusting that nothing carried them forward. */ pass?: string; readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[];
       /** The COMPLETE per-page receipts and the ledger reconciliation, durable so a later read reconstructs the dispatch without logs (Codex, 2026-08-23). */
-      receipts?: unknown[]; ledger?: { before: number; after: number; delta: number; metered: number; unexplained?: number; reconciled: boolean } } };
+      receipts?: unknown[]; ledger?: { before: number; after: number; delta: number; metered: number; unexplained?: number; reconciled: boolean }; /** HOW MANY TEMPLATE SIBLINGS THE SWEEP'S OWN RULE HELD AND HOW MANY THE FAMILY HOLDS, summed over the rows it judged. It was computed on the producer's receipt and dropped before the row was written (measured on run tenant-iranopedia:2026-09-05, familyRead absent from every stored pass), so a verdict that depends on a page's family could not be checked against the family that was read. */ familyRead?: { asked: number; loaded: number } } };
   /** Slice 6: real persisted funnel counters (never fabricated). */
   funnel?: {
     rawKeywords?: number; normalizedKeywords?: number; retainedKeywords?: number;

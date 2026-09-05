@@ -80,7 +80,7 @@ export { resolveCurrentBasis } from "./load-proposals";
 // Proposing + ranking + validation entry points
 export type { ProposeOptions } from "./propose";
 export { proposeExistingPageChange } from "./propose";
-export { rankProposals, proposalValueScore } from "./rank-proposals";
+export { rankProposals, proposalValueScore, MIN_FINISHED_READINGS } from "./rank-proposals";
 // THE ONE COMPLETENESS BOUNDARY every surface asks: has Beacon finished this deliverable, or is it still an
 // opportunity being developed? Empty means it is a Change; anything else keeps it out of the queue, out of
 // Today, out of measurement, and out of Mark done.

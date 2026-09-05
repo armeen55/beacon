@@ -160,7 +160,7 @@ function bodyOf(row: Row): OwnedPageBody {
   const truncated = passages.length < stored.length || (full.length >= CRAWL_BODY_TEXT_CHARS);
   // TRUNCATION RECORDS EXACTLY WHAT IS HELD, whichever verdict it lands under, and says WHOSE ceiling cut it.
   const range = passages.length < stored.length
-    ? ` I am holding passages 1 to ${passages.length} of the ${stored.length} on file; passages ${passages.length + 1} to ${stored.length} are past my ${MAX_PAGE_CHARS} character ceiling for one page.`
+    ? ` Passages 1 to ${passages.length} of the ${stored.length} on file are held here; passages ${passages.length + 1} to ${stored.length} are past the ${MAX_PAGE_CHARS} character ceiling for one page.`
     : truncated
       ? ` This page is longer than the ${CRAWL_BODY_TEXT_CHARS} characters one crawl keeps, so the end of it is not on file.`
       : "";

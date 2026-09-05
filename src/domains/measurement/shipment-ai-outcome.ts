@@ -14,7 +14,7 @@ import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { readAiObservations, type AiObservationRecord } from "@/domains/evidence/ai-visibility/ai-observations";
 import { reportingDay } from "@/lib/reporting-day";
 import { cameBack, countLinks, dayOfInstant, namedShare, ownedRootOf, r3, readRows, type LinkCounts, type ReadOpts } from "./ai-outcomes";
-import { addDays, daysBetween, mergeRanges, overlaps, readPartitioned, type DayRange } from "./outcome-windows";
+import { addDays, daysBetween, mergeRanges, overlaps, readPartitioned } from "./outcome-windows";
 import { AI_OUTCOME_LINES } from "./shipment-ai-lines";
 // Same lazy rule on this side of the pair.
 const boundaryOf: typeof AI_OUTCOME_LINES.boundaryOf = (...a) => AI_OUTCOME_LINES.boundaryOf(...a);
@@ -200,7 +200,7 @@ function shipmentWindow(shipment: ShipmentForOutcome, nowDay: string): { stamp: 
 /** THE DAYS ONE SHIPMENT NEEDS ON FILE: its own 56 day window and nothing else. The legacy-baseline recount
  *  that once widened this was DELETED (Codex, 2026-08-21): zero live rows carry a pre-`analyzed` baseline,
  *  so the apparatus defended nothing, and a future row that somehow lacks a denominator reads as no baseline. */
-function rangesFor(_shipment: ShipmentForOutcome, window: { stamp: string; from: string; to: string }): DayRange[] {
+function rangesFor(_shipment: ShipmentForOutcome, window: { stamp: string; from: string; to: string }): ReturnType<typeof mergeRanges> {
   return [{ from: window.from, to: window.to }];
 }
 

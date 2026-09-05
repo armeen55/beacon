@@ -1,5 +1,5 @@
 /**
- * snapshot-loader (2026-07-22) — the I/O edge for the EvidenceSnapshot kernel.
+ * snapshot-loader (2026-07-22): the I/O edge for the EvidenceSnapshot kernel.
  * It REUSES the existing cached connector readers (it does not re-read or
  * re-shape connectors) to assemble the six loaded-source payloads, then hands
  * them to the PURE `buildEvidenceSnapshot`. Every source is wrapped fail-soft:
@@ -82,7 +82,7 @@ async function loadResearch(
 
 /**
  * Assemble a normalized EvidenceSnapshot for a tenant from cached evidence only
- * ($0 — no paid API call). Deterministic given the cache; the only clock is
+ * ($0, no paid API call). Deterministic given the cache; the only clock is
  * `now` (→ scope.builtAt).
  */
 export function loadEvidenceSnapshot(tenantId: string, options: LoadEvidenceSnapshotOptions = {}): Promise<EvidenceSnapshot> {
