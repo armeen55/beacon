@@ -129,4 +129,18 @@ describe("the standard says what the work is, and the id says where the words ca
     await ask(true); const madeUp = asked.join(" "); asked.length = 0; await ask(false); const observed = asked.join(" ");
     expect([madeUp.includes("draft-so-far-1"), madeUp.includes("page-copy-1"), observed.includes("page-copy-1"), madeUp.includes(s.lines[0]!)],
       "a new page's own earlier paragraphs still reach the writer, under the class that says a model wrote them, so no gate can read them as words observed on a live page; a real page's passages are unchanged").toEqual([true, false, true, true]); });
+  /** A SEARCH PHRASE IS NOT A HEADWORD, AND A READER IS NOT A SEARCH BOX (live 07:01Z). The first substantive body answer the ordinary paid walk ever drafted opened "Iran flag before revolution: It served as the state flag ...", the tracked search words standing as a label in front of the sentence, which is the shape the packet hands the writer its checked facts in and not the shape a reader meets a subject in. Asked of the missing-answer standard alone: a summary line may carry a colon and its own standard says so. */
+  const HEADWORD = "it opens with the search words as a label and a colon";
+  it.each(SITES)("refuses the search phrase used as a label on a missing answer, takes the same content as a reader's sentence, and leaves every other standard's colon alone, on $t", (s) => {
+    const said = (standard: string, after: string): string[] => staleCopyReasons(card(s, { changeFamily: "section", claims: [{ text: "c", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: s.lines[0]! }],
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after, where: 'A new section headed "H"' }, assignment: ASSIGN({ standard }) }), new Map([[canonicalUrlKey(s.url), bodyOf(s)]]) as never, [], { title: s.title, h1: s.h1, outline: s.heads } as never, false, []);
+    const labelled = `${s.q}: ${s.lines[2]}`, readerly = s.lines[2]!;
+    expect([said("missing_answer", labelled).some((r) => r.includes(HEADWORD)), said("missing_answer", readerly).some((r) => r.includes(HEADWORD)), said("restructuring", labelled).some((r) => r.includes(HEADWORD)), said("summary", labelled).some((r) => r.includes(HEADWORD))],
+      "the answer is written for a reader, so the search words standing as a label in front of a colon are refused where the missing-answer standard applies and nowhere else").toEqual([true, false, false, false]); });
+  it.each(SITES)("hands the same refusal to the writer at the door the next paid redraft is briefed from, on $t", async (s) => {
+    const gap = card(s, { changeFamily: "section", treatment: "add_answer_section", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Add the missing answer." },
+      causeFinding: { cause: "retrieved_not_cited", action: null, evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [], falsifier: "f", explanation: "e", payload: { cause: "retrieved_not_cited", engine: "chatgpt", promptText: s.q, missing: s.lines[2]!, aeoKind: "missing_information" } } as never });
+    const wrote = async (after: string) => (await run(s, gap, { field: "answer_block", before: null, after, ...TAIL, placementAnchor: s.h1, naturalHeading: s.heads[0]!, measurementTarget: s.q, claims: [{ text: after, supportedBy: ["page-copy-3"] }] })).why;
+    expect([(await wrote(`${s.q}: ${s.lines[2]}`)).some((r) => r.includes(HEADWORD)), (await wrote(s.lines[2]!)).some((r) => r.includes(HEADWORD))],
+      "the writer is refused for it before a cent is spent reading the copy for sense, and the same content in a reader's sentence is not").toEqual([true, false]); });
 });

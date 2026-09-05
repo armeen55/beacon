@@ -236,7 +236,7 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
     const ctx = { rowVersion: loaded.rowVersion };
     const profile = await d.loadProfile(tenantId);
     if (!profileConfirmed(profile)) {
-      return { status: "failed", cursor, progress: discProgress(state), detail: "I need your confirmed business basics before I can research keywords." };
+      return { status: "failed", cursor, progress: discProgress(state), detail: "Waiting on your confirmed business basics: keyword research cannot start without them. Confirm them and the next pass picks up here." }; // BEACON VOICE, AND THE OPERATOR READS THIS ONE (round-four residual 3): the pause reason is printed on the research status line, so it says what is waiting, what it is waiting on and what clears it, with no first person and no lab word.
     }
     const stage = (cursor?.stage as string) ?? "labs";
     const cases = caseLookup(state, planCases);

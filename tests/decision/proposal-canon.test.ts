@@ -32,7 +32,7 @@ vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: (
 import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, answerReviewedProposal, saveChangeProposal,
   transitionProposalToImplemented } from "@/domains/decision/proposal-store";
 import { confirmedVersion } from "@/domains/decision/completeness"; import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
-import { reconcileImplementedWithoutShipment } from "@/domains/decision/implemented-repair";
+import { reconcileImplementedWithoutShipment } from "@/domains/decision/implemented-repair"; import { validateProposal } from "@/domains/decision/validate-proposal";
 import { componentIdOf, deserializeChangeProposal, serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
 import { supabaseFake, type Row } from "../helpers/supabase-fake";
 Object.assign(db.client, supabaseFake({
@@ -312,6 +312,22 @@ describe("promotion asks the canon's own quality status, not just its verdict", 
     return { ...row, semanticReview: { of: copyKey(row), version: REVIEW_CONTRACT, claims: [{ i: 0, by: ["fact-1"], entailed: true }] } }; };
   it.each([["a specific fact with no cited source (missing_source)", "The official record of Nowruz traditions spans centuries."], ["a fresh count nobody confirmed yet (useful_but_needs_review)", "Nowruz customs span 150+ regional variations."]] as const)("refuses promotion on %s even though the verdict is only needs_review", async (_label, after) => { const row = held(after); await saveChangeProposal(row); expect((await answerReviewedProposal(T, row.id, confirmedVersion(row), row.basis ?? null, PROMOTE)).status).toBe("refused"); });
   it("still promotes the sound row: needs_review only because a human look is owed, and the quality itself is ready", async () => { const row = held("Nowruz Traditions"); await saveChangeProposal(row); expect((await answerReviewedProposal(T, row.id, confirmedVersion(row), row.basis ?? null, PROMOTE)).status).toBe("promoted"); }); });
+/** ONE DEFINITION OF AUTHORITY, DECIDED AT THE CONSUMER THAT ADMITTED THE READING (live 07:01Z, /iran-flags/pahlavi-iran-flag). The first substantive body answer the ordinary paid walk ever drafted under the proportional bar was refused here for "no cited authoritative source" while its own claim cited a checked publisher sentence banked on the row, because the rule read the account's trusted-domain list and the proposal's source pack and never the row's own checked support. TWO SYNTHETIC ACCOUNTS, neither a real customer and neither on the same subject. */
+describe("a claim standing on a reading the bar admitted is a cited authoritative source", () => {
+  const ACCOUNTS = [
+    { t: "tenant-one", q: "harbour seal pupping season", page: "Harbour seals haul out on the sandbar every summer, and the sandbar count was taken in 1996.", read: "Pupping runs from June to August and the survey of this colony was made in 1998.",
+      both: "Pupping runs from June to August, and the survey of this colony dates from 1998, while the sandbar count dates from 1996.", wrong: "Pupping runs from June to August, and the survey of this colony dates from 2011.", theirs: "2011" },
+    { t: "tenant-two", q: "temporada de bordado a mano", page: "El bordado a mano se trabaja sobre tela tensada, y el taller abrio en 1996.", read: "La escuela de bordado se fundo en 1998 y sus registros empiezan ese ano.",
+      both: "La escuela de bordado se fundo en 1998, y el taller abrio en 1996.", wrong: "La escuela de bordado se fundo en 2011, y sus registros empiezan ese ano.", theirs: "2011" },
+  ] as const;
+  const canon = (a: (typeof ACCOUNTS)[number], after: string, cites: string) => validateProposal(proposal({ id: `${a.t}::/p::existing_edit::missing_answer`, tenantId: a.t, changeFamily: "section", primaryQuery: a.q, status: "needs_review",
+    recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after }, claims: [{ text: after, supportedBy: [cites] }], supportFacts: [{ id: "fact-1", fact: `${a.q}: ${a.read}`, url: "https://reference.example/x" }, { id: "page-copy-1", fact: a.page }] }),
+    { pageBodyText: a.page, evidenceText: `${a.page} ${a.read} A rival page mentions a ${a.theirs} survey.`, now: new Date("2026-09-05T07:01:00.000Z") });
+  it.each(ACCOUNTS)("takes the figure its own admitted reading carries, refuses the figure nothing on the row carries, and asks nothing of a banked passage no claim cites, on $t", (a) => {
+    const both = canon(a, a.both, "fact-1"), wrong = canon(a, a.wrong, "fact-1"), uncited = canon(a, a.both, "page-copy-1");
+    expect([both.qualityStatus, wrong.qualityStatus, wrong.reasons.some((r) => r.includes(`("${a.theirs}")`)), uncited.qualityStatus],
+      "an admitted reading a claim names is the citation, the rule then fires for the one figure no admitted support carries and says which, and a passage banked on the row that no claim stands on authorizes nothing").toEqual(["ready", "missing_source", true, "missing_source"]); });
+});
 /** A SPLIT IS SETTLED BY THE PIECES, NOT BY THE FIELD THE FIRST ONE HAPPENS TO USE. A differentiation bundle is filed under its first component's field, so the two-page Iran flag bundle arrived as `title-family`, missed the ownership exception, and a FINISHED ready row was served from the research lane where nobody can act on it: the store said 3 ready and the customer queue showed 2. */
 describe("a bundle that touches both competing pages treats the split", () => {
   it("is not withheld for using a title field on each page", async () => {
