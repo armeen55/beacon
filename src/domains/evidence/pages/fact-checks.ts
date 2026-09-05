@@ -318,7 +318,8 @@ function citationOfQuote(proposed: string, quotes: readonly string[], current = 
  *  judges the banked row, through the ONE rule below, so a row can never be banked `confirmed` and then be
  *  refused at the door for ever, reopened, re-researched and refused again. `FactCheck` satisfies this. */
 type CorrectionCandidate = { subject: string; current: string; proposed: string | null; verdict?: string;
-  sources: readonly { kind: SourceKind; says: string }[] };
+  /** `support` is this source's own artifact ruling on THIS claim, absent where none was ever derived. */
+  sources: readonly { kind: SourceKind; says: string; support?: ClaimSupport }[] };
 
 /** WHY A CORRECTION MAY NOT BE PUBLISHED, in one typed sentence, or null. THE ONE AUTHORIZATION RULE, asked by
  *  the evidence run before it banks and by the card door before it offers, so a refusal, a withdrawal and a
@@ -331,9 +332,9 @@ type CorrectionCandidate = { subject: string; current: string; proposed: string 
  *  already carry; it may never supply a word of it. That is the whole boundary: it decides which sources may
  *  speak, never what their words mean, and semantic reassembly stays the paid reviewer's residual. */
 export function unauthorizedReason(c: CorrectionCandidate): string | null {
-  const qualified = c.sources.filter((s) => s.says.trim() !== "" && !HEDGED.test(s.says) && !definesOtherName(s.says, c.subject));
-  const authoritative = qualified.filter((s) => AUTHORITATIVE_KIND.has(s.kind));
-  if (authoritative.length === 0) return "no authoritative source that was read, is unhedged and is about this subject stands behind it";
+  const qualified = c.sources.filter((s) => s.says.trim() !== "" && !HEDGED.test(s.says) && !definesOtherName(s.says, c.subject)), additive = c.current.trim() === "";
+  /* AND THE AUTHORITY IT OWES IS PROPORTIONAL TO WHAT IT RISKS (operator, 2026-09-01, stated for sections at decision/completeness's `openHold`: an addition owes ONE publisher, a replacement owes two). A CORRECTION replaces words the page publishes, so every material word of it may be supplied only by an authoritative KIND, which is the Parisa boundary above. A MISSING ANSWER adds a sentence the page does not carry and a reader undoes by deleting it, so it also stands on a publisher that was READ and whose own stored passage is shown to entail this exact claim, which is the strongest thing this codebase can know about a source and is stronger than its kind. Measured on the acceptance account (2026-09-05): the pre-1979 flag answer is quote-bound to a publisher that was fetched, while the encyclopedia beside it banked an empty passage, so the kind test alone refused a reading nothing else was wrong with. No publisher list lives here or anywhere: a host earns this by having been read and by carrying the claim. */ const authoritative = qualified.filter((s) => AUTHORITATIVE_KIND.has(s.kind) || (additive && s.support?.supported === true));
+  if (authoritative.length === 0) return additive ? "no publisher that was read carries a passage of its own standing behind this answer" : "no authoritative source that was read, is unhedged and is about this subject stands behind it";
   // A ROW WITH NO CURRENT WORDING IS TESTED BY ITS VERDICT, AND HERE BY NOTHING ELSE (reviewer, 2026-09-02): it proposes what the page LACKS, so there is no quotation to grade, and the only thing that says the researched statement answers the question this page's own subject was researched for is `page_correct`. Live at 17:03 PDT on /iran-animals/persian-cobra: the sources were about AH-1 Cobra attack helicopters, the judge said exactly that and answered `undecidable`, and this door read the confirmed reading alone and authorized "Iran has AH-1 Cobra attack helicopters." as the missing fact for a page about a snake. AND THE REFUSAL NAMES WHICH FAILURE IT IS: under `page_wrong` or `page_imprecise` the judge DID answer and returned a correction verdict for a question the page does not answer, so the sentence about a different subject is false there, and three live rows on /persian-female-first-names carry exactly that shape.
   if (c.current.trim() === "" || !c.proposed?.trim()) return c.current.trim() === "" && c.verdict !== "page_correct" ? (c.verdict === "page_wrong" || c.verdict === "page_imprecise" ? "the judge returned a correction verdict for a question the page does not answer, so no statement is authorized" : "the judge did not answer the question about this page's own subject, so the statement proposed is about something else") : null;
   const quotes = authoritative.map((s) => s.says);
@@ -347,7 +348,8 @@ export function authorizedCorrections(checks: readonly FactCheck[],
   tenantId: string): FactCheck[] {
   return checks.filter((c) => c.state === "checked"
     && c.rulesVersion === rulesVersionFor(c)
-    && c.confidence === "confirmed"
+    // THE GRADE IT OWES IS THE GRADE ITS TREATMENT RISKS, NOT ONE GRADE FOR EVERYTHING (operator's proportional rule, 2026-09-01; measured 2026-09-05). `confirmed` is what two independent sources earn between them, and it is right for a CORRECTION, which replaces published words and whose mistake survives until somebody notices it. An ADDITIVE answer states what the page never said, and a reader undoes it by deleting the sentence, so the operator's own section rule already asks one publisher for it. Held to `confirmed`, the account's whole missing-answer lane was dead: the money was spent every drive, the reading landed with its sources against the right page version, and the row owed the identical purchase again for ever. `likely` is a reading two ordinary sources or one authoritative one carried; `disputed` and `unsupported` are refused here as they always were, and the authority, subject-identity and quote-binding rule below is asked of an addition exactly as hard.
+    && (c.current.trim() === "" ? c.confidence === "confirmed" || c.confidence === "likely" : c.confidence === "confirmed")
     // A CORRECTION corrects wording the page carries, so only a wrong or imprecise verdict authorizes one. A row
     // with NO current wording is the other authorized shape: information the page LACKS, researched by the
     // missing-information loop, and ITS verdict is the test too, asked once by the one rule below, which

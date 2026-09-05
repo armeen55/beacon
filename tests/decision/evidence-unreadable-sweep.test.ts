@@ -118,6 +118,22 @@ describe("the sweep only retires what a producer that FINISHED rewrote", () => {
     const at = (slug: string) => owed.find((o) => o.key.includes(slug))!;
     expect([owed.length >= 2, at("zzz-worth-most").kind, at("aaa-worth-little").kind], "both rows owe the same typed reading and both are on the list").toEqual([true, "serp", "serp"]);
     expect([at("zzz-worth-most").rank! >= 1, at("zzz-worth-most").rank! < at("aaa-worth-little").rank!], "and the one worth 900 clicks is stamped above the one worth 2, whatever order the ids came back in").toEqual([true, true]); });
+  /** A NEED TRAVELS TO THE RUNTIME DETACHED FROM ITS ROW (round 2.5 reviewer, closed 2026-09-05). The field that named the row the money is for was declared and nothing wrote it, so it was deleted at landing; before that, the store would have erased it anyway, because a zod object strips what it does not declare and `proposalId` on a review need is lost that way on every persist today. It is written where the owed list is minted and a row is in hand, never by the ladder, which is persisted and would rewrite every stored row carrying an evidence need. */
+  it.each(["tenant-one", "tenant-two"])("names on every owed reading the row the money is for and the rung it unlocks, and the store keeps both through a write [%s]", async (tenant) => {
+    env.snapshot = snapshotWith("fresh");
+    const written: ChangeProposal = { ...openCard("meta"), id: `${tenant}::/zzz-written::existing_edit::meta`, tenantId: tenant, pagePath: "/zzz-written", pageUrl: "https://fixture.example/zzz-written", researchOnly: false, changeFamily: "meta",
+      recommendedChange: { kind: "existing_edit", field: "meta", before: "The old description.", after: "A finished description for this page that says what only this page answers." } };
+    const faulted: ChangeProposal = { ...written, id: `${tenant}::/aaa-faulted::existing_edit::meta`, pagePath: "/aaa-faulted", pageUrl: "https://fixture.example/aaa-faulted", faults: ["it repeats the search instead of naming what the page answers"] };
+    env.store = new Map([[written.id, written], [faulted.id, faulted]]);
+    const owed = (await produceProposalsForTenant(tenant)).paid.evidenceOwed ?? [];
+    const at = (slug: string) => owed.find((o) => o.key.includes(slug));
+    expect([at("zzz-written")?.unlocks?.proposalId, at("zzz-written")?.unlocks?.step], "a row whose words no gate has faulted owes a reading of those words once the reading it is blocked on lands").toEqual([written.id, "review"]);
+    expect([at("aaa-faulted")?.unlocks?.proposalId, at("aaa-faulted")?.unlocks?.step], "and a row whose words a gate has already faulted owes the corrective draft instead").toEqual([faulted.id, "redraft"]);
+    const { serializeChangeProposal, deserializeChangeProposal } = await import("@/domains/decision/contracts");
+    const carried: ChangeProposal = { ...written, obligation: { kind: "evidence", need: { kind: "factual_source", query: "things to do in shiraz", reasonCode: "acquire_factual_source", proposalId: written.id, unlocks: { proposalId: written.id, step: "draft" } } } as ChangeProposal["obligation"] };
+    const back = deserializeChangeProposal(serializeChangeProposal(carried));
+    const need = (back?.obligation as { need?: { proposalId?: string; unlocks?: { proposalId: string; step: string } } } | undefined)?.need;
+    expect([need?.proposalId, need?.unlocks], "and the store keeps both through a write: a zod object strips what it does not declare, and this one declares them").toEqual([written.id, { proposalId: written.id, step: "draft" }]); });
   it("writes nothing at all when it is told not to persist", async () => {
     env.snapshot = snapshotWith("fresh"); env.aiWindow = "fail";
     const stale = openCard("title"), theirs = openCard("ai_answer_gap");

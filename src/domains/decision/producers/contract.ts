@@ -64,7 +64,9 @@ export type EvidenceRequirement = { kind: "serp" | "page_source" | "competitor_p
   /** Where a rival treats that topic, as BRIEFING provenance only: it says why the topic was judged missing, and its copy may never support a claim. */
   rivalUrl?: string;
   /** THE EXACT CHANGE THIS READING IS ABOUT, where the requirement is about one row rather than one search. `semantic_review` reads the words on ONE stored change, so naming it here is what lets the runtime load that single row instead of the whole account's queue. */
-  proposalId?: string; };
+  proposalId?: string;
+  /** WHAT THIS PURCHASE UNLOCKS: the exact row the money is for and the rung that row is blocked at once the reading lands, in the obligation ladder's own vocabulary. A need travels to the runtime detached from its row, so without this a receipt can say what was bought and never what it was bought FOR, and a landed reading costs a whole re-walk to find the one row it moved. Written where the owed list is minted and a row is in hand, never by the ladder, which is persisted and would rewrite every stored row carrying an evidence need. Absent on a need filed before it existed, and absent is never an excuse to guess. */
+  unlocks?: { proposalId: string; step: "draft" | "sections" | "redraft" | "review" | "settle" }; };
 
 /** THE ONE RESOLUTION VOCABULARY for a refused draft, produced by BOTH refusal producers: the deterministic
  *  drafting gates (which run before any model call and often refuse without one) and the model evaluator reading

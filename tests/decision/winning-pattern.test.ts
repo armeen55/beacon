@@ -44,6 +44,25 @@ describe("the facts I read off the winning pages myself", () => {
     const legacy = extractPageFacts([{ url: "https://old.example/rugs", extract: { title: "Persian rugs", h1: null, wordCount: 900, headings: ["Where they come from"], faqCount: 0 } }])[0]!; // A row stored before those fields existed reads the same way: absent, never false.
     expect([legacy!.hasList, legacy!.hasTable, legacy!.hasSchema, legacy!.opening, legacy!.faqCount, legacy!.domain]).toEqual([null, null, null, null, 0, "old.example"]);
     const cards = extractPageFacts([{ url: "https://cards.example/rugs", extract: { headings: [], cardTexts: ["Tabriz rug", "Kashan rug"], entityNames: [] } }])[0]!; expect([cards!.hasList, cards!.hasSchema]).toEqual([true, false]); }); }); // A read that banked cards but no list flag still knows it saw a list; one that banked no structured data says so.
+describe("a ranked page with a different intent teaches nothing", () => {
+  /** A page ranks for a search for many reasons and only one of them is that it answers it. The comparison is the one the demand classifier proved over 227 owned pages: a word carrying a RELATION rather than a subject, a period, a comparison, a rank, a meaning or a defining role, has to be matched by what the page actually carries. A search naming no relation asks nothing of a rival, which is the falsifier a vocabulary-overlap rule failed. */
+  it.each(["tenant-one", "tenant-two"])("drops a winner that answers a different period from the one the search names, keeps a rival whose words differ but whose question is the same, and buys nothing once too few publishers are left [%s]", async (tenant) => {
+    const since = (domain: string) => page(domain, ["The flag since the revolution", "Colours and emblem today"], { title: "The flag today", h1: "The flag today", openingSample: "The present flag was adopted after the revolution and has not changed since.", entityNames: ["Tehran"] });
+    const before = (domain: string) => page(domain, ["The flag before the revolution", "The lion and sun"], { title: "The flag before 1979", h1: "The flag before 1979", openingSample: "Before 1979 the flag carried the lion and sun at its centre.", entityNames: ["Lion and Sun"] });
+    const mixed = extractPageFacts([before("a.example"), since("b.example"), before("c.example"), since("d.example")]);
+    const asked = seam(reading({ commonHeadings: [], commonEntities: [], ownedGaps: [], uniqueNotCommon: [], disagreements: [], questionsAnswered: [] }));
+    const out = await readWinningPattern(mixed, ownedFacts(), tenant, { complete: asked.complete, label: "iran flag before 1979" });
+    expect([out, asked.calls()], "two of the four answer the period the search never asked about, so under three publishers nothing is read and nothing is spent").toEqual([null, 0]);
+    const allBefore = extractPageFacts([before("a.example"), before("c.example"), before("e.example"), before("f.example")]);
+    const paid = seam(reading({ commonHeadings: [], commonEntities: [], ownedGaps: [], uniqueNotCommon: [], disagreements: [], questionsAnswered: [] }));
+    const taught = await readWinningPattern(allBefore, ownedFacts(), tenant, { complete: paid.complete, label: "iran flag before 1979" });
+    expect([taught?.winners, taught?.publishers], "four pages that do answer that period are read exactly as before").toEqual([4, ["a.example", "c.example", "e.example", "f.example"]]);
+    const idioms = seam(reading()); // THE FALSIFIER: a rival titled "Persian Idioms" is the SAME question in different words, and a rule about shared vocabulary dropped it. This one asks nothing of a search that names no relation.
+    const sameQuestion = await readWinningPattern(extractPageFacts([page("idioms.example", ["What a Persian idiom is", MADE, CARE], { title: "Persian Idioms", h1: "Persian Idioms" }), WINNERS[1]!, WINNERS[2]!, WINNERS[3]!]), ownedFacts(), tenant, { complete: idioms.complete, label: "funny persian phrases" });
+    expect([sameQuestion?.winners, sameQuestion?.publishers[0]], "a search naming no relation asks nothing of a rival, so the differently worded page still teaches").toEqual([4, "idioms.example"]);
+    const unlabelled = seam(reading({ commonHeadings: [], commonEntities: [], ownedGaps: [], uniqueNotCommon: [], disagreements: [], questionsAnswered: [] })); const nothingAsked = await readWinningPattern(mixed, ownedFacts(), tenant, { complete: unlabelled.complete });
+    expect(nothingAsked?.winners, "and a case with no search on file compares no intents at all, exactly as before").toBe(4); });
+});
 describe("the one reading a case may buy", () => {
   it("says what four winning pages share, counts them itself, and names the sites without the reading ever seeing one", async () => {
     const s = seam(reading()); const out = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete });

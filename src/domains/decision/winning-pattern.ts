@@ -24,7 +24,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 import { log } from "@/lib/logger";
-import { topicTokens } from "@/domains/evidence/relevance-gate";
+import { RELATIONAL, topicTokens } from "@/domains/evidence/relevance-gate";
 import { publisherHost, type SerpPageType } from "@/domains/evidence/serp-shape";
 import { callStructuredLLM, type StructuredDraftRequest } from "./llm/structured-drafter";
 import type { WinningPatternRead } from "./llm/schemas";
@@ -206,8 +206,11 @@ export async function readWinningPattern(
   // ONLY PAGES I ACTUALLY READ, and only one vote per publisher: three pages from one site are one site's house style, and nothing downstream of this file may ever call that a pattern.
   const pages: PageFacts[] = [];
   const seen = new Set<string>();
+  /* AND THE INTENTS ARE COMPARED BEFORE ANYTHING IS LEARNED FROM A RANKED PAGE (operator, 2026-09-05). A page ranks for a search for many reasons and only one of them is that it answers it: "iran flag before 1979" is won by pages about the flag SINCE 1979, and their sections, their questions, the things they name and the shape of their answer were teaching a writer about a different question while reading as the pattern that wins. The comparison is the one this codebase has already proved over 227 owned pages (evidence/relevance-gate's RELATIONAL, and the demand classifier's own coverage rule): a word carrying a RELATION rather than a subject, a period, a comparison, a rank, a meaning or a defining role, must be matched by what the page actually carries. It is asked of everything the read holds about what the page is about, which is what it calls itself, its sections, the questions it answers, how it opens and the things it names, so a page that expresses the relation anywhere survives. A search naming no relation asks nothing, so a rival titled "Persian Idioms" still teaches a page about funny Persian phrases, which is the falsifier that killed a vocabulary-overlap rule tried in its place. KNOWN AND MEASURED COST: a shape word is a relation here and the demand classifier's subject filter is private to Decision's diagnosis, so a rival that says "symbolizing" where the search says "meaning" is not learned from; this only ever REMOVES briefing, so it spends less and never invents, and under three publishers the reading is not bought at all. */
+  const relates = topicTokens(opts.label ?? "").filter((w) => RELATIONAL.test(w));
+  const sameIntent = (f: PageFacts): boolean => { if (relates.length === 0) return true; const said = new Set(topicTokens([...f.headings, ...f.questionHeadings, f.titleTokens.join(" "), f.opening ?? "", f.entities.join(" ")].join(" "))); return relates.every((w) => said.has(w)); };
   for (const f of winners) {
-    if (!readable(f) || seen.has(f.domain) || pages.length >= MAX_WINNERS) continue;
+    if (!readable(f) || !sameIntent(f) || seen.has(f.domain) || pages.length >= MAX_WINNERS) continue;
     seen.add(f.domain);
     pages.push(f);
   }

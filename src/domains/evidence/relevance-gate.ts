@@ -64,6 +64,9 @@ const GENERIC = new Set([
   "again", "once", "ever", "never", "not",
 ]);
 
+/** THE WORDS THAT CARRY A RELATION RATHER THAN A SUBJECT, and the only vocabulary in this product that decides whether two texts are about the same QUESTION rather than the same topic. A period, a comparison, a rank, a meaning and a defining role are what a searcher asks ABOUT a subject, so a text that shares every subject word and matches none of these is answering a different question: "iran flag before 1979" is won by pages about the flag since 1979, and their sections and entities briefed a writer about the wrong period while reading as the pattern that wins. It lived privately in decision/diagnosis, where the demand classifier proved it over 227 pages; it is HERE because Evidence may not import Decision and a second copy of a vocabulary is the defect this codebase keeps paying for. Universal English relation words only: no account subject, no vertical, no page family. Two of them, "largest" and "vs", are struck out of `topicTokens` above, so they can decide whether a phrase asks something and can never be a token another text must carry. */
+export const RELATIONAL = /\b(?:before|after|meanings?|capital|largest|national|differences?|versus|vs\.?)\b/i;
+
 /** Domains that are noise for editorial intent (social / forum / UGC / recipe-aggregator /
  *  marketplace), suppressed unless the Move topic is explicitly about them. */
 const NOISE_DOMAINS = [
