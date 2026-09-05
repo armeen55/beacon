@@ -112,6 +112,8 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   // record-then-flip race is closed: ticking claims nothing, ONE press records every ticked change through
   // the same per-change transaction, one card failing never erases the others, and the answer names counts.
   const [picked, setPicked] = useState<string[]>([]);
+  // WHY EACH ROW THE BATCH REFUSED WAS REFUSED, kept per row: one first error under twenty cards named the problem and never which card had it.
+  const [problems, setProblems] = useState<Record<string, string>>({});
   const [bulkPending, startBulk] = useTransition();
   const pick = (id: string) => setPicked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   const markPicked = () => startBulk(async () => {
@@ -122,8 +124,10 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
     const failedIds = new Set(res.failed.map((f) => f.id));
     setFinished((prev) => [...prev, ...picked.filter((id) => !failedIds.has(id))]); // FAILED ROWS STAY SELECTED AND VISIBLE; recorded rows leave the list only after the durable answer
     setPicked(picked.filter((id) => failedIds.has(id)));
+    // THE COUNT AND THE CARDS MOVE TOGETHER. Every id this press sent gets its answer on its own card: a recorded one flips to "Done. Measuring from ..." where it sits, and a refused one carries its own reason and stays pressable. The count dropping while the cards it counted still offer Copy and Mark done is the one thing a batch may never do.
+    setProblems((prev) => ({ ...prev, ...Object.fromEntries(picked.map((id) => [id, ""])), ...Object.fromEntries(res.failed.map((f) => [f.id, f.error])) }));
     const doneWord = res.done > 0 ? `${res.done} ${res.done === 1 ? "change" : "changes"} recorded.` : "";
-    say([doneWord, res.already > 0 ? `${res.already} already being measured.` : "", res.failed[0] ? `${res.failed.length} could not be recorded. First problem: ${res.failed[0].error}` : ""].filter(Boolean).join(" ") || res.note);
+    say([doneWord, res.already > 0 ? `${res.already} already being measured.` : "", res.failed.length > 0 ? `${res.failed.length} could not be recorded, and each one says why on its own card.` : ""].filter(Boolean).join(" ") || res.note);
   });
 
   return (
@@ -144,6 +148,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
             {readyRows.map((p, i) => (
               <ChangeCard key={p.id} proposal={p} rank={i + 1} ready review={false} caseLine={caseLineOf(p)}
                 onAside={putAside} onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say}
+                recorded={finished.includes(p.id)} problem={problems[p.id] || null}
                 picked={picked.includes(p.id)} onPick={pick} />
             ))}
           </ul>

@@ -3,16 +3,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ChangeProposal } from "@/domains/decision";
 type Rec = { id: string; proposalId: string; proposalVersion: string; componentsApplied: Array<{ id: string; kind?: string; anchorAfter?: string; redirectTo?: string }>; path: string; page: string; implementedAt: string | null; treatmentStamp: { signature: Record<string, string | null>; overlapAtShip: number } | null };
 const led = vi.hoisted(() => ({ verified: [] as string[], records: [] as Rec[], breakWrite: false, flip: vi.fn(async (..._a: unknown[]) => true) }));
-const stored = vi.hoisted(() => ({ proposal: null as unknown, disposition: null as string | null }));
+const stored = vi.hoisted(() => ({ proposal: null as unknown, byId: null as Map<string, unknown> | null, disposition: null as string | null, tenant: "t" }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "t" }));
+vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => stored.tenant }));
 vi.mock("@/lib/auth/can-publish", () => ({ canPublishForCurrentTenant: async () => true }));
 vi.mock("@/lib/persistence/repositories", () => ({ getRepository: () => ({ forTenant: () => ({}) }) }));
 const surf = vi.hoisted(() => ({ rebuilds: 0 }));
 vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async () => { surf.rebuilds += 1; } }));
 vi.mock("@/domains/account", () => ({ getTenant: async () => ({ id: "t", domain: "site.example" }) }));
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
-  loadChangeProposal: async () => stored.proposal, proposalDisposition: async () => stored.disposition, resolveCurrentBasis: async () => "basis_now::d4", transitionProposalToImplemented: led.flip }));
+  loadChangeProposal: async (_t: string, id: string) => stored.byId?.get(id) ?? stored.proposal, proposalDisposition: async () => stored.disposition, resolveCurrentBasis: async () => "basis_now::d4", transitionProposalToImplemented: led.flip }));
 vi.mock("next/server", async () => ({ ...(await vi.importActual<Record<string, unknown>>("next/server")), after: (fn: () => unknown) => { void fn(); } }));
 vi.mock("@/domains/runtime", () => ({ ensureResearchRunOnVisit: () => {} })); // the bulk press re-arms research after the response through a dynamic import; resolved from the mock cache so the import never lands after the test environment is torn down // production runs in a request scope; here after() executes inline so the exact scheduled shipment is observable
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
@@ -41,7 +41,7 @@ const linkChange = (): ChangeProposal => { const p = change("One sentence pointi
   p.recommendedChange = { kind: "existing_edit", field: "section", before: null, after: "One sentence pointing readers to the haft seen page.", where: 'In the body copy, with "the haft seen explained" linked to /haft-seen', linkTo: "/haft-seen", anchorText: "the haft seen explained" }; (p.bundle as { components: unknown[] }).components = [{ kind: "internal_link_add", label: "Link to the haft seen page", risk: "safe", before: null, after: "One sentence pointing readers to the haft seen page.", evidenceKeys: ["k1"] }]; return p; };
 const press = async (p: ChangeProposal) => { stored.proposal = p;
   return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id }); };
-beforeEach(() => { led.records = []; led.breakWrite = false; stored.disposition = null; surf.rebuilds = 0; led.flip.mockReset(); led.flip.mockResolvedValue(true); }); // the rebuild count is reset with every other fixture, so no assertion about it depends on the test before it
+beforeEach(() => { led.records = []; led.breakWrite = false; stored.disposition = null; stored.byId = null; stored.tenant = "t"; surf.rebuilds = 0; led.flip.mockReset(); led.flip.mockResolvedValue(true); }); // the rebuild count is reset with every other fixture, so no assertion about it depends on the test before it
 describe("many at once is one trip, and still one shipment each", () => {
   it("records twenty changes on one press and rebuilds the surfaces once, not twenty times", async () => {
     const ids = Array.from({ length: 20 }, (_, i) => `t::/p-${i}::existing_edit::bundle`);
@@ -50,6 +50,44 @@ describe("many at once is one trip, and still one shipment each", () => {
     expect(led.flip).toHaveBeenCalledTimes(20); expect(led.records[0]!.componentsApplied[0], "and the words the link has to carry reach the record through the batch door too").toMatchObject({ kind: "internal_link_add", anchorAfter: "the haft seen explained" }); // still one atomic transition each
     surf.rebuilds = 0; led.flip.mockClear();
     const again = await mark({ proposalIds: ids }); expect(again.done, "nothing is recorded twice").toBe(0); expect(again.already).toBe(20); });});
+/** WHAT THE OPERATOR ACTUALLY APPLIED IS RECORDED WHOLE, and the piece is named by the change and never by the brief the writer was handed: four live records carried "Write a real description on <address>: ..." where the name of the applied piece belongs. Proof 12 of the loop plan. */
+describe("an applied change keeps the suggestion and the version applied side by side", () => {
+  const atomic = (tenant: string, after = AFTER): ChangeProposal => ({ ...change(after), id: `${tenant}::/famous-iranian-comedians::existing_edit::title`, tenantId: tenant, bundle: undefined } as unknown as ChangeProposal);
+  const facts = () => led.records[led.records.length - 1] as unknown as { componentsApplied: Array<{ label: string; after: string; appliedAfter?: string }>; operatorNote?: string | null; after?: string; implementedAt: string | null };
+  it("names the piece off the change, keeps both versions when the operator applied their own wording, and repeats none of it on a second press, on two accounts", async () => {
+    for (const [tenant, wording] of [["acct-one", "The line that is really on this page now."], ["acct-two", "A second account's own line, typed by hand."]] as const) {
+      led.records = []; stored.tenant = tenant; stored.proposal = atomic(tenant);
+      const press = async (over: Record<string, unknown> = {}) => (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: atomic(tenant).id, ...over });
+      const first = await press({ appliedText: wording });
+      expect([first.success, facts().componentsApplied.map((c) => c.label)], "the piece is named by the change and the page it is on, never by the sentence the writer was briefed with").toEqual([true, ["Page title on Famous Iranian comedians"]]);
+      expect([facts().componentsApplied[0]!.after, facts().componentsApplied[0]!.appliedAfter, facts().operatorNote, facts().after], "the prepared wording stays exactly where it was, the operator's version rides the piece it replaced, and their own account of it is on the row").toEqual([AFTER, wording, wording, AFTER]);
+      expect((first.note ?? "").startsWith("Your wording is recorded as what is on the page, and the prepared wording is kept beside it."), "and the press says so rather than leaving them to guess which version is being read").toBe(true);
+      const stamp = facts().implementedAt;
+      const again = await press({ appliedText: wording });
+      expect([again.success, led.records.length, facts().implementedAt], "the same press again is the same record: no second row, and the day it was applied does not move").toEqual([true, 1, stamp]);
+    }});
+  it("never lets one typed line claim to be the version applied to several pieces at once", async () => {
+    stored.proposal = change(); // the two-piece bundle: nothing can say which piece the line landed on
+    (stored.proposal as ChangeProposal & { bundle: { components: unknown[] } }).bundle.components = [{ kind: "title", label: "Title", risk: "safe", before: "Comedians", after: AFTER, evidenceKeys: ["k1"] }, { kind: "meta", label: "Meta", risk: "safe", before: null, after: "B", evidenceKeys: ["k1"] }];
+    await (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: change().id, appliedText: "One line for two pieces." });
+    expect([facts().componentsApplied.map((c) => c.appliedAfter), facts().operatorNote], "no piece claims it, and their words are kept on the row where they are true").toEqual([[undefined, undefined], "One line for two pieces."]);
+    const other = { ...change("A second change, recorded by the batch"), id: "t::/other::existing_edit::bundle" } as ChangeProposal;
+    stored.byId = new Map([[other.id, other]]);
+    const batch = await (await import("@/app/(shell)/changes/actions")).markManyImplementedAction({ proposalIds: [other.id] });
+    expect([batch.done, facts().operatorNote ?? null, facts().componentsApplied.map((c) => c.appliedAfter)], "and a batch carries no shared wording at all: one line cannot be the version applied to twenty different changes, so the batch records the prepared wording and nothing else").toEqual([1, null, [undefined]]); });});
+/** A BATCH ANSWERS FOR EVERY CHANGE IN IT, one by one. Proof 13 of the loop plan. */
+describe("a partial batch failure is visible per change and retryable without duplicating what landed", () => {
+  it("records the good ones once, names each refusal against its own change, and a retry of the whole batch adds no second record", async () => {
+    const good = { ...change("Words that are finished and ready"), id: "t::/a::existing_edit::bundle" } as ChangeProposal;
+    const held = { ...change("Words nobody has approved yet"), id: "t::/b::existing_edit::bundle", status: "needs_review" } as ChangeProposal;
+    const unfinished = { ...change("Write a description of about 150 characters that names this page's subject."), id: "t::/c::existing_edit::bundle", researchOnly: true } as ChangeProposal;
+    stored.byId = new Map([[good.id, good], [held.id, held], [unfinished.id, unfinished]]);
+    const mark = (await import("@/app/(shell)/changes/actions")).markManyImplementedAction;
+    const first = await mark({ proposalIds: [good.id, held.id, unfinished.id] });
+    expect([first.done, first.already, first.failed.map((f) => f.id), first.results.map((r) => r.outcome), led.records.length], "one recorded, two refused, each refusal carrying the id of the change it belongs to").toEqual([1, 0, [held.id, unfinished.id], ["recorded", "failed", "failed"], 1]);
+    expect(first.failed.map((f) => f.error), "and each one says what is wrong with THAT change, in its own words").toEqual(["This change is still being reviewed.", expect.stringContaining("has not finished this one yet")]);
+    const retry = await mark({ proposalIds: [good.id, held.id, unfinished.id] });
+    expect([retry.done, retry.already, retry.failed.length, led.records.length], "pressing the whole batch again records nothing twice: the one that landed answers as already measuring and the two refusals are unchanged").toEqual([0, 1, 2, 1]); });});
 describe("nothing is marked done that no record stands behind", () => {
   it("schedules the exact shipment it just wrote, on the full press and on a partial bundle alike", async () => {
     led.verified = [];
@@ -81,6 +119,14 @@ describe("nothing is marked done that no record stands behind", () => {
     const res = await press(change()); expect([res.success, led.records.length, led.flip.mock.calls.length]).toEqual([true, 1, 1]);
     stored.disposition = "dismissed"; led.records = []; led.flip.mockReset();
     const no = await press(change("Different words for the dismissed row")); expect([no.success, led.records.length, led.flip.mock.calls.length], "no shipment and no flip on a dismissed row").toEqual([false, 0, 0]); });
+  /** A PRESS HELD ON THE DEVICE IS SENT AGAIN ONLY WHERE SENDING IT AGAIN COULD WORK. The browser queue used to drop every answered failure, so "press it again in a moment" threw away a press the operator had already made; a verdict must still settle the entry or the device argues with the server for ever. */
+  it("tells a bad moment apart from a verdict on every ending of the press, so a held press is retried and a refusal never is", async () => {
+    const press = async (p: ChangeProposal) => { stored.proposal = p; return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id }); };
+    led.flip.mockRejectedValueOnce(new Error("relation change_proposals does not exist"));
+    const moment = await press(change());
+    const refused = await press({ ...change("Words nobody has approved"), status: "needs_review" } as ChangeProposal);
+    stored.disposition = "dismissed"; const gone = await press(change("Words on a change put aside"));
+    expect([moment.retryable, refused.retryable ?? null, gone.retryable ?? null], "the outage is retryable; being in review and being put aside are answers and are never sent again").toEqual([true, null, null]); });
   it("a crash BEFORE the record lands flips nothing, so the change is still theirs to do", async () => {
     led.breakWrite = true;
     const res = await press(change()); expect([res.success, led.records.length, led.flip.mock.calls.length]).toEqual([false, 0, 0]);

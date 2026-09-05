@@ -144,7 +144,7 @@ describe("measurement waits for the change to be found on the page", () => {
   const LATER = new Date("2026-08-20T12:00:00.000Z"), FINAL = "2026-08-19";
   const due = async (v: ShipmentVerification | null) => isDueForMeasure({ ...(await ship()), verification: v }, FINAL, LATER);
   it("measures a verified or partly verified change, and nothing else", async () => {
-    expect(await due(verification("verified"))).toBe(true); expect(await due(verification("partially_verified"))).toBe(true); expect(await due(verification("operator_confirmed"))).toBe(false);
+    expect(await due(verification("verified"))).toBe(true); expect(await due(verification("partially_verified"))).toBe(true);
     expect(await due(null)).toBe(false);            // never checked: there is nothing honest to measure yet
     expect(await due(verification("not_found"))).toBe(false); expect(await due(verification("blocked"))).toBe(false); expect(await due(verification("differs"))).toBe(false);
     // A VERIFIED ROW PARKED WITH NOTHING TO COMPARE IT AGAINST IS DUE AGAIN, once a day, so the revival inside the reading is actually reached: this gate answered "not due" for 26 of them and the debt that opens a pass is counted with this very function. Once a day, so a row that can never revive asks again tomorrow instead of forever. And a page Google has not read since the change carries no signal of it, so that one waits.
@@ -181,6 +181,20 @@ describe("the recording seam", () => {
     placement: "the page title", source: "pasted in the CMS", page: PAGE, path: "/nowruz-guide", actionType: "title-family", componentsApplied: [{ kind: "title", label: "Page title" }], now: NOW, ...over } as never);
   const stored = async () => (await loadShippedChangesForTenant(T))[0]!;
   beforeEach(() => { ctl.pages = ["https://x.test/a", "https://x.test/b", "https://x.test/c"]; });
+  /** PROOF 11 OF THE LOOP PLAN, the shipment half, standing beside the store's no-duplicate-purchase promise: a drive that reprocesses a change and finds nothing about it changed re-derives the same version, so the door lands on the record already on file and writes nothing. */
+  it("makes no second record when a change is processed again unchanged, keeps its stamp and the live check already on it, and gives each account its own one record", async () => {
+    withSiteHistory();
+    for (const tenant of ["acct-one", "acct-two"]) {
+      db.state.rows = []; db.state.file = [];
+      const first = await recordShipment(facts({ tenantId: tenant }) as never);
+      await recordVerification(tenant, first.shipmentId, verification("verified"));
+      const again = await recordShipment(facts({ tenantId: tenant }) as never); // the same change, reprocessed with nothing about it changed
+      const [row] = await loadShippedChangesForTenant(tenant);
+      expect([again.shipmentId === first.shipmentId, db.state.rows.length, row!.implementedAt, row!.verification?.status], "the same record, one row for this account, the day it was applied unmoved, and the reading it already has left exactly as it stands").toEqual([true, 1, NOW.toISOString(), "verified"]);
+    }
+    db.state.rows = []; db.state.file = []; // and two accounts applying the same-shaped change keep one record each, never one shared row
+    await recordShipment(facts({ tenantId: "acct-one" }) as never); await recordShipment(facts({ tenantId: "acct-two" }) as never);
+    expect([(await loadShippedChangesForTenant("acct-one")).length, (await loadShippedChangesForTenant("acct-two")).length, db.state.rows.length]).toEqual([1, 1, 2]); });
   it("a batch of ten records ten Shipments off one ledger read and one open-changes read, invalidates nothing per row, and a retry adds none", async () => {
     // THE BATCH'S ONE READ OF EACH (operator, 2026-09-01): every row used to re-read the whole ledger and the whole proposal store inside the comparison, and invalidate the saved surfaces on its own.
     const ten = Array.from({ length: 10 }, (_, i) => facts({ proposalId: `${T}::/p${i}::existing_edit::missing_description`, page: `https://www.fixture-outdoors.example/p${i}`, path: `/p${i}` }));

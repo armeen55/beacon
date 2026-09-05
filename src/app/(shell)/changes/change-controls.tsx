@@ -11,7 +11,7 @@ import { confirmDangerousChangeAction, dismissProposalAction, markProposalImplem
 /** THE PRESS SURVIVES THE CONNECTION. A "Mark done" that THREW never reached the server, and telling the
  *  operator to press it again puts the burden of a flaky minute on the person who did the work. A plain
  *  whole-change mark is kept on this device and sent again on the next page load. Only plain ones: a partial
- *  bundle, a page move, a new page's address and their own note all carry words this queue does not hold, so
+ *  bundle, a page move, a new page's address and their own applied wording all carry words this queue does not hold, so
  *  those still ask for a second press rather than recording something narrower than what they did. */
 const MARK_QUEUE_KEY = "beacon.mark-done.queue";
 const MARK_QUEUE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -33,11 +33,14 @@ function queueMark(proposalId: string): void {
   writeMarkQueue([...readMarkQueue().filter((r) => r.proposalId !== proposalId), { proposalId, at: Date.now() }]);
 }
 
-/** ONE flush per page load, whichever card mounts first. A server that ANSWERS settles the entry either way:
- *  "already recorded" and "no longer eligible" are answers, not outages, and re-sending them forever would
- *  make the device argue with the server. Only a throw, which is the connection again, keeps it queued. */
+/** ONE flush per page load, whichever card mounts first. A VERDICT SETTLES THE ENTRY AND A BAD MOMENT NEVER DOES:
+ *  "already recorded" and "no longer eligible" are answers, so re-sending them forever would make the device argue with
+ *  the server, but "press it again in a moment" is the same outage a throw is and was thrown away silently, losing a
+ *  press the operator had already made. A throw and a returned `retryable` both keep it queued, and what the flush did
+ *  is said on the card rather than settled behind the operator's back. */
 let markQueueFlushed = false;
-function useMarkQueueFlush(): void {
+function useMarkQueueFlush(): string | null {
+  const [said, setSaid] = useState<string | null>(null);
   useEffect(() => {
     if (markQueueFlushed) return;
     markQueueFlushed = true;
@@ -47,12 +50,15 @@ function useMarkQueueFlush(): void {
     void (async () => {
       const unsent: QueuedMark[] = [];
       for (const row of pending) {
-        try { await markProposalImplementedAction({ proposalId: row.proposalId }); }
+        try { const res = await markProposalImplementedAction({ proposalId: row.proposalId }); if (res.retryable) unsent.push(row); }
         catch { unsent.push(row); }
       }
       writeMarkQueue(unsent);
+      const n = pending.length - unsent.length, held = unsent.length, one = (a: string, b: string) => (held === 1 ? a : b);
+      setSaid(held === 0 ? `${n} press${n === 1 ? "" : "es"} held on this device ${n === 1 ? "was" : "were"} recorded.` : `${held} press${one("", "es")} held on this device could not be recorded yet and ${one("is", "are")} still waiting. Reload this page to send ${one("it", "them")} again.`);
     })();
   }, []);
+  return said;
 }
 
 /** The exact words, on the clipboard, in one press. The button itself says it worked for two seconds, because a
@@ -191,7 +197,7 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
 }) {
   const [pending, startTransition] = useTransition();
   const [state, setState] = useState<{ done: boolean; error: string | null; note: string | null; queued?: boolean }>({ done: false, error: null, note: null });
-  useMarkQueueFlush();
+  const flushed = useMarkQueueFlush();
   const pickable = components && components.length > 1 ? components : null;
   // OPEN ON WHAT IS GENUINELY STILL THEIRS TO DO: pre-ticking a piece already on file offered to record a
   // component already under measurement, and the server refuses to write it twice anyway.
@@ -199,7 +205,8 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
     const all = pickable ?? components ?? [], open = all.filter((c) => !c.recorded);
     return new Set((open.length > 0 ? open : all).map((c) => c.id));
   });
-  const [note, setNote] = useState(""), [liveUrl, setLiveUrl] = useState(""), [confirmed, setConfirmed] = useState(false);
+  // THE EXACT WORDING THEY APPLIED, where it is not the prepared wording. Named as that and as nothing else: free text under a vague label reads as replacement copy and was recorded as a comment, so a page written the operator's own way was read back against words nobody put there.
+  const [ownWording, setOwnWording] = useState(""), [liveUrl, setLiveUrl] = useState(""), [confirmed, setConfirmed] = useState(false);
   const label = useMemo(() => (state.done ? "Marked done" : idle), [state.done, idle]);
   const nothingPicked = pickable != null && applied.size === 0, addressOwed = newPage && liveUrl.trim().length === 0;
   // THE DELIBERATE YES, asked only about the pieces they say they applied. The server asks again and refuses
@@ -208,7 +215,7 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
 
   // A PLAIN WHOLE-CHANGE MARK is the only shape this device can re-send faithfully: nothing here narrows what
   // was recorded, and nothing here is the operator's own words.
-  const queueable = !newPage && !movesPage && !(pickable && applied.size < pickable.length) && note.trim().length === 0;
+  const queueable = !newPage && !movesPage && !(pickable && applied.size < pickable.length) && ownWording.trim().length === 0;
 
   function onClick() {
     startTransition(async () => {
@@ -219,7 +226,7 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
           proposalId,
           ...(newPage ? { liveUrl: liveUrl.trim() } : {}),
           ...(pickable && applied.size < pickable.length ? { componentIds: [...applied] } : {}),
-          ...(note.trim() ? { operatorNote: note.trim() } : {}),
+          ...(ownWording.trim() ? { appliedText: ownWording.trim() } : {}),
           ...(movesPage ? { destructiveConfirmed: confirmed } : {}),
         });
         if (res.success) { setState({ done: true, error: null, note: res.note ?? null }); onRecorded?.(); }
@@ -277,10 +284,10 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
         </label>) : null}
       <div className="space-y-1.5" data-operator-note="true">
         <label className="block text-[12px] text-muted-foreground" htmlFor={`note-${proposalId}`}>
-          Wrote it your own way? Add what you put there and your words are kept beside the reading.
+          Applied different wording? Paste the exact words that are on the page. Both are kept, and the page is read for yours.
         </label>
-        <input id={`note-${proposalId}`} type="text" value={note} onChange={(e) => setNote(e.target.value)}
-          placeholder="Optional: what you actually put on the page"
+        <input id={`note-${proposalId}`} type="text" value={ownWording} onChange={(e) => setOwnWording(e.target.value)}
+          placeholder="Optional: the exact wording now on the page"
           className="w-full rounded-md border border-border bg-surface-inset px-3 py-1.5 text-[12px] text-foreground" />
       </div>
 
@@ -301,7 +308,8 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
             className={state.queued ? "text-[12px] text-muted-foreground" : "text-[12px] text-red-500"}>{state.error}</span>
         ) : null}
       </div>
-      {/* WHAT IS STILL THEIRS TO DO after a partial apply: the change stays open carrying the rest. */}
+      {/* WHAT IS STILL THEIRS TO DO after a partial apply, and what became of a press this device was holding. */}
+      {flushed ? <p className="text-[12px] leading-relaxed text-muted-foreground" data-mark-flush="true">{flushed}</p> : null}
       {state.note ? <p className="text-[12px] leading-relaxed text-muted-foreground">{state.note}</p> : null}
     </div>
   );

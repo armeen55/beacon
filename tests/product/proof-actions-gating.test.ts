@@ -200,10 +200,10 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
     expect(mocks.recordShippedChange).not.toHaveBeenCalled();});
   it("never hands a customer a backend error", async () => { // P1-13: a Supabase relation name is not an answer
     mocks.transitionProposalToImplemented.mockRejectedValue(new Error("relation change_proposals does not exist"));
-    expect(await markProposalImplementedAction({ ...PRESS })).toEqual({ success: false, error: "That could not be recorded just now. Press it again in a moment." });});
-  it("keeps the operator's words as a note and never lets a press stand in for a reading", async () => {
-    await markProposalImplementedAction({ ...PRESS, operatorConfirmed: true, operatorNote: "I pasted it in myself." });
-    expect([facts().operatorNote, "operatorConfirmed" in facts(), "verification" in facts()]).toEqual(["I pasted it in myself.", false, false]);
+    expect(await markProposalImplementedAction({ ...PRESS })).toEqual({ success: false, retryable: true, error: "That could not be recorded just now. Press it again in a moment." });});
+  it("keeps the operator's own applied wording on the record beside the prepared one, and never lets a press stand in for a reading", async () => {
+    await markProposalImplementedAction({ ...PRESS, appliedText: "The words that are on my page." });
+    expect([facts().operatorNote, facts().componentsApplied.map((c: { appliedAfter?: string }) => c.appliedAfter), facts().after, "verification" in facts()], "a press recording SEVERAL pieces cannot say which one their line landed on, so it stays on the row, no piece claims it, and the prepared wording is untouched").toEqual(["The words that are on my page.", [undefined, undefined], "Nowruz Traditions and the Haft-Seen Table", false]);
     mocks.recordShipment.mockClear();
     await markProposalImplementedAction({ ...PRESS }); expect(facts().operatorNote).toBeNull();});
   it.each([

@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 /** Live implementation verification (V1 Truth Convergence Phase 6). These pin CUSTOMER TRUTH, not the implementation: what Beacon says it saw on the operator's live page, and what it refuses to say. Fixtures only, zero network: the polite fetch is seamed exactly the way the owned-page read seams it. */
-const ROWS: Array<Record<string, unknown>> = [];
+const ROWS: Array<Record<string, unknown> & { tenant?: string }> = [];
 const WRITES: Array<[string, string, { status: string }]> = [];
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ rpc: async (_fn: string, a: { p_since: string }) => (a.p_since <= "2026-08-05" ? { data: [{ page: "https://own.com/nowruz", clicks: 30, impressions: 900, pos_weighted: 4500 }], error: null } : { data: [], error: null }) }) }));
 vi.mock("@/domains/measurement/proof-gsc/shipped-change-store", () => ({
-  loadShippedChangesForTenant: async () => ROWS,
+  loadShippedChangesForTenant: async (t: string) => ROWS.filter((r) => !r.tenant || r.tenant === t), // a row may name the account it belongs to, so one fixture holds two synthetic accounts; a row that names none belongs to whoever asks, exactly as before
   recordVerification: async (t: string, id: string, v: { status: string }) => { WRITES.push([t, id, v]); return true; },}));
 /** The evidence facade is stubbed so the ONE thing under test at the funnel call site is the argument. */
 let passedBustedAt: string | null | undefined;
@@ -124,7 +124,8 @@ describe("what Beacon says overall, and what it refuses to say", () => {
     const shell = serve("<html><body><div id=app></div></body></html>"), body = (fetchedAt: string) => async () => new Map([["own.com/nowruz", { url: URL_, title: "How to set a nowruz table", h1: "How to set a nowruz table", metaDescription: "Set a nowruz table in seven steps.", headings: ["What goes on the table"], passages: ["Every item on the cloth stands for a wish."], openingSample: null, vocabulary: "every item on the cloth stands for a wish", cardTexts: [], faqs: [], entityNames: [], internalLinks: [], fetchedAt, completeness: "complete" as const, contentHash: null }]]);
     const wrote: string[] = [], at = (d: number) => new Date(NOW + d * DAY).toISOString(), of = (readHeld: unknown) => verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "How to set a nowruz table" }], implementedAt: at(-2) }, { ...base, fetchPage: shell, writeOwnedPage: async (s2) => { wrote.push(s2.url); }, readHeld: readHeld as never });
     const rendered = await of(body(at(-1))), stale = await of(body(at(-5))), none = await of(async () => new Map());
-    expect([rendered.status, rendered.reason, stale.status, stale.reason, none.status, none.reason, wrote.length], "the rendered capture answers when it is newer than the change; words captured BEFORE the change prove what the page said then, never now; and no blank shell is ever written over the page").toEqual(["verified", null, "blocked", "stale_reading", "blocked", "rendered_content_gap", 0]);});
+    expect([rendered.status, rendered.reason, stale.status, stale.reason, none.status, none.reason, wrote.length], "the rendered capture answers when it is newer than the change; words captured BEFORE the change prove what the page said then, never now; and no blank shell is ever written over the page").toEqual(["verified", null, "blocked", "stale_reading", "blocked", "rendered_content_gap", 0]);
+    expect([stale.recheckAfter ?? null, none.recheckAfter], "and a reading taken off a capture older than the change promises no day: the same shell comes back every time, so it closes here and the page itself reopens it when a newer capture lands").toEqual([null, "2026-08-02"]);});
   it("reads a difference inside the publish grace window as not published yet: no bounded check is spent and it is read again tomorrow", async () => { const at = (h: number) => new Date(NOW - h * 3_600_000).toISOString(); const early = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }], implementedAt: at(1) }, { ...base, fetchPage: serve(PAGE) }), late = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }], implementedAt: at(8) }, { ...base, fetchPage: serve(PAGE) });
     expect([early.status, early.checks, early.recheckAfter, (early.components[0]!.note ?? "").includes("published later"), late.status, late.checks, late.recheckAfter]).toEqual(["differs", 0, "2026-08-01", true, "differs", 1, "2026-08-02"]); });
   it("resolves a scheme-less page key and an absolute address to the same Search history, and answers nothing at all for a page with none", async () => { const { readWindowForPages } = await import("@/domains/measurement/proof-gsc/gsc-window"); const m = await readWindowForPages({ tenantId: T, pages: ["own.com/nowruz", "https://www.own.com/nowruz/", "own.com/never"], start: "2026-08-05", end: "2026-09-02" }); expect([m.get("own.com/nowruz")?.impressions, m.get("https://www.own.com/nowruz/")?.impressions, m.has("own.com/never")]).toEqual([900, 900, false]); }); // NOTHING ON FILE IS NOT ZERO
@@ -211,6 +212,41 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
   it("promises that retry on the operator's next day, not on UTC's", async () => {
     const evening = Date.parse("2026-08-05T02:00:00Z"); // 7 PM on the 4th where the operator is
     const dead = await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "timeout"), { now: () => evening }); expect(dead.recheckAfter).toBe("2026-08-05");});});
+/** PROOF 14 OF THE LOOP PLAN: a record that names nothing to look for can never be answered by reading the page, so it is
+ *  reconciled from what it holds and consumes no live verification work at all. No wording is invented to check against. */
+describe("a historical record no page can answer is reconciled from the record, never re-crawled", () => {
+  const held = (id: string, tenant: string, after: string) => ({ id, tenant, page: URL_, path: "/nowruz", actionType: "answer_block", after,
+    implementedAt: "2026-07-30T09:00:00Z", verification: null as unknown, componentsApplied: [{ kind: "answer_block", label: "Answer at the top of the page", after }] });
+  beforeEach(() => { ROWS.length = 0; WRITES.length = 0; });
+  it("spends no live read on a record whose applied wording was never stored or is still an unfilled template, and reads only the record that names something to look for, on two accounts", async () => {
+    ROWS.push(held("blank", "acct-one", ""), held("template", "acct-one", "Isfahan has a population of NUMBER as of YEAR (SOURCE)."), held("real", "acct-one", "What goes on the table"));
+    ROWS.push(held("blank-two", "acct-two", ""), held("template-two", "acct-two", "It has a population of NUMBER as of YEAR (SOURCE)."));
+    let reads = 0; const fetchPage = (async () => { reads += 1; return { ok: true as const, html: PAGE, status: 200 }; }) as unknown as Fetcher;
+    expect([await verifyDueShipments("acct-one", { ...base, fetchPage }), reads], "three answers written and exactly ONE website read, and it belongs to the record that names something to find").toEqual([3, 1]);
+    const by = Object.fromEntries(WRITES.map((w) => [w[1], w[2] as unknown as { status: string; reason?: string; recheckAfter?: string | null; checks?: number; components: Array<{ note: string }> }]));
+    expect([by.blank!.status, by.blank!.reason, by.blank!.recheckAfter ?? null, by.blank!.checks, by.template!.reason, by.real!.status], "each unanswerable one is settled for good: no day promised and no bounded check spent, while the answerable one is graded exactly as before").toEqual(["blocked", "applied_wording_missing", null, 0, "applied_wording_missing", "verified"]);
+    expect([by.blank!.components[0]!.note, by.template!.components[0]!.note], "and each says what it holds and what the operator can actually do about it").toEqual([
+      "The exact wording that was applied here was never recorded, so no reading of the page can confirm it. Nothing more is read for it. Record the words that are on the page and the next check reads them.",
+      "What was recorded here is still the template wording, with its NUMBER, YEAR or SOURCE never filled in, so no live page could be carrying it. Nothing more is read for it. Record the words that are on the page and the next check reads them."]);
+    reads = 0; WRITES.length = 0;
+    expect([await verifyDueShipments("acct-two", { ...base, fetchPage }), reads], "the second account behaves identically: two answers, and the website is never touched").toEqual([2, 0]);
+    for (const r of ROWS) r.verification = WRITES.concat([]).find((w) => w[1] === r.id)?.[2] ?? r.verification;
+    const newer = async () => new Map([["own.com/nowruz", { fetchedAt: "2026-09-01T00:00:00Z" } as never]]);
+    expect((await shipmentsAwaitingVerification("acct-two", 15, { ...base, readHeld: newer })).map((r) => r.id), "and a newer capture of the page does not reopen them either: a fresh read cannot answer a record that names nothing to look for").toEqual([]);});});
+/** WHAT THE OPERATOR APPLIED IS WHAT THE PAGE IS READ FOR, with the prepared wording kept beside it (proof 12's live half). */
+describe("a change the operator applied in their own words is read against their words", () => {
+  beforeEach(() => { ROWS.length = 0; WRITES.length = 0; });
+  it("reads the page for the version the operator recorded, and for the prepared one where they recorded none, on two accounts", async () => {
+    const titled = (id: string, tenant: string, over: Record<string, unknown>) => ({ id, tenant, page: URL_, path: "/nowruz", actionType: "title", after: "Nowruz gift ideas",
+      implementedAt: "2026-07-30T09:00:00Z", verification: null as unknown, componentsApplied: [{ kind: "title", label: "Page title on Nowruz guide", after: "Nowruz gift ideas", ...over }] });
+    for (const tenant of ["acct-one", "acct-two"]) {
+      ROWS.length = 0; WRITES.length = 0;
+      ROWS.push(titled("theirs", tenant, { appliedAfter: "How to set a nowruz table" }), titled("prepared", tenant, {}));
+      await verifyDueShipments(tenant, { ...base, fetchPage: serve(PAGE) });
+      const by = Object.fromEntries(WRITES.map((w) => [w[1], w[2] as unknown as { status: string; reason?: string }]));
+      expect([by.theirs!.status, by.prepared!.status, by.prepared!.reason], "their version is on the page and is confirmed; the record that carries none is read for the prepared wording and the page carries something else").toEqual(["verified", "differs", "published_differently"]);
+      expect((ROWS[0]!.componentsApplied as Array<{ after: string }>)[0]!.after, "and the prepared wording is still on the record, untouched by the reading").toBe("Nowruz gift ideas");
+    }});});
 describe("a change the operator implemented busts that page's freshness", () => {
   beforeEach(() => { ROWS.length = 0; passedBustedAt = undefined; });
   it("hands back the LATEST moment that page was implemented, and nothing for a page nobody changed", async () => {

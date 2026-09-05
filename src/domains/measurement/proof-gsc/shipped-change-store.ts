@@ -19,10 +19,10 @@ import type { ControlReceipt } from "./contamination";
 
 const TABLE = "shipped_change_proof", STORE = "proof-gsc-ledger";
 /** What the live check found. FROZEN SHAPE, written only through `recordVerification`; `components` names
- *  each piece so a partly-applied bundle reads as partly applied. `operator_confirmed` survives only so
- *  rows already carrying it decode: a click never stands in for a reading. */
+ *  each piece so a partly-applied bundle reads as partly applied. A click never stands in for a reading, and the
+ *  retired `operator_confirmed` label it once stood in as is gone: no row in the ledger carries it. */
 export type ShipmentVerification = {
-  status: "verified" | "partially_verified" | "not_found" | "blocked" | "differs" | "operator_confirmed";
+  status: "verified" | "partially_verified" | "not_found" | "blocked" | "differs";
   checkedAt: string;
   components: Array<{ kind: string; state: "verified" | "not_verified" | "changed_differently" | "unverifiable"; note: string | null }>;
   /** A DAY-SCOPED RECHECK (the reporting day this may be looked at again). Set when the site did not answer at all (a timeout is transport, not the change) and when the page DIFFERS: a CMS publishes through caches and build queues, so the first read after a paste routinely sees the old page, and one early "differs" buried three real shipments for good. Bounded by `checks`; null when final. */
@@ -88,8 +88,8 @@ export type ShippedChangeRecord = {
   caseId: string | null;
   /** What applying the bundle was meant to achieve, in one sentence. */
   bundleHypothesis: string | null;
-  /** The applied components, each with the EXACT copy the live check compares against, its graded risk, a renamed link's `anchorAfter` and a forward's `redirectTo`. Subset = partial bundle. */
-  componentsApplied: Array<{ id?: string | null; kind: string; label: string; after?: string | null; risk?: string | null; anchorAfter?: string | null; redirectTo?: string | null; before?: string | null }> | null;
+  /** The applied components, each with the EXACT copy the live check compares against, its graded risk, a renamed link's `anchorAfter` and a forward's `redirectTo`. Subset = partial bundle. `label` names the PIECE and is never the brief the writer was handed. `appliedAfter` is the operator's own version where they supplied one: the prepared wording stays in `after`, so a record that was applied differently holds both versions and the live check reads the page for the one that is on it. */
+  componentsApplied: Array<{ id?: string | null; kind: string; label: string; after?: string | null; appliedAfter?: string | null; risk?: string | null; anchorAfter?: string | null; redirectTo?: string | null; before?: string | null }> | null;
   /** THE STAMP. When the operator marked it done; the window is read from it. Write-once. */
   implementedAt: string | null;
   /** The owned page's HELD content hash at mark time, from the snapshot on file. */
@@ -102,7 +102,7 @@ export type ShippedChangeRecord = {
   shipmentBaseline: ShipmentBaseline | null;
   /** Null until the live check runs, and null is the due marker. Results renders what the check found,  component by component, and says plainly when I have not looked yet. */
   verification: ShipmentVerification | null;
-  /** WHAT THE OPERATOR SAYS THEY ACTUALLY DID, in their own words, when the page was changed differently from the copy handed over. A NOTE beside the reading, never an override: it changes nothing about it. */
+  /** WHAT THE OPERATOR SAYS THEY ACTUALLY DID, in their own words, on the row. Free text on its own is never replacement copy: it becomes the version the page is read against only where the interface asked for the exact applied wording AND the press recorded one piece, and then it rides that piece as `appliedAfter` as well, bound to what it describes. The repair door writes placement and source prose here, which is why this field alone never decides a reading. */
   operatorNote: string | null;
   /** THE EXACT AI SCOPE this change targets, typed, never flattened; Results remeasures exactly this.
    *  `caseKey` is the canonical case identity; `models`/`modes` the instrument (RECORDED, never a filter);
@@ -310,7 +310,7 @@ function withHeldImmutables(held: WriteOnce | null, row: LedgerRow): LedgerRow {
   const baseline = held.shipment_baseline != null
     && JSON.stringify(row.shipment_baseline ?? null) !== JSON.stringify(held.shipment_baseline);
   if (stamp || baseline) {
-    log.warn("[shipment] the stamp and the starting numbers are written once, so I kept what is on file", { id: row.id, tenant: row.tenant_id, stamp, baseline });
+    log.warn("[shipment] the stamp and the starting numbers are written once, so what is on file was kept", { id: row.id, tenant: row.tenant_id, stamp, baseline });
   }
   return { ...row, implemented_at: held.implemented_at, shipment_baseline: held.shipment_baseline ?? row.shipment_baseline };
 }
@@ -387,7 +387,7 @@ export async function recordVerification(
     // The pre-migration window: no `verification` column to write, so the file holds the answer instead.
     if (error != null && isUndefinedTableError(error)) return recordVerificationInFile(shipmentId, verification);
     if (error != null || !Array.isArray(data) || data.length === 0) {
-      log.warn("[shipment] I did not record what the check found: no change of yours matched that id", { tenant: tenantId, id: shipmentId, error: error?.message ?? "no row" });
+      log.warn("[shipment] what the check found was not recorded: no change of yours matched that id", { tenant: tenantId, id: shipmentId, error: error?.message ?? "no row" });
       return false;
     }
     await invalidateResultsSurfaceSafe();
@@ -430,7 +430,7 @@ async function recordVerificationInFile(shipmentId: string, verification: Shipme
     await writeFile(rows); await invalidateResultsSurfaceSafe();
     return true;
   } catch (err) {
-    log.warn("[shipment] I could not save what the check found to the local ledger", { id: shipmentId, error: err instanceof Error ? err.message : String(err) });
+    log.warn("[shipment] what the check found could not be saved to the local ledger", { id: shipmentId, error: err instanceof Error ? err.message : String(err) });
     return false;
   }
 }
@@ -452,7 +452,7 @@ export async function pagesUnderMeasurementFromShipments(
       .limit(200);
     if (error != null || !Array.isArray(data)) {
       if (error != null && !isUndefinedTableError(error)) {
-        log.warn("[shipment] I could not read what is under measurement, so nothing reads as in flight", { tenant: tenantId, error: error.message ?? String(error) });
+        log.warn("[shipment] what is under measurement could not be read, so nothing reads as in flight", { tenant: tenantId, error: error.message ?? String(error) });
       }
       return [];
     }

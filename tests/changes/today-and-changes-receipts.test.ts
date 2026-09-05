@@ -66,6 +66,34 @@ async function renderDetail(p: ChangeProposal): Promise<string> {
   const { default: Page } = await import("@/app/(shell)/changes/[id]/page");
   return renderToStaticMarkup(await Page({ params: Promise.resolve({ id: encodeURIComponent(p.id) }) }) as ReactElement);}
 /** THE TWO ANSWERS, AND THE WALL BETWEEN THEM. "Backed by 3 checks" was the whole argument on five of seven live  finished cards: a count that reads the same whether it stands on a 90-day search record or one look at the page.  Search demand may never be offered as proof of WORDING, and a source proving a fact may never be offered as proof  of TRAFFIC. Every clause is composed from a typed field, so an absent field prints nothing at all. */
+/** THE BATCH'S ANSWER LANDS ON THE CARDS IT ANSWERED FOR (proof 13's operator half), and a card that cannot be done today says what it is waiting on. */
+describe("what a card says after a batch press, and what it says when it cannot be done today", () => {
+  const card = async (p: ChangeProposal, over: Record<string, unknown> = {}) => {
+    const { ChangeCard } = await import("@/app/(shell)/changes/change-card");
+    return renderToStaticMarkup(createElement(ChangeCard, { proposal: p, rank: 1, ready: p.status === "ready", onAside: () => {}, onDone: () => {}, onToast: () => {}, ...over } as never));};
+  it("flips a card the batch recorded to its own done line, and gives a card the batch refused that card's own reason with the press still on it", async () => {
+    const recorded = await card(atomic(), { recorded: true });
+    expect([recorded.includes("Done. Measuring from"), recorded.includes("Mark done"), recorded.includes("Copy")], "a card recorded by the batch below the list never keeps offering the work as still owed").toEqual([true, false, false]);
+    const refused = await card(atomic(), { problem: "This change is still being reviewed." });
+    expect([refused.includes("Not recorded: This change is still being reviewed. Press Mark done on this one to try it again."), refused.includes("Mark done")], "and a refused one names its own reason and stays pressable").toEqual([true, true]);});
+  it("never leads a change detail with a brief that carries a raw address, and never falls back on a shrug either", async () => {
+    const { loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");
+    const row = proposal({ status: "needs_review", riskLevel: "low", modeledOn: SHAPE, bundle: undefined, createdAt: SEEN, limitations: ["its copy carries no record of what it stands on", "Read off the last stored copy of each page."], opportunityType: "Write a real description on /iran-flags/parthian-empire-flag: 7 pages share one templated line" });
+    vi.mocked(loadChangeProposal).mockResolvedValue(row); vi.mocked(resolveCurrentBasis).mockResolvedValue(row.basis ?? null);
+    const { default: Page } = await import("@/app/(shell)/changes/[id]/page");
+    const html = renderToStaticMarkup(await Page({ params: Promise.resolve({ id: encodeURIComponent(row.id) }) }) as ReactElement);
+    expect([html.includes("/iran-flags/parthian-empire-flag: 7 pages"), html.includes("one edit to make"), html.includes("Update the page title to sharpen it for")], "the file name never leads the page, and what replaces it says what is being done rather than shrugging").toEqual([false, false, true]);
+    expect([html.includes("its copy carries no record of what it stands on"), html.includes("Read off the last stored copy of each page.")], "and Beacon's own gate sentence is never served to a customer as their own caveat, while a real caveat still is").toEqual([false, true]);});
+  it("never leads a card with the writer's brief when that brief carries a raw address, and keeps a real headline that carries none", async () => {
+    const brief = await card(atomic(), { proposal: proposal({ status: "ready", riskLevel: "low", modeledOn: SHAPE, bundle: undefined, opportunityType: "Write a real description on /california-persian-cities/berkeley: 20 pages share one templated line" }) });
+    expect([brief.includes("/california-persian-cities/berkeley: 20 pages share one templated line"), brief.includes("Update the title to sharpen it for")], "the file name never leads the card; the change says what it does, and the page it does it to is the line above").toEqual([false, true]);
+    const real = await card(atomic(), { proposal: proposal({ status: "ready", riskLevel: "low", modeledOn: SHAPE, bundle: undefined, opportunityType: "Answer the question people actually type into Google" }) });
+    expect(real.includes("Answer the question people actually type into Google"), "and a headline that carries no address is still the producer's own sentence").toBe(true);});
+  it("prints what a change is waiting on where the change is, and prints nothing of the sort on work that is ready to make", async () => {
+    const waiting = (input: string) => proposal({ status: "needs_review", riskLevel: "low", rankingReceipt: { ...proposal().rankingReceipt!, factors: [...proposal().rankingReceipt!.factors, { name: "readiness", input, contribution: 0, max: 0 }] } });
+    const held = await card(waiting("a source reading is owed before these words can be written"), { review: true });
+    expect(held.includes("A source reading is owed before these words can be written."), "an operator looking at a card ranked above smaller finished work is told it is waiting on a reading, not on them").toBe(true);
+    expect((await card(atomic(), {})).includes("data-waiting-on"), "and finished work ready to make today waits on nothing, so it says nothing").toBe(false);});});
 describe("a card says why this opportunity and why these words, and never trades one for the other", () => {
   const rank = (directional: boolean) => ({ score: 5, factors: [], directional, basis: "b" });
   const P = (over: Partial<ChangeProposal>): ChangeProposal => ({ ...proposal(), status: "ready", bundle: undefined, claims: undefined, supportFacts: undefined, ...over } as ChangeProposal);
@@ -249,7 +277,7 @@ describe("a change detail hands over the whole investigation and the controls to
     const twin = (label: string) => ({ ...proposal().bundle!.components[0]!, kind: "internal_links" as const, label }); // READY IS THE ONLY LANE THAT CARRIES CONTROLS, so the picker is exercised on the shape that really has one. TWO PIECES OF THE SAME KIND ARE STILL TWO PIECES: a shared React key collapsed them into one row, so an operator could not say they applied one section and skipped the other. PIN (B): the control asks what they wrote; it never offers to skip the check.
     const html = await renderDetail(proposal({ status: "ready", riskLevel: "medium", modeledOn: SHAPE, bundle: { ...proposal().bundle!, components: [twin("The opening section"), twin("The sizing section")] } }));
     for (const s of ["Which pieces did you apply?", "The opening section", "The sizing section", "Only the pieces you tick get measured",
-      "Wrote it your own way? Add what you put there", "Skip"]) expect(html, s).toContain(s);
+      "Applied different wording? Paste the exact words that are on the page. Both are kept, and the page is read for yours.", "Skip"]) expect(html, s).toContain(s);
     expect(html).not.toContain("do not check the page");
     expect(html.match(/type="checkbox" checked=""/g)?.length).toBe(2); // Every piece starts ticked: applying all of them is the normal case.
     expect(await renderDetail(atomic())).not.toContain("Which pieces did you apply?"); // one edit, nothing to pick

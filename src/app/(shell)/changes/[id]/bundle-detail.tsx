@@ -188,7 +188,7 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
       </section>
 
       <section className="space-y-3 rounded-2xl border border-border bg-surface-raised p-5">
-        {held ? <p className="text-[13px] leading-relaxed text-foreground">{held}</p> : <MarkImplemented
+        {held ? <p className="text-[13px] leading-relaxed text-foreground">{held}{waitingOn(proposal) ?? ""}</p> : <MarkImplemented
           proposalId={proposal.id}
           label={isNew ? "Mark done" : "Mark done"}
           newPage={isNew}
@@ -213,6 +213,7 @@ function weightWord(contribution: number, max: number): string {
   return share >= 0.66 ? "a strong push" : share >= 0.33 ? "a fair push" : "a small push";
 }
 
+/** WHAT THIS CHANGE IS WAITING ON BEFORE ANYBODY CAN DO IT, read off the row's own typed next step and printed where the change is, never only inside the ranking receipt behind an expander: a change ranked above smaller finished work reads as an order somebody could work straight through until it says what it waits for. */ const waitingOn = (p: ChangeProposal): string | null => ((w: string) => (w ? ` ${w[0]!.toUpperCase()}${w.slice(1)}.` : null))((p.rankingReceipt?.factors ?? []).find((f) => f.name === "readiness")?.input?.trim() ?? "");
 /** LAYER 2: THE INVESTIGATION, behind one expander. All four parts come off the cause ladder: the named
  * cause and its explanation, what else was weighed and why each lost, the falsifier, and what was never
  * weighed because its evidence is not on file ("not considered" is a finding, never a silence). The ranking
@@ -270,11 +271,8 @@ function Investigation({ proposal, seen }: { proposal: ChangeProposal; seen: Set
           <div className="space-y-1">
             <p className="text-[12px] font-semibold text-foreground">Why this one ranks where it does</p>
             <ul className="space-y-1 text-[13px] leading-relaxed text-muted-foreground">
-              {factors.map((f, i) => (
-                <li key={i} className="tabular-nums">
-                  {f.input} ({weightWord(f.contribution, f.max)})
-                </li>
-              ))}
+              {/* A LABEL IS NOT A SCORE: readiness contributes nothing on purpose, so "(did not move this one either way)" after the sentence saying what the change waits on read as a shrug about the dependency. */}
+              {factors.map((f, i) => <li key={i} className="tabular-nums">{f.input}{f.max === 0 ? "" : ` (${weightWord(f.contribution, f.max)})`}</li>)}
             </ul>
             <p className="text-[12px] leading-relaxed text-muted-foreground">{receipt.basis}</p>
           </div>
@@ -429,7 +427,9 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
     : (hold1.safetyHold ? null : hold1.blocking) ?? unsettledCause(proposal); // the SAME one verdict the list lanes by, so a direct link can never out-offer the queue
   const shownSteps = research && after && !(steps[0] ?? "").startsWith(after.slice(0, 25)) ? [after, ...steps] : steps;
   const checks = proposal.evidence?.hints ?? [];
-  const action = (proposal.opportunityType || "").trim().replace(/_/g, " ") || "one edit to make";
+  // TWO THINGS THE RENDERED APP CAUGHT ON 2026-09-05. A HEADLINE THAT CARRIES AN ADDRESS IS THE WRITER'S BRIEF, NOT THE CUSTOMER'S SENTENCE: the detail led with "Write a real description on /iran-flags/parthian-empire-flag: 7 pages share one templated line", a file name printed at the operator above the very address it names. AND BEACON'S OWN OBJECTIONS ARE NOT THE OPERATOR'S CAVEATS: the same row printed "its copy carries no record of what it stands on" under Keep in mind, which names an internal record and no next step; the hold this page already computed names those sentences, so no second vocabulary decides it here.
+  const brief = (proposal.opportunityType || "").trim().replace(/_/g, " "), edit = proposal.recommendedChange, caveats = ((f) => proposal.limitations.filter((l) => !f.has(l)))(new Set(hold1.why));
+  const action = (/(^|\s)\//.test(brief) ? "" : brief) || (edit.kind === "new_page" ? `Build a new page that answers "${proposal.primaryQuery}"` : `Update the ${({ title: "page title", meta: "meta description", h1: "page headline", answer_block: "answer at the top of the page", section: "section", schema: "structured data" } as Record<string, string>)[edit.field] ?? "page"} to sharpen it for "${proposal.primaryQuery}"`); // never the bland shrug: the operator reads the page name and then what is being done to it
   return (
     <div className="space-y-5" data-simple-detail="true">
       {/* THE HEADLINE IS THE PAGE AND THE WORK, NEVER THE ARGUMENT. This h1 used to be the whole
@@ -466,10 +466,10 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
           An earlier finished version was retired because {proposal.previousCopy.retiredBecause}. Its words: &ldquo;{proposal.previousCopy.after.slice(0, 220)}&rdquo;
         </p>
       ) : null}
-      {proposal.limitations.length > 0 ? (
+      {caveats.length > 0 ? (
         <div className="space-y-1">
           <Heading>Keep in mind</Heading>
-          <Bullets items={[...proposal.limitations]} />
+          <Bullets items={caveats} />
         </div>
       ) : null}
       {checks.length > 0 ? (
@@ -495,7 +495,7 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
           applied would start a reading of a change nobody made. A card still in review has nothing to mark done
           either, for the same reason the list refuses to offer it. Setting it aside stays either way, because
           deciding not to chase a question is a real answer. */}
-      {held && !research ? <p className="text-[13px] leading-relaxed text-foreground" data-held-reason="true">{held}</p> : null}
+      {held && !research ? <p className="text-[13px] leading-relaxed text-foreground" data-held-reason="true">{held}{waitingOn(proposal) ?? ""}</p> : null}
       <div className="flex flex-wrap items-center gap-3">
         {research || held ? null : <MarkImplemented proposalId={proposal.id} />}
         <SetAsideChange proposalId={proposal.id} />

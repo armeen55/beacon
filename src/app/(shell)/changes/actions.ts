@@ -16,7 +16,8 @@ import { invalidateCoreSurfaces } from "../surface-release";
 import { readChangesPage, type ChangesPage } from "../changes-data";
 
 /** changes/actions: the manual "Mark implemented" action. Publishing authority is MANUAL and server-enforced: the kernel never writes a live page and never flips this itself. THE SHIPMENT TRANSACTION: the press writes a Shipment FIRST and flips the proposal SECOND, never the other way, because a crash between the two leaves a Shipment nobody flipped (which the next press heals) where the reverse leaves a change marked done that nothing on earth is measuring. And nothing lands at all unless the ONE verdict passes at this moment. `note` says what is still theirs to do after a PARTIAL apply, in their own words. */
-type MarkProposalImplementedResponse = { success: boolean; error?: string; note?: string };
+/** `retryable` says this ending is a bad moment and not a verdict, so a press held on the device is sent again instead of being dropped. A refusal (skipped, unfinished, held for review, not found) is a verdict and is never retried. */
+type MarkProposalImplementedResponse = { success: boolean; error?: string; note?: string; retryable?: boolean };
 
 /** What one press landed: whether every piece is now on file, how many this press wrote, how many are genuinely still theirs to do (the remainder came off THIS press before, so press two of three said "the other 2" with one left), AND THE RECORD THAT IS MEASURING IT. The flip that follows will not run without that id, so a press can never close a change no record stands behind. */
 type Shipped = { ok: true; complete: boolean; recorded: number; remaining: number; shipmentId: string; measurement: MeasurementState };
@@ -35,6 +36,12 @@ function shippedVersionOf(p: ChangeProposal, appliedIds: readonly string[]): str
 /** THE WORDS THAT HAVE TO END UP ON THE LINK, carried the same way by whichever door records the press. The live check reads a link on BOTH its address and its words, and a shipment that hands it only the address is confirmed by any link to that page under any wording at all, which is not the change that was asked for. The piece's own typed words win; a link piece that carries none takes the ones typed on the change itself, and nothing is stamped on a kind the live check would not read it off. */
 const LINK_KIND: ReadonlySet<string> = new Set(["internal_link_add", "internal_links", "anchor_text"]);
 const anchorFor = (p: ChangeProposal, kind: string, own?: string | null): { anchorAfter?: string } => { const c = p.recommendedChange, words = (!LINK_KIND.has(kind) ? "" : (own ?? (c.kind === "existing_edit" ? c.anchorText : null)) ?? "").trim(); return words ? { anchorAfter: words } : {}; };
+/** THE PIECE'S OWN NAME, off the change and never off the brief the writer was handed. Four applied descriptions were recorded on 2026-09-05 as "Write a real description on <address>: 5 pages share one templated line", an instruction carrying a raw address, standing where the name of the applied piece belongs on a record that outlives the card. A bundle piece already carries its own label; an atomic change is one piece, and that piece is the field it rewrites, named on the page the operator reads. */
+const FIELD_WORD: Readonly<Record<string, string>> = { title: "Page title", meta: "Meta description", h1: "Page headline", answer_block: "Answer at the top of the page", section: "Section on the page", schema: "Structured data" };
+const atomicLabel = (p: ChangeProposal, link = false): string => { const c = p.recommendedChange, page = (p.pageLabel ?? "").trim() || (p.pagePath ?? "").trim();
+  if (c.kind === "new_page") return page ? `New page: ${page}` : "New page";
+  const what = link ? "Internal link" : FIELD_WORD[c.field] ?? "Change to the page";
+  return page ? `${what} on ${page}` : what; };
 
 /** WHERE THE NEW PAGE ACTUALLY LIVES. A page that did not exist has no address until the operator publishes it, so a new-page change marked done with no address left verification fetching the page LABEL as if it were a website. The address is owed, and it has to be one I can keep reading: on their own site, secure, and one plain page address with no query, because a tracking link is not the page. */
 function liveUrlFor(raw: string, domain: string): { url: string } | { error: string } {
@@ -74,7 +81,7 @@ function overlapAtShip(ledger: ReadonlyArray<{ id: string; proposalId: string | 
 
 /** Write the Shipment for one proposal. Idempotent: the id is derived from the proposal and the version applied, so a retry keeps the stamp and the starting numbers already on file, and the caller flips nothing when it did not land. A SECOND PRESS DOES NOTHING AT ALL: rebuilding the record erased the live check back to null, moved the ship date to today and recomputed the starting numbers over a window that now included days AFTER the change, so pressing twice quietly flattered its own result. */
 async function recordImplementation(tenantId: string, proposal: ChangeProposal,
-  opts: { appliedIds: readonly string[]; operatorNote?: string | null; liveUrl?: string; preloadedLedger?: Awaited<ReturnType<typeof loadShippedChanges>>; openPaths?: readonly string[]; invalidate?: boolean },
+  opts: { appliedIds: readonly string[]; appliedText?: string | null; liveUrl?: string; preloadedLedger?: Awaited<ReturnType<typeof loadShippedChanges>>; openPaths?: readonly string[]; invalidate?: boolean },
 ): Promise<Shipped | { ok: false; error: string }> {
   const bundleIds = (proposal.bundle?.components ?? []).map(componentIdOf);
   try {
@@ -105,12 +112,14 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
       // An atomic change has no component to carry a grade, so it reads null rather than a guess.
       ?? [((c) => c?.kind === "existing_edit" && c.linkTo
         // AN ATOMIC LINK IS VERIFIED AS A LINK (operator, 2026-09-01): shipped as its field family it was read as a section and nineteen of them could never be confirmed. The destination rides in the address slot the live check reads and the anchor in the words slot.
-        ? { id: null, kind: "internal_link_add", label: proposal.opportunityType, after: c.after, risk: null, redirectTo: c.linkTo, ...anchorFor(proposal, "internal_link_add") }
+        ? { id: null, kind: "internal_link_add", label: atomicLabel(proposal, true), after: c.after, risk: null, redirectTo: c.linkTo, ...anchorFor(proposal, "internal_link_add") }
         // AND STRUCTURED DATA IS VERIFIED AS STRUCTURED DATA, by the same rule: a block shipped as its field family is read as a section, and no heading on the page will ever match a JSON-LD block. Whether it ADDS a block or REPLACES the one that was there is decided here, off the change's own before, because only a replacement can be told from a page that already had one.
         : c?.kind === "existing_edit" && c.field === "schema"
-          ? { id: null, kind: c.before ? "schema_replace" : "schema_add", label: proposal.opportunityType, after: c.after, before: c.before, risk: null }
-          : { id: null, kind: proposal.changeFamily, label: proposal.opportunityType, after: c?.kind === "existing_edit" ? c.after : null, risk: null, ...anchorFor(proposal, proposal.changeFamily) })(proposal.recommendedChange)];
-    const componentsApplied = bundleIds.length > 0 ? all.filter((c) => c.id != null && covers(fresh, c.id)) : all;
+          ? { id: null, kind: c.before ? "schema_replace" : "schema_add", label: atomicLabel(proposal), after: c.after, before: c.before, risk: null }
+          : { id: null, kind: proposal.changeFamily, label: atomicLabel(proposal), after: c?.kind === "existing_edit" ? c.after : null, risk: null, ...anchorFor(proposal, proposal.changeFamily) })(proposal.recommendedChange)];
+    const picked = bundleIds.length > 0 ? all.filter((c) => c.id != null && covers(fresh, c.id)) : all;
+    // THE VERSION THE OPERATOR APPLIED, BOUND TO THE PIECE IT REPLACED, and only where this press recorded exactly one piece: with several recorded there is no honest way to say which one their words landed on, so those keep the prepared wording and the note on the row. The prepared wording is never overwritten, so the record holds the suggestion and the applied version side by side, and the live check reads the page for the one that is on it.
+    const componentsApplied = opts.appliedText && picked.length === 1 ? [{ ...picked[0]!, appliedAfter: opts.appliedText }] : picked;
 
     // The page as Beacon already holds it: canonical URL, path and the content hash from the last crawl, nothing fetched. THE OPERATOR'S OWN ADDRESS WINS for a new page: it is the only one that exists.
     const pageRef = (opts.liveUrl ?? proposal.pageUrl ?? proposal.pagePath ?? "").trim();
@@ -154,8 +163,8 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
       // lets a later reading say it was taken alongside other work instead of handing the whole movement to one edit.
       treatmentStamp: { signature: treatmentSignatureOf(proposal), overlapAtShip: overlapAtShip(ledger, proposal, pageRef) },
       preChangeContentHash: meta?.contentHash ?? null,
-      // THE NOTE TRAVELS WITH THE PRESS, and nothing else does: their own words ride along BESIDE the reading, and Beacon still goes and looks at the page itself before it says anything.
-      operatorNote: opts.operatorNote ?? null,
+      // THE OPERATOR'S OWN WORDS TRAVEL WITH THE PRESS, on the row as well as on the piece: the row is where every surface already reads them, the piece is what the page is read against, and Beacon still goes and looks at the page itself before it says anything.
+      operatorNote: opts.appliedText ?? null,
     }, opts.preloadedLedger ? { preloadedLedger: opts.preloadedLedger, openPaths: opts.openPaths, invalidate: opts.invalidate } : undefined);
     return state(fresh.length, landed.shipmentId, landed.measurement);
   } catch (err) {
@@ -183,10 +192,8 @@ export async function markProposalImplementedAction(args: {
   proposalId: string;
   /** WHICH PIECES THEY ACTUALLY APPLIED, by the stable id each piece carries inside its stored bundle. ABSENT means all of them; anything else is intersected against the bundle on file and refused when it selects nothing, so a hand-made list can no longer conjure an empty selection past the confirmation. */
   componentIds?: string[];
-  /** What they actually put on the page, in their own words. A note beside the reading, never instead of it. */
-  operatorNote?: string;
-  /** RETIRED, and accepted only so an old page still open in a browser is not an error. It used to suppress the live check; it does nothing now, and the check runs either way. */
-  operatorConfirmed?: boolean;
+  /** THE EXACT WORDING THEY PUT ON THE PAGE, where it is not the prepared wording. The screen asks for exactly that and for nothing else, which is what makes it the version applied rather than a comment: the prepared wording stays on the record beside it and the page is read for this one. */
+  appliedText?: string;
   /** THE ONE CONFIRMATION THAT IS REAL. Set only by an operator who ticked the box beside a piece that moves or hides a page. Enforced HERE, on the server: a stale screen or a hand-made request cannot merge or redirect a page merely because it reached this action. */
   destructiveConfirmed?: boolean;
   /** WHERE THE NEW PAGE IS LIVE. Required for a new page, which has no address until they publish it. */
@@ -250,14 +257,14 @@ export async function markProposalImplementedAction(args: {
     let liveUrl: string | undefined;
     if (stored.kind === "new_page") {
       const domain = (await getTenant(tenantId).catch(() => null))?.domain?.trim();
-      if (!domain) return { success: false, error: "Your website address could not be read just now, so this is not recorded yet. Press it again in a moment." };
+      if (!domain) return { success: false, retryable: true, error: "Your website address could not be read just now, so this is not recorded yet. Press it again in a moment." };
       const checked = liveUrlFor(args.liveUrl ?? "", domain);
       if ("error" in checked) return { success: false, error: checked.error };
       liveUrl = checked.url;
     }
     // SHIPMENT FIRST, FLIP SECOND. Never the other way around.
     const appliedIds = args.componentIds !== undefined ? args.componentIds : ids;
-    const shipment = await recordImplementation(tenantId, stored, { appliedIds, operatorNote: args.operatorNote, liveUrl });
+    const shipment = await recordImplementation(tenantId, stored, { appliedIds, appliedText: args.appliedText, liveUrl });
     if (!shipment.ok) return { success: false, error: shipment.error };
     // A PARTIAL APPLY CLOSES NOTHING: applying one piece of five used to mark the whole change done, so the four they never touched vanished. The change stays open carrying the rest, each subset measured alone, and the count is the TRUE remainder.
     const n = shipment.recorded, left = shipment.remaining;
@@ -281,12 +288,12 @@ export async function markProposalImplementedAction(args: {
     log.info("Action completed", { action, durationMs: Date.now() - t0, params: { proposalId: args.proposalId } });
     // A PRESS WITH NOTHING NEW IN IT IS NOT A SILENT SUCCESS: say plainly that it is already being measured.
     if (n === 0 && ids.length > 0) return { success: true, note: "Every piece of this change is already on file and being measured. There is nothing left for you to record here." };
-    // AND A RECORD THAT CANNOT BE READ FAIRLY YET SAYS SO ON THE PRESS. The work is recorded either way, because what the operator applied is a fact and whether Search data can compare it is a different fact; being quiet about the second one promises a reading nobody can take.
-    return { success: true, note: measurementNote(shipment.measurement) };
+    // AND A RECORD THAT CANNOT BE READ FAIRLY YET SAYS SO ON THE PRESS. The work is recorded either way, because what the operator applied is a fact and whether Search data can compare it is a different fact; being quiet about the second one promises a reading nobody can take. Where their own wording was recorded, the press says both versions are kept and which one the page is read for, so nothing has to be guessed at from a screen that has already moved on.
+    return { success: true, note: `${args.appliedText?.trim() ? "Your wording is recorded as what is on the page, and the prepared wording is kept beside it. " : ""}${measurementNote(shipment.measurement)}` };
   } catch (err) {
     // THE RAW MESSAGE GOES TO THE LOG AND NOWHERE ELSE: a table name is not an answer to a customer.
     log.error("markProposalImplemented: failed", { proposalId: args.proposalId, error: err instanceof Error ? err.message : String(err) });
-    return { success: false, error: "That could not be recorded just now. Press it again in a moment." };
+    return { success: false, retryable: true, error: "That could not be recorded just now. Press it again in a moment." };
   }
 }
 
@@ -296,7 +303,7 @@ export async function markProposalImplementedAction(args: {
  *  sitting. The recording underneath stays ATOMIC, one shipment per change exactly as before; what is shared is
  *  the trip and the rebuild. IDEMPOTENT by construction: a change already being measured answers that it is,
  *  and says so per id rather than failing the batch. A press that records nothing still rebuilds nothing. */
-export async function markManyImplementedAction(args: { proposalIds: string[]; operatorNote?: string }): Promise<{ success: boolean; done: number; already: number; failed: { id: string; error: string }[]; note: string; results: { id: string; outcome: "recorded" | "already" | "failed"; shipmentId?: string; error?: string }[] }> {
+export async function markManyImplementedAction(args: { proposalIds: string[] }): Promise<{ success: boolean; done: number; already: number; failed: { id: string; error: string }[]; note: string; results: { id: string; outcome: "recorded" | "already" | "failed"; shipmentId?: string; error?: string }[] }> {
   const t0 = Date.now();
   const ids = [...new Set((args.proposalIds ?? []).filter((x) => typeof x === "string" && x.trim()))];
   if (ids.length === 0) return { success: false, done: 0, already: 0, failed: [], results: [], note: "No changes were selected." };
@@ -336,7 +343,7 @@ export async function markManyImplementedAction(args: { proposalIds: string[]; o
       if (dangerousComponents(row.bundle?.components ?? []).length > 0) return { id, outcome: "failed", error: "This one moves or hides a page, so it needs its own confirmed press on the change itself." };
       if (row.kind === "new_page") return { id, outcome: "failed", error: "A new page needs its live address, so record it from the change itself." };
       const appliedIds = (row.bundle?.components ?? []).map(componentIdOf);
-      const shipment = await recordImplementation(tenantId, row, { appliedIds, preloadedLedger: ledger, openPaths, invalidate: false, ...(args.operatorNote ? { operatorNote: args.operatorNote } : {}) });
+      const shipment = await recordImplementation(tenantId, row, { appliedIds, preloadedLedger: ledger, openPaths, invalidate: false }); // NO SHARED WORDING ON A BATCH: one line of the operator's own words cannot be the version applied to twenty different changes, so the batch records the prepared wording and a different version is recorded on the change itself
       if (!shipment.ok) return { id, outcome: "failed", error: shipment.error };
       // SHIPMENT FIRST, FLIP SECOND, exactly as the single press: a crash between the two leaves a Shipment the
       // next press heals through the same idempotent id. A row already implemented replays as "already".

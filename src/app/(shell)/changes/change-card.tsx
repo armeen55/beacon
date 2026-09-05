@@ -78,14 +78,17 @@ function categoryOf(p: ChangeProposal, isNew: boolean, parts: number): string {
   return `${actionWordOf(p)} ${targetWordOf(p)}`;
 }
 
-/** The exact primary action in one line: a bundle's objective, the producer's own headline when it wrote a
- *  real one (a sentence, not a slug), or the field an atomic edit rewrites. */
+/** The exact primary action in one line: a bundle's objective, the producer's own headline when it wrote a real one
+ *  (a sentence, no slug in it), or the field an atomic edit rewrites. A HEADLINE THAT CARRIES AN ADDRESS IS THE
+ *  WRITER'S BRIEF, NOT THE CUSTOMER'S SENTENCE (rendered app, 2026-09-05): two ready cards led with "Write a real
+ *  description on /california-persian-cities/berkeley: 20 pages share one templated line", a file name printed at
+ *  the operator, repeating word for word the reason already printed under it. */
 function primaryAction(p: ChangeProposal): string {
   if (p.bundle) return p.bundle.objective;
-  if (p.opportunityType.includes(" ") && p.opportunityType.length > 20) return p.opportunityType;
+  if (p.opportunityType.includes(" ") && p.opportunityType.length > 20 && !/(^|\s)\//.test(p.opportunityType)) return p.opportunityType;
   const c = p.recommendedChange;
   if (c.kind === "new_page") return `Build a new page that answers "${p.primaryQuery}"`;
-  return `Update the ${fieldWord(c.field)} on ${p.pageLabel} to sharpen it for "${p.primaryQuery}"`;
+  return `Update the ${fieldWord(c.field)} to sharpen it for "${p.primaryQuery}"`; // the page is already the line above this one, so naming it again reads as a stutter
 }
 
 /** WHAT DOES NOT CHANGE, said out loud where omission could cause a mistake. Derived from the canonical
@@ -127,8 +130,10 @@ const piecesOf = (b: ChangeBundle | undefined) => (b?.components ?? []).map((c, 
   ...(dangerousComponents([c]).length > 0 ? { moves: true } : {}),
 }));
 
-export function ChangeCard({ proposal, rank, ready = false, review = false, caseLine = null, onAside, onDone, onToast, picked, onPick }: {
+export function ChangeCard({ proposal, rank, ready = false, review = false, caseLine = null, onAside, onDone, onToast, picked, onPick, recorded = false, problem = null }: {
   proposal: ChangeProposal; rank: number; ready?: boolean;
+  /** RECORDED BY THE BATCH BELOW THE LIST, so a card the operator never pressed still says what happened to it: the open count dropped on the batch's answer while every card it recorded kept offering Copy and Mark done, which reads as work still owed. `problem` is this row's OWN reason when the batch could not record it, printed on the row rather than as one first error under twenty cards that leaves the operator guessing which card it belongs to. */
+  recorded?: boolean; problem?: string | null;
   /** BULK SELECTION, offered only where the list offers it (the Ready lane): ticking claims nothing by itself, and the one batch press below the list is what records. Absent means no checkbox renders at all. */
   picked?: boolean; onPick?: (id: string) => void;
   /** WAITING ON A HUMAN LOOK. The card renders the whole argument and the words it has, and NOTHING that would record the work as made: no copy box, no Mark done, either on the collapsed row or inside the expander. A control is a claim that the work is finished, and this stage is the stage where it is not. */
@@ -163,9 +168,11 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   // A DRAFT IS SHOWN WITH THE REASON IT IS HELD, IN THE WORDS ALREADY STORED ON IT, and the reason decides what
   // may be pressed: editorial judgement is the operator's to answer, a fact about the work is nobody's.
   const hold = review ? openHold(proposal) : null;
+  // WHAT THIS ONE IS WAITING ON BEFORE ANYBODY CAN DO IT, off the row's own typed next step: a card ranked above a smaller one that is ready reads as an order somebody could work straight through, so the dependency is printed where the card is and not folded into the ranking receipt behind an expander. A plain sentence, never a label: "Waiting on: this one waits on your confirmation" says the same thing twice.
+  const waiting = ((w: string) => (w ? `${w[0]!.toUpperCase()}${w.slice(1)}.` : null))((proposal.rankingReceipt?.factors ?? []).find((f) => f.name === "readiness")?.input?.trim() ?? "");
   const placement = proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.where ?? null : null;
 
-  if (done) return (
+  if (done || recorded) return (
     <li className="rounded-2xl border border-accent-primary/50 bg-surface-raised p-4" data-change-card="done">
       <p className="text-[14px] font-semibold text-foreground">{pageTitle}</p>
       <p className="mt-1 text-[13px] text-muted-foreground" data-card-done="true">Done. Measuring from {DAY_NOW()}. {MEASURING_PLAN}</p>
@@ -175,6 +182,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   return (
     <li className={`rounded-2xl border bg-surface-raised ${ready ? "border-accent-primary/50" : "border-border"}`}
       data-change-card="true">
+      {problem ? <p className="px-4 pt-3 text-[12px] leading-relaxed text-red-500" data-bulk-problem="true">Not recorded: {problem} Press Mark done on this one to try it again.</p> : null}
       {/* THE WHOLE COLLAPSED HEAD IS THE CONTROL, so it is reachable by tab and opens on Enter or Space. */}
       <div className="flex w-full items-start">
       {onPick ? <input type="checkbox" data-pick-done="true" checked={picked ?? false} onChange={() => onPick(proposal.id)} aria-label={`Select ${pageTitle} for the batch`} className="ml-4 mt-5 h-4 w-4 shrink-0 accent-accent-primary" /> : null}
@@ -268,6 +276,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
           </div>
         )}
 
+        {waiting && !ready ? <p className="text-[13px] leading-relaxed text-muted-foreground" data-waiting-on="true">{waiting}</p> : null}
         {hold ? (
           <div className="space-y-1 rounded-md border border-border bg-surface-inset px-3 py-2" data-held-reason="true">
             {/* Only the DECISION lane renders cards in review now, so this heading frames the operator's own

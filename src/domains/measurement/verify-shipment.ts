@@ -100,6 +100,8 @@ const opener = (s: string, words = 12): string => norm(s).split(" ").filter(Bool
 const firstLine = (s: string): string => s.split(/\r?\n/).map((l) => l.trim()).find((l) => !!l) ?? "";
 const urlIn = (s: string): string | null => s.match(/https?:\/\/[^\s"'<>)\]]+|(?:^|\s)\/[a-z0-9][a-z0-9\-/_]*/i)?.[0]?.trim() ?? null;
 const judged = (state: ComponentState, note: string, reason: Reason | null = null): { state: ComponentState; note: string; reason: Reason | null } => ({ state, note, reason });
+/** A RECORD THAT NAMES NOTHING TO LOOK FOR, and the sentence that says so; null where the live page really can answer. Some kinds are visible with no wording at all (the address forwards, the page asks to be left out of search, the page exists); every other kind needs the exact wording that was applied, and what is on file is either empty or still the template with its slots unfilled. NO SECOND READ CAN CHANGE THAT ANSWER, so this is the one class reconciled from the record itself and never fetched again: two rows on file still read "has a population of NUMBER as of YEAR (SOURCE)" and were owed a live read each on a promised day. Wording is never invented to check against. */
+const noExpectation = (kind: string, after: string): string | null => (norm(after) && !TEMPLATE_SLOT.test(after)) || COPY_FREE_KINDS.has(kind) ? null : `${norm(after) ? "What was recorded here is still the template wording, with its NUMBER, YEAR or SOURCE never filled in, so no live page could be carrying it." : "The exact wording that was applied here was never recorded, so no reading of the page can confirm it."} Nothing more is read for it. Record the words that are on the page and the next check reads them.`;
 // THE WORDS A LINK WAS RENAMED TO where the Shipment stored them as the label itself: a single short line with no quotation marks IS the wording, a sentence written about the link is not. 27 applied renames read as unreadable while their new words sat on the row, each equal to a live anchor.
 const labelIn = (s: string): string => { const one = firstLine(s); return one === s.trim() && !/["'‘’“”]/.test(s) && one.split(/\s+/).filter(Boolean).length <= 12 ? one : ""; };
 // THE PAGES AS THE STORE ALREADY HOLDS THEM, through the ONE canonical body reader: it picks the capture that IS the page (a newer blank never erases a confirmed body), so a javascript page answers from the rendered read already bought for it, and a closed reading learns its page moved. No second crawler, no spend.
@@ -170,13 +172,8 @@ function schemaClaim(block: string): { types: string[]; names: string[] } {
 
 /** ONE component, judged against the page as it stands right now. Pure. */
 function classify(component: { kind: string; after: string; anchorAfter?: string | null; redirectTo?: string | null; before?: string | null }, live: LiveRead): { state: ComponentState; note: string; reason: Reason | null } {
-  const { snap } = live, proposed = component.after ?? "";
-  // NO COPY, NO CLAIM. Some kinds are visible without any wording at all (the address forwards, the page
-  // asks to be left out of search, the page exists). Every other kind needs the exact wording that was
-  // applied, and when I do not hold it I say so rather than checking the page against a guess.
-  if ((!norm(proposed) || TEMPLATE_SLOT.test(proposed)) && !COPY_FREE_KINDS.has(component.kind)) {
-    return judged("unverifiable", norm(proposed) ? "What is on file here is still the template wording, with its NUMBER, YEAR or SOURCE never filled in, so there is nothing a page could be carrying." : "The exact wording that was applied here is not on file, so this one is not called either way.", "applied_wording_missing");
-  }
+  const { snap } = live, proposed = component.after ?? "", nothingToFind = noExpectation(component.kind, proposed); // NO COPY, NO CLAIM: the same rule the whole reading is settled by above, asked here for one piece of a bundle whose other pieces the page can answer for
+  if (nothingToFind) return judged("unverifiable", nothingToFind, "applied_wording_missing");
   // A FIELD IS ABSENT ONLY WHERE THE READ COULD SEE ONE: a head that never parsed proves nothing about what is in it. And the wording that was there BEFORE, still live, is a publish that has not happened; calling that the operator's own version blamed them for a CMS cache and taught the loop off a page they never wrote.
   const field = (value: string | null, what: string) => !value?.trim() ? (live.blind && !snap.title ? judged("unverifiable", `Your page builds its content in the browser, so its ${what} could not be read from the outside.`, "rendered_content_gap") : judged("not_verified", `Your page has no ${what} at all.`, "not_published_yet"))
     : norm(value) === norm(proposed) ? judged("verified", `Your ${what} matches the prepared wording exactly.`) : norm(value) === norm(component.before ?? "") ? judged("not_verified", `Your ${what} still reads the way it did before this change.`, "not_published_yet")
@@ -323,6 +320,9 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
   // next day; the third blocked answer stands, exactly as a difference does.
   const early = !!shipment.implementedAt && now() - Date.parse(shipment.implementedAt) < PUBLISH_GRACE_MS;
   const checks = (shipment.priorChecks ?? 0) + (early ? 0 : 1); // a read inside the grace window is free: it informs, it never counts
+  // NO LIVE READ FOR A RECORD NO PAGE CAN ANSWER. Every piece names nothing to look for, so the answer is settled from the record itself: no fetch, no check spent, no day promised, and the row is never scheduled again. A historical record is reconciled from what it holds; only a page that could carry the change is read.
+  const unanswerable = shipment.components.map((c) => noExpectation(c.kind, c.after ?? ""));
+  if (shipment.components.length > 0 && unanswerable.every((n) => n != null)) return { status: "blocked", checkedAt, checks: shipment.priorChecks ?? 0, reason: "applied_wording_missing", recheckAfter: null, components: shipment.components.map((c, i) => ({ kind: c.kind, state: "unverifiable" as ComponentState, note: unanswerable[i]! })) };
   const blockedRead = (note: string, reason: Reason): ShipmentVerification =>
     ({ status: "blocked", checkedAt, components: allUnknown(shipment, note), checks, reason, recheckAfter: checks < MAX_CHECKS ? reportingDay(now() + 86_400_000) : null });
   let res: Awaited<ReturnType<typeof fetchPageHtml>>;
@@ -354,7 +354,8 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
   // through caches and build queues for hours after a paste, so the first read routinely differs, and a page
   // where every piece came back unreadable is a fact about that one read. Up to MAX_CHECKS bounded reads, two
   // days apart; a verified answer is final on any read, and the third read's answer stands whatever it is.
-  const again = status !== "verified" && (early || checks < MAX_CHECKS);
+  // AND A READING TAKEN OFF A CAPTURE OLDER THAN THE CHANGE IS NOT ANSWERED BY FETCHING AGAIN: the same shell comes back every time, so it closes here rather than promising a day. The page itself reopens it the moment a newer capture lands, which is the rule shipmentsAwaitingVerification already carries.
+  const again = status !== "verified" && (early || checks < MAX_CHECKS) && !(shell && held && !fresh);
   // WHAT GOOGLE SHOWS IS BANKED AFTER THE ROLL-UP AND NEVER INSIDE IT: a results page that has not caught up
   // yet is a fact about Google, and letting it into `status` would take a landed change back off the board.
   const graded = early && again ? components.map((c) => c.state !== "verified" && c.state !== "unverifiable" ? { ...c, note: `${c.note} Sites are often published later in the session, so this is read again tomorrow without counting against the check limit.` } : c) : components, shows = await googleShows(shipment, tenantId, live, deps, checkedAt);
@@ -370,13 +371,14 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
  *  component carries its copy and the others carry none. A component whose copy I do not hold is checked
  *  anyway when its kind can be seen without copy (a redirect, a noindex, structured data) and is honestly
  *  UNKNOWN when it cannot. Inventing wording to check against would be worse than saying I cannot tell. */
+/** AND THE PAGE IS READ AGAINST THE VERSION THAT IS ACTUALLY ON IT. Where the operator told this door they applied their own wording, that wording is what the page is checked for, and the prepared wording stays on the record beside it: both versions are kept, the suggestion and the version applied, and neither is overwritten by the other. */
 function componentsOf(r: ShippedChangeRecord): VerifiableShipment["components"] {
   const copy = (r.after ?? "").trim(), was = (r.before ?? "").trim(); // AND WHAT IT REPLACED, on the same fallback the copy already takes: the row holds the wording that was there before and the component was handed none of it, so the page still carrying it read as the operator's own version
-  const applied = (r.componentsApplied ?? []) as Array<{ kind: string; after?: string | null; anchorAfter?: string | null; redirectTo?: string | null; before?: string | null }>;
+  const applied = (r.componentsApplied ?? []) as Array<{ kind: string; after?: string | null; appliedAfter?: string | null; anchorAfter?: string | null; redirectTo?: string | null; before?: string | null }>;
   if (applied.length === 0) return copy || r.actionType ? [{ kind: r.actionType || "content", after: copy, before: was || null }] : [];
   const lone = applied.length === 1;
   return applied.map((c) => ({ kind: c.kind, anchorAfter: c.anchorAfter ?? null, redirectTo: c.redirectTo ?? null, before: (c.before ?? "").trim() || (lone || c.kind === r.actionType ? was : "") || null,
-    after: (c.after ?? "").trim() || (lone || c.kind === r.actionType ? copy : "") }));
+    after: (c.appliedAfter ?? "").trim() || (c.after ?? "").trim() || (lone || c.kind === r.actionType ? copy : "") }));
 }
 
 /** One Shipment row, as verification reads it. A row that already holds an answer is here on the day that
@@ -398,16 +400,15 @@ export async function shipmentsAwaitingVerification(tenantId: string, limit = MA
   // on the 4th when today came off a UTC instant, so a read a silent site was owed was taken a day early and
   // its answer, taken before the site had a chance, spent one of the bounded checks.
   const today = reportingDay(deps.now ? deps.now() : Date.now());
-  /** Never checked, or a read whose own promised recheck day has arrived. A row carrying
-   *  the retired `operator_confirmed` label was never checked at all, whatever it says, so it is owed the
-   *  one real reading it never got; the answer it writes back is a real state and the row is done. */
+  /** Never checked, or a read whose own promised recheck day has arrived. */
   const closed = rows.filter((r) => !!r?.page && r.verification != null && r.verification.status !== "verified" && (r.verification.recheckAfter ?? null) == null);
   const moved = closed.length === 0 ? new Map<string, OwnedPageBody>() : await (deps.readHeld ?? heldBodies)(closed.map((r) => r.page), tenantId).catch(() => new Map<string, OwnedPageBody>());
   const due = (r: ShippedChangeRecord): boolean => {
-    if (r.verification == null || r.verification.status === "operator_confirmed") return true;
+    if (r.verification == null) return true;
     const at = r.verification.recheckAfter ?? null;
     // A CLOSED READING IS REOPENED BY THE PAGE ITSELF, exactly once per capture. A row terminal since August carries a live headline equal to its applied copy byte for byte, and nothing could ever ask again. No fetch decides this: the capture already on file does, and the answer the re-read writes back is stamped later than that capture, so the same capture can never open it twice.
-    if (!at) return r.verification.status !== "verified" && (moved.get(canonicalUrlKey(r.page))?.fetchedAt ?? "") > (r.verification.checkedAt ?? "");
+    // AND A RECORD THAT HOLDS NO WORDING IS NOT REOPENED BY A CAPTURE EITHER: a newer read of the page cannot answer a record that names nothing to look for, so it is reconciled from what it holds and never queued for live work again.
+    if (!at) return r.verification.status !== "verified" && r.verification.reason !== "applied_wording_missing" && (moved.get(canonicalUrlKey(r.page))?.fetchedAt ?? "") > (r.verification.checkedAt ?? "");
     return today >= at;
   };
   return rows
