@@ -1450,7 +1450,7 @@ describe("typed refusal contract", () => { // ── the typed refusal contract:
       budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/persian-female-first-names", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
       complete: async ({ user }: { user: string }) => (seen.push(user), { value: { field: "answer_block", before: null, rationale: "grounded", ...TAIL, placementAnchor: "Persian Female Names",
         after: NEW_COPY, naturalHeading: "How to pronounce them", claims: [{ text: NEW_COPY, supportedBy: ["fact-1"] }] } }) } as never);
-    expect(seen.join(" ")).toContain("fact-1: Pronunciation guide for parents: Most classic Persian girls' names are pronounced"); // the researched fact reached the writer as citable evidence
+    expect(seen.join(" ")).toContain("fact-1: Most classic Persian girls' names are pronounced with even stress, so Darya is dar-YAH and Afsaneh is af-sah-NEH. This is about \"Pronunciation guide for parents\"."); // the researched fact reached the writer as citable evidence
     expect(seen.join(" ")).toContain("rival-1"); // the rival stayed briefing beside it
     expect(out2[0]!.status).toBe("ready"); const done = out2[0]!; // THE READING REACHES THE FINISHED ROW, bound to the completed proposal and carrying the editor's own mapping, so the one canonical gate has something to trust instead of holding substantive work it just approved.
     expect(done.semanticReview!.of, "bound to the finished proposal, not a draft").toBe(copyKey(done));
