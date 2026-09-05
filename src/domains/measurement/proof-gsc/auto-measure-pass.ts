@@ -30,9 +30,9 @@ type AutoMeasurePassResult = { considered: number; due: number; measured: number
 /** HOW MANY PAGES ONE PASS ASKS GOOGLE ABOUT. Free, and Google's own quota is 2000 inspections a day per property, so this is a politeness
  *  bound and never a money one. Oldest stamp first, so a backlog drains in order and the oldest row is never the starved one. */
 const CRAWL_INSPECTIONS_PER_PASS = 50;
-/** The most live reads one shipment ever gets, mirrored from verify-shipment's own bound. This file may put a stopped check back on that
- *  schedule; it may never widen it, so a row at the limit is left alone and stays honestly unverified. */
-const VERIFIER_MAX_CHECKS = 3;
+/** The most live reads one shipment ever gets, READ from verify-shipment's own bound rather than mirrored beside it. This file may put a
+ *  stopped check back on that schedule; it may never widen it, so a row at the limit is left alone and stays honestly unverified. */
+import { MAX_CHECKS as VERIFIER_MAX_CHECKS } from "../verify-shipment";
 /** WHAT THE REPAIR DID, on the row, in one sentence and never twice. */
 const REOPEN_NOTE = "The live check on this page had stopped with no next date, so it is scheduled again from today, inside the same three read limit.";
 const noteOnce = (held: string | null, note: string): string => ((held ?? "").includes(note) ? (held ?? "") : [held, note].filter(Boolean).join(" "));

@@ -381,8 +381,8 @@ function componentsOf(r: ShippedChangeRecord): VerifiableShipment["components"] 
 const toVerifiable = (r: ShippedChangeRecord): VerifiableShipment =>
   ({ id: r.id, url: r.page, components: componentsOf(r), targetQueries: r.targetQueries ?? [], implementedAt: r.implementedAt ?? null, ...(r.verification != null ? { priorChecks: r.verification.checks ?? 1 } : {}) });
 
-/** The most live reads one shipment ever gets. */
-const MAX_CHECKS = 3;
+/** The most live reads one shipment ever gets, and the ONE place that number is written (seventh round: the repair pass beside this one carried its own literal 3 for want of an export slot, so two files could drift apart on the bound that decides whether a customer's page is ever read again). */
+export const MAX_CHECKS = 3;
 const loadRows = (tenantId: string, deps: VerifyDeps): Promise<ShippedChangeRecord[]> =>
   (deps.loadShipments ?? loadShippedChangesForTenant)(tenantId).catch(() => []);
 

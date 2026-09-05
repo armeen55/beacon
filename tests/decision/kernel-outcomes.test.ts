@@ -478,6 +478,16 @@ describe("what the winning pages share reaches the operator, and never one of th
     expect([d.pattern!.winners, d.pattern!.publishers]).toEqual([3, ["r1.example", "r2.example", "r3.example"]]); // the months-old fourth read is not one of the pages I read
     expect(d.pattern!.ownedGaps[0]!.gap).toContain("piece"); // and the gap stands only because the page it is about was supplied
     expect(d.evidence!.find((e) => e.id === "gap1")!.fact).toContain("Your own page does not do what 3 of them do"); expect(d.evidence!.find((e) => e.id === "pattern")!.fact).toContain("The 3 pages that win here were read side by side"); });
+  /** AND THE READING SPENDS INSIDE ITS SHARE OF THE BOX LIKE EVERY OTHER JOB (R8 residual 3, named rather than made blind at the round-nine landing). It was the one funded family left outside the share, because its verdict is read off whether the purse moved and the share reports the purse empty once a job's half of the box has ended: wrapped blind, a reading the CLOCK stopped would have written "the pages that win this subject do not yet come from enough separate publishers", a settled refusal that reopens only when another winner is read, about evidence nobody looked at. What "nothing was asked" means is settled here: it means this reader's own deterministic rule read today's winners and declined to spend, and it can never mean the drive ran out of box. */
+  it.each(["tenant-one", "tenant-two"])("%s: files a reading its own share of the box stopped as owed again, never as a settled refusal about the winners it never read", async (asTenant) => {
+    const research = READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) });
+    reset(snap([GAP], research, DEMAND)); vi.useFakeTimers({ toFake: ["Date"] }); const at = Date.now();
+    const res = await produceProposalsForTenant(asTenant, { now: NOW, stopBy: at + 200_000, complete: async ({ kind }) => { if (kind !== "winning_pattern") return { value: VALID_ATOMIC_EDIT as never };
+      vi.setSystemTime(at + 180_000); return { value: PATTERN("") as never }; } }); vi.useRealTimers(); // the reading runs past its 100-second share, which is exactly the case the residual named
+    const receipt = res.paid.receipts.find((r) => r.key.startsWith("pattern:"));
+    expect([receipt?.outcome, (receipt?.why ?? "").includes("share of the drive's box ended"), (receipt?.why ?? "").includes("enough separate publishers")],
+      "a reading the box stopped is owed again at its own rank with the same sentence every other unit files, so the next drive demotes it for the calls it made instead of reading a clock as a judgement about the publishers behind the winning pages").toEqual([
+      "retryable_blocked", true, false]); });
   it("puts what each winner contributed into the page it drafts, in the verdict's own words", async () => { reset(snap([GAP], READABLE({ topicKey: keyOf(READY()) }), DEMAND));
     const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async (r) => (r.kind === "winning_pattern" ? { value: PATTERN(r.user) as never } : pageSeam(BRIEF)(r)) });
     const page = res.proposals.find((p) => p.kind === "new_page")!; const keys = page.bundle!.receipt.items.map((i) => i.key);
