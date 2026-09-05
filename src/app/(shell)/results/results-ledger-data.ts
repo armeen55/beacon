@@ -114,11 +114,15 @@ export async function presentShipments(tenantId: string, records: ShippedChangeR
       judgedMetric: r.judgedMetric ?? null,
       // A ROW THAT NAMES NO RECOMMENDATION, OR ONE NOTHING COULD BE READ FOR, SAYS NOTHING: history is never repainted on a silence.
       recommendation: (r.proposalId ? recommendations.get(r.proposalId) : null) ?? { state: "unknown" as const },
+      // THE OPERATOR'S OWN WORDING TRAVELS WITH THE RECORD, and only where it genuinely differs from what was prepared. `label` is deliberately NOT carried: four live records hold the writer's brief there, so the screen names each piece by its kind instead and a brief can never be printed as a name.
+      applied: (r.componentsApplied ?? []).filter((c) => (c.appliedAfter ?? "").trim() !== "" && (c.appliedAfter ?? "").trim() !== (c.after ?? "").trim()).map((c) => ({ kind: c.kind, prepared: (c.after ?? "").trim() || null, operator: (c.appliedAfter ?? "").trim() })),
       // THE FACTS THE ENGINE LEARNS FROM, HANDED OVER WHOLE. Only the applied copy is trimmed off the pieces, because the sole thing read
       // from them is which field each one wrote; `after` stays because a stored template still holding blanks votes on nothing.
       learning: { actionType: r.actionType, after: r.after, windows: r.windows, baseline: r.baseline, implementedAt: r.implementedAt,
         verification: r.verification, operatorVerdictOverride: r.operatorVerdictOverride, pinnedRead: r.pinnedRead, treatmentStamp: r.treatmentStamp,
-        componentsApplied: r.componentsApplied?.map((c) => ({ kind: c.kind, label: c.label })) ?? null },
+        // THE TWO FIELDS THE ELIGIBILITY RULE ASKS FOR TRAVEL WITH THE ROW (measured on the live account, 2026-09-05). `learningEligibility` reads `measurementState` and counts `controlsReceipt`, and neither was carried, so every reading looked as though too few pages had stood behind it: the queue was learning from this account's one closed reading while this page said nothing had been learned at all, which is one number under two names. The piece's stored `label` is carried EMPTY: the one reader of these pieces takes the kind alone, four live records hold the writer's brief in that field, and a brief is not a name, so it never travels to a surface at all.
+        measurementState: r.measurementState, controlsReceipt: r.controlsReceipt,
+        componentsApplied: r.componentsApplied?.map((c) => ({ kind: c.kind, label: "" })) ?? null },
       // The days that have passed ride with it, because the group holds an AI direction as still reading until this change's own 28 days
       // have run: an early lean is never banked as a win, on either side of the same row.
       ai: aiReads[i]

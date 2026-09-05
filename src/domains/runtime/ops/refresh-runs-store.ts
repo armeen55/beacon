@@ -163,7 +163,7 @@ function rowsPersistedOf(_source: RefreshSource, value: unknown): number | null 
 /** How many consecutive FAILED runs for one source escalate the connector card
  *  from the gentle "I will try again on my own" to a needs-attention state
  *  (2026-07-20). Counts ANY trigger (cron/manual/on-use), unlike the cron-only
- *  auth escalation — with the nightly cron disabled, on-use is the only path
+ *  auth escalation - with the nightly cron disabled, on-use is the only path
  *  left, so a cron-only streak can never fire. 3 strikes = a durable failure,
  *  not a one-off blip. */
 const SYNC_FAILURE_ESCALATION_MIN_STREAK = 3;
@@ -178,7 +178,7 @@ const SYNC_FAILURE_ESCALATION_MIN_STREAK = 3;
  * the sync returns). Counts that run plus the leading run of prior FAILED rows;
  * any `ok`/`partial` prior run breaks the streak (the source reached data, so
  * it is not silently broken). `since` is the started_at of the last good run
- * before the streak, else the oldest failing run — for "not synced since <date>"
+ * before the streak, else the oldest failing run - for "not synced since <date>"
  * copy. Returns `daysStale` from that `since` for "not synced in N days" copy.
  */
 export function deriveSyncFailureEscalation(

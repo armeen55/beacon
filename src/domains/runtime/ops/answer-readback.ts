@@ -161,8 +161,8 @@ type ReadFailure = LlmFailure;
 /** The names a PERMANENT non-reading is stored under, every one of them a call that RETURNED. `attempts_exhausted` is the bounded ladder itself running out: one batch, then one call for this piece alone, neither usable and both billed, so a third ask only buys the same nothing. */
 type ReadOutcome = "provider_refused" | "schema_invalid" | "incomplete" | "attempts_exhausted";
 /** What each named non-reading says on the record, in the operator's own words. */
-const WHY_SAID: Record<ReadOutcome, string> = { provider_refused: "the reader refused to read it", schema_invalid: "the reading came back in a shape I could not use",
-  incomplete: "it was left out of the reading that came back", attempts_exhausted: "I asked for it in a batch and then on its own, and neither came back usable" };
+const WHY_SAID: Record<ReadOutcome, string> = { provider_refused: "the reader refused to read it", schema_invalid: "the reading came back in a shape nothing here can use",
+  incomplete: "it was left out of the reading that came back", attempts_exhausted: "it was asked for in a batch and then on its own, and neither came back usable" };
 
 type AnalysisDeps = {
   readObservations?: (tenantId: string, opts: { day?: string }) => Promise<readonly AnalyzableObservation[]>;

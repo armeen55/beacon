@@ -297,14 +297,18 @@ function happenedLine(p: ShipmentPresentation, now: Date = new Date()): string {
   return isMature(r.basisDay) ? `Ran ${r.basisDay} days. ${estimate}.` : `${r.basisDay} days in. ${estimate}.`;
 }
 
-/** THE PAGE'S OWN MOVEMENT BESIDE THE ADJUSTED ONE where no fair comparison exists, so the reader can see which of the two moved. "Before 0 / After 0, unadjusted: the site moved too" stood here, true and unreadable: five live readings reported plus 75 clicks while the pages they were measured against fell 75 and the page itself never moved at all, and nothing on the row said which. Printed only when the kernel exposes the unadjusted pair; the comparison's own fall comes off the stored window and the clause drops when no window carries it. Nothing is scaled, guessed or filled in here. */
+/** THE PAGE'S OWN MOVEMENT BESIDE THE ADJUSTED COMPARISON, ON EVERY READING THAT HAS ONE (operator, 2026-09-05). This printed only where no fair comparison existed, so on a fair one the screen showed the adjusted number alone and A PAGE GAINING TRAFFIC AND A PAGE OUTPERFORMING A FALLING COMPARISON WERE ONE SENTENCE: five live readings reported plus 75 clicks while the pages measured against them fell 75 and the page itself never moved at all. Both facts are printed now, and the third sentence says which of the two happened, in the operator's words. Printed only when the kernel exposes the unadjusted pair; the comparison's own movement comes off the stored window and the clause drops when no window carries it. Nothing is scaled, guessed or filled in here, and a row judged on assistants says nothing, because its clicks are context and its own story is told above. */
+const rawMoveOf = (p: ShipmentPresentation): { own: number; peers: number | null } | null => p.read.unadjusted == null || judgedOnAi(p) ? null
+  : { own: p.read.unadjusted.clicksAfter - p.read.unadjusted.clicksBefore, peers: (p.learning?.windows ?? []).find((w) => w.day === p.read.unadjusted!.basisDay)?.controlDelta ?? null };
 function unadjustedLine(p: ShipmentPresentation): string | null {
-  const u = p.read.unadjusted; if (p.read.comparison !== "insufficient" || !u) return null;
-  const moved = u.clicksAfter - u.clicksBefore, fell = (p.learning?.windows ?? []).find((w) => w.day === u.basisDay)?.controlDelta ?? null;
-  const own = `This page went from ${num(u.clicksBefore)} to ${num(u.clicksAfter)} clicks, ${moved === 0 ? "flat" : moved > 0 ? `up ${num(moved)}` : `down ${num(-moved)}`}`;
-  const peersMoved = fell == null ? null : fell === 0 ? "did not move" : fell < 0 ? `fell ${num(-fell)}` : `rose ${num(fell)}`; /* THE GAP CLAIM IS ONLY TRUE IN CLICKS (reviewer, 2026-09-05): five live readings are judged on click rate, and "0.7 points of click rate is the gap between those two click movements" is arithmetic that does not hold */
-  return peersMoved == null ? `${own}, unadjusted: the site moved too.` : p.read.metric === "clicks" ? `${own}, while the pages compared against it ${peersMoved}. This reading reports ${liftSize(p.read.metric, p.read.lift)}, which is the gap between those two movements and not clicks this change won.`
-    : `${own}, while the pages compared against it ${peersMoved}. The reading itself is ${liftSize(p.read.metric, p.read.lift)}, judged on a different measure from the clicks above, and it is not clicks this change won.`;
+  const u = p.read.unadjusted, m = rawMoveOf(p); if (!u || !m) return null;
+  const own = `This page went from ${num(u.clicksBefore)} to ${num(u.clicksAfter)} clicks, ${m.own === 0 ? "flat" : m.own > 0 ? `up ${num(m.own)}` : `down ${num(-m.own)}`}`;
+  const peersMoved = m.peers == null ? null : m.peers === 0 ? "did not move" : m.peers < 0 ? `fell ${num(-m.peers)}` : `rose ${num(m.peers)}`; /* THE GAP CLAIM IS ONLY TRUE IN CLICKS (reviewer, 2026-09-05): five live readings are judged on click rate, and "0.7 points of click rate is the gap between those two click movements" is arithmetic that does not hold */
+  const reading = p.read.basisDay == null || p.read.verdict === "waiting" ? "" : p.read.metric === "clicks" ? ` This reading reports ${liftSize(p.read.metric, p.read.lift)}, which is the gap between those two movements and not clicks this change won.`
+    : ` The reading itself is ${liftSize(p.read.metric, p.read.lift)}, judged on a different measure from the clicks above, and it is not clicks this change won.`;
+  // WHICH OF THE TWO HAPPENED, SAID OUTRIGHT: a page that took more clicks than before is a different fact from a page that held still while everything around it fell, and "ahead" was the only word both ever got.
+  const which = p.read.metric !== "clicks" || m.peers == null || m.peers >= 0 ? "" : m.own > 0 ? " This page took more clicks than before and the pages compared against it took fewer, so both are true of it." : " Finishing ahead here is the comparison falling further, not traffic this page gained."; // ASKED ONLY OF A READING JUDGED ON CLICKS (reviewer, 2026-09-05): on a click rate or a position read, "finishing ahead" would name a verdict those clicks never decided, and the clause below already says the reading is on another measure
+  return peersMoved == null ? `${own}, unadjusted: the site moved too.` : `${own}, while the pages compared against it ${peersMoved}.${which}${reading}`;
 }
 
 /** What this read carries forward, plus how much stands behind it. Clauses drop rather than guess. THE OUTCOME CLAUSE IS THE ROW'S OWN
@@ -397,4 +401,4 @@ function caveatLines(r: KernelRead, judgedOnAi: boolean): string[] {
 }
 
 /** ONE module surface: the sentence layer exports itself once, not eighteen times. */
-export const RESULT_LINES = { AI_MOVE, WHY_UNCONFIRMED, causeWords, aiDays, aiHappenedLine, aiMove, aiStory, cap, caveatLines, groupFor, happenedLine, isRetired, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, retiredChip, rowState, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } as const;
+export const RESULT_LINES = { AI_MOVE, WHY_UNCONFIRMED, causeWords, aiDays, aiHappenedLine, aiMove, aiStory, cap, caveatLines, groupFor, happenedLine, isRetired, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, rawMoveOf, reasonWords, receiptOf, retiredChip, rowState, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } as const;

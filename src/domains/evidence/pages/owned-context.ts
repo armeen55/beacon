@@ -239,15 +239,17 @@ export async function loadOwnedPageBodies(tenantId: string, urls: string[], miss
   for (let at = 0; at < asked.length; at += MAX_URLS) {
     const slice = asked.slice(at, at + MAX_URLS);
     try {
-      const { data, error } = await getSupabaseAdmin()
-        .from("page_snapshots").select(COLUMNS)
-        .eq("tenant_id", tenantId)
-        .in("url", variantsOf(slice))
-        .order("fetched_at", { ascending: false })
-        .limit(MAX_ROWS);
-      if (error) throw new Error(error.message ?? String(error));
-      // ONE RULE FOR WHICH CAPTURE IS THE PAGE (pages/page-version), the same one the snapshot loader applies, so the writer and the diagnosis can never hold two different pages under one address.
-      for (const row of (data ?? []) as Row[]) { const key = canonicalUrlKey(typeof row.url === "string" ? row.url : ""); if (key && wanted.has(key)) captures.set(key, [...(captures.get(key) ?? []), row]); }
+      let pending = slice; /* A CAPPED READ IS RE-ASKED FOR WHAT IT LEFT UNANSWERED (reviewer, 2026-09-05): one row budget per chunk, ordered newest first across every page in it, let two pages with dozens of stored versions take the whole budget, so three pages with three captures each came back with no row at all, were reported as never captured, and the sibling rule fell silent on them and let a refused description through. A read cut at the budget asks again for the pages it did not answer; a page still unanswered after a cut that answered nothing new is UNKNOWN, never absent. */
+      for (let round = 0; pending.length > 0 && round < 3; round += 1) {
+        const { data, error } = await getSupabaseAdmin().from("page_snapshots").select(COLUMNS).eq("tenant_id", tenantId).in("url", variantsOf(pending)).order("fetched_at", { ascending: false }).limit(MAX_ROWS);
+        if (error) throw new Error(error.message ?? String(error));
+        // ONE RULE FOR WHICH CAPTURE IS THE PAGE (pages/page-version), the same one the snapshot loader applies, so the writer and the diagnosis can never hold two different pages under one address.
+        for (const row of (data ?? []) as Row[]) { const key = canonicalUrlKey(typeof row.url === "string" ? row.url : ""); if (key && wanted.has(key)) captures.set(key, [...(captures.get(key) ?? []), row]); }
+        const capped = (data ?? []).length >= MAX_ROWS, left = pending.filter((u) => !captures.has(canonicalUrlKey(u)));
+        if (!capped || left.length === 0) break; // the read was not cut short, or every page it was asked for answered: what is still absent has no capture
+        if (left.length === pending.length || round === 2) { for (const u of left) failed.add(canonicalUrlKey(u)); break; } // a cut read that answered none of the pages it was asked for, or the third cut in a row: those pages are unknown this pass
+        pending = left;
+      }
     } catch (e) {
       // THIS CHUNK ALONE IS UNKNOWN. Failing the whole read closed threw away pages that were genuinely in hand and told the caller they had no text, which is the very lie this reader exists to prevent.
       for (const u of slice) failed.add(canonicalUrlKey(u));

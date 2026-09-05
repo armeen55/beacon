@@ -805,7 +805,17 @@ describe("the canon refuses raw HTML in operator copy", () => {
     env.store = new Map([[standing.id, standing]]);
     await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true });
     const demoted = env.store.get(standing.id)!;
-    expect([demoted.status, demoted.limitations.some((l) => l.startsWith("Contains raw HTML markup"))], "demoted with the canon's own reason on the row").toEqual(["needs_review", true]); });
+    expect([demoted.status, demoted.limitations.some((l) => l.startsWith("it did not pass the re-read of a stored change against the rules that stand today: Contains raw HTML markup"))], "demoted with the canon's own reason on the row, and through the ONE composer, so the gate opener is there for the next promotion candidate to strip and re-earn instead of the raw sentence standing as a customer caveat for ever").toEqual(["needs_review", true]); });
+  /** A VERDICT THAT DEPENDS ON A PAGE'S TEMPLATE SIBLINGS IS ASKED OF THE WHOLE FAMILY, NEVER OF THE ROWS THAT HAPPENED TO BE HELD (measured live, 2026-09-05): /california-persian-cities/beverly-hills was promoted in one hosted pass one second before the same rule refused a sibling, because each pass asked the rule against whatever window was open. The sweep reads the family out of the account's OWN page inventory now, whether or not a sibling carries a row, and the pass receipt says how much of it came back, so a reader can tell a whole-family verdict from a partial one. */
+  it.each(["tenant-one", "tenant-two"])("reads a candidate page's whole family out of the page inventory rather than the held rows, and says on the receipt how much of it came back [%s]", async () => {
+    const kin = (slug: string) => ownedPage(`fixture-outdoors.example/cities/${slug}`, slug, { impressions: 900, clicks: 20 }, [{ query: `${slug} guide`, impressions: 900, clicks: 20, position: 6 }]);
+    const held = baseProposal({ researchOnly: false, id: "fixture-tenant::/cities/one::existing_edit::missing_description", pagePath: "/cities/one", pageUrl: "https://fixture-outdoors.example/cities/one", changeFamily: "meta", status: "needs_review", primaryQuery: "one guide", basis: "basis_test::d8", recommendedChange: { kind: "existing_edit", field: "meta", before: "Old line.", after: "A line about the first city and the spread a household sets out for the new year." } });
+    reset(snap([kin("one"), kin("two"), kin("three")])); env.store = new Map([[held.id, held]]);
+    const whole = await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true });
+    expect(whole.paid.familyRead, "TWO SIBLINGS ARE ASKED FOR AND TWO COME BACK, though neither of them carries a row of its own: the held rows are not the family").toEqual({ asked: 2, loaded: 2 });
+    reset(snap([kin("one"), kin("two"), kin("unreadable-three")])); env.store = new Map([[held.id, held]]);
+    const partial = await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true });
+    expect(partial.paid.familyRead, "and a family the store could not hand over whole says so on the receipt instead of the pass quietly deciding on the part of it that answered").toEqual({ asked: 2, loaded: 1 }); });
 });
 /** A PRODUCER THAT READ NOTHING CANNOT CLAIM THE PAGE MOVED (operator, 2026-08-31). Live, the $0 re-mint of a description card arrived with no copyStamp over a finished promoted meta carrying the page as the drafting pass read it; null against that stamp broke copy identity, and the template replaced the finished description whole, words to a receipt, backing and status gone. */
 describe("a stampless re-mint never replaces finished work", () => {

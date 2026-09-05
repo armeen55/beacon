@@ -122,7 +122,7 @@ const THIN_PAGE_WORDS = 120;
 type FirstWin = { action: string; url: string; plainWhy: string; exactFix: string };
 
 function stripSiteSuffix(title: string): string {
-  return title.split(/\s*(?:\||–|—|::|\s-\s)\s*/)[0]!.trim();
+  return title.split(/\s*(?:\||\u2013|\u2014|::|\s-\s)\s*/)[0]!.trim(); /* the two long dash characters are written as escapes because none may stand literally anywhere in this codebase, and a page title that separates on one still splits exactly as before */
 }
 /** A FINDING NAMES THE ADDRESS THE OPERATOR HAS TO OPEN. A bare path made them reassemble the URL themselves before they could go fix anything. */
 function pageLabel(f: CrawlPageFact): string {
@@ -147,7 +147,7 @@ function pickFirstWin(facts: readonly CrawlPageFact[]): FirstWin | null {
   if (home && !home.has_meta_description) return {
     action: "Add a meta description", url: home.url,
     plainWhy: `Your homepage (${home.url}) has no meta description, so the snippet under it in search results is written for you rather than by you.`,
-    exactFix: "Add a one-sentence description of who you help and what you do. I will check how the snippet changes after it goes live.",
+    exactFix: "Add a one-sentence description of who you help and what you do. The snippet is read again after it goes live.",
   };
   const noMeta = byWords.find((f) => !f.has_meta_description && f.word_count >= 40);
   if (noMeta) return {
@@ -182,8 +182,8 @@ export async function submitWebsite(tenantId: string, url: string, deps?: Onboar
     return {
       ok: false,
       error: probe.reason === "robots_blocked"
-        ? `${normalized.domain} asks readers to stay out of its pages, so I cannot read it. If this is your site, allow BeaconBot and try again.`
-        : `I could not reach ${normalized.domain}. Check the spelling, or try it with www in front.`,
+        ? `${normalized.domain} asks readers to stay out of its pages, so it cannot be read. If this is your site, allow BeaconBot and try again.`
+        : `${normalized.domain} did not answer. Check the spelling, or try it with www in front.`,
     };
   }
   const outcome = await d.store.replaceWebsite(tenantId, normalized.domain, d.now().toISOString()).catch(() => "not_pending" as const);
@@ -271,7 +271,7 @@ export async function saveProfileEdits(tenantId: string, edits: ProfileEdits, de
   }
   if (Object.keys(patch).length === 0) return { ok: true };
   const saved = await d.saveProfile(tenantId, patch);
-  return saved.persisted ? { ok: true } : { ok: false, error: "I could not save that just now. Try again in a moment." };
+  return saved.persisted ? { ok: true } : { ok: false, error: "That could not be saved just now. Try again in a moment." };
 }
 
 /** CONFIRMING WHAT IS ON SCREEN CONFIRMS WHAT IS ON SCREEN, AND EVERYTHING ON SCREEN. Two ways to get that
@@ -289,7 +289,7 @@ export async function confirmProfile(tenantId: string, deps?: OnboardingDeps): P
     (patch as Record<string, unknown>)[key] = { ...section, origin: "operator_confirmed" };
   }
   const saved = await d.saveProfile(tenantId, patch);
-  return saved.persisted ? { ok: true } : { ok: false, error: "I could not confirm that just now. Try again." };
+  return saved.persisted ? { ok: true } : { ok: false, error: "That could not be confirmed just now. Try again." };
 }
 
 /** PURE: is there anything here for the operator to read and agree with? THE SAME TEST THE STEP ITSELF APPLIES:
@@ -316,10 +316,10 @@ export async function proposeProfilePatch(tenantId: string, instruction: string,
     kind: "business_profile_patch", tenantId, budgetPlatform: "onboarding-openai",
     system: PATCH_SYSTEM, user: buildPatchUser(current, instruction), grounded: instruction, complete: d.complete, now: d.now(),
   });
-  if (llm.status !== "drafted") return { ok: false, error: "I could not turn that into a safe change. Try describing it another way." };
+  if (llm.status !== "drafted") return { ok: false, error: "That did not turn into a safe change. Try describing it another way." };
   const patch = whitelistPatch(llm.value as Record<string, unknown>);
   const diff = diffPatch(current, patch);
-  if (diff.length === 0) return { ok: false, error: "I did not find a change to make from that. Try being more specific." };
+  if (diff.length === 0) return { ok: false, error: "No change to make came out of that. Try being more specific." };
   return { ok: true, patch, diff, summary: String((llm.value as { changeSummary?: string }).changeSummary ?? "").slice(0, 400) };
 }
 
@@ -333,7 +333,7 @@ export async function applyConfirmedPatch(tenantId: string, patch: ProfilePatch,
     (dbPatch as Record<string, unknown>)[key] = confirmedSection(value);
   }
   const saved = await d.saveProfile(tenantId, dbPatch);
-  return saved.persisted ? { ok: true } : { ok: false, error: "I could not apply that just now. Try again." };
+  return saved.persisted ? { ok: true } : { ok: false, error: "That could not be applied just now. Try again." };
 }
 
 /** Keep ONLY whitelisted business fields; identity/URL/provenance/status are never representable. */

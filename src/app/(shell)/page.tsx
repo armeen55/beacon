@@ -19,6 +19,7 @@ import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
 import { CopyButton } from "./changes/change-controls";
+import { pageLabel } from "./changes/types";
 
 /** Today `/` - WORK, NOT A STATUS REPORT (2026-08-11). The operator has made zero changes because this screen narrated what Beacon was
  *  doing instead of handing him one edit. It is now exactly five things: the greeting with how many edits are open, THE TOP EDIT ITSELF
@@ -110,25 +111,28 @@ function reasonLine(text: string | undefined): string | null {
   return line ? line.charAt(0).toUpperCase() + line.slice(1) : null;
 }
 
-/** THE LAST CHANGE THAT PROVABLY WON, in the lift the ledger already stored: the newest settled win, its page, and how far it beat the
- *  pages nobody touched. Null while nothing has settled, which is the honest answer. */
+/** DID THE LAST THING WORK, off the same ledger rows Results reads and the same lifecycle split Changes counts, in the lift the ledger already stored.
+ *  ONLY A WIN WAS EVER PRINTED (operator, 2026-09-05), so an account whose newest finished reading came in level or behind was told nothing at all,
+ *  and read that silence as nothing having happened. Every settled reading answers now, in its own words, and a finished reading the live page has
+ *  not confirmed says so rather than being offered as a result. THE PAGE IS NAMED THE WAY A PERSON SAYS IT: this printed a raw address. */
 type LedgerRow = Awaited<ReturnType<typeof loadProofLedgerCached>>[number];
 /** The newest settled window that actually ran against real control pages. Null when none did. */
 const provenLift = (r: LedgerRow): number | null =>
   [...r.windows].filter((w) => w.ran && (w.controlsUsed ?? 0) > 0 && w.adjustedLift != null)
     .sort((a, b) => b.day - a.day)[0]?.adjustedLift ?? null;
 function lastWinLine(rows: Awaited<ReturnType<typeof loadProofLedgerCached>>, nowMs: number): string | null {
-  const won = splitLedgerLifecycle(rows, new Date(nowMs)).won;
-  const newest = [...won].sort((a, b) => (b.implementedAt ?? b.shippedAt).localeCompare(a.implementedAt ?? a.shippedAt))[0];
+  const b = splitLedgerLifecycle(rows, new Date(nowMs));
+  const newest = [...b.won, ...b.learned].sort((x, y) => (y.implementedAt ?? y.shippedAt).localeCompare(x.implementedAt ?? x.shippedAt))[0];
   if (!newest) return null;
   // A WIN WITH NO CLICK NUMBER IS STILL A WIN. Rounding a missing lift to zero deleted the whole line, so an
   // account whose newest win was read in click rate or position was told nothing had ever worked.
-  const raw = provenLift(newest);
-  const lift = raw == null ? null : Math.round(raw);
-  const page = (newest.page || newest.path).replace(/^https?:\/\/[^/]+/, "") || "/";
-  return lift != null && lift > 0
-    ? `Your last change to ${page} earned ${lift.toLocaleString("en-US")} more ${lift === 1 ? "click" : "clicks"} than the pages that were not changed.`
-    : `Your last change to ${page} finished ahead of the pages that were not changed.`;
+  const raw = provenLift(newest), lift = raw == null ? null : Math.round(raw);
+  const page = pageLabel((newest.page || newest.path).replace(/^https?:\/\/[^/]+/, "") || "/"), peers = "the pages that were not changed";
+  const clicks = (n: number): string => `${n.toLocaleString("en-US")} ${n === 1 ? "click" : "clicks"}`;
+  if (b.won.includes(newest)) return lift != null && lift > 0 ? `Your last change to ${page} earned ${lift.toLocaleString("en-US")} more ${lift === 1 ? "click" : "clicks"} than ${peers}.` : `Your last change to ${page} finished ahead of ${peers}.`;
+  // A FINISHED READING THAT IS NOT A WIN IS STILL AN ANSWER, and the two reasons it is not one are different facts: it went the other way, or nothing has confirmed the change on the live page yet.
+  if (lift != null && lift > 0) return `Your last change to ${page} read ${clicks(lift)} ahead of ${peers}, and the live page has not confirmed the change yet, so it is not counted as a win.`;
+  return lift != null && lift < 0 ? `Your last change to ${page} finished ${clicks(-lift)} behind ${peers}.` : `Your last change to ${page} finished level with ${peers}.`;
 }
 
 /** TWO BLOCKS AND THE WAY TO RESULTS, off the ledger rows Today already holds. The counts come from

@@ -5,7 +5,7 @@ const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], calls: 0, 
 // The `in` list is HONOURED, so a paged read is a real paged read here: each query answers for its own chunk, and `failAfter` breaks one chunk while the others still land.
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => { let asked: string[] = [];
   const q = { select: () => q, eq: () => q, in: (_c: string, list: string[]) => (asked = list, q), order: () => q,
-    limit: async () => (db.calls += 1) > db.failAfter ? { data: null, error: { message: "chunk down" } } : { data: db.rows.filter((r) => asked.includes(String(r.url))), error: null } };
+    limit: async (n: number) => (db.calls += 1) > db.failAfter ? { data: null, error: { message: "chunk down" } } : { data: db.rows.filter((r) => asked.includes(String(r.url))).sort((a, b) => String(b.fetched_at).localeCompare(String(a.fetched_at))).slice(0, n), error: null } }; // newest first and cut at the budget, as the store answers
   return { from: () => q }; } }));
 import { loadOwnedPageBodies, pageContains } from "@/domains/evidence/pages/owned-context";
 const cap = (fetchedAt: string, words: number, certainty = "confirmed", bodyHeld = true) => ({ fetchedAt, words, bodyHeld, certainty });
@@ -29,6 +29,10 @@ describe("one rule decides which capture is the page", () => {
     db.rows = Array.from({ length: 9 }, (_v, i) => row(`https://iranopedia.com/p${i}`, "2026-08-30T22:00:00Z", `Page ${i} says something true about its own subject.`, 9, "confirmed"));
     const urls = db.rows.map((r) => String(r.url)); db.calls = 0;
     const misses = new Map<string, string>(); expect([(await loadOwnedPageBodies("t", [...urls, "https://iranopedia.com/never-crawled"], misses as Map<string, "no_capture" | "read_failed">)).size, [...misses]]).toEqual([9, [["iranopedia.com/never-crawled", "no_capture"]]]);
+    /* A CAPPED READ IS RE-ASKED FOR WHAT IT LEFT UNANSWERED (reviewer, 2026-09-05): two pages with thirty stored versions each fill the chunk's whole row budget newest first, so a third page with three older captures came back with no row, was reported as never captured, and the sibling rule fell silent on it. */
+    const nine = db.rows; db.rows = [...Array.from({ length: 30 }, (_v, i) => row("https://iranopedia.com/busy-one", `2026-08-30T2${String(i % 4)}:${String(10 + i).padStart(2, "0")}:00Z`, `Busy one, version ${i}.`, 9, "confirmed")), ...Array.from({ length: 30 }, (_v, i) => row("https://iranopedia.com/busy-two", `2026-08-30T2${String(i % 4)}:${String(10 + i).padStart(2, "0")}:00Z`, `Busy two, version ${i}.`, 9, "confirmed")), ...Array.from({ length: 3 }, (_v, i) => row("https://iranopedia.com/quiet", `2026-08-29T0${String(i)}:00:00Z`, `Quiet page, older capture ${i}.`, 9, "confirmed"))];
+    db.calls = 0; const capped = new Map<string, "no_capture" | "read_failed">(); const three = await loadOwnedPageBodies("t", ["https://iranopedia.com/busy-one", "https://iranopedia.com/busy-two", "https://iranopedia.com/quiet"], capped);
+    expect([three.size, three.has("iranopedia.com/quiet"), [...capped], db.calls], "the page the cut read left out is asked for again on its own, comes back with its own newest capture, and is never reported as never captured").toEqual([3, true, [], 2]); db.rows = nine;
     // AND A CHUNK THAT COULD NOT BE READ NEVER ERASES THE CHUNKS THAT DID: its own pages are UNKNOWN by name, and the pages already in hand still answer.
     db.calls = 0; db.failAfter = 1; const broke = new Map<string, "no_capture" | "read_failed">();
     const partial = await loadOwnedPageBodies("t", urls, broke); db.failAfter = Infinity;

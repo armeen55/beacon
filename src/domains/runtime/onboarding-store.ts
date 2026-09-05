@@ -70,7 +70,7 @@ export async function setupGap(tenantId: string, account: SetupAccount, deps?: O
   const held = (k: string): boolean => { const v = (profile as unknown as Record<string, { value?: unknown }>)[k]?.value;
     return Array.isArray(v) ? v.length > 0 : v != null && String(v).trim() !== ""; };
   if (!isProfileConfirmed(profile)) {
-    if (!CONFIRMABLE_FIELDS.some(held)) throw new Error("I could not read this account's business profile, so I cannot say whether its setup is finished.");
+    if (!CONFIRMABLE_FIELDS.some(held)) throw new Error("This account's business profile could not be read, so whether its setup is finished is unknown.");
     return { step: 3 };
   }
   const g = account.growth_goal;
@@ -319,9 +319,9 @@ export async function generatePromptCandidates(tenantId: string, deps?: Onboardi
   // it is missing. Anything else is locked.
   if (!(await resumableAt(account, 5, d))) return { ok: false, error: "Your account is already running, so its prompts are locked here." };
   const profile = await d.loadProfile(tenantId);
-  if (!isProfileConfirmed(profile)) return { ok: false, error: "Confirm your business first, then I will build your prompts." };
+  if (!isProfileConfirmed(profile)) return { ok: false, error: "Confirm your business first, then your prompts are built." };
   const goal = account?.growth_goal ?? null;
-  if (goal === null) return { ok: false, error: "Pick your goal first, then I will build your prompts." };
+  if (goal === null) return { ok: false, error: "Pick your goal first, then your prompts are built." };
 
   const basis = basisTag(canonicalId, account?.domain?.trim() ?? "", profile, goal);
   const existing = await d.store.readPrompts(canonicalId);
@@ -374,7 +374,7 @@ export async function approvePrompts(tenantId: string, selection: PromptSelectio
   const basis = basisTag(canonicalId, account?.domain?.trim() ?? "", profile, account?.growth_goal ?? null);
   const rows = await d.store.readPrompts(canonicalId);
   const candidates = rows.filter((r) => r.tags?.includes(PROMPT_TAGS.candidate) && r.tags?.includes(basis));
-  if (candidates.length === 0) return { ok: false, error: "I have not built your prompts yet." };
+  if (candidates.length === 0) return { ok: false, error: "Your prompts are not built yet." };
 
   // Every referenced id must be one of THIS account's current-basis candidates; a foreign or superseded-basis id is rejected.
   const validId = new Set(candidates.map((r) => r.id));
@@ -419,7 +419,7 @@ export async function approvePrompts(tenantId: string, selection: PromptSelectio
   // THE UI'S 20-50 WINDOW HOLDS HERE TOO, so no other caller can say yes where the page said no. The floor bends to a thin candidate pool
   // (a 16 question profile approves its 16), never below minActive.
   const floor = Math.max(LIMITS.minActive, Math.min(LIMITS.onboardingMin, candidates.length));
-  if (activeCount < floor) return { ok: false, error: `Pick at least ${floor} prompts so I can track something meaningful. You have ${activeCount}.` };
+  if (activeCount < floor) return { ok: false, error: `Pick at least ${floor} prompts so there is something meaningful to track. You have ${activeCount}.` };
   if (activeCount > LIMITS.onboardingMax) return { ok: false, error: `That is ${activeCount} prompts. Keep it to ${LIMITS.onboardingMax} or fewer so each one gets real attention.` };
   const finalWrites = [...byId.values()];
   // Sweep EVERY active prompt row not in this selection, across ALL bases, and FOR A RUNNING ACCOUNT TOO: skipping it there stacked the
@@ -471,7 +471,7 @@ export async function activateAccount(tenantId: string, tosAccepted: boolean, de
 
   const nowIso = d.now().toISOString();
   const outcome = await d.store.activateTenant(canonicalId, nowIso).catch(() => "blocked" as const);
-  if (outcome === "blocked") return { ok: false, error: "I could not start your account just now. Try again in a moment." };
+  if (outcome === "blocked") return { ok: false, error: "Your account could not be started just now. Try again in a moment." };
   // THE SIDE EFFECTS BELONG TO THE FIRST ACTIVATION AND NOWHERE ELSE. Stamping the terms an already running account never accepted must
   // never start a second research run over the top of the one already going.
   if (outcome === "activated" && !wasActive) {

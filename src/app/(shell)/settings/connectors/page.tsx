@@ -14,7 +14,7 @@ import { loadGscIngestionGapReport } from "@/domains/evidence";
 import { ingestionGapLine } from "@/domains/evidence";
 import { currentTenantId } from "@/lib/tenant-context";
 import { getTenant } from "@/domains/account";
-import { latestRefreshBySource } from "@/domains/runtime";
+import { latestRefreshBySource, researchRunStatus } from "@/domains/runtime";
 import { PageHeader } from "@/components/data/page-header";
 import { ConnectorsClient, type RefreshLedgerFacts } from "./connectors-client";
 import { loadRecentUpkeep, RecentUpkeepList, type RecentUpkeepEntry } from "./recent-upkeep";
@@ -36,17 +36,17 @@ async function loadConnectorsPageData() {
   // state without cross-provider coupling.
   const googleGsc = await getConnectorInfo("google_gsc");
   const googleGa4 = await getConnectorInfo("google_ga4");
-  // Connect-cards slice (2026-06-12): the END-STATE contract — every
+  // Connect-cards slice (2026-06-12): the END-STATE contract - every
   // data source connects HERE, self-serve.
   const clarity = await getConnectorInfo("clarity");
 
-  // J5 (2026-05-18) — when the GSC connector is in soft-disconnected
+  // J5 (2026-05-18) - when the GSC connector is in soft-disconnected
   // state (status="disconnected" but expires_at is populated from the
   // preserved token row), render the "Last refreshed at X days ago"
   // tooltip server-side. The formatter is `server-only` so it can't
   // ship to the client bundle directly.
   // "Last refreshed X days ago" must reflect the actual data SYNC time, not the
-  // OAuth token's expires_at (those diverge — a token can expire long after the
+  // OAuth token's expires_at (those diverge - a token can expire long after the
   // last sync). Drive off last_synced_at and show nothing if it never synced.
   const gscSyncedMs = googleGsc.last_synced_at
     ? Date.parse(googleGsc.last_synced_at)
@@ -59,11 +59,11 @@ async function loadConnectorsPageData() {
         })
       : null;
 
-  // MAX_SEO_AEO Phase 4 (2026-06-16) — GSC readiness surfacing. READ-ONLY:
+  // MAX_SEO_AEO Phase 4 (2026-06-16) - GSC readiness surfacing. READ-ONLY:
   // composes the resolved property + backfill window + freshness + a hard
   // "not ready" verdict from the persisted token state + synced rows (no live
   // Google call). Soft-fail: any loader error degrades to a coherent
-  // not_connected verdict so the page never crashes. Pages stay thin — the
+  // not_connected verdict so the page never crashes. Pages stay thin - the
   // verdict logic + plain-English copy live in the loader/presenter.
   let gscReadiness: {
     verdict: GscReadinessVerdict;
@@ -104,7 +104,7 @@ async function loadConnectorsPageData() {
     };
   }
 
-  // Slice 9.A1β (2026-05-18) — GA4 stale copy mirrors GSC's pattern.
+  // Slice 9.A1β (2026-05-18) - GA4 stale copy mirrors GSC's pattern.
   // Server-side render keeps the formatting helper inlined (the GSC
   // helper says "GSC" verbatim; the GA4 surface needs "Google
   // Analytics" wording, so a separate helper lives here).
@@ -179,6 +179,8 @@ async function loadConnectorsPageData() {
     recentUpkeep = [];
   }
 
+  // A SOURCE THAT WOULD NOT SYNC SAYS SO WHERE ITS OWN LAST-SYNCED TIME IS PRINTED (2026-09-05): a connector failure stopped ending the daily drive, and the debt it leaves was recorded on the pass receipt where NOTHING read it, so every figure in the app could be as old as a broken connector and no surface said a word. Read-only and fail-soft: an unreadable run hides the line rather than claiming a source is fine.
+  let sourcesStale: string | null = null; try { sourcesStale = (await researchRunStatus(await currentTenantId())).sourcesStale ?? null; } catch { sourcesStale = null; }
   // A still-onboarding account reached this page from Step 6's Connect links.
   // Show a calm way back so an OAuth round trip never strands the operator here.
   // Status-derived (no query param, no allowlist), so it survives the redirect.
@@ -203,6 +205,7 @@ async function loadConnectorsPageData() {
     rollup,
     refreshLedger,
     recentUpkeep,
+    sourcesStale,
   };
 }
 
@@ -235,6 +238,7 @@ export default async function ConnectorsPage() {
     rollup,
     refreshLedger,
     recentUpkeep,
+    sourcesStale,
   } = raced.data;
 
   return (
@@ -246,6 +250,7 @@ export default async function ConnectorsPage() {
         </div>
       ) : null}
       <PageHeader title="Connect your tools" description={CONNECTORS_DESCRIPTION} />
+      {sourcesStale ? <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] leading-relaxed text-amber-900" data-sources-stale="true">{sourcesStale} Pull your data now on the source below to try it before then.</p> : null}
       <ConnectorsClient
         google={googleGsc}
         ga4={googleGa4}
@@ -263,7 +268,7 @@ export default async function ConnectorsPage() {
 }
 
 /**
- * Slice 9.A1β (2026-05-18) — GA4 staleness copy. Mirrors
+ * Slice 9.A1β (2026-05-18): GA4 staleness copy. Mirrors
  * `formatLastRefreshedCopy` from `gsc/expiry-handler.ts` but uses
  * "Google Analytics" wording for the customer-vocab-safe surface.
  * Kept inline (Server Component file) so it stays server-only

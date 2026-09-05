@@ -173,6 +173,8 @@ function Row({ row, group, open, onToggle }: { row: ResultsRow; group: ResultsGr
                 </div>
               ) : googleBlock}
               {row.googleAside ? null : aiBlock}
+              {/* BOTH VERSIONS, WHERE THE OPERATOR APPLIED THEIR OWN (2026-09-05): the record keeps the prepared wording and the wording that went live, and the row showed neither, so nothing said whose words this reading is about. */}
+              {row.appliedLines.map((a) => <p key={a} className="mt-1.5 text-[11px] text-muted-foreground" data-applied-wording="true">{a}</p>)}
               {row.retired ? <p className="mt-1.5 text-[11px] text-muted-foreground">{row.retired.note}</p> : null}
               {row.caveats.map((c) => (
                 <p key={c} className="mt-1.5 text-[11px] text-amber-700">{c}</p>

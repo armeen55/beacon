@@ -1,7 +1,7 @@
 import "server-only";
 
 /**
- * GSC Proof ledger — arbitrary-window page metrics (Phase 5, Path B).
+ * GSC Proof ledger - arbitrary-window page metrics (Phase 5, Path B).
  *
  * Reads clicks/impressions/position for a page over ANY [start, end) date window
  * by REUSING the existing `gsc_page_totals_v1` RPC (true page totals incl.
@@ -62,7 +62,7 @@ export const readCumulativeSince = cache(async (tenantId: string, since: string)
  * The most recent date with FINALIZED GSC data for a tenant (YYYY-MM-DD), or
  * null when there is none / on error. The proof engine gates a window's verdict
  * on this so a window is never judged before its days are finalized. Crons are
- * off, so the finalized watermark can lag wall-clock arbitrarily — judging on
+ * off, so the finalized watermark can lag wall-clock arbitrarily - judging on
  * `today >= checkOn` alone would read a short (3+ days incomplete) post window
  * and bias the verdict. Bounded single-row read; fail-soft.
  *

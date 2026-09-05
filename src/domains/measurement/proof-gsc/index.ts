@@ -1,5 +1,5 @@
 /**
- * Measurement kernel (proof-gsc) — public facade.
+ * Measurement kernel (proof-gsc) - public facade.
  *
  * This kernel owns the honest measurement: reading GSC windows, evaluating a
  * shipped change against its controls, and producing a verdict + ranking

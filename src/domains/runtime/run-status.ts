@@ -49,6 +49,7 @@ export type ResearchRunStatusView = {
   pauseReason: string | null;
   /** The earliest date a promised retry becomes legal, straight off the persisted row. */
   nextDueAt?: string | null;
+  sourcesStale?: string | null; /** THE ONE SENTENCE A CONNECTOR THAT WOULD NOT SYNC OWES THE OPERATOR, carried off the pass receipt so a surface built on a stale source says so where that source's own last-synced time is printed. A connector failure stopped ending the drive on 2026-09-05 and the debt it left reached nobody: it was recorded and nothing read it. Null when every connected source synced. */
   /** The frozen plan's topics as the run last persisted them. */
   cases?: { active: number; parked: number };
   /** IS THE RESEARCH ALIVE, and what did the last of it actually produce. A surface reading counters alone
@@ -65,7 +66,7 @@ const STALE_RUN_MS = 10 * 60 * 1000;
  *  progress write, so the same row reads the same way on every request until work actually resumes.
  *  The daily round is what picks it back up, so that is what the copy promises: nothing here waits on
  *  the operator opening the app. Private to this projection; nobody branches on its text. */
-const INTERRUPTED_REASON = "I was interrupted mid research. My next daily round picks this back up.";
+const INTERRUPTED_REASON = "Research stopped part way through. The next daily round picks this back up.";
 
 /** How long an account may go with NO research at all before a surface stops implying anything is running. A day and a half covers one missed daily round and
  *  the hours either side of it, so an ordinary quiet night never reads as an outage while a genuine week of silence cannot hide behind a blank line. */
@@ -181,6 +182,7 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
     // The phase label is DERIVED from the persisted current_phase column, never stored twice.
     phaseLabel: PHASE_LABEL[run.current_phase],
     nextDueAt: persisted.nextDueAt ?? null,
+    sourcesStale: run.progress?.sourcesStale ?? null, // straight off the receipt the pass wrote; a debt that cleared wrote null there, so nothing here can leave a stale claim standing
     ...(typeof persisted.casesActive === "number" || typeof persisted.casesParked === "number"
       ? { cases: { active: persisted.casesActive ?? 0, parked: persisted.casesParked ?? 0 } }
       : {}),
@@ -210,8 +212,8 @@ function settledChecksNote(c: ResearchRunStatusView["counters"]): string {
   // CHECKS, NEVER ENGINES. Every count here is a (question, engine) CHECK, so one silent engine across
   // forty questions reads as forty checks: calling them engines told the operator four engines were down.
   if (quiet > 0) parts.push(`${quiet} ${quiet === 1 ? "check" : "checks"} came back empty`);
-  if (shut > 0) parts.push(`${shut} I cannot ask`);
-  return ` I finished today's checks: ${parts.join(", ")}.`;
+  if (shut > 0) parts.push(`${shut} on an engine that cannot be asked`);
+  return ` Today's checks finished: ${parts.join(", ")}.`;
 }
 
 /**

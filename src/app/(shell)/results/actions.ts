@@ -28,7 +28,7 @@ import { presentShipments } from "./results-ledger-data";
 
 type ProofLedgerActionResponse = { success: boolean; error?: string };
 
-/** Change types that describe a "no-edit" decision — no before/after needed. */
+/** Change types that describe a "no-edit" decision - no before/after needed. */
 // keep_current/monitor record no edit; new_page records a page that had no before copy at all, so the before/after gate cannot apply to it
 // either.
 const NO_EDIT_CHANGE_TYPES = new Set(["keep_current", "monitor", "new_page"]);

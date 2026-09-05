@@ -1,13 +1,13 @@
 /**
- * change-family — the pure diff-in-diff family taxonomy + contamination helpers
+ * change-family - the pure diff-in-diff family taxonomy + contamination helpers
  * the measurement path uses. Relocated from the retired experiments domain
  * (CORE 100K, 2026-07-22): the daily-experiment eligibility engine was removed,
  * but its family classifier and active-treatment set are load-bearing for
  * measurement (verdict scheduling, pooled verdicts, ledger contamination) and
- * for move-routing. No I/O, no LLM — deterministic from the ledger.
+ * for move-routing. No I/O, no LLM - deterministic from the ledger.
  */
 
-/** Action FAMILY — coarser than action_type. Same-family re-tests collide; title and meta
+/** Action FAMILY - coarser than action_type. Same-family re-tests collide; title and meta
  *  are DISTINCT families so a meta-vs-title comparison is a legitimate cross-page design. */
 export type ExperimentFamily =
   | "title"

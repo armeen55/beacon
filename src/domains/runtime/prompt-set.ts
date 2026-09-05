@@ -136,7 +136,7 @@ export function applyTrackedSelection(rows: readonly TrackedPromptRow[], input: 
   }
 
   const activeCount = active.size;
-  if (activeCount < LIMITS.minActive) return { ok: false, error: `I track at least ${LIMITS.minActive} questions so the answer is meaningful. You have ${activeCount}.` };
+  if (activeCount < LIMITS.minActive) return { ok: false, error: `At least ${LIMITS.minActive} questions are tracked so the answer is meaningful. You have ${activeCount}.` };
   if (activeCount > LIMITS.maxActive) return { ok: false, error: `That is ${activeCount} questions. Keep it to ${LIMITS.maxActive} or fewer so each one gets real attention.` };
   return { ok: true, writes: [...writes.values()], activeCount, added, skippedDuplicates, skippedBlank };
 }
@@ -205,7 +205,7 @@ export async function saveTrackedQuestions(
     import("@/domains/account").then((m) => m.getTenant(tenantId)),
     import("./onboarding-store").then((m) => m.supabaseOnboardingStore()),
   ]);
-  if (account?.status !== "active") return { ok: false, error: "Your account is still in setup, so I keep your questions on the setup screen until you finish." };
+  if (account?.status !== "active") return { ok: false, error: "Your account is still in setup, so your questions stay on the setup screen until you finish." };
   const canonicalId = account.id;
   const { basisTag, loadBusinessProfile } = await import("@/domains/account");
   const profile = await loadBusinessProfile(canonicalId);

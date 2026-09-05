@@ -8,7 +8,7 @@ import { monthDayLabel } from "@/components/data/receipt-line";
 import { isMature as kernelIsMature } from "@/domains/measurement";
 import type { ControlReceipt, KernelRead, MeasurementState, ShipmentObjective, ShipmentVerification, treatmentLearning } from "@/domains/measurement";
 import { RESULT_LINES } from "./results-lines";
-const { AI_MOVE, WHY_UNCONFIRMED, aiDays, aiHappenedLine, aiMove, aiStory, caveatLines, groupFor, happenedLine, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, retiredChip, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } = RESULT_LINES;
+const { AI_MOVE, WHY_UNCONFIRMED, aiDays, aiHappenedLine, aiMove, aiStory, cap, caveatLines, groupFor, happenedLine, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, retiredChip, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } = RESULT_LINES;
 
 
 /** What one measured change carries on the Results surface. */
@@ -37,6 +37,8 @@ export type ShipmentPresentation = {
    *  queue's own loop ("settled") is NOT a retirement: that reading is what this row already prints. Absent, or "unknown"
    *  (a snapshot written before this, a row that names no recommendation, a read that failed), says nothing rather than guessing. */
   recommendation?: { state: "current" | "retired" | "unknown"; disposition?: string } | null;
+  /** THE PIECES THE OPERATOR APPLIED IN THEIR OWN WORDS, where those differ from the wording that was prepared. Both versions are on the record (measurement/proof-gsc's `componentsApplied.appliedAfter` beside `after`), and Results showed neither, so a reader could not tell a change measured on Beacon's words from one measured on the operator's. Each piece is named by its KIND and never by its stored `label`: four live records carry the writer's brief there, and a brief is not a name. Absent on a record where the operator supplied nothing of their own. */
+  applied?: Array<{ kind: string; prepared: string | null; operator: string }> | null;
   /** WHAT THIS ROW TEACHES FROM, carried off the canonical record and never rebuilt: the signature stamped at the press (family, treatment,
    *  field, cause), the operator's mute, the frozen reading, the stored readings the ranking itself learns from. The belief above the list was
    *  handed a shape built here with stamp, mute and pin all null, so every bet collapsed into its family. Absent on an older snapshot: pools nothing. */
@@ -83,8 +85,9 @@ type ResultsRow = {
   numbersNote: string | null;
   /** The pages this one was measured against, one line each, or empty when none is on file. */
   comparedAgainst: string[];
-  /** The site's own before and after, labeled as unadjusted, where no fair comparison exists. */
+  /** The site's own before and after, labeled as unadjusted, beside the adjusted comparison. */
   unadjustedNote: string | null;
+  appliedLines: string[]; /** ONE LINE PER PIECE THE OPERATOR WORDED THEMSELVES, naming the piece, quoting what is on the page and what had been prepared, and saying which one the live check read. Empty where the applied wording is the prepared wording. */
   caveats: string[];
   timeline: Array<{ label: string; done: boolean }>;
   taught: string;
@@ -99,7 +102,7 @@ export type ResultsView = {
   defaultGroup: ResultsGroup;
 };
 
-const num = (n: number): string => Math.round(n).toLocaleString("en-US"), signed = (n: number): string => `${n > 0 ? "+" : n < 0 ? "-" : ""}${num(Math.abs(n))}`;
+const num = (n: number): string => Math.round(n).toLocaleString("en-US"), signed = (n: number): string => `${n > 0 ? "+" : n < 0 ? "-" : ""}${num(Math.abs(n))}`, quoted = (s: string): string => (s.trim().length > 160 ? `${s.trim().slice(0, 157)}...` : s.trim()); // a record may hold a whole section, and a row quoting one whole is a wall rather than a fact
 // -- the closed label maps (a slug never reaches the screen) -------------------
 
 /** ONE shared scale for every bar on the screen: a move of a quarter against this page's own  starting point fills the bar, and everything larger is held at the edge. */
@@ -280,6 +283,7 @@ function rowOf(p: ShipmentPresentation, now: Date): ResultsRow {
     numbers,
     numbersNote: note,
     comparedAgainst: receiptOf(p).map((c) => ((w) => (w.length > 0 ? `${c.path} (${w.join("; ")})` : c.path))(reasonWords(c.reasons))),
+    /* THE OPERATOR'S OWN WORDING BESIDE THE PREPARED ONE, where the record holds both. The piece is named by its kind through the one work-label map, so a stored label that is really a writer's brief can never reach the screen as a name. */ appliedLines: (p.applied ?? []).map((c) => `${cap(workLabel(c.kind))}: your wording is on the page, "${quoted(c.operator)}"${c.prepared ? `, and the prepared wording was "${quoted(c.prepared)}"` : ""}. The live check read the page for yours.`),
     unadjustedNote: unadjustedLine(p), aiLine: p.ai?.line ?? null, yardstick: yardstickOf(p.judgedMetric),
     aiMetricLines: p.ai?.metricLines ?? [], aiBoundary: p.ai?.boundary ?? null,
     // A WIN NOBODY VERIFIED SAYS SO ON THE ROW (operator, 2026-08-21): improvement after a marked change is a
