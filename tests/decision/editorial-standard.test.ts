@@ -256,4 +256,19 @@ describe("the standard says what the work is, and the id says where the words ca
       staleCopyReasons(card(s, { pageUrl: mine.url, pagePath: "/family/self", recommendedChange: { kind: "existing_edit", field: "meta", before: "Old line.", after: `${s.lines[1]}` } }), new Map(held.map((b) => [canonicalUrlKey(b.url), b])) as never, [], { title: mine.title, h1: mine.h1, outline: s.heads } as never, false, [], inv, out); return out; };
     expect([ask([mine, sibs[0]!], inventory), ask([mine, ...sibs], inventory), ask([mine, ...sibs], []), ask(sibs, inventory)],
       "a short family reports what the inventory names and what the caller handed over, a complete family reports the same two numbers rather than leaving the caller to recompute them, a caller that cannot say what the family is has its window taken as the whole of it, and a page whose own body was never read asked its family nothing").toEqual([{ asked: 2, loaded: 1 }, { asked: 2, loaded: 2 }, { asked: 2, loaded: 2 }, { asked: 0, loaded: 0 }]); });
+  /* THE BANK WRITES THE PROVENANCE IT HAS, AND NOTHING AFTERWARDS THROWS IT AWAY (measured, 2026-09-05): 0 of the account's 409 banked facts carried a quoting address, so every publisher a customer was shown was a hostname pulled back out of the fact's own prose, and an address the reading quoted nothing from counted as a checked source. */
+  it.each(SITES)("banks each checked reading with the addresses that quoted it and what kind of source each one is, drops the address that quoted nothing, and keeps all of it through the reading that approves the words, on $t", async (s) => {
+    const quiet = { ...(await reading(s)), sources: [{ url: "https://ref.example/guide", kind: "encyclopedia", says: s.answer }, { url: "https://quiet.example/x", kind: "publisher", says: "  " }] };
+    const gap = card(s, { changeFamily: "section", treatment: "add_answer_section", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Add the missing answer." },
+      causeFinding: { cause: "retrieved_not_cited", action: null, evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [], falsifier: "f", explanation: "e", payload: { cause: "retrieved_not_cited", engine: "chatgpt", promptText: s.q, missing: s.ask, aeoKind: "missing_information" } } as never });
+    const row = (await run(s, gap, { field: "answer_block", before: null, after: s.answer, ...TAIL, placementAnchor: s.h1, naturalHeading: s.heads[0]!, measurementTarget: s.q, claims: [{ text: s.answer, supportedBy: ["fact-1"] }] }, PASS, [quiet])).row;
+    const banked = (row.supportFacts ?? []).find((f) => f.id === "fact-1");
+    expect([banked?.sources, (row.supportFacts ?? []).find((f) => f.id !== "fact-1")?.sources],
+      "the reading's own quoting address is banked with the kind of source it is, the address that quoted nothing is not banked at all, and the page's own words carry no publisher")
+      .toEqual([[{ url: "https://ref.example/guide", kind: "encyclopedia" }], undefined]);
+    const { citedPublishers } = await import("@/domains/decision/completeness");
+    const kept = await reviewFinishedCopy({ ...row, claims: undefined, status: "needs_review" } as never, { tenantId: s.t, now: NOW, judge: async () => ({ pageFit: true, claims: [{ i: 0, by: ["fact-1"], entailed: true }], usefulAndNatural: true, placementCorrect: true, resolvesDiagnosis: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "", resolution: { kind: "accepted" } } as never) });
+    expect([(kept.row?.supportFacts ?? []).find((f) => f.id === "fact-1")?.sources, citedPublishers(kept.row as never).size, citedPublishers(row).size],
+      "a reading that rebuilds the record of what each sentence stands on keeps the provenance the row already held, so the publisher count does not fall back to prose the moment a row is read")
+      .toEqual([[{ url: "https://ref.example/guide", kind: "encyclopedia" }], 1, 1]); });
 });

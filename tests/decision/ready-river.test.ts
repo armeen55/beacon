@@ -6,12 +6,12 @@ vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } }));
 import { nextObligation } from "@/domains/decision/obligation";
 import { openHold, preferFinished } from "@/domains/decision/completeness";
-import { staleCopyReasons } from "@/domains/decision/drafted-copy";
+import { deliverableFailures, staleCopyReasons } from "@/domains/decision/drafted-copy";
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { proposalFingerprint, readQueuePage, saveChangeProposal } from "@/domains/decision/proposal-store";
 import { copyKey, REVIEW_CONTRACT } from "@/domains/decision/proof";
 import { supabaseFake } from "../helpers/supabase-fake";
-import { deserializeChangeProposal, type ChangeProposal } from "@/domains/decision/contracts";
+import { deserializeChangeProposal, serializeChangeProposal, type ChangeProposal } from "@/domains/decision/contracts";
 Object.assign(db.client, supabaseFake({ rows: () => db.rows }), { rpc: async () => ({ data: "saved", error: null }) });
 const held = (): ChangeProposal => ((db.rows[0]!.payload as { proposal: ChangeProposal }).proposal);
 const row = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({ id: "t::/p::existing_edit::title", tenantId: "t", kind: "existing_edit", pagePath: "/p", pageUrl: "https://fixture.example/p", pageLabel: "P", primaryQuery: "q", opportunityType: "Capture clicks", changeFamily: "title", status: "ready", researchOnly: false, recommendedChange: { kind: "existing_edit", field: "title", before: "Old", after: "A finished title for this page" }, whyItMatters: "w", estimatedEffortMinutes: 1, riskLevel: "low", confidence: "medium", limitations: [], evidence: { query: "q", hints: [], evidenceRefCount: 1 }, impactScore: 10, upsidePerMonth: null, modeledOn: "the stored results page for this search", publish: "manual", createdAt: "2026-09-02T00:00:00.000Z", ...over });
@@ -165,14 +165,16 @@ describe("a row says what its own record holds", () => {
       .toEqual([{ kind: "terminal", reason: "no substantive gap named" }, { kind: "draft" }, { kind: "draft" }]); });
   it.each(SITES)("counts the publishers behind the words off the addresses the reading quoted, never off hostnames in its own prose, on $t", async (s) => {
     const { citedPublishers } = await import("@/domains/decision/completeness");
-    const banked = { ...finished(s), supportFacts: [{ id: "fact-1", fact: s.src, sources: ["https://reference.example/a", "https://reference.example/b", "https://mirror.example/c"] }, { id: "page-copy-1", fact: "the page's own words" }] };
+    const banked = { ...finished(s), supportFacts: [{ id: "fact-1", fact: s.src, sources: [{ url: "https://reference.example/a", kind: "encyclopedia" }, { url: "https://reference.example/b", kind: "publisher" }, { url: "https://mirror.example/c", kind: "publisher" }] }, { id: "page-copy-1", fact: "the page's own words" }] };
     const silent = { ...finished(s), supportFacts: [{ id: "fact-1", fact: `https://quiet.example/x says "" ; ${s.src}` }, { id: "page-copy-1", fact: "the page's own words" }] };
     expect([citedPublishers(banked).size, citedPublishers(silent).size, citedPublishers({ ...finished(s), supportFacts: [{ id: "fact-1", fact: s.src, sources: [] }] }).size],
       "two addresses on one host are one publisher, an address the reading quoted nothing from is not a publisher at all, and a reading banked with no quoting address carries none")
       .toEqual([2, 1, 0]);
     const { renderToStaticMarkup } = await import("react-dom/server"); const { createElement } = await import("react"); const { ChangeCard } = await import("@/app/(shell)/changes/change-card");
     const card = renderToStaticMarkup(createElement(ChangeCard as never, { proposal: reviewed(silent as ChangeProposal), rank: 1, ready: true, caseLine: null, onAside: () => {}, onDone: () => {}, onToast: () => {} } as never)).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-    expect(card, "and the card prints the number the evidence bar counts, never a second count of its own").toContain("Backed by 1 checked source"); });
+    expect(card, "and the card prints the number the evidence bar counts, never a second count of its own").toContain("Backed by 1 checked source");
+    expect(deserializeChangeProposal(serializeChangeProposal(banked as ChangeProposal))?.supportFacts?.[0]?.sources, "and the provenance the bank writes survives the schema that stores it, rather than being declared and stripped")
+      .toEqual([{ url: "https://reference.example/a", kind: "encyclopedia" }, { url: "https://reference.example/b", kind: "publisher" }, { url: "https://mirror.example/c", kind: "publisher" }]); });
   it.each(SITES)("asks whether this page's own copy carries a promise word against the whole page, and says nothing while it holds none of it, on $t", (s) => {
     const line = `Best places in ${s.path.slice(1)} with authentic ${s.dish} and more.`;
     const meta = row({ id: `${s.t}${s.path}::existing_edit::missing_description`, tenantId: s.t, pagePath: s.path, pageUrl: s.url, primaryQuery: s.q, changeFamily: "meta", status: "needs_review", claims: undefined, supportFacts: undefined,
@@ -185,6 +187,29 @@ describe("a row says what its own record holds", () => {
     expect([praise(staleCopyReasons(meta, body(carries), [], page)), praise(staleCopyReasons(published, new Map(), [], { ...page, metaDescription: published.recommendedChange.before })), praise(staleCopyReasons(meta, body(quiet), [], page)), praise(staleCopyReasons({ ...meta, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: line } }, new Map(), [], null))],
       "a word the page's own body carries is not a manufactured promise, nor is one the page publishes today in the very line this change replaces, a word no part of the page carries still is, and a door holding none of the page's copy may not answer the question at all")
       .toEqual([false, false, true, false]); });
+  /** AND THE WRITER'S OWN DOOR ASKS THE IDENTICAL QUESTION OF THE IDENTICAL PAGE (measured, 2026-09-05): the banked re-read was repaired and the door that judges a fresh draft was not, so it went on refusing 15 of this account's 211 published descriptions for a word that very description publishes. One pool, one predicate, the same answer at both doors. */
+  it.each(SITES)("judges a promise word at the writer's door against the same page the banked re-read judges it against, and both answer alike, on $t", (s) => {
+    const page = { title: `Best places in ${s.path.slice(1)}`, h1: `Best places in ${s.path.slice(1)}`, metaDescription: `The most authentic ${s.dish} in town.`, outline: [] };
+    const line = `Best places in ${s.path.slice(1)} with authentic ${s.dish} and more.`, body = `This page lists welcoming ${s.dish} and where to find it.`;
+    const packet = (over: Record<string, unknown> = {}): Parameters<typeof deliverableFailures>[1] => ({ targetUrl: s.url, title: page.title, h1: page.h1, metaDescription: page.metaDescription, bodyText: body, headings: [], evidence: {}, trackedQuestion: s.q, ownedPaths: [s.path], bannedTerms: [], demand: { preserve: [], vocabulary: [] }, ...over }) as Parameters<typeof deliverableFailures>[1];
+    const draft = (copy: string): Parameters<typeof deliverableFailures>[0] => ({ actionType: "meta", targetUrl: s.url, placementAnchor: "the description field", beforeText: page.metaDescription, finalCopy: copy, naturalHeading: null, claims: [], supportFacts: [], evidenceIdsUsed: [], uncertaintyOrOmitted: [], implementationMinutes: 2, measurementTarget: "clicks" });
+    const praised = (why: readonly string[]): string | null => why.find((w) => w.includes("a word this page's own copy never carries"))?.match(/"([a-z]+)"/)?.[1] ?? null;
+    const meta = row({ id: `${s.t}${s.path}::existing_edit::missing_description`, tenantId: s.t, pagePath: s.path, pageUrl: s.url, primaryQuery: s.q, changeFamily: "meta", status: "needs_review", claims: undefined, supportFacts: undefined, recommendedChange: { kind: "existing_edit", field: "meta", before: page.metaDescription, after: line } });
+    const held = new Map<string, OwnedPageBody>([[s.url, { url: s.url, title: page.title, h1: page.h1, metaDescription: page.metaDescription, headings: [], passages: [body], openingSample: body, vocabulary: body, cardTexts: [], faqs: [], entityNames: [], internalLinks: [], fetchedAt: null, completeness: "complete", contentHash: null, heldNote: "" } as OwnedPageBody]]);
+    const bank = (copy: string): string | null => praised(staleCopyReasons({ ...meta, recommendedChange: { kind: "existing_edit", field: "meta", before: page.metaDescription, after: copy } }, held, [], page));
+    expect([praised(deliverableFailures(draft(line), packet())), bank(line), praised(deliverableFailures(draft(`A welcoming guide to ${s.dish}.`), packet())), bank(`A welcoming guide to ${s.dish}.`)],
+      "the word the line this change replaces already publishes, and the word the page's own body carries, are refused by neither door").toEqual([null, null, null, null]);
+    expect([praised(deliverableFailures(draft(`A curated guide to ${s.dish}.`), packet())), bank(`A curated guide to ${s.dish}.`), praised(deliverableFailures(draft(line), packet({ title: null, h1: null, metaDescription: null, bodyText: "" })))],
+      "a word no part of the page carries is refused at both doors by name, and a door holding none of the page's copy answers nothing at all").toEqual(["curated", "curated", null]); });
+  /** ONE COMPLAINT IS SAID ONCE (measured, 2026-09-05): the account's most watched card printed its one objection twice, once wrapped in the gate opener the composer adds and once raw, because both forms sit in `faults` and the strings differ. */
+  it.each(SITES)("says one complaint once, however many doors wrote it down, and keeps every complaint that says something else, on $t", (s) => {
+    const raw = "it opens with the search words as a label and a colon, which is how a search box names a topic and not how a reader meets one";
+    const composed = `it did not pass the re-read of a stored change against the rules that stand today: ${raw}`, other = "it lands in the wrong place";
+    const held = (faults: readonly string[]): ChangeProposal => row({ id: `${s.t}${s.path}::existing_edit::missing_answer`, tenantId: s.t, pagePath: s.path, pageUrl: s.url, primaryQuery: s.q, status: "needs_review", changeFamily: "answer_block", faults: [...faults], limitations: [...faults],
+      recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: s.claim, where: 'One sentence placed after the heading "What lives there"' } });
+    const mine = (faults: readonly string[]): string[] => openHold(held(faults)).why.filter((w) => w.includes(raw) || w === other);
+    expect([mine([composed, raw]), mine([raw, composed]), mine([composed, other])],
+      "the wrapped sentence goes whichever order the doors wrote it in, and a second complaint that says something else stays").toEqual([[composed], [composed], [composed, other]]); });
   it.each(SITES)("refuses a correction that only names its subject again, at the reader and at the bank, and keeps every one that says something, on $t", async (s) => {
     db.rows = []; const { readFactChecks, recordFactChecks } = await import("@/domains/evidence/pages/fact-checks");
     const stored = (subject: string, proposed: string, current: string) => ({ tenant_id: s.t, page_key: s.path, statement_key: subject.toLowerCase(), subject, current_wording: current, proposed, sources: [{ url: s.src, says: s.src, kind: "encyclopedia" }], agreement: "multiple_agree", confidence: "confirmed", verdict: "page_wrong", also_at: [], note: "", page_content_hash: "h", page_locator: null, source_read_at: null, claim_state: "checked", rules_version: 4, checked_at: "2026-09-05T00:00:00.000Z" });

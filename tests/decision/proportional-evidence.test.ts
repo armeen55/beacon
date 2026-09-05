@@ -164,4 +164,17 @@ describe("the proof burden matches the promise, at the one door every surface re
     store.rows = new Map([[creative.id, creative], [fill.id, fill]]);
     const q = await loadProposalQueue(T, { currentBasis: "b", now: new Date("2026-08-02T00:00:00.000Z") });
     expect(q.ready.map((p) => p.id)).toEqual([fill.id]);
-    expect(q.toDo.map((p) => p.id)).toContain(creative.id); }); });
+    expect(q.toDo.map((p) => p.id)).toContain(creative.id); });
+  /** REPLACING PAGE FURNITURE IS NOT A LOSS (measured, 2026-09-05): nineteen link rewrites on this account, eighteen of them already applied, swap a card label reading exactly "Learn More" for the name of the page it opens, and every one was held for not accounting for the words "Learn More". A navigation label carries no fact, no figure and no route; the route it sits on is untouched. */
+  const LABELS = [{ t: "tenant-one", furniture: "Learn More", named: "Caracal facts", sells: "start your free lesson today with no sign up" },
+    { t: "tenant-two", furniture: "Read More", named: "Datos del caracal", sells: "reserva tu clase gratis hoy sin registro" }] as const;
+  it.each(LABELS)("owes nothing for replacing a card label with the name of the page it opens, and still refuses every unit that says something, on $t", (s) => {
+    const swap = (before: string, after: string, over: Record<string, unknown> = {}) => bind(row("anchor", { tenantId: s.t, recommendedChange: { kind: "existing_edit", field: "section", before, after, where: "Card 2 of 27, the link label" },
+      informationGain: { adds: "names the page the card opens", by: ["fact-1"], pageWhole: true }, claims: [{ text: after, supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "the destination page is titled that" }], ...over }));
+    const KEEPS = "Salam means peace and is the standard Persian greeting used everywhere.";
+    expect([evidenceShortfall(swap(s.furniture, s.named)), evidenceShortfall(swap(`${s.furniture} `, `${s.named}.`))],
+      "the label a reader clicks past is not material, and neither the unit ledger nor the lexical loss detector owes anything for its going").toEqual([null, null]);
+    expect([evidenceShortfall(swap(`${KEEPS} ${s.sells}`, KEEPS)), evidenceShortfall(swap(`${KEEPS} Founded in 1979 by the city.`, KEEPS)), evidenceShortfall(swap("Explore the world of Iranian cuisine. It is worth a look.", "Persian cuisine is grouped as kabobs, stews and sweets."))]
+      .map((x) => x == null ? null : "held"),
+      "a call to action that sells, a figure, and a sentence that says anything beyond its invitation are all still material and all still vanish in silence unless something accounts for them")
+      .toEqual(["held", "held", "held"]); }); });

@@ -323,7 +323,7 @@ describe("a claim standing on a reading the bar admitted is a cited authoritativ
       aside: "El informe del taller vecino aparecio en 2011.", quiet: "El informe del taller vecino tambien se publico." },
   ] as const;
   const canon = (a: (typeof ACCOUNTS)[number], after: string, cites: string) => validateProposal(proposal({ id: `${a.t}::/p::existing_edit::missing_answer`, tenantId: a.t, changeFamily: "section", primaryQuery: a.q, status: "needs_review",
-    recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after }, claims: [{ text: after, supportedBy: [cites] }], supportFacts: [{ id: "fact-1", fact: `${a.q}: ${a.read}`, sources: ["https://reference.example/x"] }, { id: "page-copy-1", fact: a.page }] }),
+    recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after }, claims: [{ text: after, supportedBy: [cites] }], supportFacts: [{ id: "fact-1", fact: `${a.q}: ${a.read}`, sources: [{ url: "https://reference.example/x", kind: "encyclopedia" }] }, { id: "page-copy-1", fact: a.page }] }),
     { pageBodyText: a.page, evidenceText: `${a.page} ${a.read} A rival page mentions a ${a.theirs} survey.`, now: new Date("2026-09-05T07:01:00.000Z") });
   it.each(ACCOUNTS)("takes the figure its own admitted reading carries, refuses the figure nothing on the row carries, and asks nothing of a banked passage no claim cites, on $t", (a) => {
     const both = canon(a, a.both, "fact-1"), wrong = canon(a, a.wrong, "fact-1"), uncited = canon(a, a.both, "page-copy-1");
@@ -332,7 +332,7 @@ describe("a claim standing on a reading the bar admitted is a cited authoritativ
   /* AND THE READING THAT ANSWERS FOR A FIGURE IS THE ONE ITS OWN CLAIM CITES (reviewer, round five, reproduced on both accounts): matched against every admitted reading on the row joined together, a claim standing on a reading that never mentions the year was licensed to assert it because a SIBLING claim's reading happened to carry it, so a claim with no support of its own passed on another claim's. */
   const sibling = (a: (typeof ACCOUNTS)[number]) => validateProposal(proposal({ id: `${a.t}::/p::existing_edit::missing_answer`, tenantId: a.t, changeFamily: "section", primaryQuery: a.q, status: "needs_review",
     recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: a.wrong }, claims: [{ text: a.wrong, supportedBy: ["fact-2"] }, { text: a.quiet, supportedBy: ["fact-1"] }],
-    supportFacts: [{ id: "fact-1", fact: `${a.q}: ${a.aside}`, sources: ["https://reference.example/x"] }, { id: "fact-2", fact: `${a.q}: ${a.read}`, sources: ["https://reference.example/y"] }] }),
+    supportFacts: [{ id: "fact-1", fact: `${a.q}: ${a.aside}`, sources: [{ url: "https://reference.example/x", kind: "encyclopedia" }] }, { id: "fact-2", fact: `${a.q}: ${a.read}`, sources: [{ url: "https://reference.example/y", kind: "publisher" }] }] }),
     { pageBodyText: a.page, evidenceText: `${a.page} ${a.read} ${a.aside}`, now: new Date("2026-09-05T07:01:00.000Z") });
   it.each(ACCOUNTS)("refuses a figure the asserting claim's own reading does not carry, however plainly a sibling claim's reading carries it, on $t", (a) => {
     const said = sibling(a);

@@ -122,6 +122,7 @@ function topEditOf(p: ChangeProposal): TodayView["topEdit"] {
 
 /** How many ranked changes Today carries. Today renders the FIRST one and nothing else; the rest ride along so a caller that wants the
  *  runners-up never has to re-rank anything. */
+/** WHAT THE LAST DRIVE LEFT UNDONE, SAID WHERE THE OPERATOR ALREADY READS THE DAY (measured, 2026-09-05). A drive that runs out of time writes the step it could not pay for onto its own row ("Publishing what this day found needs 40 seconds and this drive had 32 left, so nothing was started for it"), and nothing outside the runtime read it: Today said "Read 10 new answers closely today at 10:33 AM." while the day's last step had not run and the ranked list stood one pass behind. A paused run is a fact the row already carries whole, so the number, the step and what happens next are said here off the same view the heartbeat comes from. An interrupted run already says it stopped partway and is left alone. */ const unrunStep = (v: Awaited<ReturnType<typeof researchRunStatus>> | null): string => v == null || v.state !== "paused" || v.liveness?.state === "interrupted" || !v.phaseLabel ? "" : ` Research paused after ${v.stepsDone} of ${v.stepsTotal} steps, so ${v.phaseLabel} has not run yet. ${v.pauseReason ?? "The next pass starts there."}`;
 const TODAY_PREVIEW_LIMIT = 3;
 
 /** What THIS release's production pass actually concluded, so an empty queue can say which empty it is. Optional: a release built without
@@ -260,7 +261,7 @@ async function loadTodayViewWithSwr(tenantId: string): Promise<TodayComposite> {
     checkBudget({ tenantId, projectedCostUsd: 0.01 }).then((b) => b.allowed === false).catch(() => false),
   ]);
   const research = { ...(permission === "paused" ? { researchPaused: true } : {}), ...(budgetSpent ? { modelBudgetSpent: true } : {}),
-    ...(runStatus?.liveness?.line ? { researchLiveness: runStatus.liveness.line } : {}) };
+    ...(runStatus?.liveness?.line ? { researchLiveness: `${runStatus.liveness.line}${unrunStep(runStatus)}` } : {}) };
   // WHAT I SAY WHEN I COULD NOT LOOK. "Nothing needs a decision today" is the one sentence an outage must never produce: it is a claim
   // about their business they cannot tell apart from the truth.
   const unreadable = "Your changes could not be read just now, so the day is not being called clear. Beacon is checking again automatically.";
