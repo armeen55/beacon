@@ -68,6 +68,8 @@ async function drive(plan: string[], phase = "keyword_discovery", progress: Row 
   return runs[runs.length - 1]!;
 }
 const acquisitions = (r: RunRow): { key: string; kind: string; query: string; outcome: string; detail: string; sharedWith?: string[] }[] => (r.progress as { acquisitions?: never[] }).acquisitions ?? [];
+/** WHAT THE DAY STILL OWES AFTER A DRIVE, with the stamps that drive wrote on it: a results page posted today is collected for nothing on the next drive, and the fact that it was posted lives on the need itself, so a fixture that re-seeds an unstamped need pays twice where production does not (`carriedDayState` in research-run.ts hands the owed list, its buy stamps and its post stamps to every same-day pass). */
+const owedAfter = (r: RunRow, fallback: readonly Row[]): Row[] => { const owed = (r.progress as { evidenceOwed?: Row[] }).evidenceOwed; return owed?.length ? owed : [...fallback]; };
 const winnersOf = (): FixtureWinner[] => ((table("research_state")[0]?.state as { winningPages?: FixtureWinner[] })?.winningPages ?? []);
 const serpsOf = (): FixtureSerp[] => ((table("research_state")[0]?.state as { serps?: { queries?: FixtureSerp[] } })?.serps?.queries ?? []);
 
@@ -111,11 +113,11 @@ describe("the owed results page, bought once and finished for nothing", () => {
   it("3 and 4: a later drive finishes it for nothing, the search lands on file, and the collection is not a second purchase", async () => {
     seedResearchState(basis, { serps: [], winningPages: [] });
     const state = { ready: false, posts: 0 }; script.search = searchScript(state);
-    await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need()] });
+    const first = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need()] });
     const postsAtPost = state.posts, searchesAtPost = requestsOf("search");
 
     state.ready = true; advance(30 * 60_000);
-    const second = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need()] });
+    const second = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owedAfter(first, [need()]) });
 
     expect(state.posts, "the drive that finishes the answer posts nothing: a task is charged at the post and collected with a free follow-up").toBe(postsAtPost);
     expect(requestsOf("search") > searchesAtPost, "and the finishing request did go out, so the answer was fetched rather than assumed").toBe(true);
@@ -149,6 +151,18 @@ describe("the winners of a search on file", () => {
       .toEqual(["provider_unavailable", "robots_blocked", "robots_blocked"]);
     expect(cut.every((w) => !meter.requests.some((q) => q.url === w.url)), "and nothing fetched it again before its own retry date").toBe(true);
     expect(meter.paidUsd, "reading a public page is a polite free fetch, so the winner reads cost nothing").toBe(0);
+  });
+
+  /** A READING IS NEVER EVICTED BY A RANKING (production, 2026-09-06). The winners array was rebuilt from the ranked window on every pass, so the pages read for one search were thrown away as soon as this account's other searches competed for the same fifteen slots: the row that needed them read "none of the pages winning it has been read", bought the readings again, and lost them again. On the captured rows: five searches, four readings on file, one pass, and three of the four lost under the rule this replaces. */
+  it("14: every winner already read for one of this account's searches is still on file, with its words, after a pass that ranks other searches above it", async () => {
+    seedResearchState(basis, {}); // every captured search and every captured winner, four of them carrying words
+    script.search = searchScript({ ready: true, posts: 0 });
+    const read = () => new Set(winnersOf().filter((w) => (w.extract?.mainText ?? "").length > 0).map((w) => w.url)), before = read();
+
+    await drive(["read_winner_pages"], "winning_pages");
+
+    expect([before.size, [...before].filter((u) => !read().has(u))], "the readings on file before the pass are the readings on file after it: a ranking chooses which unread pages to read next, never which readings to keep").toEqual([4, []]);
+    expect([...read()].some((u) => u.includes("List_of_Iranians")), "including the page at position one for the search this account's largest page owes a comparison for").toBe(true);
   });
 });
 
@@ -264,14 +278,15 @@ describe("three opportunities waiting on their own results page", () => {
         return { body: { status_code: 20000, cost: 0, tasks: [{ id, status_code: state.ready ? 20000 : 40602, status_message: state.ready ? "Ok." : "Task in Queue.",
           result: state.ready ? [{ keyword: q, items: [1, 2, 3].map((n) => ({ type: "organic", rank_absolute: n, domain: `ref${n}.example`, url: `https://ref${n}.example/${q.replace(/\s+/g, "-")}`, title: `${q} on ref${n}` })) }] : null }] } }; }
       return { body: { status_code: 20000, cost: 0.01, tasks: [{ status_code: 20000, result: [{ items: [{ keyword: asked, search_volume: 1200, competition: 0.3, keyword_info: { search_volume: 1200, competition: 0.3 } }] }] }] } }; }; };
+  const seedSiblings = (of: readonly typeof PAGES[number][]): void => void seedOwnedPages(of.map((p) => ({ path: p.path, title: `Persian and Iranian ${p.query}`, h1: `Persian and Iranian ${p.query}`, meta: `A named list for ${p.query}.`, h2: [...p.h2],
+    body: ["Iran has produced writers, athletes and performers whose work travelled far beyond its borders.", "The poets section lists three poets with a short line on each.", "The athletes section lists wrestlers and weightlifters who won world titles.", "The actors section lists screen performers who worked at home and abroad.", "Each entry gives a name, a period and one sentence about why the person is remembered."].join("\n") })));
   const owedSerp = (p: typeof PAGES[number], rank: number) => ({ key: `${p.path}::body::${p.query}`, kind: "serp" as const, query: p.query, rank, reasonCode: "no_exact_serp",
     reason: `no results page for "${p.query}" is on file`, workKey: `${p.path}::body::${p.query}::wc5::e1`, unlocks: { proposalId: `${T}::${p.path}::existing_edit::demand_recovery`, step: "draft" } });
 
   it("13: three results pages are posted on one drive and collected on the next, the winner reads follow on that same drive, and the row whose last dependency landed is drafted before the drive ends", async () => {
     const OTHERS = PAGES.slice(1);
     seedSearchHistory(OTHERS.map((p) => ({ path: p.path, query: p.query })));
-    seedOwnedPages(OTHERS.map((p) => ({ path: p.path, title: `Persian and Iranian ${p.query}`, h1: `Persian and Iranian ${p.query}`, meta: `A named list for ${p.query}.`, h2: [...p.h2],
-      body: ["Iran has produced writers, athletes and performers whose work travelled far beyond its borders.", "The poets section lists three poets with a short line on each.", "The athletes section lists wrestlers and weightlifters who won world titles.", "The actors section lists screen performers who worked at home and abroad.", "Each entry gives a name, a period and one sentence about why the person is remembered."].join("\n") })));
+    seedSiblings(OTHERS);
     seedResearchState(basis, { serps: [], winningPages: [] });
     const state = { ready: false, posted: [] as string[] }; script.search = threeTasks(state);
     const owed = PAGES.map((p, i) => owedSerp(p, [58, 63, 66][i]!)), keys = owed.map((n) => n.key).sort(), mine = (a: { key: string }) => keys.includes(a.key);
@@ -283,7 +298,7 @@ describe("three opportunities waiting on their own results page", () => {
     const postsAfterOne = PAGES.map((p) => state.posted.filter((q) => q === p.query).length);
 
     state.ready = true; advance(30 * 60_000);
-    const two = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owed });
+    const two = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owedAfter(one, owed) });
 
     expect([PAGES.map((p) => state.posted.filter((q) => q === p.query).length), postsAfterOne, acquisitions(two).filter((a) => a.outcome === "deferred").length],
       "the drive that finishes them posts none of them again, and none of them is put off: one search is two posted tasks, the results page and the answer above it, each charged at the post and collected with a free follow-up").toEqual([postsAfterOne, [2, 2, 2], 0]);
@@ -295,6 +310,33 @@ describe("three opportunities waiting on their own results page", () => {
       "and the row whose last dependency landed is handed to the writer in that same turn, rather than being owed to the next drive").toBe(true);
     expect([...(await loadChangeProposals(T)).values()].filter((r) => (r.pagePath ?? "") === HUB).map((r) => r.status),
       "so the opportunity is finished on the drive that collected its page: two drives from a row waiting on a results page to copy the operator can act on, which is the fewest the deadline allows").toEqual(["ready"]);
+  });
+
+  /** THE PURCHASES AHEAD OF THE WALK MAY NOT STARVE THE WALK (operator's rule, 2026-09-06). Production's 19:30Z drive that day bought nine readings before its walk, for rows ranked 84 to 139, and left the
+   *  walk its 110-second floor alone: 31 of its 35 funded jobs read that the drive's time box had ended before that page's turn, three hub rows among them whose own results pages and winner reads had landed
+   *  on that very drive. The same shape here: three hub rows whose pages are posted and waiting, eleven lower-ranked readings owed beside them, and the drive's own clock advanced only where this file
+   *  advances it, so what an arm reads off it is WHICH SIDE OF THE WALK each purchase fell on and what the drive wrote, never how long anything took. */
+  it("14: the free collections its hub rows are waiting on are finished in front of the walk, the row those collections unlocked is written on that same drive, and eleven lower-ranked readings take the room behind the walk", async () => {
+    const OTHERS = PAGES.slice(1);
+    seedSearchHistory(OTHERS.map((p) => ({ path: p.path, query: p.query })));
+    seedSiblings(OTHERS);
+    seedResearchState(basis, { serps: [], winningPages: [] });
+    const state = { ready: false, posted: [] as string[] }; script.search = threeTasks(state);
+    const owed = PAGES.map((p, i) => owedSerp(p, [58, 63, 66][i]!));
+    const one = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owed });
+    const lower = Array.from({ length: 11 }, (_, i) => ({ key: `/lower-${i}::body::ask-${i}`, kind: "factual_source", query: `lower question ${i}`, url: `/lower-${i}`, missingTopic: `lower topic ${i}`,
+      rank: 84 + i * 5, reasonCode: "acquire_factual_source", reason: "owed", workKey: `/lower-${i}::body::ask-${i}::wc5::e1` }));
+    state.ready = true; advance(30 * 60_000); logs.length = 0;
+    await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [...owedAfter(one, owed), ...lower] });
+    const walkAt = logs.findIndex((l) => l.includes("ready inventory checked before buying evidence"));
+    const boughtAt = (query: string): number => logs.findIndex((l) => l.includes("a reading bought for one row's own obligation") && l.includes(`"query":"${query}"`));
+    expect([walkAt >= 0, PAGES.map((p) => boughtAt(p.query) >= 0 && boughtAt(p.query) < walkAt), lower.map((n) => boughtAt(n.query)).filter((at) => at >= 0 && at < walkAt)],
+      "the three pages the hub rows wait on were posted by the drive before, so finishing them costs nothing and all three are collected in front of the walk whatever their rank; and not one of the eleven lower-ranked readings is paid for in front of it, because none of them unlocks a row the last walk reached").toEqual([true, [true, true, true], []]);
+    const stillOwed = new Set(((runs[runs.length - 1]!.progress as { evidenceOwed?: { query?: string }[] }).evidenceOwed ?? []).map((n) => String(n.query)));
+    expect([reasoningAsked.some((a) => a.kind === "atomic_edit" && a.ask.includes(QUERY)), lower.filter((n) => boughtAt(n.query) > walkAt).length, lower.every((n) => boughtAt(n.query) > walkAt || stillOwed.has(n.query))],
+      "the writer is hired for the hub row on the drive its last dependency landed; seven of the eleven are bought behind the walk on that same drive, and every one the room behind it could not pay for is still owed at its own rank for the next drive").toEqual([true, 7, true]);
+    expect([...(await loadChangeProposals(T)).values()].filter((r) => (r.pagePath ?? "") === HUB).map((r) => r.status),
+      "so the copy the hub row was waiting for reaches the store on that drive, where the eleven purchases in front of the walk used to take its turn").toEqual(["ready"]);
   });
 });
 

@@ -362,13 +362,7 @@ export function selectSerpAgenda(
 type WinningCandidate = { url: string; domain: string; weight: number; appearances: ResearchWinningAppearance[]; standby?: boolean; ownerQuery?: string };
 
 /** Exact host of a URL, lowercased ("" when unparseable). */
-function exactHost(url: string): string {
-  try {
-    return new URL(url).hostname.toLowerCase();
-  } catch {
-    return "";
-  }
-}
+const exactHost = (url: string): string => { try { return new URL(url).hostname.toLowerCase(); } catch { return ""; } };
 
 /** Defensive mode-blind dedupe for AI answers (Slice 6I). The chatgpt consumer look and the standardized ask are TWO observations of one engine, so the
  *  same prompt + engine + url counts ONCE and consumer_search wins the tie. Collection already dedupes, so this only stops a duplicate from inflating
@@ -394,7 +388,7 @@ function dedupeAppearances(appearances: ResearchWinningAppearance[]): ResearchWi
 }
 
 /** Exact-query winners per FOCUSED CASE: THREE DISTINCT PUBLISHERS, the floor a comparison needs, plus TWO deeper distinct publishers held as standbys. Reserving by URL let one publisher hold two of the three slots (two wikipedia.org pages are ONE source), so a topic could never clear its own three-publisher bar by arithmetic. The reserve is taken BEFORE the global order is consulted at all; the standby bench is bounded on its own. */
-const PRIORITY_WINNERS_PER_QUERY = 3, PRIORITY_STANDBYS_PER_QUERY = 2;
+export const PRIORITY_WINNERS_PER_QUERY = 3, PRIORITY_STANDBYS_PER_QUERY = 2;
 /** HOW MANY NEVER-RANKED SEARCHES ONE PASS RESERVES FOR, and therefore the only searches a receipt may promise pages of. */
 const OWED_SEARCHES_PER_PASS = 3;
 
@@ -409,8 +403,8 @@ function organicRankFor(c: WinningCandidate, key: string): number | null {
   return best;
 }
 
-/** PURE. IS THIS ADDRESS ONE OF THE ACCOUNT'S OWN? THE one test, so the rank rule that never banks an owned page as a winner, the unit that decides which searches owe a reading and the runtime read that makes that reading due cannot disagree about whose page it is. Takes a url or a canonical key on either side; an account with no address of its own owns nothing here. */
-export const isOwnPage = (url: string, ownDomain: string | null): boolean => { const d = rootDomain(url), own = rootDomain(ownDomain ?? ""); return !!own && (d === own || d.endsWith(`.${own}`)); };
+/** PURE, and INTERNAL: the guard's own rule is that a helper nobody outside reads stays unexported. IS THIS ADDRESS ONE OF THE ACCOUNT'S OWN? THE one test, so the rank rule that never banks an owned page as a winner and the rule that decides which searches owe a reading (which the runtime receipt asks, so its promise and the pass's work cannot differ) never disagree about whose page it is. Takes a url or a canonical key on either side; an account with no address of its own owns nothing here. */
+const isOwnPage = (url: string, ownDomain: string | null): boolean => { const d = rootDomain(url), own = rootDomain(ownDomain ?? ""); return !!own && (d === own || d.endsWith(`.${own}`)); };
 
 /** Aggregate winning pages from a flat appearance stream, each appearance carrying its ACTUAL source (query or real prompt id + text, engine, rank). AI
  *  surfaces weight double; organic top-10 single; the account's own domain is excluded. A page's engines/prompts derive from ITS OWN appearances only.
