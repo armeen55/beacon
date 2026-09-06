@@ -12,9 +12,9 @@ import { loadFunnelState, saveFunnelState, type FunnelState } from "@/domains/ev
 import type { ResearchCase } from "@/domains/evidence/funnel/research-evidence";
 import { applySynthesis } from "@/domains/evidence/case-identity";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
-import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
+import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader"; import { projectFunnelEvidence } from "@/domains/evidence/funnel/observe";
 import { renderUnreadOwnedPages } from "@/domains/evidence/pages/rendered-read";
-import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
+import { jobWinners, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { synthesizeCases } from "@/domains/decision/case-synthesis";
 import { buildTopicInvestigations, reconcileResearchCases } from "@/domains/evidence/topic-investigation";
 import { ensureDeepBackfill } from "@/lib/connectors/gsc/deep-backfill";
@@ -316,8 +316,8 @@ export const defaultSteps: ResearchCycleSteps = {
         log.info("[research-run] the exact reading a refused candidate named", { tenantId, kind: need.kind, query: need.query, status: unitStatus(out), landed, basis }); return { acquired: landed, detail: `results page for "${need.query}": ${landed ? "done" : unitStatus(out) === "done" ? `not on file under ${basis} after the unit finished` : unitStatus(out)}` };
       }
       case "competitor_page": {
-        const out = await winningPagesUnit({}, [need.query])(tenantId, { basis }, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) }));
-        return { acquired: landed(out), detail: `winning pages for "${need.query}": ${unitStatus(out)}` };
+        const out = await winningPagesUnit({}, [need.query])(tenantId, { basis }, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) })), st = landed(out) ? await loadFunnelState(tenantId, basis).catch(() => null) : null, read = st != null && jobWinners(projectFunnelEvidence(st.state, Date.now()), [need.query]).some((w) => (w.extract?.wordCount ?? 0) > 0); /* ACQUIRED MEANS A WINNER OF THIS SEARCH NOW CARRIES WORDS, read back the way the discharge reads it (reviewer three, 2026-09-06). The unit's own status was the whole answer, so a search whose pages nothing ranks for finished `advanced`, reported acquired, counted no attempt against itself and was bought again on every drive for ever. Asked of what is on file, exactly as the serp case proves its page is on file: nothing read is an honest not acquired, so the same answer twice under one work identity stops the purchase. */
+        return { acquired: read, detail: `winning pages for "${need.query}": ${read ? unitStatus(out) : landed(out) ? `no winner of that search carries a reading on file under ${basis} after the unit finished` : unitStatus(out)}` };
       }
       case "page_source": {
         if (!need.url) return { acquired: false, detail: "a page_source requirement names no page" };
