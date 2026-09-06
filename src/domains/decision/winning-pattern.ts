@@ -223,8 +223,8 @@ export async function readWinningPattern(
   const user = [
     "THE PAGES THAT WIN THIS SEARCH (cite these numbers and no others)",
     ...lines,
-    `FACTS: ${fingerprint}`,
-    "Say what these winning pages have in common, and what my own page is missing against them.", ...(opts.lesson ? [`A previous reading was thrown away because it ${opts.lesson}. Name only what these pages carry, in plain words, and repeat the settled shape.`] : []),
+    `FACTS: ${fingerprint}`, /* THE ASK MAY NOT ORDER WHAT THE CHECK THROWS AWAY (production 07:30Z, 2026-09-06). A topic whose verdict is a NEW page has no page of this account's to supply, `ownedFactsFor` hands over null for every verdict except improve_existing, and the line below still ended "and what my own page is missing against them", so the reading was ORDERED to fill `ownedGaps` while `blindGaps` threw the whole reading away for filling it. Twice, because the retry carried the reason and the same order, so the topic filed "the reading of the winning pages came back twice and Beacon's own checks kept none of it either time" while seven read winners sat on file and the new page's sections stayed unwritten. The check is right and is untouched; the ask now says what was actually supplied. */
+    owned ? "Say what these winning pages have in common, and what my own page is missing against them." : "Say what these winning pages have in common. No page of mine is written above, so ownedGaps must be an empty list.", ...(opts.lesson ? [`A previous reading was thrown away because it ${opts.lesson}. Name only what these pages carry, in plain words, and repeat the settled shape.`] : []),
   ].join("\n");
 
   if (opts.attempts && (opts.attempts.left -= 1) < 0) { log.info("[winning-pattern] the pass has spent its whole attempt budget, so the winners are not read", { tenantId }); return null; }

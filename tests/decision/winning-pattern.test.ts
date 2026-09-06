@@ -96,6 +96,15 @@ describe("the one reading a case may buy", () => {
     const agreed = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete, pageType: "informational_guide" }); expect([agreed?.archetype, agreed?.winners]).toEqual(["informational_guide", 4]);
     expect(await readWinningPattern(facts(), null, "t_fixture", { complete: seam(reading()).complete })).toBeNull(); const quiet = await readWinningPattern(facts(), null, "t_fixture", { complete: seam(reading({ ownedGaps: [] })).complete }); // With no page of my own supplied, "your page has no care section" is about a page it never saw.
     expect([quiet?.ownedGaps, quiet?.winners]).toEqual([[], 4]); });
+  /** THE ASK MAY NOT ORDER WHAT THE CHECK THROWS AWAY (production 07:30Z, 2026-09-06). A topic whose verdict is a new page has no page of this account's to supply, and the ask still ended "and what my own page is missing against them", so the reading was ordered to fill ownedGaps and the gap check threw the whole reading away for filling it, twice, on a topic holding seven read winners. The check stands; the ask now says what was supplied. */
+  it.each(["host-one", "host-two"])("asks for gaps against my own page only where one was supplied, and a reading that fills them anyway still dies twice [%s]", async (tenant) => {
+    const asked: string[] = []; const capture = (value: unknown): CompleteFn => async ({ user }) => { asked.push(user); return { value }; };
+    const blind = await readWinningPattern(facts(), null, tenant, { complete: capture(reading({ ownedGaps: [] })) });
+    const mine = await readWinningPattern(facts(), ownedFacts(), tenant, { complete: capture(reading()) });
+    let refusals = 0; const doomed = await readWinningPattern(facts(), null, tenant, { complete: capture(reading()), refused: () => { refusals += 1; } });
+    expect([asked[0]!.includes("my own page is missing"), asked[0]!.includes("ownedGaps must be an empty list"), asked[1]!.includes("my own page is missing"), blind?.winners, blind?.ownedGaps, mine?.ownedGaps.length, doomed, asked.length, refusals],
+      "with no page of my own supplied the ask no longer orders gaps against one, and the reading of four winners stands; with one supplied the ask is unchanged; and a reading that lists gaps for a page nobody showed it is still thrown away, retried once and settled as refused")
+      .toEqual([false, true, true, 4, [], 1, null, 4, 1]); });
   it("asks the same question once: winners that did not move buy no second reading", async () => {
     const s = seam(reading()); const cacheImpl = memoryCache(); const first = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, cacheImpl });
     const again = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, cacheImpl }); expect([first?.fingerprint, again?.fingerprint, s.calls()]).toEqual([first?.fingerprint, first?.fingerprint, 1]); });
