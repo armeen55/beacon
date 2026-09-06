@@ -1,4 +1,4 @@
-/** WHAT AN ATTEMPT PAYS FOR, ASKED ADVERSARIALLY (reviewer, 2026-09-06). Can a refund exceed what a door took, can a door give back an attempt it never spent, what does a call that never left the process cost, and does a reading that never arrived reach the caller's unsettled mark? Four answers were wrong: the day's cap refused a call and the page paid an attempt for it, a judging that threw was filed as a refusal Beacon had made, which the day memory counts as settling the job, an answer the drafter refused before any transport was charged for a call its own receipt counted at zero, and a reading that threw WHERE IT STOOD escaped the editor entirely, because a bare `.catch` never attaches to a function that throws before it returns a promise.
+/** WHAT AN ATTEMPT PAYS FOR, ASKED ADVERSARIALLY (reviewer, 2026-09-06). Can a refund exceed what a door took, can a door give back an attempt it never spent, what does a call that never left the process cost, and does a reading that never arrived reach the caller's unsettled mark? FIVE answers were wrong: the day's cap refused a call and the page paid an attempt for it, a judging that threw was filed as a refusal Beacon had made, which the day memory counts as settling the job, an answer the drafter refused before any transport was charged for a call its own receipt counted at zero, and a reading that threw WHERE IT STOOD escaped the editor entirely, because a bare `.catch` never attaches to a function that throws before it returns a promise, and a receipt stamped `off`, `blocked_budget` or `cached` beside real dollars was refunded its attempt AND dropped from the dollars, so the money left both halves of the meter at once and no receipt could name it.
  *  Through the REAL money surface, the REAL editor and the REAL gateway, on two synthetic accounts with unrelated
  *  subjects and different languages: a rule that holds for one of them is not a rule. */
 import { describe, it, expect, vi } from "vitest";
@@ -60,10 +60,7 @@ describe("a refund gives back the attempt the door took, and never more", () => 
 });
 
 /** THE RULE AS THE FILE ITSELF STATES IT (draft-budget.ts:225): an attempt pays for a call that ACTUALLY LEFT THE
- *  PROCESS. `recordOn` three lines above knows three ways nothing left it (`off`, `blocked_budget`, a cache hit)
- *  and keeps all three off the dollars; `refundIfNoCallMade` knows only the cache hit, so the two halves of one rule
- *  answer the same question differently, and a page whose day cap is reached spends its whole allowance on calls
- *  nobody made. */
+ *  PROCESS, and `recordOn` beside it keeps that same call off the dollars, so the two halves read ONE predicate. */
 describe("a call that never left the process", () => {
   it.each(SITES)("$t: the day's cap refuses the call, so the attempt it did not buy comes back", async (s) => {
     cap.allowed = false;
@@ -72,6 +69,18 @@ describe("a call that never left the process", () => {
       await readWinningPattern(winners(s), null, s.t, { complete: (async () => ({ value: {}, httpAttempts: 1 })) as never, now: NOW, label: s.q, attempts: allowance });
       expect([budget.meterOf(key)?.providerCalls ?? 0, before - allowance.left], "the meter records no provider call, so the allowance may not record one either").toEqual([0, 0]);
     } finally { cap.allowed = true; }
+  });
+
+  /** THE COST GUARD SITS ON THE PREDICATE, NOT ON ONE OF ITS CLAUSES (reviewer, 2026-09-06, finding 3). `off`, `blocked_budget` and `cached` answered on the status alone, so an answer stamped one of those beside real dollars was handed its attempt back here AND dropped from the dollars by `recordOn`: the same money left both halves at once and no receipt anywhere could name it. Asked as the cross product of the four stamps and the money, at both halves, on one funded page each. */
+  it.each(SITES)("$t: the cost guard is on the predicate itself, so no stamp refunds an attempt beside real dollars", (s) => {
+    const asked = ([["the model is off", { status: "off", attempts: 1 }], ["the day's cap refused it", { status: "blocked_budget", attempts: 1 }],
+      ["the cache served it", { status: "drafted", cached: true, attempts: 1 }], ["the receipt counts no request", { status: "drafted", attempts: 0 }],
+    ] as const).flatMap(([why, stamp]) => [0.02, 0].map((costUsd) => { const { key, budget, allowance } = funded(s), before = allowance.left; allowance.left -= 1;
+      const answer = { ...stamp, costUsd }; allowance.record(answer); DRAFT_BUDGET.refundIfNoCallMade(allowance, answer);
+      return `${why} at ${costUsd}: ${allowance.left === before ? "refunded" : "charged"}, meter ${budget.meterOf(key)?.costUsd ?? 0}`; }));
+    expect(asked, "a receipt that names money is a call that left the process whatever it calls itself, so it stays on the dollars and keeps the attempt it bought; the same stamp naming none is the call nobody made, and it comes back")
+      .toEqual(["the model is off", "the day's cap refused it", "the cache served it", "the receipt counts no request"]
+        .flatMap((why) => [`${why} at 0.02: charged, meter 0.02`, `${why} at 0: refunded, meter 0`]));
   });
 
   /** AND THE CLASS THE THREE NAMED STATUSES MISS. The drafter refuses an answer with no account before it touches the cache, the cap or the wire, and says so on the receipt as `attempts: 0, costUsd: 0`; the gateway stamps that same count 0 for a credit hold, a paused account and a schema nothing can convert. The meter reads the count and records no call; the refund read the status and charged one. Asked here through the REAL drafter, with a transport that would stamp its own attempt if anything ever reached it. */
@@ -92,6 +101,7 @@ describe("the judging's own attempt", () => {
         complete: (async () => ({ value: draft(s), httpAttempts: 1, provenance: { costUsd: 0.004 } })) as never });
     return { piece, unsettled };
   };
+  const rowOf = (s: Site) => ({ id: `${s.t}::${new URL(s.url).pathname}::existing_edit::missing_description`, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: s.line }, primaryQuery: s.q, estimatedEffortMinutes: 3, limitations: [], claims: [{ text: s.lines[0]!, supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: s.lines[0]! }] });
 
   it.each(SITES)("$t: a judge that never answers costs one attempt a round, and the receipt names only the writing", async (s) => {
     const { key, budget, allowance } = funded(s), before = allowance.left;
@@ -108,9 +118,17 @@ describe("the judging's own attempt", () => {
   });
 
   it.each(SITES)("$t: and the door that reads finished words answers a throw the same way, so a rule asked at one door is asked at both", async (s) => {
-    const row = { id: `${s.t}::${new URL(s.url).pathname}::existing_edit::missing_description`, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: s.line }, primaryQuery: s.q, estimatedEffortMinutes: 3, limitations: [], claims: [{ text: s.lines[0]!, supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: s.lines[0]! }] };
-    const out = await reviewFinishedCopy(row as never, { tenantId: s.t, now: NOW, judge: (() => { throw new Error("the reading never came back"); }) as never }).catch((e: unknown) => e);
+    const out = await reviewFinishedCopy(rowOf(s) as never, { tenantId: s.t, now: NOW, judge: (() => { throw new Error("the reading never came back"); }) as never }).catch((e: unknown) => e);
     expect([out instanceof Error, (out as { row: unknown; detail: string }).detail], "the review lane takes a reading too, so a throw there says the same thing about the words and banks nothing").toEqual([false, "no reading of these words came back, so nothing was banked"]);
+  });
+
+  /** AND IT TAKES NO ATTEMPT OF ITS OWN, so no path through it may hand one back: a refund without a take is money invented (reviewer, 2026-09-06). */
+  it.each(SITES)("$t: takes nothing and gives nothing back, whether the reading answers, refuses or throws", async (s) => {
+    const moved: number[] = [];
+    for (const judge of [async () => ({ ...VERDICT, cached: true }), async () => null, () => { throw new Error("the reading never came back"); }]) {
+      const { allowance } = funded(s), before = allowance.left;
+      await reviewFinishedCopy(rowOf(s) as never, { tenantId: s.t, now: NOW, attempts: allowance as never, judge: judge as never }).catch(() => null); moved.push(allowance.left - before); }
+    expect(moved, "this lane never decrements the allowance at its own door, so it may not increment one either").toEqual([0, 0, 0]);
   });
 
   it.each(SITES)("$t: and a deliverable is never left half judged: the words the writing bought are still owed", async (s) => {
@@ -123,6 +141,18 @@ describe("the judging's own attempt", () => {
     const { allowance } = funded(s, 1);
     const out = await pass(s, allowance, null);
     expect([out.piece, allowance.left, out.unsettled.has(s.url)], "the pass ran out mid deliverable, so nothing is settled against these words").toEqual([null, 0, true]);
+  });
+
+  /** WHERE THE RESOLVED-PROMISE WRAP COULD HAVE MOVED THE MONEY (reviewer, 2026-09-06): starting the reading inside `Promise.resolve().then(...)` defers the CALL, and these two ask whether it deferred the take or the give-back with it. */
+  it.each(SITES)("$t: the attempt is already taken when the reading starts and is back once it answers cached", async (s) => {
+    const { allowance } = funded(s), before = allowance.left; let atCall = -1;
+    const out = await pass(s, allowance, async () => (atCall = allowance.left, { ...VERDICT, cached: true }));
+    expect([out.piece?.after, before - atCall, before - allowance.left], "both attempts are taken before the reading starts, and the reading's own comes back on a cache hit").toEqual([s.line, 2, 1]);
+  });
+
+  it.each(SITES)("$t: a reading that throws where it stands still pays its attempt and still leaves the card owed", async (s) => {
+    const { allowance } = funded(s), before = allowance.left, out = await pass(s, allowance, () => { throw new Error("the reading never came back"); }).then((r) => ({ threw: null as unknown, ...r }), (e) => ({ threw: e, piece: undefined, unsettled: new Set<string>() }));
+    expect([out.threw, out.unsettled.has(s.url), before - allowance.left > 0], "a throw is a reading that never came, so the attempt it bought is spent exactly as a rejection's is and the card is owed again").toEqual([null, true, true]);
   });
 
   it.each(SITES)("$t: a reading served from the cache costs nothing and the finished line still comes back", async (s) => {
