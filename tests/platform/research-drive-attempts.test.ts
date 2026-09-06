@@ -432,3 +432,54 @@ describe("the answers that leave the phase through a yield", () => {
     expect([owed, none], "a round that moved nothing leaves the lane, and the walk the turn was borrowed from is still owed before the phase is left").toEqual([1, none]);
   });
 });
+
+/** A RESULTS PAGE IS CHARGED AT THE POST AND COLLECTED WITH A FREE FOLLOW-UP, so the drive that collects one spends
+ *  nothing on it. Counted as a purchase, one page took the one reading a drive may buy out of the ranking's order on
+ *  the drive that posted it AND on the drive that collected it (production run p3, 2026-09-06: rank 30 posted 16:00Z,
+ *  collected 16:30Z, the rank-57 hub need deferred by the same sentence both times). Every drive below has its clock
+ *  spent by the walk, so what the loop AHEAD of the walk decided is the whole of what the drive bought. */
+describe("a results page posted on one drive and collected on the next", () => {
+  const head = (s: typeof SITES[number]): Owed => ({ key: `${s.url}::head`, kind: "serp", query: s.topic, rank: 30, reasonCode: "no_exact_serp", reason: "owed", workKey: "w-head" });
+  const behind = (s: typeof SITES[number]): Owed => ({ key: `${s.url}::behind`, kind: "serp", query: `${s.topic} hub`, rank: 57, reasonCode: "no_exact_serp", reason: "owed", workKey: "w-behind" });
+  // the last walk filed a reached receipt for both rows, so the gap the head of this order leaves may be crossed once
+  const outcomes = (s: typeof SITES[number]) => ({ readySaved: 0, evidenceBanked: 0, refused: 0, blocked: 0, unreached: 0, stuck: [],
+    receipts: [head(s), behind(s)].map((n) => ({ key: n.key, outcome: "prepared", providerCalls: 1 })) });
+  const DAY = new Date(NOW).toISOString().slice(0, 10);
+  const drive = async (s: typeof SITES[number], seeded: readonly Owed[], answer: (n: Owed) => { acquired: boolean; posted?: boolean; detail: string }) => {
+    const rows = freshRepo(); let at = NOW;
+    rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: "fact_check",
+      progress: { plan: { units: ["replenish_ready", "check_page_facts"] }, evidenceOwed: [...seeded], replenish: { day: DAY, jobs: {}, outcomes: outcomes(s) } as never } }));
+    const asked: string[] = [];
+    await runResearchCycle(s.t, { now: () => new Date(at), deadlineMs: 260_000, steps: { ...BENIGN,
+      dueWork: async () => ({ ...DUE, due: ["replenish_ready", "check_page_facts"] }),
+      acquireEvidence: async (_t, n) => (asked.push((n as Owed).key), answer(n as Owed)),
+      replenishReady: async () => (at += 210_000, { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {},
+        evidenceOwed: [head(s), behind(s)] as never, outcomes: outcomes(s) as never }) } });
+    const progress = rows.at(-1)!.progress ?? {};
+    return { asked, owed: progress.evidenceOwed ?? [], deferred: (progress.acquisitions ?? []).filter((a) => a.outcome === "deferred").map((a) => a.key) }; };
+  /** The head answers `waiting`, which is the post; everything else refuses in the ordinary way, so the post is the only variable. */
+  const posts = (s: typeof SITES[number]) => (n: Owed) => n.key === head(s).key
+    ? { acquired: false, posted: true, detail: `results page for "${s.topic}": waiting` }
+    : { acquired: false, detail: "the results-page provider refused" };
+
+  it.each(SITES)("$t: the drive that collects a page it posted earlier still buys the next need across the gap", async (s) => {
+    const one = await drive(s, [head(s), behind(s)], posts(s));
+    const two = await drive(s, one.owed, (n) => n.key === head(s).key ? { acquired: true, detail: `results page for "${s.topic}": done` } : posts(s)(n));
+    const stamped = one.owed.find((n) => n.key === head(s).key);
+    expect([one.asked, one.deferred, stamped?.postedOn, stamped?.boughtOn ?? null],
+      "the post is stamped as a post and never as a buy, because a page that has landed is held back for the rest of the day and a posted one has to stay buyable; the need behind it is deferred because this drive really did spend its one purchase across the gap")
+      .toEqual([[head(s).key], [behind(s).key], DAY, null]);
+    expect([two.asked, two.deferred],
+      "the collection is the free follow-up on money already spent, so it takes none of the allowance and the hub need behind it is bought on the same drive instead of waiting another half hour")
+      .toEqual([[head(s).key, behind(s).key], []]);
+  });
+
+  it.each(SITES)("$t: a posted page that never lands still spends after two attempts", async (s) => {
+    const one = await drive(s, [head(s), behind(s)], posts(s));
+    const two = await drive(s, one.owed, posts(s));
+    const three = await drive(s, two.owed, posts(s));
+    expect([one.asked, two.asked, three.asked, three.owed.find((n) => n.key === head(s).key)?.tried?.count],
+      "posting counts an attempt and the collection that answered nothing counts the second, so the page stops being bought on the third drive while the need behind it keeps its turn")
+      .toEqual([[head(s).key], [head(s).key, behind(s).key], [behind(s).key], 2]);
+  });
+});
