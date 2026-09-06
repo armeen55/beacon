@@ -54,7 +54,7 @@ const PHASES_FOR: Record<DuePhase, readonly ResearchPhase[]> = {
   // A SETTLED READING IS SPENT BY HARVESTING IT AND DECIDING AGAIN, and by nothing else: keyword discovery reads what those answers named, and the surface publishes what that changed. No results page, no winner read, no crawl, no refresh, no measurement, and above all no second answer bought to read an answer already in hand.
   consume_analyses: ["keyword_discovery", "publish_surface"],
   plan_cases: ["keyword_discovery", "serp_analysis"],
-  acquire_case_evidence: ["serp_analysis", "winning_pages"], check_page_facts: ["fact_check"], decide_and_prepare: ["publish_surface"],
+  acquire_case_evidence: ["serp_analysis", "winning_pages"], read_winner_pages: ["winning_pages"], check_page_facts: ["fact_check"], decide_and_prepare: ["publish_surface"], // A WINNER NOBODY HAS READ COSTS EXACTLY THE WINNER READ, and that is why it is not filed under the case unit beside it. `acquire_case_evidence` carries the results-page phase because an open investigation needs BOTH halves, the exact search and the pages that win it; a pass opened only to read winners already on file has no case and therefore no focus query, so that phase would buy searches nothing asked for out of the broad agenda, and results pages are one of the two phases that can hold a whole drive before the read it was opened for is ever reached.
   verify_and_measure: ["publish_surface"],
   publish_surfaces: ["publish_surface"],
 };
@@ -463,7 +463,7 @@ export async function driveClaimed(run: ResearchRun, ownerToken: string, work: D
         casesActive: work.cases.active, casesParked: work.cases.parked, nextDueAt: work.nextDueAt, blocker: null } } });
     return (await finishRun(tenantId, run.id, ownerToken, "completed", null, Number(run.progress?.funnel?.spendUsd) || 0)) ? "completed" : "failed"; // and it stamps 0 rather than leaving the spend column silent: zero spend is a fact about this pass, never a missing number
   }
-  const receipt = await driveRun(run, ownerToken, nowFn, deadline, steps, work ?? { due: [], readable: false, checks: { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0 }, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null }); if (receipt === "lost_lease") log.error("[research-run] the lease was lost, so nothing this drive did after its last save is on the row", { tenantId, phase: run.current_phase }); return receipt; // LOUD (live 2026-09-02): three cycles ended this way and no line said so
+  const receipt = await driveRun(run, ownerToken, nowFn, deadline, steps, work ?? { due: [], readable: false, checks: { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0 }, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null, winners: { unread: null } }); if (receipt === "lost_lease") log.error("[research-run] the lease was lost, so nothing this drive did after its last save is on the row", { tenantId, phase: run.current_phase }); return receipt; // LOUD (live 2026-09-02): three cycles ended this way and no line said so
 }
 
 /** How many EXTRA same-day passes THE VISIT DOOR may open for one account. A visit is a chance, not a debt: every navigation is another opportunity to open one, and the day's runaway ceiling bounds them. The daily dispatch carries its own allowance (it claims first, and opens a recovery pass only for a day left short), and the day's absolute runaway stop inside research-run still bounds every door together. */

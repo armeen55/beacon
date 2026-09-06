@@ -39,6 +39,7 @@ export type DuePhase =
   | "consume_analyses"
   | "plan_cases"
   | "acquire_case_evidence"
+  | "read_winner_pages"
   | "check_page_facts"
   | "decide_and_prepare"
   | "verify_and_measure"
@@ -61,6 +62,8 @@ export type DueWork = {
   /** The research notes' current row version for the account's basis, or null when unreadable. The pass that decides off these notes stamps this as its
    * watermark, which is what lets the NEXT pass tell new evidence from a repeat of the same question. */
   evidenceVersion: number | null;
+  /** THE PAGES THAT WIN THIS ACCOUNT'S SEARCHES AND HAVE NEVER BEEN READ AS PAGES: the count that makes the read owed, carried on the receipt so a surface can say WHY a pass opened. Null = the research document could not be read, which is unknown and never a truthful zero. */
+  winners: { unread: number | null };
 };
 
 /** Nothing owed and nothing landed: the shape every fail-soft answer falls back to. */
@@ -168,6 +171,27 @@ async function consumedAnalyses(tenantId: string, basis: string): Promise<string
   return data == null ? null : ((data as { wm: string | null }).wm ?? null);
 }
 
+/** THE WINNERS THIS ACCOUNT HOLDS ON FILE, read WITHOUT the research document itself: one json path off the row (the same array the winning-pages unit loads, and the narrowest read of it there is). A read that FAILED throws, so this leg goes unreadable rather than inventing a quiet zero; no row and no array both mean no winners, an honest none. */
+async function winnerRowsOnFile(tenantId: string, basis: string): Promise<readonly unknown[]> {
+  const { data, error } = await getSupabaseAdmin().from("research_state")
+    .select("winners:state->winningPages").eq("tenant_id", tenantId).eq("basis_tag", basis).maybeSingle();
+  if (error != null) throw new Error(error.message ?? String(error));
+  const rows = data == null ? null : (data as { winners: unknown }).winners;
+  return Array.isArray(rows) ? rows : [];
+}
+
+/** PURE. IS THIS WINNER OWED A READ OF THE PAGE ITSELF? A winner banked before the reading existed carries an extract with no words in it at all, and
+ *  `pageExtractFromRecord` decodes exactly that row as `mainText` null with `truncated` null; a read that honestly found NO words banks `truncated: false`,
+ *  which IS a reading and is never bought again. The other answer is a retry date: a publisher that refused is waiting, and a date that has passed is owed
+ *  again. Measured on production 2026-09-06: 20 winners on file, 14 carrying an extract, not one carrying a word, so hub case after hub case settled
+ *  terminal against pages nothing had ever read. */
+const winnerAwaitsReading = (row: unknown, nowMs: number): boolean => {
+  if (row == null || typeof row !== "object") return false;
+  const w = row as { extract?: { mainText?: unknown; truncated?: unknown } | null; readOutcome?: { retryAfter?: unknown } | null };
+  if (typeof w.extract?.mainText === "string" || typeof w.extract?.truncated === "boolean") return false;
+  const retryAfter = w.readOutcome?.retryAfter; return !(typeof retryAfter === "string" && Date.parse(retryAfter) > nowMs);
+};
+
 /** The unread probe over BOTH ranges the readback reads: the recent seven days, then EVERYTHING OLDER in one
  *  indexed existence read. The hourly rotation that stood here made each older band reachable roughly one hour
  *  in twenty-six, so an account with only old debt looked quiet on most probes and the pass that would drain it
@@ -246,6 +270,7 @@ type DueWorkDeps = {
   analysisFingerprint?: (tenantId: string) => Promise<string | null>;
   consumedAnalyses?: (tenantId: string, basis: string) => Promise<string | null>;
   factDebt?: (tenantId: string) => Promise<{ owed: number; everChecked: boolean } | null>;
+  winnerRows?: (tenantId: string, basis: string) => Promise<readonly unknown[]>;
   readyStock?: (tenantId: string) => Promise<number | null>;
   creditHeld?: (tenantId: string) => Promise<boolean>;
 };
@@ -285,7 +310,7 @@ const settled = async <T,>(p: Promise<T>, fallback: T): Promise<{ value: T; ok: 
 /** WHAT IS OWED RIGHT NOW for one account. Bounded, parallel, fail-soft, and free: every read is a lean projection of state already on file, and nothing here
  * calls a provider or spends a cent. Requires an explicit tenant. */
 export async function dueWork(tenantId: string, now: Date = new Date(), deps: DueWorkDeps = {}): Promise<DueWork> {
-  const empty: DueWork = { due: [], readable: false, checks: NO_CHECKS, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null };
+  const empty: DueWork = { due: [], readable: false, checks: NO_CHECKS, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null, winners: { unread: null } };
   if (!tenantId?.trim()) return empty;
   const nowMs = now.getTime();
   // THE REPORTING DAY, and src/lib/reporting-day.ts is the one place that defines it (V1 binds every account to the same zone; there is no per-account
@@ -304,7 +329,7 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
     settled((deps.basis ?? accountBasis)(tenantId), null as string | null),
   ]);
 
-  const [version, surface, debt, pages, unread, analyses, consumed, facts] = await Promise.all([
+  const [version, surface, debt, pages, unread, analyses, consumed, facts, winners] = await Promise.all([
     // No basis is not a failed read: nothing was asked, so nothing failed, and the basis read above is what says whether it resolved at all.
     basis.value ? settled((deps.evidenceVersion ?? evidenceRowVersion)(tenantId, basis.value), null as number | null) : Promise.resolve({ value: null, ok: true }),
     settled((deps.surfaceStale ?? surfaceIsStale)(tenantId, nowMs), false),
@@ -315,6 +340,8 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
     // The watermark is basis-scoped like every other derived row, so with no basis there is nothing to compare against and nothing was asked.
     basis.value ? settled((deps.consumedAnalyses ?? consumedAnalyses)(tenantId, basis.value), null as string | null) : Promise.resolve({ value: null, ok: true }),
     settled((deps.factDebt ?? factDebt)(tenantId), null as { owed: number; everChecked: boolean } | null),
+    // The winners are basis-scoped like every other derived row, so with no basis there is no research document to hold any and nothing was asked.
+    basis.value ? settled((deps.winnerRows ?? winnerRowsOnFile)(tenantId, basis.value), [] as readonly unknown[]) : Promise.resolve({ value: [] as readonly unknown[], ok: true }),
   ]);
   // THE STOCK, AND WHETHER TOPPING IT UP CAN ACHIEVE ANYTHING RIGHT NOW. Both are $0 reads of durable state. The
   // credit stop is asked with the PURE reader, so asking can never spend the probe the transport is owed.
@@ -382,6 +409,10 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   // owes one. An idle account with no plan owes nothing, because re-planning unchanged notes reaches the identical answer at the same price.
   if (notesMoved || (openRun && !bound)) due.push("plan_cases");
   if (active.length > 0) due.push("acquire_case_evidence");
+  // A WINNER ON FILE THAT NOTHING HAS READ AS A PAGE IS OWED A READ, whatever the frozen plan is doing: the comparison that settles a body case reads the winners' own words, so an account whose winners were all banked before the reading existed settles case after case as "nothing to say" against pages nobody ever opened.
+  // Its OWN unit and deliberately not `acquire_case_evidence`, which costs a results page as well (PHASES_FOR in on-visit-refresh): this pass carries no case and so no focus query, and buying searches out of the broad agenda spends for nothing and can hold the drive in the results-page phase ahead of the read it exists for.
+  const unreadWinners = winners.value.filter((w) => winnerAwaitsReading(w, nowMs)).length;
+  if (unreadWinners > 0) due.push("read_winner_pages");
   // A CLAIM THE PAGE MAKES AND NOBODY HAS CHECKED IS OWED WORK, and an account that has never checked one owes
   // its first pass. Without this the phase was reachable only on a fresh daily cycle, which is one page's worth
   // of statements a day at best. An unreadable count is never a quiet "nothing owed": it says nothing here.
@@ -402,7 +433,7 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   // an unread-answer probe that THREW was swallowed into "nothing is due" and the scheduler reported a healthy idle over a day it could not judge. An
   // individually EMPTY signal is untouched by this: zero stale sources is an honest zero, not an outage.
   // ...AND THE FACT DEBT IS ONE OF THEM. It was read, judged and then left out of this line, so a fact-check store that THREW reported a readable day with check_page_facts quietly missing from it: exactly the swallowed outage this rule exists to stop, on the one debt nothing else can infer (Codex, 2026-08-22). The stock and the credit stop join it for the same reason.
-  const readable = run.ok && checks.value != null && sources.ok && basis.ok && version.ok && surface.ok && debt.ok && pages.ok && unread.ok && analyses.ok && consumed.ok && facts.ok && ready.ok && creditHeld.ok;
+  const readable = run.ok && checks.value != null && sources.ok && basis.ok && version.ok && surface.ok && debt.ok && pages.ok && unread.ok && analyses.ok && consumed.ok && facts.ok && ready.ok && creditHeld.ok && winners.ok;
   if (!readable) log.debug("[due-work] durable state unreadable; the caller decides which way that falls", { tenantId });
   return {
     due: readable ? due : [], readable,
@@ -412,6 +443,7 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
     cases: { active: active.length, parked: parked.length },
     nextDueAt,
     evidenceVersion: version.value,
+    winners: { unread: winners.ok ? unreadWinners : null }, // a count nothing could read is unknown, never zero
   };
 }
 

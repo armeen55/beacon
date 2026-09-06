@@ -112,7 +112,7 @@ function freshRepo(): RR.ResearchRun[] { const { repo, rows } = memRepo(); RR.se
 function withRun(o: Partial<RR.ResearchRun> = {}): RR.ResearchRun[] { const rows = freshRepo(); rows.push(mk(o)); return rows; }
 /** Work is owed unless a test says otherwise, so every pre-Phase-5 pin drives the same phases it always did. */
 const NO_CHECKS = { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0 };
-const SOMETHING_DUE: DueWork = { due: ["daily_observations"], readable: true, checks: NO_CHECKS, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null };
+const SOMETHING_DUE: DueWork = { due: ["daily_observations"], readable: true, checks: NO_CHECKS, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null, winners: { unread: 0 } };
 const NOTHING_DUE: DueWork = { ...SOMETHING_DUE, due: [] }, NO_READING = { attempted: 0, settled: 0, refused: 0, read: 0, outcomes: {} };
 /** Benign no-op steps; a phase-truth test overrides the ONE step under test. */
 const BENIGN: ResearchCycleSteps = {
@@ -474,6 +474,14 @@ describe("research-run: a recovery pass runs what it was opened for", () => {
     settled(); const touched: string[] = []; await run({ ...spy(touched), dueWork: async () => ({ ...SOMETHING_DUE, due: ["consume_analyses"] }) }); expect(touched).toEqual(["keyword_discovery", "publish"]); }); // the harvest and the re-decide, and not one phase or cent beside them
   it("runs exactly the owed set on a mixed debt, and nothing beside it", async () => { settled(); const touched: string[] = [];
     await run({ ...spy(touched), dueWork: async () => ({ ...SOMETHING_DUE, due: ["crawl_pages", "verify_and_measure"] }) }); expect(touched).toEqual(["crawl", "verify", "measure", "publish"]); });
+  /** A PASS OPENED ONLY TO READ WINNERS ALREADY ON FILE BUYS NO SEARCH. It carries no case and therefore no focus query, so the results-page phase would take its
+   *  queries from the broad agenda and buy pages nothing asked for; it is also one of the two phases that can hold a whole drive, ahead of the read the pass exists for. */
+  it.each([T, U])("reads the winners on file and buys no results page, crawl or keyword to do it, on %s", async (t) => {
+    const rows = freshRepo(); rows.push(mk({ id: `done-${t}`, tenant_id: t, cycle_key: ckey(t, NOW), status: "completed", completed_at: iso(), current_phase: "done", started_at: iso() }));
+    const touched: string[] = [];
+    await runResearchCycle(t, { now: () => new Date(NOW), steps: { ...BENIGN, ...spy(touched), dueWork: async () => ({ ...SOMETHING_DUE, due: ["read_winner_pages"], winners: { unread: 4 } }) } });
+    expect(touched).toEqual(["winning_pages"]);  // the winner read, and not one phase or cent beside it
+    expect([rows[1]!.status, rows[1]!.tenant_id, rows[1]!.progress.plan?.units]).toEqual(["completed", t, ["read_winner_pages"]]); });  // and the row carries why it opened
   it("still walks the whole ordered cycle on the day's first genuine run, which is a recovery of nothing", async () => {
     freshRepo(); const touched: string[] = [];
     await run({ ...spy(touched), dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers"] }) });
@@ -851,7 +859,7 @@ describe("the due-work runtime: a day is not a unit of work", () => {
   const PERSISTED = { staleSources: async () => 0, checks: async () => ({ ...NO_CHECKS, done: 140, total: 140, answers: 140, due: 0 }),
     run: async () => ({ progress: { decided: { basis: "b1", rowVersion: 1 }, replenish: { day: reportingDay(NOW), jobs: {}, closed: "candidates_exhausted" as const, closedUnder: "b1::v1" } }, open: false }), basis: async () => "b1", evidenceVersion: async () => 1,
     surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }), analysisFingerprint: async () => "fp1", consumedAnalyses: async () => "fp1",
-    pagesToCrawl: async () => false, answersToAnalyze: async () => false, readyStock: async () => 5 };
+    pagesToCrawl: async () => false, answersToAnalyze: async () => false, readyStock: async () => 5, winnerRows: async () => [] };
   const completedToday = (): RR.ResearchRun[] => { const rows = freshRepo(); rows.push(mk({ id: "done1", status: "completed", completed_at: iso(), current_phase: "done" })); return rows; };
   /** PHASE 5D. ONE canonical answer to "is anything owed", so a day whose AI answers are all collected is not therefore finished: the website may still be two hundred pages unread, and answers already bought may have no verdict on them yet. Both used to be invisible to the recovery opener. */
   it("does not buy evidence for a claim while the provider that has to judge it is out of credit", async () => { const owing = { ...PERSISTED, factDebt: async () => ({ owed: 33, everChecked: true }) };
@@ -1067,7 +1075,7 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
 describe("dueWork: what is genuinely owed, computed from persisted state only", () => {
   const parked = (ms: number) => ({ basis: "b1", topics: [{ topicKey: "t1", query: "haft seen", requirement: "exact_serp", retryAfter: new Date(ms).toISOString() }] });
   const base = { staleSources: async () => 0, checks: async () => ({ ...NO_CHECKS, done: 4, total: 4, answers: 4, due: 0 }), basis: async () => "b1", evidenceVersion: async () => 7, answersToAnalyze: async () => false, analysisFingerprint: async () => "fp1", consumedAnalyses: async () => "fp1",
-    surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }), pagesToCrawl: async () => false, factDebt: async () => ({ owed: 0, everChecked: true }), readyStock: async () => 5, creditHeld: async () => false,
+    surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }), pagesToCrawl: async () => false, factDebt: async () => ({ owed: 0, everChecked: true }), readyStock: async () => 5, creditHeld: async () => false, winnerRows: async () => [],
     run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY),
       replenish: { day: reportingDay(NOW), jobs: {}, closed: "candidates_exhausted" as const, closedUnder: "b1::v7" } } }) };
   it("owes nothing when the sources are fresh, today's round has landed, the notes have not moved past the last decision, and the rest is waiting on a date I promised", async () => {
@@ -1095,6 +1103,33 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     expect(await due(false)).toEqual([]); // the pass that froze it CONSUMED it: a quiet account takes the zero-cost exit
     expect(await due(true)).toEqual(["acquire_case_evidence"]); // the run that froze it is still open and genuinely owes the work
     expect((await dueWork(T, new Date(NOW), { ...base, run: async () => ({ open: false, progress: { decided, focus: parked(NOW - 1), replenish: { day: reportingDay(NOW), jobs: {}, closed: "candidates_exhausted" as const, closedUnder: "b1::v7" } } }) })).due) .toEqual(["acquire_case_evidence"]); });  // And a date I promised that has ARRIVED is owed whether or not a run is open.
+  /** WINNERS ON FILE THAT WERE NEVER READ AS PAGES. An extract can be banked before the reading itself existed, and `pageExtractFromRecord` decodes exactly that row as
+   *  `mainText` null with `truncated` null; the comparison that settles a body case then sees every winner as unread and the case settles as "nothing to say" against
+   *  pages nobody ever opened. Measured on production 2026-09-06: 20 winners on file, 14 carrying an extract, not one carrying a word of its page, and today's passes
+   *  planned no phase that would read them. TWO SYNTHETIC ACCOUNTS with unrelated subjects, so a rule that holds for one set of pages is not a rule. */
+  const WINNERS = [
+    { t: "acct-reef", read: { url: "https://tidal-reef.example/anemones", extract: { title: "Anemones", wordCount: 900, mainText: "An anemone anchors to the rock and stings what drifts past it.", truncated: false } },
+      legacy: { url: "https://kelp-reef.example/sea-stars", extract: { title: "Sea stars", wordCount: 800 } },  // banked before the reading existed: no mainText key and no truncated key at all
+      wordless: { url: "https://shore-reef.example/limpets", extract: { title: "Limpets", wordCount: 0, mainText: null, truncated: false } } },  // read, and the page honestly carried no words: a reading, never bought again
+    { t: "acct-loom", read: { url: "https://hand-loom.example/puntadas", extract: { title: "Puntadas", wordCount: 700, mainText: "La puntada de tallo se usa para los contornos del bordado.", truncated: false } },
+      legacy: { url: "https://taller-loom.example/bastidores", extract: { title: "Bastidores", wordCount: 640 } },
+      wordless: { url: "https://hilos-loom.example/madejas", extract: { title: "Madejas", wordCount: 0, mainText: null, truncated: false } } },
+  ];
+  const holdOn = (w: { url: string }, retryAfter: number) => ({ url: w.url, extract: null, readOutcome: { state: "robots_blocked", attemptedAt: iso(NOW - DAY), retryAfter: iso(retryAfter) } });
+  it.each(WINNERS)("owes the winner read for pages banked before the reading existed, and says how many on the receipt, on $t", async (w) => {
+    const asked: string[][] = [];
+    const work = await dueWork(w.t, new Date(NOW), { ...base, winnerRows: async (t, basis) => (asked.push([t, basis]), [w.read, w.legacy, w.wordless]) });
+    expect([work.due, work.readable, work.winners]).toEqual([["read_winner_pages"], true, { unread: 1 }]);  // the one row that carries no reading, and the receipt says so
+    expect(asked).toEqual([[w.t, "b1"]]);  // one read, scoped to this account and the basis it holds now
+    const both = await dueWork(w.t, new Date(NOW), { ...base, winnerRows: async () => [w.legacy, holdOn(w.read, NOW - 1)] });
+    expect([both.due, both.winners]).toEqual([["read_winner_pages"], { unread: 2 }]); });  // and a retry date I promised that has ARRIVED is owed again, exactly as a page of my own is
+  it.each(WINNERS)("owes nothing for a winner that carries a reading or is waiting on a date I promised, on $t", async (w) => {
+    const quiet = await dueWork(w.t, new Date(NOW), { ...base, winnerRows: async () => [w.read, w.wordless, holdOn(w.legacy, NOW + DAY)] });
+    expect([quiet.due, quiet.readable, quiet.winners]).toEqual([[], true, { unread: 0 }]);  // words, an honest no-words reading, and a live hold: nothing here is owed
+    expect((await dueWork(w.t, new Date(NOW), { ...base, winnerRows: async () => [] })).winners).toEqual({ unread: 0 }); });  // no winners at all is an honest none, not a debt
+  it.each(WINNERS)("says unreadable rather than a quiet nothing when the research document cannot be read, on $t", async (w) => {
+    const blind = await dueWork(w.t, new Date(NOW), { ...base, winnerRows: async () => { throw new Error("the research document could not be read"); } });
+    expect([blind.readable, blind.due, blind.winners]).toEqual([false, [], { unread: null }]); });  // a count nothing could read is unknown, and unknown never authorizes or forbids the read
   /** A COUNT IS NOT A REASON TO STOP WORKING. Replenish was due only while the stock sat BELOW five, so an account holding fourteen finished changes was never asked and Update Data answered "nothing due" with real evidenced work standing unwritten. What ends a day is a SETTLED MANIFEST, never a quantity. */
   it("keeps asking for work above the stock floor, and stops only on a proven exhaustion", async () => {
     const closed = (n: number) => ({ ...base, readyStock: async () => n, run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY), replenish: { day: reportingDay(NOW), jobs: {}, closed: "candidates_exhausted" as const, closedUnder: "b1::v7" } } }) }); expect([(await dueWork(T, new Date(NOW), closed(5))).due, (await dueWork(T, new Date(NOW), closed(4))).due]).toEqual([[], []]); // a SETTLED manifest holds the day shut at any count
@@ -1285,7 +1320,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     const parked = rows.at(-1)!.progress; expect([walks.length, parked?.replenish?.awakened, parked?.replenish?.closed, (parked?.state?.blocker ?? "").includes("for 1 change already funded today, and this pass ran out of time")], "P2: no walk had room, the exhaustion withdrawn, the exact work persisted by ONE name (R6: a reading key and the workKey that opens with it are one funding slot, and the sentence the operator reads counts it once), and the stop reason on the row in their own words").toEqual([0, [WOLF], undefined, true]);
     walks.length = 0; order.length = 0; await run(steps("retryable_blocked", async () => ({ status: "done" as const, banked: 0, bankedPages: [], pagesComplete: 1 })));
     expect([order, rows.at(-1)!.progress?.replenish?.awakened], "and the next invocation walks the work that was woken, which clears the list; whatever that walk re-mints is bought and redrafted in the same turn, and the units run behind both, exactly as any other reading is").toEqual([["walk", "walk", "facts"], undefined]);
-    shut(); await run(steps("retryable_blocked", async () => ({ status: "done" as const, banked: 0, bankedPages: [], pagesComplete: 1 }))); shut2 = walks.length; shut(); await run(steps("retryable_blocked", async () => ({ status: "advanced" as const, banked: 1, bankedPages: [WOLF], pagesComplete: 0 }))); const { dueWork: dw } = await import("@/domains/runtime/ops/due-work"), back = rows.at(-1)!.progress, owedNow = (await dw(T, new Date(NOW), { staleSources: async () => 0, checks: async () => ({ ...NO_CHECKS, done: 1, total: 1, answers: 1, due: 0 }), basis: async () => "basis_test", evidenceVersion: async () => null, answersToAnalyze: async () => false, analysisFingerprint: async () => "f", consumedAnalyses: async () => "f", surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }), pagesToCrawl: async () => false, factDebt: async () => ({ owed: 0, everChecked: true }), readyStock: async () => 0, creditHeld: async () => false, run: async () => ({ open: false, progress: back! }) })).due.includes("replenish_ready");
+    shut(); await run(steps("retryable_blocked", async () => ({ status: "done" as const, banked: 0, bankedPages: [], pagesComplete: 1 }))); shut2 = walks.length; shut(); await run(steps("retryable_blocked", async () => ({ status: "advanced" as const, banked: 1, bankedPages: [WOLF], pagesComplete: 0 }))); const { dueWork: dw } = await import("@/domains/runtime/ops/due-work"), back = rows.at(-1)!.progress, owedNow = (await dw(T, new Date(NOW), { staleSources: async () => 0, checks: async () => ({ ...NO_CHECKS, done: 1, total: 1, answers: 1, due: 0 }), basis: async () => "basis_test", evidenceVersion: async () => null, answersToAnalyze: async () => false, analysisFingerprint: async () => "f", consumedAnalyses: async () => "f", surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }), pagesToCrawl: async () => false, factDebt: async () => ({ owed: 0, everChecked: true }), readyStock: async () => 0, creditHeld: async () => false, winnerRows: async () => [], run: async () => ({ open: false, progress: back! }) })).due.includes("replenish_ready");
     expect([shut2, walks.length, back?.replenish?.closed, owedNow], "nothing banked leaves the proven exhaustion holding the day shut; a fact banked for the page that stored row was researching reopens it on the fact, walks in the same drive, and the next invocation owes the stock again").toEqual([0, 1, undefined, true]);
     walks.length = 0; bought.length = 0; rows.push(mk({ tenant_id: U, cycle_key: ckey(U, NOW) })); // the first account row, ledger and owed reading all still stand in the same store
     await runResearchCycle(U, { now: () => new Date(NOW), steps: { ...BENIGN, ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["check_page_facts"] }), acquireEvidence: async (_t, n) => (bought.push(n.query), { acquired: true, detail: "bought" }), factCheck: async () => ({ status: "done" as const, banked: 0, bankedPages: [], pagesComplete: 0 }), replenishReady: async (_t, _n, was) => (walks.push({ ...(was?.jobs ?? {}) }), { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "retryable_blocked" as const, jobs: {} }) } });
@@ -1295,7 +1330,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     const Q = { ready: 0, finishes: true }; // the queue as the store holds it, moved only by the drives below
     const quiet = { staleSources: async () => 0, checks: async () => ({ ...NO_CHECKS, done: 1, total: 1, answers: 1, due: 0 }), basis: async () => "b1", evidenceVersion: async () => 1,
       surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }), pagesToCrawl: async () => false, answersToAnalyze: async () => false, analysisFingerprint: async () => "fp1",
-      consumedAnalyses: async () => "fp1", factDebt: async () => ({ owed: 0, everChecked: true }), creditHeld: async () => false, readyStock: async () => Q.ready };
+      consumedAnalyses: async () => "fp1", factDebt: async () => ({ owed: 0, everChecked: true }), creditHeld: async () => false, readyStock: async () => Q.ready, winnerRows: async () => [] };
     const owed = async () => (await dueWork(T, new Date(NOW), { ...quiet, run: async () => ({ open: rows.at(-1)!.status !== "completed", progress: rows.at(-1)!.progress ?? {} }) })).due;
     const DECIDED = { decided: { basis: "b1", rowVersion: 1 }, focus: { basis: "b1", topics: [] } }, rows = withRun({ current_phase: "keyword_discovery", progress: { ...DECIDED, plan: { units: ["replenish_ready"] } } }); // the notes have not moved and this basis has its frozen plan, so the ONLY thing owed below is the stock
     const dispatch = async () => { const due = await owed(); if (!due.includes("replenish_ready")) return "not_owed"; // ONE SCHEDULER DISPATCH: the real due-work read decides what is owed, and the REAL runner claims the open run or opens another same-day pass on that same due list
