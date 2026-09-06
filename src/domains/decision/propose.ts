@@ -146,7 +146,7 @@ export async function proposeExistingPageChange(
     },
   );
 
-  opts.attempts?.record?.(draft); DRAFT_BUDGET.refundIfCached(opts.attempts, draft); // real requests and real dollars onto this page's own allowance, and the attempt back when the writing was served from the cache
+  opts.attempts?.record?.(draft); DRAFT_BUDGET.refundIfNoCallMade(opts.attempts, draft); // real requests and real dollars onto this page's own allowance, and the attempt back when the writing was served from the cache
   if (draft.status !== "drafted") {
     return { status: "no_draft", reason: draftReason(draft), drafterStatus: draft.status };
   }

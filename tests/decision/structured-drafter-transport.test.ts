@@ -4,7 +4,7 @@ const BILLED = vi.hoisted(() => ({ usd: [] as number[] })); // Budget is not thi
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
   checkBudget: async () => ({ allowed: true, remaining: 10 }),
   recordSpend: async (usd: number) => { BILLED.usd.push(usd); },}));
-import { callStructuredLLM, draftAtomicEditStructured, draftInternalLinkStructured, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
+import { callStructuredLLM, draftAtomicEditStructured, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import type { CacheImpl, LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
 const VALID_ATOMIC_EDIT = { // A schema-valid AtomicEditDraft value (the simplest kind, no source-verify / word-count / superlative machinery in the way of the transport assertions).
   field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen", rationale: "The current title is one word and misses the customs searchers ask about.",
@@ -26,21 +26,14 @@ describe("structured-drafter strict transport", () => {
     expect([bad.status, bad.status === "validation_failed" && bad.reason.startsWith("evidenceRefs: analytics alone")]).toEqual(["validation_failed", true]);
     const good = await callStructuredLLM({ ...REQ, complete: seam([refs([...clarity, { source: "gsc", detail: "strong impressions with a low click rate" }])]).complete });
     expect(good.status).toBe("drafted"); }); // ga4 and clarity are welcome BESIDE evidence of the search, never instead of it
-  it("tells every prompt whose draft is grounding-checked what grounding means, so no attempt is spent learning it", async () => {
-    let seen = ""; const capture: CompleteFn = async (r) => { seen = r.system; return { error: "refusal", retryable: false }; };
-    await draftInternalLinkStructured({ query: "haft seen", topic: "the table", sourcePage: "https://own.com/a", targetPage: "https://own.com/b", tenantId: "t" }, { complete: capture });
-    expect([seen.includes('"evidenceRefs"'), seen.includes("at least one ref must NOT be ga4 or clarity")]).toEqual([true, true]); // the validator rejects the other answer
-    expect([seen.includes("owned-page-target-"), seen.includes("Never write about the link itself"), seen.includes("UNMARKED")], "the brief names the destination evidence, forbids writing about the link, and forbids marked-up anchors").toEqual([true, true, true]); }); // A LINK SENTENCE IS ABOUT THE DESTINATION (live, 2026-08-31): with no destination words in the packet the model wrote about its own edit ("Famous Iranian Singers also has an Explore More link to iranian horse") and claimed "The body includes a link labeled iranian horse", which no evidence can carry. The destination's own copy now travels as owned-page-target-* ids and the brief says so.
-  /** AND SAYING SO IS NOT ENOUGH (live, 2026-08-31). The brief above forbids marking the anchor in the plainest words available, and the writer still returned "[Zanjan Rug]", so the placeholder firewall refused both attempts and the candidate bought nothing twice. The words were right and the punctuation around them was the model's own, so code takes the punctuation off rather than paying again to ask nicely. */
+  /** AND SAYING SO IS NOT ENOUGH (live, 2026-08-31). The link brief forbade marking the anchor in the plainest words available, and the writer still returned "[Zanjan Rug]", so the placeholder firewall refused both attempts and the candidate bought nothing twice. The words were right and the punctuation around them was the model's own, so code takes the punctuation off rather than paying again to ask nicely. */
   it("takes the writer's markup off an anchor that is otherwise exactly right, and still refuses a real placeholder", async () => {
-    const link = (linkSentence: string, anchorText = "Zanjan Rug") => ({ sourcePage: "https://own.com/a", targetPage: "https://own.com/b", anchorText, linkSentence, reason: "The reader comparing knot densities gets the other weaving region.", riskNotes: [], confidence: "high" as const, risks: [],
-      operatorSteps: ["Add the sentence after the knot density line"], proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" }, evidenceRefs: [{ source: "gsc", detail: "1400 impressions in 90 days" }] });
-    const drive = async (v: Record<string, unknown>) => callStructuredLLM({ kind: "internal_link" as const, tenantId: "t", system: "s", user: "u", grounded: "Zanjan rugs run 100 to 150 knots per square inch and the page earns 1400 impressions in 90 days", complete: seam([{ value: v }]).complete });
+    const drive = async (after: string) => callStructuredLLM({ kind: "atomic_edit" as const, tenantId: "t", system: "s", user: "u", unmarkPhrase: "Zanjan Rug", grounded: "Zanjan rugs run 100 to 150 knots per square inch and the page earns 1400 impressions in 90 days", complete: seam([{ value: { ...VALID_ATOMIC_EDIT, after } }]).complete });
     for (const marked of ["Kashan knot counts run higher than the [Zanjan Rug], which sits between 100 and 150.", "Kashan knot counts run higher than the **Zanjan Rug**, which sits between 100 and 150.", "Kashan knot counts run higher than the [Zanjan Rug](/persian-rugs/zanjan-rug), which sits between 100 and 150."]) {
-      const out = await drive(link(marked));
-      expect([out.status, out.status === "drafted" && (out.value as { linkSentence: string }).linkSentence], `the words survive and only the writer's own markup comes off: ${marked.slice(30, 60)}`)
+      const out = await drive(marked);
+      expect([out.status, out.status === "drafted" && (out.value as { after: string }).after], `the words survive and only the writer's own markup comes off: ${marked.slice(30, 60)}`)
         .toEqual(["drafted", "Kashan knot counts run higher than the Zanjan Rug, which sits between 100 and 150."]); }
-    const holes = await drive(link("Kashan knot counts run higher than the [insert rug name], which sits between 100 and 150."));
+    const holes = await drive("Kashan knot counts run higher than the [insert rug name], which sits between 100 and 150.");
     expect([holes.status, holes.status === "validation_failed" && holes.reason.includes("placeholder")], "an unfilled hole is not markup around the right words, and is refused exactly as before").toEqual(["validation_failed", true]);
     const edit = await callStructuredLLM({ kind: "atomic_edit" as const, tenantId: "t", system: "s", user: "u", grounded: "Zanjan Rug knot density", unmarkPhrase: "Zanjan Rug", // AND A LINK IS DRAFTED THROUGH THE ATOMIC EDITOR, not the older link kind, which is why the first repair fired on nothing: only the caller knows which words are the anchor, so it says so, and every field is cleaned rather than one.
       complete: seam([{ value: { ...VALID_ATOMIC_EDIT, after: "Kashan pile is denser than the [Zanjan Rug] weave.", operatorSteps: ["Link the words **Zanjan Rug** in that sentence"] } }]).complete });

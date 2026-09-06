@@ -386,7 +386,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       { query: primary, pageLabel: content.h1 ?? content.title ?? page.url, field: "title", currentValue: before, outline: content.outline, evidenceHints: facts, tenantId },
       { complete: opts.complete, now, bypassCache: opts.bypassCache, authoritativeSourceDomains: opts.authoritativeSourceDomains },
     );
-    opts.attempts?.record?.(draft); DRAFT_BUDGET.refundIfCached(opts.attempts, draft); // real requests and real dollars onto this page's own allowance, and the attempt back when the headline was served from the cache
+    opts.attempts?.record?.(draft); DRAFT_BUDGET.refundIfNoCallMade(opts.attempts, draft); // real requests and real dollars onto this page's own allowance, and the attempt back when the headline was served from the cache
     if (draft.status === "drafted") keep({ kind: "title", label: "Page title", before: before ?? null, after: draft.value.after, evidenceKeys: diagnosis.evidenceKeys, risk: "safe" },
       { kind: "existing_edit", field: "title", before: before ?? null, after: draft.value.after });
     if (components.length === 0) return { status: "none", reason: "No title for this page passed its own checks, so nothing is handed over rather than filler." };

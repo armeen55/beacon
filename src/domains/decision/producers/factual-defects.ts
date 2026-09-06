@@ -124,7 +124,7 @@ async function reviewComponents(tenantId: string, items: readonly ReviewItem[], 
       // THE REVIEWER'S OWN MAPPING IS WHAT IS BANKED, ordering normalized and values never regenerated; its materiality ruling rides along so the serving door can hold a suspected wording-only change on the reviewer's own word.
       else passed.set(b + i, Object.assign(got.map((x) => ({ i: x.claim, by: [...x.factIds].sort(), entailed: x.entailed })), { materialChange: v!.materialChange }));
     }
-    DRAFT_BUDGET.refundIfCached(wiring.attempts, r); // a cache hit cost nothing, on the one rule beside the meter
+    DRAFT_BUDGET.refundIfNoCallMade(wiring.attempts, r); // a cache hit cost nothing, on the one rule beside the meter
   }
   return { held, passed };
 }

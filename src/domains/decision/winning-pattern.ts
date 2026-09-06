@@ -233,7 +233,7 @@ export async function readWinningPattern(
     projectedCostUsd: PATTERN_COST_USD, maxTokens: 1800,
     complete: opts.complete, cacheImpl: opts.cacheImpl, now: opts.now, // the lesson is part of the prompt, so the retry has its own cache entry: a reading that passed on the retry is served at $0 on every later walk, and the refused first reading stays cached at $0 too (reviewer, 2026-09-02)
   });
-  opts.attempts?.record?.(call); DRAFT_BUDGET.refundIfCached(opts.attempts, call); // real requests and real dollars onto this page's own allowance, and the attempt back when the reading was served from the cache
+  opts.attempts?.record?.(call); DRAFT_BUDGET.refundIfNoCallMade(opts.attempts, call); // real requests and real dollars onto this page's own allowance, and the attempt back when the reading was served from the cache
   if (call.status !== "drafted") {
     log.info("[winning-pattern] no reading of the winning pages this pass", { tenantId, status: call.status });
     return null;

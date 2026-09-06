@@ -156,20 +156,6 @@ const ExperimentPlanSchema = z.object({
   ...base,
 });
 
-/** 9. InternalLinkDraft, a contextual internal link from a source page to a target page. NOT a bare URL pair: the exact anchor + the sentence to drop the link into + why it helps. Self-links and misleading anchors are
- *  rejected by the quality gate. */
-const InternalLinkDraftSchema = z.object({
-  sourcePage: z.string().min(1).max(400),
-  targetPage: z.string().min(1).max(400),
-  anchorText: z.string().min(2).max(120),
-  linkSentence: z.string().min(10).max(400),
-  reason: z.string().min(4).max(400),
-  riskNotes: z.array(z.string().min(1).max(200)).max(6).default([]),
-  proofPlan: ProofPlanSchema,
-  ...base,
-});
-export type InternalLinkDraft = z.infer<typeof InternalLinkDraftSchema>;
-
 // ── team verdict (FINAL PREMIUM PLAN item 25) ───────────────────────────────── The strategist's one-paragraph synthesis of the specialist debate for a nightly pick. Grounded in the REAL voices (claims carry the
 // numbers); the numeric firewall blocks any figure that is not in the grounding. Short, opinionated, operator language.
 
@@ -350,7 +336,6 @@ export type StructuredDraftKind =
   | "editor_judgement"
   | "tool_asset"
   | "commerce_asset"
-  | "internal_link"
   | "experiment_plan"
   | "batch_adjudication"
   | "strategy_review"
@@ -411,7 +396,7 @@ export const SCHEMA_BY_KIND = {
   fact_claim_judgement: FactClaimJudgementSchema,
   factual_review: FactualReviewSchema,
   answer_block: AnswerBlockDraftSchema, atomic_edit: AtomicEditDraftSchema, tool_asset: ToolAssetSpecSchema,
-  commerce_asset: CommerceAssetSpecSchema, internal_link: InternalLinkDraftSchema, experiment_plan: ExperimentPlanSchema,
+  commerce_asset: CommerceAssetSpecSchema, experiment_plan: ExperimentPlanSchema,
   batch_adjudication: BatchAdjudicationSchema, strategy_review: StrategyReviewSchema,
   outreach_pitch: OutreachPitchSchema, coverage_adjudication: CoverageAdjudicationSchema, new_page_brief: NewPageBriefSchema,
   answer_analysis: AnswerAnalysisSchema, answer_analysis_batch: AnswerAnalysisBatchSchema, case_synthesis: CaseSynthesisSchema, winning_pattern: WinningPatternSchema,

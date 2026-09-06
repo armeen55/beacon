@@ -183,7 +183,7 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   const call = stored ? null : await callStructuredLLM({
     kind: "new_page_brief", tenantId, system: SYSTEM, user, grounded: facts.join(" "),
     projectedCostUsd: 0.03, maxTokens: 2600, complete: opts.complete, now, bypassCache: opts.bypassCache,
-  }); if (call) { opts.attempts?.record?.(call); DRAFT_BUDGET.refundIfCached(opts.attempts, call); } /* real requests and real dollars onto this page's own allowance, and the attempt back when the brief was served from the cache */
+  }); if (call) { opts.attempts?.record?.(call); DRAFT_BUDGET.refundIfNoCallMade(opts.attempts, call); } /* real requests and real dollars onto this page's own allowance, and the attempt back when the brief was served from the cache */
   if (call && call.status !== "drafted") { log.warn("[new-page] no usable brief", { tenantId, topicKey: inv.key, status: call.status }); return { status: "none", reason: "This page did not reach a standard worth handing over, so nothing is handed over rather than filler." }; }
   const v = (stored ? stored.brief : call!.value) as NewPageBrief;
 

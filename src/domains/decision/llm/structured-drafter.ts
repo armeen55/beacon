@@ -34,7 +34,6 @@ import {
   evidenceIsGrounded,
   type StructuredDraftKind,
   type AtomicEditDraft,
-  type InternalLinkDraft,
 } from "./schemas";
 
 /** llm/structured-drafter (2026-06-25, P4), the trustworthy drafting layer. It turns a grounded request into a SCHEMA-VALIDATED structured draft, or nothing: key/injected transport → cache ($0 on an identical repeat) → budget (fail-closed cap) → strict structured call → Zod validate → content firewalls (numeric-fidelity, placeholder, em-dash, superlative) → de-templating guard → RETRY ONCE on failure → FAIL CLOSED. It NEVER returns loose/unvalidated text as a product artifact. Slice 3 (2026- 07-23): the transport is the strict Responses gateway (openAIStructuredResponse) returning a PARSED, schema-shaped VALUE; the drafter still runs its own Zod safeParse as the second gate. A refusal/incomplete/non-retryable transport error FAILS CLOSED; only a schema-invalid value or a retryable error consumes the single retry. Spend is recorded per attempt. The completion fn is injectable so the flow runs with zero paid calls. Every call carries a registered promptId + version and is scoped to an EXPLICIT account (Slice 3): the cache key + storage, the budget check/record, and the gateway spend are all keyed by tenantId - a missing account fails closed before cache/budget/network, never a global call. / */
@@ -167,7 +166,6 @@ function primaryCustomerText(kind: StructuredDraftKind, value: unknown): string 
     case "answer_block": return pick("answer");
     case "atomic_edit": return pick("after");
     case "outreach_pitch": return pick("body");
-    case "internal_link": return pick("linkSentence");
     default: return null;
   }
 }
@@ -657,7 +655,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     // W5 (J-69): the LLM may PROPOSE sources, but only source-authority.ts decides `authority`, re-stamp before any firewall/cache/return step.
     const result = { ...parsed, data: stampAnySources(parsed.data, req.authoritativeSourceDomains) as typeof parsed.data };
     // answer_analysis is a RESTATEMENT of somebody else's AI answer, never copy this product publishes, so the flat marketing-superlative reject does not apply to it: a verbatim "the best sushi in town" is the observed fact being recorded. The numeric firewall still applies, grounded on the answer text itself, so an invented figure is still caught.
-    if (req.kind === "internal_link" || req.unmarkPhrase) result.data = unmarkAnchor(result.data, req.unmarkPhrase);
+    if (req.unmarkPhrase) result.data = unmarkAnchor(result.data, req.unmarkPhrase);
     const fw = runContentFirewalls(draftProseStringValues(result.data), ledger, {
       deferSuperlativeCheck: req.kind === "answer_block" || req.kind.startsWith("answer_analysis") || primaryCustomerText(req.kind, result.data) == null, // A VERDICT IS NOT COPY EITHER (live 2026-09-02): a fact judgement quoting a source's "ultimate" failed closed five times and the cheetah's national-animal source was never banked
       skipPlaceholderCheck: primaryCustomerText(req.kind, result.data) == null, ownWords: req.ownWords,
@@ -899,22 +897,10 @@ export async function draftAtomicEditStructured(
   return result;
 }
 
-// ── concrete drafter: InternalLinkDraft (where one page should point a reader next) ──
-
-type InternalLinkStructuredInput = {
-  query: string;
-  sourcePage: string;
-  targetPage: string;
-  /** What the destination is about, in the account's own words. */
-  topic: string;
-  evidenceHints?: string[];
-  tenantId: string;
-};
-
-/** MARKUP AROUND THE RIGHT WORDS IS PUNCTUATION, NOT A PLACEHOLDER (live, 2026-08-31). Told in the plainest terms not to mark the anchor, the writer still returns "[Zanjan Rug]", and the placeholder firewall rightly refuses brackets, so every link candidate dies twice and buys nothing. Instructing harder was already tried and already failed. What the model got WRONG is the punctuation it wrapped around words that are otherwise exactly correct, so code unwraps it, the way the page's own typos are repaired rather than reproduced. It fires ONLY on a run that equals the model's own anchor: a real placeholder like "[insert year]" matches nothing and is still refused outright. PURE. */
+/** MARKUP AROUND THE RIGHT WORDS IS PUNCTUATION, NOT A PLACEHOLDER (live, 2026-08-31). Told in the plainest terms not to mark the anchor, the writer still returns "[Zanjan Rug]", and the placeholder firewall rightly refuses brackets, so every link candidate dies twice and buys nothing. Instructing harder was already tried and already failed. What the model got WRONG is the punctuation it wrapped around words that are otherwise exactly correct, so code unwraps it, the way the page's own typos are repaired rather than reproduced. It fires ONLY on a run that equals the anchor the caller named: a real placeholder like "[insert year]" matches nothing and is still refused outright. PURE. */
 function unmarkAnchor<T>(data: T, phrase?: string): T {
   const d = data as Record<string, unknown>;
-  const a = (phrase ?? (typeof d.anchorText === "string" ? d.anchorText : "")).trim();
+  const a = (phrase ?? "").trim();
   if (a.length < 2 || !data || typeof data !== "object") return data;
   const q = a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = new RegExp(`\\[(${q})\\]\\([^)]*\\)|\\[(${q})\\]|\\*\\*(${q})\\*\\*|\\*(${q})\\*`, "gi");
@@ -924,59 +910,6 @@ function unmarkAnchor<T>(data: T, phrase?: string): T {
     if (typeof v === "string") { const t = strip(v); if (t !== v) { out[k] = t; moved = true; } }
     else if (Array.isArray(v) && v.every((x) => typeof x === "string")) { const t = (v as string[]).map(strip); if (t.some((x, i) => x !== v[i])) { out[k] = t; moved = true; } } }
   return moved ? (out as T) : data;
-}
-const INTERNAL_LINK_SYSTEM =
-  "You place ONE link from a page to another page on the SAME site. Return ONLY a JSON object: " +
-  '"sourcePage", "targetPage" (echo both exactly as given), "anchorText" (the exact words to link, 2 to 8 words), ' +
-  '"linkSentence" (the one sentence to add or amend, containing that anchor text), "reason" (one sentence on what the reader gains), ' +
-  '"riskNotes" (short strings, may be empty), "proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}), ' +
-  // THE VALIDATOR REJECTS AN UNGROUNDED DRAFT (evidenceIsGrounded), so a prompt that never asked for the field, or never named the rule, spent a guaranteed-rejected attempt before the retry told the model what was owed.
-  '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout, and at least one ref must NOT be ga4 or clarity: those two say what people did once they arrived, never what anyone searched for), ' +
-  '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps). ' +
-  "The anchor text must describe the destination honestly and must never be a bare instruction like click here. Take the anchor from the destination's OWN name as its title and heading give it, in the most natural form a person would write mid-sentence: for a page titled \"Booted Eagle in Iran\" write \"booted eagle\" or \"Booted Eagle in Iran\", never the search phrase \"iran eagle\", which no page of that name uses. The anchor is resolved from the destination and may legitimately match the search when the destination genuinely carries that name, as a page titled \"Caspian Horse\" does for the search \"caspian horse\": what is refused is copying the query, never coincidence. Ground every word in " +
-  // THE SENTENCE IS FINISHED PROSE, NOT MARKED-UP COPY (live, 2026-08-30): the model wrote the anchor inside
-  // the sentence as "[iranian horse]", "[lion and sun flag]" and "[iran flags]", the placeholder firewall
-  // rightly refused copy containing brackets, and both attempts died the same way, so every link candidate
-  // failed twice and produced nothing. The anchor already travels as its own typed field; the sentence must
-  // read as something a person could paste with no editing at all.
-  "the evidence below, invent no fact, no figure and no web address, and never link a page to itself. No marketing language, no em-dashes and no en-dashes. " +
-  "Write linkSentence as an ordinary finished sentence a person could paste as-is: the anchor words appear in it verbatim and UNMARKED. Never wrap them in square brackets, " +
-  "parentheses, asterisks, quotes or markdown link syntax, and never write a placeholder of any kind: brackets in the copy are rejected outright. " +
-  // WRITE ABOUT THE DESTINATION, NOT ABOUT THE LINK (live, 2026-08-31): with no destination evidence in the
-  // packet the model had nothing true to say, so it described its own edit ("Famous Iranian Singers also has
-  // an Explore More link to iranian horse") and asserted claims like "The body includes a link labeled iranian
-  // horse", which no evidence can ever carry. The destination's own words now travel as owned-page-target-* ids.
-  "The sentence tells the reader what they will find on the destination page, in the reader's terms. Never write about the link itself, the site's navigation or this edit: " +
-  "sentences of the form \"this page now has a link to X\" or \"X also has an Explore More link\" are refused. Anything the sentence says the destination covers must come from the " +
-  "owned-page-target-* evidence, which is that page's own title, headings and copy. The figures about impressions, positions and clicks explain WHY this link is worth adding and " +
-  "may never be repeated in the sentence or used to support what the destination is about. " +
-  // THE MODEL STILL DESCRIBED THE MECHANISM (live, 2026-08-31): given the destination's own words it wrote "The Parthian and Sassanian Empires period includes a link to the parthian empire flag", which is a sentence about the edit wearing the destination's vocabulary. A worked pair is worth more than another prohibition.
-  "Write the sentence a good editor would add to that spot. GOOD: \"For the banner this era flew, see the Parthian Empire flag.\" GOOD: \"Compare this design with the late Safavid military flag.\" BAD: \"This page includes a link to the Parthian Empire flag.\" BAD: \"The Parthian and Sassanian Empires period includes a link to the parthian empire flag.\" BAD: \"Click here to learn more.\" " +
-  "The words link, page, section, article and site must not appear in the sentence describing what you are adding, and never claim in claims[] that a link now exists: claim only what the destination genuinely covers.";
-
-/** Draft ONE schema-valid internal link. Capped, budgeted, cached. */
-export async function draftInternalLinkStructured(
-  input: InternalLinkStructuredInput,
-  opts: { complete?: CompleteFn; now?: Date; bypassCache?: boolean; authoritativeSourceDomains?: readonly string[] } = {},
-): Promise<StructuredDraftResult<InternalLinkDraft>> {
-  const topic = sanitizeNullableEvidence(input.topic) ?? "";
-  const evidenceHints = sanitizeEvidenceTexts(input.evidenceHints ?? []);
-  const grounded = [input.query, topic, input.sourcePage, input.targetPage, evidenceHints.join(" ")].join(" ");
-  const user = [
-    `Search/topic: "${input.query}"`,
-    `Page the link goes ON: ${input.sourcePage}`,
-    `Page the link points TO: ${input.targetPage}`,
-    `What that destination is about: ${topic}`,
-    evidenceHints.length ? `Evidence the team established: ${evidenceHints.join("; ")}` : "",
-    "",
-    "Return the JSON now.",
-  ].filter(Boolean).join("\n");
-
-  return callStructuredLLM({
-    kind: "internal_link", tenantId: input.tenantId, system: INTERNAL_LINK_SYSTEM, user, grounded,
-    projectedCostUsd: 0.02, complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache,
-    authoritativeSourceDomains: opts.authoritativeSourceDomains,
-  });
 }
 
 /** ONE READING OF WHAT THE PAGES WINNING A SEARCH CARRY THAT THE OWNED PAGE DOES NOT (campaign, 2026-09-05). The
@@ -1007,7 +940,7 @@ export async function readComparison(comparison: JobComparison, owned: { url: st
   const r = await callStructuredLLM({ kind: "competitor_comparison", tenantId: opts.tenantId, system, user, grounded: user,
     projectedCostUsd: 0.01, maxTokens: 1200, timeoutMs: 60_000, now: opts.now, complete: opts.complete }).catch(() => null);
   opts.attempts?.record?.(r); // THE MONEY LANDS WHERE THE RESULT COMES BACK, whatever it says: a call that refused, blocked or threw was still made, and the page's meter is the only place the reading's cost can be read.
-  DRAFT_BUDGET.refundIfCached(opts.attempts, r); // A CACHED ANSWER COST NOTHING, SO IT COUNTS AS NOTHING, on the one rule beside the meter that every paid door now reads.
+  DRAFT_BUDGET.refundIfNoCallMade(opts.attempts, r); // A CACHED ANSWER COST NOTHING, SO IT COUNTS AS NOTHING, on the one rule beside the meter that every paid door now reads.
   if (!r || r.status !== "drafted") return comparison;
   const flat = (t: string): string => t.toLowerCase().replace(/\s+/g, " ").trim();
   const by = new Map(winners.map((w) => [w.url, [] as { kind: "answers" | "covers" | "names" | "shape"; text: string; quote: string }[]]));

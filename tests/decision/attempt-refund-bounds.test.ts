@@ -37,30 +37,30 @@ const funded = (s: Site, calls = DRAFT_BUDGET.DELIVERABLE_CALLS) => { const key 
 describe("a refund gives back the attempt the door took, and never more", () => {
   it.each(SITES)("$t: a door that took nothing is given nothing back", (s) => {
     const { allowance } = funded(s), before = allowance.left;
-    DRAFT_BUDGET.refundIfCached(allowance, { cached: true });
-    DRAFT_BUDGET.refundIfCached(allowance, { cached: true });
+    DRAFT_BUDGET.refundIfNoCallMade(allowance, { cached: true });
+    DRAFT_BUDGET.refundIfNoCallMade(allowance, { cached: true });
     expect(allowance.left, "an allowance may never hold more than the page was funded for").toBe(before);
   });
 
   it.each(SITES)("$t: one take refunded twice gives back exactly one", (s) => {
     const { key, budget, allowance } = funded(s), before = allowance.left;
     allowance.left -= 1;
-    DRAFT_BUDGET.refundIfCached(allowance, { cached: true });
-    DRAFT_BUDGET.refundIfCached(allowance, { cached: true });
+    DRAFT_BUDGET.refundIfNoCallMade(allowance, { cached: true });
+    DRAFT_BUDGET.refundIfNoCallMade(allowance, { cached: true });
     expect([allowance.left, budget.spent().calls, budget.meterOf(key)], "the second give-back lands nothing, and nothing on the meter says a call was made").toEqual([before, 0, null]);
   });
 
   it.each(SITES)("$t: an answer that was not served from the cache is never refunded", (s) => {
     const { allowance } = funded(s), before = allowance.left;
     allowance.left -= 1;
-    for (const answer of [{ status: "drafted" }, { status: "validation_failed" }, null, undefined, { cached: false }]) DRAFT_BUDGET.refundIfCached(allowance, answer);
+    for (const answer of [{ status: "drafted" }, { status: "validation_failed" }, null, undefined, { cached: false }]) DRAFT_BUDGET.refundIfNoCallMade(allowance, answer);
     expect(allowance.left).toBe(before - 1);
   });
 });
 
 /** THE RULE AS THE FILE ITSELF STATES IT (draft-budget.ts:225): an attempt pays for a call that ACTUALLY LEFT THE
  *  PROCESS. `recordOn` three lines above knows three ways nothing left it (`off`, `blocked_budget`, a cache hit)
- *  and keeps all three off the dollars; `refundIfCached` knows only the cache hit, so the two halves of one rule
+ *  and keeps all three off the dollars; `refundIfNoCallMade` knows only the cache hit, so the two halves of one rule
  *  answer the same question differently, and a page whose day cap is reached spends its whole allowance on calls
  *  nobody made. */
 describe("a call that never left the process", () => {
