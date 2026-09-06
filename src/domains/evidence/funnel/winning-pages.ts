@@ -168,7 +168,10 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
         let extract: ResearchPageExtract | null = null, outcome: WinnerReadOutcome | null = held.get(c.url) ?? null;
         // Reuse a cached public extract before any read; never re-read in freshness. Keep the CACHE ROW'S date when the extract predates the field: an undated winner never counts toward a comparison.
         const cached = await d.readPageExtract(c.url).catch(() => null);
-        if (cached) { const e = pageExtractFromRecord(cached.extract); extract = { ...e, fetchedAt: e.fetchedAt ?? cached.fetchedAt ?? null }; outcome = null; }
+        const rec = cached ? pageExtractFromRecord(cached.extract) : null, legacy = rec && cached ? { ...rec, fetchedAt: rec.fetchedAt ?? cached.fetchedAt ?? null } : null;
+        // A CACHED ROW THAT CARRIES NO READING IS NOT A READ PAGE, so it is never a reason to skip the read: measured on the first drives of the content comparison, 133 banked extracts held not one word of their pages
+        // because every one predates the reading, so reuse alone left every winner unread for ever. Freshness still owns a row that DOES carry one, and a read that honestly found no words carries `truncated: false`.
+        if (legacy && (legacy.mainText != null || legacy.truncated != null)) { extract = legacy; outcome = null; }
         // A URL whose last read failed keeps that answer until retryAfter and spends no attempt before it.
         else if (attempts < MAX_PAGE_ATTEMPTS && d.now() <= deadline && !(outcome && d.now() < Date.parse(outcome.retryAfter))) {
           attempts += 1;
@@ -193,6 +196,8 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
             }
           } catch { outcome = readOutcomeAt("temporarily_unavailable", d.now()); }
         }
+        // AND A RE-READ THAT DID NOT LAND LOSES NOTHING: the legacy row's own fields stand exactly as they were banked, with the failure's own retry date beside them, so what is held is never traded for a failed read.
+        if (!extract && legacy) extract = legacy;
         // The ranked URL is evidence in its own right, so an unreadable body never deletes a winner. An unreadable page frees ONE substitute, for ITS OWN search only, from that search's own bench, and admitting
         // it SPENDS that opportunity: one failure buys one substitute, and a publisher whose body I already hold teaches me nothing new. Anything else let a single failure unlock every bench on every topic.
         if (extract) readPublishers.add(publisherHost(c.url));

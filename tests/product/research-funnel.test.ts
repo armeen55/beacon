@@ -189,12 +189,37 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
     const cite = { url: "https://b.com/y", domain: "b.com", title: null }; // the SAME citation seen through both ChatGPT modes
     s.prompts.pairs = (["standardized_response", "consumer_search"] as const).map((mode) => ({ promptId: "pr", promptText: "best persian restaurant", engine: "chatgpt" as const, mode, cacheKey: null, status: "done" as const, observedAt: new Date(NOW).toISOString(), modelServed: "gpt-4o", citationsObserved: true, citations: [cite] }));
     const store = memStore(s); let fetchCalls = 0; const out = await winningPagesUnit({ ...store.deps, loadProfile: async () => emptyBusinessProfile("tw"), getAccount: async () => ({ domain: "own.com" } as Account), now: () => NOW,
-      readPageExtract: async () => ({ extract: { title: "CACHED", h1: null, wordCount: 5, headings: [], faqCount: 0 }, contentHash: "h", fetchedAt: "x" }),
+      readPageExtract: async () => ({ extract: { title: "CACHED", h1: null, wordCount: 5, headings: [], faqCount: 0, mainText: "the winning page's own words about its subject", truncated: false }, contentHash: "h", fetchedAt: "x" }),
       fetchPage: (async () => { fetchCalls += 1; return { ok: false, reason: "robots_blocked" }; }) as unknown as FunnelDeps["fetchPage"] })("tw", cur(), 60_000); expect(out.status).toBe("advanced"); expect(fetchCalls).toBe(0); // the winners are in and the run is handed back; cached extract reused before any fetch
     const win = store.peek("tw", BASIS)!.winningPages; expect(win.map((w) => w.domain)).not.toContain("own.com"); expect(win[0]!.domain).toBe("b.com"); expect(win[0]!.engines).toEqual(["chatgpt"]); // AI-cited (x2) outweighs organic; its OWN appearances only
     expect(win[0]!.examplePrompts).toEqual(["best persian restaurant"]); expect(win[0]!.extract!.title).toBe("CACHED"); // real text, never the id
     const answers = win[0]!.appearances.filter((a) => a.kind === "ai_answer"); expect(answers.map((a) => a.observationMode)).toEqual(["consumer_search"]); // one citation, two modes: credited ONCE to the consumer look, never double-counted
-    expect([win[0]!.extract!.openingSample, win[0]!.extract!.hasList]).toEqual([null, undefined]); // an extract persisted before the richer fields still loads: absent, never a fake zero
+    expect([win[0]!.extract!.openingSample, win[0]!.extract!.hasList]).toEqual([null, undefined]); // an extract persisted without the richer fields still loads: absent, never a fake zero
+  });
+  /** A CACHED EXTRACT IS THE READ ONLY WHERE IT CARRIES ONE (production, 2026-09-05): 133 banked winner rows and not one holding a word of its page, because every one of them was banked before the content reading
+   *  existed. Reuse before the read then left every winner permanently unread, and the account's body cases settled with nothing compared at all. TWO SYNTHETIC HOSTS on unrelated subjects, each holding all three states. */
+  it("reads a winner banked before the reading existed, banks its words over that row, and leaves a cached reading alone", async () => {
+    const HOSTS = [{ t: "tl1", tag: "reef", words: "Harbour seals haul out on the sand bars below the point at low tide." },
+      { t: "tl2", tag: "loom", words: "La urdimbre se monta con doce hilos por centimetro antes de pasar la trama." }];
+    for (const h of HOSTS) {
+      const at = new Date(NOW).toISOString(), u = (part: string) => `https://${part}-${h.tag}.example/p`, s = emptyFunnelState(h.t, BASIS);
+      s.serps.queries = [{ query: "q1", cacheKey: null, status: "done", observedAt: at, organic: ["old", "read", "dead"].map((part, i) => ({ rank: i + 1, url: u(part), domain: `${part}-${h.tag}.example`, title: null })) }];
+      const legacy = (title: string) => ({ title, h1: null, wordCount: 5, headings: [], faqCount: 0 }); // exactly the shape banked before the reading existed: no main text and no cut marker
+      const banked = new Map<string, Record<string, unknown>>([[u("old"), legacy("OLD")], [u("read"), { ...legacy("READ"), mainText: h.words, truncated: false }], [u("dead"), legacy("DEAD")]]);
+      const st = memStore(s), fetched: string[] = [], paid: string[] = [];
+      await winningPagesUnit({ ...st.deps, loadProfile: async () => emptyBusinessProfile(h.t), getAccount: async () => ({ domain: "own.com" } as Account), now: () => NOW, parse,
+        readPageExtract: async (url: string) => { const e = banked.get(url); return e ? { extract: e, contentHash: "h", fetchedAt: at } : null; },
+        writePageExtract: async (url: string, extract: Record<string, unknown>) => { banked.set(url, extract); },
+        callProvider: (async (cap: CapabilityKey) => { paid.push(cap); return ok(serp([])); }) as FunnelDeps["callProvider"],
+        fetchPage: (async (url: string) => { fetched.push(url); return url.startsWith(u("dead")) ? { ok: false, reason: "robots_blocked" } : { ok: true, html: `<html><body><main><h1>H</h1><p>${h.words}</p></main></body></html>`, status: 200 }; }) as unknown as FunnelDeps["fetchPage"] })(h.t, cur(), 60_000);
+      const row = (part: string) => st.peek(h.t, BASIS)!.winningPages.find((w) => w.url === u(part))!;
+      expect([fetched.includes(u("old")), fetched.includes(u("read")), fetched.includes(u("dead")), paid],
+        `${h.t}: a banked row carrying no reading is read again, a row that carries one is not read again, and a publisher's own refusal is never sent through a paid provider`).toEqual([true, false, true, []]);
+      expect([row("old").extract!.mainText?.includes(h.words), String(banked.get(u("old"))!.mainText).includes(h.words), row("read").extract!.mainText, row("read").extract!.title],
+        `${h.t}: the re-read words stand on the winner and over the cache row it replaces, and a reading already held is served exactly as it was banked`).toEqual([true, true, h.words, "READ"]);
+      expect([row("dead").extract!.title, row("dead").extract!.mainText, row("dead").readOutcome!.state],
+        `${h.t}: a re-read the publisher refused keeps every field the old row held and earns its own retry date`).toEqual(["DEAD", null, "robots_blocked"]);
+    }
   });
   it("reserves each priority search THREE DISTINCT PUBLISHERS, admits ONE substitute only for the search whose own page was unreadable, and never exceeds eighteen page attempts", async () => { const s = emptyFunnelState("tw", BASIS); const at = new Date(NOW).toISOString(); const PRIORITY = ["iranian actors", "iranian films", "iranian food"]; const q = (query: string, hosts: string[]) => ({ query, cacheKey: null, status: "done" as const, observedAt: at, organic: hosts.map((h, i) => ({ rank: i + 1, url: `https://${h}/p`, domain: h, title: null })) });
     s.serps.queries = [q(PRIORITY[0]!, ["en.wikipedia.org", "simple.wikipedia.org", "b.com", "c.com", "d.com"]), q(PRIORITY[1]!, ["f1.com", "f2.com", "f3.com", "f4.com", "f5.com"]), q(PRIORITY[2]!, ["g1.com", "g2.com", "g3.com", "g4.com", "g5.com"])]; s.prompts.pairs = Array.from({ length: 18 }, (_, i) => ({ promptId: `pr${i}`, promptText: "q", engine: "chatgpt" as const, mode: "consumer_search" as const, cacheKey: null, status: "done" as const, observedAt: at, citationsObserved: true, citations: [{ url: `https://ai${i}.com/p`, domain: `ai${i}.com`, title: null }] }));
