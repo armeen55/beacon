@@ -5,7 +5,7 @@ const FRESH = { crawl_state: "uncrawled", completeness: "missing", is_canonical_
 vi.mock("@/lib/persistence/supabase", async (o) => ({ ...((await o()) as object), getSupabaseAdmin: () => db.client }));
 import { discoverUrls, runInProcessColdStartScan, MAX_DISCOVERED_URLS } from "@/domains/evidence/scanning/in-process-scan"; import { completenessOf, runCrawlBatch, type CrawlFrontierState } from "@/domains/evidence/scanning/crawl-frontier";
 import { markBlocked, markCrawled, nextCrawlCandidates, readInventory, upsertDiscovery } from "@/domains/evidence/scanning/owned-pages-store";
-import { extractPageSnapshot } from "@/domains/evidence/pages/extractor"; import { loadOwnedPageBodies, pageContains } from "@/domains/evidence/pages/owned-context";
+import { extractPageSnapshot } from "@/domains/evidence/pages/extractor"; import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context"; import { pageContains } from "@/domains/evidence/pages/page-version";
 import { supabaseFake } from "../helpers/supabase-fake";
 Object.assign(db.client, supabaseFake({ rows: (t) => (t === "owned_pages" ? db.owned : db.snaps),
   error: (t) => (db.missing === t || db.fails ? { code: db.fails ? "500" : "PGRST205", message: "Could not find the table" } : null),

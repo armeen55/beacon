@@ -298,3 +298,68 @@ describe("a change detail hands over the whole investigation and the controls to
     expect(await renderDetail(proposal({ causeFinding: undefined, rankingReceipt: undefined }))).not.toContain("How this was worked out");
     expect(await renderDetail(proposal({ causeFinding: undefined }))).toContain("How this was worked out"); // a ranking receipt is reasoning too
   }); });
+/** THE FINISHED CARD, AS THE OPERATOR READS IT (operator, 2026-09-06): "the default view should let me understand what changes, the
+ *  exact final copy, where it goes and what it replaces, why this is worth trying, any important caveat, Copy, edit-as-applied, Mark
+ *  done and Skip. Keep supporting evidence expandable. Remove stale caveats from previous drafts and contradictory boilerplate." TWO
+ *  SYNTHETIC ACCOUNTS with unrelated subjects, so a rule that only holds for one page family fails here. */
+describe("a finished change is read, decided and pasted without being opened", () => {
+  const SITES = [
+    { t: "tenant-one", path: "/tide-pools", label: "Tide pools", q: "tide pool safety", now: "Tide pools are fun for the whole family.",
+      copy: "The rocks stay slick for hours after the tide turns, which is when most falls happen, so walk the dry rock and keep off the weed.",
+      where: "As the first paragraph under the page heading", caveat: "One shore survey stands behind the timing, and a second source has not been read yet.",
+      blank: "NAME (SOUND) is the local word for the weed on these rocks." },
+    { t: "tenant-two", path: "/bordado", label: "Bordado", q: "puntadas de bordado", now: "El bordado es una tradicion muy antigua.",
+      copy: "La puntada de tallo se usa para contornos y la de nudo frances para los puntos, y el hilo se separa en hebras antes de enhebrar.",
+      where: "Como primer parrafo debajo del titulo", caveat: "Un solo taller respalda la medida, y una segunda fuente no se ha leido.",
+      blank: "NAME (SOUND) es la palabra local para esa puntada." }];
+  type Site = (typeof SITES)[number];
+  const STALE = "No local word is on file here, so you supply the word and how it sounds rather than publishing NAME and SOUND.";
+  const finished = (s: Site, over: Partial<ChangeProposal> = {}): ChangeProposal => ({
+    id: `${s.t}::${s.path}::existing_edit::answer_block`, tenantId: s.t, kind: "existing_edit", pagePath: s.path, pageUrl: `https://alpha.example${s.path}`,
+    pageLabel: s.label, primaryQuery: s.q, opportunityType: "Answer the question people actually type into Google", changeFamily: "answer_block", status: "ready",
+    recommendedChange: { kind: "existing_edit", field: "answer_block", before: s.now, after: s.copy, where: s.where },
+    whyItMatters: "This page is shown for that search and never answers it in a line a reader can lift. A sharper opening is the cheapest thing to try. The whole argument for it belongs on the change's own page.",
+    estimatedEffortMinutes: 4, riskLevel: "low", confidence: "high", limitations: [s.caveat], evidence: { query: s.q, hints: ["1,200 impressions and 9 clicks for that search."], evidenceRefCount: 2 },
+    impactScore: 41, demandImpressions90d: 12000, upsidePerMonth: null, basis: "basis_now::d4", publish: "manual", createdAt: "2026-09-01T00:00:00.000Z",
+    claims: [{ text: "The rocks stay slick for hours after the tide turns.", supportedBy: ["fact-1"] }],
+    supportFacts: [{ id: "fact-1", fact: "Shore survey: falls cluster in the two hours after the turn." }], ...over } as unknown as ChangeProposal);
+  const one = async (p: ChangeProposal): Promise<string> => {
+    const { ChangeCard } = await import("@/app/(shell)/changes/change-card");
+    return renderToStaticMarkup(createElement(ChangeCard as never, { proposal: p, rank: 1, ready: true, caseLine: null, onAside: () => {}, onDone: () => {}, onToast: () => {} } as never));};
+  it.each(SITES)("$t: the default card is what changes, the exact copy, what it replaces and where it goes, why it is worth trying, the caveat and the controls, in that order", async (s) => {
+    const html = await one(finished(s)), at = (t: string) => html.indexOf(t);
+    for (const said of ["Replace answer", s.copy, "Copy answer", s.now, `Where it goes: ${s.where}`, "Why this ranks here:", "Keep in mind", s.caveat, "Applied different wording?", "Mark done", "Skip"]) expect(at(said), said).toBeGreaterThan(-1);
+    expect([at("Replace answer") < at(s.copy), at(s.copy) < at(s.now), at(s.now) < at("Why this ranks here:"), at("Why this ranks here:") < at("Keep in mind"), at("Keep in mind") < at("Applied different wording?"), at("Applied different wording?") < at("Skip")], "the six parts in the operator's own order").toEqual([true, true, true, true, true, true]);
+    expect(at("12,000 impressions"), "why it is worth trying carries the number that was measured").toBeGreaterThan(-1);
+    for (const shut of ["Why this opportunity", "How to make this change", "Why these words", "Shore survey"]) expect(html, shut).not.toContain(shut); }); // supporting evidence stays expandable and closed
+  it.each(SITES)("$t: a caveat written for a draft whose words are gone is not rendered, the same caveat over copy that still carries them is, and the verdict's own advisory rides beside them", async (s) => {
+    const gone = await one(finished(s, { limitations: [s.caveat, STALE] }));
+    expect([gone.includes(s.caveat), gone.includes("publishing NAME and SOUND")], "the current caveat stands and the previous draft's does not").toEqual([true, false]);
+    expect(await one(finished(s, { limitations: [STALE], recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: s.blank, where: s.where } })), "the blanks are still in the copy, so the caveat is about this draft").toContain("publishing NAME and SOUND");
+    expect(await one(finished(s, { advisories: [{ note: "The pages winning this search carry a safety line, which is a hypothesis and not a proven cause." }] } as unknown as Partial<ChangeProposal>))).toContain("which is a hypothesis and not a proven cause");
+    expect(await one(finished(s, { limitations: ["Nothing here is ready to paste: this card is research, not an edit."] })), "boilerplate that contradicts the copy on the card is never printed over it").not.toContain("ready to paste"); });
+  it.each(SITES)("$t: the list and the change's own page show one current copy and one set of caveats", async (s) => {
+    const { currentTenantId } = await import("@/lib/tenant-context");
+    vi.mocked(currentTenantId).mockResolvedValue(s.t);
+    const row = finished(s, { limitations: [s.caveat, STALE] });
+    const [list, detail] = [await renderList({ ...viewOf([row]), laneById: { [row.id]: "ready" as const } }), await renderDetail(row)];
+    vi.mocked(currentTenantId).mockResolvedValue("t");
+    for (const both of [s.copy, s.caveat, `Where it goes: ${s.where}`]) { expect(list, both).toContain(both); expect(detail, both).toContain(both); }
+    for (const neither of ["publishing NAME and SOUND"]) { expect(list, neither).not.toContain(neither); expect(detail, neither).not.toContain(neither); } });
+  it.each(SITES)("$t: a small entry correction does not inherit its page's traffic, a substantive section competes with no proven lift, and the family a change belongs to never sets the order", async (s) => {
+    const big = { demandImpressions90d: 60_000, pagePath: s.path, pageUrl: `https://alpha.example${s.path}` };
+    const correction = finished(s, { ...big, id: `${s.t}::${s.path}::existing_edit::factual_correction`, changeFamily: "factual_correction", diagnosisCause: "factual_error", impactScore: 0.3,
+      primaryQuery: `${s.path} factual accuracy`, recommendedChange: { kind: "existing_edit", field: "section", before: s.now, after: s.copy } });
+    const section = finished(s, { ...big, id: `${s.t}::${s.path}::existing_edit::section`, changeFamily: "section", diagnosisCause: "incomplete_coverage", impactScore: 40,
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: s.copy, where: s.where } });
+    const { rankProposals } = await import("@/domains/decision");
+    const order = (history?: Map<string, { readings: number; netLift: number }>) => rankProposals([correction, section], history ? { familyHistory: history } : {}).map((p) => p.id);
+    expect(order(), "the section on the same page outranks the entry correction whose own search is small").toEqual([section.id, correction.id]);
+    const ranked = rankProposals([correction, section]), inputOf = (id: string) => ranked.find((p) => p.id === id)!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input;
+    expect(inputOf(correction.id), "a correction is ordered on its own search, never on the page's audience").not.toContain("60,000");
+    expect(ranked.flatMap((p) => p.rankingReceipt!.factors.map((f) => f.name)), "no factor scores what family a change belongs to").not.toContain("treatment");
+    expect(order(new Map([["section::", { readings: 9, netLift: -900 }], ["section", { readings: 9, netLift: -900 }]])), "a family with a losing record is discounted, never reordered under a smaller card").toEqual([section.id, correction.id]);
+    const caveated = { ...section, id: `${s.t}::${s.path}::existing_edit::section-family::caveat`, faults: ["it stays close to what its template siblings already say"] };
+    const twins = rankProposals([caveated, section]), receiptOf = (id: string) => twins.find((p) => p.id === id)!.rankingReceipt!, factor = (id: string) => receiptOf(id).factors.find((f) => f.name === "advisories")!;
+    expect([twins.map((p) => p.id), factor(section.id).input, factor(caveated.id).input.includes("conservative wording") && factor(caveated.id).input.includes("single source"), factor(caveated.id).contribution < factor(section.id).contribution, receiptOf(caveated.id).score < receiptOf(section.id).score],
+      "a caveat the owner judges costs confidence and never the place in the queue: the finished section stands on one publisher and says so, its twin carrying one more caveat ranks just below it, and the receipt names every caveat (journey review, 2026-09-06: the weights reached nothing)").toEqual([[section.id, caveated.id], "1 caveat is left to your judgement: single source", true, true, true]); }); });

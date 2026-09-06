@@ -31,7 +31,7 @@ const said = vi.hoisted(() => ({ errors: [] as string[] }));
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: (msg: string) => { said.errors.push(msg); } } }));
 import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, answerReviewedProposal, saveChangeProposal,
   transitionProposalToImplemented } from "@/domains/decision/proposal-store";
-import { confirmedVersion } from "@/domains/decision/completeness"; import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
+import { confirmedVersion, openHold } from "@/domains/decision/completeness"; import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
 import { reconcileImplementedWithoutShipment } from "@/domains/decision/implemented-repair"; import { validateProposal } from "@/domains/decision/validate-proposal";
 import { componentIdOf, deserializeChangeProposal, serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
 import { supabaseFake, type Row } from "../helpers/supabase-fake";
@@ -308,15 +308,16 @@ describe("the operator's yes lands on the exact version they read, or on nothing
     expect([(await answerReviewedProposal(T, held.id, "a version nobody is looking at", held.basis ?? null, PROMOTE)).status,
       (await answerReviewedProposal(T, held.id, confirmedVersion(held), held.basis ?? null, PROMOTE)).status,
       (await answerReviewedProposal(T, held.id, confirmedVersion(held), "basis_moved::d9", PROMOTE)).status, ...landed(held)]).toEqual(["stale", "stale", "stale", ...after]); });});
-/** APPROVAL REFUSES ON THE FACT, NEVER ON THE SENTENCE DESCRIBING IT. A row whose lever does not treat its own diagnosed cause is refused by `unsettledCause` run directly on the promoted row, even when the stored limitation is worded to clear every phrase the display classifier (HARD_LIMITATION) looks for. */
+/** APPROVAL REFUSES ON THE FACT, NEVER ON THE SENTENCE DESCRIBING IT, and the fact has to be a DEFECT (owner's editorial policy, 2026-09-06). This row's stored limitation is worded to clear every phrase the display classifier looks for, and the door still refuses it, on the record its own copy does not carry. What no longer refuses is the lever: a description on a page whose evidence names how the page opens is a reasonable improvement with its role uncertain, so that condition rides the card as an advisory and the promotion door reads only the defects. */
 describe("a badly classified row cannot be waved through", () => {
-  it("refuses promotion on the unsettled cause even though the stored limitation reads as benign", async () => {
+  it("refuses promotion on a defect the stored limitation says nothing about, and no longer on a lever that misses the diagnosed cause", async () => {
     const held = deep({ status: "needs_review", diagnosisCause: "weak_opening",
       recommendedChange: { kind: "existing_edit", field: "meta", before: "Nowruz", after: "Everything you need to know about Nowruz traditions this year." },
       limitations: ["Written from the account's current search data."], bundle: undefined });
     await saveChangeProposal(held);
     expect(await answerReviewedProposal(T, held.id, confirmedVersion(held), held.basis ?? null, PROMOTE))
-      .toEqual({ status: "refused", refusal: "This change works on something other than how this page opens, which is what this page's own evidence names, so it is held for review rather than handed over as ready to paste." });
+      .toEqual({ status: "refused", refusal: "this copy carries no record of what it stands on, so it is held rather than promoted" });
+    expect([openHold(held).defects.some((d) => d.includes("works on something other than")), openHold(held).advisories.map((a) => a.kind)], "REPLACES the unsettled-cause refusal: the lever mismatch is a caveat the operator judges").toEqual([false, ["role_uncertain"]]);
     expect(current().find((r) => r.id === held.id)!.status).toBe("needs_review"); }); });
 /** PROMOTION FAILS CLOSED WHEN VALIDATION CANNOT RUN: absence of provenance is a refusal at THIS door even where the producer pass legitimately skipped it. */
 describe("promotion fails closed when it cannot check its own work", () => {

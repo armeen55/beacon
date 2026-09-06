@@ -393,7 +393,7 @@ was implemented. Beacon assumes no CMS connection, mapping, or publishing capabi
 
 Ready work is complete work. A full-page rewrite or a new page carries complete publishable copy, not an
 outline, with an explicit KEEP, CHANGE, ADD, and REMOVE plan that preserves the existing content still worth
-keeping. Every factual claim in prepared copy is supported by a named source. A draft that is still partial
+keeping. Every factual claim in prepared copy names what stands behind it, and one credible source is enough for the operator to judge: a citation authority, an owner-confirmed business fact, or the page's own uncontradicted statement of its subject, with the count shown on the card. A draft that is still partial
 stays private and never appears as Ready.
 
 Dangerous actions require stronger two-step review and hold for explicit confirmation:

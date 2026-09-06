@@ -184,8 +184,8 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect([validate([merge]).verdict, validate([merge], undefined, { riskLevel: "high", status: "needs_review" }).verdict]).toEqual(["rejected", "needs_review"]); // danger is priced on the row or refused
     const dated = (observedAt: string | null) => validate([link], undefined, { bundle: { ...bundle, receipt: { ...bundle.receipt, items: [...bundle.receipt.items,
       { key: "copy-current", kind: "page_extract" as const, fact: 'Today the page is titled "Rain Barrels".', observedAt }] } } });
-    const stale = dated("2026-06-11T00:00:00.000Z"); // an undated reading called today is the same claim with the date hidden
-    expect([stale.verdict, stale.reasons.some((r) => r.includes("2026-06-11")), dated(null).verdict]).toEqual(["rejected", true, "rejected"]);
+    const stale = dated("2026-06-11T00:00:00.000Z"); // REPLACES the dated-reading rejection: a reading offered as what the page says today no longer takes the whole change out of sight
+    expect([stale.verdict, stale.reasons.some((r) => r.includes("2026-06-11")), dated(null).verdict], "the date a reading carries is a caveat the card names, and a stale FACT that contradicts a checked source is still refused by the canon's own entailment").toEqual(["ready", false, "ready"]);
     expect(validate([{ ...link, after: "I read this page's stored words and would point readers on to Barrel sizes." }], undefined, // a contradiction in the copy itself, not only in the notes around it
       { limitations: ["I do not hold this page's full body text, so I checked every draft against its title."] }).verdict).toBe("rejected"); });
   /** READY MEANS WHOLE: a rebuild shipping planning sentences under half its copy promised what it did not hold. */

@@ -16,6 +16,7 @@ import { CORE_PRODUCERS } from "./producers/core"; import { produceFullRewriteRe
 import type { ProposeOptions } from "./propose"; import { receiptIntegrityFailures, validateProposal } from "./validate-proposal";
 import { anchoredTopicMatch, canonicalQueryKey, isNoiseDomain, templateHeadings, topicTokens, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import { demandUnitsOf } from "@/domains/evidence/demand-units"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { answerIntelFacts, answerIntelOf } from "@/domains/evidence/answer-intel";
+import { readFactChecks, type FactCheck } from "@/domains/evidence/pages/fact-checks";
 import { biggerSearchesLine } from "./suggested-edits"; import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split"; import { actionFamilyOf } from "./proposal-store"; import { draftFieldForPage } from "./drafted-copy";
 
 /** `considered` rides a REFUSAL so the levers a producer weighed reach the research card that replaces it: a card saying only what is missing reads as a shrug beside one that also says what was ruled out. */
@@ -214,6 +215,7 @@ type ProduceBundleOptions = ProposeOptions & {
    *  looked, so the cause says so rather than clearing the page. Filtered here to the page under work. */
   technical?: readonly TechnicalFinding[];
   /** The account's own banned vocabulary, read once by the caller: no editor here writes a word this account does not publish. */ bannedTerms?: readonly string[];
+  /** THE BASIS THIS PASS WORKS UNDER, so the page's checked readings are authorized against it exactly as the atomic editor authorizes them (journey review, 2026-09-06). */ basis?: string | null;
   /** THE PASS'S SHARED ATTEMPT BUDGET (decision/drafted-copy). Every charged call any editor here makes comes off it, failures included. Absent = a bundle produced outside a pass, which spends against the money caps alone. */ attempts?: { left: number };
 };
 
@@ -265,12 +267,12 @@ const oneComponent = (c: BundleComponent, items: readonly BundleEvidenceItem[]):
 /** ONE AUTHORIZED PIECE, as the canonical editor hands it back: the copy, and the claim-to-source record the serving door reads. */
 type AuthorizedPiece = NonNullable<Awaited<ReturnType<typeof draftFieldForPage>>>;
 /** THE DRAFTERS a producer may buy, wired once for the same firewall, budget, cache and fail-closed posture. THE SUBSTANTIVE ONES ARE THE ONE CANONICAL EDITOR (2026-08-30): a bundle's sections and openings used to come from a second drafter that declared no claim, named no evidence id and was read for sense by nobody, so the only thing behind a paragraph on a customer's page was a receipt saying why the WORK was chosen. They go through the same drafter, deterministic contract, evaluator and per-claim ruling as every other word Beacon writes, and each piece's authorization is kept under its own exact copy so no piece can borrow another's. */
-function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date, ownedPaths: readonly string[], held: OwnedPageBody | null, siblings: ReadonlyMap<string, OwnedPageBody>, authed: Map<string, AuthorizedPiece>): ProducerDraft {
+function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date, ownedPaths: readonly string[], held: OwnedPageBody | null, siblings: ReadonlyMap<string, OwnedPageBody>, authed: Map<string, AuthorizedPiece>, checked: readonly FactCheck[]): ProducerDraft {
   const editor = { tenantId, now, complete: opts.complete, bypassCache: opts.bypassCache, ...(opts.attempts ? { attempts: opts.attempts } : {}), ...(opts.bannedTerms ? { bannedTerms: opts.bannedTerms } : {}) };
   // THE OTHER PAGES OF THIS ACCOUNT, under the one id a claim may cite: what a page cannot say about itself is what a sibling page carries, and it is the one route to information gain that costs nothing to read.
   const facts = Object.fromEntries([...siblings.values()].filter((b) => held == null || canonicalUrlKey(b.url) !== canonicalUrlKey(held.url)).flatMap((b) => (b.passages ?? []).slice(0, 2).map((t) => `${pathOf(b.url)}: ${t}`)).slice(0, 6).map((t, i) => [`owned-page-${i + 1}`, t]));
   const write = async (field: "answer_block", query: string, brief: string, evidenceHints: string[]): Promise<AuthorizedPiece | null> =>
-    !held ? null : draftFieldForPage({ field, body: held, query, brief, evidenceHints, ownedPaths, minutes: 15, facts }, editor);
+    !held ? null : draftFieldForPage({ field, body: held, query, brief, evidenceHints, ownedPaths, minutes: 15, facts, checked, basis: opts.basis ?? null }, editor); // AND THE PAGE'S OWN CHECKED READINGS (journey review, 2026-09-06): the fact the runtime banked for this page's missing subject reached the atomic editor and never this one, so a hub section was written off sibling passages beside the very fact bought for it
   return {
     // THE EDITOR ITSELF, for a page this card does not sit on: same deterministic checks, same judge, that page's own words.
     pageField: (i) => draftFieldForPage({ ...i, ownedPaths }, editor),
@@ -393,7 +395,8 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   } else {
       const slot = CORE_PRODUCERS[finding.cause];
     if (typeof slot !== "function") return { status: "none", reason: finding.cause === "no_problem" ? diagnosis.explanation : finding.explanation };
-    const drafters = producerDrafts(tenantId, opts, now, snapshot.ownedPages.map((p) => pathOf(p.url)), held, heldBodies, authed);
+    const checked = held ? await readFactChecks(tenantId, pathOf(page.url)).catch(() => [] as FactCheck[]) : [];
+    const drafters = producerDrafts(tenantId, opts, now, snapshot.ownedPages.map((p) => pathOf(p.url)), held, heldBodies, authed, checked);
     const ctx: ProducerCtx = { finding, primary, tenantId,
       page: { url: page.url, title: content.title, h1: content.h1, outline: content.outline, internalLinkCount: content.internalLinks.length },
       body: held, ownedPages: inventory, pattern, ahead: receipt.ahead, receiptFacts: facts, readiness: receipt.readiness, draft: drafters, heldBodies, templateHeadings: templateHeadings([...heldBodies.values()].map((b) => b.headings ?? [])) }; // furniture is not content to move, and the set is computed from the SAME body headings the merge check reads: the canonical outline is stripped at the assembler now, so a set built from it would be empty and the defense would die silently
@@ -482,7 +485,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   // THE READING IS STAMPED ON THE FINISHED ROW, never on a draft: copyKey folds the copy, every piece, every claim with the piece it answers for, and the words behind every id, and excludes the reading itself, so the identity comes from the completed proposal without a cycle.
   const row: ChangeProposal = review.length > 0 ? { ...proposal, semanticReview: { of: copyKey(proposal), version: REVIEW_CONTRACT, claims: review } } : proposal;
   // THE WHOLE ROW, GATED: the per-component gate reads a synthetic proposal carrying no cause and no notes, so a claim that resolves to nothing reached the operator through the gap between a piece and the whole change.
-  const failed = receiptIntegrityFailures(row, now);
+  const failed = receiptIntegrityFailures(row);
   if (failed.length > 0) return { status: "none", reason: `Not everything this change claims can be shown, so it is held back. Research this page again and the finding comes back here.` };
   // AND THE ONE SERVING VERDICT DECIDES THE STORED STATUS. A piece the door will refuse must never be minted `ready` for a screen to render and the sweep to demote a moment later: unsupported, unread or destructive copy stays internal here, carrying the door's own exact sentence.
   const short = evidenceShortfall(row);

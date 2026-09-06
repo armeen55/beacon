@@ -2,7 +2,6 @@
 import { describe, expect, it, vi } from "vitest";
 vi.mock("@/domains/decision/proposal-store", () => ({ loadChangeProposals: async () => store.rows }));
 vi.mock("@/domains/measurement/proof-gsc/load-ledger", () => ({ loadProofLedgerCached: async () => null }));
-import { unsettledCause } from "@/domains/decision/authorization";
 import { deliverableGaps, openHold, preferFinished } from "@/domains/decision/completeness";
 import { loadProposalQueue } from "@/domains/decision/load-proposals";
 import { REVIEW_CONTRACT, copyKey, evidenceShortfall, mechanicalRepair, proofOf } from "@/domains/decision/proof";
@@ -157,14 +156,14 @@ describe("the proof burden matches the promise, at the one door every surface re
       claims: [{ text: "Kerman rugs use 300 KPSI", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "Tehran is the capital of Iran." }] });
     expect(evidenceShortfall(substantive), "a substantive claim owes the same reading").toContain("actually support what it claims");
     expect(evidenceShortfall(reviewed(substantive, [{ i: 0, by: ["fact-1"], entailed: false }])), "and an unrelated fact fails it there too").toContain("not shown to follow");
-    const served = (x: ChangeProposal): string | null => { const h = openHold(x); return (h.safetyHold ? null : h.blocking) ?? unsettledCause(x); }; // 10. ONE VERDICT, EVERY CONSUMER. openHold is NOT the whole Ready verdict: the list, the release builder Today reads, the detail page, Mark done and the promotion door each compose it with unsettledCause, and the sweep persists that pair as a typed fault. The evidence check rides INSIDE openHold, so all of them refuse together.
-    for (const held of [creative, aeo({}), body(`${KEEP} ${CTA}`, KEEP)])
-      expect(served(held), "every consumer of the shared verdict refuses it").toBe(evidenceShortfall(held));
+    const served = (x: ChangeProposal): string | null => openHold(x).defects[0] ?? null; /* 10. ONE VERDICT, EVERY CONSUMER, AND NOW LITERALLY ONE CALL. The list, the release builder Today reads, the detail page, Mark done and the promotion door each used to compose openHold with unsettledCause and four other doors; they read `defects` now, and the proof burden is asked INSIDE it, so all of them refuse together or none does. WHAT THE SHORTFALL MEANS IS THE OWNER'S POLICY (2026-09-06): a replacement that destroys material it does not account for is a defect every consumer refuses, and a shape no results page backs yet and a section that repeats supported facts are caveats every consumer carries. */
+    expect(served(body(`${KEEP} ${CTA}`, KEEP)), "a passage destroyed without a reckoning is refused by every consumer of the verdict").toBe(evidenceShortfall(body(`${KEEP} ${CTA}`, KEEP)));
+    for (const [held, kind] of [[creative, "benefit_uncertain"], [aeo({}), "repeats_supported"]] as const) expect([served(held), openHold(held).advisories.map((a) => a.kind).filter((k) => k === kind)], "and an editorial shortfall rides the card instead of hiding the work").toEqual([null, [kind]]);
     expect(served(gained)).toBeNull(); expect(served(typo)).toBeNull();
     store.rows = new Map([[creative.id, creative], [fill.id, fill]]);
     const q = await loadProposalQueue(T, { currentBasis: "b", now: new Date("2026-08-02T00:00:00.000Z") });
-    expect(q.ready.map((p) => p.id)).toEqual([fill.id]);
-    expect(q.toDo.map((p) => p.id)).toContain(creative.id); });
+    expect(q.ready.map((p) => p.id).sort(), "REPLACES the shape hold in the lane: complete work is offered and the uncertain benefit is a caveat beside it").toEqual([fill.id, creative.id].sort());
+    expect(openHold(creative).caveats.some((c) => c.includes("demand says the page matters")), "the operator reads why the gain is not proven").toBe(true); });
   /** REPLACING PAGE FURNITURE IS NOT A LOSS (measured, 2026-09-05): nineteen link rewrites on this account, eighteen of them already applied, swap a card label reading exactly "Learn More" for the name of the page it opens, and every one was held for not accounting for the words "Learn More". A navigation label carries no fact, no figure and no route; the route it sits on is untouched. */
   const LABELS = [{ t: "tenant-one", furniture: "Learn More", named: "Caracal facts", sells: "start your free lesson today with no sign up" },
     { t: "tenant-two", furniture: "Read More", named: "Datos del caracal", sells: "reserva tu clase gratis hoy sin registro" }] as const;

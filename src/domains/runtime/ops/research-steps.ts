@@ -14,7 +14,7 @@ import { applySynthesis } from "@/domains/evidence/case-identity";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader"; import { projectFunnelEvidence } from "@/domains/evidence/funnel/observe";
 import { renderUnreadOwnedPages } from "@/domains/evidence/pages/rendered-read";
-import { jobWinners, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
+import { canonicalUrlKey, jobWinners, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { synthesizeCases } from "@/domains/decision/case-synthesis";
 import { buildTopicInvestigations, reconcileResearchCases } from "@/domains/evidence/topic-investigation";
 import { ensureDeepBackfill } from "@/lib/connectors/gsc/deep-backfill";
@@ -38,6 +38,9 @@ import type { ResearchPhase } from "../research-run";
 type OwedReading = EvidenceRequirement & { key: string; reason: string; workKey: string };
 /** ONE PAGE'S OWN ADDRESS as every store in this file keys it, spelled ONCE: the seed, the acquisition verdict and the fact pass each carried their own identical copy of it. */
 const pathOf = (u: string): string => { try { return new URL(u.startsWith("http") ? u : `https://${u}`).pathname.replace(/\/+$/, "") || "/"; } catch { return u; } };
+/** THE MISSING SUBJECT, CARRIED IN THE FRAME THE SEARCH GIVES IT, and built HERE so the seed, the state read and the receipt name one proposition (campaign, 2026-09-06). A subject lifted off a rival's outline is a label ("Artists"), not something a reader asks: the fact engine searched it as written, read nothing that answers it, and the row then owed an input nothing could supply. The proposition is the search this gap is about with the subject's own words after it: the search's words the subject does not itself carry, bounded, then the subject whole. Built from the tokens already on the requirement and never from a phrase written here, so it holds for any account; a requirement whose search IS its subject is byte for byte what it was, and the page's own subject still leads the query and the judge's question inside the fact engine. PURE. */
+const propositionOf = (topic: string, search: string): string => { const bare = (w: string): string => w.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ""), words = (t: string): string[] => t.trim().split(/\s+/).filter(Boolean), its = new Set(words(topic).map(bare));
+  return [...words(search).filter((w) => bare(w) !== "" && !its.has(bare(w))).slice(0, 8), ...words(topic)].join(" ") || topic.trim(); };
 /** Reasons the deep-backfill continuation returns when there is simply nothing to do (no backfill started, already finished, or no synced property yet):
  *  healthy no-ops that advance the phase without a failure. Any OTHER reason is a real error and throws. */
 const BENIGN_BACKFILL_SKIPS = new Set(["not_started", "already_complete", "no_synced_property", "no_cursor"]);
@@ -67,7 +70,7 @@ export type ResearchCycleSteps = {
   investigationFocus: (tenantId: string, basis: string | null) => Promise<ResearchFocus | null>;
   /** GO AND GET EXACTLY THE READING A FUNDED CANDIDATE WAS REFUSED FOR (Codex, 2026-08-23). Not the ordinary broad
    * investigation, which picks its own topic: THIS reading, named by the producer or the drafting gate that could not proceed without it. EVERY kind the requirement union declares executes here, through machinery that already exists, and the switch is exhaustive so a new kind without a handler fails typecheck instead of becoming a typed dead end. Returns whether the reading landed, so an unfulfilled requirement stays owed. */
-  acquireEvidence: (tenantId: string, need: Pick<EvidenceRequirement, "kind" | "query" | "url" | "missingTopic" | "proposalId">, basis: string | null, budgetMs: number) => Promise<{ acquired: boolean; detail: string;
+  acquireEvidence: (tenantId: string, need: Pick<EvidenceRequirement, "kind" | "query" | "url" | "missingTopic" | "rivalUrl" | "proposalId">, basis: string | null, budgetMs: number) => Promise<{ acquired: boolean; detail: string;
     /** WHETHER THE OBLIGATION THIS PURCHASE WAS BOUGHT FOR CAN NOW BE MET, which is a different question from whether the reading landed (live 2026-09-05): a source read and banked below the confidence its consumer requires is a reading that happened and an obligation that did not move, and calling that acquired is how a row re-owed the same purchase every drive for two days. Absent means the two answers are the same. */ unlocked?: boolean; /** THE PROVIDER WAS POSTED FOR THIS READING AND HAS NOT ANSWERED YET (production run p3, 2026-09-06): the money moves at the post, the answer is collected with a free follow-up, and the drive that collects it therefore buys nothing. Present ONLY where there is a post to collect, so absent is the one answer for every reading that landed, failed or cannot post at all. */ posted?: boolean }>;
   /** FINISH WHAT WAS ALREADY PAID FOR, FREE. A posted provider task is charged when it is posted and collected with a GET; the only collector ran on the scheduler tick, so while hosting was paused 51 tasks sat pending for days, the results pages they had already bought were never banked, and every gate asking for one answered no. Bounded, GET only, nothing posted. */
   collectBought: (budgetMs: number) => Promise<{ pending: number; ready: number }>;
@@ -324,20 +327,20 @@ export const defaultSteps: ResearchCycleSteps = {
         const out = await winningPagesUnit({}, [], null, need.url, null)(tenantId, { basis }, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) }));
         return { acquired: landed(out), detail: `own-page read of ${need.url}: ${unitStatus(out)}` };
       }
-      case "factual_source": {
+      case "factual_source": { const prop = need.missingTopic?.trim() && need.url ? { subject: propositionOf(need.missingTopic.trim(), need.query), url: need.url } : null; // ONE proposition, built once and read by the seed, the state and the receipt alike
         // THE MISSING PROPOSITION IS SEEDED AS AN OWED CLAIM FIRST, under the page's CURRENT body hash and with no current wording, so the same fact-check unit that researches the page's own statements now researches the information the page LACKS: it searches the proposition, reads real sources, and banks `proposed` with quotes. This is the loop's missing half. Without a topic, the pass re-checks the page's owed claims as before.
-        if (need.missingTopic?.trim() && need.url) {
-          const seeded = await seedMissingProposition(tenantId, need.url, need.missingTopic.trim()).catch((e) => {
-            log.warn("[research-run] the missing proposition could not be seeded", { tenantId, url: need.url, error: e instanceof Error ? e.message : String(e) }); return false; });
-          if (!seeded) return { acquired: false, detail: `the missing proposition could not be inventoried for ${need.url}, so nothing was researched` };
+        if (prop) {
+          const seeded = await seedMissingProposition(tenantId, prop.url, prop.subject).catch((e) => {
+            log.warn("[research-run] the missing proposition could not be seeded", { tenantId, url: prop.url, error: e instanceof Error ? e.message : String(e) }); return false; });
+          if (!seeded) return { acquired: false, detail: `the missing proposition could not be inventoried for ${prop.url}, so nothing was researched` };
           // AND A PROPOSITION ALREADY RESEARCHED AT THIS VERSION BUYS NOTHING (live 2026-09-05): the seed above answers "already researched" and the pass ran anyway, so five stalled rows spent a whole source pass every drive researching OTHER statements of their page while their own answer sat on file. The answer on file is the answer, at $0.
-          const already = await propositionState(tenantId, need.url, need.missingTopic.trim()).catch(() => null);
-          if (already?.researched) return { acquired: true, unlocked: already.usable, detail: `no source was bought for ${need.url}: the answer to "${need.missingTopic.trim()}" is ${already.why}` };
+          const already = await propositionState(tenantId, prop.url, prop.subject).catch(() => null);
+          if (already?.researched) return { acquired: true, unlocked: already.usable, detail: `no source was bought for ${prop.url}: the answer to "${prop.subject}" is ${already.why}` };
         }
-        const out = await factCheckPass(tenantId, budgetMs, undefined, need.url ?? null);
+        const out = await factCheckPass(tenantId, budgetMs, undefined, need.url ?? null, undefined, prop && need.rivalUrl?.trim() ? { subject: prop.subject, url: need.rivalUrl.trim() } : undefined); // THE PAGE THE COMPARISON FOUND THE SUBJECT ON IS READ FIRST: the need has named it since the ladder began filing these, and the acquisition dropped it
         // AND THE PURCHASE IS JUDGED AGAINST THE NEED IT WAS SENT FOR (live 2026-09-05). `banked > 0` asked whether ANY claim on that page moved, so a pass that researched eleven other statements of the same page reported this row's own topic acquired, stamped it bought for the day, and the walk re-minted the identical requirement on the next drive, for ever. The topic's own row answers now: researched and usable is an unlocked obligation, researched and not usable is a reading that happened with the store's own reason for why it does not stand yet, and neither is guessed at from a page-wide count.
-        const settled = need.missingTopic?.trim() && need.url ? await propositionState(tenantId, need.url, need.missingTopic.trim()).catch(() => null) : null;
-        if (settled) return { acquired: settled.researched, unlocked: settled.usable, detail: `fact check of ${need.url}: ${out.status}, ${out.banked} banked; the answer to "${need.missingTopic!.trim()}" is ${settled.why}` };
+        const settled = prop ? await propositionState(tenantId, prop.url, prop.subject).catch(() => null) : null;
+        if (settled) return { acquired: settled.researched, unlocked: settled.usable, detail: `fact check of ${prop!.url}: ${out.status}, ${out.banked} banked; the answer to "${prop!.subject}" is ${settled.why}` };
         return { acquired: out.status !== "failed" && out.banked > 0, detail: `fact check of ${need.url ?? "the owed page"}: ${out.status}, ${out.banked} banked` };
       }
       case "semantic_review": {
@@ -402,15 +405,15 @@ export const defaultSteps: ResearchCycleSteps = {
 
 /** One owed claim for information the page DOES NOT HAVE, inventoried under the page's current body hash so the
  * authorized-facts filter accepts what the research banks. Empty current wording is the contract: the stale sweep keeps it (an empty wording is contained by every body), and the judge researches the subject instead of grading a quotation. Idempotent through the store's own conflict key. */
-async function seedMissingProposition(tenantId: string, pageUrl: string, topic: string): Promise<boolean> {
+async function seedMissingProposition(tenantId: string, pageUrl: string, proposition: string): Promise<boolean> {
   const [facts, { claimIdentity, pageHashOf }, { loadOwnedPageBodies }, { resolveCurrentBasis }] = await Promise.all([
     import("@/domains/evidence/pages/fact-checks"), import("@/domains/evidence/pages/fact-check-run"),
     import("@/domains/evidence/pages/owned-context"), import("@/domains/decision/load-proposals")]);
   const bodies = await loadOwnedPageBodies(tenantId, [pageUrl]).catch(() => null);
-  const b = bodies?.get?.(pageUrl); if (!b) return false;
+  const b = bodies?.get?.(canonicalUrlKey(pageUrl)); if (!b) return false; // THE READER KEYS ITS ANSWER CANONICALLY (measured on the harness, 2026-09-06): asked with an absolute address it answers under `host/path`, so a raw lookup here missed every page whose url carried its scheme, the seed reported "could not be inventoried", and no missing subject was ever researched. Every other caller of this reader already asks it this way.
   const body = [b.title, b.h1, ...(b.headings ?? []), ...(b.passages ?? [])].filter(Boolean).join("\n");
   const basis = await resolveCurrentBasis(tenantId).catch(() => null);
-  const path = pathOf(pageUrl), hash = pageHashOf(body), key = claimIdentity(topic, "", "missing");
+  const path = pathOf(pageUrl), hash = pageHashOf(body), key = claimIdentity(proposition, "", "missing");
   // A ROW THE STALE SWEEP RETIRED IS REOPENED AT THE CURRENT VERSION, never insert-ignored into a lie: the seed's upsert used ignoreDuplicates, so a superseded row from an older page version blocked the insert, the seed still reported success, and the requirement re-minted every drive with no research ever happening (audit, 2026-08-26).
   const held = await facts.readFactChecks(tenantId, path).catch(() => [] as Awaited<ReturnType<typeof facts.readFactChecks>>);
   const mine = held.find((h) => h.statementKey === key), astray = !!mine && mine.state === "checked" && mine.verdict === "undecidable" && !!mine.proposed?.trim(), rulesMoved = !!mine && mine.state === "checked" && mine.rulesVersion !== facts.rulesVersionFor(mine); // A CHECKED ROW HOLDING AN UNDECIDED STATEMENT ANSWERED A DIFFERENT SUBJECT (reviewer, 2026-09-02): live, "are there cobras in iran" came back "Iran has AH-1 Cobra attack helicopters." with the judge's own note saying the sources do not address snakes. ONCE: a re-researched row banks its statement only under `page_correct`, so this holds for rows banked before that rule and never again. AND A ROW JUDGED UNDER RULES SINCE REPLACED FOR ITS SHAPE IS NOT RESEARCHED AT THIS VERSION AT ALL: every question-shaped row checked before the rules that judge a missing answer moved reads as satisfied here, so nothing would ever re-judge it.
@@ -419,27 +422,24 @@ async function seedMissingProposition(tenantId: string, pageUrl: string, topic: 
     const n0 = await facts.recordFactChecks(tenantId, path, [{ ...mine, state: "owed", rulesVersion: facts.rulesVersionFor(mine), pageContentHash: hash, evidenceBasis: basis, // the reopened row carries the version its shape is judged under, or the same rule would hand it back every drive
       note: astray ? "Reopened: the answer must be about this page's own subject." : rulesMoved ? "Reopened: the rules that judge a missing answer changed." : "Reopened: the page moved to a new version and this missing proposition is owed again.", checkedAt: new Date().toISOString() }]).catch(() => 0);
     if (n0 <= 0) return false;
-  } else if (!mine) {
-    await facts.recordOwedClaims(tenantId, path, [{ statementKey: key, subject: topic, current: "", locator: "missing" }], hash, basis).catch(() => -1);
-  }
-  // AND SUCCESS IS VERIFIED, never inferred from a write that may have been ignored: an owed row for this key must
-  // actually exist afterward, or the acquisition honestly reports it could not be inventoried.
+  } else if (!mine) await facts.recordOwedClaims(tenantId, path, [{ statementKey: key, subject: proposition, current: "", locator: "missing" }], hash, basis).catch(() => -1);
+  // AND SUCCESS IS VERIFIED, never inferred from a write that may have been ignored: an owed row for this key must actually exist afterward, or the acquisition honestly reports it could not be inventoried.
   const after = await facts.readFactChecks(tenantId, path).catch(() => [] as Awaited<ReturnType<typeof facts.readFactChecks>>);
   return after.some((h) => h.statementKey === key && h.state === "owed");
 }
 
 /** WHAT BECAME OF ONE MISSING PROPOSITION after the pass that researched it: whether any source was read for it at all, and whether the answer is one a consumer of banked evidence may stand on, asked through the SAME rule the
  *  writer and the gap reader apply (`authorizedCorrections`), so a purchase reports the obligation it moved and not the page it touched. The page-version and basis conjuncts are the seed's above. $0: one read of rows on file. */
-async function propositionState(tenantId: string, pageUrl: string, topic: string): Promise<{ researched: boolean; usable: boolean; why: string }> {
+async function propositionState(tenantId: string, pageUrl: string, proposition: string): Promise<{ researched: boolean; usable: boolean; why: string }> {
   const [facts, { claimIdentity }] = await Promise.all([import("@/domains/evidence/pages/fact-checks"), import("@/domains/evidence/pages/fact-check-run")]);
-  const path = pathOf(pageUrl), key = claimIdentity(topic, "", "missing"), mine = (await facts.readFactChecks(tenantId, path).catch(() => [])).find((h) => h.statementKey === key) ?? null;
+  const path = pathOf(pageUrl), key = claimIdentity(proposition, "", "missing"), mine = (await facts.readFactChecks(tenantId, path).catch(() => [])).find((h) => h.statementKey === key) ?? null;
   if (mine == null || mine.state !== "checked") return { researched: false, usable: false, why: mine == null ? "not inventoried, so nothing has researched it" : "still owed, so its sources have not been read yet" };
   const usable = facts.authorizedCorrections([mine], undefined, tenantId).length > 0;
   return { researched: true, usable, why: usable ? "researched, and it stands behind an answer the copy may use" : `researched, and what came back is rated ${mine.confidence} and does not meet the evidence rules copy must stand on` }; // NAMED IN PLAIN WORDS AND NEVER BY A STORED SLUG: this sentence rides the need onto the pass receipt an operator reads
 }
 
 /** THE ONE FACT-CHECK PASS, shared by the daily phase (no target: rotation picks the page) and by a `factual_source` acquisition (the named page goes FIRST, because the requirement is that page's owed claims and rotation would spend the pass elsewhere). Same bounds, same stores, same receipts either way. */
-async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => Promise<boolean>) | undefined, firstPage: string | null, shared?: Map<string, unknown>): Promise<{ status: "advanced" | "done" | "failed"; banked: number; bankedPages: string[]; pagesComplete: number; failure?: string; reason?: string }> {
+async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => Promise<boolean>) | undefined, firstPage: string | null, shared?: Map<string, unknown>, rival?: { subject: string; url: string }): Promise<{ status: "advanced" | "done" | "failed"; banked: number; bankedPages: string[]; pagesComplete: number; failure?: string; reason?: string }> {
     // THE OUTER DEADLINE, NOT AN ALLOWANCE OF ITS OWN: every call inside is bounded by what remains of it.
     const deadlineAt = Date.now() + Math.max(0, budgetMs);
     try {
@@ -490,10 +490,10 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
         return { hold: "unavailable" as const };
       };
       const out = await runFactCheckPass({
-        tenantId, basis, deadlineAt, held, renew, read,
+        tenantId, basis, deadlineAt, held, renew, read, ...(rival ? { rival } : {}),
         pages: ranked.map((p) => ({ url: p.url, path: pathOf(p.url), loadBody: async () => {
           const bodies = await loadOwnedPageBodies(tenantId, [p.url]).catch(() => null);
-          const b = bodies?.get?.(p.url);
+          const b = bodies?.get?.(canonicalUrlKey(p.url)); // the same canonical key: an absolute owned-page address read back nothing here, so every page was skipped for having no stored words and the pass banked nothing on a store holding hundreds
           return b ? [b.title, b.h1, ...b.headings, ...b.passages].filter(Boolean).join("\n") : "";
         } })),
         refreshHeld: (page) => facts.readFactChecks(tenantId, page).catch(() => null),

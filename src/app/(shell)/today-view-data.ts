@@ -222,13 +222,8 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
     ? `You have ${openTotal} finished ${openTotal === 1 ? "change" : "changes"} ready to make, best first.`
     : waiting
       ? `No finished change is ready today. Some of your pages could not be read, so they get another try on ${retryDay(waiting)}.`
-      // A BAR THAT COULD NOT BE READ IS NOT A QUEUE THAT IS EMPTY. With the basis unreadable, every stored idea
-      // is held back as unconfirmed rather than judged, so the queue reads zero for a reason that has nothing to
-      // do with the operator's work, and "no edits waiting" is the one sentence that must not be said over it.
-      // Changes already says exactly this on the same release; Today may not disagree with it.
-      : view.basisUnreadable
-        ? "Which of your saved ideas still hold could not be confirmed just now. Beacon is checking again automatically."
-        : "No finished change is ready today. The next one lands here the moment the exact work is written.";
+      // A ROW IS SERVED WHATEVER THE BAR SAYS (owner's editorial policy, 2026-09-06): the release keeps every row the account holds, so an unreadable bar no longer empties the queue and Today no longer explains an emptied one.
+      : "No finished change is ready today. The next one lands here the moment the exact work is written.";
   return { headerSentence, nextOpportunities: ready, ...(topEdit ? { topEdit } : {}), ...rest };
 }
 

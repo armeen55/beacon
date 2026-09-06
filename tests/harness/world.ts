@@ -118,6 +118,7 @@ function sameRow(name: string, stored: Row, sent: Row): boolean {
   if (name === "evidence_cache") return stored.cache_key === sent.cache_key;
   if (name === "research_state") return stored.tenant_id === sent.tenant_id && stored.basis_tag === sent.basis_tag;
   if (name === "page_snapshots") return stored.tenant_id === sent.tenant_id && stored.url === sent.url;
+  if (name === "page_source_facts") return stored.tenant_id === sent.tenant_id && stored.page_key === sent.page_key && stored.statement_key === sent.statement_key;
   return stored.id === sent.id;
 }
 

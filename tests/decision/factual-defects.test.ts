@@ -281,8 +281,8 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect(staleCopyReasons(by.get("noor")!, new Map(), []).filter((r) => r.includes("its copy is"))).toEqual([]);
     expect(staleCopyReasons({ ...by.get("noor")!, changeFamily: "answer_gap" }, new Map(), []).join(" ")).toContain("its copy is");
     const { openHold } = await import("@/domains/decision/completeness");
-    expect(openHold(by.get("leila")!).need, "two quoted sources honestly clear the second-source ask").toBeUndefined();
-    expect(openHold(by.get("noor")!).need?.reasonCode).toBe("single_source"); });
+    const kinds = (k: string) => openHold(by.get(k)!).advisories.map((a) => a.kind).filter((x) => x === "single_source");
+    expect([kinds("leila"), kinds("noor"), openHold(by.get("noor")!).defects.some((d) => /publisher|second/i.test(d))], "REPLACES the second-source ask: two quoted publishers say nothing, one says how many stand behind it, and a source COUNT holds neither back").toEqual([[], ["single_source"], false]); });
 
   /** THE RULE IS ABOUT MECHANICAL MISTAKES, AND ONLY THOSE. The page owns its label, its terminology and its voice; what it does not own is a missing space, and what Beacon must never do is reformat an address, a clock time or another script on the way past. */
   it("holds a glued label whoever wrote it, and leaves a url, a time, Persian and prose colons exactly as the page had them", async () => {

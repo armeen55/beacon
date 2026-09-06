@@ -9,8 +9,7 @@ import { recordFactChecks, recordOwedClaims, reopenObsoleteChecks, supersedeStal
 import { SUPPORT_ARTIFACT_VERSION, supportIdentity, supportFailure, unsupportedArtifact, deriveSupport, claimTypeOf, AUTHORITATIVE_KIND as AUTHORITATIVE, type ClaimSupport, type ClaimType, type SupportContext } from "./claim-support";
 export { claimTypeOf } from "./claim-support";
 
-const EMPTY_ROW = { proposed: null, literal: null, usage: null, sources: [], agreement: "none_found" as const,
-  confidence: "unsupported" as const, verdict: "undecidable" as const, alsoAt: [], note: "", sourceReadAt: null };
+const EMPTY_ROW = { proposed: null, literal: null, usage: null, sources: [], agreement: "none_found" as const, confidence: "unsupported" as const, verdict: "undecidable" as const, alsoAt: [], note: "", sourceReadAt: null };
 
 /** How many candidate sources one claim weighs, and how many it will actually fetch. */
 const CANDIDATES = 6, FETCH_PER_CLAIM = 2;
@@ -154,6 +153,8 @@ type FactCheckUnitDeps = {
   warmSearch?: (query: string) => void;
   /** THE SOURCE ITSELF: fetch and parse one URL. A hold means nothing may be confirmed and nothing is banked. */
   fetchSource?: (url: string) => Promise<SourceAnswer>;
+  /** THE PAGE THAT ALREADY CARRIES THIS SUBJECT, named by the requirement that asked for the reading: the winner a comparison found the subject on. It is read FIRST and it is not an authority of its own, only a candidate the ordinary policy admits; `subject` is the proposition it was named for, so a pass that reaches a different claim never spends it. */
+  rival?: { subject: string; url: string };
   page: { url: string; path: string; body: string };
   /** Claims this pass already failed on: aside for the rest of it, never for ever. */ skip?: ReadonlySet<string>;
   tenantId: string; now: Date; basis: string | null;
@@ -287,44 +288,43 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     pageContentHash: hash, pageLocator: claim.locator, sourceReadAt: null as string | null,
     evidenceBasis: d.basis, checkedAt: now.toISOString() };
 
-  // 3. ACQUIRE candidates by searching THE PROPOSITION, shaped but never erased by the claim type.
-  if (!d.searchSources || !enough(d.deadlineAt, 15_000)) return fail("lease_exhausted", cursor, "no lease left to look for sources");
-  // THE SUCCESSOR'S SEARCH IS POSTED BEFORE THIS ONE IS AWAITED, so both tasks grind at the provider while this claim fetches and judges: the posted-SERP wait was the whole p95 tail (129s against a 20.6s median, live waves 2026-08-30).
-  const succ = owed.find((o) => o !== next && !d.skip?.has(o.statementKey) && !settled.has(propOf(o)) && propOf(o) !== propOf(next!));
-  if (succ) d.warmSearch?.(sourceQueryFor(claimTypeOf(succ.subject, succ.current, succ.pageLocator), succ.subject, succ.current, own));
-  const found = await d.searchSources(sourceQueryFor(type, claim.subject, claim.current, own)).catch(() => ({ hold: "unavailable" as const }));
-  // A PROVIDER THAT DID NOT ANSWER IS NOT A WORLD WITH NO SOURCES: capped, waiting, refused and unreachable each leave the claim OWED under their own name, and only a readable answer with no qualifying source banks `none_found`.
-  if ("hold" in found) return fail(`search_${found.hold}`, cursor, `the source search is ${found.hold}, so this claim is still owed`, next.statementKey);
-  // EXCLUSIONS COME BEFORE THE LIMIT, and ONE CANDIDATE PER PUBLISHER. Taking the first six raw results and filtering afterwards threw away a whole results page: six credible outlets were cut before the policy ever saw them, and the claim would have been buried as an empty world (Codex, 2026-08-19). The allowance counts QUALIFYING candidates.
-  const organic = found.organic ?? [];
-  const seenDomains = new Set<string>();
+  // 3. THE SOURCES FOR THIS CLAIM, AND THE PAGE THE REQUIREMENT ALREADY NAMED IS READ BEFORE ANY SEARCH IS BOUGHT (campaign, 2026-09-06). A missing subject is found by comparing this page against the page that WINS its search, so the page carrying that subject is already known, and searching the world to rediscover it pays for what the account has: production filed "failed, 0 banked; the answer is still owed" on a subject whose own winner gives it a section. The named page is admitted as an ORDINARY candidate under the same policy every other one passes, never as an authority of its own, and one that cannot be read falls back to the search below, which is what a claim naming no page always does. The search then keeps its whole meaning: it is what finds sources nobody has named.
   // A SITE MAY NOT VOUCH FOR ITSELF, and nothing enforced it: live, the Nazanin correction cited the very page it was correcting, iranopedia.com/persian-female-first-names, and banked that as a source.
-  const ownSite = (page.url ?? "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].toLowerCase();
-  const candidates = organic
-    .map((o) => ({ url: o.url, domain: o.domain.replace(/^www\./, "").toLowerCase(), kind: sourceClassOf(o.domain), title: o.title ?? "" })) .filter((c) => !REJECTED.has(c.kind))
-    .filter((c) => !ownSite || (c.domain !== ownSite && !c.domain.endsWith(`.${ownSite}`)))
-    .filter((c) => !seenDomains.has(c.domain) && seenDomains.add(c.domain) !== undefined)
-    .sort((a, b) => (AUTHORITATIVE.has(b.kind) ? 1 : 0) - (AUTHORITATIVE.has(a.kind) ? 1 : 0)) .slice(0, CANDIDATES);
-  // `none_found` IS A CLAIM ABOUT THE WORLD, and only an empty results page may make it. A page full of results none of which clears the policy is an unresolved question, and the claim stays owed.
-  if (organic.length === 0) {
-    return bank({ ...base, proposed: null, sources: [], agreement: "none_found", confidence: "unsupported",
-      verdict: "undecidable", note: "The search was readable and returned nothing at all for this claim, so nothing is proposed." });}
-  if (candidates.length === 0) return fail("source_quality_unresolved", cursor,
-    `the search returned ${organic.length} results and none clears the source policy, so this claim is still owed`, next.statementKey);
-  // PUBLISHER-DIVERSE PICKS: the second fetch prefers a DIFFERENT source class, so two generic encyclopedia pages are not taken merely because they rank first (Codex, 2026-08-18).
-  const second = candidates.slice(1).find((c) => c.kind !== candidates[0]!.kind) ?? candidates[1];
-  const picks = [candidates[0]!, ...(second ? [second] : [])].slice(0, FETCH_PER_CLAIM);
-
-  // 4. READ THE SOURCES, AROUND THE SUBJECT. A title is not a fact, and A SOURCE NOBODY READ NEVER CLEARS THE CLAIM: when every fetch fails the claim stays OWED, because "the evidence disproved nothing" and "the infrastructure could
-  // not read the evidence" are different answers (Codex, 2026-08-18).
+  const hostOf = (u: string): string => u.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0]!.toLowerCase(), ownSite = hostOf(page.url ?? ""); // ONE spelling of a host, read by the own-site refusal and by the named page alike
+  // 4. READ THE SOURCES, AROUND THE SUBJECT. A title is not a fact, and A SOURCE NOBODY READ NEVER CLEARS THE CLAIM: when every fetch fails the claim stays OWED, because "the evidence disproved nothing" and "the infrastructure could not read the evidence" are different answers (Codex, 2026-08-18).
   const passages: { url: string; kind: SourceKind; text: string; title: string | null; readAt: string }[] = [];
   let lastHold: ProviderHold = "unavailable";
-  for (const c of picks) {
-    if (!d.fetchSource || !enough(d.deadlineAt, 20_000)) break;
+  const readSource = async (c: { url: string; kind: SourceKind }): Promise<void> => {
+    if (!d.fetchSource || !enough(d.deadlineAt, 20_000)) return;
     const got = await d.fetchSource(c.url).catch(() => ({ hold: "unavailable" as const }));
-    if ("hold" in got) { lastHold = got.hold; continue; }
-    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, title: got.title ?? null, readAt: new Date().toISOString(),
-      text: subjectWindow(got.text, [claim.subject, ...(claim.current.match(/\b\d[\d,.]*\b/g) ?? [])]) });}
+    if ("hold" in got) { lastHold = got.hold; return; }
+    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, title: got.title ?? null, readAt: new Date().toISOString(), text: subjectWindow(got.text, [claim.subject, ...(claim.current.match(/\b\d[\d,.]*\b/g) ?? [])]) }); };
+  const named = d.rival && d.rival.subject.trim().toLowerCase() === claim.subject.trim().toLowerCase() ? hostOf(d.rival.url) : ""; // the page was named for ONE proposition and is spent on that one only
+  if (named && named !== ownSite && !named.endsWith(`.${ownSite}`) && !REJECTED.has(sourceClassOf(named))) await readSource({ url: d.rival!.url, kind: sourceClassOf(named) });
+  if (passages.length === 0) {
+    if (!d.searchSources || !enough(d.deadlineAt, 15_000)) return fail("lease_exhausted", cursor, "no lease left to look for sources");
+    // THE SUCCESSOR'S SEARCH IS POSTED BEFORE THIS ONE IS AWAITED, so both tasks grind at the provider while this claim fetches and judges: the posted-SERP wait was the whole p95 tail (129s against a 20.6s median, live waves 2026-08-30).
+    const succ = owed.find((o) => o !== next && !d.skip?.has(o.statementKey) && !settled.has(propOf(o)) && propOf(o) !== propOf(next!));
+    if (succ) d.warmSearch?.(sourceQueryFor(claimTypeOf(succ.subject, succ.current, succ.pageLocator), succ.subject, succ.current, own));
+    const found = await d.searchSources(sourceQueryFor(type, claim.subject, claim.current, own)).catch(() => ({ hold: "unavailable" as const }));
+    // A PROVIDER THAT DID NOT ANSWER IS NOT A WORLD WITH NO SOURCES: capped, waiting, refused and unreachable each leave the claim OWED under their own name, and only a readable answer with no qualifying source banks `none_found`.
+    if ("hold" in found) return fail(`search_${found.hold}`, cursor, `the source search is ${found.hold}, so this claim is still owed`, next.statementKey);
+    // EXCLUSIONS COME BEFORE THE LIMIT, and ONE CANDIDATE PER PUBLISHER. Taking the first six raw results and filtering afterwards threw away a whole results page: six credible outlets were cut before the policy ever saw them, and the claim would have been buried as an empty world (Codex, 2026-08-19). The allowance counts QUALIFYING candidates.
+    const organic = found.organic ?? [];
+    const seenDomains = new Set<string>();
+    const candidates = organic
+      .map((o) => ({ url: o.url, domain: o.domain.replace(/^www\./, "").toLowerCase(), kind: sourceClassOf(o.domain), title: o.title ?? "" })) .filter((c) => !REJECTED.has(c.kind))
+      .filter((c) => !ownSite || (c.domain !== ownSite && !c.domain.endsWith(`.${ownSite}`)))
+      .filter((c) => !seenDomains.has(c.domain) && seenDomains.add(c.domain) !== undefined)
+      .sort((a, b) => (AUTHORITATIVE.has(b.kind) ? 1 : 0) - (AUTHORITATIVE.has(a.kind) ? 1 : 0)) .slice(0, CANDIDATES);
+    // `none_found` IS A CLAIM ABOUT THE WORLD, and only an empty results page may make it. A page full of results none of which clears the policy is an unresolved question, and the claim stays owed.
+    if (organic.length === 0) return bank({ ...base, proposed: null, sources: [], agreement: "none_found", confidence: "unsupported",
+      verdict: "undecidable", note: "The search was readable and returned nothing at all for this claim, so nothing is proposed." });
+    if (candidates.length === 0) return fail("source_quality_unresolved", cursor, `the search returned ${organic.length} results and none clears the source policy, so this claim is still owed`, next.statementKey);
+    // PUBLISHER-DIVERSE PICKS: the second fetch prefers a DIFFERENT source class, so two generic encyclopedia pages are not taken merely because they rank first (Codex, 2026-08-18).
+    const second = candidates.slice(1).find((c) => c.kind !== candidates[0]!.kind) ?? candidates[1];
+    const picks = [candidates[0]!, ...(second ? [second] : [])].slice(0, FETCH_PER_CLAIM);
+    for (const c of picks) await readSource(c);}
   if (passages.length === 0) return fail(`fetch_${lastHold}`, cursor, `sources were found and reading them is ${lastHold}, so this claim is still owed`, next.statementKey);
 
   // 5. JUDGE against the passages only.
@@ -435,7 +435,7 @@ type FactCheckPassDeps = {
   /** The lease, re-earned before every attempt: money is about to be spent under it. */
   renew?: () => Promise<boolean>;
   read: StructuredRead;
-  searchSources: (query: string) => Promise<SearchAnswer>; warmSearch?: (query: string) => void;
+  searchSources: (query: string) => Promise<SearchAnswer>; warmSearch?: (query: string) => void; /** The page a requirement named as already carrying its proposition, read first by the unit that reaches that claim. */ rival?: { subject: string; url: string };
   fetchSource: (url: string) => Promise<SourceAnswer>;
   readCoverage: (page: string) => Promise<InventoryCoverage | null>;
   writeCoverage: (page: string, cov: InventoryCoverage) => Promise<boolean>;};
@@ -459,7 +459,7 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
       attempts += 1; // EVERY attempt counts: banked, failed and waiting alike.
       const out = await runFactCheckUnit({ tenantId: d.tenantId, now: new Date(), basis: d.basis, deadlineAt: d.deadlineAt,
         held: held.filter((h) => h.page === page.path), page: { url: page.url, path: page.path, body }, skip: setAside,
-        read: d.read, searchSources: d.searchSources, warmSearch: d.warmSearch, fetchSource: d.fetchSource,
+        read: d.read, searchSources: d.searchSources, warmSearch: d.warmSearch, fetchSource: d.fetchSource, ...(d.rival ? { rival: d.rival } : {}),
         readCoverage: () => d.readCoverage(page.path), writeCoverage: (cov) => d.writeCoverage(page.path, cov) });
       // A CLAIM THAT WILL NOT RESOLVE IS SET ASIDE, NOT THE WHOLE PASS. Ending on any failed unit is right for a spent budget or an outage, which repeat; wrong for a per-claim failure, because the owed order is stable so it returned to the head every pass. Live: `fetch_refused` at $0 on five passes while 167 others were never reached once. Set aside for THIS pass only; it is owed again on the next.
       if (out.status === "failed" && out.attempted && PER_CLAIM.has(out.failure ?? "")) {

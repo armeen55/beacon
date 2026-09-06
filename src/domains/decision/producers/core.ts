@@ -15,7 +15,7 @@
 
 import type { BundleComponent } from "../contracts";
 import { technicalComponents } from "../technical-findings";
-import { pageContains } from "@/domains/evidence/pages/owned-context";
+import { pageContains } from "@/domains/evidence/pages/page-version";
 import { topicTokens } from "@/domains/evidence/relevance-gate";
 import type { CauseKey, Produced, Producer, ProducerCtx } from "./contract";
 import { produceConsolidation, produceSourceExpansion } from "./extended";

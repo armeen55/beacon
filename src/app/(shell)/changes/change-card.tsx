@@ -6,7 +6,7 @@
  *  place, so the list stays a list. "See the change" is still the deep link to the whole investigation, and a
  *  dangerous change carries its hold here as it does everywhere. Publishing stays MANUAL. */
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Pill, type PillIntent } from "@/components/ui/pill";
 // A client bundle cannot import the server-only kernel facade, so the ONE pure rule for what is dangerous and
@@ -15,9 +15,8 @@ import { componentIdOf, dangerousComponents } from "@/domains/decision/contracts
 import { copyKey, proofOf } from "@/domains/decision/proof";
 import { citedPublishers, confirmedVersion, openHold } from "@/domains/decision/completeness";
 import type { ChangeBundle, ChangeProposal } from "@/domains/decision";
-import { markProposalImplementedAction } from "./actions";
-import { pageLabel } from "./types";
-import { CopyButton, MARK_PRESS, MarkImplemented, ReviewAnswer } from "./change-controls";
+import { cardCaveats, pageLabel } from "./types";
+import { CopyButton, MarkImplemented, ReviewAnswer } from "./change-controls";
 
 /** The producer's own boilerplate. It said the same sentence on all 37 title cards, so it is dropped outright
  *  rather than reprinted anywhere: a sentence true of every row is a fact about the producer, not a reason. */
@@ -121,7 +120,8 @@ function splitReason(text: string): { body: string; caveat: string | null } {
   const parts = text.split(/\.\s+/).map((s) => (s.trim().endsWith(".") ? s.trim() : `${s.trim()}.`))
     .filter((s) => s.length > 1 && s !== TITLE_FOOTNOTE);
   const caveat = parts.find((s) => s.includes(CAVEAT_MARK)) ?? null;
-  return { body: parts.filter((s) => s !== caveat).join(" "), caveat };
+  // TWO SENTENCES, because the card is read before anything is pasted and the whole argument lives on the change's own page.
+  return { body: parts.filter((s) => s !== caveat).slice(0, 2).join(" "), caveat };
 }
 
 /** The pieces of a bundle, named the way the server names them, so a tick here is the tick it asks for again. */
@@ -167,7 +167,15 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   const recordDone = () => { setDone(true); onDone(proposal.id); };
   // A DRAFT IS SHOWN WITH THE REASON IT IS HELD, IN THE WORDS ALREADY STORED ON IT, and the reason decides what
   // may be pressed: editorial judgement is the operator's to answer, a fact about the work is nobody's.
-  const hold = review ? openHold(proposal) : null;
+  const verdict = openHold(proposal);
+  const hold = review ? verdict : null;
+  // THE CAVEATS, THROUGH THE ONE FILTER THE DETAIL READS. The card used to print the row's RAW limitations under
+  // "Evidence and limits" while the detail printed the hold's filtered ones, so one row said two different things
+  // on two screens and a caveat written for a draft whose words are gone rode the finished card.
+  const caveats = cardCaveats(proposal, [...verdict.caveats, ...proof.limits.filter((l) => !proposal.limitations.includes(l)),
+    ...(caveat ? [caveat] : []), ...(YEAR_QUERY.test(proposal.primaryQuery) ? [YEAR_NOTE] : [])]);
+  // WHY IT IS WORTH TRYING: what was measured, and the row's own reason where it says something the measurement did not.
+  const worth = [proof.ranksHere, body && !(proof.ranksHere ?? "").includes(body) ? body : null].filter(Boolean).join(" ");
   // WHAT THIS ONE IS WAITING ON BEFORE ANYBODY CAN DO IT, off the row's own typed next step: a card ranked above a smaller one that is ready reads as an order somebody could work straight through, so the dependency is printed where the card is and not folded into the ranking receipt behind an expander. A plain sentence, never a label: "Waiting on: this one waits on your confirmation" says the same thing twice.
   const waiting = ((w: string) => (w ? `${w[0]!.toUpperCase()}${w.slice(1)}.` : null))((proposal.rankingReceipt?.factors ?? []).find((f) => f.name === "readiness")?.input?.trim() ?? "");
   const placement = proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.where ?? null : null;
@@ -207,16 +215,6 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
       </div>
 
       <div className="space-y-3 px-4 pb-4">
-        {/* WHY THIS SITS HERE, in one sentence carrying its own figures. Two bare numbers used to stand here
-            under vague labels ("30,423 times shown in Google") with no search named and no window on the first
-            of them; the sentence says the same measured figures, says which search earned them and over how
-            long, and prints nothing at all where nothing was measured. */}
-        {proof.ranksHere ? (
-          <p className="text-[13px] leading-relaxed text-foreground" data-ranks-here="true">
-            <span className="font-semibold">Why this ranks here:</span> {proof.ranksHere}
-          </p>
-        ) : null}
-
         {/* THE FIX ITSELF, on the card. The line to put there is the loud one; the line that is there now is
             the quiet one, because nobody is being asked to write the old one again. A merge has no line to
             paste at all, so it shows its ordered steps instead and never offers a copy button. */}
@@ -253,13 +251,6 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
           </p>
         ) : (
           <div className="space-y-1" data-before-after="true">
-            {before ? (
-              <p className="text-[12px] leading-relaxed text-muted-foreground">
-                Now: <span className="line-through">{before}</span>
-              </p>
-            ) : null /* NOTHING IS CLAIMED ABOUT A FIELD NOBODY HANDED OVER. A null `before` means the row did
-                 not carry the old words, never that the page has none. The adds-new-copy fact now lives on the
-                 one untouched-scope line below, so the card says it once. */}
             <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
               {/* LINE BREAKS ARE PART OF THE DELIVERABLE: a list-shaped answer renders one item per line. */}
               <p className="min-w-0 flex-1 whitespace-pre-line text-[14px] font-semibold leading-relaxed text-foreground">
@@ -270,6 +261,13 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
               <CopyButton text={after} onToast={onToast}
                 label={`Copy ${targetWordOf(proposal)} · ${effortLabel(proposal.estimatedEffortMinutes)}`} />
             </div>
+            {before ? (
+              <p className="text-[12px] leading-relaxed text-muted-foreground">
+                Now: <span className="line-through">{before}</span>
+              </p>
+            ) : null /* NOTHING IS CLAIMED ABOUT A FIELD NOBODY HANDED OVER. A null `before` means the row did
+                 not carry the old words, never that the page has none. The adds-new-copy fact now lives on the
+                 one untouched-scope line below, so the card says it once. */}
             {/* WHERE IT GOES BELONGS TO THE FINISHED CARD MOST OF ALL. This line was rendered inside the held-draft
                 box, so the one card an operator is meant to act on was the one card that never said where its copy
                 lands: paste-ready work, no place to paste it. A section names its heading and the line it follows,
@@ -279,13 +277,32 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
           </div>
         )}
 
+        {/* WHY IT IS WORTH TRYING, in the row's own figures and the row's own sentence: what was measured, then
+            up to two sentences of the reason the producer wrote. The whole argument stays on the change's page. */}
+        {worth ? (
+          <p className="text-[13px] leading-relaxed text-foreground" data-ranks-here="true">
+            <span className="font-semibold">Why this ranks here:</span> {worth}
+          </p>
+        ) : null}
+
+        {/* THE CAVEAT, ON THE CARD THAT OFFERS THE WORK. It sat behind the expander as "Evidence and limits",
+            which is where a caveat goes to be missed by the person pasting the words. */}
+        {caveats.length > 0 ? (
+          <div className="space-y-1" data-change-caveat="true">
+            <p className="text-[12px] font-semibold text-foreground">Keep in mind</p>
+            <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground" data-guess-caution="true">
+              {caveats.map((l, i) => <li key={i}>{l}</li>)}
+            </ul>
+          </div>
+        ) : null}
+
         {waiting && !ready ? <p className="text-[13px] leading-relaxed text-muted-foreground" data-waiting-on="true">{waiting}</p> : null}
         {hold ? (
           <div className="space-y-1 rounded-md border border-border bg-surface-inset px-3 py-2" data-held-reason="true">
-            {/* THE ONE LANE THAT RENDERS A CARD IN REVIEW IS THE SAFETY LANE, so this heading frames the operator's own call and never Beacon's internal QA ("A draft, not finished work" is banned customer language under the 2026-08-27 contract: unfinished work never wears a card at all). WHAT THE BLOCK SAID WAS WRONG ABOUT ITS OWN LANE (measured, 2026-09-05): the lane admits a row only while it carries NO fault and every hard reason it holds is the safety confirmation, so "copying it takes an imperfect starting point, not proven work" was printed over copy that had passed every check, on the one card whose only open question is whether to move a page. It now says what passed and what to do next, with the pieces counted, and the row's own caveats ride with the hold's own answer instead of being composed a second time by the surface. */}
+            {/* THE ONE LANE THAT RENDERS A CARD IN REVIEW IS THE SAFETY LANE, so this heading frames the operator's own call and never Beacon's internal QA ("A draft, not finished work" is banned customer language under the 2026-08-27 contract: unfinished work never wears a card at all). WHAT THE BLOCK SAID WAS WRONG ABOUT ITS OWN LANE (measured, 2026-09-05): the lane admits a row only while it carries NO fault and every hard reason it holds is the safety confirmation, so "copying it takes an imperfect starting point, not proven work" was printed over copy that had passed every check, on the one card whose only open question is whether to move a page. It now says what passed and what to do next, with the pieces counted. THE CAVEATS ARE NOT REPEATED HERE (2026-09-06): they are the one filtered list above, so a card carries one set of caveats and not two. */}
             <p className="text-[12px] font-semibold text-foreground">What you are deciding:</p>
             <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground">
-              {[...hold.why, ...hold.caveats].map((w, i) => <li key={i}>{w}</li>)}
+              {hold.why.map((w, i) => <li key={i}>{w}</li>)}
             </ul>
             <p className="text-[12px] leading-relaxed text-muted-foreground">{hold.faulted
               ? "Copying it takes an unfinished starting point, not proven work."
@@ -315,13 +332,6 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
 
         {open ? (
           <div className="space-y-3 border-t border-border pt-3">
-            {body ? <p className="text-[13px] leading-relaxed text-muted-foreground">{body}</p> : null}
-            {caveat ? (
-              <p className="text-[12px] leading-relaxed text-muted-foreground" data-change-caveat="true">&#9432; {caveat}</p>
-            ) : null}
-            {YEAR_QUERY.test(proposal.primaryQuery) ? (
-              <p className="text-[12px] leading-relaxed text-muted-foreground" data-year-note="true">{YEAR_NOTE}</p>
-            ) : null}
             {!merge && steps.length > 0 ? (
               <div className="space-y-1" data-operator-steps="true">
                 <p className="text-[12px] font-semibold text-foreground">How to make this change</p>
@@ -389,29 +399,14 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
             {caseLine ? (
               <p className="text-[12px] leading-relaxed text-muted-foreground" data-ai-case="true">{caseLine}</p>
             ) : null}
-            {/* EVIDENCE AND LIMITS: what Beacon looked for and does not have, said in the same place as what it
-                does. Where sources disagree the disagreement is stated here and nothing above upgrades it into
-                confidence about the wording. */}
-            {proof.limits.length > 0 ? (
-              <div className="space-y-1">
-                <p className="text-[12px] font-semibold text-foreground">Evidence and limits</p>
-                <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground" data-guess-caution="true">
-                  {proof.limits.map((l, i) => <li key={i}>{l}</li>)}
-                </ul>
-              </div>
-            ) : null}
             {proposal.whyRankedAboveNext ? (
               <p className="text-[12px] leading-relaxed text-muted-foreground" data-why-ranked="true">{proposal.whyRankedAboveNext}</p>
             ) : null}
-            {/* A CARD THAT CLEARED EVERY CHECK CAN RECORD THAT IT WAS MADE. One that is still waiting on a look
-                says what it is waiting for instead, because offering to record it done is offering to measure
-                work whose exact words nobody has validated. */}
+            {/* A CARD STILL WAITING ON A LOOK ANSWERS THAT LOOK HERE. What can be RECORDED lives on the card
+                itself, because a control is not supporting evidence and nobody should open an argument to press it. */}
             {hold ? (
-              <ReviewAnswer proposalId={proposal.id} version={confirmedVersion(proposal)} approvable={hold.blocking == null} />
-            ) : (
-              <MarkImplemented proposalId={proposal.id} label="Mark done" newPage={isNew}
-                components={piecesOf(bundle)} onRecorded={recordDone} />
-            )}
+              <ReviewAnswer proposalId={proposal.id} version={confirmedVersion(proposal)} approvable={hold.defects.length === 0} />
+            ) : null}
           </div>
         ) : null}
 
@@ -420,9 +415,13 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
             className="inline-flex rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white">
             See the change
           </Link>
-          {/* THE ONE-PRESS RECORD, on the collapsed card. A new page owes its live address and a merge owes a
-              confirmation, so those two keep the full form above rather than being refused after the press. */}
-          {!review && !isNew && held.length === 0 ? <MarkDoneNow proposalId={proposal.id} onRecorded={recordDone} onToast={onToast} /> : null}
+          {/* THE RECORD AND THE OPERATOR'S OWN WORDING, on the card itself (operator, 2026-09-06: Copy, edit as
+              applied, Mark done and Skip are the four controls a finished card offers without being opened). A new
+              page owes its live address and a piece that moves a page owes a confirmation, and this control asks
+              for each where it applies rather than refusing the press afterwards. A bundle past the inline limit
+              lists its pieces on the change's own page, so the picker stays there and this records the whole change. */}
+          {review ? null : <MarkImplemented proposalId={proposal.id} newPage={isNew} onRecorded={recordDone}
+            components={parts <= INLINE_PIECES || held.length > 0 ? piecesOf(bundle) : undefined} />}
           <button type="button" data-set-aside="true" onClick={() => onAside(proposal.id)}
             className="text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
             Skip
@@ -430,27 +429,5 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
         </div>
       </div>
     </li>
-  );
-}
-
-/** ONE PRESS, ON THE COLLAPSED CARD: the edit is applied, so the record lands without opening anything. The
- *  server owns every refusal, and a refusal is said out loud here rather than swallowed. THE ENDING IS READ BY THE ONE
- *  PRESS RULE, so a bad moment (a reading that could not start, a write that threw, a connection that dropped) is kept
- *  on this device and sent again rather than printed once and lost. This press is a plain whole-change mark by
- *  construction: the card renders it only where nothing moves the page, nothing is a new address and no wording is
- *  the operator's own, which is exactly what the device queue can re-send faithfully. */
-function MarkDoneNow({ proposalId, onRecorded, onToast }: { proposalId: string; onRecorded: () => void; onToast: (t: string) => void }) {
-  const [pending, startTransition] = useTransition();
-  return (
-    <button type="button" data-mark-done-now="true" disabled={pending}
-      onClick={() => startTransition(async () => {
-        const end = MARK_PRESS.fresh(await markProposalImplementedAction({ proposalId }).catch(() => null), { queueable: true });
-        if (end.ending === "recorded") { onRecorded(); return; }
-        if (end.ending === "queued") MARK_PRESS.keep(proposalId);
-        onToast(end.said ?? "That could not be recorded just now.");
-      })}
-      className="rounded-md border border-border px-3 py-1.5 text-[13px] font-semibold text-foreground disabled:opacity-60">
-      {pending ? "Saving…" : "Mark done"}
-    </button>
   );
 }

@@ -4,7 +4,7 @@
 import { canonicalQueryKey, RELATIONAL, topicTokens } from "@/domains/evidence/relevance-gate";
 import { canonicalUrlKey, jobWinners, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { classifyResult } from "@/domains/evidence/serp-shape"; import { comparisonObservations, comparisonTopics, jobComparison } from "@/domains/evidence/comparison";
-import { citesOwnSite, retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url"; import { pageContains, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
+import { citesOwnSite, retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url"; import { pageContains } from "@/domains/evidence/pages/page-version"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { ActionDiagnosis, DiagnosedAction } from "./contracts";
 import type { DecidedTopic } from "./coverage-pass";
 import { technicalKey, type TechnicalFinding } from "./technical-findings";

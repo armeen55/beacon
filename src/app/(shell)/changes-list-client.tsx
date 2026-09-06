@@ -141,7 +141,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         </p>
         {readyRows.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-5 text-[13px] leading-relaxed text-muted-foreground">
-            {view.readyZeroHint ?? "No finished change is ready right now. The next one lands here the moment the exact work is written."}
+            {view.readyZeroHint}{/* THE LANE'S OWN SENTENCE COMES OFF THE VIEW: a second copy here said it in different words, and two screens wording one fact two ways is the drift the one map exists to end. */}
           </p>
         ) : (
           <ul className="list-none space-y-3">

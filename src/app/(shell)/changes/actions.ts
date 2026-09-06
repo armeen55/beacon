@@ -231,7 +231,7 @@ export async function markProposalImplementedAction(args: {
     const gaps = deliverableGaps(stored);
     if (gaps.length > 0) return { success: false, error: `Beacon has not finished this one yet, so there is nothing to record as done: ${gaps[0]}. It lands in your list as a change once the exact work is written.` };
     // AND A CHANGE THAT LEAVES ITS OWN DIAGNOSED CAUSE UNSETTLED IS NOT WORK EITHER. The queue holds it for review and says nothing there can be marked done; this is where that promise is kept, so a tab open since before the hold cannot start a 28 day reading of a split nobody settled.
-    const unfit = unsettledCause(stored) ?? (stored.status === "ready" ? ((h) => h.safetyHold ? null : h.blocking)(openHold(stored)) : null);
+    const unfit = unsettledCause(stored); // the first defect of the ONE verdict, typed faults included (journey review, 2026-09-06: the second arm restated the first)
     if (unfit) return { success: false, error: unfit }; // the SAME one servability verdict the list lanes by and the detail renders: a read-time hold minted between saves refuses the press too, so a 28 day reading can never start on copy Beacon's own gate refuses. Review rows fall to the lane refusal below, which is their honest answer.
     // AND THE LANE ITSELF IS THE RULE, not two of the reasons a row lands in it. Completeness and the unsettled cause are why MOST review cards are held, and this action asked only those two: a complete card that never earned `ready` (no producer promoted it, or a gate this pass could not run) was recordable through a direct link and would have started a 28 day reading of work nobody stood behind. Only `ready` is work somebody can have done; an already recorded row still replays idempotently below, so a double press is never an error.
     if (stored.status !== "ready" && stored.status !== "implemented_pending_verification") {
@@ -337,7 +337,7 @@ export async function markManyImplementedAction(args: { proposalIds: string[] })
         return { id, outcome: "failed", error: "This change was skipped, so it is not being recorded." };
       const gaps = deliverableGaps(row);
       if (gaps.length > 0) return { id, outcome: "failed", error: `Beacon has not finished this one yet: ${gaps[0]}` };
-      const unfit = unsettledCause(row) ?? (row.status === "ready" ? ((h) => h.safetyHold ? null : h.blocking)(openHold(row)) : null);
+      const unfit = unsettledCause(row);
       if (unfit) return { id, outcome: "failed", error: unfit };
       if (row.status !== "ready" && row.status !== "implemented_pending_verification") return { id, outcome: "failed", error: "This change is still being reviewed." };
       if (dangerousComponents(row.bundle?.components ?? []).length > 0) return { id, outcome: "failed", error: "This one moves or hides a page, so it needs its own confirmed press on the change itself." };
@@ -415,7 +415,7 @@ export async function reviewDraftAction(args: { proposalId: string; version: str
     const at = new Date().toISOString();
     if (args.decision === "approve") {
       // THE HARD HOLDS, REFUSED BY NAME. Approving one would promote copy past the very check that holds it.
-      if (hold.blocking) return { success: false, error: `This one is not yours to wave through: ${hold.blocking} Ask for a better draft instead, or skip it.` };
+      if (hold.defects[0]) return { success: false, error: `This one is not yours to wave through: ${hold.defects[0]} Ask for a better draft instead, or skip it.` }; // every defect, not the hard arms alone: the store refuses the promotion on a typed fault too, so the press may not offer what the save refuses
       const who = (await getTenant(tenantId).catch(() => null))?.domain?.trim() || tenantId;
       const done = await answerReviewedProposal(tenantId, args.proposalId, args.version, basis, { kind: "promote", by: who, at });
       if (done.status === "stale") return { success: false, error: stale };

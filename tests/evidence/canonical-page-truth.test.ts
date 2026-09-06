@@ -7,7 +7,7 @@ vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => { let ask
   const q = { select: () => q, eq: () => q, in: (_c: string, list: string[]) => (asked = list, q), order: () => q,
     limit: async (n: number) => (db.calls += 1) > db.failAfter ? { data: null, error: { message: "chunk down" } } : { data: db.rows.filter((r) => asked.includes(String(r.url))).sort((a, b) => String(b.fetched_at).localeCompare(String(a.fetched_at))).slice(0, n), error: null } }; // newest first and cut at the budget, as the store answers
   return { from: () => q }; } }));
-import { loadOwnedPageBodies, pageContains } from "@/domains/evidence/pages/owned-context";
+import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context"; import { pageContains } from "@/domains/evidence/pages/page-version";
 const cap = (fetchedAt: string, words: number, certainty = "confirmed", bodyHeld = true) => ({ fetchedAt, words, bodyHeld, certainty });
 describe("one rule decides which capture is the page", () => {
   it("an old confirmed body beats a new uncertain blank and is named stale; a new confirmed body is current; a short confirmed page is current; a sample is a sample; a blank is blank; nothing is unread", () => {

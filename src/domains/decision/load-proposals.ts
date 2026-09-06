@@ -8,7 +8,6 @@ import { rankProposals } from "./rank-proposals";
 import { actionableProposalFailures, validateProposal } from "./validate-proposal";
 import { openHold } from "./completeness";
 import { footprintsOverlap, mutationFootprint } from "./mutation-footprint";
-import { CAUSE_LEVERS, unsettledCause, withholdReason } from "./authorization";
 import type { ChangeProposal } from "./contracts";
 
 /** The DECISION generation this kernel proposes under. It rides on the basis stamp, so every proposal manufactured under an earlier generation's rules is unsupported history the moment those rules change: it can never render Ready, it is demoted in presentation only, and no row is rewritten or deleted. Bump ONLY when the rules that decide WHAT earns a proposal change. 1 = every owned page over 20 impressions got a title and a description. 2 = a proposal exists only where exact query rows proved a recoverable gap. 3 = a proven gap is an INVESTIGATION until the live results page for that exact search is held; confidence follows evidence completeness, not the draft. 4 = holding that results page is not reading it. A change exists only where the page was DIAGNOSED off what those results actually say, so every proposal picked by whether the search words appeared in the stored title is history. 5 = no new page is proposed at all. Turning a competitor's example prompt into a page shipped duplicates of pages the account already owned, so generation is deleted until the evidence can prove a distinct page should exist. 6 = a new page is proposed again, and ONLY where the page by page comparison proved the winning pages share searches no page of this account reaches. Every page brief drafted under any earlier rule is history. 7 = what earns a change is picked against the account's own trusted curve, a proven fall reaches its own rung instead of falling through to more copy, a measured page earns nothing, and a split is settled off the words BOTH pages carry. 8 = a merge may move nothing. Winning ONE search never makes a page the home for a whole other page, so a redirect is earned only where the survivor already carries every section the loser carries; anything else is told apart instead. */
@@ -158,21 +157,13 @@ export async function loadProposalQueue(
   const laneOf = (p: ChangeProposal): "ready" | "research" | "todo" => {
     const seen = laneCache.get(p.id); if (seen != null) return seen;
     const hold = openHold(p);
-    // A CARD WHOSE OWN RECEIPT SAYS ITS ACTION CANNOT FIX ITS CAUSE IS NOT A DRAFT (operator, 2026-08-17: a
-    // title rewrite sat at rank 2 in the drafts lane with causeFit reading "this change does not touch two of
-    // your own pages splitting one search"). The opportunity stays visible in the research lane, where its
-    // evidence still argues; it returns as a draft only when a pass writes the treatment its cause authorizes.
-    const cause = p.causeFinding?.cause ?? p.diagnosisCause;
-    // An UNTREATABLE cause on an edit card is the same contradiction with a different receipt: nothing a page
-    // edit can carry fixes it, so the card is a finding and argues from the research lane.
-    const mismatched = p.researchOnly !== true && cause != null
-      && ((CAUSE_LEVERS[cause]?.size ?? 0) === 0 || withholdReason(p, cause) != null);
-    // A ROW RE-ADMITTED ACROSS A GENERATION IS WORK AGAIN, NEVER PASTE-READY ON ARRIVAL: its `ready` was
-    // stamped by an older door, and this queue has already shipped what an older door waved through. The
-    // opportunity stays ranked and visible either way; only the paste-ready claim waits for the current
-    // door's own yes.
-    const lane = hold.lane === "research" || mismatched ? "research" as const
-      : p.status === "ready" && hold.blocking == null && unsettledCause(p) == null && p.basis === currentBasis ? "ready" as const
+    // A LEVER THAT MISSES THE PAGE'S OWN DIAGNOSIS NO LONGER MOVES A DRAFT OUT OF SIGHT (owner's editorial policy, 2026-09-06).
+    // Ready never meant proven to be the cause of a ranking problem, so a wording card on a page whose evidence names a split is
+    // finished work with a caveat: the verdict files it as an advisory, the ranking still discounts it through `withholdReason`,
+    // and the row keeps the lane its own copy earns. The raised-bar half of the ready test goes with it: a row drafted under an
+    // earlier generation is judged by the checks themselves, which all run right here, never by its birthday.
+    const lane = hold.lane === "research" ? "research" as const
+      : p.status === "ready" && hold.defects.length === 0 ? "ready" as const
       : "todo" as const;
     laneCache.set(p.id, lane); return lane;
   };

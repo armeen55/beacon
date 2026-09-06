@@ -8,6 +8,7 @@ import type { CauseFinding } from "./diagnosis";
 import { topicTokens } from "@/domains/evidence/relevance-gate";
 // THE TRUTH TABLE LIVES WHERE THE BOUNDARY LIVES. This ranking discounts a lever that cannot treat the cause the evidence named; decision/authorization REFUSES one. One table, read twice, never restated.
 import { CAUSE_LEVERS, withholdReason } from "./authorization";
+import { openHold } from "./completeness";
 
 /** WHAT ONE KIND OF CHANGE HAS ACTUALLY DONE ON THIS SITE, off the finished readings in its own ledger.
  *  A family only votes once enough of its readings have finished; under that it is noise wearing a number. */
@@ -31,7 +32,7 @@ type Factor = Receipt["factors"][number];
 const MAX = { visibility: 120 } as const;
 /** HOW FAR EACH FACTOR MAY DISCOUNT what is riding on a change, and none of them may ADD to it. These were
  *  additive ceilings, which put 66 points of promotion within reach of a card carrying no traffic at all. */
-const FLOOR = { evidence: 0.85, causeFit: 0.6, strategic: 0.9, effort: 0.75, risk: 0.6, overlap: 0.5, confounding: 0.7, history: 0.9 } as const; // `strategic` carries TWO facts since 2026-09-05, the tracked questions in scope and the account's own stated goal, so its ceiling is the two five-percent arms it composes rather than the one it used to hold; a card missing only one of them is discounted exactly as much as it always was.
+const FLOOR = { evidence: 0.85, causeFit: 0.6, advisories: 0.6, strategic: 0.9, effort: 0.75, risk: 0.6, overlap: 0.5, confounding: 0.7, history: 0.9 } as const; // `strategic` carries TWO facts since 2026-09-05, the tracked questions in scope and the account's own stated goal, so its ceiling is the two five-percent arms it composes rather than the one it used to hold; a card missing only one of them is discounted exactly as much as it always was.
 /** How many readings it takes before a family's record pulls its full (small) weight. High on purpose: the account holds twelve settled readings in total, so nothing here may speak with confidence yet. */
 const HISTORY_SHRINK = 12;
 /** HOW FAR A MEASURED SHORTFALL IS DISCOUNTED BEFORE IT ORDERS THE QUEUE. THESE ARE POLICY PRIORS AND NOT MEASUREMENTS (operator, 2026-08-27), which is why nothing built from them is ever called expected clicks: a prior multiplied by a real number produces a PRIORITY, not a forecast, and printing it as a forecast makes invented certainty look empirical. What separates the two values is whether the cause is diagnosed and the lever treats it, never what family the change belongs to. They become measurements only when this account's own finished readings can calibrate them at `CALIBRATION_MIN` samples, and until then the receipt says "assumed" out loud and names the sample it does not have. */
@@ -244,6 +245,12 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
         : `this change does not touch ${LEVER_WORD[cause] ?? "the cause named here"}`,
   !cause || !levers || levers.size === 0 || addressed ? 1 : 0.6);
 
+  // WHAT IS LEFT TO THE OWNER'S JUDGEMENT COSTS CONFIDENCE, NEVER THE PLACE IN THE QUEUE (owner's editorial policy, 2026-09-06; journey review the same day found the weights reached nothing). Each advisory the one verdict files carries a weight, and a caveat is a reason to be less sure, not a hold: a single caveat costs at most the distance its weight stands from certainty, halved, and every caveat together never more than the causeFit floor. The receipt names them, so the order can be read.
+  const advisories = openHold(p).advisories;
+  discount("advisories", advisories.length === 0 ? "nothing about it is left to your judgement"
+    : `${num(advisories.length)} ${advisories.length === 1 ? "caveat is" : "caveats are"} left to your judgement: ${advisories.map((a) => a.kind.replace(/_/g, " ")).join(", ")}`,
+  advisories.reduce((f, a) => f * (0.5 + a.weight / 2), 1));
+
   // A CARD BORN FROM A TRACKED QUESTION IS IN SCOPE OF THAT QUESTION. That is demand evidence, and demand
   // already enters through the figure above, so being in scope buys nothing and being out of it costs a little.
   const prompts = p.bundle?.scope.prompts.length ?? (p.aiImpact && p.aiImpact.answers > 0 ? 1 : 0);
@@ -337,6 +344,8 @@ function whyAbove(next: ChangeProposal, a: Receipt, b: Receipt): string {
       // A CARD WITH NO CAUSE NAMED still separates from one whose lever misses its cause, and reading the winner's own input aloud printed "because no cause named for this change yet, and X does not" on the top card.
       return sep.a.contribution >= 0 ? `${lead} ${sep.a.input}, and ${other} does not.`
         : `${lead} ${other} works on something other than the cause its own evidence names.`;
+    case "advisories":
+      return `${lead} less of it is left to your judgement: ${sep.a.input}, against ${sep.b.input}.`;
     case "strategic":
       return `${lead} it covers more of what people ask you: ${sep.a.input} against ${sep.b.input}.`;
     case "effort":

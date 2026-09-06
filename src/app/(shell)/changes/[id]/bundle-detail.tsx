@@ -6,7 +6,7 @@ import { causeLabel, componentIdOf, confirmedVersion, dangerousComponents, deliv
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { ConfirmDangerous, CopyButton, MarkImplemented, SetAsideChange } from "../change-controls";
-import { pageLabel } from "../types";
+import { cardCaveats, pageLabel } from "../types";
 
 function Heading({ children }: { children: React.ReactNode }) {
   return <h2 className="text-[14px] font-semibold text-foreground">{children}</h2>;
@@ -74,9 +74,8 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
   // Copy press and a Mark done on a direct link while the list refused to offer it: the list and the detail
   // disagreed about the same row. One rule everywhere: the lane first, then the hold's own blocking reason (the
   // safety hold excepted, because this page hosts the two-step confirmation it asks for), then the unsettled cause.
-  const hold0 = openHold(proposal);
   const held = proposal.status !== "ready" ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet."
-    : (hold0.safetyHold ? null : hold0.blocking) ?? unsettledCause(proposal);
+    : unsettledCause(proposal); // the first defect of the one verdict, typed faults included (journey review, 2026-09-06): `blocking` restated by a second name
   // AND A HELD CHANGE THAT MOVES OR HIDES A PAGE HAS SOMEWHERE TO GO. Everything the operator needs to decide is already on this page: the pieces, the addresses, where a forward lands, what survives it, the copy, the risks and the evidence behind each one. The confirmation belongs beside them, never on a page of its own. Offered ONLY on finished work whose own cause is settled: review work held because a quality gate refused it is not up for a yes, and confirming it would promote copy nobody stands behind.
   const confirmable = proposal.status === "needs_review" && dangerousComponents(bundle.components).length > 0 && deliverableGaps(proposal).length === 0 && unsettledCause(proposal) == null ? confirmedVersion(proposal) : null;
   // ONE SENTENCE, ONCE ON THE PAGE. The same fact reached the screen three times over ("What this is based on", "Why this is the smartest move", "What was checked"), which reads as padding rather than proof.
@@ -90,7 +89,7 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
     .map((kind) => ({ kind, items: fresh(seen, bundle.receipt.items
       .filter((i) => i.kind === kind && i.fact.trim().length > 0).map((i) => `${i.fact}${seenLabel(i.observedAt)}`)) }))
     .filter((g) => g.items.length > 0);
-  const missing = fresh(seen, bundle.receipt.missing);
+  const missing = fresh(seen, cardCaveats(proposal, bundle.receipt.missing)); // the SAME filter the card reads, so a bundle's caveats cannot differ by screen
   return (
     <div className="max-w-3xl space-y-5">
       <Link href="/changes" className="inline-flex text-[13px] text-muted-foreground hover:text-foreground">
@@ -158,7 +157,7 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
         ))}
         {missing.length > 0 ? (
           <div className="space-y-1 border-t border-border pt-3">
-            <p className="text-[12px] font-semibold text-foreground">What could not be checked yet</p>
+            <p className="text-[12px] font-semibold text-foreground">Keep in mind</p>{/* ONE HEADING FOR THE CAVEAT BLOCK on the card, the simple detail and here: what could not be checked and what to bear in mind are one list, through one filter. */}
             <Bullets items={missing} />
           </div>
         ) : null}
@@ -424,11 +423,11 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
   const hold1 = openHold(proposal);
   const held = proposal.status !== "ready"
     ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet."
-    : (hold1.safetyHold ? null : hold1.blocking) ?? unsettledCause(proposal); // the SAME one verdict the list lanes by, so a direct link can never out-offer the queue
+    : unsettledCause(proposal); // the SAME one verdict the list lanes by, so a direct link can never out-offer the queue
   const shownSteps = research && after && !(steps[0] ?? "").startsWith(after.slice(0, 25)) ? [after, ...steps] : steps;
   const checks = proposal.evidence?.hints ?? [];
   // TWO THINGS THE RENDERED APP CAUGHT ON 2026-09-05. A HEADLINE THAT CARRIES AN ADDRESS IS THE WRITER'S BRIEF, NOT THE CUSTOMER'S SENTENCE: the detail led with "Write a real description on /iran-flags/parthian-empire-flag: 7 pages share one templated line", a file name printed at the operator above the very address it names. AND BEACON'S OWN OBJECTIONS ARE NOT THE OPERATOR'S CAVEATS: the same row printed "its copy carries no record of what it stands on" under Keep in mind, which names an internal record and no next step; the hold this page already computed names those sentences, so no second vocabulary decides it here.
-  const brief = (proposal.opportunityType || "").trim().replace(/_/g, " "), edit = proposal.recommendedChange, caveats = hold1.caveats, tried = proposal.previousCopy; // THE HOLD ANSWERS BOTH HALVES (measured, 2026-09-05): filtering the row's raw limitations against the hold's reasons alone still served "its copy carries no record of what it stands on" on /california-persian-cities/fremont, the one sentence that verdict had just DISPROVED from the row's own claims and support facts. What a person should keep in mind is now the same function's answer, so no gate sentence reaches a customer as their own caveat and the typed fault and the obligation still say what is owed.
+  const brief = (proposal.opportunityType || "").trim().replace(/_/g, " "), edit = proposal.recommendedChange, caveats = cardCaveats(proposal, hold1.caveats), tried = proposal.previousCopy; // THE HOLD ANSWERS BOTH HALVES (measured, 2026-09-05): filtering the row's raw limitations against the hold's reasons alone still served "its copy carries no record of what it stands on" on /california-persian-cities/fremont, the one sentence that verdict had just DISPROVED from the row's own claims and support facts. What a person should keep in mind is now the same function's answer, so no gate sentence reaches a customer as their own caveat and the typed fault and the obligation still say what is owed.
   const action = (/(^|\s)\//.test(brief) ? "" : brief) || (edit.kind === "new_page" ? `Build a new page that answers "${proposal.primaryQuery}"` : `Update the ${({ title: "page title", meta: "meta description", h1: "page headline", answer_block: "answer at the top of the page", section: "section", schema: "structured data" } as Record<string, string>)[edit.field] ?? "page"} to sharpen it for "${proposal.primaryQuery}"`); // never the bland shrug: the operator reads the page name and then what is being done to it
   return (
     <div className="space-y-5" data-simple-detail="true">

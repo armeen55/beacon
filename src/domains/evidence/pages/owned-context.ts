@@ -89,7 +89,6 @@ const items = (value: unknown, max: number, chars: number): string[] => (Array.i
 const wordsIn = (parts: readonly string[]): number => parts.join(" ").split(/\s+/).filter(Boolean).length;
 
 /** The crawler now keeps list boundaries, so its own bullet is dropped here before anything is matched: what a page CONTAINS is exactly what it contained before the boundaries went in. */
-const norm = (s: string): string => s.toLowerCase().replace(/\s+/g, " ").trim();
 
 /** Every spelling of one page, so a stored trailing slash or a `www.` host cannot hide the row. Production
  *  stores `https://www.host/path` while the decision path asks for `https://host/path`, and matching on the
@@ -177,46 +176,6 @@ function bodyOf(row: Row): OwnedPageBody {
       ? `On file for this page: ${passages.length} stored passages and ${headings.length} headings, about ${heldWords} words of the ${pageWords ?? "unknown number of"} words its last crawl counted. The crawl keeps a sample, so anything not shown here is unknown, not missing: re-crawl the page before calling anything absent.`
       : truncated ? "" : `On file for this page: all ${heldWords} words its last crawl captured.`) + range).trim(),
   };
-}
-
-/**
- * CONTAINS OR UNKNOWN. Does this page say `phrase` anywhere? "yes" is always trustworthy, because found is
- * found. "no" comes back ONLY when the whole page is held: a sample proves presence and can never prove
- * absence, so everything else is "unknown". That is what stops a whole-page verdict being written off a
- * fragment, which is how a fact in paragraph nine came to read as a gap.
- */
-export function pageContains(page: OwnedPageBody | null | undefined, phrase: string): "yes" | "no" | "unknown" {
-  const needle = norm(phrase ?? "");
-  if (page == null || !needle) return "unknown";
-  const hay = norm([page.title ?? "", page.h1 ?? "", page.metaDescription ?? "", ...page.headings, ...page.passages,
-    ...page.cardTexts, ...page.faqs.flatMap((f) => [f.question, f.answer]), ...page.entityNames,
-    ...page.internalLinks.map((l) => l.anchorText)].join(" \n "));
-  if (hay.includes(needle)) return "yes";
-  // A STALE BODY PROVES PRESENCE, NEVER A CURRENT ABSENCE: only a complete capture that is also the newest may say "no".
-  return page.completeness === "complete" && (page.version ?? "current") === "current" ? "no" : "unknown";
-}
-
-/** WHICH OF A PAGE'S WORDS ARE ITS OWN, WHEN ITS SIBLINGS COME OFF ONE TEMPLATE. THE RULE, IN ONE SENTENCE: when most of a page's words are the words its template siblings carry too, whatever is left is the family's SLOT, and a word standing in that slot is this page's own ONLY where the page holds it as an entity it introduces (a name standing mid sentence, a figure, a date, or an item in its own list, FAQ or schema), because every sibling fills that same slot with another example of the family's own subject: the tokens differ and the information does not. Twenty California city pages carry one shell with the city swapped in and an empty card list, and their closing paragraphs name generic dishes; "barg" is on ONE of the twenty, so no repeated-passage or string-similarity test catches it and no count of shared words can.
- *  SIMILARITY IS NEVER ITSELF A DEFECT. It decides nothing here: it decides only which words a card still has to earn. NULL when no sibling is in hand or the shared shell is a MINORITY of the page, and null asks nothing of anybody, which is why a rug or an animal page whose siblings share only their labels is untouched. The page's own name is masked out of BOTH sides as a SUBSTRING, so a sentence is not this page's own merely because the city, animal, rug, flag or person name was substituted into it, and a crawler that glued the name to the next word cannot hide the match. `figures` says the slot carries a number or a date at all, for a caller weighing copy whose specificity is a figure rather than a word. THE FAMILY IS PICKED FROM WHATEVER THE CALLER ALREADY HOLDS and never read for: the pages under the same parent address, which is the family information the site's own URLs carry. PURE. */
-export function templateSlotOf(page: OwnedPageBody, held: readonly OwnedPageBody[], max = 6): { slot: ReadonlySet<string>; own: ReadonlySet<string>; figures: boolean } | null {
-  const at = (u: string): string => { try { return new URL(u.startsWith("http") ? u : `https://${u}`).pathname.replace(/\/+$/, "").split("/").slice(0, -1).join("/"); } catch { return ""; } };
-  const parent = at(page.url), siblings = parent === "" ? [] : held.filter((b) => b.url !== page.url && at(b.url) === parent).slice(0, max);
-  const nameOf = (u: string): string[] => norm(u.replace(/[?#].*$/, "").replace(/\/+$/, "").split("/").pop() ?? "").split(/[^a-z0-9]+/).filter((w) => w.length >= 4);
-  const toks = (s: string, mask: readonly string[], min: number): string[] => { let t = s.toLowerCase(); for (const w of mask) t = t.split(w).join(" "); return t.split(/[^a-z]+/).filter((w) => w.length >= min); };
-  const list = <T,>(x: readonly T[] | null | undefined): readonly T[] => Array.isArray(x) ? x : []; // A PARTIAL BODY MAY NOT THROW: this runs inside the writer's own packet build, and one missing array there killed the producer pass outright rather than declining to answer
-  const said = (b: OwnedPageBody): string => [...list(b.passages), ...list(b.cardTexts), ...list(b.faqs).map((f) => `${f?.question ?? ""} ${f?.answer ?? ""}`), ...list(b.entityNames)].join(" "), cut = (t: string): string[] => t.split(/(?<=[.!?])/).map((x) => x.trim()).filter(Boolean);
-  const own = nameOf(page.url), mine = cut(said(page)); if (siblings.length === 0 || mine.length === 0) return null;
-  const frame = new Set(siblings.flatMap((b) => cut(said(b)).map((x) => toks(x, nameOf(b.url), 4).join(" "))).filter(Boolean));
-  let shared = 0, all = 0; const kept: string[] = [], shell: string[] = [];
-  for (const t of mine) { const k = toks(t, own, 4); all += k.length; if (k.length > 0 && frame.has(k.join(" "))) { shared += k.length; shell.push(t); } else kept.push(t); }
-  if (all === 0 || shared * 2 < all) return null; // a shell that is not most of the page asks nothing of any card
-  const text = kept.join(" "), family = new Set(siblings.flatMap((b) => toks(said(b), nameOf(b.url), 3)));
-  const heads = new Set([...own, ...toks([page.title ?? "", page.h1 ?? "", ...list(page.headings)].join(" "), [], 3)]);
-  const entity = new Set(toks([...list(page.cardTexts), ...list(page.faqs).map((f) => f?.question ?? ""), ...list(page.entityNames)].join(" "), own, 3).filter((w) => !family.has(w)));
-  const named = /(?<=[a-z0-9,;:)"'\u2019])\s+([A-Z][A-Za-z'\u2019-]{2,})/g; // a name the page's own prose introduces, never a word every sibling also carries and never one of its own headings
-  for (let m = named.exec(text); m; m = named.exec(text)) for (const w of toks(m[1]!, own, 3)) if (!heads.has(w) && !family.has(w)) entity.add(w); // through the same masking, or the page's own name in the possessive reads as an entity of its own
-  const worn = new Set(toks(shell.join(" "), own, 3)); // A WORD THIS PAGE ALSO USES IN THE SHELL IS SHELL VOCABULARY WHEREVER IT STANDS: the crawler glues a button label to the paragraph after it ("SubmitBerkeley has a vibrant food scene"), so "submit" leaked into the slot and an honest line about what the page is FOR read as a claim about its subject.
-  return { slot: new Set(toks(text, own, 3).filter((w) => !worn.has(w))), own: entity, figures: /\d/.test(text) };
 }
 
 /** The newest persisted content for each of `urls`, keyed by canonicalUrlKey. Scoped to `tenantId` in the query itself, never filtered after a wide read.

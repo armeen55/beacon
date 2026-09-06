@@ -75,6 +75,18 @@ describe("Today and Changes answer one question once", () => {
 
     db.rows.find((r) => r.id === ALL[0]!.id)!.terminal_disposition = "dismissed";
     const after = await loadTodayView(), changes = await loadChangesView(); expect([after.today.readyTotal, after.surfaceVersion]).toEqual([N - 1, changes.surfaceVersion]); expect(changes.summary.ready).toBe(N - 1); });
+  it("leads Changes and Today with the same finished change, under one count", async () => {
+    const view = await loadChangesView(), { today } = await loadTodayView(), top = view.ready[0]!;
+    const { ChangesListClient } = await import("@/app/(shell)/changes-list-client");
+    const html = renderToStaticMarkup(createElement(ChangesListClient, { view }));
+    const after = top.recommendedChange.kind === "existing_edit" ? top.recommendedChange.after : "";
+    expect([html.includes(`Ready now: ${today.readyTotal!.toLocaleString("en-US")} finished changes`), today.topEdit!.after, today.nextOpportunities[0]!.changeId], "one count and one top item across both surfaces").toEqual([true, after, top.id]);
+    expect(html.split('data-change-card="true"')[1] ?? "", "the card at the top of the list is the change Today hands over").toContain(after); });
+  it("says so when the last finished change leaves the lane before the next rebuild, instead of painting a blank box", async () => {
+    expect((await loadChangesView()).readyZeroHint, "a release carrying finished work carries no hint").toBeNull();
+    for (const r of db.rows) if (r.tenant_id === T) r.terminal_disposition = "dismissed"; // every finished change skipped between two rebuilds: the live lane answers empty against the release's own null hint
+    const view = await loadChangesView();
+    expect([view.ready.length, view.summary.ready, view.readyZeroHint?.startsWith("No finished change is ready right now")], "the lane is empty, the count follows it, and the sentence is re-derived from the live lane rather than read off a release that still had rows (journey review, 2026-09-06)").toEqual([0, 0, true]); });
   it("withholds a count it could not read, and never counts a lane higher than it can hand over", async () => {
     ledgerFails.value = true;
     const view = await buildChangesViewUncached(T, "rel-8"), today = buildTodayViewFromChanges(view); expect([view.countsUnavailable, view.summary.measuring, today.countsUnavailable, today.measuringCount]).toEqual([true, 0, true, undefined]);
@@ -84,9 +96,9 @@ describe("Today and Changes answer one question once", () => {
     ledgerFails.value = false;
     expect((await buildChangesViewUncached(T, "rel-8")).countsUnavailable).toBeUndefined();
     await stamp("rel-1"); // back to the ranking the paging half of this promise reads
-    const cold = new Date(Date.now() - 200 * 86_400_000).toISOString();
+    const cold = new Date(Date.now() - 200 * 86_400_000).toISOString(); // REPLACES the cold-receipt drop (owner's editorial policy, 2026-09-06): age alone no longer takes a row out of the lane, so the row that cannot be handed over is one whose own piece cites evidence its receipt never carried
     const expired = (i: number) => proposal(i, { bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] },
-      confidenceReasons: [], alternatives: [], risks: [], components: [{ kind: "title", label: "T", risk: "safe", before: "a", after: "b", evidenceKeys: ["k1"] }],
+      confidenceReasons: [], alternatives: [], risks: [], components: [{ kind: "title", label: "T", risk: "safe", before: "a", after: "b", evidenceKeys: ["nothing-holds-this"] }],
       receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "f", observedAt: cold }], missing: [], freshestObservedAt: cold } } } as Partial<ChangeProposal>);
     for (const i of [1, 2, 130]) db.rows.find((r) => r.id === ALL[i]!.id)!.payload = JSON.parse(serializeChangeProposal(expired(i))); // 130 sits past the first page, so the cross-page shrink below stays proven at any page size
     const first = await readChangesPage(T, "ready", 0, "rel-1"), second = await readChangesPage(T, "ready", first.cursor, "rel-1"); expect([first.total, first.rows.length, first.dropped, second.dropped, first.total - second.dropped]).toEqual([N - 2, CHANGES_PAGE_SIZE - 2, 2, 1, N - 3]); });

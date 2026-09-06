@@ -9,7 +9,7 @@ import "server-only";
 import { cache } from "react";
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
-import { actionableProposalFailures, loadProposalQueue, openHold, queueLaneCounts, readAiCaseDispositions, readQueuePage, resolveCurrentBasis, unsettledCause } from "@/domains/decision";
+import { actionableProposalFailures, loadProposalQueue, openHold, queueLaneCounts, readAiCaseDispositions, readQueuePage, resolveCurrentBasis } from "@/domains/decision";
 import type { AiCaseFile } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import { loadProofLedgerCached } from "@/domains/measurement";
@@ -93,7 +93,7 @@ export function sanitizeSurfaceComputedAt(iso: string | null | undefined): strin
 
 /** THE EMPTY READY LANE'S OWN COPY, and it may no longer imply an empty screen: drafts to review and the
  *  opportunities under research render underneath whatever this says, so it states the one fact it owns. */
-export function setAsideHint(open = 0): string {
+function setAsideHint(open = 0): string {
   return open > 0
     ? `No finished change is ready right now. ${open} ${open === 1 ? "opportunity is" : "opportunities are"} open below, with what is written for each and what is still missing.`
     : "No finished change is ready right now. The next one is ranked here the moment Beacon has written the exact work.";
@@ -113,8 +113,8 @@ export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string;
   const id = new Set(standing.map((p) => p.id));
   const kept = [...view.ready, ...view.toDo, ...(view.research ?? [])].filter((p) => id.has(p.id));
   const research = kept.filter((p) => openHold(p).lane === "research");
-  // THE SAME READY PREDICATE load-proposals applies: status, an open review lane, no blocking hold, AND no unsettled cause. This filter checked three of the four, so a row the queue would never rank Ready could still re-sort into the released ready lane and the two surfaces disagreed by construction.
-  const ready = kept.filter((p) => p.status === "ready" && openHold(p).lane === "review" && openHold(p).blocking == null && unsettledCause(p) == null);
+  // THE SAME READY PREDICATE load-proposals applies: status, an open review lane and NO DEFECT under the one verdict (journey review, 2026-09-06: this read `blocking`, which is drawn from the hard arms alone, beside a second name for the same value, so a row held by a typed fault could re-sort into the released ready lane while the queue refused it).
+  const ready = kept.filter((p) => p.status === "ready" && openHold(p).lane === "review" && openHold(p).defects.length === 0);
   const toDo = kept.filter((p) => !research.includes(p) && !ready.includes(p));
   // MAX, never a sum: an old-rule release counted rows it also listed, so adding inflates.
   const setAside = Math.max(view.demotedStaleBasis, view.proposals.length - standing.length);
@@ -127,7 +127,7 @@ export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string;
 const EMPTY_CHANGES_VIEW: ChangesView = {
   proposals: [], ready: [], toDo: [], research: [], aiCases: { state: "unavailable" }, measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0,
   summary: { todo: 0, ready: 0, research: 0, implemented: 0, measuring: 0, results: 0 },
-  readyZeroHint: null, receiptLine: null, surfaceComputedAt: null, surfaceBuilding: true,
+  readyZeroHint: setAsideHint(), receiptLine: null, surfaceComputedAt: null, surfaceBuilding: true, // the empty lane's sentence is on the view, so the list, the page and Today read one copy of it
 };
 
 /** THE render entry (request-cached). A present release serves instantly and, when stale, schedules the ONE background rebuild; a cold
@@ -185,16 +185,19 @@ async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
     // whatever their global rank. Live: per-entry worth ranked seven corrections below a hundred internal rows and
     // the Ready section served empty under a headline of seven, with the finished work behind a button.
     const readyPage = await readQueuePage(tenantId, "ready", basis, 0, CHANGES_PAGE_SIZE);
-    const seen = new Set(readyPage.rows.map((r) => r.id));
-    const rows = [...readyPage.rows, ...page.rows.filter((r) => !seen.has(r.id))];
-    const laneById = { ...page.laneById, ...readyPage.laneById };
-    const lane = (l: "ready" | "todo" | "research") => rows.filter((p) => laneById[p.id] === l);
     const counts = await queueLaneCounts(tenantId, page.release, basis);
-    // THE READY LANE NEVER SHOWS FEWER CARDS THAN IT COUNTS (operator, 2026-09-01): while a rebuild re-stamps ranks, the lane page can answer empty against a count of one, and the screen said "no finished change" over "Show 1 more". The release's own saved ready rows paint until the stamps catch up.
+    // THE READY LANE NEVER SHOWS FEWER CARDS THAN IT COUNTS (operator, 2026-09-01), AND TODAY NEVER OFFERS A CARD THE LIST DOES NOT SHOW (operator, 2026-09-06): while a rebuild re-stamps ranks, the lane page can answer empty against a count of one, so the screen said "no finished change" over "Show 1 more" while Today handed over that same change's copy off the release. The release's own saved ready rows now join the RANKING, stamped ready, so one map serves the count, the cards and Today's top item until the stamps catch up.
+    const held = readyPage.rows.length === 0 && counts.ready > 0 ? view.ready : [];
+    const seen = new Set([...held, ...readyPage.rows].map((r) => r.id));
+    const rows = [...held, ...readyPage.rows, ...page.rows.filter((r) => !seen.has(r.id))];
+    const laneById = { ...page.laneById, ...readyPage.laneById, ...Object.fromEntries(held.map((r) => [r.id, "ready" as const])) };
+    const lane = (l: "ready" | "todo" | "research") => rows.filter((p) => laneById[p.id] === l);
     return { ...view, proposals: rows, laneById,
-      ready: lane("ready").length === 0 && counts.ready > 0 ? view.ready : lane("ready"), toDo: lane("todo"), research: lane("research").length > 0 ? lane("research") : view.research,
+      ready: lane("ready"), toDo: lane("todo"), research: lane("research").length > 0 ? lane("research") : view.research,
       // THE READY COUNT IS THE ROWS SERVED WHEN THE LANE IS EXHAUSTED: the database counts stamps, and a stamp can outlive the row it stamped between releases.
       summary: { ...view.summary, ready: readyPage.more ? counts.ready : lane("ready").length, todo: counts.todo, research: counts.research }, surfaceVersion: page.release,
+      // AN EMPTY READY LANE ALWAYS SAYS SO (journey review, 2026-09-06): the release's own hint is null whenever the release had Ready rows, and the last of them can leave the lane before the next rebuild, so the live lane re-derives the sentence rather than painting a blank box.
+      readyZeroHint: lane("ready").length === 0 ? (view.readyZeroHint ?? setAsideHint(counts.todo + counts.research)) : null,
       queueCursor: { all: page.nextRank, ready: readyPage.nextRank }, queueMore: { all: page.more, ready: readyPage.more }, queueTotal: page.total };
   })(), joinBudget).catch(() => null);
   if (joined == null || joined.timedOut || joined.data == null) return view; // the saved truth paints; the fresh joins land on the next visit or the next rebuild
@@ -305,15 +308,13 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
   };
 
   // THE EMPTY READY LANE SAYS WHICH EMPTY IT IS, over a screen that still shows every draft and every
-  // opportunity underneath it: zero ready is never zero work in view.
-  let readyZeroHint: string | null = null;
-  if (queue.ready.length === 0) {
-    readyZeroHint = queue.toDo.length + queue.research.length > 0
-      ? setAsideHint(queue.toDo.length + queue.research.length)
-      : summary.measuring > 0
-        ? `No finished change is ready right now. Everything written so far is live and being read (${summary.measuring} in progress), and the next change is ranked here as fresh demand data comes in.`
-        : "No finished change is ready right now. The next one is ranked here the moment Beacon has written the exact work.";
-  }
+  // opportunity underneath it: zero ready is never zero work in view. ONE SENTENCE, ONE SOURCE: the last arm
+  // used to spell `setAsideHint()`'s own words out a second time, so two copies of one sentence could drift.
+  const openNow = queue.toDo.length + queue.research.length;
+  const readyZeroHint = queue.ready.length > 0 ? null
+    : openNow === 0 && summary.measuring > 0
+      ? `No finished change is ready right now. Everything written so far is live and being read (${summary.measuring} in progress), and the next change is ranked here as fresh demand data comes in.`
+      : setAsideHint(openNow);
 
   // THE RANKING IS NO LONGER STAMPED HERE (Codex, 2026-08-23): stamping during the build meant a build that later
   // failed had already replaced the live order. The build COMPUTES the one global order (research included,

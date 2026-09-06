@@ -27,7 +27,7 @@ vi.mock("@/domains/decision", async () => ({
   openHold: (await vi.importActual<typeof import("@/domains/decision/completeness")>("@/domains/decision/completeness")).openHold, // the REAL one servability verdict, exactly as production gates the press
   dangerousComponents: (await vi.importActual<typeof import("@/domains/decision/contracts")>("@/domains/decision/contracts")).dangerousComponents,
   componentIdOf: (await vi.importActual<typeof import("@/domains/decision/contracts")>("@/domains/decision/contracts")).componentIdOf,
-  deliverableGaps: (await vi.importActual<typeof import("@/domains/decision/completeness")>("@/domains/decision/completeness")).deliverableGaps, unsettledCause: (await vi.importActual<typeof import("@/domains/decision/authorization")>("@/domains/decision/authorization")).unsettledCause,
+  deliverableGaps: (await vi.importActual<typeof import("@/domains/decision/completeness")>("@/domains/decision/completeness")).deliverableGaps, unsettledCause: (await vi.importActual<typeof import("@/domains/decision/completeness")>("@/domains/decision/completeness")).unsettledCause,
   sameComponentId: (await vi.importActual<typeof import("@/domains/decision/contracts")>("@/domains/decision/contracts")).sameComponentId,
   treatmentSignatureOf: (await vi.importActual<typeof import("@/domains/decision/mutation-footprint")>("@/domains/decision/mutation-footprint")).treatmentSignatureOf,})); // THE REAL ONE: the press stamps what kind of work it was, so a mock of it would prove nothing about what lands on the record
 vi.mock("@/lib/persistence/repositories", () => ({ getRepository: () => ({ forTenant: () => ({}) }) }));
@@ -207,7 +207,7 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
     mocks.recordShipment.mockClear();
     await markProposalImplementedAction({ ...PRESS }); expect(facts().operatorNote).toBeNull();});
   it.each([
-    ["a change I set aside", () => mocks.resolveCurrentBasis.mockResolvedValue("basis_moved::d6")],
+    ["a change whose page words are gone", () => mocks.loadChangeProposal.mockResolvedValue(proposal({ recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "The exact wording has not been written yet" } }))], // REPLACES "a change I set aside": a basis stamped in an earlier generation no longer refuses a press, so the row that is refused before anything is written is the one whose deliverable is not written
     ["a change I cannot find", () => mocks.loadChangeProposal.mockResolvedValue(null)],
     ["a press by someone who may not publish", () => { ownerFlag.value = false; }],
   ])("%s is refused before anything is written", async (_name, arrange) => {

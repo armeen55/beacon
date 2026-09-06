@@ -20,6 +20,11 @@ import { dueWork, accountBasis } from "@/domains/runtime/ops/due-work";
 import { setAccountRepositoryForTests, type AccountRepository } from "@/domains/account/tenants/store";
 import { nextObligation } from "@/domains/decision/obligation";
 import { loadChangeProposals } from "@/domains/decision/proposal-store";
+import { authorizedCorrections, readFactChecks } from "@/domains/evidence/pages/fact-checks";
+import { pageHashOf } from "@/domains/evidence/pages/fact-check-run";
+import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
+import { canonicalUrlKey } from "@/domains/evidence/snapshot";
+import { resolveCurrentBasis } from "@/domains/decision/load-proposals";
 import {
   advance, clock, fixture, installFetch, logs, meter, now, reasoningAsked, requestsOf, reset, runRepo, runs, script, seedOwnedPages,
   seedProposals, seedResearchState, seedRun, seedSearchHistory, reasoningReply, table, T, SITE,
@@ -337,6 +342,41 @@ describe("three opportunities waiting on their own results page", () => {
       "the writer is hired for the hub row on the drive its last dependency landed; seven of the eleven are bought behind the walk on that same drive, and every one the room behind it could not pay for is still owed at its own rank for the next drive").toEqual([true, 7, true]);
     expect([...(await loadChangeProposals(T)).values()].filter((r) => (r.pagePath ?? "") === HUB).map((r) => r.status),
       "so the copy the hub row was waiting for reaches the store on that drive, where the eleven purchases in front of the walk used to take its turn").toEqual(["ready"]);
+  });
+});
+
+/** THE SUBJECT A WINNER COVERS AND THIS PAGE DOES NOT (campaign, 2026-09-06). The ladder files that subject as the row's next dependency and names the winner it found it on. Production then seeded the bare label, searched it as
+ *  written, read nothing that answers it and never opened the winner at all: "fact check of the hub page: failed, 0 banked; the answer is still owed", twice, after which the row owed an input nothing could supply. On the captured
+ *  rows the same shape: the hub's outline names three kinds of people, the page winning its search names a fourth, and that fourth is what the row is waiting on. */
+describe("the subject the winning page carries and this page does not", () => {
+  const SUBJECT = "Scientists", RIVAL = "https://en.wikipedia.org/wiki/List_of_Iranians";
+  const SAYS = "Famous Iranians who worked as scientists are listed here by the field each of them worked in, with the years they worked.";
+  /** The winner answers the body read the fact engine makes, in the provider's own content-parsing shape; everything else is the ordinary search script. */
+  const factScript = (state: { ready: boolean; posts: number; parsed: string[] }) => (path: string, payload: unknown) => {
+    if (path.startsWith("on_page/content_parsing")) { state.parsed.push(String((payload as { url?: string }[] | null)?.[0]?.url ?? ""));
+      return { body: { status_code: 20000, cost: 0.002, tasks: [{ status_code: 20000, result: [{ items: [{ page_content: { main_topic: [{ main_title: "List of Iranians", h_title: SUBJECT, primary_content: [{ text: SAYS }] }] } }] }] }] } }; }
+    return searchScript(state)(path); };
+  it("15: the missing subject is researched in the frame of the row's own search, from the winner that carries it, in one acquisition that buys no search, and what it banks is evidence the writer it then hires may stand on", async () => {
+    seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
+    const state = { ready: true, posts: 0, parsed: [] as string[] }; script.search = factScript(state);
+    script.reasoning = (body) => reasoningReply({ ...REASONING, fact_claim_extraction: { statements: [] },
+      fact_claim_judgement: { verdict: "page_correct", proposed: SAYS, confidence: "confirmed", note: "", supporting: [{ url: RIVAL, quote: SAYS, supported: true, supportSpan: SAYS, subjectSpan: `${QUERY} ${SUBJECT}`, subjectFrom: "quote", relationSpan: "", meaningSpans: [] }],
+        subjects: [{ url: RIVAL, sameEntity: true, language: "English", script: null, why: "the article covers the people this subject is about" }] } }, body);
+    const need = { key: `${HUB}::body::${QUERY}`, kind: "factual_source", query: `${SUBJECT} ${QUERY}`, url: `https://${SITE}${HUB}`, missingTopic: SUBJECT, rivalUrl: RIVAL, rank: 1,
+      reasonCode: "missing_information", reason: `nothing checked on file answers "${SUBJECT}"`, workKey: `${HUB}::body::${QUERY}::wc5::e1`, unlocks: { proposalId: `${T}::${HUB}::existing_edit::demand_recovery`, step: "draft" } };
+
+    const run = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need] });
+
+    const mine = acquisitions(run).filter((a) => a.kind === "factual_source");
+    expect([mine.length, mine[0]?.outcome, state.parsed, state.posts],
+      "one acquisition serves the row: the winner the requirement named is the one page read for it, and no results page is bought to rediscover a page the row already names").toEqual([1, "unlocked", [RIVAL], 0]);
+    const banked = table("page_source_facts").filter((r) => String(r.subject ?? "").toLowerCase().includes(SUBJECT.toLowerCase()));
+    expect([banked.length, banked[0]?.subject, banked[0]?.claim_state, banked[0]?.proposed, (banked[0]?.sources as { url: string }[] | undefined)?.map((x) => x.url)],
+      "and what is banked is the missing subject carried in the frame of the search the row is about, answered in the winner's own words with the winner named behind it").toEqual([1, `${QUERY} ${SUBJECT}`, "checked", SAYS, [RIVAL]]);
+    const held = await readFactChecks(T), body = (await loadOwnedPageBodies(T, [`https://${SITE}${HUB}`])).get(canonicalUrlKey(`https://${SITE}${HUB}`))!;
+    const version = pageHashOf([body.title, body.h1, ...(body.headings ?? []), ...(body.passages ?? [])].filter(Boolean).join("\n"));
+    expect([authorizedCorrections(held, { pageContentHash: version, evidenceBasis: await resolveCurrentBasis(T) }, T).map((f) => f.subject), reasoningAsked.some((a) => a.kind === "atomic_edit"), reasoningAsked.filter((a) => a.kind === "atomic_edit").some((a) => /\bfact-1\b/.test(a.ask) && a.ask.includes(SAYS))],
+      "the fact stands against the page as this drive read it and under the basis the drafting pass works in, so it is evidence a writer's packet may carry under a fact-* id; the row's next step on this same drive is that writer; and the writer hired for this hub page is handed that fact under fact-1 in the winner's own words (journey review, 2026-09-06: the editor the bundle producer hires was handed sibling passages alone)").toEqual([[`${QUERY} ${SUBJECT}`], true, true]);
   });
 });
 

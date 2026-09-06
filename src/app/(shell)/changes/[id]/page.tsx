@@ -104,7 +104,7 @@ function SetAsideDetail({ unreadable }: { unreadable: boolean }) {
         <p className="text-[13px] leading-relaxed text-muted-foreground">
           {unreadable
             ? "Which of your saved ideas still hold could not be confirmed just now, so no unbacked copy is handed over. Beacon is checking again automatically, and every change that stands is ranked on Changes."
-            : "The bar for what counts as worth your time went up, and this idea no longer clears it, so no copy without evidence behind it is handed over. Your pages are still being checked, and every change that earns its place is ranked on Changes."}
+            : "This one was skipped, or it is no longer offered, so no copy is handed over from here. Your pages are still being checked, and every change that stands is ranked on Changes."}
         </p>
         <Link href="/changes" className="inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2">
           See the work that stands now

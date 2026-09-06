@@ -1,6 +1,5 @@
 /** decision/validate-proposal (CORE 100K decision kernel): the ONE validator every ChangeProposal passes through before it can be shown as actionable. It composes the existing, battle-tested safety gates into a single verdict, so there is exactly one place that decides "is this draft safe to put in front of a paying operator": - draft-quality.ts (evaluateTitleMetaQuality) covers generic/thin/off-topic/relevance/missing-source/source-authority. - factual-entailment.ts (checkFactualEntailment): an invented number or entity with no grounding is a VIOLATION and rejects the draft; a dated, sourced contradiction of the page is an allowed CORRECTION (surfaced, not blocked). - placeholder-detection.ts (looksLikePlaceholder): "[insert X]" / lorem. - copy-sanitize.ts (containsUuid, plus the SHARED host, autopublish and written-out proportion nets this file used to keep a smaller private copy of: it knew thirteen public suffixes where the drafter knew thirty-three, so an invented .wiki address passed both). - dash ban: no em or en dash ever reaches operator-facing copy. - destructive-change guard: an "edit" that guts the current value (empties it or truncates it to a fraction) is never presented as a safe rewrite. The verdict is the ONE answer: `ready` and `needs_review` are the stages a draft may earn, and `rejected` earns none at all, so that draft is withdrawn rather than staged. PURE, no I/O. */
 
-import { CURRENT_CLAIM } from "@/lib/constants";
 import {
   evaluateTitleMetaQuality,
   type DraftQualityResult,
@@ -40,7 +39,7 @@ const MISSING_PAGE = /\bI do not hold this page's (?:full body text|own words|ow
  * ask exactly the same questions. Every one of these shipped to a paying operator on one live change: a cause
  * citing a comparison the receipt never carried, a page both held and not held in the same card, a dangerous merge filed as a medium risk, and a June reading described as what the page says today. PURE.
  */
-export function receiptIntegrityFailures(proposal: ChangeProposal, now: Date = new Date()): string[] {
+export function receiptIntegrityFailures(proposal: ChangeProposal): string[] {
   const bundle = proposal.bundle;
   if (!bundle) return [];
   const out: string[] = [];
@@ -59,27 +58,9 @@ export function receiptIntegrityFailures(proposal: ChangeProposal, now: Date = n
   if (danger && proposal.riskLevel !== "high") out.push("This change moves or hides a page and it is filed as something lighter than that, so it stays held rather than offered.");
   // STEP TWO OF THE TWO-STEP HOLD, ASKED ON EVERY READ. `ready` on a change that moves or hides a page used to be unreachable and therefore unforgeable, which also meant no redirect, merge, canonical or de-index could ever become work an operator was allowed to make. It is reachable now, through one confirmation of one exact version, and this is where that yes is checked rather than trusted: the stamp on the row must still name the version on the row. An edit to the copy, the pieces, the destination, the risk grade, the evidence or the basis moves the version, the stamp goes stale, and the change falls back behind the hold instead of standing ready on a yes given to other words.
   if (danger && proposal.status === "ready" && proposal.confirmedVersion !== confirmedVersion(proposal)) out.push("This change moves or hides a page and it has changed since you confirmed it, so it stays held until you read it again.");
-  // A READING IS CURRENT ONLY IF IT WAS TAKEN TODAY, and an UNDATED reading is not current either: skipping the
-  // undated ones let the one line that carries no date say "today" and mean whenever it was last collected.
-  const day = now.toISOString().slice(0, 10);
-  for (const item of items) {
-    const read = (item.observedAt ?? "").slice(0, 10);
-    if (read === day || !CURRENT_CLAIM.test(item.fact)) continue;
-    out.push(read ? `A reading taken on ${read} is offered here as what this page says today, so it stays held rather than offered.`
-      : "A reading with no date on it is offered here as what this page says today, so it stays held rather than offered.");
-  }
+  // A READING'S OWN DATE IS SAID, NOT HELD (owner's editorial policy, 2026-09-06). A receipt line offering a dated reading as what the page says today used to refuse the whole row here, and at the queue's door it took the change out of sight entirely, which buys nothing and hides finished work. The ONE readiness verdict names the date on the card as an advisory instead; a stale fact that CONTRADICTS a checked source is still a defect, and the canon's entailment is what catches it.
   return [...new Set(out)];
 }
-
-/** A receipt is a set of READINGS, and a reading goes out of date. Past this a stored change proves nothing
- *  current: the basis stamp only moves when the ACCOUNT changes, so without this a change stayed Ready forever
- *  on a profile nobody had edited. `proposalFingerprint` already carries each item's key, fact and date, so a
- *  redraft off moved evidence writes a new version; this is the half for the change nobody redrafts at all. */
-const EVIDENCE_VALID_DAYS = 30;
-
-/** The account half of a basis stamp is everything before the kernel's own ::dN generation suffix. */
-const sameAccountBasis = (a: string | null | undefined, b: string): boolean =>
-  a != null && a.replace(/::d\d+$/, "") === b.replace(/::d\d+$/, "");
 
 /**
  * THE ONE ANSWER EVERY DOOR ASKS about a stored change, so a direct link can never render what the ranked list refuses and no mutation can land on a change the screen would not show. It composes the row's own
@@ -90,46 +71,11 @@ const sameAccountBasis = (a: string | null | undefined, b: string): boolean =>
 export function actionableProposalFailures(
   p: ChangeProposal, ctx: { tenantId: string; currentBasis: string | null; now?: Date },
 ): string[] {
-  const now = ctx.now ?? new Date();
-  const out = [...receiptIntegrityFailures(p, now)];
+  const out = [...receiptIntegrityFailures(p)];
   if (p.tenantId !== ctx.tenantId) out.push("This change was drafted for another account, so it stays held rather than offered.");
-  // THE GENERATION SUFFIX IS THE KERNEL'S CLOCK, NOT THE ACCOUNT'S. A basis is the account's own fingerprint
-  // plus ::dN, and bumping N used to set aside every standing row wholesale: 85 real opportunities the account
-  // had already paid to find left the queue because the RULES improved, not because any check failed. The
-  // account half still gates hard; the generation half hands the verdict to the checks themselves, which all
-  // run right here and below, so an old row that clears today's bar rejoins and one that fails is refused for
-  // the failure, named in words, never for its birthday.
-  if (ctx.currentBasis == null || !sameAccountBasis(p.basis, ctx.currentBasis)) out.push("The bar for what counts as worth your time has risen and this one no longer clears it, so it stays held rather than offered.");
+  // THE BAR THAT ROSE IS DELETED, AND THE COLD-READING WINDOW WITH IT (owner's editorial policy, 2026-09-06). A basis stamp moving, and a receipt older than thirty days, each took a whole standing row out of the queue without a word about the work: 85 real opportunities the account had already paid to find left on a generation bump, and a change whose evidence had simply aged left on a clock. Neither is one of the eight defects Beacon must fix, so what remains here is exactly that: whose change this is, whether its own receipt holds together, and whether anybody is still being asked. Worth is the ranking's job and the reading's date is a caveat the card carries.
   if (p.status !== "ready" && p.status !== "needs_review") out.push("This one is not waiting on you any more, so it stays held rather than offered.");
-  if (staleReadings(p, now)) {
-    out.push("The readings behind this change are too old to stand on now, so they are taken again before it is offered.");
-  }
   return [...new Set(out)];
-}
-
-/** PURE: the newest of these readings, or null when none of them carries a date at all. An undated reading is
- *  not a fresh one and not a stale one either: it is a figure with no clock on it (a 90 day total, a pattern
- *  across a results page), so it neither keeps a component alive nor kills it. */
-const newestReading = (items: readonly { observedAt: string | null }[]): number | null => {
-  const read = items.map((i) => Date.parse(i.observedAt ?? "")).filter((t) => Number.isFinite(t));
-  return read.length > 0 ? Math.max(...read) : null;
-};
-
-/** IS THIS CHANGE STANDING ON COLD READINGS? PER COMPONENT, because a receipt is mixed by design and the whole receipt's freshest date is not any one component's evidence: ONE AI answer taken this morning kept a body rewrite alive on a page nobody had read in two months and a results page nobody had checked since. A component is fresh only if the items ITS OWN evidenceKeys cite are inside the window, and the change is only as fresh as its coldest component, because the operator applies all of them together. A proposal with NO BUNDLE has no receipt to read, so it ages on ITS OWN CLOCK: it was drafted from evidence that day and nothing has re-derived it since. It used to be seeded with `now` and could never expire at all, which left an atomic change Ready forever on a profile nobody had edited. */
-function staleReadings(p: ChangeProposal, now: Date): boolean {
-  const floor = now.getTime() - EVIDENCE_VALID_DAYS * 86_400_000;
-  const receipt = p.bundle?.receipt;
-  if (!receipt) { const drafted = Date.parse(p.createdAt ?? ""); return !Number.isFinite(drafted) || drafted < floor; }
-  const components = p.bundle?.components ?? [];
-  // A row carrying no component to ask (a legacy shape) still answers on the receipt as a whole rather than silently passing, and an empty receipt falls back to the one date the producer wrote beside it.
-  if (components.length === 0) return (newestReading(receipt.items.length ? receipt.items : [{ observedAt: receipt.freshestObservedAt }]) ?? -Infinity) < floor;
-  const byKey = new Map(receipt.items.map((i) => [i.key, i]));
-  const dates = components.map((c) => newestReading(c.evidenceKeys.map((k) => byKey.get(k)).filter((i) => !!i)));
-  // NOTHING DATED ANYWHERE ON THE RECEIPT still ages. Real receipt keys carry no observation date at all (the page's own demand, the diagnosis I wrote, the pattern the
-  // winners share), so per-component freshness on its own would have let a change whose every reading is undated stand for ever. It falls back to the day it was
-  // drafted, exactly as a change with no receipt does. One dated reading anywhere hands the verdict back to the components.
-  if (dates.every((d) => d == null)) { const drafted = Date.parse(p.createdAt ?? ""); return !Number.isFinite(drafted) || drafted < floor; }
-  return dates.some((d) => d != null && d < floor); // an undated component beside a dated one ages with the change, never against its sibling
 }
 
 type ProposalVerdict = "ready" | "needs_review" | "rejected";
@@ -460,7 +406,7 @@ export function validateProposal(
   // ── the component gate + the two-step hold ──────────────────────────────────
   const components = proposal.bundle?.components ?? [];
   const componentFails = [...componentFailures(components, opts.heldHeadings ?? []),
-    ...receiptIntegrityFailures(proposal, opts.now ?? new Date())];
+    ...receiptIntegrityFailures(proposal)];
   // THE TWO-STEP CONFIRMATION, in the one vocabulary this product already has: a dangerous component can never read as ready, it is held for the operator to look at
   // and then act. There is no second flag and no second lifecycle.
   const dangerous = dangerousComponents(components);

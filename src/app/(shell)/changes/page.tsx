@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { requireReadyAccount } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
 import { PageHeader } from "@/components/data/page-header";
-import { loadChangesView, setAsideHint, type ChangesView } from "../changes-data";
+import { loadChangesView, type ChangesView } from "../changes-data";
 import { ChangesListClient } from "../changes-list-client";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { checkedAgoLabel } from "@/components/data/receipt-line";
@@ -44,19 +44,17 @@ function QueueSlot({ view, researchPaused = false }: { view: ChangesView; resear
         </div>
       );
     }
-    // A bar I could not READ is not a bar I raised, so that case says what actually happened.
+    // A ROW IS SERVED WHATEVER THE BAR SAYS (owner's editorial policy, 2026-09-06): the release keeps every row the account holds and judges each by the checks themselves, so an unreadable bar no longer empties the queue and the sentence that explained an emptied one is gone with it.
     if (view.demotedStaleBasis > 0) {
-      return view.basisUnreadable ? (
-        <HonestDelay message="Which of your saved ideas still hold could not be confirmed just now. Beacon is checking again automatically." />
-      ) : (
+      return (
         <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-6 text-[13px] leading-relaxed text-muted-foreground">
-          {setAsideHint()}<PausedLine paused={researchPaused} />
+          {view.readyZeroHint}<PausedLine paused={researchPaused} />
         </p>
       );
     }
     return (
       <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-6 text-[13px] leading-relaxed text-muted-foreground">
-        {setAsideHint()}{researchPaused ? <PausedLine paused /> : <>{" "}
+        {view.readyZeroHint}{researchPaused ? <PausedLine paused /> : <>{" "}
           <Link href="/settings/connectors" className="underline underline-offset-2">Connecting Google Search Console</Link>{" "}
           gets you there faster.</>}
       </p>
