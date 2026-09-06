@@ -201,14 +201,26 @@ describe("two audiences losing clicks on one page are two rows", () => {
     volume: null, serp: null, prompts: [], fanouts: [], winningPages: [], recoverableClicks: recoverable, tensions: [],
     audience: { impressions90d: 4000, aiAnswers: 0, lostClicksPerMonth: 90 }, seededBy: "search" as const });
   it.each(SITES)("$t: mints one row per lost audience, and the biggest loss keeps the row already on file", async (s) => {
-    const { demandRecoveryCards } = await import("@/domains/decision/producers/demand-recovery");
-    const preloaded = { units: [unit(s.small, 20, url(s)), unit(s.big, 60, url(s))], historyWindow: { earlyDays: 120, earlyFrom: "2026-04-01", earlyTo: "2026-07-01" } };
+    const { demandRecoveryCards } = await import("@/domains/decision/producers/demand-recovery"); const preloaded = { units: [unit(s.small, 20, url(s)), unit(s.big, 60, url(s))], historyWindow: { earlyDays: 120, earlyFrom: "2026-04-01", earlyTo: "2026-07-01" } };
     const both = await demandRecoveryCards({ tenantId: s.t, snapshot: snapshot(s, [page(s, [[s.big, 900]])]) as never, now: NOW, preloaded: preloaded as never });
     const alone = await demandRecoveryCards({ tenantId: s.t, snapshot: snapshot(s, [page(s, [[s.big, 900]])]) as never, now: NOW, preloaded: { ...preloaded, units: [unit(s.big, 60, url(s))] } as never });
     const base = `${s.t}::${s.path}::existing_edit::demand_recovery`;
     expect([both.cards.map((c) => c.id), both.cards.map((c) => c.primaryQuery), alone.cards.map((c) => c.id), new Set(both.cards.map((c) => footprintKey(c))).size],
       "the audience with the most recoverable clicks keeps the address the row already has whatever order the losses arrive in, the smaller one opens at its own, and the two write two different sections")
       .toEqual([[`${base}@${canon(s.small)}`, base], [s.small, s.big], [base], 2]);
+  });
+  /** A SETTLEMENT NOBODY READ THE WINNERS FOR IS NOT A SETTLEMENT, AND THE STORE'S OWN RECOMPUTE IS WHERE IT IS ASKED (production 09:03:46Z, 2026-09-06). Four hub rows were re-saved `terminal: no substantive gap named` by the release sweep on searches no results page had ever been bought for: the rule that answered lived at the walk, a terminal row is never funded, so it could not reach that door and the sweep wrote the settlement back every pass. The comparison rides the card as `winnersOnFile` and the ladder owns the rule, so the mint, the sweep's re-mint and the walk give one answer. */
+  it.each(SITES)("$t: a settled row whose winners nobody has read is re-minted owing that reading, and one whose winners were read and carry nothing stays settled", async (s) => {
+    const { demandRecoveryCards } = await import("@/domains/decision/producers/demand-recovery"), { preferFinished } = await import("@/domains/decision/completeness");
+    const W = `https://winner-${s.t}.example/page`, seen = (q: string) => ({ ...emptyResearchEvidence(), serpEvidence: [{ query: q, observedAt: null, organic: [{ rank: 1, url: W, domain: "winner.example", title: null }], aiOverview: [], aiMode: [], paa: [], related: [] }],
+      winningPages: [{ url: W, domain: "winner.example", engines: [], examplePrompts: [], appearances: [{ query: q }], extract: { title: "W", h1: null, wordCount: 900, headings: [], faqCount: 0, entityNames: [], mainText: s.passage, truncated: false, heldChars: 40, totalChars: 40 } }] });
+    const mint = async (on: string | null): Promise<ChangeProposal> => (await demandRecoveryCards({ tenantId: s.t, now: NOW, snapshot: { ...snapshot(s, [page(s, [[s.big, 900]])]), research: on == null ? emptyResearchEvidence() : seen(on) } as never,
+      preloaded: { units: [{ ...unit(s.big, 60, url(s)), vocabulary: [s.big, s.small], ...(on == null ? {} : { serp: { winners: [], paa: [], related: [], observedAt: null } }) }], historyWindow: { earlyDays: 120, earlyFrom: "2026-04-01", earlyTo: "2026-07-01" } } as never })).cards[0]!;
+    const owes = { kind: "evidence", need: { kind: "serp", query: s.big, reasonCode: "no_winner_to_read" } }, stands = { kind: "terminal", reason: "no substantive gap named" };
+    const nothing = await mint(null), sibling = await mint(s.small), own = await mint(s.big), settled = (c: ChangeProposal): ChangeProposal => ({ ...c, researchOnly: true, obligation: stands as never });
+    expect([[nothing.winnersOnFile, sibling.winnersOnFile, own.winnersOnFile], nextObligation(preferFinished(nothing, settled(nothing))), nextObligation(preferFinished(sibling, settled(sibling))), nextObligation(preferFinished(own, settled(own))), nextObligation(preferFinished({ ...nothing, winnersOnFile: undefined }, settled(nothing)))],
+      "the mint says what is on file for THIS row's own search: nothing at all, a results page for a sibling phrasing of the group whose winner joins no comparison this row will ever see, or a page winning this very search read whole. The sweep re-mints the settled row through that same comparison and the store's own recompute turns the first two settlements into the one reading they owe, while the third keeps its honest refusal, and a row no producer ever stamped is left exactly as it was because absent decides nothing")
+      .toEqual([["none", "unread", "read"], owes, owes, stands, stands]);
   });
 });
 

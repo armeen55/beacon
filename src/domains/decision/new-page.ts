@@ -51,8 +51,7 @@ const norm = (s: string): string => s.trim().replace(/\s+/g, " ").toLowerCase();
 /** What the pages that win here ARE, in words an operator reads. */
 const SHAPE: Record<string, string> = { informational_guide: "a guide that explains the subject", list: "a list", definition: "a short definition",
   comparison: "a comparison", product: "a product page", category: "a category page", tool: "a tool people use", forum: "a discussion thread" };
-/** NO SCHEMA IS DERIVED: recommending Article or FAQPage off the draft's own shape is a guess wearing a
- *  standard's name. Structured data returns when the evidence speaks to eligibility. */
+/** NO SCHEMA IS DERIVED: recommending Article or FAQPage off the draft's own shape is a guess wearing a standard's name. Structured data returns when the evidence speaks to eligibility. */
 /** Any written figure: a count, a money amount, a percentage, a year. */
 const FIGURE_RE = /\d[\d,.]*%?/g;
 /** The verdict's receipt ids that came from the winning-page pattern, and only those: the rest of its
@@ -272,17 +271,10 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   // THE OPENING IS A PIECE OF THIS PAGE LIKE ANY OTHER, and the first thing a reader and an assistant lift: a brief's own sentence is nobody's ruled claim, so it is written and read here rather than shipped on the strength of the plan that asked for it. No opening, no page.
   const first = await write(v.proposedTitle, `Answer "${inv.label}" outright in the first lines a reader sees. The team already drafted this opening: "${v.openingAnswer}". Verify it against the evidence and refine it to fit.`);
   if (first) { v.openingAnswer = first.after; pieces.push(first); }
-  for (const s of v.sections) {
-    if (!first) break; // ONE BUDGET LINE, NOT TWO: the canonical editor decrements the pass's own allowance before every charged call and refuses on it, so the extra bookkeeping decrement this loop used to make for the second drafter now just burns a call nobody spends. An exhausted budget leaves a partial draft, which the shortfall check below refuses whole.
-    const done = await write(s.heading, s.covers);
-    if (!done) break;
-    written.push(`${(done.heading ?? s.heading).trim()}\n\n${done.after}`.replace(/[–—]/g, " ")); pieces.push(done);
-  }
-  if (written.length < outline.length) {
-    const owed = outline.slice(written.length);
-    log.warn("[new-page] partial draft, nothing proposed", { tenantId, topicKey: inv.key, owed: owed.length });
-    return { status: "none", reason: `${num(written.length)} of the ${num(outline.length)} sections this page needs are written and ${num(owed.length)} ${owed.length === 1 ? "is" : "are"} still owed: ${owed.join(", ")}. Part of a page is not worth handing over. Ask again and it picks up where it stopped: what is already written costs nothing a second time.` };
-  }
+  for (const s of v.sections) { if (!first) break; // ONE BUDGET LINE, NOT TWO: the canonical editor decrements the pass's own allowance before every charged call and refuses on it, so the extra bookkeeping decrement this loop used to make for the second drafter now just burns a call nobody spends. An exhausted budget leaves a partial draft, which the shortfall check below refuses whole.
+    const done = await write(s.heading, s.covers); if (!done) break; written.push(`${(done.heading ?? s.heading).trim()}\n\n${done.after}`.replace(/[–—]/g, " ")); pieces.push(done); }
+  if (written.length < outline.length) { const owed = outline.slice(written.length); log.warn("[new-page] partial draft, nothing proposed", { tenantId, topicKey: inv.key, owed: owed.length });
+    return { status: "none", reason: `${num(written.length)} of the ${num(outline.length)} sections this page needs are written and ${num(owed.length)} ${owed.length === 1 ? "is" : "are"} still owed: ${owed.join(", ")}. Part of a page is not worth handing over. Ask again and it picks up where it stopped: what is already written costs nothing a second time.` }; }
 
   // ── one bundle: the pieces to paste, and everything they rest on ──
   const schemaTypes: string[] = []; // NO SCHEMA IS DERIVED (see above): none, not a guess.

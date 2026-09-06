@@ -7,6 +7,7 @@ vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) }));
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "t", domain: "alpha.example", growth_goal: null }), basisTag: () => "basis_test" }));
 import { buildNewPageProposal } from "@/domains/decision/new-page";
+import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import { openHold } from "@/domains/decision/completeness";
 import { nextObligation } from "@/domains/decision/obligation";
 import { proposalFingerprint, saveChangeProposal } from "@/domains/decision/proposal-store";
@@ -78,6 +79,18 @@ describe("the injected new-page contract, end to end", () => {
     expect([await saveChangeProposal(page), db.rows.length], "and a second unchanged pass writes nothing at all: one row, byte for byte the row already on file").toEqual(["unchanged", 1]);
     const again = await buildNewPageProposal(decided(s), s.t, { complete: seam(s).complete as never, now: new Date("2026-09-05T09:00:00.000Z") });
     expect(proposalFingerprint(again.status === "built" ? again.proposal : page), "a second build of the same verdict hashes to the same work, so nothing re-derived re-writes the row").toBe(proposalFingerprint(page));
+  });
+
+  /** A PIECE OF THIS PAGE GOT ONE ATTEMPT AND NO CORRECTION (production, topic inv_3446de602284, 2026-09-06). Every piece here goes through the ONE canonical editor, but only the existing-page caller ran its corrective rounds, so any refusal at all discarded the piece with the writer never told what the gate objected to, and a refused OPENING broke the section loop before it began: the account's highest ranked job spent 3 of its 12 funded calls on every pass and filed "0 of the 4 sections this page needs are written and 4 are still owed" for ever. */
+  it.each(SITES)("buys a refused piece the corrective round the policy already prices, tells it the exact objection, and stops at that number, on $t", async (s) => {
+    const flaky = (fails: (heading: string) => number) => { const wrote: string[] = [], seen = new Map<string, number>(); return { wrote, complete: async ({ kind, user }: { kind: string; user: string }) => {
+        if (kind === "new_page_brief") return { value: brief(s) as never }; if (kind === "editor_judgement") return { value: { ...RULED, notes: `It answers "${s.label}".`, claims: [{ i: 0, by: ["owned-page-1"], entailed: true }] } as never };
+        wrote.push(user); const head = (user.match(/Write the section headed "(.*?)"/) ?? [])[1] ?? s.title, nth = (seen.get(head) ?? 0) + 1; seen.set(head, nth); const good = section(s, user); return { value: (nth <= fails(head) ? { ...good, claims: [{ text: good.claims[0]!.text, supportedBy: ["an-id-nobody-banked"] }] } : good) as never }; } }; };
+    db.rows = []; const once = flaky((h) => (h === s.title ? 1 : 0)), built = await buildNewPageProposal(decided(s), s.t, { complete: once.complete as never, now: NOW }); const never0 = flaky((h) => (h === s.heads[2] ? 99 : 0)), stuck = await buildNewPageProposal(decided(s), s.t, { complete: never0.complete as never, now: NOW });
+    const asks = (w: string[], head: string): string[] => w.filter((u) => u.includes(`Write the section headed "${head}"`)); // the opening is written under the page's own title, every section under its own heading
+    expect([built.status, built.status === "built" && (built.proposal.recommendedChange.kind === "new_page" ? built.proposal.recommendedChange.outline : []), asks(once.wrote, s.title).length, asks(once.wrote, s.title)[1]?.includes("an-id-nobody-banked"), stuck.status, stuck.status === "none" && stuck.reason.includes(s.heads[2]!), asks(never0.wrote, s.heads[2]!).length],
+      "an opening refused once is written on the round the twelve-call price already pays for, so the sections behind it are written and the whole page is handed over instead of nothing; the corrective round is handed the gate's own objection rather than asked again; and a piece that will not write stops at one attempt plus the retries the policy prices, leaving the honest sentence naming what is still owed")
+      .toEqual(["built", [...s.heads], 2, true, "none", true, 1 + DRAFT_BUDGET.RETRIES]);
   });
 
   it.each(SITES)("hands over no part of a page when a planned section will not write, and names what is still owed, on $t", async (s) => {

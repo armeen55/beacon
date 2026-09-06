@@ -14,7 +14,7 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { loadCanonicalDemandUnits } from "@/domains/evidence/demand-unit-loader";
-import { canonicalQueryKey } from "@/domains/evidence/relevance-gate"; import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
+import { canonicalQueryKey } from "@/domains/evidence/relevance-gate"; import { canonicalUrlKey, jobWinners, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import type { TenantCtrCurve } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import type { CauseFinding } from "@/domains/decision/diagnosis";
@@ -100,7 +100,7 @@ export async function demandRecoveryCards(input: { tenantId: string; snapshot: E
     const { units, historyWindow } = input.preloaded ?? await loadCanonicalDemandUnits(tenantId, snapshot, input.curve, now);
     // UNDER A MONTH OF PRE-WINDOW HISTORY, THIS PRODUCER SAYS SO AND MINTS NOTHING: a loss needs a before.
     if (historyWindow.earlyDays < 30) return { ...none, complete: true, window: historyWindow };
-    const owned = new Set(snapshot.ownedPages.map((p) => canonicalUrlKey(p.url)));
+    const owned = new Set(snapshot.ownedPages.map((p) => canonicalUrlKey(p.url))); /** HAS ANYBODY READ WHAT WINS THIS AUDIENCE'S SEARCHES, asked ONCE here off the unit's own group and stamped on the card, because the obligation ladder is pure and holds no snapshot (production 09:03:46Z, 2026-09-06). `read` is a winner of some phrasing of this group read whole; `unread` is a results page on file for the group with nothing off it read; `none` is no results page ever bought for any phrasing and no winner joined at all, which is one unbought reading and never a reason to settle. Refreshed on every re-mint, so the day a reading lands the stamp moves with it. */ const winnersFor = (u: { label: string; vocabulary: readonly string[]; serp: unknown }): "none" | "unread" | "read" => jobWinners(snapshot.research, [u.label]).some((w) => (w.extract?.wordCount ?? 0) > 0) ? "read" : u.serp != null || jobWinners(snapshot.research, [u.label, ...u.vocabulary]).length > 0 ? "unread" : "none"; /* READ IS ASKED OF THE SEARCH THIS ROW IS WORKED FOR, never of the union (measured against evidence/comparison's own call, which passes this one phrasing wherever no gap names others): a winner that ranks under a SIBLING phrasing joins no comparison this row will ever see, so counting it as read is how three rows were settled on winners nobody had read for them. The wider group decides only whether anything at all is on file, which separates an unbought reading from one that is bought and not yet read; both owe the same results page, and only `read` settles. */
     const lost = units.filter((u) => (u.history?.lostClicksPerMonth ?? 0) >= MIN_LOST_PER_MONTH);
     const losses = lost.slice(0, 20).map((u) => ({ unit: u.label, lostPerMonth: u.history!.lostClicksPerMonth,
       priorPage: u.history!.priorTopPage, currentPage: u.history!.currentTopPage, swapped: u.history!.pageSwapped }));
@@ -138,7 +138,7 @@ export async function demandRecoveryCards(input: { tenantId: string; snapshot: E
           : "If Google shows the new line and the click rate does not move, the wording was not the cause.",
       };
       cards.push({
-        id, tenantId, kind: "existing_edit",
+        id, tenantId, kind: "existing_edit", winnersOnFile: winnersFor(u),
         pagePath: path, pageUrl: home, pageLabel: path, primaryQuery: u.label,
         // THE HEADLINE NEVER SELLS THE HISTORICAL LOSS AS WIN-BACK (operator, 2026-08-17): the lost figure is
         // labeled lost, and the only number offered as recoverable is the current window's own shortfall.
