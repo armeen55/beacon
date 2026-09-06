@@ -14,15 +14,15 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { loadCanonicalDemandUnits } from "@/domains/evidence/demand-unit-loader";
-import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
+import { canonicalQueryKey } from "@/domains/evidence/relevance-gate"; import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import type { TenantCtrCurve } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import type { CauseFinding } from "@/domains/decision/diagnosis";
 
 /** Lost clicks per month before a unit is worth a card, and how many cards one pass mints. */
 const MIN_LOST_PER_MONTH = 20, MAX_CARDS = Number.MAX_SAFE_INTEGER; // the count meter is DELETED (operator, 2026-08-30): every unit above the loss floor gets its card
-/** Positions slipped before the decline is a ranking loss, and the CTR fall that names the snippet. */
-const POSITION_SLIP = 2, CTR_FALL = 0.4;
+/** Positions slipped before the decline is a ranking loss, the CTR fall that names the snippet, and how many sections one page may be asked for in one pass. */
+const POSITION_SLIP = 2, CTR_FALL = 0.4, MAX_BODY_CARDS = 2;
 
 const pathOf = (url: string): string => {
   try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return url; } };
@@ -105,11 +105,17 @@ export async function demandRecoveryCards(input: { tenantId: string; snapshot: E
     const losses = lost.slice(0, 20).map((u) => ({ unit: u.label, lostPerMonth: u.history!.lostClicksPerMonth,
       priorPage: u.history!.priorTopPage, currentPage: u.history!.currentTopPage, swapped: u.history!.pageSwapped }));
     const cards: ChangeProposal[] = [];
+    /* ONE PAGE IS A CONTAINER OF ATOMIC OPPORTUNITIES (Product Truth, one page is never one opportunity; campaign, 2026-09-05). Every card here was named after its PAGE alone, so two audiences losing clicks on one page wore ONE row id: the dedupe behind this producer kept the larger and dropped the rest, and while that loss stood unimplemented every smaller one on the page was invisible. The page's largest recoverable loss KEEPS THE ID IT ALWAYS HAD, which is the row already on file, and each one behind it carries its own canonical search key after "@", the way a link card carries its destination. Two sections a page a pass, because a third writes a slot the store already holds; the line searchers read is ONE mutation however many audiences ask for it, so a page is asked for one of those and no more. */
+    const seats = new Map<string, string>(); { const per = new Map<string, { taken: boolean; bodies: number; title: boolean }>();
+      for (const u of [...lost].sort((a, b) => b.recoverableClicks - a.recoverableClicks || a.label.localeCompare(b.label))) { const at = u.history!.currentTopPage ?? u.history!.priorTopPage; if (!at || !owned.has(canonicalUrlKey(at))) continue;
+        const page = pathOf(at).toLowerCase(), key = canonicalQueryKey(u.label), seat = `${page}::${key}`, held = per.get(page) ?? { taken: false, bodies: 0, title: false }, title = decompose(u.history!, u.serp != null).field === "title";
+        if (seats.has(seat) || (title ? held.title : held.bodies >= MAX_BODY_CARDS)) continue; // one mutation, one card: a second audience whose search names the same words is the same section, and the page's line is written once
+        seats.set(seat, `${tenantId}::${page}::existing_edit::demand_recovery${held.taken ? `@${key}` : ""}`); per.set(page, { taken: true, bodies: held.bodies + (title ? 0 : 1), title: held.title || title }); } }
     for (const u of lost.slice(0, MAX_CARDS)) {
       const h = u.history!;
       const home = h.currentTopPage ?? h.priorTopPage;
       if (!home || !owned.has(canonicalUrlKey(home))) continue;
-      const path = pathOf(home);
+      const path = pathOf(home); const id = seats.get(`${path.toLowerCase()}::${canonicalQueryKey(u.label)}`); if (!id) continue; // the page's seats are decided above, in one order, so no ordering of the source rows can flip which audience holds which row
       const d = decompose(h, u.serp != null);
       const phrasings = u.vocabulary.slice(0, 6).map((v) => `"${v}"`).join(", ");
       const windowLine = `${historyWindow.earlyFrom} to ${historyWindow.earlyTo}`;
@@ -132,7 +138,7 @@ export async function demandRecoveryCards(input: { tenantId: string; snapshot: E
           : "If Google shows the new line and the click rate does not move, the wording was not the cause.",
       };
       cards.push({
-        id: `${tenantId}::${path.toLowerCase()}::existing_edit::demand_recovery`, tenantId, kind: "existing_edit",
+        id, tenantId, kind: "existing_edit",
         pagePath: path, pageUrl: home, pageLabel: path, primaryQuery: u.label,
         // THE HEADLINE NEVER SELLS THE HISTORICAL LOSS AS WIN-BACK (operator, 2026-08-17): the lost figure is
         // labeled lost, and the only number offered as recoverable is the current window's own shortfall.
