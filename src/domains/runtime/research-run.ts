@@ -76,6 +76,8 @@ export type ResearchRunProgress = {
     checksDone?: number; checksTotal?: number; checksAnswers?: number; checksUnavailable?: number; checksUnsupported?: number;
     /** The frozen plan's topics: readable now, and waiting on a promised date. */
     casesActive?: number; casesParked?: number;
+    /** THE WINNER-READ RECEIPT THE SAME due-work READ PRODUCED, carried here so a surface can say it: `winnersUnread` is winners already on file whose page nobody has read, `winnersUnranked` is the pages of the searches the next pass will rank and read. Null is UNREADABLE, never a zero, and a surface says nothing at all on either. */
+    winnersUnread?: number | null; winnersUnranked?: number | null;
     /** The earliest date something waiting becomes legal again, when everything is waiting. */
     nextDueAt?: string | null;
     /** The pause vocabulary, persisted beside the numbers it explains. */

@@ -54,8 +54,8 @@ export type ResearchRunStatusView = {
   /** The earliest date a promised retry becomes legal, straight off the persisted row. */
   nextDueAt?: string | null;
   sourcesStale?: string | null; /** THE ONE SENTENCE A CONNECTOR THAT WOULD NOT SYNC OWES THE OPERATOR, carried off the pass receipt so a surface built on a stale source says so where that source's own last-synced time is printed. A connector failure stopped ending the drive on 2026-09-05 and the debt it left reached nobody: it was recorded and nothing read it. Null when every connected source synced. */
-  /** The frozen plan's topics as the run last persisted them. */
-  cases?: { active: number; parked: number };
+  /** The frozen plan's topics as the run last persisted them, and the pages winning a search this account already bought that the next pass still owes a reading of. Absent means the count could not be read, and unknown never becomes a zero on a surface. */
+  cases?: { active: number; parked: number }; winnersOwed?: number;
   /** IS THE RESEARCH ALIVE, and what did the last of it actually produce. A surface reading counters alone
    *  cannot tell a quiet day from an account nothing has run for in a week: both render an empty string. */
   liveness?: { state: "productive" | "quiet" | "interrupted" | "silent"; line: string };
@@ -189,7 +189,7 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
     sourcesStale: run.progress?.sourcesStale ?? null, // straight off the receipt the pass wrote; a debt that cleared wrote null there, so nothing here can leave a stale claim standing
     ...(typeof persisted.casesActive === "number" || typeof persisted.casesParked === "number"
       ? { cases: { active: persisted.casesActive ?? 0, parked: persisted.casesParked ?? 0 } }
-      : {}),
+      : {}), ...(typeof persisted.winnersUnranked === "number" ? { winnersOwed: persisted.winnersUnranked } : {}),
     stepsDone: stepsDoneForPhase(run.current_phase),
     stepsTotal: RESEARCH_RUN_STEPS_TOTAL,
     counters,

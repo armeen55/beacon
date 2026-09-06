@@ -1,11 +1,6 @@
 import "server-only";
 
-/**
- * funnel/normalize (integrity closure, Agent B) - the PURE broad-then-narrow core: keyword normalize +
- * dedupe, deterministic relevance/constraint/junk filters with a bounded reject taxonomy, a thin mapper
- * from the registry's typed ParsedKeywordItem onto the funnel row, and winning-page ranking that
- * preserves TRUE per-appearance provenance. No I/O, no envelope-poking, never throws.
- */
+/** funnel/normalize (integrity closure, Agent B) - the PURE broad-then-narrow core: keyword normalize + dedupe, deterministic relevance/constraint/junk filters with a bounded reject taxonomy, a thin mapper from the registry's typed ParsedKeywordItem onto the funnel row, winning-page ranking that preserves TRUE per-appearance provenance, and the ONE rule that says which searches a pass owes a page reading for. No I/O, no envelope-poking, never throws. */
 
 import { GEMINI_WRAPPER_HOST } from "@/domains/evidence/competitor-intel/polite-fetch";
 import type { ParsedKeywordItem } from "@/domains/evidence/dataforseo/funnel-boundary";
@@ -398,15 +393,12 @@ function dedupeAppearances(appearances: ResearchWinningAppearance[]): ResearchWi
   return out;
 }
 
-/** Exact-query winners per FOCUSED CASE: THREE DISTINCT PUBLISHERS, the floor a comparison needs, plus
- *  TWO deeper distinct publishers held as standbys. Reserving by URL let one publisher hold two of the
- *  three slots (two wikipedia.org pages are ONE source), so a topic could never clear its own
- *  three-publisher bar by arithmetic. The reserve is taken BEFORE the global order is consulted at all;
- *  the standby bench is bounded on its own. */
+/** Exact-query winners per FOCUSED CASE: THREE DISTINCT PUBLISHERS, the floor a comparison needs, plus TWO deeper distinct publishers held as standbys. Reserving by URL let one publisher hold two of the three slots (two wikipedia.org pages are ONE source), so a topic could never clear its own three-publisher bar by arithmetic. The reserve is taken BEFORE the global order is consulted at all; the standby bench is bounded on its own. */
 const PRIORITY_WINNERS_PER_QUERY = 3, PRIORITY_STANDBYS_PER_QUERY = 2;
+/** HOW MANY NEVER-RANKED SEARCHES ONE PASS RESERVES FOR, and therefore the only searches a receipt may promise pages of. */
+const OWED_SEARCHES_PER_PASS = 3;
 
-/** The best organic rank this candidate holds for ONE exact query (null = none).
- *  Organic means a real page I can go and read, which is what a comparison needs. */
+/** The best organic rank this candidate holds for ONE exact query (null = none). Organic means a real page I can go and read, which is what a comparison needs. */
 function organicRankFor(c: WinningCandidate, key: string): number | null {
   let best: number | null = null;
   for (const a of c.appearances) {
@@ -422,15 +414,8 @@ export const isOwnPage = (url: string, ownDomain: string | null): boolean => { c
 
 /** Aggregate winning pages from a flat appearance stream, each appearance carrying its ACTUAL source (query or real prompt id + text, engine, rank). AI
  *  surfaces weight double; organic top-10 single; the account's own domain is excluded. A page's engines/prompts derive from ITS OWN appearances only.
- *
- *  Ranking is CASE-SCOPED, not global: a purely global weight order returned ten winners of which not one came from the query under investigation. Every
- *  FOCUSED CASE (one entry of `priorityQueries`, the exact search that case is stuck on) banks its own top DISTINCT PUBLISHERS in real organic rank order,
- *  INDEPENDENTLY of the global weight order, so an unrelated case's AI-cited pages can never crowd a case's required pages out. The global fill continues
- *  with the capacity left after every focused case is served, so this buys no extra page work.
- *
- *  RESERVES COME BACK INTERLEAVED, one round per case, and that is the half that was actually starving anybody: the reserves were correct and then the
- *  reader spent a SHARED attempt and paid-read budget through them case by case, so with three cases and six paid reads the first two took all six and the
- *  third was handed nothing. In rounds, every case gets its first winner before any gets its second. Standbys are returned LAST, marked. Pure. */
+ *  Ranking is CASE-SCOPED, not global: a purely global weight order returned ten winners of which not one came from the query under investigation. Every FOCUSED CASE (one entry of `priorityQueries`, the exact search that case is stuck on) banks its own top DISTINCT PUBLISHERS in real organic rank order, INDEPENDENTLY of the global weight order, so an unrelated case's AI-cited pages can never crowd a case's required pages out. The global fill continues with the capacity left after every focused case is served, so this buys no extra page work.
+ *  RESERVES COME BACK INTERLEAVED, one round per case, and that is the half that was actually starving anybody: the reserves were correct and then the reader spent a SHARED attempt and paid-read budget through them case by case, so with three cases and six paid reads the first two took all six and the third was handed nothing. In rounds, every case gets its first winner before any gets its second. Standbys are returned LAST, marked. Pure. */
 export function rankWinningPages(
   appearances: ResearchWinningAppearance[],
   ownDomain: string | null,
@@ -488,7 +473,21 @@ export function rankWinningPages(
   // ROUND BY ROUND: every case's first winner, then every case's second, so a shared read budget spent in
   // this order can never run out inside one case while another has been served nothing.
   for (let i = 0; i < PRIORITY_WINNERS_PER_QUERY; i += 1) for (const r of reserves) if (r[i]) picked.push(r[i]!);
-  // GLOBAL FILL takes only what is left over once every focused case is served.
-  for (const c of ranked) { if (picked.length >= topN) break; if (claim(c)) picked.push(c); }
+  // GLOBAL FILL takes only what is left over once every focused case is served, AND IT REFUSES THE SAME SOCIAL AND FORUM PAGES THE RESERVE REFUSES: the filter sat on the reserve alone, so a pass could spend its read budget on a forum or video page that no case had asked for and that the receipt making the read due had never counted. One rule, both paths.
+  for (const c of ranked) { if (picked.length >= topN) break; if (!isNoiseDomain(c.url) && claim(c)) picked.push(c); }
   return [...picked, ...standbys];
+}
+
+/** PURE. THE SEARCHES A WINNING-PAGES PASS OWES A PAGE READING FOR, IN THE ORDER IT TAKES THEM, AND THE PAGES OF EXACTLY THOSE SEARCHES. THE one rule, read by the unit that reserves the reads and by the runtime receipt that makes them due, so the promise and the work cannot differ: the receipt counted the pages of EVERY unrepresented search while the pass reserves for `OWED_SEARCHES_PER_PASS` of them and leaves the rest to the global weight order, which loses, so with four owed searches the receipt named pages no pass would open. A results page lands whole and its pages become winners only when this pass next ranks them, so a search bought at the head of today's drive holds no winner at all; one whose top ten already holds a page on file is represented and takes what the global order gives it. This account's own pages and social or forum pages are never winners and are never counted. Newest search first; a search with no date sorts last. */
+export function owedWinnerReads(serps: readonly unknown[], banked: readonly string[], ownDomain: string | null): { queries: string[]; pageKeys: string[] } {
+  const onFile = new Set(banked.map((u) => canonicalUrlKey(u))), paid = new Map<string, { at: string; keys: string[]; held: boolean }>();
+  for (const s of serps as ({ query?: unknown; status?: unknown; observedAt?: unknown; organic?: readonly { url?: string; rank?: number }[] | null } | null)[]) {
+    if (s?.status !== "done" || typeof s.query !== "string" || !s.query) continue;
+    const keys = (s.organic ?? []).filter((o) => typeof o?.rank === "number" && o.rank <= 10).map((o) => canonicalUrlKey(o?.url ?? ""))
+      .filter((k) => !!k && !isOwnPage(k, ownDomain) && !isNoiseDomain(k));
+    const seen = paid.get(s.query), at = typeof s.observedAt === "string" ? s.observedAt : "";
+    paid.set(s.query, { at: seen != null && seen.at > at ? seen.at : at, keys: [...new Set([...(seen?.keys ?? []), ...keys])], held: (seen?.held ?? false) || keys.some((k) => onFile.has(k)) });
+  }
+  const take = [...paid].filter(([, v]) => v.keys.length > 0 && !v.held).sort((x, y) => y[1].at.localeCompare(x[1].at)).slice(0, OWED_SEARCHES_PER_PASS);
+  return { queries: take.map(([q]) => q), pageKeys: [...new Set(take.flatMap(([, v]) => v.keys))] };
 }

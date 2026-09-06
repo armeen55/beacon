@@ -5,9 +5,7 @@ import "server-only";
  *  FAIL POSTURE. `readable` false means I could not judge, and EVERY read this answer leans on must come back for it to be true. The two callers fall opposite ways on purpose: starting an EXTRA same-day pass requires a positive due signal (fail closed, so an unreadable state never re-spends), while finishing a run early requires a positive EMPTY signal (fail open, so an unreadable state never stalls the research). */
 
 import { basisTag, getTenant, loadBusinessProfile } from "@/domains/account";
-import { isOwnPage } from "@/domains/evidence/funnel/normalize";
-import { isNoiseDomain } from "@/domains/evidence/relevance-gate";
-import { canonicalUrlKey } from "@/domains/evidence/snapshot";
+import { owedWinnerReads } from "@/domains/evidence/funnel/normalize";
 import { getConnectorInfo } from "@/lib/connector-store";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
@@ -173,17 +171,8 @@ const winnerAwaitsReading = (row: unknown, nowMs: number): boolean => {
   const retryAfter = w.readOutcome?.retryAfter; return !(typeof retryAfter === "string" && Date.parse(retryAfter) > nowMs);
 };
 
-/** PURE. HOW MANY PAGES A SEARCH THIS ACCOUNT PAID FOR PUT IN FRONT OF IT THAT NOTHING HAS RANKED YET. A results page lands whole, and its pages become winners only when the winning-pages unit next ranks them, so a search bought at the head of today's drive holds no winner at all, counts as nothing unread, and waits for tomorrow's full cycle while the row that owed it asks again for a reading nobody plans. A search with NO page of its own on file owes its top ten, minus this account's own pages (never winners) and the social and forum domains the reserve refuses; a search already holding one takes what the global order gives it. funnel/winning-pages reads this same rule off the typed document to decide which searches take a reserve, so a pass opened for this reason discharges what opened it. */
+/** HOW MANY PAGES THE NEXT WINNING-PAGES PASS OWES A READING FOR, counted through THE one selection rule the pass itself takes its reserve from (funnel/normalize `owedWinnerReads`), never a second copy of it: this counted the pages of every unrepresented results page while the unit reserves for three of them and leaves the rest to the global weight order, which the unit's own starvation pin proves loses, so with four owed searches the receipt promised pages no pass would open. The receipt is now the pages of exactly the searches the pass takes, bounded by what one pass can read. */
 const WINNERS_PER_PASS = 15; // WINNER_READ_BUDGET in funnel/winning-pages: the pages one cycle ranks and reads, so the receipt promises no more than a pass can do
-function unrankedWinners(file: WinnerFile): number {
-  const banked = new Set(file.winners.map((w) => canonicalUrlKey((w as { url?: string } | null)?.url ?? ""))), owed = new Set<string>();
-  for (const s of file.serps as Array<{ status?: string; organic?: Array<{ url?: string; rank?: number }> | null } | null>) {
-    const keys = (s?.status === "done" ? (s.organic ?? []) : []).filter((o) => typeof o?.rank === "number" && o.rank <= 10).map((o) => canonicalUrlKey(o.url))
-      .filter((k) => !!k && !isOwnPage(k, file.own) && !isNoiseDomain(k));
-    if (keys.length > 0 && !keys.some((k) => banked.has(k))) for (const k of keys) owed.add(k);
-  }
-  return Math.min(owed.size, WINNERS_PER_PASS);
-}
 
 /** The unread probe over BOTH ranges the readback reads: the recent seven days, then EVERYTHING OLDER in one  indexed existence read. The hourly rotation that stood here made each older band reachable roughly one hour  in twenty-six, so an account with only old debt looked quiet on most probes and the pass that would drain it  never opened. Two lean reads, short-circuiting on the first hit. */
 async function probeUnread(ask: (t: string, from: string, to: string) => Promise<boolean>, tenantId: string, _nowMs: number, day: string): Promise<boolean> {
@@ -401,7 +390,7 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   if (active.length > 0) due.push("acquire_case_evidence");
   // A WINNER ON FILE THAT NOTHING HAS READ AS A PAGE IS OWED A READ, whatever the frozen plan is doing: the comparison that settles a body case reads the winners' own words, so an account whose winners were all banked before the reading existed settles case after case as "nothing to say" against pages nobody ever opened. AND SO IS A RESULTS PAGE WHOSE OWN PAGES NOTHING HAS RANKED: bought at the head of this drive, it holds no winner at all, so no winner counts as unread, the read is planned for nobody, and the row that owed it waits for tomorrow.
   // Its OWN unit and deliberately not `acquire_case_evidence`, which costs a results page as well (PHASES_FOR in on-visit-refresh): this pass carries no case and so no focus query, and buying searches out of the broad agenda spends for nothing and can hold the drive in the results-page phase ahead of the read it exists for.
-  const unreadWinners = winners.value.winners.filter((w) => winnerAwaitsReading(w, nowMs)).length, unrankedPages = unrankedWinners(winners.value);
+  const file = winners.value, unreadWinners = file.winners.filter((w) => winnerAwaitsReading(w, nowMs)).length, unrankedPages = Math.min(owedWinnerReads(file.serps, file.winners.map((w) => String((w as { url?: string } | null)?.url ?? "")), file.own).pageKeys.length, WINNERS_PER_PASS);
   if (unreadWinners + unrankedPages > 0) due.push("read_winner_pages");
   // A CLAIM THE PAGE MAKES AND NOBODY HAS CHECKED IS OWED WORK, and an account that has never checked one owes
   // its first pass. Without this the phase was reachable only on a fresh daily cycle, which is one page's worth

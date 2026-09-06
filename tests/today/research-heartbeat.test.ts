@@ -43,6 +43,11 @@ describe("Today says what the last drive left undone", () => {
     const alone = (await loadTodayView()).researchLiveness ?? "";
     expect([alone.includes("still running when this drive's time ran out"), alone.includes("nothing was started for it")],
       "and a drive that started everything it planned and only stopped waiting says that alone, with no invented second fact").toEqual([true, false]); });
+  /** AND THE PAGES A PAID SEARCH PUT IN FRONT OF THIS ACCOUNT THAT NOTHING HAS READ REACH THE SAME SENTENCE (2026-09-06). The runtime has counted them on the run row since the winner read was made due, and no surface carried the number, so a day owing a reading of pages already bought read as a day owing nothing. */
+  it.each(SITES)("says how many pages winning a search already bought are owed a read, and says nothing where none are, on $t", async (s) => {
+    const owed = async (n: number) => { RUN.row = run({ current_phase: s.phase, progress: { ...run().progress, state: { ...(run().progress.state as Record<string, unknown>), winnersUnranked: n } } }); return (await loadTodayView()).researchLiveness ?? ""; };
+    const [many, one, none] = [await owed(9), await owed(1), await owed(0)];
+    expect([many.includes("9 pages winning a search already bought are owed a read. The next pass reads them."), one.includes("1 page winning a search already bought is owed a read. The next pass reads it."), none.includes("owed a read")], "the count is the pages the next pass will read, said in plain words with what happens next, and a day owing none says nothing at all rather than a bare zero").toEqual([true, true, false]); });
   it.each(SITES)("says nothing extra on a day that finished its steps, and defers to a recorded reason where one exists, on $t", async (s) => {
     RUN.row = run({ status: "completed", current_phase: "done", completed_at: "2026-09-05T17:33:24.196Z" });
     const finished = (await loadTodayView()).researchLiveness ?? "";
