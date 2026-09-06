@@ -77,9 +77,10 @@ export const RELATIONAL = /\b(?:before|after|meanings?|capital|largest|national|
  *  vocabulary is the defect this codebase keeps paying for. UNIVERSAL ENGLISH ONLY: the account token "iranopedia"
  *  stood in the old copy from an earlier round and is RETIRED here, because a site's own name is not a navigation
  *  word and no tenant string may decide what any account's pages carry. Matched whole rather than as a prefix, so an
- *  ordinary sentence or heading that merely contains one of these words survives. */
+ *  ordinary sentence or heading that merely contains one of these words survives. AND AN ENCYCLOPEDIA'S OWN APPARATUS IS
+ *  FURNITURE TOO (production 03:01Z, 2026-09-06): "Gallery", "Notes" and "References" reached a change as three of the eight things a page was missing, and a gallery, a note list, a reference list, a bibliography and a footnote block are what a reference work prints AROUND its content in every vertical, so none of them is a section another page owes a reader. Whole labels still, so "References to the 1979 flag" is untouched. */
 export const FURNITURE_LABEL =
-  /^\s*(?:explore more|related(?: (?:articles?|posts?|pages?|topics?))?|you may also like|more(?: (?:from|like|articles?))?|read more|learn more|see also|share(?: this)?|categor(?:y|ies)|tags?|menu|navigation|footer|header|sidebar|newsletter|subscribe|follow(?: us)?|shop(?: now)?|table of contents|contents|on this page|in this article|jump to|quick links|home|search|contact(?: us)?|about(?: us)?|comments?|advertisements?|privacy(?: policy)?|terms(?: of (?:use|service))?)\s*$/i;
+  /^\s*(?:explore more|related(?: (?:articles?|posts?|pages?|topics?))?|you may also like|more(?: (?:from|like|articles?))?|read more|learn more|see also|gallery|galleries|notes?|references?|external links?|further reading|bibliograph(?:y|ies)|citations?|sources?|footnotes?|share(?: this)?|categor(?:y|ies)|tags?|menu|navigation(?: menu)?|footer|header|sidebar|newsletter|subscribe|follow(?: us)?|shop(?: now)?|table of contents|contents|on this page|in this article|jump to|quick links|home|search|contact(?: us)?|about(?: us)?|comments?|advertisements?|privacy(?: policy)?|terms(?: of (?:use|service))?)\s*$/i;
 
 /** Domains that are noise for editorial intent (social / forum / UGC / recipe-aggregator /
  *  marketplace), suppressed unless the Move topic is explicitly about them. */

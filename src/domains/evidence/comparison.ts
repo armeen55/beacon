@@ -33,7 +33,7 @@ type ComparedWinner = {
   url: string; publisher: string; publisherClass: CompetitorKind;
   shape: { words: number; lists: boolean; tables: boolean; questions: number };
   /** THE WINNER'S OWN WORDS AS ONE READING GETS THEM, cut to READING_CHARS so three winners and the owned page fit inside one call. In memory only: what a row banks is the observations, never somebody else's page. */
-  truncated: boolean; held: string;
+  /** WHETHER THE WINNER'S OWN WORDS ARE ON FILE AT ALL. An extract banked before the content reading existed carries a title, a word count and the crawl's own heading list and NO main text, and every observation below is read off the main text, so a winner with no reading carries no candidate and may never earn "names". */ read: boolean; truncated: boolean; held: string;
   /** WHAT THIS READING IS OF, AS ONE STABLE KEY over the winner's WHOLE main text and not only the part shown
    *  (campaign review, 2026-09-05). The confirming reading is cached on its own prompts, and the prompt carries
    *  `held`, the first READING_CHARS; a winner that rewrote everything past that cut therefore re-served the earlier
@@ -44,7 +44,7 @@ type ComparedWinner = {
 };
 /** `keep` is the owned page's own material that already answers part of the group, which a rewrite must not lose.
  *  `verdict`: "names" = at least one observation; "nothing" = every winner was read whole and named nothing this page
- *  lacks; "unread" = no winner body is on file, or the only winners that named nothing were cut at the ceiling. */
+ *  lacks; "unread" = a winner whose own words are not on file at all, no winner at all, or a winner that named nothing and was cut at the ceiling. */
 export type JobComparison = { queries: string[]; winners: ComparedWinner[]; keep: string[]; verdict: "names" | "nothing" | "unread" };
 
 /** How much of a search's own words one passage must carry to count as answering it, and how many leading characters
@@ -87,16 +87,16 @@ export function jobComparison(research: Research, queries: readonly string[], ow
   // otherwise raise the bar a passage has to clear, so a page that answers the question outright would keep nothing.
   const answers = (p: string): boolean => { const bag = said(p); return queries.some((q) => { const ask = topicTokens(q); return ask.length > 0 && ask.filter((w) => carries(bag, w)).length >= Math.max(2, Math.ceil(ask.length * COVERAGE)); }); };
   const keep = passages.filter(answers).slice(0, MAX_KEEP).map((p) => cut(p, KEEP_CHARS));
-  const winners: ComparedWinner[] = [], read = jobWinners(research, queries).filter((w) => w.extract && w.extract.wordCount > 0).slice(0, max);
+  /* ONE OBSERVATION PER PUBLISHER AND QUOTE (production 03:01Z, 2026-09-06): a card carried eight "covers" lines that were five labels said twice, because a heading repeated as an h3 and a publisher ranking two of its pages each minted their own line. The dedupe was per winner and only over headings; it is over the whole comparison and every kind, so what a publisher says once is offered once. */ const winners: ComparedWinner[] = [], read = jobWinners(research, queries).filter((w) => w.extract && w.extract.wordCount > 0).slice(0, max), seen = new Set<string>(), note = (into: ComparisonObservation[], publisher: string, o: ComparisonObservation): void => { const k = `${publisher}\n${o.quote.trim().toLowerCase()}`; if (seen.has(k)) return; seen.add(k); into.push(o); };
   for (const w of read) {
-    const e = w.extract!, host = publisherHost(w.url), body = tidy(e.mainText ?? ""), obs: ComparisonObservation[] = [];
+    /* AN OBSERVATION NEEDS A READING (production 03:01Z, 2026-09-06). Every winner on file for this account was banked before the content reading existed, so `mainText` is null and the headings are the crawler's own list off the WHOLE document; eight observations were minted from it, "Gallery", "Notes" and "References" among them, and not one was confirmed by a word of the winner's own text. A heading and an entity name are CANDIDATES FOR THE READING THAT HAS NOT HAPPENED, never findings: until the winner's words are on file this winner says nothing and the comparison is unread. */ const e = w.extract!, host = publisherHost(w.url), reading = typeof e.mainText === "string", body = reading ? tidy(e.mainText!) : "", heads = reading ? [...(e.headings ?? []), ...(e.h3s ?? [])].map(tidy) : [], obs: ComparisonObservation[] = [];
     // WHAT ITS OWN PROSE ANSWERS. A sentence counts when it speaks to the group AND carries content words the owned
     // passages never carry: overlap alone would hand the writer the page's own subject said back to it.
     for (const s of body.split(/(?<=[.!?])\s+/).map(tidy)) {
       if (obs.length >= 2 || s.length < 40 || s.length > 600) continue;
       const t = topicTokens(s); if (t.filter((x) => askBag.has(x)).length < 2) continue;
       const novel = [...new Set(t.filter((x) => !askBag.has(x) && !carries(ownBag, x)))]; if (novel.length < 2) continue;
-      obs.push({ kind: "answers", text: `${host} answers this search in its own prose and this page carries none of ${novel.slice(0, 3).join(", ")}.`, quote: cut(s, QUOTE_CHARS) });
+      note(obs, host, { kind: "answers", text: `${host} answers this search in its own prose and this page carries none of ${novel.slice(0, 3).join(", ")}.`, quote: cut(s, QUOTE_CHARS) });
     }
     // WHAT IT GIVES A SECTION TO. A heading this page covers in its own words is not a gap, which is the whole of the
     // rule the label match got wrong; the words are compared, not the labels.
@@ -106,32 +106,31 @@ export function jobComparison(research: Research, queries: readonly string[], ow
     // only answer the ranking-loss door reads before it authorizes paid body work, handed the writer a briefing line
     // about a signup box, and became a paid factual_source need through `comparisonTopics`. The one navigation-label
     // definition the account already keeps decides it, at this door as at the other three.
-    for (const h of [...(e.headings ?? []), ...(e.h3s ?? [])].map(tidy)) {
+    for (const h of heads) {
       if (obs.length >= 4 || h.length < 3 || h.length > 120 || topicTokens(h).length === 0 || FURNITURE_LABEL.test(h) || covers(ownBag, h)) continue;
-      if (obs.some((o) => o.quote === h)) continue;
-      obs.push({ kind: "covers", text: `${host} gives "${h}" a section of its own and nothing on this page covers it.`, quote: cut(h, QUOTE_CHARS) });
+      note(obs, host, { kind: "covers", text: `${host} gives "${h}" a section of its own and nothing on this page covers it.`, quote: cut(h, QUOTE_CHARS) });
     }
-    const names = [...new Set((e.entityNames ?? []).map(tidy).filter((n) => n.length > 2 && topicTokens(n).length > 0 && !FURNITURE_LABEL.test(n) && !covers(ownBag, n)))].slice(0, 6);
-    if (names.length > 0 && obs.length < MAX_OBSERVATIONS) obs.push({ kind: "names", text: `${host} names ${names.length} things this page does not name: ${names.join(", ")}.`, quote: cut(names.join(", "), QUOTE_CHARS) });
-    const asks = [...(e.headings ?? []), ...(e.h3s ?? [])].filter((h) => h.trim().endsWith("?"));
+    const names = reading ? [...new Set((e.entityNames ?? []).map(tidy).filter((n) => n.length > 2 && topicTokens(n).length > 0 && !FURNITURE_LABEL.test(n) && !covers(ownBag, n)))].slice(0, 6) : [];
+    if (names.length > 0 && obs.length < MAX_OBSERVATIONS) note(obs, host, { kind: "names", text: `${host} names ${names.length} things this page does not name: ${names.join(", ")}.`, quote: cut(names.join(", "), QUOTE_CHARS) });
+    const asks = heads.filter((h) => h.trim().endsWith("?"));
     if (e.faqCount > 0 && asks.length > 0 && !owned.headings.some((h) => h.trim().endsWith("?")) && obs.length < MAX_OBSERVATIONS) {
-      obs.push({ kind: "shape", text: `${host} answers as ${e.faqCount} question entries and this page carries none.`, quote: cut(tidy(asks[0]!), QUOTE_CHARS) });
+      note(obs, host, { kind: "shape", text: `${host} answers as ${e.faqCount} question entries and this page carries none.`, quote: cut(tidy(asks[0]!), QUOTE_CHARS) });
     }
     winners.push({ url: w.url, publisher: host, publisherClass: classOf(research, host, ownedHost),
       shape: { words: e.wordCount, lists: e.hasList === true, tables: e.hasTable === true, questions: e.faqCount },
-      truncated: e.truncated === true, held: body.slice(0, READING_CHARS), bodyKey: keyOf(body), observations: obs.slice(0, MAX_OBSERVATIONS) });
+      read: reading, truncated: e.truncated === true, held: body.slice(0, READING_CHARS), bodyKey: keyOf(body), observations: obs.slice(0, MAX_OBSERVATIONS) });
   }
   return { queries: [...queries], winners, keep, verdict: verdictOf(winners) };
 }
 /** NOTHING IS A CLAIM AND UNKNOWN IS NOT. A winner cut at the comparison ceiling, or a winner with no body on file at
  *  all, cannot support "the stored winners name nothing this page lacks", so it never earns that sentence. */
 const verdictOf = (winners: readonly ComparedWinner[]): JobComparison["verdict"] =>
-  winners.some((w) => w.observations.length > 0) ? "names" : winners.length === 0 || winners.some((w) => w.truncated) ? "unread" : "nothing";
+  winners.some((w) => w.observations.length > 0) ? "names" : winners.length === 0 || winners.some((w) => !w.read || w.truncated) ? "unread" : "nothing";
 
 /** The comparison as the writer's briefing lines, one per winner, under the `rival-` ids no claim may ever cite. */
 export const comparisonLines = (c: JobComparison): string[] => c.winners.map((w) =>
   [`${w.publisher} is ${LABEL[w.publisherClass]} and answers this search in ${w.shape.words} words${w.shape.questions > 0 ? ` across ${w.shape.questions} question entries` : ""} at ${w.url}.`,
-    w.truncated ? "Only the opening of it was captured, so what it carries past that is unknown rather than absent." : "",
+    !w.read ? "None of its own words are on file, so what it carries is unknown rather than absent." : w.truncated ? "Only the opening of it was captured, so what it carries past that is unknown rather than absent." : "",
     ...w.observations.map((o) => `${o.text} Its own words: "${o.quote}"`)].filter(Boolean).join(" "));
 /** The eight classes in the words a reader uses, so a briefing line never prints a raw slug. */
 const LABEL: Readonly<Record<CompetitorKind, string>> = { commercial_competitor: "a business selling what this account sells", citation_authority: "a source assistants quote", publisher: "a publisher covering these topics", marketplace_directory: "a marketplace or directory", government_educational: "a government or school source", social_community: "a social platform", owned: "this account's own site", irrelevant_unknown: "a site whose part here is not settled" };

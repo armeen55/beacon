@@ -26,10 +26,15 @@ const NOW = new Date("2026-08-01T00:00:00.000Z");
 /** TWO SEARCHES ONE PAGE EARNS AND NEVER ANSWERS, plus one passage that answers neither, on unrelated subjects. */
 const SITES = [
   { t: "tenant-one", path: "/rock-pools", title: "Rock pools of the north coast", subject: "north coast ledges",
-    big: "how cold is the winter water", small: "which mussels grow on the ledges",
+    big: "how cold is the winter water", small: "which mussels grow on the ledges", third: "when do the seals return to the point",
+    /** ONE SENTENCE THAT ANSWERS TWO OF THE THREE SEARCHES, which is exactly what a live change on this page holds. */
+    both: "Winter water on these ledges sits near four degrees, and the mussels that grow there stay covered at every tide.",
+    onlyBig: "Winter water here sits near four degrees from December to March.",
     passage: "Visitors walk out at low tide and come back before the flats fill again." },
   { t: "tenant-two", path: "/bordado", title: "Bordado borders and stitch counts", subject: "bordado borders",
-    big: "how many strands does a border take", small: "which loom weaves the widest cloth",
+    big: "how many strands does a border take", small: "which loom weaves the widest cloth", third: "how wide is the finished panel",
+    both: "A border takes six strands here, and the widest cloth this loom weaves is woven to the same count.",
+    onlyBig: "A border takes six strands here, and that count never changes.",
     passage: "Every panel here is worked flat on a frame that keeps the cloth taut." },
 ];
 type Site = (typeof SITES)[number];
@@ -113,6 +118,34 @@ describe("a page carries as many changes as it has searches it never answers", (
     const other = await mintFor(s, [[s.big, 900], [s.small, 300]], [card(s, `${s.t}::${s.path}::existing_edit::ai_answer_gap`, "which tide covers the flats first", { status: "ready", researchOnly: false })]);
     expect([held.map((c) => c.primaryQuery), other.map((c) => c.primaryQuery)],
       "a change already writing that section is the opportunity, so it is not offered twice, and a change about a different search on the same page suppresses nothing").toEqual([[s.big], [s.big, s.small]]);
+  });
+  /** A GROUP THE WORK ALREADY ON FILE ANSWERS IS NOT A SECOND OPPORTUNITY (production 02:30Z, 2026-09-06). A page
+   *  holding a Ready sentence for one phrasing of a question was given a SECOND Ready change for another phrasing of
+   *  the same question, carrying that identical sentence: two phrasings tokenize differently, so they are two groups,
+   *  and the page's own passages answer neither until the words are published. The copy a live change would publish
+   *  is read by the SAME rule the page's own passages are read by. */
+  it.each(SITES)("$t: reads a search a change on file already answers as answered, and never moves the biggest one", (s) => {
+    const rows: Array<[string, number]> = [[s.big, 900], [s.small, 300], [s.third, 150]];
+    const of = (r: Array<[string, number]>, copy: string | null): ReturnType<typeof demandOf> =>
+      demandOf(page(s, r), body(s) as never, [], null, s.t, undefined, null, copy == null ? [] : [{ query: s.big, copy }]);
+    const lead = (d: ReturnType<typeof demandOf>): unknown => substantiveGapOf({}, d as never);
+    const behind = (d: ReturnType<typeof demandOf>): { query?: string } | null => substantiveGapOf({}, d as never, canon(s.big));
+    expect([behind(of(rows.slice(0, 2), s.both)), behind(of(rows, s.both))?.query, behind(of(rows, s.onlyBig))?.query, behind(of(rows, null))?.query],
+      "a page whose live change already answers the second search owes nothing more for it, reads the third search behind it where there is one, and still owes the second search where the words on file do not answer it")
+      .toEqual([null, s.third, s.small, s.small]);
+    expect(JSON.stringify([lead(of(rows, s.both)), lead(of(rows, s.onlyBig))]) === JSON.stringify([lead(of(rows, null)), lead(of(rows, null))]),
+      "and the biggest search this page does not answer is read exactly as it was, so the change already on file never changes what it is about").toBe(true);
+  });
+  /** THE SAME RULE AT THE MINT: the producer reads the queue it already holds, so the second card is never minted to
+   *  say what a live change on this page already says. */
+  it.each(SITES)("$t: mints no second change for a search the live change on this page already answers, and still mints one for a search it does not", async (s) => {
+    const rows: Array<[string, number]> = [[s.big, 900], [s.small, 300], [s.third, 150]];
+    const live = (copy: string): ChangeProposal => card(s, idOf(s), s.big, { status: "ready", researchOnly: false,
+      recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: copy } });
+    const covered = await mintFor(s, rows, [live(s.both)]), open = await mintFor(s, rows, [live(s.onlyBig)]);
+    expect([covered.map((c) => c.id), covered.map((c) => c.primaryQuery), open.map((c) => c.primaryQuery)],
+      "the change already writing that answer keeps the address it has, the search its own words already answer is not offered a second time, and the next search nothing on file answers still earns its own change")
+      .toEqual([[idOf(s), idOf(s, `@${canon(s.third)}`)], [s.big, s.third], [s.big, s.small]]);
   });
 });
 

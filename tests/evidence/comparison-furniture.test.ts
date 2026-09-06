@@ -39,20 +39,49 @@ const SITES = [
 type Site = (typeof SITES)[number];
 
 /** The winner as the crawler banks it: main text de-chromed, headings taken off the whole document. */
-const research = (s: Site, headings: string[]) => ({
+const research = (s: Site, headings: string[], main: string | null = s.prose) => ({
   serpEvidence: [{ query: s.queries[0]!, observedAt: null, organic: [{ rank: 1, url: s.win, domain: new URL(s.win).hostname, title: null }], aiOverview: [], aiMode: [], paa: [], related: [] }],
   winningPages: [{ url: s.win, domain: new URL(s.win).hostname, engines: [], examplePrompts: [], appearances: [{ query: s.queries[0]! }],
     extract: { title: "Winner", h1: null, wordCount: 900, headings, faqCount: 0, entityNames: [], hasList: false, hasTable: false,
-      mainText: s.prose, truncated: false, heldChars: s.prose.length, totalChars: s.prose.length, h3s: [], schemaTypes: [] } }],
+      mainText: main, truncated: false, heldChars: main?.length ?? null, totalChars: main?.length ?? null, h3s: [], schemaTypes: [] } }],
 }) as never;
 const owned = (s: Site) => ({ url: s.own, text: `${s.ownHeads.join(" ")} ${s.ownPassages.join(" ")}`, headings: s.ownHeads, passages: s.ownPassages });
+
+/** AN OBSERVATION NEEDS A READING (production 03:01Z, 2026-09-06). A change carried eight things "the pages winning
+ *  this cover", every one of them a heading off the crawler's own list of a winner whose words were never read, three
+ *  of them an encyclopedia's "Gallery", "Notes" and "References", and each one printed twice because the publisher
+ *  ranked two pages. A heading and an entity name are candidates for a reading that has not happened. */
+describe("a winner speaks only once its own words are on file", () => {
+  it.each(SITES)("$t: a winner nobody has read yet names nothing, and leaves the comparison unread rather than answered", (s) => {
+    const heads = [s.subject, "Gallery", "References"];
+    const blind = jobComparison(research(s, heads, null), s.queries, owned(s)), seen = jobComparison(research(s, heads), s.queries, owned(s));
+    expect([blind.winners[0]!.observations, blind.verdict],
+      "a rich heading list with no reading behind it is no observation at all, and a door that asks whether the winners name anything is told the winner is unread rather than told it names nothing")
+      .toEqual([[], "unread"]);
+    expect([seen.winners[0]!.observations.map((o) => o.quote), seen.verdict],
+      "the same winner with its own words on file names the one subject this page has no words for, and an encyclopedia's gallery and reference list are not subjects")
+      .toEqual([[s.subject], "names"]);
+  });
+  it.each(SITES)("$t: one publisher saying one thing on two of its pages is one observation, not the same absence twice", (s) => {
+    const at = (n: number) => `${s.win}/${n}`, host = new URL(s.win).hostname;
+    const two = { serpEvidence: [{ query: s.queries[0]!, observedAt: null, aiOverview: [], aiMode: [], paa: [], related: [],
+      organic: [1, 2].map((n) => ({ rank: n, url: at(n), domain: host, title: null })) }],
+      winningPages: [1, 2].map((n) => ({ url: at(n), domain: host, engines: [], examplePrompts: [], appearances: [{ query: s.queries[0]! }],
+        extract: { title: "Winner", h1: null, wordCount: 900, headings: [s.subject], faqCount: 0, entityNames: [], hasList: false, hasTable: false,
+          mainText: s.prose, truncated: false, heldChars: s.prose.length, totalChars: s.prose.length, h3s: [], schemaTypes: [] } })) } as never;
+    const c = jobComparison(two, s.queries, owned(s));
+    expect([c.winners.length, c.winners.flatMap((w) => w.observations.map((o) => o.quote))],
+      "both pages are read and compared, and the subject their publisher gives a section to is offered once").toEqual([2, [s.subject]]);
+  });
+});
 
 describe("the comparison answers on content, never on a site's furniture", () => {
   it.each(SITES)("$t: a winner that says exactly what this page says, with only its own chrome beside it, names nothing this page lacks", (s) => {
     const bare = jobComparison(research(s, [s.covered]), s.queries, owned(s));
     expect(bare.verdict).toBe("nothing"); // control: read whole, nothing to say
 
-    for (const label of ["Newsletter", "Related articles", "Categories", "Follow us", "Shop now", "Table of contents"]) {
+    for (const label of ["Newsletter", "Related articles", "Categories", "Follow us", "Shop now", "Table of contents",
+      "Gallery", "Notes", "References", "External links", "Further reading", "Bibliography", "Citations", "Sources", "Footnotes", "Navigation menu"]) {
       const c = jobComparison(research(s, [s.covered, label]), s.queries, owned(s));
       const said = c.winners.flatMap((w) => w.observations.map((o) => o.text)).join(" | ");
       expect(`${label}: ${c.verdict}`).toBe(`${label}: nothing`);
@@ -66,7 +95,7 @@ describe("the comparison answers on content, never on a site's furniture", () =>
    *  content never becomes a section this operator is told to write. */
   it.each(SITES)("$t: a label every winner repeats around its content is never handed to an operator as a subject to write", (s) => {
     const winner = (host: string, heads: string[]) => ({ url: `https://${host}/page`, domain: host, engines: [], examplePrompts: [], appearances: [{ query: s.queries[0]! }],
-      extract: { title: "Winner", h1: null, wordCount: 900, headings: heads, faqCount: 0, entityNames: [], hasList: false, hasTable: false, mainText: null, truncated: false, heldChars: null, totalChars: null, h3s: [], schemaTypes: [] } });
+      extract: { title: "Winner", h1: null, wordCount: 900, headings: heads, faqCount: 0, entityNames: [], hasList: false, hasTable: false, mainText: s.prose, truncated: false, heldChars: s.prose.length, totalChars: s.prose.length, h3s: [], schemaTypes: [] } });
     const hosts = ["one.example", "two.example"];
     const research = { serpEvidence: [{ query: s.queries[0]!, observedAt: null, organic: hosts.map((h, i) => ({ rank: i + 1, url: `https://${h}/page`, domain: h, title: null })), aiOverview: [], aiMode: [], paa: [], related: [] }],
       winningPages: hosts.map((h) => winner(h, [s.covered, "Newsletter", s.subject])) };
