@@ -33,7 +33,7 @@ const reading = (over: Partial<WinningPatternRead> = {}): WinningPatternRead => 
   disagreements: ["Some of them treat the region as the subject and others treat the craft as the subject."],
   uniqueNotCommon: [{ detail: "one of them lays the knot counts out in a table", seenOn: [1] }], ...over,});
 /** A completion seam that answers with one fixed reading and counts how many times it actually ran. */
-const seam = (value: unknown): { complete: CompleteFn; calls: () => number } => { let calls = 0; return { calls: () => calls, complete: async () => { calls += 1; return { value }; } }; };
+const seam = (value: unknown): { complete: CompleteFn; calls: () => number } => { let calls = 0; return { calls: () => calls, complete: async () => { calls += 1; return { httpAttempts: 1, value }; } }; }; // A SEAM ANSWERS FOR THE TRANSPORT EXACTLY AS THE GATEWAY DOES (reviewer, 2026-09-06): it stamps `httpAttempts` 0 before the wire and 1 once it is touched, and a stand-in that reports nothing is saying no request left the process, which is now the one thing that hands an attempt back.
 const memoryCache = (): CacheImpl => { const rows = new Map<string, LlmCallCacheEntry>(); return { read: async (t, k) => rows.get(`${t}|${k}`) ?? null, write: async (t, e) => void rows.set(`${t}|${e.key}`, e), recentTexts: async () => [] }; };
 describe("the facts I read off the winning pages myself", () => {
   it("carries what the read captured and fills in nothing it did not", () => {

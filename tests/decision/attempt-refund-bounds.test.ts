@@ -1,4 +1,4 @@
-/** WHAT AN ATTEMPT PAYS FOR, ASKED ADVERSARIALLY (reviewer, 2026-09-06). Can a refund exceed what a door took, can a door give back an attempt it never spent, what does a call that never left the process cost, and does a reading that never arrived reach the caller's unsettled mark? Two answers were wrong: the day's cap refused a call and the page paid an attempt for it, and a judging that threw was filed as a refusal Beacon had made, which the day memory counts as settling the job.
+/** WHAT AN ATTEMPT PAYS FOR, ASKED ADVERSARIALLY (reviewer, 2026-09-06). Can a refund exceed what a door took, can a door give back an attempt it never spent, what does a call that never left the process cost, and does a reading that never arrived reach the caller's unsettled mark? Four answers were wrong: the day's cap refused a call and the page paid an attempt for it, a judging that threw was filed as a refusal Beacon had made, which the day memory counts as settling the job, an answer the drafter refused before any transport was charged for a call its own receipt counted at zero, and a reading that threw WHERE IT STOOD escaped the editor entirely, because a bare `.catch` never attaches to a function that throws before it returns a promise.
  *  Through the REAL money surface, the REAL editor and the REAL gateway, on two synthetic accounts with unrelated
  *  subjects and different languages: a rule that holds for one of them is not a rule. */
 import { describe, it, expect, vi } from "vitest";
@@ -9,8 +9,9 @@ vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: as
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => null, basisTag: () => "basis_rv3" }));
 
 import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
-import { draftFieldForPage } from "@/domains/decision/drafted-copy";
+import { draftFieldForPage, reviewFinishedCopy } from "@/domains/decision/drafted-copy";
 import { extractPageFacts, readWinningPattern } from "@/domains/decision/winning-pattern";
+import { callStructuredLLM } from "@/domains/decision/llm/structured-drafter";
 
 const NOW = new Date("2026-09-06T13:00:00.000Z");
 const SITES = [
@@ -72,6 +73,15 @@ describe("a call that never left the process", () => {
       expect([budget.meterOf(key)?.providerCalls ?? 0, before - allowance.left], "the meter records no provider call, so the allowance may not record one either").toEqual([0, 0]);
     } finally { cap.allowed = true; }
   });
+
+  /** AND THE CLASS THE THREE NAMED STATUSES MISS. The drafter refuses an answer with no account before it touches the cache, the cap or the wire, and says so on the receipt as `attempts: 0, costUsd: 0`; the gateway stamps that same count 0 for a credit hold, a paused account and a schema nothing can convert. The meter reads the count and records no call; the refund read the status and charged one. Asked here through the REAL drafter, with a transport that would stamp its own attempt if anything ever reached it. */
+  it.each(SITES)("$t: an answer refused before any transport puts nothing on the dollars, so it may not cost an attempt either", async (s) => {
+    const { key, budget, allowance } = funded(s), before = allowance.left;
+    allowance.left -= 1; // every paid door takes the attempt before the call, so this is the shape the refund has to answer
+    const refusedBeforeTransport = await callStructuredLLM({ kind: "editor_judgement", tenantId: "", system: "read these words", user: s.q, grounded: s.line, now: NOW, complete: (async () => ({ httpAttempts: 1, value: {} })) as never });
+    allowance.record(refusedBeforeTransport); DRAFT_BUDGET.refundIfNoCallMade(allowance, refusedBeforeTransport);
+    expect([budget.meterOf(key)?.providerCalls ?? 0, before - allowance.left, (refusedBeforeTransport as { attempts?: number }).attempts ?? -1], "the meter says no request left the process, and the two halves of one rule must agree about that").toEqual([0, 0, 0]);
+  });
 });
 
 /** THE JUDGING'S ATTEMPT, TAKEN INSIDE `acceptDeliverable` (drafted-copy.ts:253). */
@@ -88,6 +98,19 @@ describe("the judging's own attempt", () => {
     const out = await pass(s, allowance, async () => { throw new Error("the reading never came back"); });
     expect([out.piece, before - allowance.left, budget.meterOf(key)?.providerCalls ?? 0], "three rounds, each buying a writing and a reading: six attempts gone against three calls the meter can name, and no words")
       .toEqual([null, 6, 3]);
+  });
+
+  /** HOW A READING NEVER ANSWERS IS NOT PART OF THE FACT (reviewer, 2026-09-06). `acceptDeliverable` guarded the judging with `.catch`, which only ever catches a REJECTED promise, so a judge that threw where it stood took the whole pass down with it: the exception left the editor with the attempt already spent, no card was marked owed, and the caller saw a throw where every other reading failure arrives as a typed transport refusal. */
+  it.each(SITES)("$t: a judge that throws where it stands leaves the card owed, exactly as one that rejects does", async (s) => {
+    const { allowance } = funded(s), unsettled = new Set<string>();
+    const sync = await pass(s, allowance, () => { throw new Error("the reading never came back"); }, unsettled).then((r) => ({ threw: null as unknown, ...r }), (e) => ({ threw: e, piece: undefined, unsettled }));
+    expect([sync.threw, unsettled.has(s.url)], "a reading that never arrived says nothing about the words whichever way it failed, so the card comes back tomorrow rather than taking the whole pass down with it").toEqual([null, true]);
+  });
+
+  it.each(SITES)("$t: and the door that reads finished words answers a throw the same way, so a rule asked at one door is asked at both", async (s) => {
+    const row = { id: `${s.t}::${new URL(s.url).pathname}::existing_edit::missing_description`, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: s.line }, primaryQuery: s.q, estimatedEffortMinutes: 3, limitations: [], claims: [{ text: s.lines[0]!, supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: s.lines[0]! }] };
+    const out = await reviewFinishedCopy(row as never, { tenantId: s.t, now: NOW, judge: (() => { throw new Error("the reading never came back"); }) as never }).catch((e: unknown) => e);
+    expect([out instanceof Error, (out as { row: unknown; detail: string }).detail], "the review lane takes a reading too, so a throw there says the same thing about the words and banks nothing").toEqual([false, "no reading of these words came back, so nothing was banked"]);
   });
 
   it.each(SITES)("$t: and a deliverable is never left half judged: the words the writing bought are still owed", async (s) => {
