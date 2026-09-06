@@ -238,7 +238,7 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
   it("an unfunded pass funds nothing, attempts nothing, and names no treatment", async () => {
     env.aiWindow = [];
     const run = await runExtras(aiSnapshot()); // reads {left: 0} and no aeoDiagnoses: an empty purse and an unread page
-    expect(run.aeoSpend, "an unfunded pass funds and attempts nothing").toMatchObject({ funded: 0, attempted: 0, cached: 0 });
+    expect(run.aeoSpend, "an unfunded pass funds and attempts nothing").toMatchObject({ funded: 0, attempted: 0, givenBack: 0 });
     expect([run.cards.filter((c) => c.treatment === "technical_reachability" || c.treatment === "consolidate_or_differentiate"), run.families.includes("ai_answer_gap")], "no treatment from a stage fact alone, and the family still answers for its own record").toEqual([[], true]); });
   it("a banked diagnosis survives a pass that did not rule, exactly as the migration's coalesce writes it", async () => {
     const { recordAiCaseDispositions, readAiCaseDispositions } = await import("@/domains/decision/ai-case-store");

@@ -10,7 +10,7 @@ import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 const extract = (path: string, h1 = "Tabriz, Iran") => ({ url: `https://mysite.example${path}`, title: "Tabriz, Iran: what to know before you go", h1, headings: ["Tabriz population", "Tabriz climate", "Things to see in Tabriz"], wordCount: 737 });
 const READING = { job: "This page tells a traveller what the city of Tabriz is like before they visit.", pageType: "city" as const, audience: "travellers planning a trip to Iran", topics: ["Tabriz", "iran travel", "city guide"], commercial: false, promise: "a guide to what the city of Tabriz is like", missing: "what a visitor should do on a first day there", sells: [] };
 /** A completion seam that answers with one fixed reading and counts how many times it actually ran. */
-const seam = (value: unknown): { complete: CompleteFn; calls: () => number } => { let calls = 0; return { calls: () => calls, complete: async () => { calls += 1; return { value }; } }; };
+const seam = (value: unknown): { complete: CompleteFn; calls: () => number } => { let calls = 0; return { calls: () => calls, complete: async () => { calls += 1; return { value, httpAttempts: 1 }; } }; }; // A CALL THAT REACHED A PROVIDER REPORTS AT LEAST ONE REQUEST, and the pool now reads the same receipt the dollars read, so a fixture that reported none was a receipt production never files.
 /** The durable store, in memory. `remember: false` is a site whose readings never land, which forces every pass to buy afresh and makes the rotation visible. */
 const store = (remember = true) => { const rows = new Map<string, PageUnderstanding>(); let at: string | null = null;
   return { rows, at: () => at, read: async (_t: string, urls: readonly string[]) => new Map([...rows].filter(([k]) => urls.some((u) => canonicalUrlKey(u) === k))),
@@ -27,6 +27,14 @@ const POPULATION = page("population", "guide", "Reports how many people live in 
 const CORPUS: ReadonlyMap<string, OwnedPageJob> = new Map([PAINTERS, POETS, RUGS, SCIENCE, POPULATION,
   page("music", "guide", "Explains Persian music and the instruments Iranian players use.", "listeners", ["persian music", "instrument", "musician"])].map((j) => [canonicalUrlKey(j.url), j]));
 describe("what one page is for, held durably", () => {
+  /** THE PAGE-READING POOL IS ON THE ONE ATTEMPT RULE TOO (reviewer, 2026-09-06, sixth pass). Its own clause asked the cache flag by itself, so a reading the cache served beside real dollars handed its unit back and the same page could be bought again on money already spent. It reads `DRAFT_BUDGET.noCallMade` now, exactly as the writer, the judging and the six other paid doors do. */
+  it.each(["tenant-one", "tenant-two"])("a reading that reached the provider costs the pass's pool a unit, and one the cache served costs it none [%s]", async (tenant) => {
+    budget.allowed = true; const s = seam(READING), pool = { left: 3 };
+    const hit = { read: async () => ({ value: READING }), write: async () => {}, recentTexts: async () => [] } as never;
+    await loadPageJobs(tenant, [extract("/tabriz")], { complete: s.complete, store: store(false), reads: pool });
+    await loadPageJobs(tenant, [extract("/shiraz")], { complete: s.complete, store: store(false), cacheImpl: hit, reads: pool });
+    await loadPageJobs(tenant, [extract("/yazd")], { complete: (async () => ({ value: READING })) as never, store: store(false), reads: pool }); // a reading whose receipt counts no request at all: the dollars record none for it, so the pool may not be charged for one either
+    expect([pool.left, s.calls()], "a unit pays for a reading that actually left the process, so the pool is charged once and both the reading the cache served and the one that counts no request are handed back for the next page").toEqual([2, 1]); });
   it("reads a page once, keeps the reading, and serves it free afterwards even when the cache is gone", async () => {
     budget.allowed = true; const s = seam(READING), db = store();
     const first = await pageJobFor("t_fixture", extract("/tabriz"), { complete: s.complete, store: db }); expect([first.reason, first.job?.pageType, first.job?.topics, s.calls(), db.rows.size]).toEqual(["read", "city", ["tabriz", "iran travel", "city guide"], 1, 1]);

@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
 import { topicTokens } from "@/domains/evidence/relevance-gate";
 import { canonicalUrlKey, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
-import { callStructuredLLM, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
+import { callStructuredLLM, type CompleteFn } from "@/domains/decision/llm/structured-drafter"; import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import type { CacheImpl } from "@/domains/decision/llm/call-cache";
 import type { PageJob } from "@/domains/decision/llm/schemas";
 import { pageStore, type PageUnderstanding } from "./page-understanding";
@@ -163,7 +163,7 @@ async function readPageJob(
       ...job, contentFingerprint: fingerprint,
       readAt: (opts.now ?? new Date()).toISOString(), sourceExtractAt: extract.fetchedAt ?? null,
     }).catch(() => false);
-    return { job, reason: "read", paid: call.cached !== true };
+    return { job, reason: "read", paid: !DRAFT_BUDGET.noCallMade(call) }; // ONE RULE, NOT A SECOND SPELLING OF IT (reviewer, 2026-09-06, sixth pass): asked on the cache flag alone, a reading the cache served beside real dollars handed its unit back to the pool, so the pass could buy the same page again on money it had already spent. Nothing else moves: the gateway stamps zero dollars on every cache hit it serves.
   } catch (e) {
     log.warn("[page-job] page job read failed (the page keeps the behaviour it had without one)", {
       error: e instanceof Error ? e.message.slice(0, 200) : String(e),

@@ -134,10 +134,10 @@ describe("the gap reader is exact, fail-closed and metered", () => {
     for (let i = 0; i < 5; i += 1) expect(await ask({ meter, query: `q${i}` })).toBeNull();
     net.calls = 0;
     expect(await ask({ meter, query: "the sixth" }), "unfunded: not bought").toBeNull();
-    expect([net.calls, meter.spent()], "no sixth call however many refused, and the receipt says what the pass spent").toEqual([0, { funded: 5, attempted: 5, cached: 0, left: 0 }]);
+    expect([net.calls, meter.spent()], "no sixth call however many refused, and the receipt says what the pass spent").toEqual([0, { funded: 5, attempted: 5, givenBack: 0, left: 0 }]);
     const cachedMeter = aeoMeter(2); net.calls = 0;
     net.answer = { status: "drafted", cached: true, value: { kind: "already_answered", ownedIds: ["own-1"], evidenceIds: [], missing: "", explanation: "e" } };
     await ask({ meter: cachedMeter, query: "cached one" });
-    expect(cachedMeter.spent(), "a cache hit reached no provider, so it costs no unit").toMatchObject({ attempted: 0, cached: 1, left: 2 });
+    expect(cachedMeter.spent(), "a cache hit reached no provider, so it costs no unit").toMatchObject({ attempted: 0, givenBack: 1, left: 2 });
     net.calls = 0; net.answer = drafted({ kind: "already_answered", ownedIds: ["own-1"] });
     expect([await ask({ meter: aeoMeter(0), query: "unfunded" }), net.calls], "zero funded is zero bought").toEqual([null, 0]); }); });

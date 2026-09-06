@@ -7,8 +7,11 @@ const cap = vi.hoisted(() => ({ allowed: true }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => (cap.allowed ? { allowed: true, remaining: 10 } : { allowed: false, reason: "the day's cap is reached" }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) }));
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => null, basisTag: () => "basis_rv3" }));
+const gap = vi.hoisted(() => ({ answer: null as unknown, body: null as unknown })); // the provider answer and the stored page the diagnosis door reads, supplied at the gateway seam so the producer itself is the real one
+vi.mock("@/domains/evidence/pages/owned-context", () => ({ loadOwnedPageBodies: async (_t: string, urls: string[]) => { const { canonicalUrlKey } = await import("@/domains/evidence/snapshot"); return new Map(gap.body ? urls.map((u) => [canonicalUrlKey(u), gap.body]) : []); } }));
+vi.mock("@/domains/decision/llm/structured-drafter", async (real) => { const m = await real<typeof import("@/domains/decision/llm/structured-drafter")>(); return { ...m, callStructuredLLM: async (o: { kind: string }) => (o.kind === "aeo_gap" ? gap.answer : m.callStructuredLLM(o as never)) }; }); // every other kind still goes to the real gateway, so the doors below are not mocked out from under themselves
 
-import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
+import { DRAFT_BUDGET } from "@/domains/decision/draft-budget"; import { AI_CASE_COPY } from "@/domains/decision/producers/ai-cases";
 import { draftFieldForPage, reviewFinishedCopy } from "@/domains/decision/drafted-copy";
 import { extractPageFacts, readWinningPattern } from "@/domains/decision/winning-pattern";
 import { callStructuredLLM } from "@/domains/decision/llm/structured-drafter";
@@ -52,15 +55,19 @@ describe("a refund gives back the attempt the door took, and never more", () => 
   });
 
   it.each(SITES)("$t: an answer that was not served from the cache is never refunded", (s) => {
-    const { allowance } = funded(s), before = allowance.left;
-    allowance.left -= 1;
-    for (const answer of [{ status: "drafted" }, { status: "validation_failed" }, null, undefined, { cached: false }]) DRAFT_BUDGET.refundIfNoCallMade(allowance, answer);
-    expect(allowance.left).toBe(before - 1);
+    expect([{ status: "drafted" }, { status: "validation_failed" }, null, undefined, { cached: false }].map((a) => door(s, a)), "none of these says nothing left the process, so every one keeps the attempt it took")
+      .toEqual(Array.from({ length: 5 }, () => "charged, calls 0, dollars 0"));
   });
 });
 
+/** ONE DOOR, READ OFF BOTH HALVES AT ONCE: take the attempt, let the answer come back, put it on the dollars, then ask for the attempt back. */
+const door = (s: Site, answer: unknown) => { const { key, budget, allowance } = funded(s), before = allowance.left;
+  allowance.left -= 1; allowance.record(answer); DRAFT_BUDGET.refundIfNoCallMade(allowance, answer); const m = budget.meterOf(key);
+  return `${allowance.left === before ? "refunded" : "charged"}, calls ${m?.providerCalls ?? 0}, dollars ${m?.costUsd ?? 0}`; };
+
 /** THE RULE AS THE FILE ITSELF STATES IT (draft-budget.ts:225): an attempt pays for a call that ACTUALLY LEFT THE
  *  PROCESS, and `recordOn` beside it keeps that same call off the dollars, so the two halves read ONE predicate. */
+const STAMPS = [{ status: "off", attempts: 1 }, { status: "blocked_budget", attempts: 1 }, { status: "drafted", cached: true, attempts: 1 }, { status: "drafted", attempts: 0 }] as const;
 describe("a call that never left the process", () => {
   it.each(SITES)("$t: the day's cap refuses the call, so the attempt it did not buy comes back", async (s) => {
     cap.allowed = false;
@@ -73,14 +80,9 @@ describe("a call that never left the process", () => {
 
   /** THE COST GUARD SITS ON THE PREDICATE, NOT ON ONE OF ITS CLAUSES (reviewer, 2026-09-06, finding 3). `off`, `blocked_budget` and `cached` answered on the status alone, so an answer stamped one of those beside real dollars was handed its attempt back here AND dropped from the dollars by `recordOn`: the same money left both halves at once and no receipt anywhere could name it. Asked as the cross product of the four stamps and the money, at both halves, on one funded page each. */
   it.each(SITES)("$t: the cost guard is on the predicate itself, so no stamp refunds an attempt beside real dollars", (s) => {
-    const asked = ([["the model is off", { status: "off", attempts: 1 }], ["the day's cap refused it", { status: "blocked_budget", attempts: 1 }],
-      ["the cache served it", { status: "drafted", cached: true, attempts: 1 }], ["the receipt counts no request", { status: "drafted", attempts: 0 }],
-    ] as const).flatMap(([why, stamp]) => [0.02, 0].map((costUsd) => { const { key, budget, allowance } = funded(s), before = allowance.left; allowance.left -= 1;
-      const answer = { ...stamp, costUsd }; allowance.record(answer); DRAFT_BUDGET.refundIfNoCallMade(allowance, answer);
-      return `${why} at ${costUsd}: ${allowance.left === before ? "refunded" : "charged"}, meter ${budget.meterOf(key)?.costUsd ?? 0}`; }));
-    expect(asked, "a receipt that names money is a call that left the process whatever it calls itself, so it stays on the dollars and keeps the attempt it bought; the same stamp naming none is the call nobody made, and it comes back")
-      .toEqual(["the model is off", "the day's cap refused it", "the cache served it", "the receipt counts no request"]
-        .flatMap((why) => [`${why} at 0.02: charged, meter 0.02`, `${why} at 0: refunded, meter 0`]));
+    expect(STAMPS.flatMap((x) => [0.02, 0].map((costUsd) => door(s, { ...x, costUsd }))), "a receipt that names money is a call that left the process whatever it calls itself, so it stays on the dollars and keeps the attempt it bought; the same stamp naming none is the call nobody made, and it comes back")
+      .toEqual(["charged, calls 1, dollars 0.02", "refunded, calls 0, dollars 0", "charged, calls 1, dollars 0.02", "refunded, calls 0, dollars 0",
+        "charged, calls 1, dollars 0.02", "refunded, calls 0, dollars 0", "charged, calls 0, dollars 0.02", "refunded, calls 0, dollars 0"]);
   });
 
   /** AND THE CLASS THE THREE NAMED STATUSES MISS. The drafter refuses an answer with no account before it touches the cache, the cap or the wire, and says so on the receipt as `attempts: 0, costUsd: 0`; the gateway stamps that same count 0 for a credit hold, a paused account and a schema nothing can convert. The meter reads the count and records no call; the refund read the status and charged one. Asked here through the REAL drafter, with a transport that would stamp its own attempt if anything ever reached it. */
@@ -90,6 +92,50 @@ describe("a call that never left the process", () => {
     const refusedBeforeTransport = await callStructuredLLM({ kind: "editor_judgement", tenantId: "", system: "read these words", user: s.q, grounded: s.line, now: NOW, complete: (async () => ({ httpAttempts: 1, value: {} })) as never });
     allowance.record(refusedBeforeTransport); DRAFT_BUDGET.refundIfNoCallMade(allowance, refusedBeforeTransport);
     expect([budget.meterOf(key)?.providerCalls ?? 0, before - allowance.left, (refusedBeforeTransport as { attempts?: number }).attempts ?? -1], "the meter says no request left the process, and the two halves of one rule must agree about that").toEqual([0, 0, 0]);
+  });
+});
+
+describe("a receipt that names money", () => {
+  it.each(SITES)("$t: is never refunded, under any stamp and any shape of the number", (s) => {
+    expect([...STAMPS, { status: "drafted", cached: true, attempts: 0 }].map((x) => door(s, { ...x, costUsd: 0.02 })),
+      "the dollars are asked first and of every clause, so an answer that names money keeps the attempt it bought however it describes itself, and the dollars stay on the page's own record")
+      .toEqual(["charged, calls 1, dollars 0.02", "charged, calls 1, dollars 0.02", "charged, calls 1, dollars 0.02", "charged, calls 0, dollars 0.02", "charged, calls 0, dollars 0.02"]);
+  });
+
+  it.each(SITES)("$t: the same stamps naming no money are the call nobody made, and they come back", (s) => {
+    expect(STAMPS.map((x) => door(s, { ...x, costUsd: 0 })), "nothing left the process, so the attempt is handed back and no call and no dollar reaches the record")
+      .toEqual(Array.from({ length: 4 }, () => "refunded, calls 0, dollars 0"));
+  });
+});
+
+describe("a receipt with no dollars and no stamp", () => {
+  it.each(SITES)("$t: is charged, and both halves of the meter say the same thing about it", (s) => {
+    expect(door(s, { status: "drafted", attempts: 1, costUsd: 0 }), "a call that left the process and came back free is still a call: the attempt stays spent and the record names the request, which is the arithmetic the refund and the dollars share").toBe("charged, calls 1, dollars 0");
+  });
+
+  it.each(SITES)("$t: MEASURED: an answer that says nothing at all is charged and put on no request", (s) => {
+    expect([door(s, {}), door(s, null)], "MEASURED, not endorsed: an object with no attempts field is not a zero-request receipt, so it keeps its attempt and adds no call, and a thrown call answering null keeps its attempt and reaches no record at all. Both charge, which is the safe direction; neither can be read back as what it cost").toEqual(["charged, calls 0, dollars 0", "charged, calls 0, dollars 0"]);
+  });
+});
+
+/** AND THE PASS'S DIAGNOSIS PURSE IS THE SAME DOOR (reviewer, 2026-09-06, sixth pass). It gave a unit back on the cache flag alone, through a private clause spelled `AeoMeter.refund()` that took no answer at all, so no cost could gate it and the day cap refusing a call before the wire still cost the pass a reading it never bought. The private clause is deleted and the purse's `left` is written through the one rule, exactly as every other paid door writes its allowance. Driven through the REAL producer with the provider answer supplied at the gateway seam. */
+describe("the pass's diagnosis purse", () => {
+  const RULING = { kind: "already_answered", ownedIds: ["own-1"], evidenceIds: [], missing: "", explanation: "the page already answers it" };
+  const reading = async (s: Site, answer: unknown) => { const meter = AI_CASE_COPY.aeoMeter(2); gap.answer = answer;
+    gap.body = { passages: [...s.lines], faqs: [], completeness: "complete", contentHash: "h" };
+    const d = await AI_CASE_COPY.diagnoseGap({ tenantId: s.t, caseKey: `fanout:${s.t}`, query: s.q, stage: "owned_retrieved_not_cited", pageUrl: s.url, observationIds: ["o1"], passages: [s.lines[1]!], meter, persist: true, now: NOW } as never);
+    const m = meter.spent(); return `${d ? "ruled" : "no ruling"}, units ${m.attempted}, back ${m.givenBack}, left ${m.left}`; };
+
+  it.each(SITES)("$t: a cached, refused or switched-off reading costs the pass no unit, and a real call costs exactly one", async (s) => {
+    const spent: string[] = []; for (const answer of [{ status: "off" }, { status: "blocked_budget" }, { status: "drafted", cached: true, value: RULING }, { status: "drafted", attempts: 1, value: RULING }]) spent.push(await reading(s, answer));
+    expect(spent, "a unit pays for a reading that actually left the process, so the model being off, the day cap refusing the call and the cache serving it all hand the unit back for the next case, and only the call that reached the provider is charged")
+      .toEqual(["no ruling, units 0, back 1, left 2", "no ruling, units 0, back 1, left 2", "ruled, units 0, back 1, left 2", "ruled, units 1, back 0, left 1"]);
+  });
+
+  it.each(SITES)("$t: and a reading that names real dollars keeps its unit, whatever its stamp says", async (s) => {
+    expect(await reading(s, { status: "drafted", cached: true, attempts: 1, costUsd: 0.004, value: RULING }),
+      "the cost guard reaches this door now: money on the receipt means the call left the process whatever the stamp says, so the unit it bought stays spent")
+      .toBe("ruled, units 1, back 0, left 1");
   });
 });
 

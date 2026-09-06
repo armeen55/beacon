@@ -49,7 +49,7 @@ const identityOf = (p: OwnedPageEvidence): string =>
 import { aeoMeter, aiCaseCards, type AeoMeter } from "./ai-cases";
 
 /** What this producer did, whether it FINISHED, and what it refused to guess at: completeness is stated per family, so a dead source holds only its own out of the sweep, and `held` puts refusals on the receipt. */
-type ExtraQueueRun = { cards: ChangeProposal[]; complete: boolean; families: string[]; held: { pageUrl: string; reason: string }[]; aeoHold?: ReadonlySet<string>; aeoSpend?: { funded: number; attempted: number; cached: number; left: number }; needsOwnPage: { query: string; refusedPages?: string[] }[] };
+type ExtraQueueRun = { cards: ChangeProposal[]; complete: boolean; families: string[]; held: { pageUrl: string; reason: string }[]; aeoHold?: ReadonlySet<string>; aeoSpend?: { funded: number; attempted: number; givenBack: number; left: number }; needsOwnPage: { query: string; refusedPages?: string[] }[] };
 import { linkFit, pageUnderstanding } from "./page-job";
 import { journeyLabel } from "@/domains/evidence/ai-visibility/answer-journeys";
 /** What this producer did, whether it FINISHED, and what it refused to guess at. `complete` is true only when the queue on file was read AND every source these producers judge on answered: "none this pass" and "I could not look" are the same length and opposite facts, and the sweep behind this producer withdraws every card in a family it believes was rewritten in full. `families` names the ones that DID finish, so a dead source holds only its own out of that sweep. `held` puts refusals on the receipt. */

@@ -12,7 +12,7 @@ import type { CanonicalDemandUnit } from "@/domains/evidence/demand-units";
 import { journeyLabel, readAnswerJourneys, standingOf } from "@/domains/evidence/ai-visibility/answer-journeys";
 import { sectionFit } from "./page-job";
 import { DIAGNOSIS_CONTRACT, freshDiagnosis, TREATMENT_FOR_KIND, readAiCaseDispositions, recordAiCaseDispositions, type AeoGapDiagnosis, type AiCaseDisposition, type AiCaseState } from "../ai-case-store";
-import { callStructuredLLM } from "../llm/structured-drafter";
+import { callStructuredLLM } from "../llm/structured-drafter"; import { DRAFT_BUDGET } from "../draft-budget";
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
 import { askable, bestPageFor, count, noteNeedsOwnPage, pageWords, pathOf, plain,
   STOREFRONT, subjectWords, type Draft, type Fit, type Understanding } from "./page-fit";
@@ -90,12 +90,12 @@ export function resolveFanoutCase(row: FanoutRow, landing?: { pageUrl: string | 
         : `${row.materialBecause} ${dimension}, and this site is not among the sources the assistants relied on for it. Whether any page here was read is not something these instruments report.` };
 }
 /** THE PASS'S OWN DIAGNOSIS PURSE, decided at the orchestration boundary and shared by tracked questions and fan-outs alike. The account cap and the pause live at the gateway; this is the per-pass funding decision the gateway cannot make, and without it a pass whose diagnoses all REFUSE keeps buying, because a refusal emits no card and the five-card output bound never notices. Unfunded cases stay owed for the next pass. */
-export type AeoMeter = { draw(): boolean; refund(): void; spent(): { funded: number; attempted: number; cached: number; left: number } };
+export type AeoMeter = { draw(): boolean; /** THE UNITS THIS PASS HAS LEFT, and the ONE door a unit comes back through: written by `DRAFT_BUDGET.refundIfNoCallMade`, exactly as every other paid door writes its allowance, so no clause of that rule can go missing here. */ left: number; spent(): { funded: number; attempted: number; givenBack: number; left: number } };
 export function aeoMeter(funded: number): AeoMeter {
-  let left = Math.max(0, funded), attempted = 0, cached = 0;
+  let left = Math.max(0, funded), attempted = 0, givenBack = 0;
   return { draw: () => (left <= 0 ? false : (left -= 1, attempted += 1, true)),
-    refund: () => { left += 1; attempted -= 1; cached += 1; },
-    spent: () => ({ funded: Math.max(0, funded), attempted, cached, left }) };
+    get left() { return left; }, set left(v: number) { const back = Math.min(Math.max(0, Math.round(v) - left), attempted); left += back; attempted -= back; givenBack += back; }, // a give-back lands only against a unit really drawn, so no refund can invent one
+    spent: () => ({ funded: Math.max(0, funded), attempted, givenBack, left }) };
 }
 /** THE PRE-WRITING DIAGNOSIS: what, if anything, this page LACKS for this search, read from the complete stored page and the credited passages, never inferred from the stage. Ruled by the aeo_gap reader through the one gateway (spend scope, daily and monthly budget, call cache), validated hard afterward: only ids the packet supplied, absence claims only against a complete page, scatter only across separate passages, and reachability never from a packet that carries no technical evidence. Null = the reader did not rule (unpaid pass, refused budget, unusable answer): NOTHING moves on null, the banked reading stays, no writer is hired. */
 const GAP_SYSTEM = "You are Beacon's AEO gap reader. Decide what, if anything, the owned page LACKS for the given search, strictly from the numbered material supplied; never use outside knowledge. kinds: already_answered (the page already answers it clearly; cite the owned ids where), scattered_answer (every needed fact is present but spread across separate passages; cite them all), missing_information (a material proposition the credited answers carry is absent from the COMPLETE page; name it in missing and cite the evidence ids carrying it), extraction_or_structure_gap (the page answers it but the answer is buried or fragmented; name the defect in missing and cite the owned ids), authority_or_source_gap (same information, stronger sourcing or standing behind the credited page; cite the evidence ids), freshness_gap (the credited material is dated newer and conflicts; name the dated conflict in missing), reachability_gap (only with technical evidence, which this packet does not carry), unknown (the material does not show why). ownedIds and evidenceIds repeat ids exactly as given. explanation is one plain sentence for a site owner. Restating the page is never a gap: a question the page answers plainly is already_answered.";
@@ -112,7 +112,7 @@ async function diagnoseGap(c: { tenantId: string; caseKey: string; query: string
     body?.contentHash ?? "", body?.completeness ?? "", obsIds, owned, ev, DIAGNOSIS_CONTRACT])).digest("hex").slice(0, 32);
   if (freshDiagnosis(c.banked, packet)) return c.banked!;
   if (!c.persist || body == null || owned.length === 0) return null;
-  // THE PASS FUNDS THE ATTEMPT BEFORE IT IS MADE. A refusal costs a unit exactly as a verdict does, because both bought a reading; only a cache hit is given back, because it reached no provider.
+  // THE PASS FUNDS THE ATTEMPT BEFORE IT IS MADE, AND ONE RULE DECIDES WHAT COMES BACK. A refusal that reached the provider costs a unit exactly as a verdict does, because both bought a reading; an answer that never left the process gives its unit back, and that is four answers and not one: the model is off, the day cap refused the call before it was made, the call cache served it, or the receipt itself counts no request, and never any of them beside real dollars.
   if (!c.meter.draw()) return null;
   const completeness = body.completeness;
   const user = [`Search or question: "${c.query}"`, `What the assistants did (the stage): ${c.stage}`,
@@ -122,7 +122,7 @@ async function diagnoseGap(c: { tenantId: string; caseKey: string; query: string
     ...ev.map(([id, t]) => `${id}: ${t}`), "Return the JSON now."].join("\n");
   const r = await callStructuredLLM({ kind: "aeo_gap", tenantId: c.tenantId, system: GAP_SYSTEM, user, grounded: user,
     projectedCostUsd: 0.005, maxTokens: 900, timeoutMs: 95_000, now: c.now }).catch(() => null);
-  if (r && (r as { cached?: true }).cached) c.meter.refund(); // a cache hit reached no provider, so it cost no unit
+  DRAFT_BUDGET.refundIfNoCallMade(c.meter, r); // THE PRIVATE CLAUSE IS GONE (reviewer, 2026-09-06, sixth pass): asked on the cache flag alone, this door charged a unit for an answer the gateway refused before the wire, and no cost could gate it, so a cached receipt naming real dollars was given its unit back. It reads the rule the dollars read now.
   if (r?.status !== "drafted") return null;
   const v = r.value as { kind: AeoGapDiagnosis["kind"]; ownedIds: string[]; evidenceIds: string[]; missing: string; explanation: string };
   const known = new Set([...owned, ...ev].map(([id]) => id));
