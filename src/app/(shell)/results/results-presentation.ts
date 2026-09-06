@@ -5,7 +5,7 @@
  * rules: no raw slug ever reaches the screen; no number is invented; every row ends on a next step. */
 
 import { monthDayLabel } from "@/components/data/receipt-line";
-import { familyHistoryFromShipments, isMature as kernelIsMature } from "@/domains/measurement";
+import { learningFromShipments, isMature as kernelIsMature } from "@/domains/measurement";
 import type { ControlReceipt, KernelRead, MeasurementState, ShipmentObjective, ShipmentVerification, treatmentLearning } from "@/domains/measurement";
 import { RESULT_LINES } from "./results-lines";
 const { AI_MOVE, WHY_UNCONFIRMED, aiDays, aiHappenedLine, aiMove, aiStory, cap, caveatLines, executionLine, fundingFor, fundingLine, groupFor, happenedLine, judgedOnAi, learningRowOf, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, retiredChip, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } = RESULT_LINES;
@@ -314,7 +314,7 @@ function rowOf(p: ShipmentPresentation, now: Date, funding: ReadonlyMap<string, 
 export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>, now: Date = new Date()): ResultsView {
   const rows: Record<ResultsGroup, ResultsRow[]> = { worked: [], down: [], flat: [], reading: [] };
   // THE ONE RECORD THE QUEUE READS, built here off the same rows and the same rule the funding door uses, so a row can say what its own kind of work has changed about what gets funded next rather than describing it.
-  const funding = familyHistoryFromShipments(shipments.map((p) => learningRowOf(p, true)));
+  const funding = learningFromShipments(shipments.map((p) => learningRowOf(p, true)));
   for (const p of shipments) rows[groupFor(p)].push(rowOf(p, now, funding));
   for (const g of Object.keys(rows) as ResultsGroup[]) rows[g].sort((a, b) => a.sort - b.sort);
   const counts = { worked: rows.worked.length, down: rows.down.length, flat: rows.flat.length, reading: rows.reading.length };

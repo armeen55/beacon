@@ -51,6 +51,19 @@ describe("what one comparison of the winners says", () => {
         "read whole and carrying nothing this page lacks is a fact; cut at the ceiling is unknown past the cut and never that fact").toEqual(["nothing", "unread", true]);
     });
 
+    /* A READ THAT NEVER LOOKED FOR ENTITIES CANNOT SAY THE WINNER NAMES NOTHING (Build Queue E-039). A page read
+     * through the provider carries its words and its tables and reports no entity list, no question count and no
+     * list flag; an empty list stood in for all three, so a winner nobody had asked about entities settled the
+     * comparison at "the stored winners name nothing this page lacks", the one sentence the body door refuses on. */
+    it(`${s.t}: a winner whose read lists nothing it names leaves that unknown instead of settling the comparison`, () => {
+      const same = { mainText: s.ownPassages[0]!, headings: [s.covered], faqCount: 0 };
+      const looked = jobComparison(research(s, { ...same, entityNames: [] }), s.queries, owned(s));
+      const never = jobComparison(research(s, { ...same, entityNames: undefined, hasList: undefined }), s.queries, owned(s));
+      expect([looked.verdict, never.verdict, never.winners[0]!.namesRead, never.winners[0]!.shape.lists, never.winners[0]!.shape.questions, looked.winners[0]!.shape.questions],
+        "a read that looked and found no names settles the comparison; a read that never looked leaves it unknown, and the shape says which parts of the answer were never captured")
+        .toEqual(["nothing", "unread", false, null, 0, 0]);
+    });
+
     it(`${s.t}: the publisher class follows the host, so an authority is labelled rather than dropped`, () => {
       const gov = jobComparison(research(s, {}, "https://records.alpha.gov/report"), s.queries, owned(s)).winners[0]!;
       const cited = jobComparison(research(s, {}, "https://en.wikipedia.org/wiki/Subject"), s.queries, owned(s)).winners[0]!;

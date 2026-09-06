@@ -38,8 +38,8 @@ describe("what one read of a winning page carries", () => {
       expect([back.mainText, back.h3s, back.schemaTypes, back.truncated, back.heldChars, back.totalChars],
         "every field the read banked is the field the next pass reads").toEqual([fresh.mainText, fresh.h3s, fresh.schemaTypes, fresh.truncated, fresh.heldChars, fresh.totalChars]);
       const legacy = pageExtractFromRecord({ title: s.h2, h1: s.h2, wordCount: 900, headings: [s.h2], faqCount: 0, openingSample: s.body });
-      expect([legacy.mainText, legacy.truncated, legacy.heldChars, legacy.totalChars, legacy.openingSample === s.body],
-        "a row from before the reading says nothing was captured, which is not the claim that the page carries nothing").toEqual([null, null, null, null, true]);
+      expect([legacy.mainText, legacy.truncated, legacy.heldChars, legacy.totalChars, legacy.openingSample === s.body, legacy.entityNames],
+        "a row from before the reading says nothing was captured, which is not the claim that the page carries nothing, and a row that banked no entity list hands back no list rather than an empty one").toEqual([null, null, null, null, true, undefined]);
     });
 
     it(`${s.t}: a page longer than one comparison reads is held to the ceiling and says how much of it stands behind the read`, () => {
@@ -56,6 +56,19 @@ describe("what one read of a winning page carries", () => {
       expect([got?.mainText?.includes(s.body), got?.headings, (got?.wordCount ?? 0) > 0], "the provider's main and secondary topics are the reading, and its headings ride with it").toEqual([true, [s.h2, s.h3], true]);
       const empty = parseCapability("onpage_content_parsing", { tasks: [{ result: [{ items: [{ page_content: {} }] }] }] } as never);
       expect([empty?.mainText, empty?.wordCount, empty?.truncated], "a read that came back with no words carries none, so nothing downstream can mistake it for a page that answers").toEqual([null, 0, false]);
+    });
+
+    /* WHAT THE PAID READ NEVER SAW IS NOT A ZERO (Build Queue E-039). `page_content` sends the page's topics, their
+     * paragraphs and their tables, and nothing else: a question-entry count of 0 stood on every winner read this way,
+     * beside crawled winners whose 0 was measured, and the meta description, the entity list, the list flag and the
+     * link counts were simply missing with nothing saying so. */
+    it(`${s.t}: the paid read claims only the parts the payload carries and leaves the rest not captured`, () => {
+      const envelope = { tasks: [{ result: [{ items: [{ page_content: { main_topic: [{ main_title: s.h2, h_title: s.h2,
+        primary_content: [{ text: s.body }], table_content: [{ table_content: [["one", "two"]] }] }] } }] }] }] };
+      const got = parseCapability("onpage_content_parsing", envelope as never)!;
+      expect([got.hasTable, got.faqCount, got.metaDescription, got.entityNames, got.hasList, got.internalLinkCount, got.externalLinkCount],
+        "the table the payload shows is a fact this read may state, and the six parts it never sends stay absent, because no question entries, no entities, no list and no links are claims this endpoint cannot make")
+        .toEqual([true, undefined, undefined, undefined, undefined, undefined, undefined]);
     });
   }
 });

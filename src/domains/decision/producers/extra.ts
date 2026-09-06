@@ -326,7 +326,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   // THE COMPLETE GOOGLE UNIVERSE, not the top-40 grain. Null = unknown, never no.
   const universe = await import("@/domains/evidence/readers/gsc-query-universe")
     .then((m) => m.loadGscQueryUniverse(tenantId, now)).catch(() => null);
-  const cases = await aiCaseCards(bank, snapshot, pages, weak, earned, children, u, tenantId, input.units ?? [], windowObs, now, input.persist !== false, meter, universe?.keys ?? null);
+  const cases = await aiCaseCards(bank, snapshot, pages, weak, earned, children, u, tenantId, input.units ?? [], windowObs, now, input.persist !== false, meter, universe?.keys ?? null, written); // the words already on file for each page reach BOTH body producers, so one question a live change answers is refused a second card in one voice and not two
   const drafts = [...cases.drafts,
     ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt), ...unansweredCards(snapshot, pages, expectedCtrAt, { bodies, misses, facts, written, basis: input.basis ?? null, tenantId })]; // LAST, so an AI case about the same question keeps it: one question is one card
   const out: ChangeProposal[] = [];

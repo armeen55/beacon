@@ -2,9 +2,8 @@ import "server-only";
 /** decision/producers/ai-cases - THE ONE AEO DECISION PATH. Two sources of case (a tracked question the operator approved; a search the assistants ran themselves), one ladder, one family. Both stage the AI position BEFORE a page is chosen. THE STAGE IS WHAT HAPPENED, NEVER WHAT IS WRONG WITH THE PAGE: what a page lacks, if anything, is decided by the diagnosis reader against the complete stored copy, and only that verdict may order body work. CLASSIFICATION IS NEVER BOUNDED, only paid drafting is: every material search terminates somewhere a person can see, and same-page clusters collapse into ONE card carrying all of them, aggregation with a receipt and never a drop (operator, 2026-08-19). */
 import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
-import type { ChangeProposal } from "../contracts";
 import { dayLabel, engineLabel, engineList } from "@/lib/presenter";
-import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
+import { canonicalQueryKey } from "@/domains/evidence/relevance-gate"; import { answeredIn } from "../diagnosis";
 import { citesOwnSite } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { buildFanoutEvidence, FANOUT_LINKAGE_CAVEAT, instrumentFacts, type FanoutRow } from "@/domains/evidence/ai-visibility/fanout-evidence";
 import { canonicalUrlKey, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
@@ -185,7 +184,7 @@ function gateOf(d: AeoGapDiagnosis | null, factReady = false): GapGate {
 export async function aiCaseCards(bank: { query: string; refusedPages?: string[] }[], snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], weak: ReadonlySet<string>,
   earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>, u: Understanding, tenantId: string,
   units: readonly CanonicalDemandUnit[], windowObs: readonly CanonicalPairObservation[] | null, now: Date,
-  persist: boolean, meter: AeoMeter, googleKeys?: ReadonlySet<string> | null): Promise<{ drafts: Draft[]; filed: boolean; hold: ReadonlySet<string> }> {
+  persist: boolean, meter: AeoMeter, googleKeys?: ReadonlySet<string> | null, /** THE COPY THE CHANGES ALREADY ON FILE FOR EACH PAGE WOULD PUBLISH, keyed by the page's own path in lower case, exactly as the demand producer receives it. Absent means nothing is on file for any page, and every verdict below is then byte for byte what it was. */ written?: ReadonlyMap<string, readonly { query: string; copy: string }[]>): Promise<{ drafts: Draft[]; filed: boolean; hold: ReadonlySet<string> }> {
   const site = (snapshot.scope.site ?? "").replace(/^www\./, "").toLowerCase();
   if (!site) return { drafts: [], filed: true, hold: new Set<string>() }; // nothing to conclude is not a filing that failed
   // THE STORED WINDOW, through the one shared projection: distinct days, assistants and the material follow-up searches behind every tracked question. The snapshot alone is the newest answer per question and engine, which cannot count days, and reading row totals as recurrence is the defect this replaced.
@@ -193,7 +192,8 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
   // THE BANKED VERDICTS, read once: a fresh diagnosis is served on, a stale one is re-earned, and a case this pass cannot rule keeps whatever reading is on file (the writer coalesces, so absence strips nothing).
   const bankedFile = await readAiCaseDispositions(tenantId);
   const banked = new Map(bankedFile.state === "read" ? bankedFile.rows.map((r) => [r.caseKey, r] as const) : []);
-  const holdIds = new Set<string>();
+  const holdIds = new Set<string>(); /* ONE PAGE IS A CONTAINER OF ATOMIC OPPORTUNITIES (Product Truth, one page is never one opportunity; campaign, 2026-09-06). This card's id was spelled out of the PAGE ALONE in five places, so a second tracked question landing on the same page minted a card wearing the first card's identity, and the store kept whichever wrote last: the smaller question was lost with no verdict anywhere. The id is built HERE and nowhere else, and a page's cases take seats in the order this pass decides them. The FIRST keeps the id it has always had, so no row on file changes identity, and the one behind it carries its own canonical search key after "@", the way a link card carries its destination; the family is the part before the "@", so every door downstream reads them as one family. At most two a page a pass, and that bound is only about how much one pass opens at once: the store's current-row index and the overlap rule stay the arbiters of what may stand beside what. A SEARCH A LIVE CHANGE ALREADY ANSWERS IN ITS OWN WORDS IS NOT A SECOND CASE, read by the one rule the page's own passages are read by (decision/diagnosis `answeredIn`), so a page holding words for one phrasing is never given a second section saying them again. Asked of the second seat alone, so the first case on a page is byte for byte what it was. */ const seats = new Map<string, string[]>(), MAX_PER_PAGE = 2, livingCopy = (at: string, q: string): boolean => (written?.get(at) ?? []).some((w) => canonicalQueryKey(w.query) !== canonicalQueryKey(q) && answeredIn(q, w.copy));
+  const seatFor = (path: string, question: string): { slug: string; id: string; drop: () => void } | { refused: string } => { const at = path.toLowerCase(), held = seats.get(at) ?? [], key = canonicalQueryKey(question); if (held.includes(key)) return { refused: `A change opened this pass on ${path} already targets this search, so it is covered there rather than opened twice.` }; if (held.length > 0 && livingCopy(at, question)) return { refused: `A change already on file for ${path} carries words that answer this search, so no second section is opened to say it again. Ship that change and the next answers get checked against it.` }; if (held.length >= MAX_PER_PAGE) return { refused: `${path} already carries the ${count(MAX_PER_PAGE, "change")} one pass opens for a single page, so this search is picked up on the next pass.` }; seats.set(at, [...held, key]); const tail = held.length === 0 ? "" : `@${key}`; return { slug: `ai_answer_gap${tail}`, id: `${tenantId}::${at}::existing_edit::ai_answer_gap${tail}`, drop: () => seats.set(at, (seats.get(at) ?? []).filter((k) => k !== key)) }; };
   const windows = new Map<string, { days: Set<string>; engines: Set<string>; reporting: number; rnc: number }>();
   for (const o of windowObs ?? []) {
     const w = windows.get(canonicalQueryKey(o.promptText)) ?? { days: new Set<string>(), engines: new Set<string>(), reporting: 0, rnc: 0 };
@@ -294,14 +294,14 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
     const engines = engineList([...g.engines].sort()), inst = [...g.domains.keys()].filter((d) => /\.(edu|gov)$|\.ac\.[a-z]{2}$/.test(d));
     const obsIds = (windowObs ?? []).filter((o) => o.promptId === g.promptId).map((o) => o.observationId).slice(0, 40);
     // NO TREATMENT WITHOUT A DIAGNOSIS, INCLUDING THE DECISION ONES. "No stored answer reported retrieval" is missing instrumentation, never proof of an indexing defect, and zero title tokens is not proof that a consolidation is the right call: both are stage facts, so they ask for the evidence they lack instead.
-    const d0 = await diagnoseGap({ tenantId, caseKey: `prompt:${g.promptId}`, query: g.prompt, stage, pageUrl: match.page.url,
+    const seat = seatFor(path, g.prompt); if ("refused" in seat) { notePrompt(g, "covered", seat.refused, { pageUrl: match.page.url, stage }); continue; } /* ASKED BEFORE THE READING IS BOUGHT: a case this page has no room for, or one a live change already answers, must not spend a diagnosis unit to be told so, and the seat is handed back below where the reading itself refuses the card */ const d0 = await diagnoseGap({ tenantId, caseKey: `prompt:${g.promptId}`, query: g.prompt, stage, pageUrl: match.page.url,
       observationIds: obsIds, passages: journeys.filter((j) => j.citedPassage != null).slice(0, 3).map((j) => j.citedPassage!),
       banked: banked.get(`prompt:${g.promptId}`)?.diagnosis, meter, persist, now });
     const gate = gateOf(d0, d0?.kind === "missing_information" ? await authorizedMissingFactOn(tenantId, path) : false); // the fact-bank read runs only for the one kind that hires on it
-    if (gate && !gate.emit) { notePrompt(g, gate.state, gate.reason, { pageUrl: match.page.url, stage, diagnosis: gate.diagnosis }); continue; }
+    if (gate && !gate.emit) { seat.drop(); notePrompt(g, gate.state, gate.reason, { pageUrl: match.page.url, stage, diagnosis: gate.diagnosis }); continue; } // the seat goes back: no card stands on this page for this search, so the next case may take it
     const copy = caseCopy({ quoted: `"${g.prompt}"`, path, intent: intentOf(g.prompt), stage, domain, diagnosed: !!gate.diagnosis?.treatment });
     out.push({
-      page: match.page, slug: "ai_answer_gap", field: "section", query: g.prompt, asked: g.prompt,
+      page: match.page, slug: seat.slug, field: "section", query: g.prompt, asked: g.prompt,
       ...(gate.treatment ? { treatment: gate.treatment } : {}),
       ...(gate.next ? { next: gate.next } : {}),
       headline: copy.headline, before: null, after: `${OBS[stage]} ${gate.work}`,
@@ -342,15 +342,15 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
       minutes: 30, confidence: g.answers >= 3 && (w == null || w.days.size >= 3) ? "medium" : "low", refs: g.answers,
       limitation: "This is read off the answers already stored for this question, not off a fresh answer bought today, and no rewrite guarantees a citation.",
     });
-    if (!gate.hire) holdIds.add(`${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap`);
+    if (!gate.hire) holdIds.add(seat.id);
     notePrompt(g, "actionable", `Rivals are credited on this question and this site is not. A change is open for it on ${path}.`,
-      { pageUrl: match.page.url, stage, proposalId: `${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap`, ...(gate.diagnosis ? { diagnosis: gate.diagnosis } : {}) });
+      { pageUrl: match.page.url, stage, proposalId: seat.id, ...(gate.diagnosis ? { diagnosis: gate.diagnosis } : {}) }); // THE DURABLE POINTER NAMES THE ID THE CARD ACTUALLY CARRIES, suffix and all, or a verdict on file points at a change nobody can open
   }
 
   // ── SECOND SOURCE: THE SEARCHES THE ASSISTANTS RAN THEMSELVES. Classification is deliberately unbounded (bounding it abandons the fourth strongest search in silence); only paid drafting is bounded, where the money is spent. A cluster whose page already carries a card MERGES into it (operator, 2026-08-19).
   const trackedKeys = new Set((windowObs ?? []).map((o) => canonicalQueryKey(o.promptText)).filter(Boolean));
   const claimed = new Set(out.map((d) => canonicalQueryKey(d.query)));
-  const byPage = new Map(out.map((d, i) => [pathOf(d.page.url), i]));
+  const byPage = new Map(out.map((d, i) => [pathOf(d.page.url), i] as const).reverse()); // THE PAGE'S FIRST CARD IS THE ONE A FOLLOW-UP SEARCH JOINS, now that a page can carry two: reversed so the earliest index wins, which is the card this pass built for that page's strongest question
   const byKey = new Map(pages.map((pg) => [canonicalUrlKey(pg.url), pg]));
   const states: Record<string, number> = {};
   // WHAT THIS PASS CONCLUDED ABOUT EVERY SEARCH joins the same `decided` list the tracked questions filed into: one write, both identities. Only this pass holds the landing evidence; re-deriving from evidence alone, a screen put an action button under a search Decision had already refused for want of a page.
@@ -427,17 +427,17 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
     const rival = row.rivalPages[0] ?? null;
     // THE READER-FACING SUBJECT: the parent tracked question when one exists, else the search rendered as a subject. The raw fan-out stays quoted below as the search the assistants RAN; it is never the thing the copy is told to answer, because a retrieval trace is not a sentence a person publishes.
     const voice = parent && askable(plain(parent.promptText)) ? plain(parent.promptText) : readableSubject(subject);
-    const dF = await diagnoseGap({ tenantId, caseKey: `fanout:${row.key}`, query: subject, stage, pageUrl: fit.match.page.url,
+    const seatF = seatFor(path, subject); if ("refused" in seatF) { noteCase(row, "covered", seatF.refused, { pageUrl: fit.match.page.url, stage }); continue; } /* the same seat rule and the same id builder as the tracked questions above, asked before the reading is bought */ const dF = await diagnoseGap({ tenantId, caseKey: `fanout:${row.key}`, query: subject, stage, pageUrl: fit.match.page.url,
       observationIds: row.observationIds, passages: [], banked: banked.get(`fanout:${row.key}`)?.diagnosis, meter, persist, now }); const gateF = gateOf(dF, dF?.kind === "missing_information" ? await authorizedMissingFactOn(tenantId, path) : false);
     if (!gateF.emit) {
-      states.diagnosed = (states.diagnosed ?? 0) + 1;
+      seatF.drop(); states.diagnosed = (states.diagnosed ?? 0) + 1;
       noteCase(row, gateF.state, gateF.reason, { pageUrl: fit.match.page.url, stage, diagnosis: gateF.diagnosis });
       continue;
     }
     const copyF = caseCopy({ quoted: parent && askable(plain(parent.promptText)) ? `"${voice}"` : `searches for ${voice}`,
       path, intent: intentOf(subject), stage, domain: rival ? rival.url.replace(/^https?:\/\//, "").split("/")[0] ?? null : null, diagnosed: !!gateF.diagnosis?.treatment });
     out.push({
-      page: fit.match.page, slug: "ai_answer_gap", field: "section", query: subject, asked: subject,
+      page: fit.match.page, slug: seatF.slug, field: "section", query: subject, asked: subject,
       ...(gateF.treatment ? { treatment: gateF.treatment } : {}),
       ...(gateF.next ? { next: gateF.next } : {}),
       headline: readOver
@@ -476,11 +476,11 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
       minutes: 30, confidence: row.days >= 3 && row.engines.length >= 2 ? "medium" : "low", refs: row.executions,
       limitation: FANOUT_LINKAGE_CAVEAT,
     });
-    if (!gateF.hire) holdIds.add(`${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap`);
+    if (!gateF.hire) holdIds.add(seatF.id);
     byPage.set(path, out.length - 1);
     claimed.add(row.key);
     noteCase(row, "actionable", `${row.materialBecause}. A change is open for it on ${path}.`,
-      { pageUrl: fit.match.page.url, stage, proposalId: `${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap`, ...(gateF.diagnosis ? { diagnosis: gateF.diagnosis } : {}) });
+      { pageUrl: fit.match.page.url, stage, proposalId: seatF.id, ...(gateF.diagnosis ? { diagnosis: gateF.diagnosis } : {}) });
   }
   // FILED ONCE, AT THE END, so a surface reads what this pass concluded instead of guessing it again. A pass that persists nothing files nothing: a dry run must never leave a verdict on disk for a screen to read. A CONCLUSION THAT IS NOT ON RECORD IS NOT A CONCLUSION. When the file could not be written, this pass may not be treated as having rewritten its family in full: the sweep behind it would then retire cards on the strength of a pass whose verdicts nothing can read back. AND A PASS THAT NEVER SAW THE WINDOW DECIDED NOTHING WORTH KEEPING. With the 28 day read failed or empty, every verdict above was reached blind: recurrence at zero, every fan-out invisible. Filing those rows would overwrite real verdicts with blindness, and reporting filed:true would authorize the sweep to retire cards on the strength of a read that never happened. So the pass keeps its drafts, files nothing, leaves an unavailable receipt in the log, and the family is held exactly as an unwritable store holds it.
   if (windowObs == null) {

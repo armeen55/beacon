@@ -4,7 +4,7 @@
  *  keyed by the work's own signature AND by the family now, the queue asks the finer one first, and the receipt says which of the two spoke.
  *  Driven through the REAL adapter and the REAL ranking, on two synthetic accounts with nothing in common, from stored rows only. */
 import { describe, expect, it } from "vitest";
-import { familyHistoryFromShipments } from "@/domains/measurement";
+import { learningFromShipments } from "@/domains/measurement";
 import { rankProposals } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 
@@ -15,7 +15,7 @@ const SITES = [
   { t: "acct-tide", page: "/tide-pools", q: "tide pool safety" },
   { t: "acct-bordado", page: "/bordado", q: "puntadas de bordado" },
 ];
-type Row = Parameters<typeof familyHistoryFromShipments>[0][number];
+type Row = Parameters<typeof learningFromShipments>[0][number];
 const read = (lift: number, treatment: string | null): Row => ({
   actionType: "internal_links", after: "A sentence pointing readers at the other page.", implementedAt: SHIPPED, verification: VERIFIED,
   operatorVerdictOverride: null, pinnedRead: null, componentsApplied: null,
@@ -40,7 +40,7 @@ const historyOf = (p: ChangeProposal): string => (p.rankingReceipt?.factors ?? [
 describe("what a record teaches is read off the work's own signature, and the family answers only where that is silent", () => {
   for (const s of SITES) {
     it(`${s.t}: a losing family record does not discount a bet of its own that is winning`, () => {
-      const map = familyHistoryFromShipments(LEDGER);
+      const map = learningFromShipments(LEDGER);
       expect([map.get("link")?.readings, map.get("link::technical_reachability")?.readings, map.get("link::internal_link_or_navigation")?.readings],
         "the one map is keyed both ways off one pass of the ledger: the whole family, and each bet inside it").toEqual([12, 9, 3]);
       const [winning, losing] = [card(s, "internal_link_or_navigation", "a"), card(s, "technical_reachability", "b")];
@@ -53,13 +53,13 @@ describe("what a record teaches is read off the work's own signature, and the fa
 
     it(`${s.t}: a change whose own kind has no readings falls back to the family, and the receipt says which spoke`, () => {
       const unknown = card(s, "consolidate_or_differentiate", "c"); // a bet this account has never shipped
-      const [ranked] = rankProposals([unknown], { familyHistory: familyHistoryFromShipments(LEDGER) });
+      const [ranked] = rankProposals([unknown], { familyHistory: learningFromShipments(LEDGER) });
       expect(historyOf(ranked!), "with no record of its own it is judged on the whole family, and the sentence says so rather than passing the family off as this exact work").toContain("This whole family of changes is");
       expect(historyOf(ranked!)).toContain("12 readings here");
     });
 
     it(`${s.t}: with no ledger at all nothing is discounted, and the receipt says that too`, () => {
-      const [ranked] = rankProposals([card(s, "internal_link_or_navigation", "a")], { familyHistory: familyHistoryFromShipments([]) });
+      const [ranked] = rankProposals([card(s, "internal_link_or_navigation", "a")], { familyHistory: learningFromShipments([]) });
       expect(historyOf(ranked!), "an account with no closed readings is told there are too few, and no record is invented for it").toContain("too few readings of this kind of change have closed here");
     });
   }
@@ -67,7 +67,7 @@ describe("what a record teaches is read off the work's own signature, and the fa
   it("the queue and Results read ONE map, so the two can never disagree about the same ledger", async () => {
     await import("@/app/(shell)/results/results-presentation"); // the presentation module and the line library import each other; loading the pair through the entry the surface uses is what keeps the shared constants defined
     const { RESULT_LINES } = await import("@/app/(shell)/results/results-lines");
-    const map = familyHistoryFromShipments(LEDGER);
+    const map = learningFromShipments(LEDGER);
     // The page asks the same map the same way: this exact kind of work first, the family only where that holds nothing.
     const rowOf = (treatment: string | null) => ({ read: { id: "r", path: "/p", page: "https://x.example/p", actionType: "internal_links", verdict: "no_clear_movement", metric: "clicks", windows: [], overlappingIds: [], learning: {} }, implementedAt: SHIPPED, verification: VERIFIED, baseline: null, learning: read(0, treatment) } as never);
     expect([RESULT_LINES.fundingFor(map, rowOf("technical_reachability")), RESULT_LINES.fundingFor(map, rowOf("consolidate_or_differentiate"))],

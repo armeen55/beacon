@@ -187,7 +187,7 @@ export type ResearchPageExtract = {
   h1: string | null;
   wordCount: number;
   headings: string[];
-  faqCount: number;
+  /** HOW MANY QUESTION ENTRIES THIS PAGE ANSWERS AS. Absent is "the read that banked it does not report this", which is what a provider parse of a rival's page honestly is: a 0 there is a claim that the page has none, and every reader below distinguishes the two. */ faqCount?: number;
   metaDescription?: string | null;
   /** The page's opening body words (a sample, not the page). */
   openingSample?: string | null;
@@ -264,9 +264,9 @@ export function pageExtractFromRecord(rec: Record<string, unknown>): ResearchPag
   const bool = (v: unknown): boolean | undefined => (typeof v === "boolean" ? v : undefined);
   return {
     title: str(rec.title), h1: str(rec.h1), wordCount: num(rec.wordCount) ?? 0,
-    headings: strings(rec.headings, 20), faqCount: num(rec.faqCount) ?? 0,
+    headings: strings(rec.headings, 20), ...(num(rec.faqCount) != null ? { faqCount: num(rec.faqCount)! } : {}),
     metaDescription: str(rec.metaDescription), openingSample: str(rec.openingSample),
-    entityNames: strings(rec.entityNames, 12), hasList: bool(rec.hasList), hasTable: bool(rec.hasTable),
+    /* AN ENTITY LIST NOBODY BANKED IS NOT AN EMPTY ONE (Build Queue E-039): `strings` handed back [] for a row that carries no such field at all, so a winner read through the provider, which reports no entities, and a winner banked before the field existed both read as pages that name nothing, and the comparison then said the winners name nothing this page lacks. Absent stays absent at the decoder, and the comparison reads it as unknown. */ ...(Array.isArray(rec.entityNames) ? { entityNames: strings(rec.entityNames, 12) } : {}), hasList: bool(rec.hasList), hasTable: bool(rec.hasTable),
     internalLinkCount: num(rec.internalLinkCount), externalLinkCount: num(rec.externalLinkCount),
     fetchedAt: str(rec.fetchedAt),
     // A ROW BANKED BEFORE THE READING EXISTED HELD NO WORDS, and that is honest absence: `mainText: null` with

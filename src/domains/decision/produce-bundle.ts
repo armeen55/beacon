@@ -87,7 +87,7 @@ type Receipt = ChangeBundle["receipt"] & { prompts: string[]; hasResearch: boole
 function winnerPattern(read: Research["winningPages"], c: NonNullable<OwnedPageEvidence["content"]>, primary: string): string | null {
   if (read.length < 2) return null;
   const words = [...read.map((w) => w.extract!.wordCount)].sort((a, b) => a - b); const median = words[Math.floor(words.length / 2)]!;
-  const faq = read.filter((w) => w.extract!.faqCount > 0).length; const bits: string[] = [];
+  const faq = read.filter((w) => (w.extract!.faqCount ?? 0) > 0).length; const bits: string[] = []; // a read that does not report question entries counts towards nothing here: the sentence below says how many winners DO answer that way, and an unknown is not one of them
   if (faq >= 2) bits.push(`${faq} of them answer it in a question and answer block${c.hasFaq ? " and so does this page" : ", and this page has none"}`);
   if (median >= Math.round(c.wordCount * 1.5)) bits.push(`the middle one runs ${median.toLocaleString()} words against this page's ${c.wordCount.toLocaleString()}`);
   return bits.length === 0 ? null : `Of the ${read.length} pages read that come up for "${primary}", ${bits.join(", and ")}.`;
