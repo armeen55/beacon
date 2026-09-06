@@ -141,10 +141,10 @@ async function readPageJob(
     });
     if (call.status !== "drafted") {
       log.info("[page-job] no job read for this page", { tenantId, path: pathOf(extract.url), status: call.status });
-      // AN ATTEMPT IS AN ATTEMPT. A call that reached the provider and came back unusable spends the pass's
-      // allowance exactly as a good one does, or a site with an exhausted balance would try every page it has,
-      // every pass. Only "off" and a refused budget never reached anybody and cost nothing.
-      const attempted = call.status === "validation_failed";
+      // AN ATTEMPT IS AN ATTEMPT, AND ONE RULE SAYS WHICH ANSWERS ARE ONE (reviewer, 2026-09-06, seventh pass). A call that reached the provider and came back unusable spends the pass's allowance exactly as a good one does, or a site with an exhausted balance would try every page it has, every pass. Asked on the status alone, the six refusals the gateway gives IN FRONT OF THE WIRE (research paused, a held credit balance, the cost breaker, the day's cap, no account, a schema nothing can convert) all arrive
+      // here as `validation_failed` carrying zero requests and zero dollars, so an account with no credit burned up to sixty pool units on nothing AND walked its rotation cursor past pages nobody read. `noCallMade` is the predicate the dollars, the meter and the reading at the bottom of this function already read: a validation failure that DID reach the
+      // provider reports at least one request and stays charged, so nothing a page was really read for is given back here.
+      const attempted = !DRAFT_BUDGET.noCallMade(call);
       if (held) return { job: asJob(held), reason: "stale", paid: attempted };
       // "off" is nobody asked (no transport at all). MONEY AND WEATHER ARE NOT A REFUSAL: an empty balance, a
       // spend cap or a provider having a bad minute say nothing about the page, and holding every card on one of

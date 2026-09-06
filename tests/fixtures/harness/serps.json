@@ -1,0 +1,792 @@
+[
+ {
+  "paa": [
+   {
+    "answer": null,
+    "question": "Who is the most famous person from Iran?",
+    "answeringDomain": null
+   },
+   {
+    "answer": null,
+    "question": "Which celebs are Iranians?",
+    "answeringDomain": null
+   },
+   {
+    "answer": null,
+    "question": "Are Persians Muslims or not?",
+    "answeringDomain": null
+   },
+   {
+    "answer": null,
+    "question": "What are Persian girls known for?",
+    "answeringDomain": null
+   }
+  ],
+  "query": "famous iranians",
+  "source": "keyword",
+  "status": "done",
+  "organic": [
+   {
+    "url": "https://en.wikipedia.org/wiki/List_of_Iranians",
+    "rank": 1,
+    "title": "List of Iranians",
+    "domain": "en.wikipedia.org",
+    "snippet": "Mahnaz Afshar (born 1978), Iranian-born German actress · Majid Majidi · Mandana Karimi · Maz Jobrani, American comedian and actor · Mehdi Fat'hi · Mehdi Hashemi ( ... Read more"
+   },
+   {
+    "url": "https://www.ranker.com/list/persian-celebrities/celebrity-lists",
+    "rank": 2,
+    "title": "31 Celebrities Who Are Persian",
+    "domain": "www.ranker.com",
+    "snippet": "Catherine Bell · Shohreh Aghdashloo · Nasim Pedrad · Sarah Shahi · Andre Agassi · Christiane Amanpour · Maz Jobrani · Nazanin Boniadi. Read more"
+   },
+   {
+    "url": "https://www.onthisday.com/people/nationality/iranian",
+    "rank": 3,
+    "title": "Famous Iranians in History",
+    "domain": "www.onthisday.com",
+    "snippet": "Famous Iranians · 1. Ayatollah Khomeini · 2. Mohammad Reza Pahlavi · 3. Shirin Ebadi · 4. Mahmoud Ahmadinejad · 5. Reza Shah Pahlavi · 6. Reza Pahlavi · 7."
+   },
+   {
+    "url": "https://www.reddit.com/r/NewIran/comments/1fmg6bw/list_of_the_most_influentialrenowned_iranian/",
+    "rank": 4,
+    "title": "List of the Most Influential/Renowned Iranian People Ever",
+    "domain": "www.reddit.com",
+    "snippet": "Made a list of the most influential/famous Iranians in the following categories: filmmakers, poets, athletes, actors, singers, painters…"
+   },
+   {
+    "url": "http://iranian.com/main/blog/ramintork/10-most-influential-iranians.html",
+    "rank": 5,
+    "title": "10 Most influential Iranians",
+    "domain": "iranian.com",
+    "snippet": "10 Most influential Iranians · Omar Khayyam · Abū Naṣr Muḥammad al-Fārābī os simply known as Farabi · Forough Farokhzad · Mohammad Reza Shah Pahlavi · About the Art ... Read more"
+   },
+   {
+    "url": "https://www.imdb.com/list/ls040741253/",
+    "rank": 6,
+    "title": "Famous Persian Actors & Directors",
+    "domain": "www.imdb.com",
+    "snippet": "Famous Persian Actors & Directors · 1. Amir M. Korangy · 2. Asghar Farhadi · 3. Golshifteh Farahani · 4. Shohreh Aghdashloo · 5. Shahab Hosseini · 6. Bahram ... Read more"
+   },
+   {
+    "url": "https://x.com/stats_feed/status/2010036822567452680",
+    "rank": 7,
+    "title": "Most Famous Iranians of All Time 1. Cyrus the Great — ...",
+    "domain": "x.com",
+    "snippet": "Most Famous Iranians of All Time 1. Cyrus the Great — Founder of the Persian Empire 2. Darius the Great … 3. Avicenna — Omar Khayyam. Reza Shah ..."
+   },
+   {
+    "url": "https://www.youtube.com/watch?v=MlAf1e3WmMI",
+    "rank": 8,
+    "title": "Top 10 Most Influential Iranians Of All Time",
+    "domain": "www.youtube.com",
+    "snippet": null
+   },
+   {
+    "url": "https://www.iranvisitor.com/iran-culture/famous-iranians",
+    "rank": 9,
+    "title": "Famous Iranians",
+    "domain": "www.iranvisitor.com",
+    "snippet": "Famous Iranians listed include Avicenna, Omar Khayyam, Mohammad Reza Lotfi and Mohsen Makhmalbaf. Omar Khayyam (1048-1131) 11th-12th century Persian ... Read more"
+   },
+   {
+    "url": "https://askaniranian.com/podcast/who-are-the-most-famous-iranians/",
+    "rank": 10,
+    "title": "Who are the most famous Iranians?",
+    "domain": "askaniranian.com",
+    "snippet": "Jul 18, 2020 — Famous Iranians mentioned in the show · Shirin Ebadi (1947-present) — female, Iranian lawyer · Mahmoud Ahmadinejad (1956-present) — male, former ... Read more"
+   },
+   {
+    "url": "https://pantheon.world/profile/country/iran",
+    "rank": 11,
+    "title": "800 Famous People from Iran | Pantheon",
+    "domain": "pantheon.world",
+    "snippet": "The most famous people from Iran are Xerxes I, Cyrus the Great, and Omar Khayyam. The most famous people who died in Iran are Avicenna, Xerxes I, and Cyrus the ... Read more"
+   },
+   {
+    "url": "https://www.famousbirthdays.com/birthplace/iran.html",
+    "rank": 12,
+    "title": "Iran",
+    "domain": "www.famousbirthdays.com",
+    "snippet": "Famous people from Iran including Ali Khamenei, Mandana Mani, Shab, Nazanin Boniadi, Nasim Pedrad and many more."
+   },
+   {
+    "url": "http://www.eavartravel.com/blog/category/famous-iranians/",
+    "rank": 13,
+    "title": "Famous Iranians: Contributions and Achievements",
+    "domain": "www.eavartravel.com",
+    "snippet": "Discover the extraordinary achievements of famous Iranians across history, from Cyrus the Great to modern pioneers, spanning culture, science, and more."
+   },
+   {
+    "url": "https://www.imdb.com/list/ls000293518/",
+    "rank": 14,
+    "title": "persians in hollywood",
+    "domain": "www.imdb.com",
+    "snippet": "1. Golshifteh Farahani · 2. Nazanin Boniadi · 3. Sarah Shahi · 4. Catherine Bell · 5. Shohreh Aghdashloo · 6. Habib Zargarpour · 7. Shaun Toub · 8. Bahar Soomekh. Read more"
+   },
+   {
+    "url": "https://www.youtube.com/watch?v=yX0prJtus-M",
+    "rank": 15,
+    "title": "Top 10 Iranian Creators You Should Know About",
+    "domain": "www.youtube.com",
+    "snippet": "From ancient poets to visionary artists, Iran has produced some of history's most influential creative minds."
+   },
+   {
+    "url": "https://www.tappersia.com/blog/most-known-and-best-iranian-actors-you-should-know/",
+    "rank": 16,
+    "title": "21 greatest Iranian Actors & Actresses | Top List",
+    "domain": "www.tappersia.com",
+    "snippet": "Iran has many great movies and great actors performing in them such as 1. Peyman Maadi 2.Mahtab Keramati 3. Shahab Hosseini 4.Merila Zarei."
+   },
+   {
+    "url": "https://en.irancultura.it/culture/celebrated/",
+    "rank": 17,
+    "title": "The famous Persian Characters - Cultural Institute",
+    "domain": "en.irancultura.it",
+    "snippet": "Dec 6, 2017 — Suffice it to specify that UNESCO has recognized thirty-three Persian characters in its list of famous such as Saàdi, Hafez, Attar, Ferdowsi, ... Read more"
+   }
+  ],
+  "related": [],
+  "cacheKey": "dfs2_007c65655cf643e5ca6212ecf60c80967307580b",
+  "featured": null,
+  "itemTypes": [
+   "ai_overview",
+   "organic",
+   "people_also_ask",
+   "images"
+  ],
+  "aiOverview": [],
+  "observedAt": "2026-09-05T08:02:52.809Z",
+  "aiOverviewText": "Famous Iranians include influential historical rulers, world-renowned poets, groundbreaking scientists, and prominent modern artists.",
+  "aiOverviewState": "observed"
+ },
+ {
+  "query": "farsi boy names",
+  "source": "keyword",
+  "status": "posted",
+  "cacheKey": "dfs2_9a416df1de1e213d59d7ac2ba0ff1d9db1792207",
+  "aiModeCacheKey": "dfs2_9665bfb3792938275cfa645c41030f4bb71cca95"
+ },
+ {
+  "paa": [
+   {
+    "answer": null,
+    "question": "What are cute girl names in Islam?",
+    "answeringDomain": null
+   },
+   {
+    "answer": null,
+    "question": "What is a pretty rare girl name?",
+    "answeringDomain": null
+   },
+   {
+    "answer": null,
+    "question": "What are some classic Persian names?",
+    "answeringDomain": null
+   },
+   {
+    "answer": null,
+    "question": "What are Persian girls famous for?",
+    "answeringDomain": null
+   }
+  ],
+  "query": "iranian girl names",
+  "aiMode": [],
+  "source": "keyword",
+  "status": "done",
+  "organic": [
+   {
+    "url": "https://web.mit.edu/persian/5-2008/www/WWWFILES/links-girlnames.html",
+    "rank": 1,
+    "title": "Iranian Girl Names",
+    "domain": "web.mit.edu",
+    "snippet": "Maryam/Mariam, A flower (Tuberose ) ; Marzieh (A), Satisfactory, agreeable ; Masoumeh (A), Sinless, Innocent ; MastAneh, Drunken (More like joyful) ; Mastoureh (A) ... Read more"
+   },
+   {
+    "url": "https://www.reddit.com/r/iran/comments/1hv4acm/common_girl_names_in_iran_help_us_name_our_baby/",
+    "rank": 2,
+    "title": "Common girl names in Iran? Help us name our baby!",
+    "domain": "www.reddit.com",
+    "snippet": "Alina, Aliya, Zara.......we named our daughter Zara. Farah and Layla are nice also. PassNew6721. •. 2y ago. Roxanne. Read more"
+   },
+   {
+    "url": "https://darsoon.com/en/blog/persian-names-and-their-meanings",
+    "rank": 3,
+    "title": "A Guide to Beautiful Iranian Baby Names with Rich Origins",
+    "domain": "darsoon.com",
+    "snippet": "Most Popular Persian ... Read more"
+   },
+   {
+    "url": "https://sites.google.com/site/farshidfarhat/girl-names",
+    "rank": 4,
+    "title": "Persian Girl Names - Farshid Farhat",
+    "domain": "sites.google.com",
+    "snippet": "Persian Girl Names · Research · IPCA · NACWC · PIAKAP · SMOS · Thesis · MSc Thesis ... Persian Girl Names. نام های دختر ایرانی. A B C D E F G H I J K L M N O P Q ... Read more"
+   },
+   {
+    "url": "https://en.wikipedia.org/wiki/Category:Persian_feminine_given_names",
+    "rank": 5,
+    "title": "Category:Persian feminine given names",
+    "domain": "en.wikipedia.org",
+    "snippet": "A. Afra (name) · Afreen · Afsana (name) · Ami (given name) · Amira (name) · Anahita (given name) · Anoushka (given name) · Ariana (name) · Armita · Atefeh ... Read more"
+   },
+   {
+    "url": "https://www.familyeducation.com/pregnancy/baby-names/persian-girl-names-with-meanings",
+    "rank": 6,
+    "title": "125 Persian Girl Names with Meanings and Origins",
+    "domain": "www.familyeducation.com",
+    "snippet": "Other common Persian baby girl names and female names that have Iranian origins include Esther, Lena, Kira, Tara, Meg, and Jasmine. smiling baby laying on bed ... Read more"
+   },
+   {
+    "url": "https://www.facebook.com/RosettaStone/posts/here-are-8-beautiful-persian-names-and-their-meanings-whats-your-favorite-persia/1048927937268014/",
+    "rank": 7,
+    "title": "Here are 8 beautiful #Persian names and their meanings.  ...",
+    "domain": "www.facebook.com",
+    "snippet": "Here are 8 beautiful #Persian names and their meanings. What's your favorite Persian name? ☺️ Let us know. #farsi #iran #iranian ..."
+   },
+   {
+    "url": "https://www.quora.com/What-are-some-great-Farsi-Persian-names-for-girls",
+    "rank": 8,
+    "title": "What are some great Farsi/Persian names for girls?",
+    "domain": "www.quora.com",
+    "snippet": "What are some great Farsi/Persian names for girls?"
+   },
+   {
+    "url": "https://www.instagram.com/reel/C-xx7UzS8Nk/?hl=en",
+    "rank": 9,
+    "title": "Persian names for girls  . . Background Music",
+    "domain": "www.instagram.com",
+    "snippet": "Roxana — Dawn, luminous. Parisa — Like a fairy. Babak — Little father, young father. Farhad — Joy, happiness. Shireen — Sweet, pleasant. Which ..."
+   },
+   {
+    "url": "https://www.mamanatural.com/baby-names/girls/origins/persian-girl-names/",
+    "rank": 10,
+    "title": "Persian Girl Names",
+    "domain": "www.mamanatural.com",
+    "snippet": "Persian Girl Names ; Esther. Star ; Sareh. Pure ; Cyra. Throne; sun ; Darienne. Maintains possessions well ; Roxy. Dawn. Read more"
+   },
+   {
+    "url": "https://www.peanut-app.io/blog/persian-baby-girl-names",
+    "rank": 11,
+    "title": "85 Beautiful Persian Girl Names (With Meanings + Origins)",
+    "domain": "www.peanut-app.io",
+    "snippet": "Jun 18, 2021 — What are cool Persian baby names for girls? · Alya: Moonlight. · Asal: Honey in Farsi. · Bahar: Spring. · Baran: Rain in Farsi. · Dana: Wise. · Donya: ... Read more"
+   },
+   {
+    "url": "https://www.parents.com/50-persian-baby-names-5119296",
+    "rank": 12,
+    "title": "50 Persian Baby Names and Their Meanings",
+    "domain": "www.parents.com",
+    "snippet": "Popular Persian Baby Names for Girls · Adel · Aliyeh · Amira · Baha · Cassandan · Cyra · Dalileh · Dorri. Read more"
+   },
+   {
+    "url": "https://www.babynamesdirect.com/baby-names/iranian/girl/a",
+    "rank": 13,
+    "title": "Iranian Baby Names » Girl Names » Starting From A »",
+    "domain": "www.babynamesdirect.com",
+    "snippet": "Girls Names A to Z - Baby Girl Name - Meanings; Currently we have 282 Girls Names Beginning with letter A in our Iranian collection."
+   },
+   {
+    "url": "https://example-site.test/persian-female-first-names",
+    "rank": 14,
+    "title": "Popular Persian Girl Names List with Meanings",
+    "domain": "example-site.test",
+    "snippet": "Some of the most beautiful Persian girl names include Nazanin, Parisa, Darya, Shirin, Arezu, Bahar, Roya, Setareh, and Anahita. Nazanin means “sweetheart” and ... Read more"
+   },
+   {
+    "url": "https://www.youtube.com/watch?v=DS3McerHehU",
+    "rank": 15,
+    "title": "30 Beautiful Persian Baby Girl Names with Meanings",
+    "domain": "www.youtube.com",
+    "snippet": "In this video, we present a carefully curated list of 30 beautiful Persian baby girl names with meanings. Choosing the perfect name for your ..."
+   },
+   {
+    "url": "https://www.thebump.com/b/persian-baby-names",
+    "rank": 16,
+    "title": "Top 150 Persian Baby Names for Girls and Boys",
+    "domain": "www.thebump.com",
+    "snippet": "What are some popular Persian names for baby girls? Jasmine, Yasmin, Soraya and Roxanne are just a few popular choices for girls. For more, check out our list ... Read more"
+   },
+   {
+    "url": "https://nameberry.com/userlist/view/215564",
+    "rank": 17,
+    "title": "Iranian or Persian Girl Names by ViVi",
+    "domain": "nameberry.com",
+    "snippet": "Iranian or Persian Girl Names by ViVi · About this list · The names · Esther · Jasmine · Soraya · Yasmin · Alizeh · Anahita. Persian. \"immaculate\". Anahita is ... Read more"
+   }
+  ],
+  "related": [
+   "Unique iranian girl names",
+   "Turkish Persian girl names",
+   "Beautiful iranian girl names",
+   "Traditional iranian girl names",
+   "Modern Iranian Muslim girl names",
+   "Cute iranian girl names",
+   "Iranian girl names starting with s",
+   "Iran girl names and surnames"
+  ],
+  "cacheKey": "dfs2_aff76ff2af7a8e10e17a4ad3e9bb36b5032544c6",
+  "featured": null,
+  "itemTypes": [
+   "ai_overview",
+   "organic",
+   "people_also_ask",
+   "discussions_and_forums",
+   "short_videos",
+   "related_searches"
+  ],
+  "aiOverview": [
+   {
+    "url": "https://www.reddit.com/r/iran/comments/1hv4acm/common_girl_names_in_iran_help_us_name_our_baby/",
+    "title": "Common girl names in Iran? Help us name our baby! (: : r/iran - Reddit",
+    "domain": "www.reddit.com"
+   },
+   {
+    "url": "https://www.instagram.com/reel/DObcqZZkiKa/?hl=en",
+    "title": "Persian names for girls…. . . . #explore #fyp #afghan # ...",
+    "domain": "www.instagram.com"
+   },
+   {
+    "url": "https://www.peanut-app.io/blog/persian-baby-girl-names",
+    "title": "85 Beautiful Persian Girl Names (With Meanings + Origins)",
+    "domain": "www.peanut-app.io"
+   },
+   {
+    "url": "https://nameberry.com/userlist/view/88274",
+    "title": "Iranian Girl Names - Nameberry",
+    "domain": "nameberry.com"
+   },
+   {
+    "url": "https://www.facebook.com/RosettaStone/posts/here-are-8-beautiful-persian-names-and-their-meanings-whats-your-favorite-persia/1048927937268014/",
+    "title": "Here are 8 beautiful #Persian names and their meanings. What's your ...",
+    "domain": "www.facebook.com"
+   },
+   {
+    "url": "https://www.peanut-app.io/blog/persian-baby-girl-names",
+    "title": "85 Beautiful Persian Girl Names (With Meanings + Origins)",
+    "domain": "www.peanut-app.io"
+   },
+   {
+    "url": "https://www.reddit.com/r/namenerds/comments/1848r61/persian_not_arabic_girl_names/",
+    "title": "Persian (not Arabic) girl names : r/namenerds - Reddit",
+    "domain": "www.reddit.com"
+   },
+   {
+    "url": "https://nameberry.com/userlist/view/29110",
+    "title": "Persian/Iranian/Arabic Girl Names - Nameberry",
+    "domain": "nameberry.com"
+   },
+   {
+    "url": "https://www.instagram.com/reel/C-xx7UzS8Nk/?hl=en",
+    "title": "Persian names for girls . . Background Music: @waleedwalizada9 ...",
+    "domain": "www.instagram.com"
+   },
+   {
+    "url": "https://www.instagram.com/reel/DObcqZZkiKa/?hl=en",
+    "title": "Persian names for girls…. . . . #explore #fyp #afghan # ...",
+    "domain": "www.instagram.com"
+   },
+   {
+    "url": "https://www.reddit.com/r/namenerds/comments/1848r61/persian_not_arabic_girl_names/",
+    "title": "Persian (not Arabic) girl names : r/namenerds - Reddit",
+    "domain": "www.reddit.com"
+   }
+  ],
+  "observedAt": "2026-09-06T17:26:07.565Z",
+  "aiModeCacheKey": "dfs2_54c10c9dac3be276806a0f203970060b247b44be",
+  "aiOverviewText": "Popular and beautiful Iranian (Persian) girl names span both traditional roots and names that cross over easily into Western cultures.",
+  "aiOverviewState": "observed"
+ },
+ {
+  "paa": [
+   {
+    "question": "What is a popular Iranian male name?",
+    "answeringDomain": null
+   },
+   {
+    "question": "What is a very Iranian name?",
+    "answeringDomain": null
+   },
+   {
+    "question": "Are Persians Caucasian?",
+    "answeringDomain": null
+   },
+   {
+    "question": "What do Persians call their lover?",
+    "answeringDomain": null
+   }
+  ],
+  "query": "iranian male names",
+  "source": "keyword",
+  "status": "done",
+  "organic": [
+   {
+    "url": "https://web.mit.edu/persian/5-2008/www/WWWFILES/links-boynames.html",
+    "rank": 1,
+    "title": "Iranian Boy Names",
+    "domain": "web.mit.edu"
+   },
+   {
+    "url": "https://en.wikipedia.org/wiki/Category:Iranian_masculine_given_names",
+    "rank": 2,
+    "title": "Category:Iranian masculine given names",
+    "domain": "en.wikipedia.org"
+   },
+   {
+    "url": "https://darsoon.com/en/blog/persian-names-and-their-meanings",
+    "rank": 3,
+    "title": "A Guide to Beautiful Iranian Baby Names with Rich Origins",
+    "domain": "darsoon.com"
+   },
+   {
+    "url": "https://www.reddit.com/r/PERSIAN/comments/1k2bcfy/persian_boy_names/",
+    "rank": 4,
+    "title": "Persian boy names : r/PERSIAN",
+    "domain": "www.reddit.com"
+   },
+   {
+    "url": "https://sites.google.com/site/farshidfarhat/boy-names",
+    "rank": 5,
+    "title": "Persian Boy Names - Farshid Farhat",
+    "domain": "sites.google.com"
+   },
+   {
+    "url": "https://www.peanut-app.io/blog/persian-baby-boy-names",
+    "rank": 6,
+    "title": "70 Persian Baby Boy Names And Their Meanings - Peanut App",
+    "domain": "www.peanut-app.io"
+   },
+   {
+    "url": "https://example-site.test/persian-male-names",
+    "rank": 7,
+    "title": "Popular Persian Male(Boy) First Names and their Meanings",
+    "domain": "example-site.test"
+   },
+   {
+    "url": "https://www.youtube.com/watch?v=TP45Bc_AM28",
+    "rank": 8,
+    "title": "A to Z 100 Persian Unique Muslim Boy Names with Meaning",
+    "domain": "www.youtube.com"
+   },
+   {
+    "url": "https://www.babynamesdirect.com/baby-names/iranian/boy/n",
+    "rank": 9,
+    "title": "Iranian Boy Names » N",
+    "domain": "www.babynamesdirect.com"
+   },
+   {
+    "url": "https://www.parents.com/50-persian-baby-names-5119296",
+    "rank": 10,
+    "title": "50 Persian Baby Names and Their Meanings",
+    "domain": "www.parents.com"
+   }
+  ],
+  "related": [
+   "Unique iranian male names",
+   "Traditional iranian male names",
+   "Turkish, Persian boy names",
+   "Iran male names and surnames",
+   "Modern iranian male names",
+   "Iranian male names and meanings",
+   "Modern Iranian Muslim boy names",
+   "Beautiful Persian boy names"
+  ],
+  "cacheKey": null,
+  "aiOverview": [
+   {
+    "url": "https://example-site.test/persian-male-names",
+    "title": "Iranian Male Names - Popular Persian Boy Names & Meanings - Example Site",
+    "domain": "example-site.test"
+   },
+   {
+    "url": "https://web.mit.edu/persian/5-2008/www/WWWFILES/links-boynames.html",
+    "title": "Iranian Boy Names - MIT",
+    "domain": "web.mit.edu"
+   },
+   {
+    "url": "https://www.peanut-app.io/blog/persian-baby-boy-names",
+    "title": "70 Persian Baby Boy Names And Their Meanings - Peanut App",
+    "domain": "www.peanut-app.io"
+   },
+   {
+    "url": "https://www.reddit.com/r/PERSIAN/comments/1il700h/what_are_some_really_unique_boy_persian_names/",
+    "title": "What are some really unique boy Persian names? - Reddit",
+    "domain": "www.reddit.com"
+   },
+   {
+    "url": "https://www.reddit.com/r/PERSIAN/comments/1il700h/what_are_some_really_unique_boy_persian_names/",
+    "title": "What are some really unique boy Persian names? - Reddit",
+    "domain": "www.reddit.com"
+   },
+   {
+    "url": "https://example-site.test/persian-male-names",
+    "title": "Iranian Male Names - Popular Persian Boy Names & Meanings - Example Site",
+    "domain": "example-site.test"
+   }
+  ],
+  "observedAt": "2026-09-01T04:09:49.254Z",
+  "aiModeCacheKey": null
+ },
+ {
+  "paa": [
+   {
+    "question": "What is the prettiest Arabic girl name?",
+    "answeringDomain": null
+   },
+   {
+    "question": "What is a rare but pretty girl name?",
+    "answeringDomain": null
+   },
+   {
+    "question": "Who is the most beautiful Persian girl?",
+    "answeringDomain": null
+   },
+   {
+    "question": "What are some cool and unique Persian names?",
+    "answeringDomain": null
+   }
+  ],
+  "query": "persian girl names",
+  "aiMode": [
+   {
+    "url": "https://web.mit.edu/persian/5-2008/www/WWWFILES/links-girlnames.html",
+    "title": "Iranian Girl Names - MIT",
+    "domain": "web.mit.edu"
+   },
+   {
+    "url": "https://www.familyeducation.com/pregnancy/baby-names/persian-girl-names-with-meanings",
+    "title": "125 Persian Girl Names with Meanings and Origins",
+    "domain": "www.familyeducation.com"
+   },
+   {
+    "url": "https://forum.nameberry.com/t/persian-names-just-for-collecting-and-history-interest-opinions-and-questions/437214",
+    "title": "Persian names (just for collecting and history interest!) Opinions and ...",
+    "domain": "forum.nameberry.com"
+   },
+   {
+    "url": "https://babynama.com/baby-names/persian-girl-names/",
+    "title": "519+ Persian Girls Names & Meanings | Babynama",
+    "domain": "babynama.com"
+   },
+   {
+    "url": "https://www.reddit.com/r/namenerds/comments/1848r61/persian_not_arabic_girl_names/",
+    "title": "Persian (not Arabic) girl names : r/namenerds - Reddit",
+    "domain": "www.reddit.com"
+   },
+   {
+    "url": "https://nameberry.com/userlist/view/215564",
+    "title": "Iranian or Persian Girl Names by ViVi - Nameberry",
+    "domain": "nameberry.com"
+   },
+   {
+    "url": "https://www.reddit.com/r/farsi/comments/1928xm8/suggestions_for_a_persian_name_for_an_adult_woman/",
+    "title": "Suggestions for a Persian name for an adult woman (me) : r/farsi",
+    "domain": "www.reddit.com"
+   },
+   {
+    "url": "https://babynama.com/baby-names/persian-girl-names/",
+    "title": "519+ Persian Girls Names & Meanings | Babynama",
+    "domain": "babynama.com"
+   },
+   {
+    "url": "https://nameberry.com/userlist/view/215564",
+    "title": "Iranian or Persian Girl Names by ViVi - Nameberry",
+    "domain": "nameberry.com"
+   },
+   {
+    "url": "https://www.instagram.com/reel/DObcqZZkiKa/?hl=en",
+    "title": "Persian names for girls…. . . . #explore #fyp #afghan # ...",
+    "domain": "www.instagram.com"
+   },
+   {
+    "url": "https://www.reddit.com/r/namenerds/comments/1848r61/persian_not_arabic_girl_names/",
+    "title": "Persian (not Arabic) girl names : r/namenerds - Reddit",
+    "domain": "www.reddit.com"
+   },
+   {
+    "url": "https://babynama.com/baby-names/persian-girl-names/",
+    "title": "519+ Persian Girls Names & Meanings | Babynama",
+    "domain": "babynama.com"
+   },
+   {
+    "url": "https://www.policybazaar.com/plans/baby-names/persian-islamic-baby-girl-names/",
+    "title": "Popular Persian Islamic Baby Girl Names - Policybazaar",
+    "domain": "www.policybazaar.com"
+   },
+   {
+    "url": "https://www.reddit.com/r/iran/comments/1hv4acm/common_girl_names_in_iran_help_us_name_our_baby/",
+    "title": "Common girl names in Iran? Help us name our baby! (: : r/iran - Reddit",
+    "domain": "www.reddit.com"
+   },
+   {
+    "url": "https://babynama.com/baby-names/persian-girl-names/",
+    "title": "519+ Persian Girls Names & Meanings | Babynama",
+    "domain": "babynama.com"
+   },
+   {
+    "url": "https://www.familyeducation.com/pregnancy/baby-names/persian-girl-names-with-meanings",
+    "title": "125 Persian Girl Names with Meanings and Origins",
+    "domain": "www.familyeducation.com"
+   },
+   {
+    "url": "https://www.facebook.com/RosettaStone/posts/here-are-8-beautiful-persian-names-and-their-meanings-whats-your-favorite-persia/1048927937268014/",
+    "title": "Here are 8 beautiful #Persian names and their meanings. What's your ...",
+    "domain": "www.facebook.com"
+   },
+   {
+    "url": "https://nameberry.com/userlist/view/29110",
+    "title": "Persian/Iranian/Arabic Girl Names - Nameberry",
+    "domain": "nameberry.com"
+   },
+   {
+    "url": "https://forum.nameberry.com/t/persian-names-just-for-collecting-and-history-interest-opinions-and-questions/437214",
+    "title": "Persian names (just for collecting and history interest!) Opinions and ...",
+    "domain": "forum.nameberry.com"
+   },
+   {
+    "url": "https://www.reddit.com/r/namenerds/comments/pvbmao/i_need_help_finding_a_persian_american_name_for/",
+    "title": "I need help finding a Persian American name for baby girl - Reddit",
+    "domain": "www.reddit.com"
+   },
+   {
+    "url": "https://www.reddit.com/r/namenerds/comments/1848r61/persian_not_arabic_girl_names/",
+    "title": "Persian (not Arabic) girl names : r/namenerds - Reddit",
+    "domain": "www.reddit.com"
+   },
+   {
+    "url": "https://nameberry.com/userlist/view/215564",
+    "title": "Iranian or Persian Girl Names by ViVi - Nameberry",
+    "domain": "nameberry.com"
+   }
+  ],
+  "source": "keyword",
+  "status": "done",
+  "organic": [
+   {
+    "url": "https://babynama.com/baby-names/persian-girl-names/",
+    "rank": 1,
+    "title": "519+ Persian Girls Names & Meanings",
+    "domain": "babynama.com"
+   },
+   {
+    "url": "https://www.reddit.com/r/iran/comments/1hv4acm/common_girl_names_in_iran_help_us_name_our_baby/",
+    "rank": 2,
+    "title": "Common girl names in Iran? Help us name our baby!",
+    "domain": "www.reddit.com"
+   },
+   {
+    "url": "https://en.wikipedia.org/wiki/Category:Persian_feminine_given_names",
+    "rank": 3,
+    "title": "Category:Persian feminine given names",
+    "domain": "en.wikipedia.org"
+   },
+   {
+    "url": "https://darsoon.com/en/blog/persian-names-and-their-meanings",
+    "rank": 4,
+    "title": "A Guide to Beautiful Iranian Baby Names with Rich Origins",
+    "domain": "darsoon.com"
+   },
+   {
+    "url": "https://web.mit.edu/persian/5-2008/www/WWWFILES/links-girlnames.html",
+    "rank": 5,
+    "title": "Iranian Girl Names",
+    "domain": "web.mit.edu"
+   },
+   {
+    "url": "https://www.familyeducation.com/pregnancy/baby-names/persian-girl-names-with-meanings",
+    "rank": 6,
+    "title": "125 Persian Girl Names with Meanings and Origins",
+    "domain": "www.familyeducation.com"
+   },
+   {
+    "url": "https://sites.google.com/site/farshidfarhat/girl-names",
+    "rank": 7,
+    "title": "Persian Girl Names - Farshid Farhat",
+    "domain": "sites.google.com"
+   },
+   {
+    "url": "https://www.facebook.com/RosettaStone/posts/here-are-8-beautiful-persian-names-and-their-meanings-whats-your-favorite-persia/1048927937268014/",
+    "rank": 8,
+    "title": "Here are 8 beautiful #Persian names and their meanings ...",
+    "domain": "www.facebook.com"
+   },
+   {
+    "url": "https://community.whattoexpect.com/forums/baby-name-game/topic/persian-girl-name-recommendations-155900723.html",
+    "rank": 9,
+    "title": "Persian girl name recommendations - Baby Names | Forums",
+    "domain": "community.whattoexpect.com"
+   },
+   {
+    "url": "https://www.quora.com/What-are-some-great-Farsi-Persian-names-for-girls",
+    "rank": 10,
+    "title": "What are some great Farsi/Persian names for girls?",
+    "domain": "www.quora.com"
+   }
+  ],
+  "related": [
+   "Unique persian girl names",
+   "Turkish Persian girl names",
+   "Persian girl names Muslim",
+   "Persian girl names non Muslim",
+   "Modern persian girl names",
+   "Beautiful persian girl names",
+   "Persian girl names and meanings",
+   "Traditional persian girl names"
+  ],
+  "cacheKey": null,
+  "aiOverview": [
+   {
+    "url": "https://babynama.com/baby-names/persian-girl-names/",
+    "title": "519+ Persian Girls Names & Meanings | Babynama",
+    "domain": "babynama.com"
+   },
+   {
+    "url": "https://example-site.test/persian-female-first-names",
+    "title": "Popular Persian Girl Names List with Meanings - Example Site",
+    "domain": "example-site.test"
+   },
+   {
+    "url": "https://www.quora.com/What-are-some-great-Farsi-Persian-names-for-girls",
+    "title": "What are some great Farsi/Persian names for girls? - Quora",
+    "domain": "www.quora.com"
+   },
+   {
+    "url": "https://www.reddit.com/r/iran/comments/1hv4acm/common_girl_names_in_iran_help_us_name_our_baby/",
+    "title": "Common girl names in Iran? Help us name our baby! (: : r/iran - Reddit",
+    "domain": "www.reddit.com"
+   },
+   {
+    "url": "https://www.quora.com/What-are-some-great-Farsi-Persian-names-for-girls",
+    "title": "What are some great Farsi/Persian names for girls? - Quora",
+    "domain": "www.quora.com"
+   },
+   {
+    "url": "https://www.instagram.com/reel/DObcqZZkiKa/?hl=en",
+    "title": "Persian names for girls…. . . . #explore #fyp #afghan # ...",
+    "domain": "www.instagram.com"
+   },
+   {
+    "url": "https://www.instagram.com/reel/C-xx7UzS8Nk/?hl=en",
+    "title": "Persian names for girls ✨ . . Background Music",
+    "domain": "www.instagram.com"
+   },
+   {
+    "url": "https://example-site.test/persian-female-first-names",
+    "title": "Popular Persian Girl Names List with Meanings - Example Site",
+    "domain": "example-site.test"
+   },
+   {
+    "url": "https://www.instagram.com/reel/C-xx7UzS8Nk/?hl=en",
+    "title": "Persian names for girls ✨ . . Background Music",
+    "domain": "www.instagram.com"
+   },
+   {
+    "url": "https://www.instagram.com/reel/DObcqZZkiKa/?hl=en",
+    "title": "Persian names for girls…. . . . #explore #fyp #afghan # ...",
+    "domain": "www.instagram.com"
+   }
+  ],
+  "observedAt": "2026-09-01T03:19:08.130Z",
+  "aiModeCacheKey": "dfs2_9842e8649162e2d29582c46931f9ed61329d3277"
+ }
+]

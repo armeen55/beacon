@@ -1,0 +1,835 @@
+{
+ "_note": "Captured 2026-09-05 from the account's own stalled hub rows. Tenant id, site domain and owned URLs replaced by neutral ones; every other word is the capture's own. The page's search rows are derived from the card's own demand hints, which are the only demand the capture carries.",
+ "card": {
+  "id": "tenant-fixture::/famous-iranians::existing_edit::demand_recovery",
+  "kind": "existing_edit",
+  "basis": "basis_7f4d409646ad3e0c::d8",
+  "claims": [
+   {
+    "text": "The page groups Iranian people into eight fields.",
+    "supportedBy": [
+     "page-heading-1",
+     "page-heading-2",
+     "page-heading-3",
+     "page-heading-4",
+     "page-heading-5",
+     "page-heading-6",
+     "page-heading-7",
+     "page-heading-8"
+    ]
+   },
+   {
+    "text": "The intro names Rumi and Hafez as legendary poets.",
+    "supportedBy": [
+     "page-copy-1"
+    ]
+   },
+   {
+    "text": "The page calls out Cyrus the Great, Shohreh Aghdashloo, Asghar Farhadi, and Pierre Omidyar.",
+    "supportedBy": [
+     "page-copy-4",
+     "page-copy-5"
+    ]
+   },
+   {
+    "text": "The page frames these people as influential in Iran and worldwide.",
+    "supportedBy": [
+     "page-copy-1",
+     "page-title",
+     "page-h1"
+    ]
+   }
+  ],
+  "faults": [
+   "it points at the page instead of answering",
+   "its \"The most\" is a ranking or register judgement no cited evidence carries: say it as a claim your sources support, or leave it out"
+  ],
+  "status": "needs_review",
+  "pageUrl": "https://pagehub.test/famous-iranians",
+  "publish": "manual",
+  "workKey": "/famous-iranians::body::famous iranians::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::1d8330c3defa8a8a::existing_edit::section::::ranking_loss::famous iranians::none::r4:sc2::page-copy-1,page-copy-4,page-copy-5,page-h1,page-heading-1,page-heading-2,page-heading-3,page-heading-4,page-heading-5,page-heading-6,page-heading-7,page-heading-8,page-title",
+  "evidence": {
+   "hints": [
+    "Searches for famous iranians earned this site about 27 clicks a month over 2025-05-14 to 2026-06-08 and earn about 1 now: 26 clicks a month were LOST.",
+    "The page itself slid from position 4.0 to 7.9 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line.",
+    "At today's own demand and positions, about 0 clicks over 28 days of that are supported as recoverable under the diagnosed cause; the rest depends on winning back ground and is not promised.",
+    "People search this as: \"famous iranians\", \"famous iranian\", \"most famous iranians\", \"most famous iranian\", \"list of iranians\", \"iranian famous\"",
+    "\"famous iranians\" carries 30 searches a month (informational)",
+    "The pages winning it now: en.wikipedia.org, www.ranker.com, www.onthisday.com"
+   ],
+   "query": "famous iranians",
+   "evidenceRefCount": 6
+  },
+  "pagePath": "/famous-iranians",
+  "tenantId": "tenant-fixture",
+  "copyStamp": "Most Famous Iranians & Persians of All Time|Famous and Influential Iranian People|Explore the most famous Iranians and Persians in history, from poets and actors to athletes, scientists, and cultural icons worldwide.|Famous Iranian Filmmakers/Directors>Famous Iranian Poets>Famous Iranian Athletes>Famous Iranian Actors/Actresses>Famous Iranian Philosophers>Famous Iranian Singers>Famous Iranian Infl",
+  "createdAt": "2026-09-06T17:28:33.916Z",
+  "pageLabel": "/famous-iranians",
+  "riskLevel": "low",
+  "confidence": "medium",
+  "obligation": {
+   "kind": "redraft",
+   "attempt": 1,
+   "instruction": "it points at the page instead of answering"
+  },
+  "impactScore": null,
+  "limitations": [
+   "The loss is measured from this account's own Search Console history over the two windows named above; only the current window's shortfall is claimed as recoverable.",
+   "List format may feel generic if the reader wants only one name",
+   "Some examples are grouped across different sections",
+   "No checked source ids beyond page copy were provided",
+   "This answer is written off the page's own title, headings and stored copy as last read and the stored answers this card cites, so check every word of it is true of the page before you publish it.",
+   "it points at the page instead of answering",
+   "its \"The most\" is a ranking or register judgement no cited evidence carries: say it as a claim your sources support, or leave it out"
+  ],
+  "causeFinding": {
+   "cause": "ranking_loss",
+   "action": "section",
+   "falsifier": "If the page returns to its old position and the clicks do not follow, the ground was not the cause.",
+   "explanation": "Searches for famous iranians earned this site about 27 clicks a month over 2025-05-14 to 2026-06-08 and earn about 1 now: 26 clicks a month were LOST. The page itself slid from position 4.0 to 7.9 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line.",
+   "evidenceKeys": [],
+   "notConsidered": [],
+   "competingExplanations": []
+  },
+  "changeFamily": "section",
+  "primaryQuery": "famous iranians",
+  "researchOnly": false,
+  "supportFacts": [
+   {
+    "id": "page-heading-1",
+    "fact": "Famous Iranian Filmmakers/Directors"
+   },
+   {
+    "id": "page-heading-2",
+    "fact": "Famous Iranian Poets"
+   },
+   {
+    "id": "page-heading-3",
+    "fact": "Famous Iranian Athletes"
+   },
+   {
+    "id": "page-heading-4",
+    "fact": "Famous Iranian Actors/Actresses"
+   },
+   {
+    "id": "page-heading-5",
+    "fact": "Famous Iranian Philosophers"
+   },
+   {
+    "id": "page-heading-6",
+    "fact": "Famous Iranian Singers"
+   },
+   {
+    "id": "page-heading-7",
+    "fact": "Famous Iranian Influencers"
+   },
+   {
+    "id": "page-heading-8",
+    "fact": "Famous Iranian Painters"
+   },
+   {
+    "id": "page-copy-1",
+    "fact": "top of pageFamous and Influential Iranian PeopleDiscover the most famous Iranians and Persians throughout history and today. From legendary poets like Rumi and Hafez, to global celebrities in film, sports, and fashion, Iranians have made an impact both in Iran and worldwide. This page is your guide to the most influential Persian people, with links to detailed categories like actors, athletes, filmmakers, and more.Famous Iranian Filmmakers/DirectorsLearn about the most famous Iranian filmmakers, including directors of critically acclaimed films like A Separation. Explore the award-winning works of these visionary directors and the impact of Iranian cinema on the global stage.ListFamous Iranian PoetsDiscover the timeless works of Persian poets like Rumi and Hafez. Read about their most famous poems and how their words have continued to influence Persian literature and poetry around the world.ListFamous Iranian Athletes​Meet the best Iranian soccer players and Olympians who have"
+   },
+   {
+    "id": "page-copy-4",
+    "fact": "worldwide. Other global names include Shohreh Aghdashloo, known for her Hollywood roles, and Asghar Farhadi, whose films have won Academy Awards—each contributing to Iran’s presence in international culture.Who is the most famous Iranian in history?Historically, Cyrus the Great is widely regarded as the most famous Iranian in world history, founder of the Achaemenid Empire, known for his policies of tolerance and early human rights principles. His legacy continues to influence Iranian identity and global historical narratives about Persia.Who is the most successful Iranian ever?One of the most successful Iranians is Pierre Omidyar, the founder of eBay, whose net worth has exceeded $10 billion. His entrepreneurial success, global impact, and philanthropic work make him a leading example of Iranian success in the tech and business world. Also highly successful are Dara Khosrowshahi (CEO of Uber) and Ali & Hadi Partovi (co-founders/investors in tech ventures like Dropbox, Code.org). These"
+   },
+   {
+    "id": "page-copy-5",
+    "fact": "individuals demonstrate success in tech, investment, and global business.Who is the richest Iranian ever?The richest Iranian ever is generally recognized to be Pierre Omidyar, with a net worth around $10.4 billion, born to Iranian parents. He tops most published lists of individuals of Iranian descent in terms of wealth.Looking for more? Dive into our pages on the Persian cuisine, Persian Names, or the visual timeline of Iran to explore Iran's rich heritage beyond its famous people.Shop Persian Shirts/Hoodies Explore MoreTop Iranian CitiesHomeIran Historybottom of page"
+   },
+   {
+    "id": "page-title",
+    "fact": "Most Famous Iranians & Persians of All Time"
+   },
+   {
+    "id": "page-h1",
+    "fact": "Famous and Influential Iranian People"
+   }
+  ],
+  "whyItMatters": "Searches for famous iranians earned this site about 27 clicks a month over 2025-05-14 to 2026-06-08 and earn about 1 now: 26 clicks a month were LOST. The page itself slid from position 4.0 to 7.9 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line.",
+  "operatorSteps": [
+   "Open the site editor on /famous-iranians",
+   "Find \"Famous and Influential Iranian People\" on the page",
+   "Start a new section straight after it, with the heading \"Standout Iranian names by field\"",
+   "Paste the answer above as that section's opening, exactly as written",
+   "Mark it done here and the next answers get checked against it"
+  ],
+  "winnersOnFile": "read",
+  "diagnosisCause": "ranking_loss",
+  "rankingReceipt": {
+   "basis": "No click figure backs this one, so this is the order to work in, not a promise about size. Ranked on 5 pieces of evidence and what it takes you to do.",
+   "score": 1.02,
+   "factors": [
+    {
+     "max": 0,
+     "name": "readiness",
+     "input": "its exact words are written",
+     "contribution": 0
+    },
+    {
+     "max": 120,
+     "name": "visibility",
+     "input": "shown 1,340 times in 90 days, an audience size rather than a proven recovery, counted at 85 percent because confidence is medium",
+     "contribution": 1.28
+    },
+    {
+     "max": 0.19,
+     "name": "evidence",
+     "input": "5 pieces of evidence behind it, which is how sure this is rather than how big it is",
+     "contribution": -0.05
+    },
+    {
+     "max": 0.49,
+     "name": "causeFit",
+     "input": "this change works on the ground this page has lost on a search people still run",
+     "contribution": 0
+    },
+    {
+     "max": 0.06,
+     "name": "strategic",
+     "input": "none of the questions your customers ask cover this one",
+     "contribution": -0.06
+    },
+    {
+     "max": 0.29,
+     "name": "effort",
+     "input": "about 30 minutes of your time",
+     "contribution": -0.15
+    },
+    {
+     "max": 0.41,
+     "name": "risk",
+     "input": "this one is safe to paste",
+     "contribution": 0
+    },
+    {
+     "max": 0.51,
+     "name": "overlap",
+     "input": "nothing is being measured on this page",
+     "contribution": 0
+    },
+    {
+     "max": 0.31,
+     "name": "confounding",
+     "input": "nothing else in this batch lands on the same page",
+     "contribution": 0
+    },
+    {
+     "max": 0.1,
+     "name": "history",
+     "input": "not enough finished readings of this kind of change here to judge it",
+     "contribution": 0
+    }
+   ],
+   "directional": true
+  },
+  "semanticReview": {
+   "of": "[\"tenant-fixture\",\"/famous-iranians\",\"section\",[\"section\",\"A new section headed \\\"Standout Iranian names by field\\\", placed after \\\"Famous and Influential Iranian People\\\"\",\"\",\"The most famous Iranians here are organized by field: filmmakers, poets, athletes, actors, philosophers, singers, influencers, and painters. The page also calls out Rumi, Hafez, Cyrus the Great, Shohreh Aghdashloo, Asghar Farhadi, and Pierre Omidyar as standout names.\\nThese names are grouped as the page’s core examples across history, culture, film, sports, and business. Use the category links for the deeper lists tied to each group.\",\"\",\"\"],[],[[\"The page groups Iranian people into eight fields.\",[\"page-heading-1\",\"page-heading-2\",\"page-heading-3\",\"page-heading-4\",\"page-heading-5\",\"page-heading-6\",\"page-heading-7\",\"page-heading-8\"]],[\"The intro names Rumi and Hafez as legendary poets.\",[\"page-copy-1\"]],[\"The page calls out Cyrus the Great, Shohreh Aghdashloo, Asghar Farhadi, and Pierre Omidyar.\",[\"page-copy-4\",\"page-copy-5\"]],[\"The page frames these people as influential in Iran and worldwide.\",[\"page-copy-1\",\"page-h1\",\"page-title\"]]],[[\"page-copy-1\",\"top of pageFamous and Influential Iranian PeopleDiscover the most famous Iranians and Persians throughout history and today. From legendary poets like Rumi and Hafez, to global celebrities in film, sports, and fashion, Iranians have made an impact both in Iran and worldwide. This page is your guide to the most influential Persian people, with links to detailed categories like actors, athletes, filmmakers, and more.Famous Iranian Filmmakers/DirectorsLearn about the most famous Iranian filmmakers, including directors of critically acclaimed films like A Separation. Explore the award-winning works of these visionary directors and the impact of Iranian cinema on the global stage.ListFamous Iranian PoetsDiscover the timeless works of Persian poets like Rumi and Hafez. Read about their most famous poems and how their words have continued to influence Persian literature and poetry around the world.ListFamous Iranian Athletes​Meet the best Iranian soccer players and Olympians who have\"],[\"page-copy-4\",\"worldwide. Other global names include Shohreh Aghdashloo, known for her Hollywood roles, and Asghar Farhadi, whose films have won Academy Awards—each contributing to Iran’s presence in international culture.Who is the most famous Iranian in history?Historically, Cyrus the Great is widely regarded as the most famous Iranian in world history, founder of the Achaemenid Empire, known for his policies of tolerance and early human rights principles. His legacy continues to influence Iranian identity and global historical narratives about Persia.Who is the most successful Iranian ever?One of the most successful Iranians is Pierre Omidyar, the founder of eBay, whose net worth has exceeded $10 billion. His entrepreneurial success, global impact, and philanthropic work make him a leading example of Iranian success in the tech and business world. Also highly successful are Dara Khosrowshahi (CEO of Uber) and Ali & Hadi Partovi (co-founders/investors in tech ventures like Dropbox, Code.org). These\"],[\"page-copy-5\",\"individuals demonstrate success in tech, investment, and global business.Who is the richest Iranian ever?The richest Iranian ever is generally recognized to be Pierre Omidyar, with a net worth around $10.4 billion, born to Iranian parents. He tops most published lists of individuals of Iranian descent in terms of wealth.Looking for more? Dive into our pages on the Persian cuisine, Persian Names, or the visual timeline of Iran to explore Iran's rich heritage beyond its famous people.Shop Persian Shirts/Hoodies Explore MoreTop Iranian CitiesHomeIran Historybottom of page\"],[\"page-h1\",\"Famous and Influential Iranian People\"],[\"page-heading-1\",\"Famous Iranian Filmmakers/Directors\"],[\"page-heading-2\",\"Famous Iranian Poets\"],[\"page-heading-3\",\"Famous Iranian Athletes\"],[\"page-heading-4\",\"Famous Iranian Actors/Actresses\"],[\"page-heading-5\",\"Famous Iranian Philosophers\"],[\"page-heading-6\",\"Famous Iranian Singers\"],[\"page-heading-7\",\"Famous Iranian Influencers\"],[\"page-heading-8\",\"Famous Iranian Painters\"],[\"page-title\",\"Most Famous Iranians & Persians of All Time\"]]]",
+   "claims": [
+    {
+     "i": 0,
+     "by": [
+      "page-heading-1",
+      "page-heading-2",
+      "page-heading-3",
+      "page-heading-4",
+      "page-heading-5",
+      "page-heading-6",
+      "page-heading-7",
+      "page-heading-8"
+     ],
+     "entailed": true
+    },
+    {
+     "i": 1,
+     "by": [
+      "page-copy-1"
+     ],
+     "entailed": true
+    },
+    {
+     "i": 2,
+     "by": [
+      "page-copy-4",
+      "page-copy-5"
+     ],
+     "entailed": true
+    },
+    {
+     "i": 3,
+     "by": [
+      "page-copy-1",
+      "page-h1",
+      "page-title"
+     ],
+     "entailed": true
+    }
+   ],
+   "version": 4
+  },
+  "upsidePerMonth": null,
+  "informationGain": {
+   "by": [
+    "page-heading-1",
+    "page-heading-2",
+    "page-heading-3",
+    "page-heading-4",
+    "page-heading-5",
+    "page-heading-6",
+    "page-heading-7",
+    "page-heading-8",
+    "page-copy-1",
+    "page-copy-4",
+    "page-copy-5",
+    "page-title",
+    "page-h1"
+   ],
+   "adds": "It lifts the page’s scattered examples into one usable field-by-field answer block, making the key names easy to quote or scan in one place.",
+   "bodyHash": "6769dc73abccb887",
+   "pageWhole": true
+  },
+  "opportunityType": "Rebuild the ground \"famous iranians\" lost on /famous-iranians: this page's own position 4.0 to 7.9, 26 clicks a month LOST, about 0 supported as recoverable today",
+  "recommendedChange": {
+   "kind": "existing_edit",
+   "after": "The most famous Iranians here are organized by field: filmmakers, poets, athletes, actors, philosophers, singers, influencers, and painters. The page also calls out Rumi, Hafez, Cyrus the Great, Shohreh Aghdashloo, Asghar Farhadi, and Pierre Omidyar as standout names.\nThese names are grouped as the page’s core examples across history, culture, film, sports, and business. Use the category links for the deeper lists tied to each group.",
+   "field": "section",
+   "where": "A new section headed \"Standout Iranian names by field\", placed after \"Famous and Influential Iranian People\"",
+   "before": null
+  },
+  "whyRankedAboveNext": "Ranked ahead of the change for \"striped hyena\" because more is riding on it: shown 1,340 times in 90 days, an audience size rather than a proven recovery, counted at 85 percent because confidence is medium, against shown 1,466 times in 90 days, an audience size rather than a proven recovery, counted at 70 percent because confidence is low.",
+  "demandImpressions90d": 1341,
+  "estimatedEffortMinutes": 30
+ },
+ "body": {
+  "url": "https://pagehub.test/famous-iranians",
+  "title": "Most Famous Iranians & Persians of All Time",
+  "h1": "Famous and Influential Iranian People",
+  "metaDescription": null,
+  "headings": [
+   "Famous Iranian Filmmakers/Directors",
+   "Famous Iranian Poets",
+   "Famous Iranian Athletes",
+   "Famous Iranian Actors/Actresses",
+   "Famous Iranian Philosophers",
+   "Famous Iranian Singers",
+   "Famous Iranian Influencers",
+   "Famous Iranian Painters"
+  ],
+  "passages": [
+   "top of pageFamous and Influential Iranian PeopleDiscover the most famous Iranians and Persians throughout history and today. From legendary poets like Rumi and Hafez, to global celebrities in film, sports, and fashion, Iranians have made an impact both in Iran and worldwide. This page is your guide to the most influential Persian people, with links to detailed categories like actors, athletes, filmmakers, and more.Famous Iranian Filmmakers/DirectorsLearn about the most famous Iranian filmmakers, including directors of critically acclaimed films like A Separation. Explore the award-winning works of these visionary directors and the impact of Iranian cinema on the global stage.ListFamous Iranian PoetsDiscover the timeless works of Persian poets like Rumi and Hafez. Read about their most famous poems and how their words have continued to influence Persian literature and poetry around the world.ListFamous Iranian Athletes​Meet the best Iranian soccer players and Olympians who have",
+   "worldwide. Other global names include Shohreh Aghdashloo, known for her Hollywood roles, and Asghar Farhadi, whose films have won Academy Awards—each contributing to Iran’s presence in international culture.Who is the most famous Iranian in history?Historically, Cyrus the Great is widely regarded as the most famous Iranian in world history, founder of the Achaemenid Empire, known for his policies of tolerance and early human rights principles. His legacy continues to influence Iranian identity and global historical narratives about Persia.Who is the most successful Iranian ever?One of the most successful Iranians is Pierre Omidyar, the founder of eBay, whose net worth has exceeded $10 billion. His entrepreneurial success, global impact, and philanthropic work make him a leading example of Iranian success in the tech and business world. Also highly successful are Dara Khosrowshahi (CEO of Uber) and Ali & Hadi Partovi (co-founders/investors in tech ventures like Dropbox, Code.org). These",
+   "individuals demonstrate success in tech, investment, and global business.Who is the richest Iranian ever?The richest Iranian ever is generally recognized to be Pierre Omidyar, with a net worth around $10.4 billion, born to Iranian parents. He tops most published lists of individuals of Iranian descent in terms of wealth.Looking for more? Dive into our pages on the Persian cuisine, Persian Names, or the visual timeline of Iran to explore Iran's rich heritage beyond its famous people.Shop Persian Shirts/Hoodies Explore MoreTop Iranian CitiesHomeIran Historybottom of page"
+  ],
+  "openingSample": "top of pageFamous and Influential Iranian PeopleDiscover the most famous Iranians and Persians throughout history and today. From legendary poets like Rumi and Hafez, to global celebrities in film, sports, and fashion, Iranians have made an impact both in Iran and worldwide. This page is your guide to the most influential Persian people, with links to detailed categories like actors, athletes, filmmakers, and more.Famous Iranian Filmmakers/DirectorsLearn about the most famous Iranian filmmakers, including directors of critically acclaimed films like A Separation. Explore the award-winning work",
+  "vocabulary": "top of pageFamous and Influential Iranian PeopleDiscover the most famous Iranians and Persians throughout history and today. From legendary poets like Rumi and Hafez, to global celebrities in film, sports, and fashion, Iranians have made an impact both in Iran and worldwide. This page is your guide to the most influential Persian people, with links to detailed categories like actors, athletes, filmmakers, and more.Famous Iranian Filmmakers/DirectorsLearn about the most famous Iranian filmmakers, including directors of critically acclaimed films like A Separation. Explore the award-winning works of these visionary directors and the impact of Iranian cinema on the global stage.ListFamous Iranian PoetsDiscover the timeless works of Persian poets like Rumi and Hafez. Read about their most famous poems and how their words have continued to influence Persian literature and poetry around the world.ListFamous Iranian Athletes​Meet the best Iranian soccer players and Olympians who have worldwide. Other global names include Shohreh Aghdashloo, known for her Hollywood roles, and Asghar Farhadi, whose films have won Academy Awards—each contributing to Iran’s presence in international culture.Who is the most famous Iranian in history?Historically, Cyrus the Great is widely regarded as the most famous Iranian in world history, founder of the Achaemenid Empire, known for his policies of tolerance and early human rights principles. His legacy continues to influence Iranian identity and global historical narratives about Persia.Who is the most successful Iranian ever?One of the most successful Iranians is Pierre Omidyar, the founder of eBay, whose net worth has exceeded $10 billion. His entrepreneurial success, global impact, and philanthropic work make him a leading example of Iranian success in the tech and business world. Also highly successful are Dara Khosrowshahi (CEO of Uber) and Ali & Hadi Partovi (co-founders/investors in tech ventures like Dropbox, Code.org). These individuals demonstrate success in tech, investment, and global business.Who is the richest Iranian ever?The richest Iranian ever is generally recognized to be Pierre Omidyar, with a net worth around $10.4 billion, born to Iranian parents. He tops most published lists of individuals of Iranian descent in terms of wealth.Looking for more? Dive into our pages on the Persian cuisine, Persian Names, or the visual timeline of Iran to explore Iran's rich heritage beyond its famous people.Shop Persian Shirts/Hoodies Explore MoreTop Iranian CitiesHomeIran Historybottom of page",
+  "cardTexts": [],
+  "faqs": [],
+  "completeness": "complete",
+  "contentHash": "hub-fixture",
+  "fetchedAt": "2026-09-05T08:00:00.000Z"
+ },
+ "page": {
+  "url": "https://pagehub.test/famous-iranians",
+  "content": {
+   "wordCount": 375,
+   "title": "Most Famous Iranians & Persians of All Time",
+   "h1": "Famous and Influential Iranian People",
+   "outline": [
+    "Famous Iranian Filmmakers/Directors",
+    "Famous Iranian Poets",
+    "Famous Iranian Athletes",
+    "Famous Iranian Actors/Actresses",
+    "Famous Iranian Philosophers",
+    "Famous Iranian Singers",
+    "Famous Iranian Influencers",
+    "Famous Iranian Painters"
+   ],
+   "h2": [
+    "Famous Iranian Filmmakers/Directors",
+    "Famous Iranian Poets",
+    "Famous Iranian Athletes",
+    "Famous Iranian Actors/Actresses",
+    "Famous Iranian Philosophers",
+    "Famous Iranian Singers",
+    "Famous Iranian Influencers",
+    "Famous Iranian Painters"
+   ],
+   "internalLinks": []
+  },
+  "search": {
+   "topQueries": [
+    {
+     "query": "famous iranians",
+     "clicks": 1,
+     "impressions": 420,
+     "ctr": 0.002380952380952381,
+     "position": 7.9
+    },
+    {
+     "query": "famous iranian",
+     "clicks": 0,
+     "impressions": 180,
+     "ctr": 0.0,
+     "position": 8.4
+    },
+    {
+     "query": "most famous iranians",
+     "clicks": 0,
+     "impressions": 150,
+     "ctr": 0.0,
+     "position": 9.1
+    },
+    {
+     "query": "most famous iranian",
+     "clicks": 0,
+     "impressions": 90,
+     "ctr": 0.0,
+     "position": 10.2
+    },
+    {
+     "query": "list of iranians",
+     "clicks": 0,
+     "impressions": 70,
+     "ctr": 0.0,
+     "position": 12.6
+    },
+    {
+     "query": "iranian famous",
+     "clicks": 0,
+     "impressions": 40,
+     "ctr": 0.0,
+     "position": 14.0
+    }
+   ],
+   "clicks28d": 1,
+   "impressions28d": 950
+  },
+  "engagement": null,
+  "friction": null,
+  "aiCitations": {
+   "count": 0,
+   "distinctPrompts": 0,
+   "engines": []
+  }
+ },
+ "research": {
+  "serpEvidence": [
+   {
+    "paa": [
+     {
+      "answer": null,
+      "question": "Who is the most famous person from Iran?",
+      "answeringDomain": null
+     },
+     {
+      "answer": null,
+      "question": "Which celebs are Iranians?",
+      "answeringDomain": null
+     },
+     {
+      "answer": null,
+      "question": "Are Persians Muslims or not?",
+      "answeringDomain": null
+     },
+     {
+      "answer": null,
+      "question": "What are Persian girls known for?",
+      "answeringDomain": null
+     }
+    ],
+    "query": "famous iranians",
+    "source": "keyword",
+    "status": "done",
+    "organic": [
+     {
+      "url": "https://en.wikipedia.org/wiki/List_of_Iranians",
+      "rank": 1,
+      "title": "List of Iranians",
+      "domain": "en.wikipedia.org",
+      "snippet": "Mahnaz Afshar (born 1978), Iranian-born German actress · Majid Majidi · Mandana Karimi · Maz Jobrani, American comedian and actor · Mehdi Fat'hi · Mehdi Hashemi ( ... Read more"
+     },
+     {
+      "url": "https://www.ranker.com/list/persian-celebrities/celebrity-lists",
+      "rank": 2,
+      "title": "31 Celebrities Who Are Persian",
+      "domain": "www.ranker.com",
+      "snippet": "Catherine Bell · Shohreh Aghdashloo · Nasim Pedrad · Sarah Shahi · Andre Agassi · Christiane Amanpour · Maz Jobrani · Nazanin Boniadi. Read more"
+     },
+     {
+      "url": "https://www.onthisday.com/people/nationality/iranian",
+      "rank": 3,
+      "title": "Famous Iranians in History",
+      "domain": "www.onthisday.com",
+      "snippet": "Famous Iranians · 1. Ayatollah Khomeini · 2. Mohammad Reza Pahlavi · 3. Shirin Ebadi · 4. Mahmoud Ahmadinejad · 5. Reza Shah Pahlavi · 6. Reza Pahlavi · 7."
+     },
+     {
+      "url": "https://www.reddit.com/r/NewIran/comments/1fmg6bw/list_of_the_most_influentialrenowned_iranian/",
+      "rank": 4,
+      "title": "List of the Most Influential/Renowned Iranian People Ever",
+      "domain": "www.reddit.com",
+      "snippet": "Made a list of the most influential/famous Iranians in the following categories: filmmakers, poets, athletes, actors, singers, painters…"
+     },
+     {
+      "url": "http://iranian.com/main/blog/ramintork/10-most-influential-iranians.html",
+      "rank": 5,
+      "title": "10 Most influential Iranians",
+      "domain": "iranian.com",
+      "snippet": "10 Most influential Iranians · Omar Khayyam · Abū Naṣr Muḥammad al-Fārābī os simply known as Farabi · Forough Farokhzad · Mohammad Reza Shah Pahlavi · About the Art ... Read more"
+     },
+     {
+      "url": "https://www.imdb.com/list/ls040741253/",
+      "rank": 6,
+      "title": "Famous Persian Actors & Directors",
+      "domain": "www.imdb.com",
+      "snippet": "Famous Persian Actors & Directors · 1. Amir M. Korangy · 2. Asghar Farhadi · 3. Golshifteh Farahani · 4. Shohreh Aghdashloo · 5. Shahab Hosseini · 6. Bahram ... Read more"
+     },
+     {
+      "url": "https://x.com/stats_feed/status/2010036822567452680",
+      "rank": 7,
+      "title": "Most Famous Iranians of All Time 1. Cyrus the Great — ...",
+      "domain": "x.com",
+      "snippet": "Most Famous Iranians of All Time 1. Cyrus the Great — Founder of the Persian Empire 2. Darius the Great … 3. Avicenna — Omar Khayyam. Reza Shah ..."
+     },
+     {
+      "url": "https://www.youtube.com/watch?v=MlAf1e3WmMI",
+      "rank": 8,
+      "title": "Top 10 Most Influential Iranians Of All Time",
+      "domain": "www.youtube.com",
+      "snippet": null
+     },
+     {
+      "url": "https://www.iranvisitor.com/iran-culture/famous-iranians",
+      "rank": 9,
+      "title": "Famous Iranians",
+      "domain": "www.iranvisitor.com",
+      "snippet": "Famous Iranians listed include Avicenna, Omar Khayyam, Mohammad Reza Lotfi and Mohsen Makhmalbaf. Omar Khayyam (1048-1131) 11th-12th century Persian ... Read more"
+     },
+     {
+      "url": "https://askaniranian.com/podcast/who-are-the-most-famous-iranians/",
+      "rank": 10,
+      "title": "Who are the most famous Iranians?",
+      "domain": "askaniranian.com",
+      "snippet": "Jul 18, 2020 — Famous Iranians mentioned in the show · Shirin Ebadi (1947-present) — female, Iranian lawyer · Mahmoud Ahmadinejad (1956-present) — male, former ... Read more"
+     },
+     {
+      "url": "https://pantheon.world/profile/country/iran",
+      "rank": 11,
+      "title": "800 Famous People from Iran | Pantheon",
+      "domain": "pantheon.world",
+      "snippet": "The most famous people from Iran are Xerxes I, Cyrus the Great, and Omar Khayyam. The most famous people who died in Iran are Avicenna, Xerxes I, and Cyrus the ... Read more"
+     },
+     {
+      "url": "https://www.famousbirthdays.com/birthplace/iran.html",
+      "rank": 12,
+      "title": "Iran",
+      "domain": "www.famousbirthdays.com",
+      "snippet": "Famous people from Iran including Ali Khamenei, Mandana Mani, Shab, Nazanin Boniadi, Nasim Pedrad and many more."
+     },
+     {
+      "url": "http://www.eavartravel.com/blog/category/famous-iranians/",
+      "rank": 13,
+      "title": "Famous Iranians: Contributions and Achievements",
+      "domain": "www.eavartravel.com",
+      "snippet": "Discover the extraordinary achievements of famous Iranians across history, from Cyrus the Great to modern pioneers, spanning culture, science, and more."
+     },
+     {
+      "url": "https://www.imdb.com/list/ls000293518/",
+      "rank": 14,
+      "title": "persians in hollywood",
+      "domain": "www.imdb.com",
+      "snippet": "1. Golshifteh Farahani · 2. Nazanin Boniadi · 3. Sarah Shahi · 4. Catherine Bell · 5. Shohreh Aghdashloo · 6. Habib Zargarpour · 7. Shaun Toub · 8. Bahar Soomekh. Read more"
+     },
+     {
+      "url": "https://www.youtube.com/watch?v=yX0prJtus-M",
+      "rank": 15,
+      "title": "Top 10 Iranian Creators You Should Know About",
+      "domain": "www.youtube.com",
+      "snippet": "From ancient poets to visionary artists, Iran has produced some of history's most influential creative minds."
+     },
+     {
+      "url": "https://www.tappersia.com/blog/most-known-and-best-iranian-actors-you-should-know/",
+      "rank": 16,
+      "title": "21 greatest Iranian Actors & Actresses | Top List",
+      "domain": "www.tappersia.com",
+      "snippet": "Iran has many great movies and great actors performing in them such as 1. Peyman Maadi 2.Mahtab Keramati 3. Shahab Hosseini 4.Merila Zarei."
+     },
+     {
+      "url": "https://en.irancultura.it/culture/celebrated/",
+      "rank": 17,
+      "title": "The famous Persian Characters - Cultural Institute",
+      "domain": "en.irancultura.it",
+      "snippet": "Dec 6, 2017 — Suffice it to specify that UNESCO has recognized thirty-three Persian characters in its list of famous such as Saàdi, Hafez, Attar, Ferdowsi, ... Read more"
+     }
+    ],
+    "related": [],
+    "cacheKey": "dfs2_007c65655cf643e5ca6212ecf60c80967307580b",
+    "featured": null,
+    "itemTypes": [
+     "ai_overview",
+     "organic",
+     "people_also_ask",
+     "images"
+    ],
+    "aiOverview": [],
+    "observedAt": "2026-09-05T08:02:52.809Z",
+    "aiOverviewText": "Famous Iranians include influential historical rulers, world-renowned poets, groundbreaking scientists, and prominent modern artists.",
+    "aiOverviewState": "observed"
+   }
+  ],
+  "winningPages": [
+   {
+    "url": "https://en.wikipedia.org/wiki/List_of_Iranians",
+    "domain": "en.wikipedia.org",
+    "engines": [],
+    "extract": {
+     "h1": "List of Iranians",
+     "h3s": [
+      "Calligraphists",
+      "Cartoonists",
+      "Painters, illustrators and sculptors",
+      "Photographers",
+      "Architects",
+      "Fashion designers",
+      "Graphic designers",
+      "Industrian designers",
+      "Comedians",
+      "Dancers and choreographers",
+      "Models, beauty pageant",
+      "Film actors",
+      "Theatre and stage actors",
+      "Filmmakers",
+      "Theatre and stage directors",
+      "Classical",
+      "Electronic",
+      "Pop",
+      "Rap music",
+      "Rock and metal"
+     ],
+     "title": "List of Iranians - Wikipedia",
+     "hasList": true,
+     "faqCount": 0,
+     "hasTable": false,
+     "headings": [
+      "Contents",
+      "In the news",
+      "Artists",
+      "Designers",
+      "Business",
+      "Entertainers",
+      "Filmmakers, directors",
+      "Musicians and singers",
+      "Journalists, media",
+      "Leaders, politicians, activists",
+      "Prisoners and detainees",
+      "Literature figures",
+      "Religious figures",
+      "Royalty",
+      "Scientists, scholars, and academics",
+      "Sports",
+      "Iranian women",
+      "Military",
+      "Misc",
+      "Afro-Iranians"
+     ],
+     "mainText": "Jump to content From Wikipedia, the free encyclopedia This is an alphabetic list of notable people from Iran or its historical predecessors. This is a dynamic list and may never be able to satisfy particular standards for completeness. You can help by editing the page to add missing items, with references to reliable sources. In the news[edit] Mohammad Bagher Ghalibaf, former Mayor of Tehran, Speaker of the Islamic Consultative Assembly Ali Dizaei, former senior officer in the London Metropolitan Police Anousheh Ansari, Iranian-American first female space tourist in the world, telecommunication entrepreneur and namesake of the Ansari X Prize Bahar Soomekh, Iranian-American actress Camila Batmanghelidjh, Iranian-Belgian founder of London-based children's charity Kids Company Reza Pahlavi, son of the deposed Shah of Iran, crown prince in exile. Shirin Ebadi, recipient of 2003 Nobel Peace Prize Akbar Ganji, journalist and writer Hossein Ronaghi, human rights activist Artists[edit] See also: List of Iranian artists Calligraphists[edit] Gholam Hossein Amirkhani Abolhassan Etessami Fakhr Jahan Khanum Mir Emad Hassani Seyyed Jafar Kashfi Yadollah Kaboli Khansari Mishkín-Qalam Jalil Rasouli Mehdi Saeedi Mir Ali Tabrizi Cartoonists[edit] Golnar Servatian Javad Alizadeh Maziyar Bizhani Nikahang Kowsar Mana Neyestani Touka Neyestani Painters, illustrators and sculptors[edit] See also: List of Iranian painters Abolhassan Khan Sadighi Ali Akbar Sadeghi Amir Shayesteh Tabar Aydin Aghdashloo Bahram Soroush Daryush Shokof Farhad Sadeghi Amini Gholamhossein Saber Haydar Hatemi Hossein Behzad Hossein Valamanesh Hossein Zenderoudi Iran Darroudi Jazeh Tabatabai Kamal ol-Molk Kamaleddin Behzad Mahmoud Farshchian Mani Maryam Hashemi (Maryam Sandjari) Mohammad Ali Taraghijah Mohsen Vaziri-Moghaddam Mokarrameh Ghanbari Noreen Motamed Afshin Naghouni Parviz Tanavoli Reza Abbasi Shahla Aghapour Shahla Arbabi Shirazeh Houshiary Siah Armajani Sohrab Sepehri Zhaleh Kazemi Photographers[edit] Abbas Abbas Kiarostami Alfred Yaghobzadeh Ali Ghanbari Ali Khan Vali Jahangir Razmi Kaveh Golestan Maryam Zandi Mitra Tabrizian Morteza Avini Nader Davoodi Nasrollah Kasraian Newsha Tavakolian Reza Deghati Hossein Rajabian Sadegh Tirafkan Shadi Ghadirian Shahram Entekhabi Shirana Shahbazi Shirin Neshat Designers[edit] Architects[edit] See also: List of Iranian architects and List of historical Iranian architects Hossein Amanat Kamran Diba Heydar Ghiaï-Chamlou Fariborz Sahba Fashion designers[edit] Pegah Anvarian (born 1974), Iranian-born American fashion designer, based in Los Angeles Bijan Shirin Guild, Iranian-born British fashion designer Mike Amiri, American fashion designer and the founder and creative director of the fashion house AMIRI Arefeh Mansouri (born 1980), Iranian-Canadian fashion and costume designer Behnaz Sarafpour (born 1969), Iranian-born American couture fashion designer, based in New York City Mahla Zamani (1950-2023), fashion designer, journalist; expert on traditional Iranian clothing Graphic designers[edit] Reza Abedini Farshid Mesghali Morteza Momayez Mehdi Saeedi Ghobad Shiva Industrian designers[edit] Nader Faghihzadeh Alexander Kostellow Iman Maghsoudi Mona Paad Sohrab Vossoughi Business[edit] Kia Joorabchian, businessman Hooman Radfar, American entrepreneur Nasser David Khalili, British billionaire and art collector Afsaneh Beschloss (born 1956), Iranian-born American former treasurer of the World Bank, economist, entrepreneur, and investor, CEO of RockCreek, an investment firm that she founded Mandana Dayani (born 1982), Iranian-American businesswoman and media executive Fatemeh Moghimi (born 1958), engineer, entrepreneur, and political activist Shahrzad Rafati (born 1979), Iranian-Canadian CEO of BroadbandTV Corp (BBTV) Maryam Rofougaran (born 1968), Iranian-American electrical engineer, CEO and co-founder of Innovent Systems, Inc. and Movandi; member of the CNBC CEO Council[1][2] Sheherazade Semsar-de Boisséson (born 1968), French-Iranian Entertainers[edit] Comedians[edit] Baba Ali, Islamic comedy Max Amini Omid Djalili Negin Farsad Shahin Jamie Maz Jobrani Shaparak Khorsandi Hadi Khorsandi Ebrahim Nabavi Nasim Pedrad Dancers and choreographers[edit] Jamileh Farzaneh Kaboli, folkloric Moshtari Khanum Nima Kiann Shahrokh Moshkin Ghalam, folkloric Models, beauty pageant[edit] Nazanin Afshin-Jam (born 1979), Iranian-Canadian actress, singer-songwriter, human-rights activist; Miss World 2003 first runner-up; Miss Canada 2003 Ramona Amiri, Iranian-Canadian Miss Canada 2005 Sara Nicole Andersen (born 1992), Norwegian-Iranian Miss Universe Norway 2012 Sahar Biniaz (born 1986), Persian-Canadian Miss Universe Canada 2012 Mahlagha Jaberi (born 1989), Iranian-American influencer and Instagram model Aylar Lie (born 1984), Iranian-born Norwegian actress, model, singer, former pornographic actress Melika Razavi, Iranian-South African Miss Iran 2016, Miss Global Fitness 2016, and Miss Power Woman 2017 Apameh Schönauer (born 1984), German-Iranian Miss Germany 2024 Shermine Shahrivar (born 1982), Iranian-German Miss Germany 2004, Miss Europe 2005 Samantha Tajik (born 1983), Iranian-Canadian Miss Universe Canada 2008 Film actors[edit] Akbar Abdi Alan Mehdizadeh, British-Iranian actor Ali Mosaffa Ali Nassirian Amin Hayaee Amirhossein Arman Artemis Pebdani, American actress Asghar Farhadi Azita Hajian Bahar Soomekh (born 1975), Iranian-born American actress, Crash and Saw III Bahram Radan Behrouz Vossoughi Behzad Farahani Bijan Daneshmand Bita Farrahi Bizhan Emkanian Catherine Bell (born 1968), British-American actress, JAG, half Iranian Christiane Amanpour, British-Iranian journalist and television host Daryoush Arjmand Daryush Shokof Davoud Rashidi Delkash Elnaaz Norouzi, German actress Ezzatollah Entezami Faramarz Gharibian Farimah Farjami, Iranian and French actress Fatemeh Motamed-Aria Golab Adineh Golshifteh Farahani (born 1983), Iranian-French actress Googoosh (born 1950), actress, singer, songwriter Hamed Behdad Hedyeh Tehrani (born 1972), actress Homa Rousta Homayoun Ershadi Jahangir Forouhar Jamileh Sheykhi Jamshid Mashayekhi Kamshad Kooshan, Iranian-born American actor Kazem HajirAzad Khosrow Shakibaee Leila Forouhar Leila Hatami (born 1972), actress, was in the Academy Award-winning film A Separation Mahaia Petrosian Mahnaz Afshar (born 1978), Iranian-born German actress Majid Majidi Mandana Karimi Maz Jobrani, American comedian and actor Mehdi Fat'hi Mehdi Hashemi (actor) Mehran Modiri Merila Zarei Mohammad Ali Fardin Mohammad Ali Keshavarz Mohammad Reza Foroutan Mohammad Reza Golzar Mohammad Reza Sharifinia Navid Mohammadzadeh Nazanin Afshin-Jam Nematollah Aghasi Niki Karimi (born 1971), actress, film director, and screenwriter Omid Ahangar Parsa Pirouzfar Parviz Fannizadeh Parviz Parastouee Parviz Sayyad Pegah Ahangarani Reza Kianian Reza Rahardian, Indonesian actor, model, singer, director, and radio announcer Roxanne Pallett, English actress, television personality, and broadcaster Roya Nonahali Saeed Rad Sam Asghari, Iranian-American model and actor Sarah Shahi (born 1980), American actress and former cheerleader, of Iranian-Spanish ancestry Shaghayegh Farahani Shahab Hosseini Shohreh Aghdashloo (born 1952), Iranian-American actress, Oscar nominee 2003 for House of Sand and Fog Sussan Taslimi, Iranian-Swedish film and theatre actress, director and screenwriter Taraneh Alidousti Zahra Amir Ebrahimi (born 1981), Iranian-French actress and social photographer Theatre and stage actors[edit] Mehdi Bajestani Taha Behbahani Mohsen Shah Ebrahimi Behzad Farahani Shamsi Fazlollahi Alan Mehdizadeh Ali Nassirian Hayley Tamaddon Kazem HajirAzad Ahmad Saatchian Mohammad Reza Jozi Ramin Karimloo Roya Teymourian Shiva Boloorian Filmmakers, directors[edit] Filmmakers[edit] Abbas Kiarostami, director of Taste of Cherry Abdolhossein Sepanta Hassan Hajgozar Abolfazl Jalili Ali Ardekani Ali Hatami Ali Sajadi Hoseini Amir Naderi Asghar Farhadi, director of A Separation Babak Payami Bahman Farman-Ara Bahman Ghobadi, director of A Time for Drunken Horses Bahman Maghsoudlou Bahram Beizai Behrooz Gharibpoor Daryush Shokof Darius Khondji Darius Mehrjui Desiree Akhavan, director of Appropriate Behavior Ebrahim Hatamikia Emud Mokhberi, Academy Award-nominated director and animator Esma'il Kooshan Houman Seyyedi Iraj Ghaderi Jafar Panahi, director of The Circle Kamal Tabrizi Kami Asgar Kamran Shirdel Kamshad Kooshan Khosrow Sinai Kiarash Anvari Kiumars Pourahmad Mahdi Bemani Naeini Majid Majidi, director of Children of Heaven Masoud Kimiai Mehran Modiri Mohsen Makhmalbaf, director of Kandahar Mostafa Keshvari Nasser Taghvai Parviz Kimiavi Hossein Rajabian, director of The Upside-down Triangle Parviz Nouri Shabnam Rezaei Parviz Shahbazi Parviz Sayyad Bob Yari, Iranian-born American film producer Pouran Derakhshandeh, award-winning film director and producer Rakhshan Bani-Etemad Ramin Farahani Rasoul Mollagholipour Reza Badiyi Sadaf Foroughi Samira Makhmalbaf, director of At Five in the Afternoon Samuel Khachikian Sohrab Shahid-Sales Saeed Roustayi Tina Gharavi Theatre and stage directors[edit] Akbar Radi Bahram Bayzai Behrouz Gharibpour Ghotbeddin Sadeghi Hengameh Mofid Hossein Rajabian Mostafa Oskooyi Reza Shirmarz Shiva Boloorian Musicians and singers[edit] See also: List of Iranian musicians Classical[edit] See also: List of Iranian composers Iranian classical traditional[edit] Abolhasan Saba Alinaghi Vaziri Alireza Eftekhari Dariush Eghbali Elaheh Gholam-Hossein Banan Homayoun Shajarian Hossein Alizadeh Hossein Khaje Amiri Hossein Tehrani Jalal Zolfonun Javad Maroofi Kamkarha Kayhan Kalhor Mahmoud Zoulfonoun Maryam Akhondy Marzieh Mehdi Rajabian Mirza Abdollah Farahani Mohammad Reza Lotfi Mohammad-Reza Shajarian Mohammad Shams Mohsen Namjoo Morteza Hannaneh Moshtari Khanum Nashit Nur Ali Elahi Parisa Parviz Meshkatian Parviz Yahaghi Ruhollah Khaleghi Shahram Nazeri Sima Bina Zyriab Modern traditional[edit] Ahmad Pejman Axiom of Choice Farhad Fakhreddini Morteza Hannaneh Niyaz Ramin Rahimi Zohreh Jooya Mehdi Rajabian Sina Bathaie Western classical[edit] Ali Rahbari Alireza Mashayekhi Amin Homaei Aminollah Hossein Anoushiravan Rohani Armik Hangi Tavakoli Heshmat Sandjari Loris Tjeknavorian (Loris Cheknavarian) Lotfi Mansouri Mahan Esfahani Sahba Aminikia Mehdi Hosseini Nader Mashayekhi Reza Najfar Shahrdad Rohani Hooman Khalatbari Electronic[edit] Ali \"Dubfire\" Shirazinia Ali Movasat (DJ Aligator) Ashkan Kooshanejad Deep Dish Leila Arab Sharam Tayebi Sina Bathaie Steve Naghavi from And One Pop[edit] Alireza Assar Alireza Talischi Andy Madadian Anousheh Khalili (born 1983), Iranian–American singer-songwriter Arash Aref Arian Band Benyamin Arefi Bijan Mortazavi Darius Danesh Dariush Eghbali Delkash (1925–2004; also known as Esmat Bagherpour Baboli), singer and actress Ebi Faramarz Aslani Farhad Fereidoun Foroughi Googoosh Habib Hassan Sattar Hassan Shamaizadeh Hayadeh Homeyra Ilya Salmanzadeh Kouros Leila Forouhar (born 1959), pop and classical singer, based in Los Angeles Mahasti (1946–2007), Persian classical, folk, and pop music singer; lived in California Mansour May J. Mehrdad Moein Mohammad Esfahani Mohammad Nouri Pyruz Reza Sadeghi Sepideh (born 1975), Iranian-American singer Sevdaliza Siavash Ghomeyshi Shahkar Binesh Pazhooh Shahram Shabpareh Shahrum K Shohreh Solati (born 1957), Iranian–American singer Snoh Aalegra Susan Roshan Toofan Vigen Leila Arab (born 1971), musician, record producer and DJ based in London Roya Arab (born 1967), Iranian-British musician, archaeologist, singer and songwriter Hayedeh (1942–1990; also known as Ma'soumeh Dadehbala), pop and classical singer; lived in Los Angeles Anousheh Khalili (born 1983), Iranian–American singer-songwriter Laleh Pourkarim (born 1982), Iranian–Swedish singer-songwriter, musician, record producer, actress Rita (born 1962; Rita Jahanforuz), Iranian-born Israeli singer and actress, represented Israel in the Eurovision Song Contest Shakila (born 1962),",
+     "fetchedAt": "2026-09-06T17:28:14.743Z",
+     "heldChars": 12000,
+     "truncated": true,
+     "wordCount": 8751,
+     "totalChars": 66553,
+     "entityNames": [
+      "List of Iranians"
+     ],
+     "schemaTypes": [
+      "Article"
+     ],
+     "openingSample": "This is an alphabetic list of notable people from Iran or its historical predecessors. This list excludes royalty, which can be accessed by the main article link above. See separate articles: Persian woman and List of Persian women. See article List of Persian Roman Catholic saints",
+     "metaDescription": null,
+     "externalLinkCount": 363,
+     "internalLinkCount": 2145
+    },
+    "appearances": [
+     {
+      "kind": "serp_organic",
+      "rank": 1,
+      "query": "famous iranians",
+      "engine": null,
+      "citedUrl": "https://en.wikipedia.org/wiki/List_of_Iranians",
+      "promptId": null,
+      "observedAt": "2026-09-05T08:02:52.809Z",
+      "promptText": null,
+      "modelServed": null,
+      "observationMode": null
+     },
+     {
+      "kind": "serp_organic",
+      "rank": 5,
+      "query": "persian celebrities",
+      "engine": null,
+      "citedUrl": "https://en.wikipedia.org/wiki/List_of_Iranians",
+      "promptId": null,
+      "observedAt": "2026-09-01T03:22:24.685Z",
+      "promptText": null,
+      "modelServed": null,
+      "observationMode": null
+     }
+    ],
+    "readOutcome": null,
+    "examplePrompts": []
+   },
+   {
+    "url": "https://www.ranker.com/list/persian-celebrities/celebrity-lists",
+    "domain": "ranker.com",
+    "engines": [],
+    "extract": {
+     "h1": "31 Celebrities Who Are Persian",
+     "h3s": [
+      "The Best Catherine Bell Movies"
+     ],
+     "title": "31 Celebrities Who Are Persian",
+     "hasList": true,
+     "faqCount": 5,
+     "hasTable": false,
+     "headings": [
+      "Catherine Bell",
+      "Shohreh Aghdashloo",
+      "Nasim Pedrad",
+      "Sarah Shahi",
+      "Andre Agassi",
+      "Christiane Amanpour"
+     ],
+     "mainText": "#14 Alan Rickmanon The Most Trustworthy Celebrities In The World#18 Abraham Lincolnon Famous Men You'd Want To Have A Beer WithCOLLECTION23 LISTSCelebrity OriginsLists of interesting trivia and fun facts about where famous people were born, how they grew up, and what their lives were like when they were young.31 Celebrities Who Are PersianCelebs Who Are BiracialCelebs Who Learned ESLFamous People Born AbroadStars Who Were Born in AfricaOrphaned as ChildrenPeople Who Are Love ChildrenCelebrities Raised in CultsBorn in HawaiiRaised by Single DadsRaised in Actor FamiliesAdopted CelebritiesPeople with Very Long NamesCatholic School AlumniCelebs Who Use Stage NamesPeople Who Lost SiblingsBorn to Teen MothersElementary School ClassmatesCelebrity Children of AddictsFamous JuniorsFinding Your Roots RevelationsRaised by Single MomsCelebs Who Lived in Trailer ParksThis list contains information about Persian celebrities, loosely ranked by fame and popularity. Persian people are Iranians who speak the Persian language. Several famous musicians, athletes, and comedians are Persian. Some of these celebrities were born in the Middle East, whereas others were born in the U.S. to Iranian immigrants. One Saturday Night Live cast member is Persian and speaks fluent Farsi. Who is the most famous person who is Persian? Catherine Bell tops our list. Catherine Bell was born in London to a Persian mother and Scottish father. She moved to the U.S. when she was two years old. Journalist Christiane Amanpour was born in London and raised in Tehran, Iran. Her mother is British and her father is Persian. Andre Agassi was born in Las Vegas and he is of Persian, Armenian, and Assyrian descent. His father, Emmanuel \"Mike\" Agassi, was an Olympic boxer for Iran.Saturday Night Live alum Nasim Pedrad was born in Tehran, Iran. She moved to the U.S. with her family in 1984, when she was two years old. Actress Shohreh Aghdashloo was born in Tehran, Iran. She made her American film debut in 1989. Featuring Hollywood actors, models, and more, this list of Persian celebs has them all. Are you surprised that so many famous people are Persian? Share your thoughts in the comments section.Catherine BellPhoto: Wikimedia CommonsCC-BYCatherine Bell was born in London to a Persian mother and Scottish father. She moved to the U.S. when she was two years old.Born: 08-14-1968Age: 58Birthplace: London, England, UKDig Deeper Famous Iranian AmericansAlso ranks #4 on The Most Stunning Iranian ActressesThe Best Catherine Bell MoviesSee all1The Good Witch 68 Votes2The Good Witch's Gift 50 Votes3The Good Witch's Garden 48 Votes4Last Man Standing 31 VotesShohreh AghdashlooPhoto: MetawebGNU Free Documentation LicenseShohreh Aghdashloo was born in Tehran, Iran. She made her American film debut in 1989.Born: 05-11-1952Age: 74Birthplace: Tehran, IranDig Deeper Famous Iranian AmericansAlso ranks #26 on The Hottest Celeb Women Over 60Nasim PedradPhoto: flickrCC0\"Saturday Night Live\" alum Nasim Pedrad was born in Tehran, Iran. She moved to the U.S. with her family in 1984, when she was two years old.Born: 11-18-1981Age: 44Birthplace: Tehran, IranDig Deeper Famous Iranian AmericansAnd Deeper People You Forgot Guest Starred on Gilmore GirlsAlso ranks #20 on The Funniest Female SNL AlumniSarah ShahiPhoto: flickrCC0TV star Sarah Shahi was born in Texas to a Persian father and Spanish mother.Born: 01-10-1980Age: 46Birthplace: Euless, Texas, USADig Deeper Famous Iranian AmericansAlso ranks #1 on The Most Stunning Iranian ActressesAnd Deeper EW.com's Wildly Underrated TV ActressesAndre AgassiPhoto: MetawebCC-BYAndre Agassi was born in Las Vegas and he is of Persian, Armenian, and Assyrian descent. His father, Emmanuel \"Mike\" Agassi, was an Olympic boxer for Iran.Born: 04-29-1970Age: 56Birthplace: Las Vegas, Nevada, USAAlso ranks #2 on The Best Men's Tennis Players of the 1990sAlso ranks #4 on The Best Men's Tennis Players of the 2000sDig Deeper Athletes Who Have Appeared On Wheaties BoxesChristiane AmanpourPhoto: MetawebGNU Free Documentation LicenseJournalist Christiane Amanpour was born in London and raised in Tehran, Iran. Her mother is British and her father is Persian.Born: 01-12-1958Age: 68Birthplace: London, England, UKDig Deeper Famous Iranian AmericansAnd Deeper People You Forgot Guest Starred on Gilmore GirlsAnd Deeper 19 Celebrities with Rhode Island Tiesload moreNEXT LISTMost Asked QuestionsWho are some of the most famous iranian people in Hollywood?+A: Catherine Bell and Shohreh Aghdashloo are two of the most recognizable names. Catherine Bell, known for JAG, was born to a Persian mother, while Shohreh Aghdashloo made history as the first Iranian woman nominated for an Academy Award for her role in House of Sand and Fog. You've also likely seen Nasim Pedrad on Saturday Night Live or New Girl.Which famous Persian women are successful iranian american actresses?+A: Sarah Shahi and Nazanin Boniadi have both built incredible careers in American television. Sarah Shahi starred in Person of Interest and The L Word, bringing her Persian and Spanish heritage to the screen. Nazanin Boniadi is another major talent, moving from General Hospital to major roles in Homeland and The Lord of the Rings: The Rings of Power.Are there any famous people from Iran who are athletes or journalists?+A: Andre Agassi is one of the most legendary athletes with Persian roots, as his father was an Olympic boxer for Iran before moving to Las Vegas. In the world of journalism, Christiane Amanpour is a household name who was raised in Tehran. Her deep connection to her Persian heritage has informed her world-class reporting for decades.How have famous Persian people influenced American comedy?+A: Maz Jobrani and Nasim Pedrad are leading the way for Persian representation in comedy. Maz Jobrani is a founding member of the Axis of Evil Comedy Tour and has several hilarious specials that lean into his Iranian-American experience. Nasim Pedrad spent five seasons on Saturday Night Live, where she even used her fluent Farsi in sketches, proving her range to millions of viewers.What famous Persian actors in america have appeared in popular TV shows?+A: Omid Abtahi and Artemis Pebdani are faces you definitely recognize from some of the biggest shows on TV. Omid Abtahi has appeared in everything from The Mandalorian to American Gods, while Artemis Pebdani is a fan favorite as Artemis on It's Always Sunny in Philadelphia. Both actors consistently deliver great performances that keep fans watching.",
+     "fetchedAt": "2026-09-06T17:28:27.707Z",
+     "heldChars": 6517,
+     "truncated": false,
+     "wordCount": 989,
+     "totalChars": 6517,
+     "entityNames": [
+      "Home",
+      "People",
+      "31 Celebrities Who Are Persian"
+     ],
+     "schemaTypes": [
+      "Article",
+      "BreadcrumbList",
+      "FAQPage"
+     ],
+     "openingSample": "This list contains information about Persian celebrities, loosely ranked by fame and popularity. Persian people are Iranians who speak the Persian language. Several famous musicians, athletes, and comedians are Persian. Some of these celebrities were born in the Middle East, whereas others were born Who is the most famous person who is Persian? Catherine Bell tops our list. Catherine Bell was born in London to a Persian mother and Scottish father. She moved to the U.S. when she was two years old. Journalist Christiane Amanpour was born in London and raised in Tehran, Iran. Her mother is Britis",
+     "metaDescription": "This list contains information about Persian celebrities, loosely ranked by fame and popularity. Persian people are Iranians who speak the Persian language.",
+     "externalLinkCount": 8,
+     "internalLinkCount": 52
+    },
+    "appearances": [
+     {
+      "kind": "serp_organic",
+      "rank": 2,
+      "query": "persian actors",
+      "engine": null,
+      "citedUrl": "https://www.ranker.com/list/persian-celebrities/celebrity-lists",
+      "promptId": null,
+      "observedAt": "2026-09-01T04:09:48.804Z",
+      "promptText": null,
+      "modelServed": null,
+      "observationMode": null
+     },
+     {
+      "kind": "serp_organic",
+      "rank": 2,
+      "query": "famous iranians",
+      "engine": null,
+      "citedUrl": "https://www.ranker.com/list/persian-celebrities/celebrity-lists",
+      "promptId": null,
+      "observedAt": "2026-09-05T08:02:52.809Z",
+      "promptText": null,
+      "modelServed": null,
+      "observationMode": null
+     },
+     {
+      "kind": "serp_organic",
+      "rank": 2,
+      "query": "persian celebrities",
+      "engine": null,
+      "citedUrl": "https://www.ranker.com/list/persian-celebrities/celebrity-lists",
+      "promptId": null,
+      "observedAt": "2026-09-01T03:22:24.685Z",
+      "promptText": null,
+      "modelServed": null,
+      "observationMode": null
+     },
+     {
+      "kind": "ai_overview",
+      "rank": null,
+      "query": "persian celebrities",
+      "engine": null,
+      "citedUrl": "https://www.ranker.com/list/persian-celebrities/celebrity-lists",
+      "promptId": null,
+      "observedAt": "2026-09-01T03:22:24.685Z",
+      "promptText": null,
+      "modelServed": null,
+      "observationMode": null
+     },
+     {
+      "kind": "ai_overview",
+      "rank": null,
+      "query": "persian celebrities",
+      "engine": null,
+      "citedUrl": "https://www.ranker.com/list/persian-celebrities/celebrity-lists",
+      "promptId": null,
+      "observedAt": "2026-09-01T03:22:24.685Z",
+      "promptText": null,
+      "modelServed": null,
+      "observationMode": null
+     }
+    ],
+    "readOutcome": null,
+    "examplePrompts": []
+   },
+   {
+    "url": "https://www.onthisday.com/people/nationality/iranian",
+    "domain": "onthisday.com",
+    "engines": [],
+    "extract": {
+     "h1": "Famous Iranians",
+     "h3s": [],
+     "title": "Famous Iranians in History - On This Day",
+     "hasList": true,
+     "faqCount": 0,
+     "hasTable": false,
+     "headings": [
+      "List of Iranian People"
+     ],
+     "mainText": "Home Famous People Nationality Iranian 1. Ayatollah Khomeini 2. Mohammad Reza Pahlavi 3. Shirin Ebadi 4. Mahmoud Ahmadinejad 5. Reza Shah Pahlavi 6. Reza Pahlavi 7. Ramin Djawadi 8. Hassan Rouhani 9. Ayatollah Ali Khamenei 10. Mohammad Mosaddegh 0936-09-24 'Adud al-Dawlah, Iranian ruler of the Buyid dynasty (949-83), born in Isfahan (d. 983) 0973-09-04 Al-Biruni, Iranian mathematician, astronomer and polymath, born in Kath, Khwarezm, Afrighid dynasty (d. 1048) [some sources cite 5th as birth date] 1688-10-22 Nader Shah, Iranian ruler (1736-47) and founder of Afsharid Dynasty of Persia, born in Kobhan, Iran (d. 1747) 1817-11-12 Bahá'u'lláh, Iranian religious leader, prophet founder of the Baha'i Faith, born in Tehran, Iran (d. 1892) 1899-11-19 Abu al-Qasim al-Khoei, Iranian influential Shia Islamic scholar, born in Khoy, West Azerbaijan Province, Iran (d. 1992) 1902-09-24 Ayatollah Khomeini [Ruhollah Khomeini], Supreme leader of Iran (1979-89), religious figure and political leader of the 1979 Iranian Revolution, born in Khomeyn, Persia (d. 1989) 1903-02-19 Sadiq Hidajat, Iranian Persian writer (Blind Person Owl), born in Tehran, Persia (d. 1951) 1904-02-02 Buzurg Alavi, Iranian writer (Panjah va sih nafar; Namal'ha), born in Tehran, Persia (d. 1997) 1905-09-12 Ali Amini, Iranian politician and government official (Prime Minister, 1961-62; Ambassador to US, 1956-58; Member of Parliament, 1947-49), born in Tehran, Persia (d. 1992) 1908-08-26 Walter Bruno Henning, German scholar and linguist specializing in Iranian languages, born in Ragnit, East Prussia, German Empire (d. 1967) 1914-06-26 Shapour Bakhtiar, Iranian politician (Prime Minister, for 36 days in 1979), born in Shahrekord, Persia (d. 1991) 1916-02-04 Shah Maghsoud Sadegh Angha, Iranian Sufi master and poet, master of the Oveyssi-Shahmaghsoudi Sufi Order, born in Tehran, Iran (d. 1980) 1919-10-26 Ashraf Pahlavi, Iranian women's rights campaigner and the twin sister of Shah Mohammad Reza Pahlavi, born in Tehran, Iran (d. 2016) 1921-04-28 Simin Daneshvar, Iranian writer and the first woman to publish a novel in Iran under her own name (Savushun), born in Shiraz, Iran (d. 2012) 1922-09-09 Anthony Parsons, British diplomat and British Ambassador to Iran during Iranian Revolution (1974-79), born in Windsor, England (d. 1996) 1925-12-12 Ahmad Shamlou, Iranian poet (The Book of Alley), born in Tehran, Iran (d. 2000) 1926-09-26 Manfred Mayrhofer, Austrian Indo-European philologist (Indo-Iranian languages), born in Linz, Austria (d. 2011) 1926-12-26 Ali Javan, Iranian American physicist and inventor (Helium-Neon Laser), born in Tehran, Iran (d. 2016) 1930-04-17 Reza Badiyi, Iranian-American television director (Falcon Crest, Mission: Impossible), born in Arak, Iran (d. 2011) 1930-08-04 Grand Ayatollah Ali al-Sistani, Iranian shia cleric, born in Mashhad, Iran 1930-10-15 FM-2030 [Fereidoun M. Esfandiary], Iranian-American author and transhumanist (Are You a Transhuman?), born in Brussels, Belgium (d. 2000) 1930-12-25 Emmanuel Agassi, Iranian boxer and tennis coach (father of Andre Agassi), born in Salmas, Iran (d. 2021) 1931-04-13 Emam-Ali Habibi, Iranian freestyle wrestler (Olympic gold 67kg 1956; World C'ship gold 1959, 61, 62), born in Babol, Iran (d. 2025) 1931-12-12 Ali-Akbar Sa'idi Sirjani, Iranian writer and journalist, born in Sirjan, Kerman (d. 1994) 1933-02-10 Farâmarz Pâyvar, Iranian santur (hammer dulcimer) master and composer, born in Tehran, Iran (d. 2009) 1933-03-22 Abolhassan Banisadr, Iranian politician, President of Iran (1980-81), and writer (My Turn To Speak), born in Hamadan, Iran (d. 2001) 1933-11-23 Ali Shariati, Iranian sociologist & revolutionary, born in Kahak, Iran (d. 1977) 1934-01-18 Joseph Saleh, Iranian-American film producer (Savages) and co-founder of the Angelika Film Center, born in Hamadan, Iran (d. 2007) 1934-08-25 Akbar Hashemi Rafsanjani, 4th President of Iran (1989-97) and de facto commander-in-chief of the Iranian military during the Iran-Iraq War, born in Bahreman, Persia (d. 2017) 1934-12-29 Forough Farrokhzad, Iranian pre-eminent poet and film director, born in Tehran, Iran (d. 1967) 1935-01-05 Forugh Farrokhzad, Iranian poet (Another Birth) and filmmaker (The House is Black), born in Tehran, Iran (d. 1967) 1936-02-26 Cyrus Faryar, Iranian-American folk musician, songwriter, and record producer (Modern Folk Quartet), born in Tehran, Persia 1937-09-22 Jalal Zolfonun, Iranian composer (Gol-e Sadbarg) and setar player (Persian lute), born in Abadeh, Iran (d. 2012) 1938-12-26 Bahram Beyzaie, Iranian playwright and film director (When We Are All Sleeping, Killing Mad Dogs), born in Tehran, Iran (d. 2025) 1939-02-12 Akbar Adibi, Iranian engineer and professor (electronics and VLSI technology), born in Songhor, Iran (d. 2000) 1939-04-19 Ali Khamenei, Iranian cleric, 2nd Supreme Leader (Grand Ayatollah) of Iran (1989-2026), and 3rd President of Iran (1981-89), born in Mashhad, Khorasan, Iran (d. 2026) 1939-06-06 Nahid Rachlin, Iranian-American novelist (Foreigner, Married to a Stranger), born in Ahvaz, Iran (d. 2025) 1940-04-04 Bijan, Iranian men's apparel designer (Bijan), born in Tehran, Iran (d. 2011) 1940-06-22 Abbas Kiarostami, Iranian author and director (Under the Olive Trees, Close Up, Taste of Cherry), born in Tehran (d. 2016) 1940-09-23 Mohammad Reza Shajarian, Iranian classical singer, born in Mashhad, Iran (d. 2020) 1941-07-13 Nasser Taghvai, Iranian filmmaker (Captain Khorshid, Unruled Paper), born in Abadan, Iran (d. 2025) 1941-08-26 Barbet Schroeder, Iranian-Swiss director (Barfly, Single White Female, More), born in Tehran, Iran 1942-03-15 The Iron Sheik (Hossein Khosrow Ali Vaziri), Iranian pro wrestler (WWF Heavyweight C'hip 1983-84; WWF Tag Team C'ship 1985 [Nikolai Volkoff], born in Damghan, Iran (d. 2023) 1942-09-04 Alireza Shapour Shahbazi, Iranian archaeologist and a world expert on Achaemenid archaeology, born in Shiraz, Iran (d. 2006) 1943-01-20 Farhad [Mehrad], Iranian pop, rock and folk singer-songwriter (\"Jomeh\"), born in Tehran, Iran (d. 2002) 1943-09-29 Mohammad Khatami, Iranian reformist politician (President of Iran, 1997-2005; Minister of Culture, 1982-92), born in Ardakan, Iran 1944-03-27 Khosrow Shakibai, Iranian actor (Hamoun), born in Tehran, Iran (d. 2008) 1944-10-11 Younan Nowzaradan, \"Dr. Now\", Iranian-born American doctor and television personality (My 600-lb Life, The 6000 lb Diaries with Dr. Now), born in Tehran, Iran 1945-12-04 Parviz Ghelichkhani, Iranian soccer midfielder and captain (66 caps; Kian FC, San Jose Earthquakes), born in Tehran, Iran (d. 2026) 1946-02-17 Shahrnush Parsipur, Iranian translator and writer (Women Without Men; The Dog and the Long Winter), born in Khorramshahr, Iran (d. 2026) 1947-03-26 Homayoun Ershadi, Iranian architect, and actor (The Kite Runner; Taste of Cherry), born in Isfahan, Iran (d. 2025) 1947-06-21 Shirin Ebadi, Iranian lawyer, human rights activist and 1st Iranian Muslim woman to receive a Nobel Peace Prize (2003), born in Hamadan, Iran 1948-11-12 Hassan Rouhani, Iranian lawyer and politician (President of Iran 2013-21), born in Sorkheh, Imperial State of Iran 1949-08-25 Fariborz Lachini, Iranian film score composer (Fifty Days of Disquiet, The Hostage), born in Tehran, Iran 1950-07-28 Shahyar Ghanbari, Iranian poet and singer-songwriter, born in Tehran, Iran 1950-08-16 Marshall Manesh, Iranian-born American actor (A Girl Walks Home Alone at Night, The Big Lebowski), born in Mashhad, Iran 1951-02-04 Dariush Eghbali, Iranian Persian-pop singer and musician, born in Tehran, Iran 1952-05-11 Shohreh Aghdashloo [Shohreh Vaziri-Tabar], Iranian actress (House of Sand and Fog, The Stoning of Soraya M.), born in Tehran, Iran 1954-01-28 Anicée Alvina [Shahmanesh], Iranian-French actress (Friends; Paul and Michelle), born in Boulogne-Billancourt, France (d. 2006) 1954-04-03 Rakhshan Bani-Etemad, Iranian screenwriter and director (Under the Skin of the City, Tales), born in Tehran, Iran 1954-06-25 Daryush Shokof, Iranian filmmaker (Hitler's Grave), born in Tehran, Iran 1954-09-29 Masoud Pezeshkian, Iranian cardiac surgeon and politician, President of Iran (2024-), born in Mahabad, Iran 1955-04-25 Parviz Parastui, Iranian actor (The Glass Agency), born in Kabudrahang, Hamadan Province, Iran 1956-10-28 Mahmoud Ahmadinejad, Iranian politician (President of Iran, 2005-13), born in Aradan, Iran 1957-03-11 Qasem Soleimani, Iranian major general of the Quds Force of the Islamic Revolutionary Guard Corps, born in Kerman, Iran (d. 2020) 1960-01-08 Mohammed Javad Zarif, Iranian politician and diplomat (Minister of Foreign Affairs, 2013-21), born in Tehran, Iran 1960-07-11 Jafar Panahi, Iranian film director (The Circle; It was an Accident), born in Mīāneh, Iran 1960-12-14 Ebrahim Raisi, Iranian jurist and President of Iran (2021-24), born in Mashhad, Iran (d. 2024) 1961-11-11 Matt Ghaffari, Iranian-American greco-roman wrestler (Olympic silver 1992, 96), born in Tehran, Iran 1963-02-23 Reza Abdoh, Iranian born American theater director and playwright, born in Tehran, Iran (d. 1995) 1963-05-28 Houman Younessi, Iranian scientist known for his contributions to informatics, computer science, and functional genomics, born in Tehran, Iran (d. 2016) 1963-05-30 Nasrin Sotoudeh, Iranian human rights lawyer, born in Langarud, Iran 1964-12-30 Karim Bavi, Iranian soccer striker (23 caps; Shahin FC, Persepolis FC), born in Khorramshahr, Iran (d. 2022) 1965-09-30 Omid Djalili, British stand-up comedian, actor of Iranian heritage, born in Chelsea, London 1967-06-21 Pierre Omidyar, Iranian-American billionaire (founded eBay), born in Paris, France 1968-11-23 Hamid Hassani, Iranian scholar and lexicographer, born in Saqqez, Iran 1969-03-21 Ali Daei, Iranian soccer striker (148 caps; Bayern Munich, Hertha BSC), born in Ardabil, Iran 1969-09-08 Mojtaba Khamenei, Iranian Shia cleric and politician (3rd Supreme Leader of Iran, 2026-), born in Mashhad, Iran 1969-11-22 Marjane Satrapi, Iranian-French graphic novelist known for \"Persepolis\", born in Rasht, Iran (d. 2026) 1970-01-03 Mahaya Petrosian, Iranian actress (What's Up, Yek rooz e ghashang e barfi), born in Tehran, Iran 1970-05-05 Soheil Ayari, French-Iranian racer, born in Aix-les-Bains, Savoie, France 1970-07-31 Ahmad Akbarpour, Iranian writer (The Train of That Night), born in Chah Varz, Lamerd, Iran 1971-03-26 Behzad Ghorbani, Iranian biologist, psychologist, and founder of Recursive Realism (Emotions and Exposure, Recursive Mind), born in Tehran, Iran 1972-01-13 Atoosa Rubenstein, Iranian-born American magazine editor (Seventeen), born in Tehran, Iran 1972-04-21 Narges Mohammadi, Iranian imprisoned civil rights activist (2023 Nobel Peace Prize), born in Zanjan, Iran 1972-05-07 Asghar Farhadi, Iranian film director (The Salesman, A Separation), born in Khomeyni Shahr, Iran 1972-07-31 Tami Stronach, Iranian actress (Neverending Story), born in Tehran, Iran 1972-11-20 Sheema Kalbasi, Iranian-American poet and writer (Echoes in Exile; The Passenger), born in Tehran, Iran 1973-06-07 Shaparak Khorsandi, Iranian-English comedian (It Was the 90s) and author (Nina is Not OK), born in Tehran, Iran 1973-08-12 Sayyed Muqtada al-Sadr, Iranian Shia cleric, son of Ayatollah Mohammad al-Sadr, born in Najaf, Iran 1974-07-19 Ramin Djawadi, Iranian-German Emmy Award-winning film and television composer (Iron Man; Game of Thrones; A Wrinkle in Time), born in Duisburg, West Germany 1974-09-08 Tanaz Eshaghian, Iranian-American documentary filmmaker (Be Like Others), born in Iran 1975-01-15 Shahab Tolouie, Iranian Persian-Falmenco fusion guitarist, composer, and singer, born in Shahsavar, Mazandaran Province, Iran 1975-07-06 Amir-Abbas Fakhravar, Iranian journalist and activist (Annie Taylor Award), born in Tehran, Iran 1975-11-30 Mehrdad Minavand, Iranian soccer midfielder (67 caps; Persepolis, Sturm Graz), born in Tehran, Iran (d. 2021) 1975-12-25 Pardis Sabeti, Iranian-American biologist and geneticist, born",
+     "fetchedAt": "2026-09-06T17:28:30.968Z",
+     "heldChars": 12000,
+     "truncated": true,
+     "wordCount": 2127,
+     "totalChars": 15373,
+     "entityNames": [],
+     "schemaTypes": [],
+     "openingSample": null,
+     "metaDescription": "List of the most famous Iranians in history, with famous, important and notable Iranians hand-picked by our team of editors and ranked by popularity.",
+     "externalLinkCount": 3,
+     "internalLinkCount": 208
+    },
+    "appearances": [
+     {
+      "kind": "serp_organic",
+      "rank": 3,
+      "query": "famous iranians",
+      "engine": null,
+      "citedUrl": "https://www.onthisday.com/people/nationality/iranian",
+      "promptId": null,
+      "observedAt": "2026-09-05T08:02:52.809Z",
+      "promptText": null,
+      "modelServed": null,
+      "observationMode": null
+     }
+    ],
+    "readOutcome": null,
+    "examplePrompts": []
+   }
+  ]
+ }
+}

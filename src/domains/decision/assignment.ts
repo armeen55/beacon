@@ -1,12 +1,8 @@
 import "server-only";
-/** decision/assignment - THE ONE OBJECT A BODY EDIT IS WRITTEN, JUDGED, PROMOTED AND RE-READ FROM, lifted whole out of the
- *  editor file (campaign, 2026-09-05) so the envelope every door reads has one home and the editor keeps its ceiling. Nothing
- *  here calls a model, reads a store or knows a tenant: an assignment is derived from the packet the pass already built.
- *
- *  THE EIGHT THINGS IT CARRIES, and it carries nothing else: the reader's task (the intent group's own phrasings), the
- *  diagnosed gap as propositions, the treatment, the owned passage and the placement it lands at, the competitor
- *  observations with their quotes and publisher classes, the checked facts a claim may cite, the owned material that stays,
- *  and the improvement to deliver in one sentence. */
+/** decision/assignment - THE ONE OBJECT A BODY EDIT IS WRITTEN, JUDGED, PROMOTED AND RE-READ FROM, lifted whole out of the editor file (campaign, 2026-09-05) so the envelope
+ *  every door reads has one home and the editor keeps its ceiling. Nothing here calls a model, reads a store or knows a tenant: an assignment is derived from the packet the pass already built.
+ *  THE EIGHT THINGS IT CARRIES, and it carries nothing else: the reader's task (the intent group's own phrasings), the diagnosed gap as propositions, the treatment, the owned passage and the
+ *  placement it lands at, the competitor observations with their quotes and publisher classes, the checked facts a claim may cite, the owned material that stays, and the improvement to deliver in one sentence. */
 import { FURNITURE_LABEL, topicTokens } from "@/domains/evidence/relevance-gate";
 import { EDITOR_SHARED, type EditorField, type SourcePacket } from "./drafted-copy";
 import { editorialStandard } from "./proof";
@@ -14,8 +10,6 @@ import type { ChangeProposal } from "./contracts";
 /** THE DIAGNOSIS IS THE WHOLE ASSIGNMENT AND THE PAGE IS ITS BOUNDARY (operator, 2026-09-01). Handed one line of diagnosis and twelve lines of the page's own words, told to "refine the target the team agreed" (its own previous failed draft) and given a shape derived from the QUERY ("phrases" reads as examples: list them), the writer did the only thing that packet asked for and listed the page's phrases four times running. Nothing was wrong with the writer. One typed envelope now says what must be added, what may only be looked at, and what a reader must know afterwards, and the reviewer reads the same envelope. Universal: a habitat gap, a history, a usage rule or a missing answer all fill the same nine fields. */
 /** THE ENVELOPE IS THE CONTRACT'S OWN FIELD, so the writer, the evaluator, the promotion door and the banked re-read cannot drift into three shapes of the same idea: one type, stored on the row, re-read rather than re-derived. */ export type Assignment = NonNullable<ChangeProposal["assignment"]>;
 /** WHAT A SUMMARY FIELD OWES, AS THE ENGINE ACTUALLY RENDERS IT. Google truncates a title link at roughly 600 pixels and a description at roughly 920 on a desktop result and 680 on a phone, and it prefers whatever description best answers the search, rewriting a title it judges poor: so the budget is stated as the WIDTH that gets read, with the character shape that width buys at ordinary letter widths, rather than as a count nobody measured. Live on this account, 116 of 224 descriptions run past that shape and 51 sit under 120 characters, and the rival median for these searches is 159. */ export const WIDTH: Readonly<Record<string, { px: number; chars: number }>> = { title: { px: 600, chars: 60 }, meta: { px: 920, chars: 155 }, h1: { px: 920, chars: 70 } };
-/** A PAGE'S OWN SCRIPT IS NOT A LANGUAGE LESSON (campaign review, 2026-09-05). This fired on one Unicode block and told the writer to "write every Persian word in Persian script", which named a language the page never declared, called Arabic, Urdu and Pashto text Persian, and reached a model prompt as a fact about the account. What is actually true of any page, in any language, is the RULE: a page that writes some of its words in a script other than the Latin alphabet keeps writing them that way, and a page that also romanizes them has already chosen a spelling. No language is named, and none is inferred. */
-const NON_LATIN_LETTER = /(?!\p{Script=Latin})\p{L}/u;
 /** ONE NORMALIZED ASSIGNMENT PER ROW (operator, 2026-09-02): the page, the treatment, the typed gap and its propositions, the intent cluster, the evidence a claim may name, the propositions no fact supports and which therefore may not be stated at all, what stays untouched, the rival pages, the briefing lines no claim may ever cite, the output shape, the opening the treatment owes, and whatever the row still owes from its last attempt. Built once where the copy is written and stored on the row, so the writer, the reviewer, the promotion door and the replay read one object instead of four reconstructions of it. */
 export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; heading?: string | null } | null, field: EditorField, owed: string | null = null): Assignment | null => {
   const props = packet.gap?.propositions ?? [];
@@ -46,7 +40,7 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
   const ownWords = new Set(topicTokens([packet.bodyText, packet.headings.join(" "), packet.title ?? "", packet.h1 ?? ""].join(" ")));
   const supported = (t: string): boolean => {
     if (backed(t)) return true;
-    if (standard !== "summary" && standard !== "restructuring") return false;
+    if (standard !== "summary" && standard !== "restructuring" && standard !== "repositioning") return false;
     const w = topicTokens(t);
     return w.length > 0 && w.filter((x) => ownWords.has(x)).length * 2 >= w.length;
   };
@@ -65,6 +59,8 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     forbidden: props.filter((t) => !supported(t)),
     rivals, briefing, ...(owed ? { owed } : {}),
   };
+  /* WHAT THIS COPY MAY ACTUALLY DELIVER, AND THE COMPLETION TEST NAMES NOTHING ELSE (campaign, 2026-09-06). The envelope printed every diagnosed proposition under WHAT A READER MUST KNOW AFTERWARDS and under the completion test, and printed the unsupported ones again under NAMED BUT UNSUPPORTED, so on the captured hub row one sentence was both the thing a reader had to learn and the thing that "may not be stated at all". An unavailable fact blocks its own claim and nothing else: the deliverable set is what a checked fact, or the page's own words where the standard makes them the material, actually carries, and where none of it is deliverable the job is still the reader's task answered from what is on file. */
+  const deliver = props.filter(supported);
   const w = WIDTH[field];
   const seen = packet.serpLead ? `, leading with "${packet.serpLead}" where that reads naturally, because the titles a searcher already sees for this search name the subject that way: it is vocabulary and intent, never a template your sentence must copy, and an entity-first opening that answers the search is welcome` : "";
   // A SUMMARY IS NOT A SECTION (Google's snippet guidance; operator, 2026-09-02). The body envelope was attached to every kind, so a description was told to place new copy after an existing heading and the reviewer marked it against a placement it can never have.
@@ -83,7 +79,6 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
   /* EVERY BODY ROW CARRIES ITS ASSIGNMENT (reviewer, 2026-09-02): returning null where the packet held no checked fact left the card with no opening, no completion test and no forbidden list, so the evaluator marked it against nothing and the stored research row said nothing about what it was for. With no fact on file every proposition is unsupported by construction, which `backed` above already reports, and the envelope says so out loud. */
   const lead = (packet.checkedSentences ?? []).map((t) => t.trim()).filter(Boolean);
   /* THE SENTENCE COMES FROM THE PACKET, NOT OUT OF ITS OWN PROSE (measured, 2026-09-05): this read `evidence[id].split(" \u2014 ")[0]`, and the em dash that separator names left the evidence string on 2026-09-04, so the split returned the WHOLE entry and every body row drafted since was ordered to lead with source addresses, quotations and a confidence rating. The packet now carries the readings' own sentences under the same fact ordering. */
-  const script = NON_LATIN_LETTER.test(packet.bodyText) ? " Some words on this page are written in a script other than the Latin alphabet: write those words in the script the page writes them in, and where a word is also romanized, spell the romanization the way this page already spells it rather than in a scholar's notation." : "";
   /* THE SMALLEST COMPLETE TREATMENT, DERIVED FROM THE PAGE AND THE GAP (operator, 2026-09-02): a page with no prose at all cannot take an inline sentence, a page whose own passage already carries every backed proposition takes NOTHING, and one missing fact inside a real passage takes one sentence rather than a headed block. Never a universal word count, never the query shape alone, never a special case for a page. */
   const passages = ids.filter((id) => /^page-copy-/.test(id)).map((id) => packet.evidence[id] ?? "");
   const qStems = new Set(topicTokens(packet.trackedQuestion ?? ""));
@@ -146,31 +141,36 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
       : shape === "inline_addition" ? "one or two sentences that land inside the page's existing prose with NO heading of their own: lead with the missing information, repeat no background to add length, and stop once the gap is answered"
       : "one to three sentences a reader could lift whole, with NO heading of their own: lead with the missing information, never summarise the page, and stop once the gap is answered",
     mustLeadWith: (lead.length > 0 ? `${lead.join("; ")} (in plain words, naming the subject the way this page names it and never the way the search phrases it, then say with whom or when only if a cited fact says so).`
-      : "the one thing a reader gains here, in plain words. Nothing checked is on file behind this gap, so state only what the page's own words carry and say what is still owed in your limitations.") + `${script} No line may restate another line.`,
-    mayReuse: "one or two of the page's own entries that contain the form you explain, named exactly as the page writes them, as examples of the rule",
-    mustPreserve: `every existing heading, entry, meaning, link, product, image and call to action, and every passage carrying a search this page earns clicks on: nothing on the page is deleted or rewritten${(packet.reading?.sells ?? []).length > 0 ? `. This page sells, and these are the things it sells and the actions it asks for, every one of which must still be there afterwards: ${packet.reading!.sells.join("; ")}` : ""}`,
-    mustNotRepeat: "the page's own entries, meanings, headings and examples: a reader is already looking at them, and copy that restates them is refused however well it reads",
+      : "the answer itself, in sentences of your own. Nothing checked is on file behind this gap, so the only ground you have is what this page's own passages and the winners' quoted words already establish about the subject: draw the answer out of them rather than restating any one of them, state no figure or claim past them, and say what is still owed in your limitations.") + " No line may restate another line.",
+    mayReuse: standard === "restructuring" || standard === "repositioning" ? "every passage, entry and figure this page already publishes: assembling what they say into one place a reader can lift IS the job of this edit, in the page's own words"
+      : "one or two of the page's own entries or figures, named exactly as the page writes them, as the example the new statement stands on",
+    mustPreserve: `every existing heading, entry, meaning, link, product, image and call to action${rewrite ? " OUTSIDE the passage named above, which this copy rewrites where it stands" : ""}, and every passage carrying a search this page earns clicks on: nothing else on the page is deleted or rewritten${(packet.reading?.sells ?? []).length > 0 ? `. This page sells, and these are the things it sells and the actions it asks for, every one of which must still be there afterwards: ${packet.reading!.sells.join("; ")}` : ""}`,
+    mustNotRepeat: rewrite ? "the page's own entries, meanings, headings and examples that STAY on the page: the passage named above is the one thing this copy carries over, and only the part of it that is true"
+      : standard === "restructuring" || standard === "repositioning" ? "how this page arranges its material: name the things a reader asked for, never the headings, sections, lists or categories they sit in"
+      : "the page's own entries, meanings, headings and examples: a reader is already looking at them, and copy that restates them is refused however well it reads",
     placement: shape === "exact_replacement" ? "replacement" as const : "additive" as const,
-    completionTest: `after reading it, a reader knows this and could not have learned it from the page before: ${props.join("; ") || gap}`,
+    completionTest: `a reader who came for "${base.intent[0] ?? gap}" can finish that task on this copy alone and could not have on the page before: ${deliver.join("; ") || "the smallest complete answer this page's own passages and the checked facts on file can give it"}. How this page is arranged is never that answer.`,
   };
 };
+/* ONE ANSWER TO "IS THE PAGE'S OWN COPY THE MATERIAL", READ BY EVERY LINE THAT ASKS IT (campaign, 2026-09-06). The head line answered it by standard and the PAGE CONTEXT line answered "never material for the new copy" universally, so a restructuring, whose whole job is to assemble what the page already says, was handed both sentences in one envelope. */
+const worksFromThePage = (a: Assignment): boolean => a.standard !== "missing_answer" && a.standard !== "correction";
 export const assignmentLines = (a: Assignment): string[] => [
-  `THE ASSIGNMENT. Every id below is context for it${a.standard === "missing_answer" || a.standard === "correction" ? ", and the page's own words are never the subject of the new copy" : ", and the page's own words are the material this edit works from"}.`,
+  `THE ASSIGNMENT. Every id below is context for it${worksFromThePage(a) ? ", and the page's own words are the material this edit works from" : ", and the page's own words are never the subject of the new copy"}.`,
   `THE PAGE: ${a.page}`,
   `THE TREATMENT: ${a.treatment}`,
   `THE STANDARD THIS WORK IS JUDGED BY, and the only editorial rule that applies to it: ${STANDARDS[a.standard ?? "missing_answer"]}`,
-  `DIAGNOSED GAP (${a.gapKind}), which is the whole assignment: ${a.diagnosedGap}`,
-  `WHAT A READER MUST KNOW AFTERWARDS: ${a.propositions.join("; ") || a.diagnosedGap}`,
+  `DIAGNOSED GAP (${a.gapKind}), which is the whole assignment: ${a.diagnosedGap}${/[.!?]$/.test(a.diagnosedGap.trim()) ? "" : "."}${a.gapKind === "incomplete_answer" ? " That gap is a READING OF THE PAGES ALREADY WINNING THIS SEARCH, so it is a hypothesis about what this page could carry (a section, an arrangement, an answer a reader can lift) and never a fact of its own: state a new fact only where a supporting fact below carries it, otherwise cover the subject from what is on file and say in your limitations what a source still owes." : ""}`,
+  `WHAT A READER MUST KNOW AFTERWARDS: ${a.propositions.filter((t) => !a.forbidden.includes(t)).join("; ") || (a.intent[0] ? `the answer to "${a.intent[0]}"` : a.diagnosedGap)}`,
   `THE SEARCHES THIS COPY IS AIMED AT, as targeting and never as evidence: ${a.intent.join("; ") || "none on file"}`,
   `OPEN LIKE THIS: ${a.opening}`,
   `OUTPUT FORMAT: ${a.format}`,
   `MUST LEAD WITH, in your first sentence, in plain public English: ${a.mustLeadWith}`,
   `SUPPORTING FACTS you may state and must cite: ${(a.facts ?? (a.supportingFacts ?? []).map((id) => ({ id, says: "" }))).map((f) => (f.says ? `${f.id} says ${f.says}` : f.id)).join("; ") || "none"}`,
-  `PAGE CONTEXT, for tone, placement, what to preserve and what not to repeat, never material for the new copy: ${a.pageContext.join(", ") || "none"}`,
+  `PAGE CONTEXT, for tone, placement, what to preserve and what not to repeat${worksFromThePage(a) ? ", and it is the material this edit works from" : ", never material for the new copy"}: ${a.pageContext.join(", ") || "none"}`,
   ...(a.pageMissing ? [`WHAT A READING OF THIS PAGE SAYS A READER STILL CANNOT GET HERE, which is the shortfall your copy has to close rather than the search string: ${a.pageMissing}`] : []),
   ...((a.sells ?? []).length > 0 ? [`WHAT THIS PAGE SELLS AND ASKS FOR, which your copy must leave standing and may lead a reader towards but never replaces: ${a.sells!.join("; ")}`] : []),
-  ...(a.forbidden.length > 0 ? [`NAMED BUT UNSUPPORTED, so it may not be stated at all: ${a.forbidden.join("; ")}`] : []),
-  ...(a.rivals.length > 0 ? [`THE PAGES THAT ALREADY WIN THIS SEARCH (${a.rivals.join(", ")}), read for what they carry and this page does not, as shape and subject choice only: ${[...new Set((a.observations ?? []).map((o) => `${o.publisher}, ${LABELLED_CLASS[o.publisherClass] ?? o.publisherClass}`))].join("; ") || "read but naming nothing this page lacks"}`] : []),
+  ...(a.forbidden.length > 0 ? [`NAMED BY THE DIAGNOSIS AND CARRIED BY NOTHING CHECKED, so it is a subject to cover from what IS on file and never a statement of your own: ${a.forbidden.join("; ")}`] : []),
+  ...(a.rivals.length > 0 ? [`THE PAGES THAT ALREADY WIN THIS SEARCH (${a.rivals.join(", ")}), read for the subjects they carry and this page does not, which choose the shape and the subjects of this copy and are never a fact you may state: ${[...new Set((a.observations ?? []).map((o) => `"${o.quote}" (${o.publisher}, ${LABELLED_CLASS[o.publisherClass] ?? o.publisherClass})`))].join("; ") || "read but naming nothing this page lacks"}`] : []),
   ...(a.briefing.length > 0 ? [`WHAT THE RESULTS PAGE ITSELF ANSWERS TODAY (${a.briefing.join(", ")}), which no claim may ever cite`] : []),
   ...((a.keep ?? []).length > 0 ? [`WHAT THIS PAGE ALREADY ANSWERS AND MUST KEEP, in its own words: ${a.keep!.map((k) => `"${k}"`).join(" ")}`] : []),
   ...(a.replaces ? [`THE EXACT PASSAGE THIS COPY REPLACES, verbatim: "${a.replaces}"`] : []),

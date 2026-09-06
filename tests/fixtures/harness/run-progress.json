@@ -1,0 +1,947 @@
+{
+ "evidenceOwed": [
+  {
+   "key": "/california-persian-cities/campbell::meta",
+   "url": "example-site.test/california-persian-cities/campbell",
+   "kind": "semantic_review",
+   "rank": 83,
+   "query": "Best Persian Restaurants in Campbell",
+   "reason": "the words are written and nothing has read them against the sources they name, so that reading is owed before they are offered",
+   "unlocks": {
+    "step": "review",
+    "proposalId": "acct-fixture::/california-persian-cities/campbell::existing_edit::missing_description"
+   },
+   "workKey": "/california-persian-cities/campbell::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::773022553d5e37c6::existing_edit::meta::::ctr_snippet::best campbell in persian restaurants::review::r4::",
+   "proposalId": "acct-fixture::/california-persian-cities/campbell::existing_edit::missing_description",
+   "reasonCode": "review_owed"
+  },
+  {
+   "key": "/california-persian-cities/costa-mesa::meta",
+   "url": "example-site.test/california-persian-cities/costa-mesa",
+   "kind": "semantic_review",
+   "rank": 84,
+   "query": "Best Persian Restaurants in Costa Mesa",
+   "reason": "the words are written and nothing has read them against the sources they name, so that reading is owed before they are offered",
+   "unlocks": {
+    "step": "review",
+    "proposalId": "acct-fixture::/california-persian-cities/costa-mesa::existing_edit::missing_description"
+   },
+   "workKey": "/california-persian-cities/costa-mesa::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::bb76227877562708::existing_edit::meta::::ctr_snippet::best costa in mesa persian restaurants::review::r4::",
+   "proposalId": "acct-fixture::/california-persian-cities/costa-mesa::existing_edit::missing_description",
+   "reasonCode": "review_owed"
+  },
+  {
+   "key": "/california-persian-cities/glendale::meta",
+   "url": "example-site.test/california-persian-cities/glendale",
+   "kind": "semantic_review",
+   "rank": 86,
+   "query": "Best Persian Restaurants in Glendale",
+   "reason": "the words are written and nothing has read them against the sources they name, so that reading is owed before they are offered",
+   "unlocks": {
+    "step": "review",
+    "proposalId": "acct-fixture::/california-persian-cities/glendale::existing_edit::missing_description"
+   },
+   "workKey": "/california-persian-cities/glendale::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::1f9a41b579b2ee2f::existing_edit::meta::::ctr_snippet::best glendale in persian restaurants::review::r4::",
+   "proposalId": "acct-fixture::/california-persian-cities/glendale::existing_edit::missing_description",
+   "reasonCode": "review_owed"
+  },
+  {
+   "key": "/iran-animals::corrections",
+   "url": "example-site.test/iran-animals",
+   "kind": "factual_source",
+   "rank": 126,
+   "query": "/iran-animals factual accuracy",
+   "reason": "nothing on file says the sources it cites actually support what it claims, so it is held until Beacon's own reviewer has read them together",
+   "unlocks": {
+    "step": "review",
+    "proposalId": "acct-fixture::/iran-animals::existing_edit::fact-caspian-red-deer"
+   },
+   "workKey": "/iran-animals::corrections::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::3a1cd0825eb1e6ae::existing_edit::factual_correction::::factual_error::accuracy animals factual iran::evidence:factual_source:single_source::r4::fact-1",
+   "reasonCode": "single_source",
+   "missingTopic": "Caspian Red Deer means Caspian Red Deer, not \"Caspian Red Deer (Persian Fallow Deer)\"."
+  },
+  {
+   "key": "/iran-animals/asiatic-cheetah::title",
+   "url": "example-site.test/iran-animals/asiatic-cheetah",
+   "kind": "factual_source",
+   "rank": 1,
+   "query": "iran national animal",
+   "tried": {
+    "on": "2026-09-06",
+    "why": "fact check of example-site.test/iran-animals/asiatic-cheetah: failed, 0 banked",
+    "work": "/iran-animals/asiatic-cheetah::title::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::75b1a82923e3274f::existing_edit::title-family::::::animal iran national::evidence:factual_source:claim_unsourced::r4::page-copy-1",
+    "count": 2
+   },
+   "reason": "It states what a country's national symbol is and stands only on this page saying so, which is not a source, so it is held until one is on file.",
+   "unlocks": {
+    "step": "redraft",
+    "proposalId": "acct-fixture::/iran-animals/asiatic-cheetah::existing_edit::title_national_animal"
+   },
+   "workKey": "/iran-animals/asiatic-cheetah::title::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::75b1a82923e3274f::existing_edit::title-family::::::animal iran national::evidence:factual_source:claim_unsourced::r4::page-copy-1",
+   "reasonCode": "claim_unsourced"
+  },
+  {
+   "key": "/iran-animals/persian-cobra::meta",
+   "kind": "serp",
+   "rank": 73,
+   "query": "central asian cobra",
+   "reason": "the reading on file was made under an older review contract, so it is read again before these words are offered",
+   "unlocks": {
+    "step": "redraft",
+    "proposalId": "acct-fixture::/iran-animals/persian-cobra::existing_edit::missing_description"
+   },
+   "workKey": "/iran-animals/persian-cobra::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::c2d136ca281e76cb::existing_edit::meta::::::asian central cobra::evidence:serp:shape_unbacked::r4::page-copy-1,page-heading-3",
+   "reasonCode": "shape_unbacked"
+  },
+  {
+   "key": "/iran-flags/late-safavid-military-flag::body::and flag lion persian sun",
+   "url": "example-site.test/iran-flags/late-safavid-military-flag",
+   "kind": "factual_source",
+   "rank": 14,
+   "query": "persian lion and sun flag",
+   "tried": {
+    "on": "2026-09-06",
+    "why": "fact check of example-site.test/iran-flags/late-safavid-military-flag: advanced, 2 banked; the answer to \"This page is the Safavid era version of the Lion and Sun, from 1576 to 1732.\" is still owed, so i",
+    "work": "/iran-flags/late-safavid-military-flag::body::and flag lion persian sun::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::32b12c193a91c64e::existing_edit::links-family::::::and flag lion persian sun::evidence:factual_source:claim_unsupported::r5:sc2::fact-1,owned-page-1,page-copy-1",
+    "count": 2
+   },
+   "reason": "nothing on file says the sources it cites actually support what it claims, so it is held until Beacon's own reviewer has read them together",
+   "unlocks": {
+    "step": "redraft",
+    "proposalId": "acct-fixture::/iran-flags/late-safavid-military-flag::anchor::link-to-hub"
+   },
+   "workKey": "/iran-flags/late-safavid-military-flag::body::and flag lion persian sun::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::32b12c193a91c64e::existing_edit::links-family::::::and flag lion persian sun::evidence:factual_source:claim_unsupported::r5:sc2::fact-1,owned-page-1,page-copy-1",
+   "reasonCode": "claim_unsupported",
+   "missingTopic": "This page is the Safavid era version of the Lion and Sun, from 1576 to 1732."
+  },
+  {
+   "key": "/iran-flags/parthian-empire-flag::meta",
+   "url": "example-site.test/iran-flags/parthian-empire-flag",
+   "kind": "factual_source",
+   "rank": 124,
+   "query": "parthian empire flag",
+   "reason": "It states what a country's national symbol is and stands only on this page saying so, which is not a source, so it is held until one is on file.",
+   "unlocks": {
+    "step": "redraft",
+    "proposalId": "acct-fixture::/iran-flags/parthian-empire-flag::existing_edit::missing_description"
+   },
+   "workKey": "/iran-flags/parthian-empire-flag::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::8352cc4460bfb878::existing_edit::meta::::ctr_snippet::empire flag parthian::evidence:factual_source:claim_unsourced::r4::",
+   "reasonCode": "claim_unsourced"
+  },
+  {
+   "key": "/persian-female-first-names::corrections",
+   "url": "example-site.test/persian-female-first-names",
+   "kind": "factual_source",
+   "rank": 133,
+   "query": "/persian-female-first-names factual accuracy",
+   "reason": "nothing on file says the sources it cites actually support what it claims, so it is held until Beacon's own reviewer has read them together",
+   "unlocks": {
+    "step": "review",
+    "proposalId": "acct-fixture::/persian-female-first-names::existing_edit::fact-azadeh"
+   },
+   "workKey": "/persian-female-first-names::corrections::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::4878fd2d56da6a92::existing_edit::factual_correction::::factual_error::accuracy factual female first names persian::evidence:factual_source:single_source::r4::fact-1",
+   "reasonCode": "single_source",
+   "missingTopic": "Azadeh means free, free-minded; also noble, stated less precisely as \"Meaning:Free, independent, or liberated.\""
+  },
+  {
+   "key": "/persian-rugs/kerman-rug::meta",
+   "kind": "serp",
+   "rank": 77,
+   "query": "kerman rug",
+   "reason": "it replaces the description this page already has on demand evidence alone: demand proves the page matters, never that these words beat the current ones, so it is held until a diagnosis names what is wrong with the current description or a stored results page backs this shape",
+   "unlocks": {
+    "step": "redraft",
+    "proposalId": "acct-fixture::/persian-rugs/kerman-rug::existing_edit::art-meta-typo"
+   },
+   "workKey": "/persian-rugs/kerman-rug::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::0d38385af03d4b53::existing_edit::title-family::::::kerman rug::evidence:serp:shape_unbacked::r4::page-1",
+   "reasonCode": "shape_unbacked"
+  },
+  {
+   "key": "/persian-male-names::body::boy farsi names",
+   "kind": "serp",
+   "rank": 62,
+   "query": "farsi boy names",
+   "tried": {
+    "on": "2026-09-06",
+    "why": "results page for \"farsi boy names\": waiting",
+    "work": "/persian-male-names::body::boy farsi names::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::1d06a739aa6d73e8::existing_edit::section::::ranking_loss::boy farsi names::none::r4:sc2::",
+    "count": 1
+   },
+   "reason": "The loss is measured from this account's own Search Console history over the two windows named above; only the current window's shortfall is claimed as recoverable.",
+   "unlocks": {
+    "step": "draft",
+    "proposalId": "acct-fixture::/persian-male-names::existing_edit::demand_recovery"
+   },
+   "workKey": "/persian-male-names::body::boy farsi names::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::1d06a739aa6d73e8::existing_edit::section::::ranking_loss::boy farsi names::none::r4:sc2::",
+   "postedOn": "2026-09-06",
+   "reasonCode": "no_winner_to_read"
+  },
+  {
+   "key": "/persian-female-first-names::body::farsi girl names",
+   "kind": "serp",
+   "rank": 65,
+   "query": "farsi girl names",
+   "reason": "The loss is measured from this account's own Search Console history over the two windows named above; only the current window's shortfall is claimed as recoverable.",
+   "unlocks": {
+    "step": "draft",
+    "proposalId": "acct-fixture::/persian-female-first-names::existing_edit::demand_recovery"
+   },
+   "workKey": "/persian-female-first-names::body::farsi girl names::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::4878fd2d56da6a92::existing_edit::section::::ranking_loss::farsi girl names::none::r5:sc2::",
+   "reasonCode": "no_winner_to_read"
+  },
+  {
+   "key": "/persian-female-first-names::body::girl iranian names",
+   "kind": "competitor_page",
+   "rank": 56,
+   "query": "iranian girl names",
+   "reason": "The loss is measured from this account's own Search Console history over the two windows named above; only the current window's shortfall is claimed as recoverable.",
+   "unlocks": {
+    "step": "draft",
+    "proposalId": "acct-fixture::/persian-female-first-names::existing_edit::demand_recovery@girl iranian names"
+   },
+   "workKey": "/persian-female-first-names::body::girl iranian names::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::99b45bbbc2665b96::existing_edit::section::::ranking_loss::girl iranian names::none::r5:sc2::",
+   "reasonCode": "no_winner_to_read"
+  },
+  {
+   "key": "/iran-flags/iran-islamic-republic-flag-history::body::after and before flag iran",
+   "url": "example-site.test/iran-flags/iran-islamic-republic-flag-history",
+   "kind": "factual_source",
+   "rank": 105,
+   "query": "iran flag before and after",
+   "reason": "\"iran flag before and after\" put this page in front of 281 searches in 90 days and nothing checked on file answers it, so the source comes before the copy.",
+   "unlocks": {
+    "step": "draft",
+    "proposalId": "acct-fixture::/iran-flags/iran-islamic-republic-flag-history::existing_edit::missing_answer@after and before flag iran"
+   },
+   "workKey": "/iran-flags/iran-islamic-republic-flag-history::body::after and before flag iran::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::1a47eed612da8519::existing_edit::answer_block::add_answer_section::incomplete_coverage::after and before flag iran::evidence:factual_source:acquire_factual_source::r5:sc2::",
+   "reasonCode": "acquire_factual_source",
+   "missingTopic": "iran flag before and after"
+  },
+  {
+   "key": "/funny-farsi-phrases::body::khar kire meaning",
+   "url": "example-site.test/funny-farsi-phrases",
+   "kind": "factual_source",
+   "rank": 140,
+   "query": "kire khar meaning",
+   "reason": "\"kire khar meaning\" put this page in front of 171 searches in 90 days and nothing checked on file answers it, so the source comes before the copy.",
+   "unlocks": {
+    "step": "draft",
+    "proposalId": "acct-fixture::/funny-farsi-phrases::existing_edit::missing_answer"
+   },
+   "workKey": "/funny-farsi-phrases::body::khar kire meaning::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::8968211fb487ca71::existing_edit::answer_block::add_answer_section::incomplete_coverage::khar kire meaning::evidence:factual_source:acquire_factual_source::r4:sc2::",
+   "reasonCode": "acquire_factual_source",
+   "missingTopic": "kire khar meaning"
+  },
+  {
+   "key": "/persian-rugs/qashqai-rug::body::meaning qashqai",
+   "url": "example-site.test/persian-rugs/qashqai-rug",
+   "kind": "factual_source",
+   "rank": 128,
+   "query": "qashqai meaning",
+   "reason": "\"qashqai meaning\" put this page in front of 31 searches in 90 days and nothing checked on file answers it, so the source comes before the copy.",
+   "unlocks": {
+    "step": "draft",
+    "proposalId": "acct-fixture::/persian-rugs/qashqai-rug::existing_edit::missing_answer"
+   },
+   "workKey": "/persian-rugs/qashqai-rug::body::meaning qashqai::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::6f97342b91f7bea3::existing_edit::answer_block::add_answer_section::incomplete_coverage::meaning qashqai::evidence:factual_source:acquire_factual_source::r4:sc2::",
+   "reasonCode": "acquire_factual_source",
+   "missingTopic": "qashqai meaning"
+  }
+ ],
+ "acquisitions": [
+  {
+   "key": "/iran-flags/late-safavid-military-flag::body::and flag lion persian sun",
+   "kind": "factual_source",
+   "query": "persian lion and sun flag",
+   "detail": "the work ranked above this reading needs no reading at all, so the walk was given the box first and this is owed at its own rank on the next drive",
+   "outcome": "deferred",
+   "unlocks": {
+    "step": "redraft",
+    "proposalId": "acct-fixture::/iran-flags/late-safavid-military-flag::anchor::link-to-hub"
+   },
+   "workKey": "/iran-flags/late-safavid-military-flag::body::and flag lion persian sun::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::32b12c193a91c64e::existing_edit::links-family::::::and flag lion persian sun::evidence:factual_source:claim_unsupported::r5:sc2::fact-1,owned-page-1,page-copy-1",
+   "reasonCode": "claim_unsupported"
+  },
+  {
+   "key": "/iran-flags/late-safavid-military-flag::body::and flag lion persian sun",
+   "kind": "factual_source",
+   "query": "persian lion and sun flag",
+   "detail": "fact check of example-site.test/iran-flags/late-safavid-military-flag: advanced, 2 banked; the answer to \"This page is the Safavid era version of the Lion and Sun, from 1576 to 1732.\" is still owed, so its sources have not been read yet",
+   "outcome": "not_read",
+   "unlocks": {
+    "step": "redraft",
+    "proposalId": "acct-fixture::/iran-flags/late-safavid-military-flag::anchor::link-to-hub"
+   },
+   "workKey": "/iran-flags/late-safavid-military-flag::body::and flag lion persian sun::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::32b12c193a91c64e::existing_edit::links-family::::::and flag lion persian sun::evidence:factual_source:claim_unsupported::r5:sc2::fact-1,owned-page-1,page-copy-1",
+   "attempts": 2,
+   "reasonCode": "claim_unsupported"
+  },
+  {
+   "key": "/iran-animals/persian-cat::meta",
+   "kind": "serp",
+   "query": "iranian cat",
+   "detail": "this drive has already bought the one reading it may buy out of the ranking's order, so this is owed at its own rank on the next drive",
+   "outcome": "deferred",
+   "unlocks": {
+    "step": "redraft",
+    "proposalId": "acct-fixture::/iran-animals/persian-cat::existing_edit::missing_description"
+   },
+   "workKey": "/iran-animals/persian-cat::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::de5697db9f8f24b9::existing_edit::meta::::::cat iranian::evidence:serp:shape_unbacked::r4::page-copy-1,page-h1,page-heading-1,page-heading-2,page-heading-3,page-title",
+   "reasonCode": "shape_unbacked"
+  },
+  {
+   "key": "/iran-animals/persian-cat::meta",
+   "kind": "serp",
+   "query": "iranian cat",
+   "detail": "results page for \"iranian cat\": waiting",
+   "outcome": "not_read",
+   "unlocks": {
+    "step": "redraft",
+    "proposalId": "acct-fixture::/iran-animals/persian-cat::existing_edit::missing_description"
+   },
+   "workKey": "/iran-animals/persian-cat::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::de5697db9f8f24b9::existing_edit::meta::::::cat iranian::evidence:serp:shape_unbacked::r4::page-copy-1,page-h1,page-heading-1,page-heading-2,page-heading-3,page-title",
+   "attempts": 1,
+   "reasonCode": "shape_unbacked"
+  },
+  {
+   "key": "/persian-female-first-names::body::girl iranian names",
+   "kind": "serp",
+   "query": "iranian girl names",
+   "detail": "this drive has already bought the one reading it may buy out of the ranking's order, so this is owed at its own rank on the next drive",
+   "outcome": "deferred",
+   "workKey": "/persian-female-first-names::body::girl iranian names::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::4878fd2d56da6a92::existing_edit::section::::ranking_loss::girl iranian names::none::r5:sc2::",
+   "reasonCode": "no_winner_to_read"
+  },
+  {
+   "key": "/iran-animals/persian-cat::meta",
+   "kind": "serp",
+   "query": "iranian cat",
+   "detail": "results page for \"iranian cat\": done",
+   "outcome": "unlocked",
+   "unlocks": {
+    "step": "redraft",
+    "proposalId": "acct-fixture::/iran-animals/persian-cat::existing_edit::missing_description"
+   },
+   "workKey": "/iran-animals/persian-cat::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::de5697db9f8f24b9::existing_edit::meta::::::cat iranian::evidence:serp:shape_unbacked::r4::page-copy-1,page-h1,page-heading-1,page-heading-2,page-heading-3,page-title",
+   "reasonCode": "shape_unbacked"
+  },
+  {
+   "key": "/persian-female-first-names::body::girl iranian names",
+   "kind": "serp",
+   "query": "iranian girl names",
+   "detail": "this drive has already bought the one reading it may buy out of the ranking's order, so this is owed at its own rank on the next drive",
+   "outcome": "deferred",
+   "workKey": "/persian-female-first-names::body::girl iranian names::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::4878fd2d56da6a92::existing_edit::section::::ranking_loss::girl iranian names::none::r5:sc2::",
+   "reasonCode": "no_winner_to_read"
+  },
+  {
+   "key": "/persian-female-first-names::body::girl iranian names",
+   "kind": "serp",
+   "query": "iranian girl names",
+   "detail": "results page for \"iranian girl names\": waiting",
+   "outcome": "not_read",
+   "workKey": "/persian-female-first-names::body::girl iranian names::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::4878fd2d56da6a92::existing_edit::section::::ranking_loss::girl iranian names::none::r5:sc2::",
+   "attempts": 1,
+   "reasonCode": "no_winner_to_read"
+  },
+  {
+   "key": "/persian-male-names::body::boy farsi names",
+   "kind": "serp",
+   "query": "farsi boy names",
+   "detail": "this drive has already bought the one reading it may buy out of the ranking's order, so this is owed at its own rank on the next drive",
+   "outcome": "deferred",
+   "workKey": "/persian-male-names::body::boy farsi names::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::1d06a739aa6d73e8::existing_edit::section::::ranking_loss::boy farsi names::none::r4:sc2::",
+   "reasonCode": "no_winner_to_read"
+  },
+  {
+   "key": "/persian-female-first-names::body::girl iranian names",
+   "kind": "serp",
+   "query": "iranian girl names",
+   "detail": "results page for \"iranian girl names\": done",
+   "outcome": "unlocked",
+   "workKey": "/persian-female-first-names::body::girl iranian names::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::4878fd2d56da6a92::existing_edit::section::::ranking_loss::girl iranian names::none::r5:sc2::",
+   "reasonCode": "no_winner_to_read"
+  },
+  {
+   "key": "/persian-male-names::body::boy farsi names",
+   "kind": "serp",
+   "query": "farsi boy names",
+   "detail": "results page for \"farsi boy names\": waiting",
+   "outcome": "not_read",
+   "workKey": "/persian-male-names::body::boy farsi names::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::1d06a739aa6d73e8::existing_edit::section::::ranking_loss::boy farsi names::none::r4:sc2::",
+   "attempts": 1,
+   "reasonCode": "no_winner_to_read"
+  },
+  {
+   "key": "/persian-female-first-names::body::farsi girl names",
+   "kind": "serp",
+   "query": "farsi girl names",
+   "detail": "this drive has already bought the one reading it may buy out of the ranking's order, so this is owed at its own rank on the next drive",
+   "outcome": "deferred",
+   "workKey": "/persian-female-first-names::body::farsi girl names::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::4878fd2d56da6a92::existing_edit::section::::ranking_loss::farsi girl names::none::r5:sc2::",
+   "reasonCode": "no_winner_to_read"
+  },
+  {
+   "key": "/famous-iranians::body::famous iranians",
+   "kind": "competitor_page",
+   "query": "famous iranians",
+   "detail": "winning pages for \"famous iranians\": advanced",
+   "outcome": "unlocked",
+   "workKey": "/famous-iranians::body::famous iranians::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::f091b39478c7609f::existing_edit::section::::ranking_loss::famous iranians::redraft::r4:sc2::",
+   "reasonCode": "no_winner_to_read"
+  }
+ ],
+ "collected": {
+  "ready": 0,
+  "pending": 0
+ },
+ "waited": {
+  "turn": "ran",
+  "phase": "winning_pages",
+  "drives": 1
+ },
+ "plan": {
+  "units": [
+   "replenish_ready",
+   "refresh_sources",
+   "daily_observations",
+   "analyze_answers",
+   "consume_analyses",
+   "read_winner_pages",
+   "check_page_facts",
+   "publish_surfaces"
+  ]
+ },
+ "state": {
+  "blocker": null,
+  "nextDueAt": null,
+  "checksDone": 43,
+  "casesActive": 0,
+  "casesParked": 0,
+  "checksTotal": 140,
+  "checksAnswers": 43,
+  "winnersUnread": 0,
+  "winnersUnranked": 9,
+  "checksUnavailable": 0,
+  "checksUnsupported": 0
+ },
+ "funnel": {
+  "spendUsd": 0,
+  "cacheHits": 0,
+  "rawKeywords": 4077,
+  "answersRefused": 0,
+  "promptsChecked": 12,
+  "answersAnalyzed": 40,
+  "answersOutcomes": {
+   "settled": 40,
+   "left_owed": 24
+  },
+  "enginePairsDone": 20,
+  "answersAttempted": 64,
+  "rejectedKeywords": 150,
+  "retainedKeywords": 1400,
+  "normalizedKeywords": 4322,
+  "pageReadsAttempted": 10,
+  "enginePairsIntended": 20
+ },
+ "replenish": {
+  "day": "2026-09-06",
+  "jobs": {
+   "pattern:inv_3446de602284::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::8cbda3f9c1cc9189::::winning_pattern::::::hardest language learn to::none::r4::": {
+    "last": "evidence_banked",
+    "calls": 0,
+    "settled": true
+   },
+   "pattern:inv_3446de602284::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::8cbda3f9c1cc9189::::winning_pattern::::::hardest language learn to::none::r4::": {
+    "last": "evidence_banked",
+    "calls": 0,
+    "settled": true
+   },
+   "/persian-kabobs/barg-kabob::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::a368001d6ec9f453::existing_edit::meta::::ctr_snippet::barg kabob::none::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "pattern:inv_3446de602284::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::8cbda3f9c1cc9189::::winning_pattern::::::hardest language learn to::none::r4::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/persian-kabobs/joojeh-kabob::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::6ef160b14ea4eb8c::existing_edit::meta::::ctr_snippet::joojeh kabob::none::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/persian-kabobs/barg-kabob::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::a368001d6ec9f453::existing_edit::meta::::ctr_snippet::barg kabob::none::r4::": {
+    "last": "review_saved",
+    "calls": 2,
+    "settled": false
+   },
+   "/persian-kabobs/barg-kabob::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::a368001d6ec9f453::existing_edit::meta::::ctr_snippet::barg kabob::none::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "new_page::hardest language learn to::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::8cbda3f9c1cc9189::new_page::new_page::::::hardest language learn to::none::r4::": {
+    "last": "not_reached",
+    "calls": 1,
+    "settled": false
+   },
+   "/persian-kabobs/joojeh-kabob::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::6ef160b14ea4eb8c::existing_edit::meta::::ctr_snippet::joojeh kabob::none::r4::": {
+    "last": "retryable_blocked",
+    "calls": 2,
+    "settled": false
+   },
+   "/persian-male-names::title::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::7f767a55fd17a7d3::existing_edit::title::::ctr_snippet::iranian male names::none::r4::": {
+    "last": "retryable_blocked",
+    "calls": 1,
+    "settled": false
+   },
+   "/persian-kabobs/joojeh-kabob::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::6ef160b14ea4eb8c::existing_edit::meta::::ctr_snippet::joojeh kabob::none::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "new_page::hardest language learn to::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::8cbda3f9c1cc9189::new_page::new_page::::::hardest language learn to::none::r4::": {
+    "last": "retryable_blocked",
+    "calls": 2,
+    "settled": false
+   },
+   "new_page::hardest language learn to::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::8cbda3f9c1cc9189::new_page::new_page::::::hardest language learn to::none::r4::": {
+    "last": "provider_blocked",
+    "calls": 1,
+    "settled": false
+   },
+   "/persian-male-names::title::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::7f767a55fd17a7d3::existing_edit::title::::ctr_snippet::iranian male names::redraft#2::r4::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/iran-flags/early-safavid-dynasty-flag::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::0e453285e2057e96::existing_edit::deep_bundle::::cannibalization::flag safavid::none::r4::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/famous-iranians::body::famous iranians::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::2c9323ca691fb731::existing_edit::section::::ranking_loss::famous iranians::redraft::r4:sc2::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/iran-flags/macedonian-empire-flag::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::e0735b5c077ce094::existing_edit::meta::::ctr_snippet::empire flag macedonian::redraft::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/iran-flags/early-safavid-dynasty-flag::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::68e6b8737515c95e::existing_edit::deep_bundle::::cannibalization::flag safavid::none::r4::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/iran-flags/early-safavid-dynasty-flag::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::0e453285e2057e96::existing_edit::deep_bundle::::cannibalization::flag safavid::none::r4::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/famous-iranians::body::famous iranians::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::2c9323ca691fb731::existing_edit::section::::ranking_loss::famous iranians::redraft::r4:sc2::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/iran-flags/macedonian-empire-flag::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::e0735b5c077ce094::existing_edit::meta::::ctr_snippet::empire flag macedonian::redraft::r4::": {
+    "last": "produced",
+    "calls": 0,
+    "settled": true
+   },
+   "/famous-iranians::body::famous iranians::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::2c9323ca691fb731::existing_edit::section::::ranking_loss::famous iranians::redraft::r4:sc2::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/iran-flags/macedonian-empire-flag::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::e0735b5c077ce094::existing_edit::meta::::ctr_snippet::empire flag macedonian::redraft::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/fresno::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::b0e6c611e4de239a::existing_edit::meta::::ctr_snippet::best fresno in persian restaurants::none::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/irvine::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::71f838b2f126d3a0::existing_edit::meta::::ctr_snippet::best in irvine persian restaurants::none::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/anaheim::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::dd948728159a6aee::existing_edit::meta::::ctr_snippet::anaheim best in persian restaurants::none::r4::": {
+    "last": "retryable_blocked",
+    "calls": 1,
+    "settled": false
+   },
+   "/california-persian-cities/san-jose::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::5463a6b0832319bd::existing_edit::meta::::ctr_snippet::best in jose persian restaurants san::none::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/fremont::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::8970348f20175cac::existing_edit::meta::::ctr_snippet::best fremont in persian restaurants::redraft::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/fresno::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::b0e6c611e4de239a::existing_edit::meta::::ctr_snippet::best fresno in persian restaurants::none::r4::": {
+    "last": "review_saved",
+    "calls": 2,
+    "settled": false
+   },
+   "/california-persian-cities/irvine::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::71f838b2f126d3a0::existing_edit::meta::::ctr_snippet::best in irvine persian restaurants::none::r4::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/california-persian-cities/san-diego::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::f9057330fe617142::existing_edit::meta::::ctr_snippet::ca diego persian restaurant san::redraft#2::r4::": {
+    "last": "review_saved",
+    "calls": 1,
+    "settled": false
+   },
+   "/california-persian-cities/san-diego::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::f9057330fe617142::existing_edit::meta::::ctr_snippet::ca diego persian restaurant san::none::r4::": {
+    "last": "retryable_blocked",
+    "calls": 2,
+    "settled": false
+   },
+   "/california-persian-cities/fresno::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::b0e6c611e4de239a::existing_edit::meta::::ctr_snippet::best fresno in persian restaurants::none::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/irvine::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::71f838b2f126d3a0::existing_edit::meta::::ctr_snippet::best in irvine persian restaurants::none::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/san-mateo::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::f9cd6ab9b0e8c2bc::existing_edit::meta::::ctr_snippet::best in mateo persian restaurants san::none::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/anaheim::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::dd948728159a6aee::existing_edit::meta::::ctr_snippet::anaheim best in persian restaurants::none::r4::": {
+    "last": "review_saved",
+    "calls": 2,
+    "settled": false
+   },
+   "/california-persian-cities/anaheim::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::dd948728159a6aee::existing_edit::meta::::ctr_snippet::anaheim best in persian restaurants::none::r4::": {
+    "last": "retryable_blocked",
+    "calls": 1,
+    "settled": false
+   },
+   "/california-persian-cities/long-beach::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::ff83bf987b352a0d::existing_edit::meta::::ctr_snippet::beach best in long persian restaurants::none::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/berkeley::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::75faaba0d01ab8ff::existing_edit::meta::::ctr_snippet::berkeley best in persian restaurants::redraft#2::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/palo-alto::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::a2ce4544c91b6739::existing_edit::meta::::ctr_snippet::alto best in palo persian restaurants::redraft::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/san-jose::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::5463a6b0832319bd::existing_edit::meta::::ctr_snippet::best in jose persian restaurants san::none::r4::": {
+    "last": "review_saved",
+    "calls": 2,
+    "settled": false
+   },
+   "/california-persian-cities/sunnyvale::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::fbbe6269b4fb36e2::existing_edit::meta::::ctr_snippet::best in persian restaurants sunnyvale::redraft::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/fremont::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::8970348f20175cac::existing_edit::meta::::ctr_snippet::best fremont in persian restaurants::redraft::r4::": {
+    "last": "retryable_blocked",
+    "calls": 2,
+    "settled": false
+   },
+   "/california-persian-cities/san-jose::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::5463a6b0832319bd::existing_edit::meta::::ctr_snippet::best in jose persian restaurants san::none::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/fremont::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::8970348f20175cac::existing_edit::meta::::ctr_snippet::best fremont in persian restaurants::redraft::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/palo-alto::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::a2ce4544c91b6739::existing_edit::meta::::ctr_snippet::alto best in palo persian restaurants::none::r4::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/california-persian-cities/san-diego::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::f9057330fe617142::existing_edit::meta::::ctr_snippet::ca diego persian restaurant san::redraft#2::r4::": {
+    "last": "not_reached",
+    "calls": 1,
+    "settled": false
+   },
+   "/california-persian-cities/san-mateo::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::f9cd6ab9b0e8c2bc::existing_edit::meta::::ctr_snippet::best in mateo persian restaurants san::none::r4::": {
+    "last": "review_saved",
+    "calls": 2,
+    "settled": false
+   },
+   "/persian-female-first-names::body::girl iranian names::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::dd12bcf0000e3bf0::existing_edit::section::::ranking_loss::girl iranian names::none::r5:sc2::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/california-persian-cities/san-mateo::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::f9cd6ab9b0e8c2bc::existing_edit::meta::::ctr_snippet::best in mateo persian restaurants san::none::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/long-beach::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::ff83bf987b352a0d::existing_edit::meta::::ctr_snippet::beach best in long persian restaurants::none::r4::": {
+    "last": "retryable_blocked",
+    "calls": 2,
+    "settled": false
+   },
+   "/california-persian-cities/sacramento::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::f54c16f91577abd1::existing_edit::meta::::ctr_snippet::best in persian restaurants sacramento::redraft#2::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/sacramento::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::f54c16f91577abd1::existing_edit::meta::::ctr_snippet::best in persian restaurants sacramento::none::r4::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/california-persian-cities/berkeley::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::75faaba0d01ab8ff::existing_edit::meta::::ctr_snippet::berkeley best in persian restaurants::redraft#2::r4::": {
+    "last": "review_saved",
+    "calls": 2,
+    "settled": false
+   },
+   "/california-persian-cities/long-beach::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::ff83bf987b352a0d::existing_edit::meta::::ctr_snippet::beach best in long persian restaurants::none::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/palo-alto::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::a2ce4544c91b6739::existing_edit::meta::::ctr_snippet::alto best in palo persian restaurants::redraft::r4::": {
+    "last": "review_saved",
+    "calls": 1,
+    "settled": false
+   },
+   "/california-persian-cities/san-francisco::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::2a088bf73a814eae::existing_edit::meta::::ctr_snippet::best francisco in persian restaurants san::none::r4::": {
+    "last": "review_saved",
+    "calls": 1,
+    "settled": false
+   },
+   "/california-persian-cities/sunnyvale::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::fbbe6269b4fb36e2::existing_edit::meta::::ctr_snippet::best in persian restaurants sunnyvale::redraft::r4::": {
+    "last": "review_saved",
+    "calls": 2,
+    "settled": false
+   },
+   "/california-persian-cities/berkeley::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::75faaba0d01ab8ff::existing_edit::meta::::ctr_snippet::berkeley best in persian restaurants::redraft#2::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/palo-alto::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::a2ce4544c91b6739::existing_edit::meta::::ctr_snippet::alto best in palo persian restaurants::redraft::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/sunnyvale::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::fbbe6269b4fb36e2::existing_edit::meta::::ctr_snippet::best in persian restaurants sunnyvale::redraft::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/walnut-creek::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::67ef7903c6c7a22f::existing_edit::meta::::ctr_snippet::best creek in persian restaurants walnut::redraft::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/palo-alto::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::a2ce4544c91b6739::existing_edit::meta::::ctr_snippet::alto best in palo persian restaurants::redraft#2::r4::": {
+    "last": "review_saved",
+    "calls": 1,
+    "settled": false
+   },
+   "/california-persian-cities/sunnyvale::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::fbbe6269b4fb36e2::existing_edit::meta::::ctr_snippet::best in persian restaurants sunnyvale::redraft#2::r4::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/california-persian-cities/santa-monica::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::a3831b94958f7e96::existing_edit::meta::::ctr_snippet::best in monica persian restaurants santa::redraft#2::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/sacramento::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::f54c16f91577abd1::existing_edit::meta::::ctr_snippet::best in persian restaurants sacramento::redraft#2::r4::": {
+    "last": "review_saved",
+    "calls": 1,
+    "settled": false
+   },
+   "/california-persian-cities/beverly-hills::meta::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::5c58dc8baf0691da::existing_edit::meta::::ctr_snippet::best beverly hills in persian restaurants::redraft#2::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/beverly-hills::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::5c58dc8baf0691da::existing_edit::meta::::ctr_snippet::best beverly hills in persian restaurants::none::r4::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/california-persian-cities/sacramento::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::f54c16f91577abd1::existing_edit::meta::::ctr_snippet::best in persian restaurants sacramento::redraft#2::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/san-francisco::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::2a088bf73a814eae::existing_edit::meta::::ctr_snippet::best francisco in persian restaurants san::none::r4::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/california-persian-cities/walnut-creek::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::67ef7903c6c7a22f::existing_edit::meta::::ctr_snippet::best creek in persian restaurants walnut::redraft::r4::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/california-persian-cities/walnut-creek::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::67ef7903c6c7a22f::existing_edit::meta::::ctr_snippet::best creek in persian restaurants walnut::redraft::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/persian-male-names::corrections::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::1d06a739aa6d73e8::existing_edit::factual_correction::::factual_error::accuracy factual male names persian::none::r4::fact-1": {
+    "last": "produced",
+    "calls": 0,
+    "settled": true
+   },
+   "/california-persian-cities/santa-monica::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::a3831b94958f7e96::existing_edit::meta::::ctr_snippet::best in monica persian restaurants santa::redraft#2::r4::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/california-persian-cities/santa-monica::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::a3831b94958f7e96::existing_edit::meta::::ctr_snippet::best in monica persian restaurants santa::redraft#2::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/beverly-hills::meta::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::5c58dc8baf0691da::existing_edit::meta::::ctr_snippet::best beverly hills in persian restaurants::redraft#2::r4::": {
+    "last": "review_saved",
+    "calls": 1,
+    "settled": false
+   },
+   "/iran-timeline::link::/iran-flags/parthian-empire-flag::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::8b29d3e6e8db3f60::existing_edit::section::::internal_link_weakness::empire flag parthian::redraft#2::r5:sc2::": {
+    "last": "retryable_blocked",
+    "calls": 1,
+    "settled": false
+   },
+   "/iran-timeline::link::/iran-flags/parthian-empire-flag::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::8b29d3e6e8db3f60::existing_edit::section::::internal_link_weakness::empire flag parthian::none::r5:sc2::": {
+    "last": "retryable_blocked",
+    "calls": 2,
+    "settled": false
+   },
+   "/california-persian-cities/beverly-hills::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::5c58dc8baf0691da::existing_edit::meta::::ctr_snippet::best beverly hills in persian restaurants::redraft#2::r4::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/california-persian-cities/san-francisco::meta::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::2a088bf73a814eae::existing_edit::meta::::ctr_snippet::best francisco in persian restaurants san::redraft#2::r4::": {
+    "last": "review_saved",
+    "calls": 1,
+    "settled": false
+   },
+   "/iran-timeline::link::/iran-flags/parthian-empire-flag::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::8b29d3e6e8db3f60::existing_edit::section::::internal_link_weakness::empire flag parthian::redraft#2::r5:sc2::": {
+    "last": "review_saved",
+    "calls": 1,
+    "settled": false
+   },
+   "/iran-timeline::link::/iran-flags/parthian-empire-flag::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::8b29d3e6e8db3f60::existing_edit::section::::internal_link_weakness::empire flag parthian::redraft#2::r5:sc2::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/persian-female-first-names::corrections::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::4878fd2d56da6a92::existing_edit::factual_correction::::factual_error::accuracy factual female first names persian::none::r4::fact-1": {
+    "last": "produced",
+    "calls": 0,
+    "settled": true
+   },
+   "/persian-female-first-names::corrections::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::4878fd2d56da6a92::existing_edit::factual_correction::::factual_error::accuracy factual female first names persian::none::r4::fact-1": {
+    "last": "produced",
+    "calls": 0,
+    "settled": true
+   },
+   "/persian-female-first-names::corrections::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::4878fd2d56da6a92::existing_edit::factual_correction::::factual_error::accuracy factual female first names persian::none::r4::fact-1": {
+    "last": "produced",
+    "calls": 0,
+    "settled": true
+   },
+   "/iran-flags/pahlavi-iran-flag::body::before flag iran revolution::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::3ba910246ad01557::existing_edit::answer_block::add_answer_section::incomplete_coverage::before flag iran revolution::redraft::r5:sc2::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/iran-flags/pahlavi-iran-flag::body::before flag iran revolution::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::3ba910246ad01557::existing_edit::answer_block::add_answer_section::incomplete_coverage::before flag iran revolution::redraft::r5:sc2::": {
+    "last": "not_reached",
+    "calls": 1,
+    "settled": false
+   },
+   "/iran-flags/pahlavi-iran-flag::body::before flag iran revolution::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::a5352ade3aea76c0::existing_edit::answer_block::add_answer_section::incomplete_coverage::before flag iran revolution::redraft::r5:sc2::": {
+    "last": "review_saved",
+    "calls": 1,
+    "settled": false
+   },
+   "/cuisine::body::are foods most persian popular the what::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::d37c9ca0f75657a5::existing_edit::section::rewrite_existing_section::retrieved_not_cited::are foods most persian popular the what::redraft#2::r5:sc2::": {
+    "last": "not_reached",
+    "calls": 1,
+    "settled": false
+   },
+   "/iran-flags/pahlavi-iran-flag::body::before flag iran revolution::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::3ba910246ad01557::existing_edit::answer_block::add_answer_section::incomplete_coverage::before flag iran revolution::redraft::r5:sc2::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/funny-farsi-phrases::body::khar kire meaning::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::8968211fb487ca71::existing_edit::answer_block::add_answer_section::incomplete_coverage::khar kire meaning::evidence:factual_source:acquire_factual_source::r4:sc2::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/cuisine::body::are foods most persian popular the what::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::d7680331a38f3a26::existing_edit::section::rewrite_existing_section::retrieved_not_cited::are foods most persian popular the what::redraft#2::r5:sc2::": {
+    "last": "not_reached",
+    "calls": 1,
+    "settled": false
+   },
+   "/persian-rugs/qashqai-rug::body::meaning qashqai::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::6f97342b91f7bea3::existing_edit::answer_block::add_answer_section::incomplete_coverage::meaning qashqai::evidence:factual_source:acquire_factual_source::r4:sc2::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/cuisine::body::are foods most persian popular the what::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::d37c9ca0f75657a5::existing_edit::section::rewrite_existing_section::retrieved_not_cited::are foods most persian popular the what::redraft#2::r5:sc2::": {
+    "last": "not_reached",
+    "calls": 1,
+    "settled": false
+   },
+   "/funny-farsi-phrases::body::khar kire meaning::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::8968211fb487ca71::existing_edit::answer_block::add_answer_section::incomplete_coverage::khar kire meaning::evidence:factual_source:acquire_factual_source::r4:sc2::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/persian-rugs/qashqai-rug::body::meaning qashqai::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::6f97342b91f7bea3::existing_edit::answer_block::add_answer_section::incomplete_coverage::meaning qashqai::evidence:factual_source:acquire_factual_source::r4:sc2::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/iran-flags/iran-islamic-republic-flag-history::body::after and before flag iran::wc7-winners-owed::basis_7f4d409646ad3e0c::d8::1a47eed612da8519::existing_edit::answer_block::add_answer_section::incomplete_coverage::after and before flag iran::evidence:factual_source:acquire_factual_source::r5:sc2::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   },
+   "/iran-flags/iran-islamic-republic-flag-history::body::after and before flag iran::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::1a47eed612da8519::existing_edit::answer_block::add_answer_section::incomplete_coverage::after and before flag iran::evidence:factual_source:acquire_factual_source::r5:sc2::": {
+    "last": "deterministic_refusal",
+    "calls": 0,
+    "settled": true
+   },
+   "/iran-flags/iran-islamic-republic-flag-history::body::after and before flag iran::wc6-content-comparison::basis_7f4d409646ad3e0c::d8::1a47eed612da8519::existing_edit::answer_block::add_answer_section::incomplete_coverage::after and before flag iran::evidence:factual_source:acquire_factual_source::r5:sc2::": {
+    "last": "not_reached",
+    "calls": 0,
+    "settled": false
+   }
+  }
+ }
+}

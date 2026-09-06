@@ -1,0 +1,1358 @@
+[
+ {
+  "id": "acct-fixture::/famous-iranians::existing_edit::demand_recovery",
+  "tenant_id": "acct-fixture",
+  "site": "example-site.test",
+  "case_id": "",
+  "page_key": "/famous-iranians",
+  "action_family": "section-family",
+  "proposal_version": 574,
+  "basis": "basis_7f4d409646ad3e0c::d8",
+  "status": "needs_review",
+  "terminal_disposition": null,
+  "payload": {
+   "v": 1,
+   "proposal": {
+    "id": "acct-fixture::/famous-iranians::existing_edit::demand_recovery",
+    "kind": "existing_edit",
+    "basis": "basis_7f4d409646ad3e0c::d8",
+    "claims": [
+     {
+      "text": "The page groups Iranian people into eight fields.",
+      "supportedBy": [
+       "page-heading-1",
+       "page-heading-2",
+       "page-heading-3",
+       "page-heading-4",
+       "page-heading-5",
+       "page-heading-6",
+       "page-heading-7",
+       "page-heading-8"
+      ]
+     },
+     {
+      "text": "The intro names Rumi and Hafez as legendary poets.",
+      "supportedBy": [
+       "page-copy-1"
+      ]
+     },
+     {
+      "text": "The page calls out Cyrus the Great, Shohreh Aghdashloo, Asghar Farhadi, and Pierre Omidyar.",
+      "supportedBy": [
+       "page-copy-4",
+       "page-copy-5"
+      ]
+     },
+     {
+      "text": "The page frames these people as influential in Iran and worldwide.",
+      "supportedBy": [
+       "page-copy-1",
+       "page-title",
+       "page-h1"
+      ]
+     }
+    ],
+    "faults": [
+     "it points at the page instead of answering",
+     "its \"The most\" is a ranking or register judgement no cited evidence carries: say it as a claim your sources support, or leave it out"
+    ],
+    "status": "needs_review",
+    "pageUrl": "https://example-site.test/famous-iranians",
+    "publish": "manual",
+    "workKey": "/famous-iranians::body::famous iranians::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::1d8330c3defa8a8a::existing_edit::section::::ranking_loss::famous iranians::none::r4:sc2::page-copy-1,page-copy-4,page-copy-5,page-h1,page-heading-1,page-heading-2,page-heading-3,page-heading-4,page-heading-5,page-heading-6,page-heading-7,page-heading-8,page-title",
+    "evidence": {
+     "hints": [
+      "Searches for famous iranians earned this site about 27 clicks a month over 2025-05-14 to 2026-06-08 and earn about 1 now: 26 clicks a month were LOST.",
+      "The page itself slid from position 4.0 to 7.9 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line.",
+      "At today's own demand and positions, about 0 clicks over 28 days of that are supported as recoverable under the diagnosed cause; the rest depends on winning back ground and is not promised.",
+      "People search this as: \"famous iranians\", \"famous iranian\", \"most famous iranians\", \"most famous iranian\", \"list of iranians\", \"iranian famous\"",
+      "\"famous iranians\" carries 30 searches a month (informational)",
+      "The pages winning it now: en.wikipedia.org, www.ranker.com, www.onthisday.com"
+     ],
+     "query": "famous iranians",
+     "evidenceRefCount": 6
+    },
+    "pagePath": "/famous-iranians",
+    "tenantId": "acct-fixture",
+    "copyStamp": "Most Famous Iranians & Persians of All Time|Famous and Influential Iranian People|Explore the most famous Iranians and Persians in history, from poets and actors to athletes, scientists, and cultural icons worldwide.|Famous Iranian Filmmakers/Directors>Famous Iranian Poets>Famous Iranian Athletes>Famous Iranian Actors/Actresses>Famous Iranian Philosophers>Famous Iranian Singers>Famous Iranian Infl",
+    "createdAt": "2026-09-06T17:28:33.916Z",
+    "pageLabel": "/famous-iranians",
+    "riskLevel": "low",
+    "confidence": "medium",
+    "obligation": {
+     "kind": "redraft",
+     "attempt": 1,
+     "instruction": "it points at the page instead of answering"
+    },
+    "impactScore": null,
+    "limitations": [
+     "The loss is measured from this account's own Search Console history over the two windows named above; only the current window's shortfall is claimed as recoverable.",
+     "List format may feel generic if the reader wants only one name",
+     "Some examples are grouped across different sections",
+     "No checked source ids beyond page copy were provided",
+     "This answer is written off the page's own title, headings and stored copy as last read and the stored answers this card cites, so check every word of it is true of the page before you publish it.",
+     "it points at the page instead of answering",
+     "its \"The most\" is a ranking or register judgement no cited evidence carries: say it as a claim your sources support, or leave it out"
+    ],
+    "causeFinding": {
+     "cause": "ranking_loss",
+     "action": "section",
+     "falsifier": "If the page returns to its old position and the clicks do not follow, the ground was not the cause.",
+     "explanation": "Searches for famous iranians earned this site about 27 clicks a month over 2025-05-14 to 2026-06-08 and earn about 1 now: 26 clicks a month were LOST. The page itself slid from position 4.0 to 7.9 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line.",
+     "evidenceKeys": [],
+     "notConsidered": [],
+     "competingExplanations": []
+    },
+    "changeFamily": "section",
+    "primaryQuery": "famous iranians",
+    "researchOnly": false,
+    "supportFacts": [
+     {
+      "id": "page-heading-1",
+      "fact": "Famous Iranian Filmmakers/Directors"
+     },
+     {
+      "id": "page-heading-2",
+      "fact": "Famous Iranian Poets"
+     },
+     {
+      "id": "page-heading-3",
+      "fact": "Famous Iranian Athletes"
+     },
+     {
+      "id": "page-heading-4",
+      "fact": "Famous Iranian Actors/Actresses"
+     },
+     {
+      "id": "page-heading-5",
+      "fact": "Famous Iranian Philosophers"
+     },
+     {
+      "id": "page-heading-6",
+      "fact": "Famous Iranian Singers"
+     },
+     {
+      "id": "page-heading-7",
+      "fact": "Famous Iranian Influencers"
+     },
+     {
+      "id": "page-heading-8",
+      "fact": "Famous Iranian Painters"
+     },
+     {
+      "id": "page-copy-1",
+      "fact": "top of pageFamous and Influential Iranian PeopleDiscover the most famous Iranians and Persians throughout history and today. From legendary poets like Rumi and Hafez, to global celebrities in film, sports, and fashion, Iranians have made an impact both in Iran and worldwide. This page is your guide to the most influential Persian people, with links to detailed categories like actors, athletes, filmmakers, and more.Famous Iranian Filmmakers/DirectorsLearn about the most famous Iranian filmmakers, including directors of critically acclaimed films like A Separation. Explore the award-winning works of these visionary directors and the impact of Iranian cinema on the global stage.ListFamous Iranian PoetsDiscover the timeless works of Persian poets like Rumi and Hafez. Read about their most famous poems and how their words have continued to influence Persian literature and poetry around the world.ListFamous Iranian Athletes​Meet the best Iranian soccer players and Olympians who have"
+     },
+     {
+      "id": "page-copy-4",
+      "fact": "worldwide. Other global names include Shohreh Aghdashloo, known for her Hollywood roles, and Asghar Farhadi, whose films have won Academy Awards—each contributing to Iran’s presence in international culture.Who is the most famous Iranian in history?Historically, Cyrus the Great is widely regarded as the most famous Iranian in world history, founder of the Achaemenid Empire, known for his policies of tolerance and early human rights principles. His legacy continues to influence Iranian identity and global historical narratives about Persia.Who is the most successful Iranian ever?One of the most successful Iranians is Pierre Omidyar, the founder of eBay, whose net worth has exceeded $10 billion. His entrepreneurial success, global impact, and philanthropic work make him a leading example of Iranian success in the tech and business world. Also highly successful are Dara Khosrowshahi (CEO of Uber) and Ali & Hadi Partovi (co-founders/investors in tech ventures like Dropbox, Code.org). These"
+     },
+     {
+      "id": "page-copy-5",
+      "fact": "individuals demonstrate success in tech, investment, and global business.Who is the richest Iranian ever?The richest Iranian ever is generally recognized to be Pierre Omidyar, with a net worth around $10.4 billion, born to Iranian parents. He tops most published lists of individuals of Iranian descent in terms of wealth.Looking for more? Dive into our pages on the Persian cuisine, Persian Names, or the visual timeline of Iran to explore Iran's rich heritage beyond its famous people.Shop Persian Shirts/Hoodies Explore MoreTop Iranian CitiesHomeIran Historybottom of page"
+     },
+     {
+      "id": "page-title",
+      "fact": "Most Famous Iranians & Persians of All Time"
+     },
+     {
+      "id": "page-h1",
+      "fact": "Famous and Influential Iranian People"
+     }
+    ],
+    "whyItMatters": "Searches for famous iranians earned this site about 27 clicks a month over 2025-05-14 to 2026-06-08 and earn about 1 now: 26 clicks a month were LOST. The page itself slid from position 4.0 to 7.9 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line.",
+    "operatorSteps": [
+     "Open the site editor on /famous-iranians",
+     "Find \"Famous and Influential Iranian People\" on the page",
+     "Start a new section straight after it, with the heading \"Standout Iranian names by field\"",
+     "Paste the answer above as that section's opening, exactly as written",
+     "Mark it done here and the next answers get checked against it"
+    ],
+    "winnersOnFile": "read",
+    "diagnosisCause": "ranking_loss",
+    "rankingReceipt": {
+     "basis": "No click figure backs this one, so this is the order to work in, not a promise about size. Ranked on 5 pieces of evidence and what it takes you to do.",
+     "score": 1.02,
+     "factors": [
+      {
+       "max": 0,
+       "name": "readiness",
+       "input": "its exact words are written",
+       "contribution": 0
+      },
+      {
+       "max": 120,
+       "name": "visibility",
+       "input": "shown 1,340 times in 90 days, an audience size rather than a proven recovery, counted at 85 percent because confidence is medium",
+       "contribution": 1.28
+      },
+      {
+       "max": 0.19,
+       "name": "evidence",
+       "input": "5 pieces of evidence behind it, which is how sure this is rather than how big it is",
+       "contribution": -0.05
+      },
+      {
+       "max": 0.49,
+       "name": "causeFit",
+       "input": "this change works on the ground this page has lost on a search people still run",
+       "contribution": 0
+      },
+      {
+       "max": 0.06,
+       "name": "strategic",
+       "input": "none of the questions your customers ask cover this one",
+       "contribution": -0.06
+      },
+      {
+       "max": 0.29,
+       "name": "effort",
+       "input": "about 30 minutes of your time",
+       "contribution": -0.15
+      },
+      {
+       "max": 0.41,
+       "name": "risk",
+       "input": "this one is safe to paste",
+       "contribution": 0
+      },
+      {
+       "max": 0.51,
+       "name": "overlap",
+       "input": "nothing is being measured on this page",
+       "contribution": 0
+      },
+      {
+       "max": 0.31,
+       "name": "confounding",
+       "input": "nothing else in this batch lands on the same page",
+       "contribution": 0
+      },
+      {
+       "max": 0.1,
+       "name": "history",
+       "input": "not enough finished readings of this kind of change here to judge it",
+       "contribution": 0
+      }
+     ],
+     "directional": true
+    },
+    "semanticReview": {
+     "of": "[\"acct-fixture\",\"/famous-iranians\",\"section\",[\"section\",\"A new section headed \\\"Standout Iranian names by field\\\", placed after \\\"Famous and Influential Iranian People\\\"\",\"\",\"The most famous Iranians here are organized by field: filmmakers, poets, athletes, actors, philosophers, singers, influencers, and painters. The page also calls out Rumi, Hafez, Cyrus the Great, Shohreh Aghdashloo, Asghar Farhadi, and Pierre Omidyar as standout names.\\nThese names are grouped as the page’s core examples across history, culture, film, sports, and business. Use the category links for the deeper lists tied to each group.\",\"\",\"\"],[],[[\"The page groups Iranian people into eight fields.\",[\"page-heading-1\",\"page-heading-2\",\"page-heading-3\",\"page-heading-4\",\"page-heading-5\",\"page-heading-6\",\"page-heading-7\",\"page-heading-8\"]],[\"The intro names Rumi and Hafez as legendary poets.\",[\"page-copy-1\"]],[\"The page calls out Cyrus the Great, Shohreh Aghdashloo, Asghar Farhadi, and Pierre Omidyar.\",[\"page-copy-4\",\"page-copy-5\"]],[\"The page frames these people as influential in Iran and worldwide.\",[\"page-copy-1\",\"page-h1\",\"page-title\"]]],[[\"page-copy-1\",\"top of pageFamous and Influential Iranian PeopleDiscover the most famous Iranians and Persians throughout history and today. From legendary poets like Rumi and Hafez, to global celebrities in film, sports, and fashion, Iranians have made an impact both in Iran and worldwide. This page is your guide to the most influential Persian people, with links to detailed categories like actors, athletes, filmmakers, and more.Famous Iranian Filmmakers/DirectorsLearn about the most famous Iranian filmmakers, including directors of critically acclaimed films like A Separation. Explore the award-winning works of these visionary directors and the impact of Iranian cinema on the global stage.ListFamous Iranian PoetsDiscover the timeless works of Persian poets like Rumi and Hafez. Read about their most famous poems and how their words have continued to influence Persian literature and poetry around the world.ListFamous Iranian Athletes​Meet the best Iranian soccer players and Olympians who have\"],[\"page-copy-4\",\"worldwide. Other global names include Shohreh Aghdashloo, known for her Hollywood roles, and Asghar Farhadi, whose films have won Academy Awards—each contributing to Iran’s presence in international culture.Who is the most famous Iranian in history?Historically, Cyrus the Great is widely regarded as the most famous Iranian in world history, founder of the Achaemenid Empire, known for his policies of tolerance and early human rights principles. His legacy continues to influence Iranian identity and global historical narratives about Persia.Who is the most successful Iranian ever?One of the most successful Iranians is Pierre Omidyar, the founder of eBay, whose net worth has exceeded $10 billion. His entrepreneurial success, global impact, and philanthropic work make him a leading example of Iranian success in the tech and business world. Also highly successful are Dara Khosrowshahi (CEO of Uber) and Ali & Hadi Partovi (co-founders/investors in tech ventures like Dropbox, Code.org). These\"],[\"page-copy-5\",\"individuals demonstrate success in tech, investment, and global business.Who is the richest Iranian ever?The richest Iranian ever is generally recognized to be Pierre Omidyar, with a net worth around $10.4 billion, born to Iranian parents. He tops most published lists of individuals of Iranian descent in terms of wealth.Looking for more? Dive into our pages on the Persian cuisine, Persian Names, or the visual timeline of Iran to explore Iran's rich heritage beyond its famous people.Shop Persian Shirts/Hoodies Explore MoreTop Iranian CitiesHomeIran Historybottom of page\"],[\"page-h1\",\"Famous and Influential Iranian People\"],[\"page-heading-1\",\"Famous Iranian Filmmakers/Directors\"],[\"page-heading-2\",\"Famous Iranian Poets\"],[\"page-heading-3\",\"Famous Iranian Athletes\"],[\"page-heading-4\",\"Famous Iranian Actors/Actresses\"],[\"page-heading-5\",\"Famous Iranian Philosophers\"],[\"page-heading-6\",\"Famous Iranian Singers\"],[\"page-heading-7\",\"Famous Iranian Influencers\"],[\"page-heading-8\",\"Famous Iranian Painters\"],[\"page-title\",\"Most Famous Iranians & Persians of All Time\"]]]",
+     "claims": [
+      {
+       "i": 0,
+       "by": [
+        "page-heading-1",
+        "page-heading-2",
+        "page-heading-3",
+        "page-heading-4",
+        "page-heading-5",
+        "page-heading-6",
+        "page-heading-7",
+        "page-heading-8"
+       ],
+       "entailed": true
+      },
+      {
+       "i": 1,
+       "by": [
+        "page-copy-1"
+       ],
+       "entailed": true
+      },
+      {
+       "i": 2,
+       "by": [
+        "page-copy-4",
+        "page-copy-5"
+       ],
+       "entailed": true
+      },
+      {
+       "i": 3,
+       "by": [
+        "page-copy-1",
+        "page-h1",
+        "page-title"
+       ],
+       "entailed": true
+      }
+     ],
+     "version": 4
+    },
+    "upsidePerMonth": null,
+    "informationGain": {
+     "by": [
+      "page-heading-1",
+      "page-heading-2",
+      "page-heading-3",
+      "page-heading-4",
+      "page-heading-5",
+      "page-heading-6",
+      "page-heading-7",
+      "page-heading-8",
+      "page-copy-1",
+      "page-copy-4",
+      "page-copy-5",
+      "page-title",
+      "page-h1"
+     ],
+     "adds": "It lifts the page’s scattered examples into one usable field-by-field answer block, making the key names easy to quote or scan in one place.",
+     "bodyHash": "6769dc73abccb887",
+     "pageWhole": true
+    },
+    "opportunityType": "Rebuild the ground \"famous iranians\" lost on /famous-iranians: this page's own position 4.0 to 7.9, 26 clicks a month LOST, about 0 supported as recoverable today",
+    "recommendedChange": {
+     "kind": "existing_edit",
+     "after": "The most famous Iranians here are organized by field: filmmakers, poets, athletes, actors, philosophers, singers, influencers, and painters. The page also calls out Rumi, Hafez, Cyrus the Great, Shohreh Aghdashloo, Asghar Farhadi, and Pierre Omidyar as standout names.\nThese names are grouped as the page’s core examples across history, culture, film, sports, and business. Use the category links for the deeper lists tied to each group.",
+     "field": "section",
+     "where": "A new section headed \"Standout Iranian names by field\", placed after \"Famous and Influential Iranian People\"",
+     "before": null
+    },
+    "whyRankedAboveNext": "Ranked ahead of the change for \"striped hyena\" because more is riding on it: shown 1,340 times in 90 days, an audience size rather than a proven recovery, counted at 85 percent because confidence is medium, against shown 1,466 times in 90 days, an audience size rather than a proven recovery, counted at 70 percent because confidence is low.",
+    "demandImpressions90d": 1341,
+    "estimatedEffortMinutes": 30
+   }
+  },
+  "decision_receipt": {
+   "cause": "ranking_loss",
+   "receipt": null,
+   "confidence": "medium",
+   "limitations": [
+    "The loss is measured from this account's own Search Console history over the two windows named above; only the current window's shortfall is claimed as recoverable.",
+    "List format may feel generic if the reader wants only one name",
+    "Some examples are grouped across different sections",
+    "No checked source ids beyond page copy were provided",
+    "This answer is written off the page's own title, headings and stored copy as last read and the stored answers this card cites, so check every word of it is true of the page before you publish it.",
+    "it points at the page instead of answering",
+    "its \"The most\" is a ranking or register judgement no cited evidence carries: say it as a claim your sources support, or leave it out"
+   ],
+   "why_it_matters": "Searches for famous iranians earned this site about 27 clicks a month over 2025-05-14 to 2026-06-08 and earn about 1 now: 26 clicks a month were LOST. The page itself slid from position 4.0 to 7.9 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line."
+  },
+  "ranking_receipt": {
+   "basis": "No click figure backs this one, so this is the order to work in, not a promise about size. Ranked on 6 pieces of evidence and what it takes you to do.",
+   "score": 0.98,
+   "factors": [
+    {
+     "max": 0,
+     "name": "readiness",
+     "input": "these words were faulted here, so a corrective draft is owed",
+     "contribution": 0
+    },
+    {
+     "max": 120,
+     "name": "visibility",
+     "input": "shown 1,341 times in 90 days, an audience size rather than a proven recovery, counted at 85 percent because confidence is medium",
+     "contribution": 1.28
+    },
+    {
+     "max": 0.19,
+     "name": "evidence",
+     "input": "6 pieces of evidence behind it, which is how sure this is rather than how big it is",
+     "contribution": -0.04
+    },
+    {
+     "max": 0.5,
+     "name": "causeFit",
+     "input": "this change works on the ground this page has lost on a search people still run",
+     "contribution": 0
+    },
+    {
+     "max": 0.12,
+     "name": "strategic",
+     "input": "none of the questions your customers ask cover this one, and nothing in it touches what this account said it is for",
+     "contribution": -0.12
+    },
+    {
+     "max": 0.28,
+     "name": "effort",
+     "input": "about 30 minutes of your time",
+     "contribution": -0.14
+    },
+    {
+     "max": 0.39,
+     "name": "risk",
+     "input": "this one is safe to paste",
+     "contribution": 0
+    },
+    {
+     "max": 0.49,
+     "name": "overlap",
+     "input": "nothing is being measured on this page",
+     "contribution": 0
+    },
+    {
+     "max": 0.29,
+     "name": "confounding",
+     "input": "nothing else in this batch lands on the same page",
+     "contribution": 0
+    },
+    {
+     "max": 0.1,
+     "name": "history",
+     "input": "too few readings of this kind of change have closed here to judge it",
+     "contribution": 0
+    }
+   ],
+   "directional": true
+  },
+  "superseded_by": null,
+  "created_at": "2026-08-30T02:23:02.638574+00:00",
+  "updated_at": "2026-09-06T17:29:04.529+00:00",
+  "queue_rank": 9,
+  "queue_lane": "acct-fixture:2026-09-06T17:30:15.686Z::todo",
+  "withdrawn_reason": null,
+  "mutation_key": "/famous-iranians::body::famous iranians"
+ },
+ {
+  "id": "acct-fixture::/persian-female-first-names::existing_edit::demand_recovery",
+  "tenant_id": "acct-fixture",
+  "site": "example-site.test",
+  "case_id": "",
+  "page_key": "/persian-female-first-names",
+  "action_family": "section-family",
+  "proposal_version": 1122,
+  "basis": "basis_7f4d409646ad3e0c::d8",
+  "status": "needs_review",
+  "terminal_disposition": null,
+  "payload": {
+   "v": 1,
+   "proposal": {
+    "id": "acct-fixture::/persian-female-first-names::existing_edit::demand_recovery",
+    "kind": "existing_edit",
+    "basis": "basis_7f4d409646ad3e0c::d8",
+    "status": "needs_review",
+    "pageUrl": "https://example-site.test/persian-female-first-names",
+    "publish": "manual",
+    "workKey": "/persian-female-first-names::body::farsi girl names::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::4878fd2d56da6a92::existing_edit::section::::ranking_loss::farsi girl names::none::r5:sc2::",
+    "evidence": {
+     "hints": [
+      "Searches for farsi girl names earned this site about 43 clicks a month over 2025-05-14 to 2026-06-08 and earn about 8 now: 36 clicks a month were LOST.",
+      "The page itself slid from position 3.2 to 7.4 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line.",
+      "At today's own demand and positions, about 0 clicks over 28 days of that are supported as recoverable under the diagnosed cause; the rest depends on winning back ground and is not promised.",
+      "People search this as: \"farsi girl names\", \"farsi names for girls\", \"farsi baby girl names\", \"farsi muslim girl names\", \"unique farsi girl names\""
+     ],
+     "query": "farsi girl names",
+     "evidenceRefCount": 4
+    },
+    "pagePath": "/persian-female-first-names",
+    "research": {
+     "next": "The exact wording lands here once the editor writes it from the page's own stored copy under this diagnosis.",
+     "missing": "Strengthen this page's coverage of farsi girl names with a section that answers, in the searchers' own words (\"farsi girl names\", \"farsi names for girls\", \"farsi baby girl names\", \"farsi muslim girl names\", \"unique farsi girl names\"), what the pages now above it answer."
+    },
+    "tenantId": "acct-fixture",
+    "copyStamp": "Popular Persian Girl Names List with Meanings|Popular Persian Female(Girl) First Names and their Meanings|Discover the most popular Persian girl names with meanings. Unique Persian female names for your baby or learn the history behind your own name!|Afsaneh>Afsoon>Aida>Alborz>Ami>Anahita>Anoushka>Arezou>Ariana>Arina>Armita>Aryana>Aryo>Asal>Atefeh>Atossa>Ava>Ayda>Azadeh>Azam>Azin>Badr>Bahar>Banafs",
+    "createdAt": "2026-09-06T17:28:33.916Z",
+    "pageLabel": "/persian-female-first-names",
+    "riskLevel": "low",
+    "confidence": "medium",
+    "obligation": {
+     "kind": "evidence",
+     "need": {
+      "kind": "serp",
+      "query": "farsi girl names",
+      "reasonCode": "no_winner_to_read"
+     }
+    },
+    "impactScore": null,
+    "limitations": [
+     "The loss is measured from this account's own Search Console history over the two windows named above; only the current window's shortfall is claimed as recoverable."
+    ],
+    "causeFinding": {
+     "cause": "ranking_loss",
+     "action": "section",
+     "falsifier": "If the page returns to its old position and the clicks do not follow, the ground was not the cause.",
+     "explanation": "Searches for farsi girl names earned this site about 43 clicks a month over 2025-05-14 to 2026-06-08 and earn about 8 now: 36 clicks a month were LOST. The page itself slid from position 3.2 to 7.4 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line.",
+     "evidenceKeys": [],
+     "notConsidered": [],
+     "competingExplanations": []
+    },
+    "changeFamily": "section",
+    "primaryQuery": "farsi girl names",
+    "researchOnly": true,
+    "whyItMatters": "Searches for farsi girl names earned this site about 43 clicks a month over 2025-05-14 to 2026-06-08 and earn about 8 now: 36 clicks a month were LOST. The page itself slid from position 3.2 to 7.4 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line.",
+    "operatorSteps": [],
+    "winnersOnFile": "none",
+    "diagnosisCause": "ranking_loss",
+    "rankingReceipt": {
+     "basis": "No click figure backs this one, so this is the order to work in, not a promise about size. Ranked on 4 pieces of evidence and what it takes you to do.",
+     "score": 0.38,
+     "factors": [
+      {
+       "max": 0,
+       "name": "readiness",
+       "input": "this is research still owed, not an edit waiting on you",
+       "contribution": 0
+      },
+      {
+       "max": 120,
+       "name": "visibility",
+       "input": "shown 584 times in 90 days, an audience size rather than a proven recovery, counted at 60 percent because the copy is still owed and confidence is medium",
+       "contribution": 0.61
+      },
+      {
+       "max": 0.09,
+       "name": "evidence",
+       "input": "4 pieces of evidence behind it, which is how sure this is rather than how big it is",
+       "contribution": -0.03
+      },
+      {
+       "max": 0.23,
+       "name": "causeFit",
+       "input": "this change works on the ground this page has lost on a search people still run",
+       "contribution": 0
+      },
+      {
+       "max": 0.03,
+       "name": "strategic",
+       "input": "none of the questions your customers ask cover this one",
+       "contribution": -0.03
+      },
+      {
+       "max": 0.14,
+       "name": "effort",
+       "input": "about 30 minutes of your time",
+       "contribution": -0.07
+      },
+      {
+       "max": 0.19,
+       "name": "risk",
+       "input": "nothing here goes onto the site, so there is nothing to risk yet",
+       "contribution": 0
+      },
+      {
+       "max": 0.24,
+       "name": "overlap",
+       "input": "nothing is being measured on this page",
+       "contribution": 0
+      },
+      {
+       "max": 0.14,
+       "name": "confounding",
+       "input": "2 other changes in this batch land on the same page",
+       "contribution": -0.1
+      },
+      {
+       "max": 0.04,
+       "name": "history",
+       "input": "too few readings of this kind of change have closed here to judge it",
+       "contribution": 0
+      }
+     ],
+     "directional": true
+    },
+    "upsidePerMonth": null,
+    "opportunityType": "Rebuild the ground \"farsi girl names\" lost on /persian-female-first-names: this page's own position 3.2 to 7.4, 36 clicks a month LOST, about 0 supported as recoverable today",
+    "recommendedChange": {
+     "kind": "existing_edit",
+     "after": "The exact wording has not been written yet.",
+     "field": "section",
+     "before": null
+    },
+    "whyRankedAboveNext": "Ranked ahead of the change for \"persian t shirt\" because more is riding on it: shown 584 times in 90 days, an audience size rather than a proven recovery, counted at 60 percent because the copy is still owed and confidence is medium, against shown 414 times in 90 days, an audience size rather than a proven recovery, counted at 49 percent because the copy is still owed and confidence is low.",
+    "demandImpressions90d": 550,
+    "estimatedEffortMinutes": 30
+   }
+  },
+  "decision_receipt": {
+   "cause": "ranking_loss",
+   "receipt": null,
+   "confidence": "medium",
+   "limitations": [
+    "The loss is measured from this account's own Search Console history over the two windows named above; only the current window's shortfall is claimed as recoverable."
+   ],
+   "why_it_matters": "Searches for farsi girl names earned this site about 43 clicks a month over 2025-05-14 to 2026-06-08 and earn about 8 now: 36 clicks a month were LOST. The page itself slid from position 3.2 to 7.4 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line."
+  },
+  "ranking_receipt": {
+   "basis": "No click figure backs this one, so this is the order to work in, not a promise about size. Ranked on 4 pieces of evidence and what it takes you to do.",
+   "score": 0.32,
+   "factors": [
+    {
+     "max": 0,
+     "name": "readiness",
+     "input": "this is research still owed, not an edit waiting on you",
+     "contribution": 0
+    },
+    {
+     "max": 120,
+     "name": "visibility",
+     "input": "shown 550 times in 90 days, an audience size rather than a proven recovery, counted at 60 percent because the copy is still owed and confidence is medium",
+     "contribution": 0.59
+    },
+    {
+     "max": 0.09,
+     "name": "evidence",
+     "input": "4 pieces of evidence behind it, which is how sure this is rather than how big it is",
+     "contribution": -0.03
+    },
+    {
+     "max": 0.22,
+     "name": "causeFit",
+     "input": "this change works on the ground this page has lost on a search people still run",
+     "contribution": 0
+    },
+    {
+     "max": 0.06,
+     "name": "strategic",
+     "input": "none of the questions your customers ask cover this one, and it works towards what this account said it is for",
+     "contribution": -0.03
+    },
+    {
+     "max": 0.13,
+     "name": "effort",
+     "input": "about 30 minutes of your time",
+     "contribution": -0.07
+    },
+    {
+     "max": 0.19,
+     "name": "risk",
+     "input": "nothing here goes onto the site, so there is nothing to risk yet",
+     "contribution": 0
+    },
+    {
+     "max": 0.23,
+     "name": "overlap",
+     "input": "nothing is being measured on this page",
+     "contribution": 0
+    },
+    {
+     "max": 0.14,
+     "name": "confounding",
+     "input": "3 other changes in this batch land on the same page",
+     "contribution": -0.14
+    },
+    {
+     "max": 0.03,
+     "name": "history",
+     "input": "too few readings of this kind of change have closed here to judge it",
+     "contribution": 0
+    }
+   ],
+   "directional": true
+  },
+  "superseded_by": null,
+  "created_at": "2026-08-17T04:02:15.480971+00:00",
+  "updated_at": "2026-09-06T17:29:04.697+00:00",
+  "queue_rank": 26,
+  "queue_lane": "acct-fixture:2026-09-06T17:30:15.686Z::research",
+  "withdrawn_reason": null,
+  "mutation_key": "/persian-female-first-names::body::farsi girl names"
+ },
+ {
+  "id": "acct-fixture::/persian-female-first-names::existing_edit::demand_recovery@girl iranian names",
+  "tenant_id": "acct-fixture",
+  "site": "example-site.test",
+  "case_id": "",
+  "page_key": "/persian-female-first-names",
+  "action_family": "section-family",
+  "proposal_version": 9,
+  "basis": "basis_7f4d409646ad3e0c::d8",
+  "status": "needs_review",
+  "terminal_disposition": null,
+  "payload": {
+   "v": 1,
+   "proposal": {
+    "id": "acct-fixture::/persian-female-first-names::existing_edit::demand_recovery@girl iranian names",
+    "kind": "existing_edit",
+    "basis": "basis_7f4d409646ad3e0c::d8",
+    "status": "needs_review",
+    "pageUrl": "https://example-site.test/persian-female-first-names",
+    "publish": "manual",
+    "workKey": "/persian-female-first-names::body::girl iranian names::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::99b45bbbc2665b96::existing_edit::section::::ranking_loss::girl iranian names::none::r5:sc2::",
+    "evidence": {
+     "hints": [
+      "Searches for iranian girl names earned this site about 46 clicks a month over 2025-05-14 to 2026-06-08 and earn about 3 now: 43 clicks a month were LOST.",
+      "The page itself slid from position 4.3 to 10.1 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line.",
+      "At today's own demand and positions, about 0 clicks over 28 days of that are supported as recoverable under the diagnosed cause; the rest depends on winning back ground and is not promised.",
+      "People search this as: \"iranian girl names\", \"iranian baby girl names\", \"popular iranian girl names\", \"unique iranian girl names\", \"beautiful iranian girl names\", \"modern iranian girl names\"",
+      "The pages winning it now: web.mit.edu, www.reddit.com, darsoon.com"
+     ],
+     "query": "iranian girl names",
+     "evidenceRefCount": 5
+    },
+    "pagePath": "/persian-female-first-names",
+    "research": {
+     "next": "The exact wording lands here once the editor writes it from the page's own stored copy under this diagnosis.",
+     "missing": "Strengthen this page's coverage of iranian girl names with a section that answers, in the searchers' own words (\"iranian girl names\", \"iranian baby girl names\", \"popular iranian girl names\", \"unique iranian girl names\", \"beautiful iranian girl names\", \"modern iranian girl names\"), what the pages now above it answer."
+    },
+    "tenantId": "acct-fixture",
+    "copyStamp": "Popular Persian Girl Names List with Meanings|Popular Persian Female(Girl) First Names and their Meanings|Discover the most popular Persian girl names with meanings. Unique Persian female names for your baby or learn the history behind your own name!|Afsaneh>Afsoon>Aida>Alborz>Ami>Anahita>Anoushka>Arezou>Ariana>Arina>Armita>Aryana>Aryo>Asal>Atefeh>Atossa>Ava>Ayda>Azadeh>Azam>Azin>Badr>Bahar>Banafs",
+    "createdAt": "2026-09-06T17:28:33.916Z",
+    "pageLabel": "/persian-female-first-names",
+    "riskLevel": "low",
+    "confidence": "medium",
+    "obligation": {
+     "kind": "evidence",
+     "need": {
+      "kind": "competitor_page",
+      "query": "iranian girl names",
+      "reasonCode": "no_winner_to_read"
+     }
+    },
+    "impactScore": null,
+    "limitations": [
+     "The loss is measured from this account's own Search Console history over the two windows named above; only the current window's shortfall is claimed as recoverable."
+    ],
+    "causeFinding": {
+     "cause": "ranking_loss",
+     "action": "section",
+     "falsifier": "If the page returns to its old position and the clicks do not follow, the ground was not the cause.",
+     "explanation": "Searches for iranian girl names earned this site about 46 clicks a month over 2025-05-14 to 2026-06-08 and earn about 3 now: 43 clicks a month were LOST. The page itself slid from position 4.3 to 10.1 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line.",
+     "evidenceKeys": [],
+     "notConsidered": [],
+     "competingExplanations": []
+    },
+    "changeFamily": "section",
+    "primaryQuery": "iranian girl names",
+    "researchOnly": true,
+    "whyItMatters": "Searches for iranian girl names earned this site about 46 clicks a month over 2025-05-14 to 2026-06-08 and earn about 3 now: 43 clicks a month were LOST. The page itself slid from position 4.3 to 10.1 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line.",
+    "operatorSteps": [],
+    "winnersOnFile": "unread",
+    "diagnosisCause": "ranking_loss",
+    "rankingReceipt": {
+     "basis": "No click figure backs this one, so this is the order to work in, not a promise about size. Ranked on 4 pieces of evidence and what it takes you to do.",
+     "score": 0.41,
+     "factors": [
+      {
+       "max": 0,
+       "name": "readiness",
+       "input": "this is research still owed, not an edit waiting on you",
+       "contribution": 0
+      },
+      {
+       "max": 120,
+       "name": "visibility",
+       "input": "shown 901 times in 90 days, an audience size rather than a proven recovery, counted at 60 percent because the copy is still owed and confidence is medium",
+       "contribution": 0.76
+      },
+      {
+       "max": 0.11,
+       "name": "evidence",
+       "input": "4 pieces of evidence behind it, which is how sure this is rather than how big it is",
+       "contribution": -0.04
+      },
+      {
+       "max": 0.29,
+       "name": "causeFit",
+       "input": "this change works on the ground this page has lost on a search people still run",
+       "contribution": 0
+      },
+      {
+       "max": 0.07,
+       "name": "strategic",
+       "input": "none of the questions your customers ask cover this one, and it works towards what this account said it is for",
+       "contribution": -0.04
+      },
+      {
+       "max": 0.17,
+       "name": "effort",
+       "input": "about 30 minutes of your time",
+       "contribution": -0.09
+      },
+      {
+       "max": 0.24,
+       "name": "risk",
+       "input": "nothing here goes onto the site, so there is nothing to risk yet",
+       "contribution": 0
+      },
+      {
+       "max": 0.3,
+       "name": "overlap",
+       "input": "nothing is being measured on this page",
+       "contribution": 0
+      },
+      {
+       "max": 0.18,
+       "name": "confounding",
+       "input": "3 other changes in this batch land on the same page",
+       "contribution": -0.18
+      },
+      {
+       "max": 0.04,
+       "name": "history",
+       "input": "too few readings of this kind of change have closed here to judge it",
+       "contribution": 0
+      }
+     ],
+     "directional": true
+    },
+    "upsidePerMonth": null,
+    "opportunityType": "Rebuild the ground \"iranian girl names\" lost on /persian-female-first-names: this page's own position 4.3 to 10.1, 43 clicks a month LOST, about 0 supported as recoverable today",
+    "recommendedChange": {
+     "kind": "existing_edit",
+     "after": "The exact wording has not been written yet.",
+     "field": "section",
+     "before": null
+    },
+    "whyRankedAboveNext": "Ranked ahead of the change for \"farsi boy names\" because more is riding on it: shown 901 times in 90 days, an audience size rather than a proven recovery, counted at 60 percent because the copy is still owed and confidence is medium, against shown 726 times in 90 days, an audience size rather than a proven recovery, counted at 60 percent because the copy is still owed and confidence is medium.",
+    "demandImpressions90d": 897,
+    "estimatedEffortMinutes": 30
+   }
+  },
+  "decision_receipt": {
+   "cause": "ranking_loss",
+   "receipt": null,
+   "confidence": "medium",
+   "limitations": [
+    "The loss is measured from this account's own Search Console history over the two windows named above; only the current window's shortfall is claimed as recoverable."
+   ],
+   "why_it_matters": "Searches for iranian girl names earned this site about 46 clicks a month over 2025-05-14 to 2026-06-08 and earn about 3 now: 43 clicks a month were LOST. The page itself slid from position 4.3 to 10.1 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line."
+  },
+  "ranking_receipt": {
+   "basis": "No click figure backs this one, so this is the order to work in, not a promise about size. Ranked on 5 pieces of evidence and what it takes you to do.",
+   "score": 0.42,
+   "factors": [
+    {
+     "max": 0,
+     "name": "readiness",
+     "input": "this is research still owed, not an edit waiting on you",
+     "contribution": 0
+    },
+    {
+     "max": 120,
+     "name": "visibility",
+     "input": "shown 897 times in 90 days, an audience size rather than a proven recovery, counted at 60 percent because the copy is still owed and confidence is medium",
+     "contribution": 0.76
+    },
+    {
+     "max": 0.11,
+     "name": "evidence",
+     "input": "5 pieces of evidence behind it, which is how sure this is rather than how big it is",
+     "contribution": -0.03
+    },
+    {
+     "max": 0.29,
+     "name": "causeFit",
+     "input": "this change works on the ground this page has lost on a search people still run",
+     "contribution": 0
+    },
+    {
+     "max": 0.07,
+     "name": "strategic",
+     "input": "none of the questions your customers ask cover this one, and it works towards what this account said it is for",
+     "contribution": -0.04
+    },
+    {
+     "max": 0.17,
+     "name": "effort",
+     "input": "about 30 minutes of your time",
+     "contribution": -0.09
+    },
+    {
+     "max": 0.24,
+     "name": "risk",
+     "input": "nothing here goes onto the site, so there is nothing to risk yet",
+     "contribution": 0
+    },
+    {
+     "max": 0.3,
+     "name": "overlap",
+     "input": "nothing is being measured on this page",
+     "contribution": 0
+    },
+    {
+     "max": 0.18,
+     "name": "confounding",
+     "input": "3 other changes in this batch land on the same page",
+     "contribution": -0.18
+    },
+    {
+     "max": 0.04,
+     "name": "history",
+     "input": "too few readings of this kind of change have closed here to judge it",
+     "contribution": 0
+    }
+   ],
+   "directional": true
+  },
+  "superseded_by": null,
+  "created_at": "2026-09-06T02:32:33.061272+00:00",
+  "updated_at": "2026-09-06T17:29:04.79+00:00",
+  "queue_rank": 21,
+  "queue_lane": "acct-fixture:2026-09-06T17:30:15.686Z::research",
+  "withdrawn_reason": null,
+  "mutation_key": "/persian-female-first-names::body::girl iranian names"
+ },
+ {
+  "id": "acct-fixture::/persian-male-names::existing_edit::demand_recovery",
+  "tenant_id": "acct-fixture",
+  "site": "example-site.test",
+  "case_id": "",
+  "page_key": "/persian-male-names",
+  "action_family": "section-family",
+  "proposal_version": 1198,
+  "basis": "basis_7f4d409646ad3e0c::d8",
+  "status": "needs_review",
+  "terminal_disposition": null,
+  "payload": {
+   "v": 1,
+   "proposal": {
+    "id": "acct-fixture::/persian-male-names::existing_edit::demand_recovery",
+    "kind": "existing_edit",
+    "basis": "basis_7f4d409646ad3e0c::d8",
+    "status": "needs_review",
+    "pageUrl": "https://example-site.test/persian-male-names",
+    "publish": "manual",
+    "workKey": "/persian-male-names::body::boy farsi names::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::1d06a739aa6d73e8::existing_edit::section::::ranking_loss::boy farsi names::none::r4:sc2::",
+    "evidence": {
+     "hints": [
+      "Searches for farsi boy names earned this site about 57 clicks a month over 2025-05-14 to 2026-06-08 and earn about 19 now: 38 clicks a month were LOST.",
+      "The page itself slid from position 2.3 to 5.1 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line.",
+      "At today's own demand and positions, about 0 clicks over 28 days of that are supported as recoverable under the diagnosed cause; the rest depends on winning back ground and is not promised.",
+      "People search this as: \"farsi boy names\", \"farsi muslim boy names\", \"farsi baby boy names\""
+     ],
+     "query": "farsi boy names",
+     "evidenceRefCount": 4
+    },
+    "pagePath": "/persian-male-names",
+    "research": {
+     "next": "The exact wording lands here once the editor writes it from the page's own stored copy under this diagnosis.",
+     "missing": "Strengthen this page's coverage of farsi boy names with a section that answers, in the searchers' own words (\"farsi boy names\", \"farsi muslim boy names\", \"farsi baby boy names\"), what the pages now above it answer."
+    },
+    "tenantId": "acct-fixture",
+    "copyStamp": "Iranian Male Names - Popular Persian Boy Names & Meanings|Popular Persian Male(Boy) First Names and their Meanings|The most popular Persian male names with meanings. Discover unique Persian boy names, from traditional to modern choices, with cultural significance|Abtin>Adib>Afraim>Afshin>Ahmad>Ali>Amir>Anoshirvan>Anoush>Arash>Ardalan>Aref>Arjang>Arman>Armeen>Armin>Arvin>Arya>Aryan>Ashkan>Ashour>At",
+    "createdAt": "2026-09-06T17:28:33.916Z",
+    "pageLabel": "/persian-male-names",
+    "riskLevel": "low",
+    "confidence": "medium",
+    "obligation": {
+     "kind": "evidence",
+     "need": {
+      "kind": "serp",
+      "query": "farsi boy names",
+      "reasonCode": "no_winner_to_read"
+     }
+    },
+    "impactScore": null,
+    "limitations": [
+     "The loss is measured from this account's own Search Console history over the two windows named above; only the current window's shortfall is claimed as recoverable."
+    ],
+    "causeFinding": {
+     "cause": "ranking_loss",
+     "action": "section",
+     "falsifier": "If the page returns to its old position and the clicks do not follow, the ground was not the cause.",
+     "explanation": "Searches for farsi boy names earned this site about 57 clicks a month over 2025-05-14 to 2026-06-08 and earn about 19 now: 38 clicks a month were LOST. The page itself slid from position 2.3 to 5.1 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line.",
+     "evidenceKeys": [],
+     "notConsidered": [],
+     "competingExplanations": []
+    },
+    "changeFamily": "section",
+    "previousCopy": {
+     "at": "2026-09-04T08:01:20.689Z",
+     "after": "Iranian Male Names: Persian Boy Name Meanings",
+     "attempts": 3,
+     "retiredBecause": "the diagnosed cause changed; the search it answers changed; the kind of change moved"
+    },
+    "primaryQuery": "farsi boy names",
+    "researchOnly": true,
+    "whyItMatters": "Searches for farsi boy names earned this site about 57 clicks a month over 2025-05-14 to 2026-06-08 and earn about 19 now: 38 clicks a month were LOST. The page itself slid from position 2.3 to 5.1 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line.",
+    "operatorSteps": [],
+    "winnersOnFile": "none",
+    "diagnosisCause": "ranking_loss",
+    "rankingReceipt": {
+     "basis": "No click figure backs this one, so this is the order to work in, not a promise about size. Ranked on 5 pieces of evidence and what it takes you to do.",
+     "score": 0.39,
+     "factors": [
+      {
+       "max": 0,
+       "name": "readiness",
+       "input": "this is research still owed, not an edit waiting on you",
+       "contribution": 0
+      },
+      {
+       "max": 120,
+       "name": "visibility",
+       "input": "shown 733 times in 90 days, an audience size rather than a proven recovery, counted at 60 percent because the copy is still owed and confidence is medium",
+       "contribution": 0.69
+      },
+      {
+       "max": 0.1,
+       "name": "evidence",
+       "input": "5 pieces of evidence behind it, which is how sure this is rather than how big it is",
+       "contribution": -0.03
+      },
+      {
+       "max": 0.26,
+       "name": "causeFit",
+       "input": "this change works on the ground this page has lost on a search people still run",
+       "contribution": 0
+      },
+      {
+       "max": 0.03,
+       "name": "strategic",
+       "input": "none of the questions your customers ask cover this one",
+       "contribution": -0.03
+      },
+      {
+       "max": 0.16,
+       "name": "effort",
+       "input": "about 30 minutes of your time",
+       "contribution": -0.08
+      },
+      {
+       "max": 0.22,
+       "name": "risk",
+       "input": "nothing here goes onto the site, so there is nothing to risk yet",
+       "contribution": 0
+      },
+      {
+       "max": 0.27,
+       "name": "overlap",
+       "input": "nothing is being measured on this page",
+       "contribution": 0
+      },
+      {
+       "max": 0.16,
+       "name": "confounding",
+       "input": "4 other changes in this batch land on the same page",
+       "contribution": -0.16
+      },
+      {
+       "max": 0.04,
+       "name": "history",
+       "input": "too few readings of this kind of change have closed here to judge it",
+       "contribution": 0
+      }
+     ],
+     "directional": true
+    },
+    "upsidePerMonth": null,
+    "opportunityType": "Rebuild the ground \"farsi boy names\" lost on /persian-male-names: this page's own position 2.3 to 5.1, 38 clicks a month LOST, about 0 supported as recoverable today",
+    "recommendedChange": {
+     "kind": "existing_edit",
+     "after": "The exact wording has not been written yet.",
+     "field": "section",
+     "before": null
+    },
+    "whyRankedAboveNext": "Ranked ahead of the change for \"farsi girl names\" because more is riding on it: shown 733 times in 90 days, an audience size rather than a proven recovery, counted at 60 percent because the copy is still owed and confidence is medium, against shown 584 times in 90 days, an audience size rather than a proven recovery, counted at 60 percent because the copy is still owed and confidence is medium.",
+    "demandImpressions90d": 725,
+    "estimatedEffortMinutes": 30
+   }
+  },
+  "decision_receipt": {
+   "cause": "ranking_loss",
+   "receipt": null,
+   "confidence": "medium",
+   "limitations": [
+    "The loss is measured from this account's own Search Console history over the two windows named above; only the current window's shortfall is claimed as recoverable."
+   ],
+   "why_it_matters": "Searches for farsi boy names earned this site about 57 clicks a month over 2025-05-14 to 2026-06-08 and earn about 19 now: 38 clicks a month were LOST. The page itself slid from position 2.3 to 5.1 on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line."
+  },
+  "ranking_receipt": {
+   "basis": "No click figure backs this one, so this is the order to work in, not a promise about size. Ranked on 4 pieces of evidence and what it takes you to do.",
+   "score": 0.38,
+   "factors": [
+    {
+     "max": 0,
+     "name": "readiness",
+     "input": "this is research still owed, not an edit waiting on you",
+     "contribution": 0
+    },
+    {
+     "max": 120,
+     "name": "visibility",
+     "input": "shown 725 times in 90 days, an audience size rather than a proven recovery, counted at 60 percent because the copy is still owed and confidence is medium",
+     "contribution": 0.68
+    },
+    {
+     "max": 0.1,
+     "name": "evidence",
+     "input": "4 pieces of evidence behind it, which is how sure this is rather than how big it is",
+     "contribution": -0.03
+    },
+    {
+     "max": 0.26,
+     "name": "causeFit",
+     "input": "this change works on the ground this page has lost on a search people still run",
+     "contribution": 0
+    },
+    {
+     "max": 0.06,
+     "name": "strategic",
+     "input": "none of the questions your customers ask cover this one, and it works towards what this account said it is for",
+     "contribution": -0.03
+    },
+    {
+     "max": 0.15,
+     "name": "effort",
+     "input": "about 30 minutes of your time",
+     "contribution": -0.08
+    },
+    {
+     "max": 0.22,
+     "name": "risk",
+     "input": "nothing here goes onto the site, so there is nothing to risk yet",
+     "contribution": 0
+    },
+    {
+     "max": 0.27,
+     "name": "overlap",
+     "input": "nothing is being measured on this page",
+     "contribution": 0
+    },
+    {
+     "max": 0.16,
+     "name": "confounding",
+     "input": "7 other changes in this batch land on the same page",
+     "contribution": -0.16
+    },
+    {
+     "max": 0.04,
+     "name": "history",
+     "input": "too few readings of this kind of change have closed here to judge it",
+     "contribution": 0
+    }
+   ],
+   "directional": true
+  },
+  "superseded_by": null,
+  "created_at": "2026-08-17T04:02:14.839824+00:00",
+  "updated_at": "2026-09-06T17:29:04.615+00:00",
+  "queue_rank": 23,
+  "queue_lane": "acct-fixture:2026-09-06T17:30:15.686Z::research",
+  "withdrawn_reason": null,
+  "mutation_key": "/persian-male-names::body::boy farsi names"
+ },
+ {
+  "id": "acct-fixture::/persian-male-names::existing_edit::demand_recovery@iranian male names",
+  "tenant_id": "acct-fixture",
+  "site": "example-site.test",
+  "case_id": "",
+  "page_key": "/persian-male-names",
+  "action_family": "title-family",
+  "proposal_version": 10,
+  "basis": "basis_7f4d409646ad3e0c::d8",
+  "status": "needs_review",
+  "terminal_disposition": null,
+  "payload": {
+   "v": 1,
+   "proposal": {
+    "id": "acct-fixture::/persian-male-names::existing_edit::demand_recovery@iranian male names",
+    "kind": "existing_edit",
+    "basis": "basis_7f4d409646ad3e0c::d8",
+    "faults": [
+     "the evaluator's exact objection: The title is too thin and does not convey the full meanings the page actually provides, so it fails to win the click back from richer results."
+    ],
+    "status": "needs_review",
+    "pageUrl": "https://example-site.test/persian-male-names",
+    "publish": "manual",
+    "workKey": "/persian-male-names::title::wc8-owed-at-the-store::basis_7f4d409646ad3e0c::d8::611e4c81062a6275::existing_edit::title::::ctr_snippet::iranian male names::none::r4::",
+    "evidence": {
+     "hints": [
+      "Searches for iranian male names earned this site about 57 clicks a month over 2025-05-14 to 2026-06-08 and earn about 19 now: 38 clicks a month were LOST.",
+      "The page holds its own position (3.0 then, 4.1 now) while the share of searchers clicking it fell by more than 40 percent, and the stored results page shows what searchers now read, so the line is the diagnosed cause.",
+      "At today's own demand and positions, about 0 clicks over 28 days of that are supported as recoverable under the diagnosed cause; the rest depends on winning back ground and is not promised.",
+      "People search this as: \"iranian male names\", \"iranian names male\", \"male iranian names\", \"common iranian male names\", \"iranian first names male\"",
+      "\"iranian male names\" carries 1,600 searches a month (informational)",
+      "The pages winning it now: web.mit.edu, en.wikipedia.org, darsoon.com"
+     ],
+     "query": "iranian male names",
+     "evidenceRefCount": 6
+    },
+    "pagePath": "/persian-male-names",
+    "research": {
+     "next": "The exact wording lands here once the editor writes it from the page's own stored copy under this diagnosis.",
+     "missing": "Rewrite the line searchers read for \"iranian male names\" so it says what earned the clicks when the click rate was whole, keeping every word the page still earns on."
+    },
+    "tenantId": "acct-fixture",
+    "copyStamp": "Iranian Male Names - Popular Persian Boy Names & Meanings|Popular Persian Male(Boy) First Names and their Meanings|The most popular Persian male names with meanings. Discover unique Persian boy names, from traditional to modern choices, with cultural significance|Abtin>Adib>Afraim>Afshin>Ahmad>Ali>Amir>Anoshirvan>Anoush>Arash>Ardalan>Aref>Arjang>Arman>Armeen>Armin>Arvin>Arya>Aryan>Ashkan>Ashour>At",
+    "createdAt": "2026-09-06T17:28:33.916Z",
+    "pageLabel": "/persian-male-names",
+    "riskLevel": "low",
+    "confidence": "medium",
+    "obligation": {
+     "kind": "terminal",
+     "reason": "the new line carries only the current line's own words: say the one thing this page answers that the current line does not, or refuse"
+    },
+    "impactScore": 40,
+    "limitations": [
+     "The loss is measured from this account's own Search Console history over the two windows named above; only the current window's shortfall is claimed as recoverable."
+    ],
+    "causeFinding": {
+     "cause": "ctr_snippet",
+     "action": "title",
+     "falsifier": "If Google shows the new line and the click rate does not move, the wording was not the cause.",
+     "explanation": "Searches for iranian male names earned this site about 57 clicks a month over 2025-05-14 to 2026-06-08 and earn about 19 now: 38 clicks a month were LOST. The page holds its own position (3.0 then, 4.1 now) while the share of searchers clicking it fell by more than 40 percent, and the stored results page shows what searchers now read, so the line is the diagnosed cause.",
+     "evidenceKeys": [],
+     "notConsidered": [],
+     "competingExplanations": []
+    },
+    "changeFamily": "title",
+    "previousCopy": {
+     "at": "2026-09-06T07:30:31.144Z",
+     "after": "Persian boy names: Iranian male names",
+     "attempts": 1,
+     "retiredBecause": "the evaluator's exact objection: The title is too thin and does not convey the full meanings the page actually provides, so it fails to win the click back from richer results."
+    },
+    "primaryQuery": "iranian male names",
+    "researchOnly": true,
+    "whyItMatters": "Searches for iranian male names earned this site about 57 clicks a month over 2025-05-14 to 2026-06-08 and earn about 19 now: 38 clicks a month were LOST. The page holds its own position (3.0 then, 4.1 now) while the share of searchers clicking it fell by more than 40 percent, and the stored results page shows what searchers now read, so the line is the diagnosed cause. This page also lost 40 clicks against the four weeks before, and that fall is what it is ranked on here.",
+    "operatorSteps": [],
+    "winnersOnFile": "unread",
+    "diagnosisCause": "ctr_snippet",
+    "rankingReceipt": {
+     "basis": "Ranked on a discounted traffic priority, not a forecast: 33 clicks over 28 days measured as recoverable, discounted by an assumed share, 6 pieces of evidence and what it takes you to do.",
+     "score": 1.63,
+     "factors": [
+      {
+       "max": 0,
+       "name": "readiness",
+       "input": "this is research still owed, not an edit waiting on you",
+       "contribution": 0
+      },
+      {
+       "max": 120,
+       "name": "visibility",
+       "input": "33 clicks over 28 days measured as recoverable and the cause diagnosed, so 17 is what it is ranked on: an assumed 50 percent share, which is this product's policy and not a figure measured here, counted at 60 percent because the copy is still owed and confidence is medium",
+       "contribution": 2.53
+      },
+      {
+       "max": 0.38,
+       "name": "evidence",
+       "input": "6 pieces of evidence behind it, which is how sure this is rather than how big it is",
+       "contribution": -0.07
+      },
+      {
+       "max": 0.98,
+       "name": "causeFit",
+       "input": "this change works on the line a searcher reads",
+       "contribution": 0
+      },
+      {
+       "max": 0.25,
+       "name": "strategic",
+       "input": "none of the questions your customers ask cover this one, and it works towards what this account said it is for",
+       "contribution": -0.12
+      },
+      {
+       "max": 0.58,
+       "name": "effort",
+       "input": "about 2 minutes of your time",
+       "contribution": -0.02
+      },
+      {
+       "max": 0.93,
+       "name": "risk",
+       "input": "nothing here goes onto the site, so there is nothing to risk yet",
+       "contribution": 0
+      },
+      {
+       "max": 1.16,
+       "name": "overlap",
+       "input": "nothing is being measured on this page",
+       "contribution": 0
+      },
+      {
+       "max": 0.69,
+       "name": "confounding",
+       "input": "7 other changes in this batch land on the same page",
+       "contribution": -0.69
+      },
+      {
+       "max": 0.16,
+       "name": "history",
+       "input": "too few readings of this kind of change have closed here to judge it",
+       "contribution": 0
+      }
+     ],
+     "directional": false
+    },
+    "upsidePerMonth": null,
+    "opportunityType": "Rewrite the line searchers read for \"iranian male names\" on /persian-male-names: position held while the click rate collapsed, 38 clicks a month LOST, about 0 supported as recoverable today",
+    "recommendedChange": {
+     "kind": "existing_edit",
+     "after": "The exact wording has not been written yet.",
+     "field": "title",
+     "before": null
+    },
+    "whyRankedAboveNext": "Ranked ahead of the change for \"iran flag before revolution\" because more is riding on it: 33 clicks over 28 days measured as recoverable and the cause diagnosed, so 17 is what it is ranked on: an assumed 50 percent share, which is this product's policy and not a figure measured here, counted at 60 percent because the copy is still owed and confidence is medium, against 16 clicks over 28 days measured as recoverable and the cause diagnosed, so 8 is what it is ranked on: an assumed 50 percent share, which is this product's policy and not a figure measured here, counted at 85 percent because confidence is medium.",
+    "demandImpressions90d": 2512,
+    "estimatedEffortMinutes": 2
+   }
+  },
+  "decision_receipt": {
+   "cause": "ctr_snippet",
+   "receipt": null,
+   "confidence": "medium",
+   "limitations": [
+    "The loss is measured from this account's own Search Console history over the two windows named above; only the current window's shortfall is claimed as recoverable."
+   ],
+   "why_it_matters": "Searches for iranian male names earned this site about 57 clicks a month over 2025-05-14 to 2026-06-08 and earn about 19 now: 38 clicks a month were LOST. The page holds its own position (3.0 then, 4.1 now) while the share of searchers clicking it fell by more than 40 percent, and the stored results page shows what searchers now read, so the line is the diagnosed cause. This page also lost 40 clicks against the four weeks before, and that fall is what it is ranked on here."
+  },
+  "ranking_receipt": {
+   "basis": "Ranked on a discounted traffic priority, not a forecast: 40 clicks over 28 days measured as recoverable, discounted by an assumed share, 6 pieces of evidence and what it takes you to do.",
+   "score": 1.91,
+   "factors": [
+    {
+     "max": 0,
+     "name": "readiness",
+     "input": "this is research still owed, not an edit waiting on you",
+     "contribution": 0
+    },
+    {
+     "max": 120,
+     "name": "visibility",
+     "input": "40 clicks over 28 days measured as recoverable and the cause diagnosed, so 20 is what it is ranked on: an assumed 50 percent share, which is this product's policy and not a figure measured here, counted at 60 percent because the copy is still owed and confidence is medium",
+     "contribution": 2.97
+    },
+    {
+     "max": 0.45,
+     "name": "evidence",
+     "input": "6 pieces of evidence behind it, which is how sure this is rather than how big it is",
+     "contribution": -0.08
+    },
+    {
+     "max": 1.16,
+     "name": "causeFit",
+     "input": "this change works on the line a searcher reads",
+     "contribution": 0
+    },
+    {
+     "max": 0.29,
+     "name": "strategic",
+     "input": "none of the questions your customers ask cover this one, and it works towards what this account said it is for",
+     "contribution": -0.14
+    },
+    {
+     "max": 0.69,
+     "name": "effort",
+     "input": "about 2 minutes of your time",
+     "contribution": -0.02
+    },
+    {
+     "max": 1.09,
+     "name": "risk",
+     "input": "nothing here goes onto the site, so there is nothing to risk yet",
+     "contribution": 0
+    },
+    {
+     "max": 1.36,
+     "name": "overlap",
+     "input": "nothing is being measured on this page",
+     "contribution": 0
+    },
+    {
+     "max": 0.82,
+     "name": "confounding",
+     "input": "7 other changes in this batch land on the same page",
+     "contribution": -0.82
+    },
+    {
+     "max": 0.19,
+     "name": "history",
+     "input": "too few readings of this kind of change have closed here to judge it",
+     "contribution": 0
+    }
+   ],
+   "directional": false
+  },
+  "superseded_by": null,
+  "created_at": "2026-09-06T02:32:32.928654+00:00",
+  "updated_at": "2026-09-06T17:29:04.862+00:00",
+  "queue_rank": 4,
+  "queue_lane": "acct-fixture:2026-09-06T17:30:15.686Z::research",
+  "withdrawn_reason": null,
+  "mutation_key": "/persian-male-names::title"
+ }
+]

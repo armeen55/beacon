@@ -1,6 +1,4 @@
-/** RV2 review, at the door that actually writes a row: does the obligation ladder's terminal rung survive
- *  `saveChangeProposal`, and does a half written new page survive being stored?
- *  Two synthetic accounts, unrelated subjects, through the REAL store over an in-memory Postgres. */
+/** RV2 review, at the door that actually writes a row: does the obligation ladder's terminal rung survive `saveChangeProposal`, and does a half written new page survive being stored? Two synthetic accounts, unrelated subjects, through the REAL store over an in-memory Postgres. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 const db = vi.hoisted(() => ({ state: { rows: [] as Record<string, unknown>[] }, client: {} as Record<string, unknown> }));
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client }));

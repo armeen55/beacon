@@ -1,18 +1,4 @@
-/** evidence/comparison - WHAT THE PAGES WINNING ONE SEARCH GROUP CARRY THAT THE OWNED PAGE DOES NOT, read off the
- *  winners' own words. This REPLACES the heading-label comparison that lived in snapshot.ts: that one held 20 headings
- *  and 12 entity names per winner, called a heading missing whenever no meaningful word of it appeared on the owned
- *  page, and could therefore only ever ask whether two labels matched. Three hub pages of the acceptance account were
- *  refused every drive under it while an 8,751 word roster and a 5,363 word guide sat banked for their exact searches.
- *
- *  ONE SEARCH GROUP, NOT ONE PHRASING: the diagnosis already groups every way a reader asks one thing, and the winners
- *  of every phrasing are read together, so a page that ranks under "boy farsi names" is compared for "farsi boy names"
- *  as well. PURE: no store, no clock, no model, no I/O. The paid confirmation is the caller's (decision/llm), and it
- *  may only ever narrow or extend what this pass already found in text it was shown.
- *
- *  A TRUNCATED CAPTURE IS UNKNOWN PAST THE CUT, NEVER EMPTY. `verdict` is the whole point of that distinction: a
- *  winner read whole that carries nothing this page lacks earns "nothing", and the refusal that names it is true; a
- *  winner cut at the ceiling, or never read at all, earns "unread", and no door may say the winners name nothing.
- */
+/** evidence/comparison - WHAT THE PAGES WINNING ONE SEARCH GROUP CARRY THAT THE OWNED PAGE DOES NOT, read off the winners' own words. This REPLACES the heading-label comparison that lived in snapshot.ts: that one held 20 headings and 12 entity names per winner, called a heading missing whenever no meaningful word of it appeared on the owned page, and could therefore only ever ask whether two labels matched. Three hub pages of the acceptance account were refused every drive under it while an 8,751 word roster and a 5,363 word guide sat banked for their exact searches. ONE SEARCH GROUP, NOT ONE PHRASING: the diagnosis already groups every way a reader asks one thing, and the winners of every phrasing are read together, so a page that ranks under "boy farsi names" is compared for "farsi boy names" as well. PURE: no store, no clock, no model, no I/O. The paid confirmation is the caller's (decision/llm), and it may only ever narrow or extend what this pass already found in text it was shown. A PARTIAL CAPTURE IS UNKNOWN PAST THE CUT, NEVER EMPTY. `verdict` is the whole point of that distinction: only a winner whose whole main text was read AND shown, and which carries nothing this page lacks, earns "nothing"; a winner cut at the ceiling, never read, or shown only its passages about this search earns "unread", and no door may then say the winners name nothing this page lacks. */
 import { createHash } from "node:crypto";
 import { classifyDomain, type CompetitorKind } from "./competitors/classify";
 import { canonicalQueryKey, FURNITURE_LABEL, topicTokens } from "./relevance-gate";
@@ -34,10 +20,9 @@ type ComparedWinner = {
   /** THE SHAPE OF ITS ANSWER, each part null where the read that banked it does not report that part: a provider parse of a rival's page carries its words and its tables and reports neither lists nor question entries, and "no lists" is a different claim from "nobody looked". AND WHETHER WHAT THIS WINNER NAMES IS ON FILE AT ALL: a provider read reports no entity list and a row banked before the field existed carries none, so an empty list would say "it names nothing this page lacks" off a reading that never looked, and unknown here can never earn the "nothing" verdict below. */ shape: { words: number; lists: boolean | null; tables: boolean | null; questions: number | null }; namesRead: boolean;
   /** THE WINNER'S OWN WORDS AS ONE READING GETS THEM, cut to READING_CHARS so three winners and the owned page fit inside one call. In memory only: what a row banks is the observations, never somebody else's page. */
   /** WHETHER THE WINNER'S OWN WORDS ARE ON FILE AT ALL. An extract banked before the content reading existed carries a title, a word count and the crawl's own heading list and NO main text, and every observation below is read off the main text, so a winner with no reading carries no candidate and may never earn "names". */ read: boolean; truncated: boolean; held: string;
+  /** Does `held` carry the winner's WHOLE main text? A selection cannot prove an absence, so a winner shown only in part never earns the "nothing" verdict and the brief says which passages were read. */ heldWhole: boolean;
   /** WHAT THIS READING IS OF, AS ONE STABLE KEY over the winner's WHOLE main text and not only the part shown
-   *  (campaign review, 2026-09-05). The confirming reading is cached on its own prompts, and the prompt carries
-   *  `held`, the first READING_CHARS; a winner that rewrote everything past that cut therefore re-served the earlier
-   *  answer for ever. The key moves whenever any word of the capture moves, so a changed page is a new reading and an
+   *  (campaign review, 2026-09-05), so a winner that rewrote everything past the cut is a new reading and an
    *  unchanged one is still never bought twice. */
   bodyKey: string;
   observations: ComparisonObservation[];
@@ -53,6 +38,20 @@ export type JobComparison = { queries: string[]; winners: ComparedWinner[]; keep
 const COVERAGE = 2 / 3, SAME_LEMMA = 6;
 /** HOW MUCH OF EACH WINNER ONE READING IS SHOWN. 4,000 characters is about 650 words a winner, so three winners and the owned page's own passages sit inside one call with room for the candidates, and a page longer than that was already marked cut by the capture. Stated once here and applied wherever a winner is handed to a reader. */
 const READING_CHARS = 4_000;
+/** WHAT THE CONFIRMING READING IS SHOWN, CHOSEN BY THE READER'S QUESTION AND NEVER BY THE PAGE'S OPENING (campaign,
+ *  2026-09-06). It was the first READING_CHARS of the main text, so on an 8,751 word roster the reading was handed a
+ *  navigation rail and a table of contents and not one line about the subject, and its "nothing" then stood as proof
+ *  the winner carried nothing. The sentences most about the search group ride instead, in document order; a body that
+ *  fits whole rides whole, and only that can ever earn "nothing". */
+const heldFor = (body: string, ask: ReadonlySet<string>): { held: string; whole: boolean } => {
+  if (body.length <= READING_CHARS) return { held: body, whole: true };
+  const parts = body.split(/(?<=[.!?])\s+/).map(tidy).filter(Boolean), keep = new Set<number>();
+  let room = READING_CHARS;
+  for (const x of parts.map((t, i) => ({ t, i, n: topicTokens(t).filter((w) => ask.has(w)).length })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n || a.i - b.i)) {
+    if (room < x.t.length + 1) continue;
+    keep.add(x.i); room -= x.t.length + 1; }
+  const held = parts.filter((_, i) => keep.has(i)).join(" ");
+  return { held: held || body.slice(0, READING_CHARS), whole: false }; };
 const MAX_WINNERS = 3, MAX_OBSERVATIONS = 6, QUOTE_CHARS = 160, MAX_KEEP = 4, KEEP_CHARS = 240;
 const said = (text: string): Set<string> => new Set(topicTokens(text));
 /** Does `text` carry this word, either exactly or as the same word wearing a different ending. */
@@ -116,21 +115,22 @@ export function jobComparison(research: Research, queries: readonly string[], ow
     if ((e.faqCount ?? 0) > 0 && asks.length > 0 && !owned.headings.some((h) => h.trim().endsWith("?")) && obs.length < MAX_OBSERVATIONS) {
       note(obs, host, { kind: "shape", text: `${host} answers as ${e.faqCount} question entries and this page carries none.`, quote: cut(tidy(asks[0]!), QUOTE_CHARS) });
     }
+    const shown = heldFor(body, askBag);
     winners.push({ url: w.url, publisher: host, publisherClass: classOf(research, host, ownedHost),
       shape: { words: e.wordCount, lists: e.hasList ?? null, tables: e.hasTable ?? null, questions: e.faqCount ?? null }, namesRead: e.entityNames != null,
-      read: reading, truncated: e.truncated === true, held: body.slice(0, READING_CHARS), bodyKey: keyOf(body), observations: obs.slice(0, MAX_OBSERVATIONS) });
+      read: reading, truncated: e.truncated === true, held: shown.held, heldWhole: shown.whole, bodyKey: keyOf(body), observations: obs.slice(0, MAX_OBSERVATIONS) });
   }
   return { queries: [...queries], winners, keep, verdict: verdictOf(winners) };
 }
 /** NOTHING IS A CLAIM AND UNKNOWN IS NOT. A winner cut at the comparison ceiling, or a winner with no body on file at
  *  all, cannot support "the stored winners name nothing this page lacks", so it never earns that sentence. */
 const verdictOf = (winners: readonly ComparedWinner[]): JobComparison["verdict"] =>
-  winners.some((w) => w.observations.length > 0) ? "names" : winners.length === 0 || winners.some((w) => !w.read || w.truncated || !w.namesRead) ? "unread" : "nothing";
+  winners.some((w) => w.observations.length > 0) ? "names" : winners.length === 0 || winners.some((w) => !w.read || w.truncated || !w.namesRead || !w.heldWhole) ? "unread" : "nothing";
 
 /** The comparison as the writer's briefing lines, one per winner, under the `rival-` ids no claim may ever cite. */
 export const comparisonLines = (c: JobComparison): string[] => c.winners.map((w) =>
   [`${w.publisher} is ${LABEL[w.publisherClass]} and answers this search in ${w.shape.words} words${(w.shape.questions ?? 0) > 0 ? ` across ${w.shape.questions} question entries` : ""} at ${w.url}.`,
-    !w.read ? "None of its own words are on file, so what it carries is unknown rather than absent." : w.truncated ? "Only the opening of it was captured, so what it carries past that is unknown rather than absent." : !w.namesRead ? "The read of it lists nothing it names, so the things it names are unknown rather than absent." : "",
+    !w.read ? "None of its own words are on file, so what it carries is unknown rather than absent." : w.truncated ? "Only the opening of it was captured, so what it carries past that is unknown rather than absent." : !w.namesRead ? "The read of it lists nothing it names, so the things it names are unknown rather than absent." : !w.heldWhole ? "Only its passages about this search were read, so what it carries elsewhere is unknown rather than absent." : "",
     ...w.observations.map((o) => `${o.text} Its own words: "${o.quote}"`)].filter(Boolean).join(" "));
 /** The eight classes in the words a reader uses, so a briefing line never prints a raw slug. */
 const LABEL: Readonly<Record<CompetitorKind, string>> = { commercial_competitor: "a business selling what this account sells", citation_authority: "a source assistants quote", publisher: "a publisher covering these topics", marketplace_directory: "a marketplace or directory", government_educational: "a government or school source", social_community: "a social platform", owned: "this account's own site", irrelevant_unknown: "a site whose part here is not settled" };

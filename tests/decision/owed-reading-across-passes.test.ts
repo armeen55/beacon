@@ -1,9 +1,4 @@
-/** A SETTLED ROW WHOSE WINNERS NOBODY HAS READ, on three consecutive passes with no new evidence, then on the
- *  pass after a drive reads them. THE REAL STORE (over an in-memory Postgres) INSIDE THE REAL PASS, so the
- *  ladder, the merge, the persistence door and the runtime's buying list are all asked at once. The last group
- *  of arms asks the one question the rest assume: can the reading the stamp names actually be bought, on the
- *  shape production carried at 09:03Z on 2026-09-06 (a results page on file for a SIBLING phrasing, its winner
- *  read whole, none for the row's own search). Two synthetic accounts with unrelated subjects. */
+/** A SETTLED ROW WHOSE WINNERS NOBODY HAS READ, on three consecutive passes with no new evidence, then on the pass after a drive reads them. THE REAL STORE (over an in-memory Postgres) INSIDE THE REAL PASS, so the ladder, the merge, the persistence door and the runtime's buying list are all asked at once. The last group of arms asks the one question the rest assume: can the reading the stamp names actually be bought, on the shape production carried at 09:03Z on 2026-09-06 (a results page on file for a SIBLING phrasing, its winner read whole, none for the row's own search). Two synthetic accounts with unrelated subjects. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
@@ -141,13 +136,7 @@ describe("the carry of the owed reading across a re-mint", () => {
   });
 });
 
-/** CAN THE READING THE STAMP NAMES ACTUALLY BE BOUGHT, and does the purchase discharge it? `winnersOnFile` was
- *  decided over the WHOLE group (the label and its vocabulary) while the reading it names and the stamp that
- *  discharges it were both asked of the label alone, so a group whose results page is on file under a SIBLING
- *  phrasing was stamped `unread`, owed the winners of a search no results page exists for, and could never be
- *  discharged: the winning-pages unit reads what a results page on file ranks, and nothing on file ranks for
- *  this query. All three doors ask the row's own search now, so this shape owes the results page it really
- *  lacks and the sibling's own winner read settles nothing for it. Driven through the REAL producer. */
+/** CAN THE READING THE STAMP NAMES ACTUALLY BE BOUGHT, and does the purchase discharge it? `winnersOnFile` was decided over the WHOLE group (the label and its vocabulary) while the reading it names and the stamp that discharges it were both asked of the label alone, so a group whose results page is on file under a SIBLING phrasing was stamped `unread`, owed the winners of a search no results page exists for, and could never be discharged: the winning-pages unit reads what a results page on file ranks, and nothing on file ranks for this query. All three doors ask the row's own search now, so this shape owes the results page it really lacks and the sibling's own winner read settles nothing for it. Driven through the REAL producer. */
 describe("the reading the unread rung names, against what is really on file", () => {
   const unit = (s: Site) => ({ label: s.q, vocabulary: [s.q, s.sibling], queries: [], pages: [`${s.t}.example${s.page}`],
     history: { earlyClicksPerDay: 4, recentClicksPerDay: 0.5, lostClicksPerMonth: 105, earlyImpressions: 5000, recentImpressions: 4800,
@@ -168,6 +157,16 @@ describe("the reading the unread rung names, against what is really on file", ()
     const minted = await mint(s, snap, sibSerp);
     expect(minted?.winnersOnFile, "no results page for this row's own search is on file, so nothing can read its winners yet").toBe("none");
   });
+
+  /** A WORD COUNT IS NOT A READING (campaign, 2026-09-06). The stamp asked whether a winner had a word count, and a winner banked before the content reading existed carries one with no words at all: the comparison can say nothing from it, so three hub rows on searches that ask nothing were stamped `read` and settled as if the pages winning them had been read and carried nothing. The stamp and the opportunity ladder read ONE definition now, so what a row says it is waiting on is what the walk would owe for the same evidence. */
+  it.each(SITES)("$t: a winner banked with a word count and no words is not a reading, and the ladder owes that reading", async (s) => {
+    const W = "https://rival-1.example/x", banked = (mainText: string | null) => [{ url: W, domain: "rival-1.example", engines: [], examplePrompts: [], appearances: [{ kind: "serp_organic", query: s.q, rank: 1, citedUrl: W, observedAt: "2026-09-05T00:00:00.000Z" }],
+      extract: { url: W, wordCount: 900, ...(mainText == null ? {} : { mainText }), truncated: false, fetchedAt: "2026-09-06T00:00:00.000Z" }, readOutcome: null }];
+    const stamp = async (pages: unknown[]) => (await mint(s, snapshot(s, s.q, pages), sibSerp))?.winnersOnFile ?? null;
+    const wordless = await mint(s, snapshot(s, s.q, banked(null)), sibSerp);
+    expect([await stamp(banked(null)), await stamp(banked("The winner's own words about this search.")), wordless ? nextObligation({ ...wordless, obligation: { kind: "terminal", reason: "no substantive gap named" } }) : null],
+      "a winner whose own words are not on file is unread whatever its word count, a winner whose words are on file is read, and the row stamped unread owes the winner read rather than a settlement nobody could have earned")
+      .toEqual(["unread", "read", { kind: "evidence", need: { kind: "competitor_page", query: s.q, reasonCode: "no_winner_to_read" } }]); });
 
   it.each(SITES)("$t: and the winner read that lands for the sibling never discharges it", async (s) => {
     const readSibling = [{ url: "https://rival-1.example/x", domain: "rival-1.example", engines: [], examplePrompts: [],

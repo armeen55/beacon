@@ -88,26 +88,31 @@ describe("the two-attempt stop, when one reading is owed by two rows", () => {
 
 /** THE BLOCK'S DOOR IS SKIPPED FOR AN OWED TURN ON THE PROMISE THAT EVERY ANSWER SENDS THE LOOP BACK, so a `failed`
  *  answer owes the walk exactly as a `waiting` one does, and the room the door asks for is the block's own. */
-describe("the walk the owed turn skipped", () => {
-  const drive = async (s: typeof SITES[number], unit: { status: "waiting" | "failed"; detail?: string }, deadlineMs = 260_000, owedTurn = true) => {
-    const rows = freshRepo(); rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: "serp_analysis",
-      progress: { plan: { units: ["replenish_ready", "plan_cases"] }, ...(owedTurn ? { waited: { phase: "serp_analysis" as const, drives: 1, unpaid: true } } : {}) } }));
-    let walks = 0, collects = 0;
-    await runResearchCycle(s.t, { now: () => new Date(NOW), deadlineMs, steps: { ...BENIGN,
-      dueWork: async () => ({ ...DUE, due: ["replenish_ready", "plan_cases"] }),
-      collectBought: async () => (collects += 1, { pending: 0, ready: 0 }),
-      funnelUnit: async () => ({ ...unit, cursor: { pending: 3 }, progress: {} }) as never,
-      replenishReady: async () => (walks += 1, { ready: 1, deficit: 0, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {}, evidenceOwed: [] as never }) } });
-    return { walks, collects, blocker: rows.at(-1)!.progress?.state?.blocker ?? null }; };
+/** ONE DRIVE THROUGH A PHASE WHOSE OWN STEP ANSWERS `unit`, and the ONE fixture every door arm below is measured on:
+ *  `owedTurn` is a drive that borrowed the phase's turn, `seed` is anything else the row carries, and `rows` continues
+ *  the account the drive before it left. Answers what ran, what the row says, and where the phase ended. */
+const CASES = ["replenish_ready", "plan_cases"] as const, CAP = "the spending cap ended paid research for today";
+const doorDrive = async (s: typeof SITES[number], unit: { status: string; detail?: string }, units: readonly string[], phase: RR.ResearchRun["current_phase"], owedTurn = true, deadlineMs = 260_000, o: { seed?: RR.ResearchRunProgress; rows?: RR.ResearchRun[] } = {}) => {
+  const rows = o.rows ?? freshRepo(); if (!o.rows) rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: phase,
+    progress: { plan: { units: [...units] as never }, ...(owedTurn ? { waited: { phase: phase as never, drives: 1, unpaid: true } } : {}), ...(o.seed ?? {}) } }));
+  let walks = 0, units_ = 0, collects = 0;
+  await runResearchCycle(s.t, { now: () => new Date(NOW), deadlineMs, steps: { ...BENIGN,
+    dueWork: async () => ({ ...DUE, due: [...units] as never }),
+    dayStanding: async () => NO_CHECKS,
+    collectBought: async () => (collects += 1, { pending: 0, ready: 0 }),
+    funnelUnit: async () => (units_ += 1, { ...unit, cursor: { at: units_ }, progress: {} }) as never,
+    replenishReady: async () => (walks += 1, { ready: 1, deficit: 0, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {}, evidenceOwed: [] as never }) } });
+  const r = rows.at(-1)!; return { walks, collects, units: units_, rows, blocker: r.progress?.state?.blocker ?? null, phase: r.current_phase, status: r.status }; };
 
+describe("the walk the owed turn skipped", () => {
   it.each(SITES)("$t: an answer that did not finish, failed as much as waiting, sends the loop back for the walk its own turn skipped, and the row keeps the step's own reason", async (s) => {
-    const waited = await drive(s, { status: "waiting" }), failed = await drive(s, { status: "failed", detail: "the results-page provider refused" });
+    const waited = await doorDrive(s, { status: "waiting" }, CASES, "serp_analysis"), failed = await doorDrive(s, { status: "failed", detail: "the results-page provider refused" }, CASES, "serp_analysis");
     expect([waited.walks, failed.walks, failed.blocker], "the block is skipped for the phase's own turn on the promise that every answer sends the loop back through it, so a drive that spent its turn on a step that failed still prepares finished changes, and the row still carries the step's own reason")
       .toEqual([1, 1, "the results-page provider refused"]);
   });
 
   it.each(SITES)("$t: the door in front of the block asks the block's own question about room, and still says what the walk could not start", async (s) => {
-    const owed = await drive(s, { status: "waiting" }, 100_000, true), plain = await drive(s, { status: "waiting" }, 100_000, false);
+    const owed = await doorDrive(s, { status: "waiting" }, CASES, "serp_analysis", true, 100_000), plain = await doorDrive(s, { status: "waiting" }, CASES, "serp_analysis", false, 100_000);
     expect([owed.walks, owed.collects, plain.walks, plain.collects], "the block asks for its 45-second minimum and the door in front of it asks the same question, so at 100 seconds the same drive runs the walk's free half and the free collection of results pages already bought whether or not a turn was owed on it")
       .toEqual([plain.walks, plain.collects, 1, 1]);
     expect(owed.blocker, "and the row still says what could not be STARTED on this drive, which is what round nine promised and what `noRoom` inside the walk then enforces").toContain("Preparing more finished changes needs 110 seconds");
@@ -300,14 +305,14 @@ describe("the pre-walk and the post-walk loop on one drive", () => {
       .toEqual([1, 1, "w1", [1]]);
   });
 
-  it.each(SITES)("$t: the eight slots behind the walk are not spent re-serving readings the loop in front of it already bought", async (s) => {
+  it.each(SITES)("$t: every owed reading is bought once in front of the walk, and the loop behind it re-serves them from this drive's own memory rather than paying again", async (s) => {
     const need = (n: number): Owed => ({ key: `${s.url}::n${n}`, kind: "factual_source", query: `${s.topic} ${n}`, url: `${s.url}/${n}`, rank: n,
       reasonCode: "acquire_factual_source", reason: "owed", workKey: `w${n}`, missingTopic: `${s.topic} ${n}` });
     const nine = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(need);
     const one = await oneDrive(s, nine, nine);
     const bought = new Set((one.progress.acquisitions ?? []).filter((a) => a.outcome === "not_read").map((a) => a.key));
-    expect([one.asked, bought.has(`${s.url}::n9`)], "MEASURED, not endorsed: the post-walk filter asks boughtOn and spentOn and never asks whether THIS drive already bought the reading, so a drive whose eight pre-walk purchases all failed spends all eight of the slots behind the walk re-serving them from memory and the ninth owed reading is not bought at all today")
-      .toEqual([8, false]);
+    expect([one.asked, bought.has(`${s.url}::n9`)], "nine owed readings leave the process nine times and no more: the loop in front of the walk has no cap of its own, so the ninth is bought on the same drive as the first instead of waiting for tomorrow, and the loop behind the walk reads this drive's own answers for it")
+      .toEqual([9, true]);
   });
 });
 
@@ -347,17 +352,6 @@ describe("the bought-readings map across a drive boundary", () => {
 });
 
 /** 1d. THE ONE DOOR. Every answer the phase's own step can give has to send the loop back through the block its turn skipped. */
-const doorDrive = async (s: typeof SITES[number], unit: { status: string; detail?: string }, units: readonly string[], phase: RR.ResearchRun["current_phase"], owedTurn = true, deadlineMs = 260_000) => {
-  const rows = freshRepo(); rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: phase,
-    progress: { plan: { units: [...units] as never }, ...(owedTurn ? { waited: { phase: phase as never, drives: 1, unpaid: true } } : {}) } }));
-  let walks = 0, units_ = 0;
-  await runResearchCycle(s.t, { now: () => new Date(NOW), deadlineMs, steps: { ...BENIGN,
-    dueWork: async () => ({ ...DUE, due: [...units] as never }),
-    dayStanding: async () => NO_CHECKS,
-    funnelUnit: async () => (units_ += 1, { ...unit, cursor: { at: units_ }, progress: {} }) as never,
-    replenishReady: async () => (walks += 1, { ready: 1, deficit: 0, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {}, evidenceOwed: [] as never }) } });
-  return { walks, units: units_, phase: rows.at(-1)!.current_phase, status: rows.at(-1)!.status }; };
-
 describe("the door in front of the block, on the last phase the plan allows", () => {
   it.each(SITES)("$t: a done answer on the last funnel phase still owes this drive its walk, exactly once", async (s) => {
     const done = await doorDrive(s, { status: "done" }, ["replenish_ready", "read_winner_pages"], "winning_pages");
@@ -433,53 +427,138 @@ describe("the answers that leave the phase through a yield", () => {
   });
 });
 
+/** AND THE ROW SAYS WHAT REALLY STOPPED THE STEP WHILE THAT WALK RUNS (reviewer, 2026-09-06). The walk's own "nothing was
+ *  started for it" sentence was written over the step's reason at all four of those exits, on the very drives the walk
+ *  then ran on, so the operator was told a false thing twice over: the money door, not the walk, is what ended the step. */
+describe("the sentence the row carries when the walk door holds a yield back", () => {
+  it.each(SITES)("$t: a step that took the drive's turn and hit the spending cap still says the spending cap stopped it", async (s) => {
+    const owed = await doorDrive(s, { status: "failed", detail: CAP }, CASES, "serp_analysis", true, 100_000);
+    const plain = await doorDrive(s, { status: "failed", detail: CAP }, CASES, "serp_analysis", false, 100_000);
+    expect([owed.walks, plain.walks], "both drives prepare finished changes, which is what round thirteen bought").toEqual([1, 1]);
+    expect([plain.blocker, owed.blocker], "the drive that borrowed the phase's turn is told the same thing about the same event: the money door stopped paid research, not that the walk was never started")
+      .toEqual([CAP, CAP]);
+  });
+
+  it.each(SITES)("$t: an unreadable observation lane keeps its own sentence too", async (s) => {
+    const owed = await doorDrive(s, { status: "failed", detail: "the question list could not be read" }, ["replenish_ready", "daily_observations"], "prompt_observations", true, 100_000);
+    expect([owed.walks, owed.blocker], "the lane files as unreadable in its own words and the walk still runs behind it")
+      .toEqual([1, "the question list could not be read"]);
+  });
+});
+
+/** AND THE DOOR HOLDS ONE PHASE BACK ONCE AND NEVER TWICE: it answers the same phase, the loop re-enters the stock-first
+ *  block whose mark the step's own turn dropped, and the pause behind that block ends the drive, so the yield itself
+ *  happens on the next drive, where no turn is owed and paid evidence really does end for the day. */
+describe("how many times the door can hold one phase", () => {
+  it.each(SITES)("$t: the phase yields no more than once on the drive that borrowed its turn, and is left on the next one", async (s) => {
+    const one = await doorDrive(s, { status: "failed", detail: CAP }, CASES, "serp_analysis", true, 100_000);
+    const two = await doorDrive(s, { status: "failed", detail: CAP }, CASES, "serp_analysis", true, 100_000, { rows: one.rows });
+    expect([one.units, one.walks, one.phase, one.status], "the drive that owed its walk runs the step once, walks once and stands still")
+      .toEqual([1, 1, "serp_analysis", "paused"]);
+    expect([two.units, two.walks, two.phase], "and the drive behind it, owing no turn, walks first and then leaves the phase, so paid evidence really does end for the day one drive later")
+      .toEqual([1, 1, "done"]);
+  });
+
+  it.each(SITES)("$t: a turn borrowed where nothing is left to walk leaves the phase at once", async (s) => {
+    const closed = { replenish: { day: ckey(s.t, NOW).slice(-10), jobs: {}, closed: "candidates_exhausted" as const } } as RR.ResearchRunProgress;
+    const out = await doorDrive(s, { status: "failed", detail: CAP }, CASES, "serp_analysis", true, 100_000, { seed: closed });
+    expect([out.walks, out.phase], "the door's first question is whether the stock is still owed, so a day closed on its own exhaustion makes it inert and the yield is immediate")
+      .toEqual([0, "done"]);
+  });
+});
+
 /** A RESULTS PAGE IS CHARGED AT THE POST AND COLLECTED WITH A FREE FOLLOW-UP, so the drive that collects one spends
  *  nothing on it. Counted as a purchase, one page took the one reading a drive may buy out of the ranking's order on
  *  the drive that posted it AND on the drive that collected it (production run p3, 2026-09-06: rank 30 posted 16:00Z,
  *  collected 16:30Z, the rank-57 hub need deferred by the same sentence both times). Every drive below has its clock
  *  spent by the walk, so what the loop AHEAD of the walk decided is the whole of what the drive bought. */
-describe("a results page posted on one drive and collected on the next", () => {
-  const head = (s: typeof SITES[number]): Owed => ({ key: `${s.url}::head`, kind: "serp", query: s.topic, rank: 30, reasonCode: "no_exact_serp", reason: "owed", workKey: "w-head" });
-  const behind = (s: typeof SITES[number]): Owed => ({ key: `${s.url}::behind`, kind: "serp", query: `${s.topic} hub`, rank: 57, reasonCode: "no_exact_serp", reason: "owed", workKey: "w-behind" });
-  // the last walk filed a reached receipt for both rows, so the gap the head of this order leaves may be crossed once
-  const outcomes = (s: typeof SITES[number]) => ({ readySaved: 0, evidenceBanked: 0, refused: 0, blocked: 0, unreached: 0, stuck: [],
-    receipts: [head(s), behind(s)].map((n) => ({ key: n.key, outcome: "prepared", providerCalls: 1 })) });
-  const DAY = new Date(NOW).toISOString().slice(0, 10);
-  const drive = async (s: typeof SITES[number], seeded: readonly Owed[], answer: (n: Owed) => { acquired: boolean; posted?: boolean; detail: string }) => {
-    const rows = freshRepo(); let at = NOW;
-    rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: "fact_check",
-      progress: { plan: { units: ["replenish_ready", "check_page_facts"] }, evidenceOwed: [...seeded], replenish: { day: DAY, jobs: {}, outcomes: outcomes(s) } as never } }));
-    const asked: string[] = [];
-    await runResearchCycle(s.t, { now: () => new Date(at), deadlineMs: 260_000, steps: { ...BENIGN,
-      dueWork: async () => ({ ...DUE, due: ["replenish_ready", "check_page_facts"] }),
-      acquireEvidence: async (_t, n) => (asked.push((n as Owed).key), answer(n as Owed)),
-      replenishReady: async () => (at += 210_000, { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {},
-        evidenceOwed: [head(s), behind(s)] as never, outcomes: outcomes(s) as never }) } });
-    const progress = rows.at(-1)!.progress ?? {};
-    return { asked, owed: progress.evidenceOwed ?? [], deferred: (progress.acquisitions ?? []).filter((a) => a.outcome === "deferred").map((a) => a.key) }; };
-  /** The head answers `waiting`, which is the post; everything else refuses in the ordinary way, so the post is the only variable. */
-  const posts = (s: typeof SITES[number]) => (n: Owed) => n.key === head(s).key
-    ? { acquired: false, posted: true, detail: `results page for "${s.topic}": waiting` }
-    : { acquired: false, detail: "the results-page provider refused" };
+type Answer = { acquired: boolean; posted?: boolean; detail: string };
+const serpNeed = (s: typeof SITES[number], suffix: string, work: string, rank: number, over: Partial<Owed> = {}): Owed => ({ key: `${s.url}::${suffix}`, kind: "serp", query: `${s.topic} ${suffix}`, rank, reasonCode: "no_exact_serp", reason: "owed", workKey: work, ...over });
+const head = (s: typeof SITES[number]): Owed => serpNeed(s, "head", "w-head", 30, { query: s.topic }), behind = (s: typeof SITES[number]): Owed => serpNeed(s, "behind", "w-behind", 57, { query: `${s.topic} hub` });
+// the last walk filed a reached receipt for both rows, so the gap the head of this order leaves may be crossed once
+const outcomes = (s: typeof SITES[number]) => ({ readySaved: 0, evidenceBanked: 0, refused: 0, blocked: 0, unreached: 0, stuck: [],
+  receipts: [head(s), behind(s)].map((n) => ({ key: n.key, outcome: "prepared", providerCalls: 1 })) });
+const DAY = new Date(NOW).toISOString().slice(0, 10), YESTERDAY = new Date(NOW - 86_400_000).toISOString().slice(0, 10);
+/** ONE DRIVE AT THE FACT CHECK. `walked` is the list the walk hands back, `spendMs` what the walk takes off the clock,
+ *  and `deadlineMs` decides which of the two purchase loops gets to spend, because the loop in front of the walk stops
+ *  under the box the walk begins a job in. */
+const postDrive = async (s: typeof SITES[number], seeded: readonly Owed[], answer: (n: Owed) => Answer, o: { walked?: readonly Owed[]; deadlineMs?: number; spendMs?: number } = {}) => {
+  const rows = freshRepo(); let at = NOW;
+  rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: "fact_check",
+    progress: { plan: { units: ["replenish_ready", "check_page_facts"] }, evidenceOwed: [...seeded], replenish: { day: DAY, jobs: {}, outcomes: outcomes(s) } as never } }));
+  const asked: string[] = [];
+  await runResearchCycle(s.t, { now: () => new Date(at), deadlineMs: o.deadlineMs ?? 260_000, steps: { ...BENIGN,
+    dueWork: async () => ({ ...DUE, due: ["replenish_ready", "check_page_facts"] }),
+    acquireEvidence: async (_t, n) => (asked.push((n as Owed).key), answer(n as Owed)),
+    replenishReady: async () => (at += o.spendMs ?? 210_000, { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {},
+      evidenceOwed: [...(o.walked ?? [head(s), behind(s)])] as never, outcomes: outcomes(s) as never }) } });
+  const progress = rows.at(-1)!.progress ?? {};
+  return { asked, owed: progress.evidenceOwed ?? [], deferred: (progress.acquisitions ?? []).filter((a) => a.outcome === "deferred").map((a) => a.key) }; };
+/** The head answers `waiting`, which is the post; everything else refuses in the ordinary way, so the post is the only variable. */
+const posts = (s: typeof SITES[number]) => (n: Owed): Answer => n.key === head(s).key
+  ? { acquired: false, posted: true, detail: `results page for "${s.topic}": waiting` }
+  : { acquired: false, detail: "the results-page provider refused" };
 
-  it.each(SITES)("$t: the drive that collects a page it posted earlier still buys the next need across the gap", async (s) => {
-    const one = await drive(s, [head(s), behind(s)], posts(s));
-    const two = await drive(s, one.owed, (n) => n.key === head(s).key ? { acquired: true, detail: `results page for "${s.topic}": done` } : posts(s)(n));
+describe("a results page posted on one drive and collected on the next", () => {
+  it.each(SITES)("$t: the page is posted and the need behind it is bought on the same drive, and the collection that finishes the page costs neither money nor a turn", async (s) => {
+    const one = await postDrive(s, [head(s), behind(s)], posts(s));
+    const two = await postDrive(s, one.owed, (n) => n.key === head(s).key ? { acquired: true, detail: `results page for "${s.topic}": done` } : posts(s)(n));
     const stamped = one.owed.find((n) => n.key === head(s).key);
     expect([one.asked, one.deferred, stamped?.postedOn, stamped?.boughtOn ?? null],
-      "the post is stamped as a post and never as a buy, because a page that has landed is held back for the rest of the day and a posted one has to stay buyable; the need behind it is deferred because this drive really did spend its one purchase across the gap")
-      .toEqual([[head(s).key], [behind(s).key], DAY, null]);
+      "the post is stamped as a post and never as a buy, because a page that has landed is held back for the rest of the day and a posted one has to stay buyable; and the need behind it is bought on the very drive that posted the page, because no cap holds it back any more")
+      .toEqual([[head(s).key, behind(s).key], [], DAY, null]);
     expect([two.asked, two.deferred],
-      "the collection is the free follow-up on money already spent, so it takes none of the allowance and the hub need behind it is bought on the same drive instead of waiting another half hour")
+      "the collection is the free follow-up on money already spent, and the need behind it is served again on the same drive: two results pages take one drive between them rather than one drive each")
       .toEqual([[head(s).key, behind(s).key], []]);
   });
 
   it.each(SITES)("$t: a posted page that never lands still spends after two attempts", async (s) => {
-    const one = await drive(s, [head(s), behind(s)], posts(s));
-    const two = await drive(s, one.owed, posts(s));
-    const three = await drive(s, two.owed, posts(s));
+    const one = await postDrive(s, [head(s), behind(s)], posts(s));
+    const two = await postDrive(s, one.owed, posts(s));
+    const three = await postDrive(s, two.owed, posts(s));
     expect([one.asked, two.asked, three.asked, three.owed.find((n) => n.key === head(s).key)?.tried?.count],
-      "posting counts an attempt and the collection that answered nothing counts the second, so the page stops being bought on the third drive while the need behind it keeps its turn")
-      .toEqual([[head(s).key], [head(s).key, behind(s).key], [behind(s).key], 2]);
+      "posting counts an attempt and the collection that answered nothing counts the second, so both readings stop being bought on the third drive: the two-attempt stop is what bounds a page that never lands, and it is untouched by the loop losing its cap")
+      .toEqual([[head(s).key, behind(s).key], [head(s).key, behind(s).key], [], 2]);
+  });
+});
+
+/** THE STAMP IS THE READING'S AND NOT THE ROW'S, so every row owing the reading one post was made for carries it, and
+ *  the buy stamp lands beside it when the page finally does. They cannot disagree: the loop asks the buy stamp first. */
+describe("the stamp on the rows one post also serves", () => {
+  it.each(SITES)("$t: a row served by another row's post carries the stamp, and keeps it beside the buy stamp once the page lands", async (s) => {
+    const first = serpNeed(s, "shared", "w-head", 1), sibling = serpNeed(s, "shared-b", "w-sib", 2, { query: `${s.topic} shared` });
+    const answer = (n: Owed): Answer => n.key === first.key ? { acquired: false, posted: true, detail: "waiting" } : { acquired: false, detail: "the results-page provider refused" };
+    const one = await postDrive(s, [first, sibling], answer, { walked: [first, sibling] });
+    const two = await postDrive(s, one.owed, (n) => n.key === first.key ? { acquired: true, detail: "done" } : answer(n), { walked: one.owed });
+    const sib1 = one.owed.find((n) => n.key === sibling.key), sib2 = two.owed.find((n) => n.key === sibling.key);
+    expect([one.asked, sib1?.postedOn ?? null], "the post is one purchase for the reading, and every row owing that reading is stamped as posted by it")
+      .toEqual([[first.key], DAY]);
+    expect([sib2?.boughtOn ?? null, sib2?.postedOn ?? null], "and when the page lands, the row served by it carries both stamps at once; they do not disagree, because the loop asks the buy stamp first and skips the row for the rest of the day")
+      .toEqual([DAY, DAY]);
+  });
+});
+
+/** AND THE STAMP IS THE DAY'S. Yesterday's post is not cleared off the row and is not read as today's either, so the
+ *  reading it names still costs this day the one purchase the ranking's order allows. */
+describe("the stamp when the day turns", () => {
+  it.each(SITES)("$t: a post stamped yesterday is not cleared, and does not spend today's allowance for free", async (s) => {
+    const stale = serpNeed(s, "stale", "w1", 1, { postedOn: YESTERDAY }), later = behind(s);
+    const seeded = [stale, later];
+    const out = await postDrive(s, seeded, () => ({ acquired: false, detail: "the results-page provider refused" }), { walked: seeded });
+    expect([out.asked, out.deferred, out.owed.find((n) => n.key === stale.key)?.postedOn], "yesterday's stamp is not today's, so the reading is bought again today at its own rank and the need behind it is bought beside it; the stale value itself stays on the row untouched, because a stamp is a fact about the day it was written on")
+      .toEqual([[stale.key, later.key], [], YESTERDAY]);
+  });
+});
+
+/** AND THE LOOP BEHIND THE WALK DOES NOT ASK THE POST STAMP AT ALL (RV7 finding 1, measured and not endorsed): it
+ *  filters on the buy stamp alone, so a free collection takes one of the eight slots there where in front of the walk
+ *  it takes none. It costs one drive of latency and never money; the clause that would close it is `n.postedOn !== day`. */
+describe("the loop behind the walk, on a drive the loop in front of it could not spend", () => {
+  it.each(SITES)("$t: MEASURED: a page already posted today takes one of the eight slots behind the walk, where in front of it it takes none", async (s) => {
+    const nine = Array.from({ length: 9 }, (_, i) => serpNeed(s, `n${i}`, `w${i}`, i + 1, i === 0 ? { postedOn: DAY } : {}));
+    const out = await postDrive(s, nine, () => ({ acquired: false, detail: "the results-page provider refused" }), { walked: nine, deadlineMs: 120_000, spendMs: 0 });
+    expect([out.asked.length, out.asked.includes(nine[0]!.key), out.asked.includes(nine[8]!.key)],
+      "the loop in front of the walk had no room and deferred, so these eight are the loop behind it; it filters on the buy stamp alone, so the free collection of a page posted earlier today consumes a slot and the ninth owed reading is not bought at all")
+      .toEqual([8, true, false]);
   });
 });

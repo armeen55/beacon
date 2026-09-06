@@ -1,7 +1,4 @@
-/** RV2 review: a settled row whose winners nobody has read, driven through the REAL pass, on two synthetic
- *  accounts with unrelated subjects. The row's own results page IS on file (that is what "unread" means:
- *  a results page bought for the group, nothing read off it), which is the production shape B5's due-work
- *  change is about. What the pass writes onto the row, and what reaches the runtime's buying list, is asked here. */
+/** RV2 review: a settled row whose winners nobody has read, driven through the REAL pass, on two synthetic accounts with unrelated subjects. The row's own results page IS on file (that is what "unread" means: a results page bought for the group, nothing read off it), which is the production shape B5's due-work change is about. What the pass writes onto the row, and what reaches the runtime's buying list, is asked here. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";

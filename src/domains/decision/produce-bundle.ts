@@ -14,7 +14,7 @@ import type { DecidedTopic } from "./coverage-pass";
 import type { WinningPattern } from "./winning-pattern";
 import { CORE_PRODUCERS } from "./producers/core"; import { produceFullRewriteRecommendation } from "./producers/extended"; import { effortMinutesFor, fieldForComponent, type EvidenceRequirement, type ProducerCtx, type ProducerDraft } from "./producers/contract";
 import type { ProposeOptions } from "./propose"; import { receiptIntegrityFailures, validateProposal } from "./validate-proposal";
-import { anchoredTopicMatch, canonicalQueryKey, templateHeadings, topicTokens, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import { demandUnitsOf } from "@/domains/evidence/demand-units"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
+import { anchoredTopicMatch, canonicalQueryKey, isNoiseDomain, templateHeadings, topicTokens, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import { demandUnitsOf } from "@/domains/evidence/demand-units"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { answerIntelFacts, answerIntelOf } from "@/domains/evidence/answer-intel";
 import { biggerSearchesLine } from "./suggested-edits"; import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split"; import { actionFamilyOf } from "./proposal-store"; import { draftFieldForPage } from "./drafted-copy";
 
@@ -167,10 +167,10 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   // WHO IS ABOVE THIS PAGE ON THAT RESULTS PAGE, in rank order, each joined to its own read where one exists. A
   // page with no read carries nulls rather than being dropped, because the hole IS the finding a fall needs.
   const extracts = new Map(read.map((w) => [canonicalUrlKey(w.url), w.extract!] as const));
-  // A PUBLISHER'S FINAL NO IS A FACT ABOUT THE HOLE, carried so no producer requires a reading that can never be made: reddit at position 2 is robots-blocked, and without this flag the requirement mint named it on every pass forever.
+  // WHAT CAN NEVER BE READ IS NOT A HOLE ANY DOOR MAY DEMAND, and ONE predicate says which pages those are. A publisher's robots refusal was the only reason carried here, while `isNoiseDomain`, the reading reserve's own rule (funnel/normalize: the case reserve, the global fill and the owed-read promise all refuse a social, forum or marketplace host by it), marked nothing at all: www.reddit.com at position 4 was demanded by the requirement mint on every drive and taken by the reader on none, and three hub pages of this account stalled on that pair of rules for six drives running. The reserve and the door read one definition now, and the reason is typed onto the winner rather than guessed from a sentence.
   const finalNo = new Set((research?.winningPages ?? []).filter((w) => !w.extract && w.readOutcome?.state === "robots_blocked").map((w) => canonicalUrlKey(w.url)));
   const ahead: Receipt["ahead"] = [...(serps[0]?.organic ?? [])].sort((a, b) => a.rank - b.rank).filter((o) => owned == null || o.rank < owned.rank).slice(0, MAX_AHEAD)
-    .map((o) => { const x = extracts.get(canonicalUrlKey(o.url)); return { url: o.url, domain: o.domain, rank: o.rank, wordCount: x?.wordCount ?? null, headings: [...(x?.headings ?? [])], openingSample: x?.openingSample ?? null, ...(finalNo.has(canonicalUrlKey(o.url)) ? { unreadable: true } : {}) }; });
+    .map((o) => { const x = extracts.get(canonicalUrlKey(o.url)), no: Receipt["ahead"][number]["unreadable"] = isNoiseDomain(o.url) ? "never_read" : finalNo.has(canonicalUrlKey(o.url)) ? "publisher_refused" : undefined; return { url: o.url, domain: o.domain, rank: o.rank, wordCount: x?.wordCount ?? null, headings: [...(x?.headings ?? [])], openingSample: x?.openingSample ?? null, ...(no ? { unreadable: no } : {}) }; });
 
   const links = [...snapshot.internalLinkOpportunities].filter((l) => l.fromUrl === page.url && onTopic(l.anchor)).sort((a, b) => byText(a.toUrl, b.toUrl)).slice(0, 3);
 
