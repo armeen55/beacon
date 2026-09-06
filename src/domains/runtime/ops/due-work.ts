@@ -1,24 +1,13 @@
 import "server-only";
 
-/**
- * due-work (V1 Truth Convergence Phase 5, 2026-07-31) - WHAT IS GENUINELY OWED RIGHT NOW, computed from PERSISTED state only. A day is not a unit of
- * work; owed work is. Every answer comes off rows already on file, never a lease, a timer, or a memory of what this process did, so it is the same for
- * every request, every instance, every tab, and for the daily scheduler as for a visit.
- *
- * FIVE SEPARATE CONCEPTS, deliberately not collapsed into one "is it fresh" test, because conflating them is what produced both the same-day stall and
- * the repeat spending. (1) DAILY OBSERVATION ELIGIBILITY: one canonical reading per question, per engine, per reporting day, plus explicitly granted
- * extras, owned by the existing planner. (2) EVIDENCE FRESHNESS: a connected source past its sync SLA, and research notes that moved since the last
- * decide pass (the basis and row-version watermark). (3) CASE LIVENESS: is there a frozen plan at all, and is it bound to the basis this account holds
- * NOW, because a plan frozen under a dead basis is not work but debris. (4) BOUNDED ATTEMPTS: what this account already spent its one-per-day allowance
- * on, in day-scoped markers that clear by rollover instead of by a cleanup pass nobody runs. (5) EXTERNAL WAITS: a retry date I promised, which is NEVER
- * due work but the reason nothing is due, carrying the date I said I would try again.
- *
- * FAIL POSTURE. `readable` false means I could not judge, and EVERY read this answer leans on must come back for it to be true. The two callers fall
- * opposite ways on purpose: starting an EXTRA same-day pass requires a positive due signal (fail closed, so an unreadable state never re-spends), while
- * finishing a run early requires a positive EMPTY signal (fail open, so an unreadable state never stalls the research).
- */
+/** due-work (V1 Truth Convergence Phase 5, 2026-07-31) - WHAT IS GENUINELY OWED RIGHT NOW, computed from PERSISTED state only. A day is not a unit of work; owed work is. Every answer comes off rows already on file, never a lease, a timer, or a memory of what this process did, so it is the same for every request, every instance, every tab, and for the daily scheduler as for a visit.
+ *  FIVE SEPARATE CONCEPTS, deliberately not collapsed into one "is it fresh" test, because conflating them is what produced both the same-day stall and the repeat spending. (1) DAILY OBSERVATION ELIGIBILITY: one canonical reading per question, per engine, per reporting day, plus explicitly granted extras, owned by the existing planner. (2) EVIDENCE FRESHNESS: a connected source past its sync SLA, and research notes that moved since the last decide pass (the basis and row-version watermark). (3) CASE LIVENESS: is there a frozen plan at all, and is it bound to the basis this account holds NOW, because a plan frozen under a dead basis is not work but debris. (4) BOUNDED ATTEMPTS: what this account already spent its one-per-day allowance on, in day-scoped markers that clear by rollover instead of by a cleanup pass nobody runs. (5) EXTERNAL WAITS: a retry date I promised, which is NEVER due work but the reason nothing is due, carrying the date I said I would try again.
+ *  FAIL POSTURE. `readable` false means I could not judge, and EVERY read this answer leans on must come back for it to be true. The two callers fall opposite ways on purpose: starting an EXTRA same-day pass requires a positive due signal (fail closed, so an unreadable state never re-spends), while finishing a run early requires a positive EMPTY signal (fail open, so an unreadable state never stalls the research). */
 
 import { basisTag, getTenant, loadBusinessProfile } from "@/domains/account";
+import { isOwnPage } from "@/domains/evidence/funnel/normalize";
+import { isNoiseDomain } from "@/domains/evidence/relevance-gate";
+import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { getConnectorInfo } from "@/lib/connector-store";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
@@ -62,20 +51,16 @@ export type DueWork = {
   /** The research notes' current row version for the account's basis, or null when unreadable. The pass that decides off these notes stamps this as its
    * watermark, which is what lets the NEXT pass tell new evidence from a repeat of the same question. */
   evidenceVersion: number | null;
-  /** THE PAGES THAT WIN THIS ACCOUNT'S SEARCHES AND HAVE NEVER BEEN READ AS PAGES: the count that makes the read owed, carried on the receipt so a surface can say WHY a pass opened. Null = the research document could not be read, which is unknown and never a truthful zero. */
-  winners: { unread: number | null };
+  /** THE PAGES THAT WIN THIS ACCOUNT'S SEARCHES AND HAVE NEVER BEEN READ AS PAGES: `unread` is the winners on file carrying no reading, `unranked` the pages of a search this account paid for that nothing has ranked yet, and either one makes the read owed. Carried on the receipt so a surface can say WHY a pass opened. Null = the research document could not be read, which is unknown and never a truthful zero. */
+  winners: { unread: number | null; unranked: number | null };
 };
 
 /** Nothing owed and nothing landed: the shape every fail-soft answer falls back to. */
 const NO_CHECKS = { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0 } as const;
 
-/** WHAT A STALE SOURCE MAY OPEN A PASS ON ITS OWN. Search Console alone: it is the only source a change is ever argued from. GA4 and Clarity are MODIFIERS
- *  reporting what people did once they had already arrived, and letting either open work by itself woke the whole run for a number no decision rests on.
- *  The refresh step still pulls EVERY connected source whenever a pass runs for any other reason, so nothing goes unrefreshed. Only the trigger narrows. */
+/** WHAT A STALE SOURCE MAY OPEN A PASS ON ITS OWN. Search Console alone: it is the only source a change is ever argued from. GA4 and Clarity are MODIFIERS  reporting what people did once they had already arrived, and letting either open work by itself woke the whole run for a number no decision rests on.  The refresh step still pulls EVERY connected source whenever a pass runs for any other reason, so nothing goes unrefreshed. Only the trigger narrows. */
 const DUE_TRIGGER_PROVIDERS = ["google_gsc"] as const;
-/** How many reporting days back the recent unread-answer probe looks, held identical to answer-readback's own window (the probe opens the pass, the
- *  readback reads one day of it). Older debt is ONE indexed existence read over everything before that window, so an account whose only debt is old
- *  still opens the pass that drains it on every probe, not one hour in twenty-six. */
+/** How many reporting days back the recent unread-answer probe looks, held identical to answer-readback's own window (the probe opens the pass, the  readback reads one day of it). Older debt is ONE indexed existence read over everything before that window, so an account whose only debt is old  still opens the pass that drains it on every probe, not one hour in twenty-six. */
 const UNREAD_WINDOW_DAYS = 7;
 
 /** The account's CURRENT onboarding basis: the one fingerprint every derived read and write
@@ -148,13 +133,7 @@ async function answersAwaitAnalysis(tenantId: string, fromDay: string, toDay: st
   return (await readAiObservations(tenantId, { fromDay, toDay, projection: "outcome", unreadOnly: true, limit: 1 })).length > 0;
 }
 
-/** THE CANONICAL SETTLED-ANALYSIS FINGERPRINT RIGHT NOW, computed over EXACTLY the rows the harvest consumes:
- *  the stamps come from the same paged walk the canonical loader itself runs (same scope, same latest-per-pair
- *  rule, same page ceiling and early stop), so the fingerprint and the harvest's watermark are incapable of
- *  reading different windows; a one-page copy of that walk lived here once and disagreed forever the moment a
- *  pair's newest answer sat past the first page, which re-opened paid discovery on every probe. null = this
- *  account has no canonical answer at all, which is nothing to consume and therefore never a debt. A read that
- *  FAILED throws, so this leg goes unreadable rather than inventing quiet. */
+/** THE CANONICAL SETTLED-ANALYSIS FINGERPRINT RIGHT NOW, computed over EXACTLY the rows the harvest consumes:  the stamps come from the same paged walk the canonical loader itself runs (same scope, same latest-per-pair  rule, same page ceiling and early stop), so the fingerprint and the harvest's watermark are incapable of  reading different windows; a one-page copy of that walk lived here once and disagreed forever the moment a  pair's newest answer sat past the first page, which re-opened paid discovery on every probe. null = this  account has no canonical answer at all, which is nothing to consume and therefore never a debt. A read that  FAILED throws, so this leg goes unreadable rather than inventing quiet. */
 async function analysisFingerprint(tenantId: string): Promise<string | null> {
   const [{ readCanonicalAnalysisStamps }, { analysisWatermark }] = await Promise.all([
     import("@/domains/evidence/ai-visibility/ai-observations"), import("@/domains/evidence/funnel/state")]);
@@ -171,20 +150,22 @@ async function consumedAnalyses(tenantId: string, basis: string): Promise<string
   return data == null ? null : ((data as { wm: string | null }).wm ?? null);
 }
 
-/** THE WINNERS THIS ACCOUNT HOLDS ON FILE, read WITHOUT the research document itself: one json path off the row (the same array the winning-pages unit loads, and the narrowest read of it there is). A read that FAILED throws, so this leg goes unreadable rather than inventing a quiet zero; no row and no array both mean no winners, an honest none. */
-async function winnerRowsOnFile(tenantId: string, basis: string): Promise<readonly unknown[]> {
-  const { data, error } = await getSupabaseAdmin().from("research_state")
-    .select("winners:state->winningPages").eq("tenant_id", tenantId).eq("basis_tag", basis).maybeSingle();
-  if (error != null) throw new Error(error.message ?? String(error));
-  const rows = data == null ? null : (data as { winners: unknown }).winners;
-  return Array.isArray(rows) ? rows : [];
+/** WHAT THE WINNER READ IS OWED, read WITHOUT the research document itself: two json paths off the basis row (the winners the unit banks, and the searches it ranks them out of; the narrowest read of either there is) and the one address the rank rule excludes, this account's own. A read that FAILED throws, so this leg goes unreadable rather than inventing a quiet zero; no row and no array both mean nothing on file, an honest none. */
+type WinnerFile = { winners: readonly unknown[]; serps: readonly unknown[]; own: string };
+const NO_WINNER_FILE: WinnerFile = { winners: [], serps: [], own: "" };
+async function winnerRowsOnFile(tenantId: string, basis: string): Promise<WinnerFile> {
+  const sb = getSupabaseAdmin(), arr = (v: unknown): readonly unknown[] => (Array.isArray(v) ? v : []);
+  const [row, acct] = await Promise.all([
+    sb.from("research_state").select("winners:state->winningPages,serps:state->serps->queries").eq("tenant_id", tenantId).eq("basis_tag", basis).maybeSingle(),
+    sb.from("tenants").select("domain").eq("id", tenantId).maybeSingle()]);
+  // AN ADDRESS THAT DID NOT COME BACK IS NOT AN EMPTY ONE: without it every page of this account's own reads as a page somebody else won, and the read is owed for ever.
+  const failed = row.error ?? acct.error, own = String((acct.data as { domain?: string } | null)?.domain ?? "").trim();
+  if (failed != null || !own) throw new Error(failed?.message ?? "the account's own address did not come back with the research row");
+  const d = row.data as { winners: unknown; serps: unknown } | null;
+  return { winners: arr(d?.winners), serps: arr(d?.serps), own };
 }
 
-/** PURE. IS THIS WINNER OWED A READ OF THE PAGE ITSELF? A winner banked before the reading existed carries an extract with no words in it at all, and
- *  `pageExtractFromRecord` decodes exactly that row as `mainText` null with `truncated` null; a read that honestly found NO words banks `truncated: false`,
- *  which IS a reading and is never bought again. The other answer is a retry date: a publisher that refused is waiting, and a date that has passed is owed
- *  again. Measured on production 2026-09-06: 20 winners on file, 14 carrying an extract, not one carrying a word, so hub case after hub case settled
- *  terminal against pages nothing had ever read. */
+/** PURE. IS THIS WINNER OWED A READ OF THE PAGE ITSELF? A winner banked before the reading existed carries an extract with no words in it at all, and `pageExtractFromRecord` decodes exactly that row as `mainText` null with `truncated` null; a read that honestly found NO words banks `truncated: false`, which IS a reading and is never bought again. The other answer is a retry date: a publisher that refused is waiting, and a date that has passed is owed again. Measured on production 2026-09-06: 20 winners on file, 14 carrying an extract, not one carrying a word, so hub case after hub case settled terminal against pages nothing had ever read. */
 const winnerAwaitsReading = (row: unknown, nowMs: number): boolean => {
   if (row == null || typeof row !== "object") return false;
   const w = row as { extract?: { mainText?: unknown; truncated?: unknown } | null; readOutcome?: { retryAfter?: unknown } | null };
@@ -192,10 +173,19 @@ const winnerAwaitsReading = (row: unknown, nowMs: number): boolean => {
   const retryAfter = w.readOutcome?.retryAfter; return !(typeof retryAfter === "string" && Date.parse(retryAfter) > nowMs);
 };
 
-/** The unread probe over BOTH ranges the readback reads: the recent seven days, then EVERYTHING OLDER in one
- *  indexed existence read. The hourly rotation that stood here made each older band reachable roughly one hour
- *  in twenty-six, so an account with only old debt looked quiet on most probes and the pass that would drain it
- *  never opened. Two lean reads, short-circuiting on the first hit. */
+/** PURE. HOW MANY PAGES A SEARCH THIS ACCOUNT PAID FOR PUT IN FRONT OF IT THAT NOTHING HAS RANKED YET. A results page lands whole, and its pages become winners only when the winning-pages unit next ranks them, so a search bought at the head of today's drive holds no winner at all, counts as nothing unread, and waits for tomorrow's full cycle while the row that owed it asks again for a reading nobody plans. A search with NO page of its own on file owes its top ten, minus this account's own pages (never winners) and the social and forum domains the reserve refuses; a search already holding one takes what the global order gives it. funnel/winning-pages reads this same rule off the typed document to decide which searches take a reserve, so a pass opened for this reason discharges what opened it. */
+const WINNERS_PER_PASS = 15; // WINNER_READ_BUDGET in funnel/winning-pages: the pages one cycle ranks and reads, so the receipt promises no more than a pass can do
+function unrankedWinners(file: WinnerFile): number {
+  const banked = new Set(file.winners.map((w) => canonicalUrlKey((w as { url?: string } | null)?.url ?? ""))), owed = new Set<string>();
+  for (const s of file.serps as Array<{ status?: string; organic?: Array<{ url?: string; rank?: number }> | null } | null>) {
+    const keys = (s?.status === "done" ? (s.organic ?? []) : []).filter((o) => typeof o?.rank === "number" && o.rank <= 10).map((o) => canonicalUrlKey(o.url))
+      .filter((k) => !!k && !isOwnPage(k, file.own) && !isNoiseDomain(k));
+    if (keys.length > 0 && !keys.some((k) => banked.has(k))) for (const k of keys) owed.add(k);
+  }
+  return Math.min(owed.size, WINNERS_PER_PASS);
+}
+
+/** The unread probe over BOTH ranges the readback reads: the recent seven days, then EVERYTHING OLDER in one  indexed existence read. The hourly rotation that stood here made each older band reachable roughly one hour  in twenty-six, so an account with only old debt looked quiet on most probes and the pass that would drain it  never opened. Two lean reads, short-circuiting on the first hit. */
 async function probeUnread(ask: (t: string, from: string, to: string) => Promise<boolean>, tenantId: string, _nowMs: number, day: string): Promise<boolean> {
   // Day labels move by plain label arithmetic anchored at noon UTC, the readback's own method, so a
   // daylight-saving edge can never make the probe and the reader disagree about a window's first day.
@@ -270,7 +260,7 @@ type DueWorkDeps = {
   analysisFingerprint?: (tenantId: string) => Promise<string | null>;
   consumedAnalyses?: (tenantId: string, basis: string) => Promise<string | null>;
   factDebt?: (tenantId: string) => Promise<{ owed: number; everChecked: boolean } | null>;
-  winnerRows?: (tenantId: string, basis: string) => Promise<readonly unknown[]>;
+  winnerRows?: (tenantId: string, basis: string) => Promise<WinnerFile>;
   readyStock?: (tenantId: string) => Promise<number | null>;
   creditHeld?: (tenantId: string) => Promise<boolean>;
 };
@@ -310,7 +300,7 @@ const settled = async <T,>(p: Promise<T>, fallback: T): Promise<{ value: T; ok: 
 /** WHAT IS OWED RIGHT NOW for one account. Bounded, parallel, fail-soft, and free: every read is a lean projection of state already on file, and nothing here
  * calls a provider or spends a cent. Requires an explicit tenant. */
 export async function dueWork(tenantId: string, now: Date = new Date(), deps: DueWorkDeps = {}): Promise<DueWork> {
-  const empty: DueWork = { due: [], readable: false, checks: NO_CHECKS, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null, winners: { unread: null } };
+  const empty: DueWork = { due: [], readable: false, checks: NO_CHECKS, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null, winners: { unread: null, unranked: null } };
   if (!tenantId?.trim()) return empty;
   const nowMs = now.getTime();
   // THE REPORTING DAY, and src/lib/reporting-day.ts is the one place that defines it (V1 binds every account to the same zone; there is no per-account
@@ -341,7 +331,7 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
     basis.value ? settled((deps.consumedAnalyses ?? consumedAnalyses)(tenantId, basis.value), null as string | null) : Promise.resolve({ value: null, ok: true }),
     settled((deps.factDebt ?? factDebt)(tenantId), null as { owed: number; everChecked: boolean } | null),
     // The winners are basis-scoped like every other derived row, so with no basis there is no research document to hold any and nothing was asked.
-    basis.value ? settled((deps.winnerRows ?? winnerRowsOnFile)(tenantId, basis.value), [] as readonly unknown[]) : Promise.resolve({ value: [] as readonly unknown[], ok: true }),
+    basis.value ? settled((deps.winnerRows ?? winnerRowsOnFile)(tenantId, basis.value), NO_WINNER_FILE) : Promise.resolve({ value: NO_WINNER_FILE, ok: true }),
   ]);
   // THE STOCK, AND WHETHER TOPPING IT UP CAN ACHIEVE ANYTHING RIGHT NOW. Both are $0 reads of durable state. The
   // credit stop is asked with the PURE reader, so asking can never spend the probe the transport is owed.
@@ -409,10 +399,10 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   // owes one. An idle account with no plan owes nothing, because re-planning unchanged notes reaches the identical answer at the same price.
   if (notesMoved || (openRun && !bound)) due.push("plan_cases");
   if (active.length > 0) due.push("acquire_case_evidence");
-  // A WINNER ON FILE THAT NOTHING HAS READ AS A PAGE IS OWED A READ, whatever the frozen plan is doing: the comparison that settles a body case reads the winners' own words, so an account whose winners were all banked before the reading existed settles case after case as "nothing to say" against pages nobody ever opened.
+  // A WINNER ON FILE THAT NOTHING HAS READ AS A PAGE IS OWED A READ, whatever the frozen plan is doing: the comparison that settles a body case reads the winners' own words, so an account whose winners were all banked before the reading existed settles case after case as "nothing to say" against pages nobody ever opened. AND SO IS A RESULTS PAGE WHOSE OWN PAGES NOTHING HAS RANKED: bought at the head of this drive, it holds no winner at all, so no winner counts as unread, the read is planned for nobody, and the row that owed it waits for tomorrow.
   // Its OWN unit and deliberately not `acquire_case_evidence`, which costs a results page as well (PHASES_FOR in on-visit-refresh): this pass carries no case and so no focus query, and buying searches out of the broad agenda spends for nothing and can hold the drive in the results-page phase ahead of the read it exists for.
-  const unreadWinners = winners.value.filter((w) => winnerAwaitsReading(w, nowMs)).length;
-  if (unreadWinners > 0) due.push("read_winner_pages");
+  const unreadWinners = winners.value.winners.filter((w) => winnerAwaitsReading(w, nowMs)).length, unrankedPages = unrankedWinners(winners.value);
+  if (unreadWinners + unrankedPages > 0) due.push("read_winner_pages");
   // A CLAIM THE PAGE MAKES AND NOBODY HAS CHECKED IS OWED WORK, and an account that has never checked one owes
   // its first pass. Without this the phase was reachable only on a fresh daily cycle, which is one page's worth
   // of statements a day at best. An unreadable count is never a quiet "nothing owed": it says nothing here.
@@ -443,7 +433,7 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
     cases: { active: active.length, parked: parked.length },
     nextDueAt,
     evidenceVersion: version.value,
-    winners: { unread: winners.ok ? unreadWinners : null }, // a count nothing could read is unknown, never zero
+    winners: { unread: winners.ok ? unreadWinners : null, unranked: winners.ok ? unrankedPages : null }, // a count nothing could read is unknown, never zero
   };
 }
 

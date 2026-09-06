@@ -10,18 +10,19 @@ import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import { resolveCitationTargets } from "@/domains/evidence/competitor-intel/polite-fetch";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import type { FunnelUnitFn, ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary";
-import { rankWinningPages } from "./normalize";
+import { isOwnPage, rankWinningPages } from "./normalize";
 import { type FunnelState, type FunnelWinningPage } from "./state";
 import { askIdentity, normalizePageIntersection, parsePageIntersection, type PageIntersectionAsk } from "@/domains/evidence/page-intersection";
 import { publisherHost } from "@/domains/evidence/serp-shape";
+import { isNoiseDomain } from "@/domains/evidence/relevance-gate";
 import { mainOf, pageExtractFrom, pageExtractFromRecord, type IntersectionUnavailable, type OwnedPageReadOutcome, type ResearchPageComparison, type ResearchPageExtract, type ResearchWinningAppearance, type WinnerReadOutcome } from "./research-evidence";
 import { isCurrent } from "@/domains/evidence/freshness";
 import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, modeOf, NO_BASIS_DETAIL, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
 
 /** ONE explicit acquisition budget per cycle, never a global free-for-all. 15 winning pages are ranked, so three priority searches keep their own three, and 18 is the MOST I ever go out and read: those 15 plus at
  *  most ONE substitute for each of the three priority searches, every one of them spending an ATTEMPT from the same total. Paid body reads are bounded SEPARATELY at 6, because they are the only page work that
- *  costs money, so a cycle where every publisher refuses can no longer buy a paid read for all fifteen. Bought comparisons kept: 8. */
-const WINNER_READ_BUDGET = 15, MAX_COMPARISONS = 8, MAX_PAGE_ATTEMPTS = 18, MAX_PAID_BODY_READS = 6;
+ *  costs money, so a cycle where every publisher refuses can no longer buy a paid read for all fifteen. Bought comparisons kept: 8. And at most THREE searches a pass are served for having no page of their own on file, so a reserve for work nobody asked for still leaves most of the budget to the order this account has earned. */
+const WINNER_READ_BUDGET = 15, MAX_COMPARISONS = 8, MAX_PAGE_ATTEMPTS = 18, MAX_PAID_BODY_READS = 6, OWED_SEARCHES_PER_PASS = 3;
 /** CONTENT identity, never the address: the same parsed extract in any key order hashes the SAME, and a changed title, heading, opening or body hashes DIFFERENTLY. Banking sha16(url) on the provider path froze
  *  a page's identity at its address forever, so a rewritten page looked unchanged to a store whose whole point is content-hash-aware reuse. fetchedAt is when I looked, not what the page says, so it is excluded. */
 const extractHash = (x: ResearchPageExtract): string => sha16(JSON.stringify(Object.entries(x).filter(([k, v]) => k !== "fetchedAt" && v !== undefined).sort((a, b) => a[0].localeCompare(b[0]))));
@@ -157,7 +158,12 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
       const held = new Map(state.winningPages.map((w) => [w.url, w.readOutcome ?? null])); // what stopped me last time
       const robots = new Map<string, string[]>(), readPublishers = new Set<string>(); // ONE robots.txt read per origin
       const bank = async (url: string, x: ResearchPageExtract) => { await d.writePageExtract(url, x as unknown as Record<string, unknown>, extractHash(x)).catch(() => {}); };
-      const ranked = rankWinningPages(resolved, ownDomain, WINNER_READ_BUDGET, priorityQueries), bench = new Map<string, typeof ranked>(), substituted = new Set<string>();
+      // A SEARCH THIS ACCOUNT PAID FOR WHOSE PAGES NOTHING HAS EVER RANKED TAKES ITS OWN RESERVE, newest search first and at most three a pass. The global order is by ACCUMULATED appearances, so the ten pages of a results page bought this morning carry one each and lose every slot to pages that have been winning for weeks (proved on this file's own starvation pin): the search is paid for, nothing off it is ever read, and the row that owed that reading asks for the same results page again tomorrow. A search already holding a page on file is represented and takes what the global order gives it. runtime/ops/due-work reads this same rule off the stored row to make the read due, so a pass opened for that reason discharges what opened it.
+      const onFile = new Set(state.winningPages.map((w) => canonicalUrlKey(w.url))), paidFor = new Map<string, { at: string; represented: boolean }>();
+      for (const a of resolved) if (a.kind === "serp_organic" && a.query && (a.rank ?? 99) <= 10 && !isNoiseDomain(a.citedUrl) && !isOwnPage(a.citedUrl, ownDomain))
+        paidFor.set(a.query, { at: a.observedAt, represented: (paidFor.get(a.query)?.represented ?? false) || onFile.has(canonicalUrlKey(a.citedUrl)) });
+      const owed = [...paidFor].filter(([, v]) => !v.represented).sort((x, y) => y[1].at.localeCompare(x[1].at)).slice(0, OWED_SEARCHES_PER_PASS).map(([q]) => q);
+      const ranked = rankWinningPages(resolved, ownDomain, WINNER_READ_BUDGET, [...priorityQueries, ...owed]), bench = new Map<string, typeof ranked>(), substituted = new Set<string>();
       for (const c of ranked) if (c.standby && c.ownerQuery) bench.set(c.ownerQuery, [...(bench.get(c.ownerQuery) ?? []), c]);
       // FOCUS BEFORE BREADTH, AND CASE BY CASE INSIDE IT: the reserves arrive interleaved (every case's first winner, then every case's second), then the substitutes their unreadable pages earn, then the global fill,
       // every one of them spending from the SAME attempt and paid-read totals. That order is what stops six paid reads landing entirely inside the first two cases while the third gets none.

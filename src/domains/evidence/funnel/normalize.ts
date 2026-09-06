@@ -417,6 +417,9 @@ function organicRankFor(c: WinningCandidate, key: string): number | null {
   return best;
 }
 
+/** PURE. IS THIS ADDRESS ONE OF THE ACCOUNT'S OWN? THE one test, so the rank rule that never banks an owned page as a winner, the unit that decides which searches owe a reading and the runtime read that makes that reading due cannot disagree about whose page it is. Takes a url or a canonical key on either side; an account with no address of its own owns nothing here. */
+export const isOwnPage = (url: string, ownDomain: string | null): boolean => { const d = rootDomain(url), own = rootDomain(ownDomain ?? ""); return !!own && (d === own || d.endsWith(`.${own}`)); };
+
 /** Aggregate winning pages from a flat appearance stream, each appearance carrying its ACTUAL source (query or real prompt id + text, engine, rank). AI
  *  surfaces weight double; organic top-10 single; the account's own domain is excluded. A page's engines/prompts derive from ITS OWN appearances only.
  *
@@ -434,7 +437,6 @@ export function rankWinningPages(
   topN: number,
   priorityQueries: string[] = [],
 ): WinningCandidate[] {
-  const own = (ownDomain ?? "").toLowerCase();
   const byUrl = new Map<string, WinningCandidate>();
   for (const a of dedupeAppearances(appearances)) {
     const url = a.citedUrl;
@@ -445,7 +447,7 @@ export function rankWinningPages(
     if (exactHost(url) === GEMINI_WRAPPER_HOST) continue;
     const d = rootDomain(url).toLowerCase();
     if (!d) continue;
-    if (own && (d === own || d.endsWith(`.${own}`))) continue;
+    if (isOwnPage(url, ownDomain)) continue;
     if (a.kind === "serp_organic" && (a.rank == null || a.rank > 10)) continue;
     const weight = a.kind === "serp_organic" ? 1 : 2;
     const prev = byUrl.get(url) ?? { url, domain: d, weight: 0, appearances: [] };
