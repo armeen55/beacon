@@ -29,7 +29,7 @@ import {
   effortForFamily,
   readyForAction,
 } from "./contracts";
-import { validateProposal, type ProposalValidation } from "./validate-proposal";
+import { validateProposal, type ProposalValidation } from "./validate-proposal"; import { DRAFT_BUDGET } from "./draft-budget";
 
 type ProposalOutcome =
   | { status: "ready"; proposal: ChangeProposal; validation: ProposalValidation }
@@ -123,9 +123,7 @@ export async function proposeExistingPageChange(
       ?? "I checked the results page, but it does not yet show that the title is the problem.", drafterStatus: "not_diagnosed" };
   }
   const field = input.opportunity.field ?? "title";
-  // THE MONEY IS SPENT ON THE NEXT LINE, SO THE BUDGET IS READ ON THIS ONE. This path drafted outside the pass's
-  // ceiling entirely, so the strongest few pages spent first and whatever was left over was what the ceiling
-  // then counted from.
+  // THE MONEY IS SPENT ON THE NEXT LINE, SO THE BUDGET IS READ ON THIS ONE. This path drafted outside the pass's ceiling entirely, so the strongest few pages spent first and whatever was left over was what the ceiling then counted from.
   if (opts.attempts && (opts.attempts.left -= 1) < 0) {
     return { status: "no_draft", reason: "This pass has spent its whole attempt budget, so nothing more was written for it.", drafterStatus: "budget_spent" };
   }
@@ -148,7 +146,7 @@ export async function proposeExistingPageChange(
     },
   );
 
-  opts.attempts?.record?.(draft); // real requests and real dollars, onto this page's own allowance
+  opts.attempts?.record?.(draft); DRAFT_BUDGET.refundIfCached(opts.attempts, draft); // real requests and real dollars onto this page's own allowance, and the attempt back when the writing was served from the cache
   if (draft.status !== "drafted") {
     return { status: "no_draft", reason: draftReason(draft), drafterStatus: draft.status };
   }

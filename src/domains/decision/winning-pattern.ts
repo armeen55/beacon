@@ -26,7 +26,7 @@ import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
 import { RELATIONAL, topicTokens } from "@/domains/evidence/relevance-gate";
 import { publisherHost, type SerpPageType } from "@/domains/evidence/serp-shape";
-import { callStructuredLLM, type StructuredDraftRequest } from "./llm/structured-drafter";
+import { callStructuredLLM, type StructuredDraftRequest } from "./llm/structured-drafter"; import { DRAFT_BUDGET } from "./draft-budget";
 import type { WinningPatternRead } from "./llm/schemas";
 
 /** WHAT A READ ALREADY CAPTURED, named structurally so this file imports no store and no reader: a winning
@@ -233,7 +233,7 @@ export async function readWinningPattern(
     projectedCostUsd: PATTERN_COST_USD, maxTokens: 1800,
     complete: opts.complete, cacheImpl: opts.cacheImpl, now: opts.now, // the lesson is part of the prompt, so the retry has its own cache entry: a reading that passed on the retry is served at $0 on every later walk, and the refused first reading stays cached at $0 too (reviewer, 2026-09-02)
   });
-  opts.attempts?.record?.(call); // real requests and real dollars, onto this page's own allowance
+  opts.attempts?.record?.(call); DRAFT_BUDGET.refundIfCached(opts.attempts, call); // real requests and real dollars onto this page's own allowance, and the attempt back when the reading was served from the cache
   if (call.status !== "drafted") {
     log.info("[winning-pattern] no reading of the winning pages this pass", { tenantId, status: call.status });
     return null;

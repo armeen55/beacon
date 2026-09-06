@@ -6,7 +6,7 @@ import { buildWinnerFewShots, buildWinnerFewShotsWithPattern } from "./winner-me
 import type { DraftPatternId } from "./draft-pattern";
 import { openAIStructuredResponse, llmFailureOf, type LlmFailure, type LlmProvenance } from "./gateway";
 import { PROMPT_REGISTRY, type PromptId } from "./prompt-registry";
-import { llmCallCacheKey, resolveCacheImpl, type CacheImpl } from "./call-cache";
+import { llmCallCacheKey, resolveCacheImpl, type CacheImpl } from "./call-cache"; import { DRAFT_BUDGET } from "../draft-budget";
 import { looksTemplated, REPEAT_FLAG, REPEAT_HISTORY_SIZE, VARIATION_INSTRUCTION } from "./de-templating";
 import {
   allowNumbers,
@@ -1007,7 +1007,7 @@ export async function readComparison(comparison: JobComparison, owned: { url: st
   const r = await callStructuredLLM({ kind: "competitor_comparison", tenantId: opts.tenantId, system, user, grounded: user,
     projectedCostUsd: 0.01, maxTokens: 1200, timeoutMs: 60_000, now: opts.now, complete: opts.complete }).catch(() => null);
   opts.attempts?.record?.(r); // THE MONEY LANDS WHERE THE RESULT COMES BACK, whatever it says: a call that refused, blocked or threw was still made, and the page's meter is the only place the reading's cost can be read.
-  if (opts.attempts && r && (r as { cached?: true }).cached) opts.attempts.left += 1; // A CACHED ANSWER COST NOTHING, SO IT COUNTS AS NOTHING, on the same rule the writer's door already keeps.
+  DRAFT_BUDGET.refundIfCached(opts.attempts, r); // A CACHED ANSWER COST NOTHING, SO IT COUNTS AS NOTHING, on the one rule beside the meter that every paid door now reads.
   if (!r || r.status !== "drafted") return comparison;
   const flat = (t: string): string => t.toLowerCase().replace(/\s+/g, " ").trim();
   const by = new Map(winners.map((w) => [w.url, [] as { kind: "answers" | "covers" | "names" | "shape"; text: string; quote: string }[]]));

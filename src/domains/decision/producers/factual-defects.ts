@@ -7,7 +7,7 @@ import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snaps
 import { REVIEW_CONTRACT, copyKey, wordingOnlySuspicion } from "@/domains/decision/proof";
 import { labelOf } from "@/domains/decision/completeness";
 import { authorizedCorrections, correctionSeverity, readFactChecks, rulesVersionFor, unauthorizedReason, type FactCheck } from "@/domains/evidence/pages/fact-checks";
-import { supportShortfall } from "@/domains/evidence/pages/claim-support";
+import { supportShortfall } from "@/domains/evidence/pages/claim-support"; import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import type { BundleComponent, ChangeProposal } from "@/domains/decision/contracts";
 
 /** How many corrections ride one card, and how many the operator is asked to do in one sitting. A hundred and seventy two prose steps is not a deliverable; batches of this size are. NOTHING DISAPPEARS BEHIND THE CAP (Codex,
@@ -124,7 +124,7 @@ async function reviewComponents(tenantId: string, items: readonly ReviewItem[], 
       // THE REVIEWER'S OWN MAPPING IS WHAT IS BANKED, ordering normalized and values never regenerated; its materiality ruling rides along so the serving door can hold a suspected wording-only change on the reviewer's own word.
       else passed.set(b + i, Object.assign(got.map((x) => ({ i: x.claim, by: [...x.factIds].sort(), entailed: x.entailed })), { materialChange: v!.materialChange }));
     }
-    if (wiring.attempts && (r as { cached?: true }).cached) wiring.attempts.left += 1; // a cache hit cost nothing
+    DRAFT_BUDGET.refundIfCached(wiring.attempts, r); // a cache hit cost nothing, on the one rule beside the meter
   }
   return { held, passed };
 }

@@ -5,7 +5,7 @@
 import "server-only";
 
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot"; import { canonicalUrlKey } from "@/domains/evidence/snapshot";
-import { draftAtomicEditStructured, draftInternalLinkStructured } from "@/domains/decision/llm/structured-drafter"; import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
+import { draftAtomicEditStructured, draftInternalLinkStructured } from "@/domains/decision/llm/structured-drafter"; import { DRAFT_BUDGET } from "./draft-budget"; import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, ComponentPlan, EvidenceReadiness, RecommendedChange } from "./contracts"; import { componentIdOf, confidenceFor, CTR_DEFICIT_SHARE, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction, receiptComposition } from "./contracts"; import { copyKey, evidenceShortfall, REVIEW_CONTRACT } from "./proof";
 import { technicalKey, type TechnicalFinding } from "./technical-findings";
 import { diagnoseCandidate, ownedResultOf, recurringPattern, RECEIPT, type DiagnosisInput } from "./diagnose";
@@ -281,7 +281,7 @@ function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date,
       if (!r) return null; const heading = (r.heading ?? i.heading ?? "").trim(); authed.set(`${heading}\n\n${r.after}`, r); return { heading, body: r.after }; },
     internalLink: async (i) => {
       if (spent()) return null;
-      const r = await draftInternalLinkStructured({ ...i, tenantId }, wire); opts.attempts?.record?.(r);
+      const r = await draftInternalLinkStructured({ ...i, tenantId }, wire); opts.attempts?.record?.(r); DRAFT_BUDGET.refundIfCached(opts.attempts, r); // the attempt comes back when the link was served from the cache
       return r.status === "drafted" ? { anchorText: r.value.anchorText, linkSentence: r.value.linkSentence, reason: r.value.reason } : null;
     },
     openingAnswer: async (i) => { const r = await write("answer_block", i.query, `Rewrite the first lines of this page so they answer "${i.query}" outright. It currently opens: "${(i.currentValue ?? "nothing on file").slice(0, 400)}".`, i.evidenceHints);
@@ -394,7 +394,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       { query: primary, pageLabel: content.h1 ?? content.title ?? page.url, field: "title", currentValue: before, outline: content.outline, evidenceHints: facts, tenantId },
       { complete: opts.complete, now, bypassCache: opts.bypassCache, authoritativeSourceDomains: opts.authoritativeSourceDomains },
     );
-    opts.attempts?.record?.(draft); // real requests and real dollars, onto this page's own allowance
+    opts.attempts?.record?.(draft); DRAFT_BUDGET.refundIfCached(opts.attempts, draft); // real requests and real dollars onto this page's own allowance, and the attempt back when the headline was served from the cache
     if (draft.status === "drafted") keep({ kind: "title", label: "Page title", before: before ?? null, after: draft.value.after, evidenceKeys: diagnosis.evidenceKeys, risk: "safe" },
       { kind: "existing_edit", field: "title", before: before ?? null, after: draft.value.after });
     if (components.length === 0) return { status: "none", reason: "No title for this page passed its own checks, so nothing is handed over rather than filler." };
