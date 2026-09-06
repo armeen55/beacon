@@ -32,13 +32,13 @@ export const fieldForComponent = (kind: BundleComponentKind): ChangeField => FIE
 /** PURE: the honest minutes one component kind costs the operator. */
 export const effortMinutesFor = (kind: BundleComponentKind): number => EFFORT_MINUTES[kind] ?? 15;
 
-/** The two drafting jobs a producer may buy, already sanitized, budgeted and cached by the caller. Each
+/** The drafting jobs a producer may buy, already sanitized, budgeted and cached by the caller. Each
  *  returns null when the model refused, went over budget, or wrote something the gates would not pass:
- *  null is a complete answer and a producer refuses on it rather than shipping an empty component. */
+ *  null is a complete answer and a producer refuses on it rather than shipping an empty component.
+ *  A LINK DOOR STOOD HERE AND NOTHING COULD EVER KNOCK ON IT (reviewer, 2026-09-06): `internal_link_weakness` mints no producer at all (producers/core.ts), so the wire in produce-bundle.ts had no caller anywhere in src and still carried an attempt, a refund and a pin for a call nobody could make. The ranked link lane owns that cause and drafts each link through the atomic editor. */
 export type ProducerDraft = {
   /** A SECTION IS WRITTEN BY THE ONE CANONICAL EDITOR NOW (2026-08-30), so what comes back is copy that has already declared its claims, named the evidence id behind each one and been ruled on claim by claim; the caller keeps that authorization beside the piece. The old `sources` and `containsNumber` are gone with the second drafter that produced them: a self-declared source label is not provenance and nothing ever read it. */
   section: (input: { query: string; pageLabel: string; heading: string | null; brief: string; outline: string[]; evidenceHints: string[] }) => Promise<{ heading: string; body: string } | null>;
-  internalLink: (input: { query: string; sourcePage: string; targetPage: string; topic: string; evidenceHints: string[] }) => Promise<{ anchorText: string; linkSentence: string; reason: string } | null>;
   /** The page's first lines, written through the atomic-edit drafter under its `answer_block` field. OPTIONAL
    *  so a caller that cannot buy one is a refusal rather than a compile error. */
   openingAnswer?: (input: { query: string; pageLabel: string; currentValue: string | null; outline: string[]; evidenceHints: string[] }) => Promise<string | null>;

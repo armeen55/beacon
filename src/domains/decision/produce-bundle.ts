@@ -5,7 +5,7 @@
 import "server-only";
 
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot"; import { canonicalUrlKey } from "@/domains/evidence/snapshot";
-import { draftAtomicEditStructured, draftInternalLinkStructured } from "@/domains/decision/llm/structured-drafter"; import { DRAFT_BUDGET } from "./draft-budget"; import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
+import { draftAtomicEditStructured } from "@/domains/decision/llm/structured-drafter"; import { DRAFT_BUDGET } from "./draft-budget"; import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, ComponentPlan, EvidenceReadiness, RecommendedChange } from "./contracts"; import { componentIdOf, confidenceFor, CTR_DEFICIT_SHARE, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction, receiptComposition } from "./contracts"; import { copyKey, evidenceShortfall, REVIEW_CONTRACT } from "./proof";
 import { technicalKey, type TechnicalFinding } from "./technical-findings";
 import { diagnoseCandidate, ownedResultOf, recurringPattern, RECEIPT, type DiagnosisInput } from "./diagnose";
@@ -266,9 +266,6 @@ const oneComponent = (c: BundleComponent, items: readonly BundleEvidenceItem[]):
 type AuthorizedPiece = NonNullable<Awaited<ReturnType<typeof draftFieldForPage>>>;
 /** THE DRAFTERS a producer may buy, wired once for the same firewall, budget, cache and fail-closed posture. THE SUBSTANTIVE ONES ARE THE ONE CANONICAL EDITOR (2026-08-30): a bundle's sections and openings used to come from a second drafter that declared no claim, named no evidence id and was read for sense by nobody, so the only thing behind a paragraph on a customer's page was a receipt saying why the WORK was chosen. They go through the same drafter, deterministic contract, evaluator and per-claim ruling as every other word Beacon writes, and each piece's authorization is kept under its own exact copy so no piece can borrow another's. */
 function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date, ownedPaths: readonly string[], held: OwnedPageBody | null, siblings: ReadonlyMap<string, OwnedPageBody>, authed: Map<string, AuthorizedPiece>): ProducerDraft {
-  const wire = { complete: opts.complete, now, bypassCache: opts.bypassCache, authoritativeSourceDomains: opts.authoritativeSourceDomains };
-  // EVERY CHARGED CALL COMES OFF THE PASS'S POOL, not only the ones an editor makes. The link drafter below bought calls the budget never saw, so the pass's own count of what it spent was short by every piece a bundle wrote. Spent BEFORE the call, so a refusal costs what it cost.
-  const spent = (): boolean => !!opts.attempts && (opts.attempts.left -= 1) < 0;
   const editor = { tenantId, now, complete: opts.complete, bypassCache: opts.bypassCache, ...(opts.attempts ? { attempts: opts.attempts } : {}), ...(opts.bannedTerms ? { bannedTerms: opts.bannedTerms } : {}) };
   // THE OTHER PAGES OF THIS ACCOUNT, under the one id a claim may cite: what a page cannot say about itself is what a sibling page carries, and it is the one route to information gain that costs nothing to read.
   const facts = Object.fromEntries([...siblings.values()].filter((b) => held == null || canonicalUrlKey(b.url) !== canonicalUrlKey(held.url)).flatMap((b) => (b.passages ?? []).slice(0, 2).map((t) => `${pathOf(b.url)}: ${t}`)).slice(0, 6).map((t, i) => [`owned-page-${i + 1}`, t]));
@@ -279,11 +276,6 @@ function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date,
     pageField: (i) => draftFieldForPage({ ...i, ownedPaths }, editor),
     section: async (i) => { const r = await write("answer_block", i.query, `${i.brief}${i.heading ? ` Write it under the heading "${i.heading}".` : ""}`, i.evidenceHints);
       if (!r) return null; const heading = (r.heading ?? i.heading ?? "").trim(); authed.set(`${heading}\n\n${r.after}`, r); return { heading, body: r.after }; },
-    internalLink: async (i) => {
-      if (spent()) return null;
-      const r = await draftInternalLinkStructured({ ...i, tenantId }, wire); opts.attempts?.record?.(r); DRAFT_BUDGET.refundIfCached(opts.attempts, r); // the attempt comes back when the link was served from the cache
-      return r.status === "drafted" ? { anchorText: r.value.anchorText, linkSentence: r.value.linkSentence, reason: r.value.reason } : null;
-    },
     openingAnswer: async (i) => { const r = await write("answer_block", i.query, `Rewrite the first lines of this page so they answer "${i.query}" outright. It currently opens: "${(i.currentValue ?? "nothing on file").slice(0, 400)}".`, i.evidenceHints);
       if (r) authed.set(r.after, r); return r?.after ?? null; },
   };

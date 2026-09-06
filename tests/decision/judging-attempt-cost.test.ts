@@ -83,7 +83,7 @@ describe("what one attempt pays for", () => {
       "the next pass affords the reading it was never charged for: one draft, one reading, and every call that left the process on this page's own meter").toEqual([s.line, 1, 2, onWriting + 2]); });
 });
 
-/** THE FIVE PAID DOORS OUTSIDE THE EDITOR, each driven through the real exported function it lives in, on the real
+/** THE SIX PAID DOORS OUTSIDE THE EDITOR, each driven through the real exported function it lives in, on the real
  *  gateway, the real call cache and the real money surface, on the same two synthetic accounts. Each door runs the
  *  SAME request twice against a fresh allowance: the cold pass buys the answer, the warm pass is served the identical
  *  request out of the cache, and what separates them is exactly the one attempt and the one provider call the cache
@@ -147,7 +147,6 @@ const DOORS = [
   { door: "the headline draft in propose", kind: "atomic_edit", cost: 1, run: (s: Site, a: Allowance, c: unknown) => proposeExistingPageChange(INPUT(s), { complete: c as never, now: NOW, attempts: a }) },
   { door: "the new page brief", kind: "new_page_brief", cost: 1, run: (s: Site, a: Allowance, c: unknown) => buildNewPageProposal(TOPIC(s), s.t, { complete: c as never, now: NOW, attempts: a }) },
   { door: "the headline draft in the bundle", kind: "atomic_edit", cost: 1, run: (s: Site, a: Allowance, c: unknown) => produceBundleForSnapshot(SNAPSHOT(s), { complete: c as never, now: NOW, attempts: a }) },
-  { door: "the link draft in the bundle", kind: "internal_link", cost: 0, run: (s: Site, a: Allowance, c: unknown) => produceBundleForSnapshot(SNAPSHOT(s), { complete: c as never, now: NOW, attempts: a }) },
   { door: "the comparison reading", kind: "competitor_comparison", cost: 1, run: (s: Site, a: Allowance, c: unknown) => { a.left -= 1; /* its caller pays on the way in, exactly as the writer's door does */
     return readComparison(COMPARE(s), { url: s.url, passages: s.lines }, { tenantId: s.t, now: NOW, complete: c as never, attempts: a }); } },
   { door: "the correction review", kind: "factual_review", cost: 1, run: (s: Site, a: Allowance, c: unknown) => FACTUAL_DEFECTS.review([CARD(s)], { tenantId: s.t, now: NOW, complete: c, attempts: a }) },

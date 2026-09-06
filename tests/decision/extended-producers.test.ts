@@ -41,8 +41,7 @@ const ctxOf = (over: Partial<ProducerCtx> = {}): ProducerCtx => ({ finding: find
     passages: ["Rain barrels catch what runs off a roof."], openingSample: "Rain barrels catch what runs off a roof.", vocabulary: "Rain barrels catch what runs off a roof.",
     cardTexts: [], faqs: [], entityNames: ["Roof area", "Storm"], internalLinks: LINKS, metaDescription: null,
     fetchedAt: "2026-07-30T00:00:00.000Z", completeness: "sample_only", contentHash: null, heldNote: "I hold a sample of this page, not the whole page." },
-  pattern: PATTERN, receiptFacts: FACTS, readiness: { gsc: true, ownedCopy: true, serp: true, winners: 3, body: true }, draft: { section: async () => null,
-    internalLink: async (i) => ({ anchorText: `${i.topic} guide`, linkSentence: `If you are working out ${i.topic}, that page walks through it`, reason: "same subject" }) }, ...over, });
+  pattern: PATTERN, receiptFacts: FACTS, readiness: { gsc: true, ownedCopy: true, serp: true, winners: 3, body: true }, draft: { section: async () => null }, ...over, });
 /** BOTH PAGES AS I CURRENTLY HOLD THEM, by the same canonical address the producer looks them up under. */
 const OTHER_KEY = "fixture-content.example/barrel-sizes";
 const HUB = "https://fixture-content.example/rain-barrels", KID = "https://fixture-content.example/rain-barrels/steel-barrels";
@@ -53,7 +52,7 @@ const BODIES = new Map([["fixture-content.example/rain-barrels", { ...ctxOf().bo
   [OTHER_KEY, { ...ctxOf().body!, url: OTHER_URL, title: "Barrel sizes guide", h1: "Barrel sizes guide", headings: ["Barrel sizes"], completeness: "complete" as const }]]);
 /** A drafter that writes every section AND the page's own opening: the only shape a rebuild may ever ship on. */
 const OPENING = "Rain barrel sizing comes down to roof area and how much rain one storm brings.";
-const whole = (refuseAt = -1): ProducerCtx["draft"] => { let n = 0; return { internalLink: async () => null, openingAnswer: async () => OPENING,
+const whole = (refuseAt = -1): ProducerCtx["draft"] => { let n = 0; return { openingAnswer: async () => OPENING,
   section: async (i) => (n++ === refuseAt ? null : { heading: i.heading ?? "Rain barrel sizing", sources: [], containsNumber: false,
     body: `Rain barrel sizing comes down to roof area and how much rain one storm brings, and that is what this part of the page has to say about ${(i.heading ?? "sizing").toLowerCase()}.` }) }; };
 const FOUR = ["How much water a roof collects", "Choosing a barrel size", "Storm overflow", "Roof area by pitch"];
@@ -96,7 +95,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
   it("never ships drafted body copy with a run of spaces in it, and never touches a line break", async () => {
     const out = await produceSourceExpansion(ctxOf({
       finding: finding("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what size rain barrel do I need" }),
-      draft: { internalLink: async () => null, section: async () => ({ heading: "Downspout diverter",
+      draft: { section: async () => ({ heading: "Downspout diverter",
         body: "A diverter splits roof water \u2014 between the drain and the barrel.\n\nThe cited pages  say when one is needed.",
         sources: [], containsNumber: false }) },}));
     const after = out.components[0]!.after; // "a  b" never ships, and the paragraph break is left exactly where it was
@@ -123,7 +122,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
       sources: [{ kind: "manufacturer", detail: "diverter fitting guide" }], containsNumber: false, });
     const gap = await produceSourceExpansion(ctxOf({
       finding: finding("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what size rain barrel do I need" }),
-      draft: { section, internalLink: async () => null },}));
+      draft: { section },}));
     const c = gap.components[0]!; expect([gap.components.length, c.kind, c.risk, answered(c)]).toEqual([1, "entity_expansion", "review", true]);
     expect(c.sourcePack!.factRequirements).toEqual(["Downspout diverter."]);
     expect(c.sourcePack!.sourceRequirements).toEqual(['Downspout diverter has no verified source on file yet, so the fact pass acquires one of the kind the pages cited for "rain barrel sizing" point at (a.example, b.example, c.example) before this line ships. Nothing here asks anybody to pick a source.']);
@@ -133,11 +132,11 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect(validate(gap.components).verdict).toBe("ready");
     const read = await produceSourceExpansion(ctxOf({
       finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }),
-      draft: { section, internalLink: async () => null },}));
+      draft: { section },}));
     expect([read.components[0]!.kind, read.components[0]!.mechanism!.includes("seen and passed over")]).toEqual(["source_update", true]);
     expect(read.components[0]!.sourcePack!.factRequirements).toEqual(["Rain barrels catch what runs off a roof."]);
     vi.resetModules(); vi.doMock("@/domains/evidence/pages/fact-checks", async (a) => ({ ...(await a<Record<string, unknown>>()), readFactChecks: async () => [{ page: "/rain-barrels", statementKey: "gap", subject: "rain barrels", current: "", proposed: "Iran has AH-1 Cobra attack helicopters.", literal: null, usage: null, sources: [{ url: "https://en.wikipedia.org/x", kind: "encyclopedia", says: "Iran operates AH-1 Cobra attack helicopters." }], agreement: "single_source", confidence: "confirmed", verdict: "undecidable", alsoAt: [], note: "", pageContentHash: null, pageLocator: "missing", sourceReadAt: "2026-09-01T00:00:00.000Z", state: "checked", rulesVersion: 4, evidenceBasis: null, checkedAt: "2026-09-01T00:00:00.000Z" }] }));
-    const cited = await (await import("@/domains/decision/producers/extended")).produceSourceExpansion(ctxOf({ finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }), draft: { section, internalLink: async () => null } })); vi.doUnmock("@/domains/evidence/pages/fact-checks"); vi.resetModules();
+    const cited = await (await import("@/domains/decision/producers/extended")).produceSourceExpansion(ctxOf({ finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }), draft: { section } })); vi.doUnmock("@/domains/evidence/pages/fact-checks"); vi.resetModules();
     expect(cited.components[0]!.sourcePack!.sourceRequirements![0], "THE WRITER IS HANDED WHAT THE ONE DOOR AUTHORIZES: this row is checked, its source was read and its rules version is current, which was the whole test here, and it answers a question about something else entirely, so pointing a claim about rain barrels at it is exactly the helicopter defect one reader further down the line").toContain("has no verified source on file yet");
     for (const beaconFact of FACTS) expect(JSON.stringify(read.components[0])).not.toContain(beaconFact);
     const dry = await produceSourceExpansion(ctxOf({ finding: finding("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what size rain barrel do I need" }) }));

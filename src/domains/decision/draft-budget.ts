@@ -44,6 +44,8 @@ type PaidJob = { key: string; family: string; impact: number; calls: number; tre
    *  funding them anyway is how three of five slots came back `not_reached` while cheaper completable work went
    *  unfunded. A blocked job stays DECLARED, so the manifest still names it, and is never funded. */ blocked?: string;
   /** The cheaper families that also want work on this page. They run only if the funded one does not produce, and they draw on ITS allowance, never a second. */ fallbacks?: readonly string[] };
+/** NOTHING LEFT THE PROCESS FOR THIS ANSWER, and it is the ONE predicate both halves of the meter read (reviewer, 2026-09-06). Three answers reach a caller without a request ever leaving: the model is off, the day's cap refused the call before it was made, and the call cache served it. `recordOn` kept all three off the dollars and the refund below knew only the cache hit, so the two halves of one rule answered the same question differently and a page whose fact reserve was out spent its whole allowance on calls its own receipt said nobody made. One predicate, so what a page spent and what it has left can never disagree. PURE. */
+const noCallMade = (r: unknown): boolean => { const x = r as { status?: string; cached?: boolean } | null; return !!x && (x.status === "off" || x.status === "blocked_budget" || x.cached === true); };
 /** A job the pass declared and the plan refused, with the reason in the operator's words. Refusal is on the receipt. */
 type DeclinedJob = { key: string; family: string; calls: number; reason: string };
 
@@ -160,11 +162,8 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   const recordOn = (key: string, r: unknown): void => {
     if (!r) return;
     const rec = spend.get(key) ?? { ops: 0, providerCalls: 0, costUsd: 0 };
-    const x = r as { status?: string; cached?: boolean; costUsd?: number; attempts?: number };
-    rec.ops += 1;
-    if (!(x.status === "off" || x.status === "blocked_budget" || x.cached === true)) {
-      rec.providerCalls += Math.max(0, Math.round(x.attempts ?? 0)); rec.costUsd += x.costUsd ?? 0;
-    }
+    const x = r as { costUsd?: number; attempts?: number }; rec.ops += 1;
+    if (!noCallMade(r)) { rec.providerCalls += Math.max(0, Math.round(x.attempts ?? 0)); rec.costUsd += x.costUsd ?? 0; }
     spend.set(key, rec);
   };
   return {
@@ -222,7 +221,7 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
 /** THE MONEY SURFACE, as one export: the ceilings, the prices, the plan and the key every family agrees on. */
 /** THE FOUR REASONS THAT MAY KILL FINISHED WORK (Codex, 2026-08-23): an unsupported fact or figure, the wrong page, a placeholder, and a placement that does not exist. Everything else is a note on a REVIEW draft: a soft rule that discards a complete answer turns one imperfect word into zero output, which is how the live /funny-farsi-phrases answer was destroyed back to its own brief over the single word "Farsi". */
 const HARD_REFUSAL = /not on the stored page|is not the one this page carries|page this evidence is not about|blank or still carries a placeholder|not attached to it|no such thing|mentions them|names evidence that is not on file|no claim anybody could check|names no evidence at all|cannot be identified/;
-/** AN ATTEMPT PAYS FOR A CALL THAT ACTUALLY LEFT THE PROCESS, AND THIS IS THE ONE PLACE THAT SAYS SO (campaign, 2026-09-06). Every paid door takes its attempt BEFORE its call, because a call that failed, refused or threw was still bought, and every one of them hands it back here when the answer says it came out of the call cache, because that one reached no provider. It lives beside `recordOn` above, which reads the same `cached` to keep a hit off the dollars: one fact in one file, so what a page spent and what it has left can never disagree. Letting a cache hit spend an attempt once let twelve long-refused cached drafts starve the cards a pass existed for (Codex, 2026-08-23); the writer's door kept the rule after that, two more doors kept private one-line copies of it, and five kept no copy at all, so a page whose pieces are already written paid for readings, briefs, headlines and links nobody bought. The meter is not asked for: a door with no allowance simply has nothing to give back. */
-const refundIfCached = (a: { left: number } | undefined, answer: unknown): void => { if (a && (answer as { cached?: boolean } | null)?.cached === true) a.left += 1; };
+/** AN ATTEMPT PAYS FOR A CALL THAT ACTUALLY LEFT THE PROCESS, AND THIS IS THE ONE PLACE THAT SAYS SO (campaign, 2026-09-06). Every paid door takes its attempt BEFORE its call, because a call that failed, refused or threw was still bought, and every one of them hands it back here when nothing left the process: `noCallMade` above is the same predicate the meter reads to keep those answers off the dollars, so the money a page spent and the attempts it has left are one fact in one file. Letting a cache hit spend an attempt once let twelve long-refused cached drafts starve the cards a pass existed for (Codex, 2026-08-23); the day's cap doing the same charged a page whose fact reserve was out for bulk calls it never made (reviewer, 2026-09-06). The meter is not asked for: a door with no allowance simply has nothing to give back. */
+const refundIfCached = (a: { left: number } | undefined, answer: unknown): void => { if (a && noCallMade(answer)) a.left += 1; };
 export const DRAFT_BUDGET = { MAX_PAID_CALLS, DELIVERABLE_CALLS: PER_DELIVERABLE_CALLS, RETRIES: EDITOR_RETRIES, POLICY, HARD_REFUSAL,
   BUNDLE_CALLS: BUNDLE_CALLS_TOTAL, plan, keyOf, refundIfCached } as const;
