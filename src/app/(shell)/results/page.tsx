@@ -5,7 +5,6 @@ import { requireReadyAccount } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
 import { scheduleAutoMeasure } from "@/domains/measurement";
 import { loadResultsLedgerSurface } from "./results-ledger-data";
-import { readResultsSurface } from "./results-surface-store";
 import { buildResultsBrain } from "./results-brain";
 import { ResultsBrain } from "./results-brain-client";
 import { buildResultsView, type ShipmentPresentation } from "./results-presentation";
@@ -22,12 +21,14 @@ export default async function ProofPage({ searchParams }: { searchParams?: Promi
   const params = await (searchParams ?? Promise.resolve<Record<string, string | string[] | undefined>>({}));
   const initialPage = typeof params.page === "string" ? params.page : "";
   const tenantId = await currentTenantId();
-  // Preload saved truth during validation; rendering and refresh scheduling still require access.
-  const cached = readResultsSurface(tenantId).catch(() => null);
-  const { access } = await requireReadyAccount(tenantId);
-  if (access.kind === "suspended") redirect("/");
+  const access = requireReadyAccount(tenantId).then(({ access }) => {
+    if (access.kind === "suspended") redirect("/");
+  });
+  // Start the complete saved read now, including a snapshot miss; access gates both refresh and HTML.
+  const pending = loadResultsLedgerSurface(undefined, access).catch(() => ({ shipments: [] as ShipmentPresentation[], computedAt: null, checkedAgo: null, unavailable: true }));
+  await access;
   const release = loadWithDeadline(readCustomerSurface(tenantId), 1_500).then((r) => r.data).catch(() => null);
-  const surface = await loadResultsLedgerSurface(await cached).catch(() => ({ shipments: [] as ShipmentPresentation[], computedAt: null, checkedAgo: null, unavailable: true }));
+  const surface = await pending;
   const shipments = surface.shipments, now = new Date();
   const brain = buildResultsBrain(shipments, now), view = buildResultsView(shipments, now);
   const firstLive = monthDayLabel(shipments.map((p) => p.implementedAt).filter((d): d is string => !!d).sort()[0] ?? null);

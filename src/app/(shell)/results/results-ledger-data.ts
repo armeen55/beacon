@@ -131,39 +131,30 @@ async function persistedShipments(tenantId: string): Promise<ShipmentPresentatio
   return presentShipments(tenantId, await loadProofLedgerPersisted(tenantId));
 }
 
-async function loadLedgerWithSwr(tenantId: string, cached: Awaited<ReturnType<typeof readResultsSurface>>): Promise<ResultsLedgerSurface> {
-  if (cached) {
-    if (isResultsSurfaceStale(cached.computedAt, Date.now())) {
-      after(async () => {
-        try {
-          await runSingleFlight(`results-surface:${tenantId}`, () => rebuildResultsSurface(tenantId));
-        } catch (e) {
-          await recordAppError({ route: "/results", tenantId, action: "background-refresh", ...errorFieldsFrom(e) });
-        }
-      });
-    }
-    return { shipments: cached.shipments, computedAt: cached.computedAt };
+async function loadLedgerWithSwr(tenantId: string, cached: Awaited<ReturnType<typeof readResultsSurface>>, access: Promise<unknown>): Promise<ResultsLedgerSurface> {
+  // Read-only cold work overlaps account validation; no refresh is registered until access succeeds.
+  const surface = cached ?? await persistedShipments(tenantId)
+    .then((shipments) => ({ shipments, computedAt: null, unavailable: false }))
+    .catch(() => ({ shipments: [] as ShipmentPresentation[], computedAt: null, unavailable: true }));
+  await access;
+  if (!cached || isResultsSurfaceStale(cached.computedAt, Date.now())) {
+    after(async () => {
+      try {
+        await runSingleFlight(`results-surface:${tenantId}`, () => rebuildResultsSurface(tenantId));
+      } catch (e) {
+        await recordAppError({ route: "/results", tenantId, action: cached ? "background-refresh" : "cold-rebuild", ...errorFieldsFrom(e) });
+      }
+    });
   }
-  // First-ever / invalidated: do NOT re-measure on the GET. Serve the persisted
-  // reads instantly and schedule the heavy rebuild in the background.
-  // A COLD START THAT COULD NOT READ IS NOT AN EMPTY LEDGER. It says so, and the rebuild is still scheduled.
-  const read = await persistedShipments(tenantId).then((shipments) => ({ shipments, unavailable: false })).catch(() => ({ shipments: [] as ShipmentPresentation[], unavailable: true }));
-  after(async () => {
-    try {
-      await runSingleFlight(`results-surface:${tenantId}`, () => rebuildResultsSurface(tenantId));
-    } catch (e) {
-      await recordAppError({ route: "/results", tenantId, action: "cold-rebuild", ...errorFieldsFrom(e) });
-    }
-  });
-  return { ...read, computedAt: null };
+  return surface;
 }
 
 /** Request-memoized /results reads, SWR-cached cross-request. */
 export const loadResultsLedgerSurface = cache(
-  async (preloaded?: Awaited<ReturnType<typeof readResultsSurface>>): Promise<ResultsLedgerSurface> => {
+  async (preloaded?: Awaited<ReturnType<typeof readResultsSurface>>, access: Promise<unknown> = Promise.resolve()): Promise<ResultsLedgerSurface> => {
     const tenantId = await currentTenantId();
     const cached = preloaded === undefined ? await readResultsSurface(tenantId).catch(() => null) : preloaded;
-    const surface = await loadLedgerWithSwr(tenantId, cached);
+    const surface = await loadLedgerWithSwr(tenantId, cached, access);
     return { ...surface, checkedAgo: checkedAgoLabel(surface.computedAt, Date.now()) };
   },
 );
