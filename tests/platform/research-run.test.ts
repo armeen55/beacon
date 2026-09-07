@@ -348,18 +348,20 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
       expect(phases.includes("keyword_discovery")).toBe(keyword !== null); expect(phases).toContain("prompt_observations"); expect(phases.includes("winning_pages")).toBe(flag === "1");
     } vi.unstubAllEnvs();
   });
-  it.each([T, U])("starts %s's owed winner reading in the walk's 33-second remainder, including a held provider", async (t) => {
-    for (const held of [false, true]) { vi.stubEnv("BEACON_ALWAYS_ON_RESEARCH", "1");
+  it.each([T, U])("preserves %s's long winner turn after a 33-second read, including zero output and a held provider", async (t) => {
+    for (const held of [false, true]) for (const unread of [9, 0]) for (const failed of [false, true]) { NOW = Date.parse("2026-09-07T12:00:00Z"); vi.stubEnv("BEACON_ALWAYS_ON_RESEARCH", "1");
       const units: DueWork["due"] = ["replenish_ready", "read_winner_pages", ...(held ? ["daily_observations" as const] : [])];
       const rows = withRun({ tenant_id: t, current_phase: held ? "prompt_observations" : "winning_pages", progress: { plan: { units }, ...(held ? { waited: { phase: "prompt_observations", drives: 1, unpaid: true }, providerWait: { phase: "prompt_observations", cursor: { unit: { pending: true } } } } : {}) } });
-      let at = NOW; const reads: number[] = [];
-      await runResearchCycle(t, { now: () => new Date(at), deadlineMs: 200_000, steps: { ...BENIGN,
-        dueWork: async () => ({ ...SOMETHING_DUE, due: units, winners: { unread: 9, unranked: 0 } }),
-        replenishReady: async () => { at = NOW + 167_000; return null; },
+      let at = NOW, remaining = unread; const reads: number[] = [], order: string[] = [];
+      const steps: ResearchCycleSteps = { ...BENIGN, dueWork: async () => ({ ...SOMETHING_DUE, due: units, winners: { unread: remaining, unranked: 0 } }),
+        replenishReady: async () => { order.push("walk"); at = NOW + 167_000; return null; },
         funnelUnit: async (phase, _t, _c, budget) => { if (phase === "prompt_observations") return { status: "waiting", cursor: { pending: true }, progress: {} };
-          expect(phase).toBe("winning_pages"); reads.push(budget); at += 20_000; return { status: "advanced", cursor: { stage: "read" }, progress: { pageReadsAttempted: 1 } }; } } });
-      expect(reads, `provider held: ${held}`).toEqual([33_000]); expect(rows[0]!.progress.funnel?.pageReadsAttempted).toBe(1);
+          order.push("read"); reads.push(budget); const count = budget < 40_000 ? (failed ? 0 : 1) : remaining; remaining -= count; at += 20_000; return { status: "advanced", cursor: { stage: remaining > 0 ? "read" : "compare" }, progress: { pageReadsAttempted: failed ? 0 : count } }; } };
+      await runResearchCycle(t, { now: () => new Date(at), deadlineMs: 200_000, steps });
+      expect(reads).toEqual(unread ? [33_000] : []); if (unread) expect(rows[0]!.progress.waited).toMatchObject({ phase: "winning_pages", unpaid: true });
       expect(rows[0]!.completed_at).toBeNull(); expect(rows[0]!.lease_owner).toBeNull(); expect(RR.projectStatusView(rows[0]!, at).state).toBe("queued");
+      if (!held) { NOW += 30 * 60_000; at = NOW; order.length = 0; await runResearchCycle(t, { now: () => new Date(at), deadlineMs: 200_000, steps });
+        expect(reads).toEqual(unread ? [33_000, 90_000] : [90_000]); expect(order.slice(0, 2)).toEqual(["read", "walk"]); expect(remaining).toBe(0); expect(rows).toHaveLength(1); }
     } vi.unstubAllEnvs();
   });
   it.each([T, U])("reads %s's winners first on the drive after the one whose walk took the slice, inside a bounded box, and still hands the walk what is left", async (t) => {

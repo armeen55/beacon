@@ -188,8 +188,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
             // The publisher's OWN answer is final: a robots denial is NEVER sent through a provider.
             } else if (res.reason === "robots_blocked") outcome = readOutcomeAt("robots_blocked", d.now());
             // An ordinary refusal or timeout earns exactly ONE paid read of the body, US/English, on the same money core, cache identity and cap as every other call, and only while this cycle's own paid ceiling is unspent.
-            else if (shortRead) { /* Leave paid fallback owed; a short clock is not a failed provider read. */ }
-            else if (paidReads >= MAX_PAID_BODY_READS) outcome = readOutcomeAt("temporarily_unavailable", d.now());
+            else if (shortRead || paidReads >= MAX_PAID_BODY_READS) outcome = readOutcomeAt("temporarily_unavailable", d.now());
             else {
               paidReads += 1;
               const r = interp(await d.callProvider("onpage_content_parsing", { url: c.url }, ids)); track(state, r);
@@ -229,7 +228,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
       // The winners still landed, but a body I could not persist pauses this phase rather than handing the run
       // on as though the page were read. A retry re-enters stage one, where read-before-fetch decides honestly.
       if (ownedPause) return { status: "failed", cursor: null, progress: counters, detail: ownedPause };
-      return { status: "advanced", cursor: { stage: shortRead ? "read" : "compare" }, progress: counters };
+      return { status: "advanced", cursor: { stage: shortRead && attempts > 0 ? "read" : "compare" }, progress: counters };
     } catch (e) {
       if (e instanceof StateConflictError) return { status: "failed", code: "state_conflict", cursor, progress: { pageReadsAttempted: attempts }, detail: CONFLICT_DETAIL };
       throw e;

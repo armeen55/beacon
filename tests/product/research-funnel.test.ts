@@ -25,18 +25,18 @@ const DAY_A = "2026-07-21", DAY_B = "2026-07-22"; // THE PLANNER owns the report
 const plan = (ps: { id: string; text: string }[], day = DAY_A, slot: 0 | 1 | 2 = 0): DueObservation[] => ps.flatMap((p) => ENG.map((engine) => ({ promptId: p.id, version: 1, text: p.text, engine, slot, day })));
 const canon = (over: Partial<CanonicalPairObservation> = {}): CanonicalPairObservation => ({ observationId: "obs_1", promptId: "p1", promptVersion: 2, promptText: "where to buy saffron", engine: "chatgpt", modelRequested: null, modelServed: null, observationMode: "consumer_search", reportingDay: DAY_A, observedAt: null, answerHash: "h", webSearchReported: null, fanOutQueries: null, citations: null, retrievedResults: null, brandMentions: null, analysis: null, ...over });
 describe("short winner turns", () => {
-  it.each(["acct-a", "acct-b"])("banks %s's first owed page in 33 seconds and resumes without paid fallback or comparison", async (t) => {
+  it.each(["acct-a", "acct-b"])("holds %s's failed first short read, advances healthy winners, and retries deferred work after the hold", async (t) => {
     const seed = emptyFunnelState(t, BASIS); seed.serps.queries = [{ query: "read this", status: "done", organic: [1, 2, 3].map((n) => ({ url: `https://winner${n}.example/page`, rank: n, title: "Page", snippet: null })) }] as FunnelState["serps"]["queries"];
-    const store = memStore(seed), cache = new Map<string, Record<string, unknown>>(); let at = NOW, fail = false; const reads: string[] = [], paid = vi.fn();
+    const store = memStore(seed), cache = new Map<string, Record<string, unknown>>(); let at = NOW; const reads: string[] = [], paid = vi.fn();
     const unit = winningPagesUnit({ ...store.deps, now: () => at, loadProfile: async () => emptyBusinessProfile(t), getAccount: async () => ({ domain: "own.example" } as Account), resolveCitations: async (a) => a,
       readPageExtract: async (url) => cache.has(url) ? { extract: cache.get(url)!, fetchedAt: new Date(at).toISOString() } as never : null,
-      writePageExtract: async (url, extract) => { cache.set(url, extract); }, callProvider: paid,
-      fetchPage: async (url, _robots, options) => { expect(options?.timeoutMs).toBe(10_000); reads.push(url); at += 20_000; if (fail) return { ok: false, reason: "fetch_failed", detail: "timeout" };
+      writePageExtract: async (url, extract) => { cache.set(url, extract); }, callProvider: paid, fetchPage: async (url) => { reads.push(url); at += 20_000; if (url.includes("winner1")) return { ok: false, reason: "fetch_failed", detail: "http_403" };
         return { ok: true, html: "<html><body><h1>Winner</h1><p>Useful source words.</p></body></html>", status: 200 }; } });
-    const first = await unit(t, cur(), 33_000); expect(first).toMatchObject({ status: "advanced", cursor: { stage: "read" }, progress: { pageReadsAttempted: 1 } });
-    expect(store.peek(t, BASIS)!.winningPages.filter((p) => p.extract?.mainText)).toHaveLength(1); expect(at - NOW).toBe(20_000);
-    await unit(t, { ...cur(), ...first.cursor }, 33_000); expect(new Set(reads).size).toBe(2); expect(paid).not.toHaveBeenCalled();
-    fail = true; await unit(t, cur(), 33_000); expect(paid).not.toHaveBeenCalled(); expect(store.peek(t, BASIS)!.winningPages.filter((p) => p.extract?.mainText)).toHaveLength(2);
+    for (let tick = 0; tick < 3; tick += 1) { const result = await unit(t, cur(), 33_000); expect(result).toMatchObject({ status: "advanced", cursor: { stage: "read" }, progress: { pageReadsAttempted: 1 } }); at += 30 * 60_000; }
+    expect(reads).toEqual([1, 2, 3].map((n) => `https://winner${n}.example/page`)); expect(paid).not.toHaveBeenCalled();
+    const held = store.peek(t, BASIS)!.winningPages; expect(held.filter((p) => p.extract?.mainText)).toHaveLength(2); expect(held[0]!.readOutcome?.state).toBe("temporarily_unavailable");
+    expect(await unit(t, cur(), 33_000)).toMatchObject({ cursor: { stage: "compare" }, progress: { pageReadsAttempted: 0 } });
+    at = Date.parse(held[0]!.readOutcome!.retryAfter); paid.mockResolvedValue(err("retry_free")); await unit(t, cur(), 90_000); expect(reads).toHaveLength(4); expect(paid).toHaveBeenCalledTimes(1);
   });
 });
 describe("research funnel - basis-scoped discovery + isolation", () => {
