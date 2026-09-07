@@ -18,8 +18,8 @@ function evidenceUnlock(cards: readonly ChangeProposal[], worth: (p: ChangePropo
   if (!card) return null;
   const onFile = winnersRead(research, card.primaryQuery);
   const need: EvidenceRequirement | null = onFile !== "read"
-    ? { kind: onFile === "none" ? "serp" : "competitor_page", query: card.primaryQuery, reasonCode: "named_body_gap_winners" }
-    : card.obligation?.kind === "evidence" && card.obligation.need.reasonCode !== "named_body_gap_winners" ? card.obligation.need : null;
+    ? { kind: onFile === "none" ? "serp" : "competitor_page", query: card.primaryQuery, reasonCode: "no_winner_to_read" }
+    : card.obligation?.kind === "evidence" && card.obligation.need.reasonCode !== "no_winner_to_read" ? card.obligation.need : null;
   return { card, need, micro };
 }
 
@@ -35,6 +35,9 @@ type Keyable = Parameters<typeof mutationKeyOf>[0];
 const keyOf = (p: Keyable): string => { try { return mutationKeyOf(p); } catch { return `unknown-page::${(p.id ?? p.primaryQuery ?? "").trim().toLowerCase() || "none"}`; } }; // its OWN name, so two page-less jobs never share one slot // a job with no page at all can never be drawn against and must not take the pass down with it
 /** WHAT ONE DAY ALREADY DID TO ONE PIECE OF WORK, under that work's OWN identity (`workKey`: the mutation, the writer contract, the basis, the evidence bound to the row, the obligation it carries and the rules it is judged under). It replaces the four day lists that keyed on the bare mutation and family: `attempted`, `tried`, `spent` and `settled` all answered "the same page again" for work whose evidence, obligation or rules had moved, so a corrected job could not run again until tomorrow (live, an answer block whose fact banked mid day, 2026-09-03). `calls` counts the ATTEMPTS that took real provider calls and finished nothing, never the requests themselves; `last` is the outcome that attempt filed; `settled` means there is nothing left to do for this exact work under this exact evidence. A workKey nobody remembers is new work by construction. */
 export type JobMemory = { calls: number; last: string; settled: boolean };
+
+const memoryDecline = (m: JobMemory | null | undefined): string | null => m?.settled ? "finished work or a settled refusal already stands under this exact evidence"
+  : (m?.calls ?? 0) >= DAY_ATTEMPTS ? "spent on twice today and finished nothing, so it waits for new evidence or tomorrow" : null;
 
 /** THE DRAFTING POLICY, AS ONE CONTRACT THE LOOP AND THE PRICE BOTH READ. They diverged twice, and each time the allowance ran out mid-deliverable and the card was refused with "this pass has spent its whole attempt budget" (live receipts, 2026-08-22 22:30Z and 2026-08-23 00:32Z). So the retry count is stated ONCE and the price is DERIVED from it rather than written down separately: one writing round is a draft and its judge, the editor may make the first attempt plus EDITOR_RETRIES more, and one mandatory adversarial review reads the survivor before it may wear Ready. Change the retry count and the price follows; they cannot drift apart again. */
 const EDITOR_RETRIES = 2, CALLS_PER_ROUND = 2;
@@ -85,11 +88,6 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
         : j.calls < at.calls ? j : at;
       const win = cmp, lose = win === j ? at : j;
       byKey.set(j.key, { ...win, fallbacks: [...new Set([...(win.fallbacks ?? []), ...(lose.fallbacks ?? []), lose.family])].filter((f) => f !== win.family) }); } }
-  // ONE ORDER, AND IT IS EXPECTED SITE IMPACT (Codex, 2026-08-23). Sorting pages that were funded and never
-  // started to the BACK put /persian-female-first-names, worth 560 recoverable clicks, behind a product page
-  // worth 0.22 and a category page worth 0.13, and it stayed unattempted for a third dispatch running. A
-  // candidate that was selected and not reached is not owed less; it is owed FIRST, which this ordering gives
-  // it for free because settled keys are the only ones the caller skips.
   // A PAGE-GENERIC JOB IS NOT A SECOND JOB BESIDE A MUTATION ON THAT PAGE. The legacy field families declare
   // "some best change on this page" before any card exists, and the editor declares the exact mutation. Left
   // separate they both fund and the generic one buys a duplicate the gates then refuse (proved by replay: the
@@ -136,8 +134,7 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
     const price = Math.max(1, Math.round(j.calls));
     if (j.blocked) declined.push({ key: j.key, family: j.family, calls: price, reason: j.blocked });
     // ALREADY BOUGHT NEVER BLOCKS A DIFFERENT OBLIGATION (operator, 2026-09-02). The skip was keyed on the mutation and the family, so a page whose DRAFT was spent today declined the REVIEW that page owed as well, and a job whose evidence, obligation or rules had genuinely moved could not be funded until tomorrow. Both answers are asked of the WORK'S OWN IDENTITY now: a corrected job wears a different `workKey`, so it is simply not the job the day remembers.
-    else if (seen(j)?.settled === true) declined.push({ key: j.key, family: j.family, calls: price, reason: "finished work or a settled refusal already stands under this exact evidence" });
-    else if ((seen(j)?.calls ?? 0) >= DAY_ATTEMPTS) declined.push({ key: j.key, family: j.family, calls: price, reason: "spent on twice today and finished nothing, so it waits for new evidence or tomorrow" });
+    else if (memoryDecline(seen(j))) declined.push({ key: j.key, family: j.family, calls: price, reason: memoryDecline(seen(j))! });
     // TWO DIFFERENT THINGS, TWO DIFFERENT SENTENCES. A pass Beacon was ASKED not to spend on used to report the
     // provider's credit as exhausted, which is a cause the receipt invented: nothing had run out, and an
     // operator reading it would go looking at a billing page for a decision Beacon had made itself. AND A CALLER WITH A TRUER CAUSE SUPPLIES IT, exactly as a blocked job does above (measured, 2026-09-05): a drive whose remaining box cannot begin a single job spends nothing for a reason of its own, and "asked to spend nothing" would send that same operator looking for whoever asked. The plan never READS a sentence, it prints the one it was handed and the default one otherwise.
@@ -224,4 +221,4 @@ const HARD_REFUSAL = /not on the stored page|is not the one this page carries|pa
 /** AN ATTEMPT PAYS FOR A CALL THAT ACTUALLY LEFT THE PROCESS, AND THIS IS THE ONE PLACE THAT SAYS SO (campaign, 2026-09-06). Every paid door takes its attempt BEFORE its call, because a call that failed, refused or threw was still bought, and every one of them hands it back here when nothing left the process: `noCallMade` above is the same predicate the meter reads to keep those answers off the dollars, so the money a page spent and the attempts it has left are one fact in one file. Letting a cache hit spend an attempt once let twelve long-refused cached drafts starve the cards a pass existed for (Codex, 2026-08-23); the day's cap doing the same charged a page whose fact reserve was out for bulk calls it never made (reviewer, 2026-09-06). The meter is not asked for: a door with no allowance simply has nothing to give back. */
 const refundIfNoCallMade = (a: { left: number } | undefined, answer: unknown): void => { if (a && noCallMade(answer)) a.left += 1; };
 export const DRAFT_BUDGET = { MAX_PAID_CALLS, DELIVERABLE_CALLS: PER_DELIVERABLE_CALLS, RETRIES: EDITOR_RETRIES, POLICY, HARD_REFUSAL,
-  BUNDLE_CALLS: BUNDLE_CALLS_TOTAL, evidenceUnlock, plan, keyOf, refundIfNoCallMade, noCallMade } as const;
+  BUNDLE_CALLS: BUNDLE_CALLS_TOTAL, evidenceUnlock, memoryDecline, plan, keyOf, refundIfNoCallMade, noCallMade } as const;

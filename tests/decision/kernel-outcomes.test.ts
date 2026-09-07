@@ -130,27 +130,27 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
     let calls = 0; const out = await produceProposalsForTenant("fixture-tenant", { now: NOW, produce: true, shared, complete: async () => (calls++, { error: "No writer should start before evidence", retryable: false }) });
     expect(out.paid?.evidenceOwed).toEqual(expect.arrayContaining([expect.objectContaining({ query: body.primaryQuery, kind: "serp", unlocks: { proposalId: body.id, step: "draft", beforeMicros: true } })]));
     expect(out.paid?.receipts.filter((r) => r.key === DRAFT_BUDGET.keyOf(micro) && r.funded)).toEqual([]);
-    expect(calls).toBe(0);
+    expect(calls).toBe(0); expect(out.paid.declined?.find((d) => d.key === DRAFT_BUDGET.keyOf(body))?.reason).toBe(`This body gap needs serp evidence for "${body.primaryQuery}" before drafting`);
     (env.snap as EvidenceSnapshot).research.winningPages.push({ url: "https://winner.example/pools", appearances: [{ query: body.primaryQuery }], extract: { mainText: "The tide exposes rock pools.", headings: [], title: "Rock pools", metaDescription: null, wordCount: 50, hasFaq: false, hasDefinition: false, hasSteps: false, hasTable: false, answerBlocks: [], topics: [], schemaTypes: [], links: [] } } as never);
     shared.set("cards:extra:fixture-tenant", Promise.resolve({ run: { cards: [body, micro], held: [], needsOwnPage: [], complete: true }, unitLoad: null }));
     const awake = await produceProposalsForTenant("fixture-tenant", { now: NOW, produce: true, shared, complete: async () => (calls++, { error: "Writer admitted; transport fixture refuses", retryable: false }) });
-    expect(awake.paid.funded).toContain(DRAFT_BUDGET.keyOf(body)); expect(awake.paid.evidenceOwed?.some((n) => n.reasonCode === "named_body_gap_winners")).toBe(false);
+    expect(awake.paid.funded).toContain(DRAFT_BUDGET.keyOf(body)); expect(awake.paid.evidenceOwed?.some((n) => n.reasonCode === "no_winner_to_read")).toBe(false);
+    const workKey = awake.paid.receipts.find((r) => r.key === DRAFT_BUDGET.keyOf(body))!.workKey;
+    for (const [settled, reason] of [[false, "spent on twice today and finished nothing, so it waits for new evidence or tomorrow"], [true, "finished work or a settled refusal already stands under this exact evidence"]] as const) {
+      reset(env.snap as EvidenceSnapshot); calls = 0; shared.set("cards:extra:fixture-tenant", Promise.resolve({ run: { cards: [body, micro], held: [], needsOwnPage: [], complete: true }, unitLoad: null }));
+      const resumed = await produceProposalsForTenant("fixture-tenant", { now: NOW, produce: true, shared, memory: { [workKey]: { calls: 2, settled, last: "deterministic_refusal" } }, complete: async () => (calls++, { error: "Transport fixture refuses", retryable: false }) });
+      expect(resumed.paid.declined?.find((d) => d.key === DRAFT_BUDGET.keyOf(body))?.reason).toBe(reason); expect(resumed.paid.funded).toContain(DRAFT_BUDGET.keyOf(micro)); expect(resumed.paid.funded).not.toContain(DRAFT_BUDGET.keyOf(body));
+      expect(resumed.paid.evidenceOwed?.some((n) => n.unlocks?.beforeMicros)).toBe(false);
+    }
   });
   it("unlocks only a stronger named body gap, moving from its SERP to its winners to writer admission", () => {
     const body = baseProposal({ id: "body", status: "needs_review", researchOnly: true, impactScore: 90,
       recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: "" },
       causeFinding: { cause: "weak_opening", action: "opening_answer", payload: { cause: "weak_opening", want: ["How the tide exposes the rock pools"] }, evidenceKeys: ["page"], explanation: "A named missing answer", competingExplanations: [], notConsidered: [], falsifier: "The opening already answers it" } });
     const micro = baseProposal({ id: "meta", impactScore: 2, recommendedChange: { kind: "existing_edit", field: "meta", before: "Old", after: "New" } });
-    const research = emptyResearchEvidence(), pick = (cards = [micro, body]) => DRAFT_BUDGET.evidenceUnlock(cards, (p) => p.impactScore ?? 0, research);
-    expect(pick()?.need?.kind).toBe("serp");
-    research.serpEvidence.push({ query: body.primaryQuery, organic: [], observedAt: null, aiOverview: [], aiMode: [], paa: [], related: [] });
-    expect(pick()?.need?.kind).toBe("competitor_page");
-    research.winningPages.push({ url: "https://winner.example/pools", appearances: [{ query: body.primaryQuery }], extract: { mainText: "The tide exposes pools along the ledge." } } as never);
-    expect(pick()?.need).toBeNull();
-    expect(nextObligation(body)?.kind).toBe("draft");
-    expect(pick([{ ...micro, impactScore: 100 }, body])).toBeNull();
-    expect(pick([micro, { ...body, causeFinding: undefined }])).toBeNull();
-    expect(pick([micro, { ...body, status: "implemented_pending_verification" }])).toBeNull();
+    const research = emptyResearchEvidence(), pick = (cards = [micro, body]) => DRAFT_BUDGET.evidenceUnlock(cards, (p) => p.impactScore ?? 0, research); expect(pick()?.need?.kind).toBe("serp");
+    research.serpEvidence.push({ query: body.primaryQuery, organic: [], observedAt: null, aiOverview: [], aiMode: [], paa: [], related: [] }); expect(pick()?.need?.kind).toBe("competitor_page");
+    research.winningPages.push({ url: "https://winner.example/pools", appearances: [{ query: body.primaryQuery }], extract: { mainText: "The tide exposes pools along the ledge." } } as never); expect(pick()?.need).toBeNull(); expect(nextObligation(body)?.kind).toBe("draft"); expect(pick([{ ...micro, impactScore: 100 }, body])).toBeNull(); expect(pick([micro, { ...body, causeFinding: undefined }])).toBeNull(); expect(pick([micro, { ...body, status: "implemented_pending_verification" }])).toBeNull();
     vi.stubEnv("BEACON_EVIDENCE_UNLOCK", "0"); try { expect(pick()).toBeNull(); } finally { vi.unstubAllEnvs(); }
   });
   it("funds the body answer worth more before the description, and leaves the description only what the answer did not take", () => { const j = (key: string, impact: number) => ({ key, family: "editor", impact, calls: DRAFT_BUDGET.DELIVERABLE_CALLS, workKey: `${key}::w` }), keys = (calls: number) => DRAFT_BUDGET.plan({ jobs: [j("/p::meta", 2), j("/p2::body::answer", 9)], candidates: 4, calls }).funded.map((f) => f.key);

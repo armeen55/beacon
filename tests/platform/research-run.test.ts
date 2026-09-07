@@ -1228,7 +1228,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
   /** THE DISPATCH GOES AND GETS THE READING A REFUSED CANDIDATE NAMED (Codex, 2026-08-23). Storing it, logging it and  checking it as a boolean is not acquisition: /persian-female-first-names named the exact search it needed, the  dispatch ended, and the next drive drafted from the same missing evidence. Proved through the REAL runtime. */
   it.each([true, false])("reads an unreached named body gap before micros only while enabled: %s", async (enabled) => {
     vi.stubEnv("BEACON_EVIDENCE_UNLOCK", enabled ? "1" : "0");
-    const order: string[] = [], need = { key: "/pools::body::tide", kind: "competitor_page" as const, query: "rock pool tides", reasonCode: "named_body_gap_winners", reason: "Read the named gap", workKey: "body-work", rank: 1, unlocks: { proposalId: "body", step: "draft" as const, beforeMicros: true as const } };
+    const order: string[] = [], need = { key: "/pools::body::tide", kind: "competitor_page" as const, query: "rock pool tides", reasonCode: "no_winner_to_read", reason: "Read the named gap", workKey: "body-work", rank: 1, unlocks: { proposalId: "body", step: "draft" as const, beforeMicros: true as const } };
     withRun({ current_phase: "keyword_discovery", progress: { plan: { units: ["replenish_ready"] }, evidenceOwed: [need] } });
     try { await run({ ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["replenish_ready"] }),
       acquireEvidence: async () => (order.push("winners"), { acquired: true, detail: "Winner words banked" }),
