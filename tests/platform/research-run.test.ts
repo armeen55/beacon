@@ -328,12 +328,22 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
     const units: DueWork["due"] = ["daily_observations", "replenish_ready"], order: string[] = [];
     const rows = withRun({ tenant_id: t, cycle_key: `${t}:p2:${reportingDay(NOW)}`, current_phase: "prompt_observations", progress: { plan: { units: [...units] } } });
     const steps: ResearchCycleSteps = { ...BENIGN, ...healthySteps(order), surfaceStale: async () => units.includes("publish_surfaces"), dueWork: async () => ({ ...SOMETHING_DUE, due: [...units] }),
-      funnelUnit: async () => ({ status: "waiting", cursor: { pending: true }, progress: {} }),
-      factCheck: async () => (order.push("facts"), { status: "done", banked: 0, bankedPages: [], pagesComplete: 0 }) };
-    await runResearchCycle(t, { now: () => new Date(NOW), steps }); expect(order).toEqual([]);
+      funnelUnit: async (phase) => { order.push(phase); return { status: phase === "prompt_observations" ? "waiting" : "done", cursor: { pending: true }, progress: {} }; },
+      replenishReady: async () => (order.push("walk"), null), factCheck: async () => (order.push("facts"), { status: "done", banked: 0, bankedPages: [], pagesComplete: 0 }) };
+    await runResearchCycle(t, { now: () => new Date(NOW), steps }); expect(order).toEqual(["walk", "prompt_observations"]); order.length = 0;
     units.push("check_page_facts", "publish_surfaces", "crawl_pages"); NOW += 30 * 60_000;
     await runResearchCycle(t, { now: () => new Date(NOW), steps });
-    expect(order).toEqual(["crawl", "facts", "publish"]); expect(rows).toHaveLength(1); expect(rows[0]).toMatchObject({ id: "seed", status: "paused", current_phase: "prompt_observations", completed_at: null }); expect(rows[0]!.progress.plan?.units).toEqual(units);
+    expect(order).toEqual(["crawl", "walk", "facts", "prompt_observations", "publish"]); expect(rows).toHaveLength(1); expect(rows[0]).toMatchObject({ id: "seed", status: "paused", current_phase: "prompt_observations", completed_at: null }); expect(rows[0]!.progress.plan?.units).toEqual(units);
+  });
+  it.each((["keyword_discovery", "serp_analysis", "winning_pages", "crawl_pages", "gsc_backfill_chunk", "publish_surface"] as const).flatMap((phase) => (["refresh_sources", "crawl_pages", "check_page_facts"] as const).map((due) => ({ phase, due }))))("closes a bookmarked planned row at Pacific midnight from $phase with $due newly due", async ({ phase, due }) => {
+    NOW = Date.parse("2026-09-08T06:59:00Z"); const units: DueWork["due"] = ["daily_observations", "replenish_ready"];
+    const touched: string[] = [], rows = withRun({ cycle_key: `${T}:p2:${reportingDay(NOW)}`, current_phase: "prompt_observations", progress: { plan: { units: [...units] }, state: { checksDone: 96, checksTotal: 140 } } });
+    const steps: ResearchCycleSteps = { ...BENIGN, ...healthySteps(touched), dueWork: async () => ({ ...SOMETHING_DUE, due: [...units] }),
+      replenishReady: async () => (touched.push("walk"), null), factCheck: async () => (touched.push("facts"), { status: "done", banked: 0, bankedPages: [], pagesComplete: 0 }),
+      funnelUnit: async (phase) => (touched.push(phase), { status: "waiting", cursor: { pending: true }, progress: {} }) };
+    await runResearchCycle(T, { now: () => new Date(NOW), steps }); expect(rows[0]!.progress.providerWait?.phase).toBe("prompt_observations");
+    rows[0]!.current_phase = phase; const savedState = { ...rows[0]!.progress.state }; touched.length = 0; units.push(due); NOW = Date.parse("2026-09-08T07:00:00Z");
+    await runResearchCycle(T, { now: () => new Date(NOW), steps }); expect(touched).toEqual([]); expect(rows[0]).toMatchObject({ status: "completed", lease_owner: null, progress: { state: savedState } }); expect(rows[0]!.progress.providerWait).toBeUndefined(); await runResearchCycle(T, { now: () => new Date(NOW), steps }); expect(rows).toHaveLength(2); expect(rows[1]!.cycle_key.slice(-10)).toBe(reportingDay(NOW));
   });
   it.each([T, U])("buys keywords for %s's mixed plan only when keyword work is explicitly authorized, under both flags", async (t) => {
     for (const flag of ["1", "0"]) for (const keyword of [null, "plan_cases", "consume_analyses"] as const) { vi.stubEnv("BEACON_ALWAYS_ON_RESEARCH", flag);
@@ -506,17 +516,7 @@ describe("research-run idempotency identity", () => {
     expect(rows.length).toBe(1); // no second run opened
     expect([rows[0]!.status, rows[0]!.id]).toEqual(["completed", "seed"]); expect(refreshKeys.length).toBe(1); // a phase already past is never re-run, so it never asks for a second key
     expect(backfillKeys[0]).not.toBe(refreshKeys[0]); expect(refreshKeys[0]).toMatch(/^rr_[0-9a-f]{32}$/); }); // the next phase gets a different key
-  it.each(["keyword_discovery", "serp_analysis", "winning_pages", "crawl_pages", "gsc_backfill_chunk", "publish_surface"] as const)(
-    "closes a run stranded past midnight at %s, keeps every piece of evidence it wrote, buys nothing for the dead day, and frees today", async (phase) => {
-      const rows = withRun({ current_phase: phase, progress: { sourcesRefreshed: 2, funnel: { answersAnalyzed: 7 } } }); const touched: string[] = [];
-      const spy: Partial<ResearchCycleSteps> = { ...BENIGN, refreshSources: async () => (touched.push("refresh"), { attempted: 0, succeeded: [], failures: [] }),
-        backfillChunk: async () => (touched.push("backfill"), { kind: "no_work" }), crawlPages: async () => (touched.push("crawl"), 3),
-        funnelUnit: async () => (touched.push("unit"), { status: "done", progress: {}, cursor: null }), publishSurface: async () => void touched.push("publish"), currentBasis: async () => "b1" };
-      NOW += DAY; await run(spy); // the day the run opened on is gone
-      expect([rows[0]!.status, touched]).toEqual(["completed", []]); // closed from that very phase, and not one side effect fired for the dead day
-      expect([rows[0]!.progress.sourcesRefreshed, rows[0]!.progress.funnel?.answersAnalyzed]).toEqual([2, 7]); // every number it did write survives
-      await run({ ...BENIGN, dueWork: async () => SOMETHING_DUE }); // today may now claim its own cycle
-      expect([rows.length, rows[1]?.cycle_key.slice(-10)]).toEqual([2, reportingDay(NOW)]); });});
+});
 describe("research-run resume + status projection", () => {
   it("resumes at the persisted phase (done phases are not re-run) and a deadline pauses durably", async () => {
     const rows = withRun({ current_phase: "gsc_backfill_chunk" }); const log: string[] = []; await run(healthySteps(log), 0); // out of time before any phase
