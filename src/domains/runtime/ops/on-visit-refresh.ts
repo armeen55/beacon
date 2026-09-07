@@ -133,7 +133,8 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
   if (alwaysOn && work.readable && progress.plan?.units.length) {
     const admitted = run.progress?.providerWait ? work.due : work.due.filter((u) => u === "read_winner_pages" || u === "replenish_ready"), earlier = nextPlanned("refresh_sources", new Set(admitted.filter((u) => u !== "replenish_ready").flatMap((u) => PHASES_FOR[u])));
     progress = { ...progress, plan: { ...progress.plan, units: [...new Set([...progress.plan.units, ...admitted])] } }; if (run.progress?.providerWait && earlier !== "done" && earlier !== phase && nextPlanned(earlier, new Set([phase])) === phase) { progress.providerWait = run.progress.providerWait; phase = earlier; cursor = null; } }
-  const allowed = plannedPhases(progress);
+  const allowed = plannedPhases(progress); // An unpaid winner turn precedes a foreign provider bookmark, which remains owed.
+  if (alwaysOn && progress.waited?.phase === "winning_pages" && progress.waited.unpaid && run.progress?.providerWait && run.progress.providerWait.phase !== "winning_pages" && (allowed == null || allowed.has("winning_pages"))) { progress.providerWait = run.progress.providerWait; phase = "winning_pages"; cursor = run.current_phase === phase ? run.phase_cursor : null; }
   const planUnits = progress.plan?.units ?? [];
   // Replenishment borrows a phase for writing; adding winner debt must not authorize keyword purchases.
   const stockOnly = (): boolean => planUnits.length > 0 && !planUnits.some((u) => u !== "replenish_ready" && PHASES_FOR[u].includes(phase));

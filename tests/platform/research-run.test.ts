@@ -360,8 +360,8 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
       await runResearchCycle(t, { now: () => new Date(at), deadlineMs: 200_000, steps });
       expect(reads).toEqual(unread ? [33_000] : []); if (unread) expect(rows[0]!.progress.waited).toMatchObject({ phase: "winning_pages", unpaid: true });
       expect(rows[0]!.completed_at).toBeNull(); expect(rows[0]!.lease_owner).toBeNull(); expect(RR.projectStatusView(rows[0]!, at).state).toBe("queued");
-      if (!held) { NOW += 30 * 60_000; at = NOW; order.length = 0; await runResearchCycle(t, { now: () => new Date(at), deadlineMs: 200_000, steps });
-        expect(reads).toEqual(unread ? [33_000, 90_000] : [90_000]); expect(order.slice(0, 2)).toEqual(["read", "walk"]); expect(remaining).toBe(0); expect(rows).toHaveLength(1); }
+      if (!held || unread) { const bookmark = rows[0]!.progress.providerWait; if (held) expect(bookmark).toMatchObject({ phase: "prompt_observations", cursor: { unit: { pending: true } } }); NOW += 30 * 60_000; at = NOW; order.length = 0; await runResearchCycle(t, { now: () => new Date(at), deadlineMs: 200_000, steps });
+        expect(reads).toEqual(unread ? [33_000, 90_000] : [90_000]); expect(order.slice(0, 2)).toEqual(["read", "walk"]); expect(remaining).toBe(0); expect(rows).toHaveLength(1); if (held) expect(rows[0]!.progress.providerWait).toEqual(bookmark); }
     } vi.unstubAllEnvs();
   });
   it.each([T, U])("reads %s's winners first on the drive after the one whose walk took the slice, inside a bounded box, and still hands the walk what is left", async (t) => {
