@@ -129,6 +129,7 @@ const unrunStep = (v: Awaited<ReturnType<typeof researchRunStatus>> | null): str
   if (v == null || v.liveness?.state === "interrupted") return ""; // an interrupted run already says it stopped partway and is left alone
   const n = v.winnersOwed ?? 0, owed = n > 0 ? `${n} page${n === 1 ? "" : "s"} winning a search already bought ${n === 1 ? "is" : "are"} owed a read. The next pass reads ${n === 1 ? "it" : "them"}.` : null;
   const both = [v.waiting, v.blocker, owed].filter((x): x is string => !!x), said = both.map((x) => ` ${x}`).join("");
+  if (v.state === "queued") return ` Research continues from ${v.phaseLabel} on the next pass.${said}`;
   if (v.state !== "paused" || !v.phaseLabel) return said; // a run that did not pause still owes these two facts about its last drive
   return ` Research paused after ${v.stepsDone} of ${v.stepsTotal} steps, so ${v.phaseLabel} has not run yet.${said}${v.pauseReason ? ` ${v.pauseReason}` : both.length > 0 ? "" : " The next pass starts there."}`;
 };
@@ -265,7 +266,7 @@ async function loadTodayViewWithSwr(tenantId: string): Promise<TodayComposite> {
     checkBudget({ tenantId, projectedCostUsd: 0.01 }).then((b) => b.allowed === false).catch(() => false),
   ]);
   const research = { ...(permission === "paused" ? { researchPaused: true } : {}), ...(budgetSpent ? { modelBudgetSpent: true } : {}),
-    ...(runStatus?.liveness?.line ? { researchLiveness: `${runStatus.liveness.line}${unrunStep(runStatus)}` } : {}) };
+    ...(runStatus?.liveness?.line && (permission === "running" || runStatus.state !== "queued") ? { researchLiveness: `${runStatus.liveness.line}${unrunStep(runStatus)}` } : {}) };
   // WHAT I SAY WHEN I COULD NOT LOOK. "Nothing needs a decision today" is the one sentence an outage must never produce: it is a claim
   // about their business they cannot tell apart from the truth.
   const unreadable = "Your changes could not be read just now, so the day is not being called clear. Beacon is checking again automatically.";
