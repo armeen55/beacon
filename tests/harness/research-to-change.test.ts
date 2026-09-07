@@ -2,7 +2,10 @@
  *  only what the round before had opened. Every drive below is the REAL `runResearchCycle` over the REAL `defaultSteps`, with the clock advanced between
  *  drives instead of a scheduler waited on, the captured production rows seeded through the canonical stores, and the three providers answered from a
  *  script. Nothing here is a second runtime and nothing is marked Ready by hand: what an arm asserts, the shipped code decided. */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+// Legacy short-body fixtures pin the rollback policy; full packet acceptance is exercised in editorial-standard.
+beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "0")); afterEach(() => vi.unstubAllEnvs());
+
 vi.mock("@/lib/persistence/supabase", async () => { const w = await import("./world"); const c = w.client(); return { getSupabaseAdmin: () => c, isSupabaseConfigured: () => true }; });
 vi.mock("@/lib/logger", async () => { const w = await import("./world"); return { log: { debug: () => {}, info: (m: string, x?: unknown) => w.logs.push(`${m} ${JSON.stringify(x ?? {})}`), warn: (m: string, x?: unknown) => w.logs.push(`${m} ${JSON.stringify(x ?? {})}`), error: (m: string, x?: unknown) => w.logs.push(`${m} ${JSON.stringify(x ?? {})}`) } }; });
 // THE TWO SEAMS THE CHANGES ACTION SITS BEHIND, and nothing else about it: who may publish for this account, and which account the request is for. The framework's own page cache and its background

@@ -1,0 +1,44 @@
+import { z } from "zod";
+import type { ChangeProposal } from "./contracts";
+
+// Build-time rollback: NEXT_PUBLIC_BEACON_AEO_PACKET=0 restores the prior editorial bar.
+// Public so the browser and server use the same value; this is policy, never a secret.
+const enabled = () => process.env.NEXT_PUBLIC_BEACON_AEO_PACKET !== "0";
+const applies = (field: string, standard?: string, unpublished = false) => enabled() && !unpublished && /^(answer_block|section)$/.test(field)
+  && !["correction", "internal_link", "repositioning"].includes(standard ?? "");
+const criteria = ["leadAnswer", "groupedH2s", "defendedClaims", "entityBlock", "boundedScope", "h1QueryAlignment"] as const;
+const schema = z.object({ leadAnswer: z.boolean(), groupedH2s: z.boolean(), defendedClaims: z.boolean(), entityBlock: z.boolean(), boundedScope: z.boolean(), h1QueryAlignment: z.boolean() });
+const passed = (r: unknown): boolean => { const parsed = schema.safeParse(r); return parsed.success && criteria.every((k) => parsed.data[k] === true); };
+const policy = "ANSWER-READY AEO PACKET (all six MUST pass): (1) Start finalCopy with a self-contained, liftable opening answer paragraph, explaining a useful distinction, never an introduction to a names dump. (2) Follow with Markdown ## H2s grouped by meaningful, evidence-supported criteria; explain what qualifies in each group, never one heading per species/person or an unclassified list. (3) Attribute only the exact claim a cited passage defends, never the whole packet. Mere presence or a heading does not establish native, endemic, current or official status. Omit unsupported optional claims; if core accuracy or membership is unclear, refuse. Disclaimers cannot repair unsupported copy. (4) Include an extractable entity block: a compact Markdown table or labeled bullet records pairing each named entity with its supported distinguishing attribute and group. (5) State a useful bounded selection and its geographic/time limits where relevant; do not promise exhaustive coverage. (6) The answer and grouped headings must answer the query intent AND fit the existing page H1; if H1 or intent is missing or mismatched, fail closed, never silently retitle the page. SHOULD: add useful FAQ question-answer pairs and relevant internal links to known owned destinations when evidence supports them; omission alone is not a failure. Schema and meta are deferred. This packet replaces the short-body format: no one-to-three-sentence cap, set naturalHeading=null, no outer heading before the lead. Preserve existing material outside the exact placement.";
+const failures = (field: string, copy: string, limitations: readonly string[] = [], standard?: string, unpublished = false): string[] => {
+  if (!applies(field, standard, unpublished)) return [];
+  const out: string[] = [], lines = copy.trim().split(/\n+/).map((s) => s.trim()).filter(Boolean);
+  const first = lines.find((s) => !/^#{1,6}\s/.test(s)) ?? "";
+  const plain = first.replace(/\*\*/g, "");
+  // Only obvious dump shapes are mechanical; sense, grouping and inclusion are judged against evidence.
+  if (/^#{1,6}\s/.test(lines[0] ?? "") || /^(?:[-*•]|\d+[.)])\s/.test(first) || !/[.!?](?:["”’])?$/.test(plain)
+    || (plain.split(/[,;•]/).length >= 5 && !/[.!?]\s+/.test(plain)))
+    out.push("AEO packet: a quotable answer paragraph is missing; names alone are not an answer.");
+  if (!lines.some((s) => /^##\s+\S/.test(s)) || lines.filter((s) => /^##\s+\S/.test(s)).length < 2)
+    out.push("AEO packet: criteria-grouped H2s are missing.");
+  if (!/^(?:\|.+\|)|^(?:[-*•]\s+[^:\n]+:\s*\S)/m.test(copy))
+    out.push("AEO packet: an extractable entity table or labeled record block is missing.");
+  const uncertainty = [copy, ...limitations].join(" ");
+  if (/check every word|may be incomplete|overreads? (?:native|endemic) status|accuracy (?:is |remains )?(?:unclear|uncertain)|verify (?:every|all) (?:claim|entry|word)|cannot confirm/i.test(uncertainty)
+    || (copy.match(/\b(?:may|might|possibly|perhaps|unclear|uncertain)\b/gi) ?? []).length >= 3)
+    out.push("AEO packet: resolve the accuracy uncertainty before offering these words.");
+  return out;
+};
+export const AEO_BAR = { applies, policy, failures, schema, passed,
+  approved: Object.fromEntries(criteria.map((k) => [k, true])) as z.infer<typeof schema>,
+  forRow: (p: ChangeProposal): boolean => p.recommendedChange.kind === "existing_edit" && !p.recommendedChange.linkTo
+    && applies(p.recommendedChange.field, p.changeFamily === "factual_correction" ? "correction" : p.assignment?.standard),
+  sameRejectedCopy: (a: ChangeProposal, b: ChangeProposal): boolean => {
+    const key = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+    const identity = (p: ChangeProposal) => { const c = p.recommendedChange;
+      return JSON.stringify([c.kind, c.kind === "existing_edit" ? [c.field.replace(/^(section|answer_block)$/, "body"), key(c.after), c.linkTo ?? ""] : [key(c.openingAnswer), p.newPageDraft],
+        (p.bundle?.components ?? []).map((x) => [x.kind, x.page ?? "", key(x.after ?? "")])]); };
+    return identity(a) === identity(b);
+
+  },
+};

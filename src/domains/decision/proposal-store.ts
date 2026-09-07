@@ -1,3 +1,4 @@
+import { AEO_BAR } from "./accept-worthy";
 /** decision/proposal-store: the ONE durable home of a ChangeProposal, and ONE CURRENT ROW PER HYPOTHESIS.  A hypothesis is (tenant, site, case, page, action family) and exactly one row for it is CURRENT  (`terminal_disposition is null`), held by a partial unique index; a new draft SUPERSEDES the row that held it in ONE database operation (supersede_change_proposal) and an identical re-draft writes NOTHING. STATUS  IS THE STAGE, DISPOSITION IS WHETHER ANYONE IS STILL BEING ASKED: needs_review / ready /  implemented_pending_verification are the stages, and dismissed / withdrawn / superseded retire the row. THE LIVE RANKING IS STORED HERE TOO (queue_lane + queue_rank), so the queue pages in the database. HISTORY  IS READABLE, NEVER RESURRECTED. FAIL CLOSED, LOUDLY. server-only. */
 
 import "server-only";
@@ -63,7 +64,6 @@ function siteOf(p: ChangeProposal): string {
 
 type Identity = { site: string; case_id: string; page_key: string; action_family: ActionFamily; mutation_key: string }; /** WHAT THIS ROW WRITES is `mutationFootprint`, shared with the queue so storage and presentation cannot drift; `mutation_key` is its SORTED TEXT and the index over it is a backstop against an EXACT duplicate only, because a bundle writing {title, meta} and a plain title rewrite hold different text and still collide over the title, which is why real overlap is decided by `footprintsOverlap` against the decoded rows. NO_FIELD_KIND names the kinds no `recommendedChange.field` can express, kept for the producer's sweep, which may only retire work it could have re-derived and never mints one. */
 export const NO_FIELD_KIND: ReadonlySet<string> = new Set(["anchor_text", "internal_link_add", "internal_link_remove", "table_or_list_add", "schema", "canonical", "redirect", "noindex", "navigation"]);
-/** PURE: the hypothesis this proposal is an answer to. */
 function identityOf(p: ChangeProposal): Identity { const anchor = anchorOf(p);
   return { site: siteOf(p), case_id: p.kind === "new_page" ? anchor : "",
     page_key: p.kind === "new_page" ? "" : anchor, action_family: actionFamilyOf(p), mutation_key: footprintKey(p) };}
@@ -168,6 +168,7 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
       .eq("case_id", ident0.case_id).eq("page_key", ident0.page_key).order("id", { ascending: true }).limit(200);
     if (error) {
       log.error("[proposal-store] canonical read failed, nothing was written", { tenantId: proposal.tenantId, id: proposal.id, error: error.message }); return "failed"; }
+    if ((data ?? []).length >= 200) return "refused"; // A truncated history cannot prove this draft was never declined.
     const onPage = ((data ?? []) as CanonRow[]).map((r) => ({ row: r, stored: r.id === proposal.id ? null : decode(r.payload) })); // WHAT THIS CHANGE COLLIDES WITH, never everything that merely shares its page: a table row and a heading both stand, while a bundle rewriting a title takes over the plain title rewrite. A row that will not decode is KEPT, because an unreadable neighbour is not proof of no conflict. The id is looked up separately too, since it may have been filed under a DIFFERENT family last time.
     const rows = onPage.filter((e) => e.row.id === proposal.id || !e.stored || footprintsOverlap(e.stored, proposal)).map((e) => e.row);
     const mine = rows.find((r) => r.id === proposal.id) ?? (await rowById(proposal.tenantId, proposal.id));
@@ -189,15 +190,16 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     const overtaken = live.map((e) => e.row);
     const current = (live.find((e) => e.stored && footprintKey(e.stored) === ident.mutation_key) ?? live[0])?.row ?? null; // THE PREDECESSOR IS THE ROW HOLDING THE INDEX KEY THIS ONE IS ABOUT TO CLAIM, not whichever id sorted first: superseding any other leaves that key held, the insert violates the current-row index, and the function answers "failed" on every future pass in the same order, for ever.
 
-    // A CHANGE PUT AWAY STAYS AWAY, and a draft I WITHDREW stays withdrawn, UNTIL THE EVIDENCE MOVES: same basis AND the same readings underneath. The basis fingerprints the ACCOUNT, so basis alone held a row shut through a whole generation while the readings under it changed completely, and the redraft the moved evidence had earned was answered "refused" forever. A retired row whose evidence no longer matches has been overtaken and no longer speaks for this one. ASK EVERY RETIRED ROW, not whichever came back first, or an older dismissal sorting first lets a dismissed page be re-drafted; a row that will not decode keeps its refusal, because an unreadable answer is not a moved one.
-    if ([mine, ...rows].some((r) => { const d = r?.terminal_disposition ?? null;
-      if ((d !== "dismissed" && d !== "withdrawn") || (r!.basis ?? null) !== (proposal.basis ?? null)) return false;
+    if ([mine, ...onPage.map((e) => e.row)].some((r) => { const d = r?.terminal_disposition ?? null;
+      if (d !== "dismissed" && d !== "withdrawn") return false;
+      const rejected = d === "dismissed" ? decode(r!.payload) : null;
+      if (d === "dismissed" && (rejected ? AEO_BAR.sameRejectedCopy(rejected, proposal) : r!.id === proposal.id)) return true;
+      if (!rows.includes(r!) && r !== mine) return false;
+      if ((r!.basis ?? null) !== (proposal.basis ?? null)) return false;
       if (transition === IMPLEMENTED_TRANSITION && r!.id === proposal.id && d === "withdrawn") return false; // the operator's own press outvotes a reconciliation withdrawal of THIS row (Mahsa's stranded flip, 2026-08-29); a DISMISSED row still refuses, because that retirement was the operator's decision and a stale tab may not undo it
-      // A SWEPT WITHDRAWAL IS A CACHE, NOT A DECISION (falsifier, 2026-09-02), for the same reason a correction card's is: the sweep says only that a $0 producer did not re-emit this card on one pass, which is not a finding about the work, and holding the id shut on it stranded seven drafted descriptions behind a refusal nothing could lift. A withdrawal whose reason is about the COPY still refuses, and so does the operator's own dismissal.
       if (d === "withdrawn" && /^swept:/.test(r!.withdrawn_reason ?? "")) return false;
       if (d === "withdrawn" && /::fact-[^:]+$/.test(r!.id)) return false; // A CORRECTION CARD EXISTS EXACTLY WHILE ITS CORRECTION IS AUTHORIZED: the factual producer recomputes that authorization from the evidence on every pass, so its own past withdrawal is a cache of "not authorized then", never a standing decision, and a re-mint under standing authorization revives the row. Seven authorized corrections stayed dead behind this refusal on 2026-08-30. A DISMISSED fact row still refuses above: that retirement was the operator's.
       const stored = decode(r!.payload);
-      // AN UNREADABLE ROW MAY ONLY REFUSE ITSELF: "unreadable is not moved" is right about THIS id and wrong about a neighbour, and once the sibling read widened to the whole page one undecodable retired row refused every new change there. To refuse, the store must be able to SHOW the evidence has not moved, which it cannot do about a row it cannot read.
       return stored ? evidenceFingerprint(stored) === evidenceFingerprint(proposal) : r!.id === proposal.id; })) return "refused";
 
     // Nothing material changed: no write, no new timestamp, so a refreshed surface never reads yesterday's thinking as today's work. The row that STANDS is handed back, so a caller whose draft lost the merge stops publishing it. A MOVED RANK IS A COLUMN, NEVER A VERSION: the receipt is refreshed where it lives, so the order stays inspectable and the $0 producers keep their receipts, while `proposal_version`, `payload` and `updated_at` go on saying the one thing they mean, which is that this row's work has not changed. The stamped position and lane travel the same way, written whole by the release below.

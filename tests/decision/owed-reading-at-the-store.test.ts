@@ -91,3 +91,12 @@ describe("a new page half written, at the door that stores it", () => {
     expect(stored.newPageDraft?.pieces.length ?? 0, "a producer that re-mints the topic holds no draft, and the words already paid for are on the row").toBe(1);
   });
 });
+
+it.each(SITES)("#129 $t: a declined draft survives a new basis, id and cosmetic formatting", async (s) => {
+  const declined = row(s, { researchOnly: false, recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: "Otters, herons and frogs.", where: "After the opening" } });
+  expect(await saveChangeProposal(declined)).toBe("saved");
+  const record = db.state.rows.find((r) => r.id === declined.id)!; record.terminal_disposition = "dismissed";
+  const again = { ...declined, id: declined.id + "-new", basis: "new-evidence", recommendedChange: { ...declined.recommendedChange, after: "OTTERS; herons and frogs!" } } as ChangeProposal;
+  expect(await saveChangeProposal(again)).toBe("refused");
+  expect(await saveChangeProposal({ ...again, recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: "Otters inhabit rivers while herons hunt in shallow wetlands.", where: "After the opening" } })).toBe("saved");
+});
