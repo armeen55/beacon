@@ -11,9 +11,10 @@ import { runResearchCycle } from "@/domains/runtime/ops/on-visit-refresh";
 import { defaultSteps } from "@/domains/runtime/ops/research-steps";
 import { accountBasis } from "@/domains/runtime/ops/due-work";
 import { setAccountRepositoryForTests, type AccountRepository } from "@/domains/account/tenants/store";
+import { loadChangeProposals } from "@/domains/decision/proposal-store";
 import {
-  advance, clock, fixture, installFetch, logs, meter, money, now, requestsOf, reset, runRepo, runs, script, seedOwnedPages,
-  seedProposals, seedResearchState, seedRun, seedSearchHistory, reasoningReply, table, T, SITE,
+  advance, clock, fixture, installFetch, interruptOnce, logs, meter, money, now, reasoningAsked, requestsOf, reset, runRepo, runs, script, seedOwnedPages,
+  seedProposals, seedResearchState, seedRun, seedSearchHistory, reasoningReply, table, today, HUB_PAGE, JUDGE, T, SITE, WRITER,
   type FixtureSerp, type FixtureWinner, type Row, type RunRow,
 } from "./world";
 
@@ -198,4 +199,54 @@ describe("a phase that throws after real work landed", () => {
     expect([run.status, run.last_error?.phase], "the publication failing pauses the pass at its own phase with a bounded reason").toEqual(["paused", "publish_surface"]);
     expect(winnersOf().filter((w) => (w.extract?.mainText ?? "").length > 0).length, "and not one reading the earlier drive paid attention to is lost").toBe(readBefore);
   });
+});
+
+/** THE PROVIDERS TAKING THEIR REAL TIME (delivery-loop campaign, 2026-09-07). Every arm above is answered in the same instant, so none of them could ask whether a drive's own arithmetic survives a writer that takes seconds: the walk's stop, its box, the lease and the deadline each read a clock, and on production a written job took 17 to 31 seconds over three calls while the drive's slice was 200 seconds. `script.latency` makes each provider take its time for real, the clock moves with it, and the three arms below are the ones the window change is argued from: a job finishing inside the current slice, a lease lost after the walk ran, and a box ending while the writer is still answering. */
+describe("the providers taking their real time", () => {
+  const SLOW = { search: 800, reasoning: 2_500, page: 600 }; /* the measured shape: a results page in under a second, a writer in a few seconds, a public page in well under one */
+  /** A rival that carries a subject the hub page lacks (Scientists), as the publisher serves it: the comparison names it, this same drive reads it, and the walk behind that reading writes. */
+  const rivalPage = (url: string) => (url.endsWith("/robots.txt") ? { html: "User-agent: *\nAllow: /", contentType: "text/plain" }
+    : { html: `<html><head><title>Famous Iranians, by the work they did</title></head><body><h1>Famous Iranians through history</h1><h2>Poets</h2><h2>Athletes</h2><h2>Scientists</h2><p>${"Famous Iranians are listed here by the work they did, with the years each of them worked and one line on why they are remembered. ".repeat(20)}</p></body></html>` });
+  const readyCopy = async (): Promise<string | null> => { const row = [...(await loadChangeProposals(T)).values()].find((r) => (r.pagePath ?? "") === HUB); return row?.status === "ready" && row.recommendedChange.kind === "existing_edit" ? row.recommendedChange.after : null; };
+  type Walk = { jobs?: Record<string, { calls: number; last: string; settled: boolean }>; waiting?: string[]; outcomes?: { ended?: string; receipts?: { key: string; outcome: string; providerCalls: number }[] } };
+  const walkOf = (r: RunRow): Walk | undefined => (r.progress as { replenish?: Walk }).replenish, writersHired = (): number => reasoningAsked.filter((a) => a.kind === "atomic_edit").length;
+  /** DEFECT FOUND BY THE TWO RESUME CASES BELOW (lane B, 2026-09-07), pinned at its measured value so the case that found it stays green and the repair that closes it turns this number to zero: the finished row is saved under the section-family identity (`...::existing_edit::section-family::...::page-copy-1,page-heading-2,...`) while the walk declared and funded the job under the deep-bundle one (`...::existing_edit::deep_bundle::...`), so neither the deep door's reuse of a finished row (`p.workKey === wantKey`) nor the day memory's settlement by rows (`settledByRows`, keyed on the job's workKey) ever matches the row that job produced. A drive that lost the walk's receipt, and a drive whose box cut the walk off, both hire the writer again for a job whose finished copy is already on the store; the readings are not bought again, and the copy stands. */
+  const WRITER_HIRED_AGAIN = 0; /* was 1 when these cases found it: the finished row carried the section family's identity while the walk funded the job under the deep bundle's, so a resumed drive hired the writer again; the row carries the job's declared key now (produce-proposals.ts stamp) */
+  beforeEach(() => { table("page_snapshots").length = 0; seedOwnedPages([HUB_PAGE]); script.reasoning = (body) => reasoningReply({ ...REASONING, atomic_edit: WRITER, editor_judgement: JUDGE }, body); script.search = healthySearch({ posts: 0 }); script.page = rivalPage; });
+
+  it("a substantive body job for the hub row finishes inside the 200 second slice when a search takes 800 ms, the writer 2.5 s and a page 600 ms, and its copy is on the store", async () => {
+    seedResearchState(basis, { serps: serpFor(QUERY) }); script.latency = SLOW; const from = clock.ms, began = Date.now(); // everything the row needs is on file but the rival at position five, which this same drive reads for itself
+    const run = await drive(["replenish_ready"], "keyword_discovery"), took = clock.ms - from, scripted = meter.requests.reduce((n, r) => n + SLOW[r.kind], 0);
+    expect([run.status, walkOf(run)?.outcomes?.ended, walkOf(run)?.outcomes?.receipts?.some((r) => r.key === HUB && r.outcome === "produced"), await readyCopy()], "the drive reaches the writer, the job is produced and the finished copy is what reloads from the store").toEqual(["completed", "ran", true, WRITER.after]);
+    expect([took, took < 200_000, Date.now() - began >= took - 100], `the clock moved by exactly the time the providers took (${meter.requests.length} calls), well inside the slice, and the wait was real`).toEqual([scripted, true, true]);
+  }, 120_000);
+
+  it("a drive that loses its lease at the write behind a walk that funded and ran the job resumes on the next drive from what the row durably holds, and buys no reading it already has", async () => {
+    seedResearchState(basis, { serps: serpFor(QUERY) }); script.latency = SLOW;
+    interruptOnce("advance", { phase: "keyword_discovery", after: 1 }); // the first write at this phase carries the walk that named the rival's reading; the second, the walk that wrote the job, never lands
+    const first = await drive(["replenish_ready"], "keyword_discovery");
+    expect([first.status, first.current_phase, first.lease_owner != null, writersHired(), walkOf(first)?.jobs, await readyCopy(), logs.some((l) => l.includes("the lease was lost"))],
+      "the writer was hired and its copy landed on the store, then the write carrying that receipt was lost: the row still reads running at the same phase under the dead instance's lease, with no memory of the job").toEqual(["running", "keyword_discovery", true, 1, {}, WRITER.after, true]);
+    const requests = { search: requestsOf("search"), page: requestsOf("page") }, hired = writersHired();
+    advance(RR.RESEARCH_RUN_LEASE_SECONDS * 1000 + 1_000); script.latency = undefined; // the dead instance's lease runs out on its own, and the next tick claims the row
+    const second = await drive(["replenish_ready"], "keyword_discovery");
+    expect([second.id, second.status, requestsOf("search") - requests.search, requestsOf("page") - requests.page, writersHired() - hired, await readyCopy()],
+      "the same row is resumed at the phase the lease was lost in and finished: no results page and no rival page is bought again, the copy stands, and the writer is hired once more only because of the identity defect named above").toEqual([first.id, "completed", 0, 0, WRITER_HIRED_AGAIN, WRITER.after]);
+  }, 120_000);
+
+  it("a drive whose box ends while the writer is still answering hands the walk's receipts back as boxed, the row the writer then finishes still lands, and the next drive takes it as done instead of walking the same head again", async () => {
+    seedResearchState(basis, { serps: serpFor(QUERY) }); script.latency = { ...SLOW, reasoning: 55_000 }; // a slow model: the page job, the draft and the judgement are three answers of 55 seconds; the first walk names the rival, the drive reads it, and the walk behind that reading is boxed with the judgement still out
+    const walks: Promise<unknown>[] = [], steps = { ...defaultSteps, replenishReady: ((...a) => { const p = defaultSteps.replenishReady(...a); walks.push(p); return p; }) as typeof defaultSteps.replenishReady };
+    seedRun({ status: "paused", current_phase: "keyword_discovery", progress: { plan: { units: ["replenish_ready"] }, replenish: { day: today(), jobs: {}, outcomes: { preparedMs: 5_000, readySaved: 0, evidenceBanked: 0, refused: 0, blocked: 0, unreached: 0, stuck: [] } } } }); // a measured preparation, so the second walk's box is one it may begin a job in
+    await runResearchCycle(T, { now, deadlineMs: 168_000, steps });
+    const boxed = runs[runs.length - 1]!, receipt = walkOf(boxed)?.outcomes?.receipts?.find((r) => r.key === HUB);
+    expect([boxed.status, boxed.current_phase, walkOf(boxed)?.outcomes?.ended, receipt?.outcome, (receipt?.providerCalls ?? 0) > 0, Object.values(walkOf(boxed)?.jobs ?? {}).map((j) => [j.last, j.settled]), await readyCopy()],
+      "the drive stopped waiting at its box and paused at the phase with the walk's own snapshot on the row: the job is filed as still running with the calls it made remembered, and nothing is on the store yet").toEqual(["paused", "keyword_discovery", "boxed", "retryable_blocked", true, [["retryable_blocked", false]], null]);
+    await Promise.all(walks); // the abandoned walk runs on, as the instance does until the hosting ceiling: the judge answers and the row lands
+    expect(await readyCopy(), "the row the writer was finishing at the box lands on the store after it").toBe(WRITER.after);
+    const requests = { search: requestsOf("search"), page: requestsOf("page") }, hired = writersHired(); advance(30 * 60_000); script.latency = undefined;
+    const next = await drive(["replenish_ready"], "keyword_discovery");
+    expect([next.id, next.status, writersHired() - hired, requestsOf("search") - requests.search, requestsOf("page") - requests.page, Object.values(walkOf(next)?.jobs ?? {}).map((j) => [j.last, j.settled]), await readyCopy()],
+      "the next drive resumes the same row and buys no reading again; the landed row should settle the job it was written for, and does not, so the writer is hired once more (the identity defect named above) before the day's memory reads the job as produced").toEqual([boxed.id, "completed", WRITER_HIRED_AGAIN, 0, 0, [["produced", true]], WRITER.after]);
+  }, 300_000);
 });

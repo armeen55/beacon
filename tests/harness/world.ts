@@ -6,6 +6,7 @@
  *  replaced (tests/fixtures/harness). */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { reportingDay } from "@/lib/reporting-day";
 
 export type Row = Record<string, unknown>;
 export const T = "acct-fixture";
@@ -24,6 +25,9 @@ export type FixtureWinner = { url: string; domain: string; appearances?: { query
 export const clock = { ms: Date.now() };
 export const now = (): Date => new Date(clock.ms);
 export const advance = (ms: number): number => (clock.ms += ms);
+/** The reporting day the shared clock stands in, which is the day every run key and every day memory is keyed on. The harness used to key its seeded runs on
+ *  the UTC date, so from five in the afternoon Pacific every drive closed its pass as "a day that has ended" and nothing under test ever ran. */
+export const today = (): string => reportingDay(clock.ms);
 
 /** WHAT LEFT THIS PROCESS AND WHAT IT COST. `requests` is every scripted transport call in order; `paidUsd` is what the money path actually reserved,
  *  so a cache hit and a real request are told apart by the meter and by the attempt, never by a claim. */
@@ -184,15 +188,22 @@ export type Script = {
   search?: (path: string, payload: unknown) => { status?: number; body: unknown };
   reasoning?: (body: unknown) => { status?: number; body: unknown };
   page?: (url: string) => { status?: number; html: string; contentType?: string } | null;
+  /** HOW LONG EACH PROVIDER TAKES TO ANSWER, in milliseconds per transport kind. Waited for REAL inside fetch and added to the shared clock in the same breath, so
+   *  the steps that read the wall clock (the walk's own stop, its measured preparation) and the steps that read the injected now (the drive's deadline, the lease,
+   *  every box) both see the provider take that long. Absent or zero is an instant answer, so a case that says nothing about time is unchanged. */
+  latency?: { search?: number; reasoning?: number; page?: number };
 };
 export const script: Script = {};
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+/** One provider's answer taking its scripted time: the clock moves first, so a step asking the time mid-call reads the call as already spent, then the wait is real. */
+const took = async (kind: "search" | "reasoning" | "page"): Promise<void> => { const ms = script.latency?.[kind] ?? 0; if (ms > 0) { clock.ms += ms; await sleep(ms); } };
 
 export function installFetch(): void {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(typeof input === "string" || input instanceof URL ? input : (input as Request).url);
     const at = clock.ms;
     if (url.includes("api.dataforseo.com")) {
-      meter.requests.push({ kind: "search", url, at });
+      meter.requests.push({ kind: "search", url, at }); await took("search");
       let answer: { status?: number; body: unknown } | undefined;
       try { answer = script.search?.(url.split("/v3/")[1] ?? url, init?.body ? JSON.parse(String(init.body)) : null); }
       catch (e) { throw new Error(`[harness] the search script threw for ${url}: ${e instanceof Error ? e.message : String(e)}`); }
@@ -201,12 +212,12 @@ export function installFetch(): void {
       return reply(answer.status ?? 200, answer.body);
     }
     if (url.includes("api.openai.com")) {
-      meter.requests.push({ kind: "reasoning", url, at });
+      meter.requests.push({ kind: "reasoning", url, at }); await took("reasoning");
       const answer = script.reasoning?.(init?.body ? JSON.parse(String(init.body)) : null);
       if (!answer) throw new Error(`[harness] no reasoning script answers ${url}`);
       return reply(answer.status ?? 200, answer.body);
     }
-    meter.requests.push({ kind: "page", url, at });
+    meter.requests.push({ kind: "page", url, at }); await took("page");
     const answer = script.page?.(url);
     if (!answer) return new Response("not found", { status: 404, headers: { "content-type": "text/plain" } });
     return new Response(answer.html, { status: answer.status ?? 200, headers: { "content-type": answer.contentType ?? "text/html; charset=utf-8" } });
@@ -228,8 +239,20 @@ export const runs: RunRow[] = [];
 /** Seed the account's one open run: the phase it resumes at, and the plan that decides which phases this pass may run at all. */
 export function seedRun(over: Partial<RunRow> = {}): RunRow {
   const iso = new Date(clock.ms).toISOString();
-  const row: RunRow = { id: `run-${runs.length + 1}`, tenant_id: T, cycle_key: `${T}:${iso.slice(0, 10)}`, status: "paused", current_phase: "keyword_discovery", phase_cursor: null, progress: {}, spend_usd: 0, last_error: null, lease_owner: null, lease_expires_at: null, started_at: iso, updated_at: iso, completed_at: null, ...over };
+  const row: RunRow = { id: `run-${runs.length + 1}`, tenant_id: T, cycle_key: `${T}:${today()}`, status: "paused", current_phase: "keyword_discovery", phase_cursor: null, progress: {}, spend_usd: 0, last_error: null, lease_owner: null, lease_expires_at: null, started_at: iso, updated_at: iso, completed_at: null, ...over };
   runs.push(row); return row;
+}
+
+/** THE INTERRUPTION: one repository write that throws instead of landing, which is what a lost lease or an instance killed mid-write looks like from the row. `op` names
+ *  the write, `phase` the phase it is about (an advance's target phase, a renewal's cursor phase; absent means any), `after` how many matching writes land first. It
+ *  fires once and clears itself, so the row keeps exactly what the writes before it landed and the next drive can be asked to resume from that. */
+type Interruption = { op: "advance" | "renew"; phase?: string; after: number };
+const planned: { next: Interruption | null } = { next: null };
+export function interruptOnce(op: Interruption["op"], o: { phase?: string; after?: number } = {}): void { planned.next = { op, phase: o.phase, after: o.after ?? 0 }; }
+function strike(op: Interruption["op"], phase: string | undefined): void {
+  const i = planned.next; if (!i || i.op !== op || (i.phase != null && i.phase !== phase)) return;
+  if (i.after > 0) { i.after -= 1; return; }
+  planned.next = null; throw new Error(`[harness] the ${op} did not land: the instance lost its lease mid-write`);
 }
 
 export function runRepo(): unknown {
@@ -240,7 +263,7 @@ export function runRepo(): unknown {
     async claim({ tenantId, owner, leaseSeconds }: { tenantId: string; owner: string; leaseSeconds: number }) {
       const exp = new Date(clock.ms + leaseSeconds * 1000).toISOString(), o = open();
       if (o) { if (o.lease_owner != null && o.lease_owner !== owner && Date.parse(o.lease_expires_at!) >= clock.ms) return null; Object.assign(o, { lease_owner: owner, lease_expires_at: exp, status: "running", updated_at: iso() }); return { ...o }; }
-      if (runs.some((x) => x.status === "completed" && (x.completed_at ?? "").slice(0, 10) === iso().slice(0, 10))) return null;
+      if (runs.some((x) => x.status === "completed" && reportingDay(Date.parse(x.completed_at ?? "") || 0) === today())) return null; // the runtime's own day here too, never the UTC date
       return { ...seedRun({ tenant_id: tenantId, status: "running", current_phase: "refresh_sources", lease_owner: owner, lease_expires_at: exp }) };
     },
     async claimDue() { return []; },
@@ -249,10 +272,12 @@ export function runRepo(): unknown {
       return { ...seedRun({ tenant_id: tenantId, cycle_key: `${tenantId}:p${runs.length + 1}:${day}`, status: "running", current_phase: "refresh_sources", lease_owner: owner, lease_expires_at: new Date(clock.ms + leaseSeconds * 1000).toISOString(), ...(progress ? { progress } : {}) }) };
     },
     async advance({ id, owner, leaseSeconds, patch }: { id: string; owner: string; leaseSeconds: number; patch: { phase: string; cursor?: Record<string, unknown> | null; progress?: Record<string, unknown> } }) {
+      strike("advance", patch.phase);
       const r = runs.find((x) => x.id === id); if (!r || !live(r, owner) || r.status !== "running") return false;
       Object.assign(r, { current_phase: patch.phase, progress: patch.progress ?? r.progress, phase_cursor: patch.cursor ?? null, lease_expires_at: new Date(clock.ms + leaseSeconds * 1000).toISOString(), updated_at: iso() }); return true;
     },
     async renew({ id, owner, leaseSeconds, cursor }: { id: string; owner: string; leaseSeconds: number; cursor: Record<string, unknown> | null }) {
+      strike("renew", typeof cursor?.phase === "string" ? cursor.phase : undefined);
       const r = runs.find((x) => x.id === id); if (!r || !live(r, owner) || r.status !== "running") return false;
       Object.assign(r, { phase_cursor: cursor ?? null, lease_expires_at: new Date(clock.ms + leaseSeconds * 1000).toISOString() }); return true;
     },
@@ -352,6 +377,22 @@ export function reasoningReply(byKind: Record<string, Record<string, unknown> | 
 /** EVERY REASONING CALL THIS ARM MADE, in order, with the request that was sent: an arm can then ask what the writer was handed and whether the reading of those words saw the same material. */
 export const reasoningAsked: { kind: string; ask: string }[] = [];
 
+/** THE WORDS THE WRITER HANDS BACK FOR THE HUB ROW, in the shape the canonical editor accepts: an opening that answers the search outright, one claim per assertion, and every claim naming an id
+ *  the packet really carries. It is a script and never a bypass: the same deterministic contract, the same evaluator and the same per-claim ruling read these words as they read production's. */
+export const WRITER = { field: "answer_block", before: null, naturalHeading: "Who the widely known Iranians are", placementId: "", implementationMinutes: 15,
+  rationale: "The first lines never say who the search is about, so the answer is stated before the sections that hold the names.",
+  after: "Iran's widely known figures fall into three groups of people: poets, athletes and screen actors. The athletes are wrestlers and weightlifters who won world titles, and the actors worked on screen at home and abroad.",
+  claims: [{ text: "Poets, athletes and screen actors are the three kinds of people named.", supportedBy: ["page-heading-2", "page-heading-3", "page-heading-4"] },
+    { text: "The athletes are wrestlers and weightlifters who won world titles, and the actors worked on screen at home and abroad.", supportedBy: ["page-copy-1"] }] };
+/** THE READING OF THOSE WORDS, one ruling per claim by the index the evaluator is shown. A judge that says yes is still the REAL judge: what it may say is fixed by the schema the gateway sends, and
+ *  every deterministic gate in front of it has already run on this same copy. */
+export const JUDGE = { pageFit: true, usefulAndNatural: true, placementCorrect: true, resolvesDiagnosis: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, contested: false,
+  claims: [0, 1].map((i) => ({ i, by: WRITER.claims[i]!.supportedBy, entailed: true })), notes: "The first lines now name who the search is about before the sections that hold the names.", resolution: "none" };
+/** THE HUB PAGE AS THE CRAWL BANKS IT, with the three sections the writer's claims cite. */
+export const HUB_PAGE = { path: "/famous-iranians", title: "Most Famous Iranians and Persians of All Time", h1: "Famous and Influential Iranian People",
+  meta: "Explore the most famous Iranians and Persians in history.", h2: ["Famous Iranian Poets", "Famous Iranian Athletes", "Famous Iranian Actors"],
+  body: ["Iran has produced writers, athletes and performers whose work travelled far beyond its borders.", "The poets section lists three poets with a short line on each.", "The athletes section lists wrestlers and weightlifters who won world titles.", "The actors section lists screen performers who worked at home and abroad.", "Each entry gives a name, a period and one sentence about why the person is remembered."].join("\n") };
+
 /** THE STALLED HUB OPPORTUNITIES exactly as the store holds them, with the account's identity replaced. `pick` selects by page. */
 export function seedProposals(pick?: (row: Row) => boolean): Row[] {
   const rows = fixture<Row[]>("hub-rows.json").filter((r) => (pick ? pick(r) : true));
@@ -363,9 +404,9 @@ export function seedProposals(pick?: (row: Row) => boolean): Row[] {
 export function reset(): void {
   tables.clear(); rpcSeen.length = 0; runs.length = 0; logs.length = 0; reasoningAsked.length = 0;
   meter.requests.length = 0; meter.paidUsd = 0; meter.reserved.length = 0; meter.hits.length = 0; meter.answered.length = 0;
-  money.cap = 5;
+  money.cap = 5; planned.next = null;
   clock.ms = Date.now();
-  script.search = undefined; script.reasoning = undefined; script.page = undefined;
+  script.search = undefined; script.reasoning = undefined; script.page = undefined; script.latency = undefined;
   table("tenants").push({ id: T, slug: T, domain: SITE, status: "active", research_paused: false, growth_goal: "balanced", daily_budget_usd: 50, business_name: "Fixture Account", signup_date: "2026-01-01", tos_accepted_at: "2026-01-01T00:00:00.000Z", created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z" });
   table("business_config").push(profileRow());
 }

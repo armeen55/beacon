@@ -20,8 +20,8 @@ import { dueWork, accountBasis } from "@/domains/runtime/ops/due-work";
 import { setAccountRepositoryForTests, type AccountRepository } from "@/domains/account/tenants/store";
 import { nextObligation } from "@/domains/decision/obligation";
 import { loadChangeProposals } from "@/domains/decision/proposal-store";
-import { authorizedCorrections, readFactChecks } from "@/domains/evidence/pages/fact-checks";
-import { pageHashOf } from "@/domains/evidence/pages/fact-check-run";
+import { authorizedCorrections, readFactChecks, rulesVersionFor } from "@/domains/evidence/pages/fact-checks";
+import { pageHashOf, claimIdentity } from "@/domains/evidence/pages/fact-check-run";
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { resolveCurrentBasis } from "@/domains/decision/load-proposals";
@@ -377,6 +377,62 @@ describe("the subject the winning page carries and this page does not", () => {
     const version = pageHashOf([body.title, body.h1, ...(body.headings ?? []), ...(body.passages ?? [])].filter(Boolean).join("\n"));
     expect([authorizedCorrections(held, { pageContentHash: version, evidenceBasis: await resolveCurrentBasis(T) }, T).map((f) => f.subject), reasoningAsked.some((a) => a.kind === "atomic_edit"), reasoningAsked.filter((a) => a.kind === "atomic_edit").some((a) => /\bfact-1\b/.test(a.ask) && a.ask.includes(SAYS))],
       "the fact stands against the page as this drive read it and under the basis the drafting pass works in, so it is evidence a writer's packet may carry under a fact-* id; the row's next step on this same drive is that writer; and the writer hired for this hub page is handed that fact under fact-1 in the winner's own words (journey review, 2026-09-06: the editor the bundle producer hires was handed sibling passages alone)").toEqual([[`${QUERY} ${SUBJECT}`], true, true]);
+  });
+});
+
+describe("the section the winner carries, read where it starts", () => {
+  const SUBJECT = "Scientists", RIVAL = "https://en.wikipedia.org/wiki/List_of_Iranians";
+  const SAYS = "Famous Iranians who worked as scientists are listed here by the field each of them worked in, with the years they worked.";
+  const INTRO_LINE = "This is a general list of notable people from Iran and its historical predecessors, ordered by field and by era.";
+  /** A long introduction dense in the search's own words, which is where the old window landed: the densest region of the page, never the section the requirement named. */
+  const INTRO = Array(60).fill(`${INTRO_LINE} Famous Iranians and Persians appear across every era of Iranian history, and the famous Iranians of each field are grouped below.`).join(" ");
+  const longPage = (state: { ready: boolean; posts: number; parsed: string[] }) => (path: string, payload: unknown) => {
+    if (path.startsWith("on_page/content_parsing")) { state.parsed.push(String((payload as { url?: string }[] | null)?.[0]?.url ?? ""));
+      return { body: { status_code: 20000, cost: 0.002, tasks: [{ status_code: 20000, result: [{ items: [{ page_content: { main_topic: [{ main_title: "List of Iranians", h_title: "Introduction", primary_content: [{ text: INTRO }] }, { main_title: "List of Iranians", h_title: SUBJECT, primary_content: [{ text: SAYS }] }] } }] }] }] } }; }
+    return searchScript(state)(path); };
+  it("16: the winner's own heading opens the source window on its section, past an introduction the search's words are densest in, so the judge reads the words under the heading and not the page's opening", async () => {
+    seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
+    const state = { ready: true, posts: 0, parsed: [] as string[] }; script.search = longPage(state);
+    script.reasoning = (body) => reasoningReply({ ...REASONING, fact_claim_extraction: { statements: [] },
+      fact_claim_judgement: { verdict: "page_correct", proposed: SAYS, confidence: "confirmed", note: "", supporting: [{ url: RIVAL, quote: SAYS, supported: true, supportSpan: SAYS, subjectSpan: `${QUERY} ${SUBJECT}`, subjectFrom: "quote", relationSpan: "", meaningSpans: [] }],
+        subjects: [{ url: RIVAL, sameEntity: true, language: "English", script: null, why: "the article covers the people this subject is about" }] } }, body);
+    const need = { key: `${HUB}::body::${QUERY}`, kind: "factual_source", query: `${SUBJECT} ${QUERY}`, url: `https://${SITE}${HUB}`, missingTopic: SUBJECT, rivalUrl: RIVAL, rank: 1,
+      reasonCode: "missing_information", reason: `nothing checked on file answers "${SUBJECT}"`, workKey: `${HUB}::body::${QUERY}::wc5::e1`, unlocks: { proposalId: `${T}::${HUB}::existing_edit::demand_recovery`, step: "draft" } };
+    const run = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need] });
+    const judged = reasoningAsked.filter((a) => a.kind === "fact_claim_judgement");
+    const ask = judged[0]?.ask ?? "", intros = ask.split(INTRO_LINE).length - 1;
+    expect([state.parsed, judged.length, ask.includes(SAYS), ask.includes(`${SUBJECT} ${SAYS}`), intros > 0 && intros < 20],
+      "the winner the requirement named is the one page read; the judge is asked once; its passage opens on the heading the requirement named with the words under it, carrying only the tail of the introduction the search's words are densest in, where the old window carried that introduction and never the section").toEqual([[RIVAL], 1, true, true, true]);
+    expect(acquisitions(run).filter((a) => a.kind === "factual_source").map((a) => a.outcome), "and the reading lands as usable evidence on the first attempt").toEqual(["unlocked"]);
+  });
+
+  it("17: a subject judged undecidable before the anchor existed, whose passages carried no word of it, is read once more where its heading starts and then never re-read", async () => {
+    seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
+    const state = { ready: true, posts: 0, parsed: [] as string[] }; script.search = longPage(state);
+    script.reasoning = (body) => reasoningReply({ ...REASONING, fact_claim_extraction: { statements: [] },
+      fact_claim_judgement: { verdict: "page_correct", proposed: SAYS, confidence: "confirmed", note: "", supporting: [{ url: RIVAL, quote: SAYS, supported: true, supportSpan: SAYS, subjectSpan: `${QUERY} ${SUBJECT}`, subjectFrom: "quote", relationSpan: "", meaningSpans: [] }],
+        subjects: [{ url: RIVAL, sameEntity: true, language: "English", script: null, why: "the article covers the people this subject is about" }] } }, body);
+    const need = { key: `${HUB}::body::${QUERY}`, kind: "factual_source", query: `${SUBJECT} ${QUERY}`, url: `https://${SITE}${HUB}`, missingTopic: SUBJECT, rivalUrl: RIVAL, rank: 1,
+      reasonCode: "missing_information", reason: `nothing checked on file answers "${SUBJECT}"`, workKey: `${HUB}::body::${QUERY}::wc5::e1`, unlocks: { proposalId: `${T}::${HUB}::existing_edit::demand_recovery`, step: "draft" } };
+    // THE PRODUCTION ROW, AS THE HUB CARRIED IT ON 2026-09-06: read once, no passage found, banked checked/undecidable with nothing read behind it, at this page version and under the rules its own shape is judged by, so every later drive answered "already researched" and nothing was ever read again.
+    const owner = (await loadOwnedPageBodies(T, [`https://${SITE}${HUB}`])).get(canonicalUrlKey(`https://${SITE}${HUB}`))!;
+    const version = pageHashOf([owner.title, owner.h1, ...(owner.headings ?? []), ...(owner.passages ?? [])].filter(Boolean).join("\n"));
+    const subject = `${QUERY} ${SUBJECT}`;
+    table("page_source_facts").push({ tenant_id: T, page_key: HUB, statement_key: claimIdentity(subject, "", "missing"), subject, current_wording: "", proposed: null,
+      sources: [], agreement: "none_found", confidence: "unsupported", verdict: "undecidable", also_at: [], note: "No fetched passage carries a quote it relied on.",
+      page_content_hash: version, page_locator: "missing", source_read_at: null, claim_state: "checked", rules_version: rulesVersionFor({ subject, current: "" }),
+      evidence_basis: await resolveCurrentBasis(T), checked_at: "2026-09-06T12:00:00.000Z", superseded_at: null });
+
+    const first = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need] });
+    const banked = (await readFactChecks(T)).find((h) => h.statementKey === claimIdentity(subject, "", "missing"));
+    expect([reasoningAsked.filter((a) => a.kind === "fact_claim_judgement").length, state.parsed, banked?.state, banked?.verdict, banked?.sourceReadAt != null,
+      acquisitions(first).filter((a) => a.kind === "factual_source").map((a) => a.outcome)],
+      "the settled row is reopened and read once more from the winner the requirement names, and what comes back is an answer with a source behind it").toEqual([1, [RIVAL], "checked", "page_correct", true, ["unlocked"]]);
+
+    const second = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need] });
+    expect([reasoningAsked.filter((a) => a.kind === "fact_claim_judgement").length, state.parsed, state.posts,
+      acquisitions(second).filter((a) => a.kind === "factual_source").map((a) => a.outcome)],
+      "and the drive after it stands on the answer already on file: the requirement unlocks its writer again with no judge asked, no winner fetched and no results page bought, which is the zero-spend rule the receipt promises").toEqual([1, [RIVAL], 0, ["unlocked"]]);
   });
 });
 

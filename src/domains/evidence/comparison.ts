@@ -11,7 +11,7 @@ type Research = Pick<FunnelResearchEvidence, "serpEvidence" | "winningPages">;
 /** ONE thing a winner carries that the owned page does not, with the winner's own words behind it so a reviewer can
  *  find it on the page. `text` is the plain sentence; `quote` is at most 160 characters lifted verbatim, and NEVER a
  *  citable fact: a rival observation is briefing, and a claim that states it still owes the fact-check path a source. */
-type ComparisonObservation = { kind: "answers" | "covers" | "names" | "shape"; text: string; quote: string };
+type ComparisonObservation = { kind: "answers" | "covers" | "names" | "shape"; text: string; quote: string; /** THE HEADING A `covers` OBSERVATION IS ABOUT, apart from the words under it (delivery loop, 2026-09-07): the quote used to be the label itself, so the writer was briefed with a name and no material, and the fact pass searched a label. The topic is what the acquisition researches; the quote is what the winner says under it. */ topic?: string };
 /** ONE READ WINNER: its address, the publisher that owns it, what that publisher IS to this account (Product Truth's
  *  eight classes, decided by the one classifier), the shape of its answer, whether its capture was cut, and what it
  *  carries that the owned page does not. */
@@ -52,7 +52,16 @@ const heldFor = (body: string, ask: ReadonlySet<string>): { held: string; whole:
     keep.add(x.i); room -= x.t.length + 1; }
   const held = parts.filter((_, i) => keep.has(i)).join(" ");
   return { held: held || body.slice(0, READING_CHARS), whole: false }; };
-const MAX_WINNERS = 3, MAX_OBSERVATIONS = 6, QUOTE_CHARS = 160, MAX_KEEP = 4, KEEP_CHARS = 240;
+const MAX_WINNERS = 3, MAX_OBSERVATIONS = 6, QUOTE_CHARS = 160, MAX_KEEP = 4, KEEP_CHARS = 240, MIN_SECTION_WORDS = 20, MIN_READ_WORDS = 60;
+/** THE WORDS A WINNER CARRIES UNDER ONE OF ITS HEADINGS, off its captured main text: from the heading's own occurrence to the next heading or 1,200 characters. Nothing when the heading is not in the captured text, or fewer than MIN_SECTION_WORDS follow it. */
+const sectionUnder = (body: string, heading: string, heads: readonly string[], sections?: readonly { heading: string | null; text: string }[]): string | null => {
+  const parsed = sections?.find((s) => (s.heading ?? "").trim().toLowerCase() === heading.trim().toLowerCase())?.text.trim(); if (parsed) return parsed.split(/\s+/).filter(Boolean).length >= MIN_SECTION_WORDS ? parsed.slice(0, 1_200) : null; // the provider's own section, where the capture carries one
+  const hay = body.toLowerCase(), at = hay.indexOf(heading.toLowerCase()); if (at < 0) return null;
+  const from = at + heading.length, ends = heads.filter((h) => h !== heading && h.length >= 3).map((h) => hay.indexOf(h.toLowerCase(), from + 1)).filter((i) => i > from);
+  const clean = (t: string): string => t.replace(/\[edit\]/gi, " ").replace(/^[\s:.\-]+/, "").replace(/\s+/g, " ").trim(), words = (t: string): number => t.split(/\s+/).filter(Boolean).length;
+  // A SUB-HEADING IS NOT THE END OF A SECTION (journey review, 2026-09-07): under an encyclopedia h2 the window closed at the first h3 forty-eight characters on, under the section minimum, so three of four observations handed the writer the bare label instead of the words. When what stops at the next heading is too thin to be a section, the window runs on through the sub-headings the section contains; and the crawl's own "[edit]" affordance never rides in as the quote.
+  const text = clean(body.slice(from, Math.min(from + 1_200, ...ends))), wide = words(text) >= MIN_SECTION_WORDS ? text : clean(body.slice(from, from + 1_200));
+  return words(wide) >= MIN_SECTION_WORDS ? wide : null; };
 const said = (text: string): Set<string> => new Set(topicTokens(text));
 /** Does `text` carry this word, either exactly or as the same word wearing a different ending. */
 const carries = (bag: Set<string>, w: string): boolean => bag.has(w) || (w.length >= SAME_LEMMA && [...bag].some((t) => t.length >= SAME_LEMMA && t.slice(0, SAME_LEMMA) === w.slice(0, SAME_LEMMA)));
@@ -88,7 +97,7 @@ export function jobComparison(research: Research, queries: readonly string[], ow
   const keep = passages.filter(answers).slice(0, MAX_KEEP).map((p) => cut(p, KEEP_CHARS));
   /* ONE OBSERVATION PER PUBLISHER AND QUOTE (production 03:01Z, 2026-09-06): a card carried eight "covers" lines that were five labels said twice, because a heading repeated as an h3 and a publisher ranking two of its pages each minted their own line. The dedupe was per winner and only over headings; it is over the whole comparison and every kind, so what a publisher says once is offered once. */ const winners: ComparedWinner[] = [], read = jobWinners(research, queries).filter((w) => w.extract && w.extract.wordCount > 0).slice(0, max), seen = new Set<string>(), note = (into: ComparisonObservation[], publisher: string, o: ComparisonObservation): void => { const k = `${publisher}\n${o.quote.trim().toLowerCase()}`; if (seen.has(k)) return; seen.add(k); into.push(o); };
   for (const w of read) {
-    /* AN OBSERVATION NEEDS A READING (production 03:01Z, 2026-09-06). Every winner on file for this account was banked before the content reading existed, so `mainText` is null and the headings are the crawler's own list off the WHOLE document; eight observations were minted from it, "Gallery", "Notes" and "References" among them, and not one was confirmed by a word of the winner's own text. A heading and an entity name are CANDIDATES FOR THE READING THAT HAS NOT HAPPENED, never findings: until the winner's words are on file this winner says nothing and the comparison is unread. */ const e = w.extract!, host = publisherHost(w.url), reading = typeof e.mainText === "string", body = reading ? tidy(e.mainText!) : "", heads = reading ? [...(e.headings ?? []), ...(e.h3s ?? [])].map(tidy) : [], obs: ComparisonObservation[] = [];
+    /* AN OBSERVATION NEEDS A READING (production 03:01Z, 2026-09-06). Every winner on file for this account was banked before the content reading existed, so `mainText` is null and the headings are the crawler's own list off the WHOLE document; eight observations were minted from it, "Gallery", "Notes" and "References" among them, and not one was confirmed by a word of the winner's own text. A heading and an entity name are CANDIDATES FOR THE READING THAT HAS NOT HAPPENED, never findings: until the winner's words are on file this winner says nothing and the comparison is unread. */ const e = w.extract!, host = publisherHost(w.url), reading = typeof e.mainText === "string", body = reading ? tidy(e.mainText!) : "", heads = reading ? [...(e.headings ?? []), ...(e.h3s ?? [])].map(tidy) : [], obs: ComparisonObservation[] = [], thin = e.truncated !== true && (e.wordCount ?? 0) < MIN_READ_WORDS; /* a page the parse counted under sixty words, held whole: its labels are chrome, whatever the crawl's heading list says */
     // WHAT ITS OWN PROSE ANSWERS. A sentence counts when it speaks to the group AND carries content words the owned
     // passages never carry: overlap alone would hand the writer the page's own subject said back to it.
     for (const s of body.split(/(?<=[.!?])\s+/).map(tidy)) {
@@ -107,9 +116,11 @@ export function jobComparison(research: Research, queries: readonly string[], ow
     // definition the account already keeps decides it, at this door as at the other three.
     for (const h of heads) {
       if (obs.length >= 4 || h.length < 3 || h.length > 120 || topicTokens(h).length === 0 || FURNITURE_LABEL.test(h) || covers(ownBag, h)) continue;
-      note(obs, host, { kind: "covers", text: `${host} gives "${h}" a section of its own and nothing on this page covers it.`, quote: cut(h, QUOTE_CHARS) });
+      // THE WORDS UNDER THE HEADING ARE THE OBSERVATION, THE HEADING IS ITS TOPIC (delivery loop, 2026-09-07). A label on a capture held whole that is too thin to carry a section is the page's chrome (a 303-character capture of a names blog minted "Contact Darsoon" as a missing subject and bought three fact checks for it); a label absent from a substantive capture, or from one cut at the ceiling, may still head a section the text renders differently or past the cut, so it stays a candidate with the label as its only words.
+      const under = sectionUnder(body, h, heads, e.sections); if (!under && thin) continue;
+      note(obs, host, { kind: "covers", topic: h, text: `${host} gives "${h}" a section of its own and nothing on this page covers it.`, quote: cut(under ?? h, QUOTE_CHARS) });
     }
-    const names = reading ? [...new Set((e.entityNames ?? []).map(tidy).filter((n) => n.length > 2 && topicTokens(n).length > 0 && !FURNITURE_LABEL.test(n) && !covers(ownBag, n)))].slice(0, 6) : [];
+    const names = reading && !thin ? [...new Set((e.entityNames ?? []).map(tidy).filter((n) => n.length > 2 && topicTokens(n).length > 0 && !FURNITURE_LABEL.test(n) && !covers(ownBag, n)))].slice(0, 6) : [];
     if (names.length > 0 && obs.length < MAX_OBSERVATIONS) note(obs, host, { kind: "names", text: `${host} names ${names.length} things this page does not name: ${names.join(", ")}.`, quote: cut(names.join(", "), QUOTE_CHARS) });
     const asks = heads.filter((h) => h.trim().endsWith("?"));
     if ((e.faqCount ?? 0) > 0 && asks.length > 0 && !owned.headings.some((h) => h.trim().endsWith("?")) && obs.length < MAX_OBSERVATIONS) {
@@ -141,7 +152,7 @@ export const comparisonObservations = (c: JobComparison): ComparisonObservation[
  *  the acquisition ladder researches a named subject rather than a whole sentence. A prose observation names no subject
  *  a search can be built from, so only a section this page has no words for and a thing it never names ride here. */
 export const comparisonTopics = (c: JobComparison): { topic: string; url: string }[] => c.winners.flatMap((w) =>
-  w.observations.filter((o) => o.kind === "covers" || o.kind === "names").flatMap((o) => o.quote.split(", ").map((t) => ({ topic: tidy(t), url: w.url }))))
+  w.observations.filter((o) => o.kind === "covers" || o.kind === "names").flatMap((o) => (o.kind === "covers" ? [o.topic ?? o.quote] : o.quote.split(", ")).map((t) => ({ topic: tidy(t), url: w.url }))))
   .filter((t) => t.topic.length > 2);
 /** THE SAME COMPARISON WITH A READING'S OWN OBSERVATIONS IN PLACE OF THE CANDIDATES, verdict recomputed off them, so a
  *  confirmation that drops every candidate is honestly "nothing" on a winner read whole and stays "unread" on a cut one. */

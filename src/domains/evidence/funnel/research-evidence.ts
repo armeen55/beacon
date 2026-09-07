@@ -209,6 +209,8 @@ export type ResearchPageExtract = {
   totalChars?: number | null;
   /** The subheadings under the h2s, and the structured-data types the page declares. */
   h3s?: string[];
+  /** THE PAGE'S SECTIONS AS THE PROVIDER PARSED THEM, each heading with the words under it (delivery loop, 2026-09-07). `mainText` joins the passages without their headings, so a reader anchoring on a heading found it only in the trailing heading list and opened its window on the document's tail; the fact pass and the comparison read the section itself here. Absent on a capture that carried no topics. */
+  sections?: { heading: string | null; text: string }[];
   schemaTypes?: string[];
 };
 

@@ -154,7 +154,7 @@ type FactCheckUnitDeps = {
   /** THE SOURCE ITSELF: fetch and parse one URL. A hold means nothing may be confirmed and nothing is banked. */
   fetchSource?: (url: string) => Promise<SourceAnswer>;
   /** THE PAGE THAT ALREADY CARRIES THIS SUBJECT, named by the requirement that asked for the reading: the winner a comparison found the subject on. It is read FIRST and it is not an authority of its own, only a candidate the ordinary policy admits; `subject` is the proposition it was named for, so a pass that reaches a different claim never spends it. */
-  rival?: { subject: string; url: string };
+  rival?: { subject: string; url: string; /** THE WINNER'S OWN HEADING FOR THE SUBJECT (delivery loop, 2026-09-07): the window opened on the whole proposition phrase, which no page carries verbatim, so it fell back to the region densest in the search's words, the introduction, and the judge read "a general list of notable people" for a subject the page gives a section to. The heading is where that section starts. */ anchor?: string };
   page: { url: string; path: string; body: string };
   /** Claims this pass already failed on: aside for the rest of it, never for ever. */ skip?: ReadonlySet<string>;
   tenantId: string; now: Date; basis: string | null;
@@ -173,9 +173,11 @@ type FactCheckUnitResult = { status: "advanced" | "done" | "failed"; banked: num
 
 const enough = (deadlineAt: number, need: number): boolean => Date.now() + need + RESERVE_MS <= deadlineAt;
 /** PURE. THE PASSAGE AROUND THE SUBJECT, never simply the opening of the document (the entity-anchored window the claim-verification literature reads on). A long reference page's first 6,000 characters are its navigation and its introduction, so a subject discussed further down reached the judge in an excerpt that never named it. About 160 words either side of the first place the subject, or a number the claim itself carries, appears past the opening; the opening stands when the subject is absent or already inside it, and the 6,000-character cap still bounds everything sent. */
-function subjectWindow(text: string, anchors: readonly string[], max = 6_000, words = 160): string {
-  const hay = text.toLowerCase(), at = anchors.map((a) => hay.indexOf(a.trim().toLowerCase())).filter((i) => i > max / 2).sort((x, y) => x - y)[0];
-  if (at == null) return askedWindow(text, anchors[0] ?? "", max);
+function subjectWindow(text: string, anchors: readonly string[], max = 6_000, words = 160, heading?: string): string {
+  const hay = text.toLowerCase(), deep = anchors.map((a) => hay.indexOf(a.trim().toLowerCase())).filter((i) => i > max / 2).sort((x, y) => x - y)[0];
+  // THE WINNER'S OWN HEADING IS TAKEN WHEREVER IT STANDS (delivery loop, 2026-09-07): with the sections inline, the first occurrence of the heading is where its section starts, early in a short page as much as late in a long one; the depth rule below still keeps a bare subject phrase off a page's navigation.
+  const named = heading?.trim() ? hay.indexOf(heading.trim().toLowerCase()) : -1, at = named >= 0 ? named : deep;
+  if (at == null || at < 0) return askedWindow(text, anchors[0] ?? "", max);
   return `${text.slice(0, at).split(/\s+/).slice(-words).join(" ")} ${text.slice(at).split(/\s+/).slice(0, words * 2).join(" ")}`.slice(0, max);
 }
 /** PURE. AND WHEN THE ANCHOR IS NOWHERE, THE REGION THE SUBJECT'S OWN WORDS ARE DENSEST IN, never the document's opening (reviewer, 2026-09-02). A missing-information row's subject IS the question that was researched, "iran flag before 1979", which no source sentence contains, so the anchor above never fired and the judge read the first 6,000 characters of a reference article: on Flag_of_Iran that is the CURRENT flag, the pre-1979 flag sits under History past character 6,000, and the row banked a passage about the flag that REPLACED the one it was claiming. The window is the run of whole sentences, at most `max` characters, carrying the most DISTINCT words of the subject, counted distinctly so a long uniform lead repeating two of them never outvotes the one passage that carries them all; the earliest such run wins, and the opening stands when no word of the subject occurs anywhere. Verbatim: a slice of the fetched text, so the judge and the bank-time selection read one region and the selection can never see text the judge did not. */
@@ -298,7 +300,8 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     if (!d.fetchSource || !enough(d.deadlineAt, 20_000)) return;
     const got = await d.fetchSource(c.url).catch(() => ({ hold: "unavailable" as const }));
     if ("hold" in got) { lastHold = got.hold; return; }
-    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, title: got.title ?? null, readAt: new Date().toISOString(), text: subjectWindow(got.text, [claim.subject, ...(claim.current.match(/\b\d[\d,.]*\b/g) ?? [])]) }); };
+    const heading = c.url === d.rival?.url && d.rival.anchor?.trim() ? d.rival.anchor.trim() : undefined; // the winner's own heading, where the requirement named one
+    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, title: got.title ?? null, readAt: new Date().toISOString(), text: subjectWindow(got.text, [claim.subject, ...(claim.current.match(/\b\d[\d,.]*\b/g) ?? [])], 6_000, 160, heading) }); };
   const named = d.rival && d.rival.subject.trim().toLowerCase() === claim.subject.trim().toLowerCase() ? hostOf(d.rival.url) : ""; // the page was named for ONE proposition and is spent on that one only
   if (named && named !== ownSite && !named.endsWith(`.${ownSite}`) && !REJECTED.has(sourceClassOf(named))) await readSource({ url: d.rival!.url, kind: sourceClassOf(named) });
   if (passages.length === 0) {
