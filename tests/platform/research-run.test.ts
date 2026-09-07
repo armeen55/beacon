@@ -1,13 +1,9 @@
-/** Durable Research Run: the one-open-run-per-account invariant (resume any unfinished run across dates before a new daily cycle), the truth boundary (any failure PAUSES, never completes), partial connector success surviving a pause, deduped refreshed providers across retries, the lease guards (including the ONE the paid comparison spends under), the frozen investigation, the idempotency identity, and the fail-closed render path. The repo models the RPC guards. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-/** The DEFAULT reconcile step, exercised for REAL below. Every other test seams reconcileCases; funnel/state keeps its real exports for the conflict closure. */
 const REG = vi.hoisted(() => ({ onFile: [] as unknown[], next: [] as unknown[], saves: 0, readings: 0 }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => ({ ownedPages: [], research: { cases: [] } }) }));
 vi.mock("@/domains/evidence/topic-investigation", () => ({ reconcileResearchCases: () => REG.next, buildTopicInvestigations: () => { REG.readings += 1; return []; } }));
 vi.mock("@/domains/evidence/funnel/state", async (actual) => ({ ...(await actual<Record<string, unknown>>()), loadFunnelState: async () => ({ state: { cases: REG.onFile }, rowVersion: 3 }), saveFunnelState: async () => { REG.saves += 1; return 4; } }));
-/** The ONE table this file models directly: tenants.research_paused. `missing` is the account with NO row: the SELECT answers null data and the PATCH matches nothing, which PostgREST answers 204 with NO error. `readThrows` is the client that cannot reach the database at all, and `ignoresWrites` is the row that matched a PATCH whose value did not stick. Every other table throws exactly as an unconfigured client does, so no other pin moves. */
 const DB = vi.hoisted(() => ({ paused: new Set<string>(), missing: new Set<string>(), ignoresWrites: new Set<string>(), readThrows: false,
-  /** The FLEET, as the recovery probe's own paged read sees it: every id in id order, plus what each window served. */
   fleet: [] as string[], served: [] as string[][], fleetError: null as { message: string } | null }));
 vi.mock("@/lib/persistence/supabase", async (actual) => ({ ...(await actual<Record<string, unknown>>()),
   getSupabaseAdmin: () => ({ from: (table: string) => {
@@ -25,9 +21,7 @@ vi.mock("@/lib/persistence/supabase", async (actual) => ({ ...(await actual<Reco
         if (!DB.ignoresWrites.has(id)) { if (patch.research_paused) DB.paused.add(id); else DB.paused.delete(id); }
         return { data: [{ id }], error: null }; } }) }),
     }; } }) }));
-/** The crawl seam: ONE in-memory frontier, so what is pinned is the ENTRY POINT rather than the fetcher. `state` is what the durable blob holds, and `racer` lets a concurrent instance initialize between the load and the start. */
 const CRAWL = vi.hoisted(() => ({ state: null as null | "in_progress" | "complete" | "unreachable", starts: 0, forced: false, batches: 0, racer: null as null | (() => void),
-  /** The ORDER the batch was handed, captured so what is pinned is which pages jump the queue and not the fetcher. */
   pick: null as null | ((t: string, limit: number, now?: Date) => Promise<string[]>), inventory: [] as string[], decay: [] as { page: string; clicksNow: number; clicksPrior: number }[] }));
 vi.mock("@/domains/evidence/scanning/owned-pages-store", async (actual) => ({ ...(await actual<Record<string, unknown>>()), nextCrawlCandidates: async () => CRAWL.inventory }));
 vi.mock("@/domains/evidence/readers/gsc-page-signals", async (actual) => ({ ...(await actual<Record<string, unknown>>()),
@@ -38,10 +32,8 @@ vi.mock("@/domains/evidence/scanning/crawl-frontier", async (actual) => ({ ...(a
   continueColdStartCrawlIfStarted: async (_t: string, deps?: { pickCandidates?: (t: string, l: number, n?: Date) => Promise<string[]> }) => (CRAWL.pick = deps?.pickCandidates ?? null, CRAWL.state == null || CRAWL.state === "unreachable"
     ? { ran: false, status: CRAWL.state ?? "no_crawl", crawled: 0, failed: 0, totalCrawled: 0, remaining: 0, complete: false, detail: CRAWL.state ?? "no_frontier_state" }
     : (CRAWL.batches += 1, { ran: true, status: CRAWL.state, crawled: 3, failed: 0, totalCrawled: 3 * CRAWL.batches, remaining: 0, complete: false })) }));
-/** The route's own dispatch, stubbed so its gate and receipt are pinned without a second drive of the real cycle (every dispatch test below drives it). */
 const ROUTE = vi.hoisted(() => ({ receipt: {} as Record<string, unknown>, fail: null as Error | null }));
 vi.mock("@/domains/runtime", async (actual) => ({ ...(await actual<Record<string, unknown>>()), runDueAccounts: async () => { if (ROUTE.fail) throw ROUTE.fail; return ROUTE.receipt; } }));
-/** THE SAVED CUSTOMER RELEASE, as the accounts it was age-stamped for: a store transition inside a drive must reach the screen without waiting for publish_surface, which a run parked in an earlier phase never reaches. */
 const H = vi.hoisted(() => ({ surf: [] as string[], rebuilt: [] as string[] })), SURF = H.surf, REBUILT = H.rebuilt; vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async (t: string) => void H.surf.push(t), readCustomerSurface: async () => null, isCustomerSurfaceStale: () => false, refreshCustomerSurface: async (t: string) => (H.rebuilt.push(t), {}) })); // REBUILT names every account whose release this tick actually rebuilt, which is the one thing the dispatch's own clock decides
 import * as RR from "@/domains/runtime/research-run";
 import { runResearchCycle, ensureResearchRunOnVisit, RESEARCH_CYCLE_DEADLINE_MS, type ResearchCycleSteps } from "@/domains/runtime/ops/on-visit-refresh";
@@ -56,7 +48,6 @@ import { emptyFunnelState } from "@/domains/evidence/funnel/state"; import { rep
 const ACCOUNT_STATUS = new Map<string, AccountStatus>();  // Pre-activation gate: runtime and the RPC model both refuse research work unless the account is active. Every tenant defaults to 'active'; a test opts one into 'pending_onboarding' to exercise the gate.
 const statusOf = (t: string): AccountStatus => ACCOUNT_STATUS.get(t) ?? "active";
 const setAccountStatus = (t: string, s: AccountStatus): void => void ACCOUNT_STATUS.set(t, s);
-/** Accounts whose operator paused research: the SQL reads it on the scheduler door, researchPermission on the visit door, the SAME rows. */
 const PAUSED = DB.paused;
 function installAccountRepo(): void {
   const byId = async (id: string) => ({ id, slug: id, provisional_name: "", domain: "example.com", status: statusOf(id), signup_date: "", tos_accepted_at: null, daily_budget_usd: 0, growth_goal: null, created_at: "", updated_at: "" });
@@ -66,13 +57,10 @@ const DAY = 24 * 3600 * 1000, T = "acct-a", U = "acct-b", LEASE = RR.RESEARCH_RU
 const ckey = (t: string, ms = NOW) => `${t}:${new Date(ms).toISOString().slice(0, 10)}`; // the daily key the DATABASE computes
 const mk = (o: Partial<RR.ResearchRun>): RR.ResearchRun => ({ id: "seed", tenant_id: T, cycle_key: ckey(T, NOW), status: "paused", current_phase: "refresh_sources", phase_cursor: null, progress: {}, spend_usd: 0, last_error: null,
   lease_owner: null, lease_expires_at: null, started_at: iso(), updated_at: iso(), completed_at: null, ...o });
-/** In-memory repo modeling the RPC guards: claim resumes the single unfinished run (any date) before a new daily cycle, a foreign LIVE lease returns null, a same-day completed run blocks a fresh pass, the daily key is computed at database time; advance/renew need a live lease + 'running', finish an open one. */
 function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } { const rows: RR.ResearchRun[] = [];
   const find = (id: string, t: string) => rows.find((x) => x.id === id && x.tenant_id === t); const live = (r: RR.ResearchRun, o: string) => r.lease_owner === o && r.lease_expires_at != null && Date.parse(r.lease_expires_at) >= NOW;
-  /** started_at desc, insertion order breaking a tie: "the latest row" is what day-scoped state and the hop count both ask. */
   const newestFirst = (t: string) => rows.map((r, i) => [r, i] as const).filter(([r]) => r.tenant_id === t) .sort((a, b) => b[0].started_at.localeCompare(a[0].started_at) || b[1] - a[1]).map(([r]) => r);
   const openRun = (t: string) => newestFirst(t).find((x) => x.status === "running" || x.status === "paused");
-  /** patch_research_run_progress in one atomic step: top-level merge, plus a {day, count} computed FROM THE ROW when an increment key is given. Null = no row. */
   const patchProgress = (t: string, id: string, patch: RR.ResearchRunProgress, key?: string, day?: string): RR.ResearchRunProgress | null => { const r = find(id, t); if (!r) return null; const before = r.progress ?? {}, held = key ? (before as Record<string, { day?: string; count?: number } | undefined>)[key] ?? null : null;
     r.progress = { ...before, ...patch, ...(key ? { [key]: { day, count: held != null && held.day === day ? (held.count ?? 0) + 1 : 1 } } : {}) }; return r.progress; }; const repo: RR.ResearchRunRepo = {
     async claim({ tenantId, owner, leaseSeconds }) {
@@ -108,7 +96,6 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } { const
       return newestFirst(tenantId).filter((x) => x.cycle_key.endsWith(day)).slice(0, limit).map((x) => ({ id: x.id, progress: x.progress ?? {} })); },
   }; return { repo, rows }; }
 function freshRepo(): RR.ResearchRun[] { const { repo, rows } = memRepo(); RR.setResearchRunRepoForTests(repo); return rows; }
-/** A seeded paused (unleased) today-row a fresh claim can reclaim, plus its rows. */
 function withRun(o: Partial<RR.ResearchRun> = {}): RR.ResearchRun[] { const rows = freshRepo(); rows.push(mk(o)); return rows; }
 /** Work is owed unless a test says otherwise, so every pre-Phase-5 pin drives the same phases it always did. */
 const NO_CHECKS = { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0 };
@@ -163,7 +150,6 @@ describe("research-run claim: one open run per account across all dates", () => 
     expect([await RR.advancePhase(T, id, "o1", { phase: "done" }), await RR.finishRun(T, id, "o1", "completed")]).toEqual([false, false]); NOW -= LEASE + 1; await RR.finishRun(T, id, "o1", "completed"); // a completed row rejects every mutation
     expect([await RR.advancePhase(T, id, "o1", { phase: "refresh_sources" }), await RR.finishRun(T, id, "o1", "paused")]).toEqual([false, false]); }); });
 describe("research-run phase truth", () => { it("counts only synced sources as refreshed, and a connector that would not sync records its debt on the pass receipt the surfaces read while the drive carries on and publishes carrying that sentence", async () => {
-    // THE FIRST PHASE MAY NOT END THE DAY (live, three of four drives on 2026-09-04). A partial analytics write paused the pass here, and every phase behind it, including the walk that finishes the operator's work, was unreachable for the rest of that drive.
     const rows = withRun(); await run({ ...BENIGN, surfaceStale: async () => true, refreshSources: async () => ({ attempted: 3, succeeded: ["google_gsc", "clarity"], failures: [{ provider: "google_ga4", detail: "429 quota" }] }) }); expect([rows[0]!.status, rows[0]!.current_phase, rows[0]!.last_error]).toEqual(["completed", "done", null]); // the drive ran to the end; the source keeps its stale stamp, so due-work owes the refresh again
     expect([rows[0]!.progress.refreshedProviders, rows[0]!.progress.sourcesRefreshed, rows[0]!.progress.sourcesStale, rows[0]!.progress.surfacePublished], "the surface IS published on one stale connector, and the sentence that says so rides the same object the count does").toEqual([["google_gsc", "clarity"], 2, "1 of 3 connected sources could not be refreshed, so their figures are as old as their last good sync. The next pass tries them again.", true]); }); it("treats zero stale sources as a healthy no-op and completes when every phase succeeds or no-ops", async () => {
     const rows = withRun(); await run({ ...BENIGN, surfaceStale: async () => true }); // nothing refreshed, but the saved surface is stale
@@ -203,11 +189,7 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
     expect([rep?.jobs, rep?.waiting, (rep?.outcomes?.receipts ?? []).length, ((rep?.outcomes?.receipts ?? []) as { providerCalls?: number }[]).map((r) => r.providerCalls), rep?.outcomes?.preparedMs, bought, row.status, row.current_phase],
       "the day's memory, the waiting list and every receipt the walk filed survive the box that cut it off, the job that was still running is remembered with the seventeen calls it really made so the next drive demotes it instead of funding it again, and the drive still pauses where it stands, having bought only the reading the head of the order was waiting on before the walk and nothing at all after the box ended").toEqual([
       filed.jobs, ["wk-next"], 2, [17, 0], 54_503, 1, "paused", "fact_check"]); });
-  /** WHAT A DRIVE BUYS AHEAD OF ITS WALK (operator's rule, 2026-09-06). The rule this replaces bought every owed reading the deadline could pay for, and on the 19:30Z drive of that day the nine
-   *  purchases in front of the walk left it its 110-second floor alone: 31 of its 35 funded jobs never had a turn, three hub rows among them whose own prerequisites had landed on that very drive.
-   *  Free comes first and without limit; a PAID reading goes in front only where it unlocks a row the last walk really reached, and only while the paid readings have taken less than half of the
-   *  room above the walk's floor; everything else is bought behind the walk on the same order. `(walk)` in the list below is the moment the walk ran, so each arm reads which side of it a purchase
-   *  fell on. What still bounds the loop is the drive's own clock: nothing is started on the box the walk needs to begin its first job, and a drive that runs out says so on the row. */
+  /** WHAT A DRIVE BUYS AHEAD OF ITS WALK (operator's rule, 2026-09-06). The rule this replaces bought every owed reading the deadline could pay for, and on the 19:30Z drive of that day the nine */
   it.each([T, U])("buys ahead of %s's walk only the free collections and the readings that unlock rows the last walk reached, and leaves every other one to the loop behind it", async (t) => {
     const day = ckey(t, NOW).slice(-10), need = (key: string, rank: number, over: Record<string, unknown> = {}) => ({ key, kind: "factual_source" as const, query: `q${key}`, url: key, rank, reasonCode: "acquire_factual_source", reason: "owed", workKey: `${key}::wk`, ...over });
     const drive = async (deadlineMs: number, owed: readonly ReturnType<typeof need>[], reached: readonly string[] = [], spendMs = 0): Promise<{ bought: string[]; deferred: string[]; stopBy: number; noRoom: boolean }> => {
@@ -225,9 +207,7 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
       { bought: ["q/b", "(walk)", "q/a", "q/c"], deferred: [], stopBy: 135_000, noRoom: false },
       { bought: ["q/a", "(walk)", "q/b"], deferred: [], stopBy: 110_000, noRoom: false },
       { bought: ["(walk)", "q/a"], deferred: ["/a: what is left of this drive is the box the walk needs to begin its first job"], stopBy: 85_000, noRoom: false }]); });
-  /** THE ORDER ITSELF, and it is the only thing that decides which reading goes first: THE WORK IT UNLOCKS (a row the last walk really reached, or a purchase that finishes the last thing one row
-   *  is waiting on), then THE OPPORTUNITY'S VALUE (the row's own rank), then THE INCREMENTAL COST (collecting a page already posted today is free, a page read is one fetch, a results page or a
-   *  source check is one call). Ranks alone put the account's cheapest finishable work behind whatever happened to be filed first, which is the case the operator's correction names. */
+  /** THE ORDER ITSELF, and it is the only thing that decides which reading goes first: THE WORK IT UNLOCKS (a row the last walk really reached, or a purchase that finishes the last thing one row */
   it.each([T, U])("orders %s's purchases by the work each one unlocks, then the row's rank, then what the reading costs", async (t) => {
     const day = ckey(t, NOW).slice(-10);
     const owed = [
@@ -1225,17 +1205,14 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
       expect([mem.jobs["/a::wc3::e1"], M.asked.at(-1)!.memory?.["/a::wc3::e1"]], "the ledger carries what each attempt cost and how it ended, and the plan reads exactly that").toEqual([{ calls: 2, last: "retryable_blocked", settled: false }, { calls: 2, last: "retryable_blocked", settled: false }]);
       mem = { jobs: {} }; expect(await drive()).toEqual([0, "candidates_exhausted", 5]); // 4. settled receipts are the only thing that writes a page off, and only a fully settled manifest exhausts
       M.declared = ["/f"]; M.out = [{ key: "/f", outcome: "produced" }]; expect(await drive()).toEqual([1, "made_progress", 6]); // 5. credit returning later the SAME DAY finishes the page that was blocked, on a manifest that moved on, and the ledger ACCUMULATES: the five settled above are still remembered beside it
-      // 4b. A READING STILL OWED IS WORK STILL OWED, and WORK THE QUEUE CANNOT SEE SETTLES NOTHING (falsifiers, 2026-09-02): the day closed `candidates_exhausted` over an acquisition it had just minted, and over two rows the store accepted that the ready queue never carried.
       M.declared = ["/j"]; M.out = [{ key: "/j", outcome: "deterministic_refusal" }]; mem = { jobs: {} };
       M.owed = [{ key: "/j", kind: "serp", query: "persian wolf", reasonCode: "no_exact_serp", reason: "no results page is on file", workKey: "w" }];
       expect((await drive())?.[1], "every declared key is settled and an acquisition is still in flight, so the day stays open").toBe("retryable_blocked");
-      // R3. THE RECEIPT IS THE AUTHORITY, NEVER THE STOCK DELTA. The producer re-reads every produced claim against the row standing on file when its pass ends and refiles the ones that are not ready as `review_saved`, so the runtime trusts what it is handed. A stock delta cannot: one real landing beside one phantom moves the count, and the rule that used to live here settled BOTH.
       M.owed = []; M.lands = false; M.declared = ["/k", "/l"]; M.out = [{ key: "/k", outcome: "produced" }, { key: "/l", outcome: "review_saved" }]; mem = { jobs: {} }; const mixed = await live.replenishReady(T, new Date(NOW), mem);
       expect([mixed!.reason, mixed!.jobs["/k::wc3::e1"]!.settled, mixed!.jobs["/l::wc3::e1"]!.settled], "one real landing beside one phantom the producer already downgraded, with the queue standing still: only the real one settles, the day cannot close over the other, and a COUNT decides neither").toEqual(["retryable_blocked", true, false]); M.lands = true;
       M.ready = 0; M.declared = ["/g", "pattern:x"]; mem = { jobs: {} }; // 6. THE REFUSAL'S OWN WORDS REACH THE DAY'S MEMORY, and a reading of the winning pages is banked EVIDENCE, never a change anybody can act on.
       M.out = [{ key: "/g", outcome: "deterministic_refusal", why: "the closing line tells the reader to read the page" }, { key: "pattern:x", outcome: "evidence_banked" }]; const last = await live.replenishReady(T, new Date(NOW), mem);
       expect([last!.outcomes!.readySaved, last!.outcomes!.evidenceBanked, last!.outcomes!.refused, last!.outcomes!.stuck.join(" ").includes("the closing line tells the reader to read the page")]).toEqual([0, 1, 1, true]);
-      // 7. P5/P6: A CORRECTED JOB RUNS AGAIN TODAY. The two pages this matters for by name: both were refused today under the evidence then on file, and the old page-keyed memory answered "already tried those" until midnight however much the evidence moved. A banked reading gives the work a different `workKey`, which the day remembers nothing about, so it is funded again by rank and never skipped.
       M.ready = 0; M.declared = ["/basic-persian-phrases", "/funny-farsi-phrases"]; M.out = M.declared.map((key) => ({ key, outcome: "deterministic_refusal" })); mem = { jobs: {} }; expect((await drive())?.[1]).toBe("candidates_exhausted");
       M.asked.length = 0; M.out = M.declared.map((key) => ({ key, outcome: "produced" })); const settledUnder = { ...mem.jobs };
       expect((await drive())?.[1], "settled under the evidence in hand, nothing is funded and the day stays shut").toBe("candidates_exhausted");
@@ -1249,6 +1226,17 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
       vi.doUnmock("@/lib/cost/budget-ledger-supabase"); vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/decision/llm/gateway"); vi.resetModules(); }});
   /** THE OBLIGATION AT SCHEDULER LEVEL, not four calls to the helper (Codex, 2026-08-22). The runtime used to make no promise at all: replenishReady tops up by at most two, the drive asks once, and dueWork did not count a Ready shortage as owed work, so a queue could go 0 to 2, the run could finish, and the account would sit three changes short until some UNRELATED debt happened to open the next run. Here the REAL dueWork decides what is owed and the REAL runner performs each dispatch. */
   /** THE DISPATCH GOES AND GETS THE READING A REFUSED CANDIDATE NAMED (Codex, 2026-08-23). Storing it, logging it and  checking it as a boolean is not acquisition: /persian-female-first-names named the exact search it needed, the  dispatch ended, and the next drive drafted from the same missing evidence. Proved through the REAL runtime. */
+  it.each([true, false])("reads an unreached named body gap before micros only while enabled: %s", async (enabled) => {
+    vi.stubEnv("BEACON_EVIDENCE_UNLOCK", enabled ? "1" : "0");
+    const order: string[] = [], need = { key: "/pools::body::tide", kind: "competitor_page" as const, query: "rock pool tides", reasonCode: "no_winner_to_read", reason: "Read the named gap", workKey: "body-work", rank: 1, unlocks: { proposalId: "body", step: "draft" as const, beforeMicros: true as const } };
+    withRun({ current_phase: "keyword_discovery", progress: { plan: { units: ["replenish_ready"] }, evidenceOwed: [need] } });
+    try { await run({ ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["replenish_ready"] }),
+      acquireEvidence: async () => (order.push("winners"), { acquired: true, detail: "Winner words banked" }),
+      replenishReady: async () => (order.push("walk"), { ...REPLENISHED, evidenceOwed: [], jobs: {} }) });
+      expect(order[0]).toBe(enabled ? "winners" : "walk");
+      expect(order.filter((x) => x === "winners")).toHaveLength(1);
+    } finally { vi.unstubAllEnvs(); }
+  });
   it("buys exactly the search a funded candidate was refused for, even on a run that opened only for the stock", async () => {
     const asked: Array<{ kind: string; query: string; basis: string }> = [];
     const rows = withRun({ current_phase: "keyword_discovery", progress: { plan: { units: ["replenish_ready"] } } });
