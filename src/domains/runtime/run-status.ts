@@ -34,7 +34,7 @@ export function nextPhase(phase: ResearchPhase): ResearchPhase {
 /** The compact Today projection, derived FROM the canonical record. `none` covers no-run and any fail-soft
  *  error. Counters carry evidence-backed numbers only: aiChecks* mirror persisted funnel counters. */
 export type ResearchRunStatusView = {
-  state: "running" | "paused" | "completed" | "none";
+  state: "running" | "queued" | "paused" | "completed" | "none";
   phaseLabel: string;
   stepsDone: number;
   stepsTotal: 9;
@@ -122,6 +122,7 @@ function livenessOf(run: ResearchRun | null, nowMs: number, state: ResearchRunSt
   // view's own pauseReason on the one surface that renders only this line.
   return did != null ? { state: "productive", line: `${did} ${at}.` }
     : state === "completed" ? { state: "quiet", line: `Checked ${at}. Nothing new was owed.` }
+    : state === "queued" ? { state: "quiet", line: `Research continues on the next scheduled pass. Last progress ${at}.` }
     : { state: "interrupted", line: `Research stopped partway ${at}. ${RESTART_STEP}` };
 }
 
@@ -159,7 +160,9 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
 
   const touchedAt = Date.parse(run.updated_at ?? "");
   const interrupted = run.status === "running" && Number.isFinite(touchedAt) && nowMs - touchedAt >= STALE_RUN_MS;
-  const state: ResearchRunStatusView["state"] = interrupted ? "paused" : run.status;
+  // The legacy database status also releases a healthy pass's lease. No error means a resumable handoff.
+  const state: ResearchRunStatusView["state"] = interrupted ? "paused"
+    : run.status === "paused" && run.last_error == null && nowMs - touchedAt < 45 * 60_000 ? "queued" : run.status;
   const persisted = run.progress?.state ?? {};
 
   const counters: ResearchRunStatusView["counters"] = {};
