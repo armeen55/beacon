@@ -121,7 +121,7 @@ const healthySteps = (log: string[]): Partial<ResearchCycleSteps> => ({
   refreshSources: async () => (log.push("refresh"), { attempted: 2, succeeded: ["google_gsc", "google_ga4"], failures: [] }), backfillChunk: async () => (log.push("backfill"), { kind: "advanced", daysPulled: 30 }),
   crawlPages: async () => (log.push("crawl"), 0), publishSurface: async () => void log.push("publish"), surfaceStale: async () => false }); const run = (steps: Partial<ResearchCycleSteps>, deadlineMs?: number) =>
   runResearchCycle(T, { now: () => new Date(NOW), steps: { ...BENIGN, ...steps }, ...(deadlineMs === undefined ? {} : { deadlineMs }) });
-beforeEach(() => { NOW = 1_700_000_000_000; RR.setResearchRunRepoForTests(null); ACCOUNT_STATUS.clear(); PAUSED.clear(); DB.missing.clear(); DB.ignoresWrites.clear(); DB.readThrows = false; DB.fleet = []; DB.served = []; DB.fleetError = null; REBUILT.length = 0; installAccountRepo(); });  // ACCOUNT_STATUS is cleared so every tenant defaults to active.
+beforeEach(() => { vi.unstubAllEnvs(); NOW = 1_700_000_000_000; RR.setResearchRunRepoForTests(null); ACCOUNT_STATUS.clear(); PAUSED.clear(); DB.missing.clear(); DB.ignoresWrites.clear(); DB.readThrows = false; DB.fleet = []; DB.served = []; DB.fleetError = null; REBUILT.length = 0; installAccountRepo(); });  // ACCOUNT_STATUS is cleared so every tenant defaults to active.
 describe("research-run claim: one open run per account across all dates", () => { it("resumes the account's one unfinished run first: yesterday's paused run is reclaimed by the same id with phase and cursor untouched, a later-day visit reuses it, and no second row is ever created", async () => {
     const rows = freshRepo(); const cursor = { phase: "gsc_backfill_chunk", attemptKey: "k" }; rows.push(mk({ id: "seed", status: "paused", current_phase: "gsc_backfill_chunk", phase_cursor: cursor, cycle_key: ckey(T, NOW - DAY), started_at: iso(NOW - DAY) }));
     const first = await RR.claimRun(T, "o1"); // resumed, not a new run: phase and cursor untouched, paused flips to running
@@ -186,8 +186,7 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
       replenishReady: async (_i, _n, seen) => { seen?.filed?.(() => filed); return await new Promise<null>(() => {}); } } });
     await vi.advanceTimersByTimeAsync(400_000); await drive; vi.useRealTimers();
     const row = rows.at(-1)!, rep = row.progress?.replenish;
-    expect([rep?.jobs, rep?.waiting, (rep?.outcomes?.receipts ?? []).length, ((rep?.outcomes?.receipts ?? []) as { providerCalls?: number }[]).map((r) => r.providerCalls), rep?.outcomes?.preparedMs, bought, row.status, row.current_phase],
-      "the day's memory, the waiting list and every receipt the walk filed survive the box that cut it off, the job that was still running is remembered with the seventeen calls it really made so the next drive demotes it instead of funding it again, and the drive still pauses where it stands, having bought only the reading the head of the order was waiting on before the walk and nothing at all after the box ended").toEqual([
+    expect([rep?.jobs, rep?.waiting, (rep?.outcomes?.receipts ?? []).length, ((rep?.outcomes?.receipts ?? []) as { providerCalls?: number }[]).map((r) => r.providerCalls), rep?.outcomes?.preparedMs, bought, row.status, row.current_phase]).toEqual([
       filed.jobs, ["wk-next"], 2, [17, 0], 54_503, 1, "paused", "fact_check"]); });
   it.each([T, U])("buys ahead of %s's walk only the free collections and the readings that unlock rows the last walk reached, and leaves every other one to the loop behind it", async (t) => {
     const day = ckey(t, NOW).slice(-10), need = (key: string, rank: number, over: Record<string, unknown> = {}) => ({ key, kind: "factual_source" as const, query: `q${key}`, url: key, rank, reasonCode: "acquire_factual_source", reason: "owed", workKey: `${key}::wk`, ...over });
@@ -200,8 +199,7 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
         replenishReady: async (_i, _n, seen, stopBy) => (bought.push("(walk)"), walk = { stopBy: (stopBy ?? 0) - at, noRoom: seen?.noRoom === true }, null) } });
       return { bought, deferred: (rows.at(-1)!.progress?.acquisitions ?? []).filter((a) => a.outcome === "deferred").map((a) => `${a.key}: ${a.detail.split(",")[0]}`), ...walk }; };
     expect([await drive(200_000, [need("/posted", 145, { postedOn: day }), need("/two", 15)]), await drive(260_000, [need("/a", 1), need("/b", 2), need("/c", 9)], ["/b"]),
-      await drive(200_000, [need("/a", 1), need("/b", 2)], ["/a", "/b"], 50_000), await drive(125_000, [need("/a", 1)], ["/a"])],
-      "collecting a page this day already posted costs nothing, so it is finished in front of the walk at rank 145 while the paid reading at rank 15 waits behind it; only the row the last walk reached is paid for in front, and the two it never reached are bought behind on the same order; a second paid reading is held back the moment the first has taken half the room above the walk\u0027s floor; and nothing at all is started on the box the walk needs to begin a job, which the row says in its own words").toEqual([
+      await drive(200_000, [need("/a", 1), need("/b", 2)], ["/a", "/b"], 50_000), await drive(125_000, [need("/a", 1)], ["/a"])]).toEqual([
       { bought: ["q/posted", "(walk)", "q/two"], deferred: [], stopBy: 75_000, noRoom: false },
       { bought: ["q/b", "(walk)", "q/a", "q/c"], deferred: [], stopBy: 135_000, noRoom: false },
       { bought: ["q/a", "(walk)", "q/b"], deferred: [], stopBy: 110_000, noRoom: false },
@@ -220,8 +218,7 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
     const bought: string[] = [];
     await runResearchCycle(t, { now: () => new Date(NOW), deadlineMs: 260_000, steps: { ...BENIGN, ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["replenish_ready", "check_page_facts"] }),
       acquireEvidence: async (_i, n) => (bought.push(String(n.query)), { acquired: false, detail: "still owed" }), replenishReady: async () => null } });
-    expect([bought, (rows.at(-1)!.progress?.acquisitions ?? []).filter((a) => a.outcome === "deferred").length],
-      "the row the last walk reached goes first even though a row ranked 10 is owed more readings than anybody; inside it the free collection of a page already posted comes before the fetch and the fetch before the paid call; the row whose one reading finishes it is served on its own rank; and nothing is deferred, because no cap decides this any more").toEqual([
+    expect([bought, (rows.at(-1)!.progress?.acquisitions ?? []).filter((a) => a.outcome === "deferred").length]).toEqual([
       ["hub-posted", "hub-fetch", "hub-call", "solo-last", "near-one", "near-two"], 0]); });
   it.each([T, U])("takes %s's walk floor from the last walk's own measured preparation, so the units keep their reservation in the band a padded constant took it away in, and a slower account funds nothing rather than a manifest it cannot begin", async (t) => {
     const drive = async (preparedMs?: number): Promise<{ stopBy: number; noRoom: boolean }> => {
@@ -231,8 +228,7 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
       await runResearchCycle(t, { now: () => new Date(NOW), deadlineMs: 190_000, steps: { ...BENIGN, ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["replenish_ready", "check_page_facts"] }),
         replenishReady: async (_i, _n, seen, stopBy) => (walk = { stopBy: (stopBy ?? 0) - NOW, noRoom: seen?.noRoom === true }, null) } });
       return walk; };
-    expect([await drive(63_900), await drive(), await drive(150_000)],
-      "on a measured 63.9-second free half the walk begins its work with 65 seconds to start in AND the units keep their 85; with nothing measured yet the constant stands and the walk takes the whole 190; and on an account whose free half really costs 150 seconds the same room funds nothing and says so").toEqual([
+    expect([await drive(63_900), await drive(), await drive(150_000)]).toEqual([
       { stopBy: 65_000, noRoom: false }, { stopBy: 150_000, noRoom: false }, { stopBy: 150_000, noRoom: true }]);
     const rows = freshRepo(); rows.push(mk({ tenant_id: t, cycle_key: ckey(t, NOW), current_phase: "fact_check", progress: { plan: { units: ["replenish_ready", "check_page_facts"] },
       replenish: { day: ckey(t, NOW).slice(-10), jobs: {}, outcomes: { readySaved: 0, evidenceBanked: 0, refused: 0, blocked: 0, unreached: 0, stuck: [], preparedMs: 63_900 } } } }));
@@ -288,42 +284,44 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
       { started: ["walk"], stopBy: 155_400, unitBox: -1, endedAt: 195_400, phase: "prompt_observations" }, { started: ["unit", "walk"], stopBy: 155_400, unitBox: 110_400, endedAt: 195_400, phase: "prompt_observations" },
       { started: ["unit", "walk"], stopBy: 83_650, unitBox: 45_000, endedAt: 123_650, phase: "prompt_observations" }, { started: ["walk"], stopBy: 155_400, unitBox: -1, endedAt: 195_400, phase: "done" }, { started: ["walk"], stopBy: 155_400, unitBox: -1, endedAt: 195_400, phase: "done" }, { started: ["unit", "walk"], stopBy: 220_000, unitBox: 120_000, endedAt: 260_000, phase: "prompt_observations" }]); });
   it.each([T, U])("clears %s's owed turn the moment the step starts, leaves the phase on no drive its own step ran, leaves it on the next drive that finds it waiting, and still runs behind that step the walk its turn skipped, once and only on the room genuinely left", async (t) => {
+    vi.stubEnv("BEACON_ALWAYS_ON_RESEARCH", "0");
     const drive = async (phase: "serp_analysis" | "winning_pages", unit: "plan_cases" | "read_winner_pages", answer: "failed" | "waiting" | "advanced", deadlineMs = 195_400, mark = true) => {
       const rows = freshRepo(); let at = NOW, turns = 0, passes = 0; const started: string[] = [], boxes: number[] = [], seen: { waited: unknown; phase: string; blocker: string | null; filed: number | null }[] = []; rows.push(mk({ tenant_id: t, cycle_key: ckey(t, NOW), current_phase: phase, progress: { plan: { units: ["replenish_ready", unit] }, ...(mark ? { waited: { phase, drives: 1, unpaid: true as const } } : {}), replenish: MEASURED(t) } }));
       for (let n = 0; n < 2; n += 1) { at = NOW; await runResearchCycle(t, { now: () => new Date(at), deadlineMs, steps: { ...BENIGN, ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["replenish_ready", unit] as DueWork["due"] }), currentBasis: async () => (passes += 1, "basis_test"), // the basis is read once per pass through this phase's own spending gate, so this counts the passes
           replenishReady: async (_i, _n, _seen, by) => { started.push("walk"); boxes.push((by ?? at) - NOW); at = answer === "failed" ? (by ?? at) + 40_000 : NOW + 100_000; return BLOCKED_WALK; }, // one walk spends its whole box, the other is closed early by the day's own memory, so the step behind it can still be started
           funnelUnit: async (_p, _u, _c, budgetMs) => (started.push("unit"), boxes.push(budgetMs), at += Math.min(budgetMs, 60_000), turns += 1, { status: turns === 1 ? answer : "waiting" as const, cursor: null, progress: {}, detail: "the provider had nothing to give this pass" }) } });
         const row = rows.at(-1)!; seen.push({ waited: row.progress?.waited, phase: row.current_phase, blocker: row.progress?.state?.blocker ?? null, filed: row.progress?.replenish?.outcomes?.unreached ?? null }); } return { seen, boxes, started, passes }; };
-    expect([await drive("serp_analysis", "plan_cases", "failed"), await drive("winning_pages", "read_winner_pages", "waiting"), await drive("winning_pages", "read_winner_pages", "waiting", 123_650), await drive("serp_analysis", "plan_cases", "advanced")],
-      "the first drive owes the step a turn, runs it FIRST on 110,400 ms of the box and says so on the row in one word. A step that answers failed is a step that ran, so the row keeps the count, drops the mark and keeps the step's own reason, AND IT OWES THE WALK ITS TURN SKIPPED EXACTLY AS A WAIT DOES: that drive walks on the 155,400 ms behind it and files its receipt, and the second drive hands the walk that whole box again and leaves the phase on the count it already carried. A step that answers waiting is a step that ran too: the phase is NOT left on that drive though its count has already reached two, and the walk its turn skipped still runs on the 135,400 ms behind it and files its receipt before the drive pauses, so no drive is spent without one. At the bottom of this account's band the same step leaves 78,650 ms against a walk floor of 85,000, so the row says which work could not be STARTED and what it needed, and the walk still runs its free half on the 83,650 ms box the block itself would have opened on, which is where the results pages already paid for are collected. A step that answers advanced already sent the loop back, so its drive walks ONCE and the wait behind that walk starts no second one. The pass count is what bounds the loop back to one: the phase's own spending gate is reached twice on the drive that goes back for its walk, three times across the pair, and never once more than the block it went back for").toEqual([
+    expect([await drive("serp_analysis", "plan_cases", "failed"), await drive("winning_pages", "read_winner_pages", "waiting"), await drive("winning_pages", "read_winner_pages", "waiting", 123_650), await drive("serp_analysis", "plan_cases", "advanced")]).toEqual([
       { seen: [{ waited: { phase: "serp_analysis", drives: 1, turn: "ran" }, phase: "serp_analysis", blocker: "the provider had nothing to give this pass", filed: 1 }, { waited: { phase: "serp_analysis", drives: 2, unpaid: true }, phase: "done", blocker: "The next research step needs 40 seconds and this drive had 0 left, so nothing was started for it. The next pass runs it first.", filed: 1 }], boxes: [110_400, 155_400, 155_400], started: ["unit", "walk", "walk"], passes: 3 },
       { seen: [{ waited: { phase: "winning_pages", drives: 2, turn: "ran" }, phase: "winning_pages", blocker: null, filed: 1 }, { waited: { phase: "winning_pages", drives: 3 }, phase: "done", blocker: null, filed: 1 }], boxes: [110_400, 155_400, 155_400, 95_400], started: ["unit", "walk", "walk", "unit"], passes: 3 },
       { seen: [{ waited: { phase: "winning_pages", drives: 2, turn: "ran" }, phase: "winning_pages", blocker: "Preparing more finished changes needs 85 seconds and this drive had 79 left, so nothing was started for it. The next pass runs it first.", filed: 1 }, { waited: { phase: "winning_pages", drives: 3, unpaid: true }, phase: "done", blocker: "The next research step needs 40 seconds and this drive had 24 left, so nothing was started for it. The next pass runs it first.", filed: 1 }], boxes: [45_000, 83_650, 83_650], started: ["unit", "walk", "walk"], passes: 3 },
       { seen: [{ waited: { phase: "serp_analysis", drives: 2, turn: "ran" }, phase: "serp_analysis", blocker: null, filed: 1 }, { waited: { phase: "serp_analysis", drives: 3 }, phase: "done", blocker: null, filed: 1 }], boxes: [110_400, 155_400, 95_400, 155_400, 95_400], started: ["unit", "walk", "unit", "walk", "unit"], passes: 3 },
     ]); });
-  it.each([T, U])("adds %s's winner debt to a stock-only pass without buying keyword discovery", async (t) => {
-    const rows = withRun({ tenant_id: t, current_phase: "keyword_discovery", progress: { plan: { units: ["replenish_ready"] } } }), phases: string[] = [];
-    await runResearchCycle(t, { now: () => new Date(NOW), steps: { ...BENIGN,
-      dueWork: async () => ({ ...SOMETHING_DUE, due: ["replenish_ready", "read_winner_pages"] }),
-      funnelUnit: async (p) => (phases.push(p), { status: "done", cursor: null, progress: {} }) } });
-    expect(phases).toEqual(["winning_pages"]); expect(rows[0]!.status).toBe("completed");
-  });
-  it.each([T, U])("continues %s's newly owed winners past a provider wait and preserves depth memory across passes; rollback restores the old ordering", async (t) => {
+  it.each([T, U])("yields %s's FIRST provider wait only when enabled and resumes one row across 48 ticks", async (t) => {
     for (const enabled of [true, false]) { vi.stubEnv("BEACON_ALWAYS_ON_RESEARCH", enabled ? "1" : "0");
-      const rows = freshRepo(), order: string[] = []; let at = NOW, reads = 0, writes = 0;
-      const jobs = { depth: { calls: 1, last: "retryable_blocked", settled: false } };
-      rows.push(mk({ tenant_id: t, current_phase: "prompt_observations", progress: { plan: { units: ["daily_observations", "replenish_ready"] }, replenish: { day: reportingDay(NOW), jobs, waiting: ["depth"] } } }));
+      NOW = Date.parse("2026-09-07T07:00:00Z"); const rows = withRun({ tenant_id: t, cycle_key: ckey(t, NOW), current_phase: "prompt_observations", progress: { plan: { units: ["daily_observations", "replenish_ready", "read_winner_pages"] } } });
+      const order: string[] = [], id = rows[0]!.id, jobs = { depth: { calls: 1, last: "retryable_blocked", settled: false } }; rows[0]!.progress.replenish = { day: reportingDay(NOW), jobs, waiting: ["depth"] }; let ready = false;
       const steps: ResearchCycleSteps = { ...BENIGN, dueWork: async () => ({ ...SOMETHING_DUE, due: ["daily_observations", "replenish_ready", "read_winner_pages"] }),
-        replenishReady: async (_t, _n, seen) => { expect(seen?.jobs).toEqual(jobs); expect(seen?.waiting).toEqual(["depth"]); order.push("write"); writes += 1;
-          if (writes === 1) at += 200_000; return { ready: 0, deficit: 1, persisted: 0, satisfied: false, reason: "retryable_blocked", jobs, waiting: ["depth"] }; },
-        funnelUnit: async (phase) => { order.push(phase); if (phase === "winning_pages") reads += 1;
-          return { status: phase === "prompt_observations" ? "waiting" : "done", cursor: { pending: true }, progress: {} }; } };
-      await runResearchCycle(t, { now: () => new Date(at), deadlineMs: 200_000, steps });
-      expect(RR.projectStatusView(rows[0]!, at).state).toBe("queued");
-      for (let pass = 0; pass < 2; pass += 1) { NOW += 30 * 60_000; at = NOW; await runResearchCycle(t, { now: () => new Date(at), deadlineMs: 200_000, steps }); }
-      expect(writes).toBe(3); expect(reads).toBe(enabled ? 1 : 0);
-      expect(rows[0]!.progress.replenish?.jobs).toEqual(jobs); expect(order.indexOf("prompt_observations")).toBeGreaterThan(-1);
-      expect(rows[0]!.lease_owner).toBeNull();
+        replenishReady: async (_t, _n, seen) => { expect(seen?.jobs).toEqual(jobs); expect(seen?.waiting).toEqual(["depth"]); order.push("write"); return null; },
+        funnelUnit: async (phase, _u, cursor) => { order.push(phase); if (phase === "prompt_observations" && rows[0]!.progress.waited) expect(cursor).toMatchObject({ pending: true });
+          return { status: phase === "prompt_observations" && !ready ? "waiting" : "done", cursor: { pending: true }, progress: {} }; } };
+      await runResearchCycle(t, { now: () => new Date(NOW), steps });
+      expect(order).toEqual(enabled ? ["write", "prompt_observations", "winning_pages"] : ["write", "prompt_observations"]);
+      expect(rows[0]!.progress.waited?.drives).toBe(1); expect(rows[0]!.current_phase).toBe("prompt_observations");
+      expect(rows[0]!.status).toBe("paused"); expect(RR.projectStatusView(rows[0]!, NOW).state).toBe("queued");
+      if (enabled) { for (let tick = 1; tick < 48; tick += 1) { NOW += 30 * 60_000; if (tick === 1) { rows[0]!.current_phase = "winning_pages"; rows[0]!.phase_cursor = null; } await runResearchCycle(t, { now: () => new Date(NOW), steps }); }
+        expect(rows).toHaveLength(1); expect(rows[0]!.id).toBe(id); expect(rows[0]!.completed_at).toBeNull();
+        expect(order.filter((p) => p === "winning_pages")).toHaveLength(48); expect(rows[0]!.lease_owner).toBeNull();
+        ready = true; await runResearchCycle(t, { now: () => new Date(NOW), steps }); expect(rows[0]!.status).toBe("completed"); expect(rows[0]!.progress.providerWait).toBeUndefined(); }
+    } vi.unstubAllEnvs();
+  });
+  it.each([T, U])("buys keywords for %s's mixed plan only when keyword work is explicitly authorized, under both flags", async (t) => {
+    for (const flag of ["1", "0"]) for (const keyword of [null, "plan_cases", "consume_analyses"] as const) { vi.stubEnv("BEACON_ALWAYS_ON_RESEARCH", flag);
+      const units: DueWork["due"] = ["replenish_ready", "daily_observations", ...(keyword ? [keyword] : [])], phases: string[] = [];
+      withRun({ tenant_id: t, current_phase: "keyword_discovery", progress: { plan: { units } } });
+      await runResearchCycle(t, { now: () => new Date(NOW), steps: { ...BENIGN, dueWork: async () => ({ ...SOMETHING_DUE, due: [...units, "read_winner_pages"] }),
+        funnelUnit: async (phase) => (phases.push(phase), { status: "done", cursor: null, progress: {} }) } });
+      expect(phases.includes("keyword_discovery")).toBe(keyword !== null); expect(phases).toContain("prompt_observations"); expect(phases.includes("winning_pages")).toBe(flag === "1");
     } vi.unstubAllEnvs();
   });
   it.each([T, U])("reads %s's winners first on the drive after the one whose walk took the slice, inside a bounded box, and still hands the walk what is left", async (t) => {
@@ -392,6 +390,7 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
     const p1 = await drive([need("w1")], "results page: waiting"), p2 = await drive(p1.owed, "results page: the task returned nothing"), p3 = await drive(p2.owed, "results page: waiting on the provider");
     expect([p1.asked, p2.asked, p3.asked, p2.owed[0]?.tried?.count, p2.owed[0]?.tried?.why, p3.owed[0]?.tried?.why], "two drives whose answers differ in wording are still two attempts on one reading, so the second spends it and the third is refused; what the row keeps is the LATEST answer, so it says what happened rather than the sentence that opened the count").toEqual([1, 1, 0, 2, "results page: the task returned nothing", "results page: the task returned nothing"]); });
   it.each([T, U])("leaves %s's waiting step behind on the second drive that finds it still waiting, so the day's surface is published rather than held behind one provider, and the lane's own debt is untouched", async (t) => {
+    vi.stubEnv("BEACON_ALWAYS_ON_RESEARCH", "0");
     const rows = freshRepo(); rows.push(mk({ tenant_id: t, cycle_key: ckey(t, NOW), current_phase: "prompt_observations", progress: { plan: { units: ["daily_observations", "verify_and_measure", "publish_surfaces"] } } }));
     const steps = { ...BENIGN, ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["daily_observations", "verify_and_measure", "publish_surfaces"] as DueWork["due"] }), surfaceStale: async () => true,
       funnelUnit: async () => ({ status: "waiting" as const, cursor: { pending: 19 }, progress: {} }) }, at = (): { phase: string; status: string; waited: unknown; published: unknown } =>
@@ -403,6 +402,7 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
       { phase: "done", status: "completed", waited: { phase: "prompt_observations", drives: 2 }, published: true }]);
     expect(rows.at(-1)!.progress?.observations ?? null, "and nothing about the lane is written off: it filed no unreadable state, so due-work still owes today's checks and the next pass reopens exactly this phase").toBeNull(); });
   it.each([T, U])("gives %s's second waiting phase its own drive of the provider's time rather than leaving it the moment an earlier phase was left, and never pauses a phase it has already left", async (t) => {
+    vi.stubEnv("BEACON_ALWAYS_ON_RESEARCH", "0");
     const rows = freshRepo(); rows.push(mk({ tenant_id: t, cycle_key: ckey(t, NOW), current_phase: "prompt_observations", progress: { plan: { units: ["daily_observations", "plan_cases", "verify_and_measure", "publish_surfaces"] } } }));
     const steps = { ...BENIGN, ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["daily_observations", "plan_cases", "verify_and_measure", "publish_surfaces"] as DueWork["due"] }), surfaceStale: async () => true,
       funnelUnit: async () => ({ status: "waiting" as const, cursor: { pending: 19 }, progress: {} }) }, at = (): { phase: string; waited: unknown } => ({ phase: rows.at(-1)!.current_phase, waited: rows.at(-1)!.progress?.waited });

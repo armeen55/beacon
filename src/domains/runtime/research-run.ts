@@ -1,5 +1,4 @@
 import "server-only";
-
 import { createHash, randomUUID } from "node:crypto";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
@@ -38,6 +37,7 @@ type ResearchRunStatus = "running" | "paused" | "completed";
 
 /** Evidence-based counters only, never a fabricated number. `refreshedProviders` is the set of providers that actually synced this cycle (unioned across retries); `sourcesRefreshed` is that set's size. */
 export type ResearchRunProgress = {
+  /** Earliest yielded provider wait; retained through later phases and recovered after interruption. */ providerWait?: { phase: ResearchPhase; cursor: Record<string, unknown> };
   refreshedProviders?: string[];
   /** THE ONE SENTENCE A CONNECTOR THAT WOULD NOT SYNC OWES THE OPERATOR, on the same receipt as the count of the ones that did, because the surfaces already read this object. It was recorded on the run's private `state.blocker`, which nothing in the product reads, so an honesty claim reached nobody. Null when every connected source synced, so a debt that cleared leaves no stale claim behind. */
   sourcesRefreshed?: number; sourcesStale?: string | null;
