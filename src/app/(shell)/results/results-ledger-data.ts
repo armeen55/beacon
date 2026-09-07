@@ -18,14 +18,7 @@ import {
 } from "./results-surface-store";
 import type { ShipmentPresentation } from "./results-presentation";
 
-/**
- * results-ledger-data (CORE 100K) - the stale-while-revalidate entry point for the
- * /results measured ledger. Serves the last persisted kernel reads INSTANTLY (with
- * their computedAt for the honest "I last re-checked N ago" line), refreshes in the
- * background when stale, and pays the full synchronous re-measure only on a true
- * cold start. Measurement history is never touched here.
- */
-
+/** Serve saved Results; refresh stale or missing snapshots after the response. */
 type ResultsLedgerSurface = {
   shipments: ShipmentPresentation[];
   computedAt: string | null;
@@ -71,15 +64,14 @@ async function recommendationStates(tenantId: string, ids: string[]): Promise<Ma
  */
 export async function presentShipments(tenantId: string, records: ShippedChangeRecord[]): Promise<ShipmentPresentation[]> {
   if (records.length === 0) return [];
-  const latestGscDate = await readLastFinalizedDate(tenantId).catch(() => null);
+  const [latestGscDate, aiReads, recommendations] = await Promise.all([
+    readLastFinalizedDate(tenantId).catch(() => null),
+    aiOutcomesForShipments(tenantId, records.map((r) => ({
+      implementedAt: r.implementedAt, shipmentBaseline: r.shipmentBaseline, scopeQueries: r.targetQueries, aiScope: r.aiScope,
+    }))).catch(() => records.map(() => null)),
+    recommendationStates(tenantId, [...new Set(records.map((r) => r.proposalId).filter((id): id is string => !!id))]),
+  ]);
   const reads = readLedger(records, new Date(), latestGscDate);
-  // THE AI HALF OF EVERY SHIPMENT, off the answers already stored around each stamp. The 488 line outcome
-  // engine sat with zero callers while every Result was judged on Google alone; a failure here costs only
-  // the AI line, never the ledger.
-  const aiReads = await aiOutcomesForShipments(tenantId, records.map((r) => ({
-    implementedAt: r.implementedAt, shipmentBaseline: r.shipmentBaseline, scopeQueries: r.targetQueries, aiScope: r.aiScope,
-  }))).catch(() => records.map(() => null));
-  const recommendations = await recommendationStates(tenantId, [...new Set(records.map((r) => r.proposalId).filter((id): id is string => !!id))]);
   return records.map((r, i) => {
     // A FINISHED READING IS SERVED AS IT WAS READ. Everything below still recomputes from live Google data,
     // which is right while a window is open and wrong the moment it closes: a backfilled day inside a closed
@@ -139,8 +131,7 @@ async function persistedShipments(tenantId: string): Promise<ShipmentPresentatio
   return presentShipments(tenantId, await loadProofLedgerPersisted(tenantId));
 }
 
-async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedgerSurface> {
-  const cached = await readResultsSurface(tenantId).catch(() => null);
+async function loadLedgerWithSwr(tenantId: string, cached: Awaited<ReturnType<typeof readResultsSurface>>): Promise<ResultsLedgerSurface> {
   if (cached) {
     if (isResultsSurfaceStale(cached.computedAt, Date.now())) {
       after(async () => {
@@ -169,8 +160,10 @@ async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedgerSurface
 
 /** Request-memoized /results reads, SWR-cached cross-request. */
 export const loadResultsLedgerSurface = cache(
-  async (): Promise<ResultsLedgerSurface> => {
-    const surface = await loadLedgerWithSwr(await currentTenantId());
+  async (preloaded?: Awaited<ReturnType<typeof readResultsSurface>>): Promise<ResultsLedgerSurface> => {
+    const tenantId = await currentTenantId();
+    const cached = preloaded === undefined ? await readResultsSurface(tenantId).catch(() => null) : preloaded;
+    const surface = await loadLedgerWithSwr(tenantId, cached);
     return { ...surface, checkedAgo: checkedAgoLabel(surface.computedAt, Date.now()) };
   },
 );

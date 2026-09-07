@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { requireReadyAccount } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
 import { scheduleAutoMeasure } from "@/domains/measurement";
 import { loadResultsLedgerSurface } from "./results-ledger-data";
+import { readResultsSurface } from "./results-surface-store";
 import { buildResultsBrain } from "./results-brain";
 import { ResultsBrain } from "./results-brain-client";
 import { buildResultsView, type ShipmentPresentation } from "./results-presentation";
@@ -13,26 +15,21 @@ import { monthDayLabel } from "@/components/data/receipt-line";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { readCustomerSurface } from "../surface-release";
 
-/**
- * Results - THE ARGUMENT, THEN THE MEMORY. The page opens on what Beacon believes about each kind of work, how sure it may be,
- * the evidence behind the selected thought and what it is waiting to read; every change ever marked done stays beneath it as
- * "All changes". ONE READ: the saved surface holds every fact the belief is computed from, so the belief paints from saved
- * truth and never waits on a live ledger read. Read-only apart from recording a change and re-checking the numbers.
- */
+/** Results renders saved measurement truth; the optional Changes count streams separately. */
 export const dynamic = "force-dynamic";
 
 export default async function ProofPage({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await (searchParams ?? Promise.resolve<Record<string, string | string[] | undefined>>({}));
   const initialPage = typeof params.page === "string" ? params.page : "";
   const tenantId = await currentTenantId();
+  // Preload saved truth during validation; rendering and refresh scheduling still require access.
+  const cached = readResultsSurface(tenantId).catch(() => null);
   const { access } = await requireReadyAccount(tenantId);
   if (access.kind === "suspended") redirect("/");
-  // A LEDGER I COULD NOT READ IS NOT AN EMPTY ONE: both failure doors land on `unavailable`, rendered as an outage with a retry.
-  const surface = await loadResultsLedgerSurface().catch(() => ({ shipments: [] as ShipmentPresentation[], computedAt: null, checkedAgo: null, unavailable: true }));
+  const release = loadWithDeadline(readCustomerSurface(tenantId), 1_500).then((r) => r.data).catch(() => null);
+  const surface = await loadResultsLedgerSurface(await cached).catch(() => ({ shipments: [] as ShipmentPresentation[], computedAt: null, checkedAgo: null, unavailable: true }));
   const shipments = surface.shipments, now = new Date();
-  // THE ONE THING TO DO COMES FROM THE SAVED RELEASE, never a live queue join: the finished-change count Changes itself serves, read once with a short deadline, null when unavailable.
-  const release = await loadWithDeadline(readCustomerSurface(tenantId), 1_500).catch(() => null);
-  const brain = buildResultsBrain(shipments, now, { ready: release?.data?.changes.summary.ready ?? null }), view = buildResultsView(shipments, now);
+  const brain = buildResultsBrain(shipments, now), view = buildResultsView(shipments, now);
   const firstLive = monthDayLabel(shipments.map((p) => p.implementedAt).filter((d): d is string => !!d).sort()[0] ?? null);
   const anyClosed = shipments.some((s) => s.read.windows.some((w) => w.state === "closed"));
   if (shipments.length > 0) scheduleAutoMeasure(tenantId); // settles due rows in the background, never on this render
@@ -59,7 +56,9 @@ export default async function ProofPage({ searchParams }: { searchParams?: Promi
         </div>
       ) : (
         <>
-          <ResultsBrain model={brain} checkedAgo={surface.checkedAgo ?? null} />
+          <Suspense fallback={<ResultsBrain model={brain} checkedAgo={surface.checkedAgo ?? null} />}>
+            <ResultsBrainWithNextStep shipments={shipments} now={now} checkedAgo={surface.checkedAgo ?? null} release={release} />
+          </Suspense>
           {/* THE MEMORY, SECOND. Every change marked done, in its own words, with the same filters and rows as before; nobody needs it to understand the belief above. */}
           <details className="mt-8 rounded-xl border border-border-subtle bg-surface-raised px-3 py-2.5" data-results-all-changes="true">
             <summary className="cursor-pointer text-[13px] font-medium text-foreground">All changes ({shipments.length})</summary>
@@ -78,4 +77,12 @@ export default async function ProofPage({ searchParams }: { searchParams?: Promi
       <p className="text-[12px] text-muted-foreground">How often AI assistants name you is on <Link href="/visibility" className="font-medium text-accent-primary underline underline-offset-2">Visibility</Link>.</p>
     </div>
   );
+}
+
+async function ResultsBrainWithNextStep({ shipments, now, checkedAgo, release }: {
+  shipments: ShipmentPresentation[]; now: Date; checkedAgo: string | null;
+  release: Promise<Awaited<ReturnType<typeof readCustomerSurface>>>;
+}) {
+  const ready = (await release)?.changes.summary.ready ?? null;
+  return <ResultsBrain model={buildResultsBrain(shipments, now, { ready })} checkedAgo={checkedAgo} />;
 }
