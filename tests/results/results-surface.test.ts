@@ -8,7 +8,6 @@ import { splitLedgerLifecycle } from "@/domains/decision/changes/lifecycle-count
 const { rowState } = RESULT_LINES;
 import { buildResultsCsv } from "@/app/(shell)/results/results-csv";
 import { buildHeadline } from "@/domains/measurement/proof-gsc/read-honesty";
-/** RESULTS, WHOLE. What a customer READS on the surface, not how it is computed. Fixtures only, zero network. The promises: a read shared with a later change is never painted as this change's own win, the header totals are the visible rows added up rather than the wins alone, the next step fits the work that was done, "similar" is only said where a receipt backs it. */
 const NOW = new Date("2026-06-01T00:00:00Z"), SHIPPED = "2026-05-01";
 const WINDOWS = evaluateWindows(SHIPPED, NOW, "2026-06-01");
 const win = (day: 7 | 14 | 28, over: Partial<KernelInput["windows"][number]> = {}) => ({ day, ran: true, adjustedClicksLift: 40,
@@ -19,7 +18,6 @@ const input = (over: Partial<KernelInput> = {}): KernelInput => ({
   componentKinds: ["title", "section_add"], diagnosisCause: "ctr_snippet", evidenceItemCount: 6, ...over,});
 const VERIFICATION: ShipmentVerification = { status: "partially_verified", checkedAt: "2026-05-03T09:00:00Z",
   components: [{ kind: "title", state: "verified", note: null }] };
-/** THE STORED FACTS RIDE WITH THE ROW, as they do off the ledger: the stamp, the mute, the pin and the measured readings the ranking learns from. A case that wants its own stamp or its own mute passes `learning` and this stands aside. */
 const shipment = (over: Partial<ShipmentPresentation> = {}): ShipmentPresentation => ((s: ShipmentPresentation): ShipmentPresentation => ({ ...s, learning: s.learning ?? { actionType: s.read.actionType, after: null, implementedAt: s.implementedAt, verification: s.verification, operatorVerdictOverride: null, pinnedRead: null, treatmentStamp: null, componentsApplied: null, baseline: s.baseline == null ? undefined : { ...s.baseline, ctr: 0, position: 0 }, controlsReceipt: [{ path: "/c1", reasons: [] }, { path: "/c2", reasons: [] }, { path: "/c3", reasons: [] }], windows: s.read.basisDay == null || s.read.metric !== "clicks" ? [] : [{ day: s.read.basisDay, checkOn: "", ran: true, adjustedLift: s.read.lift, controlsUsed: 3, comparedToSite: s.read.comparison === "site", treatedDelta: (s.read.unadjusted?.clicksAfter ?? 0) - (s.read.unadjusted?.clicksBefore ?? 0), controlDelta: (s.read.unadjusted?.clicksAfter ?? 0) - (s.read.unadjusted?.clicksBefore ?? 0) - s.read.lift, treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0, treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0 }] } }))({
   read: evaluateChange(input(), WINDOWS, []), implementedAt: `${SHIPPED}T12:00:00Z`, verification: VERIFICATION,
   baseline: { clicks: 200, impressions: 9100, windowDays: 28, capturedAt: `${SHIPPED}T12:00:00Z` }, basisMove: { clicks: 61, impressions: 900 }, ...over,});
@@ -30,7 +28,6 @@ const measuring = evaluateChange(input({ windows: [] }), evaluateWindows(SHIPPED
 const lost = { adjustedClicksLift: -30, adjustedImpressionsLift: -50 }, declined = evaluateChange(input({ windows: [win(7, lost), win(14, lost), win(28, lost)] }), WINDOWS, []);
 const sharedCredit = evaluateChange(input({ windows: [win(28)] }), WINDOWS, ["c2"]);
 const cutOff = evaluateChange(input(), WINDOWS, ["c2"], "2026-05-10"), FORTNIGHT = evaluateChange(input({ windows: [win(7), win(14)] }), evaluateWindows(SHIPPED, new Date("2026-05-20T00:00:00Z"), "2026-05-20"), []); // the reading that closed at 14 days against matched pages, its 28 day window still open
-
 describe("one change gets one line", () => {
   it("puts a verified read ahead in its tab with its own number, its bar and its appearances", () => {
     const row = first(); expect([row.group, row.verdictWord, row.dot, row.bar! > 0, row.barOpacity, first({ verification: null }).dot, first({ implementedAt: null, verification: null }).dot], "and a reading nobody confirmed on the live page is never coloured: it sits in the same tab and its dot stays grey").toEqual(["worked", "Verified at 28 days", "emerald", true, 1, "grey", "grey"]);
@@ -84,7 +81,6 @@ describe("opening a change says what happened, against what, and what to do next
     const bare = first({ implementedAt: null, baseline: null, verification: null, basisMove: null });
     expect([bare.timeline[0], bare.timeline[1], bare.chip, bare.numbers]).toEqual([{ label: "Marked done, date not kept", done: true }, { label: "Live page never checked; predates verification", done: false }, { text: "Historical read ahead", amber: false }, null]);
     const noTraffic = first({ baseline: { clicks: 0, impressions: 0, windowDays: 28, capturedAt: SHIPPED } }); expect([noTraffic.numbersNote, noTraffic.impressionsLabel]).toEqual(["No starting point could be read for this one.", null]);});});
-/** THREE SENTENCES TOLD EVERY OPERATOR TO PUT THE OLD WORDING BACK, including the ones whose change was a redirect or an internal link, where there was no wording to restore. One step per family of work, in win/loss/flat order. */
 describe("the next step belongs to the kind of work that was done", () => {
   const dir = (v: number) => ({ adjustedClicksLift: 40 * v, adjustedCtrLift: 0.02 * v, adjustedPosLift: v });
   const step = (actionType: string, v: number) =>
@@ -216,7 +212,6 @@ describe("the Brain: what Beacon believes is derived from verified facts, and hi
     const pattern = buildResultsBrain([...many(5, evaluateChange(input(), WINDOWS, []), "p"), shipment({ read: { ...measuring, id: "pu" }, verification: null })], NOW); expect([pattern.belief.confidence, pattern.thoughts[0]!.confidence, pattern.thoughts[0]!.ahead, pattern.thoughts[0]!.medianEffect]).toEqual(["pattern", "pattern", 5, 40]); expect([pattern.thoughts[0]!.belief, buildResultsBrain(many(2, evaluateChange(input(), WINDOWS, []), "q"), NOW).thoughts[0]!.belief], "FIVE READINGS SAY ONE THING IN THE ONE UNIT THAT COMPARES ACROSS PAGES (2026-09-03): 40 clicks on pages already earning 200 is plus 20 percent, and the count beside it is the readings behind it and never the changes shipped. Two readings say nothing of the kind, so that sentence stands exactly as it always did.").toEqual(["Page content have finished ahead in 5 of 5 verified reads, typically +40 clicks against pages that were not changed. Consistent so far, not proof. Page content on this site: about plus 20 percent across 5 readings.", "Page content: 2 verified reads so far, 2 ahead and 0 behind, +40 clicks ahead at the middle. A signal, not yet a record."]);
     const heavyLoss = evaluateChange(input({ windows: [win(7, { adjustedClicksLift: -100 }), win(14, { adjustedClicksLift: -100 }), win(28, { adjustedClicksLift: -100, adjustedImpressionsLift: -50 })] }), WINDOWS, []);
     const mixed = buildResultsBrain([...many(3, evaluateChange(input(), WINDOWS, []), "m"), ...many(2, heavyLoss, "n")], NOW).thoughts[0]!; expect([mixed.confidence, mixed.ahead, mixed.behind, mixed.unit]).toEqual(["mixed", 3, 2, "clicks"]); const hurt = buildResultsBrain(many(4, heavyLoss, "x"), NOW); expect([hurt.belief.headline, hurt.nextStep], "A CONSISTENT RECORD OF LOSSES IS NOT GOOD NEWS (Phase 5): four readings that all finished behind printed the same headline as four that finished ahead, under the same green chip, and the page's one next step was to go and mark another change done.").toEqual(["Beacon has a consistent verified record, not yet proof: page content behind.", { text: "Page content have finished behind in 4 of 4 verified reads. Open that kind of work above, read the example under it, and hold off repeating it until one finishes ahead.", href: null }]);
-    // THE CONTRACT IS DESCRIPTIVE: four of four agree is a consistent record, four of six is split, and a record of five splits once two counterexamples land; no probability is printed anywhere.
     expect([buildResultsBrain(many(4, evaluateChange(input(), WINDOWS, []), "f"), NOW).thoughts[0]!.confidence, buildResultsBrain([...many(4, evaluateChange(input(), WINDOWS, []), "g"), ...many(2, heavyLoss, "h")], NOW).thoughts[0]!.confidence, buildResultsBrain([...many(5, evaluateChange(input(), WINDOWS, []), "i"), ...many(2, heavyLoss, "j")], NOW).thoughts[0]!.confidence, pattern.thoughts[0]!.agreement]).toEqual(["pattern", "mixed", "mixed", "5 of 5 directional verified reads point the same way. A small sample from one site: consistent, not proven."]);
     const rate = (lift: number, id: string) => shipment({ read: { ...evaluateChange(input({ actionType: "edit_title", windows: [win(7, { adjustedCtrLift: lift }), win(14, { adjustedCtrLift: lift }), win(28, { adjustedCtrLift: lift })] }), WINDOWS, []), id } });
     const titles = buildResultsBrain([rate(0.004, "t1")], NOW).thoughts[0]!; expect([titles.confidence, titles.unit, titles.ahead, titles.belief], "A CLICK-RATE READ IS NEVER ROUNDED INTO ZERO CLICKS: the unit travels with the median.").toEqual(["early", "ctr", 1, "Titles: 1 verified read so far, 1 ahead and 0 behind, +0.4 click rate ahead at the middle. A signal, not yet a record."]); });
@@ -253,25 +248,34 @@ describe("the Brain: what Beacon believes is derived from verified facts, and hi
     expect(first(rec("retired", "withdrawn")).retired!.note.endsWith("The live page confirmed it, so the read still counts."), "a retired row the live page did confirm keeps its read").toBe(true);
     expect([stood.retired, first(rec("unknown")).retired, first().retired], "a current one, an unknown one and a snapshot written before this all say nothing").toEqual([null, null, null]);
     expect([stood.verdictWord, stood.happened, stood.taught, stood.nextStep, took.verdictWord, took.happened, took.group], "no state word moves and no history is repainted").toEqual([first().verdictWord, first().happened, first().taught, first().nextStep, first({ verification: null }).verdictWord, first().happened, first().group]);
-    // FOUR RETIRED READS NOBODY CONFIRMED LIVE ARE NOT A PATTERN, NOT NEWS, AND NOT SOMETHING TO GO AND PUBLISH. Such a row cannot reach won on Today or Changes either, for the reason pinned above: splitLedgerLifecycle files an unconfirmed row as learned whatever its verdict.
     const brain = buildResultsBrain([...many(4, evaluateChange(input(), WINDOWS, []), "rt", { ...rec("retired", "withdrawn"), verification: null }), shipment({ read: { ...measuring, id: "rd" }, ...rec("retired", "superseded"), verification: { ...VERIFICATION, status: "differs", recheckAfter: "2026-05-05" } as unknown as ShipmentVerification })], NOW);
     expect([brain.belief.confidence, brain.thoughts[0]!.verifiedSample, brain.changed, brain.nextStep.href, brain.watching.some((w) => w.includes("not yet show on the live page"))]).toEqual(["none", 0, null, "/changes", false]);
     expect(buildResultsBrain(many(4, evaluateChange(input(), WINDOWS, []), "cu", rec("current")), NOW).belief.confidence, "the same four, current, are still a record").toBe("pattern");});
-  it("serves the saved surface without waiting on the persisted read, so the belief paints while a live read hangs", async () => {
-    vi.doMock("next/server", () => ({ after: () => {} })); vi.doMock("@/lib/tenant-context", () => ({ currentTenantId: async () => "t" }));
-    vi.doMock("@/app/(shell)/results/results-surface-store", () => ({ readResultsSurface: async () => ({ computedAt: NOW.toISOString(), shipments: [shipment()] }), isResultsSurfaceStale: () => false, writeResultsSurface: async () => {} }));
-    vi.doMock("@/domains/measurement", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadProofLedgerPersisted: () => new Promise(() => {}) }));
-    const { loadResultsLedgerSurface } = await import("@/app/(shell)/results/results-ledger-data");
-    const out = await Promise.race([loadResultsLedgerSurface(), new Promise<null>((r) => setTimeout(() => r(null), 1500))]);
-    expect(out && "shipments" in out ? out.shipments.length : null, "saved truth, not a skeleton and not zero results").toBe(1); });
+  it.each(["account-a", "account-b"])("%s: paints saved Results while the optional release hangs, after access is checked", async (tenantId) => {
+    vi.resetModules(); vi.doMock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }), redirect: (url: string) => { throw new Error(`NEXT_REDIRECT:${url}`); } }));
+    let allow!: (value: { access: { kind: string } }) => void, finish!: (value: unknown) => void;
+    const access = new Promise<{ access: { kind: string } }>((r) => { allow = r; }), release = new Promise((r) => { finish = r; });
+    const snapshot = vi.fn(async () => ({ computedAt: NOW.toISOString(), shipments: [shipment()] })), after = vi.fn(), persisted = vi.fn(() => new Promise(() => {}));
+    vi.doMock("next/server", () => ({ after })); vi.doMock("@/lib/tenant-context", () => ({ currentTenantId: async () => tenantId }));
+    vi.doMock("@/domains/account", () => ({ requireReadyAccount: () => access }));
+    vi.doMock("@/app/(shell)/surface-release", () => ({ readCustomerSurface: () => release }));
+    vi.doMock("@/app/(shell)/results/results-surface-store", () => ({ readResultsSurface: snapshot, isResultsSurfaceStale: () => true }));
+    vi.doMock("@/domains/measurement", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadProofLedgerPersisted: persisted, scheduleAutoMeasure: vi.fn() }));
+    const [{ default: Page }, { renderToReadableStream }] = await Promise.all([import("@/app/(shell)/results/page"), import("react-dom/server")]);
+    const page = Page({}); await vi.waitFor(() => expect(snapshot).toHaveBeenCalledWith(tenantId));
+    expect(after).not.toHaveBeenCalled(); allow({ access: { kind: "ready" } });
+    const reader = (await renderToReadableStream(await page)).getReader();
+    try {
+      const first = new TextDecoder().decode((await reader.read()).value);
+      expect(first).toContain('data-results-brain="true"'); expect(first).toContain("Beacon has an early verified signal");
+      expect(first).not.toContain('aria-label="Loading"'); expect(persisted).not.toHaveBeenCalled(); expect(snapshot).toHaveBeenCalledTimes(1);
+      finish({ changes: { summary: { ready: 3 } } });
+      let rest = ""; for (;;) { const chunk = await reader.read(); if (chunk.done) break; rest += new TextDecoder().decode(chunk.value); }
+      expect(rest).toContain("3 finished changes"); expect(after).toHaveBeenCalledTimes(1);
+    } finally { finish(null); await reader.cancel(); }
+  });
 });
-
-/** PROOF 15. RAW MOVEMENT, A PROVISIONAL READING AND MATURE LEARNING ARE THREE DIFFERENT THINGS AND STAY THREE DIFFERENT THINGS ON THE SCREEN.
- *  The page could say one word, "ahead", for a page that took more clicks than before and for a page that held still while everything beside it
- *  fell; it could call an early reading a record; and it said readings were "already shaping what gets recommended" when the funding door reads
- *  them and changes nothing. Each is answered here in the surface's own words, on two accounts. */
 describe("raw movement, a provisional reading and mature learning stay apart", () => {
-  // BOTH READINGS REPORT THE SAME 40 CLICKS AHEAD: one page took twenty more clicks than before, the other never moved at all and the pages beside it fell forty.
   const gained = { w: { adjustedClicksLift: 40, treatedDelta: 20 }, peers: -20 }, heldStill = { w: { adjustedClicksLift: 40, treatedDelta: 0 }, peers: -40 };
   const rowFor = (f: { w: Partial<KernelInput["windows"][number]>; peers: number }) => { const read = evaluateChange(input({ windows: [win(7, f.w), win(14, f.w), win(28, f.w)] }), WINDOWS, []);
     return first({ read, learning: { actionType: read.actionType, after: null, implementedAt: `${SHIPPED}T12:00:00Z`, verification: VERIFICATION, operatorVerdictOverride: null, pinnedRead: null, treatmentStamp: null, componentsApplied: null, baseline: { clicks: 200, impressions: 9100, windowDays: 28, ctr: 0, position: 0 }, windows: [{ day: 28, checkOn: "", ran: true, adjustedLift: read.lift, controlsUsed: 3, treatedDelta: f.w.treatedDelta ?? 0, controlDelta: f.peers, treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0, treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0 }] } }); };
@@ -298,10 +302,6 @@ describe("raw movement, a provisional reading and mature learning stay apart", (
     expect(brief.appliedLines[0]).not.toContain("/iran-animals/caspian-horse");
   });
 });
-
-/** THE EXECUTION HALF AND THE LEARNING HALF ARE TWO SENTENCES (2026-09-05). One block carried both, so "the page moved up after it" sat in the
- *  same breath as "never confirmed on the live page" and nothing on the row separated what happened to the PAGE from what the reading TAUGHT.
- *  Two synthetic accounts, every live-check answer, and the funding sentence in the same words the belief at the top of the page uses. */
 describe("what was applied and what the reading learned are two separate sentences", () => {
   const CHECKED = "2026-05-03T09:00:00Z";
   for (const s of [{ t: "acct-tide", page: "https://tide.example/tide-pools", path: "/tide-pools" },
