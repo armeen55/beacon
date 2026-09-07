@@ -1,5 +1,27 @@
 import "server-only";
 import { mutationKeyOf } from "./mutation-footprint";
+import { substantiveGapOf, winnersRead } from "./diagnosis";
+import type { ChangeProposal } from "./contracts";
+import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
+import type { EvidenceRequirement } from "./producers/contract";
+
+// One strongest named body gap may finish its evidence before lower-value micros. No score changes.
+function evidenceUnlock(cards: readonly ChangeProposal[], worth: (p: ChangeProposal) => number, research: EvidenceSnapshot["research"]) {
+  if (process.env.BEACON_EVIDENCE_UNLOCK === "0") return null;
+  const micro = (p: ChangeProposal) => p.recommendedChange.kind === "existing_edit" && (p.recommendedChange.field === "meta" || !!p.recommendedChange.linkTo);
+  const micros = cards.filter(micro); if (micros.length === 0) return null; const floor = Math.max(0, ...micros.map(worth));
+  const card = cards.filter((p) => p.researchOnly === true && p.status === "needs_review" && p.primaryQuery.trim()
+    && p.recommendedChange.kind === "existing_edit" && !p.recommendedChange.linkTo && ["section", "answer_block"].includes(p.recommendedChange.field)
+    && p.obligation?.kind !== "terminal" && !(p.obligation?.kind === "evidence" && p.obligation.need.kind === "page_source")
+    && ((substantiveGapOf(p)?.propositions.length ?? 0) > 0 || (p.obligation?.kind === "evidence" && !!p.obligation.need.missingTopic?.trim()))
+    && worth(p) > 0 && worth(p) >= floor).sort((a, b) => worth(b) - worth(a) || a.id.localeCompare(b.id))[0];
+  if (!card) return null;
+  const onFile = winnersRead(research, card.primaryQuery);
+  const need: EvidenceRequirement | null = onFile !== "read"
+    ? { kind: onFile === "none" ? "serp" : "competitor_page", query: card.primaryQuery, reasonCode: "named_body_gap_winners" }
+    : card.obligation?.kind === "evidence" && card.obligation.need.reasonCode !== "named_body_gap_winners" ? card.obligation.need : null;
+  return { card, need, micro };
+}
 
 /** decision/draft-budget - THE ONE PAID DRAFTING BUDGET, and there is no second one. Every family that spends model money on a deliverable (the winning-pattern reading, the new page, the correction review, the shallow field drafts, the deep bundles and the editor) is DECLARED here before the pass spends anything, ranked here once, and funded here once. It lives beside the drafting rather than inside it because the money is the one thing every family shares (operator, 2026-08-22, after 239 charged calls bought nothing). WHY A MANIFEST AND NOT A CLAIM COUNTER (Codex, 2026-08-22). The first repair gave every family one shared pool and a ranked window, which stopped the private pools but left the order to whoever asked first: a family with no entry in the ranking claimed the moment it was reached, so an unranked new page or a correction review still took the pass's first slot ahead of the strongest completable change. Asking-order is not a ranking. So nothing claims any more. The pass compiles EVERY paid job it could run into one zero-cost manifest, `plan` ranks the whole manifest once and decides the funded set once, and each family then collects an allowance already decided for it. A key that is not on the funded list gets nothing, whenever it asks and whatever family it belongs to. */
 
@@ -9,19 +31,7 @@ const MAX_PAID_CALLS = 60;
 const DAY_ATTEMPTS = 2;
 
 type Keyable = Parameters<typeof mutationKeyOf>[0];
-/** THE KEY ONE PAID JOB IS FUNDED UNDER: THE MUTATION when the object in hand says which one, the page when it does
- *  not, computed by the ONE definition of a mutation (decision/mutation-footprint) and never spelled a second time
- *  here. ONE PAGE IS NOT ONE OPPORTUNITY (Product Truth; operator, 2026-08-31): keying the money by page meant two
- *  rows on one address spent one allowance, and whichever was reached first took it, which is how
- *  /famous-iranian-comedians at 324 words under 22,509 impressions bought a link out to another page instead of its
- *  own copy. The suffix mirrors mutation-footprint's slots, so what funds separately is exactly what can land
- *  together: a title, a description, a heading, each distinct body topic, each link destination. Spelled twice, the
- *  two spellings of a body topic disagreed and money committed to `/funny-farsi-phrases::body::farsi-insults` could
- *  never be drawn by the row stored as `farsi insults`. The OLD failures stay fixed: two spellings of one page still
- *  collapse (path normalization), and two families wanting the SAME mutation still collapse to one job in `plan`
- *  exactly as two families wanting one page used to. A bare `{pagePath}` with no change on it still keys the page
- *  alone, and `take` below lets a mutation-keyed draw fall back to a page-keyed allowance, so a job declared before
- *  its card exists is still reachable. */
+/** Funding uses the canonical mutation identity, with page fallback before a card exists. */
 const keyOf = (p: Keyable): string => { try { return mutationKeyOf(p); } catch { return `unknown-page::${(p.id ?? p.primaryQuery ?? "").trim().toLowerCase() || "none"}`; } }; // its OWN name, so two page-less jobs never share one slot // a job with no page at all can never be drawn against and must not take the pass down with it
 /** WHAT ONE DAY ALREADY DID TO ONE PIECE OF WORK, under that work's OWN identity (`workKey`: the mutation, the writer contract, the basis, the evidence bound to the row, the obligation it carries and the rules it is judged under). It replaces the four day lists that keyed on the bare mutation and family: `attempted`, `tried`, `spent` and `settled` all answered "the same page again" for work whose evidence, obligation or rules had moved, so a corrected job could not run again until tomorrow (live, an answer block whose fact banked mid day, 2026-09-03). `calls` counts the ATTEMPTS that took real provider calls and finished nothing, never the requests themselves; `last` is the outcome that attempt filed; `settled` means there is nothing left to do for this exact work under this exact evidence. A workKey nobody remembers is new work by construction. */
 export type JobMemory = { calls: number; last: string; settled: boolean };
@@ -49,21 +59,11 @@ const noCallMade = (r: unknown): boolean => { const x = r as { status?: string; 
 /** A job the pass declared and the plan refused, with the reason in the operator's words. Refusal is on the receipt. */
 type DeclinedJob = { key: string; family: string; calls: number; reason: string };
 
-/** THE ONE RANKING, AND THE ONE SELECTION. Ranked by what each job is worth PER CHARGED CALL, not by worth alone: ranking on impact by itself let one twelve-call bundle swallow a pass that could have finished four changes worth more together, which is the starvation the operator saw as "239 calls, nothing ready". Impact breaks ties so two jobs at the same price still order by value, and the key breaks the last tie so the same manifest always plans the same way. Then a single walk: take a job when a candidate slot and its full price are both left, otherwise record why and keep walking, so a cheap strong job behind an unaffordable bundle is still funded. */
-/** THERE IS NO INVENTORY TARGET IN THIS PLAN (operator, 2026-08-30). A `readyTarget` used to close every family's `take()` the moment that many Ready rows landed, which made a full-enough queue a reason to stop buying work the evidence had already earned. Deleted whole: what bounds a pass is the money above, the caller's time box, and each candidate's own typed settlement. Nothing here may ever read how much finished work already exists. */
+/** Expected value orders funding; attempts, calls and deadline bound it, never Ready inventory. */
 function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean; quiet?: boolean | string;
-  /** THE DAY'S ONE ATTEMPT LEDGER, keyed by each job's own `workKey`, and the ONLY thing this plan remembers
-   *  about earlier passes. Settled under the SAME identity is declined; two spent attempts under it are declined
-   *  with the two-attempts-then-settled sentence; an unfinished attempt that took real calls is DEMOTED behind
-   *  work nobody has tried, because a candidate that fails the same way every drive must never re-consume the
-   *  whole box ahead of untried candidates. Work never started is absent, so it is owed at its own rank. There
-   *  is no operator focus and no exemption: the money follows the evidence and the ranking, and nothing else. */
+  /** Settled work stays closed; charged failures yield to untried work. */
   memory?: Readonly<Record<string, JobMemory>>;
-  /** THE WORK THE LAST WALK FUNDED AND NEVER BEGAN, by its own `workKey`. A drive stops where its clock stops, so
-   *  the tail of one manifest is the head of the next: these sort ahead of work of equal standing that nobody has
-   *  waited on, which is what makes "funded and not reached" a queue position rather than a permanent fate. It
-   *  never outranks the day's own memory: work already attempted is still demoted, and settled work is still
-   *  declined, so a job that cannot finish can never hold the head of the queue against everything behind it. */
+  /** Unreached work breaks ties within expected value, without overriding attempt limits. */
   waiting?: readonly string[] }) {
   const ceiling = Math.max(0, input.calls ?? MAX_PAID_CALLS);
   // ONE ENTRY PER PAGE, AND THE PAGE GETS THE TREATMENT WITH THE HIGHEST EXPECTED SITE IMPACT (Codex, 2026-08-23).
@@ -224,4 +224,4 @@ const HARD_REFUSAL = /not on the stored page|is not the one this page carries|pa
 /** AN ATTEMPT PAYS FOR A CALL THAT ACTUALLY LEFT THE PROCESS, AND THIS IS THE ONE PLACE THAT SAYS SO (campaign, 2026-09-06). Every paid door takes its attempt BEFORE its call, because a call that failed, refused or threw was still bought, and every one of them hands it back here when nothing left the process: `noCallMade` above is the same predicate the meter reads to keep those answers off the dollars, so the money a page spent and the attempts it has left are one fact in one file. Letting a cache hit spend an attempt once let twelve long-refused cached drafts starve the cards a pass existed for (Codex, 2026-08-23); the day's cap doing the same charged a page whose fact reserve was out for bulk calls it never made (reviewer, 2026-09-06). The meter is not asked for: a door with no allowance simply has nothing to give back. */
 const refundIfNoCallMade = (a: { left: number } | undefined, answer: unknown): void => { if (a && noCallMade(answer)) a.left += 1; };
 export const DRAFT_BUDGET = { MAX_PAID_CALLS, DELIVERABLE_CALLS: PER_DELIVERABLE_CALLS, RETRIES: EDITOR_RETRIES, POLICY, HARD_REFUSAL,
-  BUNDLE_CALLS: BUNDLE_CALLS_TOTAL, plan, keyOf, refundIfNoCallMade, noCallMade } as const;
+  BUNDLE_CALLS: BUNDLE_CALLS_TOTAL, evidenceUnlock, plan, keyOf, refundIfNoCallMade, noCallMade } as const;
