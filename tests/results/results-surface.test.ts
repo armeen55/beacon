@@ -131,7 +131,6 @@ describe("an AI change is judged on the thing it was raised to move", () => {
   });
   it("files a retrieval objective that went backwards under went down", () => {
     expect(first({ judgedMetric: "ai_retrieval", ai: ai("worsened") }).group).toBe("down");});
-  /** AND THE REST OF THE ROW GOES WITH IT: the group, the verdict word and the yardstick came off the declared objective while the number, the bar, the sentence and the step still came off Google. */
   const CONTRADICTS = /behind|slid|undo|put the previous|restor|revers|did not clearly move|moved down|lost ground|less often/i;
   const fields = (r: ReturnType<typeof first>) =>
     [r.verdictWord, r.liftLabel ?? "", r.readLabel ?? "", r.pipCaption ?? "", r.happened, r.taught, r.nextStep, ...r.timeline.map((t) => t.label), ...r.caveats];
@@ -240,7 +239,6 @@ describe("the Brain: what Beacon believes is derived from verified facts, and hi
       .toEqual([{ text: "Make the 3 finished changes waiting on Changes; each one starts its read the day you mark it done.", href: "/changes" }, "#change-d", true]);
     const row = { id: "l", path: "/p", actionType: "section_add", shippedAt: "2026-05-01", implementedAt: "2026-05-01T12:00:00Z", verdict: "won", windows: [7, 14, 28].map((day) => ({ day, ran: true, controlsUsed: 3, adjustedLift: 40, adjustedCtrLift: 0.02, adjustedImpressionsLift: 120, treatedPostImpressions: 5000 })), baseline: { impressions: 9100, clicks: 200 } };
     expect([splitLedgerLifecycle([row], NOW).won.length, splitLedgerLifecycle([row], NOW).learned.length, splitLedgerLifecycle([{ ...row, verification: VERIFICATION }], NOW).won.length]).toEqual([0, 1, 1]); });
-  /** A SHIPMENT IS THE OPERATOR'S OWN HISTORY AND STAYS VISIBLE; the advice behind it can be taken back afterwards, and seven of this account's rows pointed at a proposal carrying a terminal disposition while Results read exactly like a current one. A finished reading closing the queue's loop ("settled") is NOT a retirement and is not tested as one: it would deny a result this page claims. */
   it("a recommendation retired after the change was marked done is named on the row, teaches nothing it never confirmed, and is never news or a next step", () => {
     const rec = (state: "current" | "retired" | "unknown", disposition?: string): Partial<ShipmentPresentation> => ({ recommendation: { state, disposition } });
     const took = first({ ...rec("retired", "withdrawn"), verification: null }), stood = first(rec("current"));
@@ -251,27 +249,29 @@ describe("the Brain: what Beacon believes is derived from verified facts, and hi
     const brain = buildResultsBrain([...many(4, evaluateChange(input(), WINDOWS, []), "rt", { ...rec("retired", "withdrawn"), verification: null }), shipment({ read: { ...measuring, id: "rd" }, ...rec("retired", "superseded"), verification: { ...VERIFICATION, status: "differs", recheckAfter: "2026-05-05" } as unknown as ShipmentVerification })], NOW);
     expect([brain.belief.confidence, brain.thoughts[0]!.verifiedSample, brain.changed, brain.nextStep.href, brain.watching.some((w) => w.includes("not yet show on the live page"))]).toEqual(["none", 0, null, "/changes", false]);
     expect(buildResultsBrain(many(4, evaluateChange(input(), WINDOWS, []), "cu", rec("current")), NOW).belief.confidence, "the same four, current, are still a record").toBe("pattern");});
-  it.each(["account-a", "account-b"])("%s: paints saved Results while the optional release hangs, after access is checked", async (tenantId) => {
+  it.each(["saved", "cold", "suspended", "denied", "outage", "empty"])("%s: overlaps saved reads with access, gates refresh and HTML, and streams before Changes", async (mode) => {
     vi.resetModules(); vi.doMock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }), redirect: (url: string) => { throw new Error(`NEXT_REDIRECT:${url}`); } }));
-    let allow!: (value: { access: { kind: string } }) => void, finish!: (value: unknown) => void;
-    const access = new Promise<{ access: { kind: string } }>((r) => { allow = r; }), release = new Promise((r) => { finish = r; });
-    const snapshot = vi.fn(async () => ({ computedAt: NOW.toISOString(), shipments: [shipment()] })), after = vi.fn(), persisted = vi.fn(() => new Promise(() => {}));
+    let allow!: (value: { access: { kind: string } }) => void, deny!: (error: Error) => void, finish!: (value: unknown) => void;
+    const access = new Promise<{ access: { kind: string } }>((r, j) => { allow = r; deny = j; }), release = new Promise((r) => { finish = r; }), tenantId = `account-${mode}`;
+    const snapshot = vi.fn(async () => mode === "saved" ? { computedAt: NOW.toISOString(), shipments: [shipment()] } : null), after = vi.fn(), measure = vi.fn(), changes = vi.fn(() => release), reads = vi.fn(() => [shipment().read]);
+    const persisted = vi.fn(async () => { if (mode === "outage") throw new Error("ledger unavailable"); return mode === "empty" ? [] : [{ ...shipment().learning, id: "c1", page: "https://site.com/nowruz", path: "/nowruz", shippedAt: SHIPPED, windows: [] }]; });
     vi.doMock("next/server", () => ({ after })); vi.doMock("@/lib/tenant-context", () => ({ currentTenantId: async () => tenantId }));
-    vi.doMock("@/domains/account", () => ({ requireReadyAccount: () => access }));
-    vi.doMock("@/app/(shell)/surface-release", () => ({ readCustomerSurface: () => release }));
+    vi.doMock("@/domains/account", () => ({ requireReadyAccount: () => access })); vi.doMock("@/app/(shell)/surface-release", () => ({ readCustomerSurface: changes }));
     vi.doMock("@/app/(shell)/results/results-surface-store", () => ({ readResultsSurface: snapshot, isResultsSurfaceStale: () => true }));
-    vi.doMock("@/domains/measurement", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadProofLedgerPersisted: persisted, scheduleAutoMeasure: vi.fn() }));
+    vi.doMock("@/domains/measurement", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadProofLedgerPersisted: persisted, scheduleAutoMeasure: measure, readLastFinalizedDate: async () => "2026-06-01", aiOutcomesForShipments: async () => [null], readLedger: reads }));
     const [{ default: Page }, { renderToReadableStream }] = await Promise.all([import("@/app/(shell)/results/page"), import("react-dom/server")]);
-    const page = Page({}); await vi.waitFor(() => expect(snapshot).toHaveBeenCalledWith(tenantId));
-    expect(after).not.toHaveBeenCalled(); allow({ access: { kind: "ready" } });
-    const reader = (await renderToReadableStream(await page)).getReader();
+    let rendered = false; const page = Page({}).then((html) => { rendered = true; return html; });
+    await vi.waitFor(() => { expect(snapshot).toHaveBeenCalledWith(tenantId); if (mode !== "saved") expect(persisted).toHaveBeenCalledWith(tenantId); if (["cold", "suspended", "denied"].includes(mode)) expect(reads).toHaveBeenCalledTimes(1); });
+    expect([rendered, after.mock.calls.length, measure.mock.calls.length, changes.mock.calls.length]).toEqual([false, 0, 0, 0]);
+    if (mode === "suspended" || mode === "denied") { const rejected = expect(page).rejects.toThrow(mode === "denied" ? "access unavailable" : "NEXT_REDIRECT:/"); if (mode === "denied") deny(new Error("access unavailable")); else allow({ access: { kind: "suspended" } }); await rejected; expect(after).not.toHaveBeenCalled(); expect(measure).not.toHaveBeenCalled(); return; }
+    allow({ access: { kind: "ready" } }); const reader = (await renderToReadableStream(await page)).getReader();
     try {
       const first = new TextDecoder().decode((await reader.read()).value);
-      expect(first).toContain('data-results-brain="true"'); expect(first).toContain("Beacon has an early verified signal");
-      expect(first).not.toContain('aria-label="Loading"'); expect(persisted).not.toHaveBeenCalled(); expect(snapshot).toHaveBeenCalledTimes(1);
-      finish({ changes: { summary: { ready: 3 } } });
-      let rest = ""; for (;;) { const chunk = await reader.read(); if (chunk.done) break; rest += new TextDecoder().decode(chunk.value); }
-      expect(rest).toContain("3 finished changes"); expect(after).toHaveBeenCalledTimes(1);
+      expect(first).toContain(mode === "outage" ? 'data-results-unavailable="true"' : mode === "empty" ? "Nothing is being measured yet" : 'data-results-brain="true"');
+      if (mode === "saved") { expect(first).toContain("Beacon has an early verified signal"); expect(persisted).not.toHaveBeenCalled(); } if (mode === "outage") expect(first).not.toContain("Nothing is being measured yet");
+      expect(snapshot).toHaveBeenCalledTimes(1); expect(after).toHaveBeenCalledTimes(1); expect(measure).toHaveBeenCalledTimes(["saved", "cold"].includes(mode) ? 1 : 0);
+      finish({ changes: { summary: { ready: 3 } } }); let rest = ""; for (;;) { const chunk = await reader.read(); if (chunk.done) break; rest += new TextDecoder().decode(chunk.value); }
+      if (["saved", "cold"].includes(mode)) expect(rest).toContain("3 finished changes");
     } finally { finish(null); await reader.cancel(); }
   });
 });
