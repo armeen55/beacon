@@ -128,17 +128,14 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
   return { held: kept, pause: null };
 }
 
-/** `priorityQueries`: ONE plain string per FOCUSED CASE (Evidence never reads Decision), the exact search that case cannot close without. Each case banks its own top organic winners INDEPENDENTLY of the global weight order,
- *  and they are read round by round, so the shared attempt and paid-read budgets can never be spent inside one case while another has been served nothing. The global fill continues on the capacity left over, at the SAME total.
- *  `ownedBustedAt`: when the named page of the account's own last changed underneath me, so a body read before that moment is not treated as a read of the page that exists now. Null = nothing changed it.
- *  TWO STAGES, one phase: the first reads and persists the winners and hands the run back; the caller renews the RUN lease and re-enters with `stage: "compare"`, so the ONE paid comparison is the first side effect of a live lease. */
+/** Read winners before comparing them under a renewed lease. Short turns persist one public reading and resume. */
 export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[] = [], intersection: FunnelIntersectionAsk | null = null, ownedUrl: string | null = null, ownedBustedAt: string | null = null): FunnelUnitFn {
   const d = resolveDeps(deps);
   const resolve = deps.resolveCitations ?? resolveCitationTargets; // wrapper citations resolve to their REAL target before ranking, so one page is never two winners
   return async (tenantId, cursor, budgetMs) => {
     const basis = basisFromCursor(cursor);
     if (!basis) return { status: "failed", cursor, progress: {}, detail: NO_BASIS_DETAIL };
-    const deadline = d.now() + Math.max(1000, budgetMs), ids = { tenantId, unitKey: `winning:${tenantId}` };
+    const shortRead = budgetMs < 40_000, deadline = d.now() + Math.max(1000, budgetMs), ids = { tenantId, unitKey: `winning:${tenantId}` };
     const loaded = await d.loadState(tenantId, basis), state = loaded.state;
     beginCycle(state, cursor, ids.unitKey);
     const ctx: SaveCtx = { rowVersion: loaded.rowVersion }, nowIso = new Date(d.now()).toISOString();
@@ -170,6 +167,8 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
       // every one of them spending from the SAME attempt and paid-read totals. That order is what stops six paid reads landing entirely inside the first two cases while the third gets none.
       const focus = ranked.filter((c) => !c.standby && c.ownerQuery), queue = [...focus, ...ranked.filter((c) => !c.standby && !c.ownerQuery)]; let focusEnd = focus.length, paidReads = 0;
       for (let i = 0; i < queue.length; i += 1) { const c = queue[i]!;
+        // A short turn reads at most one public page, leaving time to save and no paid fallback.
+        if (shortRead && (attempts > 0 || deadline - d.now() < 25_000)) break;
         const was = prior.get(canonicalUrlKey(c.url)) ?? null;
         let extract: ResearchPageExtract | null = null, outcome: WinnerReadOutcome | null = was?.readOutcome ?? null;
         // Reuse a cached public extract before any read; never re-read in freshness. Keep the CACHE ROW'S date when the extract predates the field: an undated winner never counts toward a comparison.
@@ -182,14 +181,14 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
         else if (attempts < MAX_PAGE_ATTEMPTS && d.now() <= deadline && !(outcome && d.now() < Date.parse(outcome.retryAfter))) {
           attempts += 1;
           try {
-            const res = await d.fetchPage(c.url, robots, {});
+            const res = await d.fetchPage(c.url, robots, shortRead ? { timeoutMs: 10_000 } : {});
             if (res.ok) { outcome = null;
               extract = pageExtractFrom(extractPageSnapshot(res.html, c.url, `winpage-${sha16(c.url)}`, tenantId, res.status, profile));
               await bank(c.url, extract);
             // The publisher's OWN answer is final: a robots denial is NEVER sent through a provider.
             } else if (res.reason === "robots_blocked") outcome = readOutcomeAt("robots_blocked", d.now());
             // An ordinary refusal or timeout earns exactly ONE paid read of the body, US/English, on the same money core, cache identity and cap as every other call, and only while this cycle's own paid ceiling is unspent.
-            else if (paidReads >= MAX_PAID_BODY_READS) outcome = readOutcomeAt("temporarily_unavailable", d.now());
+            else if (shortRead || paidReads >= MAX_PAID_BODY_READS) outcome = readOutcomeAt("temporarily_unavailable", d.now());
             else {
               paidReads += 1;
               const r = interp(await d.callProvider("onpage_content_parsing", { url: c.url }, ids)); track(state, r);
@@ -211,8 +210,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
           if (sub) { substituted.add(c.ownerQuery); queue.splice(focusEnd, 0, sub); focusEnd += 1; } }
         pages.push({ url: c.url, domain: c.domain, ...facetsOf(c.appearances), appearances: c.appearances, extract, readOutcome: outcome });
       }
-      // THE WINNERS ARRAY, WRITTEN ONCE, AND A RANKING NEVER EVICTS A READING. Rebuilding the list from the ranked window threw away every reading whose page the global weight order no longer favoured: 102 results pages on file competed for fifteen slots, so the pages read for one search were gone by the next pass, the row that needed them read unread again, bought the reading again, and lost it again. The window says which UNREAD pages this pass goes out and reads, and nothing more.
-      // Three things are kept: what this pass read; every reading the evidence on file still names, whatever its weight, with its appearances, engines and prompts refreshed to what that evidence says TODAY, so a search that left the file takes its winner's reading with it; and the memory of a failure inside its own retry hold, which carries no extract and no appearances, because it is memory rather than evidence and a page that has since fallen out of the results would otherwise count as one of the addresses a comparison PAYS to compare.
+      // Preserve live readings outside the ranked window and unexpired failure holds.
       const banked = new Set(pages.map((p) => canonicalUrlKey(p.url))), rest = state.winningPages.filter((w) => !banked.has(canonicalUrlKey(w.url)));
       const kept = rest.flatMap((w) => { const live = still.get(canonicalUrlKey(w.url)); return live && carriesReading(w.extract) ? [{ ...w, ...facetsOf(live), appearances: live }] : []; })
         .sort((a, b) => (b.extract?.fetchedAt ?? "").localeCompare(a.extract?.fetchedAt ?? "")).slice(0, readingsBound), keptKeys = new Set(kept.map((w) => canonicalUrlKey(w.url)));
@@ -220,7 +218,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
         && d.now() < Date.parse(w.readOutcome.retryAfter)).map((w) => ({ ...w, extract: null, appearances: [] })).slice(0, WINNER_READ_BUDGET * 2)];
       // AT MOST ONE page of the account's OWN, named by the caller, read here rather than anywhere a render can reach.
       let ownedPause: string | null = null;
-      if (ownedUrl) { const owned = await readOwnedPage(d, tenantId, state.ownedReads ?? [], ownedUrl, deadline, profile, ownedBustedAt); state.ownedReads = owned.held; ownedPause = owned.pause; }
+      if (ownedUrl && !shortRead) { const owned = await readOwnedPage(d, tenantId, state.ownedReads ?? [], ownedUrl, deadline, profile, ownedBustedAt); state.ownedReads = owned.held; ownedPause = owned.pause; }
       // The winners land BEFORE this phase hands the run back. This save is the FUNNEL ROW's optimistic
       // row_version and nothing more: it proves only that no concurrent writer moved the research document.
       // It is NOT the ResearchRun lease, a different guarantee the caller renews between the two stages.
@@ -230,7 +228,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
       // The winners still landed, but a body I could not persist pauses this phase rather than handing the run
       // on as though the page were read. A retry re-enters stage one, where read-before-fetch decides honestly.
       if (ownedPause) return { status: "failed", cursor: null, progress: counters, detail: ownedPause };
-      return { status: "advanced", cursor: { stage: "compare" }, progress: counters };
+      return { status: "advanced", cursor: { stage: shortRead && attempts > 0 ? "read" : "compare" }, progress: counters };
     } catch (e) {
       if (e instanceof StateConflictError) return { status: "failed", code: "state_conflict", cursor, progress: { pageReadsAttempted: attempts }, detail: CONFLICT_DETAIL };
       throw e;

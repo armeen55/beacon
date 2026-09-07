@@ -97,12 +97,10 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } { const
   }; return { repo, rows }; }
 function freshRepo(): RR.ResearchRun[] { const { repo, rows } = memRepo(); RR.setResearchRunRepoForTests(repo); return rows; }
 function withRun(o: Partial<RR.ResearchRun> = {}): RR.ResearchRun[] { const rows = freshRepo(); rows.push(mk(o)); return rows; }
-/** Work is owed unless a test says otherwise, so every pre-Phase-5 pin drives the same phases it always did. */
 const NO_CHECKS = { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0 };
 const NO_WINNERS = { winners: [], serps: [], own: "own.example" };  // nothing on file at all: no winner, no results page bought, and the account's own address, which never wins its own searches
 const SOMETHING_DUE: DueWork = { due: ["daily_observations"], readable: true, checks: NO_CHECKS, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null, winners: { unread: 0, unranked: 0 } };
 const NOTHING_DUE: DueWork = { ...SOMETHING_DUE, due: [] }, NO_READING = { attempted: 0, settled: 0, refused: 0, read: 0, outcomes: {} };
-/** Benign no-op steps; a phase-truth test overrides the ONE step under test. */
 const BENIGN: ResearchCycleSteps = {
   dueWork: async () => SOMETHING_DUE, evidenceVersion: async () => null, reconcileCases: async () => {},
   acquireEvidence: async () => ({ acquired: false, detail: "no acquisition in this fixture" }), collectBought: async () => ({ pending: 0, ready: 0 }),
@@ -116,7 +114,6 @@ const BENIGN: ResearchCycleSteps = {
   analyzeAnswers: async () => NO_READING, // no new answers to read back in these lease/truth tests
   verifyShipments: async () => 0, measureShipments: async () => 0, // nothing marked implemented is waiting on a live check or a reading in these tests
 };
-/** Healthy logging stub: each step logs its name so phase ordering is observable. */
 const healthySteps = (log: string[]): Partial<ResearchCycleSteps> => ({
   refreshSources: async () => (log.push("refresh"), { attempted: 2, succeeded: ["google_gsc", "google_ga4"], failures: [] }), backfillChunk: async () => (log.push("backfill"), { kind: "advanced", daysPulled: 30 }),
   crawlPages: async () => (log.push("crawl"), 0), publishSurface: async () => void log.push("publish"), surfaceStale: async () => false }); const run = (steps: Partial<ResearchCycleSteps>, deadlineMs?: number) =>
@@ -161,7 +158,6 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
     const { nextPhase } = await import("@/domains/runtime/research-run"); const walked: string[] = []; let p = "refresh_sources" as Parameters<typeof nextPhase>[0];
     for (let i = 0; i < 12 && p !== "done"; i += 1) { walked.push(p); p = nextPhase(p); }
     expect(walked).toEqual(["refresh_sources", "gsc_backfill_chunk", "crawl_pages", "fact_check", "keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages", "publish_surface"]); for (const paid of ["keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages"]) expect(walked.indexOf("fact_check")).toBeLessThan(walked.indexOf(paid)); });
-  /** AND THE ORDER INSIDE THE PHASE, which is where the day was actually lost (live 2026-09-04). The units ran first, took their own box, and the walk was left under its floor on every one of twelve consecutive ticks: the run sat 7.9 hours in fact_check, banked about one claim a tick, recorded no walk at all and paused each time on "no room to check the finished-change stock". The walk now runs on a runway that reserves the units' floor, so a checker that never ends cannot take the drive, and the phase behind it is left rather than re-entered. */
   it("gives the walk its turn ahead of the units, records it, opens the highest-ranked owed source page first, stamps the release a transition changed, and leaves the phase behind instead of parking on it again", async () => {
     const day = ckey(T, NOW).slice(-10), need = (url: string, rank: number) => ({ key: url, kind: "factual_source" as const, query: `q${rank}`, url, rank, reasonCode: "no_fact", reason: "owed", workKey: `${url}::wc3::e1`, boughtOn: day }), owed = [need("/low", 9), need("/top", 2)];
     const rows = withRun({ current_phase: "fact_check", progress: { plan: { units: ["replenish_ready", "check_page_facts"] }, evidenceOwed: owed } }); const order: string[] = [], opened: (string | null | undefined)[] = []; let t = NOW; SURF.length = 0;
@@ -169,14 +165,12 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
       replenishReady: async () => (order.push("walk"), { ready: 1, deficit: 4, persisted: 1, satisfied: false, reason: "made_progress" as const, jobs: {}, evidenceOwed: owed }),
       factCheck: async (_id, _b, _r, first) => (order.push("facts"), opened.push(first), t += 265_000, { status: "advanced" as const, banked: 1, bankedPages: ["/top"], pagesComplete: 0 }) } });
     expect([order, opened, rows.at(-1)!.current_phase, rows.at(-1)!.status, !!rows.at(-1)!.progress?.replenish, SURF], "the walk runs FIRST and is recorded on the row, the checker opens the top-RANKED owed page rather than the first one listed, a checker that outlives the whole drive leaves the phase behind it rather than parking on it a thirteenth time, and the walk's own store transition age-stamps the saved release so the next visit rebuilds it at zero dollars").toEqual([["walk", "facts"], ["/top"], "keyword_discovery", "paused", true, [T]]); });
-  /** AND THE HOLD IS DROPPED AGAINST THE BOX THE WALK NEEDS TO BEGIN A JOB, not against one call (measured on four consecutive unattended drives, 2026-09-05). The walk's own free half runs before its first funded job is considered (the snapshot, every $0 producer, the whole-family body read and the re-read of every stored row: 63.9 s on a 227-page account) and the walk stops starting 40 s before its box, so a box under 110 s begins nothing whatever it funds. Read against one call, the 85-second hold turned a 160-second room into a 75-second box, and the drive funded 38 jobs and began none of them, four passes running. */
   it.each([T, U])("gives %s's walk a box it can begin a job in before it holds anything back for the units, and a box that can begin nothing funds nothing and says so", async (t) => {
     const boxes: Array<{ stopBy: number; noRoom: boolean }> = [], drive = async (deadlineMs: number): Promise<void> => { const rows = freshRepo(); rows.push(mk({ tenant_id: t, cycle_key: ckey(t, NOW), current_phase: "fact_check", progress: { plan: { units: ["replenish_ready", "check_page_facts"] } } }));
       await runResearchCycle(t, { now: () => new Date(NOW), deadlineMs, steps: { ...BENIGN, ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["replenish_ready", "check_page_facts"] }),
         replenishReady: async (_i, _n, seen, stopBy) => (boxes.push({ stopBy: (stopBy ?? 0) - NOW, noRoom: seen?.noRoom === true }), null) } }); };
     await drive(160_000); await drive(90_000);
     expect(boxes, "a 160-second room hands the walk 120 seconds to start work in, which covers the free half it runs before its first funded job and one call after it; under a floor of one call the same room handed it 35 and every funded job was filed unstarted. A 90-second room still runs the walk, because its free half is what promotes and demotes stored rows, and tells it to fund NOTHING rather than select a manifest it can begin none of").toEqual([{ stopBy: 120_000, noRoom: false }, { stopBy: 50_000, noRoom: true }]); }); });
-  /** A WALK ITS OWN BOX CUT OFF STILL HANDS BACK WHAT IT FILED (live 13:00Z drive on production, 2026-09-05). The drive races the walk against a timer as a backstop; the timer won while a whole-page rewrite was still running, the promise was abandoned, and everything the walk had filed went with it: the day's memory kept the previous walk's keys, the waiting list was not updated, the receipts on the run row were the 12:30Z walk's, and seventeen provider calls worth 0.181417 USD were remembered by nothing, so the next drive funded the same three jobs in the same order and lost them again. */
   it.each([T, U])("keeps every receipt %s's walk had filed when the drive's own box cut it off, remembers the job that was still running with the calls it made, and still checks no stock and buys no evidence in its place", async (t) => {
     const rows = freshRepo(); rows.push(mk({ tenant_id: t, cycle_key: ckey(t, NOW), current_phase: "fact_check", progress: { plan: { units: ["replenish_ready", "check_page_facts"] }, evidenceOwed: [{ key: "/owed", kind: "factual_source" as const, query: "owed reading", url: "/owed", rank: 1, reasonCode: "acquire_factual_source", reason: "owed", workKey: "wk-owed" }], replenish: { day: ckey(t, NOW).slice(-10), jobs: {}, outcomes: { readySaved: 0, evidenceBanked: 0, refused: 0, blocked: 0, unreached: 0, stuck: [], receipts: [{ key: "/owed", outcome: "prepared", providerCalls: 1 }] } } as never } }));
     const filed = { ready: 0, deficit: 5, persisted: 2, satisfied: false, reason: "retryable_blocked" as const, jobs: { "wk-begun": { calls: 1, last: "retryable_blocked", settled: false } }, waiting: ["wk-next"],
@@ -354,6 +348,22 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
       expect(phases.includes("keyword_discovery")).toBe(keyword !== null); expect(phases).toContain("prompt_observations"); expect(phases.includes("winning_pages")).toBe(flag === "1");
     } vi.unstubAllEnvs();
   });
+  it.each([T, U])("preserves %s's long winner turn after a 33-second read, including zero output and a held provider", async (t) => {
+    for (const held of [false, true]) for (const unread of [9, 0]) for (const failed of [false, true]) { NOW = Date.parse("2026-09-07T12:00:00Z"); vi.stubEnv("BEACON_ALWAYS_ON_RESEARCH", "1");
+      const units: DueWork["due"] = ["replenish_ready", "read_winner_pages", ...(held ? ["daily_observations" as const] : [])];
+      const rows = withRun({ tenant_id: t, current_phase: held ? "prompt_observations" : "winning_pages", progress: { plan: { units }, ...(held ? { waited: { phase: "prompt_observations", drives: 1, unpaid: true }, providerWait: { phase: "prompt_observations", cursor: { unit: { pending: true } } } } : {}) } });
+      let at = NOW, remaining = unread; const reads: number[] = [], order: string[] = [];
+      const steps: ResearchCycleSteps = { ...BENIGN, dueWork: async () => ({ ...SOMETHING_DUE, due: units, winners: { unread: remaining, unranked: 0 } }),
+        replenishReady: async () => { order.push("walk"); at = NOW + 167_000; return null; },
+        funnelUnit: async (phase, _t, _c, budget) => { if (phase === "prompt_observations") return { status: "waiting", cursor: { pending: true }, progress: {} };
+          order.push("read"); reads.push(budget); const count = budget < 40_000 ? (failed ? 0 : 1) : remaining; remaining -= count; at += 20_000; return { status: "advanced", cursor: { stage: remaining > 0 ? "read" : "compare" }, progress: { pageReadsAttempted: failed ? 0 : count } }; } };
+      await runResearchCycle(t, { now: () => new Date(at), deadlineMs: 200_000, steps });
+      expect(reads).toEqual(unread ? [33_000] : []); if (unread) expect(rows[0]!.progress.waited).toMatchObject({ phase: "winning_pages", unpaid: true });
+      expect(rows[0]!.completed_at).toBeNull(); expect(rows[0]!.lease_owner).toBeNull(); expect(RR.projectStatusView(rows[0]!, at).state).toBe("queued");
+      if (!held || unread) { const bookmark = rows[0]!.progress.providerWait; if (held) expect(bookmark).toMatchObject({ phase: "prompt_observations", cursor: { unit: { pending: true } } }); NOW += 30 * 60_000; at = NOW; order.length = 0; await runResearchCycle(t, { now: () => new Date(at), deadlineMs: 200_000, steps });
+        expect(reads).toEqual(unread ? [33_000, 90_000] : [90_000]); expect(order.slice(0, 2)).toEqual(["read", "walk"]); expect(remaining).toBe(0); expect(rows).toHaveLength(1); if (held) expect(rows[0]!.progress.providerWait).toEqual(bookmark); }
+    } vi.unstubAllEnvs();
+  });
   it.each([T, U])("reads %s's winners first on the drive after the one whose walk took the slice, inside a bounded box, and still hands the walk what is left", async (t) => {
     const rows = freshRepo(); let at = NOW; const started: string[] = [], boxes: number[] = []; let turns = 0; rows.push(mk({ tenant_id: t, cycle_key: ckey(t, NOW), current_phase: "winning_pages", progress: { plan: { units: ["read_winner_pages"] }, replenish: MEASURED(t) } }));
     const drive = async (): Promise<{ phase: string; status: string; waited: unknown; blocker: string | null | undefined }> => { at = NOW;
@@ -361,8 +371,8 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
         replenishReady: async (_i, _n, _seen, by) => { started.push("walk"); boxes.push((by ?? at) - NOW); at = turns === 0 ? NOW + 171_704 : (by ?? at) + 40_000; return null; }, // production's own leftover: the walk and one owed reading took all but 28,296 ms of the slice
         funnelUnit: async (_p, _u, _c, budgetMs) => { started.push("unit"); boxes.push(budgetMs); turns += 1; at += 30_000; return { status: turns === 1 ? "advanced" as const : "done" as const, cursor: null, progress: {} }; } } });
       const row = rows.at(-1)!; return { phase: row.current_phase, status: row.status, waited: row.progress?.waited, blocker: row.progress?.state?.blocker }; };
-    expect([await drive(), await drive(), started, boxes], "the first drive is production's own: the walk takes all but 28 seconds, the winner read needs 40 and is not started, and the row carries the turn it is owed. The second reads the winners FIRST on 115,000 ms, which is the fact unit's box against this account's measured walk floor, hands the walk the 110,000 ms behind it, comes back to finish the phase on what is left, and the run reaches the end of its plan with the read done and the sentence about what was not started cleared off the row").toEqual([
-      { phase: "winning_pages", status: "paused", waited: { phase: "winning_pages", drives: 1, unpaid: true }, blocker: "The next research step needs 40 seconds and this drive had 28 left, so nothing was started for it. The next pass runs it first." }, { phase: "done", status: "completed", waited: { phase: "winning_pages", drives: 1, turn: "ran" }, blocker: null }, ["walk", "unit", "walk", "unit"], [100_000, 115_000, 100_000, 60_000]]); });
+    expect([await drive(), await drive(), started, boxes], "the first drive is production's own: the walk takes all but 28 seconds, the winner read needs 30 and is not started, and the row carries the turn it is owed. The second reads the winners FIRST on 115,000 ms, which is the fact unit's box against this account's measured walk floor, hands the walk the 110,000 ms behind it, comes back to finish the phase on what is left, and the run reaches the end of its plan with the read done and the sentence about what was not started cleared off the row").toEqual([
+      { phase: "winning_pages", status: "paused", waited: { phase: "winning_pages", drives: 1, unpaid: true }, blocker: "The next research step needs 30 seconds and this drive had 28 left, so nothing was started for it. The next pass runs it first." }, { phase: "done", status: "completed", waited: { phase: "winning_pages", drives: 1, turn: "ran" }, blocker: null }, ["walk", "unit", "walk", "unit"], [100_000, 115_000, 100_000, 60_000]]); });
   it.each([T, U])("hands %s's read-back only what is spare over the walk's own floor, so the walk keeps its funded window across the whole 123,650 to 195,400 ms band", async (t) => {
     const drive = async (deadlineMs: number): Promise<{ readBudget: number | null; walkBox: number; noRoom: boolean; analyzed: number | undefined }> => {
       const rows = freshRepo(); let at = NOW, readBudget: number | null = null, walkBox = -1, noRoom = false;
@@ -588,12 +598,10 @@ describe("research-run frozen investigation: ONE topic, and the lease the compar
 });
 describe("research-run Today copy", () => {
   const NOON_PT = Date.parse("2026-07-23T19:00:00Z"); // noon Pacific on Jul 23
-  /** Today printed the COLLECTED count under the words "an answer I analyzed", so a day that bought 140 answers and had read 12 of them closely claimed 140 readings. */
   it("reports answers collected and answers read closely as two separate numbers, and withholds the reading count it does not hold", () => {
     const row = { state: { checksDone: 140, checksTotal: 140, checksAnswers: 140 }, funnel: { answersAnalyzed: 12 } }; const c = RR.projectStatusView(mk({ status: "running", current_phase: "serp_analysis", progress: row }), NOW).counters;
     expect([c.aiChecksAnswered, c.answersReadClosely]).toEqual([140, 12]); // the readback receipt is valid in every phase, and it is never the collected number
     expect(RR.projectStatusView(mk({ status: "running", progress: { state: row.state } }), NOW).counters.answersReadClosely).toBeUndefined(); }); // absent, never a zero I would print as a claim
-  /** WHAT A DRIVE COULD NOT PAY FOR IS NOT WHAT A STEP FAILED AT (round-twelve, 2026-09-05). The drive writes its own sentence with its own seconds onto `progress.state.blocker` and NOTHING read it: Today could say which step had not run and never how close the drive came, so the operator saw a half-finished day with no number in it. It rides the same projection every surface already reads, whole, so no surface recomputes seconds it did not measure. */
   it("carries the drive's own not-started sentence, with its seconds, onto the projection a surface reads, and carries nothing when the drive started everything it planned", () => {
     const said = "Publishing what this day found needs 40 seconds and this drive had 32 left, so nothing was started for it. The next pass runs it first.";
     const short = RR.projectStatusView(mk({ status: "paused", current_phase: "publish_surface", progress: { state: { blocker: said } } }), NOW);
@@ -607,7 +615,6 @@ describe("research-run Today copy", () => {
     expect([RR.projectStatusView(stuck, NOW).stepsDone, RR.projectStatusView(stuck, NOW).pauseReason]).toEqual([4, "I need your confirmed business basics before I can research keywords."]); // fact_check now precedes keyword_discovery
     const stale = mk({ ...stuck, current_phase: "serp_analysis" });  // A reason recorded by an already-passed phase never resurrects on the current one.
     expect([RR.projectStatusView(stale, NOW).phaseLabel, RR.projectStatusView(stale, NOW).pauseReason]).toEqual(["reading the results pages for your strongest topics", null]);});
-  /** A SURFACE BUILT ON A STALE CONNECTOR SAYS SO. A connector that would not sync stopped ending the drive on 2026-09-05 and the debt it leaves was written to the pass receipt, where NOTHING read it: every figure in the app could be as old as a broken source and no screen said a word. The projection the connectors page reads carries it now, so the sentence lands where each source's own last-synced time is printed. A debt that cleared leaves nothing behind, because a stale claim outliving its cause is the same defect the other way round. */
   it.each(["tenant-one", "tenant-two"])("carries the stale-source sentence from the pass receipt onto the projection a surface reads, and carries nothing when every source synced [%s]", () => {
     const owed = "1 of 3 connected sources could not be refreshed, so their figures are as old as their last good sync. The next pass tries them again.";
     const stale = RR.projectStatusView(mk({ status: "completed", current_phase: "publish_surface", progress: { sourcesRefreshed: 2, sourcesStale: owed } }), NOW);
@@ -625,8 +632,6 @@ describe("research-run Today copy", () => {
     expect([seen({ progress: { funnel: { answersAnalyzed: 34 } } }), seen({}), seen({}, NOON_PT + 3 * DAY), RR.projectStatusView(null, NOON_PT).liveness]).toEqual([{ state: "productive", line: "Read 34 new answers closely today at 12:00 PM." }, { state: "quiet", line: "Checked today at 12:00 PM. Nothing new was owed." }, { state: "silent", line: "No research has run since Thursday. Open Today and press Update data." }, { state: "silent", line: "No research has run for this account yet. Open Today and press Update data." }]); }); // a count of checks can never say this: a quiet day and a week of silence both rendered as nothing at all
 });
 describe("research-run conflict-free research closure", () => {
-  /** THE production incident, hermetic: ONE research_state row, a discovery phase landing this run's REAL receipt, and a prompt phase served the snapshot from BEFORE that write. The writers interleave, so the prompt unit resets its receipt and its optimistic save conflicts. The executor is the REAL one. */
-  /** Runtime's daily plan, the observation unit's ONLY input: one question on the four engines, one day. */
   const DUE = (["chatgpt", "claude", "gemini", "perplexity"] as const).map((engine) => ({ promptId: "p1", version: 1, text: "best persian restaurant", engine, slot: 0 as const, day: "2026-07-21" }));
   function funnelWorld(rows: RR.ResearchRun[], staleLoads: number) {
     const pre = emptyFunnelState(T, "basis_test"); pre.cycle = { runId: "prev-run", cycleKey: "prev", spentUsd: 1.82, cacheHits: 0 }; // the PREVIOUS run's receipt
@@ -685,7 +690,6 @@ describe("research-run conflict-free research closure", () => {
     expect(seen).toEqual([[T, ckey(T).slice(-10)]]); // once, on prompt_observations, for the run's own UTC day
     expect([rows[0]!.status, rows[0]!.progress.funnel]).toMatchObject(["completed", { answersAnalyzed: 2, answersAttempted: 3, answersRefused: 1, answersOutcomes: { settled: 2, provider_refused: 1 } }]); const failed = withRun(); // the row carries WHY the two numbers differ, so 3 taken on and 2 read is never a shape without an explanation
     await run({ analyzeAnswers: async () => { throw new Error("openai down"); } }); expect([failed[0]!.status, failed[0]!.progress.funnel?.answersAnalyzed]).toEqual(["completed", undefined]); });
-  /** On 13 August ten cron dispatches in a row died at exactly 300 seconds. The reading sat between the settled observation unit and the phase advance, so one run held prompt_observations for five and a half hours with all 140 answers stored and settled, and every surface still read 0 of 140: each write that would have said otherwise was queued behind an analysis bounded by item counts alone. */
   describe("collection is banked before analysis, and the lease decides who analyses", () => {
     const FULL_DAY = { done: 140, total: 140, answers: 140, unavailable: 0, unsupported: 0 };
     it("advances the phase and records the day BEFORE it reads one answer, so a reading that outruns the turn leaves the analyses OWED and the next pass resumes them without re-buying an observation", async () => {
@@ -708,11 +712,9 @@ describe("research-run conflict-free research closure", () => {
     const paid = withRun({ progress: { funnel: { spendUsd: 0.42 } } }); await run({}); const quiet = withRun(); await run({});
     expect([paid[0]!.status, paid[0]!.spend_usd, quiet[0]!.spend_usd]).toEqual(["completed", 0.42, 0]); }); // the column research_runs declared and nothing ever wrote, so every closed row claimed $0.00 forever; a pass that bought nothing stamps zero, which is a fact and not an absence
 });
-/** THE DAY IS THE PROMISE, THE BATCH IS AN IMPLEMENTATION DETAIL. The planner hands out twenty checks a pass; the operator was promised 35 questions on 4 engines. The run used to call the phase finished the moment its window settled, walk on, and land `completed` on 107 of 140, after which the fleet claim refused the account for the rest of the day and 33 checks were simply never asked. */
 describe("a day of AI checks ends when the day ends, never when a batch does", () => {
   const TOTAL = 140; // 35 tracked questions on 4 engines
   const standing = (done: number) => ({ done, total: TOTAL, answers: done, unavailable: 0, unsupported: 0 });
-  /** A day that settles one 20-check window per observation pass, and a planner that answers honestly about it. */
   const day = () => { let done = 0; const windows: number[] = [];
     const steps: Partial<ResearchCycleSteps> = {
       funnelUnit: async (phase) => { if (phase !== "prompt_observations") return { status: "done", cursor: null, progress: {} };
@@ -741,7 +743,6 @@ describe("a day of AI checks ends when the day ends, never when a batch does", (
     expect([rows.length, rows[0]!.status, rows[0]!.progress.state]).toEqual([1, "completed", { checksDone: 96, checksTotal: 140 }]); // closed on ITS OWN last numbers; today's 3-of-140 never overwrote the dead day's receipt
     await run(steps); // and TODAY's own cycle is free to open, which the one-open-run index refused while that run stayed open
     expect([rows.length, rows[1]!.cycle_key.endsWith(new Date(NOW).toISOString().slice(0, 10)), rows[1]!.status]).toEqual([2, true, "completed"]); });
-  /** A BLOCKED PURCHASE LANE CANNOT BLOCK THE REST OF THE DAY. Answers already paid for over the reading ceiling stop the buying, so the unit is handed an empty window, reads it as a finished round, and the day still owes 140. That disagreement used to chain twelve rounds on the database and then PAUSE the run, so the results pages, the winner reads, the verification, the measurement and the publication behind this phase never ran at all: the live run of 2026-09-01 sat paused at prompt_observations from morning to night with 140 checks owed. The lane is entered ONCE, it reads the paid backlog first, and then it yields the phase. */
   const UNREAD = 640;
   const blocked = (touched: string[]): Partial<ResearchCycleSteps> => ({
     funnelUnit: async (phase) => (touched.push(phase), { status: "done", cursor: null, progress: {} }), // the empty window a paused purchase lane hands back
@@ -756,7 +757,6 @@ describe("a day of AI checks ends when the day ends, never when a batch does", (
   it("runs the rest of the day in the SAME drive while the purchase lane is blocked: the produce pass, the results pages, the winners, the verification, the measurement and the publication", async () => {
     const touched: string[] = []; withRun({ current_phase: "prompt_observations" }); await run(blocked(touched));
     expect(touched).toEqual(["produce", "prompt_observations", "serp_analysis", "winning_pages", "verify", "measure", "publish"]); });
-  /** AND THE STATE CLEARS ITSELF. A lane stamped blocked that stayed stamped after the reading caught up would tell every later reader that buying is still paused over a backlog that no longer exists. */
   it("clears the blocked state once the backlog has actually drained, and never leaves a stale claim on the row", async () => {
     const rows = withRun({ current_phase: "prompt_observations" }); const touched: string[] = [];
     await run({ ...blocked(touched), dayStanding: async () => standing(0) }); // the drive OPENED on a backlog of 640 and the reading took it under the bound, so the standing no longer names one
@@ -764,11 +764,9 @@ describe("a day of AI checks ends when the day ends, never when a batch does", (
   it("never calls a day finished it could not count: an unreadable standing files the lane as unreadable and the rest of the day still runs", async () => {
     const rows = withRun({ current_phase: "prompt_observations" }); await run({ dayStanding: async () => null });
     expect([rows[0]!.status, rows[0]!.current_phase, rows[0]!.progress.observations?.state]).toEqual(["completed", "done", "reading_unreadable"]); expect(rows[0]!.progress.state?.blocker).toContain("could not be counted"); });});
-/** THE CRAWL HAS TO BEGIN SOMEWHERE. Cold start only ever fired from onboarding, so an account that predates it kept an empty owned-page inventory forever: every scheduled pass asked to CONTINUE a crawl that had never started, was told "no crawl", and recorded a healthy no-op. */
 describe("reading a pre-existing account's own website", () => {
   const crawl = () => defaultSteps.crawlPages(T, new Date(NOW));
   beforeEach(() => { CRAWL.state = null; CRAWL.starts = 0; CRAWL.batches = 0; CRAWL.forced = false; CRAWL.racer = null; CRAWL.pick = null; CRAWL.inventory = []; CRAWL.decay = []; });
-  /** THE DRAFT STEP REFUSES A PAGE IT HAS NOT READ WHOLE, so the pages the operator is waiting on are the ones losing clicks. The frontier handed them out in inventory order, so a page under investigation sat behind two hundred it had never heard of. */
   it("puts a page losing clicks at the FRONT of the batch, without ever adding a page the inventory withheld", async () => {
     CRAWL.inventory = ["https://site.example/steady", "https://www.site.example/losing/", "https://site.example/other"];
     CRAWL.decay = [{ page: "https://site.example/losing", clicksNow: 4, clicksPrior: 90 }, { page: "https://site.example/steady", clicksNow: 90, clicksPrior: 90 }];
@@ -782,7 +780,6 @@ describe("reading a pre-existing account's own website", () => {
     CRAWL.racer = () => { CRAWL.state = "complete"; }; // another instance initialized between the load and the start
     expect([await crawl(), CRAWL.starts, CRAWL.batches]).toEqual([3, 1, 1]); // the SURVIVING state is what gets continued
     CRAWL.state = "unreachable"; CRAWL.racer = null; expect([await crawl(), CRAWL.starts, CRAWL.batches]).toEqual([0, 1, 1]); }); // unreachable is persisted truth, not a reason to start over
-  /** ONE SMALL BATCH A DAY IS NOT THE PRODUCT. An account holding two hundred pages nobody had opened waited months on one fifteen-page batch per pass. */
   it("keeps reading the website inside one pass until a batch reads nothing, then advances, and never loops on it forever", async () => {
     const rows = withRun({ current_phase: "crawl_pages" }); let left = 2, batches = 0; await run({ ...BENIGN, crawlPages: async () => (batches += 1, left > 0 ? (left -= 1, 15) : 0) });
     expect([batches, rows[0]!.status, rows[0]!.current_phase]).toEqual([3, "completed", "done"]); // two full batches, then the one that proved nothing is left
@@ -792,7 +789,6 @@ describe("reading a pre-existing account's own website", () => {
     await runResearchCycle(T, { now: () => new Date(t), deadlineMs: 260_000, steps: { ...BENIGN, crawlPages: async () => (rounds += 1, t += 60_000, 15) } });
     expect([forever, endless[0]!.status, rounds, short[0]!.status], "bounded rounds, the rest owed to the next pass, and a crawl that would leave the walk no runway stops one round early").toEqual([4, "completed", 2, "completed"]); }); // bounded rounds, and the rest is owed to the next pass
 });
-/** THE MONEY IS THE PLACEMENT'S. A posted ask is finished by a FREE collect, and that free collect used to land the final row at cost 0, erasing the receipt the pending row already held: the one row Decision reads about an answer disagreed with the ledger that paid for it. */
 describe("what a stored observation says it cost", () => {
   const DUE = [{ promptId: "p1", version: 1, text: "best persian restaurant", engine: "claude" as const, slot: 0 as const, day: "2026-08-03" }];
   const CURSOR = { basis: "basis_test", runId: "r1", cycle: `${T}:2026-08-03` };
