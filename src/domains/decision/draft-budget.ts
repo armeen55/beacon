@@ -16,8 +16,8 @@ function evidenceUnlock(cards: readonly ChangeProposal[], worth: (p: ChangePropo
     && ((substantiveGapOf(p)?.propositions.length ?? 0) > 0 || (p.obligation?.kind === "evidence" && !!p.obligation.need.missingTopic?.trim()))
     && worth(p) > 0 && worth(p) >= floor).sort((a, b) => worth(b) - worth(a) || a.id.localeCompare(b.id))[0];
   if (!card) return null;
-  const onFile = winnersRead(research, card.primaryQuery);
-  const need: EvidenceRequirement | null = onFile !== "read"
+  const onFile = winnersRead(research, card.primaryQuery); // The writer rechecks named factual debt against banked facts; a new winner purchase must not prevent that turn.
+  const need: EvidenceRequirement | null = card.obligation?.kind === "evidence" && card.obligation.need.kind === "factual_source" ? null : onFile !== "read"
     ? { kind: onFile === "none" ? "serp" : "competitor_page", query: card.primaryQuery, reasonCode: "no_winner_to_read" }
     : card.obligation?.kind === "evidence" && card.obligation.need.reasonCode !== "no_winner_to_read" ? card.obligation.need : null;
   return { card, need, micro };
