@@ -7,6 +7,8 @@ const enabled = () => process.env.NEXT_PUBLIC_BEACON_AEO_PACKET !== "0";
 const applies = (field: string, standard?: string, unpublished = false, shape?: string, query = "") => enabled() && !unpublished && /^(answer_block|section)$/.test(field)
   && (["section", "direct_answer", "restructure"].includes(shape ?? "") || (shape == null && !/\bhow many\b/i.test(query) && /\b(?:(?:which|what)\s+(?:\w+\s+){0,3}(?:animals|wildlife|species|people|figures)|(?:famous|notable)\s+(?:\w+\s+){0,2}(?:people|figures))\b/i.test(query)))
   && !["correction", "internal_link", "repositioning"].includes(standard ?? "");
+const holds = {"lead": "The opening needs a complete answer paragraph that explains more than the names.", "groups": "Group the answer under headings that explain how the examples were selected.", "criteria": "Each heading needs a selection criterion and explanatory prose, not one heading per entity or a list of names.", "entities": "Add a table or labeled list pairing each example with its supported distinguishing detail.", "accuracy": "The accuracy questions need to be resolved before this copy is ready.", "unreviewed": "These exact words still need a review of their structure, accuracy and relevance.", "sixChecks": "The answer still needs to pass all six checks for structure, accuracy and relevance."};
+const writerLimitations = (limitations: readonly string[]) => limitations.filter((l) => !Object.values(holds).includes(l.trim()));
 const criteria = ["leadAnswer", "groupedH2s", "defendedClaims", "entityBlock", "boundedScope", "h1QueryAlignment"] as const;
 const schema = z.object({ leadAnswer: z.boolean(), groupedH2s: z.boolean(), defendedClaims: z.boolean(), entityBlock: z.boolean(), boundedScope: z.boolean(), h1QueryAlignment: z.boolean() });
 const passed = (r: unknown): boolean => { const parsed = schema.safeParse(r); return parsed.success && criteria.every((k) => parsed.data[k] === true); };
@@ -16,26 +18,25 @@ const failures = (field: string, copy: string, limitations: readonly string[] = 
   const out: string[] = [], lines = copy.trim().split(/\n+/).map((s) => s.trim()).filter(Boolean);
   const first = lines.find((s) => !/^#{1,6}\s/.test(s)) ?? "";
   const plain = first.replace(/\*\*/g, "");
-  // Legacy collection queries recover missing assignment metadata; explicit assignment shapes remain authoritative.
   if (/^#{1,6}\s/.test(lines[0] ?? "") || /^(?:[-*•]|\d+[.)])\s/.test(first) || !/[.!?](?:["”’])?$/.test(plain)
     || (plain.split(/[,;•]/).length >= 5 && !/[.!?]\s+/.test(plain)))
-    out.push("The opening needs a complete answer paragraph that explains more than the names.");
+    out.push(holds.lead);
   if (!lines.some((s) => /^##\s+\S/.test(s)) || lines.filter((s) => /^##\s+\S/.test(s)).length < 2)
-    out.push("Group the answer under headings that explain how the examples were selected.");
+    out.push(holds.groups);
   const groups = copy.split(/^##\s+(.+)$/m).slice(1), tableRows = [...copy.matchAll(/^\|(?:[ \t]*:?-{3,}:?[ \t]*\|)+[ \t]*\r?\n((?:\|[^\n]+\|[ \t]*(?:\r?\n|$))+)/gm)].map((m) => m[1]).join("\n");
   const entities = [...copy.matchAll(/^[-*•]\s+([^:\n]+):/gm), ...tableRows.matchAll(/^\|\s*([^|]+)\|/gm)].map((m) => (m[1] ?? "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/s\b/g, "").replace(/\s+/g, " ").trim());
   for (let i = 0; i < groups.length; i += 2) {
     const heading = groups[i]!.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/s\b/g, "").replace(/\s+/g, " ").trim(), prose = (groups[i + 1] ?? "").split("\n").filter((l) => !/^\s*(?:[-*•|#]|\d+[.)])/.test(l)).join(" ").trim();
     if (entities.some((entity) => entity && ` ${heading} `.includes(` ${entity} `)) || !/[.!?]/.test(prose)) {
-      out.push("Each heading needs a selection criterion and explanatory prose, not one heading per entity or a list of names."); break;
+      out.push(holds.criteria); break;
     }
   }
   if (!/^(?:\|.+\|)|^(?:[-*•]\s+[^:\n]+:\s*\S)/m.test(copy))
-    out.push("Add a table or labeled list pairing each example with its supported distinguishing detail.");
-  const uncertainty = [copy, ...limitations].join(" ");
+    out.push(holds.entities);
+  const uncertainty = [copy, ...writerLimitations(limitations)].join(" ");
   if (/(?:owed|missing|needs?|still|requires?).{0,60}(?:grouped|inclusion criteria|headings|accuracy)|(?:grouped|inclusion criteria|headings).{0,60}(?:owed|missing|required)|check every word|may be incomplete|overreads? (?:native|endemic) status|accuracy (?:is |remains )?(?:unclear|uncertain)|verify (?:every|all) (?:claim|entry|word)|cannot confirm/i.test(uncertainty)
     || (copy.match(/\b(?:may|might|possibly|perhaps|unclear|uncertain)\b/gi) ?? []).length >= 3)
-    out.push("The accuracy questions need to be resolved before this copy is ready.");
+    out.push(holds.accuracy);
   return out;
 };
 const bodyParts = (p: ChangeProposal) => {
@@ -45,7 +46,7 @@ const bodyParts = (p: ChangeProposal) => {
   return [...(c.kind === "existing_edit" && !c.linkTo && applies(c.field, standard, false, shape, p.primaryQuery) ? [c.after] : []),
     ...(p.bundle?.components ?? []).filter((x) => /^(opening_answer|section|section_add|section_rewrite|restructure)$/.test(x.kind) && applies("section", standard, false, shape, p.primaryQuery)).map((x) => x.after)];
 };
-export const AEO_BAR = { applies, policy, failures, schema, passed,
+export const AEO_BAR = { applies, policy, failures, schema, passed, holds, writerLimitations,
   rowFailures: (p: ChangeProposal): string[] => bodyParts(p).flatMap((copy) => failures("section", copy, p.limitations, undefined, false, "section")),
   approved: Object.fromEntries(criteria.map((k) => [k, true])) as z.infer<typeof schema>,
   forRow: (p: ChangeProposal): boolean => bodyParts(p).length > 0,
@@ -56,6 +57,5 @@ export const AEO_BAR = { applies, policy, failures, schema, passed,
       return JSON.stringify([c.kind, c.kind === "existing_edit" ? [c.field.replace(/^(section|answer_block)$/, "body"), key(c.after), c.linkTo ?? ""] : [key(c.openingAnswer), p.newPageDraft],
         (p.bundle?.components ?? []).map((x) => [x.kind, x.page ?? "", key(x.after ?? "")])]); };
     return identity(a) === identity(b);
-
   },
 };
