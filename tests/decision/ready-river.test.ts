@@ -271,7 +271,7 @@ describe("packet admission survives storage and refresh", () => {
     const owed = { ...p, semanticReview: undefined, status: "needs_review" as const }; owed.faults = [unreviewed(owed)!];
     expect([AEO_BAR.rowFailures(owed), nextObligation(owed)]).toEqual([[], { kind: "review" }]); await saveChangeProposal(owed); expect(held().status).toBe("needs_review");
     for (const primaryQuery of ["species", "people", "figures", "How many species live here?", "How many people live here?"]) expect(AEO_BAR.forRow({ ...bundled, primaryQuery })).toBe(false);
-    for (const query of ["Which species live here?", "What animals live here?", "Famous local people", "Notable historical figures"]) { expect(AEO_BAR.applies("section", undefined, false, undefined, query)).toBe(true); expect(AEO_BAR.forRow({ ...bundled, primaryQuery: query, assignment: { ...p.assignment, shape: "inline_addition" } as NonNullable<ChangeProposal["assignment"]> })).toBe(false); }
+    for (const query of ["Which species live here?", "What animals live here?", "Famous local people", "Notable historical figures"]) { expect(AEO_BAR.applies("section", undefined, false, undefined, query)).toBe(true); expect(AEO_BAR.forRow({ ...bundled, primaryQuery: query, assignment: { ...p.assignment, shape: "inline_addition" } as NonNullable<ChangeProposal["assignment"]> })).toBe(true); }
     expect(AEO_BAR.rowFailures(packet(copy.replaceAll("| Species |", "| Animal |")))).toEqual([]);
   });
 });

@@ -37,11 +37,9 @@ import {
   type AtomicEditDraft,
 } from "./schemas";
 
-/** llm/structured-drafter (2026-06-25, P4), the trustworthy drafting layer. It turns a grounded request into a SCHEMA-VALIDATED structured draft, or nothing: key/injected transport → cache ($0 on an identical repeat) → budget (fail-closed cap) → strict structured call → Zod validate → content firewalls (numeric-fidelity, placeholder, em-dash, superlative) → de-templating guard → RETRY ONCE on failure → FAIL CLOSED. It NEVER returns loose/unvalidated text as a product artifact. Slice 3 (2026- 07-23): the transport is the strict Responses gateway (openAIStructuredResponse) returning a PARSED, schema-shaped VALUE; the drafter still runs its own Zod safeParse as the second gate. A refusal/incomplete/non-retryable transport error FAILS CLOSED; only a schema-invalid value or a retryable error consumes the single retry. Spend is recorded per attempt. The completion fn is injectable so the flow runs with zero paid calls. Every call carries a registered promptId + version and is scoped to an EXPLICIT account (Slice 3): the cache key + storage, the budget check/record, and the gateway spend are all keyed by tenantId - a missing account fails closed before cache/budget/network, never a global call. / */
 
 const MODEL = "gpt-5.4-mini"; // gpt-5-mini failed the claim-coverage contract on four funded passes (2026-08-17): forty refusals, zero survivors. The gates stay; the writer gets stronger.
 
-/** BEACON_500 item 74: present on a "drafted" result only when a CONFIDENT house pattern cell backed this draft's prompt (winner-memory's pattern aggregate cleared the minimum-sample floor for this page family). Absent (not merely null) whenever the ledger has no confident opinion yet - callers must treat absence as "no claim". */
 type FewShotProvenance = {
   /** The structural pattern the winning few-shot examples were tagged with. */
   pattern: DraftPatternId;
@@ -63,11 +61,9 @@ export type StructuredDraftResult<T> =
       costUsd: number;
       retried: boolean; attempts?: number;
       fewShot?: FewShotProvenance;
-      /** R16: present when this exact request was served from the call cache ($0). */
       cached?: true;
       /** Provider provenance for the successful paid attempt (audit trail). */
       provenance?: LlmProvenance;
-      /** R16: present when the draft still reads like a repeat of recent same-family drafts after the variation retry ("reads like a repeat") - the draft-quality gate demotes flagged output instead of calling it ready. */
       repeatFlag?: string;
     };
 
@@ -86,7 +82,6 @@ export type CompleteFn = (args: {
    *  did not, which is the honest default for every injected seam and every pre-network refusal. */
 }) => Promise<({ value: unknown; provenance?: LlmProvenance } | { error: string; retryable: boolean; costUsd?: number; failure?: LlmFailure }) & { httpAttempts?: number }>;
 
-/** BEACON_500 item 74: turn a confident pattern-hint cell into the one-line, plain- English provenance the draft-provenance surface shows. Pure - no I/O. Names the real winning page when one is known; otherwise names the page family only (never fabricates a page). */
 function fewShotProvenanceFrom(
   hint: { pattern: DraftPatternId; pageFamily: string; winningPage: string | null } | null,
   pageFamily: string,
@@ -101,12 +96,10 @@ function fewShotProvenanceFrom(
 
 export const SUPERLATIVES = /\b(best|leading|#1|number one|top-rated|guaranteed|world-class|ultimate|premier)\b/i;
 
-/** Pilot loop 6: a rephrase-class retry asks the model to REWRITE its answer - exactly when it is tempted to fill in a fresh invented number. Every rephrase-class instruction below closes with this reminder so a rewrite cannot trade an ungrounded superlative or a too-thin answer for an invented statistic. */
 const NO_NEW_NUMBERS_RETRY_REMINDER =
   "Do not introduce any number, percentage, or statistic that is not present in the evidence; if " +
   "unsure, write the sentence without a number.";
 
-/** G4/Pilot loops 4+6: the RETRY instruction when an answer block asserted a superlative no cited source proves. REPHRASE to a grounded, non-superlative fact (never swap in a DIFFERENT unproven superlative); closes with NO_NEW_NUMBERS_RETRY_REMINDER so the rewrite cannot launder in an invented number while removing the superlative. */
 const SUPERLATIVE_REPHRASE_INSTRUCTION =
   'Your previous answer used a superlative or ranking claim (for example "most famous", ' +
   '"most celebrated", "leading", "best-known", "the first") that none of your cited sources ' +
@@ -121,7 +114,6 @@ const SUPERLATIVE_REPHRASE_INSTRUCTION =
   "superlative. " +
   NO_NEW_NUMBERS_RETRY_REMINDER;
 
-/** Pilot loops 5+6: the MERGED retry instruction for when attempt 1 fails BOTH the 80-word floor AND the superlative check at once (each used to claim the single retry slot and hide the other problem). Addresses both in ONE instruction (lengthen with grounded single-fact sentences AND remove/replace every unproven superlative) and closes with NO_NEW_NUMBERS_RETRY_REMINDER. */
 const COMBINED_THIN_AND_SUPERLATIVE_RETRY_INSTRUCTION =
   "Your previous answer had TWO problems - fix BOTH in this rewrite. First, it was too short: write " +
   "a complete answer of 80 to 150 words, grounded ONLY in the evidence provided - add the missing " +
@@ -147,7 +139,6 @@ function sanitizeDashesDeep(v: unknown): unknown {
   return v;
 }
 
-/** The full grounded-number ledger for one request: evidence numbers with R16 formatting tolerance (numeric-fidelity.ts) plus the structural allowances - adjacent years and the 7/14/28-day proof-window constants (methodology language, not factual claims). */
 function buildRequestLedger(grounded: string, nowYear: number): GroundedNumbers {
   return allowNumbers(buildGroundedNumbers(grounded), [
     String(nowYear - 1),
@@ -171,7 +162,6 @@ function primaryCustomerText(kind: StructuredDraftKind, value: unknown): string 
   }
 }
 
-/** W5 (2026-07-09, J-69), re-stamp any `sources` array on a validated draft with the DETERMINISTIC authority classification, discarding whatever the LLM proposed. "ONLY this module [source-authority.ts] stamps authority", * this is the one place that rule is enforced for every LLM-drafted kind that carries a `sources` field (answer_block, atomic_edit). A draft with no `sources` array is returned unchanged. / */
 function stampAnySources(value: unknown, tenantAllowlist?: readonly string[]): unknown {
   if (!value || typeof value !== "object") return value;
   const v = value as Record<string, unknown>;
@@ -179,7 +169,6 @@ function stampAnySources(value: unknown, tenantAllowlist?: readonly string[]): u
   return { ...v, sources: stampSourceAuthority(v.sources as ClassifiableSource[], tenantAllowlist) };
 }
 
-/** W5 (J-71): an answer block was once contracted at 80 to 150 words and the drafter still gives ONE word-count retry so a pathological answer is never cached. The gate that held that band had no production caller and was deleted on 2026-09-05 (it refused all 56 stored body drafts). AND THIS FLOOR IS UNREACHABLE TOO (measured, 2026-09-05): the retry below is keyed on `req.kind === "answer_block"` and NOTHING requests that kind, because every body edit, answer and section alike, is drafted through `atomic_edit`. A body answer answers to no word floor at all today; the constant stays because the day a caller asks for that kind it is the floor that kind gets, and the honest repair is a decision about which kind the body editor should request rather than a wider number here. */
 const ANSWER_MIN_WORDS = 15; // a SANITY floor against pathological output only (lowered 2026-08-25): a 39-word complete answer was refused over one word by a 40-word constant, and completeness is the evaluator's question, never a count's
 function countWords(text: string): number {
   const t = (text ?? "").trim();
@@ -189,13 +178,10 @@ function countWords(text: string): number {
 /** How many cited sources per draft the generation-time verifier will fetch (cost cap - real drafts carry 1-2; anything past this stays unverified). */
 const MAX_SOURCES_TO_VERIFY = 3;
 
-/** How many of a draft's sources verify concurrently (P2, 2026-07-09): a bounded worker pool, never a full fan-out - a draft's 1-3 sources share this budget rather than serializing one full fetch at a time. */
 const SOURCE_VERIFY_CONCURRENCY = 2;
 
-/** P2 (2026-07-09): the WHOLE draft's source-verification wall-clock budget, not a per-source one. Without this, N sources each capped at their own per-fetch timeout can still add up to N times that before the draft ships - on a slow/hostile host, generation could hang far longer than any single fetch's timeout suggests. Once spent, every source not yet fetched stays verified:false / authority:"weak" (FAIL CLOSED) rather than being fetched on borrowed time. */
 const WHOLE_DRAFT_VERIFY_DEADLINE_MS = 20_000;
 
-/** W5 P0-1 (2026-07-09): fetch a cited source URL and return its visible text. Injected in tests (hermetic); the default routes through the SSRF-safe source fetcher (lib/net/safe-source-fetch.ts) - NOT the competitor crawler's follow-redirect fetch, because a source URL is untrusted model-generated text. Fail-soft: any failure resolves to `{ ok: false, text: "" }` so verification downgrades the source rather than throwing. `finalUrl` (W5 stop-ship F2) is the post-redirect URL the fetch actually landed on, so the verifier can recompute authority from the REAL final host. `opts.deadlineMs` (P2) is the REMAINING whole-draft budget for this particular fetch, so a source that starts late gets a shorter leash than one that starts first. / */
 type SourceTextFetcher = (
   url: string,
   opts?: { deadlineMs?: number },
@@ -217,7 +203,6 @@ function defaultSourceFetcher(timeoutMs: number): SourceTextFetcher {
   return async (url: string, opts?: { deadlineMs?: number }) => {
     try {
       const res = await safeFetchSourceText(url, {}, { timeoutMs, deadlineMs: opts?.deadlineMs });
-      // G5 (2026-07-10): surface a robots/anti-bot block (403 class) distinctly from an unreachable/broken URL so an authority-strong-but-unreadable source is held as "check this citation", not "no source". Never evade it.
       if (!res.ok) return { ok: false, text: "", blocked: res.reason === "access_blocked" };
       return { ok: true, text: htmlToVisibleText(res.text), finalUrl: res.finalUrl };
     } catch {
@@ -240,13 +225,10 @@ function resetSourceVerification(s: Record<string, unknown>): void {
   delete s.supportingExcerpt;
   delete s.finalUrl;
   delete s.contentHash;
-  // G5 (2026-07-10): an LLM-supplied `fetchBlocked` must never survive either - only a real 403-class fetch below is allowed to set it.
   delete s.fetchBlocked;
-  // G6 (2026-07-10): the transient full-page text is set ONLY by a real fetch below (never the model); wipe any inbound value so it cannot be spoofed.
   delete s.fetchedText;
 }
 
-/** W5 stop-ship F2 (2026-07-09): pure strip of every source-verification field when NO verifier is configured (vitest without injection, or a runtime with source-fetch disabled). Without this, an LLM that emitted `verified: true` would have that value survive unchallenged. Forces verified=false and drops verifiedAt/supportingExcerpt/finalUrl/contentHash on every source. A draft with no sources array is returned unchanged. / */
 function stripSourceVerificationFields(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
   const v = value as Record<string, unknown>;
@@ -259,7 +241,6 @@ function stripSourceVerificationFields(value: unknown): unknown {
   return { ...v, sources };
 }
 
-/** W5 stop-ship F2 (2026-07-09): the GENERATION-TIME source-verification trust boundary. For each of the first MAX_SOURCES_TO_VERIFY sources it (1) RESETS every verification field first (never trusts the LLM's own verified/excerpt/ hash), (2) fetches the URL through the injected SSRF-safe fetcher, and (3) on a reachable page runs findSupportingSpan(claim, text) and recomputes authority from the FINAL (post-redirect) host. `verified: true` is set ONLY when a qualifying span is found AND the final host is authoritative; the final URL, supporting excerpt, and content hash are persisted for the receipt. An unreachable URL, a redirect to an untrusted host, a weak match, or a missing url/claim all downgrade `authority` to "weak" with `verified: false`, so a hallucinated .gov/.edu URL never passes on domain class alone. NEVER throws; a draft with no sources array is returned unchanged; generation-time only. P2 (2026-07-09): eligible sources verify through a bounded worker pool (at most SOURCE_VERIFY_CONCURRENCY in flight) sharing ONE WHOLE_DRAFT_VERIFY_DEADLINE_MS budget captured before the first fetch. Each worker checks the remaining budget before its OWN next fetch; once spent, every source not yet started stays verified:false / weak (FAIL CLOSED). Results reassemble in original order. / */
 async function verifyStampedSources(
   value: unknown,
   fetcher: SourceTextFetcher,
@@ -267,7 +248,6 @@ async function verifyStampedSources(
   nowIso: string,
   nowYear: number,
   tenantAllowlist: readonly string[] | undefined,
-  // G6 (2026-07-10): the draft's own customer-facing prose (answer/openingAnswer/ after/...). Threaded so a fetchable authoritative page whose META-claim did not span-match can STILL verify when its full page text entails the draft's sentences - the roundup case, where one list page backs many named entities.
   draftText: string | null,
 ): Promise<unknown> {
   if (!value || typeof value !== "object") return value;
@@ -276,12 +256,10 @@ async function verifyStampedSources(
 
   const prepared: Record<string, unknown>[] = v.sources.map((raw) => {
     const s = { ...(raw as Record<string, unknown>) };
-    // (1) never trust an LLM-supplied verification: wipe it before any fetch.
     resetSourceVerification(s);
     return s;
   });
 
-  // Sources eligible for a real fetch, IN ORIGINAL ORDER; anything past the MAX_SOURCES_TO_VERIFY cap or missing url/claim short-circuits to weak without ever touching the fetcher or the whole-draft deadline budget.
   const eligible: number[] = [];
   for (let i = 0; i < prepared.length; i += 1) {
     const s = prepared[i]!;
@@ -299,7 +277,6 @@ async function verifyStampedSources(
     const s = prepared[i]!;
     const url = String(s.url ?? "").trim();
     const claim = String(s.claim ?? "").trim();
-    // (2) fetch through the injected SSRF-safe fetcher (per-request URL cache, deduping the same source cited on either generation attempt OR by two different sources in the same draft). The cache stores the IN-FLIGHT PROMISE, not the resolved value - `get` + `set` happen synchronously (no await between them), so two pool workers racing on the same URL both see the SAME shared fetch rather than each starting their own.
     let pending = cache.get(url);
     if (!pending) {
       pending = fetcher(url, { deadlineMs: remainingMs }).catch(() => ({ ok: false, text: "" }));
@@ -307,7 +284,6 @@ async function verifyStampedSources(
     }
     const fetched = await pending;
     if (!fetched.ok) {
-      // G5 (2026-07-10): a robots/anti-bot BLOCK (403 class) on an authority-strong domain is honest middle ground - we could not read the page, so we cannot mark it verified, but the domain IS trusted. Keep authority "authoritative" + verified:false + fetchBlocked:true so the gate holds the draft as `needs_source_check` ("check this citation"), NOT `missing_source`. A block on a non-trusted domain, or any dns/timeout/broken fetch, stays "weak" exactly as before.
       if (fetched.blocked === true) {
         const blockedHost = extractDomain({ url, domain: String(s.domain ?? "") });
         const blockedAuthority = classifySourceAuthority(
@@ -324,7 +300,6 @@ async function verifyStampedSources(
       s.authority = "weak";
       return;
     }
-    // (3) span-level entailment + FINAL-host authority.
     const finalUrl = (fetched.finalUrl && fetched.finalUrl.trim()) || url;
     const finalHost = extractDomain({ url: finalUrl });
     const finalAuthority = classifySourceAuthority(
@@ -341,10 +316,8 @@ async function verifyStampedSources(
       s.verifiedAt = nowIso;
       if (sup.excerpt != null) s.supportingExcerpt = sup.excerpt;
       if (sup.contentHash != null) s.contentHash = sup.contentHash;
-      // G6 (2026-07-10): thread the FULL fetched page text (transient, never persisted - stripped at the store boundary) so per-claim coverage can back the OTHER roundup sentences this one page covers, not just this claim's span.
       s.fetchedText = fetched.text;
     } else if (finalAuthority === "authoritative") {
-      // G6 roundup path: the model's meta-claim ("Summarizes X as ...") did not span-match, but this is a REAL authoritative page we just READ. If its full text entails the draft's own sentences (a list page backing many names), verify it and thread the full text through to per-claim coverage. This reuses the SAME per-sentence + negation-parity discipline as the coverage gate (never a looser bar), so a page that entails nothing stays weak.
       const entail = draftText ? pageEntailsDraftClaims(draftText, fetched.text, nowYear) : { entails: false, excerpt: null, contentHash: null };
       if (entail.entails) {
         s.url = finalUrl;
@@ -353,7 +326,6 @@ async function verifyStampedSources(
         s.authority = "authoritative";
         s.verified = true;
         s.verifiedAt = nowIso;
-        // A representative covering span so the persisted (fetchedText-stripped) render path still shows a real ~400-char receipt for this source.
         if (entail.excerpt != null) s.supportingExcerpt = entail.excerpt;
         if (entail.contentHash != null && entail.contentHash !== "") s.contentHash = entail.contentHash;
         s.fetchedText = fetched.text;
@@ -395,7 +367,6 @@ async function verifyStampedSources(
   return { ...v, sources: prepared };
 }
 
-/** Content firewalls over every string field of a parsed draft. Same trust rails as the deterministic drafter: no placeholders, no em-dashes, no superlatives, and no invented multi-digit numbers (must be grounded - years allowed). R16 upgraded the numeric check to TOKENIZED extraction with formatting tolerance (5,400 == 5400; percentages match rounded) - strictly MORE permissive, so a grounded number formatted differently is never a false reject while genuinely invented stats still fail closed. */
 function runContentFirewalls(
   strings: string[],
   ledger: GroundedNumbers,
@@ -484,17 +455,11 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
   now?: Date;
   /** Injected for tests; defaults to the real OpenAI call. */
   complete?: CompleteFn;
-  /** BEACON_500 item 74: carried straight onto a "drafted" result's `fewShot` field when present. The engine does not compute this itself - it only threads through whatever the concrete drafter already resolved from winner-memory's pattern aggregate, so the prompt-building and the result metadata always agree on whether a confident cell was actually used. */
   fewShotProvenance?: FewShotProvenance;
-  /** R16: skip the $0 cache-serve and force a fresh paid draft (the explicit Regenerate action). The fresh result still REPLACES the cached entry. */
   bypassCache?: boolean; /** THE PAGE'S OWN TITLE AND HEADINGS (live 2026-09-02): a superlative they carry is the page's own fact, not the writer's claim, so a summary field may repeat that word; twenty city pages headed "Best Persian Restaurants in X" could never earn a description. */ ownWords?: string;
-  /** R16 test seam: inject cache behavior. Default: the store-backed call cache in production, NO cache under vitest (pinned suites stay hermetic). */
   cacheImpl?: CacheImpl;
-  /** R16 test seam / caller-supplied history for the de-templating guard. When absent the guard reads the last cached outputs for this kind. */
   recentOutputs?: string[];
-  /** W5 (J-69): this tenant's curated authoritative-domain allowlist (BusinessProfile.authoritativeSourceDomains), used ONLY to re-stamp any `sources` field on the validated draft. Omitted = only the universal .gov/.edu + named encyclopedic/press set applies. */
   authoritativeSourceDomains?: readonly string[];
-  /** W5 P0-1 (2026-07-09): injectable source-text fetcher for the generation-time verification step. Tests inject a hermetic stub; the default is the polite competitor-intel fetch, and NOTHING under vitest without injection (no draft with sources ever hits the network in a test that didn't opt in). */
   sourceFetch?: SourceTextFetcher;
   /** Slice 5: budget this call against the $2 pre-activation onboarding lifetime cap. Omitted = default (byte-identical). */
   budgetPlatform?: "onboarding-openai";
@@ -820,8 +785,7 @@ const OPENING_ANSWER_CLAUSE =
   "Open with the direct answer to the search in the first one or two sentences, naming the exact subject, then follow the required shape the directive above gives. " +
   "A DEFINITION, A QUESTION A READER REALLY ASKS, A LIST AND A LINE CARRYING A COLON ARE EACH CORRECT WHERE THEY ANSWER: no shape is refused for its shape. What IS refused is narration and a claim nothing supports, so never write a sentence whose subject is this page, this site or how either is arranged, never defer (\"it varies\", \"check elsewhere\"), and state only what the evidence ids below support. What the page's own sections are to this copy is settled by the assignment's MAY REUSE line and by nothing here: where they are context alone, this block owes the reader at least one thing they do not already say, whether that is a checked fact, a figure, a relation to another page of this site, or an answer the page scatters and this block finally assembles in one place."; /** A HEADING IS THE SECTION SHAPE'S, NEVER EVERY BODY ANSWER'S (operator, 2026-09-02). Required of every answer block, it made a page whose only defect was one missing sentence receive a headed block plus a second sentence summarising the page, which the evaluator then rightly refused as page talk: the requirement is now the SECTION clause and the inline clause forbids it outright. */ const SECTION_ANSWER_CLAUSE = " THIS EDIT IS A NEW SECTION, SO `naturalHeading` IS REQUIRED AND MAY NEVER BE NULL OR EMPTY: the homework note above allows null only where an edit replaces an existing FIELD, and a section that names no heading lands nowhere a person can paste it, which is refused outright." + " THE HEADING NAMES THE ACTUAL INTENT OR QUESTION a reader arrives with, in ordinary words, never the search string pasted back and never the page's own H1 said again. THE FIRST SENTENCE ANSWERS OR DEFINES, in the shape the assignment's OPEN LIKE THIS line gives you: an entity is, was or refers to something; a plural category is or includes its members; a procedure opens on the action a reader takes first; a comparison opens on the distinction. Later sentences add the evidence, the examples, the qualifications or the structure, in that order. ONE EXTRACTABLE, SELF-CONTAINED FACT PER SECTION: a reader who lifts any single sentence out of it still has something true and complete, which means no sentence may depend on a word like here, this or below to make sense. NO CONTAINER NARRATION, no generic introduction, no closing summary, no repeating the search phrase to look relevant, and no template with the entity swapped: if the same sentence would read identically about a different subject, it says nothing. A NAME OR DICTIONARY ENTRY KEEPS THE PAGE'S OWN COMPACT FORMAT, with its existing spacing and punctuation, and is never inflated into a paragraph."; const INLINE_ANSWER_CLAUSE = " THIS EDIT LANDS INSIDE THE PAGE'S OWN COPY, SO IT IS NOT A SECTION: `naturalHeading` MUST BE null, and `placementAnchor` MUST be the exact wording the PLACEMENT line above names, copied character for character off the stored page. Write only the sentences the assignment's OUTPUT FORMAT allows, lead with the missing information, add no introduction, no summary of the page and no closing line, and stop the moment the gap is answered. A heading, an extra sentence of background or a restatement of what the page already says is refused outright.";
 
-// APPENDED ONLY FOR `meta`, as the opening-answer clause is appended only for `answer_block`. A description names what the page IS ABOUT and must never advertise the page's own furniture: "Iran Shir o Khorshid Vertical Stripe Shirt with FAQs on shipping, returns, waterproofing, and gift-ready details on the page" told a shopper nothing about the shirt, and its own caveat admitted no shipping answer was stored. Naming the subject is right for every page kind, so it is not conditioned on one.
-const META_SUBJECT_CLAUSE = ' DESCRIBE THE THING THE PAGE IS ABOUT, NEVER THE PAGE. OPEN BY NAMING IT, in the words the page\'s own title and heading use, and include the plain noun for what it is: a reader who sees only your first few words must know what this is. "A limited rebuild of the original vertical stripe design" never says the thing is a shirt. Then say what is true of it: for an item, its real attributes (what it is made of, how it looks, its colour, its cut, its size, what it is for); for a subject, the specific answer the page gives. Take those only from the page\'s own stored words handed to you. NEVER describe the page\'s structure or its sections: no "FAQs", no "frequently asked questions", no shipping, returns, delivery or policy topics, no "on this page", "here you will find", "learn more", and no naming of a question the page asks. If the stored words give you no real attribute, describe the subject plainly and stop; a short true line beats a long one made of furniture. WRITE ONE NATURAL, PAGE-SPECIFIC LINE: a complete sentence, a definition, and a line carrying a colon are each correct where they say what the thing is. Where the page is about ONE entity, name that entity first. Where it is a list, a directory or a category, it may open with an intent verb (Find, Explore, Compare, Browse) and then say what is actually in it. Where it is a submission form or a tool, open with the direct action it performs. Never write a list of the page\'s headings, and never claim anything about assistants, AI answers or search itself. A restrained invitation may close the line once it has already said what the subject is; it may never stand in place of that, and no invitation is required. ';
+const META_SUBJECT_CLAUSE = ' DESCRIBE THE THING THE PAGE IS ABOUT, NEVER THE PAGE. OPEN BY NAMING IT, in the words the page\'s own title and heading use, and include the plain noun for what it is: a reader who sees only your first few words must know what this is. "A limited rebuild of the original vertical stripe design" never says the thing is a shirt. Then say what is true of it: for an item, its real attributes (what it is made of, how it looks, its colour, its cut, its size, what it is for); for a subject, the specific answer the page gives. Take those only from the page\'s own stored words handed to you. NEVER describe the page\'s structure or its sections: no "FAQs", no "frequently asked questions", no shipping, returns, delivery or policy topics, no "on this page", "here you will find", "learn more", and no naming of a question the page asks. If the evidence gives no useful description beyond the H1, refuse; never return an empty description, a statement that no description exists, or the H1 rephrased. WRITE ONE NATURAL, PAGE-SPECIFIC LINE: a complete sentence, a definition, and a line carrying a colon are each correct where they say what the thing is. Where the page is about ONE entity, name that entity first. Where it is a list, a directory or a category, it may open with an intent verb (Find, Explore, Compare, Browse) and then say what is actually in it. Where it is a submission form or a tool, open with the direct action it performs. Never write a list of the page\'s headings, and never claim anything about assistants, AI answers or search itself. A restrained invitation may close the line once it has already said what the subject is; it may never stand in place of that, and no invitation is required. ';
 /** APPENDED ONLY FOR `title` and `h1`. THE FORM IS NOT THE TEST (operator, 2026-09-05): this ordered a noun phrase and forbade a question mark outright, while the reader who would click it is often asking exactly that question, and the evaluator was simultaneously refusing any verbless line. A noun phrase is the ordinary shape and no verb is required; a question is right where a reader really asks it in those words. What a summary line owes is that it says what this page answers. */ const TITLE_SHAPE_CLAUSE = ' A NOUN PHRASE LED BY THE ENTITY OR THE SEARCH is the ordinary shape and needs no verb; a question is correct where a reader really asks it in those words, and neither form is required of you. Never a comma list of search phrasings. It must sit naturally beside the page\'s own H1 and mean the same thing it does; where the H1 names the subject one way, do not rename it. One natural line, no repeated word, no stacked keyword phrases separated by pipes or commas. ';
 export async function draftAtomicEditStructured(
   input: AtomicEditStructuredInput,
@@ -833,9 +797,7 @@ export async function draftAtomicEditStructured(
     sourceFetch?: SourceTextFetcher;
   } = {},
 ): Promise<StructuredDraftResult<AtomicEditDraft>> {
-  // R16 injection firewall: untrusted crawled text is stripped of instruction-shaped lines before it enters the prompt.
   const currentValue = sanitizeNullableEvidence(input.currentValue);
-  // A DESCRIPTION IS ABOUT THE PAGE'S SUBJECT, AND A PAGE'S QUESTION RAIL IS NOT ITS SUBJECT: `Page covers:` renders the stored headings verbatim, so on a page whose first headings are its FAQ the model was told, truthfully, that the page covers shipping, returns and waterproofing, and it sold those. A heading shaped as a question is the page ASKING something, not being about it. Every other field keeps the whole outline.
   const outline = sanitizeEvidenceTexts(input.outline).filter((h) => input.field !== "meta" || !h.trim().endsWith("?"));
   const evidenceHints = sanitizeEvidenceTexts(input.evidenceHints ?? []);
   const grounded = [
@@ -844,9 +806,8 @@ export async function draftAtomicEditStructured(
     outline.join(" "),
     evidenceHints.join(" "),
   ].join(" ");
-  const dir = intentDirective(input.intent);
+  const dir = input.answerShape === "packet" ? "A criteria-grouped answer packet, with a liftable lead paragraph and supported entity records." : intentDirective(input.intent);
   const user = [
-    // THE QUERY IS INTENT, NOT COPY (operator, 2026-08-31): labelled "Search/topic" and placed first, the model read it as the words to use and wrote the anchor "iran eagle", which is how somebody searches and not how anybody writes.
     `What the reader is trying to find (this is INTENT, never wording to copy): "${input.query}"`,
     dir ? `What the searcher wants: ${dir}` : "",
     `Page: ${input.pageLabel}`,
@@ -860,7 +821,6 @@ export async function draftAtomicEditStructured(
     .filter(Boolean)
     .join("\n");
 
-  // BEACON_500 item 30/74: additive-only - the pattern-aware builder only fires when a pageFamily is known, and both paths return '' (or the unchanged fragment) when the tenant has no measured winners yet for this exact field, leaving the prompt byte-identical to today.
   const lever = input.field === "title" || input.field === "h1" ? "title" : input.field === "answer_block" ? "answer" : "meta";
   let fewShots = "";
   let fewShotProvenance: FewShotProvenance | undefined;
@@ -888,9 +848,7 @@ export async function draftAtomicEditStructured(
     sourceFetch: opts.sourceFetch,
   });
 
-  // BEACON_500 item 74: the atomic-edit rationale is the ONE free-text channel that already flows end-to-end into the daily card's "Beacon wrote this: <rationale>" line (build-today-preview.ts reads value.rationale into llmRationale). When a confident pattern backed this draft, prepend our exact controlled sentence so the card surfaces it without any change to that unrelated wiring - the model's own rationale sentence is kept right after it, never replaced.
   if (result.status === "drafted" && result.fewShot) {
-    // Re-apply the schema's own 400-char rationale cap so this stays a VALID AtomicEditDraft.
     const merged = `${result.fewShot.sentence} ${result.value.rationale}`.trim().slice(0, 400);
     return { ...result, value: { ...result.value, rationale: merged } };
   }
