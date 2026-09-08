@@ -86,7 +86,7 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     .map((x) => ({ x, n: topicTokens(x).filter((w) => wanted.has(w)).length }))
     .filter((y) => y.n > 0).sort((a, b) => b.n - a.n)[0] ?? null;
   const heading = [packet.h1, packet.title, ...packet.headings].find(EDITOR_SHARED.placeable) ?? null;
-  const collection = AEO_BAR.applies(field, standard, packet.unpublished, undefined, `${packet.trackedQuestion ?? ""} ${packet.h1 ?? ""}`);
+  const collection = AEO_BAR.applies(field, standard, packet.unpublished, undefined, packet);
   const groupingOwed = collection && !AEO_BAR.hasGrouping(packet.checkedSubjects ?? [], packet.checkedSentences ?? []) ? "A checked source must establish the grouping criteria and selection boundary before an entity packet can be written." : null;
   const shape = groupingOwed ? "no_change" as const : collection ? "section" as const : rewrite ? "exact_replacement" as const
 
@@ -95,7 +95,7 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     : backedProps.length === 0 || backedProps.length >= 3 ? "section" as const
     : relevant || (backedProps.length > 0 && heading) ? "inline_addition" as const
     : "direct_answer" as const;
-  const packetShape = AEO_BAR.applies(field, standard, packet.unpublished, rewrite && kind === "scattered_answer" ? "restructure" : shape, packet.trackedQuestion ?? "");
+  const packetShape = AEO_BAR.applies(field, standard, packet.unpublished, rewrite && kind === "scattered_answer" ? "restructure" : shape, packet);
   const cap = packetShape ? 0 : shape === "inline_addition" ? 2
     : shape === "direct_answer" ? 3
     : shape === "exact_replacement" ? (rewrite?.replaces ?? "").split(/(?<=[.!?])\s+/).filter((x) => x.trim().length > 0).length + 1
@@ -140,7 +140,7 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     completionTest: `a reader who came for "${base.intent[0] ?? gap}" can finish that task on this copy alone and could not have on the page before: ${deliver.join("; ") || "the smallest complete answer this page's own passages and the checked facts on file can give it"}. How this page is arranged is never that answer.`,
   };
 };
-const worksFromThePage = (a: Assignment): boolean => AEO_BAR.applies("answer_block", a.standard, false, a.shape, a.intent[0] ?? "") || a.standard !== "missing_answer" && a.standard !== "correction";
+const worksFromThePage = (a: Assignment): boolean => AEO_BAR.applies("answer_block", a.standard, false, a.shape, { targetUrl: a.page, trackedQuestion: a.intent[0] }) || a.standard !== "missing_answer" && a.standard !== "correction";
 const assignmentLines = (a: Assignment): string[] => [
   `THE ASSIGNMENT. Every id below is context for it${worksFromThePage(a) ? ", and the page's own words are the material this edit works from" : ", and the page's own words are never the subject of the new copy"}.`,
   `THE PAGE: ${a.page}`,

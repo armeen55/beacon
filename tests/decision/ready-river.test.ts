@@ -4,13 +4,9 @@ beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1")); afterEach(()
 const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], client: {} as Record<string, unknown>, page: null as unknown }));
 vi.mock("@/domains/evidence/pages/owned-context", async (real) => ({ ...(await real() as object), loadOwnedPageBodies: async () => ({ get: () => db.page }) })); // the reviewer now reads the PAGE; the stored capture is the fixture
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client }));
-vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } }));
-import { nextObligation } from "@/domains/decision/obligation";
-import { openHold, preferFinished } from "@/domains/decision/completeness";
-import { deliverableFailures, staleCopyReasons } from "@/domains/decision/drafted-copy";
-import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
-import { proposalFingerprint, readQueuePage, queueLaneCounts, saveChangeProposal } from "@/domains/decision/proposal-store";
-import { AEO_BAR } from "@/domains/decision/accept-worthy";
+vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } })); import { nextObligation } from "@/domains/decision/obligation"; import { openHold, preferFinished } from "@/domains/decision/completeness";
+import { deliverableFailures, staleCopyReasons } from "@/domains/decision/drafted-copy"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
+import { proposalFingerprint, readQueuePage, queueLaneCounts, saveChangeProposal } from "@/domains/decision/proposal-store"; import { AEO_BAR } from "@/domains/decision/accept-worthy";
 import { copyKey, REVIEW_CONTRACT, unreviewed } from "@/domains/decision/proof";
 import { readFileSync } from "node:fs"; import { actionableProposalFailures } from "@/domains/decision/validate-proposal"; import { supabaseFake } from "../helpers/supabase-fake";
 import { deserializeChangeProposal, serializeChangeProposal, type ChangeProposal } from "@/domains/decision/contracts";
@@ -249,7 +245,7 @@ describe("packet admission survives storage and refresh", () => {
   beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", undefined));
   const copy = "Wild animals recorded in the reserve during the survey include river mammals and wetland birds, a selection limited to those habitats.\n## Species recorded in rivers\nSurvey sightings along river banks distinguish this group.\n## Species recorded in wetlands\nSurvey sightings in wetlands distinguish this group.\n| Species | Survey habitat |\n| --- | --- |\n| Otter | reserve rivers |\n| Heron | reserve wetlands |";
   const packet = (after = copy): ChangeProposal => {
-    const p = row({ changeFamily: "section", primaryQuery: "Which animals live in the reserve?", basis: "b1", workKey: "packet", copyStamp: "Reserve wildlife", recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after, where: "After the opening" },
+    const p = row({ changeFamily: "section", pageUrl: "https://fixture.example/wildlife", pagePath: "/wildlife", primaryQuery: "Which animals live in the reserve?", basis: "b1", workKey: "packet", copyStamp: "Reserve wildlife", recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after, where: "After the opening" },
       claims: [{ text: after, supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: after }] });
     return { ...p, semanticReview: { of: copyKey(p), version: REVIEW_CONTRACT, aeoPacket: AEO_BAR.approved, claims: [{ i: 0, by: ["page-copy-1"], entailed: true }] } }; };
   it("refuses legacy and falsely approved dumps before the first Ready read, including preserved briefs", async () => {
@@ -270,8 +266,7 @@ describe("packet admission survives storage and refresh", () => {
     expect(AEO_BAR.forRow(bundled)).toBe(true); expect(AEO_BAR.rowFailures(bundled).length).toBeGreaterThan(0);
     const owed = { ...p, semanticReview: undefined, status: "needs_review" as const }; owed.faults = [unreviewed(owed)!];
     expect([AEO_BAR.rowFailures(owed), nextObligation(owed)]).toEqual([[], { kind: "review" }]); await saveChangeProposal(owed); expect(held().status).toBe("needs_review");
-    for (const primaryQuery of ["species", "people", "figures", "How many species live here?", "How many people live here?"]) expect(AEO_BAR.forRow({ ...bundled, primaryQuery })).toBe(false);
-    for (const query of ["Which species live here?", "What animals live here?", "Famous local people", "Notable historical figures"]) { expect(AEO_BAR.applies("section", undefined, false, undefined, query)).toBe(true); expect(AEO_BAR.forRow({ ...bundled, primaryQuery: query, assignment: { ...p.assignment, shape: "inline_addition" } as NonNullable<ChangeProposal["assignment"]> })).toBe(true); }
+    for (const leaf of ["wildlife", "animals", "people", "figures", "species", "persian-cat", "persian-cobra"]) expect(AEO_BAR.forRow({ ...bundled, pageUrl: `https://fixture.example/animals/${leaf}`, primaryQuery: "Which animals live here?", assignment: { ...p.assignment, shape: "inline_addition" } as NonNullable<ChangeProposal["assignment"]> })).toBe(!leaf.startsWith("persian-"));
     expect(AEO_BAR.rowFailures(packet(copy.replaceAll("| Species |", "| Animal |")))).toEqual([]);
   });
 });

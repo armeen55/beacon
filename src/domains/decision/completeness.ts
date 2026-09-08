@@ -133,7 +133,7 @@ export function openHold(p: ChangeProposal, also: { found?: readonly string[] } 
   const bodyDefects = AEO_BAR.rowFailures(p), heading = (p.copyStamp ?? "").split("|").slice(0, 2).join(" ").trim() || p.pageLabel;
   if (c.kind === "existing_edit" && c.field === "meta") {
     bodyDefects.push(...AEO_BAR.emptyMeta(c.after, heading));
-    if (AEO_BAR.enabled() && AEO_BAR.collection(`${p.primaryQuery} ${heading}`) && !(p.bundle?.components ?? []).some((part) => /^(opening_answer|section|section_add|section_rewrite|restructure)$/.test(part.kind) && part.after.trim())) bodyDefects.push(AEO_BAR.holds.lead);
+    if (AEO_BAR.applies("answer_block", p.assignment?.standard, false, undefined, p) && !(p.bundle?.components ?? []).some((part) => /^(opening_answer|section|section_add|section_rewrite|restructure)$/.test(part.kind) && part.after.trim())) bodyDefects.push(AEO_BAR.holds.lead);
   }
   for (const part of p.bundle?.components ?? []) if (part.kind === "meta") bodyDefects.push(...AEO_BAR.emptyMeta(part.after, heading));
   const hard = [...bodyDefects, ...gaps, ...lims.filter((l) => HARD_LIMITATION.test(l))];
