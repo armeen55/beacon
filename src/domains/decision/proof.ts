@@ -224,7 +224,7 @@ export function unreviewed(p: ChangeProposal): string | null {
   const claims = p.claims ?? [], r = p.semanticReview, key = (xs: readonly string[]): string => [...xs].sort().join("|");
   // STRUCTURED DATA IS REVIEWED BY ITS OWN GATE, NOT BY THE EDITOR'S CHECKLIST (falsifier, 2026-09-02): /farsi-numbers owed a semantic review it could never pass, because every paid reading judged JSON-LD as prose and refused it with "the code adds no visible text". A schema block's claims are STRUCTURAL and its truth is the canon's visible-content proof, which validate-proposal owns.
   if (p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "schema") return null;
-  if (AEO_BAR.forRow(p) && (!AEO_BAR.passed(r?.aeoPacket) || r?.of !== copyKey(p))) return "These exact words still need a review of their structure, accuracy and relevance.";
+  if (AEO_BAR.forRow(p) && (!AEO_BAR.passed(r?.aeoPacket) || r?.of !== copyKey(p))) return AEO_BAR.holds.unreviewed;
   if (!(AEO_BAR.forRow(p) || p.changeFamily === "factual_correction" || p.informationGain || claims.some((c) => c.supportedBy.some((id) => id.startsWith("fact-"))))) return null;
   if (!r || r.of !== copyKey(p)) return "nothing on file says the sources it cites actually support what it claims, so it is held until Beacon's own reviewer has read them together";
   if (r.version !== REVIEW_CONTRACT) return "the reading on file was made under an older review contract, so it is read again before these words are offered";

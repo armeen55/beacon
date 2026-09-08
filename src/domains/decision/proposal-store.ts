@@ -25,7 +25,6 @@ type TerminalDisposition = "dismissed" | "withdrawn" | "superseded" | "settled";
 
 /** saved = a new version is durable. unchanged = the stored row already says this. refused = retired under this basis, evidence unmoved. blocked = it is being measured. failed = the write did not land. */
 type SaveResult = "saved" | "unchanged" | "refused" | "blocked" | "failed";
-// ── canonical identity ────────────────────────────────────────────────────────
 
 type ActionFamily = "title-family" | "section-family" | "links-family" | "technical-family" | "consolidation" | "accuracy-family" | "new_page";
 
@@ -77,7 +76,6 @@ function evidenceFingerprint(p: ChangeProposal): string {
 export function proposalFingerprint(p: ChangeProposal): string {
   const material = {
     id: p.id, status: p.status, confidence: p.confidence, basis: p.basis ?? null,
-    // THE IDENTITY OF THE WORK IS MATERIAL (Codex, 2026-08-23): without it here, a row that gained or changed its workKey hashed identically to the one on file and the store answered "unchanged", so the key never persisted
     ...(p.workKey ? { workKey: p.workKey } : {}), // and reuse could never match anything. Conditional, so a row minted before the key existed is never churned.
     change: p.recommendedChange, limitations: p.limitations.filter((l) => !/^The exact .* lands on the next pass/.test(l)), cause: p.causeFinding ?? null, /* THE OWED NOTE IS DISPLAY, NOT IDENTITY (reviewer, 2026-09-04): it flipped on twenty-five untouched rows in one zero-call drive and re-versioned each; a refusal sentence stays material, this note never was */
     components: (p.bundle?.components ?? []).map((c) => [c.kind, c.page ?? null, c.where ?? null, c.before, c.after, // EVERY MATERIAL FIELD OF A PIECE, so a piece cannot change what it MEANS without a new identity. Kind, words, evidence and risk alone left the page it lands on, the place on that page, what it is for and why it works out of the hash: a four-address differentiation could drop an address, move a component from one page to another, or re-aim the whole change, and compute "unchanged" against the row it replaced.
@@ -90,7 +88,6 @@ export function proposalFingerprint(p: ChangeProposal): string {
     copy: [p.opportunityType, p.whyItMatters, ...(p.operatorSteps ?? []), p.bundle?.objective ?? "", ...(p.bundle?.confidenceReasons ?? []), ...(p.research ? [p.research.missing, p.research.next] : [])], // THE WORDS ARE WHAT THE OPERATOR ACTS ON. A pass that sharpened the headline, the reason or the steps and nothing else computed "unchanged" and wrote nothing, so every rewrite of the queue's language died inside the producer and the stored row kept serving the sentence it was meant to replace.
     receipt: evidenceMaterial(p),
     missing: p.bundle?.receipt.missing ?? [],
-    // WHERE THE RANKING PUT IT IS NOT MATERIAL, AND THE NUMBER ON THE CARD IS (operator, 2026-09-04). The receipt went into identity so the $0 producers' order would persist, and it made every row's identity depend on the WHOLE SET: the score is computed against neighbours, so one card moving re-minted twenty-six untouched rows in a single pass and this account reached proposal_version 2,271 on work nobody had changed. The receipt still persists, on its own `ranking_receipt` column, refreshed in place below whenever it moves. WHETHER IT HAS BEEN RANKED AT ALL IS STILL MATERIAL, so a row the $0 producers minted unranked writes its first receipt into the payload exactly once and never churns for a later score; what the operator ACTS on is the impact figure printed on the card, so that number is identity too: a page whose fall was newly measured writes a new version, a page whose neighbour moved does not. THE NEIGHBOUR SENTENCE WAS NEVER HERE (operator, 2026-08-30), for the same reason.
     ...(p.rankingReceipt ? { ranked: true } : {}), ...(p.impactScore != null ? { impact: p.impactScore } : {}),};
   return createHash("sha256").update(JSON.stringify(material, (_k, v) => v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.keys(v as Record<string, unknown>).sort().map((k) => [k, (v as Record<string, unknown>)[k]])) : v)).digest("hex").slice(0, 16);} /* KEY ORDER IS NOT MATERIAL (reviewer, 2026-09-04): the store decodes a row in schema order and a producer mints the same finding in its own, so a byte-identical re-mint hashed differently, wrote a new version every tick, and its write erased the retirement receipt the merge would have inherited; objects are serialized with sorted keys, arrays keep their order because that order is material. */
 
@@ -98,7 +95,6 @@ export function proposalFingerprint(p: ChangeProposal): string {
 const decisionReceipt = (p: ChangeProposal): Record<string, unknown> => ({
   cause: p.diagnosisCause ?? null, why_it_matters: p.whyItMatters, confidence: p.confidence, limitations: p.limitations,
   receipt: p.bundle ? { items: p.bundle.receipt.items, missing: p.bundle.receipt.missing, freshest_observed_at: p.bundle.receipt.freshestObservedAt } : null,});
-// ── stored rows ───────────────────────────────────────────────────────────────
 
 /** `status` is `unknown` on purpose: a pre-rename row carries an old word and the bridge below is the ONE  place that word is understood. */
 type CanonRow = { id: string; proposal_version: number; status: unknown; terminal_disposition: TerminalDisposition | null;
@@ -114,7 +110,6 @@ function decode(payload: unknown): ChangeProposal | null {
 
 const rowFor = (p: ChangeProposal, ident: Identity, version: number): Record<string, unknown> => ({
   id: p.id, tenant_id: p.tenantId, ...ident, proposal_version: version, basis: p.basis ?? null,
-  // A DRAFT SAVE NEVER TOUCHES THE LIVE RANKING (Codex, 2026-08-23). Clearing the stamp on every save meant a regeneration pass un-ranked nine live rows and THEN failed to publish, so the database's own paging and the surviving customer release disagreed about order: a split brain manufactured by a failed build. The rank a row holds stays exactly as the last COMMITTED release stamped it (stampQueueRanking is the only writer), and a row whose position is stale is re-stamped when the next whole release commits, never un-ranked in between. A row that lives again is still no longer retired: the reason clears with the disposition, or a live row wears two states at once (operator, 2026-08-17). The objection survives on the answering draft's limitations.
   status: p.status, terminal_disposition: null, superseded_by: null, withdrawn_reason: null,
   payload: JSON.parse(serializeChangeProposal(p)) as unknown,
   decision_receipt: decisionReceipt(p), ranking_receipt: p.rankingReceipt ?? null, updated_at: new Date().toISOString(),});
@@ -127,7 +122,6 @@ async function setDisposition(tenantId: string, id: string, disposition: Termina
   if (error && (error.code === "PGRST204" || /column/i.test(error.message ?? ""))) ({ data, error } = await write(base));
   if (!error && data && data.length > 0) return true;
   log.error("[proposal-store] disposition write did not land", { id, disposition, error: error?.message ?? "no row" }); return false;}
-// ── writes ────────────────────────────────────────────────────────────────────
 
 /** The one token that lets a save move a row INTO implemented. It is module-private and handed out only by transitionProposalToImplemented, so "done" is reachable through the orchestrated transaction alone: a direct save carrying the implemented status without it is refused. The incident repair that orphaned  three implementations was exactly such a save. */
 const IMPLEMENTED_TRANSITION = Symbol("implemented-transition");
@@ -140,7 +134,7 @@ const sameWords = (a: ChangeProposal, b: ChangeProposal): boolean => {
   return words(a) === words(b); };
 /** READY IS A FINISHED STATE, AND THIS IS WHERE IT IS MADE ONE (operator, 2026-09-04). Every door spread the stored row whole, so /persian-rugs/heriz-rug stood at `ready` still carrying the brief it outgrew ("The exact wording lands on this card once the next funded pass writes it"), the faults a gate raised before the words moved, the operator's stale ask for a redraft, and every refusal sentence the sweep had appended to its limitations since the day it was minted. A row demoted and re-promoted wore its old refusals for ever. The gate vocabulary is the SAME one the $0 replay strips (completeness's GATE_WORDS), so both doors agree by construction; a limitation that describes the accepted copy is not written by a gate and stays. */
 const finished = (p: ChangeProposal): ChangeProposal => { const { research: _brief, redraftRequested: _asked, ...rest } = p;
-  return { ...rest, faults: [], limitations: p.limitations.filter((l) => !GATE_WORDS.test(l)) }; };
+  return { ...rest, faults: [], limitations: AEO_BAR.writerLimitations(p.limitations).filter((l) => !GATE_WORDS.test(l)) }; };
 /** Persist one proposal as the CURRENT answer for its hypothesis, superseding whatever held that identity before. Writes nothing when the stored row already says exactly this. Never throws. `keep` is handed THE ROW THAT STANDS after the call (the merged row when one is written, the stored row when nothing is), so a caller's own map holds what the database holds rather than the draft it arrived with. */
 export async function saveChangeProposal(proposal: ChangeProposal, transition?: symbol, keep?: (row: ChangeProposal) => void): Promise<SaveResult> {
   if (proposal.status === "ready" && (unreviewed(proposal) != null || proposal.researchOnly === true)) proposal = { ...proposal, status: "needs_review" }; // THE STORE NEVER ISSUES AN AUTHORIZATION AND NO LONGER SIGNS ONE EITHER: it asks the one shared question and refuses to keep `ready` on a row whose sources have not been shown to support its claims. AND A ROW THAT SAYS IT HAS NO COPY IS NEVER STORED FINISHED (incident recovery, 2026-09-04): research-only work was refused by every door that reads it and still went on file wearing the word Ready, which is a stamp outranking its own row.
@@ -160,7 +154,6 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     log.error("[proposal-store] this proposal does not survive its own contract, so nothing is saved", { tenantId: proposal.tenantId, id: proposal.id }); return "failed"; }
   try {
     const sb = getSupabaseAdmin(); const ident0 = identityOf(proposal);
-    // Read declined copy separately, in full, so unrelated history never vetoes a new proposal.
     const data: CanonRow[] = [], dismissed: CanonRow[] = [];
     for (const disposition of [null, "withdrawn", "dismissed"] as const) {
       for (let offset = 0; ; offset += 200) {
@@ -179,6 +172,7 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     const stored = mine && mine.terminal_disposition == null ? decode(mine.payload) : null;
     if (mine?.status === "implemented_pending_verification" && transition !== IMPLEMENTED_TRANSITION) { log.info("[proposal-store] you already marked this change done, so a new draft is not written over it", { tenantId: proposal.tenantId, id: proposal.id }); return "blocked"; }
     if (stored && transition !== NO_HANDOVER) proposal = sameWords(proposal, stored) && proposal.researchOnly !== true ? (proposal.previousCopy || !stored.previousCopy ? proposal : { ...proposal, previousCopy: stored.previousCopy }) : preferFinished(proposal, stored);
+    if (proposal.status === "ready" && AEO_BAR.forRow(proposal) && openHold(proposal).defects.length > 0) proposal = { ...proposal, status: "needs_review" };
     if (proposal.status === "ready") proposal = finished(proposal); // AFTER the merge, because the merge can hand back the prior's own limitations and status, and BEFORE the obligation below, so what a finished row owes is computed from the row it actually is
     const owes0 = nextObligation(proposal); const owes = owes0?.kind === "evidence" && owes0.need.kind === "serp" && owes0.need.reasonCode !== "no_winner_to_read" && proposal.obligation && proposal.obligation.kind !== "evidence" ? proposal.obligation : owes0; // A CALLER HOLDING THE RESULTS PAGE MAY ANSWER THE QUESTION THE PURE LADDER ASKS (falsifier, 2026-09-02): `nextObligation` cannot see the snapshot, so it asks for the reading; a producer that has it in hand and finds the shape refused answers with the redraft that would earn it, and the store keeps that answer rather than resetting it to the wait. // THE TYPED NEXT STEP IS STAMPED AT EVERY DOOR, not only the producer's: the release loop and the caveat sweep save straight through here, so a row written by either would otherwise carry an obligation computed for words it no longer has. // AND A SETTLEMENT IS NOT AN ANSWER TO "NOBODY HAS READ THIS SEARCH'S WINNERS" (reviewer two, 2026-09-06): the caller guard above kept the stored `terminal: no substantive gap named` on every re-save of a settled row, so the reading the ladder owes was re-stamped away at the one door that writes the row and no caller outside the producer ever saw it. This one reasonCode is exempt: it is decided from the row's own typed `winnersOnFile`, which no caller holds a better answer for.
     proposal = owes ? { ...proposal, obligation: owes } : proposal.obligation ? { ...proposal, obligation: undefined } : proposal;
@@ -394,7 +388,7 @@ export async function readQueuePage(
     for (const r of read) {
       if (r.terminal_disposition != null) continue;
       const p = decode(r.payload);
-      if (p && actionableProposalFailures(p, { tenantId, currentBasis: basis }).length === 0) {
+      if (p && (lane !== "ready" || laneOfRow(p, "ready") === "ready") && actionableProposalFailures(p, { tenantId, currentBasis: basis }).length === 0) {
         rows.push(p);
         // A STAMP NEVER OUTRANKS THE ROW IT STAMPS (operator, 2026-09-02): a release stamped a finished description "ready", a later pass re-minted the row as a brief, and the lane read the stamp and painted the brief as finished work with a Mark done button.
         laneById[p.id] = laneOfRow(p, (r.queue_lane ?? "").split("::")[1]);
@@ -434,7 +428,7 @@ export async function queueLaneCounts(tenantId: string, release: string, basis: 
 const LANE_COUNT_PAGE = 100;
 /** THE ONE LANE RULE, read by the page and by the counts so they can never disagree: the row's own state decides both ways and the stamp only sorts the review rows. */
 const laneOfRow = (p: ChangeProposal, stamped: string | undefined): "ready" | "todo" | "research" =>
-  p.status === "ready" && p.researchOnly !== true ? "ready" : p.researchOnly === true ? "research" : stamped === "research" ? "research" : "todo";
+  p.status === "ready" && p.researchOnly !== true && !(AEO_BAR.forRow(p) && openHold(p).defects.length > 0) ? "ready" : p.researchOnly === true ? "research" : stamped === "research" ? "research" : "todo";
 
 /** ONE bounded page of the canonical current rows, and the ceiling on a whole account. */
 const QUEUE_PAGE = 500, QUEUE_CEILING = 20_000;
