@@ -352,7 +352,7 @@ describe("the subject the winning page carries and this page does not", () => {
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     const state = { ready: true, posts: 0, parsed: [] as string[] }; script.search = factScript(state);
     script.reasoning = (body) => reasoningReply({ ...REASONING, fact_claim_extraction: { statements: [] },
-      fact_claim_judgement: { verdict: "page_correct", proposed: SAYS, confidence: "confirmed", note: "", supporting: [{ url: RIVAL, quote: SAYS, supported: true, supportSpan: SAYS, subjectSpan: `${QUERY} ${SUBJECT}`, subjectFrom: "quote", relationSpan: "", meaningSpans: [] }],
+      fact_claim_judgement: { verdict: "page_correct", proposed: SAYS, confidence: "confirmed", note: "", supporting: [{ url: RIVAL, quote: SAYS, groups: [], supported: true, supportSpan: SAYS, subjectSpan: `${QUERY} ${SUBJECT}`, subjectFrom: "quote", relationSpan: "", meaningSpans: [] }],
         subjects: [{ url: RIVAL, sameEntity: true, language: "English", script: null, why: "the article covers the people this subject is about" }] } }, body);
     const need = { key: `${HUB}::body::${QUERY}`, kind: "factual_source", query: `${SUBJECT} ${QUERY}`, url: `https://${SITE}${HUB}`, missingTopic: SUBJECT, rivalUrl: RIVAL, rank: 1,
       reasonCode: "missing_information", reason: `nothing checked on file answers "${SUBJECT}"`, workKey: `${HUB}::body::${QUERY}::wc5::e1`, unlocks: { proposalId: `${T}::${HUB}::existing_edit::demand_recovery`, step: "draft" } };
@@ -386,7 +386,7 @@ describe("the section the winner carries, read where it starts", () => {
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     const state = { ready: true, posts: 0, parsed: [] as string[] }; script.search = longPage(state);
     script.reasoning = (body) => reasoningReply({ ...REASONING, fact_claim_extraction: { statements: [] },
-      fact_claim_judgement: { verdict: "page_correct", proposed: SAYS, confidence: "confirmed", note: "", supporting: [{ url: RIVAL, quote: SAYS, supported: true, supportSpan: SAYS, subjectSpan: `${QUERY} ${SUBJECT}`, subjectFrom: "quote", relationSpan: "", meaningSpans: [] }],
+      fact_claim_judgement: { verdict: "page_correct", proposed: SAYS, confidence: "confirmed", note: "", supporting: [{ url: RIVAL, quote: SAYS, groups: [], supported: true, supportSpan: SAYS, subjectSpan: `${QUERY} ${SUBJECT}`, subjectFrom: "quote", relationSpan: "", meaningSpans: [] }],
         subjects: [{ url: RIVAL, sameEntity: true, language: "English", script: null, why: "the article covers the people this subject is about" }] } }, body);
     const need = { key: `${HUB}::body::${QUERY}`, kind: "factual_source", query: `${SUBJECT} ${QUERY}`, url: `https://${SITE}${HUB}`, missingTopic: SUBJECT, rivalUrl: RIVAL, rank: 1,
       reasonCode: "missing_information", reason: `nothing checked on file answers "${SUBJECT}"`, workKey: `${HUB}::body::${QUERY}::wc5::e1`, unlocks: { proposalId: `${T}::${HUB}::existing_edit::demand_recovery`, step: "draft" } };
@@ -402,7 +402,7 @@ describe("the section the winner carries, read where it starts", () => {
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     const state = { ready: true, posts: 0, parsed: [] as string[] }; script.search = longPage(state);
     script.reasoning = (body) => reasoningReply({ ...REASONING, fact_claim_extraction: { statements: [] },
-      fact_claim_judgement: { verdict: "page_correct", proposed: SAYS, confidence: "confirmed", note: "", supporting: [{ url: RIVAL, quote: SAYS, supported: true, supportSpan: SAYS, subjectSpan: `${QUERY} ${SUBJECT}`, subjectFrom: "quote", relationSpan: "", meaningSpans: [] }],
+      fact_claim_judgement: { verdict: "page_correct", proposed: SAYS, confidence: "confirmed", note: "", supporting: [{ url: RIVAL, quote: SAYS, groups: [], supported: true, supportSpan: SAYS, subjectSpan: `${QUERY} ${SUBJECT}`, subjectFrom: "quote", relationSpan: "", meaningSpans: [] }],
         subjects: [{ url: RIVAL, sameEntity: true, language: "English", script: null, why: "the article covers the people this subject is about" }] } }, body);
     const need = { key: `${HUB}::body::${QUERY}`, kind: "factual_source", query: `${SUBJECT} ${QUERY}`, url: `https://${SITE}${HUB}`, missingTopic: SUBJECT, rivalUrl: RIVAL, rank: 1,
       reasonCode: "missing_information", reason: `nothing checked on file answers "${SUBJECT}"`, workKey: `${HUB}::body::${QUERY}::wc5::e1`, unlocks: { proposalId: `${T}::${HUB}::existing_edit::demand_recovery`, step: "draft" } };

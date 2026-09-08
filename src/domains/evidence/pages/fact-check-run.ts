@@ -96,6 +96,7 @@ const JUDGE_SYSTEM = 'You compare ONE statement a web page makes against PASSAGE
   + 'Return ONLY {"verdict","proposed","literal","usage","confidence","supporting","note"}. '
   + 'verdict: page_correct | page_wrong | page_imprecise | undecidable. confidence: confirmed | likely | disputed | unsupported. '
   + '`supporting` is one entry PER SOURCE that actually supports your answer: {"url": the source URL exactly as given, "quote": a sentence copied VERBATIM from THAT source\'s own passage}. '
+  + '`groups` on each supporting source lists only named groups of the page subject that this source distinguishes with qualifying criteria. Use [] for a mere roster or fauna/flora lede on an animal page. Copy names verbatim; quote a consecutive window containing BOTH the proposal and all group names, including adjacent sentences. '
   + 'Never repeat one sentence across sources, and never list a source you cannot quote. If you can quote none, answer unsupported and propose nothing. '
   + 'Distinguish literal etymology from modern usage: a page recording a live usage is not automatically wrong. Never invent a replacement. '
   + '`subjects` is one entry PER SOURCE you quoted: {"url", "sameEntity", "language", "script", "why"}. sameEntity is TRUE only when the passage is about the SAME name, word or entity the page is talking about, in the SAME language. '
@@ -108,7 +109,7 @@ const JUDGE_SYSTEM = 'You compare ONE statement a web page makes against PASSAGE
 type Extracted = { statements: { subject: string; current: string; locator?: string }[] };
 type Judged = { verdict: FactCheck["verdict"]; proposed: string; literal: string; usage: string;
   confidence: FactCheck["confidence"]; note: string;
-  supporting: { url: string; quote: string; supported?: boolean; supportSpan?: string; subjectSpan?: string;
+  supporting: { url: string; quote: string; groups?: string[]; supported?: boolean; supportSpan?: string; subjectSpan?: string;
     subjectFrom?: "quote" | "title"; relationSpan?: string; meaningSpans?: string[] }[];
   subjects?: { url: string; sameEntity: boolean; language: string; script: string | null; why: string }[] };
 
@@ -344,11 +345,11 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const proposedNow = (v.proposed ?? "").trim(), kind = claimTypeOf(claim.subject, claim.current || proposedNow, claim.locator); // ONE CLASSIFICATION, BOTH DOORS (reviewer, 2026-09-02). The kind above is read from the page's own wording, which a missing-information row does not have, while the authorization door rebuilds it from the wording OR the researched statement: the two disagreed, the identity never matched, the artifact read `stale` on every drive, and two live rows were handed back and re-bought for ever. What a row asserts is what classifies it at both doors.
   const ctxOf = (p: (typeof passages)[number], quote: string): SupportContext => ({ tenantId, page: page.path, statementKey: next!.statementKey, pageLocator: claim.locator, subject: claim.subject, claimKind: kind, current: claim.current, proposed: proposedNow, url: p.url, kind: p.kind, quote, titleContext: p.title ?? null });
   /** THE ONE TO THREE CONSECUTIVE SENTENCES OF THIS SOURCE'S OWN FETCHED TEXT THAT CARRY THE PROPOSAL, or null: A SLICE OF THE DOCUMENT BY OFFSETS, exactly as askedWindow above reads one, at most 600 characters, accepted only when it clears the carriage bar, and the TIGHTEST window wins a tie so no sentence rides along that carries nothing. It was `join(" ")` over the matched sentences (reviewer, 2026-09-02), and a heading line carries no terminator so it matches nothing at all: two sentences with a heading between them came back joined by a single space, and the quote on the customer's receipt, and the span the artifact claimed, were words the source never wrote side by side. A slice is verbatim by construction, so `text.includes(says)` holds for every banked quote. */
-  const carrying = (p: (typeof passages)[number]): string | null => {
+  const carrying = (p: (typeof passages)[number], groups: readonly string[] = []): string | null => {
     const sents = p.text.match(/[^.!?\n]+[.!?]+["')\]]?|[^.!?\n]+$/g) ?? [], at: number[] = []; let cut = 0, best: { window: string; carried: number } | null = null;
     for (const x of sents) { const i = p.text.indexOf(x, cut); at.push(i < 0 ? cut : i); cut = (i < 0 ? cut : i) + x.length; }
     for (let i = 0; i < sents.length; i += 1) for (let k = 1; k <= 3 && i + k <= sents.length; k += 1) {
-      const window = p.text.slice(at[i]!, at[i + k - 1]! + sents[i + k - 1]!.length).trim(); if (window.length > 600) break;
+      const window = p.text.slice(at[i]!, at[i + k - 1]! + sents[i + k - 1]!.length).trim(); if (window.length > 600) break; if (!groups.every((g) => window.includes(g))) continue;
       const a = window.length > 2 ? deriveSupport(ctxOf(p, window)) : null; if (a && (!best || a.meaningSpans.length > best.carried || (a.meaningSpans.length === best.carried && window.length < best.window.length))) best = { window, carried: a.meaningSpans.length }; }
     return best?.window ?? null; };
   const verified = new Map<string, string>(), vouchedAs = new Map<string, string>(); // passage url -> its own verified quote, and passage url -> the url the reader NAMED for it, so the subject it vouched for is found even when a quote resolves to a different passage than the one claimed
@@ -384,7 +385,9 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     let says = (verified.get(p.url) ?? "").slice(0, 600);
     // THE QUOTE A MISSING-INFORMATION ROW BANKS IS THE PASSAGE THAT CARRIES THE PROPOSITION, not whichever sentence the judge reached for first. Live on /iran-flags the judge quoted two sentences about the flag CHANGING in 1979 and wrote that the passages support the pre-1979 colours and emblem; they did, three sentences away, so the row banked `likely` and its demand row was refused for months. When the verified quote falls short, the one to three consecutive sentences of THIS source's own fetched text that carry the most of the proposal are banked instead: a window of the text this fetch already read, in its own words and order, never assembled from pieces, banked only when it clears the carriage bar, and the TIGHTEST window wins a tie so no sentence rides along that carries nothing.
     if (proposedNow && says && claim.current.trim() === "" && supporters.includes(p) && !deriveSupport(ctxOf(p, says))) says = carrying(p) ?? says;
-    const stamp = { url: p.url, kind: p.kind, says, ...(p.title ? { titleContext: p.title, titleContextFrom: "fetched_document" as const } : {}) };
+    const groups = supporters.includes(p) ? (rulings.get(p.url)?.groups ?? []).filter((g) => g.trim() && p.text.includes(g)) : [];
+    if (groups.length && !groups.every((g) => says.includes(g))) says = carrying(p, groups) ?? says;
+    const stamp = { url: p.url, kind: p.kind, says, groups: groups.filter((g) => says.includes(g)), ...(p.title ? { titleContext: p.title, titleContextFrom: "fetched_document" as const } : {}) };
     if (!says || !proposedNow || !supporters.includes(p)) return stamp;
     const ctx = ctxOf(p, says);
     const r = rulings.get(p.url) ?? rulings.get(vouchedAs.get(p.url) ?? "");
