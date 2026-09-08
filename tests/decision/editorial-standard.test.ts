@@ -8,14 +8,12 @@ vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: as
 vi.mock("@/domains/evidence/pages/fact-checks", async (o) => ({ ...(await o<Record<string, unknown>>()), readFactChecks: async () => facts.rows }));
 vi.mock("@/domains/evidence/pages/owned-context", async (o) => ({ ...(await o<Record<string, unknown>>()), loadOwnedPageBodies: async () => bodies.map }));
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "t", domain: "fixture.example", growth_goal: null }), basisTag: () => "basis_test" }));
+const passState = vi.hoisted(() => ({ snapshot: null as unknown })); vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => passState.snapshot })); vi.mock("@/domains/decision/llm/gateway", async (o) => ({ ...(await o<Record<string, unknown>>()), creditBreakerHeld: async () => false })); import { produceProposalsForTenant } from "@/domains/decision/produce-proposals"; import { emptyResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
 import { applyDraftedCopy, deliverableFailures, draftFieldForPage, reviewFinishedCopy, staleCopyReasons } from "@/domains/decision/drafted-copy";
 import { nextObligation } from "@/domains/decision/obligation"; import { openHold, preferFinished } from "@/domains/decision/completeness";
-import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
-import { editorialStandard, evidenceShortfall, REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
-import { canonicalUrlKey } from "@/domains/evidence/snapshot";
-import { deserializeChangeProposal, serializeChangeProposal, type ChangeProposal } from "@/domains/decision/contracts";
-const NOW = new Date("2026-09-05T00:00:00.000Z");
-const SITES = [
+import { DRAFT_BUDGET } from "@/domains/decision/draft-budget"; import { editorialStandard, evidenceShortfall, REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
+import { canonicalUrlKey } from "@/domains/evidence/snapshot"; import { deserializeChangeProposal, serializeChangeProposal, type ChangeProposal } from "@/domains/decision/contracts";
+const NOW = new Date("2026-09-05T00:00:00.000Z"); const SITES = [
   { t: "tenant-one", url: "https://alpha.example/tide-pools", label: "Tide Pools", q: "tide pool safety", title: "Tide Pools", h1: "Tide Pools",
     ask: "how cold is the water in tide pools", answer: "The water in a tide pool holds close to the ocean temperature until the sun warms the shallowest of them.",
     figured: "The water in a tide pool holds close to the ocean temperature until the sun warms the shallowest of them, and one shore survey counted 3157 pools along it.",
@@ -36,14 +34,18 @@ const card = (s: Site, over: Partial<ChangeProposal> = {}): ChangeProposal => ({
   whyItMatters: "w", estimatedEffortMinutes: 1, riskLevel: "low", confidence: "medium", limitations: [], evidence: { query: s.q, hints: [], evidenceRefCount: 1 }, impactScore: 10, upsidePerMonth: null, modeledOn: "the stored results page for this search", publish: "manual", createdAt: NOW.toISOString(), ...over });
 const PASS = { aeoPacket: { leadAnswer: true, groupedH2s: true, defendedClaims: true, entityBlock: true, boundedScope: true, h1QueryAlignment: true }, pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "It says what this page answers.", resolution: "none" };
 const rule = (cs: readonly { supportedBy: readonly string[] }[]) => cs.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })), TAIL = { evidenceRefs: [{ source: "gsc", detail: "real page demand" }], confidence: "high", risks: [], operatorSteps: ["Replace the field"], proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "untouched pages" }, rationale: "r", uncertaintyOrOmitted: [], implementationMinutes: 1 };
-const run = async (s: Site, c: ChangeProposal, draft: Record<string, unknown>, verdict: Record<string, unknown> | null | "throw" = PASS, rows: unknown[] = [], body: Record<string, unknown> = bodyOf(s), snap: Record<string, unknown> = snapOf(s)) => {
+  const reading = async (s: Site, ask = s.ask, answer = s.answer) => { const { rulesVersionFor } = await import("@/domains/evidence/pages/fact-checks"), { pageHashOf } = await import("@/domains/evidence/pages/fact-check-run"), b = bodyOf(s);
+    return { page: new URL(s.url).pathname, statementKey: "asked", subject: ask, current: "", proposed: answer, literal: null, usage: null, sources: [{ url: "https://ref.example/guide", kind: "encyclopedia", says: answer }], agreement: "single_source", confidence: "confirmed", verdict: "page_correct", alsoAt: [], note: "",
+      pageContentHash: pageHashOf([b.title, b.h1, ...b.headings, ...b.passages].join("\n")), pageLocator: null, sourceReadAt: NOW.toISOString(), state: "checked", rulesVersion: rulesVersionFor({ subject: ask, current: "" }), evidenceBasis: null, checkedAt: NOW.toISOString() }; };
+const run = async (s: Site, c: ChangeProposal, draft: Record<string, unknown> | ((field: string) => Record<string, unknown>), verdict: Record<string, unknown> | null | "throw" = PASS, rows: unknown[] = [], body: Record<string, unknown> = bodyOf(s), snap: Record<string, unknown> = snapOf(s)) => {
+  let emitted: Record<string, unknown> = typeof draft === "function" ? {} : draft;
   bodies.map = new Map([[canonicalUrlKey(s.url), body]]); facts.rows = rows; const owed: unknown[] = [], settled = new Map<string, unknown>(), notes: string[] = [], why = new Map<string, string>(), unsettled = new Set<string>(), seen: { kind: string; text: string }[] = [];
   const out = await applyDraftedCopy([c], { tenantId: s.t, snapshot: snap as never, now: NOW, refusals: why, unsettled, owe: (_k: string, n: unknown) => owed.push(n), resolved: settled as never,
     note: (_k: string, o: string, w?: string) => notes.push(`${o}:${w ?? ""}`), budget: DRAFT_BUDGET.plan({ jobs: [{ key: c.pagePath!, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
     complete: async ({ kind, system, user }: { kind: string; system: string; user: string }) => { seen.push({ kind, text: kind === "editor_judgement" ? system : `${system}\n${user}` });
-      if (kind !== "editor_judgement") return { value: draft };
+      if (kind !== "editor_judgement") { emitted = typeof draft === "function" ? draft(/Field to edit: (\w+)/.exec(user)?.[1] ?? "") : draft; return { value: emitted }; }
       if (verdict === "throw") throw new Error("the reader of meaning never answered");
-      return verdict ? { value: { ...verdict, claims: rule((draft.claims ?? []) as never) } } : { error: "no answer", retryable: true }; } } as never);
+      return verdict ? { value: { ...verdict, claims: rule((emitted.claims ?? []) as never) } } : { error: "no answer", retryable: true }; } } as never);
   return { row: out[0]!, owed, settled: [...settled.values()], notes, why: [...why.values()], unsettled: [...unsettled], judged: seen.filter((x) => x.kind === "editor_judgement").map((x) => x.text), wrote: seen.filter((x) => x.kind !== "editor_judgement").map((x) => x.text) };
 };
 describe("the editorial standard one edit is judged by", () => {
@@ -218,16 +220,27 @@ describe("the standard says what the work is, and the id says where the words ca
       recommendedChange: { kind: "existing_edit", field, before: null, after: `${s.q}: ${s.lines[2]}`, where: 'A new section headed "H"' }, assignment: ASSIGN({ standard }) }), new Map([[canonicalUrlKey(s.url), bodyOf(s)]]) as never, [], { title: s.title, h1: s.h1, outline: s.heads } as never, false, []);
     expect([said("answer_block", "restructuring").some((r) => r.includes(HEADWORD)), said("answer_block", "summary").some((r) => r.includes(HEADWORD)), said("section", "restructuring").some((r) => r.includes(HEADWORD)), said("section", "missing_answer").some((r) => r.includes(HEADWORD))],
       "the field whose whole job is to answer the tracked search may never open with that search as a label, and a section keeps the standard as its only gate").toEqual([true, true, false, true]); });
-  const reading = async (s: Site, ask = s.ask, answer = s.answer) => { const { rulesVersionFor } = await import("@/domains/evidence/pages/fact-checks"), { pageHashOf } = await import("@/domains/evidence/pages/fact-check-run"), b = bodyOf(s);
-    return { page: new URL(s.url).pathname, statementKey: "asked", subject: ask, current: "", proposed: answer, literal: null, usage: null, sources: [{ url: "https://ref.example/guide", kind: "encyclopedia", says: s.answer }], agreement: "single_source", confidence: "confirmed", verdict: "page_correct", alsoAt: [], note: "",
-      pageContentHash: pageHashOf([b.title, b.h1, ...b.headings, ...b.passages].join("\n")), pageLocator: null, sourceReadAt: NOW.toISOString(), state: "checked", rulesVersion: rulesVersionFor({ subject: ask, current: "" }), evidenceBasis: null, checkedAt: NOW.toISOString() }; };
-  it.each(SITES)("hands the writer a checked reading as the sentence it is, keeps its search behind that sentence, and tells it to lead with the answer rather than with the source list, on $t", async (s) => {
-    const gap = card(s, { changeFamily: "section", treatment: "add_answer_section", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Add the missing answer." },
-      causeFinding: { cause: "retrieved_not_cited", action: null, evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [], falsifier: "f", explanation: "e", payload: { cause: "retrieved_not_cited", engine: "chatgpt", promptText: s.q, missing: s.ask, aeoKind: "missing_information" } } as never });
-    const wrote = (await run(s, gap, { field: "answer_block", before: null, after: s.answer, ...TAIL, placementAnchor: s.h1, naturalHeading: s.heads[0]!, measurementTarget: s.q, claims: [{ text: s.answer, supportedBy: ["fact-1"] }] }, PASS, [await reading(s)])).wrote.join("\n");
-    const leads = wrote.slice(wrote.indexOf("MUST LEAD WITH"), wrote.indexOf("SUPPORTING FACTS"));
-    expect([wrote.includes(`${s.ask}: ${s.answer}`), wrote.includes(`${s.answer} This is about "${s.ask}".`), leads.includes(s.answer), leads.includes("https://ref.example/guide"), leads.includes("rated confirmed")],
-      "the search words never stand in front of the sentence with a colon, the reading reaches the writer as its own sentence with the search behind it, and the one line telling the writer what to open with carries that sentence and neither a source address nor a confidence rating").toEqual([false, true, true, false, false]); });
+  it.each([false, true, "answer"])("empty/weak page writes body and meta together without re-funding a stored answer, weak=%s", async (weak) => {
+    const s = { ...SITES[0]!, q: SITES[0]!.ask, lines: weak ? ["Tide pools lie along this rocky shore."] : [], heads: [] }, c = card(s, weak === "answer" ? { changeFamily: "answer_block", treatment: "add_answer_section", recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: "Write the answer." } } : {});
+    const snap = { ...snapOf(s), ownedPages: [{ ...snapOf(s).ownedPages[0]!, content: { ...snapOf(s).ownedPages[0]!.content, wordCount: weak ? 8 : 0 } }] }; const emit = (field: string) => ({ ...TAIL, field, before: field === "meta" ? "Old line." : null, after: s.answer, naturalHeading: null, placementAnchor: s.h1, measurementTarget: s.q, claims: [{ text: s.answer, supportedBy: ["fact-1"] }] });
+    const r = await run(s, c, emit, PASS, [await reading(s)], bodyOf(s), snap); expect([r.row.status, r.row.bundle?.components.map((x) => [x.kind, x.after]), openHold(r.row).defects], r.why.join("; ")).toEqual(["ready", [["opening_answer", s.answer], ["meta", s.answer]], []]);
+    const banked = deserializeChangeProposal(serializeChangeProposal(r.row))!; expect(staleCopyReasons(banked, bodies.map as never, [], { ...snap.ownedPages[0]!.content, metaDescription: "Old line." })).toEqual([]); expect(openHold(banked).defects).toEqual([]); const reread = await reviewFinishedCopy(banked, { tenantId: s.t, now: NOW, judge: async (d) => ({ ...PASS, claims: rule(d.claims) }) as never }); expect(reread.row && openHold(reread.row).defects).toEqual([]); expect(openHold({ ...banked, bundle: { ...banked.bundle!, components: banked.bundle!.components.slice(1) } }).defects.length).toBeGreaterThan(0);
+    if (weak === "answer") { passState.snapshot = { ...snap, competitors: [], keywordDemand: [], questionDemand: [], intentClusters: [], cannibalization: [], contentGaps: [], internalLinkOpportunities: [], aiCitations: { ownedCited: 0, competitorCited: 0, engines: [], rowsScanned: 0 }, research: emptyResearchEvidence(), evidenceHash: "fixture", ownedPages: [{ ...snap.ownedPages[0]!, content: { ...snap.ownedPages[0]!.content, internalLinks: [], schemaTypes: [] }, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } }] };
+      const context = (rows: ChangeProposal[]) => new Map<string, unknown>([[`proposals:rows:${s.t}`, Promise.resolve(new Map(rows.map((row) => [row.id, row])))], [`cards:extra:${s.t}`, Promise.resolve({ run: { cards: [c], complete: false, held: [], needsOwnPage: [], families: [] } })], [`cards:factual:${s.t}`, Promise.resolve({ cards: [], complete: false })], [`cards:recovery:${s.t}`, Promise.resolve({ cards: [], complete: false, window: { earlyDays: 0, earlyFrom: null, earlyTo: null }, losses: [] })]]), complete = vi.fn(async () => ({ error: "No second writer or judge may be hired", retryable: false })), options = { now: NOW, produce: true, persist: false, maxDrafts: 1, complete };
+      const before = await produceProposalsForTenant(s.t, { ...options, shared: context([]) }); expect(before.paid.funded).toContain(DRAFT_BUDGET.keyOf(c)); complete.mockClear(); const again = await produceProposalsForTenant(s.t, { ...options, shared: context([banked]) }); expect([again.paid.funded, complete.mock.calls.length]).toEqual([[], 0]); }
+    for (const bad of ["no added description", "", s.h1]) { const failed = await run(s, { ...c, status: "ready" }, (field) => field === "meta" ? { ...emit(field), after: bad } : emit(field), PASS, [await reading(s)], bodyOf(s), snap); expect(failed.row.status).not.toBe("ready"); }
+    expect((await run(s, c, emit, PASS, [], bodyOf(s), snap)).row.status).not.toBe("ready"); });
+  it("title/H1-only meta refuses before hiring even with a populated word count", async () => {
+    const s = { ...SITES[0]!, lines: [SITES[0]!.h1], heads: [] }; for (const completeness of ["complete", "partial"]) { const r = await run(s, card(s, { status: "ready" }), {}, PASS, [], { ...bodyOf(s), completeness }); expect([r.wrote.length, r.row.status]).toEqual([0, "needs_review"]); } });
+  it("a populated page still owing missing_answer refuses premature meta", async () => {
+    const s = SITES[0]!, c = card(s, { causeFinding: { cause: "retrieved_not_cited", payload: { cause: "retrieved_not_cited", missing: s.ask, aeoKind: "missing_answer" } } as never });
+    const r = await run(s, c, {}); expect(r.row.status).not.toBe("ready"); expect(r.wrote.every((x) => !x.includes("Field to edit: meta"))).toBe(true); });
+  it("Joojeh-class empty and tautological meta cannot be Ready even with a positive review or rollback", async () => {
+    const s = SITES[0]!; for (const flag of ["1", "0"]) { vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", flag);
+      for (const after of ["no added description", "", s.h1, `${s.h1}: description and information`]) {
+        const r = await run(s, card(s), { ...TAIL, field: "meta", before: "Old line.", after, placementAnchor: s.h1, claims: [{ text: s.h1, supportedBy: ["page-h1"] }] }); expect(r.row.status).not.toBe("ready");
+      }
+    } });
   const FIGURE = "3157", NUMBER = `This draft says "${FIGURE}"`;
   const gapCard = (s: Site, explanation: string) => card(s, { changeFamily: "section", treatment: "add_answer_section", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Add the missing answer." },
     causeFinding: { cause: "retrieved_not_cited", action: null, evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [], falsifier: "f", explanation, payload: { cause: "retrieved_not_cited", engine: "chatgpt", promptText: s.q, missing: s.ask, aeoKind: "missing_information" } } as never });
@@ -343,37 +356,23 @@ describe("the deadline the editor asks before it starts a call", () => {
       const cut = await drive(at + 300_000, at + 600_000); vi.setSystemTime(at); const ran = await drive(at + 600_000, null); vi.useRealTimers();
       expect([cut.kinds, cut.unsettled.length, cut.why.includes("time box ended before this call could start")],
         "the writer's call finished and the reading of meaning was never started, so nothing was bought past the box and the card is owed again at its own rank").toEqual([["atomic_edit"], 1, true]);
-      expect([ran.kinds, ran.unsettled], "a box with room ahead of it starts both calls exactly as before").toEqual([["atomic_edit", "editor_judgement"], []]);
-    });
+      expect([ran.kinds, ran.unsettled], "a box with room ahead of it starts both calls exactly as before").toEqual([["atomic_edit", "editor_judgement"], []]); });
   }
 });
 describe("#129 full AEO packet acceptance", () => {
-  beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1"));
-  it("keeps one-fact additions and settled no-change briefs out of the packet format", async () => {
-    const { assignmentOf } = await import("@/domains/decision/assignment"), { AEO_BAR } = await import("@/domains/decision/accept-worthy");
-    const body = "Reserve rivers carry water through the northern wetlands.", fact = "Otters shelter along reserve rivers.";
-    const packet = { targetUrl: "https://alpha.example/wildlife", title: "Reserve wildlife", h1: "Reserve wildlife", headings: [], bodyText: body, trackedQuestion: "reserve rivers", evidence: { "page-copy-1": body, "fact-1": fact }, gap: { kind: "missing_answer", propositions: [fact] }, demand: { preserve: [], vocabulary: [] } } as never;
-    const inline = assignmentOf(packet, null, "answer_block")!;
-    expect([inline.shape, inline.maxSentences, inline.format.includes("HARD LIMITS"), AEO_BAR.applies("answer_block", inline.standard, false, inline.shape)]).toEqual(["inline_addition", 2, false, false]);
-    const settled = assignmentOf({ ...packet as object, bodyText: fact, evidence: { "page-copy-1": fact, "fact-1": fact } } as never, null, "answer_block")!;
-    expect([settled.shape, settled.format]).toEqual(["no_change", "the page already answers it and no extractability improvement can be named"]); expect(["section", "direct_answer", "restructure"].every((shape) => AEO_BAR.applies("answer_block", "restructuring", false, shape))).toBe(true);
-  });
+  beforeEach(() => vi.unstubAllEnvs());
   it("accepts a realistic six-entity packet within the writer caps, with separate supported claims", async () => {
     const records = [
-      ["Otter", "Mammal", "rivers", "Otters are mammals recorded along the reserve rivers during the autumn survey, where observers identified them by tracks on muddy banks and repeated sightings near the water."],
-      ["Water vole", "Mammal", "reed margins", "Water voles are mammals recorded along reed margins during the autumn survey, where observers found burrow entrances beside the water and feeding remains among the stems."],
-      ["Beaver", "Mammal", "deep channels", "Beavers are mammals recorded in deep channels during the autumn survey, where observers documented cut branches near the banks and fresh signs of feeding beside the water."],
-      ["Heron", "Bird", "shallow pools", "Herons are birds recorded in shallow pools during the autumn survey, where observers watched them standing at the water edge and feeding in the open shallows."],
+      ["Otter", "Mammal", "rivers", "Otters are mammals recorded along the reserve rivers during the autumn survey, where observers identified them by tracks on muddy banks and repeated sightings near the water."], ["Water vole", "Mammal", "reed margins", "Water voles are mammals recorded along reed margins during the autumn survey, where observers found burrow entrances beside the water and feeding remains among the stems."], ["Beaver", "Mammal", "deep channels", "Beavers are mammals recorded in deep channels during the autumn survey, where observers documented cut branches near the banks and fresh signs of feeding beside the water."], ["Heron", "Bird", "shallow pools", "Herons are birds recorded in shallow pools during the autumn survey, where observers watched them standing at the water edge and feeding in the open shallows."],
       ["Kingfisher", "Bird", "river banks", "Kingfishers are birds recorded beside river banks during the autumn survey, where observers watched them resting on low branches before diving into the river."],
       ["Reed warbler", "Bird", "dense reeds", "Reed warblers are birds recorded in dense reeds during the autumn survey, where observers identified them by their calls and movement between stems above the water."],
     ];
     const lead = "Wildlife recorded in the reserve during the autumn survey includes mammals identified by feeding signs and waterbirds identified by their activity and calls. These six examples describe survey records, without claiming a complete inventory.";
     const s = { ...SITES[0]!, q: "which animals live in the reserve", title: "Reserve wildlife", h1: "Reserve wildlife", heads: ["Survey records"], lines: [...records.map((r) => r[3]!), lead] };
     const after = `${lead}\n## Mammals identified by feeding signs\n${s.lines.slice(0, 3).join("\n")}\n## Birds identified by activity and calls\n${s.lines.slice(3, 6).join("\n")}\n| animal | group | survey habitat |\n| --- | --- | --- |\n${records.map((r) => `| ${r[0]} | ${r[1]} | ${r[2]} |`).join("\n")}`;
-    const c = card(s, { changeFamily: "section", treatment: "add_answer_section", recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: "Write the grouped survey answer." }, causeFinding: { cause: "retrieved_not_cited", action: null, evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [], falsifier: "f", explanation: "Survey records need a grouped answer.", payload: { cause: "retrieved_not_cited", engine: "chatgpt", promptText: s.q, missing: "grouped survey records", aeoKind: "scattered_answer" } } as never });
-    const result = await run(s, c, { ...TAIL, field: "answer_block", before: null, after, naturalHeading: null, placementAnchor: s.h1, measurementTarget: s.q, claims: s.lines.map((text, i) => ({ text, supportedBy: [`page-copy-${i + 1}`] })) });
-    expect([after.length > 1500, after.length <= 2000, after.split(/\s+/).length <= 400, result.row.claims?.length, result.row.status, openHold(result.row).defects, result.row.operatorSteps?.includes("Paste the complete answer after it, keeping its headings and table or labeled list")]).toEqual([true, true, true, 7, "ready", [], true]); expect(result.wrote.join(" ")).toContain("HARD LIMITS: finalCopy must fit 2000 characters");
-  });
+    const c = card(s, { changeFamily: "section", treatment: "add_answer_section", recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: "Write the grouped survey answer." }, causeFinding: { cause: "retrieved_not_cited", action: null, evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [], falsifier: "f", explanation: "Survey records need a grouped answer.", payload: { cause: "retrieved_not_cited", engine: "chatgpt", promptText: s.q, missing: "grouped survey records", aeoKind: "missing_answer" } } as never });
+    const result = await run(s, c, { ...TAIL, field: "answer_block", before: null, after, naturalHeading: null, placementAnchor: s.h1, measurementTarget: s.q, claims: s.lines.map((text, i) => ({ text, supportedBy: [i === 6 ? "fact-1" : `page-copy-${i + 1}`] })) }, PASS, [await reading(s, `${s.q} grouping criteria and selection boundary`, lead)]);
+    expect([after.length > 1500, after.length <= 2000, after.split(/\s+/).length <= 400, result.row.claims?.length, result.row.status, openHold(result.row).defects, result.row.operatorSteps?.includes("Paste the complete answer after it, keeping its headings and table or labeled list")]).toEqual([true, true, true, 7, "ready", [], true]); expect(result.wrote.join(" ")).toContain("HARD LIMITS: finalCopy must fit 2000 characters"); });
   for (const people of [false, true]) {
   const s = people ? { ...SITES[0]!, url: "https://alpha.example/people", label: "Notable people", q: "notable people from the region", title: "Notable people", h1: "Notable people", heads: ["Poetry", "Painting"], lines: ["Mira is a poet born in the region.", "Dara is a painter born in the region.", "These examples concern people born in the region whose poetry or painting appears in the archive."] } : { ...SITES[0]!, url: "https://alpha.example/wildlife", label: "Wildlife", q: "which animals live in the reserve", title: "Reserve wildlife", h1: "Reserve wildlife", heads: ["Mammals", "Birds"],
     lines: ["Otters are mammals recorded in the reserve rivers.", "Herons are birds recorded in the reserve wetlands.", "These records concern wild animals observed inside the reserve during the survey."] };
@@ -381,10 +380,12 @@ describe("#129 full AEO packet acceptance", () => {
   const answer = people ? `${lead}\n## Poetry in the archive\nMira is a poet born in the region.\n## Painting in the archive\nDara is a painter born in the region.\n- Mira: poet born in the region.\n- Dara: painter born in the region.` : `${lead}\n## River mammals\nOtters are mammals recorded in the reserve rivers.\n## Wetland birds\nHerons are birds recorded in the reserve wetlands.\n- Otter: mammal recorded in reserve rivers.\n- Heron: bird recorded in reserve wetlands.`;
   const c = card(s, { changeFamily: "section", treatment: "rewrite_existing_section", primaryQuery: s.q, recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: "Write the answer." },
     causeFinding: { cause: "retrieved_not_cited", action: null, evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [], falsifier: "f", explanation: "The answer is scattered.", payload: { cause: "retrieved_not_cited", engine: "chatgpt", promptText: s.q, missing: s.lines[2], aeoKind: "scattered_answer" } } as never });
-  const write = (after: string, verdict: Record<string, unknown> = PASS, uncertaintyOrOmitted: string[] = []) => run(s, c, { ...TAIL, field: "answer_block", before: null, after, placementAnchor: s.h1, naturalHeading: null, measurementTarget: s.q, risks: uncertaintyOrOmitted,
-    claims: [{ text: lead, supportedBy: ["page-copy-1", "page-copy-2", "page-copy-3"] }, ...s.lines.map((text, i) => ({ text, supportedBy: [`page-copy-${i + 1}`] }))] }, verdict);
+  const write = async (after: string, verdict: Record<string, unknown> = PASS, uncertaintyOrOmitted: string[] = []) => run(s, c, { ...TAIL, field: "answer_block", before: null, after, placementAnchor: s.h1, naturalHeading: null, measurementTarget: s.q, risks: uncertaintyOrOmitted,
+    claims: [{ text: lead, supportedBy: ["fact-1"] }, ...s.lines.map((text, i) => ({ text, supportedBy: [`page-copy-${i + 1}`] }))] }, verdict, [await reading(s, `${s.q} grouping criteria and selection boundary`, lead)]);
   it(`${people ? "Famous-Iranians-class" : "Animals-class"}: offers a supported scoped packet; refuses dumps, unresolved accuracy and a failed semantic rubric`, async () => {
-    const good = await write(answer);
+    const held = await run(s, c, {}, PASS, [await reading(s)]); expect([held.wrote.length, held.row.status, held.row.obligation?.kind, held.owed.length, held.row.assignment?.shape]).toEqual([0, "needs_review", "evidence", 1, "no_change"]); expect(JSON.stringify(held.owed)).toContain("grouping criteria");
+    const good = await write(answer); const stale = { ...c, assignment: { ...good.row.assignment!, shape: "inline_addition" as const } }; const denied = await run(s, stale, {}); expect([denied.wrote.length, denied.row.assignment?.shape]).toEqual([0, "no_change"]);
+    const { AEO_BAR: bar } = await import("@/domains/decision/accept-worthy"); expect(bar.applies("answer_block", "missing_answer", false, "inline_addition", s.q)).toBe(true);
     expect([good.row.status, good.row.semanticReview?.aeoPacket?.h1QueryAlignment, openHold(good.row).defects]).toEqual(["ready", true, []]);
     for (const [copy, verdict, doubts] of [["- Otters\n- Herons", PASS, []], [answer, PASS, ["May be incomplete; check every word; overreads native status."]], [answer, { ...PASS, aeoPacket: { ...PASS.aeoPacket, groupedH2s: false }, notes: "Inclusion criteria are not supported." }, []]] as const) {
       const bad = await write(copy, verdict, [...doubts]); expect(bad.row.status).toBe("needs_review"); }
@@ -399,13 +400,11 @@ describe("#129 full AEO packet acceptance", () => {
     expect(nextObligation({ ...good.row, semanticReview: undefined })?.kind).toBe("review");
     bodies.map = new Map([[canonicalUrlKey(s.url), { ...bodyOf(s), h1: null }]]);
     const reread = await reviewFinishedCopy(good.row, { tenantId: s.t, now: NOW, judge: async () => ({ ...PASS, claims: rule(good.row.claims ?? []) }) as never });
-    expect(reread.row?.faults?.join(" ")).toContain("page heading and search question are needed");
-  });
+    expect(reread.row?.faults?.join(" ")).toContain("page heading and search question are needed"); });
   it("fails closed on an omitted rubric ruling or an undefended claim, and supports rollback", async () => {
     const { aeoPacket: _bar, ...old } = PASS; expect((await write(answer, old)).row.status).toBe("needs_review");
     expect((await write(answer, { ...PASS, contested: true, notes: "Native status is not established." })).row.status).toBe("needs_review");
     vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "0");
-    try { expect((await write(lead, old)).row.status).toBe("ready"); } finally { vi.unstubAllEnvs(); }
-  });
+    try { expect((await run(s, c, { ...TAIL, field: "answer_block", before: null, after: lead, naturalHeading: null, placementAnchor: s.h1, measurementTarget: s.q, claims: [{ text: lead, supportedBy: ["page-copy-1", "page-copy-2", "page-copy-3"] }] }, old)).row.status).toBe("ready"); } finally { vi.unstubAllEnvs(); } });
   }
 });
