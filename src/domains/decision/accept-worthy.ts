@@ -1,11 +1,8 @@
 import { z } from "zod";
 import type { ChangeProposal } from "./contracts";
 
-// Build-time rollback: NEXT_PUBLIC_BEACON_AEO_PACKET=0 restores the prior editorial bar.
-// Public so the browser and server use the same value; this is policy, never a secret.
 const enabled = () => process.env.NEXT_PUBLIC_BEACON_AEO_PACKET !== "0";
 const groupingTopic = "grouping criteria and selection boundary";
-// A checked contrast can supply grouping facts under its real subject; a bare roster cannot.
 const hasGrouping = (subjects: readonly string[], facts: readonly string[] = []) => subjects.some((s) => s.toLowerCase().endsWith(groupingTopic)) || facts.some((s) => /\band\b/i.test(s) && (s.match(/\b(?:such as|identified by|characterized by|defined by)\b/gi) ?? []).length >= 2);
 const collection = (query: string) => !/\bhow many\b/i.test(query) && /\b(?:animals|wildlife|(?:famous|notable)\s+(?:\w+\s+){0,2}(?:people|figures)|(?:which|what)\s+(?:\w+\s+){0,3}(?:species|people|figures))\b/i.test(query.replace(/[-_/]/g, " "));
 const applies = (field: string, standard?: string, unpublished = false, shape?: string, query = "") => enabled() && !unpublished && /^(answer_block|section)$/.test(field)
