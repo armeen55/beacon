@@ -239,7 +239,7 @@ function readVerdict(v: JudgeVerdict, d: EditorDeliverable, p: SourcePacket): { 
 export async function reviewFinishedCopy(p: ChangeProposal, opts: { tenantId: string; now: Date; attempts?: Allowance; complete?: CompleteFn; bypassCache?: boolean; judge?: JudgeFn; bannedTerms?: readonly string[]; pendingBody?: string }): Promise<{ row: ChangeProposal | null; detail: string }> {
   const c = p.recommendedChange, banked = p.supportFacts ?? [], url = (p.pageUrl ?? p.pagePath ?? "").trim(); if (c.kind !== "existing_edit" || c.field === "schema" || !c.after.trim()) return { row: null, detail: "structured data answers to its own gate and unwritten copy has nothing to read, so no reading is taken here" };
   const parts = p.bundle?.components ?? [];
-  if (c.field === "meta" && parts.length === 2 && parts[0]?.kind === "opening_answer" && parts[1]?.kind === "meta") {
+  if (parts.length === 2 && parts[0]?.kind === "opening_answer" && parts[1]?.kind === "meta") { // companion by components (Codex P1): primary field is answer_block|section, so a meta gate skipped both-piece re-review
     const reviews: Array<NonNullable<ChangeProposal["semanticReview"]>["claims"][number]> = [];
     for (const [i, part] of parts.entries()) {
       const indices = (p.claims ?? []).map((claim, n) => ({ claim, n })).filter((x) => x.claim.of === componentIdOf(part, i));
