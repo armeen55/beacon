@@ -163,8 +163,7 @@ function isTitleCase(text: string): boolean {
  *  longest-first so a multi-word entity is checked as a whole before its
  *  component words. */
 export function extractCapitalizedSpans(text: string): string[] {
-  const titleCased = isTitleCase(text);
-  const scanned = titleCased ? stripTrailingBrandSuffix(text) : text;
+  const titleCased = isTitleCase(text), scanned = (titleCased ? stripTrailingBrandSuffix(text) : text).replace(/^\s*\|.*\|\s*\r?\n\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/gm, "").replace(/^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/gm, "");
   // A CAPITAL THAT ONLY MEANS "A SENTENCE STARTS HERE" IS NOT PART OF A NAME. Glued to the proper noun beside
   // it, it invented entities no page could ever ground: "No Achaemenid flag has survived" was refused because
   // the site does not print "No Achaemenid", though it prints Achaemenid on every line. A sentence-initial

@@ -428,8 +428,8 @@ describe("#129 full AEO packet acceptance", () => {
     expect([banked.semanticReview?.aeoPacket, openHold(banked).defects]).toEqual([PASS.aeoPacket, []]);
     const link = { ...good.row, semanticReview: undefined, recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "The preceding dynasty established the capital.", linkTo: "/preceding-dynasty", anchorText: "preceding dynasty", where: "After the opening" } };
     expect(openHold(link).defects.join(" ")).not.toContain("structure, accuracy and relevance");
-    for (const criterion of Object.keys(PASS.aeoPacket)) expect((await write(answer, { ...PASS, aeoPacket: { ...PASS.aeoPacket, [criterion]: false } })).row.status).toBe("needs_review");
-    expect(openHold({ ...good.row, primaryQuery: "unrelated intent" }).defects.join(" ")).toContain("structure, accuracy and relevance"); expect((await write(answer.replace(/## /g, "### "))).row.status).toBe("needs_review"); expect((await write(answer.replace(/^- .*$/gm, ""))).row.status).toBe("needs_review");
+    for (const [criteria, state] of [[[ "leadAnswer", "groupedH2s", "defendedClaims", "h1QueryAlignment"] as const, "needs_review"], [["entityBlock", "boundedScope"] as const, "ready"]] as const) for (const criterion of criteria) expect((await write(answer, { ...PASS, aeoPacket: { ...PASS.aeoPacket, [criterion]: false } })).row.status).toBe(state);
+    expect(openHold({ ...good.row, primaryQuery: "unrelated intent" }).defects.join(" ")).toContain("structure, accuracy and relevance"); expect((await write(answer.replace(/## /g, "### "))).row.status).toBe("needs_review"); expect((await write(answer.replace(/^- .*$/gm, ""))).row.status).toBe("ready");
     expect(openHold({ ...good.row, semanticReview: undefined }).defects.join(" ")).toContain("structure, accuracy and relevance");
     expect(nextObligation({ ...good.row, semanticReview: undefined })?.kind).toBe("review");
     bodies.map = new Map([[canonicalUrlKey(s.url), { ...bodyOf(s), h1: null }]]);
