@@ -7,6 +7,7 @@ import { domainOf } from "@/domains/evidence/relevance-gate";
 import type { ChangeProposal } from "./contracts";
 import { evidenceShortfall } from "./proof";
 import { withholdReason } from "./authorization";
+import { checkFactualEntailment } from "./drafts/factual-entailment";
 
 /** NO VERB LIST LIVES HERE ANY MORE. Whether copy is the finished words or a note about producing them is a question about meaning, and it was answered by spelling: a production verb near a deliverable noun. It is now answered where it is known. A PRODUCER handing over a brief says so in a typed field (`researchOnly`) as it mints the card. THE EDITOR's copy is read by decision/drafted-copy's editor contract, against the stored page and then by a judge. Only what stays deterministic for any writer is left below. */
 /** A blank somebody is expected to fill in before the copy is usable, or MARKUP WHERE A WORD BELONGS: a title reading "Colors &amp; History" is not final copy, because what an operator pastes is not what a reader sees. */
@@ -198,22 +199,22 @@ function identityMoves(prior: ChangeProposal, incoming: ChangeProposal): string 
   return moves.join("; ") || "the pages this change writes on moved";
 }
 
-/** THE ONE SENTENCE A CAUSE MOVE WRITES, shared by the receipt above and the recovery below so the two can never drift apart. */
 const CAUSE_STAMPED = "the diagnosed cause changed";
-/** THE CAUSE-STAMPING INCIDENT, NAMED BY ITS OWN CLOCK (2026-09-04, 16:30:08Z and 16:33:59Z). The sweep producers began stamping a typed cause on rows that had recorded none, the retirement above compared a recorded null against it, and one drive turned thirty-two drafted rows into their own briefs. The predicate is fixed, so a first-named cause never retires anything again; these rows are the ones it already retired. Bounded to the minutes the faulty code was serving, because AFTER that fix the same sentence means a recorded cause was REPLACED by a different one, which is a real change and whose copy really is stale. A window is what makes this a recovery rather than a standing rule: it can fire on no row minted before or after, and it goes quiet on its own. */
 const INCIDENT_FROM = "2026-09-04T16:30:00.000Z", INCIDENT_TO = "2026-09-04T16:35:00.000Z";
 const RECOVERED = "a cause named for the first time was not a change, so the words this row already carried came back and the brief that displaced them stood down";
-/** THE WORDS THAT INCIDENT RETIRED, PUT BACK ON THE ROW THAT CARRIES THEM, before anything below compares a thing. `identityMoves` names EVERY dimension of `copyIdentity`, so a receipt saying ONLY the cause moved is the proof that the page, the search, the family and the slot all still matched: the copy was never stale, only displaced. Restoring it here rather than in a lane of its own is the whole point, because the rules below are then the ones that decide it: identity must still match, a competing finished draft still wins, the banked-provenance rule still refuses copy whose claims name evidence nobody kept, and the row re-enters review and earns Ready only through the doors every other row uses. REFUSED, in the row's own typed terms: a whole page (four written fields cannot be rebuilt from one string), a retirement of the row's own brief, words that are not a finished deliverable under today's rules, and a claim naming an id no banked fact carries. ONE RECEIPT PER TRANSITION: the brief that was standing in the copy's place takes the retired slot, so the row still says what it gave up, the settle rule never reads the restored words as a writer handing back what it retired, and a second pass finds no incident receipt and recovers nothing. The attempt that retirement charged is given back, because no draft was ever written for it. */
 function unretire(p: ChangeProposal | null | undefined): ChangeProposal | null | undefined {
-  const was = p?.previousCopy, c = p?.recommendedChange, banked = new Set((p?.supportFacts ?? []).map((f) => f.id));
-  if (!p || !was || c?.kind !== "existing_edit" || was.retiredBecause !== CAUSE_STAMPED || was.at < INCIDENT_FROM || was.at >= INCIDENT_TO || !(p.researchOnly === true || deliverableGaps(p).length > 0)) return p; /* ONLY ONTO A ROW STILL UNWRITTEN (reviewer, 2026-09-04): a later pass drafted paid copy onto the Achaemenid description before this landed, and putting the older line back over it would have been the incident's own move under a receipt that said the opposite */
+  const was = p?.previousCopy, c = p?.recommendedChange, supportFacts = p?.supportFacts ?? [], banked = new Set(supportFacts.map((f) => f.id));
+  if (!p || !was || c?.kind !== "existing_edit" || !(p.researchOnly === true || deliverableGaps(p).length > 0)) return p; /* ONLY ONTO A ROW STILL UNWRITTEN (reviewer, 2026-09-04): a later pass drafted paid copy onto the Achaemenid description before this landed, and putting the older line back over it would have been the incident's own move under a receipt that said the opposite */
   const words = was.after.trim(), brief = (p.research?.missing ?? "").trim() || c.after.trim();
   if (!words || words === brief || (p.claims ?? []).some((x) => x.supportedBy.some((id) => !banked.has(id)))) return p;
   const { research: _brief, redraftRequested: _asked, ...rest } = p;
-  const back: ChangeProposal = { ...rest, recommendedChange: { ...c, after: words }, researchOnly: false, status: "needs_review",
-    faults: [], limitations: p.limitations.filter((l) => !GATE_WORDS.test(l)), obligation: undefined,
-    previousCopy: { after: brief, retiredBecause: RECOVERED, at: was.at, attempts: Math.max(0, (was.attempts ?? 1) - 1) } };
-  return deliverableGaps(back).length === 0 ? back : p;
+  const back = (retiredBecause: string, faults: string[]): ChangeProposal => ({ ...rest, recommendedChange: { ...c, after: words }, researchOnly: false, status: "needs_review", faults, limitations: p.limitations.filter((l) => !GATE_WORDS.test(l)), obligation: undefined, previousCopy: { after: brief, retiredBecause, at: was.at, attempts: Math.max(0, (was.attempts ?? 1) - 1) } });
+  if (was.retiredBecause === CAUSE_STAMPED && was.at >= INCIDENT_FROM && was.at < INCIDENT_TO) return deliverableGaps(back(RECOVERED, [])).length === 0 ? back(RECOVERED, []) : p;
+  if (!/This draft names "[^"]+"/i.test(was.retiredBecause) || !/\b(?:entity|distinguishing(?: attribute)?|group)\b/i.test(was.retiredBecause) || !/^\s*\|.*\|\s*\r?\n\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/m.test(words)) return p;
+  if (!checkFactualEntailment({ draftText: words, query: p.primaryQuery, pageBodyText: supportFacts.filter((f) => f.id.startsWith("page-copy-")).map((f) => f.fact).join(" ") || undefined, evidenceText: supportFacts.map((f) => f.fact).filter(Boolean).join(" ") || undefined }).entailed) return p;
+  const restored = back("markdown table labels were formatting scaffolding, so the supported copy was restored without a new draft", (p.faults ?? []).filter((f) => !GATE_WORDS.test(f) && f !== was.retiredBecause && !f.endsWith(`: ${was.retiredBecause}`)));
+  if (deliverableGaps(restored).length > 0) return p;
+  return restored;
 }
 
 /** THE PAID READING RIDES ITS OWN WORDS, whichever branch below decided the row. `semanticReview.of` IS the copy
