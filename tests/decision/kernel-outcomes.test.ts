@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-// Legacy short-body fixtures pin the rollback policy; full packet acceptance is exercised in editorial-standard.
-beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "0")); afterEach(() => vi.unstubAllEnvs());
+beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1")); afterEach(() => vi.unstubAllEnvs());
 
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} })); // Budget is not this file's subject: always-allowed, no-op hermetic seam.
 const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>(), withdrawn: [] as string[], failWrites: false, failIds: new Set<string>(), refuseIds: new Set<string>(), withdrawnIds: new Set<string>(), bundleTarget: null as string | null, bundle: null as unknown, realBundle: false, ledger: [] as unknown[], door: null as { door: string; evidence: { query: string | null } } | null }));

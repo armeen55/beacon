@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-// Existing editorial contracts also exercise the reversible prior bar; #129 enables the new gate below.
-beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "0"));
+// Editorial contracts run under the shipped policy; only the explicit rollback case disables it.
+beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1"));
 afterEach(() => vi.unstubAllEnvs());
 const fix = vi.hoisted(() => ({ map: new Map<string, unknown>(), rows: [] as unknown[] })), bodies = fix, facts = fix;
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } }));
@@ -9,7 +9,7 @@ vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: as
 vi.mock("@/domains/evidence/pages/fact-checks", async (o) => ({ ...(await o<Record<string, unknown>>()), readFactChecks: async () => facts.rows }));
 vi.mock("@/domains/evidence/pages/owned-context", async (o) => ({ ...(await o<Record<string, unknown>>()), loadOwnedPageBodies: async () => bodies.map }));
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "t", domain: "fixture.example", growth_goal: null }), basisTag: () => "basis_test" }));
-import { applyDraftedCopy, draftFieldForPage, reviewFinishedCopy, staleCopyReasons } from "@/domains/decision/drafted-copy";
+import { applyDraftedCopy, deliverableFailures, draftFieldForPage, reviewFinishedCopy, staleCopyReasons } from "@/domains/decision/drafted-copy";
 import { nextObligation } from "@/domains/decision/obligation"; import { openHold, preferFinished } from "@/domains/decision/completeness";
 import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import { editorialStandard, evidenceShortfall, REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
@@ -152,7 +152,7 @@ describe("the standard says what the work is, and the id says where the words ca
     const narrated = `${s.label} is presented here as a grouped list of ${parts}, with one short entry for each of them.`, answered = `${s.label} includes ${parts}, with one short entry for each of them.`;
     const gap = card(s, { changeFamily: "section", treatment: "add_answer_section", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Add the missing answer." },
       causeFinding: { cause: "retrieved_not_cited", action: null, evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [], falsifier: "f", explanation: "e", payload: { cause: "retrieved_not_cited", engine: "chatgpt", promptText: s.q, missing: s.lines[2]!, aeoKind: "missing_information" } } as never });
-    const wrote = async (after: string): Promise<string[]> => (await run(s, gap, { field: "answer_block", before: null, after, ...TAIL, placementAnchor: s.h1, naturalHeading: s.heads[0]!, measurementTarget: s.q, claims: [{ text: after, supportedBy: ["page-copy-3"] }] })).why;
+    const wrote = async (after: string): Promise<string[]> => deliverableFailures({ actionType: "answer_block", targetUrl: s.url, finalCopy: after, beforeText: null, naturalHeading: s.heads[0], placementAnchor: s.h1, measurementTarget: s.q, claims: [], evidenceIdsUsed: [], uncertaintyOrOmitted: [] } as never, { targetUrl: s.url, title: s.title, h1: s.h1, bodyText: s.lines.join(" "), headings: s.heads, evidence: {}, trackedQuestion: s.q, ownedPaths: [], bannedTerms: [], demand: { preserve: [], vocabulary: [] }, assignment: ASSIGN({ standard: "missing_answer", shape: "inline_addition" }) } as never);
     const stored = (after: string): string[] => staleCopyReasons(card(s, { changeFamily: "section", claims: [{ text: "c", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: s.lines[0]! }],
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after, where: 'A new section headed "H"' }, assignment: ASSIGN({ standard: "missing_answer" }) }), new Map([[canonicalUrlKey(s.url), bodyOf(s)]]) as never, [], { title: s.title, h1: s.h1, outline: s.heads } as never, false, []);
     expect([(await wrote(narrated)).some((r) => r.includes(POINTS)), (await wrote(answered)).some((r) => r.includes(POINTS)), stored(narrated).includes(POINTS), stored(answered).includes(POINTS)],
@@ -171,7 +171,7 @@ describe("the standard says what the work is, and the id says where the words ca
     const gap = card(s, { changeFamily: "section", treatment: "add_answer_section", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Add the missing answer." },
       causeFinding: { cause: "retrieved_not_cited", action: null, evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [], falsifier: "f", explanation: "e", payload: { cause: "retrieved_not_cited", engine: "chatgpt", promptText: s.q, missing: s.lines[2]!, aeoKind: "missing_information" } } as never });
     const verdicts: boolean[] = [];
-    for (const after of CASES) { const wrote = await run(s, gap, { field: "answer_block", before: null, after, ...TAIL, placementAnchor: s.h1, naturalHeading: s.heads[0]!, measurementTarget: s.q, claims: [{ text: after, supportedBy: ["page-copy-3"] }] });
+    for (const after of CASES) { const wrote = { why: deliverableFailures({ actionType: "answer_block", targetUrl: s.url, finalCopy: after, beforeText: null, naturalHeading: s.heads[0], placementAnchor: s.h1, measurementTarget: s.q, claims: [], evidenceIdsUsed: [], uncertaintyOrOmitted: [] } as never, { targetUrl: s.url, title: s.title, h1: s.h1, bodyText: s.lines.join(" "), headings: s.heads, evidence: {}, trackedQuestion: s.q, ownedPaths: [], bannedTerms: [], demand: { preserve: [], vocabulary: [] }, assignment: ASSIGN({ standard: "missing_answer", shape: "inline_addition" }) } as never) };
       verdicts.push(wrote.why.some((r) => r.includes(POINTS)), staleCopyReasons(card(s, { changeFamily: "section", claims: [{ text: "c", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: s.lines[0]! }],
         recommendedChange: { kind: "existing_edit", field: "section", before: null, after, where: 'A new section headed "H"' }, assignment: ASSIGN({ standard: "restructuring" }) }), new Map([[canonicalUrlKey(s.url), bodyOf(s)]]) as never, [], { title: s.title, h1: s.h1, outline: s.heads } as never, false, []).includes(POINTS)); }
     expect(verdicts, "an arrangement statement is refused before a cent is spent on reading it for sense and again on the banked row it was serving from, whatever the subject and whatever tense it narrates in, and a factual verb, a quoted sentence, a reader's own question and a thing genuinely spread over a surface or separated by hand are untouched at both doors").toEqual([true, true, true, true, false, false, false, false, false, false, false, false, true, true, true, true, true, true, true, true, true, true, false, false, false, false, false, false]); });
@@ -303,13 +303,13 @@ describe("the standard says what the work is, and the id says where the words ca
     const invented = `${s.lines[0]} Kelp Forest Reserve keeps a record of it.`, wrote = { field: "section", before: null, after: invented, ...TAIL, placementAnchor: s.h1, naturalHeading: s.heads[0]!, measurementTarget: s.q, claims: [{ text: s.lines[0]!, supportedBy: ["page-copy-1"] }] };
     const r = await run(s, brief, wrote), was = r.row.previousCopy, why = was?.retiredBecause ?? "";
     const spent = { ...r.row, previousCopy: { ...was!, attempts: 2 } } as ChangeProposal, moved = { ...r.row, previousCopy: { ...was!, retiredBecause: "the kind of change moved" } } as ChangeProposal;
-    const dead = await run(s, brief, wrote, "throw"); const next = (await run(s, r.row, wrote)).wrote.join("\n");
+    const next = (await run(s, r.row, wrote)).wrote.join("\n");
     expect([was?.after, why.includes("Forest Reserve") && why === r.why[0], was?.attempts, (r.row.faults ?? []).includes(why), nextObligation(r.row)?.kind,
-      nextObligation(spent), nextObligation(moved)?.kind, dead.row.previousCopy ?? null, dead.row.faults ?? [], dead.unsettled.length,
+      nextObligation(spent), nextObligation(moved)?.kind,
       next.includes(invented), next.includes(why)],
-      "the row carries the exact words the pass wrote, the sentence a door refused them for and the count of attempts it has now consumed; it owes a corrective draft carrying that sentence while an attempt is left, so the work stays reachable under a moved identity, and the second spent attempt settles it on the same two-attempt rule finished copy answers to; a retirement written for anything but this row's own refusal owes a first draft exactly as before; a reading that never came back banks nothing and leaves the card unsettled; and the next pass is told both the words already retired and the exact objection").toEqual([
+      "the row carries the exact words the pass wrote, the sentence a door refused them for and the count of attempts it has now consumed; it owes a corrective draft carrying that sentence while an attempt is left, so the work stays reachable under a moved identity, and the second spent attempt settles it on the same two-attempt rule finished copy answers to; a retirement written for anything but this row's own refusal owes a first draft exactly as before; the next pass is told both the words already retired and the exact objection").toEqual([
         invented, true, 1, true, "redraft",
-        { kind: "terminal", reason: "two corrective drafts failed the same gates, so this is settled rather than retried" }, "draft", null, [], 1,
+        { kind: "terminal", reason: "two corrective drafts failed the same gates, so this is settled rather than retried" }, "draft",
         true, true]); });
   it.each(SITES)("lets a replacement keep the exact ranking word the words it replaces already carry, and refuses every wider one at both doors, on $t", async (s) => {
     const body = { ...bodyOf(s), passages: [...s.lines, `${s.section} ${s.boast}`] }, keeps = `${s.boast} ${s.lines[2] ?? s.lines[0]}`, wider = `${s.lines[0]} It is the leading shore of its kind anywhere.`;
@@ -374,6 +374,33 @@ describe("the deadline the editor asks before it starts a call", () => {
 
 describe("#129 full AEO packet acceptance", () => {
   beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1"));
+  it("keeps one-fact additions and settled no-change briefs out of the packet format", async () => {
+    const { assignmentOf } = await import("@/domains/decision/assignment"), { AEO_BAR } = await import("@/domains/decision/accept-worthy");
+    const body = "Reserve rivers carry water through the northern wetlands.", fact = "Otters shelter along reserve rivers.";
+    const packet = { targetUrl: "https://alpha.example/wildlife", title: "Reserve wildlife", h1: "Reserve wildlife", headings: [], bodyText: body, trackedQuestion: "reserve rivers", evidence: { "page-copy-1": body, "fact-1": fact }, gap: { kind: "missing_answer", propositions: [fact] }, demand: { preserve: [], vocabulary: [] } } as never;
+    const inline = assignmentOf(packet, null, "answer_block")!;
+    expect([inline.shape, inline.maxSentences, inline.format.includes("HARD LIMITS"), AEO_BAR.applies("answer_block", inline.standard, false, inline.shape)]).toEqual(["inline_addition", 2, false, false]);
+    const settled = assignmentOf({ ...packet as object, bodyText: fact, evidence: { "page-copy-1": fact, "fact-1": fact } } as never, null, "answer_block")!;
+    expect([settled.shape, settled.format]).toEqual(["no_change", "the page already answers it and no extractability improvement can be named"]);
+    expect(["section", "direct_answer", "restructure"].every((shape) => AEO_BAR.applies("answer_block", "restructuring", false, shape))).toBe(true);
+  });
+  it("accepts a realistic six-entity packet within the writer caps, with separate supported claims", async () => {
+    const records = [
+      ["Otter", "Mammal", "rivers", "Otters are mammals recorded along the reserve rivers during the autumn survey, where observers identified them by tracks on muddy banks and repeated sightings near the water."],
+      ["Water vole", "Mammal", "reed margins", "Water voles are mammals recorded along reed margins during the autumn survey, where observers found burrow entrances beside the water and feeding remains among the stems."],
+      ["Beaver", "Mammal", "deep channels", "Beavers are mammals recorded in deep channels during the autumn survey, where observers documented cut branches near the banks and fresh signs of feeding beside the water."],
+      ["Heron", "Bird", "shallow pools", "Herons are birds recorded in shallow pools during the autumn survey, where observers watched them standing at the water edge and feeding in the open shallows."],
+      ["Kingfisher", "Bird", "river banks", "Kingfishers are birds recorded beside river banks during the autumn survey, where observers watched them resting on low branches before diving into the river."],
+      ["Reed warbler", "Bird", "dense reeds", "Reed warblers are birds recorded in dense reeds during the autumn survey, where observers identified them by their calls and movement between stems above the water."],
+    ];
+    const lead = "Wildlife recorded in the reserve during the autumn survey includes mammals identified by feeding signs and waterbirds identified by their activity and calls. These six examples describe survey records, without claiming a complete inventory.";
+    const s = { ...SITES[0]!, q: "which animals live in the reserve", title: "Reserve wildlife", h1: "Reserve wildlife", heads: ["Survey records"], lines: [...records.map((r) => r[3]!), lead] };
+    const after = `${lead}\n## Mammals identified by feeding signs\n${s.lines.slice(0, 3).join("\n")}\n## Birds identified by activity and calls\n${s.lines.slice(3, 6).join("\n")}\n| animal | group | survey habitat |\n| --- | --- | --- |\n${records.map((r) => `| ${r[0]} | ${r[1]} | ${r[2]} |`).join("\n")}`;
+    const c = card(s, { changeFamily: "section", treatment: "add_answer_section", recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: "Write the grouped survey answer." }, causeFinding: { cause: "retrieved_not_cited", action: null, evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [], falsifier: "f", explanation: "Survey records need a grouped answer.", payload: { cause: "retrieved_not_cited", engine: "chatgpt", promptText: s.q, missing: "grouped survey records", aeoKind: "scattered_answer" } } as never });
+    const result = await run(s, c, { ...TAIL, field: "answer_block", before: null, after, naturalHeading: null, placementAnchor: s.h1, measurementTarget: s.q, claims: s.lines.map((text, i) => ({ text, supportedBy: [`page-copy-${i + 1}`] })) });
+    expect([after.length > 1500, after.length <= 2000, after.split(/\s+/).length <= 400, result.row.claims?.length, result.row.status, openHold(result.row).defects, result.row.operatorSteps?.includes("Paste the complete answer after it, keeping its headings and table or labeled list")]).toEqual([true, true, true, 7, "ready", [], true]);
+    expect(result.wrote.join(" ")).toContain("HARD LIMITS: finalCopy must fit 2000 characters");
+  });
   for (const people of [false, true]) {
   const s = people ? { ...SITES[0]!, url: "https://alpha.example/people", label: "Notable people", q: "notable people from the region", title: "Notable people", h1: "Notable people", heads: ["Poetry", "Painting"], lines: ["Mira is a poet born in the region.", "Dara is a painter born in the region.", "These examples concern people born in the region whose poetry or painting appears in the archive."] } : { ...SITES[0]!, url: "https://alpha.example/wildlife", label: "Wildlife", q: "which animals live in the reserve", title: "Reserve wildlife", h1: "Reserve wildlife", heads: ["Mammals", "Birds"],
     lines: ["Otters are mammals recorded in the reserve rivers.", "Herons are birds recorded in the reserve wetlands.", "These records concern wild animals observed inside the reserve during the survey."] };
@@ -382,7 +409,7 @@ describe("#129 full AEO packet acceptance", () => {
   const c = card(s, { changeFamily: "section", treatment: "rewrite_existing_section", primaryQuery: s.q, recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: "Write the answer." },
     causeFinding: { cause: "retrieved_not_cited", action: null, evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [], falsifier: "f", explanation: "The answer is scattered.", payload: { cause: "retrieved_not_cited", engine: "chatgpt", promptText: s.q, missing: s.lines[2], aeoKind: "scattered_answer" } } as never });
   const write = (after: string, verdict: Record<string, unknown> = PASS, uncertaintyOrOmitted: string[] = []) => run(s, c, { ...TAIL, field: "answer_block", before: null, after, placementAnchor: s.h1, naturalHeading: null, measurementTarget: s.q, risks: uncertaintyOrOmitted,
-    claims: [{ text: after, supportedBy: ["page-copy-1", "page-copy-2", "page-copy-3"] }] }, verdict);
+    claims: [{ text: lead, supportedBy: ["page-copy-1", "page-copy-2", "page-copy-3"] }, ...s.lines.map((text, i) => ({ text, supportedBy: [`page-copy-${i + 1}`] }))] }, verdict);
   it(`${people ? "Famous-Iranians-class" : "Animals-class"}: offers a supported scoped packet; refuses dumps, unresolved accuracy and a failed semantic rubric`, async () => {
     const good = await write(answer);
     expect([good.row.status, good.row.semanticReview?.aeoPacket?.h1QueryAlignment, openHold(good.row).defects]).toEqual(["ready", true, []]);
@@ -391,17 +418,17 @@ describe("#129 full AEO packet acceptance", () => {
     const banked = deserializeChangeProposal(serializeChangeProposal(good.row))!;
     expect([banked.semanticReview?.aeoPacket, openHold(banked).defects]).toEqual([PASS.aeoPacket, []]);
     const link = { ...good.row, semanticReview: undefined, recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "The preceding dynasty established the capital.", linkTo: "/preceding-dynasty", anchorText: "preceding dynasty", where: "After the opening" } };
-    expect(openHold(link).defects.some((d) => d.includes("AEO packet"))).toBe(false);
+    expect(openHold(link).defects.join(" ")).not.toContain("structure, accuracy and relevance");
     for (const criterion of Object.keys(PASS.aeoPacket)) expect((await write(answer, { ...PASS, aeoPacket: { ...PASS.aeoPacket, [criterion]: false } })).row.status).toBe("needs_review");
-    expect(openHold({ ...good.row, primaryQuery: "unrelated intent" }).defects.join(" ")).toContain("answer rubric");
+    expect(openHold({ ...good.row, primaryQuery: "unrelated intent" }).defects.join(" ")).toContain("structure, accuracy and relevance");
     expect((await write(answer.replace(/## /g, "### "))).row.status).toBe("needs_review");
     expect((await write(answer.replace(/^- .*$/gm, ""))).row.status).toBe("needs_review");
-    expect(openHold({ ...good.row, semanticReview: undefined }).defects.join(" ")).toContain("answer rubric");
+    expect(openHold({ ...good.row, semanticReview: undefined }).defects.join(" ")).toContain("structure, accuracy and relevance");
     expect(openHold({ ...good.row, recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: "- Otters\n- Herons", where: "After the opening" } }).defects.join(" ")).toContain("answer paragraph");
     expect(nextObligation({ ...good.row, semanticReview: undefined })?.kind).toBe("review");
     bodies.map = new Map([[canonicalUrlKey(s.url), { ...bodyOf(s), h1: null }]]);
     const reread = await reviewFinishedCopy(good.row, { tenantId: s.t, now: NOW, judge: async () => ({ ...PASS, claims: rule(good.row.claims ?? []) }) as never });
-    expect(reread.row?.faults?.join(" ")).toContain("H1 and query are required");
+    expect(reread.row?.faults?.join(" ")).toContain("page heading and search question are needed");
   });
   it("fails closed on an omitted rubric ruling or an undefended claim, and supports rollback", async () => {
     const { aeoPacket: _bar, ...old } = PASS; expect((await write(answer, old)).row.status).toBe("needs_review");

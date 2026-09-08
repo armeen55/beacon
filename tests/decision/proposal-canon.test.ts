@@ -109,6 +109,20 @@ describe("canonical proposal persistence", () => {
     Object.assign(db.state.rows[0]!, { terminal_disposition: "dismissed" }); // the operator put it away
     expect(await saveChangeProposal(proposal({ confidence: "high" }))).toBe("refused"); expect([db.state.rows[0]!.terminal_disposition, (await loadChangeProposals(T)).size]).toEqual(["dismissed", 0]);
     expect(await saveChangeProposal(proposal({ basis: "basis_tomorrow::d6" }))).toBe("refused"); expect([db.state.rows[0]!.terminal_disposition, db.state.rows[0]!.proposal_version]).toEqual(["dismissed", 1]); });
+  it("reads dismissed copy past 200 rows without confusing research siblings or other history with a refusal", async () => {
+    const p = proposal(); await saveChangeProposal(p); const seed = { ...db.state.rows[0]! }; db.state.rows = [];
+    for (let i = 0; i < 205; i++) db.state.rows.push({ ...seed, id: `${T}::${PAGE}::existing_edit::old-${i}`, terminal_disposition: "dismissed", payload: JSON.parse(serializeChangeProposal(proposal({ bundle: bundle("title", `An unrelated finished title number ${i}`) }))) });
+    expect(await saveChangeProposal(p)).toBe("saved");
+    Object.assign(db.state.rows.at(-1)!, { id: `${T}::${PAGE}::existing_edit::zz-declined`, terminal_disposition: "dismissed" });
+    expect(await saveChangeProposal(proposal({ basis: "moved" }))).toBe("refused");
+    db.state.rows = Array.from({ length: 205 }, (_, i) => ({ ...seed, id: `history-${i}`, terminal_disposition: "superseded" }));
+    expect(await saveChangeProposal(p)).toBe("saved");
+    db.state.rows = [];
+    const brief = proposal({ researchOnly: true, primaryQuery: "first query", bundle: undefined, recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Write the answer.", where: "After first heading" } });
+    expect(await saveChangeProposal(brief)).toBe("saved"); await dismissChangeProposal(T, brief.id);
+    const sibling = { ...brief, id: `${T}::${PAGE}::existing_edit::sibling`, primaryQuery: "second query" } as ChangeProposal;
+    expect(await saveChangeProposal(sibling)).toBe("saved"); expect(await saveChangeProposal(brief)).toBe("refused");
+  });
   it("the operator's own put-this-aside writes the dismissal, and refuses to retire a change already being measured", async () => {
     await saveChangeProposal(proposal());
     expect(await dismissChangeProposal(T, proposal().id)).toBe(true); // it stops being the current answer immediately

@@ -1,7 +1,6 @@
 /** CHANGES. The ranked queue explains its own order, and a change detail hands over the whole investigation, the pieces picker and the override. Every test name states the promise it pins. Fixtures only. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-// Legacy short-body fixtures exercise rollback; full packet pins live in editorial-standard.
-beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "0")); afterEach(() => vi.unstubAllEnvs());
+beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1")); afterEach(() => vi.unstubAllEnvs());
 import { renderToStaticMarkup } from "react-dom/server"; import { createElement, type ReactElement } from "react";
 import type { CauseFinding, ChangeProposal, RankedProposalQueue } from "@/domains/decision";
 import { proofOf } from "@/domains/decision/proof";

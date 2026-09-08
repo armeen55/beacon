@@ -86,14 +86,13 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     .map((x) => ({ x, n: topicTokens(x).filter((w) => wanted.has(w)).length }))
     .filter((y) => y.n > 0).sort((a, b) => b.n - a.n)[0] ?? null;
   const heading = [packet.h1, packet.title, ...packet.headings].find(EDITOR_SHARED.placeable) ?? null;
-  const packetShape = AEO_BAR.applies(field, standard, packet.unpublished);
   const shape = rewrite ? "exact_replacement" as const
     : backedProps.length > 0 && (kind === "missing_answer" || kind === "incomplete_answer") && backedProps.every(carriedByOne) ? "no_change" as const
-    : packetShape ? "direct_answer" as const
     : kind === "scattered_answer" || kind === "weak_extractability" ? "direct_answer" as const
     : backedProps.length === 0 || backedProps.length >= 3 ? "section" as const
-    : relevant ? "inline_addition" as const
+    : relevant || (backedProps.length > 0 && heading) ? "inline_addition" as const
     : "direct_answer" as const;
+  const packetShape = AEO_BAR.applies(field, standard, packet.unpublished, rewrite && kind === "scattered_answer" ? "restructure" : shape);
   const cap = packetShape ? 0 : shape === "inline_addition" ? 2
     : shape === "direct_answer" ? 3
     : shape === "exact_replacement" ? (rewrite?.replaces ?? "").split(/(?<=[.!?])\s+/).filter((x) => x.trim().length > 0).length + 1

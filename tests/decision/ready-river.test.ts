@@ -1,7 +1,6 @@
 /** WHAT A CHANGE OWES NEXT IS TYPED (operator, 2026-09-02). The machine used to work its next step out of English: a lowercase first letter meant a gate wrote this, a phrase list meant a hold was withdrawn, and a review that was owed was filed as a fact acquisition, so the runtime bought facts while the reading nobody had taken stayed untaken. These pin the ladder itself, and the one merge that must never overrule it. */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-// Legacy short-body fixtures pin the rollback policy; full packet acceptance is exercised in editorial-standard.
-beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "0")); afterEach(() => vi.unstubAllEnvs());
+beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1")); afterEach(() => vi.unstubAllEnvs());
 
 const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], client: {} as Record<string, unknown>, page: null as unknown }));
 vi.mock("@/domains/evidence/pages/owned-context", async (real) => ({ ...(await real() as object), loadOwnedPageBodies: async () => ({ get: () => db.page }) })); // the reviewer now reads the PAGE; the stored capture is the fixture

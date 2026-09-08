@@ -27,7 +27,6 @@ type TerminalDisposition = "dismissed" | "withdrawn" | "superseded" | "settled";
 type SaveResult = "saved" | "unchanged" | "refused" | "blocked" | "failed";
 // ── canonical identity ────────────────────────────────────────────────────────
 
-/** THE CLOSED SET OF ACTION FAMILIES. One page holds one current change per family: rewriting the snippet and restructuring the body are two hypotheses, and two attempts at the snippet are one. */
 type ActionFamily = "title-family" | "section-family" | "links-family" | "technical-family" | "consolidation" | "accuracy-family" | "new_page";
 
 /** Every kind maps to one family, once, here. Adding a kind without adding it here does not compile. */
@@ -40,7 +39,6 @@ const FAMILY_BY_KIND: Record<BundleComponentKind, ActionFamily> = { title: "titl
   internal_link_remove: "links-family", anchor_text: "links-family", schema: "technical-family",
   canonical: "technical-family", redirect: "technical-family", noindex: "technical-family",
   navigation: "technical-family", consolidation: "consolidation", new_page: "new_page",};
-/** BLAST RADIUS ORDER. A bundle touching several families is named by the biggest thing it does: moving the page outranks rewriting the body. Deterministic, so one bundle always lands on the same identity. */
 const FAMILY_PRECEDENCE: readonly ActionFamily[] = ["new_page", "consolidation", "technical-family", "accuracy-family", "section-family", "links-family", "title-family"];
 /** PURE: which family this change belongs to, off a bundle's components or an atomic edit's own field. THE ONE ANSWER: the id a producer mints, the `changeFamily` it stamps and the identity this store files it under all read it here, so a page can hold a snippet rewrite and a body rebuild at once without either wearing the other's name. Structural on purpose, so a producer can ask before it has a whole proposal to hand. */
 export function actionFamilyOf(p: Pick<ChangeProposal, "kind" | "bundle" | "recommendedChange">): ActionFamily {
@@ -68,8 +66,6 @@ function identityOf(p: ChangeProposal): Identity { const anchor = anchorOf(p);
   return { site: siteOf(p), case_id: p.kind === "new_page" ? anchor : "",
     page_key: p.kind === "new_page" ? "" : anchor, action_family: actionFamilyOf(p), mutation_key: footprintKey(p) };}
 
-/** THE READINGS THEMSELVES, in the order the receipt carries them. ORDER IS KEPT HERE on purpose: this feeds `proposalFingerprint`, whose whole job is "did anything at all about this row change", and loosening it would rewrite every stored row once for no gain. The refusal below sorts its own copy instead. */
-/** WHICH STORED ANSWERS a reading came out of is MATERIAL: the same sentence read off a different answer is different evidence, and leaving the id out let it change underneath a live proposal for free. A line SEVERAL answers stand behind is material in ALL of them, so swapping one member moves this and the whole proposal with it, while the sort here means merely reordering the same support moves neither. Both appends are CONDITIONAL and the plural is fixed first purely so the order never wobbles: a row carrying no id, or the singular id alone, computes byte for byte what it always did and is never churned. */
 const evidenceMaterial = (p: ChangeProposal): unknown[] => (p.bundle?.receipt.items ?? []).map((i) => [i.key, i.kind, i.fact, i.observedAt, ...(i.observationIds?.length ? [[...i.observationIds].sort()] : []), ...(i.observationId ? [i.observationId] : [])]);
 
 /** PURE: what this change STANDS ON, and nothing about how it reads. Two drafts off the same readings share it; one reading taken again, added or dropped moves it. SORTED, so a producer that merely reorders its receipt cannot quietly lift a refusal the operator meant to stand. AN ATOMIC CHANGE HAS NO RECEIPT, and hashing an empty list gave every one of them the same constant: they matched each other unconditionally and stayed shut for ever on an unchanged basis. What one of those stands on is the frozen evidence summary it carries  and the exact edit it argues for, so that is what it is asked about. */
@@ -164,20 +160,24 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     log.error("[proposal-store] this proposal does not survive its own contract, so nothing is saved", { tenantId: proposal.tenantId, id: proposal.id }); return "failed"; }
   try {
     const sb = getSupabaseAdmin(); const ident0 = identityOf(proposal);
-    const { data, error } = await sb.from(TABLE).select(CANON_COLUMNS).eq("tenant_id", proposal.tenantId) // EVERYTHING ON THIS PAGE, narrowed below to what this change actually collides with. Filtering here on `action_family` and `mutation_key` too made overlap mean "identical key", so the store could not see that a bundle writing {title, meta} overwrites a plain title rewrite. ORDERED, so the row picked to step aside is the same on every run and not whichever the cut returned first; the limit is generous because /iran-animals alone carries twenty-seven live anchor rows on one page.
-      .eq("case_id", ident0.case_id).eq("page_key", ident0.page_key).order("id", { ascending: true }).limit(200);
-    if (error) {
-      log.error("[proposal-store] canonical read failed, nothing was written", { tenantId: proposal.tenantId, id: proposal.id, error: error.message }); return "failed"; }
-    if ((data ?? []).length >= 200) return "refused"; // A truncated history cannot prove this draft was never declined.
+    // Read declined copy separately, in full, so unrelated history never vetoes a new proposal.
+    const data: CanonRow[] = [], dismissed: CanonRow[] = [];
+    for (const disposition of [null, "withdrawn", "dismissed"] as const) {
+      for (let offset = 0; ; offset += 200) {
+        const query = sb.from(TABLE).select(CANON_COLUMNS).eq("tenant_id", proposal.tenantId)
+          .eq("case_id", ident0.case_id).eq("page_key", ident0.page_key);
+        const { data: page, error } = await (disposition == null ? query.is("terminal_disposition", null) : query.eq("terminal_disposition", disposition))
+          .order("id", { ascending: true }).range(offset, offset + 199);
+        if (error) { log.error("[proposal-store] canonical read failed, nothing was written", { tenantId: proposal.tenantId, id: proposal.id, error: error.message }); return "failed"; }
+        (disposition === "dismissed" ? dismissed : data).push(...(page ?? []) as CanonRow[]);
+        if ((page ?? []).length < 200) break;
+      }
+    }
     const onPage = ((data ?? []) as CanonRow[]).map((r) => ({ row: r, stored: r.id === proposal.id ? null : decode(r.payload) })); // WHAT THIS CHANGE COLLIDES WITH, never everything that merely shares its page: a table row and a heading both stand, while a bundle rewriting a title takes over the plain title rewrite. A row that will not decode is KEPT, because an unreadable neighbour is not proof of no conflict. The id is looked up separately too, since it may have been filed under a DIFFERENT family last time.
     const rows = onPage.filter((e) => e.row.id === proposal.id || !e.stored || footprintsOverlap(e.stored, proposal)).map((e) => e.row);
     const mine = rows.find((r) => r.id === proposal.id) ?? (await rowById(proposal.tenantId, proposal.id));
-    // FINISHED WORK SURVIVES A PASS THAT NEVER SAW IT LAND (operator, 2026-09-02). A pass preserves copy only against the map it loaded at pass start, and this door read the fresh stored row ONLY to compare fingerprints, then wrote version + 1 over it with no merge: a concurrent visit-driven pass re-minted the actors description as its own brief and destroyed a finished Ready row one minute after it saved. The merge is the same preservation rule the producer uses, asked HERE, where the row that is really on file is in hand. A retirement (NO_HANDOVER) is exempt: it is putting a row on file in order to retire it, not competing to replace one.
     const stored = mine && mine.terminal_disposition == null ? decode(mine.payload) : null;
-    // A CHANGE THE OPERATOR ALREADY MADE IS NOT MINE TO REWRITE EITHER (falsifier, 2026-09-02). The measurement guard below only ever inspected OTHER rows, so a save carrying `ready` or `needs_review` over THIS id's own implemented row walked a shipped change back to a draft and orphaned its measurement.
     if (mine?.status === "implemented_pending_verification" && transition !== IMPLEMENTED_TRANSITION) { log.info("[proposal-store] you already marked this change done, so a new draft is not written over it", { tenantId: proposal.tenantId, id: proposal.id }); return "blocked"; }
-    // ...AND THE MERGE PROTECTS WORDS, NEVER A CALLER'S DECISION ABOUT THE SAME WORDS (falsifier, 2026-09-02). Merging unconditionally here ran AFTER every caller had decided the row's state, so the settled path handed back the prior's `status` and every copy-owned field and silently undid three real demotions: the $0 sweep's "a rule added today refuses this", the unfit downgrade, and this door's own `unreviewed` hold, all answering "unchanged". A row whose words are byte for byte the stored ones has nothing to preserve, so the caller's row stands exactly as it decided it; a row whose words DIFFER (a brief re-minted over finished copy) still merges, which is the loss this merge exists to stop.
-    // AND THE SKIP IS FOR A CALLER'S DECISION ABOUT COPY, NEVER FOR A BRIEF (incident recovery, 2026-09-04): the three demotions it protects were each a pass judging finished words, and a row declaring it has none has no decision to protect, so a brief whose text happened to match the stored one skipped the one rule that puts retired words back and left them unrecoverable for ever. A RECEIPT IS NOT LOST BECAUSE THE WORDS MATCHED either: any save that landed on the skip path for another reason wrote a row carrying no record of what this hypothesis had already retired.
     if (stored && transition !== NO_HANDOVER) proposal = sameWords(proposal, stored) && proposal.researchOnly !== true ? (proposal.previousCopy || !stored.previousCopy ? proposal : { ...proposal, previousCopy: stored.previousCopy }) : preferFinished(proposal, stored);
     if (proposal.status === "ready") proposal = finished(proposal); // AFTER the merge, because the merge can hand back the prior's own limitations and status, and BEFORE the obligation below, so what a finished row owes is computed from the row it actually is
     const owes0 = nextObligation(proposal); const owes = owes0?.kind === "evidence" && owes0.need.kind === "serp" && owes0.need.reasonCode !== "no_winner_to_read" && proposal.obligation && proposal.obligation.kind !== "evidence" ? proposal.obligation : owes0; // A CALLER HOLDING THE RESULTS PAGE MAY ANSWER THE QUESTION THE PURE LADDER ASKS (falsifier, 2026-09-02): `nextObligation` cannot see the snapshot, so it asks for the reading; a producer that has it in hand and finds the shape refused answers with the redraft that would earn it, and the store keeps that answer rather than resetting it to the wait. // THE TYPED NEXT STEP IS STAMPED AT EVERY DOOR, not only the producer's: the release loop and the caveat sweep save straight through here, so a row written by either would otherwise carry an obligation computed for words it no longer has. // AND A SETTLEMENT IS NOT AN ANSWER TO "NOBODY HAS READ THIS SEARCH'S WINNERS" (reviewer two, 2026-09-06): the caller guard above kept the stored `terminal: no substantive gap named` on every re-save of a settled row, so the reading the ladder owes was re-stamped away at the one door that writes the row and no caller outside the producer ever saw it. This one reasonCode is exempt: it is decided from the row's own typed `winnersOnFile`, which no caller holds a better answer for.
@@ -190,11 +190,11 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     const overtaken = live.map((e) => e.row);
     const current = (live.find((e) => e.stored && footprintKey(e.stored) === ident.mutation_key) ?? live[0])?.row ?? null; // THE PREDECESSOR IS THE ROW HOLDING THE INDEX KEY THIS ONE IS ABOUT TO CLAIM, not whichever id sorted first: superseding any other leaves that key held, the insert violates the current-row index, and the function answers "failed" on every future pass in the same order, for ever.
 
-    if ([mine, ...onPage.map((e) => e.row)].some((r) => { const d = r?.terminal_disposition ?? null;
+    if ([mine, ...dismissed, ...onPage.map((e) => e.row)].some((r) => { const d = r?.terminal_disposition ?? null;
       if (d !== "dismissed" && d !== "withdrawn") return false;
       const rejected = d === "dismissed" ? decode(r!.payload) : null;
       if (d === "dismissed" && (rejected ? AEO_BAR.sameRejectedCopy(rejected, proposal) : r!.id === proposal.id)) return true;
-      if (!rows.includes(r!) && r !== mine) return false;
+      if (!rows.includes(r!) && r !== mine && !(rejected && footprintsOverlap(rejected, proposal))) return false;
       if ((r!.basis ?? null) !== (proposal.basis ?? null)) return false;
       if (transition === IMPLEMENTED_TRANSITION && r!.id === proposal.id && d === "withdrawn") return false; // the operator's own press outvotes a reconciliation withdrawal of THIS row (Mahsa's stranded flip, 2026-08-29); a DISMISSED row still refuses, because that retirement was the operator's decision and a stale tab may not undo it
       if (d === "withdrawn" && /^swept:/.test(r!.withdrawn_reason ?? "")) return false;
@@ -210,7 +210,6 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     const version = (mine?.proposal_version ?? current?.proposal_version ?? 0) + 1;
     // One mutation, one current row: the predecessor steps aside BEFORE the successor lands, because the index will not hold both at once.
     const handover = current;
-    // A CHANGE THE OPERATOR ALREADY MADE IS NOT MINE TO RETIRE: pushing an implemented row into history mid-measurement orphans the proof. Only a row still waiting on them may step aside, and it is asked of EVERY row this one would overwrite, not just the first: a bundle taking over three atomic cards may not quietly retire the one of them already being measured.
     const measuring = overtaken.find((r) => r.status !== "ready" && r.status !== "needs_review");
     if (measuring) { log.info("[proposal-store] this edit is already carried by a change I am measuring, so the new draft is not saved",
       { tenantId: proposal.tenantId, holding: measuring.id, status: measuring.status, draft: proposal.id }); return "blocked"; }

@@ -1,7 +1,6 @@
 /** THE CAUSE PRODUCERS. A named cause reaches a producer, it works off the structure the ladder read, every component survives the REAL validator, a cause with no producer refuses in its own words, a drafter that will not land is a refusal, thin evidence never reaches a drafter, and wording keeps its own path. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-// Legacy short-body fixtures exercise rollback; full packet pins live in editorial-standard.
-beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "0")); afterEach(() => vi.unstubAllEnvs());
+beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1")); afterEach(() => vi.unstubAllEnvs());
 import type { EvidenceSnapshot, OwnedPageEvidence } from "@/domains/evidence/snapshot"; import HUB from "../fixtures/hub-packet.json";
 import { emptyResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
 import { answerIntelOf } from "@/domains/evidence/answer-intel"; import type { TopicInvestigation } from "@/domains/evidence/topic-investigation";
