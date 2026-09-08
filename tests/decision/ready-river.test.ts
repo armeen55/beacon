@@ -261,7 +261,7 @@ describe("packet admission survives storage and refresh", () => {
       await saveChangeProposal({ ...p, status: "needs_review", researchOnly: true, semanticReview: undefined, recommendedChange: { ...p.recommendedChange, after: "Write the answer." } as ChangeProposal["recommendedChange"] });
       expect(held().status).toBe("needs_review"); expect(await saveChangeProposal(held())).toBe("unchanged"); } });
   it("keeps a reviewed packet Ready across preservation and reload, but holds corrective debt and bundled dumps", async () => {
-    db.rows = []; const p = { ...packet(), limitations: Object.values(AEO_BAR.holds) }; expect(AEO_BAR.rowFailures(p)).toEqual([]); await saveChangeProposal(p); expect([held().status, openHold(held()).defects, nextObligation(held())]).toEqual(["ready", [], null]);
+    db.rows = []; const p = { ...packet(), limitations: Object.values(AEO_BAR.holds) }; expect(AEO_BAR.rowFailures(p)).toEqual([]); await saveChangeProposal(p); expect([held().status, openHold(held()).defects, nextObligation(held())]).toEqual(["ready", [], null]); for (const hold of Object.values(AEO_BAR.holds)) { expect(held().limitations).not.toContain(hold); expect(openHold(held()).caveats).not.toContain(hold); expect(openHold(p).caveats).not.toContain(hold); }
     await saveChangeProposal({ ...p, researchOnly: true, status: "needs_review", semanticReview: undefined }); expect(held().status).toBe("ready"); expect(await saveChangeProposal(held())).toBe("unchanged");
     db.rows[0]!.queue_lane = "rel-9::ready"; db.rows[0]!.queue_rank = 1;
     expect((await readQueuePage("t", "ready", "b1", 0, 10)).rows.map((p) => p.id)).toEqual([p.id]);
