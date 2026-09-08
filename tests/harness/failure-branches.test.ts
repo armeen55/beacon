@@ -46,7 +46,7 @@ const need = (over: Row = {}): Row => ({ key: `${HUB}::body::${QUERY}`, kind: "s
   reason: "no results page for this search is on file", workKey: `${HUB}::body::${QUERY}::wc5::e1`, unlocks: { proposalId: `${T}::${HUB}::existing_edit::demand_recovery`, step: "draft" }, ...over });
 
 let basis = "";
-beforeEach(async () => {
+beforeEach(async () => { vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1"); // Exercise the shipped packet policy alongside timing behavior.
   reset(); installFetch();
   vi.stubEnv("DATAFORSEO_AUTH_B64", "harness-not-a-key");
   vi.stubEnv("OPENAI_API_KEY", "harness-not-a-key");

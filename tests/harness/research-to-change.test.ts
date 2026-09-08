@@ -2,7 +2,9 @@
  *  only what the round before had opened. Every drive below is the REAL `runResearchCycle` over the REAL `defaultSteps`, with the clock advanced between
  *  drives instead of a scheduler waited on, the captured production rows seeded through the canonical stores, and the three providers answered from a
  *  script. Nothing here is a second runtime and nothing is marked Ready by hand: what an arm asserts, the shipped code decided. */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1")); afterEach(() => vi.unstubAllEnvs());
+
 vi.mock("@/lib/persistence/supabase", async () => { const w = await import("./world"); const c = w.client(); return { getSupabaseAdmin: () => c, isSupabaseConfigured: () => true }; });
 vi.mock("@/lib/logger", async () => { const w = await import("./world"); return { log: { debug: () => {}, info: (m: string, x?: unknown) => w.logs.push(`${m} ${JSON.stringify(x ?? {})}`), warn: (m: string, x?: unknown) => w.logs.push(`${m} ${JSON.stringify(x ?? {})}`), error: (m: string, x?: unknown) => w.logs.push(`${m} ${JSON.stringify(x ?? {})}`) } }; });
 // THE TWO SEAMS THE CHANGES ACTION SITS BEHIND, and nothing else about it: who may publish for this account, and which account the request is for. The framework's own page cache and its background
@@ -48,17 +50,7 @@ function searchScript(state: { ready: boolean; posts: number }) {
 /** A publisher that answers, in the shape the reader extracts: a title, a heading and enough words to be a reading. */
 const pageScript = (url: string) => (url.endsWith("/robots.txt") ? { html: "User-agent: *\nAllow: /", contentType: "text/plain" }
   : { html: `<html><head><title>Famous Iranians, by the work they did</title></head><body><h1>Famous Iranians through history</h1><h2>Poets</h2><h2>Athletes</h2><h2>Scientists</h2><p>${"Famous Iranians are listed here by the work they did, with the years each of them worked and one line on why they are remembered. ".repeat(20)}</p></body></html>` });
-/** THE WORDS THE WRITER HANDS BACK, in the shape the canonical editor accepts: an opening that answers the search outright, one claim per assertion, and every claim naming an id the packet really
- *  carries. It is a script and never a bypass: the same deterministic contract, the same evaluator and the same per-claim ruling read these words as they read production's. */
-const WRITER = { field: "answer_block", before: null, naturalHeading: "Who the widely known Iranians are", placementId: "", implementationMinutes: 15,
-  rationale: "The first lines never say who the search is about, so the answer is stated before the sections that hold the names.",
-  after: "Iran's widely known figures fall into three groups of people: poets, athletes and screen actors. The athletes are wrestlers and weightlifters who won world titles, and the actors worked on screen at home and abroad.",
-  claims: [{ text: "Poets, athletes and screen actors are the three kinds of people named.", supportedBy: ["page-heading-2", "page-heading-3", "page-heading-4"] },
-    { text: "The athletes are wrestlers and weightlifters who won world titles, and the actors worked on screen at home and abroad.", supportedBy: ["page-copy-1"] }] };
-/** THE READING OF THOSE WORDS, one ruling per claim by the index the evaluator is shown. A judge that says yes is still the REAL judge: what it may say is fixed by the schema the gateway sends, and
- *  every deterministic gate in front of it has already run on this same copy. */
-const JUDGE = { pageFit: true, usefulAndNatural: true, placementCorrect: true, resolvesDiagnosis: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, contested: false,
-  claims: [0, 1].map((i) => ({ i, by: WRITER.claims[i]!.supportedBy, entailed: true })), notes: "The first lines now name who the search is about before the sections that hold the names.", resolution: "none" };
+import { WRITER, JUDGE } from "./world";
 /** The words the reasoning gateway hands back where a door reads them; every other field comes from the request's own schema. */
 const REASONING = { page_job: { topics: ["names", "notable people", "history"], job: "Name the people this page covers and say why each is remembered.", audience: "readers looking a person up", promise: "a named list with one line each", missing: "a direct opening answer", sells: ["guides", "lists"] }, atomic_edit: WRITER, editor_judgement: JUDGE };
 

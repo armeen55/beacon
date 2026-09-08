@@ -104,11 +104,25 @@ describe("canonical proposal persistence", () => {
     const body = deep({ id: `${T}::${PAGE}::existing_edit::section-family`, bundle: bundle("section_rewrite") }); // the id the producer mints for it: the family is IN the id, so two families coexist
     expect(await saveChangeProposal(body)).toBe("saved"); // section-family: a different hypothesis about the same page
     expect([current().map((r) => r.action_family).sort(), current().every((r) => r.proposal_version === 1), (await loadChangeProposals(T)).size]).toEqual([["section-family", "title-family"], true, 2]);});
-  it("does not resurrect a dismissed change under the same evidence, and lets a new basis try again", async () => {
+  it("does not resurrect unchanged declined copy even under a new evidence basis", async () => {
     await saveChangeProposal(proposal());
     Object.assign(db.state.rows[0]!, { terminal_disposition: "dismissed" }); // the operator put it away
     expect(await saveChangeProposal(proposal({ confidence: "high" }))).toBe("refused"); expect([db.state.rows[0]!.terminal_disposition, (await loadChangeProposals(T)).size]).toEqual(["dismissed", 0]);
-    expect(await saveChangeProposal(proposal({ basis: "basis_tomorrow::d6" }))).toBe("saved"); expect([db.state.rows[0]!.terminal_disposition, db.state.rows[0]!.proposal_version]).toEqual([null, 2]); });
+    expect(await saveChangeProposal(proposal({ basis: "basis_tomorrow::d6" }))).toBe("refused"); expect([db.state.rows[0]!.terminal_disposition, db.state.rows[0]!.proposal_version]).toEqual(["dismissed", 1]); });
+  it("reads dismissed copy past 200 rows without confusing research siblings or other history with a refusal", async () => {
+    const p = proposal(); await saveChangeProposal(p); const seed = { ...db.state.rows[0]! }; db.state.rows = [];
+    for (let i = 0; i < 205; i++) db.state.rows.push({ ...seed, id: `${T}::${PAGE}::existing_edit::old-${i}`, terminal_disposition: "dismissed", payload: JSON.parse(serializeChangeProposal(proposal({ bundle: bundle("title", `An unrelated finished title number ${i}`) }))) });
+    expect(await saveChangeProposal(p)).toBe("saved");
+    Object.assign(db.state.rows.at(-1)!, { id: `${T}::${PAGE}::existing_edit::zz-declined`, terminal_disposition: "dismissed" });
+    expect(await saveChangeProposal(proposal({ basis: "moved" }))).toBe("refused");
+    db.state.rows = Array.from({ length: 205 }, (_, i) => ({ ...seed, id: `history-${i}`, terminal_disposition: "superseded" }));
+    expect(await saveChangeProposal(p)).toBe("saved");
+    db.state.rows = [];
+    const brief = proposal({ researchOnly: true, primaryQuery: "first query", bundle: undefined, recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Write the answer.", where: "After first heading" } });
+    expect(await saveChangeProposal(brief)).toBe("saved"); await dismissChangeProposal(T, brief.id);
+    const sibling = { ...brief, id: `${T}::${PAGE}::existing_edit::sibling`, primaryQuery: "second query" } as ChangeProposal;
+    expect(await saveChangeProposal(sibling)).toBe("saved"); expect(await saveChangeProposal(brief)).toBe("refused");
+  });
   it("the operator's own put-this-aside writes the dismissal, and refuses to retire a change already being measured", async () => {
     await saveChangeProposal(proposal());
     expect(await dismissChangeProposal(T, proposal().id)).toBe(true); // it stops being the current answer immediately
@@ -193,7 +207,7 @@ describe("canonical proposal persistence", () => {
     Object.assign(db.state.rows[0]!, { terminal_disposition: "dismissed" }); // put away under basis_a
     expect(await saveChangeProposal(deep({ basis: "basis_b" }))).toBe("saved"); // a new reading, so it may try again
     Object.assign(db.state.rows[1]!, { terminal_disposition: "dismissed" }); // put away under basis_b too
-    expect(await saveChangeProposal(deep({ basis: "basis_b" }))).toBe("refused"); expect(await saveChangeProposal(deep({ basis: "basis_c" }))).toBe("saved"); });
+    expect(await saveChangeProposal(deep({ basis: "basis_b" }))).toBe("refused"); expect(await saveChangeProposal(deep({ basis: "basis_c" }))).toBe("refused"); });
   it("repairs a handover whose successor never landed: the predecessor reads as current again until a real successor exists", async () => {
     await saveChangeProposal(proposal());
     Object.assign(db.state.rows[0]!, { terminal_disposition: "superseded", superseded_by: deep().id }); // The crash the in-process rollback cannot cover: the predecessor stepped aside, the insert never landed.

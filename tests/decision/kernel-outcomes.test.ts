@@ -1,4 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1")); afterEach(() => vi.unstubAllEnvs());
+
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} })); // Budget is not this file's subject: always-allowed, no-op hermetic seam.
 const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>(), withdrawn: [] as string[], failWrites: false, failIds: new Set<string>(), refuseIds: new Set<string>(), withdrawnIds: new Set<string>(), bundleTarget: null as string | null, bundle: null as unknown, realBundle: false, ledger: [] as unknown[], door: null as { door: string; evidence: { query: string | null } } | null }));
 const fenv = vi.hoisted(() => ({ cards: null as null | unknown[], review: null as null | ((c: readonly unknown[]) => readonly unknown[]) })); vi.mock("@/domains/measurement/proof-gsc/load-ledger", () => ({ loadProofLedgerPersisted: async () => env.ledger, loadProofLedgerCached: async () => env.ledger })); // THE SHIPMENT LEDGER BOTH RANKING DOORS EAT, in the test's own hands: the real read reaches Supabase, fails soft to nothing, and would leave this account's track record unpinnable
