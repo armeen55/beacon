@@ -336,7 +336,7 @@ export const defaultSteps: ResearchCycleSteps = {
           const already = await propositionState(tenantId, prop.url, prop.subject).catch(() => null);
           if (already?.researched) return { acquired: true, unlocked: already.usable, detail: `no source was bought for ${prop.url}: the answer to "${prop.subject}" is ${already.why}` };
         }
-        const out = await factCheckPass(tenantId, budgetMs, undefined, need.url ?? null, undefined, prop && need.rivalUrl?.trim() ? { subject: prop.subject, url: need.rivalUrl.trim(), anchor: need.missingTopic!.trim() } : undefined); // THE PAGE THE COMPARISON FOUND THE SUBJECT ON IS READ FIRST: the need has named it since the ladder began filing these, and the acquisition dropped it
+        const out = await factCheckPass(tenantId, budgetMs, undefined, need.url ?? null, undefined, prop && need.rivalUrl?.trim() ? { subject: prop.subject, url: need.rivalUrl.trim(), anchor: need.missingTopic!.trim() } : undefined, prop?.subject); // THE PAGE THE COMPARISON FOUND THE SUBJECT ON IS READ FIRST: the need has named it since the ladder began filing these, and the acquisition dropped it
         // AND THE PURCHASE IS JUDGED AGAINST THE NEED IT WAS SENT FOR (live 2026-09-05). `banked > 0` asked whether ANY claim on that page moved, so a pass that researched eleven other statements of the same page reported this row's own topic acquired, stamped it bought for the day, and the walk re-minted the identical requirement on the next drive, for ever. The topic's own row answers now: researched and usable is an unlocked obligation, researched and not usable is a reading that happened with the store's own reason for why it does not stand yet, and neither is guessed at from a page-wide count.
         const settled = prop ? await propositionState(tenantId, prop.url, prop.subject).catch(() => null) : null;
         if (settled) return { acquired: settled.researched, unlocked: settled.usable, detail: `fact check of ${prop!.url}: ${out.status}, ${out.banked} banked; the answer to "${prop!.subject}" is ${settled.why}` };
@@ -439,11 +439,11 @@ async function propositionState(tenantId: string, pageUrl: string, proposition: 
 }
 
 /** THE ONE FACT-CHECK PASS, shared by the daily phase (no target: rotation picks the page) and by a `factual_source` acquisition (the named page goes FIRST, because the requirement is that page's owed claims and rotation would spend the pass elsewhere). Same bounds, same stores, same receipts either way. */
-async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => Promise<boolean>) | undefined, firstPage: string | null, shared?: Map<string, unknown>, rival?: { subject: string; url: string; anchor?: string }): Promise<{ status: "advanced" | "done" | "failed"; banked: number; bankedPages: string[]; pagesComplete: number; failure?: string; reason?: string }> {
+async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => Promise<boolean>) | undefined, firstPage: string | null, shared?: Map<string, unknown>, rival?: { subject: string; url: string; anchor?: string }, proposition?: string): Promise<{ status: "advanced" | "done" | "failed"; banked: number; bankedPages: string[]; pagesComplete: number; failure?: string; reason?: string }> {
     // THE OUTER DEADLINE, NOT AN ALLOWANCE OF ITS OWN: every call inside is bounded by what remains of it.
     const deadlineAt = Date.now() + Math.max(0, budgetMs);
     try {
-      const [{ runFactCheckPass }, facts, { loadEvidenceSnapshot }, { loadOwnedPageBodies }] = await Promise.all([
+      const [{ runFactCheckPass, claimIdentity }, facts, { loadEvidenceSnapshot }, { loadOwnedPageBodies }] = await Promise.all([
         import("@/domains/evidence/pages/fact-check-run"), import("@/domains/evidence/pages/fact-checks"),
         import("@/domains/evidence/snapshot-loader"), import("@/domains/evidence/pages/owned-context"),
       ]);
@@ -467,8 +467,7 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
           || (coverage.get(pathOf(a.url)) ?? -1) - (coverage.get(pathOf(b.url)) ?? -1));
       const basis = await import("@/domains/decision/load-proposals").then((m) => m.resolveCurrentBasis(tenantId)).catch(() => null);
       const { callStructuredLLM } = await import("@/domains/decision/llm/structured-drafter");
-      // THE KIND IS THE SCHEMA: asking editor_judgement for a claim list returns an editor's verdict on one finished edit for ever, never the page's statements. THE MODEL'S OWN OUTCOME, CARRIED: a budget refusal, an answer that would not validate and an engine that could not be reached are three different
-      // debts, and the unit names each one on the run row.
+      // Fact extraction and judgement use their own schemas; provider refusals retain their typed reason.
       const read = async (input: { kind: "fact_claim_extraction" | "fact_claim_judgement"; system: string; user: string; grounded: string; projectedCostUsd: number; maxTokens: number }) => {
         const left = deadlineAt - Date.now();
         if (left <= 0) return { hold: "unavailable" as const };
@@ -491,6 +490,7 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
       };
       const out = await runFactCheckPass({
         tenantId, basis, deadlineAt, held, renew, read, ...(rival ? { rival } : {}),
+        ...(want && proposition ? { target: { page: want, statementKey: claimIdentity(proposition, "", "missing") } } : {}),
         pages: ranked.map((p) => ({ url: p.url, path: pathOf(p.url), loadBody: async () => {
           const bodies = await loadOwnedPageBodies(tenantId, [p.url]).catch(() => null);
           const b = bodies?.get?.(canonicalUrlKey(p.url)); // the same canonical key: an absolute owned-page address read back nothing here, so every page was skipped for having no stored words and the pass banked nothing on a store holding hundreds
