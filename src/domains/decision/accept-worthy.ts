@@ -5,7 +5,9 @@ import type { ChangeProposal } from "./contracts";
 // Public so the browser and server use the same value; this is policy, never a secret.
 const enabled = () => process.env.NEXT_PUBLIC_BEACON_AEO_PACKET !== "0";
 const groupingTopic = "grouping criteria and selection boundary";
-const collection = (query: string) => !/\bhow many\b/i.test(query) && /\b(?:(?:which|what)\s+(?:\w+\s+){0,3}(?:animals|wildlife|species|people|figures)|(?:famous|notable)\s+(?:\w+\s+){0,2}(?:people|figures))\b/i.test(query);
+// A checked contrast can supply grouping facts under its real subject; a bare roster cannot.
+const hasGrouping = (subjects: readonly string[], facts: readonly string[] = []) => subjects.some((s) => s.toLowerCase().endsWith(groupingTopic)) || facts.some((s) => /\band\b/i.test(s) && (s.match(/\b(?:such as|identified by|characterized by|defined by)\b/gi) ?? []).length >= 2);
+const collection = (query: string) => !/\bhow many\b/i.test(query) && /\b(?:animals|wildlife|(?:famous|notable)\s+(?:\w+\s+){0,2}(?:people|figures)|(?:which|what)\s+(?:\w+\s+){0,3}(?:species|people|figures))\b/i.test(query.replace(/[-_/]/g, " "));
 const applies = (field: string, standard?: string, unpublished = false, shape?: string, query = "") => enabled() && !unpublished && /^(answer_block|section)$/.test(field)
   && (collection(query) || ["section", "direct_answer", "restructure"].includes(shape ?? ""))
   && !["correction", "internal_link", "repositioning"].includes(standard ?? "");
@@ -54,7 +56,7 @@ const emptyMeta = (copy: string, heading: string): string[] => {
   return !copy.trim() || /\b(?:no (?:added |useful |additional )?description|description (?:not available|unavailable|missing)|nothing to describe)\b/i.test(copy)
     || (known.size > 0 && tokens(copy).every((w) => known.has(w))) ? ["The description is empty or repeats the heading without describing the subject."] : [];
 };
-export const AEO_BAR = { enabled, collection, groupingTopic, hasGrouping: (subjects: readonly string[]) => subjects.some((s) => s.toLowerCase().endsWith(groupingTopic)), emptyMeta, applies, policy, failures, schema, passed, holds, writerLimitations,
+export const AEO_BAR = { enabled, collection, groupingTopic, hasGrouping, emptyMeta, applies, policy, failures, schema, passed, holds, writerLimitations,
   rowFailures: (p: ChangeProposal): string[] => bodyParts(p).flatMap((copy) => failures("section", copy, p.limitations, undefined, false, "section")),
   approved: Object.fromEntries(criteria.map((k) => [k, true])) as z.infer<typeof schema>,
   forRow: (p: ChangeProposal): boolean => bodyParts(p).length > 0,

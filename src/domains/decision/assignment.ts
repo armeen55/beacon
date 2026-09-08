@@ -86,8 +86,8 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     .map((x) => ({ x, n: topicTokens(x).filter((w) => wanted.has(w)).length }))
     .filter((y) => y.n > 0).sort((a, b) => b.n - a.n)[0] ?? null;
   const heading = [packet.h1, packet.title, ...packet.headings].find(EDITOR_SHARED.placeable) ?? null;
-  const collection = AEO_BAR.applies(field, standard, packet.unpublished, undefined, packet.trackedQuestion ?? "");
-  const groupingOwed = collection && !AEO_BAR.hasGrouping(packet.checkedSubjects ?? []) ? "A checked source must establish the grouping criteria and selection boundary before an entity packet can be written." : null;
+  const collection = AEO_BAR.applies(field, standard, packet.unpublished, undefined, `${packet.trackedQuestion ?? ""} ${packet.h1 ?? ""}`);
+  const groupingOwed = collection && !AEO_BAR.hasGrouping(packet.checkedSubjects ?? [], packet.checkedSentences ?? []) ? "A checked source must establish the grouping criteria and selection boundary before an entity packet can be written." : null;
   const shape = groupingOwed ? "no_change" as const : collection ? "section" as const : rewrite ? "exact_replacement" as const
 
     : backedProps.length > 0 && (kind === "missing_answer" || kind === "incomplete_answer") && backedProps.every(carriedByOne) ? "no_change" as const
