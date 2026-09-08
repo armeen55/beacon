@@ -285,6 +285,12 @@ describe("the standard says what the work is, and the id says where the words ca
     expect([entityGrounded(`${head}'s`, seen), entityGrounded(`${head}\u2019s`, seen), entityGrounded(`${s.label}'`, seen), entityGrounded(head, seen), entityGrounded("Kelp Forest Reserve", seen),
       kept.entailed, kept.violations, refused.entailed, refused.violations.length, refused.violations[0]?.includes("Check it before you paste"), /\bI\b|\bmy data\b/.test(refused.violations.join(" "))],
       "a straight apostrophe, a curly one and a plural possessive all name the thing the page names, the bare name is unchanged, and a name this page never prints is still refused; the whole gate lets a possessive of the page's own subject through with nothing to say about it, still refuses an invented name, still tells the operator what to do about it, and says none of it in the first person").toEqual([true, true, true, true, false, true, [], false, 1, true, false]); });
+  it.each(SITES)("treats markdown headings as sentence starts, so heading-opening words are not mid-sentence entities", async (s) => {
+    const { extractCapitalizedSpans, checkFactualEntailment } = await import("@/domains/decision/drafts/factual-entailment");
+    const draft = `The reserve records each species by habitat.\n## Cats of the reserve\n${s.lines[0]}`;
+    const spans = extractCapitalizedSpans(draft), read = checkFactualEntailment({ draftText: draft, pageBodyText: `The reserve records each species by habitat. ${s.lines[0]}`, query: s.q });
+    expect([spans.some((x) => /\bCats\b/.test(x)), read.violations.some((v) => /"Cats"/.test(v))], "a markdown heading starts a fresh sentence context, so heading lead words are not extracted as unsupported entities and cannot block the draft").toEqual([false, false]);
+  });
   it.each(SITES)("leaves the exact words a funded pass wrote, the sentence that refused them and the attempt count on the row, keeps the work reachable while attempts are left, and settles it once they are spent, on $t", async (s) => {
     const brief = card(s, { researchOnly: true, changeFamily: "section", treatment: "add_answer_section", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "The exact wording has not been written yet." },
       causeFinding: { cause: "retrieved_not_cited", action: null, evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [], falsifier: "f", explanation: "e", payload: { cause: "retrieved_not_cited", engine: "chatgpt", promptText: s.q, missing: s.narrow, aeoKind: "missing_information" } } as never });
@@ -359,6 +365,15 @@ describe("the deadline the editor asks before it starts a call", () => {
 });
 describe("#129 full AEO packet acceptance", () => {
   beforeEach(() => vi.unstubAllEnvs());
+  it("fails closed for demonym-folded species labels and link-styled child rows", async () => {
+    const { AEO_BAR } = await import("@/domains/decision/accept-worthy");
+    const plain = "Wild animals in the reserve include river and wetland species with distinct habitats.\n## Iran cats\nThis group covers cats observed in the reserve.\n- Iranian cat: recorded near river stones.";
+    const linked = "Wild animals in the reserve include river and wetland species with distinct habitats.\n## River mammals\nThis group covers mammals observed in the reserve.\n- **[Otter](https://example.test/otter)**: recorded in reserve rivers.\n- [Heron](https://example.test/heron): recorded in reserve wetlands.";
+    const plainFails = AEO_BAR.failures("answer_block", plain, [], "missing_answer", false, "section", { primaryQuery: "reserve animals" });
+    const linkedFails = AEO_BAR.failures("answer_block", linked, [], "missing_answer", false, "section", { primaryQuery: "reserve animals" });
+    expect([plainFails.includes(AEO_BAR.holds.criteria), linkedFails.includes(AEO_BAR.holds.criteria)],
+      "a heading that only rephrases a child species label fails even when that label differs by demonym morphology, and child rows styled as linked labels fail closed so packet children stay plain text").toEqual([true, true]);
+  });
   for (const variant of ["which animals live in the reserve", "reserve animals", "wildlife", "survey records", "people"]) { const people = variant === "people";
   const s = people ? { ...SITES[0]!, url: "https://alpha.example/people", label: "Notable people", q: "notable people from the region", title: "Notable people", h1: "Notable people", heads: ["Poetry", "Painting"], lines: ["Mira is a poet born in the region.", "Dara is a painter born in the region.", "These examples concern people born in the region whose poetry or painting appears in the archive."] } : { ...SITES[0]!, url: "https://alpha.example/wildlife", label: "Wildlife", q: variant, title: "Reserve wildlife", h1: "Reserve wildlife", heads: ["Mammals", "Birds"],
     lines: ["Otters are mammals recorded in the reserve rivers.", "Herons are birds recorded in the reserve wetlands.", "These records concern wild animals observed inside the reserve during the survey."] };
