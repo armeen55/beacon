@@ -1,13 +1,12 @@
 import { z } from "zod";
 import type { ChangeProposal } from "./contracts";
-
-// Build-time rollback: NEXT_PUBLIC_BEACON_AEO_PACKET=0 restores the prior editorial bar.
-// Public so the browser and server use the same value; this is policy, never a secret.
 const enabled = () => process.env.NEXT_PUBLIC_BEACON_AEO_PACKET !== "0";
 const groupingTopic = "grouping criteria and selection boundary";
-const collection = (query: string) => !/\bhow many\b/i.test(query) && /\b(?:(?:which|what)\s+(?:\w+\s+){0,3}(?:animals|wildlife|species|people|figures)|(?:famous|notable)\s+(?:\w+\s+){0,2}(?:people|figures))\b/i.test(query);
-const applies = (field: string, standard?: string, unpublished = false, shape?: string, query = "") => enabled() && !unpublished && /^(answer_block|section)$/.test(field)
-  && (collection(query) || ["section", "direct_answer", "restructure"].includes(shape ?? ""))
+const hasGrouping = (subjects: readonly string[], facts: readonly string[] = []) => subjects.some((s) => s.toLowerCase().endsWith(groupingTopic)) || facts.some((s) => /\band\b/i.test(s) && (s.match(/\b(?:such as|identified by|characterized by|defined by)\b/gi) ?? []).length >= 2);
+// The target leaf owns collection identity; ancestor slugs and inherited titles never classify a species.
+const signal = (row: { pageUrl?: string | null; pagePath?: string | null; targetUrl?: string; primaryQuery?: string; trackedQuestion?: string | null }): string => { const path = (row.pageUrl ?? row.pagePath ?? row.targetUrl ?? "").split(/[?#]/)[0]!.replace(/\/+$/, ""); return path ? path.slice(path.lastIndexOf("/") + 1) : row.primaryQuery ?? row.trackedQuestion ?? ""; };
+const applies = (field: string, standard?: string, unpublished = false, shape?: string, row: Parameters<typeof signal>[0] = {}) => enabled() && !unpublished && /^(answer_block|section)$/.test(field)
+  && (AEO_BAR.collection(signal(row)) || ["section", "direct_answer", "restructure"].includes(shape ?? ""))
   && !["correction", "internal_link", "repositioning"].includes(standard ?? "");
 const holds = {"lead": "The opening needs a complete answer paragraph that explains more than the names.", "groups": "Group the answer under headings that explain how the examples were selected.", "criteria": "Each heading needs a selection criterion and explanatory prose, not one heading per entity or a list of names.", "entities": "Add a table or labeled list pairing each example with its supported distinguishing detail.", "accuracy": "The accuracy questions need to be resolved before this copy is ready.", "unreviewed": "These exact words still need a review of their structure, accuracy and relevance.", "sixChecks": "The answer still needs to pass all six checks for structure, accuracy and relevance."};
 const writerLimitations = (limitations: readonly string[]) => limitations.filter((l) => !Object.values(holds).includes(l.trim()));
@@ -15,8 +14,8 @@ const criteria = ["leadAnswer", "groupedH2s", "defendedClaims", "entityBlock", "
 const schema = z.object({ leadAnswer: z.boolean(), groupedH2s: z.boolean(), defendedClaims: z.boolean(), entityBlock: z.boolean(), boundedScope: z.boolean(), h1QueryAlignment: z.boolean() });
 const passed = (r: unknown): boolean => { const parsed = schema.safeParse(r); return parsed.success && criteria.every((k) => parsed.data[k] === true); };
 const policy = "WRITE THE PACKET IN THIS ORDER: choose supported entities and their distinguishing facts; choose at least two inclusion criteria those facts prove; write a lead paragraph explaining the answer and selection boundary; write one ## heading and an inclusion sentence per criterion; finish with the entity records. These are publishable words, never instructions or an outline. ANSWER-READY AEO PACKET (all six MUST pass): (1) Start finalCopy with a self-contained, liftable opening answer paragraph, explaining a useful distinction, never an introduction to a names dump. (2) Follow with Markdown ## H2s grouped by meaningful, evidence-supported criteria; explain what qualifies in each group, never one heading per species/person or an unclassified list. (3) Attribute only the exact claim a cited passage defends, never the whole packet. Mere presence or a heading does not establish native, endemic, current or official status. Omit unsupported optional claims; if core accuracy or membership is unclear, refuse. Disclaimers cannot repair unsupported copy. (4) Include an extractable entity block: a compact Markdown table or labeled bullet records pairing each named entity with its supported distinguishing attribute and group. (5) State a useful bounded selection and its geographic/time limits where relevant; do not promise exhaustive coverage. (6) The answer and grouped headings must answer the query intent AND fit the existing page H1; if H1 or intent is missing or mismatched, fail closed, never silently retitle the page. SHOULD: add useful FAQ question-answer pairs and relevant internal links to known owned destinations when evidence supports them; omission alone is not a failure. Meta is a separate companion when the page needs body and description together. This packet replaces the short-body format: no one-to-three-sentence cap, set naturalHeading=null, no outer heading before the lead. Preserve existing material outside the exact placement. HARD LIMITS: finalCopy must fit 2000 characters and 400 whitespace-delimited words, with at most 10 claims, each at most 400 characters. Choose a small supported selection that fits; record each entity assertion separately, plus the lead, grouping and scope claims. Never use one claim to vouch for the whole copy. If the six requirements cannot fit, refuse rather than omit them.";
-const failures = (field: string, copy: string, limitations: readonly string[] = [], standard?: string, unpublished = false, shape?: string, query = ""): string[] => {
-  if (!applies(field, standard, unpublished, shape, query)) return [];
+const failures = (field: string, copy: string, limitations: readonly string[] = [], standard?: string, unpublished = false, shape?: string, row: Parameters<typeof signal>[0] = {}): string[] => {
+  if (!applies(field, standard, unpublished, shape, row)) return [];
   const out: string[] = [], lines = copy.trim().split(/\n+/).map((s) => s.trim()).filter(Boolean);
   const first = lines.find((s) => !/^#{1,6}\s/.test(s)) ?? "";
   const plain = first.replace(/\*\*/g, "");
@@ -45,8 +44,8 @@ const bodyParts = (p: ChangeProposal) => {
   if (p.kind !== "existing_edit") return [];
   const c = p.recommendedChange, standard = p.changeFamily === "factual_correction" ? "correction" : p.assignment?.standard,
     shape = p.assignment?.treatment === "restructure" ? "restructure" : p.assignment?.shape;
-  return [...(c.kind === "existing_edit" && !c.linkTo && applies(c.field, standard, false, shape, p.primaryQuery) ? [c.after] : []),
-    ...(p.bundle?.components ?? []).filter((x) => /^(opening_answer|section|section_add|section_rewrite|restructure)$/.test(x.kind) && applies("section", standard, false, shape, p.primaryQuery)).map((x) => x.after)];
+  return [...(c.kind === "existing_edit" && !c.linkTo && applies(c.field, standard, false, shape, p) ? [c.after] : []),
+    ...(p.bundle?.components ?? []).filter((x) => /^(opening_answer|section|section_add|section_rewrite|restructure)$/.test(x.kind) && applies("section", standard, false, shape, p)).map((x) => x.after)];
 };
 const emptyMeta = (copy: string, heading: string): string[] => {
   const tokens = (t: string) => t.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
@@ -54,7 +53,7 @@ const emptyMeta = (copy: string, heading: string): string[] => {
   return !copy.trim() || /\b(?:no (?:added |useful |additional )?description|description (?:not available|unavailable|missing)|nothing to describe)\b/i.test(copy)
     || (known.size > 0 && tokens(copy).every((w) => known.has(w))) ? ["The description is empty or repeats the heading without describing the subject."] : [];
 };
-export const AEO_BAR = { enabled, collection, groupingTopic, hasGrouping: (subjects: readonly string[]) => subjects.some((s) => s.toLowerCase().endsWith(groupingTopic)), emptyMeta, applies, policy, failures, schema, passed, holds, writerLimitations,
+export const AEO_BAR = { enabled, collection: (query: string) => !/\bhow many\b/i.test(query) && /\b(?:animals|wildlife|people|figures|species)\b/i.test(query.replace(/[-_/]/g, " ")), groupingTopic, hasGrouping, emptyMeta, applies, policy, failures, schema, passed, holds, writerLimitations,
   rowFailures: (p: ChangeProposal): string[] => bodyParts(p).flatMap((copy) => failures("section", copy, p.limitations, undefined, false, "section")),
   approved: Object.fromEntries(criteria.map((k) => [k, true])) as z.infer<typeof schema>,
   forRow: (p: ChangeProposal): boolean => bodyParts(p).length > 0,

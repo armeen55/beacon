@@ -130,7 +130,12 @@ export function citedPublishers(p: ChangeProposal): Set<string> { const cited = 
 export function openHold(p: ChangeProposal, also: { found?: readonly string[] } = {}): { lane: "review" | "research"; why: string[]; caveats: string[]; blocking: string | null; faulted: boolean; safetyHold: boolean; defects: string[]; advisories: Advisory[] } {
   const stands = (p.claims ?? []).length > 0 && (p.supportFacts ?? []).length > 0; /* AND A ROW WHOSE RECORD STANDS MAY NOT CARRY THE SENTENCE THAT SAYS IT HAS NONE (measured, 2026-09-05: eighteen current rows wear it, seventeen of them truthfully with no claim and no support fact, and one carries a claim and three support facts and is held for a record it holds). The sentence is written where a brief would have displaced finished words, and only a paid reading retired it, so a row whose own record answers it stayed held for a reason its own payload disproves. Asked of the row, at no cost, on every pass that reads it. */ const lims = p.limitations.filter((l) => !OWED_NOTE.test(l) && !(stands && l === NO_RECORD)); /* THE OWED NOTE IS NEVER A HOLD (reviewer, 2026-09-04): "no action needed from you until it does" read as a hard limitation, minted a redraft whose instruction was the note itself, and the obligation flipped every pass with the note */
   const gaps = deliverableGaps(p), c = p.recommendedChange, faults = (p.faults ?? lims.filter((l) => GATE_WORDS.test(l))).filter((f) => !(stands && f === NO_RECORD));
-  const bodyDefects = AEO_BAR.rowFailures(p);
+  const bodyDefects = AEO_BAR.rowFailures(p), heading = (p.copyStamp ?? "").split("|").slice(0, 2).join(" ").trim() || p.pageLabel;
+  if (c.kind === "existing_edit" && c.field === "meta") {
+    bodyDefects.push(...AEO_BAR.emptyMeta(c.after, heading));
+    if (AEO_BAR.applies("answer_block", p.assignment?.standard, false, undefined, p) && !(p.bundle?.components ?? []).some((part) => /^(opening_answer|section|section_add|section_rewrite|restructure)$/.test(part.kind) && part.after.trim())) bodyDefects.push(AEO_BAR.holds.lead);
+  }
+  for (const part of p.bundle?.components ?? []) if (part.kind === "meta") bodyDefects.push(...AEO_BAR.emptyMeta(part.after, heading));
   const hard = [...bodyDefects, ...gaps, ...lims.filter((l) => HARD_LIMITATION.test(l))];
   const anchor = c.kind === "existing_edit" && (c.field === "section" || c.field === "answer_block")
     ? /placed after (?:the heading )?"([^"]+)"/.exec(c.where ?? "")?.[1]?.trim().toLowerCase() ?? null : null;
@@ -138,7 +143,6 @@ export function openHold(p: ChangeProposal, also: { found?: readonly string[] } 
   if (anchor && !(p.supportFacts ?? []).some((f) => placedOn(f.fact)) && !placedOn(p.copyStamp ?? "")) hard.push(MISPLACED);
   const short = evidenceShortfall(p); if (short) hard.push(short);
   const unfit = withholdReason(p, p.causeFinding?.cause ?? p.diagnosisCause); if (unfit) hard.push(unfit);
-  // staleness rule the validator applies decides: a change edited since the yes re-holds; a current yes stands.
   if (dangerousComponents(p.bundle?.components ?? []).length > 0 && p.confirmedVersion !== confirmedVersion(p)) hard.push(DANGER);
   const every = [...new Set([...hard, ...faults, ...also.found ?? []])], said = every.filter((x) => !every.some((y) => y !== x && y.endsWith(x))); // ONE COMPLAINT IS SAID ONCE (measured, 2026-09-05): a refusal is composed with a gate opener at one door and written raw at another, both land in `faults`, and the Set kept both because the strings differ, so the account's most watched card told a reader the same thing twice. The composed form ends with the raw sentence it wraps, so the wrapped one is dropped and nothing a fuller sentence does not already say is lost. WHAT A CALLER ALREADY READ COMES IN THE SAME DOOR: the banked-copy re-read and the canon hold the page and the words, this verdict does not, and putting their findings through the ONE partition is what makes the store, the sweep, the loader and the ladder agree by construction instead of each chaining its own refusals.
   const advisories: Advisory[] = [], heldBy: string[] = [];
