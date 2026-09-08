@@ -48,7 +48,7 @@ export type FactCheck = {
   usage: string | null;
   /** `support` is this source's own ruling on THIS claim; `titleContext` is a heading from the SAME fetch,
    *  never a SERP title or a URL slug, which are discovery hints and prove nothing about a passage. */
-  sources: Array<{ url: string; kind: SourceKind; says: string;
+  sources: Array<{ url: string; kind: SourceKind; says: string; groups?: string[];
     titleContext?: string; titleContextFrom?: "fetched_document"; support?: ClaimSupport }>;
   agreement: "multiple_agree" | "single_source" | "sources_conflict" | "none_found";
   confidence: "confirmed" | "likely" | "disputed" | "unsupported";
@@ -323,7 +323,7 @@ function citationOfQuote(proposed: string, quotes: readonly string[], current = 
  *  refused at the door for ever, reopened, re-researched and refused again. `FactCheck` satisfies this. */
 type CorrectionCandidate = { subject: string; current: string; proposed: string | null; verdict?: string;
   /** `support` is this source's own artifact ruling on THIS claim, absent where none was ever derived. */
-  sources: readonly { kind: SourceKind; says: string; support?: ClaimSupport }[] };
+  sources: readonly { kind: SourceKind; says: string; groups?: string[]; support?: ClaimSupport }[] };
 
 /** WHY A CORRECTION MAY NOT BE PUBLISHED, in one typed sentence, or null. THE ONE AUTHORIZATION RULE, asked by
  *  the evidence run before it banks and by the card door before it offers, so a refusal, a withdrawal and a

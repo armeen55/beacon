@@ -41,7 +41,7 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     ...((packet.reading?.sells ?? []).length > 0 ? { sells: [...packet.reading!.sells] } : {}),
     propositions: props, diagnosedGap: gap,
     intent: [...new Set([...(packet.comparison?.queries ?? []), packet.trackedQuestion ?? "", ...(packet.demand.unanswered ?? [])])].filter((x): x is string => !!x).slice(0, 6),
-    facts: facts.map((id, i) => ({ id, says: (packet.checkedSentences ?? [])[i] ?? "" })),
+    ...(AEO_BAR.applies(field, standard, packet.unpublished, undefined, packet) ? { checkedGroups: [...(packet.checkedGroups ?? [])] } : {}), facts: facts.map((id, i) => ({ id, says: (packet.checkedSentences ?? [])[i] ?? "" })),
     observations: (packet.comparison?.winners ?? []).flatMap((w) => w.observations.map((o) => ({ publisher: w.publisher, publisherClass: w.publisherClass, kind: o.kind, text: o.text, quote: o.quote }))).slice(0, 12),
     keep: (packet.comparison?.keep ?? []).slice(0, 4),
     ...(rewrite?.replaces?.trim() ? { replaces: rewrite.replaces.trim() } : {}),
@@ -87,7 +87,7 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     .filter((y) => y.n > 0).sort((a, b) => b.n - a.n)[0] ?? null;
   const heading = [packet.h1, packet.title, ...packet.headings].find(EDITOR_SHARED.placeable) ?? null;
   const collection = AEO_BAR.applies(field, standard, packet.unpublished, undefined, packet);
-  const groupingOwed = collection && !AEO_BAR.hasGrouping(packet.checkedSubjects ?? [], packet.checkedSentences ?? []) ? "A checked source must establish the grouping criteria and selection boundary before an entity packet can be written." : null;
+  const groupingOwed = collection && (packet.checkedGroups ?? []).length < 2 ? "A checked source must establish the grouping criteria and selection boundary before an entity packet can be written." : null;
   const shape = groupingOwed ? "no_change" as const : collection ? "section" as const : rewrite ? "exact_replacement" as const
 
     : backedProps.length > 0 && (kind === "missing_answer" || kind === "incomplete_answer") && backedProps.every(carriedByOne) ? "no_change" as const
@@ -150,7 +150,7 @@ const assignmentLines = (a: Assignment): string[] => [
   `WHAT A READER MUST KNOW AFTERWARDS: ${a.propositions.filter((t) => !a.forbidden.includes(t)).join("; ") || (a.intent[0] ? `the answer to "${a.intent[0]}"` : a.diagnosedGap)}`,
   `THE SEARCHES THIS COPY IS AIMED AT, as targeting and never as evidence: ${a.intent.join("; ") || "none on file"}`,
   `OPEN LIKE THIS: ${a.opening}`,
-  `OUTPUT FORMAT: ${a.format}`,
+  `OUTPUT FORMAT: ${a.format}${a.checkedGroups?.length ? ` Use only these exact checked group names for ## headings: ${a.checkedGroups.join("; ")}.` : ""}`,
   `MUST LEAD WITH, in your first sentence, in plain public English: ${a.mustLeadWith}`,
   `SUPPORTING FACTS you may state and must cite: ${(a.facts ?? (a.supportingFacts ?? []).map((id) => ({ id, says: "" }))).map((f) => (f.says ? `${f.id} says ${f.says}` : f.id)).join("; ") || "none"}`,
   `PAGE CONTEXT, for tone, placement, what to preserve and what not to repeat${worksFromThePage(a) ? ", and it is the material this edit works from" : ", never material for the new copy"}: ${a.pageContext.join(", ") || "none"}`,

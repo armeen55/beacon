@@ -1,12 +1,11 @@
 import { z } from "zod";
 import type { ChangeProposal } from "./contracts";
 const enabled = () => process.env.NEXT_PUBLIC_BEACON_AEO_PACKET !== "0";
-const groupingTopic = "grouping criteria and selection boundary";
-const hasGrouping = (subjects: readonly string[], facts: readonly string[] = []) => subjects.some((s) => s.toLowerCase().endsWith(groupingTopic)) || facts.some((s) => /\band\b/i.test(s) && (s.match(/\b(?:such as|identified by|characterized by|defined by)\b/gi) ?? []).length >= 2);
+const hasGrouping = (sources: readonly { says: string; groups?: readonly string[] }[]): string[] => [...new Set(sources.flatMap((s) => (s.groups ?? []).filter((g) => g.trim() && s.says.includes(g))))];
 const foldDemonym = (token: string): string => token.length >= 7 && token.endsWith("ian") ? token.slice(0, -3) : token;
 const phraseTokens = (value: string): string[] => value.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).map((w) => foldDemonym(w.replace(/s$/, ""))).filter(Boolean);
 const phraseIncludes = (heading: string, entity: string): boolean => { const h = phraseTokens(heading), e = phraseTokens(entity); return h.length > 0 && e.length > 0 && (` ${h.join(" ")} `.includes(` ${e.join(" ")} `) || e.every((token) => h.includes(token))); };
-const signal = (row: { pageUrl?: string | null; pagePath?: string | null; targetUrl?: string; primaryQuery?: string; trackedQuestion?: string | null }): string => { const path = (row.pageUrl ?? row.pagePath ?? row.targetUrl ?? "").split(/[?#]/)[0]!.replace(/\/+$/, ""); return path ? path.slice(path.lastIndexOf("/") + 1) : row.primaryQuery ?? row.trackedQuestion ?? ""; };
+const signal = (row: { pageUrl?: string | null; pagePath?: string | null; targetUrl?: string; primaryQuery?: string; trackedQuestion?: string | null; assignment?: { checkedGroups?: readonly string[] } }): string => { const path = (row.pageUrl ?? row.pagePath ?? row.targetUrl ?? "").split(/[?#]/)[0]!.replace(/\/+$/, ""); return path ? path.slice(path.lastIndexOf("/") + 1) : row.primaryQuery ?? row.trackedQuestion ?? ""; };
 const applies = (field: string, standard?: string, unpublished = false, shape?: string, row: Parameters<typeof signal>[0] = {}) => enabled() && !unpublished && /^(answer_block|section)$/.test(field) && (AEO_BAR.collection(signal(row)) || ["section", "direct_answer", "restructure"].includes(shape ?? "")) && !["correction", "internal_link", "repositioning"].includes(standard ?? "");
 const holds = {"lead": "The opening needs a complete answer paragraph that explains more than the names.", "groups": "Group the answer under one to three headings that explain how the examples were selected.", "criteria": "Each heading needs a selection criterion and explanatory prose, with children written as plain text rather than tables, bold labels or link lists.", "entities": "Entity distinctions should read as plain text under one to three groups; table scaffolds and label styling are optional at most.", "accuracy": "The accuracy questions need to be resolved before this copy is ready.", "unreviewed": "These exact words still need a review of their structure, accuracy and relevance.", "sixChecks": "The answer still needs to pass the required readiness checks for lead quality, grouped sections, factual support and query fit."};
 const writerLimitations = (limitations: readonly string[]) => limitations.filter((l) => !Object.values(holds).includes(l.trim()));
@@ -22,7 +21,7 @@ const failures = (field: string, copy: string, limitations: readonly string[] = 
   const plain = first.replace(/\*\*/g, "");
   if (/^#{1,6}\s/.test(lines[0] ?? "") || /^(?:[-*•]|\d+[.)])\s/.test(first) || !/[.!?](?:["”’])?$/.test(plain) || (plain.split(/[,;•]/).length >= 5 && !/[.!?]\s+/.test(plain))) out.push(holds.lead);
   const grouped = lines.filter((s) => /^##\s+\S/.test(s));
-  if (grouped.length < 1 || grouped.length > 3) out.push(holds.groups);
+  if (grouped.length < 1 || grouped.length > 3 || row.assignment?.checkedGroups && grouped.some((h) => !row.assignment!.checkedGroups!.includes(h.replace(/^##\s+/, "")))) out.push(holds.groups);
   const groups = copy.split(/^##\s+(.+)$/m).slice(1), tableRows = [...copy.matchAll(/^\|(?:[ \t]*:?-{3,}:?[ \t]*\|)+[ \t]*\r?\n((?:\|[^\n]+\|[ \t]*(?:\r?\n|$))+)/gm)].map((m) => m[1]).join("\n");
   const entities = [...copy.matchAll(/^[-*•]\s+([^:\n]+):/gm), ...tableRows.matchAll(/^\|\s*([^|]+)\|/gm)].map((m) => (m[1] ?? "").trim()).filter(Boolean);
   const tableStyled = /^\s*\|.+\|\s*$/m.test(copy);
@@ -50,8 +49,8 @@ const emptyMeta = (copy: string, heading: string): string[] => {
   return !copy.trim() || /\b(?:no (?:added |useful |additional )?description|description (?:not available|unavailable|missing)|nothing to describe)\b/i.test(copy)
     || (known.size > 0 && tokens(copy).every((w) => known.has(w))) ? ["The description is empty or repeats the heading without describing the subject."] : [];
 };
-export const AEO_BAR = { enabled, collection: (query: string) => !/\bhow many\b/i.test(query) && /\b(?:animals|wildlife|people|figures|species)\b/i.test(query.replace(/[-_/]/g, " ")), groupingTopic, hasGrouping, emptyMeta, applies, policy, failures, schema, passed, holds, writerLimitations,
-  rowFailures: (p: ChangeProposal): string[] => bodyParts(p).flatMap((copy) => failures("section", copy, p.limitations, undefined, false, "section")),
+export const AEO_BAR = { enabled, collection: (query: string) => !/\bhow many\b/i.test(query) && /\b(?:animals|wildlife|people|figures|species)\b/i.test(query.replace(/[-_/]/g, " ")), groupingQuestion: "Which groups of this page’s subject does the source distinguish, and what qualifies for each?", hasGrouping, emptyMeta, applies, policy, failures, schema, passed, holds, writerLimitations,
+  rowFailures: (p: ChangeProposal): string[] => bodyParts(p).flatMap((copy) => failures("section", copy, p.limitations, undefined, false, "section", p)),
   approved: Object.fromEntries(criteria.map((k) => [k, true])) as z.infer<typeof schema>,
   forRow: (p: ChangeProposal): boolean => bodyParts(p).length > 0,
   sameRejectedCopy: (a: ChangeProposal, b: ChangeProposal): boolean => {
