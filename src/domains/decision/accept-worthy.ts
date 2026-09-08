@@ -3,41 +3,38 @@ import type { ChangeProposal } from "./contracts";
 const enabled = () => process.env.NEXT_PUBLIC_BEACON_AEO_PACKET !== "0";
 const groupingTopic = "grouping criteria and selection boundary";
 const hasGrouping = (subjects: readonly string[], facts: readonly string[] = []) => subjects.some((s) => s.toLowerCase().endsWith(groupingTopic)) || facts.some((s) => /\band\b/i.test(s) && (s.match(/\b(?:such as|identified by|characterized by|defined by)\b/gi) ?? []).length >= 2);
-// The target leaf owns collection identity; ancestor slugs and inherited titles never classify a species.
+const foldDemonym = (token: string): string => token.length >= 7 && token.endsWith("ian") ? token.slice(0, -3) : token;
+const phraseTokens = (value: string): string[] => value.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).map((w) => foldDemonym(w.replace(/s$/, ""))).filter(Boolean);
+const phraseIncludes = (heading: string, entity: string): boolean => { const h = phraseTokens(heading), e = phraseTokens(entity); return h.length > 0 && e.length > 0 && (` ${h.join(" ")} `.includes(` ${e.join(" ")} `) || e.every((token) => h.includes(token))); };
 const signal = (row: { pageUrl?: string | null; pagePath?: string | null; targetUrl?: string; primaryQuery?: string; trackedQuestion?: string | null }): string => { const path = (row.pageUrl ?? row.pagePath ?? row.targetUrl ?? "").split(/[?#]/)[0]!.replace(/\/+$/, ""); return path ? path.slice(path.lastIndexOf("/") + 1) : row.primaryQuery ?? row.trackedQuestion ?? ""; };
-const applies = (field: string, standard?: string, unpublished = false, shape?: string, row: Parameters<typeof signal>[0] = {}) => enabled() && !unpublished && /^(answer_block|section)$/.test(field)
-  && (AEO_BAR.collection(signal(row)) || ["section", "direct_answer", "restructure"].includes(shape ?? ""))
-  && !["correction", "internal_link", "repositioning"].includes(standard ?? "");
-const holds = {"lead": "The opening needs a complete answer paragraph that explains more than the names.", "groups": "Group the answer under one to three headings that explain how the examples were selected.", "criteria": "Each heading needs a selection criterion and explanatory prose, not one heading per entity or a list of names.", "entities": "A table or labeled list can make entity distinctions easier to scan, but it is optional when supported prose or bullets already carry those distinctions.", "accuracy": "The accuracy questions need to be resolved before this copy is ready.", "unreviewed": "These exact words still need a review of their structure, accuracy and relevance.", "sixChecks": "The answer still needs to pass the required readiness checks for lead quality, grouped sections, factual support and query fit."};
+const applies = (field: string, standard?: string, unpublished = false, shape?: string, row: Parameters<typeof signal>[0] = {}) => enabled() && !unpublished && /^(answer_block|section)$/.test(field) && (AEO_BAR.collection(signal(row)) || ["section", "direct_answer", "restructure"].includes(shape ?? "")) && !["correction", "internal_link", "repositioning"].includes(standard ?? "");
+const holds = {"lead": "The opening needs a complete answer paragraph that explains more than the names.", "groups": "Group the answer under one to three headings that explain how the examples were selected.", "criteria": "Each heading needs a selection criterion and explanatory prose, with children written as plain text rather than tables, bold labels or link lists.", "entities": "Entity distinctions should read as plain text under one to three groups; table scaffolds and label styling are optional at most.", "accuracy": "The accuracy questions need to be resolved before this copy is ready.", "unreviewed": "These exact words still need a review of their structure, accuracy and relevance.", "sixChecks": "The answer still needs to pass the required readiness checks for lead quality, grouped sections, factual support and query fit."};
 const writerLimitations = (limitations: readonly string[]) => limitations.filter((l) => !Object.values(holds).includes(l.trim()));
 const criteria = ["leadAnswer", "groupedH2s", "defendedClaims", "entityBlock", "boundedScope", "h1QueryAlignment"] as const;
 const required = ["leadAnswer", "groupedH2s", "defendedClaims", "h1QueryAlignment"] as const;
 const schema = z.object({ leadAnswer: z.boolean(), groupedH2s: z.boolean(), defendedClaims: z.boolean(), entityBlock: z.boolean(), boundedScope: z.boolean(), h1QueryAlignment: z.boolean() });
 const passed = (r: unknown): boolean => { const parsed = schema.safeParse(r); return parsed.success && required.every((k) => parsed.data[k] === true); };
-const policy = "WRITE THE PACKET IN THIS ORDER: choose supported entities and their distinguishing facts; write a liftable lead paragraph; add one to three Markdown ## grouped sections with qualifying prose; finish with concise supporting details. These are publishable words, never instructions or an outline. ANSWER-READY AEO PACKET (required checks): (1) Start finalCopy with a self-contained opening answer paragraph that explains a useful distinction, never an introduction to a names dump. (2) Follow with one to three Markdown ## H2 groups supported by evidence, with prose that explains what qualifies in each group. (3) Attribute only the exact claim a cited passage defends, never the whole packet. Mere presence or a heading does not establish native, endemic, current or official status. Omit unsupported optional claims; if core accuracy or membership is unclear, refuse. (4) Keep the answer aligned with query intent and the page H1; if either is missing or mismatched, fail closed. Guidance, not ready blockers when required checks pass: table-style entity blocks, broader scope narration and strict format caps. SHOULD: add useful FAQ question-answer pairs and relevant internal links to known owned destinations when evidence supports them; omission alone is not a failure. Meta is a separate companion when the page needs body and description together. Preserve existing material outside the exact placement.";
+const policy = "WRITE THE PACKET IN THIS ORDER: choose supported entities and their distinguishing facts; write a liftable lead paragraph; add one to three Markdown ## grouped sections with qualifying prose; finish with concise supporting details as plain text children. These are publishable words, never instructions or an outline. ANSWER-READY AEO PACKET (required checks): (1) Start finalCopy with a self-contained opening answer paragraph that explains a useful distinction, never an introduction to a names dump. (2) Follow with one to three Markdown ## H2 groups supported by evidence, with prose that explains what qualifies in each group. Keep child examples as plain text lines, not tables, bold label scaffolds or per-child Markdown links. (3) Attribute only the exact claim a cited passage defends, never the whole packet. Mere presence or a heading does not establish native, endemic, current or official status. Omit unsupported optional claims; if core accuracy or membership is unclear, refuse. (4) Keep the answer aligned with query intent and the page H1; if either is missing or mismatched, fail closed. Guidance, not ready blockers when required checks pass: broader scope narration and strict format caps. SHOULD: add useful FAQ question-answer pairs and relevant internal links to known owned destinations when evidence supports them; omission alone is not a failure. Meta is a separate companion when the page needs body and description together. Preserve existing material outside the exact placement.";
 const failures = (field: string, copy: string, limitations: readonly string[] = [], standard?: string, unpublished = false, shape?: string, row: Parameters<typeof signal>[0] = {}): string[] => {
   if (!applies(field, standard, unpublished, shape, row)) return [];
   const out: string[] = [], lines = copy.trim().split(/\n+/).map((s) => s.trim()).filter(Boolean);
   const first = lines.find((s) => !/^#{1,6}\s/.test(s)) ?? "";
   const plain = first.replace(/\*\*/g, "");
-  if (/^#{1,6}\s/.test(lines[0] ?? "") || /^(?:[-*•]|\d+[.)])\s/.test(first) || !/[.!?](?:["”’])?$/.test(plain)
-    || (plain.split(/[,;•]/).length >= 5 && !/[.!?]\s+/.test(plain)))
-    out.push(holds.lead);
+  if (/^#{1,6}\s/.test(lines[0] ?? "") || /^(?:[-*•]|\d+[.)])\s/.test(first) || !/[.!?](?:["”’])?$/.test(plain) || (plain.split(/[,;•]/).length >= 5 && !/[.!?]\s+/.test(plain))) out.push(holds.lead);
   const grouped = lines.filter((s) => /^##\s+\S/.test(s));
-  if (grouped.length < 1 || grouped.length > 3)
-    out.push(holds.groups);
+  if (grouped.length < 1 || grouped.length > 3) out.push(holds.groups);
   const groups = copy.split(/^##\s+(.+)$/m).slice(1), tableRows = [...copy.matchAll(/^\|(?:[ \t]*:?-{3,}:?[ \t]*\|)+[ \t]*\r?\n((?:\|[^\n]+\|[ \t]*(?:\r?\n|$))+)/gm)].map((m) => m[1]).join("\n");
-  const entities = [...copy.matchAll(/^[-*•]\s+([^:\n]+):/gm), ...tableRows.matchAll(/^\|\s*([^|]+)\|/gm)].map((m) => (m[1] ?? "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/s\b/g, "").replace(/\s+/g, " ").trim());
+  const entities = [...copy.matchAll(/^[-*•]\s+([^:\n]+):/gm), ...tableRows.matchAll(/^\|\s*([^|]+)\|/gm)].map((m) => (m[1] ?? "").trim()).filter(Boolean);
+  const tableStyled = /^\s*\|.+\|\s*$/m.test(copy);
+  const boldLabeled = /^\s*(?:[-*•]\s+)?\*\*[^*\n]{2,}\*\*:/m.test(copy);
+  const markdownLinks = copy.match(/\[[^\]]+\]\([^)]+\)/g) ?? [];
+  if (boldLabeled || markdownLinks.length > 1 || (tableStyled && markdownLinks.length > 0)) out.push(holds.criteria);
   for (let i = 0; i < groups.length; i += 2) {
-    const heading = groups[i]!.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/s\b/g, "").replace(/\s+/g, " ").trim(), prose = (groups[i + 1] ?? "").split("\n").filter((l) => !/^\s*(?:[-*•|#]|\d+[.)])/.test(l)).join(" ").trim();
-    if (entities.some((entity) => entity && ` ${heading} `.includes(` ${entity} `)) || !/[.!?]/.test(prose)) {
-      out.push(holds.criteria); break;
-    }
+    const heading = (groups[i] ?? "").trim(), prose = (groups[i + 1] ?? "").split("\n").filter((l) => !/^\s*(?:[-*•|#]|\d+[.)])/.test(l)).join(" ").trim();
+    if (entities.some((entity) => phraseIncludes(heading, entity)) || !/[.!?]/.test(prose)) { out.push(holds.criteria); break; }
   }
   const uncertainty = [copy, ...writerLimitations(limitations)].join(" ");
-  if (/(?:owed|missing|needs?|still|requires?).{0,60}(?:grouped|inclusion criteria|headings|accuracy)|(?:grouped|inclusion criteria|headings).{0,60}(?:owed|missing|required)|check every word|may be incomplete|overreads? (?:native|endemic) status|accuracy (?:is |remains )?(?:unclear|uncertain)|verify (?:every|all) (?:claim|entry|word)|cannot confirm/i.test(uncertainty)
-    || (copy.match(/\b(?:may|might|possibly|perhaps|unclear|uncertain)\b/gi) ?? []).length >= 3)
-    out.push(holds.accuracy);
+  if (/(?:owed|missing|needs?|still|requires?).{0,60}(?:grouped|inclusion criteria|headings|accuracy)|(?:grouped|inclusion criteria|headings).{0,60}(?:owed|missing|required)|check every word|may be incomplete|overreads? (?:native|endemic) status|accuracy (?:is |remains )?(?:unclear|uncertain)|verify (?:every|all) (?:claim|entry|word)|cannot confirm/i.test(uncertainty) || (copy.match(/\b(?:may|might|possibly|perhaps|unclear|uncertain)\b/gi) ?? []).length >= 3) out.push(holds.accuracy);
   return out;
 };
 const bodyParts = (p: ChangeProposal) => {

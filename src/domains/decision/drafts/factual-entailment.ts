@@ -170,7 +170,7 @@ export function extractCapitalizedSpans(text: string): string[] {
   // span is checked from its SECOND word, so the real name is what has to be found and a genuinely invented
   // one still is. Nothing is loosened mid-sentence, where a capital does carry a claim.
   // THE SAME PRINCIPLE FINISHES THE JOB ON A LONE WORD: a single sentence-initial span has no capital except the sentence's own, so it is dropped, not looked up ("Common", "Distinct", "Key" each cost a deliverable). A list line and a bullet open a sentence too; mid-sentence a lone capital carries a claim and is still checked.
-  const initial = (i: number): boolean => i === 0 || /(?:[.!?:]["')\]]?\s+|\n\s*(?:[-*•]\s+)?)$/.test(scanned.slice(0, i));
+  const initial = (i: number): boolean => i === 0 || /(?:[.!?:]["')\]]?\s+|\n\s*(?:[-*•]|#{1,6})\s+|^\s*#{1,6}\s+)$/.test(scanned.slice(0, i));
   // A NAME DOES NOT RUN ACROSS A LINE BREAK: `\s+` swallowed it, so "...to Iran\nThese are..." was reported as one invented entity, `Iran These`, and refused a page.
   const spans = [...scanned.matchAll(/\b[A-Z][a-zA-Z'-]*(?:[ \t]+[A-Z][a-zA-Z'-]*){0,3}\b/g)].map((m) =>
     !initial(m.index) ? m[0] : m[0].includes(" ") ? m[0].slice(m[0].indexOf(" ") + 1) : "");
