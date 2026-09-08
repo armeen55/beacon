@@ -20,9 +20,7 @@ const failures = (field: string, copy: string, limitations: readonly string[] = 
   const out: string[] = [], lines = copy.trim().split(/\n+/).map((s) => s.trim()).filter(Boolean);
   const first = lines.find((s) => !/^#{1,6}\s/.test(s)) ?? "";
   const plain = first.replace(/\*\*/g, "");
-  if (/^#{1,6}\s/.test(lines[0] ?? "") || /^(?:[-*•]|\d+[.)])\s/.test(first) || !/[.!?](?:["”’])?$/.test(plain)
-    || (plain.split(/[,;•]/).length >= 5 && !/[.!?]\s+/.test(plain)))
-    out.push(holds.lead);
+  if (/^#{1,6}\s/.test(lines[0] ?? "") || /^(?:[-*•]|\d+[.)])\s/.test(first) || !/[.!?](?:["”’])?$/.test(plain) || (plain.split(/[,;•]/).length >= 5 && !/[.!?]\s+/.test(plain))) out.push(holds.lead);
   const grouped = lines.filter((s) => /^##\s+\S/.test(s));
   if (grouped.length < 1 || grouped.length > 3) out.push(holds.groups);
   const groups = copy.split(/^##\s+(.+)$/m).slice(1), tableRows = [...copy.matchAll(/^\|(?:[ \t]*:?-{3,}:?[ \t]*\|)+[ \t]*\r?\n((?:\|[^\n]+\|[ \t]*(?:\r?\n|$))+)/gm)].map((m) => m[1]).join("\n");
@@ -36,9 +34,7 @@ const failures = (field: string, copy: string, limitations: readonly string[] = 
     if (entities.some((entity) => phraseIncludes(heading, entity)) || !/[.!?]/.test(prose)) { out.push(holds.criteria); break; }
   }
   const uncertainty = [copy, ...writerLimitations(limitations)].join(" ");
-  if (/(?:owed|missing|needs?|still|requires?).{0,60}(?:grouped|inclusion criteria|headings|accuracy)|(?:grouped|inclusion criteria|headings).{0,60}(?:owed|missing|required)|check every word|may be incomplete|overreads? (?:native|endemic) status|accuracy (?:is |remains )?(?:unclear|uncertain)|verify (?:every|all) (?:claim|entry|word)|cannot confirm/i.test(uncertainty)
-    || (copy.match(/\b(?:may|might|possibly|perhaps|unclear|uncertain)\b/gi) ?? []).length >= 3)
-    out.push(holds.accuracy);
+  if (/(?:owed|missing|needs?|still|requires?).{0,60}(?:grouped|inclusion criteria|headings|accuracy)|(?:grouped|inclusion criteria|headings).{0,60}(?:owed|missing|required)|check every word|may be incomplete|overreads? (?:native|endemic) status|accuracy (?:is |remains )?(?:unclear|uncertain)|verify (?:every|all) (?:claim|entry|word)|cannot confirm/i.test(uncertainty) || (copy.match(/\b(?:may|might|possibly|perhaps|unclear|uncertain)\b/gi) ?? []).length >= 3) out.push(holds.accuracy);
   return out;
 };
 const bodyParts = (p: ChangeProposal) => {
