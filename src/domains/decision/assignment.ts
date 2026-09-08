@@ -92,7 +92,7 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     : backedProps.length === 0 || backedProps.length >= 3 ? "section" as const
     : relevant || (backedProps.length > 0 && heading) ? "inline_addition" as const
     : "direct_answer" as const;
-  const packetShape = AEO_BAR.applies(field, standard, packet.unpublished, rewrite && kind === "scattered_answer" ? "restructure" : shape);
+  const packetShape = AEO_BAR.applies(field, standard, packet.unpublished, rewrite && kind === "scattered_answer" ? "restructure" : shape, packet.trackedQuestion ?? "");
   const cap = packetShape ? 0 : shape === "inline_addition" ? 2
     : shape === "direct_answer" ? 3
     : shape === "exact_replacement" ? (rewrite?.replaces ?? "").split(/(?<=[.!?])\s+/).filter((x) => x.trim().length > 0).length + 1

@@ -1,7 +1,6 @@
 /** WHAT A CHANGE OWES NEXT IS TYPED (operator, 2026-09-02). The machine used to work its next step out of English: a lowercase first letter meant a gate wrote this, a phrase list meant a hold was withdrawn, and a review that was owed was filed as a fact acquisition, so the runtime bought facts while the reading nobody had taken stayed untaken. These pin the ladder itself, and the one merge that must never overrule it. */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1")); afterEach(() => vi.unstubAllEnvs());
-
 const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], client: {} as Record<string, unknown>, page: null as unknown }));
 vi.mock("@/domains/evidence/pages/owned-context", async (real) => ({ ...(await real() as object), loadOwnedPageBodies: async () => ({ get: () => db.page }) })); // the reviewer now reads the PAGE; the stored capture is the fixture
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client }));
@@ -10,7 +9,8 @@ import { nextObligation } from "@/domains/decision/obligation";
 import { openHold, preferFinished } from "@/domains/decision/completeness";
 import { deliverableFailures, staleCopyReasons } from "@/domains/decision/drafted-copy";
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
-import { proposalFingerprint, readQueuePage, saveChangeProposal } from "@/domains/decision/proposal-store";
+import { proposalFingerprint, readQueuePage, queueLaneCounts, saveChangeProposal } from "@/domains/decision/proposal-store";
+import { AEO_BAR } from "@/domains/decision/accept-worthy";
 import { copyKey, REVIEW_CONTRACT } from "@/domains/decision/proof";
 import { readFileSync } from "node:fs"; import { actionableProposalFailures } from "@/domains/decision/validate-proposal"; import { supabaseFake } from "../helpers/supabase-fake";
 import { deserializeChangeProposal, serializeChangeProposal, type ChangeProposal } from "@/domains/decision/contracts";
@@ -125,7 +125,6 @@ describe("the assignment a row is issued is the assignment its gates judge", () 
     expect([read.row!.faults, read.row!.limitations, (read.row!.claims ?? []).map((c) => [c.text, [...c.supportedBy]]), read.row!.semanticReview?.of === copyKey(read.row!), nextObligation(read.row!)], "the sentence is gone from both places, the claim it carried is untouched, the reading is bound to these words, and nothing is owed next").toEqual([[], [NOTE], [[COPY, ["page-copy-1"]]], true, null]); });
   it("stops buying a redraft for an objection no live door writes, on the FAQPage block carrying two of them", () => { const faqs = row({ id: "t::/farsi-numbers::existing_edit::faq_schema", pagePath: "/farsi-numbers", changeFamily: "section", status: "needs_review", claims: [{ text: "c", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: "f" }], recommendedChange: { kind: "existing_edit", field: "schema", before: null, after: '{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[]}' }, faults: ['the evidence "The page already carries these two questions and their answe" names is about something else entirely, so this copy argues from support nobody banked', "its copy is 150 long, outside the 15 to 400 this field takes, or carries something nobody can paste"] }); expect([nextObligation(faqs), nextObligation({ ...faqs, faults: ["This structured data is incomplete: mainEntity is empty"] })], "the prose checklist never ran on this block and its word band is a sentence no rule composes any more, so both are history; the schema gate's own finding is what is owed").toEqual([null, { kind: "redraft", attempt: 1, instruction: "This structured data is incomplete: mainEntity is empty" }]); });
 });
-
 /** WHAT A CUSTOMER IS TOLD ABOUT FINISHED WORK, WHAT IDENTITY RIDES THE WORDS THAT ARE KEPT, AND WHAT A CORRECTION MAY PROPOSE (2026-09-05). Three defects, one shape: a row said something its own record disproved. Six finished changes carried a paid reading bound to their exact copy while the only sentence the card had for them was that nothing had read them; the identity stamped on a kept row named none of the support the row was keeping; and fifteen checked statements proposed the subject's own name back as the correction. */
 describe("a row says what its own record holds", () => {
   const SITES = [{ t: "tenant-one", url: "https://alpha.example/tide-pools", path: "/tide-pools", q: "tide pool safety", claim: "Tide pools hold close to the ocean temperature.", src: "https://www.britannica.com/tide-pool says pools hold close to the ocean temperature", subject: "Anemone", right: "a stinging animal fixed to the rock", dish: "tide pool walks" },
@@ -223,7 +222,6 @@ describe("a row says what its own record holds", () => {
     expect(db.rows[0]!.proposed, "a correction that says something about its subject is banked exactly as written").toBe(s.right);
     db.rows = []; });
 });
-
 /** ONE READINESS VERDICT, READ BY EVERY DOOR (owner's editorial policy, 2026-09-06). A change is ready for the operator's consideration when the deliverable is complete, its placement is usable, it is a reasonable explainable improvement and its uncertainties are inspectable; it never had to be guaranteed traffic, a proven cause, the best possible wording or a corroborated sentence. The ten kinds the owner judges ride the card as caveats with a ranking weight, the eight kinds Beacon owes hold the work, and the store, the reload, the ladder and the next pass read the one partition. */ describe("one readiness verdict, at every door", () => {
   const SITES = [{ t: "tenant-one", path: "/tide-pools", url: "https://alpha.example/tide-pools", q: "tide pool safety" }, { t: "tenant-two", path: "/loom-warping", url: "https://beta.example/loom-warping", q: "warp a floor loom" }] as const; const card = (s: (typeof SITES)[number], over: Partial<ChangeProposal> = {}): ChangeProposal => row({ id: `${s.t}::${s.path}::existing_edit::meta`, tenantId: s.t, pagePath: s.path, pageUrl: s.url, primaryQuery: s.q, changeFamily: "meta", recommendedChange: { kind: "existing_edit", field: "meta", before: "Old line.", after: `A finished description of ${s.q} that a reader could act on.` }, ...over }), SIBLINGS = "the only words in it this page does not share with its template siblings are more examples of the subject every sibling names, and this page holds no item, figure or date of its own for the line to name instead";
   it.each(SITES)("$t: hands over complete work whose only objection is the owner's to judge, and holds every defect by its own name", (s) => {
@@ -246,4 +244,34 @@ describe("a row says what its own record holds", () => {
   it("re-judges the account's own captured rows at no cost: the narration draft stays held by name and the empty no-op stays settled", () => {
     const rows = (JSON.parse(readFileSync("tests/fixtures/harness/hub-rows.json", "utf8")) as { payload: { proposal: ChangeProposal } }[]).map((r) => r.payload.proposal), narrating = rows.find((p) => (p.faults ?? []).some((f) => f.includes("points at the page")))!, settled = rows.find((p) => p.obligation?.kind === "terminal")!;
     expect([openHold(narrating).defects.includes("it points at the page instead of answering"), openHold(narrating).advisories.map((a) => a.kind), nextObligation(narrating)?.kind, (nextObligation(narrating) as { instruction?: string }).instruction, nextObligation(settled)?.kind], "narration is a defect the writer fixes and rides the redraft as its instruction, the register judgement beside it is the owner's call, and a line carrying only the current line's own words stays settled").toEqual([true, ["conservative_wording"], "redraft", "it points at the page instead of answering", "terminal"]); });
+});
+describe("packet admission survives storage and refresh", () => {
+  const copy = "Wild animals recorded in the reserve during the survey include river mammals and wetland birds, a selection limited to those habitats.\n## River mammals\nThis group includes mammals recorded in the reserve rivers during the survey.\n## Wetland birds\nThis group includes birds observed in the reserve wetlands during the survey.\n- Otter: mammal recorded in reserve rivers.\n- Heron: bird observed in reserve wetlands.";
+  const packet = (after = copy): ChangeProposal => {
+    const p = row({ changeFamily: "section", primaryQuery: "Which animals live in the reserve?", basis: "b1", workKey: "packet", copyStamp: "Reserve wildlife", recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after, where: "After the opening" },
+      claims: [{ text: after, supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: after }] });
+    return { ...p, semanticReview: { of: copyKey(p), version: REVIEW_CONTRACT, aeoPacket: AEO_BAR.approved, claims: [{ i: 0, by: ["page-copy-1"], entailed: true }] } };
+  };
+  it("refuses legacy and falsely approved dumps before the first Ready read, including preserved briefs", async () => {
+    for (const after of ["Native wildlife includes caracal, red fox, Pallas cat, striped hyena, Eurasian lynx, green sea turtle.", "- Otter\n- Heron", copy.replace("## River mammals", "## Otter").replace("## Wetland birds", "## Heron")]) {
+      db.rows = []; const p = packet(after); await saveChangeProposal(p);
+      expect(held().status).toBe("needs_review"); expect(openHold(held()).defects.length).toBeGreaterThan(0);
+      // Seed the pre-fix Ready stamp, then exercise a first read before any background repair.
+      db.rows[0]!.status = "ready"; db.rows[0]!.payload = { v: 1, proposal: p }; db.rows[0]!.queue_lane = "rel-9::ready"; db.rows[0]!.queue_rank = 1;
+      expect((await readQueuePage("t", "ready", "b1", 0, 10)).rows).toEqual([]);
+      expect((await queueLaneCounts("t", "rel-9", "b1")).ready).toBe(0);
+      await saveChangeProposal({ ...p, status: "needs_review", researchOnly: true, semanticReview: undefined, recommendedChange: { ...p.recommendedChange, after: "Write the answer." } as ChangeProposal["recommendedChange"] });
+      expect(held().status).toBe("needs_review"); expect(await saveChangeProposal(held())).toBe("unchanged");
+    }
+  });
+  it("keeps a reviewed packet Ready across preservation and reload, but holds corrective debt and bundled dumps", async () => {
+    db.rows = []; const p = packet(); await saveChangeProposal(p); expect([held().status, openHold(held()).defects]).toEqual(["ready", []]);
+    await saveChangeProposal({ ...p, researchOnly: true, status: "needs_review", semanticReview: undefined });
+    expect(held().status).toBe("ready"); expect(await saveChangeProposal(held())).toBe("unchanged");
+    db.rows[0]!.queue_lane = "rel-9::ready"; db.rows[0]!.queue_rank = 1;
+    expect((await readQueuePage("t", "ready", "b1", 0, 10)).rows.map((p) => p.id)).toEqual([p.id]);
+    for (const limitations of [["Grouped selection headings are still owed."], ["Cannot confirm native status."]]) { db.rows = []; await saveChangeProposal({ ...p, limitations }); expect(held().status).toBe("needs_review"); }
+    const bundled = { ...p, recommendedChange: row().recommendedChange, bundle: { components: [{ kind: "section", after: "- Otter\n- Heron" }] } } as ChangeProposal;
+    expect(AEO_BAR.forRow(bundled)).toBe(true); expect(AEO_BAR.rowFailures(bundled).length).toBeGreaterThan(0);
+  });
 });

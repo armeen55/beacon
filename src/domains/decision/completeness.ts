@@ -50,7 +50,6 @@ export function deliverableGaps(p: ChangeProposal): string[] {
     if (owed.length > 0) gaps.push(`${owed.length} of its ${c.outline.length} sections have no copy written`);
     return [...new Set(gaps)];
   }
-  // STRUCTURED DATA IS NOT PROSE (falsifier, 2026-09-02). Every rule below is about words a person reads, and a bracketed span is a blank still to be filled in copy while it is an ARRAY in JSON-LD: every real FAQPage block read as "it describes the work instead of being it", so the $0 loop demoted finished markup and `nextObligation` sent it to the paid writer as a draft. A schema block is unwritten when it is empty or will not parse; the canon's own JSON-LD gate judges everything else about it.
   if (c.field === "schema") {
     const json = c.after.replace(/^\s*<script[^>]*>/i, "").replace(/<\/script>\s*$/i, "").trim();
     if (!json) gaps.push("it carries no structured data");
@@ -59,17 +58,10 @@ export function deliverableGaps(p: ChangeProposal): string[] {
   }
   if (noCopy(c.after)) gaps.push("it carries no copy");
   else if (notFinal(c.after)) gaps.push("it describes the work instead of being it");
-  // A LABEL GLUED TO ITS VALUE IS NOT FINISHED OPERATOR WORK. Without this, banked copy carrying the page's own
-  // missing space counted as finished, so `preferFinished` kept "Meaning:Light." and the repair that puts the one
-  // space there could never reach the rows it was written for (proved live, 2026-08-28).
   else if (glued(c.after)) gaps.push("its label runs straight into the words after it, so it would paste as one glued phrase");
-  // AN EMPTY NO-OP IS A DEFECT THE POLICY NAMES (owner's editorial policy, 2026-09-06): words identical to the words the page already carries change nothing, and the canon's "identical to the current value" refusal guarded the drafting door and the replay while the lane, Mark done and the persist door trusted status alone.
   else if (typeof c.before === "string" && c.before.trim() !== "" && flat(c.after) === flat(c.before)) gaps.push("it changes nothing: the new words are the words the page already carries");
-  // COPY THAT LANDS SOMEWHERE NEW OWES ITS PLACE. A title, a description or a heading replaces a field the page already has, so its own address is its placement; an opening or a section does not, and a Change is never an instruction to guess where copy goes. A PLACEMENT MUST ITSELF BE FINISHED: a blank-ish or instruction-shaped `where` is no placement at all, whichever writer stamped it.
   const placed = (t: string | null | undefined): boolean => !!t && t.trim().length >= 12 && !notFinal(t);
-  // A CHANGE ON SEVERAL PAGES IS FINISHED ONLY WHEN EVERY PAGE IT NAMES IS. Differentiating four siblings is one decision, and three rewritten pages plus one still owed is not three quarters of a change, it is an unfinished one.
   const parts = p.bundle?.components ?? [];
-  // EVERY PAGE THE DIAGNOSIS NAMED, NOT EVERY PAGE THAT SURVIVED IT. Reading the component list alone asked only about the addresses still in the change, so a three-page split that lost two pages on the way through the drafter answered "complete" about the one page left. The producer's own verdict ledger is the roll call: a page it says it is differentiating owes written copy, and a page it decided to leave alone owes its reason.
   const said = p.bundle?.dispositions ?? [];
   const written = (pg: string): boolean => parts.some((x) => x.page === pg && !noCopy(x.after) && !notFinal(x.after));
   const owed = [...new Set([...parts.map((x) => x.page), ...said.filter((d) => d.verdict === "differentiate").map((d) => d.page)])]
@@ -138,26 +130,14 @@ export function citedPublishers(p: ChangeProposal): Set<string> { const cited = 
 export function openHold(p: ChangeProposal, also: { found?: readonly string[] } = {}): { lane: "review" | "research"; why: string[]; caveats: string[]; blocking: string | null; faulted: boolean; safetyHold: boolean; defects: string[]; advisories: Advisory[] } {
   const stands = (p.claims ?? []).length > 0 && (p.supportFacts ?? []).length > 0; /* AND A ROW WHOSE RECORD STANDS MAY NOT CARRY THE SENTENCE THAT SAYS IT HAS NONE (measured, 2026-09-05: eighteen current rows wear it, seventeen of them truthfully with no claim and no support fact, and one carries a claim and three support facts and is held for a record it holds). The sentence is written where a brief would have displaced finished words, and only a paid reading retired it, so a row whose own record answers it stayed held for a reason its own payload disproves. Asked of the row, at no cost, on every pass that reads it. */ const lims = p.limitations.filter((l) => !OWED_NOTE.test(l) && !(stands && l === NO_RECORD)); /* THE OWED NOTE IS NEVER A HOLD (reviewer, 2026-09-04): "no action needed from you until it does" read as a hard limitation, minted a redraft whose instruction was the note itself, and the obligation flipped every pass with the note */
   const gaps = deliverableGaps(p), c = p.recommendedChange, faults = (p.faults ?? lims.filter((l) => GATE_WORDS.test(l))).filter((f) => !(stands && f === NO_RECORD));
-  const bodyDefects = AEO_BAR.forRow(p) && c.kind === "existing_edit" ? AEO_BAR.failures(c.field, c.after, p.limitations, p.assignment?.standard, false, p.assignment?.treatment === "restructure" ? "restructure" : p.assignment?.shape) : [];
+  const bodyDefects = AEO_BAR.rowFailures(p);
   const hard = [...bodyDefects, ...gaps, ...lims.filter((l) => HARD_LIMITATION.test(l))];
-  // COPY THAT LANDS IN THE BODY OWES A PLACE SOMEBODY CAN STILL FIND. The anchor is a sentence off the page as it read when the words were written, and banked copy is served on for ever without that page in hand, so the only honest re-read is against what the ROW ITSELF banked. An anchor no banked fact carries can no longer be checked, so the words, the claims and the evidence stay exactly as they are and the row goes back to review carrying this sentence. Never deleted, never hidden.
   const anchor = c.kind === "existing_edit" && (c.field === "section" || c.field === "answer_block")
     ? /placed after (?:the heading )?"([^"]+)"/.exec(c.where ?? "")?.[1]?.trim().toLowerCase() ?? null : null;
-  // AND THE CARD'S OWN RECORD OF THE PAGE COUNTS AS THAT PROOF, not only the passages its claims happened to cite.
-  // Beacon picks this anchor itself, mechanically, from the page's H1, title and headings; `supportFacts` carries the
-  // body passages the claims name, and a heading is never a body passage, so an added section was refused for a
-  // placement Beacon had chosen and could verify: /nowruz sat held on `placed after "Nowruz - Persian New Year"`, its
-  // own H1, which its `copyStamp` carried all along (proved live, 2026-08-28). The burden is unchanged, the card must
-  // still carry the words its placement names; `copyStamp` IS the page as it read when the copy was written.
   const placedOn = (t: string): boolean => t.toLowerCase().includes(anchor!.slice(0, 60));
   if (anchor && !(p.supportFacts ?? []).some((f) => placedOn(f.fact)) && !placedOn(p.copyStamp ?? "")) hard.push(MISPLACED);
-  // THE PROOF BURDEN MATCHES THE PROMISE: what a change claims decides what it owes (decision/proof's `evidenceShortfall`), and the verdict below decides whether that shortfall is a defect Beacon owes or a caveat the operator judges. FIVE HOLDS THAT MINTED THEIR OWN PURCHASE ARE DELETED HERE (owner's editorial policy, 2026-09-06): the national-symbol claim standing on the page's own uncontradicted statement of its subject, the two-publisher minimum where one credible source suffices, the clicks a wording change was never shown to recover, the replacement shape no stored results page backs yet, and a new page's claim resting on nothing checked. Every one of them hid finished work behind a reading nobody had bought, and each is an advisory now, so no evidence is re-bought for editorial eligibility alone and no banked reading is invalidated.
   const short = evidenceShortfall(p); if (short) hard.push(short);
-  // AND A LEVER THAT MISSES THE PAGE'S OWN DIAGNOSIS IS A CAVEAT, NEVER A REFUSAL. Which cause a change treats is a ranking and admission question (`withholdReason` still answers it for both), and the owner's policy is explicit that Ready never meant proven to be the cause of a ranking problem. Asked here so the sentence rides the card; the split-coverage refusal that held a bundle for the pages it did not write is deleted outright, because improving one of several competing pages is still a reasonable, explainable improvement.
   const unfit = withholdReason(p, p.causeFinding?.cause ?? p.diagnosisCause); if (unfit) hard.push(unfit);
-  // THE SAFETY HOLD LIFTS WHEN THE OPERATOR HAS ANSWERED IT, on the exact version they read: pushed unconditionally,
-  // a confirmed redirect could never wear Ready anywhere, the next pass swept the hold back into status, and the card
-  // told the operator to confirm the very thing they had just confirmed, forever (audit, 2026-08-26). The same
   // staleness rule the validator applies decides: a change edited since the yes re-holds; a current yes stands.
   if (dangerousComponents(p.bundle?.components ?? []).length > 0 && p.confirmedVersion !== confirmedVersion(p)) hard.push(DANGER);
   const every = [...new Set([...hard, ...faults, ...also.found ?? []])], said = every.filter((x) => !every.some((y) => y !== x && y.endsWith(x))); // ONE COMPLAINT IS SAID ONCE (measured, 2026-09-05): a refusal is composed with a gate opener at one door and written raw at another, both land in `faults`, and the Set kept both because the strings differ, so the account's most watched card told a reader the same thing twice. The composed form ends with the raw sentence it wraps, so the wrapped one is dropped and nothing a fuller sentence does not already say is lost. WHAT A CALLER ALREADY READ COMES IN THE SAME DOOR: the banked-copy re-read and the canon hold the page and the words, this verdict does not, and putting their findings through the ONE partition is what makes the store, the sweep, the loader and the ladder agree by construction instead of each chaining its own refusals.
