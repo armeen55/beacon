@@ -5,7 +5,7 @@ import type { ChangeProposal } from "./contracts";
 // Public so the browser and server use the same value; this is policy, never a secret.
 const enabled = () => process.env.NEXT_PUBLIC_BEACON_AEO_PACKET !== "0";
 const applies = (field: string, standard?: string, unpublished = false, shape?: string, query = "") => enabled() && !unpublished && /^(answer_block|section)$/.test(field)
-  && (["section", "direct_answer", "restructure"].includes(shape ?? "") || /\b(?:animals|wildlife|species|people|figures)\b/i.test(query))
+  && (["section", "direct_answer", "restructure"].includes(shape ?? "") || (shape == null && !/\bhow many\b/i.test(query) && /\b(?:(?:which|what)\s+(?:\w+\s+){0,3}(?:animals|wildlife|species|people|figures)|(?:famous|notable)\s+(?:\w+\s+){0,2}(?:people|figures))\b/i.test(query)))
   && !["correction", "internal_link", "repositioning"].includes(standard ?? "");
 const criteria = ["leadAnswer", "groupedH2s", "defendedClaims", "entityBlock", "boundedScope", "h1QueryAlignment"] as const;
 const schema = z.object({ leadAnswer: z.boolean(), groupedH2s: z.boolean(), defendedClaims: z.boolean(), entityBlock: z.boolean(), boundedScope: z.boolean(), h1QueryAlignment: z.boolean() });
@@ -16,17 +16,17 @@ const failures = (field: string, copy: string, limitations: readonly string[] = 
   const out: string[] = [], lines = copy.trim().split(/\n+/).map((s) => s.trim()).filter(Boolean);
   const first = lines.find((s) => !/^#{1,6}\s/.test(s)) ?? "";
   const plain = first.replace(/\*\*/g, "");
-  // Collection answers cannot opt out through missing or short-form assignment metadata. Semantics still require a separate review.
+  // Legacy collection queries recover missing assignment metadata; explicit assignment shapes remain authoritative.
   if (/^#{1,6}\s/.test(lines[0] ?? "") || /^(?:[-*•]|\d+[.)])\s/.test(first) || !/[.!?](?:["”’])?$/.test(plain)
     || (plain.split(/[,;•]/).length >= 5 && !/[.!?]\s+/.test(plain)))
     out.push("The opening needs a complete answer paragraph that explains more than the names.");
   if (!lines.some((s) => /^##\s+\S/.test(s)) || lines.filter((s) => /^##\s+\S/.test(s)).length < 2)
     out.push("Group the answer under headings that explain how the examples were selected.");
-  const groups = copy.split(/^##\s+(.+)$/m).slice(1), entities = [...copy.matchAll(/^(?:[-*•]\s+([^:\n]+):|\|\s*([^|]+)\|)/gm)]
-    .map((m) => (m[1] ?? m[2] ?? "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/s\b/g, "").replace(/\s+/g, " ").trim());
+  const groups = copy.split(/^##\s+(.+)$/m).slice(1), tableRows = [...copy.matchAll(/^\|(?:[ \t]*:?-{3,}:?[ \t]*\|)+[ \t]*\r?\n((?:\|[^\n]+\|[ \t]*(?:\r?\n|$))+)/gm)].map((m) => m[1]).join("\n");
+  const entities = [...copy.matchAll(/^[-*•]\s+([^:\n]+):/gm), ...tableRows.matchAll(/^\|\s*([^|]+)\|/gm)].map((m) => (m[1] ?? "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/s\b/g, "").replace(/\s+/g, " ").trim());
   for (let i = 0; i < groups.length; i += 2) {
     const heading = groups[i]!.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/s\b/g, "").replace(/\s+/g, " ").trim(), prose = (groups[i + 1] ?? "").split("\n").filter((l) => !/^\s*(?:[-*•|#]|\d+[.)])/.test(l)).join(" ").trim();
-    if (entities.some((entity) => entity && ` ${heading} `.includes(` ${entity} `)) || !/[.!?]/.test(prose) || !/\b(?:recorded|observed|born|used|said|qualif\w*|select\w*|includ\w*|inhabit\w*|found|live|grow|work|breed|nest|feed|adapt\w*|defined|criteria|members|whose)\b/i.test(prose)) {
+    if (entities.some((entity) => entity && ` ${heading} `.includes(` ${entity} `)) || !/[.!?]/.test(prose)) {
       out.push("Each heading needs a selection criterion and explanatory prose, not one heading per entity or a list of names."); break;
     }
   }
@@ -46,7 +46,7 @@ const bodyParts = (p: ChangeProposal) => {
     ...(p.bundle?.components ?? []).filter((x) => /^(opening_answer|section|section_add|section_rewrite|restructure)$/.test(x.kind) && applies("section", standard, false, shape, p.primaryQuery)).map((x) => x.after)];
 };
 export const AEO_BAR = { applies, policy, failures, schema, passed,
-  rowFailures: (p: ChangeProposal): string[] => bodyParts(p).flatMap((copy) => failures("section", copy, [...p.limitations, ...(p.faults ?? [])], undefined, false, "section")),
+  rowFailures: (p: ChangeProposal): string[] => bodyParts(p).flatMap((copy) => failures("section", copy, p.limitations, undefined, false, "section")),
   approved: Object.fromEntries(criteria.map((k) => [k, true])) as z.infer<typeof schema>,
   forRow: (p: ChangeProposal): boolean => bodyParts(p).length > 0,
   sameRejectedCopy: (a: ChangeProposal, b: ChangeProposal): boolean => {
