@@ -1,5 +1,4 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-/** THE STORE IS THE CURSOR, so these tests stand it up rather than pretending it away: the inventory and coverage written by one call are what the next call resumes from, exactly as a second lease would. */
 const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], owed: [] as Record<string, unknown>[], superseded: [] as string[],
   reopened: [] as string[], cov: null as Record<string, unknown> | null, writeFails: false }));
 vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {
@@ -19,7 +18,6 @@ const CLAIMS = { statements: [{ subject: "Afsaneh", current: "Goddess", locator:
   supporting: [{ url: "https://en.wiktionary.org/x", quote: "Persian افسانه: tale, story, fable, legend, myth.", supported: true, supportSpan: "Persian افسانه: tale, story, fable, legend, myth.", subjectSpan: "افسانه", subjectFrom: "quote", relationSpan: "افسانه:", meaningSpans: ["legend", "myth", "fable"] }],
   subjects: [{ url: "https://en.wiktionary.org/x", sameEntity: true, language: "Persian", script: "افسانه", why: "the entry defines the Persian word" }] };
 const SOURCE = { organic: [{ domain: "en.wiktionary.org", url: "https://en.wiktionary.org/x", title: "Afsaneh" }] }; const PASSAGE = "Persian افسانه: tale, story, fable, legend, myth."; const coverage = () => ({ readCoverage: async () => db.cov as InventoryCoverage | null, writeCoverage: async (c: InventoryCoverage) => { db.cov = c as unknown as Record<string, unknown>; return true; } }); const unit = (over: Record<string, unknown>) => runFactCheckUnit({ tenantId: "t", now: NOW, basis: "b1", deadlineAt: Date.now() + 600_000, page: PAGE, read: reader({ claims: CLAIMS, judge: CONFIRMS }), searchSources: async () => SOURCE, fetchSource: async () => ({ text: PASSAGE }), ...coverage(), ...over } as never);
-/** An inventory row as the store hands it back on a later lease. */
 const row = (over: Partial<FactCheck>): FactCheck => ({ page: "/names", statementKey: "k", subject: "Afsaneh", current: "Goddess", proposed: null, literal: null, usage: null, sources: [], agreement: "none_found",
   confidence: "unsupported", verdict: "undecidable", alsoAt: [], note: "", pageContentHash: pageHashOf(PAGE.body), pageLocator: null, sourceReadAt: null, state: "owed", rulesVersion: VERIFICATION_RULES_VERSION, evidenceBasis: "b1", checkedAt: NOW.toISOString(), ...over });
 const reset = () => { db.rows = []; db.owed = []; db.superseded = []; db.reopened = []; db.cov = null; db.writeFails = false; };
@@ -53,9 +51,7 @@ describe("a usage rule is not a word meaning, and a stray colon is not a diction
     expect(deriveSupport({ ...entry, quote: "A note about \u0627\u0641\u0633\u0627\u0646\u0647: tale, story, fable follows." }), "the same colon inside ordinary prose does not").toBeNull();
     expect(supportFailure({ ...deriveSupport(ctx({}))!, version: 2 }, ctx({})), "an artifact decided under the old question is stale, never silently trusted").toBe("stale"); });
 });
-
 describe("a missing proposition is researched, never graded", () => { beforeEach(reset);
-  /** THE LOOP'S MISSING HALF, at the unit: an owed claim with NO current wording is information the page LACKS (the missing-information requirement seeds exactly these), so the unit searches the subject, reads real sources, and banks `proposed` as the researched statement with verified quotes. The judge is asked what the passages establish, never to grade an empty quotation. */
   it("an owed claim with no current wording banks the researched statement from real sources", async () => {
     db.cov = { pageContentHash: pageHashOf(PAGE.body), coveredChars: PAGE.body.length, totalChars: PAGE.body.length };
     const asked: string[] = []; const SAID = "Persian girls' names are typically chosen for meaning, drawn from nature, virtues and classical literature.";
@@ -73,7 +69,6 @@ describe("a missing proposition is researched, never graded", () => { beforeEach
     expect(db.rows.map((r) => r.statementKey), "AND A QUESTION THE PAGE DOES NOT ANSWER IS RESEARCHED BEFORE THE PAGE'S OWN INVENTORY, by the row's shape and not by the locator an acquisition seeded it with, which a reopened row does not keep: live, three reopened questions waited while a hub's Quick Facts were checked").toEqual(["missing#1"]);
     db.rows = []; await unit({ held: [missing], read: judge("undecidable") }); const astray = db.rows.find((r) => r.statementKey === "missing#1")!;
     expect([astray.state, astray.proposed, astray.confidence], "and a statement the judge would not say answers the question is banked as no statement at all, so a confirmed undecidable row can no longer exist").toEqual(["checked", null, "likely"]); });
-  /** AND THE QUOTE IT BANKS IS THE PASSAGE THAT CARRIES THE PROPOSITION, not whichever sentence the judge reached for first. Live, the judge quoted the 1979 change, wrote that the passages support the pre-1979 colours and emblem, and they did, three sentences away; the row banked `likely` and its demand row was refused every pass after that. */
   it("banks the carrying window of the fetched document, and the judge's own quote when nothing carries", async () => {
     const PROP = "Before 1979, Iran used a tricolour flag of green, white, and red with the Lion and Sun emblem at the center; it remained in use until the 1979 Islamic Revolution", CARRIES = "Before 1979 the flag of Iran was a tricolour of green, white and red charged at the center with the Lion and Sun emblem of the Islamic state.";
     const JUDGED = "Following the 1979 Islamic Revolution, the Iranian flag was changed into its current form.", FLAG = "https://en.wikipedia.org/wiki/Flag_of_Iran", PARA = "The Iranian flag used before the 1979 Islamic Revolution featured the Lion and Sun emblem.";
@@ -108,7 +103,6 @@ describe("every failure is typed and leaves the claim owed", () => { beforeEach(
     expect((await unit({ read: async () => ({ hold: "capped" as const }) })).failure).toBe("extraction_capped"); // nothing inventoried yet
     expect(db.rows).toHaveLength(0); // none of them banked anything
   });
-  /** THE JUDGE READS THE PASSAGE AROUND THE SUBJECT, never the first 6,000 characters of a long reference page: a subject discussed further down reached the judge in an excerpt that never named it, so a source that genuinely answers the claim could clear nothing. Where the subject is named nowhere the window follows its own words instead, and the opening stands only when none of them occurs at all. */
   it("hands the judge the words around the subject when the source discusses it past the opening", async () => {
     const filler = "unrelated preamble words ".repeat(400), text = `${filler}Afsaneh. ${PASSAGE}${filler}`; // the defining sentence sits 10,000 characters in
     let asked = ""; const read = async (i: { system: string; user: string }) => { const claims = i.system.startsWith("You read one web page"); if (!claims) asked = i.user; return { value: (claims ? CLAIMS : CONFIRMS) as Record<string, unknown> }; };
@@ -121,7 +115,6 @@ describe("every failure is typed and leaves the claim owed", () => { beforeEach(
     expect((await unit({ held, searchSources: async () => ({ organic: [] }) })).status).toBe("advanced"); // truly empty
     const r = db.rows[0] as FactCheck; expect([r.confidence, r.agreement, r.proposed]).toEqual(["unsupported", "none_found", null]);
     db.writeFails = true; expect((await unit({ held })).failure).toBe("store_write_failed");});
-  /** THE PIPELINED WAIT (operator, 2026-08-30): the successor's search is POSTED while the current claim settles. The byte-identity below is load-bearing: the cache keys on the input, so if the warmed string ever drifts from the one the successor's own turn asks, the warm buys a task nothing collects. */
   it("posts the successor's search while the current claim settles, byte-identical to the query its own turn asks", async () => {
     db.cov = { pageContentHash: pageHashOf(PAGE.body), coveredChars: PAGE.body.length, totalChars: PAGE.body.length };
     const warmed: string[] = [], askedQ: string[] = [], held = [row({ statementKey: "k1" }), row({ statementKey: "k2", subject: "Darya", current: "Beauty", pageLocator: "Darya" })];
@@ -148,7 +141,6 @@ describe("coverage, duplicates and diversity", () => { beforeEach(reset);
     const at = (db.cov as { coveredChars: number }).coveredChars; expect(out.cursor?.pageComplete, "a capped chunk never completes the page").toBe(false);
     expect(at, "and it stops inside the body, not at the end of it").toBeLessThan(dense.body.length);
     expect(at, "at the fortieth statement, not at the first").toBeGreaterThan(dense.body.indexOf("Name39")); });
-
   it("one proposition reworded with the same content words is not acquired twice", async () => {
     const heat = tokenFingerprintOf("Ahvaz", "holds the record for hottest day at 54 °C"); expect(tokenFingerprintOf("Ahvaz", "The hottest day record, 54 °C, is held by Ahvaz")).toBe(heat);
     expect(tokenFingerprintOf("Ahvaz", "reached 54 °C in 2017")).not.toBe(heat); // not semantic: different words, different claim
@@ -231,7 +223,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
       searchSources: async () => enc, fetchSource: async () => ({ text: darya }),
       read: reader({ claims: claim, judge: { ...judged(darya, true, "Persian", "دریا", { supported: true, supportSpan: darya, subjectSpan: "دریا", subjectFrom: "quote", relationSpan: "دریا (daryā):", meaningSpans: ["sea", "ocean"] }), proposed: "sea, ocean" } }) });
     const right = db.rows[0] as FactCheck; expect([right.confidence, right.proposed]).toEqual(["confirmed", "sea, ocean"]); });
-
   it("the site being corrected is never its own source, and a wording no source carries is not confirmed", async () => {
     const fetched: string[] = [];
     const both = { organic: [{ domain: "www.iranopedia.com", url: "https://www.iranopedia.com/persian-female-first-names", title: "Persian names" },
@@ -247,7 +238,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     const r = db.rows[0] as FactCheck;
     expect([r.agreement, r.confidence]).toEqual(["none_found", "likely"]); // AGREEMENT NAMES CARRIERS, NOT READERS: the quote derives Maryam from Hebrew marah, to be rebellious, and carries none of "beloved; wished-for child"
     expect(r.note).toContain("Held below confirmed:"); });
-
   it("a confirmed verdict the quote-bound contract refuses reopens as owed, and a carried one does not", async () => {
     const banked = (subject: string, proposed: string, says: string) => row({ statementKey: subject.toLowerCase(), subject,
       current: "Meaning:Something old.", proposed, confidence: "confirmed", verdict: "page_wrong", state: "checked",
@@ -256,7 +246,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
       banked("Noor", "light", 'The name Noor means "light"')];
     await unit({ held, read: reader({ claims: { statements: [] }, judge: CONFIRMS }) });
     expect(db.reopened, "only the stranded claim re-enters research").toEqual(["alborz"]); });
-
   it("words found on the fetched page but past the verified quote authorize nothing", async () => {
     const page = "The name Alborz is derived from Hara Barazaiti, a legendary mountain. البرز Hara Brzati means Mountain Rampart.";
     await unit({ held: [row({ statementKey: "k1" })], fetchSource: async () => ({ text: page }),
@@ -265,7 +254,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
         subjects: [{ url: "https://en.wiktionary.org/x", sameEntity: true, language: "Persian", script: "البرز", why: "about this name" }] } }) });
     const r = db.rows[0] as FactCheck; expect([r.confidence, r.verdict]).toEqual(["likely", "page_wrong"]);
     expect(r.note).toContain("Held below confirmed:"); });
-
   it("reads the next section even while claims are owed, and a chunk that filled up does not advance past what it read", async () => {
     const body = Array.from({ length: 60 }, (_, i) => `Name${i} means Meaning${i}.`).join(" ");
     const owedAlready = Array.from({ length: 33 }, (_, i) => row({ statementKey: `owed${i}`, subject: `Old${i}`, pageContentHash: pageHashOf(body) }));
@@ -275,14 +263,12 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
       read: reader({ claims: { statements: found }, judge: CONFIRMS }) });
     expect(db.owed.length, "the section was inventoried rather than queued behind research").toBe(12);
     expect((db.cov as unknown as { coveredChars: number }).coveredChars).toBeGreaterThan(0);
-
     db.rows = []; db.owed = []; db.cov = { pageContentHash: pageHashOf(body), coveredChars: 0, totalChars: body.length } as never;
     const full = Array.from({ length: 40 }, (_, i) => ({ subject: `Name${i}`, current: `Meaning${i}`, locator: null }));
     const known = full.slice(0, 35).map((c, i) => row({ statementKey: claimIdentity(c.subject, c.current, null), subject: c.subject, current: c.current, state: "checked" as const, pageContentHash: pageHashOf(body) }));
     await unit({ page: { ...PAGE, body }, held: known, searchSources: async () => ({ hold: "unavailable" as const }),
       read: reader({ claims: { statements: full }, judge: CONFIRMS }) });
     const advanced = (db.cov as unknown as { coveredChars: number }).coveredChars; expect(advanced, "a chunk that filled up may not advance past the last statement it actually read").toBeLessThan(Math.min(body.length, 3_000)); });
-
   it("sets aside a claim whose sources will not resolve and reaches the next one, instead of stopping the pass", async () => {
     const body = "Alpha means one. Beta means two. Gamma means three. Delta four. Epsilon five. Zeta six.";
     const owed = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta"].map((subject) => row({ statementKey: subject.toLowerCase(), subject,
@@ -302,7 +288,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     const waited: string[] = []; // A POSTED SEARCH IS THE MOST SELF-RESOLVING PER-CLAIM CONDITION THERE IS: the provider takes the task and hands it back on a free follow-up, so ending the pass on it posts ONE task per pass and leaves every other owed claim untouched (live on /persian-male-names: 167 owed, one attempt per pass).
     const wait = await runFactCheckPass({ tenantId: "t", basis: "b1", deadlineAt: Date.now() + 600_000, held: owed, pages: [{ url: PAGE.url, path: PAGE.path, loadBody: async () => body }], refreshHeld: async () => null, readCoverage: async () => db.cov as never, writeCoverage: async () => true, read: reader({ claims: { statements: [] }, judge: CONFIRMS }), searchSources: async (query: string) => { waited.push(query); return { hold: "waiting" as const }; }, fetchSource: async () => ({ hold: "refused" as const }) } as never);
     expect([waited.length >= 3, wait.attempts >= 3], "a waiting search posts for the next claim too, instead of ending the pass").toEqual([true, true]); });
-
   it("a source nobody read, a stale page version and replaced rules each authorize nothing", async () => {
     const { authorizedCorrections } = await import("@/domains/evidence/pages/fact-checks");
     const q = 'The name Afsaneh means "new".'; const bare = row({ proposed: "new", verdict: "page_wrong", confidence: "confirmed", state: "checked", pageContentHash: "h1", sources: [{ url: "https://en.wiktionary.org/x", kind: "dictionary", says: q }] });
@@ -318,7 +303,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     expect(authorizedCorrections([read], { pageContentHash: "h1", evidenceBasis: "b1" }, "t")).toHaveLength(1);
     const gap = (verdict: string, over: Partial<FactCheck> = {}) => authorizedCorrections([{ ...read, current: "", verdict, proposed: "Iran has AH-1 Cobra attack helicopters.", ...over } as FactCheck], undefined, "t").length, ask = { subject: "are there cobras in iran", sources: [{ url: "https://en.wikipedia.org/x", kind: "encyclopedia" as const, says: "Iran operates AH-1 Cobra attack helicopters." }] };
     expect([gap("undecidable"), gap("page_correct"), gap("page_correct", ask), gap("page_correct", { ...ask, rulesVersion: 5 }), [rulesVersionFor({ subject: "are there cobras in iran", current: "" }), rulesVersionFor({ subject: "Afsaneh", current: "" }), rulesVersionFor(read)]], "A ROW WITH NO CURRENT WORDING IS AUTHORIZED BY ITS VERDICT: the live cobra row banked confirmed on an undecidable reading whose own note said the sources are about attack helicopters, and this door let it through to the writer. AND A QUESTION IS JUDGED UNDER RULES OF ITS OWN: the same confirmed page_correct row authorizes nothing while it carries 4, the version a correction is judged under, and authorizes again once it has been judged under 5; a headword with no current wording and a correction both stay on 4, byte for byte").toEqual([0, 1, 0, 1, [5, 4, 4]]);});
-  /** EVIDENCE IS PROPORTIONAL TO WHAT THE TREATMENT RISKS (operator, 2026-09-01; the consumer split, 2026-09-05). Held to one bar, the whole missing-answer lane on the acceptance account was dead: the reading landed with its sources against the right page version, it stood at `likely`, and the row owed the identical purchase again every drive for ever. A correction replaces published words and keeps `confirmed`; an addition a reader undoes by deleting it stands on one publisher that was read and whose own passage carries it, which is the section rule the operator already stated. */
   it.each(["tenant-one", "tenant-two"])("admits an addition on one publisher that was read and carries it, and keeps a correction of the page's own words at what two agreeing sources earn [%s]", async (tenant) => {
     const { authorizedCorrections } = await import("@/domains/evidence/pages/fact-checks");
     const ASK = "how deep is the well", ANSWER = "The old quarter well is 18 metres deep.", QUOTE = "The old quarter well is 18 metres deep, according to the municipal survey.", SRC = "https://reference.example/wells";
@@ -392,8 +376,6 @@ describe("the live 54 C Ahvaz results page", () => { beforeEach(reset); // the o
     expect(r.sources.filter((x) => x.says.length > 0)).toHaveLength(2); // each credited with ITS OWN sentence
     db.reopened = []; await unit({ held: [{ ...r, state: "checked" } as FactCheck], read: reader({ claims: { statements: [] }, judge: CONFIRMS }) });
     expect(db.reopened).toEqual([]); }); });
-
-/** THE LAZY BACKFILL: only selected facts are candidates, deterministic first, one direct re-read of the known source when the quote alone cannot carry it, idempotent, neighbours untouched. */
 describe("backfilling support onto already-banked facts", () => {
   const mk = (key: string, subject: string, says: string, extra: Record<string, unknown> = {}): FactCheck => ({
     page: "/persian-female-first-names", statementKey: key, subject, current: `Meaning:Wrong ${subject}.`,
@@ -416,7 +398,6 @@ describe("backfilling support onto already-banked facts", () => {
     expect(bank.at(-1)!.find((r) => r.statementKey === "bystander"), "neighbours byte-identical").toEqual(rows[3]);
     const wrote = bank.length; fetches.length = 0; const again = await backfillClaimSupport("t", targets.slice(0, 2), deps); // IDEMPOTENT: the second run finds every artifact current, fetches nothing, writes nothing
     expect([again.every((o) => o.action === "already_current"), bank.length, fetches.length]).toEqual([true, wrote, 0]); });
-  /** AND A MISSING-INFORMATION ROW WHOSE ARTIFACTS WERE JUDGED BY THE HEADWORD RULE IS HANDED BACK ONCE. Re-deriving cannot lift a confidence decided at bank time, so only a fresh fact pass settles it; the re-banked artifact then carries the proposition identity, the row reads current, and it never comes back. */
   it("reopens a headword-judged proposition row once, in the account's own words, and passes over one already judged as a proposition", async () => {
     const PROP = "Before 1979, Iran used a tricolour flag of green, white, and red with the Lion and Sun emblem at the center; it remained in use until the 1979 Islamic Revolution", CARRIES = "Before 1979 the flag of Iran was a tricolour of green, white and red charged at the center with the Lion and Sun emblem of the Islamic state.";
     const ctx: SupportContext = { tenantId: "t", page: "/persian-female-first-names", statementKey: "gap", pageLocator: "missing", subject: "iran flag before 1979", claimKind: claimTypeOf("iran flag before 1979", PROP, "missing"), current: "", proposed: PROP, url: "https://en.wikipedia.org/wiki/Flag_of_Iran", kind: "encyclopedia", quote: CARRIES, titleContext: null };
@@ -432,18 +413,14 @@ describe("backfilling support onto already-banked facts", () => {
     const flagged = [{ ...target[0]!, rulesStale: true }, { page: target[0]!.page, statementKey: "head", onUnsupported: "bank" as const, rulesStale: true }, { page: target[0]!.page, statementKey: "bystander", onUnsupported: "bank" as const, rulesStale: true }], moved = await backfillClaimSupport("t", flagged, deps([gapRow(deriveSupport(ctx)!, deriveSupport(other)!), { ...mk("head", "Delnaz", "unrelated"), current: "", proposed: "Delnaz means heart's delight" }, mk("bystander", "Yasmin", "unrelated")]));
     const ruleWhy = back.at(-1)!.why, reopens = back.length, LOST = "Reopened: the passage behind this answer was not found, so it is read again.", EMPTY = [{ url: ctx.url, kind: "encyclopedia" as const, says: "" }, { url: other.url, kind: "publisher" as const, says: "" }], shape = async (over: Partial<FactCheck>) => (await backfillClaimSupport("t", [{ ...target[0]!, rulesStale: true }], deps([{ ...gapRow(deriveSupport(ctx)!, deriveSupport(other)!), rulesVersion: 5, ...over }])))[0]!.action; const current0 = await shape({}), sent = await shape({ sources: EMPTY }), writesBefore = wrote, twice = await shape({ sources: EMPTY, note: LOST }); // P16: the same shape again, its note carrying the marker a bank writes
     expect([moved.map((o) => o.action), ruleWhy, reopens, rulesVersionFor({ subject: "iran flag before 1979", current: "" }), current0, sent, twice, wrote - writesBefore, await shape({ confidence: "confirmed" }), back.at(-1)!.why], "THE RULES THAT JUDGE A MISSING ANSWER MOVED: the question is owed again once and says so, even though every artifact under it is current and nothing else would ever re-judge it; a headword row with no current wording and a correction flagged the same way are judged by their SHAPE, not by the flag, and neither is handed back; and the flag is never the last word: the caller computed it from a reading taken before the paid unit ran, so the row is asked its own version here, and one already re-judged at 5 keeps the answer it was just bought. AND THE ROW WHOSE PASSAGE WAS LOST IS READ AGAIN, ONCE PER ROW: the live flag shape, below confirmed with a proposal and every source banking an empty quote, is sent back in the account\'s own words; the same row carrying those words is neither sent back nor REWRITTEN, so it costs no judge call and no store write however many drives read it; and the jersey shape, confirmed with a supported quote, and the wolf shape, likely with its publisher quote present, are both left exactly as they are").toEqual([["reopened", "banked_unsupported", "banked_unsupported"], "Reopened: the rules that judge a missing answer changed.", 2, 5, "already_current", "reopened", "already_current", 0, "already_current", LOST]); });});
-
-/** DOES THIS PASSAGE SUPPORT THIS WORDING. Verification asks whether a source was read, whether its quote exists and whether it may speak; none of that asks the one question that authorizes a correction. The model may LOCATE spans. Only this may accept them, and it accepts nothing it cannot find verbatim in the exact text that source banked, which is why a biography of a man who held a title can never authorize a given name's meaning however true the biography is. */
 describe("a source supports a claim only when its own passage says so", () => {
   const NOOR = 'The name Noor means "light"', MAHSA = 'The name has the meaning "like the moon".', LAILA = 'Laila comes from the Arabic word layl, which means "night", or "dark".';
   const base: SupportContext = { tenantId: "t", page: "/n", statementKey: "noor", pageLocator: "Names", subject: "Noor", claimKind: "word_meaning", current: "Meaning:Bright, radiant, or glowing.",
     proposed: "Meaning: Light.", url: "https://en.wikipedia.org/wiki/Noor_(name)", kind: "encyclopedia", quote: NOOR, titleContext: null };
   const art = (over: Partial<ClaimSupport> = {}): ClaimSupport => ({ version: SUPPORT_ARTIFACT_VERSION, identity: "", supported: true, supportSpan: NOOR, subjectSpan: "Noor", subjectFrom: "quote", relationSpan: "means", meaningSpans: ["light"], ...over });
-  /** Sign the artifact the way a banking pass would, so only the case under test is what differs. */
   const signed = (c: SupportContext, over: Partial<ClaimSupport> = {}) => {
     const a = art(over); return { ...a, identity: supportIdentity(c) }; };
   const verdict = (c: SupportContext, over: Partial<ClaimSupport> = {}) => supportFailure(signed(c, over), c);
-
   it("accepts an explicit definition and refuses every way a passage can fall short of one", () => {
     const mahsaCtx: SupportContext = { ...base, subject: "Mahsa", statementKey: "mahsa", quote: MAHSA,
       proposed: "Meaning: Like the moon.", url: "https://en.wikipedia.org/wiki/Mahsa" };

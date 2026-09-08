@@ -366,7 +366,7 @@ describe("#129 full AEO packet acceptance", () => {
   const answer = people ? `${lead}\n## Poetry in the archive\nMira is a poet born in the region.\n## Painting in the archive\nDara is a painter born in the region.\n- Mira: poet born in the region.\n- Dara: painter born in the region.` : `${lead}\n## River mammals\nOtters are mammals recorded in the reserve rivers.\n## Wetland birds\nHerons are birds recorded in the reserve wetlands.\n- Otter: mammal recorded in reserve rivers.\n- Heron: bird recorded in reserve wetlands.`;
   const c = card(s, { changeFamily: "section", treatment: "rewrite_existing_section", primaryQuery: s.q, recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: "Write the answer." },
     causeFinding: { cause: "retrieved_not_cited", action: null, evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [], falsifier: "f", explanation: "The answer is scattered.", payload: { cause: "retrieved_not_cited", engine: "chatgpt", promptText: s.q, missing: s.lines[2], aeoKind: "scattered_answer" } } as never });
-  if (variant === "wildlife") it.each(["answer_block", "meta", "owed_winner", "owed_winner_meta", "producer", "producer_missing_grouping"])("default funded Animals hub emits body work from %s", async (variant) => {
+  if (variant === "wildlife") it.each(["answer_block", "meta", "owed_winner", "owed_winner_meta", "producer", "producer_missing_grouping", "producer_acquired_grouping", "producer_acquired_grouping_covered"])("default funded Animals hub emits body work from %s", async (variant) => {
     const field = variant.endsWith("meta") ? "meta" : "answer_block", fromProducer = variant.startsWith("producer"), missingGrouping = variant === "producer_missing_grouping", owesWinner = variant.startsWith("owed_winner") || fromProducer;
     const hub = { ...s, url: "https://alpha.example/iran-animals", ...(fromProducer ? { q: "reserve animals" } : {}) }; let candidate = card(hub, { researchOnly: true, changeFamily: field === "meta" ? "meta" : "section", recommendedChange: { kind: "existing_edit", field: field as "meta" | "answer_block", before: field === "meta" ? "Old line." : null, after: "Write the answer." } });
     bodies.map = new Map([[canonicalUrlKey(hub.url), bodyOf(hub)]]); facts.rows = [{ ...await reading(hub, hub.q, lead), evidenceBasis: "basis_test::d8" }];
@@ -376,9 +376,32 @@ describe("#129 full AEO packet acceptance", () => {
     const species = { ...hub, url: `${hub.url}/persian-cobra`, label: "Persian cobra", title: "Persian cobra", h1: "Persian cobra", q: "persian cobra", lines: ["The Persian cobra is a venomous snake with a hood that widens when threatened."] };
     const bankedMeta = card(species, { status: "ready", recommendedChange: { kind: "existing_edit", field: "meta", before: "Old line.", after: species.lines[0]! } });
     const stored = new Map([[bankedMeta.id, bankedMeta]]), storeModule = await import("@/domains/decision/proposal-store"), load = vi.spyOn(storeModule, "loadChangeProposals").mockResolvedValue(stored);
-    if (missingGrouping) facts.rows = [];
+    if (missingGrouping || variant.startsWith("producer_acquired_grouping")) facts.rows = [];
     let emitted = [candidate];
     try { if (fromProducer) { const run = await (await import("@/domains/decision/producers/extra")).extraQueueCards({ tenantId: hub.t, snapshot: passState.snapshot as never, now: NOW, basis: "basis_test::d8", reads: { left: 0 }, persist: false }); emitted = run.cards; expect(emitted.some((p) => p.pagePath === "/iran-animals" && p.changeFamily === "section"), JSON.stringify(run)).toBe(true); candidate = emitted.find((p) => p.pagePath === "/iran-animals" && p.changeFamily === "section")!; } } finally { load.mockRestore(); }
+    if (variant.startsWith("producer_acquired_grouping")) {
+      const held = (await applyDraftedCopy([candidate], { tenantId: hub.t, snapshot: passState.snapshot as never, basis: "basis_test::d8", now: NOW, complete: async () => { throw new Error("No writer before grouping"); } }))[0]!;
+      expect([held.status, held.researchOnly, held.obligation?.kind]).toEqual(["needs_review", true, "evidence"]);
+      const need = held.obligation!.kind === "evidence" ? held.obligation!.need : null; expect(need?.missingTopic).toBe("grouping criteria and selection boundary");
+      const factModule = await import("@/domains/evidence/pages/fact-checks"), provider = await import("@/domains/evidence/dataforseo/capabilities"), llm = await import("@/domains/decision/llm/structured-drafter"), basis = await import("@/domains/decision/load-proposals");
+      const old = { ...await reading(hub, "are reserve animals counted annually", ""), statementKey: "earlier-missing", pageLocator: "missing", state: "owed", evidenceBasis: "basis_test::d8" };
+      facts.rows = [old]; const acquisitions: string[] = [], spies = [
+        vi.spyOn(basis, "resolveCurrentBasis").mockResolvedValue("basis_test::d8"),
+        vi.spyOn(factModule, "readInventoryCoverage").mockResolvedValue(variant.endsWith("_covered") ? { pageContentHash: old.pageContentHash, coveredChars: 9999, totalChars: 9999 } : null),
+        vi.spyOn(factModule, "recordOwedClaims").mockImplementation(async (_t, page, claims, hash, evidenceBasis) => { facts.rows.push(...claims.map((c) => ({ ...old, page, statementKey: c.statementKey, subject: c.subject, current: c.current, pageLocator: c.locator, pageContentHash: hash, evidenceBasis, rulesVersion: factModule.rulesVersionFor(c) }))); return claims.length; }),
+        vi.spyOn(factModule, "recordFactChecks").mockImplementation(async (_t, _page, rows) => { for (const r of rows) { const at = (facts.rows as { statementKey: string }[]).findIndex((f) => f.statementKey === r.statementKey); facts.rows[at] = r; } return rows.length; }),
+        vi.spyOn(provider, "providerCall").mockImplementation(async (cap, input) => { acquisitions.push(cap); return { state: "ok", envelope: { input } } as never; }),
+        vi.spyOn(provider, "parseCapability").mockImplementation((cap) => (cap === "serp_organic" ? { organic: [{ domain: "ref.example", url: "https://ref.example/guide", title: hub.title }] } : { title: hub.title, bodyText: lead, headings: [], openingSample: null }) as never),
+        vi.spyOn(llm, "callStructuredLLM").mockImplementation(async (input) => {
+          acquisitions.push(input.kind); if (input.kind !== "fact_claim_judgement" || !input.user.includes("grouping criteria and selection boundary")) return { status: "blocked_budget" } as never;
+          return { status: "drafted", value: { verdict: "page_correct", proposed: lead, confidence: "confirmed", note: "", supporting: [{ url: "https://ref.example/guide", quote: lead }], subjects: [{ url: "https://ref.example/guide", sameEntity: true, language: "English", script: null, why: "Reserve survey grouping" }] } } as never;
+        }),
+      ];
+      try { const acquired = await (await import("@/domains/runtime/ops/research-steps")).defaultSteps.acquireEvidence(hub.t, need!, "basis_test::d8", 120_000);
+        expect([acquired.acquired, acquired.unlocked, acquisitions, (facts.rows[0] as typeof old).state], JSON.stringify(acquired)).toEqual([true, true, ["serp_organic", "onpage_content_parsing", "fact_claim_judgement"], "owed"]);
+      } finally { spies.forEach((s) => s.mockRestore()); }
+      candidate = held; emitted = emitted.map((p) => p.id === held.id ? held : p);
+    }
     const shared = new Map<string, unknown>([[`proposals:rows:${hub.t}`, Promise.resolve(new Map([[bankedMeta.id, bankedMeta]]))], [`cards:extra:${hub.t}`, Promise.resolve({ run: { cards: emitted, complete: false, held: [], needsOwnPage: [], families: [] } })], [`cards:factual:${hub.t}`, Promise.resolve({ cards: [], complete: false })], [`cards:recovery:${hub.t}`, Promise.resolve({ cards: [], complete: false, window: { earlyDays: 0, earlyFrom: null, earlyTo: null }, losses: [] })]]);
     let claims: { text: string; supportedBy: string[] }[] = []; const calls: string[] = [], saved: ChangeProposal[] = [], store = await import("@/domains/decision/proposal-store"), save = vi.spyOn(store, "saveChangeProposal").mockImplementation(async (p) => { saved.push(p); return "saved"; });
     try { const walked = await produceProposalsForTenant(hub.t, { now: NOW, produce: true, persist: true, maxDrafts: 1, shared, complete: async ({ kind, user }) => {

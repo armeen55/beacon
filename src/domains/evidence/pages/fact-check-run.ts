@@ -147,6 +147,7 @@ type FactCheckCursor = {
   pageComplete: boolean;};
 
 type FactCheckUnitDeps = {
+  statementKey?: string; // A funded acquisition buys this exact claim, never another topic on the page.
   read: StructuredRead;
   searchSources?: (query: string) => Promise<SearchAnswer>;
   /** POST THE SUCCESSOR CLAIM'S SEARCH WHILE THIS ONE SETTLES, fire and forget (operator, 2026-08-30: provider waits are pipelined where safe). The cache layer keys on the INPUT, so the successor's real search collects the very task this posted instead of buying twice; a successor never reached leaves a paid task the NEXT pass collects from cache at $0. */
@@ -199,8 +200,6 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const { tenantId, page, now } = d;
   if (!page.body.trim()) return fail("no_page_body", null, "no stored words for this page");
   const hash = pageHashOf(page.body), own = [...new Set(page.body.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 2))].join(" ").split(/\s+/).slice(0, 8).join(" "); // THE PAGE'S OWN SUBJECT: its title and its h1, which owned-context joins as the first two lines of the stored body, an identical pair counted once and eight words at most so a long title can never crowd the question out of the query. A row with no current wording is researched ABOUT THIS, never about its question alone.
-  // 1. THE CLAIM INVENTORY FOR THIS PAGE VERSION AND ITS COVERAGE, READ BACK FROM THE STORE: a lease lost mid page resumes where it stopped, and completeness outlives the pass. Coverage is what keeps a long page
-  // honest: the first 12,000 characters are a SECTION, never the page (Codex, 2026-08-18).
   const mine = (d.held ?? []).filter((h) => h.page === page.path);
   let inventory = mine.filter((h) => h.pageContentHash === hash && h.state !== "superseded");
   const covRead = d.readCoverage ? await d.readCoverage().catch(() => null) : null;
@@ -212,11 +211,9 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     || (h.state === "checked" && h.confidence === "confirmed" && unauthorizedReason(h) != null));
   if (obsolete.length > 0 && await reopenObsoleteChecks(tenantId, page.path, obsolete).catch(() => 0) > 0) {
     inventory = inventory.map((h) => (obsolete.includes(h) ? { ...h, state: "owed" as const, rulesVersion: rulesVersionFor(h) } : h));}
-  // THE SEEDED PROPOSITION IS RESEARCHED FIRST. A row whose locator is `missing` exists only because an acquisition seeded it for a funded candidate that was refused for lacking exactly that fact, so it outranks
-  // rotation over the page's own existing statements: without this the pass spent its budget re-checking claims the page already makes and reported the reading as acquired, while the writer had nothing new to cite.
   const waiting = (h: FactCheck): boolean => h.pageLocator === "missing" || rulesVersionFor(h) === MISSING_ANSWER_RULES_VERSION, seededFirst = (rows: typeof inventory) => [...rows].sort((a, b) => (waiting(b) ? 1 : 0) - (waiting(a) ? 1 : 0)); // and a question this page does not answer outranks its inventory whatever its locator says, because a reopened row keeps the locator it was banked with
-  let owed = seededFirst(inventory.filter((h) => h.state === "owed"));
-  if (cov.coveredChars < cov.totalChars) {
+  let owed = seededFirst(inventory.filter((h) => h.state === "owed" && (!d.statementKey || h.statementKey === d.statementKey)));
+  if (!d.statementKey && cov.coveredChars < cov.totalChars) {
     // EXTRACT THE NEXT SECTION, WHATEVER IS ALREADY OWED. Waiting for the owed queue to empty is a deadlock: a another character. Live: rules v4 re-opened 21 claims, the queue stood at 33, and eighteen passes left coverage at 0 of 11,589 while ~160 entries were neither owed nor checked. Extraction is what gives an entry a disposition at all and costs about two cents a section, so it no longer queues behind research.
     if (!enough(d.deadlineAt, 20_000)) return fail("lease_exhausted", null, "not enough of this lease remains to read the page");
     const chunk = page.body.slice(cov.coveredChars, cov.coveredChars + EXTRACT_CHUNK);
@@ -276,7 +273,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
       : { status: "advanced", banked: 0, cursor: { ...progress, pageComplete: false }, reason: `inventoried through character ${cov.coveredChars} of ${cov.totalChars}; more of the page remains` };}
   const claim = { subject: next.subject, current: next.current, locator: next.pageLocator };
   const cursor: FactCheckCursor = { ...progress, pageComplete: false };
-  const advance: FactCheckCursor = { ...progress, checked: progress.checked + 1, pageComplete: covered && owed.length === 1 };
+  const advance: FactCheckCursor = { ...progress, checked: progress.checked + 1, pageComplete: covered && inventory.filter((h) => h.state === "owed").length === 1 };
   const type = claimTypeOf(claim.subject, claim.current, claim.locator);
 
   const bank = async (row: FactCheck): Promise<FactCheckUnitResult> => {
@@ -307,7 +304,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   if (passages.length === 0) {
     if (!d.searchSources || !enough(d.deadlineAt, 15_000)) return fail("lease_exhausted", cursor, "no lease left to look for sources");
     // THE SUCCESSOR'S SEARCH IS POSTED BEFORE THIS ONE IS AWAITED, so both tasks grind at the provider while this claim fetches and judges: the posted-SERP wait was the whole p95 tail (129s against a 20.6s median, live waves 2026-08-30).
-    const succ = owed.find((o) => o !== next && !d.skip?.has(o.statementKey) && !settled.has(propOf(o)) && propOf(o) !== propOf(next!));
+    const succ = !d.statementKey && owed.find((o) => o !== next && !d.skip?.has(o.statementKey) && !settled.has(propOf(o)) && propOf(o) !== propOf(next!));
     if (succ) d.warmSearch?.(sourceQueryFor(claimTypeOf(succ.subject, succ.current, succ.pageLocator), succ.subject, succ.current, own));
     const found = await d.searchSources(sourceQueryFor(type, claim.subject, claim.current, own)).catch(() => ({ hold: "unavailable" as const }));
     // A PROVIDER THAT DID NOT ANSWER IS NOT A WORLD WITH NO SOURCES: capped, waiting, refused and unreachable each leave the claim OWED under their own name, and only a readable answer with no qualifying source banks `none_found`.
@@ -428,6 +425,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
 }
 
 type FactCheckPassDeps = {
+  target?: { page: string; statementKey: string };
   tenantId: string; basis: string | null; deadlineAt: number;
   /** Pages in the order they should be worked, bodies loaded lazily so an untouched page costs nothing. */
   pages: { url: string; path: string; loadBody: () => Promise<string> }[];
@@ -452,6 +450,7 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
   const setAside = new Set<string>(); let lastPerClaim: { failure: UnitFailure; reason: string } | null = null;
   let held = d.held;
   for (const page of d.pages) {
+    if (d.target && page.path !== d.target.page) continue;
     if (attempts >= ATTEMPTS_PER_PASS || Date.now() >= d.deadlineAt) break;
     const body = await page.loadBody().catch(() => "");
     if (!body.trim()) continue; // never crawled: nothing is owed on words nobody has stored
@@ -461,11 +460,11 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
         return { status: banked > 0 ? "advanced" : "failed", banked, bankedPages: [...bankedPages], pagesComplete, attempts, failure: "lease_lost", reason: "the lease was lost, so nothing further was researched" };
       attempts += 1; // EVERY attempt counts: banked, failed and waiting alike.
       const out = await runFactCheckUnit({ tenantId: d.tenantId, now: new Date(), basis: d.basis, deadlineAt: d.deadlineAt,
-        held: held.filter((h) => h.page === page.path), page: { url: page.url, path: page.path, body }, skip: setAside,
+        statementKey: d.target?.statementKey, held: held.filter((h) => h.page === page.path), page: { url: page.url, path: page.path, body }, skip: setAside,
         read: d.read, searchSources: d.searchSources, warmSearch: d.warmSearch, fetchSource: d.fetchSource, ...(d.rival ? { rival: d.rival } : {}),
         readCoverage: () => d.readCoverage(page.path), writeCoverage: (cov) => d.writeCoverage(page.path, cov) });
       // A CLAIM THAT WILL NOT RESOLVE IS SET ASIDE, NOT THE WHOLE PASS. Ending on any failed unit is right for a spent budget or an outage, which repeat; wrong for a per-claim failure, because the owed order is stable so it returned to the head every pass. Live: `fetch_refused` at $0 on five passes while 167 others were never reached once. Set aside for THIS pass only; it is owed again on the next.
-      if (out.status === "failed" && out.attempted && PER_CLAIM.has(out.failure ?? "")) {
+      if (!d.target && out.status === "failed" && out.attempted && PER_CLAIM.has(out.failure ?? "")) {
         setAside.add(out.attempted); lastPerClaim = { failure: out.failure!, reason: out.reason ?? "" }; continue; }
       if (out.status === "failed")
         return { status: banked > 0 ? "advanced" : "failed", banked, bankedPages: [...bankedPages], pagesComplete, attempts, failure: out.failure, reason: out.reason };
@@ -473,6 +472,7 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
         progressed = true; banked += out.banked; if (out.banked > 0) bankedPages.add(page.path); // WHICH PAGE, not just how many: the drive hires the writer this landed for in the same turn
         const back = await d.refreshHeld(page.path).catch(() => null);
         if (back) held = [...held.filter((h) => h.page !== page.path), ...back];}
+      if (d.target) break; // The named reading has settled; unrelated inventory waits for its own funded pass.
       // A PAGE IS COMPLETE ONLY IF NOTHING ON IT WAS SHELVED: with the allowance no longer cutting the walk short, a pass that set every claim aside reaches "no next claim" and would stamp the page done with no failure, burying the typed holds it just recorded.
       if (out.status === "done" || out.cursor?.pageComplete) { if (!held.some((h) => h.page === page.path && setAside.has(h.statementKey))) pagesComplete += 1; break; }}}
   // AN ACCOUNT WITH NO STORED PAGE WORDS OWES NOTHING HERE. Reading that as a failure would pause a fresh
