@@ -572,12 +572,19 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts0: 
       opts.noChange?.add(DRAFT_BUDGET.keyOf(card)); opts.owe?.(DRAFT_BUDGET.keyOf(card), { ...need, reason: why }); opts.refusals?.set(DRAFT_BUDGET.keyOf(card), why);
       out.push({ ...card, status: "needs_review", researchOnly: true, assignment: { ...assignmentOf(packetFor(card, page, held, opts.snapshot.ownedPages, [], bodies, checked, opts.basis ?? null, opts.snapshot.research, opts.tenantId, gap ?? { kind: "missing_answer", propositions: [why] }), null, "answer_block")!, shape: "no_change", owed: why }, obligation: { kind: "evidence", need }, limitations: [...card.limitations, why] }); continue;
     }
+    // A collection whose checked criteria exist can owe packaging even when lexical coverage names no new fact.
+    const groupingFacts = authorized(checked, held, opts.basis ?? null, opts.tenantId);
+    const packetGap = wants === "answer" && !gap && held?.completeness === "complete"
+      && AEO_BAR.applies("answer_block", card.assignment?.standard, false, undefined, card)
+      && AEO_BAR.hasGrouping(groupingFacts.map((f) => f.subject), groupingFacts.map(readingSays))
+      && AEO_BAR.failures("answer_block", held.passages.join("\n"), [], undefined, false, undefined, card).length > 0
+      ? { kind: "scattered_answer" as const, propositions: groupingFacts.map(readingSays) } : gap;
     const bodyCard: ChangeProposal = wants === "answer" ? card : { ...card, changeFamily: "section", treatment: "add_answer_section", recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: "" } };
     const supported = needsBody && held?.completeness === "complete" ? authorized(checked, held, opts.basis ?? null, opts.tenantId).map(readingSays) : [];
     const bodyGap = needsBody ? substantiveGapOf(bodyCard, demandOf(page, held, checked, opts.basis ?? null, opts.tenantId, opts.snapshot)) ?? (supported.length ? { kind: "missing_answer" as const, propositions: supported } : null) : null;
     const companion = slice && needsBody ? await draftBlock(bodyCard, page, held, { ...opts, attempts: slice, readings }, "answer", bodies, checked, bodyGap) : null;
     const metaCard: ChangeProposal = { ...card, changeFamily: "meta", recommendedChange: { kind: "existing_edit", field: "meta", before: held?.metaDescription ?? null, after: "" } };
-    const done = slice && (!needsBody || companion?.ready) ? await draftBlock(needsBody ? metaCard : card, page, held, { ...opts, attempts: slice, readings }, needsBody ? "description" : wants!, bodies, checked, gap, companion?.d) : null;
+    const done = slice && (!needsBody || companion?.ready) ? await draftBlock(needsBody ? metaCard : card, page, held, { ...opts, attempts: slice, readings }, needsBody ? "description" : wants!, bodies, checked, packetGap, companion?.d) : null;
     if (slice && !done) opts.note?.(DRAFT_BUDGET.keyOf(card), opts.unsettled?.has(DRAFT_BUDGET.keyOf(card)) ? "retryable_blocked" : "deterministic_refusal", opts.refusals?.get(DRAFT_BUDGET.keyOf(card))); const drafted = done?.d;
     if (needsBody && !done) { out.push({ ...card, status: "needs_review", researchOnly: true, faults: ["This opportunity needs a reviewed body answer and description together."], ...(bodyGap?.owed ? { obligation: bodyGap.owed } : {}) }); continue; }
     if (drafted) {
