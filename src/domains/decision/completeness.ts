@@ -211,10 +211,10 @@ function unretire(p: ChangeProposal | null | undefined): ChangeProposal | null |
   const back = (retiredBecause: string, faults: string[]): ChangeProposal => ({ ...rest, recommendedChange: { ...c, after: words }, researchOnly: false, status: "needs_review", faults, limitations: p.limitations.filter((l) => !GATE_WORDS.test(l)), obligation: undefined, previousCopy: { after: brief, retiredBecause, at: was.at, attempts: Math.max(0, (was.attempts ?? 1) - 1) } });
   if (was.retiredBecause === CAUSE_STAMPED && was.at >= INCIDENT_FROM && was.at < INCIDENT_TO) return deliverableGaps(back(RECOVERED, [])).length === 0 ? back(RECOVERED, []) : p;
   if (!/This draft names "[^"]+"/i.test(was.retiredBecause) || !/\b(?:entity|distinguishing(?: attribute)?|group)\b/i.test(was.retiredBecause) || !/^\s*\|.*\|\s*\r?\n\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/m.test(words)) return p;
-  if (!checkFactualEntailment({ draftText: words, query: p.primaryQuery, pageBodyText: supportFacts.filter((f) => f.id.startsWith("page-copy-")).map((f) => f.fact).join(" ") || undefined, evidenceText: [p.evidence.hints.join(" "), ...supportFacts.map((f) => f.fact)].filter(Boolean).join(" ") || undefined }).entailed) return p;
+  if (!checkFactualEntailment({ draftText: words, query: p.primaryQuery, pageBodyText: supportFacts.filter((f) => f.id.startsWith("page-copy-")).map((f) => f.fact).join(" ") || undefined, evidenceText: supportFacts.map((f) => f.fact).filter(Boolean).join(" ") || undefined }).entailed) return p;
   const restored = back("markdown table labels were formatting scaffolding, so the supported copy was restored without a new draft", (p.faults ?? []).filter((f) => !GATE_WORDS.test(f) && f !== was.retiredBecause && !f.endsWith(`: ${was.retiredBecause}`)));
   if (deliverableGaps(restored).length > 0) return p;
-  return openHold(restored).defects.length === 0 ? { ...restored, status: "ready" } : restored;
+  return restored;
 }
 
 /** THE PAID READING RIDES ITS OWN WORDS, whichever branch below decided the row. `semanticReview.of` IS the copy
