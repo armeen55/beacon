@@ -2,10 +2,9 @@ import { AEO_BAR } from "./accept-worthy";
 /** decision/completeness: THE ONE CHECK THAT ASKS WHETHER BEACON HAS FINISHED THE WORK. A customer-facing Change states exactly what to add, replace, delete, move, link, redirect or create, exactly where, and the FINAL COPY wherever copy is involved. IMPERFECT WORK STAYS VISIBLE (operator, 2026-08-15): anything short of that is a genuine opportunity still being developed, and it is RANKED and SHOWN, on the ranked queue and on Today, as a research card carrying what is known, what is still missing and what happens next. What this boundary decides is never whether the operator sees a row, only which of the three lanes it lands in, that it carries no copy to paste and no control that records it done, and that the server refuses to put it into measurement or mark it implemented until the deliverable is actually finished. PURE and derived from the deliverable ITSELF, never from the prose around it, so the queue, the card (a client component) and the server mutation all ask one question and a voice edit moves none of them. It sits beside the contract rather than inside the validator because a client bundle may reach this and may not reach that. */
 
 import { componentIdOf, dangerousComponents } from "./contracts"; import { footprintCovers } from "./mutation-footprint";
-import { copyKey } from "./proof";
+import { copyKey, evidenceShortfall } from "./proof";
 import { domainOf } from "@/domains/evidence/relevance-gate";
 import type { ChangeProposal } from "./contracts";
-import { evidenceShortfall } from "./proof";
 import { withholdReason } from "./authorization";
 import { checkFactualEntailment } from "./drafts/factual-entailment";
 
@@ -22,12 +21,7 @@ const flat = (s: string): string => s.toLowerCase().replace(/\s+/g, " ").trim();
 const notFinal = (t: string): boolean => BLANK_TO_FILL.test(t) || SAYS_UNFINISHED.test(t);
 
 /** WHY THIS IS NOT YET A CHANGE, in plain phrases, or empty when the deliverable is complete BY ITS TYPE. A title, description or heading owes its exact final replacement. An opening or a section owes final copy AND the place it lands, which only a bundle component's `where` carries. A new page owes a publish-ready page and is NEVER title-only, so every section it names owes written copy. */
-/** THE LEADING "Label:" OF A LABEL AND VALUE LINE, or null. Deliberately narrow, and every part of that narrowness
- *  is load-bearing: it is anchored at the start, so a colon inside ordinary prose is never reached; the first
- *  character must be a letter and the rest letters or single spaces, so a clock time ("12:30") and an identifier
- *  never open one; and a real value has to follow, which is what keeps a scheme ("https://") out, since what comes
- *  after a label is a value and never a second slash. `gap` is the page's OWN spacing after the colon, and `latin`
- *  says whether this is a script whose spacing Beacon may repair at all. */
+
 export function labelOf(s: string): { label: string; gap: string; latin: boolean } | null {
   const m = /^([\p{L}][\p{L} ]{0,22}):([^\S\n]*)(?=[^\s/])/u.exec(s);
   return m ? { label: m[1]!, gap: m[2]!, latin: /^[A-Za-z][A-Za-z ]*$/.test(m[1]!) } : null;
@@ -90,19 +84,7 @@ const DANGER = "This one moves or hides a page, so it takes the deliberate confi
 /** THE ONE SENTENCE A LOST RECORD WRITES, shared by the hold below and the preservation branch that keeps such a row's words, so the two can never drift; decision/obligation matches its own copy of the phrase, as it matches `deliverableGaps`'s. */
 const NO_RECORD = "its copy carries no record of what it stands on";
 const SILENT_SOURCE = /https?:\/\/[^\s"';]+\s+says:?\s+""/g; /** A SOURCE THAT QUOTED NOTHING, in the string this codebase composes for a banked fact itself (`<address> says "<quotation>"`), read only on a row banked before the typed addresses existed. HOW MANY PUBLISHERS STAND BEHIND WHAT THIS COPY CLAIMS, counted by HOST at the ONE place the verdict and the finished card both read, so the number a customer is shown and the number the caveat names can never disagree. TYPED PROVENANCE FIRST (measured, 2026-09-05): the count pulled hostnames out of the banked fact's own prose, so the pre-1979 flag card read "Backed by 2 checked sources" off ONE reading whose bank row says `single_source` and whose first address quoted nothing at all, and 437 of the bank's 1,293 sources carry an empty quotation. A fact banked with its own addresses answers from them; a fact banked before they existed is read from its text with a source that says nothing dropped, which is the same rule applied to the only record that row has. */
-/** THE TEN THINGS THE OPERATOR JUDGES FOR THEMSELVES, in their own words (owner's editorial policy, 2026-09-06). A
- *  change is ready for consideration when the deliverable is complete, its target and placement are usable, it is a
- *  reasonable explainable improvement or experiment, its observations and important uncertainties are inspectable, and
- *  it can be applied without finishing Beacon's own writing or research assignment. Ready never meant guaranteed
- *  traffic, a proven cause of a ranking problem, the best possible wording, every sentence independently corroborated,
- *  a new factual discovery, a model's unanimous preference or any word, sentence or style count. So each condition
- *  below stops HIDING complete work: it rides the card as a caveat and carries a weight the ranking can read.
- *  MATCHED AGAINST THE LIVE OUTPUT OF THE DOORS THAT COMPOSE THESE SENTENCES, exactly as `deliverableGaps`'s own gaps
- *  are matched by the ladder: one place writes a sentence, one place reads it, and no stored phrasing decides anything.
- *  NARROW BY CONSTRUCTION: a sentence that matches nothing here is a DEFECT, so the eight kinds Beacon must fix (an
- *  incomplete deliverable or a placeholder, an unusable or nonexistent placement, a fabricated citation, a claim a
- *  checked source contradicts, a destructive or safety-flagged edit, an empty no-op, narration that describes the page
- *  instead of answering the reader, and a fault in the copy's binding to its version) are the default and stay held. */
+
 type Advisory = { kind: string; say: string; weight: number };
 const ADVISORY: readonly (Advisory & { re: RegExp })[] = [
   { kind: "conservative_wording", re: /template siblings|sibling page with the subject swapped in|ranking or register judgement/i,
@@ -137,7 +119,10 @@ export function openHold(p: ChangeProposal, also: { found?: readonly string[] } 
     if (AEO_BAR.applies("answer_block", p.assignment?.standard, false, undefined, p) && !(p.bundle?.components ?? []).some((part) => /^(opening_answer|section|section_add|section_rewrite|restructure)$/.test(part.kind) && part.after.trim())) bodyDefects.push(AEO_BAR.holds.lead);
   }
   for (const part of p.bundle?.components ?? []) if (part.kind === "meta") bodyDefects.push(...AEO_BAR.emptyMeta(part.after, heading));
-  const hard = [...bodyDefects, ...gaps, ...lims.filter((l) => HARD_LIMITATION.test(l))];
+  const canReask = AEO_BAR.forRow(p) && c.kind === "existing_edit" && /^(answer_block|section)$/.test(c.field) && !p.bundle?.components.length && stands && p.researchOnly !== true;
+  const liveSoft = canReask ? AEO_BAR.copyRefusals.live(p) : [];
+  const current = (why: string): boolean => !canReask || (![AEO_BAR.holds.lead, AEO_BAR.holds.groups, AEO_BAR.holds.criteria, AEO_BAR.holds.accuracy].includes(why) && !AEO_BAR.copyRefusals.owns(why));
+  const hard = [...bodyDefects, ...liveSoft, ...gaps, ...lims.filter((l) => current(l) && HARD_LIMITATION.test(l))];
   const anchor = c.kind === "existing_edit" && (c.field === "section" || c.field === "answer_block")
     ? /placed after (?:the heading )?"([^"]+)"/.exec(c.where ?? "")?.[1]?.trim().toLowerCase() ?? null : null;
   const placedOn = (t: string): boolean => t.toLowerCase().includes(anchor!.slice(0, 60));
@@ -145,7 +130,7 @@ export function openHold(p: ChangeProposal, also: { found?: readonly string[] } 
   const short = evidenceShortfall(p); if (short) hard.push(short);
   const unfit = withholdReason(p, p.causeFinding?.cause ?? p.diagnosisCause); if (unfit) hard.push(unfit);
   if (dangerousComponents(p.bundle?.components ?? []).length > 0 && p.confirmedVersion !== confirmedVersion(p)) hard.push(DANGER);
-  const every = [...new Set([...hard, ...faults, ...also.found ?? []])], said = every.filter((x) => !every.some((y) => y !== x && y.endsWith(x))); // ONE COMPLAINT IS SAID ONCE (measured, 2026-09-05): a refusal is composed with a gate opener at one door and written raw at another, both land in `faults`, and the Set kept both because the strings differ, so the account's most watched card told a reader the same thing twice. The composed form ends with the raw sentence it wraps, so the wrapped one is dropped and nothing a fuller sentence does not already say is lost. WHAT A CALLER ALREADY READ COMES IN THE SAME DOOR: the banked-copy re-read and the canon hold the page and the words, this verdict does not, and putting their findings through the ONE partition is what makes the store, the sweep, the loader and the ladder agree by construction instead of each chaining its own refusals.
+  const every = [...new Set([...hard, ...faults.filter(current), ...also.found ?? []])], said = every.filter((x) => !every.some((y) => y !== x && y.endsWith(x))); // ONE COMPLAINT IS SAID ONCE (measured, 2026-09-05): a refusal is composed with a gate opener at one door and written raw at another, both land in `faults`, and the Set kept both because the strings differ, so the account's most watched card told a reader the same thing twice. The composed form ends with the raw sentence it wraps, so the wrapped one is dropped and nothing a fuller sentence does not already say is lost. WHAT A CALLER ALREADY READ COMES IN THE SAME DOOR: the banked-copy re-read and the canon hold the page and the words, this verdict does not, and putting their findings through the ONE partition is what makes the store, the sweep, the loader and the ladder agree by construction instead of each chaining its own refusals.
   const advisories: Advisory[] = [], heldBy: string[] = [];
   for (const x of said) { const a = x === DANGER ? null : advisoryOf(x); if (!a) { heldBy.push(x); continue; } if (!advisories.some((y) => y.kind === a.kind)) advisories.push(a); }
   if ((p.causeFinding?.cause ?? p.diagnosisCause) === "cannibalization" && /\d[\d,.]*\s*clicks short/i.test(p.whyItMatters ?? "") && !advisories.some((a) => a.kind === "benefit_uncertain")) advisories.push({ kind: "benefit_uncertain", say: "A modeled click gap says what these positions usually earn, never what this wording recovers. The 28 day reading says whether it worked.", weight: 0.4 }); // THE CLICKS PROMISE IS SAID, NOT HELD: this used to hold the row until the ownership work behind it was finished, which hid a finished line for a promise nobody had made on its behalf.
@@ -157,22 +142,14 @@ export function openHold(p: ChangeProposal, also: { found?: readonly string[] } 
   return { lane: p.researchOnly === true || gaps.some((g) => NOT_WRITTEN.test(g)) ? "research" : "review",
     // EVERYTHING BEACON KNOWS ABOUT WHY THIS IS HELD, not the first kind of reason it happens to find: a row with a safety hold AND a copy fault used to print only the hold, so the defect stayed invisible.
     // AND WHAT IS LEFT FOR THE OPERATOR TO KEEP IN MIND, DECIDED HERE AND NOWHERE ELSE. A caveat is what a person should bear in mind about finished words; a sentence one of Beacon's own gates wrote is a defect Beacon owns, named above or answered by the typed fault and the obligation. The ten advisory kinds ride here in the operator's own words, so a condition that used to hide the work now reaches the card as a caveat and a ranking weight, and no screen can invent a second vocabulary for either half.
-    why: heldBy.length > 0 ? heldBy : [UNJUDGED], caveats: [...advisories.map((a) => a.say), ...AEO_BAR.writerLimitations(p.limitations).filter((l) => !GATE_WORDS.test(l) && !said.includes(l))], blocking, faulted: defects.length > 0, safetyHold: blocking === DANGER, defects, advisories };
+    why: heldBy.length > 0 ? heldBy : [UNJUDGED], caveats: [...advisories.map((a) => a.say), ...AEO_BAR.writerLimitations(p.limitations).filter((l) => current(l) && !GATE_WORDS.test(l) && !said.includes(l))], blocking, faulted: defects.length > 0, safetyHold: blocking === DANGER, defects, advisories };
 }
 
 /** WHY THIS CHANGE MAY NOT BE HANDED OVER AS READY, or null when it may: the first hard defect of the ONE verdict above, which is what every caller of this name already asked it for. It used to be a second refusal chain of its own (a split settled on only some of its pages, a lever that misses the diagnosed cause), and both of those are advisories now, so the name survives as the kernel's one-word reader of the verdict rather than as a second vocabulary beside it. The SAFETY confirmation answers to the operator and is never returned here. */
 export const unsettledCause = (p: ChangeProposal): string | null => openHold(p).defects[0] ?? null; // the FIRST DEFECT of the one verdict, typed faults and receipt findings included (journey review, 2026-09-06): `blocking` is drawn from the hard arms alone, so a screen reading it offered an approve press on a row the store then refused for its typed fault
 
 /** FINISHED WORK IS NOT UNDONE BY A PASS THAT DID NOT REACH IT. Drafting is capped per pass, so a card past the cap comes back from its producer as the BRIEF it started as, and writing that over copy an earlier pass already paid for DESTROYED it: 6 then 4 then 3 finished cards across three consecutive passes, taking the biggest description on the site (18,317 views in 90 days) with it. A stored deliverable is replaced by a NEW finished one or by an explicit withdrawal carrying a reason, never by silence. WHAT THE COPY WAS WRITTEN FOR IS WHAT KEEPS IT ALIVE. The basis alone decided, and a basis is a reading of the ACCOUNT, not of this page: it does not move when the page is re-crawled, when the diagnosis changes its mind, when the evidence behind the argument is replaced, when the piece is aimed at a different place or a different set of addresses, when the lever changes, or when the line the copy says it replaces is no longer the line the page carries. Every one of those makes banked words answer a question nobody is asking any more. So the words survive only while the identity BELOW them is byte for byte what it was, and that identity is exactly the material fields the stored fingerprint already treats as identity, minus the copy itself. `copyStamp` is the caller's reading of the TARGET PAGE at the moment each card was minted (title, heading, description, outline), banked on the row beside the words, so a page re-crawled into a different shape retires copy written for the old one. A row carrying no stamp compares as null on both sides and is decided by everything else. PURE. */
-/** THE MATERIAL COPY-VALIDITY IDENTITY, and ONLY the material half (operator, 2026-08-22). The old identity
- *  hashed the producer's own prose (evidence hint wording, the cause EXPLANATION sentence) and raw observation
- *  ids, so a pass that merely reworded its generator, appended an agreeing observation or shipped under a new
- *  code version computed "different" and DESTROYED finished copy it could not redraft: the one Ready change in
- *  production became a research brief on a paused $0 pass. What decides whether finished words still stand is
- *  material: the target page as it reads today (`copyStamp`), the diagnosed cause BY KEY, the lever, the
- *  normalized intent, and the set of pages a bundle writes on. Contradiction and support are re-checked
- *  separately by the banked-copy re-reads (drafted-copy's staleCopyReasons), which read the claims against the
- *  facts banked beside them, so dropping prose from the identity loosens nothing about truth. */
+
 /** ORDER-FREE: the demand-unit label is minted from a live impressions sort, so two phrasings of ONE unit swap
  *  leadership week to week and a word-order-sensitive intent re-enabled the destruction through the one
  *  dimension this identity added (review, 2026-08-22). Sorted tokens make every reordering of the same words
@@ -232,11 +209,6 @@ export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal |
 
 function decideFinished(incoming0: ChangeProposal, prior00: ChangeProposal | null | undefined): ChangeProposal {
   const prior0 = unretire(prior00); // THE INCIDENT IS UNDONE BEFORE ANYTHING IS COMPARED, so every rule below judges the row as it stood before a first-named cause displaced its words
-  // A PRODUCER THAT READ NOTHING CANNOT CLAIM THE PAGE MOVED (operator, 2026-08-31). The re-mint of a $0 card
-  // arrives with no copyStamp, the finished prior carries the page as the drafting pass read it, and comparing
-  // null against that stamp broke identity: the template then replaced the finished description whole, copy to
-  // a receipt, backing and status gone. A stampless incoming inherits the prior's stamp; a producer that DID
-  // re-read the page and saw it change still breaks identity exactly as before, which is the honest trigger.
   const stamped0 = incoming0.copyStamp == null && prior0?.copyStamp ? { ...incoming0, copyStamp: prior0.copyStamp } : incoming0;
   // A CAUSE NAMED FOR THE FIRST TIME IS NOT A CAUSE THAT CHANGED, AND A CAUSE NOBODY NAMED THIS PASS IS NOT A CAUSE UNNAMED (live 16:31Z on 2026-09-04, both directions from the reviewer, 2026-09-04). The sweep producers began stamping the typed cause they had always known, the retirement below compared a recorded null against it, and one tick retired thirty-one drafted rows into their own briefs with "the diagnosed cause changed" as the receipt. The first repair covered null-to-named ONLY, which left the identical destruction available in reverse and made it LARGER than before: the demand-recovery producer mints causeless whenever the results page for its unit is not on file, and nine open rows now hold both finished copy and a cause. Silence is not a finding on either side, so the pair is reconciled once, here, before identity is compared; two DIFFERENT recorded causes still move identity exactly as before.
   const incoming = stamped0.diagnosisCause == null && prior0?.diagnosisCause != null ? { ...stamped0, diagnosisCause: prior0.diagnosisCause, ...(prior0.causeFinding ? { causeFinding: prior0.causeFinding } : {}) } : stamped0;
