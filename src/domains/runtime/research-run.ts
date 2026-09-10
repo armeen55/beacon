@@ -136,7 +136,7 @@ export type ResearchRun = {
 };
 
 /** Lease length for one claimed cycle. Renewed at DATABASE time BEFORE every bounded phase (renew_research_lease) so no phase inside the 210s cycle deadline can knowingly outlive its lease. */
-export const RESEARCH_RUN_LEASE_SECONDS = 280; // THE LEASE MUST OUTLAST THE TURN IT PROTECTS (Codex, 2026-08-23): the dispatch deadline sits inside this, and this inside the hosted function's own 300-second ceiling, so a turn always finishes holding the lock it started with.
+export const RESEARCH_RUN_LEASE_SECONDS = 800; // THE LEASE MUST OUTLAST THE TURN IT PROTECTS (Codex, 2026-08-23), and THE LEASE IS THE ONE WINDOW SOURCE (operator, 2026-09-10, "unlock all caps"): the hosted function now runs the 800 seconds Vercel Pro with Fluid compute allows, the cron caller's timeout moves to 800 with it, and the dispatch budget, the cycle deadline, the walk's box and the fact units' box all derive from this number so no deadline can outlive the function again. Measured need: 36 to 48 s of every drive is preparation and a written job costs 17 to 31 s, so a 200-second slice reached four to six jobs of 16 to 33 funded; the 800-second window is the measured fix (dl-approval.md, held since 2026-09-07 and approved today).
 
 // The operator-facing projection lives in run-status (the record and the way it READS are two jobs). Re-exported here so every existing caller keeps its one import.
 export { nextPhase, projectStatusView, type ResearchRunStatusView } from "./run-status";

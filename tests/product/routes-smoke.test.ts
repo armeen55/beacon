@@ -7,7 +7,7 @@ vi.mock("next/navigation", () => { const redirected = (url: string) => { throw n
 vi.mock("@/lib/connector-store", async () => ({ ...(await vi.importActual<typeof import("@/lib/connector-store")>("@/lib/connector-store")),
   getConnectorInfo: vi.fn(async () => ({ status: "disconnected" as const, connected_at: null, expires_at: null, last_synced_at: null })), getGoogleConnectorToken: vi.fn(async () => null), getYelpConnectorToken: vi.fn(async () => null) }));
 vi.mock("@/domains/runtime/ops/refresh-runs-store", () => ({ latestRefreshBySource: vi.fn(async () => ({})) }));
-vi.mock("@/domains/runtime/research-run", () => ({ researchRunStatus: vi.fn(async () => ({ state: "none",
+vi.mock("@/domains/runtime/research-run", () => ({ RESEARCH_RUN_LEASE_SECONDS: 800, researchRunStatus: vi.fn(async () => ({ state: "none",
   phaseLabel: "", stepsDone: 0, stepsTotal: 3, counters: {}, updatedAt: null, completedAt: null })) })); // The smoke suite pins frames; lifecycle gating has its own behavioral tests.
 vi.mock("@/domains/account/lifecycle", () => ({ requireReadyAccount: vi.fn(async () => ({ access: { kind: "ready", account: { status: "active" } } })),
   resolveAccountAccess: vi.fn(async () => ({ kind: "ready", account: { status: "active" } })), AccountUnavailableError: class extends Error {} }));

@@ -31,7 +31,7 @@ import { log } from "@/lib/logger";
 const STORE_NAME = "llm-budget";
 // Operator-authorized recurring account ceiling. readState treats the code default as a floor, so a
 // state written under the former $55 default is lifted without rewriting the spend ledger.
-const DEFAULT_CAP_USD = 75; // raised 55 -> 75 with operator approval on 2026-08-29
+const DEFAULT_CAP_USD = 250; // raised 55 -> 75 with operator approval on 2026-08-29, then 75 -> 250 with the operator's "unlock all caps" instruction of 2026-09-10, matching the search platform's ceiling; the per-day brake on the account row stays the working limit
 
 /** Platform tag for pre-activation onboarding spend in the durable ledger. */
 const ONBOARDING_PLATFORM = "onboarding-openai" as const;

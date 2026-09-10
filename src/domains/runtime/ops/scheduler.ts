@@ -13,14 +13,14 @@ import "server-only";
 import { log } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { reportingDay } from "@/lib/reporting-day";
-import { claimDueRuns, finishRun, newOwnerToken, startExtraPass, type ResearchRun } from "../research-run";
+import { claimDueRuns, finishRun, newOwnerToken, RESEARCH_RUN_LEASE_SECONDS, startExtraPass, type ResearchRun } from "../research-run";
 import { driveClaimed, RESEARCH_CYCLE_DEADLINE_MS, type ResearchCycleSteps } from "./on-visit-refresh";
 import { defaultSteps } from "./research-steps";
 
-/** The dispatch's OWN wall-clock budget, well inside the 300-second function lifetime, so the HTTP request always returns a receipt instead of being killed mid-account. Each account additionally
+/** The dispatch's OWN wall-clock budget, well inside the hosted function lifetime (800 seconds on Pro with Fluid compute since 2026-09-10), so the HTTP request always returns a receipt instead of being killed mid-account. Each account additionally
  *  gets at most the ordinary RESEARCH_CYCLE_DEADLINE_MS. The budget is also the whole bound on how many accounts one dispatch touches: with the minimum slice below, 240 seconds can reach at most
  *  eight of them. */
-const SCHEDULER_BUDGET_MS = 240_000;
+const SCHEDULER_BUDGET_MS = RESEARCH_RUN_LEASE_SECONDS * 1000 - 60_000; // derived from the one window source (operator raise, 2026-09-10): a minute inside the 800-second function lifetime, exactly the margin 240 kept inside 300
 
 /** The least time an account is worth STARTING on. Under half a minute there is no room for a renewed lease and a real bounded unit, so claiming would only park a live lease in front of the
  *  operator's own visit. Nothing is claimed instead, and the account is first in line on the next dispatch. */

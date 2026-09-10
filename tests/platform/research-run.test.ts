@@ -178,7 +178,7 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
     let bought = 0; vi.useFakeTimers(); const drive = runResearchCycle(t, { now: () => new Date(NOW), deadlineMs: 260_000, steps: { ...BENIGN, ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["replenish_ready", "check_page_facts"] }),
       acquireEvidence: async () => (bought += 1, { acquired: true, detail: "the reading landed" }),
       replenishReady: async (_i, _n, seen) => { seen?.filed?.(() => filed); return await new Promise<null>(() => {}); } } });
-    await vi.advanceTimersByTimeAsync(400_000); await drive; vi.useRealTimers();
+    await vi.advanceTimersByTimeAsync(1_000_000); await drive; vi.useRealTimers(); // past every lease-length timer under the 800-second window
     const row = rows.at(-1)!, rep = row.progress?.replenish;
     expect([rep?.jobs, rep?.waiting, (rep?.outcomes?.receipts ?? []).length, ((rep?.outcomes?.receipts ?? []) as { providerCalls?: number }[]).map((r) => r.providerCalls), rep?.outcomes?.preparedMs, bought, row.status, row.current_phase]).toEqual([
       filed.jobs, ["wk-next"], 2, [17, 0], 54_503, 1, "paused", "fact_check"]); });
@@ -273,7 +273,7 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
     const mark = { phase: "prompt_observations" as const, drives: 1, unpaid: true as const };
     expect([await drive(195_400), await drive(195_400, mark), await drive(123_650, mark), await drive(195_400, { phase: "prompt_observations" as const, drives: 1 }), await drive(195_400, { phase: "keyword_discovery" as const, drives: 1, unpaid: true }, true), await drive(260_000, mark)]).toEqual([
       { started: ["walk"], stopBy: 155_400, unitBox: -1, endedAt: 195_400, phase: "prompt_observations" }, { started: ["unit", "walk"], stopBy: 155_400, unitBox: 110_400, endedAt: 195_400, phase: "prompt_observations" },
-      { started: ["unit", "walk"], stopBy: 83_650, unitBox: 45_000, endedAt: 123_650, phase: "prompt_observations" }, { started: ["walk"], stopBy: 155_400, unitBox: -1, endedAt: 195_400, phase: "done" }, { started: ["walk"], stopBy: 155_400, unitBox: -1, endedAt: 195_400, phase: "done" }, { started: ["unit", "walk"], stopBy: 220_000, unitBox: 120_000, endedAt: 260_000, phase: "prompt_observations" }]); vi.unstubAllEnvs(); });
+      { started: ["unit", "walk"], stopBy: 83_650, unitBox: 45_000, endedAt: 123_650, phase: "prompt_observations" }, { started: ["walk"], stopBy: 155_400, unitBox: -1, endedAt: 195_400, phase: "done" }, { started: ["walk"], stopBy: 155_400, unitBox: -1, endedAt: 195_400, phase: "done" }, { started: ["unit", "walk"], stopBy: 220_000, unitBox: 175_000, endedAt: 260_000, phase: "prompt_observations" }]); vi.unstubAllEnvs(); });
   it.each([T, U])("clears %s's owed turn the moment the step starts, leaves the phase on no drive its own step ran, leaves it on the next drive that finds it waiting, and still runs behind that step the walk its turn skipped, once and only on the room genuinely left", async (t) => {
     vi.stubEnv("BEACON_ALWAYS_ON_RESEARCH", "0");
     const drive = async (phase: "serp_analysis" | "winning_pages", unit: "plan_cases" | "read_winner_pages", answer: "failed" | "waiting" | "advanced", deadlineMs = 195_400, mark = true) => {
@@ -1029,7 +1029,7 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     const watch: Partial<ResearchCycleSteps> = { dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers"] }),
       analyzeAnswers: async (_t, _d, budgetMs) => (given.push(budgetMs), NO_READING) };
     await runDueAccounts({ now: () => new Date(NOW), steps: { ...BENIGN, ...watch } });
-    expect(given[0]).toBeLessThanOrEqual(200_000); }); // the whole 240 second dispatch minus the reserved publish slice, never the whole of it
+    expect(given[0]).toBeLessThanOrEqual(RR.RESEARCH_RUN_LEASE_SECONDS * 1000 - 60_000 - 40_000); }); // the dispatch budget minus the reserved publish slice, never the whole of it, derived from the one window source
   it("cannot double-drive: a duplicate dispatch loses at the lease seam, and a finished day is claimed again by neither", async () => {
     const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); // one candidate, so the refusal is the whole answer
     rows.push(mk({ id: "live", status: "running", lease_owner: "other-dispatch", lease_expires_at: iso(NOW + LEASE) })); expect(await dispatch(NO_PHASE)).toEqual(R());

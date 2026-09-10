@@ -231,7 +231,7 @@ describe("a paused tick collects what was already paid for, free, then republish
       pendingProviderTaskKeys: async (limit: number) => { events.push(`enumerate:${limit}`); return ["dfs2_owed"]; },}));
     vi.doMock("@/domains/evidence/dataforseo/capabilities", () => ({
       collectCapability: async (key: string) => { events.push(`collect:${key}`); return { state: "hit", envelope: {}, costUsd: 0, cacheKey: key }; },}));
-    vi.doMock("@/domains/runtime/research-run", () => ({ claimDueRuns: async () => [], finishRun: async () => true, newOwnerToken: () => "o1", startExtraPass: async () => null }));
+    vi.doMock("@/domains/runtime/research-run", () => ({ claimDueRuns: async () => [], RESEARCH_RUN_LEASE_SECONDS: 800, finishRun: async () => true, newOwnerToken: () => "o1", startExtraPass: async () => null }));
     vi.doMock("@/app/(shell)/surface-release", () => ({
       readCustomerSurface: async () => ({ computedAt: "2020-01-01T00:00:00.000Z" }), isCustomerSurfaceStale: () => true,
       refreshCustomerSurface: async (t: string) => { events.push(`rebuild:${t}`); return {}; },}));

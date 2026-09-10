@@ -29,20 +29,20 @@ describe("per-account LLM budget isolation", () => {
     durableWrites.length = 0;
     readCalls.length = 0;});
   it("account A's spend never changes account B's remaining budget, on the file layer or the durable one, and writes only A's own ledgers", async () => {
-    await recordSpend(74.99, { tenantId: A });
-    expect([(await checkBudget({ tenantId: A, projectedCostUsd: 0.02 })).allowed, await checkBudget({ tenantId: B, projectedCostUsd: 0.02 })]).toEqual([false, { allowed: true, remaining: 75 }]); // A is at its own cap, whatever that cap currently is; B untouched
-    FILE_ROWS.clear(); durableWrites.length = 0; DURABLE.set(A, 75); // A's DURABLE monthly spend at cap, with nothing on its file layer
+    await recordSpend(249.99, { tenantId: A }); // a cent under the current default cap
+    expect([(await checkBudget({ tenantId: A, projectedCostUsd: 0.02 })).allowed, await checkBudget({ tenantId: B, projectedCostUsd: 0.02 })]).toEqual([false, { allowed: true, remaining: 250 }]); // A is at its own cap, whatever that cap currently is; B untouched
+    FILE_ROWS.clear(); durableWrites.length = 0; DURABLE.set(A, 250); // A's DURABLE monthly spend at cap, with nothing on its file layer
     expect([(await checkBudget({ tenantId: A })).allowed, (await checkBudget({ tenantId: B })).allowed]).toEqual([false, true]);
     await recordSpend(0.5, { tenantId: B });
     expect([durableWrites, FILE_ROWS.has(A)]).toEqual([[{ tenantId: B, costUsd: 0.5 }], false]); }); // A's file ledger untouched by B's spend
   it("same-account max(file, durable) and the exact-cap boundary are unchanged", async () => {
     DURABLE.set(A, 4);
     await recordSpend(6, { tenantId: A }); // file 6, durable(mock) 4 → effective 6... plus durable write
-    DURABLE.set(A, 75); // durable now reports AT cap for A
+    DURABLE.set(A, 250); // durable now reports AT cap for A
     const at = await checkBudget({ tenantId: A, projectedCostUsd: 0 });
     expect(at.allowed).toBe(false); // spend == cap fails closed at the boundary
   });
-  it("lifts an account state written under the former $55 default without changing its spend", async () => { FILE_ROWS.set(A, [{ monthKey: "2026-08", spendUsd: 54.991292, calls: 1, capUsd: 55, updatedAt: "2026-08-28T00:00:00.000Z" }]); expect(await checkBudget({ tenantId: A, now: new Date("2026-08-29T00:00:00.000Z") })).toEqual({ allowed: true, remaining: 20.008708 }); });
+  it("lifts an account state written under the former $55 default without changing its spend", async () => { FILE_ROWS.set(A, [{ monthKey: "2026-08", spendUsd: 54.991292, calls: 1, capUsd: 55, updatedAt: "2026-08-28T00:00:00.000Z" }]); expect(await checkBudget({ tenantId: A, now: new Date("2026-08-29T00:00:00.000Z") })).toEqual({ allowed: true, remaining: 195.008708 }); }); // the lift now lands on the 250 default of 2026-09-10
   it("a missing account fails before any ledger I/O; every read carried the explicit account", async () => {
     await expect(checkBudget({ tenantId: "" })).rejects.toThrow(/tenantId is required/); await expect(recordSpend(1, { tenantId: "  " })).rejects.toThrow(/tenantId is required/);
     expect(readCalls.length).toBe(0);
