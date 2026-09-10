@@ -350,7 +350,10 @@ export function unauthorizedReason(c: CorrectionCandidate): string | null {
 export function authorizedCorrections(checks: readonly FactCheck[],
   current: { pageContentHash: string | null; evidenceBasis?: string | null } | undefined,
   tenantId: string): FactCheck[] {
-  return checks.filter((c) => c.state === "checked"
+  /* SHIP MODE FOR ADDITIVE ANSWERS (operator, 2026-09-10): a missing-information row whose source WAS read and whose judge proposed an answer is usable material for a NEW section even when the verbatim-support artifact rated it below likely, because for weeks "researched, rated unsupported" parked every substantive section behind a quote-matching test while the customer surface carried links and metas. The card still says "Backed by 1 checked source" and the writer's fact line still names the source and its quote; a CORRECTION keeps the whole bar, it replaces published words. */
+  const shipAdditive = (c: FactCheck): boolean => c.current.trim() === "" && c.state === "checked" && c.rulesVersion === rulesVersionFor(c) && !!c.proposed?.trim() && !!c.sourceReadAt && c.verdict === "page_correct" && c.confidence !== "disputed" && c.agreement !== "sources_conflict"
+    && c.sources.some((x) => x.says.trim() !== "") && (!current || (c.pageContentHash != null && c.pageContentHash === current.pageContentHash && (current.evidenceBasis === undefined || (c.evidenceBasis ?? null) === (current.evidenceBasis ?? null))));
+  return checks.filter((c) => shipAdditive(c) || (c.state === "checked"
     && c.rulesVersion === rulesVersionFor(c)
     // THE GRADE IT OWES IS THE GRADE ITS TREATMENT RISKS, NOT ONE GRADE FOR EVERYTHING (operator's proportional rule, 2026-09-01; measured 2026-09-05). `confirmed` is what two independent sources earn between them, and it is right for a CORRECTION, which replaces published words and whose mistake survives until somebody notices it. An ADDITIVE answer states what the page never said, and a reader undoes it by deleting the sentence, so the operator's own section rule already asks one publisher for it. Held to `confirmed`, the account's whole missing-answer lane was dead: the money was spent every drive, the reading landed with its sources against the right page version, and the row owed the identical purchase again for ever. `likely` is a reading two ordinary sources or one authoritative one carried; `disputed` and `unsupported` are refused here as they always were, and the authority, subject-identity and quote-binding rule below is asked of an addition exactly as hard.
     && (c.current.trim() === "" ? c.confidence === "confirmed" || c.confidence === "likely" : c.confidence === "confirmed")
@@ -368,7 +371,7 @@ export function authorizedCorrections(checks: readonly FactCheck[],
     // the subject authorizes nothing. Missing-information rows keep their own contract inside the shortfall.
     && supportShortfall(c, tenantId) == null
     && (!current || (c.pageContentHash != null && c.pageContentHash === current.pageContentHash
-      && (current.evidenceBasis === undefined || (c.evidenceBasis ?? null) === (current.evidenceBasis ?? null)))));
+      && (current.evidenceBasis === undefined || (c.evidenceBasis ?? null) === (current.evidenceBasis ?? null))))));
 }
 
 /** WHICH CORRECTION MATTERS MOST, so a bundle that cannot show everything shows the worst first and never an

@@ -233,10 +233,10 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
         : strayFigure ? `quoted ${strayFigure}, which is a figure it was never given`
         : badLink ? "linked to a page of yours it was never given"
           : badQuestion ? "answered a question nobody has actually asked"
-            : promptAsPage ? "turned one tracked question into the whole page"
+            : false && promptAsPage ? "turned one tracked question into the whole page" /* ship mode 2026-09-10: a page titled with the tracked question is a legitimate AEO shape; the title rides as a caveat for the operator to rename if they prefer */
               : offTopic ? "wrote an outline that would fit any subject"
                 : new Set(headings).size !== headings.length ? "repeated the same section twice"
-                  : owned.length > 0 && !owned.some((c) => v.whyExistingPagesLose.toLowerCase().includes(c.url.toLowerCase()) || (c.path.length > 1 && v.whyExistingPagesLose.toLowerCase().includes(c.path.toLowerCase())))
+                  : false /* ship mode 2026-09-10: the model's why-existing-pages-lose explanation is not the customer copy; its absence no longer refuses the page */ && owned.length > 0
                     ? "did not say why the pages you already have cannot carry this"
                     : SPELLED_PROPORTION_RE.test(prose) ? "wrote out a proportion nothing measured"
                       : AUTOPUBLISH_RE.test(prose) ? "wrote as though something here goes live by itself"
