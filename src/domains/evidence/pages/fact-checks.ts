@@ -48,7 +48,7 @@ export type FactCheck = {
   usage: string | null;
   /** `support` is this source's own ruling on THIS claim; `titleContext` is a heading from the SAME fetch,
    *  never a SERP title or a URL slug, which are discovery hints and prove nothing about a passage. */
-  sources: Array<{ url: string; kind: SourceKind; says: string; groups?: string[]; groupExcerpts?: { heading: string; says: string }[];
+  sources: Array<{ url: string; kind: SourceKind; says: string; groups?: string[]; groupExcerpts?: { heading: string; says: string }[]; sectionsRead?: boolean;
     titleContext?: string; titleContextFrom?: "fetched_document"; support?: ClaimSupport }>;
   agreement: "multiple_agree" | "single_source" | "sources_conflict" | "none_found";
   confidence: "confirmed" | "likely" | "disputed" | "unsupported";

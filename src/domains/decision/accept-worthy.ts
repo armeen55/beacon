@@ -37,7 +37,7 @@ function live(p: ChangeProposal): string[] {
 const COPY_REFUSALS = { pointsAtPage, figures, carrier: CARRIER, owns, live };
 
 const enabled = () => process.env.NEXT_PUBLIC_BEACON_AEO_PACKET !== "0";
-const hasGrouping = (sources: readonly { says: string; groups?: readonly string[] }[]): string[] => [...new Set(sources.flatMap((s) => (s.groups ?? []).filter((g) => g.trim() && s.says.includes(g))))];
+const hasGrouping = (sources: readonly { says: string; groups?: readonly string[]; groupExcerpts?: readonly { heading: string }[] }[]): string[] => [...new Set(sources.flatMap((s) => (s.groups ?? []).filter((g) => g.trim() && (s.says.includes(g) || (s.groupExcerpts ?? []).some((e) => e.heading === g)))))]; // a group the source keeps as a heading of its own is carried by the words under that heading, which the quote cannot hold beside the others
 const foldDemonym = (token: string): string => token.length >= 7 && token.endsWith("ian") ? token.slice(0, -3) : token;
 const phraseTokens = (value: string): string[] => value.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).map((w) => foldDemonym(w.replace(/s$/, ""))).filter(Boolean);
 const phraseIncludes = (heading: string, entity: string): boolean => { const h = phraseTokens(heading), e = phraseTokens(entity); return h.length > 0 && e.length > 0 && (` ${h.join(" ")} `.includes(` ${e.join(" ")} `) || e.every((token) => h.includes(token))); };
