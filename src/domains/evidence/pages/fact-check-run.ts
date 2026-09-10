@@ -2,7 +2,7 @@ import "server-only";
 
 /** evidence/pages/fact-check-run - ONE CLAIM, RESEARCHED PROPERLY, PER RENEWED LEASE. The first live runs proved four ways a unit can look like research without being it (Codex, 2026-08-18): a query built from the SUBJECT alone researched "Ahvaz definition" for a heat-record claim; sources found but unreadable were banked as checked, permanently clearing work nobody did; a truncated 12,000-character sample was called the whole page; and two encyclopedia pages counted as agreement because they ranked first. WHAT IT IS NOW. The persisted inventory is the cursor and coverage is persisted with it, so a page is only complete when every stored section was inventoried AND every claim is current. Acquisition searches the WHOLE PROPOSITION, never the subject alone. Every failure is TYPED and leaves the claim owed; only a readable world may settle one. `confirmed` requires a quote inside a fetched authoritative passage. */
 
-import { createHash } from "node:crypto";
+import { createHash } from "node:crypto"; import { FURNITURE_LABEL } from "@/domains/evidence/relevance-gate";
 import { log } from "@/lib/logger";
 import { recordFactChecks, recordOwedClaims, reopenObsoleteChecks, supersedeStaleFacts, statementKeyOf,
   MISSING_ANSWER_RULES_VERSION, rulesVersionFor, unauthorizedReason, type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
@@ -137,7 +137,7 @@ type UnitFailure = "no_page_body" | "lease_exhausted" | "inventory_write_failed"
 /** A search answer: readable results or a TYPED provider hold. Only the readable shape may settle a claim. */
 type SearchAnswer = { organic: { domain: string; url: string; title: string | null }[] } | { hold: ProviderHold };
 /** A source read: the page's words or a TYPED hold. A hold never clears the claim. */
-type SourceAnswer = { text: string; title?: string | null } | { hold: ProviderHold };
+type SourceAnswer = { text: string; title?: string | null; sections?: readonly SourceSection[] } | { hold: ProviderHold }; type SourceSection = { heading: string | null; text: string };
 
 /** WHERE THE PAGE STANDS, read back from the persisted inventory rather than carried in a lease. */
 type FactCheckCursor = {
@@ -174,6 +174,13 @@ type FactCheckUnitResult = { status: "advanced" | "done" | "failed"; banked: num
   /** WHICH CLAIM THIS UNIT TOOK ON, so a pass may set one aside and reach the next. */ attempted?: string };
 
 const enough = (deadlineAt: number, need: number): boolean => Date.now() + need + RESERVE_MS <= deadlineAt;
+/** PURE. WHAT A SOURCE SAYS UNDER ITS OWN HEADINGS, for a grouping answer: at most five sections, the ones carrying a named group or overlapping its words first, never the apparatus a reference work prints around its content, each as one verbatim opening of its section cut at a sentence end inside 360 characters. */
+function sectionExcerpts(sections: readonly SourceSection[], groups: readonly string[]): { heading: string; says: string }[] {
+  const words = (t: string): Set<string> => new Set(t.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 2)), asked = groups.map((g) => ({ g: g.toLowerCase(), w: words(g) })); const stem = (bag: Set<string>, w: string): boolean => w.length >= 4 && [...bag].some((t) => t.startsWith(w.slice(0, 5)) || w.startsWith(t.slice(0, 5))); // "mammal" carries "mammals", as the comparison door reads a word wearing a different ending
+  const named = sections.filter((x): x is SourceSection & { heading: string } => !!x.heading?.trim() && !FURNITURE_LABEL.test(x.heading) && x.text.trim().length >= 40);
+  const rank = (x: SourceSection & { heading: string }): number => { const h = words(x.heading), body = x.text.toLowerCase(), b = words(body); return [...new Set(asked.flatMap((a) => [...a.w]))].filter((w) => h.has(w) || stem(b, w)).length + (asked.some((a) => body.includes(a.g)) ? 2 : 0); }; // the count of distinct group words a section carries, whole phrases counting double, so a survey that merely says "species" never outranks the section naming the mammals and the birds
+  const ranked = named.map((x, i) => ({ x, i, r: rank(x) })).sort((a, b) => b.r - a.r || a.i - b.i), carrying = ranked.filter((y) => y.r > 0); return (carrying.length >= 2 ? carrying : ranked).slice(0, 5).map(({ x }) => { const opening = x.text.replace(/\s+/g, " ").trim().slice(0, 360), end = Math.max(opening.lastIndexOf(". "), opening.lastIndexOf("! "), opening.lastIndexOf("? "));
+    return { heading: x.heading.trim(), says: end > 120 ? opening.slice(0, end + 1) : opening }; }); }
 /** PURE. THE PASSAGE AROUND THE SUBJECT, never simply the opening of the document (the entity-anchored window the claim-verification literature reads on). A long reference page's first 6,000 characters are its navigation and its introduction, so a subject discussed further down reached the judge in an excerpt that never named it. About 160 words either side of the first place the subject, or a number the claim itself carries, appears past the opening; the opening stands when the subject is absent or already inside it, and the 6,000-character cap still bounds everything sent. */
 function subjectWindow(text: string, anchors: readonly string[], max = 6_000, words = 160, heading?: string): string {
   const hay = text.toLowerCase(), deep = anchors.map((a) => hay.indexOf(a.trim().toLowerCase())).filter((i) => i > max / 2).sort((x, y) => x - y)[0];
@@ -292,14 +299,14 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // A SITE MAY NOT VOUCH FOR ITSELF, and nothing enforced it: live, the Nazanin correction cited the very page it was correcting, iranopedia.com/persian-female-first-names, and banked that as a source.
   const hostOf = (u: string): string => u.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0]!.toLowerCase(), ownSite = hostOf(page.url ?? ""); // ONE spelling of a host, read by the own-site refusal and by the named page alike
   // 4. READ THE SOURCES, AROUND THE SUBJECT. A title is not a fact, and A SOURCE NOBODY READ NEVER CLEARS THE CLAIM: when every fetch fails the claim stays OWED, because "the evidence disproved nothing" and "the infrastructure could not read the evidence" are different answers (Codex, 2026-08-18).
-  const passages: { url: string; kind: SourceKind; text: string; title: string | null; readAt: string }[] = [];
+  const passages: { url: string; kind: SourceKind; text: string; title: string | null; readAt: string; sections: readonly SourceSection[] }[] = [];
   let lastHold: ProviderHold = "unavailable";
   const readSource = async (c: { url: string; kind: SourceKind }): Promise<void> => {
     if (!d.fetchSource || !enough(d.deadlineAt, 20_000)) return;
     const got = await d.fetchSource(c.url).catch(() => ({ hold: "unavailable" as const }));
     if ("hold" in got) { lastHold = got.hold; return; }
     const heading = c.url === d.rival?.url && d.rival.anchor?.trim() ? d.rival.anchor.trim() : undefined; // the winner's own heading, where the requirement named one
-    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, title: got.title ?? null, readAt: new Date().toISOString(), text: subjectWindow(got.text, [claim.subject, ...(claim.current.match(/\b\d[\d,.]*\b/g) ?? [])], 6_000, 160, heading) }); };
+    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, title: got.title ?? null, readAt: new Date().toISOString(), sections: got.sections ?? [], text: subjectWindow(got.text, [claim.subject, ...(claim.current.match(/\b\d[\d,.]*\b/g) ?? [])], 6_000, 160, heading) }); };
   const named = d.rival && d.rival.subject.trim().toLowerCase() === claim.subject.trim().toLowerCase() ? hostOf(d.rival.url) : ""; // the page was named for ONE proposition and is spent on that one only
   if (named && named !== ownSite && !named.endsWith(`.${ownSite}`) && !REJECTED.has(sourceClassOf(named))) await readSource({ url: d.rival!.url, kind: sourceClassOf(named) });
   if (passages.length === 0) {
@@ -387,7 +394,8 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     if (proposedNow && says && claim.current.trim() === "" && supporters.includes(p) && !deriveSupport(ctxOf(p, says))) says = carrying(p) ?? says;
     const groups = supporters.includes(p) ? (rulings.get(p.url)?.groups ?? []).filter((g) => g.trim() && p.text.includes(g)) : [];
     if (groups.length && !groups.every((g) => says.includes(g))) says = carrying(p, groups) ?? says;
-    const stamp = { url: p.url, kind: p.kind, says, groups: groups.filter((g) => says.includes(g)), ...(p.title ? { titleContext: p.title, titleContextFrom: "fetched_document" as const } : {}) };
+    const excerpts = groups.length > 0 ? sectionExcerpts(p.sections, groups) : []; // THE SOURCE'S OWN SECTIONS RIDE WITH A GROUPING ANSWER (delivery loop, 2026-09-10): the judge names the groups a source distinguishes from ONE window of at most 600 characters, so the groups banked for the wildlife hub were two qualifiers of one sentence ("mammal species", "bird species") and the writer hired to fill them was handed that sentence and nothing else; fifteen corrective releases then fought the packet gate over a section no material could fill. The words the source keeps under its own headings are the entity material, quoted verbatim per section, and they reach the writer under the fact they belong to. The field is present, empty or not, on every source read under this rule, which is how the seed tells a grouping row read before the sections rode from one read after.
+    const stamp = { url: p.url, kind: p.kind, says, groups: groups.filter((g) => says.includes(g)), ...(groups.length > 0 ? { groupExcerpts: excerpts } : {}), ...(p.title ? { titleContext: p.title, titleContextFrom: "fetched_document" as const } : {}) };
     if (!says || !proposedNow || !supporters.includes(p)) return stamp;
     const ctx = ctxOf(p, says);
     const r = rulings.get(p.url) ?? rulings.get(vouchedAs.get(p.url) ?? "");

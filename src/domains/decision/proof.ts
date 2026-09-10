@@ -110,11 +110,12 @@ export function proofOf(p: ChangeProposal): ProofReceipt {
   // Every support id a claim names, resolved to the words it actually carries. A claim shows ITS OWN evidence
   // and never the bundle's other sources: an unrelated source standing beside a sentence it never touched is
   // the exact way a receipt starts lying.
-  const facts = new Map((p.supportFacts ?? []).map((f) => [f.id, f.fact]));
+  const shown = (t: string): string => { const cut = t.trim().slice(0, 320), end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("? "), cut.lastIndexOf("! ")); return t.trim().length <= 320 ? t.trim() : end > 80 ? cut.slice(0, end + 1) : `${cut.trimEnd()}...`; }; // THE CARD SHOWS WHAT A FACT SAYS, NEVER THE WHOLE RECORD BEHIND IT (independent review, 2026-09-10): a grouping fact now carries what its source says under each heading, and printing that record whole under "Why this opportunity" would hand a reader a page of quotation where a sentence answers
+  const facts = new Map((p.supportFacts ?? []).map((f) => [f.id, shown(f.fact)]));
   const items = p.bundle?.receipt.items ?? [];
   // A BUNDLE'S WORDING PROVENANCE IS PER COMPONENT AND NEVER POOLED: each piece shows only the receipt items
   // its own evidenceKeys name, so a fact banked for one piece can never dress up its neighbour.
-  const byKey = new Map(items.map((i) => [i.key, i.fact]));
+  const byKey = new Map(items.map((i) => [i.key, shown(i.fact)]));
   const wording = p.bundle
     ? p.bundle.components.map((c) => ({ claim: c.objective?.trim() || c.label,
         because: (c.evidenceKeys ?? []).map((k) => byKey.get(k)).filter((f): f is string => !!f) }))
@@ -126,7 +127,7 @@ export function proofOf(p: ChangeProposal): ProofReceipt {
   // The measured record: the receipt's typed items where a bundle wrote one, the producer's own evidence
   // sentences otherwise, because most finished rows on the live account carry no bundle at all.
   const opportunity = items.length > 0
-    ? items.map((i) => ({ fact: i.fact, seen: seenOn(i.observedAt) }))
+    ? items.map((i) => ({ fact: shown(i.fact), seen: seenOn(i.observedAt) }))
     : (p.evidence?.hints ?? []).map((h) => ({ fact: h, seen: null }));
 
   // WORDS TAKEN FROM THE SEARCH ITSELF, claimed only when the finished copy really contains it. Both sides are

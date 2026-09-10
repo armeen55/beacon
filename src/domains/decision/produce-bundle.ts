@@ -4,7 +4,7 @@
 
 import "server-only";
 
-import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot"; import { canonicalUrlKey } from "@/domains/evidence/snapshot";
+import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot"; import { canonicalUrlKey } from "@/domains/evidence/snapshot"; import { jobComparison, type JobComparison } from "@/domains/evidence/comparison";
 import { draftAtomicEditStructured } from "@/domains/decision/llm/structured-drafter"; import { DRAFT_BUDGET } from "./draft-budget"; import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, ComponentPlan, EvidenceReadiness, RecommendedChange } from "./contracts"; import { componentIdOf, confidenceFor, CTR_DEFICIT_SHARE, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction, receiptComposition } from "./contracts"; import { copyKey, evidenceShortfall, REVIEW_CONTRACT } from "./proof";
 import { technicalKey, type TechnicalFinding } from "./technical-findings";
@@ -267,12 +267,12 @@ const oneComponent = (c: BundleComponent, items: readonly BundleEvidenceItem[]):
 /** ONE AUTHORIZED PIECE, as the canonical editor hands it back: the copy, and the claim-to-source record the serving door reads. */
 type AuthorizedPiece = NonNullable<Awaited<ReturnType<typeof draftFieldForPage>>>;
 /** THE DRAFTERS a producer may buy, wired once for the same firewall, budget, cache and fail-closed posture. THE SUBSTANTIVE ONES ARE THE ONE CANONICAL EDITOR (2026-08-30): a bundle's sections and openings used to come from a second drafter that declared no claim, named no evidence id and was read for sense by nobody, so the only thing behind a paragraph on a customer's page was a receipt saying why the WORK was chosen. They go through the same drafter, deterministic contract, evaluator and per-claim ruling as every other word Beacon writes, and each piece's authorization is kept under its own exact copy so no piece can borrow another's. */
-function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date, ownedPaths: readonly string[], held: OwnedPageBody | null, siblings: ReadonlyMap<string, OwnedPageBody>, authed: Map<string, AuthorizedPiece>, checked: readonly FactCheck[]): ProducerDraft {
+function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date, ownedPaths: readonly string[], held: OwnedPageBody | null, siblings: ReadonlyMap<string, OwnedPageBody>, authed: Map<string, AuthorizedPiece>, checked: readonly FactCheck[], compared: JobComparison | null): ProducerDraft {
   const editor = { tenantId, now, complete: opts.complete, bypassCache: opts.bypassCache, ...(opts.attempts ? { attempts: opts.attempts } : {}), ...(opts.bannedTerms ? { bannedTerms: opts.bannedTerms } : {}) };
   // THE OTHER PAGES OF THIS ACCOUNT, under the one id a claim may cite: what a page cannot say about itself is what a sibling page carries, and it is the one route to information gain that costs nothing to read.
   const facts = Object.fromEntries([...siblings.values()].filter((b) => held == null || canonicalUrlKey(b.url) !== canonicalUrlKey(held.url)).flatMap((b) => (b.passages ?? []).slice(0, 2).map((t) => `${pathOf(b.url)}: ${t}`)).slice(0, 6).map((t, i) => [`owned-page-${i + 1}`, t]));
   const write = async (field: "answer_block", query: string, brief: string, evidenceHints: string[]): Promise<AuthorizedPiece | null> =>
-    !held ? null : draftFieldForPage({ field, body: held, query, brief, evidenceHints, ownedPaths, minutes: 15, facts, checked, basis: opts.basis ?? null }, editor); // AND THE PAGE'S OWN CHECKED READINGS (journey review, 2026-09-06): the fact the runtime banked for this page's missing subject reached the atomic editor and never this one, so a hub section was written off sibling passages beside the very fact bought for it
+    !held ? null : draftFieldForPage({ field, body: held, query, brief, evidenceHints, ownedPaths, minutes: 15, facts, checked, basis: opts.basis ?? null, comparison: compared }, editor); // AND THE PAGES WINNING THE SEARCH (journey review L-030, 2026-09-10): the atomic packet minted rival lines from the comparison and this editor was never handed one, so a hub section was written from the page's own headings and refused as narration; the same comparison the diagnosis read is what this writer reads. // AND THE PAGE'S OWN CHECKED READINGS (journey review, 2026-09-06): the fact the runtime banked for this page's missing subject reached the atomic editor and never this one, so a hub section was written off sibling passages beside the very fact bought for it
   return {
     // THE EDITOR ITSELF, for a page this card does not sit on: same deterministic checks, same judge, that page's own words.
     pageField: (i) => draftFieldForPage({ ...i, ownedPaths }, editor),
@@ -396,7 +396,8 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       const slot = CORE_PRODUCERS[finding.cause];
     if (typeof slot !== "function") return { status: "none", reason: finding.cause === "no_problem" ? diagnosis.explanation : finding.explanation };
     const checked = held ? await readFactChecks(tenantId, pathOf(page.url)).catch(() => [] as FactCheck[]) : [];
-    const drafters = producerDrafts(tenantId, opts, now, snapshot.ownedPages.map((p) => pathOf(p.url)), held, heldBodies, authed, checked);
+    const compared = snapshot.research ? jobComparison(snapshot.research, [primary], { url: page.url, text: `${content.title ?? ""} ${(held?.passages ?? []).join(" ")}`, headings: content.outline ?? [], passages: held?.passages ?? [] }) : null;
+    const drafters = producerDrafts(tenantId, opts, now, snapshot.ownedPages.map((p) => pathOf(p.url)), held, heldBodies, authed, checked, compared);
     const ctx: ProducerCtx = { finding, primary, tenantId,
       page: { url: page.url, title: content.title, h1: content.h1, outline: content.outline, internalLinkCount: content.internalLinks.length },
       body: held, ownedPages: inventory, pattern, ahead: receipt.ahead, receiptFacts: facts, readiness: receipt.readiness, draft: drafters, heldBodies, templateHeadings: templateHeadings([...heldBodies.values()].map((b) => b.headings ?? [])) }; // furniture is not content to move, and the set is computed from the SAME body headings the merge check reads: the canonical outline is stripped at the assembler now, so a set built from it would be empty and the defense would die silently
