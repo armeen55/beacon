@@ -84,6 +84,19 @@ describe("the editorial standard one edit is judged by", () => {
     bodies.map = new Map([[canonicalUrlKey(S.url), bodyOf(S)]]);
     const seen: string[] = []; const re = await reviewFinishedCopy(stored, { tenantId: S.t, now: NOW, complete: (async ({ system }: { system: string }) => (seen.push(system), { value: { ...PASS, claims: (stored.claims ?? []).map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })) } })) as never });
     expect([seen[0]?.includes("SUMMARY LINE"), re.row?.semanticReview?.version], "the paid re-read is given the same standard, and banks its reading under the contract already on file").toEqual([true, REVIEW_CONTRACT]); expect(staleCopyReasons(stored, new Map([[canonicalUrlKey(S.url), bodyOf(S) as never]]), [], { title: S.title, h1: S.h1, metaDescription: "Old line.", outline: S.heads }), "and the serving door, reading the same standard, keeps the words").toEqual([]); });
+  it("quality round: a stored additive section that narrates the page, or only re-says it, is retired to a redraft under the entity-first brief, and a fact-backed one is left alone", async () => {
+    const { staleCopyReasons } = await import("@/domains/decision/drafted-copy"), { DRAFT_BUDGET } = await import("@/domains/decision/draft-budget");
+    const s0 = SITES[0]!, body = bodyOf(s0), bodies = new Map([[canonicalUrlKey(s0.url), body]]);
+    const base = card(s0, { researchOnly: false, changeFamily: "section" });
+    const mk = (after: string, supportedBy: string[]) => ({ ...base, claims: [{ text: after.slice(0, 60), supportedBy }], supportFacts: supportedBy.map((id) => ({ id, fact: "x" })), recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after } });
+    const narrates = mk("The page also calls out several figures. Use the category links for the deeper lists.", ["page-copy-1"]);
+    const resays = mk(`${s0.lines[0] ?? "The reserve holds animals."}`, ["page-copy-1"]);
+    const teaches = mk("Anahita is the Persian goddess of fertility and water, first attested in Achaemenid inscriptions from the fifth century BCE at Persepolis.", ["fact-1"]);
+    const why = (p0: ReturnType<typeof mk>) => staleCopyReasons(p0 as never, bodies as never, []);
+    const r1 = why(narrates), r2 = why(resays), r3 = why(teaches);
+    expect([r1.some((w) => /rewritten under the entity-first brief/.test(w) && DRAFT_BUDGET.HARD_REFUSAL.test(w)), r2.some((w) => /add specifics/.test(w) && DRAFT_BUDGET.HARD_REFUSAL.test(w)), r3.filter((w) => /entity-first/.test(w))],
+      "narration and zero-gain retire hard, so the sweep routes them to previousCopy plus a redraft instead of a review downgrade; a section teaching new specifics from a checked fact passes untouched").toEqual([true, true, []]);
+  });
   it("retires the objection the owner judges for themselves whatever standard wrote it, and leaves every other stored row exactly as it was", () => {
     const RETIRED = "it repeats the search instead of improving the page", REAL = "it lands in the wrong place";
     const stored = (over: Partial<ChangeProposal>) => card(S, { status: "needs_review", recommendedChange: { kind: "existing_edit", field: "meta", before: "Old line.", after: "A finished description of this page." }, ...over });

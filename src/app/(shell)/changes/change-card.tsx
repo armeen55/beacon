@@ -59,6 +59,7 @@ const TARGET_WORD: Record<string, string> = { title: "title", meta: "meta descri
 function targetWordOf(p: ChangeProposal): string {
   const c = p.recommendedChange;
   if (c.kind === "new_page") return "page";
+  if (c.kind === "existing_edit" && c.linkTo) return "link"; /* THE CHIP NAMES WHAT THE EDIT IS (operator, 2026-09-10): a one-sentence carrier for an internal link wore "Add section" because its field is section, and the operator had to guess; the link is the change, the sentence is its vehicle */
   return TARGET_WORD[c.field] ?? fieldWord(c.field);
 }
 /** Add, Replace or Create: what the operator DOES, decided by whether canonical `before` carries the old words. */
