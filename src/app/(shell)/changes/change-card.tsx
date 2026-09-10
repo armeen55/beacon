@@ -107,6 +107,21 @@ function untouchedOf(p: ChangeProposal): string | null {
   }
 }
 
+/** WHAT TO PHYSICALLY DO, in one to two plain lines, computed from the canonical fields alone (operator, 2026-09-10: "what is deleting, what is editing, what is pasting, what is changing"; the Farahnaz replacement was applied blind because the old words sat in small text). */
+function doLineOf(p: ChangeProposal): string {
+  const c = p.recommendedChange;
+  if (c.kind === "new_page") return "Do this: create a new page and paste its pieces from this change's own page. Nothing existing is touched.";
+  if (c.kind !== "existing_edit") return "Do this: open the change for its exact steps.";
+  if (c.linkTo) return `Do this: paste the sentence below onto the page, and make the underlined words a link to ${c.linkTo}. Nothing is deleted.`;
+  if (c.field === "meta") return c.before ? "Do this: open the page's SEO settings and replace the current meta description with the line below." : "Do this: open the page's SEO settings and set the meta description to the line below.";
+  if (c.field === "title") return "Do this: replace the page title in your page editor with the line below. The visible heading is untouched.";
+  if (c.field === "h1") return "Do this: replace the page's main heading with the line below. The text under it stays.";
+  if (c.before) return "Do this: find the exact text shown under Now, delete it, and paste the new copy in its place. Nothing else changes.";
+  const anchor = /placed after (?:the heading )?[\u201c"]([^\u201d"]+)/.exec(c.where ?? "")?.[1] ?? null;
+  const restates = anchor ? c.after.replace(/\s+/g, " ").trim().toLowerCase().startsWith(anchor.replace(/\s+/g, " ").trim().toLowerCase().slice(0, 40)) : false;
+  if (restates) return "Do this: the new copy opens by rewriting the line named under Where it goes. Delete that old line and paste this in its place, so the sentence appears once.";
+  return `Do this: paste the copy below onto the page as a new ${c.field === "section" ? "section under its own heading" : "answer paragraph"}, at the spot named under Where it goes. Nothing is deleted.`;
+}
 /** THE WORDS THERE NOW AND THE WORDS TO PUT THERE, off the same field the detail page renders. */
 function beforeAfter(p: ChangeProposal): { field: string; before: string | null; after: string } {
   const c = p.recommendedChange;
@@ -252,6 +267,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
           </p>
         ) : (
           <div className="space-y-1" data-before-after="true">
+            <p className="text-[13px] font-medium leading-relaxed text-foreground" data-do-line="true">{doLineOf(proposal)}</p>
             <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
               {/* LINE BREAKS ARE PART OF THE DELIVERABLE: a list-shaped answer renders one item per line. */}
               <p className="min-w-0 flex-1 whitespace-pre-line text-[14px] font-semibold leading-relaxed text-foreground">
@@ -263,8 +279,11 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
                 label={`Copy ${targetWordOf(proposal)} · ${effortLabel(proposal.estimatedEffortMinutes)}`} />
             </div>
             {before ? (
-              <p className="text-[12px] leading-relaxed text-muted-foreground">
-                Now: <span className="line-through">{before}</span>
+              /* THE OLD WORDS ARE A SEARCH TARGET, NOT A FOOTNOTE (operator, 2026-09-10): "for the name change
+                 I didn't even know what I was doing". The operator finds this exact line on the live page first,
+                 so the card hands it over in its own box, struck through, after the copy the order pin puts first. */
+              <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-[13px] leading-relaxed text-foreground" data-find-line="true">
+                <span className="font-semibold">Find this on the page: </span><span className="line-through decoration-foreground/40">{before}</span>
               </p>
             ) : null /* NOTHING IS CLAIMED ABOUT A FIELD NOBODY HANDED OVER. A null `before` means the row did
                  not carry the old words, never that the page has none. The adds-new-copy fact now lives on the

@@ -36,7 +36,7 @@ function live(p: ChangeProposal): string[] {
 }
 const COPY_REFUSALS = { pointsAtPage, figures, carrier: CARRIER, owns, live };
 
-const enabled = () => process.env.NEXT_PUBLIC_BEACON_AEO_PACKET !== "0";
+const enabled = () => true; // the env flag is deleted (operator rule: no flags); the packet regime itself is retired above
 const hasGrouping = (sources: readonly { says: string; groups?: readonly string[]; groupExcerpts?: readonly { heading: string }[] }[]): string[] => [...new Set(sources.flatMap((s) => (s.groups ?? []).filter((g) => g.trim() && (s.says.includes(g) || (s.groupExcerpts ?? []).some((e) => e.heading === g)))))]; // a group the source keeps as a heading of its own is carried by the words under that heading, which the quote cannot hold beside the others
 const foldDemonym = (token: string): string => token.length >= 7 && token.endsWith("ian") ? token.slice(0, -3) : token;
 const phraseTokens = (value: string): string[] => value.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).map((w) => foldDemonym(w.replace(/s$/, ""))).filter(Boolean);

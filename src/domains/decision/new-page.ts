@@ -211,8 +211,9 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   // Body prose never carries a bare count; the title, description and opening may carry ONLY the page's own section count, and the final validator holds exactly that line, so they are dropped from this sweep.
   const proseBody = [v.whyExistingPagesLose, ...v.sections.flatMap((s) => [s.heading, s.covers]),
     ...v.sourceRequirements, ...v.factRequirements, ...v.internalLinks.map((l) => l.anchor), ...v.faqQuestions].join(" ");
-  const structural = fig([v.proposedTitle, v.metaDescription, v.openingAnswer].join(" ")).find((f) => !figures.has(f) && f !== own);
-  const strayFigure = fig(proseBody).find((f) => !figures.has(f)) ?? structural;
+  const measured = (f: string): boolean => f.includes("%") || /[.,]/.test(f) || Number(f) > 10; /* ship mode (operator, 2026-09-10): the researched hardest-languages page was thrown away every drive for "quoted 1", its own rank phrasing; a bare small integer is list structure, not a measurement, and only a measured figure must trace to the evidence */
+  const structural = fig([v.proposedTitle, v.metaDescription, v.openingAnswer].join(" ")).find((f) => measured(f) && !figures.has(f) && f !== own);
+  const strayFigure = fig(proseBody).find((f) => measured(f) && !figures.has(f)) ?? structural;
   const headings = v.sections.map((s) => norm(s.heading));
   // A ranked list's sections ARE its items ("Mandarin", "Arabic"), which share no token with the label; the
   // outline is generic only when MOST of the page borrows nothing from the case, not when one item is itself.

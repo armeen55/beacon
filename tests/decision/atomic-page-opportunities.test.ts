@@ -92,8 +92,8 @@ describe("a page carries as many changes as it has searches it never answers", (
     const lead = substantiveGapOf({}, demand as never), behind = substantiveGapOf({}, demand as never, canon(lead?.query ?? ""));
     const alone = substantiveGapOf({}, demandOf(page(s, [[s.big, 900]]), body(s) as never, [], null, s.t) as never), asked = (g: typeof lead): unknown => (g?.owed as { need?: { query?: string } } | undefined)?.need?.query;
     expect([lead?.kind, lead?.query, asked(lead), behind?.kind, behind?.query, asked(behind), JSON.stringify(alone) === JSON.stringify(lead)],
-      "the biggest unanswered search is read exactly as it always was, the next one behind it is its own missing answer buying a source for ITS OWN search rather than for the first one, and a page with only the big search on it reads identically")
-      .toEqual(["missing_answer", s.big, s.big, "missing_answer", s.small, s.small, true]);
+      "the biggest unanswered search is read exactly as it always was, the next one behind it is its own missing answer about ITS OWN search rather than the first one, neither buys a source before the writer because the answer is written now with the check following behind (operator, 2026-09-10), and a page with only the big search on it reads identically")
+      .toEqual(["missing_answer", s.big, undefined, "missing_answer", s.small, undefined, true]);
     expect([behind?.propositions[0]?.includes(s.small), behind?.propositions[0] === lead?.propositions[0]],
       "the second change is about the second search in its own words, never the first search said again").toEqual([true, false]);
   });
@@ -113,12 +113,12 @@ describe("a page carries as many changes as it has searches it never answers", (
    *  judged against the FIRST change's search: one row, two subjects, and money spent on a question that card was
    *  never about. A card wearing its own search key takes the gap that names it, and takes nothing where this pass's
    *  demand no longer names it at all. */
-  it.each(SITES)("$t: sends each change to buy the source for its OWN search, and buys nothing for a search this page no longer asks", async (s) => {
+  it.each(SITES)("$t: keeps each change on its OWN search with no source bought first, and settles a search this page no longer asks", async (s) => {
     const cards = await mintFor(s, [[s.big, 900], [s.small, 300]]), owed: string[][] = [];
     await walked(s, cards, owed); const away: string[][] = [], gone = await walked(s, [{ ...cards[1]!, primaryQuery: "which ferry crosses the sound", evidence: { query: "which ferry crosses the sound", hints: [], evidenceRefCount: 1 } }], away);
     expect([cards.map((c) => c.primaryQuery), owed, away, gone.map((r) => (r.obligation as { kind: string } | undefined)?.kind)],
-      "each change buys the source for the search it is named after, on the funding key that same search computes, and a change whose search this page's demand no longer names buys nothing at all and says it has no gap, rather than borrowing the other change's question")
-      .toEqual([[s.big, s.small], [[`${s.path}::body::${canon(s.big)}`, s.big], [`${s.path}::body::${canon(s.small)}`, s.small]], [], ["terminal"]]);
+      "each change stays named after its own search and the walk buys no source before the writer under write first (operator, 2026-09-10, the check follows the draft), so neither card files a funding request, a card whose search the demand no longer names buys nothing either and says it has no gap rather than borrowing the other change's question")
+      .toEqual([[s.big, s.small], [], [], ["terminal"]]);
   });
   /** COVERAGE IS THE ARBITER, NOT THE PRODUCER. A finished change on file already writing that section takes the
    *  opportunity off the list; a finished change about the OTHER search takes nothing off it. */
@@ -218,7 +218,10 @@ describe("two audiences losing clicks on one page are two rows", () => {
       preloaded: { units: [{ ...unit(s.big, 60, url(s)), vocabulary: [s.big, s.small], ...(on == null ? {} : { serp: { winners: [], paa: [], related: [], observedAt: null } }) }], historyWindow: { earlyDays: 120, earlyFrom: "2026-04-01", earlyTo: "2026-07-01" } } as never })).cards[0]!;
     const owes = { kind: "evidence", need: { kind: "serp", query: s.big, reasonCode: "no_winner_to_read" } }, reads = { kind: "evidence", need: { kind: "competitor_page", query: s.big, reasonCode: "no_winner_to_read" } }, stands = { kind: "terminal", reason: "no substantive gap named" };
     const nothing = await mint(null), sibling = await mint(s.small), unreadOwn = await mint(s.big, false), own = await mint(s.big), settled = (c: ChangeProposal): ChangeProposal => ({ ...c, researchOnly: true, obligation: stands as never });
-    expect([[nothing.winnersOnFile, sibling.winnersOnFile, unreadOwn.winnersOnFile, own.winnersOnFile], nextObligation(preferFinished(nothing, settled(nothing))), nextObligation(preferFinished(sibling, settled(sibling))), nextObligation(preferFinished(unreadOwn, settled(unreadOwn))), nextObligation(preferFinished(own, settled(own))), nextObligation(preferFinished({ ...nothing, winnersOnFile: undefined }, settled(nothing)))],
+    /* NO SETTLEMENT IS PERMANENT (operator, 2026-09-10): the KEEP pins below stand only while the settlement is young, so the merged row is dated today, and the last probe pins the decay itself: after seven days the same honest refusal is re-decided from nothing and owes a fresh draft. */
+    const young = (c: ChangeProposal): ChangeProposal => ({ ...c, createdAt: new Date().toISOString() });
+    expect(nextObligation({ ...preferFinished(own, settled(own)), createdAt: new Date(Date.now() - 8 * 86_400_000).toISOString(), previousCopy: undefined }), "a settlement older than seven days is trash taken out: the row re-enters the cycle and owes a draft again").toEqual({ kind: "draft" });
+    expect([[nothing.winnersOnFile, sibling.winnersOnFile, unreadOwn.winnersOnFile, own.winnersOnFile], nextObligation(young(preferFinished(nothing, settled(nothing)))), nextObligation(young(preferFinished(sibling, settled(sibling)))), nextObligation(young(preferFinished(unreadOwn, settled(unreadOwn)))), nextObligation(young(preferFinished(own, settled(own)))), nextObligation(young(preferFinished({ ...nothing, winnersOnFile: undefined }, settled(nothing))))],
       "the mint says what is on file for THIS row's own search: nothing at all, a results page bought for a sibling phrasing of the group and none for this search, this search's own results page with nothing off it read, or a page winning this very search read whole. The sweep re-mints the settled row through that same comparison and the store's own recompute turns the first three settlements into the reading each one owes, named by what is already on file for THIS search: the results page where none was ever bought for it, and the winners themselves where that page is on file and nothing off it has been read, while the last keeps its honest refusal, and a row no producer ever stamped is left exactly as it was because absent decides nothing")
       .toEqual([["none", "none", "unread", "read"], owes, owes, reads, stands, stands]);
   });
