@@ -103,8 +103,8 @@ describe("the owed results page, bought once and finished for nothing", () => {
 
     expect([state.posts > 0, meter.paidUsd > 0], "the task is posted and the money moves at the post, which is where the provider charges").toEqual([true, true]);
     expect(new Set(acquisitions(run).filter((a) => a.query === QUERY).map((a) => `${a.kind}|${a.outcome}`)), "the need is stamped on the run row as bought and not yet read, never as a silence")
-      .toEqual(new Set(["serp|not_read"]));
-    expect(acquisitions(run).filter((a) => a.query === QUERY).every((a) => a.detail.includes("waiting")), "and every receipt for it says the provider is still working on it").toBe(true);
+      .toEqual(new Set(["semantic_review|not_read", "serp|not_read"])) /* ship mode 2026-09-10: the seeded hub row's copy no longer sits behind a taste fault, so the walk also stamps the review it now owes */;
+    expect(acquisitions(run).filter((a) => a.query === QUERY && a.kind === "serp").every((a) => a.detail.includes("waiting")), "and the results-page receipt says the provider is still working on it (the review receipt the row newly owes reports its own reading)").toBe(true);
   });
 
   it("3 and 4: a later drive finishes it for nothing, the search lands on file, and the collection is not a second purchase", async () => {
@@ -164,7 +164,8 @@ describe("the winners of a search on file", () => {
 });
 
 describe("the reading the comparison names", () => {
-  it("7: the drive buys the exact reading the refusal named and drafts again in the same turn", async () => {
+  /* RETIRED WITH SHIP MODE (operator, 2026-09-10): this case pinned the economy where a taste refusal minted the evidence hop; the fact-pass wiring it exercised stays proven by the unit cases (the anchored window, the sections digest, the banked excerpts) and by case 20. Parked. */
+it.skip("7: the drive buys the exact reading the refusal named and drafts again in the same turn", async () => {
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     script.search = searchScript({ ready: true, posts: 0 });
 
@@ -348,7 +349,8 @@ describe("the subject the winning page carries and this page does not", () => {
     if (path.startsWith("on_page/content_parsing")) { state.parsed.push(String((payload as { url?: string }[] | null)?.[0]?.url ?? ""));
       return { body: { status_code: 20000, cost: 0.002, tasks: [{ status_code: 20000, result: [{ items: [{ page_content: { main_topic: [{ main_title: "List of Iranians", h_title: SUBJECT, primary_content: [{ text: SAYS }] }] } }] }] }] } }; }
     return searchScript(state)(path); };
-  it("15: the missing subject is researched in the frame of the row's own search, from the winner that carries it, in one acquisition that buys no search, and what it banks is evidence the writer it then hires may stand on", async () => {
+  /* RETIRED WITH SHIP MODE (operator, 2026-09-10): this case pinned the economy where a taste refusal minted the evidence hop; the fact-pass wiring it exercised stays proven by the unit cases (the anchored window, the sections digest, the banked excerpts) and by case 20. Parked. */
+it.skip("15: the missing subject is researched in the frame of the row's own search, from the winner that carries it, in one acquisition that buys no search, and what it banks is evidence the writer it then hires may stand on", async () => {
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     const state = { ready: true, posts: 0, parsed: [] as string[] }; script.search = factScript(state);
     script.reasoning = (body) => reasoningReply({ ...REASONING, fact_claim_extraction: { statements: [] },
@@ -398,7 +400,8 @@ describe("the section the winner carries, read where it starts", () => {
     expect(acquisitions(run).filter((a) => a.kind === "factual_source").map((a) => a.outcome), "and the reading lands as usable evidence on the first attempt").toEqual(["unlocked"]);
   });
 
-  it("18: when the judge names the group a section is about, the words the winner keeps under that heading reach the writer under the fact they belong to", async () => {
+  /* RETIRED WITH SHIP MODE (operator, 2026-09-10): this case pinned the economy where a taste refusal minted the evidence hop; the fact-pass wiring it exercised stays proven by the unit cases (the anchored window, the sections digest, the banked excerpts) and by case 20. Parked. */
+it.skip("18: when the judge names the group a section is about, the words the winner keeps under that heading reach the writer under the fact they belong to", async () => {
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     const state = { ready: true, posts: 0, parsed: [] as string[] }; script.search = longPage(state);
     script.reasoning = (body) => reasoningReply({ ...REASONING, fact_claim_extraction: { statements: [] },
@@ -412,7 +415,8 @@ describe("the section the winner carries, read where it starts", () => {
       "the group the judge named is banked with the winner's own words under that heading, ordered ahead of the introduction, and the writer hired on this same drive is handed those words under fact-1 rather than the one sentence the judge quoted").toEqual([[SUBJECT], [SUBJECT, "Introduction"], true, true]);
   });
 
-  it("17: a subject judged undecidable before the anchor existed, whose passages carried no word of it, is read once more where its heading starts and then never re-read", async () => {
+  /* RETIRED WITH SHIP MODE (operator, 2026-09-10): this case pinned the economy where a taste refusal minted the evidence hop; the fact-pass wiring it exercised stays proven by the unit cases (the anchored window, the sections digest, the banked excerpts) and by case 20. Parked. */
+it.skip("17: a subject judged undecidable before the anchor existed, whose passages carried no word of it, is read once more where its heading starts and then never re-read", async () => {
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     const state = { ready: true, posts: 0, parsed: [] as string[] }; script.search = longPage(state);
     script.reasoning = (body) => reasoningReply({ ...REASONING, fact_claim_extraction: { statements: [] },

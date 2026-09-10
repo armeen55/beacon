@@ -36,7 +36,7 @@ export type Obligation =
 
 /** HOW MANY CORRECTIVE DRAFTS ONE ROW GETS. A third attempt on the same gates buys the same refusal: five
  *  answer-gap cards reached proposal_version 800 and up doing exactly that, so the third is settled instead. */
-const MAX_ATTEMPTS = 2;
+const MAX_ATTEMPTS = 4; // raised with ship mode (operator, 2026-09-10): taste no longer burns attempts, so the remaining refusals are real and worth more corrective rounds
 const SETTLED_AFTER_RETRIES = "two corrective drafts failed the same gates, so this is settled rather than retried";
 
 /** The gap sentences that mean NOTHING EXACT IS WRITTEN YET, matched against `deliverableGaps`'s own output
