@@ -53,7 +53,7 @@ export type ResearchRunProgress = {
   /** WHY THIS PASS WAS OPENED, and therefore WHAT IT OWES. Due-work decides whether another pass runs; without its answer on the row the executor traversed the whole cycle whatever the debt was, so a pass opened to
    *  read stored answers re-ran keyword discovery, results pages, winner reads, a crawl and a publication and spent real money on research nobody asked for. A recovery pass carries the exact units due-work named when
    *  it opened and SKIPS every phase outside them. Absent on the day's first genuine run, which still walks the full ordered sequence. It rides progress (an existing jsonb column), so no schema moves. */
-  plan?: { units: DuePhase[] };
+  plan?: { units: DuePhase[]; /** TRUE only when the pass was OPENED carrying this plan (a recovery probe naming its owed phases): the paid-rotation shift gate honors an opened-for plan whole, while the rolling plan an ambient drive accumulates never exempts a rotation from its shift (the accumulation exempted fact checks from every shift and burned a dollar sixty an hour, 2026-09-11 23:24Z). */ openedFor?: boolean };
   /** The operator's durable ask for extra readings of today's AI answers: the day and how many EXTRA readings per pair were granted (max two); the press and the pass that acts on it are two requests.
    *  And whether this run already attempted its ONE advisory reading of the case registry: reconciliation runs before every unit, so without a marker of its own that reading was bounded per iteration. */
   extraSamples?: { day: string; granted: number };
@@ -398,7 +398,7 @@ export async function startExtraPass(tenantId: string, ownerToken: string, day: 
       return null;
     }
     const run = await repo.startPass({ tenantId, owner: ownerToken, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS, day,
-      ...(plan != null && plan.length > 0 ? { progress: { plan: { units: [...plan] } } } : {}) });
+      ...(plan != null && plan.length > 0 ? { progress: { plan: { units: [...plan], openedFor: true } } } : {}) });
     return run == null ? null : await inheritDayState(run, ownerToken, priors);
   } catch (error) {
     log.warn("[research-run] extra same-day pass could not open; nothing runs", { tenantId, error: error instanceof Error ? error.message : String(error) });
