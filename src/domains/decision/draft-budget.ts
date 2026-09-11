@@ -1,26 +1,28 @@
 import "server-only";
+import { AEO_BAR } from "./accept-worthy";
 import { mutationKeyOf } from "./mutation-footprint";
 import { substantiveGapOf, winnersRead } from "./diagnosis";
 import type { ChangeProposal } from "./contracts";
 import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import type { EvidenceRequirement } from "./producers/contract";
 
-// One strongest named body gap may finish its evidence before lower-value micros. No score changes.
+// One owed collection packet gets the first bounded turn; other body gaps still compete by worth.
 function evidenceUnlock(cards: readonly ChangeProposal[], worth: (p: ChangeProposal) => number, research: EvidenceSnapshot["research"]) {
   if (process.env.BEACON_EVIDENCE_UNLOCK === "0") return null;
   const micro = (p: ChangeProposal) => p.recommendedChange.kind === "existing_edit" && (p.recommendedChange.field === "meta" || !!p.recommendedChange.linkTo);
-  const micros = cards.filter(micro); if (micros.length === 0) return null; const floor = Math.max(0, ...micros.map(worth));
+  const collection = (p: ChangeProposal) => AEO_BAR.applies(p.recommendedChange.kind === "existing_edit" ? p.recommendedChange.field : "", p.assignment?.standard, false, undefined, p) && p.changeFamily !== "factual_correction";
+  const micros = cards.filter(micro), floor = Math.max(0, ...micros.map(worth));
   const card = cards.filter((p) => p.researchOnly === true && p.status === "needs_review" && p.primaryQuery.trim()
     && p.recommendedChange.kind === "existing_edit" && !p.recommendedChange.linkTo && ["section", "answer_block"].includes(p.recommendedChange.field)
     && p.obligation?.kind !== "terminal" && !(p.obligation?.kind === "evidence" && p.obligation.need.kind === "page_source")
-    && ((substantiveGapOf(p)?.propositions.length ?? 0) > 0 || (p.obligation?.kind === "evidence" && !!p.obligation.need.missingTopic?.trim()))
-    && worth(p) > 0 && worth(p) >= floor).sort((a, b) => worth(b) - worth(a) || a.id.localeCompare(b.id))[0];
+    && (collection(p) || (substantiveGapOf(p)?.propositions.length ?? 0) > 0 || (p.obligation?.kind === "evidence" && !!p.obligation.need.missingTopic?.trim()))
+    && worth(p) > 0 && (collection(p) || (micros.length > 0 && worth(p) >= floor))).sort((a, b) => Number(collection(b)) - Number(collection(a)) || worth(b) - worth(a) || a.id.localeCompare(b.id))[0];
   if (!card) return null;
   const onFile = winnersRead(research, card.primaryQuery); // The writer rechecks named factual debt against banked facts; a new winner purchase must not prevent that turn.
-  const need: EvidenceRequirement | null = card.obligation?.kind === "evidence" && card.obligation.need.kind === "factual_source" ? null : onFile !== "read"
+  const need: EvidenceRequirement | null = collection(card) || (card.obligation?.kind === "evidence" && card.obligation.need.kind === "factual_source") ? null : onFile !== "read"
     ? { kind: onFile === "none" ? "serp" : "competitor_page", query: card.primaryQuery, reasonCode: "no_winner_to_read" }
     : card.obligation?.kind === "evidence" && card.obligation.need.reasonCode !== "no_winner_to_read" ? card.obligation.need : null;
-  return { card, need, micro };
+  return { card, need, micro, first: collection(card) };
 }
 
 /** decision/draft-budget - THE ONE PAID DRAFTING BUDGET, and there is no second one. Every family that spends model money on a deliverable (the winning-pattern reading, the new page, the correction review, the shallow field drafts, the deep bundles and the editor) is DECLARED here before the pass spends anything, ranked here once, and funded here once. It lives beside the drafting rather than inside it because the money is the one thing every family shares (operator, 2026-08-22, after 239 charged calls bought nothing). WHY A MANIFEST AND NOT A CLAIM COUNTER (Codex, 2026-08-22). The first repair gave every family one shared pool and a ranked window, which stopped the private pools but left the order to whoever asked first: a family with no entry in the ranking claimed the moment it was reached, so an unranked new page or a correction review still took the pass's first slot ahead of the strongest completable change. Asking-order is not a ranking. So nothing claims any more. The pass compiles EVERY paid job it could run into one zero-cost manifest, `plan` ranks the whole manifest once and decides the funded set once, and each family then collects an allowance already decided for it. A key that is not on the funded list gets nothing, whenever it asks and whatever family it belongs to. */
@@ -66,6 +68,7 @@ type DeclinedJob = { key: string; family: string; calls: number; reason: string 
 function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean; quiet?: boolean | string;
   /** Settled work stays closed; charged failures yield to untried work. */
   memory?: Readonly<Record<string, JobMemory>>;
+  first?: string; // One collection packet; ordinary attempt, spend and deadline limits still apply.
   /** Unreached work breaks ties within expected value, without overriding attempt limits. */
   waiting?: readonly string[] }) {
   const ceiling = Math.max(0, input.calls ?? MAX_PAID_CALLS);
@@ -121,12 +124,9 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   const started = (j: PaidJob): boolean => { const m = seen(j); return m != null && !m.settled && m.calls > 0; }; /* AN ATTEMPT IS REAL CALLS THAT FINISHED NOTHING, AND NOTHING ELSE (measured, 2026-09-05). Work the clock never reached spent no money, learned nothing and proved nothing about itself, so demoting it is demoting a page for the drive's own arithmetic. Only a job that was actually asked and came back empty sorts behind untried work. */
   const waiting = new Set(input.waiting ?? []); /** WAS THIS JOB FUNDED AND LEFT UNBEGUN BY THE LAST WALK. It is a queue position INSIDE its own worth: two jobs the ranking cannot separate are separated by which one the last walk stopped short of, so a drive picks up where the last one left off without ever lifting weak work over strong. */
   const waited = (j: PaidJob): boolean => !!j.workKey && waiting.has(j.workKey);
-  // FINISHING IS A TIE-BREAK, NEVER A BAND (operator, 2026-08-30): the absolute correction-first order put
-  // every one-cent finish above every new section, answer, link, and page whatever their traffic was worth,
-  // which is the names-only queue. Expected value orders everything; a cheap finish wins only when values tie.
-  // AND BEING UNREACHED IS A TIE-BREAK TOO (measured, 2026-09-05): standing above worth it lifted sixteen summary lines worth 0.59 clicks and less over a sourced answer to 1,361 searches, and the demotion that guarded against that lifting hand became a ratchet nothing released. Worth orders everything; the queue position breaks ties.
+  // After the one collection turn, worth orders work and finishing or waiting breaks ties.
   const ranked = [...byKey.values()].sort((a, b) =>
-    Number(started(a)) - Number(started(b)) || b.impact - a.impact || Number(waited(b)) - Number(waited(a)) || finishes(b) - finishes(a) || a.calls - b.calls || a.key.localeCompare(b.key));
+    Number(b.key === input.first) - Number(a.key === input.first) || Number(started(a)) - Number(started(b)) || b.impact - a.impact || Number(waited(b)) - Number(waited(a)) || finishes(b) - finishes(a) || a.calls - b.calls || a.key.localeCompare(b.key));
   const funded = new Map<string, number>(), declined: DeclinedJob[] = [];
   // MONEY IS SPENT, NEVER COMMITTED, AND A COMMITMENT IS NOT ELIGIBILITY (measured on production receipts, 2026-09-04, and again 2026-09-05). Reserving each job's first round here declined thirty-four ranked candidates against money the pass never spent: one drive committed the whole sixty-call ceiling to twenty-nine rows, reached two of them, and refused the rest for a purse that ended the drive untouched. The reservation is deleted whole. What bounds a pass is `unspent`, the real ceiling, reserved in `draw` below at the moment each call is made: a job the money never reaches files `cost_blocked` in its own words rather than being refused before anything ran, and it is owed again at its own rank.
   let slots = Math.max(0, input.candidates), unspent = ceiling;
