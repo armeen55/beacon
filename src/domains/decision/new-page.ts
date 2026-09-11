@@ -184,7 +184,7 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     kind: "new_page_brief", tenantId, system: SYSTEM, user, grounded: facts.join(" "),
     projectedCostUsd: 0.03, maxTokens: 2600, complete: opts.complete, now, bypassCache: opts.bypassCache,
   }); if (call) { opts.attempts?.record?.(call); DRAFT_BUDGET.refundIfNoCallMade(opts.attempts, call); } /* real requests and real dollars onto this page's own allowance, and the attempt back when the brief was served from the cache */
-  if (call && call.status !== "drafted") { log.warn("[new-page] no usable brief", { tenantId, topicKey: inv.key, status: call.status }); return { status: "none", reason: "This page did not reach a standard worth handing over, so nothing is handed over rather than filler." }; }
+  if (call && call.status !== "drafted") { log.warn("[new-page] no usable brief", { tenantId, topicKey: inv.key, status: call.status }); return { status: "none", reason: `The brief call for this page came back ${call.status}${(call as { errors?: readonly string[] }).errors?.length ? ` (${(call as { errors?: readonly string[] }).errors!.slice(0, 2).join("; ").slice(0, 200)})` : ""}, so nothing is handed over rather than filler.` }; } /* the receipt says WHICH door failed (production 06:10Z, 2026-09-11): the standard sentence hid a transport or schema failure at the brief call behind quality words */
   const v = (stored ? stored.brief : call!.value) as NewPageBrief;
 
   // EVERY FIGURE BACK TO THE EVIDENCE: the final validator never sees whyExistingPagesLose, the section briefs or the requirements, so they would otherwise be ungoverned.
