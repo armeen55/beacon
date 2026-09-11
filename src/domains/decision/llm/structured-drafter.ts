@@ -439,6 +439,8 @@ function defaultComplete(apiKey: string, promptId: PromptId): CompleteFn {
 }
 
 export type StructuredDraftRequest<K extends StructuredDraftKind> = {
+  /** TRUE for an additive draft (no current value being replaced): the flat superlative firewall defers, and the sentence rides the card as a caveat instead of failing the page closed (operator, 2026-09-11). */
+  deferSuperlatives?: boolean;
   kind: K;
   /** The owning account. REQUIRED and validated non-empty FIRST (before cache, budget, or the call), and threaded into the cache key, cache storage, the budget check/record, and the completion fn. No global fallback. */
   tenantId: string;
@@ -623,7 +625,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     // answer_analysis is a RESTATEMENT of somebody else's AI answer, never copy this product publishes, so the flat marketing-superlative reject does not apply to it: a verbatim "the best sushi in town" is the observed fact being recorded. The numeric firewall still applies, grounded on the answer text itself, so an invented figure is still caught.
     if (req.unmarkPhrase) result.data = unmarkAnchor(result.data, req.unmarkPhrase);
     const fw = runContentFirewalls(draftProseStringValues(result.data), ledger, {
-      deferSuperlativeCheck: req.kind === "answer_block" || req.kind.startsWith("answer_analysis") || primaryCustomerText(req.kind, result.data) == null, // A VERDICT IS NOT COPY EITHER (live 2026-09-02): a fact judgement quoting a source's "ultimate" failed closed five times and the cheetah's national-animal source was never banked
+      deferSuperlativeCheck: req.kind === "answer_block" || req.kind.startsWith("answer_analysis") || req.deferSuperlatives === true || primaryCustomerText(req.kind, result.data) == null, /* an ADDITIVE atomic edit defers too (operator, 2026-09-11, one pass): a new paragraph's superlative rides the card as a caveat instead of failing the page closed */ // A VERDICT IS NOT COPY EITHER (live 2026-09-02): a fact judgement quoting a source's "ultimate" failed closed five times and the cheetah's national-animal source was never banked
       skipPlaceholderCheck: primaryCustomerText(req.kind, result.data) == null, ownWords: req.ownWords,
     });
     if (!fw.ok) {
@@ -833,6 +835,7 @@ export async function draftAtomicEditStructured(
   }
 
   const result = await callStructuredLLM({
+    deferSuperlatives: input.currentValue == null && typeof input.replaces !== "string",
     kind: "atomic_edit",
     tenantId: input.tenantId, ownWords: input.field === "answer_block" ? input.replaces : [input.pageLabel, ...outline].join(" "), // a summary field may repeat a superlative the page's own title or headings carry; a body REPLACEMENT may repeat one the exact passage it replaces carries, and a body addition carries none
     ...(input.unmarkPhrase ? { unmarkPhrase: input.unmarkPhrase } : {}),

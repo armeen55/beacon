@@ -83,7 +83,7 @@ const AnswerBlockDraftSchema = z.object({
   answer: z.string().min(450).max(1200),
   citationHook: z.string().max(200).nullable().default(null),
   /** W5 (J-69): the 1-2 authoritative sources backing this answer's claims. Defaults to [], an empty list is exactly what "no source yet" means; the quality gate (never this schema) decides whether that blocks copy. */
-  sources: z.array(SourceRefSchema).default([]),
+  sources: z.preprocess((v) => Array.isArray(v) ? v.filter((x) => x != null && typeof (x as { url?: unknown }).url === "string" && ((x as { url: string }).url).trim() !== "") : v, z.array(SourceRefSchema).default([])), /* WRITE FIRST, CHECK BEHIND (operator receipts, 2026-09-11): a draft with nothing to cite emits sources: [{url: ""}] and the min(1) fields failed the WHOLE page as schema_invalid; an all-blank source row IS the empty list this field already defaults to, so it is dropped, and a row naming a real url still answers to every field. */
   proofPlan: ProofPlanSchema,
   ...base,
 });
@@ -95,7 +95,7 @@ const AtomicEditDraftSchema = z.object({
   after: z.string().min(1).max(2000),
   rationale: z.string().min(1).max(400),
   /** W5 (J-69): same additive sources list, only meaningful when the edit introduces a NEW factual claim the "before" value didn't already carry (see draft-quality.ts's SPECIFIC_FACT signal); a pure rephrase is never gated. */
-  sources: z.array(SourceRefSchema).default([]),
+  sources: z.preprocess((v) => Array.isArray(v) ? v.filter((x) => x != null && typeof (x as { url?: unknown }).url === "string" && ((x as { url: string }).url).trim() !== "") : v, z.array(SourceRefSchema).default([])), /* WRITE FIRST, CHECK BEHIND (operator receipts, 2026-09-11): a draft with nothing to cite emits sources: [{url: ""}] and the min(1) fields failed the WHOLE page as schema_invalid; an all-blank source row IS the empty list this field already defaults to, so it is dropped, and a row naming a real url still answers to every field. */
   proofPlan: ProofPlanSchema,
   /** THE EDITOR CONTRACT (decision/drafted-copy): the homework a finished edit shows, additive with defaults so every draft stored before it still deserializes. `claims` is what the copy asserts and the grounding ids that carry it; the deliverable check, never this schema, decides whether an empty one is finished. */
   placementAnchor: z.string().max(400).default(""),
