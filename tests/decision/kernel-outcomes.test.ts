@@ -140,7 +140,7 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
     const workKey = awake.paid.receipts.find((r) => r.key === DRAFT_BUDGET.keyOf(body))!.workKey;
     for (const [settled, reason] of [[false, "spent on twice today and finished nothing, so it waits for new evidence or tomorrow"], [true, "finished work or a settled refusal already stands under this exact evidence"]] as const) {
       reset(env.snap as EvidenceSnapshot); calls = 0; shared.set("cards:extra:fixture-tenant", Promise.resolve({ run: { cards: [body, micro], held: [], needsOwnPage: [], complete: true }, unitLoad: null }));
-      const resumed = await produceProposalsForTenant("fixture-tenant", { now: NOW, produce: true, shared, memory: { [workKey]: { calls: 2, settled, last: "deterministic_refusal" } }, complete: async () => (calls++, { error: "Transport fixture refuses", retryable: false }) });
+      const resumed = await produceProposalsForTenant("fixture-tenant", { now: NOW, produce: true, shared, memory: { [workKey]: { calls: 4, settled, last: "deterministic_refusal" } }, complete: async () => (calls++, { error: "Transport fixture refuses", retryable: false }) }); /* the day cap rose 2 to 4 with the ten-minute cadence (operator, 2026-09-11), so the parked case sits at four charged failures */
       expect(resumed.paid.declined?.find((d) => d.key === DRAFT_BUDGET.keyOf(body))?.reason).toBe(reason); expect(resumed.paid.funded).toContain(DRAFT_BUDGET.keyOf(micro)); expect(resumed.paid.funded).not.toContain(DRAFT_BUDGET.keyOf(body));
       expect(resumed.paid.evidenceOwed?.some((n) => n.unlocks?.beforeMicros)).toBe(false);
     }
