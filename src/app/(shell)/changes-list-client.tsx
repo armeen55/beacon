@@ -82,8 +82,13 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   // never asked to authorize work Beacon itself knows is defective (approved contract, 2026-08-27).
   const decisionRows = useMemo(() => rows.filter((p) => { if (laneOf(p) !== "todo") return false; const h = openHold(p); return h.safetyHold && !h.faulted; }), [rows, laneOf]);
   const preparingRows = useMemo(() => rows.filter((p) => { if (laneOf(p) === "research") return true; if (laneOf(p) !== "todo") return false; const h = openHold(p); return !(h.safetyHold && !h.faulted); }), [rows, laneOf]);
+  /* THE WATERFALL IS VISIBLE OR IT DID NOT HAPPEN (operator, 2026-09-11, "I don't see any of this progress on the customer end"): thirty-one finished drafts sat behind a count-only drawer while the operator read the same twelve Ready cards all day. A row whose copy is WRITTEN is not internal research any more; it renders as a real card in review mode, its own verdict and caveats on it, so the operator watches the stream being checked instead of taking a number on faith. Rows still being researched keep the tally, exactly as Product Truth orders. */
+  const lanes = useMemo(() => { /* a research row's note is never a draft, whatever its length: the typed lane and researchOnly decide, not the prose (the comedians fixture leaked a results-page note into this section with a Copy button on it) */
+    const writtenOf = (p: ChangeProposal): boolean => { if (laneOf(p) !== "todo" || p.researchOnly === true) return false; const c = p.recommendedChange; if (c.kind === "new_page") return ((p as { newPageDraft?: { pieces?: unknown[] } }).newPageDraft?.pieces?.length ?? 0) > 0; return c.kind === "existing_edit" && c.after.trim().length > 60 && !/not been written yet/i.test(c.after); };
+    return { written: preparingRows.filter(writtenOf), researching: preparingRows.filter((p) => !writtenOf(p)) }; }, [preparingRows, laneOf]);
+  const writtenRows = lanes.written, researchingRows = lanes.researching;
   // THE WORKING-ON COUNT IS THE DATABASE'S, NEVER THE RENDERED PAGE'S (operator, 2026-08-30): past one page, counting rendered rows silently under-reported the work in progress with no control to reach the rest.
-  const workingTotal = Math.max(preparingRows.length, (view.summary.todo ?? 0) + (view.summary.research ?? 0) - decisionRows.length);
+  const workingTotal = Math.max(researchingRows.length, (view.summary.todo ?? 0) + (view.summary.research ?? 0) - decisionRows.length - writtenRows.length);
   // THE HEADLINE COUNT IS FINISHED WORK AND NOTHING ELSE (2026-08-15), and it must be true of every row under
   // the Ready heading: the whole-lane total from the database, minus what this session finished or skipped.
   const openTotal = Math.max(0, readyRows.filter((p) => !finished.includes(p.id)).length
@@ -200,9 +205,23 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         </section>
       ) : null}
 
+      {/* WRITTEN AND BEING CHECKED: the finished drafts, as real cards the operator can read now. */}
+      {writtenRows.length > 0 ? (
+        <section className="space-y-2" data-lane-written="true">
+          <h2 className="text-[14px] font-semibold tabular-nums text-foreground">
+            Written and being checked: {writtenRows.length.toLocaleString("en-US")}
+            <span className="ml-2 font-normal text-muted-foreground">Each card shows its draft and what still holds it. They move up to Ready on their own.</span>
+          </h2>
+          <ul className="list-none space-y-3">
+            {writtenRows.map((p, i) => (
+              <ChangeCard key={p.id} proposal={p} rank={readyRows.length + i + 1} ready={false} review caseLine={null} onAside={() => {}} onDone={() => {}} onToast={say} />
+            ))}
+          </ul>
+        </section>
+      ) : null}
       {/* BEACON IS PREPARING: internal work, collapsed and compact. Each row is one sentence about what
           Beacon is doing; the full evidence stays on the row's own detail page, one click away. */}
-      {preparingRows.length > 0 ? (
+      {researchingRows.length > 0 ? (
         <details className="rounded-2xl border border-border bg-surface-raised" data-lane-preparing="true">
           <summary className="cursor-pointer px-4 py-3 text-[14px] font-semibold tabular-nums text-foreground">
             Beacon is working on {workingTotal.toLocaleString("en-US")} more {workingTotal === 1 ? "opportunity" : "opportunities"}
@@ -212,7 +231,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
               unfinished row made the operator Beacon's own progress clerk. What a person opening this line needs is
               the shape of what is coming, in plain words, one line per kind. */}
           <ul className="list-none space-y-1 px-4 pb-3">
-            {[...preparingRows.reduce((m, p) => { const k = preparingKind(p); m.set(k, (m.get(k) ?? 0) + 1); return m; }, new Map<string, number>())]
+            {[...researchingRows.reduce((m, p) => { const k = preparingKind(p); m.set(k, (m.get(k) ?? 0) + 1); return m; }, new Map<string, number>())]
               .sort((a, b) => b[1] - a[1])
               .map(([kind, n]) => (
                 <li key={kind} className="flex items-baseline gap-x-2 border-t border-border/60 py-2 text-[13px] tabular-nums" data-preparing-kind="true">
