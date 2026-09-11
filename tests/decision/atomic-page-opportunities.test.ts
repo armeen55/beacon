@@ -153,8 +153,8 @@ describe("a page carries as many changes as it has searches it never answers", (
       recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: copy } });
     const covered = await mintFor(s, rows, [live(s.both)]), open = await mintFor(s, rows, [live(s.onlyBig)]);
     expect([covered.map((c) => c.id), covered.map((c) => c.primaryQuery), open.map((c) => c.primaryQuery)],
-      "the change already writing that answer keeps the address it has, the search its own words already answer is not offered a second time, and the next search nothing on file answers still earns its own change")
-      .toEqual([[idOf(s), idOf(s, `@${canon(s.third)}`)], [s.big, s.third], [s.big, s.small]]);
+      "the change already writing that answer keeps the address it has, the search its own words already answer is not offered a second time, and EVERY remaining search nothing on file answers earns its own change now that a page carries up to four a pass (operator, 2026-09-11, unlimited changes)")
+      .toEqual([[idOf(s), idOf(s, `@${canon(s.third)}`)], [s.big, s.third], [s.big, s.small, s.third]]);
   });
 });
 
