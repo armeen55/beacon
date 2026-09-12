@@ -213,6 +213,10 @@ export function topicPositivelyAuthorized(snapshot: EvidenceSnapshot, investigat
     ...(profile?.customerProblems?.value ?? []), ...approved].filter((t): t is string => typeof t === "string" && t.length > 0);
   if (confirmed.some((t) => anchoredTopicMatch(t, subject, weak).relevant)) return true;
   const askedKeys = new Set([investigation.label, ...investigation.queries].map((q) => canonicalQueryKey(q)).filter(Boolean));
+  /* DEMAND ALONE IS NOT A SUBJECT (operator, 2026-09-12: "why would Iranopedia have a French language page... other people's websites should always be on their topics"). A site's pages earn stray searches all the time, and earning them authorized building for them: the language-difficulty page's own traffic invited an "Is French Hard to Learn?" page onto an Iran encyclopedia. Demand or an anchored keyword now also has to share a subject word with what the site says it IS, read off its own titles and H1s; a topic the operator confirmed in the profile stays authorized on that confirmation alone, universally and with nothing tenant-named. */
+  const siteBag = new Set(snapshot.ownedPages.flatMap((p) => topicTokens(`${p.content?.title ?? ""} ${p.content?.h1 ?? ""}`)));
+  const onSubject = [investigation.label, ...investigation.queries].some((t) => topicTokens(t).some((w) => siteBag.has(w)));
+  if (siteBag.size >= 8 && !onSubject) return false; /* a snapshot whose pages carry almost no titles cannot say what the site is, so it abstains rather than vetoing everything */
   if (snapshot.ownedPages.some((p) => (p.search?.topQueries ?? []).some((q) =>
     q.impressions > 0 && askedKeys.has(canonicalQueryKey(q.query))))) return true;
   // A keyword bought THROUGH the operator's own anchors carries its authorization; the machine-suggested

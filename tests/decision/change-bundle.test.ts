@@ -1383,7 +1383,7 @@ describe("typed refusal contract", () => { // ── the typed refusal contract:
       uncertaintyOrOmitted: [], implementationMinutes: 5, measurementTarget: "citations", supportFacts: [],
       claims: [{ text: "Topoli means chubby or plump, usually affectionate, often said to children and small pets", supportedBy: ["page-copy-1"] }],
       finalCopy: "Topoli means chubby or plump, and Persian speakers usually say it affectionately to children, close friends, and even small pets in everyday joking conversation at home." } as never;
-    expect(deliverableFailures(d, P).join(" ")).toContain("cites evidence that is about something else"); }); // the mis-aimed id is a lesson the retry fixes, never a landing that dies on the next pass
+    expect([deliverableFailures(d, P).join(" ").includes("cites evidence that is about something else"), (d as { uncertaintyOrOmitted: string[] }).uncertaintyOrOmitted.join(" ").includes("wording drifts from the evidence it cites")], "an ADDITIVE claim whose wording drifts from its cited evidence ships with the drift said on the card instead of dying (operator, 2026-09-12, everything unleashed); a correction still refuses at draft time").toEqual([false, true]); });
   it("an adds-nothing refusal mints a typed serp requirement instead of retrying forever", async () => {
     const owed: Array<{ key: string; kind: string; reasonCode: string }> = [];
     const PAGE = "https://www.iranopedia.com/funny-farsi-phrases";
