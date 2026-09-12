@@ -470,6 +470,8 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     expect(three.kinds.filter((k) => k === "new_page_brief"), "what is already written costs nothing a second time").toEqual([]);
     const page = [...env.store.values()].find((x) => x.kind === "new_page")!;
     const body = (page.bundle?.components ?? []).map((c) => c.after).join("\n");
+    expect([page.status, page.researchOnly === true, nextObligation(page) ?? null, (page.operatorSteps ?? []).length > 0, (page.bundle?.components ?? []).length >= 1 + BRIEF.sections.length],
+      "the finished page is CUSTOMER-ACTIONABLE: a review-lane row that is real work (never research), owes NOTHING at all, carries its operator steps and every planned piece as bundle components").toEqual(["needs_review", false, null, true, true]);
     expect(BRIEF.sections.every((sec) => body.includes(sec.heading)), "every planned section's copy is written into the one publishable bundle").toBe(true);
     expect(nextObligation(page)?.kind === "sections", "no sections owed: one complete page a person can publish").toBe(false); });
   it("throws away a brief that names a site, a page, a question or a figure nobody gave it", async () => {
