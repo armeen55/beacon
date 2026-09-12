@@ -1,24 +1,7 @@
 import "server-only";
 import { dayLabel } from "@/lib/presenter";
 
-/**
- * decision/new-page: the ONE builder of a researched new page, and the only thing on the far side of an EARNED
- * create_new verdict. It writes nothing off a keyword, a tracked question, a competitor's page, an engine's
- * fan-out or a search volume: the ONLY door in is `earnedNewPage(decision)`, which the coverage ladder opens once it has proved this account reaches this subject on no page of its own.
- *
- * ONE bundle through the EXISTING pipeline: a ChangeProposal carrying a ChangeBundle, the same record, validator, ranker, persistence and Changes surfaces an existing-page repair uses.
- *
- * ONE strict brief call, AFTER the verdict. No field in its schema carries a verdict, a shape or an intent, so
- * it can neither decide the page should exist nor change what wins. Every claim is checked back against what
- * was supplied, and the WHOLE draft is refused when the model invents a number, an address, a publisher or a
- * question, turns one tracked question into the page, writes an outline that would fit any topic, skips why the account's own pages lost, or promises to put anything live.
- *
- * THEN THE PAGE ITSELF. A plan is not a page, so the opening and every planned section are written through the
- * ONE canonical editor an existing page's section goes through: same firewall, budget, cache, deterministic
- * contract and per-claim ruling, so each piece arrives having named the evidence id behind every assertion it
- * makes. A proposal reaches the operator only when the title, the description, the opening and EVERY section
- * landed; one section short is no proposal this pass, and the next resumes free off what was already bought.
- */
+/** Earned new pages use the canonical editor, validator and store. Partial pages resume from banked pieces. */
 
 import { log } from "@/lib/logger";
 import { CURRENT_CLAIM } from "@/lib/constants";
@@ -38,7 +21,8 @@ import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { copyKey, evidenceShortfall, REVIEW_CONTRACT } from "./proof";
 import type { NewPageBrief } from "./llm/schemas";
 import type { BundleComponent, BundleEvidenceItem, ChangeBundle, ChangeProposal } from "./contracts";
-import { componentIdOf, effortForFamily } from "./contracts";
+import { effortForFamily } from "./contracts";
+import { assembleCopy } from "./assemble-copy";
 import { validateProposal } from "./validate-proposal";
 import type { ProposeOptions } from "./propose";
 
@@ -54,8 +38,7 @@ const SHAPE: Record<string, string> = { informational_guide: "a guide that expla
 /** NO SCHEMA IS DERIVED: recommending Article or FAQPage off the draft's own shape is a guess wearing a standard's name. Structured data returns when the evidence speaks to eligibility. */
 /** Any written figure: a count, a money amount, a percentage, a year. */
 const FIGURE_RE = /\d[\d,.]*%?/g;
-/** The verdict's receipt ids that came from the winning-page pattern, and only those: the rest of its
- *  evidence is already rebuilt above from the investigation itself and would land here twice. */
+/** Verdict pattern ids are reused; the investigation's evidence is rebuilt only once. */
 const PATTERN_KEY = /^(pattern|opening|common\d+|gap\d+|split\d+)$/;
 
 const SYSTEM = [
@@ -90,8 +73,7 @@ function receiptOf(inv: TopicInvestigation, owned: readonly OwnedCandidate[], d:
   if (dem.monthlySearchVolume == null) missing.push(`No monthly search count is on file for "${inv.label}", so the size of this in searches is unknown.`);
   if (dem.difficulty == null) missing.push("No difficulty score is on file for these searches, so how hard they are to compete for is unknown.");
 
-  // ONE CHECK PER SOURCE, NEVER PER ROW. Every results page read on this subject is ONE read of Google, so the
-  // reads are counted once and named once: twenty rows of the same look read as twenty separate checks.
+  // Each results page counts as one read, however many rows it contains.
   const serps = [...inv.exactSerps].sort((a, b) => (b.observedAt ?? "").localeCompare(a.observedAt ?? ""));
   if (serps.length > 0) add("look", "serp", `Google's results were read for ${num(serps.length)} ${serps.length === 1 ? "search" : "searches"} on this subject, the newest "${serps[0]!.query}" on ${day(serps[0]!.observedAt)}: ${serps[0]!.organicResults} results from ${serps[0]!.distinctDomains} sites.`, serps[0]!.observedAt);
   add("shape", "serp", `What wins for "${inv.label}" is ${SHAPE[inv.pageType] ?? "one settled shape"}, and ${inv.distinctResultDomains} sites come up for it.`, null);
@@ -110,16 +92,13 @@ function receiptOf(inv: TopicInvestigation, owned: readonly OwnedCandidate[], d:
   if (owned.length === 0) missing.push("You own no page the evidence connects to this at all, so there was nothing of yours to strengthen instead.");
   add("verdict", "diagnosis", d.explanation, null);
   d.alternativesRuledOut.slice(0, 4).forEach((a, i) => add(`ruledout${i + 1}`, "diagnosis", `${a.alternative}: ${a.reason}`, null));
-  // WHAT THE WINNING PAGES SHARE, IN THE VERDICT'S OWN WORDS, copied verbatim rather than rebuilt. It is ONE
-  // reading of those pages side by side, so it is ONE check however many sentences that reading produced.
+  // The verdict's side-by-side winner reading counts once, not once per sentence.
   const shared = (d.evidence ?? []).filter((e) => PATTERN_KEY.test(e.id)).map((e) => e.fact.trim()).filter(Boolean);
   if (shared.length > 0) add("pattern", "winning_page", shared.join(" "), null);
   // WHOSE SEARCH IS WHOSE. A search an ENGINE ran and a question I put to it are two different observations.
   const fans = inv.fanOuts.filter((f) => !!f.query.trim());
   const asked = inv.trackedPrompts.map((p) => p.promptText.trim()).filter(Boolean);
-  // THE EXACT ANSWER THIS QUOTES: one line quotes ONE engine's own search and names the stored answer it came
-  // out of, with that answer's own date. The fallback below comes from a QUESTION I track, so it carries no
-  // observation id rather than borrowing somebody else's. A present-tense example yields to one that is dated.
+  // Engine searches carry their own answer id and date; tracked questions cannot borrow an observation id.
   const quote = fans.find((f) => !CURRENT_CLAIM.test(f.query)) ?? fans[0];
   if (quote != null) add("asked", "ai_observation", `To answer this, an AI engine went and searched ${num(fans.length)} ${fans.length === 1 ? "thing" : "things"} of its own, like "${quote.query.trim()}".`, quote.observedAt, { observationId: quote.observationId });
   else if (asked.length > 0) add("asked", "ai_observation", `No AI engine has shown a search of its own here. What is on file is a question people ask, like "${asked[0]}".`, null);
@@ -174,8 +153,7 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     "Write the brief for this one page.",
   ].join("\n");
 
-  // ONE PASS, ONE CEILING: a brief and its sections are charged calls like any other, and this whole path used
-  // to sit outside the count entirely.
+  // Brief and section calls share the pass's attempt ceiling.
   const spent = (): boolean => !!opts.attempts && (opts.attempts.left -= 1) < 0;
   /* THE BRIEF IS BOUGHT ONCE FOR THIS PAGE (production, topic inv_3446de602284, 2026-09-06). A pass that planned the page and could not finish it keeps the plan on its own row, so the next pass reads it back instead of paying for the same outline again and the whole twelve-call allowance goes to the sections that are still owed. A STORED PLAN IS NEVER TRUSTED FOR BEING STORED: it goes through every refusal below exactly as a freshly bought one does. */
   const stored = opts.held?.newPageDraft ?? null;
@@ -185,11 +163,11 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     projectedCostUsd: 0.03, maxTokens: 2600, complete: opts.complete, now, bypassCache: opts.bypassCache,
   }); if (call) { opts.attempts?.record?.(call); DRAFT_BUDGET.refundIfNoCallMade(opts.attempts, call); } /* real requests and real dollars onto this page's own allowance, and the attempt back when the brief was served from the cache */
   if (call && call.status !== "drafted") { log.warn("[new-page] no usable brief", { tenantId, topicKey: inv.key, status: call.status }); return { status: "none", reason: `The brief call for this page came back ${call.status}${(call as { errors?: readonly string[] }).errors?.length ? ` (${(call as { errors?: readonly string[] }).errors!.slice(0, 2).join("; ").slice(0, 200)})` : ""}, so nothing is handed over rather than filler.` }; } /* the receipt says WHICH door failed (production 06:10Z, 2026-09-11): the standard sentence hid a transport or schema failure at the brief call behind quality words */
-  const v = (stored ? stored.brief : call!.value) as NewPageBrief;
+  const v = { ...(stored ? stored.brief : call!.value) } as NewPageBrief;
 
   // EVERY FIGURE BACK TO THE EVIDENCE: the final validator never sees whyExistingPagesLose, the section briefs or the requirements, so they would otherwise be ungoverned.
   const fig = (t: string): string[] => (t.match(FIGURE_RE) ?? []).map((f) => f.replace(/[.,]+$/, ""));
-  const figures = new Set(fig(facts.join(" ")));
+  const figures = new Set(fig([...facts, ...(stored?.pieces ?? []).flatMap((p) => p.supportFacts).filter((f) => /^fact-|^owned-page/.test(f.id)).map((f) => f.fact)].join(" ")));
   // THE ONE COUNT A TITLE MAY CARRY IS THE PAGE'S OWN SECTION COUNT. A drafted "the 5 hardest" over 7 sections is repaired to 7 rather than refused; an ungrounded leading count can only ever BE that
   // invented list length, so its echoes in the description and opening are the same claim and move with it.
   const own = String(v.sections.length);
@@ -254,30 +232,30 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   // page and an engine's answer are briefing here and may never carry a sentence, so the only ids that can support
   // one are a checked fact and another page this account owns, read below and handed over under those exact ids.
   const qualified = Object.fromEntries(owned.filter((c) => (c.openingSample ?? "").trim().length > 0).slice(0, 4).map((c, i) => [`owned-page-${i + 1}`, `${c.path}: ${c.openingSample}`]));
-  const outline = v.sections.map((s) => s.heading);
+  const outline = v.sections.map((s) => s.heading); let openingCopy = v.openingAnswer;
   type Piece = NonNullable<ChangeProposal["newPageDraft"]>["pieces"][number]; // WHAT A FINISHED PIECE OF THIS PAGE IS, in exactly the shape the row keeps it in: the words, the claims, the sources behind them and the ruling each one got.
   /* WHAT AN EARLIER PASS ALREADY FINISHED, off the row it kept it on (production, topic inv_3446de602284, 2026-09-06): the opening first, then every section under its own heading. A piece on file is never written again, never judged again and never charged again, so the twelve calls this page is priced at go to the sections that are still owed. */ const kept = (stored?.pieces ?? []) as readonly Piece[], made = new Map<string, Piece>(kept.slice(1).map((a) => [norm(a.heading ?? ""), a] as const)); const written = (): string[] => v.sections.map((s) => made.get(norm(s.heading))).filter((a): a is Piece => !!a).map((a) => `${(a.heading ?? "").trim()}\n\n${a.after}`.replace(/[–—]/g, " "));
   // THE PAGE AS IT STANDS SO FAR IS WHAT THE NEXT PIECE IS JUDGED AGAINST: a page that does not exist yet still has words once its title, its opening and its earlier sections are written, and asking "does this already say it" against them is the same question an existing page's editor answers.
   const soFar = (): OwnedPageBody => ({ url: owned[0]?.url ?? `https://${inv.key}`, title: v.proposedTitle, h1: v.proposedTitle, metaDescription: v.metaDescription,
-    headings: [v.proposedTitle, ...outline], passages: [v.openingAnswer, ...written()], openingSample: v.openingAnswer, vocabulary: "", cardTexts: [], faqs: [],
+    headings: [v.proposedTitle, ...outline], passages: [openingCopy, ...written()], openingSample: openingCopy, vocabulary: "", cardTexts: [], faqs: [],
     entityNames: [], internalLinks: [], fetchedAt: now.toISOString(), completeness: "complete", contentHash: null, heldNote: "This page does not exist yet; these are the words drafted for it so far." });
-  /* THE WINNERS' OWN WORDS REACH THE WRITER OF A PAGE THIS ACCOUNT DOES NOT HAVE YET (production 10:32Z, 2026-09-06). Seven winners were read and banked for this topic and not one of their words was handed over: the writer held the brief, the outline and its own earlier paragraphs, so it narrated the plan ("the six languages on this page's list"), and the deterministic gate was right to refuse every section. It is the SAME comparison an existing page's section gets, asked of the page AS IT STANDS, so each pass says what the winners carry that the drafted page does not carry yet, with each winner's own quote and what its publisher IS to this account. Briefing, never authority: a `rival-` id may not carry a claim, and a section resting on one still owes its own source. */ const seen = (): JobComparison | null => opts.research ? jobComparison(opts.research, inv.queries, { url: soFar().url, text: [v.proposedTitle, v.openingAnswer, ...written()].join(" "), headings: [v.proposedTitle, ...outline], passages: [v.openingAnswer, ...written()] }) : null;
+  /* THE WINNERS' OWN WORDS REACH THE WRITER OF A PAGE THIS ACCOUNT DOES NOT HAVE YET (production 10:32Z, 2026-09-06). Seven winners were read and banked for this topic and not one of their words was handed over: the writer held the brief, the outline and its own earlier paragraphs, so it narrated the plan ("the six languages on this page's list"), and the deterministic gate was right to refuse every section. It is the SAME comparison an existing page's section gets, asked of the page AS IT STANDS, so each pass says what the winners carry that the drafted page does not carry yet, with each winner's own quote and what its publisher IS to this account. Briefing, never authority: a `rival-` id may not carry a claim, and a section resting on one still owes its own source. */ const seen = (): JobComparison | null => opts.research ? jobComparison(opts.research, inv.queries, { url: soFar().url, text: [v.proposedTitle, openingCopy, ...written()].join(" "), headings: [v.proposedTitle, ...outline], passages: [openingCopy, ...written()] }) : null;
   /* AND THE READINGS THIS ACCOUNT HAS ALREADY BOUGHT FOR WHAT IT CANNOT ANSWER: statements carrying no wording of their own (an answer no page of this account holds), checked and confirmed, through the ONE authorization rule every other consumer applies. A page that does not exist yet has no version for a fact to be bound to, so that conjunct is not asked and is not pretended, exactly as the AI-case door already asks it of a missing answer. */ const home = owned.find((c) => c.bodyHeld) ?? owned[0] ?? null; /* WHERE A PROPOSITION FOR THIS SUBJECT IS INVENTORIED: the account's own page the coverage read named, because a proposition is seeded against a page whose words are on file and a page that does not exist yet has none. The information really is missing from this account, which is the whole reason a new page was earned. */
   const readings = home ? authorizedCorrections((await readFactChecks(tenantId, home.path).catch(() => [])).filter((f) => f.current.trim() === ""), undefined, tenantId) : []; const about = (heading: string, text: string): boolean => { const ask = topicTokens(heading), bag = new Set(topicTokens(text)); return ask.length > 0 && ask.filter((w) => bag.has(w)).length * 3 >= ask.length * 2; }; /* two thirds of a heading's own content words, the share `evidence/comparison` already asks of a passage before it calls it an answer to a search */
-  const factsFor = (heading: string): Record<string, string> => Object.fromEntries(readings.filter((f) => about(heading, `${f.subject} ${f.proposed ?? ""}`)).slice(0, 4) .map((f, i) => [`fact-${i + 1}`, `${(f.proposed ?? "").trim()} This is about "${f.subject.trim().replace(/\.$/, "")}". ${f.sources.map((x) => `${x.url} says "${x.says}"`).join("; ")}.`]));
+  const factsFor = (heading: string) => readings.filter((f) => about(heading, `${f.subject} ${f.proposed ?? ""}`)).slice(0, 4);
   const whyRefused = new Map<string, string>(); /* every piece's refusal, finally kept: the receipt names them instead of "0 of N sections written" */
-  const write = (heading: string, covers: string, extra: Record<string, string>, c: JobComparison | null): Promise<Piece | null> =>
-    draftFieldForPage({ field: "answer_block", body: soFar(), query: inv.label, ownedPaths: owned.map((c) => c.path), minutes: 15, evidenceHints: facts, facts: { ...qualified, ...extra }, unpublished: true, comparison: c, refusalKey: heading, /* THE OPENING THIS MODEL JUST WROTE IS NOT A READING OF A PAGE (probe, 2026-09-05): `soFar` is the outline model's own opening plus this page's earlier drafted sections, and it entered the next section's packet as `page-copy-N`, which every gate reads as words observed on a live page. It rides as generated draft context now, so it can still be seen and can never be cited as the page's own. */
+  const write = (heading: string, covers: string, checked: typeof readings, c: JobComparison | null): Promise<Piece | null> =>
+    draftFieldForPage({ field: "answer_block", body: soFar(), query: inv.label, ownedPaths: owned.map((c) => c.path), minutes: 15, evidenceHints: facts, facts: qualified, checked, unpublished: true, comparison: c, refusalKey: heading, /* THE OPENING THIS MODEL JUST WROTE IS NOT A READING OF A PAGE (probe, 2026-09-05): `soFar` is the outline model's own opening plus this page's earlier drafted sections, and it entered the next section's packet as `page-copy-N`, which every gate reads as words observed on a live page. It rides as generated draft context now, so it can still be seen and can never be cited as the page's own. */
       brief: `Write the section headed "${heading}". ${covers} Write no figure that is not in the evidence you were given, including a list length such as 5 or 10: name the items without counting them.` },
     { tenantId, now, complete: opts.complete, bypassCache: opts.bypassCache, refusals: whyRefused, ...(opts.attempts ? { attempts: opts.attempts } : {}) });
-  /* THE OPENING IS A PIECE OF THIS PAGE LIKE ANY OTHER, and the first thing a reader and an assistant lift: a brief's own sentence is nobody's ruled claim, so it is written and read here rather than shipped on the strength of the plan that asked for it. No opening, no page. */ const first = kept[0] ?? await write(v.proposedTitle, `Answer "${inv.label}" outright in the first lines a reader sees. The team already drafted this opening: "${v.openingAnswer}". Verify it against the evidence and refine it to fit.`, {}, seen()); if (first) v.openingAnswer = first.after; const owedSource: string[] = [];
+  /* THE OPENING IS A PIECE OF THIS PAGE LIKE ANY OTHER, and the first thing a reader and an assistant lift: a brief's own sentence is nobody's ruled claim, so it is written and read here rather than shipped on the strength of the plan that asked for it. No opening, no page. */ const first = kept[0] ?? await write(v.proposedTitle, `Answer "${inv.label}" outright in the first lines a reader sees. The team already drafted this opening: "${v.openingAnswer}". Verify it against the evidence and refine it to fit.`, [], seen()); if (first) openingCopy = first.after; const owedSource: string[] = [];
   for (const s of v.sections) { if (!first) break; if (made.has(norm(s.heading))) continue; // ONE BUDGET LINE, NOT TWO: the canonical editor decrements the pass's own allowance before every charged call and refuses on it, so the extra bookkeeping decrement this loop used to make for the second drafter now just burns a call nobody spends. An exhausted budget leaves a partial draft, which the shortfall check below refuses whole.
-    const c = seen(), fx = factsFor(s.heading), obs = c ? comparisonObservations(c) : []; /* A SECTION IS WRITTEN OFF SOMETHING OR IT IS RESEARCHED, NEVER GUESSED AT. Where the winners of these searches WERE read and they carry nothing this page does not already plan, and no checked reading speaks to this heading either, there is nothing for a writer to say that the plan does not already say: no call is made, and the heading is filed below as the proposition to go and source. Where nobody has read a winner at all the comparison is unread, unknown is not absence, and the section is written on what this account's own pages carry, exactly as before. */ if (obs.length === 0 && Object.keys(fx).length === 0 && (c?.winners ?? []).some((w) => w.read)) { owedSource.push(s.heading); continue; }
+    const c = seen(), fx = factsFor(s.heading), obs = c ? comparisonObservations(c) : []; /* A SECTION IS WRITTEN OFF SOMETHING OR IT IS RESEARCHED, NEVER GUESSED AT. Where the winners of these searches WERE read and they carry nothing this page does not already plan, and no checked reading speaks to this heading either, there is nothing for a writer to say that the plan does not already say: no call is made, and the heading is filed below as the proposition to go and source. Where nobody has read a winner at all the comparison is unread, unknown is not absence, and the section is written on what this account's own pages carry, exactly as before. */ if (obs.length === 0 && fx.length === 0 && (c?.winners ?? []).some((w) => w.read)) { owedSource.push(s.heading); continue; }
     const done = await write(s.heading, s.covers, fx, c); if (!done) break; made.set(norm(s.heading), done); }
   const pieces: Piece[] = first ? [first, ...v.sections.map((s) => made.get(norm(s.heading))).filter((a): a is Piece => !!a)] : [], body = written();
   if (body.length < outline.length) { const owed = outline.filter((h) => !made.has(norm(h))); log.warn("[new-page] partial draft, nothing proposed", { tenantId, topicKey: inv.key, owed: owed.length, unsourced: owedSource.length });
     /* THE SECTIONS NOBODY CAN SOURCE ARE FILED AS THE RESEARCH THEY ARE, on the row and therefore on the pass's own owed list, exactly as an existing page's missing answer is: a `factual_source` need whose proposition is the section's own heading. The runtime buys the source, and the next pass finds the brief and every finished piece on this same row and writes that section with a `fact-` id it may cite. ONE need at a time is what the buy loops execute, so the first owed heading is the obligation and every one of them is named in the limitations. */ if ((owedSource.length === 0 || !home) && pieces.length === 0) return { status: "none", reason: `${num(body.length)} of the ${num(outline.length)} sections this page needs are written and ${num(owed.length)} ${owed.length === 1 ? "is" : "are"} still owed: ${owed.join(", ")}. Part of a page is not worth handing over. Ask again and it picks up where it stopped: what is already written costs nothing a second time.${whyRefused.size > 0 ? ` The writer's own refusals: ${[...whyRefused.entries()].map(([h, w]) => `"${h}": ${w}`).join(" | ").slice(0, 600)}` : ""}` }; const need: EvidenceRequirement | null = owedSource.length > 0 && home ? { kind: "factual_source", query: `${owedSource[0]} ${inv.label}`.slice(0, 120), url: home.url, reasonCode: "new_page_section_unsourced", missingTopic: owedSource[0]! } : null; /* A PIECE WRITTEN THIS PASS SURVIVES EVERY EXIT (owner's editorial policy, 2026-09-06; journey review the same day): with nothing left to source and the budget spent, or with no owned page to bind a source to, the sections in hand were dropped with the "none" answer and paid for again on the next pass. They ride the row now under a `sections` obligation, and the next pass writes the rest. */
-    return { status: "built", proposal: { id: `${tenantId}::${inv.key}::new_page::bundle`, tenantId, kind: "new_page", changeFamily: "new_page", publish: "manual", pagePath: null, pageUrl: null, pageLabel: v.proposedTitle, primaryQuery: inv.label, opportunityType: "Cover a subject you have no page for", status: "needs_review", researchOnly: true, treatment: "new_page", obligation: need ? { kind: "evidence", need } : { kind: "sections", owed: owed.length }, research: need ? { missing: `Nothing checked stands behind ${num(owedSource.length)} of the ${num(outline.length)} sections this page needs: ${owedSource.join(", ")}.`, next: `A source is being read for "${owedSource[0]}", and that section gets written once it lands.` } : { missing: `${num(owed.length)} of the ${num(outline.length)} sections this page needs are not written yet: ${owed.join(", ")}.`, next: `The next pass writes "${owed[0]}", and what is already written costs nothing a second time.` }, recommendedChange: { kind: "new_page", proposedTitle: v.proposedTitle, metaDescription: v.metaDescription, openingAnswer: v.openingAnswer, outline, faqQuestions: v.faqQuestions, schemaTypes: [] }, whyItMatters: `${decision.explanation} ${num(body.length)} of its ${num(outline.length)} sections are written and kept, ${need ? "and the rest wait on a source." : "and the rest are written on the next pass."}`, estimatedEffortMinutes: effortForFamily("new_page"), operatorSteps: [need ? "Nothing to do yet: a source is being read for the sections that still owe one" : "Nothing to do yet: the remaining sections are written on the next pass"], riskLevel: "low", confidence: "medium", limitations: [...new Set([...missing, ...(need ? owedSource.map((h) => `Nothing checked stands behind "${h}" yet, so it is being sourced before it is written.`) : owed.map((h) => `"${h}" is not written yet, and it is written on the next pass.`))])], evidence: { query: inv.label, hints: [...facts.slice(0, 5), ...[...questions.values()].slice(0, 8)], evidenceRefCount: items.length }, impactScore: null, upsidePerMonth: null, createdAt: now.toISOString(), newPageDraft: { brief: v as unknown as Record<string, unknown>, pieces } } }; }
+    return { status: "built", proposal: { id: `${tenantId}::${inv.key}::new_page::bundle`, tenantId, kind: "new_page", changeFamily: "new_page", publish: "manual", pagePath: null, pageUrl: null, pageLabel: v.proposedTitle, primaryQuery: inv.label, opportunityType: "Cover a subject you have no page for", status: "needs_review", researchOnly: true, treatment: "new_page", obligation: need ? { kind: "evidence", need } : { kind: "sections", owed: owed.length }, research: need ? { missing: `Nothing checked stands behind ${num(owedSource.length)} of the ${num(outline.length)} sections this page needs: ${owedSource.join(", ")}.`, next: `A source is being read for "${owedSource[0]}", and that section gets written once it lands.` } : { missing: `${num(owed.length)} of the ${num(outline.length)} sections this page needs are not written yet: ${owed.join(", ")}.`, next: `The next pass writes "${owed[0]}", and what is already written costs nothing a second time.` }, recommendedChange: { kind: "new_page", proposedTitle: v.proposedTitle, metaDescription: v.metaDescription, openingAnswer: openingCopy, outline, faqQuestions: v.faqQuestions, schemaTypes: [] }, whyItMatters: `${decision.explanation} ${num(body.length)} of its ${num(outline.length)} sections are written and kept, ${need ? "and the rest wait on a source." : "and the rest are written on the next pass."}`, estimatedEffortMinutes: effortForFamily("new_page"), operatorSteps: [need ? "Nothing to do yet: a source is being read for the sections that still owe one" : "Nothing to do yet: the remaining sections are written on the next pass"], riskLevel: "low", confidence: "medium", limitations: [...new Set([...missing, ...(need ? owedSource.map((h) => `Nothing checked stands behind "${h}" yet, so it is being sourced before it is written.`) : owed.map((h) => `"${h}" is not written yet, and it is written on the next pass.`))])], evidence: { query: inv.label, hints: [...facts.slice(0, 5), ...[...questions.values()].slice(0, 8)], evidenceRefCount: items.length }, impactScore: null, upsidePerMonth: null, createdAt: now.toISOString(), newPageDraft: { brief: v as unknown as Record<string, unknown>, pieces } } }; }
 
   // ── one bundle: the pieces to paste, and everything they rest on ──
   const schemaTypes: string[] = []; // NO SCHEMA IS DERIVED (see above): none, not a guess.
@@ -295,8 +273,8 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   const components: BundleComponent[] = [
     { kind: "title", label: "Page title", before: null, after: v.proposedTitle, evidenceKeys: core, risk: "safe" },
     { kind: "meta", label: "Meta description", before: null, after: v.metaDescription, evidenceKeys: core, risk: "safe" },
-    { kind: "opening_answer", label: "Opening answer", before: null, after: v.openingAnswer, evidenceKeys: core, risk: "review" },
-    { kind: "section", label: "The page, section by section", before: null, after: body.join("\n\n"), evidenceKeys: sectionKeys, risk: "review" },
+    { kind: "opening_answer", label: "Opening answer", before: null, after: openingCopy, evidenceKeys: core, risk: "review" },
+    ...pieces.slice(1).map((piece): BundleComponent => ({ kind: "section", label: piece.heading!, before: null, after: `${piece.heading}\n\n${piece.after}`, evidenceKeys: sectionKeys, risk: "review" })),
   ];
   if (sourcing.length > 0 || v.factRequirements.length > 0) {
     components.push({ kind: "source_pack", label: "What to source and check before this goes out", before: null,
@@ -307,15 +285,7 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
       after: v.internalLinks.map((l) => `${l.anchor} -> ${ownedByKey.get(canonicalUrlKey(l.url))!.path}`).join("\n"),
       evidenceKeys: [...core, ...[...keys].filter((k) => k.startsWith("owned"))], risk: "safe" });
   }
-  // WHAT THE PAGE ITSELF ASSERTS AND WHAT CARRIES IT, in the one authorization vocabulary. Every section's claims answer for the ONE piece that carries them, named by `componentIdOf` off that piece's exact words, so a reading taken over this page can never authorize different copy and the serving door asks a new page exactly what it asks a section: is each claim carried by the sources it names, and is any of it checked at all.
-  const at = (k: string): number => components.findIndex((c) => c.kind === k);
-  const claims: NonNullable<ChangeProposal["claims"]>[number][] = []; const ruled: { i: number; by: string[]; entailed: boolean }[] = []; const banked = new Map<string, NonNullable<ChangeProposal["supportFacts"]>[number]>(); /* TYPED PROVENANCE SURVIVES THE MERGE (measured, 2026-09-05): the authorized piece hands over each fact with the addresses its reading actually quoted and what kind of source each one is, and this map kept the id and the sentence alone, so every fact a new page or a bundle banks reaches the row with its provenance stripped and the publisher count falls back to hostnames parsed out of the fact's own prose. The map carries the fact itself. */
-  pieces.forEach((a, n) => { const i = n === 0 ? at("opening_answer") : at("section"); // the opening answers for the opening piece and every section for the section piece, so no piece is authorized by another's reading
-    for (const f of a.supportFacts) banked.set(f.id, f);
-    a.claims.forEach((x, k) => { const r = a.review.find((z) => z.i === k); if (r) ruled.push({ i: claims.length, by: [...r.by], entailed: r.entailed });
-      claims.push({ text: x.text, supportedBy: [...x.supportedBy], of: componentIdOf(components[i]!, i) }); }); });
-  const gains = pieces.map((a) => a.gain).filter((g): g is NonNullable<typeof g> => !!g);
-  const gain = gains.length === 0 ? null : { adds: gains.map((g) => g.adds).join(" "), by: [...new Set(gains.flatMap((g) => [...g.by]))], pageWhole: gains.every((g) => g.pageWhole) };
+  const { claims, review: ruled, supportFacts, gain } = assembleCopy(components, pieces.map((copy, n) => ({ copy, index: n + 2 })));
   const shared = reading?.shared.length ?? 0;
   const dates = items.map((i) => i.observedAt).filter((d): d is string => !!d).sort();
   const bundle: ChangeBundle = {
@@ -348,7 +318,7 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     opportunityType: "Cover a subject you have no page for",
     status: "needs_review",
     recommendedChange: { kind: "new_page", proposedTitle: v.proposedTitle, metaDescription: v.metaDescription,
-      openingAnswer: v.openingAnswer, outline, faqQuestions: v.faqQuestions, schemaTypes },
+      openingAnswer: openingCopy, outline, faqQuestions: v.faqQuestions, schemaTypes },
     whyItMatters: `${decision.explanation} You write and publish it yourself; measurement starts once you say it is live.`,
     estimatedEffortMinutes: effortForFamily("new_page"),
     // WHERE THIS HAPPENS AND IN WHAT ORDER: a brief with no first move is a document, and these four are the job.
@@ -363,10 +333,10 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     // THE QUESTIONS TRAVEL WITH THE DRAFT: the last gate grounds every address in the copy against this text.
     evidence: { query: inv.label, hints: [...facts.slice(0, 5), ...[...questions.values()].slice(0, 8)], evidenceRefCount: items.length },
     impactScore: null, upsidePerMonth: null, bundle, createdAt: now.toISOString(),
-    ...(claims.length > 0 ? { claims, supportFacts: [...banked.values()] } : {}), ...(gain ? { informationGain: gain } : {}),
+    ...(claims.length > 0 ? { claims, supportFacts } : {}), ...(gain ? { informationGain: gain } : {}),
   };
   // THE QUESTIONS ARE EVIDENCE TOO: the facts alone never carried the list the prompt ordered it to copy.
-  const verdict = validateProposal(proposal, { evidenceText: [...facts, ...questions.values()].join(" "), now });
+  const verdict = validateProposal(proposal, { evidenceText: [...facts, ...questions.values(), ...supportFacts.filter((f) => /^fact-|^owned-page/.test(f.id)).map((f) => f.fact)].join(" "), now });
   if (verdict.verdict === "rejected") {
     log.warn("[new-page] brief failed the one validator", { tenantId, topicKey: inv.key, reasons: verdict.reasons.slice(0, 3),
       title: v.proposedTitle, sections: v.sections.length,

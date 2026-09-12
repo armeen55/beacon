@@ -401,14 +401,13 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     reset(snap([GAP], { ...READY({ topicKey: keyOf(READY()) }), aiObservations: asked }, DEMAND)); const seam = briefSeam();
     const res = await produceProposalsForTenant("fixture-tenant", { complete: seam.complete, now: NOW });
     expect(seam.kinds).toEqual(["new_page_brief", ...[0, ...BRIEF.sections].flatMap(() => ["atomic_edit", "editor_judgement"])]); // the brief, then the opening and every planned section, each written and read by the ONE canonical editor
-    expect(seam.kinds).not.toContain("section_draft"); // the second drafter that declared no claim and named no evidence id is gone
     const pages = res.proposals.filter((p) => p.kind === "new_page"); expect(pages).toHaveLength(1);
     const page = pages[0]!; expect(page.recommendedChange).toEqual({ kind: "new_page", proposedTitle: BRIEF.proposedTitle, metaDescription: BRIEF.metaDescription,
       openingAnswer: expect.stringContaining("a haft seen table is the spread"), outline: BRIEF.sections.map((s) => s.heading), faqQuestions: [], schemaTypes: [] }); // no markup is guessed for a page that does not exist yet // THE OPENING IS WRITTEN AND READ LIKE EVERY OTHER PIECE: the brief's own sentence is nobody's ruled claim, so what ships is the editor's copy, not the plan that asked for it.
     expect([page.status, page.pagePath, page.publish, validateProposal(page).verdict]).toEqual(["needs_review", null, "manual", "ready"]);
     expect(page.bundle!.plan).toBeUndefined(); expect(page.bundle!.receipt.items.some((i) => i.key === "verdict")).toBe(true); // a page that does not exist yet has nothing to keep, change or remove, and the verdict itself is on the receipt
     expect([page.bundle!.receipt.items.find((i) => i.key === "asked")!.fact, page.bundle!.receipt.items.find((i) => i.key === "asked")!.observationId]).toEqual(['No AI engine has shown a search of its own here. What is on file is a question people ask, like "haft seen table".', undefined]); // derived from a question I track, not from any stored answer, so it borrows no answer's identity expect(page.bundle!.components.map((c) => c.kind)).toEqual(["title", "meta", "opening_answer", "section", "source_pack", "internal_links"]);
-    const written = page.bundle!.components.find((c) => c.kind === "section")!.after; for (const s of BRIEF.sections) expect(written).toContain(`${s.heading}: a haft seen table is the spread`);
+    const written = page.bundle!.components.filter((c) => c.kind === "section").map((c) => c.after).join("\n\n"); for (const s of BRIEF.sections) expect(written).toContain(`${s.heading}: a haft seen table is the spread`);
     expect(written).not.toContain("Answer this plainly"); // the brief's own instruction never ships as the page
     const pack = page.bundle!.components.find((c) => c.kind === "source_pack")!.after; expect(pack).toContain(`${RIVAL(1)}, published by r1.example, read on Jul 25: it is one of the pages that win "${HAFT}"`);
     expect(pack).toContain("Cite a cultural reference for what each item stands for. You pick the exact source for this one");

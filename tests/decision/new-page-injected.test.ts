@@ -1,21 +1,22 @@
 /** THE NEW-PAGE PATHWAY, EXERCISED END TO END ON INJECTED EVIDENCE. Live research justified no new page during this campaign, so the whole pathway is proved here on a TYPED verdict and a TYPED writer: a justified opportunity becomes a stored proposal carrying a title, a description, an opening and an outline, its own earlier paragraphs reach the writer of the next one under the class that says a model wrote them, an unwritten section stops the page rather than shipping part of one, the canon passes the finished page, the row reaches Ready and the store keeps it byte-stable on a second unchanged pass. INJECTED, never a live finished new page, and the test titles say so. Two synthetic accounts, neither a real customer and neither on the same subject. */
 import { describe, it, expect, vi } from "vitest";
-const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], client: {} as Record<string, unknown> }));
+const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], client: {} as Record<string, unknown>, readings: [] as unknown[] }));
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client }));
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) }));
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "t", domain: "alpha.example", growth_goal: null }), basisTag: () => "basis_test" }));
+vi.mock("@/domains/evidence/pages/fact-checks", async (original) => ({ ...(await original<Record<string, unknown>>()), readFactChecks: async () => db.readings }));
+import { rulesVersionFor } from "@/domains/evidence/pages/fact-checks";
 import { buildNewPageProposal } from "@/domains/decision/new-page";
 import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import { openHold } from "@/domains/decision/completeness";
 import { nextObligation } from "@/domains/decision/obligation";
-import { proposalFingerprint, saveChangeProposal } from "@/domains/decision/proposal-store";
+import { saveChangeProposal } from "@/domains/decision/proposal-store";
 import { validateProposal } from "@/domains/decision/validate-proposal";
 import { supabaseFake } from "../helpers/supabase-fake";
 import type { DecidedTopic } from "@/domains/decision/coverage-pass";
 Object.assign(db.client, supabaseFake({ rows: () => db.rows }), { rpc: async () => ({ data: "saved", error: null }) });
-
 const NOW = new Date("2026-09-05T08:00:00.000Z"), READ_ON = "2026-09-01T00:00:00.000Z";
 const SITES = [
   { t: "tenant-one", host: "alpha.example", key: "tide-pool-safety", label: "tide pool safety", own: "/shore-walks", ownTitle: "Shore walks", ownSample: "Shore walks run along the same coast at low tide.",
@@ -26,7 +27,6 @@ const SITES = [
     opening: "Una puntada de bordado a mano se elige por lo que tiene que hacer en la tela, y la de tallo sirve para contornos mientras la de nudo marca los puntos.", tail: "cuantas hebras de hilo se separan antes de enhebrar la aguja, y quien lo prepara asi termina la labor sin deshacer ni una vuelta.", heads: ["Puntadas para contornos", "Puntadas para rellenos", "Como preparar el hilo"], winner: "Las puntadas de bordado a mano se agrupan por densidad y por grosor, por el tejido que recibe cada trazo, y por el remate que cierra la costura.", echo: ["densidad grosor", "tejido trazo", "remate costura"] },
 ] as const;
 type Site = (typeof SITES)[number];
-
 /** The typed verdict a coverage pass hands over: create_new, no owned page named as the answer, nothing owed, and the alternatives ruled out in writing. Injected here rather than derived from a snapshot, which is what makes this a contract and not a live acceptance. */
 const decided = (s: Site): DecidedTopic => ({
   investigation: { key: s.key, aliasKeys: [s.key], label: s.label, demandBasis: "search", groupedBy: [], queries: [s.label], keywords: [],
@@ -42,8 +42,6 @@ const decided = (s: Site): DecidedTopic => ({
     explanation: `Nothing you own comes up for "${s.label}", and the three pages that win it agree on what one has to cover.` } as never,
   reading: null,
 });
-
-/** The brief the outline model returns, and the sections the ONE canonical editor writes. Every claim cites the account's OWN other page, which is the only class a new page may stand on: its own drafted paragraphs are context, never authority. */
 const brief = (s: Site) => ({ proposedTitle: s.title, metaDescription: s.meta, openingAnswer: s.opening,
   whyExistingPagesLose: `Your page ${s.host}${s.own} covers the wider subject and never answers this one, so stretching it would bury the answer people are looking for.`,
   sections: s.heads.map((heading) => ({ heading, covers: "Answer this plainly for a reader who has never done it.", evidenceKeys: ["verdict"] })),
@@ -60,7 +58,6 @@ const seam = (s: Site, sections = true) => { const asked: string[] = [], kinds: 
     if (kind === "new_page_brief") return { value: brief(s) as never };
     if (kind === "editor_judgement") return { value: { ...RULED, notes: `It answers "${s.label}", which nothing here does yet.`, claims: [{ i: 0, by: ["owned-page-1"], entailed: true }] } as never };
     return sections || !user.includes(`Write the section headed "${s.heads[2]}"`) ? { value: section(s, user) as never } : { error: "no answer", retryable: true }; } }; };
-
 describe("the injected new-page contract, end to end", () => {
   it.each(SITES)("builds one whole page from an injected verdict, keeps its own drafted paragraphs out of its evidence about a page, passes the canon and reaches Ready, on $t", async (s) => {
     db.rows = [];
@@ -77,10 +74,39 @@ describe("the injected new-page contract, end to end", () => {
     expect([validateProposal(page).verdict, page.status, openHold(page).blocking, nextObligation(page)], "the canon passes the finished page, the row reaches Ready, the one servability verdict holds nothing back, and the ladder that owed every section until it was written now owes nothing").toEqual(["ready", "ready", null, null]);
     expect(await saveChangeProposal(page), "the store takes it").toBe("saved");
     expect([await saveChangeProposal(page), db.rows.length], "and a second unchanged pass writes nothing at all: one row, byte for byte the row already on file").toEqual(["unchanged", 1]);
-    const again = await buildNewPageProposal(decided(s), s.t, { complete: seam(s).complete as never, now: new Date("2026-09-05T09:00:00.000Z") });
-    expect(proposalFingerprint(again.status === "built" ? again.proposal : page), "a second build of the same verdict hashes to the same work, so nothing re-derived re-writes the row").toBe(proposalFingerprint(page));
+    const pieces = [null, ...s.heads].map((heading, n) => ({ heading, after: `${section(s, `Write the section headed "${heading ?? s.title}"`).after} It was catalogued in 1984.`,
+      claims: [{ text: `${s.ownSample} Reading ${n}. It was catalogued in 1984.`, supportedBy: ["owned-page-1"] }], supportFacts: [{ id: "owned-page-1", fact: `${s.ownSample} Reading ${n}. It was catalogued in 1984.`, sources: [{ url: `https://${s.host}/reading/${n}`, kind: "publisher" }] }],
+      review: [{ i: 0, by: ["owned-page-1"], entailed: true }], gain: { adds: `Reading ${n}.`, by: ["owned-page-1"], pageWhole: true } }));
+    const banked = { ...page, newPageDraft: { brief: brief(s), pieces } }, plannedOpening = banked.newPageDraft.brief.openingAnswer;
+    const resumed = await buildNewPageProposal(decided(s), s.t, { now: NOW, held: banked, complete: (async () => { throw new Error("finished pieces must not be bought again"); }) as never });
+    expect(banked.newPageDraft.brief.openingAnswer, "published copy must not overwrite the validated planning brief").toBe(plannedOpening);
+    const merged = resumed.status === "built" ? resumed.proposal : null as never;
+    expect(merged.supportFacts?.length, "local evidence ids from different pieces must not overwrite one another").toBe(pieces.length);
+    pieces.forEach((piece, n) => { const claim = merged.claims![n]!;
+      expect(merged.supportFacts!.find((f) => f.id === claim.supportedBy[0]), "each claim keeps the exact reading and provenance its own reviewer saw").toEqual({ ...piece.supportFacts[0], id: claim.supportedBy[0] });
+      expect(merged.semanticReview!.claims[n]!.by).toEqual(claim.supportedBy); });
+    expect(merged.informationGain!.by).toHaveLength(pieces.length);
+    expect(new Set(merged.claims!.map((c) => c.of)).size, "each planned section has its own copy-bound component").toBe(pieces.length);
+    expect([merged.status, openHold(merged).blocking, nextObligation(merged)]).toEqual(["ready", null, null]);
+    expect((await buildNewPageProposal(decided(s), s.t, { now: NOW, held: { ...banked, newPageDraft: { ...banked.newPageDraft, brief: { ...banked.newPageDraft.brief, openingAnswer: pieces[0]!.after } } }, complete: (async () => { throw new Error("legacy brief must resume for free"); }) as never })).status, "a legacy brief already carrying its sourced opening still resumes").toBe("built");
+    const broken = await buildNewPageProposal(decided(s), s.t, { now: NOW, held: { ...page, newPageDraft: { brief: brief(s), pieces: pieces.map((p, n) => n === 1 ? { ...p, supportFacts: [] } : p) } }, complete: (async () => { throw new Error("no rewrite"); }) as never });
+    expect(broken.status === "built" && broken.proposal.status === "needs_review", "a piece missing its own evidence cannot borrow another piece's identically named source").toBe(true);
+    db.readings = s.heads.map((subject, n) => ({ subject, current: "", proposed: `${section(s, `Write the section headed "${subject}"`).after} It was catalogued in 1984.`,
+      state: "checked", rulesVersion: rulesVersionFor({ subject, current: "" }), confidence: "confirmed", agreement: "single_source", verdict: "page_correct",
+      sources: [{ url: `https://source.example/reading/${n}`, kind: "encyclopedia", says: `${section(s, `Write the section headed "${subject}"`).after} It was catalogued in 1984.` }] }));
+    let by = ["owned-page-1"]; const actual = seam(s);
+    try { const sourced = await buildNewPageProposal(decided(s), s.t, { now: NOW, complete: (async (input: { kind: string; user: string }) => {
+      if (input.kind === "editor_judgement") return { value: { ...RULED, notes: "Every assertion follows from its own checked reading.", claims: [{ i: 0, by, entailed: true }] } };
+      if (input.kind === "new_page_brief") return actual.complete(input);
+      const copy = section(s, input.user), n = (s.heads as readonly string[]).indexOf(copy.naturalHeading!);
+      by = [n < 0 ? "owned-page-1" : [...input.user.matchAll(/(fact-\d+): (.*?)(?=; fact-\d+:|; Write the section|$)/g)].find((m) => m[2]!.includes(`source.example/reading/${n}`))![1]!];
+      const after = n < 0 ? copy.after : `${copy.after} It was catalogued in 1984.`;
+      return { value: { ...copy, after, claims: [{ text: after, supportedBy: by }] } }; }) as never });
+      const final = sourced.status === "built" ? sourced.proposal : null as never;
+      expect([final.status, nextObligation(final)]).toEqual(["ready", null]);
+      final.claims!.slice(1).forEach((claim, n) => expect(final.supportFacts!.find((f) => f.id === claim.supportedBy[0])?.sources).toEqual([{ url: `https://source.example/reading/${n}`, kind: "encyclopedia" }]));
+    } finally { db.readings = []; }
   });
-
   /** A PIECE OF THIS PAGE GOT ONE ATTEMPT AND NO CORRECTION (production, topic inv_3446de602284, 2026-09-06). Every piece here goes through the ONE canonical editor, but only the existing-page caller ran its corrective rounds, so any refusal at all discarded the piece with the writer never told what the gate objected to, and a refused OPENING broke the section loop before it began: the account's highest ranked job spent 3 of its 12 funded calls on every pass and filed "0 of the 4 sections this page needs are written and 4 are still owed" for ever. */
   it.each(SITES)("buys a refused piece the corrective round the policy already prices, tells it the exact objection, and stops at that number, on $t", async (s) => {
     const flaky = (fails: (heading: string) => number) => { const wrote: string[] = [], seen = new Map<string, number>(); return { wrote, complete: async ({ kind, user }: { kind: string; user: string }) => {
@@ -92,7 +118,6 @@ describe("the injected new-page contract, end to end", () => {
       "an opening refused once is written on the round the twelve-call price already pays for, so the sections behind it are written and the whole page is handed over instead of nothing; the corrective round is handed the gate's own objection rather than asked again; and a piece that will not write stops at one attempt plus the retries the policy prices, keeping the opening and the two sections it did write on the row with the honest sentence naming what is still owed (owner's editorial policy, 2026-09-06)")
       .toEqual(["built", [...s.heads], 2, true, "built", true, 1 + DRAFT_BUDGET.RETRIES]);
   });
-
   it.each(SITES)("hands over no part of a page when a planned section will not write, keeps the pieces it did write on the row, and names what is still owed, on $t", async (s) => {
     db.rows = [];
     const out = await buildNewPageProposal(decided(s), s.t, { complete: seam(s, false).complete as never, now: NOW });
@@ -100,18 +125,15 @@ describe("the injected new-page contract, end to end", () => {
     expect(db.rows.length, "and no fact was stored").toBe(0);
   });
 });
-
 /** THE PAGES THAT ALREADY WIN THESE SEARCHES, ON FILE AND READ, exactly as an account holding seven winners for one topic holds them: one results page ranking one winner, and that winner's own main text. `carries` false is a winner read whole that says only what this page already plans, which is the case that owes a source rather than a writer. */ const research = (s: Site, carries: boolean) => ({ serpEvidence: [{ query: s.label, organic: [{ url: `https://w1.example/${s.key}` }] }], winningPages: [{ url: `https://w1.example/${s.key}`, domain: "w1.example", appearances: [{ kind: "serp_organic", query: s.label }], extract: { title: s.title, h1: s.title, wordCount: 900, headings: [s.title], h3s: [], entityNames: [], faqCount: 0, truncated: false, mainText: carries ? s.winner : `${s.ownSample} ${s.title} decides ${s.tail}` } }] }) as never;
 /** The same injected writer, with the copy a section written FROM the winners' reading looks like (it says two of the winner's own words in its own sentence) or the copy that narrates the plan back (nothing but the page's own drafted words, cited as such). */ const off = (s: Site, user: string, kind: "reads" | "narrates") => { const good = section(s, user), heading = good.naturalHeading; return { ...good, after: kind === "reads" ? `${s.echo[Math.max(0, (s.heads as readonly string[]).indexOf(heading ?? ""))]} come first for anyone doing this. ${s.opening}` : `${s.ownSample} ${s.title} decides ${s.tail} ${heading} follows from that.`, claims: [{ text: `${s.title} decides ${s.tail}`, supportedBy: ["draft-so-far-1"] }] }; };
 const wired = (s: Site, kind: "reads" | "narrates", held = false) => { const asked: string[] = [], kinds: string[] = []; let by: string[] = ["owned-page-1"]; return { asked, kinds, complete: async ({ kind: k, user }: { kind: string; user: string }) => { kinds.push(k); asked.push(user); if (k === "new_page_brief") return held ? { error: "the brief must not be bought again", retryable: false } : { value: brief(s) as never }; if (k === "editor_judgement") return { value: { ...RULED, notes: `It answers "${s.label}".`, claims: [{ i: 0, by, entailed: true }] } as never }; const draft = user.includes(`Write the section headed "${s.title}"`) ? section(s, user) : off(s, user, kind); by = [...draft.claims[0]!.supportedBy]; return { value: draft as never }; } }; };
-
 describe("a new page's sections are written from the winners' words, or the source they owe is filed", () => {
   it.each(SITES)("writes a section from what the winners answer and refuses one that narrates the plan back, telling the next round exactly that, on $t", async (s) => { db.rows = []; const w = wired(s, "reads"), out = await buildNewPageProposal(decided(s), s.t, { complete: w.complete as never, now: NOW, research: research(s, true) }); const wrote = w.asked.filter((u) => u.includes(`Write the section headed "${s.heads[0]}"`)).join(" ");
     expect([out.status, wrote.includes("rival-1: w1.example is "), wrote.includes("STATE THOSE IN YOUR OWN WORDS"), wrote.includes(s.echo[0]!.split(" ")[0]!), out.status === "built" && (out.proposal.recommendedChange.kind === "new_page" ? out.proposal.recommendedChange.outline : [])],
       "every winner reaches the section writer under the one id class no claim may name, carrying its publisher class and its own quoted words with the order to answer in its own words, and a section that says what they answer stands, so every planned section is written").toEqual(["built", true, true, true, [...s.heads]]); const n = wired(s, "narrates"), back = await buildNewPageProposal(decided(s), s.t, { complete: n.complete as never, now: NOW, research: research(s, true) }); const rounds = n.asked.filter((u) => u.includes(`Write the section headed "${s.heads[0]}"`));
     expect([back.status, back.status === "built" && back.proposal.researchOnly === true && (back.proposal.research?.missing ?? "").includes(s.heads[0]!), rounds.length > 1, rounds[1]?.includes("so a reader already on the page learns nothing"), db.rows.length],
       "and copy that says only what the plan already said is refused however clean it is, the corrective round is handed that exact objection, no part of the page is handed over (the opening it wrote rides the row as research still owed) and no fact is stored").toEqual(["built", true, true, true, 0]); });
-
   it.each(SITES)("files the source a section owes as a factual_source proposition and buys no draft for it, then finishes the page on the next pass at no brief and no rewrite, on $t", async (s) => { db.rows = []; const w = wired(s, "reads"); const owed = await buildNewPageProposal(decided(s), s.t, { complete: w.complete as never, now: NOW, research: research(s, false) }); const row = owed.status === "built" ? owed.proposal : null as never;
     expect([owed.status, row?.researchOnly, row?.obligation?.kind === "evidence" && row.obligation.need.kind, row?.obligation?.kind === "evidence" && row.obligation.need.missingTopic, w.asked.filter((u) => s.heads.some((h) => u.includes(`Write the section headed "${h}"`))).length, nextObligation(row)?.kind], "a winner read whole that carries nothing this page does not already plan buys no section: the heading itself is filed as the proposition to go and source, on the row and through the one ladder every buying loop reads") .toEqual(["built", true, "factual_source", s.heads[0], 0, "evidence"]);
     expect([row.newPageDraft!.pieces.length, (row.newPageDraft!.brief as { proposedTitle: string }).proposedTitle], "and the opening it did write, and the brief it planned from, are kept on that row").toEqual([1, s.title]); const back = wired(s, "reads", true); const done = await buildNewPageProposal(decided(s), s.t, { complete: back.complete as never, now: NOW, research: research(s, true), held: row });

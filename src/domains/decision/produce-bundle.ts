@@ -1,12 +1,11 @@
-/** decision/produce-bundle. The ONE producer of a deep, copy-ready change for a page a door selected. Order is deliberate: SELECT, BUILD the receipt FIRST for the EXACT candidate search, DIAGNOSE off that receipt, and only then draft the ONE field the diagnosis named. Confidence follows the EVIDENCE HELD, never how it reads.
- *  EVERY DOOR IS SERVED ON ITS OWN TERMS. The click door keeps its exact selection: the biggest proven shortfall against a page's own positions. Every other door selects the page IT named, answers for ITS OWN evidence, and concludes only what it measured: a door that never read the line a searcher reads never concludes its wording.
- *  No evidence means no change, and every input list is re-sorted before it is read, so the same evidence in any order produces a byte-identical result. server-only. */
+/** Select, build a scoped receipt, diagnose, then draft. Each door uses its own evidence; all input lists are sorted. */
 
 import "server-only";
 
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot"; import { canonicalUrlKey } from "@/domains/evidence/snapshot"; import { jobComparison, type JobComparison } from "@/domains/evidence/comparison";
 import { draftAtomicEditStructured } from "@/domains/decision/llm/structured-drafter"; import { DRAFT_BUDGET } from "./draft-budget"; import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
-import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, ComponentPlan, EvidenceReadiness, RecommendedChange } from "./contracts"; import { componentIdOf, confidenceFor, CTR_DEFICIT_SHARE, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction, receiptComposition } from "./contracts"; import { copyKey, evidenceShortfall, REVIEW_CONTRACT } from "./proof";
+import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, ComponentPlan, EvidenceReadiness, RecommendedChange } from "./contracts"; import { confidenceFor, CTR_DEFICIT_SHARE, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction, receiptComposition } from "./contracts"; import { copyKey, evidenceShortfall, REVIEW_CONTRACT } from "./proof";
+import { assembleCopy } from "./assemble-copy";
 import { technicalKey, type TechnicalFinding } from "./technical-findings";
 import { diagnoseCandidate, ownedResultOf, recurringPattern, RECEIPT, type DiagnosisInput } from "./diagnose";
 import { causeLabel, diagnoseCauses, substantiveGapOf, type CauseFinding } from "./diagnosis";
@@ -30,7 +29,7 @@ type SerpEvidence = Research["serpEvidence"][number];
 type Keyword = Research["retainedKeywords"][number];
 
 const norm = (s: string): string => s.trim().toLowerCase(); const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-export type OwnedBody = { openingSample: string | null; fetchedAt: string | null; contentHash?: string | null; // the page's OWN WORDS, whole, read by the caller through the targeted Evidence reader; absent means absent
+type OwnedBody = { openingSample: string | null; fetchedAt: string | null; contentHash?: string | null; // the page's OWN WORDS, whole, read by the caller through the targeted Evidence reader; absent means absent
   cardTexts?: string[]; entityNames?: string[]; internalLinks?: { href: string; anchorText: string }[]; metaDescription?: string | null;
   headings?: string[]; passages?: string[]; faqs?: { question: string; answer: string }[]; vocabulary?: string;
   completeness?: "complete" | "partial" | "sample_only"; heldNote?: string };
@@ -147,9 +146,7 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
     const key = i === 0 ? RECEIPT.ai : `ai${i + 1}`; add(key, "ai_observation", observationFact(o), o.observedAt, { observationId: o.observationId });
     if (o.citations == null) contextOnly.push(key); // context, never component support
     prompts.push(o.promptText); });
-  // WHAT THOSE ANSWERS ACTUALLY SAID, not merely that they were given: who they name, what shape they ask for, what they leave unanswered and whether they name this account at all, each line carrying EVERY stored
-  // answer it stands on. The engines' own CLAIMS never come through here: every fact below is handed to the drafters as grounding, and somebody else's assertion is not a source of mine. A GAP THE ANSWERS KEEP LEAVING
-  // is then an argument for covering it, so the RECURRING ones (never one answer's) stand behind whichever coverage component the ladder produces.
+  // Recurring omissions may justify coverage. Engine assertions never serve as factual grounding.
   const intel = answerIntelOf(observations); const said = answerIntelFacts(intel); for (const f of said.facts) add(f.key, "ai_observation", f.fact, f.observedAt, f);
   if (said.withheld) missing.push(said.withheld); // a dropped signal is still evidence I had, and withholding it in silence reads exactly like never having gathered it
   const supportKeys = intel.omissions.slice(0, 2).flatMap((s, i) => (s.prompts > 1 ? [`missing${i + 1}`] : []));
@@ -449,17 +446,9 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     confidenceReasons,
     measurementPlan: "Once you make the change, record it on Results with the page address, and clicks, views and average position for these searches get read at 7, 14 and 28 days, compared against pages you did not change.",
   };
-  // WHAT EVERY PIECE OF THIS CHANGE STANDS ON, carried onto the row it is judged by. Each claim names the piece it answers for through `componentIdOf`, which folds that piece's exact words, so one authorized section can never lend its ruling to another piece and a receipt copied onto different copy stops matching; the rulings are re-indexed onto the merged list because the reviewer's answer is per claim and the row's claims are the union of the pieces'.
-  const claims: NonNullable<ChangeProposal["claims"]>[number][] = []; const review: { i: number; by: string[]; entailed: boolean }[] = [];
-  const banked = new Map<string, NonNullable<ChangeProposal["supportFacts"]>[number]>(); /* TYPED PROVENANCE SURVIVES THE MERGE (measured, 2026-09-05): the authorized piece hands over each fact with the addresses its reading actually quoted and what kind of source each one is, and this map kept the id and the sentence alone, so every fact a new page or a bundle banks reaches the row with its provenance stripped and the publisher count falls back to hostnames parsed out of the fact's own prose. The map carries the fact itself. */ const preservation: NonNullable<ChangeProposal["preservation"]>[number][] = []; const gains: NonNullable<AuthorizedPiece["gain"]>[] = [];
-  components.forEach((c, i) => { const a = authed.get(c.after); if (!a) return;
-    for (const f of a.supportFacts) banked.set(f.id, f);
-    a.claims.forEach((x, n) => { const v = a.review.find((z) => z.i === n); if (v) review.push({ i: claims.length, by: [...v.by], entailed: v.entailed });
-      claims.push({ text: x.text, supportedBy: [...x.supportedBy], of: componentIdOf(c, i) }); });
-    if (a.gain) gains.push(a.gain); if (a.preservation) preservation.push(...a.preservation); });
-  // ONE GAIN FOR THE ROW: what all the pieces add, the ids behind it, and whole-page ONLY where every piece really read the whole page. A target hash rides only where exactly one piece replaced a passage, because two replacements have two targets and one field cannot honestly name both.
-  const gain = gains.length === 0 ? null : { adds: gains.map((g) => g.adds).join(" "), by: [...new Set(gains.flatMap((g) => [...g.by]))], pageWhole: gains.every((g) => g.pageWhole),
-    ...(gains[0]!.bodyHash ? { bodyHash: gains[0]!.bodyHash } : {}), ...(gains.length === 1 && gains[0]!.targetHash ? { targetHash: gains[0]!.targetHash } : {}) };
+  const { claims, review, supportFacts, preservation, gain } = assembleCopy(components, components.flatMap((c, index) => {
+    const copy = authed.get(c.after); return copy ? [{ index, copy }] : [];
+  }));
   const primaryComponent = components[0]!; // THE FAMILY THIS CHANGE BELONGS TO, worn by the id AND the stamp. The id ended in the literal word "bundle" and the family read "single", so a snippet rewrite and a body rebuild on one page fought over one id and every shipped bundle reached the proof ledger unclassifiable. Both read the store's own derivation now.
   const recommendedChange: RecommendedChange = { kind: "existing_edit", field: fieldForComponent(primaryComponent.kind), before: primaryComponent.before, after: primaryComponent.after };
   const family = actionFamilyOf({ kind: "existing_edit", bundle, recommendedChange });
@@ -480,7 +469,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       evidence: { query: primary, hints: facts.slice(0, 5), evidenceRefCount: receipt.items.length },
       // A SIZE ONLY WHERE ONE IS PROVEN: an unproven door ranks as a direction, never as zero clicks.
       impactScore: pick.gap >= MIN_RECOVERABLE_CLICKS ? Math.round(pick.gap) : null, upsidePerMonth: null, bundle, createdAt: now.toISOString(),
-      ...(claims.length > 0 ? { claims, supportFacts: [...banked.values()] } : {}),
+      ...(claims.length > 0 ? { claims, supportFacts } : {}),
       ...(gain ? { informationGain: gain } : {}), ...(preservation.length > 0 ? { preservation } : {}),
   };
   // THE READING IS STAMPED ON THE FINISHED ROW, never on a draft: copyKey folds the copy, every piece, every claim with the piece it answers for, and the words behind every id, and excludes the reading itself, so the identity comes from the completed proposal without a cycle.
