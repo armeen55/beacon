@@ -335,7 +335,7 @@ export type StructuredDraftKind =
   | "competitor_comparison"
   | "answer_block"
   | "atomic_edit"
-  | "editor_judgement"
+  | "editor_judgement" | "page_acceptance"
   | "tool_asset"
   | "commerce_asset"
   | "experiment_plan"
@@ -386,6 +386,7 @@ export const SCHEMA_BY_KIND = {
   aeo_gap: AeoGapSchema,
   competitor_comparison: CompetitorComparisonSchema,
   editor_judgement: EditorJudgementSchema,
+  page_acceptance: EditorJudgementSchema.omit({ claims: true, aeoPacket: true }),
   fact_claim_extraction: FactClaimExtractionSchema,
   fact_claim_judgement: FactClaimJudgementSchema,
   factual_review: FactualReviewSchema,

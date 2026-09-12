@@ -24,7 +24,7 @@ const TITLE_AFTER = "Rain barrel sizing: gallons per storm by roof area";
 /** Records every draft kind bought, so "spent nothing" is provable rather than assumed. */
 const bought: string[] = [];
 const seam = (over: { atomic?: unknown; judged?: unknown } = {}): CompleteFn => async ({ kind, user }) => { bought.push(kind);
-  if (kind === "editor_judgement") return { value: (over.judged ?? JUDGED(cited(user))) as never };
+if (kind === "editor_judgement" || kind === "page_acceptance") return { value: (over.judged ?? JUDGED(cited(user))) as never };
   return { value: (over.atomic ?? { field: "answer_block", before: null, after: ANSWER, naturalHeading: (/under the heading "(.*?)"/.exec(user) ?? [])[1] ?? "Where the overflow goes",
     placementAnchor: "Rain Barrels", claims: [{ text: "Barrel sizes vary.", supportedBy: [cited(user)] }], implementationMinutes: 15, rationale: "The opening never says what the search is about.", ...TAIL }) as never };};
 const page = (over: Partial<OwnedPageEvidence> = {}): OwnedPageEvidence => ({ url: URL, content: { title: "Rain Barrels", metaDescription: null, h1: "Rain Barrels", h2: [], outline: ["Rain barrel sizing", "Roof area and gallons"], schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 900, internalLinks: [], fetchedAt: "2026-07-20T00:00:00.000Z" },
@@ -86,7 +86,7 @@ describe("a named cause produces the change that fixes it", () => {
   });
   /** A REBUILD IS EARNED BY CAUSES THAT FIRED, never by ones checked and RULED OUT: counting the whole list told the operator "2 separate things are wrong" where the second clause contradicted the evidence. */ describe("a rebuild is earned by what fired", () => {
     const REBUILT = ANSWER.replace("a heavy storm delivers", "a heavy storm brings"); const rebuildSeam: CompleteFn = async ({ kind, user }) => { bought.push(kind); // The cause's OWN producer can write nothing, so the rebuild is reachable; the rebuild's own sections do land, because a rebuild that cannot write the whole page now emits nothing at all. No superlative in the rebuilt copy: this fixture supplies no opening pattern, so "the first" would be an ungrounded claim and the factual firewall would rightly refuse the whole rebuild.
-      if (kind === "editor_judgement") return { value: JUDGED(cited(user)) as never };
+      if (kind === "editor_judgement" || kind === "page_acceptance") return { value: JUDGED(cited(user)) as never };
       if (user.includes("Rewrite the first lines")) return { value: { field: "answer_block", before: null, after: ANSWER, naturalHeading: "Where the overflow goes", placementAnchor: "Rain Barrels", claims: [{ text: "Barrel sizes vary.", supportedBy: [cited(user)] }], implementationMinutes: 15, rationale: "The opening never says what the search is about.", ...TAIL } as never };
       return user.includes("being rebuilt") ? { value: { field: "answer_block", before: null, after: REBUILT, naturalHeading: (/under the heading "(.*?)"/.exec(user) ?? [])[1] ?? "Overflow", placementAnchor: "Rain Barrels", claims: [{ text: "Barrel sizes vary.", supportedBy: [cited(user)] }], implementationMinutes: 15, rationale: "The page is being rebuilt.", ...TAIL } as never } : { value: {} as never }; };
     const gaps = { ownedGaps: [{ gap: "None of this page covers overflow", seenOn: [0, 1] }], openingPattern: "" };
@@ -135,7 +135,7 @@ describe("a named cause produces the change that fixes it", () => {
     sourceRequirements: [], factRequirements: [], internalLinks: [], faqQuestions: [], headKeys: ["demand"] };
   const pageSeam = (write = true): CompleteFn => async ({ kind, user }) => { bought.push(kind);
     if (kind === "new_page_brief") return { value: BRIEF as never };
-    if (kind === "editor_judgement") return { value: JUDGED(cited(user)) as never }; const heading = (/Write the section headed "(.*?)"/.exec(user) ?? [])[1] ?? BRIEF.proposedTitle;
+    if (kind === "editor_judgement" || kind === "page_acceptance") return { value: JUDGED(cited(user)) as never }; const heading = (/Write the section headed "(.*?)"/.exec(user) ?? [])[1] ?? BRIEF.proposedTitle;
     return { value: (write || heading !== HEADS[2] ? { field: "answer_block", before: null, after: ANSWER, naturalHeading: heading, placementAnchor: BRIEF.proposedTitle, claims: [{ text: "Barrel sizes vary.", supportedBy: [cited(user)] }], implementationMinutes: 15, rationale: "The page owes this section.", ...TAIL } : {}) as never }; };
   const topic: DecidedTopic = { investigation: investigation(), candidates: [candidate()], reading: null,
     decision: { verdict: "create_new", topicKey: "inv_rain", ownedUrls: [], evidenceKeys: ["demand"], missing: [],
@@ -143,10 +143,10 @@ describe("a named cause produces the change that fixes it", () => {
   it("writes and rules every piece against another page of this account, and refuses to hand over part of a page", async () => {
     const built = await buildNewPageProposal(topic, TENANT, { complete: pageSeam(), now: NOW, bypassCache: true }); expect(built.status).toBe("built"); if (built.status !== "built") return; const p = built.proposal;
     expect(bought.filter((k) => k === "atomic_edit")).toHaveLength(4); // the opening and all three sections, through the ONE canonical editor and never a second drafter
-    const kinds = p.bundle!.components.map((c) => c.kind), pieces = new Set(p.claims!.map((c) => c.of)); expect([kinds, pieces.size]).toEqual([["title", "meta", "opening_answer", "section", "section", "section"], 4]);
+    const kinds = p.bundle!.components.map((c) => c.kind), pieces = new Set(p.claims!.map((c) => c.of)); expect([kinds, pieces.size]).toEqual([["title", "meta", "opening_answer", "section", "section", "section", "source_pack"], 4]);
     expect(p.claims!.every((c) => c.supportedBy.every((id) => id.startsWith("owned-page")))).toBe(true); expect([evidenceShortfall(p), openHold(p).blocking], "a complete page whose every claim is carried earns the same verdict a section earns").toEqual([null, null]);
     const own = { ...p, claims: p.claims!.map((c) => ({ ...c, supportedBy: ["page-copy-1"] })) }; // the same page, every claim standing on the page's own drafted words, read and ruled exactly as it stands
-    const unsupported = { ...own, semanticReview: { ...p.semanticReview!, of: copyKey(own), claims: p.semanticReview!.claims.map((r) => ({ ...r, by: ["page-copy-1"] })) } }; expect([openHold(unsupported).defects, openHold(unsupported).advisories.map((a) => a.kind).filter((k) => k === "single_source")], "REPLACES the hold on a page standing on its own words: the page's own uncontradicted statement of its subject is one credible source, so the page is offered with the caveat naming it").toEqual([[], ["single_source"]]);
+    const unsupported = { ...own, semanticReview: { ...p.semanticReview!, of: copyKey(own), claims: p.semanticReview!.claims.map((r) => ({ ...r, by: ["page-copy-1"] })) } }; expect([openHold(unsupported).defects.length > 0, openHold(unsupported).advisories.some((a) => a.kind === "single_source")], "An unpublished draft is not an independent source, even if its own claim receipt is affirmative.").toEqual([true, false]);
     const partial = await buildNewPageProposal(topic, TENANT, { complete: pageSeam(false), now: NOW, bypassCache: true });
     expect([partial.status, partial.status === "built" && partial.proposal.researchOnly === true && partial.proposal.status === "needs_review" && partial.proposal.obligation?.kind === "sections" && (partial.proposal.newPageDraft?.pieces.length ?? 0) >= 1 && (partial.proposal.research?.missing ?? "").includes("not written yet")], "part of a page is not handed over, and the pieces written this pass are kept on the row with the sections it still owes (owner's editorial policy, 2026-09-06)").toEqual(["built", true]); });
 });

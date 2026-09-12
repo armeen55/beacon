@@ -50,12 +50,12 @@ import { markProposalImplementedAction } from "@/app/(shell)/changes/actions";
 const BASIS = "basis_today::d6";
 const PROPOSAL_ID = "tenant-test::/nowruz-guide::existing_edit::bundle";
 /** EVERY PIECE THAT PUTS WORDS ON THE PAGE CARRIES ITS OWN CLAIM-TO-SOURCE AUTHORIZATION (2026-08-30), named by the piece it belongs to, and the one serving verdict this door reads refuses a bundle without it. These fixtures are about the shipment transaction, so they carry what a real bundle now carries rather than testing a row no producer can mint. */
-const authorize = <T extends { bundle?: unknown }>(p: T): T => { const parts = ((p.bundle as { components?: { kind: string; label: string; after?: string | null }[] } | undefined)?.components ?? []);
+const authorize = <T extends { bundle?: unknown; kind?: string }>(p: T): T => { const parts = ((p.bundle as { components?: { kind: string; label: string; after?: string | null }[] } | undefined)?.components ?? []);
   const owed = parts.map((c, i) => ({ c, i })).filter((x) => x.c.kind !== "title" && x.c.kind !== "meta");
   if (owed.length === 0) return p;
   const claims = owed.map((x) => ({ text: `The ${x.c.label} copy rests on the source below.`, supportedBy: ["fact-1"], of: componentIdOf(x.c, x.i) }));
   const row = { ...p, claims, supportFacts: [{ id: "fact-1", fact: "encyclopedia: the kite festival runs the first weekend of April." }] };
-  return { ...row, semanticReview: { of: copyKey(row as never), version: REVIEW_CONTRACT, editor: { pageFit: true, usefulAndNatural: true, placementCorrect: true, resolvesDiagnosis: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "Every declared copy component and its placement are accepted against the stated assignment and source." }, claims: claims.map((_, i) => ({ i, by: ["fact-1"], entailed: true })) } }; };
+return { ...row, semanticReview: { ...(row.kind === "new_page" ? { scope: "whole_page" as const } : {}), of: copyKey(row as never), version: REVIEW_CONTRACT, editor: { pageFit: true, usefulAndNatural: true, placementCorrect: true, resolvesDiagnosis: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "Every declared copy component and its placement are accepted against the stated assignment and source." }, claims: claims.map((_, i) => ({ i, by: ["fact-1"], entailed: true })) } }; };
 /** The change the operator is confirming: a two-component bundle on a page Beacon holds. */
 const proposal = (over: Record<string, unknown> = {}) => authorize({
   id: PROPOSAL_ID, tenantId: "tenant-test", kind: "existing_edit", pagePath: "/nowruz-guide",

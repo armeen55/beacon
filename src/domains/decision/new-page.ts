@@ -16,8 +16,8 @@ import { earnedNewPage, type CoverageDecision } from "./coverage-adjudication";
 import type { DecidedTopic } from "./coverage-pass";
 import type { OwnedCandidate } from "./owned-coverage";
 import { callStructuredLLM } from "./llm/structured-drafter"; import { DRAFT_BUDGET } from "./draft-budget";
-import { draftFieldForPage } from "./drafted-copy";
-import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
+import { draftFieldForPage, reviewFinishedCopy } from "./drafted-copy";
+import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { copyKey, evidenceShortfall, REVIEW_CONTRACT } from "./proof";
 import type { NewPageBrief } from "./llm/schemas";
 import type { BundleComponent, BundleEvidenceItem, ChangeBundle, ChangeProposal } from "./contracts";
@@ -231,7 +231,8 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   // by claim. Coverage adjudication authorized the NEED and the results pages authorize the FORMAT; a competitor's
   // page and an engine's answer are briefing here and may never carry a sentence, so the only ids that can support
   // one are a checked fact and another page this account owns, read below and handed over under those exact ids.
-  const qualified = Object.fromEntries(owned.filter((c) => (c.openingSample ?? "").trim().length > 0).slice(0, 4).map((c, i) => [`owned-page-${i + 1}`, `${c.path}: ${c.openingSample}`]));
+  const bankedBodies = await loadOwnedPageBodies(tenantId, owned.map((c) => c.url)).catch(() => new Map<string, OwnedPageBody>());
+  const qualified = Object.fromEntries(owned.map((c) => ({ c, text: bankedBodies.get(canonicalUrlKey(c.url))?.passages.join("\n\n") || c.openingSample || "" })).filter(({ text }) => text.trim()).slice(0, 4).map(({ c, text }, i) => [`owned-page-${i + 1}`, `${c.path}: ${text}`]));
   const outline = v.sections.map((s) => s.heading); let openingCopy = v.openingAnswer;
   type Piece = NonNullable<ChangeProposal["newPageDraft"]>["pieces"][number]; // WHAT A FINISHED PIECE OF THIS PAGE IS, in exactly the shape the row keeps it in: the words, the claims, the sources behind them and the ruling each one got.
   /* WHAT AN EARLIER PASS ALREADY FINISHED, off the row it kept it on (production, topic inv_3446de602284, 2026-09-06): the opening first, then every section under its own heading. A piece on file is never written again, never judged again and never charged again, so the twelve calls this page is priced at go to the sections that are still owed. */ const kept = (stored?.pieces ?? []) as readonly Piece[], made = new Map<string, Piece>(kept.slice(1).map((a) => [norm(a.heading ?? ""), a] as const)); const written = (): string[] => v.sections.map((s) => made.get(norm(s.heading))).filter((a): a is Piece => !!a).map((a) => `${(a.heading ?? "").trim()}\n\n${a.after}`.replace(/[–—]/g, " "));
@@ -254,7 +255,7 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     const done = await write(s.heading, s.covers, fx, c); if (!done) break; made.set(norm(s.heading), done); }
   const pieces: Piece[] = first ? [first, ...v.sections.map((s) => made.get(norm(s.heading))).filter((a): a is Piece => !!a)] : [], body = written();
   if (body.length < outline.length) { const owed = outline.filter((h) => !made.has(norm(h))); log.warn("[new-page] partial draft, nothing proposed", { tenantId, topicKey: inv.key, owed: owed.length, unsourced: owedSource.length });
-    /* THE SECTIONS NOBODY CAN SOURCE ARE FILED AS THE RESEARCH THEY ARE, on the row and therefore on the pass's own owed list, exactly as an existing page's missing answer is: a `factual_source` need whose proposition is the section's own heading. The runtime buys the source, and the next pass finds the brief and every finished piece on this same row and writes that section with a `fact-` id it may cite. ONE need at a time is what the buy loops execute, so the first owed heading is the obligation and every one of them is named in the limitations. */ if ((owedSource.length === 0 || !home) && pieces.length === 0) return { status: "none", reason: `${num(body.length)} of the ${num(outline.length)} sections this page needs are written and ${num(owed.length)} ${owed.length === 1 ? "is" : "are"} still owed: ${owed.join(", ")}. Part of a page is not worth handing over. Ask again and it picks up where it stopped: what is already written costs nothing a second time.${whyRefused.size > 0 ? ` The writer's own refusals: ${[...whyRefused.entries()].map(([h, w]) => `"${h}": ${w}`).join(" | ").slice(0, 600)}` : ""}` }; const need: EvidenceRequirement | null = owedSource.length > 0 && home ? { kind: "factual_source", query: `${owedSource[0]} ${inv.label}`.slice(0, 120), url: home.url, reasonCode: "new_page_section_unsourced", missingTopic: owedSource[0]! } : null; /* A PIECE WRITTEN THIS PASS SURVIVES EVERY EXIT (owner's editorial policy, 2026-09-06; journey review the same day): with nothing left to source and the budget spent, or with no owned page to bind a source to, the sections in hand were dropped with the "none" answer and paid for again on the next pass. They ride the row now under a `sections` obligation, and the next pass writes the rest. */
+    const need: EvidenceRequirement | null = owedSource.length > 0 && home ? { kind: "factual_source", query: `${owedSource[0]} ${inv.label}`.slice(0, 120), url: home.url, reasonCode: "new_page_section_unsourced", missingTopic: owedSource[0]! } : null;
     return { status: "built", proposal: { id: `${tenantId}::${inv.key}::new_page::bundle`, tenantId, kind: "new_page", changeFamily: "new_page", publish: "manual", pagePath: null, pageUrl: null, pageLabel: v.proposedTitle, primaryQuery: inv.label, opportunityType: "Cover a subject you have no page for", status: "needs_review", researchOnly: true, treatment: "new_page", obligation: need ? { kind: "evidence", need } : { kind: "sections", owed: owed.length }, research: need ? { missing: `Nothing checked stands behind ${num(owedSource.length)} of the ${num(outline.length)} sections this page needs: ${owedSource.join(", ")}.`, next: `A source is being read for "${owedSource[0]}", and that section gets written once it lands.` } : { missing: `${num(owed.length)} of the ${num(outline.length)} sections this page needs are not written yet: ${owed.join(", ")}.`, next: `The next pass writes "${owed[0]}", and what is already written costs nothing a second time.` }, recommendedChange: { kind: "new_page", proposedTitle: v.proposedTitle, metaDescription: v.metaDescription, openingAnswer: openingCopy, outline, faqQuestions: v.faqQuestions, schemaTypes: [] }, whyItMatters: `${decision.explanation} ${num(body.length)} of its ${num(outline.length)} sections are written and kept, ${need ? "and the rest wait on a source." : "and the rest are written on the next pass."}`, estimatedEffortMinutes: effortForFamily("new_page"), operatorSteps: [need ? "Nothing to do yet: a source is being read for the sections that still owe one" : "Nothing to do yet: the remaining sections are written on the next pass"], riskLevel: "low", confidence: "medium", limitations: [...new Set([...missing, ...(need ? owedSource.map((h) => `Nothing checked stands behind "${h}" yet, so it is being sourced before it is written.`) : owed.map((h) => `"${h}" is not written yet, and it is written on the next pass.`))])], evidence: { query: inv.label, hints: [...facts.slice(0, 5), ...[...questions.values()].slice(0, 8)], evidenceRefCount: items.length }, impactScore: null, upsidePerMonth: null, createdAt: now.toISOString(), newPageDraft: { brief: v as unknown as Record<string, unknown>, pieces } } }; }
 
   // ── one bundle: the pieces to paste, and everything they rest on ──
@@ -262,30 +263,20 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   // THE MODEL'S OWN CITATIONS for the three pieces a reader sees first, validated against the supplied ids like every other key. A generic set assigned afterwards proved nothing.
   const core = cite(v.headKeys);
   const sectionKeys = [...new Set(v.sections.flatMap((s) => cite(s.evidenceKeys)))];
-  // A SOURCE I HOLD IS NAMED WHOLE: the page, its publisher, the claim, the day I read it. Holding NONE leaves
-  // "this kind of source is needed", so the copy says the operator picks it and the page is held for review.
-  const cited = inv.winners.filter((w) => w.extractState === "current" && w.fetchedAt).slice(0, 3)
-    .map((w) => `${w.url}, published by ${w.domain}, read on ${day(w.fetchedAt)}: it is one of the pages that win "${inv.label}", and it is a source for what a page on this subject has to cover.`);
-  // A CITED WINNER IS A REAL SOURCE for the section it evidences. The model's OWN requirement sentences never are: they carry the caveat either way, and a pack leaning on one holds the page for review.
-  const caveat = (s: string): string => `${s} You pick the exact source for this one: what is on file is the kind of source it needs and not the source itself.`;
-  const sourcing = [...cited, ...v.sourceRequirements.map(caveat)];
-  const unbacked = cited.length === 0 || v.sourceRequirements.length > 0;
   const components: BundleComponent[] = [
     { kind: "title", label: "Page title", before: null, after: v.proposedTitle, evidenceKeys: core, risk: "safe" },
     { kind: "meta", label: "Meta description", before: null, after: v.metaDescription, evidenceKeys: core, risk: "safe" },
     { kind: "opening_answer", label: "Opening answer", before: null, after: openingCopy, evidenceKeys: core, risk: "review" },
     ...pieces.slice(1).map((piece): BundleComponent => ({ kind: "section", label: piece.heading!, before: null, after: `${piece.heading}\n\n${piece.after}`, evidenceKeys: sectionKeys, risk: "review" })),
   ];
-  if (sourcing.length > 0 || v.factRequirements.length > 0) {
-    components.push({ kind: "source_pack", label: "What to source and check before this goes out", before: null,
-      after: [...sourcing, ...v.factRequirements].map((s) => `- ${s}`).join("\n"), evidenceKeys: core, risk: "review" });
-  }
   if (v.internalLinks.length > 0) {
     components.push({ kind: "internal_links", label: "Link to these pages of your own", before: null,
       after: v.internalLinks.map((l) => `${l.anchor} -> ${ownedByKey.get(canonicalUrlKey(l.url))!.path}`).join("\n"),
       evidenceKeys: [...core, ...[...keys].filter((k) => k.startsWith("owned"))], risk: "safe" });
   }
   const { claims, review: ruled, supportFacts, gain, editor } = assembleCopy(components, pieces.map((copy, n) => ({ copy, index: n + 2 })));
+  const sourcePack = claims.map((claim) => `${claim.text}\n${claim.supportedBy.map((id) => { const f = supportFacts.find((fact) => fact.id === id); return `${f?.fact ?? "Source not banked"}${f?.sources?.length ? `\n${f.sources.map((s) => `${s.url} (${s.kind})`).join("\n")}` : ""}`; }).join("\n")}`).join("\n\n");
+  if (sourcePack) components.push({ kind: "source_pack", label: "Evidence behind the claims", before: null, after: sourcePack, evidenceKeys: core, risk: "review" });
   const shared = reading?.shared.length ?? 0;
   const dates = items.map((i) => i.observedAt).filter((d): d is string => !!d).sort();
   const bundle: ChangeBundle = {
@@ -303,7 +294,7 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     alternatives: decision.alternativesRuledOut.map((a) => ({ option: a.alternative, reason: a.reason })),
     risks: [
       "A page that does not exist yet has no history, so give it the full 28 days before you judge it.",
-      "Read every line once and add your own sources before it goes out. You write and publish this page; Beacon only drafts it.",
+      "Read every line and check its linked evidence before it goes out. You publish manually; Beacon only drafts it.",
       ...missing.slice(0, 2),
     ],
     confidenceReasons: [decision.explanation, v.whyExistingPagesLose,
@@ -324,7 +315,7 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     // WHERE THIS HAPPENS AND IN WHAT ORDER: a brief with no first move is a document, and these four are the job.
     operatorSteps: ["Create a new page in your site editor and give it the title above",
       "Paste the opening answer, then each section in the order it is written, under its own heading",
-      "Add your own sources to anything the source pack flags before you publish",
+      "Check the evidence behind the claims and add the cited links in your site editor",
       "Publish it, then come back here with its address and mark it done, and measurement starts"],
     riskLevel: "low",
     // A page nobody has read yet is never high confidence, however well the comparison settled it: the writing is still ahead of us.
@@ -332,7 +323,7 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     limitations: [...new Set(missing)],
     // THE QUESTIONS TRAVEL WITH THE DRAFT: the last gate grounds every address in the copy against this text.
     evidence: { query: inv.label, hints: [...facts.slice(0, 5), ...[...questions.values()].slice(0, 8)], evidenceRefCount: items.length },
-    impactScore: null, upsidePerMonth: null, bundle, createdAt: now.toISOString(),
+    impactScore: null, upsidePerMonth: null, bundle, createdAt: now.toISOString(), newPageDraft: { brief: v as unknown as Record<string, unknown>, pieces },
     ...(claims.length > 0 ? { claims, supportFacts } : {}), ...(gain ? { informationGain: gain } : {}),
   };
   // THE QUESTIONS ARE EVIDENCE TOO: the facts alone never carried the list the prompt ordered it to copy.
@@ -344,12 +335,13 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
         .filter((t) => /\b5\b/.test(t)).map((t) => t.slice(0, 220)).slice(0, 3) });
     return { status: "none", reason: `The page drafted for "${inv.label}" did not pass its own safety checks, so nothing is handed over rather than risk it.` };
   }
-  // A PAGE RESTING ON "SOME SOURCE OF THIS KIND" IS NEVER READY: the honest place for it is review. AND THE ONE SERVING VERDICT DECIDES THE REST, so a page whose claims nothing checked carries stays internal here carrying the door's own sentence rather than being minted ready for the door to refuse a moment later.
   const row: ChangeProposal = { ...proposal, ...(ruled.length > 0 ? { semanticReview: { editor, of: copyKey(proposal), version: REVIEW_CONTRACT, claims: ruled } } : {}),
-    limitations: [...new Set([...proposal.limitations, ...verdict.reasons, ...(!unbacked ? [] : [cited.length > 0
-      ? "Some of what this page claims still rests on the kind of source it needs rather than a source on file, so you pick those before it goes out."
-      : "No source of Beacon's own stands behind the claims on this page, so you pick every one of them before it goes out."])])] };
-  const short = evidenceShortfall(row);
-  return { status: "built", proposal: { ...row, status: unbacked || !!short || verdict.verdict !== "ready" ? "needs_review" : "ready",
-    ...(short ? { limitations: [...new Set([...row.limitations, short])] } : {}) } };
+    limitations: [...new Set([...proposal.limitations, ...verdict.reasons])] };
+  const heldReview = opts.held?.semanticReview;
+  const reviewed = heldReview?.scope === "whole_page" && heldReview.of === copyKey(row) && heldReview.version === REVIEW_CONTRACT && COPY_RULES.accepted(heldReview.editor)
+    ? { row: { ...row, semanticReview: heldReview }, detail: "Unchanged whole-page acceptance reused." }
+    : await reviewFinishedCopy(row, { tenantId, now, attempts: opts.attempts, complete: opts.complete, bypassCache: opts.bypassCache });
+  const final = reviewed.row ?? row, short = evidenceShortfall(final);
+  return { status: "built", proposal: { ...final, status: !!short || verdict.verdict !== "ready" ? "needs_review" : "ready",
+    ...(short ? { limitations: [...new Set([...final.limitations, short])] } : {}) } };
 }

@@ -201,7 +201,7 @@ const bareText = (t: string): string => t.toLowerCase().normalize("NFKD").replac
 const cut = (t: string, n = 60): string => (t.trim().length > n ? `${t.trim().slice(0, n)}...` : t.trim());
 
 export const copyKey = (p: ChangeProposal): string => { const c = p.recommendedChange;
-  return JSON.stringify([p.tenantId, p.pagePath ?? "", p.changeFamily, c.kind === "existing_edit" ? [c.field, c.where ?? "", c.before ?? "", c.after, c.linkTo ?? "", c.anchorText ?? ""] : ["new_page", c.proposedTitle, c.metaDescription, c.openingAnswer, c.outline],
+  return JSON.stringify([p.tenantId, p.pagePath ?? "", p.changeFamily, c.kind === "existing_edit" ? [c.field, c.where ?? "", c.before ?? "", c.after, c.linkTo ?? "", c.anchorText ?? ""] : ["new_page", c.proposedTitle, c.metaDescription, c.openingAnswer, c.outline, c.faqQuestions, c.schemaTypes, p.primaryQuery, p.bundle?.objective, p.bundle?.scope, p.newPageDraft?.brief.sourceRequirements, p.newPageDraft?.brief.factRequirements],
     ...(AEO_BAR.forRow(p) ? [[p.primaryQuery, p.assignment?.intent ?? []]] : []), (p.bundle?.components ?? []).map((x) => [x.kind, x.page ?? "", x.where ?? "", x.before ?? "", x.after]),
     // AND WHICH PIECE EACH CLAIM ANSWERS FOR, folded ONLY where the row carries it: `of` is new, every banked reading was taken over a key that never had it, and appending a null to every claim would retire the paid review on every stored row at once.
     (p.claims ?? []).map((x) => (x.of ? [x.text, [...x.supportedBy].sort(), x.of] : [x.text, [...x.supportedBy].sort()])), [...(p.supportFacts ?? [])].map((f) => f.sources?.length ? [f.id, f.fact, f.sources.map((s) => [s.url, s.kind]).sort()] : [f.id, f.fact]).sort(), ...(p.assignment ? [p.assignment] : [])]); },
@@ -226,7 +226,7 @@ export function unreviewed(p: ChangeProposal): string | null {
   const claims = p.claims ?? [], r = p.semanticReview, key = (xs: readonly string[]): string => [...xs].sort().join("|");
   // STRUCTURED DATA IS REVIEWED BY ITS OWN GATE, NOT BY THE EDITOR'S CHECKLIST (falsifier, 2026-09-02): /farsi-numbers owed a semantic review it could never pass, because every paid reading judged JSON-LD as prose and refused it with "the code adds no visible text". A schema block's claims are STRUCTURAL and its truth is the canon's visible-content proof, which validate-proposal owns.
   if (p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "schema") return null;
-  if ((p.assignment != null || p.kind === "new_page") && (!COPY_RULES.accepted(r?.editor) || r?.of !== copyKey(p))) return "the exact copy, assignment and sources have no complete editor acceptance on file, so the preserved words owe a review";
+  if ((p.assignment != null || p.kind === "new_page") && (!COPY_RULES.accepted(r?.editor) || r?.of !== copyKey(p) || p.kind === "new_page" && r?.scope !== "whole_page")) return "the exact copy, assignment and sources have no complete editor acceptance on file, so the preserved words owe a review";
   if (AEO_BAR.forRow(p) && (!AEO_BAR.passed(r?.aeoPacket) || r?.of !== copyKey(p))) return AEO_BAR.holds.unreviewed;
   if (!(AEO_BAR.forRow(p) || p.changeFamily === "factual_correction" || p.informationGain || claims.some((c) => c.supportedBy.some((id) => id.startsWith("fact-"))))) return null;
   if (!r || r.of !== copyKey(p)) return "nothing on file says the sources it cites actually support what it claims, so it is held until Beacon's own reviewer has read them together";

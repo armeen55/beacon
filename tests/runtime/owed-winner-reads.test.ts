@@ -32,8 +32,8 @@ describe("owedWinnerReads, the receipt and the unit reading one rule", () => {
     const twice = owedWinnerReads([serp("e", "2026-09-06T01:00:00Z", ["https://p1.example/x"]), serp("e", "2026-09-06T05:00:00Z", ["https://p2.example/y"])], [], own(s));
     const held = owedWinnerReads([serp("f", "2026-09-06T01:00:00Z", ["https://p1.example/x", "https://p2.example/y"])], ["https://p1.example/x"], own(s));
     expect([short.pageKeys.length, noise.queries, shared.queries, shared.pageKeys.length, twice.queries, twice.pageKeys.length, held.queries],
-      "a short results page owes both its pages; a search whose whole top ten is this account's own or a forum owes nothing; two searches sharing a page count that page once; one search seen twice is ONE owed search carrying both readings; and a search already holding a page on file is represented and owes nothing")
-      .toEqual([2, [], ["d", "c"], 2, ["e"], 2, []]);
+      "a short results page owes both its pages; a search whose whole top ten is this account's own or a forum owes nothing; two searches sharing a page count that page once; one search seen twice is ONE owed search carrying both readings; and a search holding only one of its ranked pages still owes its remaining comparison")
+      .toEqual([2, [], ["d", "c"], 2, ["e"], 2, ["f"]]);
   });
   it.each(SITES)("$t: one search under two spellings is one owed search to the receipt and one case to the reserve", (s) => {
     const two = owedWinnerReads([serp("Tide Pool Safety", "2026-09-06T01:00:00Z", ["https://p1.example/x"]), serp("tide pool safety", "2026-09-06T02:00:00Z", ["https://p2.example/y"])], [], own(s));
@@ -44,7 +44,7 @@ describe("owedWinnerReads, the receipt and the unit reading one rule", () => {
 /** WHAT TODAY PROMISES AGAINST WHAT THE NEXT PASS TAKES: the pages of the searches the pass reserves for, and only
  *  the ones it reserves, with everything else left to the global weight order an AI-cited page always outranks. */
 describe("the number Today says and the number the next pass reads", () => {
-  it.each(SITES)("$t: three owed searches of ten pages promise nine reads and the pass reads exactly those nine", (s) => {
+it.each(SITES)("$t: three owed searches reserve their exact top five pages inside fifteen total reads", (s) => {
     const serps = ["q1", "q2", "q3"].map((q, n) => ({ query: `${q} ${s.q}`, status: "done", observedAt: `2026-09-0${n + 1}T01:00:00Z`,
       organic: Array.from({ length: 10 }, (_, i) => ({ url: `https://${q}-p${i}.example/a`, rank: i + 1 })) }));
     const owed = owedWinnerReads(serps, [], own(s));
@@ -53,8 +53,8 @@ describe("the number Today says and the number the next pass reads", () => {
     const picked = rankWinningPages([...organic, ...aiCited] as never, own(s), WINNER_READ_BUDGET, owed.queries);
     const owedKeys = new Set(owed.pageKeys), read = picked.filter((c) => !c.standby && owedKeys.has(key(c.url)));
     expect([owed.pageKeys.length, read.length],
-      "Today says this many pages winning a search already bought are owed a read and that the next pass reads them, so the promise is the reserve itself: three publishers a search, never the thirty pages of those searches, of which the pass would open nine")
-      .toEqual([9, 9]);
+      "Today says this many pages winning a search already bought are owed a read and that the next pass reads them, so the promise is the reserve itself: five ranked pages per search, never thirty pages or a publisher-deduplicated substitute")
+      .toEqual([15, 15]);
   });
 });
 
@@ -67,8 +67,8 @@ describe("the number Today says and the pages the next pass reserves", () => {
       serp(`right ${s.q}`, "2026-09-06T02:00:00Z", ["https://p1.example/x", "https://p4.example/w", "https://p5.example/v"])]);
     expect([[spellings.owedSearches, spellings.promised, spellings.unread], [onePublisher.promised, onePublisher.unread],
       [twoPublishers.promised, twoPublishers.unread], [sharedPage.promised, sharedPage.unread]],
-      "one search however it is spelt is one promise carrying both readings; a search whose whole top ten is one publisher owes ONE read, because a second page from a source already held teaches nothing; a search with two publishers owes two; and a page two searches share is promised once. Every promised page is one the reserve actually opens.")
-      .toEqual([[1, 2, []], [1, []], [2, []], [5, []]]);
+      "one search however it is spelt is one promise carrying both readings; a search whose top ten is one publisher still owes five distinct ranked pages; a short four-page result owes all four; and a page two searches share is promised once. Every promised page is one the reserve actually opens.")
+      .toEqual([[1, 2, []], [5, []], [4, []], [5, []]]);
   });
 
   it.each(SITES)("$t: the promise is never a page the pass will not open, whatever the account already has in focus", (s) => {

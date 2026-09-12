@@ -22,8 +22,8 @@ const ok = (parsed: unknown, cacheKey = "ck"): CachedCallResult => ({ state: "ok
 function memStore(seed: FunnelState) {
   const rows = new Map<string, { state: FunnelState; rowVersion: number }>([[`${seed.tenantId}|${seed.basisTag}`, { state: seed, rowVersion: 1 }]]);
   const clone = (s: FunnelState): FunnelState => structuredClone(s);
-  const deps = { loadState: async (t: string, b: string) => { const row = rows.get(`${t}|${b}`)!; return { state: clone(row.state), rowVersion: row.rowVersion }; },
-    saveState: async (t: string, b: string, s: FunnelState, expected: number) => { const k = `${t}|${b}`; if ((rows.get(k)?.rowVersion ?? 0) !== expected) return null; rows.set(k, { state: clone(s), rowVersion: expected + 1 }); return expected + 1; } } satisfies Pick<FunnelDeps, "loadState" | "saveState">;
+  const deps = { loadCanonicalObservations: async () => [], loadState: async (t: string, b: string) => { const row = rows.get(`${t}|${b}`)!; return { state: clone(row.state), rowVersion: row.rowVersion }; },
+    saveState: async (t: string, b: string, s: FunnelState, expected: number) => { const k = `${t}|${b}`; if ((rows.get(k)?.rowVersion ?? 0) !== expected) return null; rows.set(k, { state: clone(s), rowVersion: expected + 1 }); return expected + 1; } } satisfies Pick<FunnelDeps, "loadState" | "saveState" | "loadCanonicalObservations">;
   return { deps, peek: (t: string, b: string) => rows.get(`${t}|${b}`)?.state };}
 describe("the freshness matrix", () => {
   it("gives every kind of evidence its own window, and history no window at all", () => {

@@ -241,13 +241,11 @@ class CanonicalReadFailure extends Error {}
  * back off the canonical record. Zero provider calls, zero writes. A failed read THROWS `CanonicalReadFailure`; only
  * an account that genuinely has no tracked questions and no stored answer comes back empty.
  *
- * SCOPE, all of it decided here so nothing downstream has to guess: this account, sample slot 0, an answer actually in
- * hand (`observed` with a hash), and the question's CURRENT version only. A retired question and a superseded wording
- * are both somebody else's history, so neither speaks for today. `prompts` is injectable; by default the ONE owner of
- * the tracked set is asked, so what the operator approved and what this reads can never disagree.
+ * Scope: tenant, slot 0, observed answer with a hash, current active question version.
+ * An explicit date range retains history instead of collapsing each pair to its latest answer.
  */
 export async function readCanonicalPairObservations(
-  tenantId: string, opts: { prompts?: readonly { id: string; version: number }[] } = {},
+  tenantId: string, opts: { prompts?: readonly { id: string; version: number }[]; fromDay?: string; toDay?: string } = {},
 ): Promise<CanonicalPairObservation[]> {
   return (await walkCanonicalPairs(tenantId, opts, "list")).map(canonicalPairOf);
 }
@@ -271,7 +269,7 @@ export async function readCanonicalAnalysisStamps(
  *  has its newest useful row. Everything that decides WHICH rows are the account's evidence lives here and
  *  nowhere else, so no second implementation can ever read a different window of the same account. */
 async function walkCanonicalPairs(
-  tenantId: string, opts: { prompts?: readonly { id: string; version: number }[] }, projection: "list" | "stamp",
+  tenantId: string, opts: { prompts?: readonly { id: string; version: number }[]; fromDay?: string; toDay?: string }, projection: "list" | "stamp",
 ): Promise<AiObservationRecord[]> {
   try {
     // Account owns the tracked set and Account is a lower kernel, so this is a plain static import in the legal
@@ -281,6 +279,8 @@ async function walkCanonicalPairs(
     if (active == null) throw new CanonicalReadFailure("[ai_observations] I could not read which questions are tracked");
     if (active.length === 0) return [];
     const current = new Map(active.map((p) => [p.id, p.version]));
+    if (opts.fromDay || opts.toDay) return (await readAiObservations(tenantId, { fromDay: opts.fromDay, toDay: opts.toDay, slot: 0, projection }))
+      .filter((r) => r.status === "observed" && !!r.answer_hash && current.get(r.prompt_id) === r.prompt_version);
     // ONE ROW PER PAIR: the newest reporting day, ties broken by the newest ask. A day is fixed width, so the two
     // stamps compare as one string without inventing a clock here. Every active question is asked on every engine,
     // so that product is how many pairs a complete read owes and therefore when the walk may stop.

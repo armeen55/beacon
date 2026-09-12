@@ -169,6 +169,9 @@ export type ResearchWinningAppearance = {
   rank: number | null;
   citedUrl: string;
   observedAt: string;
+  observationId?: string;
+  promptVersion?: number;
+  reportingDay?: string;
   modelServed: string | null;
   /** ai_answer appearances carry their observation mode; SERP kinds carry null.
    *  Optional for persisted pre-6I rows, which read as null. */

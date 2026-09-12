@@ -100,7 +100,7 @@ async function replayFunnel(): Promise<{ evidence: FunnelResearchEvidence; statu
   const observed: AiObservationRecord[] = [];
   const deps: FunnelDeps = { ...store.deps, callProvider: replayProvider, keywordIdeas: async () => [], now: () => NOW_MS,
     loadProfile: async () => fx.replayProfile(), getAccount: async () => ({ domain: SITE } as Account), loadCrawl: async () => null,
-    recordObservation: async (rec) => { observed.push(rec); },
+    recordObservation: async (rec) => { observed.push(rec); }, loadCanonicalObservations: async () => observed.filter((r) => r.status === "observed" && !!r.answer_hash).map(canonicalPairOf),
     collectTask: async () => evidenceOf(fx.llmAnswer(), "ck-collect"),
     loadPageQueries: async () => fx.agendaFromDecay([{ decay: fx.gscGain(), queries: [{ query: WINNER_QUERY, impressions: 25000, clicks: 2365, position: 4 }] },
       { decay: fx.gscDecline(), queries: [{ query: GAP_QUERY, impressions: 6000, clicks: 180, position: 4.1 }] }]) };

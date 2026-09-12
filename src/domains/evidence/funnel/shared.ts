@@ -52,11 +52,8 @@ export type FunnelDeps = {
   /** Top queries of the account's own strongest pages: portfolio 1 of the SERP agenda.
    *  null = the READ FAILED; [] = the account genuinely has none yet. */
   loadPageQueries?: (tenantId: string) => Promise<SerpAgendaPageQuery[] | null>;
-  /** THE WHOLE ANSWER SET THIS ACCOUNT HOLDS, not the handful of pairs one pass happens to be working: one
-   *  settled row per current question and engine, each carrying the searches the engine itself ran and a
-   *  reading that is non-null ONLY where it was validly settled against that exact answer. Read-only and
-   *  bounded; nothing here is ever re-purchased or re-analyzed. */
-  loadCanonicalObservations?: (tenantId: string) => Promise<CanonicalPairObservation[]>;
+  /** Canonical current-version evidence: latest per pair by default, complete within an explicit range. Failed reads throw; no purchases or analysis. */
+  loadCanonicalObservations?: (tenantId: string, range?: { fromDay: string; toDay: string }) => Promise<CanonicalPairObservation[]>;
   /** Test seam for winning-page citation-target resolution (defaults to the real
    *  redirect-only resolver in competitor-intel/polite-fetch). */
   resolveCitations?: (appearances: ResearchWinningAppearance[], fetchImpl?: typeof fetch, deadlineMs?: number) => Promise<ResearchWinningAppearance[]>;
@@ -92,7 +89,7 @@ export function resolveDeps(deps: FunnelDeps) {
     loadProfile: deps.loadProfile ?? loadBusinessProfile,
     loadCrawl: deps.loadCrawl ?? loadCrawlFrontier,
     loadPageQueries: deps.loadPageQueries ?? defaultPageQueries,
-    loadCanonicalObservations: deps.loadCanonicalObservations ?? (async (t: string) => (await import("@/domains/evidence/ai-visibility/ai-observations")).readCanonicalPairObservations(t)),
+    loadCanonicalObservations: deps.loadCanonicalObservations ?? (async (t: string, range?: { fromDay: string; toDay: string }) => (await import("@/domains/evidence/ai-visibility/ai-observations")).readCanonicalPairObservations(t, range)),
     getAccount: deps.getAccount ?? getTenant,
     recordObservation: deps.recordObservation ?? recordAiObservation,
     readObservationCost: deps.readObservationCost ?? (async (t: string, id: string) => Number((await readAiObservations(t, { id, limit: 1, projection: "list" }))[0]?.cost_usd ?? 0) || 0),

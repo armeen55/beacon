@@ -638,7 +638,7 @@ export function jobWinners(research: Pick<EvidenceSnapshot["research"], "serpEvi
   const serps = (research.serpEvidence ?? []).filter((s) => keys.has(canonicalQueryKey(s.query)));
   const support = (w: EvidenceSnapshot["research"]["winningPages"][number]) => { const url = canonicalUrlKey(w.url), ranks = serps.flatMap((s) => (s.organic ?? []).filter((o) => canonicalUrlKey(o.url) === url).map((o) => o.rank));
     const citations = new Set(serps.flatMap((s) => ([ ["ai_overview", s.aiOverview ?? []], ["ai_mode", s.aiMode ?? []] ] as const).flatMap(([kind, rows]) => rows.filter((o) => canonicalUrlKey(o.url) === url).map(() => `${kind}|${canonicalQueryKey(s.query)}|${s.observedAt}`))));
-    for (const a of w.appearances ?? []) if (keys.has(canonicalQueryKey(a.query ?? a.promptText ?? "")) && a.kind !== "serp_organic") citations.add(a.kind === "ai_answer" ? `${a.kind}|${a.promptId ?? a.promptText ?? a.query}|${a.engine}|${a.observedAt}` : `${a.kind}|${canonicalQueryKey(a.query ?? "")}|${a.observedAt}`);
+    for (const a of w.appearances ?? []) if (keys.has(canonicalQueryKey(a.query ?? a.promptText ?? "")) && a.kind !== "serp_organic") citations.add(a.kind === "ai_answer" ? `${a.kind}|${a.promptId ?? a.promptText ?? a.query}|${a.promptVersion ?? ""}|${a.engine}|${a.reportingDay ?? a.observedAt.slice(0, 10)}` : `${a.kind}|${canonicalQueryKey(a.query ?? "")}|${a.observedAt}`);
     return { rank: ranks.length ? Math.min(...ranks) : null, citationObservations: citations.size }; };
   return (research.winningPages ?? [])
     .map((w) => ({ ...w, querySupport: support(w) }))

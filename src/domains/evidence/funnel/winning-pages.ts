@@ -3,6 +3,7 @@ import "server-only";
  * bodies I am allowed to acquire under two explicit ceilings, read AT MOST ONE page of the account's OWN, and then, as a SECOND stage under a freshly renewed run lease, buy the ONE page-by-page comparison the winners
  * earned. Nothing here re-picks a topic (the caller freezes it), nothing pays twice for the same identity (the money core's cache does that), and no failed read is forgotten (every one carries its own retry date). */
 import { log } from "@/lib/logger";
+import { reportingDay } from "@/lib/reporting-day";
 import type { BusinessProfile } from "@/domains/account";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { pageIdFor } from "@/domains/evidence/scanning/in-process-scan";
@@ -16,9 +17,10 @@ import { askIdentity, normalizePageIntersection, parsePageIntersection, type Pag
 import { publisherHost } from "@/domains/evidence/serp-shape";
 import { mainOf, pageExtractFrom, pageExtractFromRecord, type IntersectionUnavailable, type OwnedPageReadOutcome, type ResearchPageComparison, type ResearchPageExtract, type ResearchWinningAppearance, type WinnerReadOutcome } from "./research-evidence";
 import { isCurrent } from "@/domains/evidence/freshness";
-import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, modeOf, NO_BASIS_DETAIL, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
+import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, NO_BASIS_DETAIL, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
+import type { CanonicalPairObservation } from "./research-evidence";
 
-/** ONE explicit acquisition budget per cycle, never a global free-for-all. 15 winning pages are ranked, so three priority searches keep their own three, and 18 is the MOST I ever go out and read: those 15 plus at
+/** ONE explicit acquisition budget per cycle, never a global free-for-all. 15 winning pages are ranked, so three priority searches keep their own five, and 18 is the MOST I ever go out and read: those 15 plus at
  *  most ONE substitute for each of the three priority searches, every one of them spending an ATTEMPT from the same total. Paid body reads are bounded SEPARATELY at 6, because they are the only page work that
  *  costs money, so a cycle where every publisher refuses can no longer buy a paid read for all fifteen. Bought comparisons kept: 8. And at most THREE searches a pass are served for having no page of their own on file, so a reserve for work nobody asked for still leaves most of the budget to the order this account has earned. */
 const WINNER_READ_BUDGET = 15, MAX_COMPARISONS = 8, MAX_PAGE_ATTEMPTS = 18, MAX_PAID_BODY_READS = 6;
@@ -30,21 +32,17 @@ const extractHash = (x: ResearchPageExtract): string => sha16(JSON.stringify(Obj
 
 // ── B5: winning pages ───────────────────────────────────────────────────────
 
-/** Flatten every SERP + AI appearance into TRUE-provenance rows: each carries its own query or real prompt id + text, its engine, its rank and (for AI answers) its observation MODE. One citation seen through BOTH ChatGPT modes is ONE appearance credited to the consumer look, never counted twice. Pure. */
-function collectAppearances(state: FunnelState, fallbackIso: string): ResearchWinningAppearance[] {
-  const out: ResearchWinningAppearance[] = [], seen = new Set<string>();
+/** SERPs plus dated canonical AI citations. Ranking dedupes modes after redirects resolve. */
+function collectAppearances(state: FunnelState, fallbackIso: string, observations: CanonicalPairObservation[]): ResearchWinningAppearance[] {
+  const out: ResearchWinningAppearance[] = [];
   for (const s of state.serps.queries.filter((x) => x.status === "done")) {
     const at = s.observedAt || state.updatedAt || fallbackIso;
     for (const o of s.organic ?? []) out.push({ kind: "serp_organic", query: s.query, promptId: null, promptText: null, engine: null, rank: o.rank, citedUrl: o.url, observedAt: at, modelServed: null, observationMode: null });
     for (const a of s.aiOverview ?? []) out.push({ kind: "ai_overview", query: s.query, promptId: null, promptText: null, engine: null, rank: null, citedUrl: a.url, observedAt: at, modelServed: null, observationMode: null });
     for (const a of s.aiMode ?? []) out.push({ kind: "ai_mode", query: s.query, promptId: null, promptText: null, engine: null, rank: null, citedUrl: a.url, observedAt: at, modelServed: null, observationMode: null });
   }
-  const cited = state.prompts.pairs.filter((x) => x.status === "done" && x.citations && x.citations.length > 0)
-    .sort((a, b) => Number(modeOf(b) === "consumer_search") - Number(modeOf(a) === "consumer_search")); // consumer look first: it wins the duplicate
-  for (const p of cited) for (const c of p.citations!) {
-    const key = `${p.promptId}|${p.engine}|${c.url}`; if (seen.has(key)) continue; seen.add(key);
-    out.push({ kind: "ai_answer", query: null, promptId: p.promptId, promptText: p.promptText ?? null, engine: p.engine, rank: null, citedUrl: c.url, observedAt: p.observedAt ?? fallbackIso, modelServed: p.modelServed ?? null, observationMode: modeOf(p) });
-  }
+  for (const p of observations) for (const c of p.citations ?? [])
+    out.push({ kind: "ai_answer", query: null, promptId: p.promptId, promptText: p.promptText, promptVersion: p.promptVersion, observationId: p.observationId, reportingDay: p.reportingDay, engine: p.engine, rank: null, citedUrl: c.url, observedAt: p.observedAt ?? p.reportingDay, modelServed: p.modelServed, observationMode: p.observationMode });
   return out;
 }
 
@@ -151,7 +149,10 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
       }
       const account = await d.getAccount(tenantId).catch(() => null), profile = await d.loadProfile(tenantId).catch(() => null);
       const ownDomain = account?.domain ? rootDomain(account.domain) : null;
-      const raw = collectAppearances(state, nowIso);
+      const toDay = reportingDay(d.now()), fromDay = new Date(Date.parse(`${toDay}T12:00:00Z`) - 27 * 86_400_000).toISOString().slice(0, 10);
+      const observations = await d.loadCanonicalObservations(tenantId, { fromDay, toDay }).catch(() => null);
+      if (observations === null) return { status: "failed", cursor, progress: {}, detail: "I could not read your stored AI evidence, so I spent nothing and kept your saved research." };
+      const raw = collectAppearances(state, nowIso, observations);
       const resolved = await Promise.resolve().then(() => resolve(raw, undefined, deadline)).catch(() => raw); // a resolver failure (sync OR async) degrades to raw appearances; the unit deadline bounds it
       const prior = new Map(state.winningPages.map((w) => [canonicalUrlKey(w.url), w])); // the row I already hold for each page: the reading it carries, and what stopped me last time
       /** WHAT THE EVIDENCE ON FILE NAMES RIGHT NOW, under the same top-ten rule the ranking applies and BEFORE any window cuts it: every page this account's own results pages and answers still point at, with the appearances that say so. */ const still = new Map<string, ResearchWinningAppearance[]>();

@@ -7,7 +7,6 @@ import type { ParsedKeywordItem } from "@/domains/evidence/dataforseo/funnel-bou
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import { isNoiseDomain } from "@/domains/evidence/relevance-gate";
 import { anchoredTopicMatch, canonicalQueryKey, topicTokens, weakAnchorTokens } from "@/domains/evidence/relevance-gate";
-import { publisherHost } from "@/domains/evidence/serp-shape";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import type { KeywordOrigin, ResearchWinningAppearance } from "./research-evidence";
 import { MAX_ORIGINS, type FunnelKeyword, type FunnelReject } from "./state";
@@ -364,9 +363,7 @@ type WinningCandidate = { url: string; domain: string; weight: number; appearanc
 /** Exact host of a URL, lowercased ("" when unparseable). */
 const exactHost = (url: string): string => { try { return new URL(url).hostname.toLowerCase(); } catch { return ""; } };
 
-/** Defensive mode-blind dedupe for AI answers (Slice 6I). The chatgpt consumer look and the standardized ask are TWO observations of one engine, so the
- *  same prompt + engine + url counts ONCE and consumer_search wins the tie. Collection already dedupes, so this only stops a duplicate from inflating
- *  weight. SERP appearances are untouched. Order preserved. Pure. */
+/** One credit per current question version, engine, reporting day and canonical page; consumer mode wins a same-day tie. */
 function dedupeAppearances(appearances: ResearchWinningAppearance[]): ResearchWinningAppearance[] {
   const slotOf = new Map<string, number>();
   const out: ResearchWinningAppearance[] = [];
@@ -375,7 +372,7 @@ function dedupeAppearances(appearances: ResearchWinningAppearance[]): ResearchWi
       out.push(a);
       continue;
     }
-    const id = `${a.promptId ?? ""}|${a.engine ?? ""}|${a.citedUrl}`;
+    const id = `${a.promptId ?? ""}|${a.promptVersion ?? ""}|${a.engine ?? ""}|${a.reportingDay ?? a.observedAt.slice(0, 10)}|${canonicalUrlKey(a.citedUrl)}`;
     const slot = slotOf.get(id);
     if (slot === undefined) {
       slotOf.set(id, out.length);
@@ -387,8 +384,8 @@ function dedupeAppearances(appearances: ResearchWinningAppearance[]): ResearchWi
   return out;
 }
 
-/** Exact-query winners per FOCUSED CASE: THREE DISTINCT PUBLISHERS, the floor a comparison needs, plus TWO deeper distinct publishers held as standbys. Reserving by URL let one publisher hold two of the three slots (two wikipedia.org pages are ONE source), so a topic could never clear its own three-publisher bar by arithmetic. The reserve is taken BEFORE the global order is consulted at all; the standby bench is bounded on its own. */
-export const PRIORITY_WINNERS_PER_QUERY = 3, PRIORITY_STANDBYS_PER_QUERY = 2;
+/** A focused comparison needs its five ranked pages, even when two share a publisher. The same fifteen-page budget is interleaved across three cases; each case keeps two deeper substitute candidates. */
+export const PRIORITY_WINNERS_PER_QUERY = 5, PRIORITY_STANDBYS_PER_QUERY = 2;
 /** HOW MANY NEVER-RANKED SEARCHES ONE PASS RESERVES FOR, and therefore the only searches a receipt may promise pages of. */
 const OWED_SEARCHES_PER_PASS = 3;
 
@@ -440,27 +437,23 @@ export function rankWinningPages(
   const taken = new Set<string>(); // canonical identity: one page is never two winners
   const claim = (c: WinningCandidate): boolean => { const id = canonicalUrlKey(c.url); return taken.has(id) ? false : !!taken.add(id); };
   // ONE RESERVE PER FOCUSED CASE, taken before the global order is consulted at all. Two cases stuck on the
-  // same search are ONE case here: spending a second reserve on it would bank the identical three pages twice.
+  // Same search, one case: a second reserve would bank the identical five pages twice.
   const reserves: WinningCandidate[][] = [], cases = new Set<string>();
   for (const q of (priorityQueries ?? []).slice(0, MAX_PRIORITY_QUERIES)) {
     const key = canonicalQueryKey(normalizeKeyword(q));
     if (!key || cases.has(key)) continue;
     cases.add(key);
-    const seen = new Set<string>();
-    const byPublisher = ranked
+    const byRank = ranked
       .map((c) => ({ c, rank: organicRankFor(c, key) }))
       // A social or forum profile that happens to rank is not a page to learn from.
-      .filter((r): r is { c: WinningCandidate; rank: number } => r.rank != null && !isNoiseDomain(r.c.url) && !taken.has(canonicalUrlKey(r.c.url)))
-      .sort((a, b) => a.rank - b.rank || a.c.url.localeCompare(b.c.url))
-      // ONE reserve slot per publisher, best organic rank first: a second page from a source I already
-      // hold teaches me nothing new and used to eat the slot the third opinion needed.
-      .filter((r) => { const p = publisherHost(r.c.url) || r.c.domain; return seen.has(p) ? false : !!seen.add(p); });
+      .filter((r): r is { c: WinningCandidate; rank: number } => r.rank != null && !isNoiseDomain(r.c.url))
+      .sort((a, b) => a.rank - b.rank || a.c.url.localeCompare(b.c.url));
     // The case's own reserve is NOT measured against topN: topN is the global read budget, and letting it
     // bound the reserve is exactly how a case whose pages sit below an unrelated cutoff got nothing.
-    reserves.push(byPublisher.slice(0, PRIORITY_WINNERS_PER_QUERY).filter((r) => claim(r.c)).map((r) => ({ ...r.c, ownerQuery: key })));
+    reserves.push(byRank.slice(0, PRIORITY_WINNERS_PER_QUERY).filter((r) => claim(r.c)).map((r) => ({ ...r.c, ownerQuery: key })));
     // STANDBYS ARE A SUBSTITUTE BENCH, NOT PART OF THE READ BUDGET. Counting them against topN spent 6 of 15 slots on pages
     // read only when a preferred one is unreadable, so the global fill got nothing. The bench is bounded on its own.
-    for (const r of byPublisher.slice(PRIORITY_WINNERS_PER_QUERY, PRIORITY_WINNERS_PER_QUERY + PRIORITY_STANDBYS_PER_QUERY)) {
+    for (const r of byRank.slice(PRIORITY_WINNERS_PER_QUERY, PRIORITY_WINNERS_PER_QUERY + PRIORITY_STANDBYS_PER_QUERY)) {
       if (standbys.length < MAX_PRIORITY_QUERIES * PRIORITY_STANDBYS_PER_QUERY && claim(r.c)) standbys.push({ ...r.c, ownerQuery: key, standby: true });
     }
   }
@@ -472,17 +465,17 @@ export function rankWinningPages(
   return [...picked, ...standbys];
 }
 
-/** PURE. THE SEARCHES A WINNING-PAGES PASS TAKES, IN THE ORDER IT TAKES THEM, AND THE PAGES OF EXACTLY THE ONES IT OWES A READING FOR. `queries` is the pass's whole priority list: the focused cases it was handed, cut to leave room, then the searches it owes; `pageKeys` is the promise, and every one of those pages is reserved by the order above it. THE one rule, read by the unit that reserves the reads and by the runtime receipt that makes them due, so the promise and the work cannot differ: the receipt counted the pages of EVERY unrepresented search while the pass reserves for `OWED_SEARCHES_PER_PASS` of them and leaves the rest to the global weight order, which loses, so with four owed searches the receipt named pages no pass would open. It counts what the pass RESERVES and nothing beyond it, and a search captured under two spellings is one search here exactly as it is one case there. A results page lands whole and its pages become winners only when this pass next ranks them, so a search bought at the head of today's drive holds no winner at all; one whose top ten already holds a page on file is represented and takes what the global order gives it. This account's own pages and social or forum pages are never winners and are never counted. Newest search first; a search with no date sorts last. */
+/** PURE. THE SEARCHES A WINNING-PAGES PASS TAKES, IN THE ORDER IT TAKES THEM, AND THE PAGES OF EXACTLY THE ONES IT OWES A READING FOR. `queries` is the pass's whole priority list: the focused cases it was handed, cut to leave room, then the searches it owes; `pageKeys` is the promise, and every one of those pages is reserved by the order above it. THE one rule, read by the unit that reserves the reads and by the runtime receipt that makes them due, so the promise and the work cannot differ: the receipt counted the pages of EVERY unrepresented search while the pass reserves for `OWED_SEARCHES_PER_PASS` of them and leaves the rest to the global weight order, which loses, so with four owed searches the receipt named pages no pass would open. It counts what the pass RESERVES and nothing beyond it, and a search captured under two spellings is one search here exactly as it is one case there. A results page lands whole and its pages become winners only when this pass next ranks them, so a search bought at the head of today's drive holds no winner at all; a search is complete only when every reserved comparison page is on file. This account's own pages and social or forum pages are never winners and are never counted. Newest search first; a search with no date sorts last. */
 export function owedWinnerReads(serps: readonly unknown[], banked: readonly string[], ownDomain: string | null, focus: readonly string[] = []): { queries: string[]; pageKeys: string[] } {
   const onFile = new Set(banked.map((u) => canonicalUrlKey(u))), paid = new Map<string, { q: string; at: string; keys: string[]; held: boolean }>();
   for (const s of serps as ({ query?: unknown; status?: unknown; observedAt?: unknown; organic?: readonly { url?: string; rank?: number }[] | null } | null)[]) {
     if (s?.status !== "done" || typeof s.query !== "string" || !s.query) continue;
-    const keys = (s.organic ?? []).filter((o) => typeof o?.rank === "number" && o.rank <= 10).map((o) => canonicalUrlKey(o?.url ?? ""))
+    const keys = (s.organic ?? []).filter((o) => typeof o?.rank === "number" && o.rank <= 10).sort((a, b) => a.rank! - b.rank!).map((o) => canonicalUrlKey(o?.url ?? ""))
       .filter((k) => !!k && !isOwnPage(k, ownDomain) && !isNoiseDomain(k));
     /* ONE SEARCH IS ONE SEARCH, HOWEVER IT WAS SPELT (reviewer, 2026-09-06): keyed on the raw string, one phrase captured under two casings was two owed searches to the receipt and ONE case to the reserve, so the promise counted a read the pass would never make. The key is the reserve's own, and the wording kept is the one first seen. */ const key = canonicalQueryKey(normalizeKeyword(s.query)), seen = paid.get(key), at = typeof s.observedAt === "string" ? s.observedAt : "";
-    paid.set(key, { q: seen?.q ?? s.query, at: seen != null && seen.at > at ? seen.at : at, keys: [...new Set([...(seen?.keys ?? []), ...keys])], held: (seen?.held ?? false) || keys.some((k) => onFile.has(k)) });
+    const allKeys = [...new Set([...(seen?.keys ?? []), ...keys])]; paid.set(key, { q: seen?.q ?? s.query, at: seen != null && seen.at > at ? seen.at : at, keys: allKeys, held: allKeys.length > 0 && allKeys.slice(0, PRIORITY_WINNERS_PER_QUERY).every((k) => onFile.has(k)) });
   }
   const take = [...paid.values()].filter((v) => v.keys.length > 0 && !v.held).sort((x, y) => y.at.localeCompare(x.at)).slice(0, OWED_SEARCHES_PER_PASS);
-  /** AND THE PAGES ARE THE ONES THE PASS WILL RESERVE, NOT EVERY PAGE OF THOSE SEARCHES (reviewer, 2026-09-06): the count is what a customer surface promises, and three owed searches of ten pages each promised fifteen reads where the pass reserves three publishers a search and hands the rest of its budget to the pages with more accumulated appearances, which an AI-cited page always wins. Same rule as the reserve below: one page per publisher, best first, at most three a search. */ const reserved = (ks: readonly string[]): string[] => { const hosts = new Set<string>(); return ks.filter((k) => { const h = publisherHost(k) || k; return hosts.has(h) ? false : !!hosts.add(h); }).slice(0, PRIORITY_WINNERS_PER_QUERY); };
+  const reserved = (ks: readonly string[]): string[] => ks.slice(0, PRIORITY_WINNERS_PER_QUERY);
   /** AND THE OWED SEARCHES FIT INSIDE THE CEILING THE RESERVE STOPS AT (reviewer, 2026-09-06): the pass handed its focused cases first and appended these behind them, and `rankWinningPages` reserves for the first MAX_PRIORITY_QUERIES of that list, so an account already carrying forty focused cases got a receipt naming three pages no pass would open. The focused cases keep their precedence, page for page; what they give up is the tail of a list a runaway stop already cuts. ONE spelling, so the promise and the order the pass takes cannot differ. */ return { queries: [...focus.slice(0, Math.max(0, MAX_PRIORITY_QUERIES - take.length)), ...take.map((v) => v.q)], pageKeys: [...new Set(take.flatMap((v) => reserved(v.keys)))] };
 }

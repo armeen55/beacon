@@ -1,7 +1,6 @@
 import "server-only";
-/** funnel/observe (integrity closure) - the AI-answer and SERP executors + the PURE snapshot projector (the winning-page executor is funnel/winning-pages). Provider calls route through the frozen boundary by CAPABILITY; posted tasks resume via collect;
- * only a PROVEN-dead identity earns one repost per incident; a BLOCKED refusal stops the batch and pauses the run. State is basis-scoped (optimistic row_version). Provenance is TRUE: every observation carries its
- * retrieval MODE and query/prompt/engine; citations keep the null-vs-[]-vs-nonempty tri-state end to end. */
+import { reportingDay } from "@/lib/reporting-day";
+/** Canonical capture, SERP execution and pure projection. Posted tasks resume; blocked refusals stop spend. */
 import { log } from "@/lib/logger";
 import {
   buildAiObservation,
@@ -22,8 +21,7 @@ const ENGINES: ResearchEngine[] = ["chatgpt", "gemini", "claude", "perplexity"];
 const canonicalMode = (e: ResearchEngine): ObservationMode => (e === "chatgpt" ? "consumer_search" : "standardized_response");
 /** A deliberate second sample of one pair on one day is a DIFFERENT observation, so the slot is part of the working identity exactly as it is part of the stored one. A row without a slot is slot 0. */
 const slotOf = (p: FunnelPair) => p.slot ?? 0;
-/** THE working identity IS the stored identity, reporting day and all. A row from another day is another observation, never this one's retry: carrying a done
- * row across days is what made day 2 plan twelve readings and execute none. */
+/** Working and stored identities include the reporting day: yesterday is never today's retry. */
 const pairKey = (p: FunnelPair) => `${p.promptId}|${p.engine}|${modeOf(p)}|${slotOf(p)}|${p.day ?? ""}`;
 const capabilityFor = (p: FunnelPair): CapabilityKey => (p.engine === "chatgpt" && modeOf(p) === "consumer_search" ? "llm_scraper_chatgpt" : (`llm_${p.engine}` as CapabilityKey));
 /** The engines I can actually ask. Anything else is answered honestly as unsupported at ZERO spend. */
@@ -333,9 +331,12 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
     // queries, my tracked questions, every confirmed theme, then bounded exploration), and every trusted query is bought in the customer's own words.
     const profile = await d.loadProfile(tenantId).catch(() => null);
     const themes = profile ? [...profile.offerings.value, ...profile.topicsToOwn.value, ...profile.customerProblems.value] : [];
-    const byPrompt = new Map<string, { text: string; fanOutQueries: string[] }>(); // ONE row per tracked question: approved text + every fan-out observed for it
-    for (const p of state.prompts.pairs) { const row = byPrompt.get(p.promptId) ?? { text: "", fanOutQueries: [] }; if (!row.text && p.promptText) row.text = p.promptText; row.fanOutQueries.push(...(p.fanOutQueries ?? [])); byPrompt.set(p.promptId, row); }
-    // THE QUESTION'S OWN ID TRAVELS WITH IT, so a search the agenda takes from this question is stamped with the question that produced it.
+    const byPrompt = new Map<string, { text: string; fanOutQueries: string[] }>();
+    const toDay = reportingDay(d.now()), fromDay = new Date(Date.parse(`${toDay}T12:00:00Z`) - 27 * 86_400_000).toISOString().slice(0, 10);
+    let observations;
+    try { observations = await d.loadCanonicalObservations(tenantId, { fromDay, toDay }); }
+    catch { return { status: "failed", cursor, progress: serpProgress(state), detail: "I could not read your stored AI evidence, so I spent nothing and kept your saved research." }; }
+    for (const p of observations) { const row = byPrompt.get(p.promptId) ?? { text: "", fanOutQueries: [] }; if (!row.text) row.text = p.promptText; row.fanOutQueries.push(...(p.fanOutQueries ?? [])); byPrompt.set(p.promptId, row); }
     const prompts = [...byPrompt.entries()].map(([promptId, p]) => ({ ...p, promptId })).filter((p) => p.text || p.fanOutQueries.length > 0);
     const pageQueries = await d.loadPageQueries(tenantId).catch(() => null);
     // FAIL BEFORE SPEND: no readable business basics, no readable page queries and no tracked questions means I have
@@ -482,8 +483,7 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
   return {
     // LINEAGE rides along: how each keyword was found, the confirmed theme it was found from, the case it joined, the page of my own that already ranks for it, and what acting on it would mean. Every one is a recorded fact, so nothing downstream has to guess them. THE WHOLE JOURNEY rides along too (`origins`), so a fan-out can be traced back to the question, the engine, the day and the stored answer that produced it; a row stored before it was kept projects without it rather than with an invented one.
     retainedKeywords: state.discovery.retained.map((k) => ({ query: k.keyword, searchVolume: k.searchVolume, competition: k.competition, competitionLevel: k.competitionLevel ?? competitionLevel(k.competition), difficulty: k.difficulty ?? null, intent: k.intent, discoveredVia: k.discoveredVia, seed: k.seed ?? null, ownedRankingUrl: k.ownedRankingUrl ?? null, ownedPosition: k.ownedPosition ?? null, parentCaseId: k.caseId ?? null, supports: k.supports ?? null, ...(k.origins ? { origins: k.origins } : {}), ...(k.moreOrigins ? { moreOrigins: k.moreOrigins } : {}) })),
-    // AI ANSWERS ARE NOT PROJECTED FROM HERE. This state is a working window of at most 20 pairs, so projecting it
-    // told Decision an account with 140 answers a day held one. The loader fills the slot from ai_observations.
+    // Canonical AI evidence is filled by the loader, never the transient working window.
     aiObservations: [],
     // WHAT THE RESULTS PAGE SAYS TRAVELS WITH THE ADDRESSES IT SAYS IT AT. The row was paying for snippets, an answer box, a block list, an overview and PAA answers and projecting none of them, so the writer's packet could see WHERE rivals rank and never WHAT they claim. A LOOK TAKEN BEFORE THE OVERVIEW STATE WAS STAMPED IS UNKNOWN, NEVER ABSENT: it reads observed where it carries the overview and null otherwise.
     serpEvidence: doneSerps.map((s) => ({

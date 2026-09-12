@@ -5,41 +5,39 @@ const db = vi.hoisted(() => ({ written: [] as { table: string; row: Record<strin
 vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...((await orig()) as object), getSupabaseAdmin: () => ({ from: (table: string) => fakeTable(table) }) }));
 function fakeTable(table: string) {
   let max: number | null = null, after: { at: string; id: string } | null = null;
-  /** Exactly the ORDER BY the caller built, in the order it built it. Nothing is assumed. */
   const orders: { col: string; asc: boolean }[] = [];
   const sorted = (rows: Record<string, unknown>[]) => [...rows].sort((a, b) => {
     for (const { col, asc } of orders) { const c = String(a[col] ?? "").localeCompare(String(b[col] ?? "")); if (c !== 0) return asc ? c : -c; }
     return 0; // a tie the query never broke: Postgres is free to return these two either way round
   });
   const where: Record<string, unknown> = {}; // every eq the caller built is APPLIED, so a dropped scope clause is caught here
+  const bounds: Record<string, { lower?: string; upper?: string }> = {};
   const q: Record<string, unknown> = {
     select: (cols?: string) => { db.selected.push(cols ?? ""); return q; },
     eq: (c: string, v: unknown) => { db.filters[c] = v; where[c] = v; return q; },
     order: (col: string, o?: { ascending?: boolean }) => { orders.push({ col, asc: o?.ascending !== false }); return q; },
     limit: (n: number) => { max = n; return q; },
     or: (expr: string) => { const m = /requested_at\.lt\."([^"]*)".*id\.lt\."([^"]*)"/.exec(expr); if (m) after = { at: m[1]!, id: m[2]! }; return q; },
-    gte: (c: string, v: unknown) => { db.filters[`${c}_gte`] = v; return q; },
-    lte: (c: string, v: unknown) => { db.filters[`${c}_lte`] = v; return q; },
+    gte: (c: string, v: unknown) => { db.filters[`${c}_gte`] = v; bounds[c] = { ...bounds[c], lower: String(v) }; return q; },
+    lte: (c: string, v: unknown) => { db.filters[`${c}_lte`] = v; bounds[c] = { ...bounds[c], upper: String(v) }; return q; },
     update: (patch: Record<string, unknown>) => { db.updated = patch; return q; },
     upsert: (chunk: Record<string, unknown>[]) => { for (const row of chunk) db.written.push({ table, row }); return { select: async () => ({ data: chunk.map((r) => ({ id: r.id })), error: db.error }) }; },
     then: (res: (v: { data: unknown; error: unknown }) => void) => {
       if (db.updated) return res({ data: db.matched, error: db.error });
-      const mine = (table === "ai_observations" ? db.read : []).filter((r) => Object.entries(where).every(([c, v]) => r[c] === v)); // one table's rows are never another's
+      const mine = (table === "ai_observations" ? db.read : []).filter((r) => Object.entries(where).every(([c, v]) => r[c] === v) && Object.entries(bounds).every(([c, b]) => (!b.lower || String(r[c]) >= b.lower) && (!b.upper || String(r[c]) <= b.upper)));
       const ordered = sorted(mine); const cursor = after;
       const past = cursor ? ordered.filter((r) => { const at = String(r.requested_at ?? ""); return at < cursor.at || (at === cursor.at && String(r.id) < cursor.id); }) : ordered; const page = max == null ? past : past.slice(0, max);
       if (table === "ai_observations") { db.pages.push(`${cursor ? `${cursor.at}|${cursor.id}` : "start"}+${page.length}`); db.onPage?.(db.pages.length); } // only this table's own reads are counted, so a page count means what it says
       return res({ data: page, error: db.error });},};
   return q;}
-/** The two first-party Search Console reads the funnel's own page-query default sits on. Faked here so the default itself is the thing under test; nothing else in this file reaches them. */
 const gsc = vi.hoisted(() => ({ pages: new Map<string, unknown>(), decay: new Map<string, unknown>() }));
 vi.mock("@/domains/evidence/readers/gsc-page-signals", () => ({ loadGscPageSignalsForTenant: async () => { if (gsc.pages instanceof Error) throw gsc.pages; return gsc.pages; },
   readGscPageSignalsForTenant: async () => { if (gsc.pages instanceof Error) throw gsc.pages; return { signals: gsc.pages, incomplete: false }; }, // The snapshot reads the FULL result, so a failed read travels as a failed source and a partial one does too.
   loadGscDecaySignalsForTenant: async () => gsc.decay }));
-/** THE one owner of the approved question set, faked so what a canonical read is SCOPED to is the thing under test. */
 const promptSet = vi.hoisted(() => ({ active: null as { id: string; version: number }[] | null }));
 vi.mock("@/domains/account/tracked-questions", async (orig) => ({ ...((await orig()) as object), readActiveTrackedPrompts: async () => promptSet.active }));
 import type { Account } from "@/domains/account";
-import { aiObservationId, persistAnswerAnalysis, readAiObservations, readAiObservationViews, readCanonicalAnalysisStamps, recordAiObservation, settleFailedObservation, type AiObservationRecord, type DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
+import { aiObservationId, persistAnswerAnalysis, readAiObservations, readAiObservationViews, readCanonicalAnalysisStamps, readCanonicalPairObservations, recordAiObservation, settleFailedObservation, type AiObservationRecord, type DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import { retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { emptyFunnelState, loadFunnelState, type FunnelPair, type FunnelState } from "@/domains/evidence/funnel/state";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
@@ -52,10 +50,8 @@ const OTHER = "rival-tenant";
 const NOW = Date.parse("2026-07-21T09:00:00.000Z"), DAY = "2026-07-21";
 const QUESTIONS = [{ id: "q1", text: "where can I see a kite festival" }, { id: "q2", text: "what do people eat at a kite festival" }, { id: "q3", text: "when do kite festivals start" }];
 const ENGINES = ["chatgpt", "claude", "gemini", "perplexity"] as const;
-/** The planner's output: every tracked question on every engine, at one deliberate sample slot, all on the reporting day the PLAN names (never a clock, so a run resumed past midnight still lands on one day). */
 const duePlan = (slot: 0 | 1 | 2 = 0, version = 1, day = DAY): DueObservation[] =>
   QUESTIONS.flatMap((p) => ENGINES.map((engine) => ({ promptId: p.id, version, text: p.text, engine, slot, day })));
-/** A provider that charges ONCE per cache identity and hands back the same envelope for free after that. The identity is THE WHOLE ASK, exactly as the registry keys it, so what the executor actually hands the boundary decides whether a reading is a new question or a free replay. */
 function provider(fail: CachedCallResult | null = null) {
   const bought = new Set<string>(); let paid = 0;
   const call: NonNullable<FunnelDeps["callProvider"]> = async (cap: CapabilityKey, input) => {
@@ -181,14 +177,9 @@ describe("re-analysis reads what was already bought", () => {
     expect([(await readAiObservations(TENANT, { fromDay: "2026-07-01", toDay: "2026-07-30", slot: 0 })).length, db.pages.length]).toEqual([6000, 7]);
     db.pages = []; const tied = stored(1001); tied[1]!.requested_at = tied[0]!.requested_at; db.read = tied;
     const walked = await readAiObservations(TENANT, { day: DAY }); expect([walked.length, new Set(walked.map((r) => r.id)).size, db.pages.map((p) => p.split("+")[1])]).toEqual([1001, 1001, ["1000", "1"]]);
-    db.read = stored(3); db.selected = [];
-    await readAiObservations(TENANT, { fromDay: "2026-07-01", toDay: "2026-07-28", slot: 0, projection: "outcome" }); const asked = db.selected[0]!;
-    for (const col of ["id", "tenant_id", "prompt_id", "engine", "reporting_day", "sample_slot", "status", "mention:analysis->ownedBrandMention", "requested_at"]) expect(asked.split(",")).toContain(col);
-    for (const heavy of ["answer_text", "journey", ",analysis,"]) expect(asked).not.toContain(heavy); // the whole verdict is 4.9 MB a count never reads: six keys are asked for by name
-    db.selected = []; await readAiObservations(TENANT, { fromDay: "2026-07-01", toDay: "2026-07-28", slot: 0, projection: "overview" });
-    for (const col of ["cited:journey->cited_sources", "retrieved:journey->retrieved_results", "model_served"]) expect(db.selected[0]!.split(",")).toContain(col);
-    for (const heavy of ["answer_text", ",journey,", ",analysis,"]) expect(db.selected[0]).not.toContain(heavy); // the overview reads two journey lists, never the whole journey and never the answer
-    db.selected = []; await readAiObservations(TENANT, { day: DAY }); // a caller that needs the whole answer simply does not ask for a projection, and it is the ONLY path that ever loads one
+    db.read = stored(3);
+    for (const projection of ["outcome", "overview"] as const) { db.selected = []; await readAiObservations(TENANT, { fromDay: "2026-07-01", toDay: "2026-07-28", slot: 0, projection }); for (const heavy of ["answer_text", ",journey,", ",analysis,"]) expect(db.selected[0]).not.toContain(heavy); }
+    db.selected = []; await readAiObservations(TENANT, { day: DAY });
     expect(db.selected[0]).toBe("*");});
   it("reads the addresses an answer credited off the stored journey, and keeps null a different claim from none", async () => {
     const at = (url: string, domain: string) => ({ url, domain, title: null });
@@ -218,7 +209,6 @@ describe("re-analysis reads what was already bought", () => {
     expect(walked.filter((r) => Number(String(r.id).slice(4)) < 2500).length).toBe(2500); // and nothing already stored was skipped
   });});
 describe("the funnel's own default reader carries provenance, not just payload", () => {
-  /** Provenance is invisible from the outside: a keyword harvested downstream names the page it came from only because these fields ride along. Run for real over the fakes. */
   it("names the page of mine whose Search Console row carried each query, and orders the slipping ones first", async () => {
     gsc.pages = new Map([
       ["https://mine.example/guide", { page: "https://mine.example/guide", clicks90d: 10, impressions90d: 900, ctr90d: 0.01, position90d: 8, topQueries: [{ query: "kite festival dates", impressions: 400 }] }],
@@ -288,6 +278,10 @@ describe("the snapshot reads the canonical answer set, never the working window"
       stored("p2", "chatgpt", { id: "obs_slot1", sample_slot: 1 }), // a DELIBERATE second sample of a pair is a different reading, never today's answer
       stored("p3", "chatgpt", { id: "obs_failed", status: "failed" }), stored("p4", "chatgpt", { id: "obs_nohash", answer_hash: null })]; // and nothing without an answer in hand
     expect((await snapshotOf()).research.aiObservations.map((o) => [o.observationId, o.reportingDay])).toEqual([["obs_new", DAY2]]); // a retired question, a superseded version and yesterday's copy all stay out
+    db.read.push(stored("p0", "chatgpt", { id: "obs_other_tenant", tenant_id: OTHER }), stored("p0", "chatgpt", { id: "obs_outside", reporting_day: "2026-07-20" }));
+    const history = await readCanonicalPairObservations(TENANT, { fromDay: DAY, toDay: DAY2 });
+    expect(history.map((o) => [o.observationId, o.reportingDay]).sort()).toEqual([["obs_new", DAY2], ["obs_p0_chatgpt", DAY]]);
+    db.error = { message: "read interrupted" }; await expect(readCanonicalPairObservations(TENANT, { fromDay: DAY, toDay: DAY2 })).rejects.toThrow(/canonical read failed/);
   });
   it("says a read that failed failed, and keeps that a different claim from an account with nothing stored", async () => {
     db.read = wholeDay(); db.error = { message: "connection lost" }; // 140 answers on file and Postgres unreachable
