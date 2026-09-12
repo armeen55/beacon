@@ -103,7 +103,7 @@ describe("the owed results page, bought once and finished for nothing", () => {
 
     expect([state.posts > 0, meter.paidUsd > 0], "the task is posted and the money moves at the post, which is where the provider charges").toEqual([true, true]);
     expect(new Set(acquisitions(run).filter((a) => a.query === QUERY).map((a) => `${a.kind}|${a.outcome}`)), "the need is stamped on the run row as bought and not yet read, never as a silence")
-      .toEqual(new Set(["semantic_review|not_read", "serp|not_read"])) /* ship mode 2026-09-10: the seeded hub row's copy no longer sits behind a taste fault, so the walk also stamps the review it now owes */;
+      .toEqual(new Set(["serp|not_read"])); // The seeded instruction-like copy fails at $0, so no unnecessary paid semantic review is owed.
     expect(acquisitions(run).filter((a) => a.query === QUERY && a.kind === "serp").every((a) => a.detail.includes("waiting")), "and the results-page receipt says the provider is still working on it (the review receipt the row newly owes reports its own reading)").toBe(true);
   });
 

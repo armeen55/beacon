@@ -55,7 +55,7 @@ const authorize = <T extends { bundle?: unknown }>(p: T): T => { const parts = (
   if (owed.length === 0) return p;
   const claims = owed.map((x) => ({ text: `The ${x.c.label} copy rests on the source below.`, supportedBy: ["fact-1"], of: componentIdOf(x.c, x.i) }));
   const row = { ...p, claims, supportFacts: [{ id: "fact-1", fact: "encyclopedia: the kite festival runs the first weekend of April." }] };
-  return { ...row, semanticReview: { of: copyKey(row as never), version: REVIEW_CONTRACT, claims: claims.map((_, i) => ({ i, by: ["fact-1"], entailed: true })) } }; };
+  return { ...row, semanticReview: { of: copyKey(row as never), version: REVIEW_CONTRACT, editor: { pageFit: true, usefulAndNatural: true, placementCorrect: true, resolvesDiagnosis: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "Every declared copy component and its placement are accepted against the stated assignment and source." }, claims: claims.map((_, i) => ({ i, by: ["fact-1"], entailed: true })) } }; };
 /** The change the operator is confirming: a two-component bundle on a page Beacon holds. */
 const proposal = (over: Record<string, unknown> = {}) => authorize({
   id: PROPOSAL_ID, tenantId: "tenant-test", kind: "existing_edit", pagePath: "/nowruz-guide",

@@ -42,7 +42,7 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     propositions: props, diagnosedGap: gap,
     intent: [...new Set([...(packet.comparison?.queries ?? []), packet.trackedQuestion ?? "", ...(packet.demand.unanswered ?? [])])].filter((x): x is string => !!x).slice(0, 6),
     ...(AEO_BAR.applies(field, standard, packet.unpublished, undefined, packet) ? { checkedGroups: [...(packet.checkedGroups ?? [])] } : {}), facts: facts.map((id, i) => ({ id, says: (packet.checkedSentences ?? [])[i] ?? "" })),
-    observations: (packet.comparison?.winners ?? []).flatMap((w) => w.observations.map((o) => ({ publisher: w.publisher, publisherClass: w.publisherClass, kind: o.kind, text: o.text, quote: o.quote }))).slice(0, 12),
+    observations: (packet.comparison?.winners ?? []).flatMap((w) => w.observations.slice(0, 2).map((o) => ({ publisher: w.publisher, publisherClass: w.publisherClass, kind: o.kind, text: o.text, quote: o.quote }))).slice(0, 12),
     keep: (packet.comparison?.keep ?? []).slice(0, 4),
     ...(rewrite?.replaces?.trim() ? { replaces: rewrite.replaces.trim() } : {}),
     pageContext: ctx,

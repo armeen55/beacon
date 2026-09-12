@@ -446,7 +446,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     confidenceReasons,
     measurementPlan: "Once you make the change, record it on Results with the page address, and clicks, views and average position for these searches get read at 7, 14 and 28 days, compared against pages you did not change.",
   };
-  const { claims, review, supportFacts, preservation, gain } = assembleCopy(components, components.flatMap((c, index) => {
+  const { claims, review, supportFacts, preservation, gain, editor } = assembleCopy(components, components.flatMap((c, index) => {
     const copy = authed.get(c.after); return copy ? [{ index, copy }] : [];
   }));
   const primaryComponent = components[0]!; // THE FAMILY THIS CHANGE BELONGS TO, worn by the id AND the stamp. The id ended in the literal word "bundle" and the family read "single", so a snippet rewrite and a body rebuild on one page fought over one id and every shipped bundle reached the proof ledger unclassifiable. Both read the store's own derivation now.
@@ -473,7 +473,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       ...(gain ? { informationGain: gain } : {}), ...(preservation.length > 0 ? { preservation } : {}),
   };
   // THE READING IS STAMPED ON THE FINISHED ROW, never on a draft: copyKey folds the copy, every piece, every claim with the piece it answers for, and the words behind every id, and excludes the reading itself, so the identity comes from the completed proposal without a cycle.
-  const row: ChangeProposal = review.length > 0 ? { ...proposal, semanticReview: { of: copyKey(proposal), version: REVIEW_CONTRACT, claims: review } } : proposal;
+  const row: ChangeProposal = review.length > 0 ? { ...proposal, semanticReview: { editor, of: copyKey(proposal), version: REVIEW_CONTRACT, claims: review } } : proposal;
   // THE WHOLE ROW, GATED: the per-component gate reads a synthetic proposal carrying no cause and no notes, so a claim that resolves to nothing reached the operator through the gap between a piece and the whole change.
   const failed = receiptIntegrityFailures(row);
   if (failed.length > 0) return { status: "none", reason: `Not everything this change claims can be shown, so it is held back. Research this page again and the finding comes back here.` };

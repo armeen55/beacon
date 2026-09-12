@@ -31,6 +31,15 @@ const research = (s: Site, over: Record<string, unknown> = {}, url = s.win) => (
 const owned = (s: Site) => ({ url: s.own, text: `${s.ownHeads.join(" ")} ${s.ownPassages.join(" ")}`, headings: s.ownHeads, passages: s.ownPassages });
 
 describe("what one comparison of the winners says", () => {
+  it.each(SITES)("$t: SEO uses ranked pages, AEO uses recurring query-matched citations, and an unread leader stays unknown", (s) => {
+    const urls = Array.from({ length: 6 }, (_, n) => `https://${String.fromCharCode(122 - n)}.example/page`), appearances = (n: number) => Array.from({ length: n }, (_, day) => ({ kind: "ai_answer", query: null, promptId: "p", promptText: s.queries[0], engine: "chatgpt", rank: null, citedUrl: urls[n - 1], observedAt: `2026-09-${String(day + 1).padStart(2, "0")}T00:00:00Z`, modelServed: null }));
+    const bank = { serpEvidence: [{ query: s.queries[0], organic: urls.map((url, n) => ({ url, rank: n + 1 })), aiOverview: [], aiMode: [] }], winningPages: urls.map((url, n) => ({ url, appearances: [...appearances(n + 1), ...appearances(n + 1)], extract: extract(s, { mainText: held(s.prose).repeat(15) }) })) } as never;
+    const seo = jobComparison(bank, s.queries, owned(s)), aeo = jobComparison(bank, s.queries, owned(s), undefined, "aeo");
+    expect(seo.winners.map((w) => w.url)).toEqual(urls.slice(0, 5)); expect(aeo.winners.map((w) => w.url)).toEqual(urls.slice(1).reverse()); expect(aeo.winners[0]!.querySupport?.citationObservations, "duplicate records never establish extra recurrence").toBe(6);
+    expect(seo.winners.reduce((n, w) => n + w.held.length, 0), "five winners share the old 12k text budget").toBeLessThanOrEqual(12_000);
+    const unread = jobComparison({ ...bank as object, winningPages: (bank as { winningPages: unknown[] }).winningPages.map((w, n) => n === 0 ? { ...w as object, extract: null } : w) } as never, s.queries, owned(s));
+    const unbanked = jobComparison({ ...bank as object, winningPages: (bank as { winningPages: unknown[] }).winningPages.slice(1) } as never, s.queries, owned(s)); expect([unread.winners[0]!.url, unread.winners[0]!.read, unread.winners.some((w) => w.url === urls[5]), unbanked.winners.map((w) => w.url), unbanked.winners[0]!.read]).toEqual([urls[0], false, false, urls.slice(0, 5), false]);
+  });
   for (const s of SITES) {
     it(`${s.t}: a winner's own prose that answers the group is an observation, quoted, and the page's own answering passage is kept`, () => {
       const c = jobComparison(research(s), s.queries, owned(s)), w = c.winners[0]!;

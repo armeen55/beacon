@@ -632,12 +632,17 @@ export function jobEvidenceHash(snapshot: Pick<EvidenceSnapshot, "ownedPages" | 
  *  missing here, so a winner read BECAUSE an assistant cited it never moved the job's identity and never reopened the
  *  work it was read for. ONE rule, read by the identity above and by the brief below, so what reopens a job is exactly
  *  what its writer is then handed. Deterministic and order-free. Exported for `serpAnswersOf` in serp-shape, so the passages a brief quotes come off exactly the pages this rule already calls this job's winners. */
-export function jobWinners(research: Pick<EvidenceSnapshot["research"], "serpEvidence" | "winningPages">, primaryQuery: string | readonly string[]) {
+export function jobWinners(research: Pick<EvidenceSnapshot["research"], "serpEvidence" | "winningPages">, primaryQuery: string | readonly string[], channel: "seo" | "aeo" = "seo") {
   // ONE GROUP, EVERY PHRASING (campaign, 2026-09-05): a reader asks one thing several ways and the diagnosis already groups them, so the winners of "boy farsi names" and "farsi boy names" are one job's winners. A single string is one phrasing and behaves exactly as it always did.
   const keys = new Set((typeof primaryQuery === "string" ? [primaryQuery] : primaryQuery).map((q) => canonicalQueryKey(q ?? "")).filter(Boolean)); if (keys.size === 0) return [];
-  const ranked = new Set((research.serpEvidence ?? []).filter((s) => keys.has(canonicalQueryKey(s.query)))
-    .flatMap((s) => (s.organic ?? []).map((o) => canonicalUrlKey(o.url))));
+  const serps = (research.serpEvidence ?? []).filter((s) => keys.has(canonicalQueryKey(s.query)));
+  const support = (w: EvidenceSnapshot["research"]["winningPages"][number]) => { const url = canonicalUrlKey(w.url), ranks = serps.flatMap((s) => (s.organic ?? []).filter((o) => canonicalUrlKey(o.url) === url).map((o) => o.rank));
+    const citations = new Set(serps.flatMap((s) => ([ ["ai_overview", s.aiOverview ?? []], ["ai_mode", s.aiMode ?? []] ] as const).flatMap(([kind, rows]) => rows.filter((o) => canonicalUrlKey(o.url) === url).map(() => `${kind}|${canonicalQueryKey(s.query)}|${s.observedAt}`))));
+    for (const a of w.appearances ?? []) if (keys.has(canonicalQueryKey(a.query ?? a.promptText ?? "")) && a.kind !== "serp_organic") citations.add(a.kind === "ai_answer" ? `${a.kind}|${a.promptId ?? a.promptText ?? a.query}|${a.engine}|${a.observedAt}` : `${a.kind}|${canonicalQueryKey(a.query ?? "")}|${a.observedAt}`);
+    return { rank: ranks.length ? Math.min(...ranks) : null, citationObservations: citations.size }; };
   return (research.winningPages ?? [])
-    .filter((w) => ranked.has(canonicalUrlKey(w.url)) || (w.appearances ?? []).some((a) => keys.has(canonicalQueryKey(a.query ?? ""))))
-    .sort((a, b) => canonicalUrlKey(a.url).localeCompare(canonicalUrlKey(b.url)));
+    .map((w) => ({ ...w, querySupport: support(w) }))
+    .filter((w) => w.querySupport.rank != null || w.querySupport.citationObservations > 0 || (w.appearances ?? []).some((a) => keys.has(canonicalQueryKey(a.query ?? a.promptText ?? ""))))
+    .sort((a, b) => (channel === "aeo" ? b.querySupport.citationObservations - a.querySupport.citationObservations : 0) || (a.querySupport.rank ?? Infinity) - (b.querySupport.rank ?? Infinity) || b.querySupport.citationObservations - a.querySupport.citationObservations || Number(!!b.extract?.mainText) - Number(!!a.extract?.mainText) || canonicalUrlKey(a.url).localeCompare(canonicalUrlKey(b.url)))
+    .filter((w, i, rows) => rows.findIndex((x) => canonicalUrlKey(x.url) === canonicalUrlKey(w.url)) === i);
 }

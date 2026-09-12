@@ -20,6 +20,10 @@ function seam(responses: Array<{ value: unknown } | { error: string; retryable: 
   let i = 0, calls = 0; const complete: CompleteFn = async () => { calls += 1; return responses[Math.min(i++, responses.length - 1)]!; };
   return { complete, calls: () => calls };}
 describe("structured-drafter strict transport", () => {
+  it("normalizes publishable punctuation without changing literal anchors, replaced text or addresses", async () => {
+    const exact = { ...VALID_ATOMIC_EDIT, before: "Nowruz—Customs", after: "Nowruz—Persian New Year Customs", placementAnchor: "Stored—heading", operatorSteps: ["Open https://docs.example/a—b"] }, out = await callStructuredLLM({ ...REQ, complete: seam([{ value: exact }]).complete });
+    expect(out.status === "drafted" && [out.value.before, out.value.after, out.value.placementAnchor, out.value.operatorSteps]).toEqual([exact.before, "Nowruz - Persian New Year Customs", exact.placementAnchor, exact.operatorSteps]);
+    for (const [after, count, status] of [["Nowruz Customs: 14 Traditions", 3157, "validation_failed"], ["Nowruz Customs: 3157 Traditions", 3157, "validation_failed"], [VALID_ATOMIC_EDIT.after, 3157, "drafted"], [VALID_ATOMIC_EDIT.after, 9999, "validation_failed"]] as const) { const value = { ...VALID_ATOMIC_EDIT, after, evidenceRefs: [{ source: "gsc", detail: `${count} impressions` }] }, judged = await callStructuredLLM({ ...REQ, observationGrounded: "GSC recorded 3157 impressions", complete: seam([{ value }]).complete }); expect(judged.status, "observed traffic may support a diagnostic ref, never a factual count in paste copy, and a fabricated diagnostic count is refused too").toBe(status); } });
   it("refuses a draft argued from analytics alone, and takes the same draft once it also cites a search", async () => {
     const refs = (r: unknown[]) => ({ value: { ...VALID_ATOMIC_EDIT, evidenceRefs: r } }); const clarity = [{ source: "clarity", detail: "people stop scrolling about halfway down the page" }];
     const bad = await callStructuredLLM({ ...REQ, complete: seam([refs(clarity), refs(clarity)]).complete }); // both attempts, still nothing about a search

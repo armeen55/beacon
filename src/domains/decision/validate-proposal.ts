@@ -9,7 +9,7 @@ import { checkFactualEntailment, type AuthoritativeFact } from "@/domains/decisi
 import { validateSchemaToStrings } from "@/domains/evidence/pages/schema-validator";
 import type { ClassifiableSource } from "@/domains/decision/drafts/source-authority";
 import { looksLikePlaceholder } from "./placeholder-detection";
-import { containsUuid, AUTOPUBLISH_RE, CODE_SUFFIX, HOST_RE, SPELLED_PROPORTION_RE } from "./copy-sanitize";
+import { containsUuid, AUTOPUBLISH_RE, COPY_RULES, HOST_RE } from "./copy-sanitize";
 import type { BundleComponent, BundleComponentKind, ChangeProposal, RecommendedChange } from "./contracts";
 import { dangerousComponents, needsSourcePack } from "./contracts";
 import { confirmedVersion } from "./completeness";
@@ -104,7 +104,7 @@ export type ProposalValidation = {
 function operatorFacingText(proposal: ChangeProposal): string[] {
   const c = proposal.recommendedChange;
   if (c.kind === "existing_edit") return c.field === "schema" ? schemaVisible(c.after).visible : [c.after];
-  return [c.proposedTitle, c.metaDescription, c.openingAnswer, ...c.outline, ...c.faqQuestions];
+  return [c.proposedTitle, c.metaDescription, c.openingAnswer, ...c.outline, ...c.faqQuestions, ...(proposal.bundle?.components ?? []).filter((p) => p.kind === "section").map((p) => p.after)];
 }
 
 /** The fields of a block that assert something a reader can SEE on the page, per type. An Organization's own
@@ -208,7 +208,7 @@ function evaluateNewPageBrief(
   }
   const grounding = [evidenceText ?? "", ...items.map((i) => i.fact), ...proposal.evidence.hints].join(" ").toLowerCase();
   const copy = [...operatorFacingText(proposal), ...bundle.components.map((c) => c.after)].join(" ");
-  if (AUTOPUBLISH_RE.test(copy) || SPELLED_PROPORTION_RE.test(copy) || proposal.publish !== "manual" || !MANUAL_RE.test([proposal.whyItMatters, ...bundle.risks].join(" "))) {
+  if (AUTOPUBLISH_RE.test(copy) || COPY_RULES.proportion.test(copy) || proposal.publish !== "manual" || !MANUAL_RE.test([proposal.whyItMatters, ...bundle.risks].join(" "))) {
     return bad("This page does not say plainly that you are the one who publishes it, so it stays held rather than offered.");
   }
   const grounded = new Set((grounding.match(NUMBER_RE) ?? []).map(digits));
@@ -218,7 +218,7 @@ function evaluateNewPageBrief(
   const copyProse = [...operatorFacingText(proposal), ...bundle.components.filter((c) => c.kind !== "source_pack").map((c) => c.after)].join(" ");
   const stray = (copyProse.match(NUMBER_RE) ?? []).map(digits).find((n) => !grounded.has(n));
   if (stray) return bad(`This page quotes ${stray}, which no reading on file carries, so it stays held rather than offered.`);
-  const strayHost = (copyProse.match(HOST_RE) ?? []).map((h) => h.toLowerCase()).filter((h) => !CODE_SUFFIX.test(h))
+  const strayHost = (copyProse.match(HOST_RE) ?? []).map((h) => h.toLowerCase()).filter((h) => !COPY_RULES.codeSuffix.test(h))
     .find((h) => !grounding.includes(h) && !grounding.includes(h.replace(/^www\./, "")));
   if (strayHost) return bad(`This page names ${strayHost}, which is not a site any reading on file looked at, so it stays held rather than offered.`);
   // Everything this gate can check is checked. The caution a brand new page deserves rides on the bundle's own risks, where the operator reads it, not as a held status.
@@ -358,6 +358,7 @@ export function validateProposal(
     if (looksLikePlaceholder(t)) safetyFlags.push("Contains a placeholder / template stub.");
     if (DASH_RE.test(t)) safetyFlags.push("Contains an em or en dash (banned in operator copy).");
     if (containsUuid(t)) safetyFlags.push("Leaks a raw id into operator copy.");
+    if (COPY_RULES.workflow.test(t)) safetyFlags.push("Contains writing instructions or page narration instead of publishable copy.");
   }
   // RAW MARKUP IS NOT PASTE COPY (operator, 2026-08-31). A stored link row from before the typed-anchor contract carried '<a href="...">iran eagle</a>' in a section body and the $0 replay promoted it: nothing typed owned the rule that operator copy is TEXT. A tag in `after` is malformed for every existing_edit field, because the anchor words travel typed (anchorText) and the customer pastes prose, never HTML. Schema-block rows are already held by their own "describes the work" gap; this only adds the honest second reason.
   if (change.kind === "existing_edit" && !schema && /<\/?[a-z][a-z0-9-]*(?:\s[^>]*)?>/i.test(change.after)) safetyFlags.push("Contains raw HTML markup, and operator copy is pasted as text.");
@@ -413,7 +414,7 @@ export function validateProposal(
 
   // ── compose the single verdict ────────────────────────────────────────────── The two-step note is carried WHATEVER else the verdict turns out to be: the operator
   // has to read it before acting, and burying it behind another hold is how it gets missed.
-  const reasons: string[] = [...quality.reasons, ...dangerous.map((c) =>
+  const reasons: string[] = [...(quality.status === "ready" ? [] : quality.reasons), ...dangerous.map((c) =>
     `${c.label.trim() || c.kind.replace(/_/g, " ")}: this one changes where the page lives or whether people can find it, so read it once and confirm it before you make the change.`)];
   const factViolations = entail.violations;
   const corrections = entail.corrections;
@@ -421,7 +422,7 @@ export function validateProposal(
   let verdict: ProposalVerdict;
   if (safetyFlags.length > 0 || factViolations.length > 0 || componentFails.length > 0 || REJECT_STATUSES.has(quality.status)) {
     verdict = "rejected";
-    reasons.push(...safetyFlags, ...factViolations, ...componentFails);
+    reasons.unshift(...safetyFlags, ...factViolations, ...componentFails);
   } else if (dangerous.length > 0) {
     verdict = "needs_review";
   } else if (quality.status === "ready" && quality.copyAllowed) {
