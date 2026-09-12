@@ -542,9 +542,10 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     if ((p.bundle.components ?? []).length > 0 && (p.bundle.components ?? []).every((c) => NO_FIELD_KIND.has(c.kind))) continue; // A PASS MAY ONLY RETIRE WORK IT COULD HAVE RE-DERIVED: this swept EVERY bundle on a page it read without acting on, right for a whole-page rewrite it would have re-minted and wrong for an atomic bundle it never mints, so 27 anchor labels and a table row were withdrawn as "nothing earned a change" seconds after landing
     await retire(p, "retired: this page was read again this pass and nothing on it earned a change");
   }
-  if (coverage) for (const p of live) { // AND THE PAGE NOBODY EARNED: only a pass that REACHED a verdict may retire one.
-    if (p.kind !== "new_page" || !current(p) || retired.has(p.id)) continue; if (earnedNewPage(coverage.decision) && [coverage.investigation.key, ...coverage.investigation.aliasKeys].some((k) => p.id.includes(`::${k}::`))) continue;
-    await retire(p, "retired: this pass reached a verdict and no case still asks for this new page");
+  if (coverage) for (const p of live) { // AND THE PAGE NOBODY EARNED: only a verdict ABOUT THIS PAGE'S OWN TOPIC may retire it. Coverage reaches ONE topic's verdict a pass and rotates, so the old conjunction read a verdict about the French page as proof nobody asks for the landmarks page, and three on-subject partial pages carrying paid briefs and banked sections were destroyed by rotation (production 2026-09-12, confirmed by the architect audit). A verdict about another topic says nothing about this page.
+    if (p.kind !== "new_page" || !current(p) || retired.has(p.id)) continue;
+    if (![coverage.investigation.key, ...coverage.investigation.aliasKeys].some((k) => p.id.includes(`::${k}::`)) || earnedNewPage(coverage.decision)) continue;
+    await retire(p, "retired: this topic's own reading reached a verdict that no longer earns this page");
   }
   const suggested = await withSuggestions(proposals);
   if (!quietDay) for (const c of [...recoveryCards, ...extra.cards].filter((x) => NEEDS_DECISION.has(x.treatment ?? ""))) {
