@@ -448,6 +448,30 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     const thin = READY({ topicKey: keyOf(READY()) }); const blind = (readOutcome: WinnerReadOutcome | null) => snap([GAP], { ...thin, winningPages: thin.winningPages.map((w) => ({ ...w, extract: null, readOutcome })) }, DEMAND); reset(blind(null)); const asks = await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW });
     reset(blind({ state: "robots_blocked", attemptedAt: LOOKED_AT, retryAfter: "2099-01-01T00:00:00.000Z" })); const shut = await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW }); reset(blind({ state: "temporarily_unavailable", attemptedAt: LOOKED_AT, retryAfter: "1999-01-01T00:00:00.000Z" })); const due = await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW });
     expect([asks.coverage, due.coverage, shut.coverage!.decision.verdict, shut.proposals.some((p) => p.kind === "new_page")]).toEqual([null, null, "do_nothing", false]); }); // ask while a read is left, park when every winner has refused me
+  it("a partial page survives another topic's verdict, resumes without a second brief, and completes as one page", async () => {
+    /* THE ROTATION BUG OF 2026-09-12, PINNED (operator adoption of the architect contract): coverage reaches ONE topic's verdict a pass, and the old retirement read a verdict about another topic as proof nobody asks for this page, destroying three paid partial pages. The whole delivery sequence is reproduced at zero provider cost: banked evidence, injected responses. */
+    reset(snap([GAP], READY({ topicKey: keyOf(READY()) }), DEMAND));
+    const inner1 = pageSeam(BRIEF); const partialSeam: CompleteFn = async (r) => r.kind === "atomic_edit" && !(r.user.includes(`"${BRIEF.proposedTitle}"`) || r.user.includes(`"${BRIEF.sections[0]!.heading}"`)) ? { value: {} as never } : inner1(r);
+    await produceProposalsForTenant("fixture-tenant", { complete: partialSeam, now: NOW, produce: true });
+    const held = [...env.store.values()].find((x) => x.kind === "new_page");
+    expect(held, "pass one banks the brief, the opening and the one section that wrote, on the page's own row").toBeTruthy();
+    const pieces0 = held!.newPageDraft?.pieces?.length ?? 0; expect(pieces0).toBeGreaterThan(1);
+    // PASS 2: another topic's verdict. The partial page must survive it.
+    const PREADY: FunnelResearchEvidence = { ...withParked(emptyResearchEvidence()), pageComparisons: [{ topicKey: "", askKey: askIdentity({ pages: [PARK_RIVAL(1), PARK_RIVAL(2), PARK_RIVAL(3)], intersection_mode: "union" }), pages: [PARK_RIVAL(1), PARK_RIVAL(2), PARK_RIVAL(3)], excludePages: [], observedAt: LOOKED_AT, receipt: null, unavailable: null,
+      comparison: { intersectionMode: "union", excludePages: [], pages: [PARK_RIVAL(1), PARK_RIVAL(2), PARK_RIVAL(3)].map((url, i) => ({ page: i + 1, url })), keywords: [PARKED, "parked b", "parked c"].map((keyword, i) => ({ keyword, searchVolume: 500, competition: null, competitionLevel: null, difficulty: null, mainIntent: "informational", ranks: (i === 2 ? [3, 4] : [2, 3]).map((page) => ({ page, url: PARK_RIVAL(page), title: null, rank: page })) })) } }] };
+    env.snap = snap([GAP, UNREAD], PREADY, PARKED_DEMAND);
+    const two = briefSeam(); const second = await produceProposalsForTenant("fixture-tenant", { complete: two.complete, now: NOW, produce: true });
+    expect(env.withdrawn.includes(held!.id), `a verdict about ${second.coverage?.investigation.label ?? "another topic"} retires no page about ${HAFT}`).toBe(false);
+    expect(env.store.has(held!.id), "the partial page and its paid pieces are still on the store").toBe(true);
+    // PASS 3: the page's own topic returns. The stored brief resumes; no second brief is bought; the page completes whole.
+    env.snap = snap([GAP], READY({ topicKey: keyOf(READY()) }), DEMAND);
+    const three = briefSeam();
+    await produceProposalsForTenant("fixture-tenant", { complete: three.complete, now: NOW, produce: true });
+    expect(three.kinds.filter((k) => k === "new_page_brief"), "what is already written costs nothing a second time").toEqual([]);
+    const page = [...env.store.values()].find((x) => x.kind === "new_page")!;
+    const body = (page.bundle?.components ?? []).map((c) => c.after).join("\n");
+    expect(BRIEF.sections.every((sec) => body.includes(sec.heading)), "every planned section's copy is written into the one publishable bundle").toBe(true);
+    expect(nextObligation(page)?.kind === "sections", "no sections owed: one complete page a person can publish").toBe(false); });
   it("throws away a brief that names a site, a page, a question or a figure nobody gave it", async () => {
     const strays = [{ proposedTitle: "What r9.example says about the haft seen table" }, { internalLinks: [{ url: "fixture-outdoors.example/invented", anchor: "x" }] }, { faqQuestions: ["Where can I buy a haft seen table set"] }, { sections: BRIEF.sections.map((s) => ({ ...s, evidenceKeys: ["made-up"] })) },
       { factRequirements: ["Check this against nowruz.ai before it goes out."] }, { sourceRequirements: ["Check every item name against persianculture.wiki first."] }, // suffixes neither net had heard of
