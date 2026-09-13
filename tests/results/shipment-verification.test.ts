@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 /** Live implementation verification (V1 Truth Convergence Phase 6). These pin CUSTOMER TRUTH, not the implementation: what Beacon says it saw on the operator's live page, and what it refuses to say. Fixtures only, zero network: the polite fetch is seamed exactly the way the owned-page read seams it. */
 const ROWS: Array<Record<string, unknown> & { tenant?: string }> = [];
 const WRITES: Array<[string, string, { status: string }]> = [];
-vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ rpc: async (_fn: string, a: { p_since: string }) => (a.p_since <= "2026-08-05" ? { data: [{ page: "https://own.com/nowruz", clicks: 30, impressions: 900, pos_weighted: 4500 }], error: null } : { data: [], error: null }) }) }));
+const search = vi.hoisted(() => ({ rpc: vi.fn() }));
+vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ rpc: search.rpc }) }));
+beforeEach(() => { search.rpc.mockImplementation(async (_fn: string, a: { p_since: string }) => (a.p_since <= "2026-08-05" ? { data: [{ page: "https://own.com/nowruz", clicks: 30, impressions: 900, pos_weighted: 4500 }], error: null } : { data: [], error: null })); });
 vi.mock("@/domains/measurement/proof-gsc/shipped-change-store", () => ({
   loadShippedChangesForTenant: async (t: string) => ROWS.filter((r) => !r.tenant || r.tenant === t), // a row may name the account it belongs to, so one fixture holds two synthetic accounts; a row that names none belongs to whoever asks, exactly as before
   recordVerification: async (t: string, id: string, v: { status: string }) => { WRITES.push([t, id, v]); return true; },}));
@@ -31,17 +33,14 @@ const PAGE = `<html><head><title>How to set a nowruz table</title>
 <p>Every item on the cloth stands for a wish for the year that is starting, and families choose their own.</p>
 <p><a href="/haft-seen">the haft seen explained</a></p>
 </main></body></html>`;
-/** The polite fetch, seamed: every test answers for the customer's website itself. */
 type Fetcher = () => Promise<{ ok: true; html: string; status: number; finalUrl?: string } | { ok: false; reason: "robots_blocked" | "fetch_failed"; detail?: string }>;
 const serve = (html: string, over: { status?: number; finalUrl?: string } = {}): Fetcher =>
   async () => ({ ok: true, html, status: 200, ...over });
 const refuse = (reason: "robots_blocked" | "fetch_failed", detail?: string): Fetcher =>
   async () => ({ ok: false, reason, detail });
 const base = { loadProfile: async () => null, writeOwnedPage: async () => {}, now: () => NOW };
-/** ONE verification of one page, with the components under test. */
 const check = async (components: Array<{ kind: string; after: string; anchorAfter?: string | null; before?: string | null }>, page: Fetcher = serve(PAGE), over: Record<string, unknown> = {}) =>
   verifyShipment(T, { id: "s1", url: URL_, components }, { ...base, fetchPage: page, ...over });
-/** What ONE component was judged to be. */
 const state = async (kind: string, after: string, page: Fetcher = serve(PAGE), over: Record<string, unknown> = {}) =>
   (await check([{ kind, after }], page, over)).components[0]!.state;
 describe("what Beacon can see on the live page, component by component", () => {
@@ -128,7 +127,19 @@ describe("what Beacon says overall, and what it refuses to say", () => {
     expect([stale.recheckAfter ?? null, none.recheckAfter], "and a reading taken off a capture older than the change promises no day: the same shell comes back every time, so it closes here and the page itself reopens it when a newer capture lands").toEqual([null, "2026-08-02"]);});
   it("reads a difference inside the publish grace window as not published yet: no bounded check is spent and it is read again tomorrow", async () => { const at = (h: number) => new Date(NOW - h * 3_600_000).toISOString(); const early = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }], implementedAt: at(1) }, { ...base, fetchPage: serve(PAGE) }), late = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }], implementedAt: at(8) }, { ...base, fetchPage: serve(PAGE) });
     expect([early.status, early.checks, early.recheckAfter, (early.components[0]!.note ?? "").includes("published later"), late.status, late.checks, late.recheckAfter]).toEqual(["differs", 0, "2026-08-01", true, "differs", 1, "2026-08-02"]); });
-  it("resolves a scheme-less page key and an absolute address to the same Search history, and answers nothing at all for a page with none", async () => { const { readWindowForPages } = await import("@/domains/measurement/proof-gsc/gsc-window"); const m = await readWindowForPages({ tenantId: T, pages: ["own.com/nowruz", "https://www.own.com/nowruz/", "own.com/never"], start: "2026-08-05", end: "2026-09-02" }); expect([m.get("own.com/nowruz")?.impressions, m.get("https://www.own.com/nowruz/")?.impressions, m.has("own.com/never")]).toEqual([900, 900, false]); }); // NOTHING ON FILE IS NOT ZERO
+  it("keeps failed cumulative reads distinct from missing history and measured zero, and never subtracts an invalid side", async () => {
+    const { readWindowForPages } = await import("@/domains/measurement/proof-gsc/gsc-window"), args = { tenantId: T, pages: ["own.com/nowruz", "https://www.own.com/nowruz/", "own.com/never"], start: "2026-08-05", end: "2026-09-02", siteTotal: { key: "site", exclude: URL_ } };
+    const known = await readWindowForPages(args); expect(known.status).toBe("available"); if (known.status !== "available") throw new Error(known.reason);
+    expect([known.data.get(args.pages[0]!)?.impressions, known.data.get(args.pages[1]!)?.impressions, known.data.has(args.pages[2]!)]).toEqual([900, 900, false]);
+    const row = { page: URL_, clicks: 30, impressions: 900, pos_weighted: 4500 };
+    for (const bad of [{ data: null, error: { message: "outage" } }, { data: {}, error: null }, { data: [{ ...row, clicks: "NaN" }], error: null }, { data: [{ ...row, impressions: null }], error: null }, { data: [{ ...row, pos_weighted: -1 }], error: null }, { data: [null], error: null }]) {
+      for (const failedDay of [args.start, args.end]) { search.rpc.mockImplementation(async (_fn: string, a: { p_since: string }) => a.p_since === failedDay ? bad : { data: [row], error: null }); expect((await readWindowForPages(args)).status).toBe("unavailable"); }
+    }
+    search.rpc.mockRejectedValue(new Error("network")); expect((await readWindowForPages(args)).status).toBe("unavailable");
+    search.rpc.mockImplementation(async (_fn: string, a: { p_since: string }) => ({ data: [{ ...row, clicks: a.p_since === args.end ? 31 : 30 }], error: null })); expect((await readWindowForPages(args)).status).toBe("unavailable");
+    search.rpc.mockResolvedValue({ data: [row], error: null }); const zero = await readWindowForPages(args); expect(zero.status === "available" && zero.data.get(args.pages[0]!)?.clicks).toBe(0);
+    search.rpc.mockResolvedValue({ data: [], error: null }); const absent = await readWindowForPages(args); expect(absent.status === "available" && absent.data.has(args.pages[0]!)).toBe(false);
+  });
   /** DELIVERED IS NOT SHOWING: the page carrying the new title and Google displaying it are two different facts, and only the first one is what "verified" means. */
   it("banks what Google shows beside the page reading, prints it on the card, and never lets it move the change's own status", async () => { const serp = (title: string) => async () => [{ url: URL_, title, snippet: "Set a nowruz table in seven steps." }];
     const ship = ({ before = null, ...over }: Record<string, unknown> & { before?: string | null }) => verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "How to set a nowruz table", before }], targetQueries: ["nowruz table"], implementedAt: new Date(NOW - 3 * DAY).toISOString() }, { ...base, fetchPage: serve(PAGE), ...over });

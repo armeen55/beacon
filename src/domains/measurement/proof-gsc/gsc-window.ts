@@ -10,8 +10,8 @@ import "server-only";
  *
  *   window[start, end)  =  cumulativeSince(start) − cumulativeSince(end)
  *
- * clicks/impressions/pos_weighted are additive sums, so the subtraction is exact.
- * No new migration needed for reads. Fail-soft (empty map on any error).
+ * Only successful, validated cumulative reads may be subtracted. Missing rows in
+ * a successful response are different from unavailable or inconsistent source data.
  */
 
 import { cache } from "react";
@@ -22,40 +22,37 @@ import { log } from "@/lib/logger";
 import type { GscWindowMetrics } from "./types";
 
 type Cumulative = { clicks: number; impressions: number; posWeighted: number };
+type SourceRead<T> = { status: "available"; data: T } | { status: "unavailable"; reason: string };
 
 /** Cumulative page totals for all dates >= `since` (YYYY-MM-DD), keyed by canonical URL.
  *  Request-memoized like readLastFinalizedDate below: one measured change reads two snapshots per
  *  window across five windows, so a Results pass over 25 changes issued the same RPC 214 times in
  *  one walk. cache() collapses repeated (tenant, since) pairs to one call within a request and is a
  *  passthrough outside one. */
-export const readCumulativeSince = cache(async (tenantId: string, since: string): Promise<Map<string, Cumulative>> => {
+export const readCumulativeSince = cache(async (tenantId: string, since: string): Promise<SourceRead<Map<string, Cumulative>>> => {
   const out = new Map<string, Cumulative>();
   try {
+    if (!tenantId.trim()) throw new Error("an account is required");
     const admin = getSupabaseAdmin();
     const { data, error } = await admin.rpc("gsc_page_totals_v1", { p_tenant: tenantId, p_since: since });
-    if (error || !Array.isArray(data)) {
-      // A DB error silently returns an empty map (every page reads as "no
-      // clicks") - make the failure visible instead of a quiet zero.
-      log.warn("gsc-window: cumulative-totals query errored; returning no page totals", {
-        tenant: tenantId, store: "gsc_page_totals_v1", error: error?.message ?? "non-array response",
-      });
-      return out;
-    }
+    if (error || !Array.isArray(data)) throw new Error(error?.message ?? "non-array response");
     for (const r of data as Array<{ page: string; clicks: number | string; impressions: number | string; pos_weighted: number | string }>) {
-      const canon = canonicalizeCitationUrl(r.page) ?? r.page;
-      const cur: Cumulative = { clicks: Number(r.clicks) || 0, impressions: Number(r.impressions) || 0, posWeighted: Number(r.pos_weighted) || 0 };
+      if (!r || typeof r.page !== "string" || !r.page.trim()) throw new Error("invalid page identity");
+      const canon = canonicalPageKey(r.page);
+      const numbers = [r.clicks, r.impressions, r.pos_weighted].map((n) => typeof n === "number" || typeof n === "string" && n.trim() ? Number(n) : NaN);
+      if (numbers.some((n) => !Number.isFinite(n) || n < 0)) throw new Error("invalid cumulative metrics");
+      const cur: Cumulative = { clicks: numbers[0]!, impressions: numbers[1]!, posWeighted: numbers[2]! };
       const prev = out.get(canon);
       if (prev) { prev.clicks += cur.clicks; prev.impressions += cur.impressions; prev.posWeighted += cur.posWeighted; }
       else out.set(canon, cur);
     }
+    return { status: "available", data: out };
   } catch (err) {
-    // Fail-soft returns an empty map, which downstream reads as "no clicks" -
-    // a real read failure would silently zero every page's traffic proof.
-    log.warn("gsc-window: cumulative-totals read failed; returning no page totals", {
+    log.warn("gsc-window: cumulative-totals read unavailable", {
       tenant: tenantId, store: "gsc_page_totals_v1", error: err instanceof Error ? err.message : String(err),
     });
+    return { status: "unavailable", reason: "Search Console totals could not be read reliably." };
   }
-  return out;
 });
 
 /**
@@ -92,10 +89,13 @@ export const readLastFinalizedDate = cache(async (tenantId: string): Promise<str
   }
 });
 
-function subtract(start: Cumulative | undefined, end: Cumulative | undefined): GscWindowMetrics {
-  const clicks = Math.max(0, (start?.clicks ?? 0) - (end?.clicks ?? 0));
-  const impressions = Math.max(0, (start?.impressions ?? 0) - (end?.impressions ?? 0));
-  const posW = Math.max(0, (start?.posWeighted ?? 0) - (end?.posWeighted ?? 0));
+function subtract(start: Cumulative | undefined, end: Cumulative | undefined): GscWindowMetrics | null {
+  const clicks = (start?.clicks ?? 0) - (end?.clicks ?? 0);
+  const impressions = (start?.impressions ?? 0) - (end?.impressions ?? 0);
+  const rawPosition = (start?.posWeighted ?? 0) - (end?.posWeighted ?? 0);
+  const tolerance = Number.EPSILON * Math.max(1, start?.posWeighted ?? 0, end?.posWeighted ?? 0) * 8;
+  if (![clicks, impressions, rawPosition].every(Number.isFinite) || clicks < 0 || impressions < 0 || rawPosition < -tolerance) return null;
+  const posW = Math.max(0, rawPosition);
   return { clicks, impressions, ctr: impressions > 0 ? clicks / impressions : 0, position: impressions > 0 ? posW / impressions : 0 };
 }
 
@@ -113,8 +113,11 @@ export async function readWindowForPages(args: {
    *  series and handed back under `key`. Off the same two snapshots the pages above are read from, so it
    *  costs no extra read. It is what a change is compared against when too few untouched pages match. */
   siteTotal?: { key: string; exclude: string };
-}): Promise<Map<string, GscWindowMetrics>> {
-  const [startCum, endCum] = await Promise.all([readCumulativeSince(args.tenantId, args.start), readCumulativeSince(args.tenantId, args.end)]);
+}): Promise<SourceRead<Map<string, GscWindowMetrics>>> {
+  const [startRead, endRead] = await Promise.all([readCumulativeSince(args.tenantId, args.start), readCumulativeSince(args.tenantId, args.end)]);
+  if (startRead.status === "unavailable") return startRead;
+  if (endRead.status === "unavailable") return endRead;
+  const startCum = startRead.data, endCum = endRead.data;
   const out = new Map<string, GscWindowMetrics>();
   for (const page of args.pages) {
     // THE PAGE IS RESOLVED BEFORE IT IS LOOKED UP, AND ANSWERED UNDER THE NAME IT WAS ASKED BY (operator, 2026-09-02): a scheme-less
@@ -122,7 +125,9 @@ export async function readWindowForPages(args: {
     // measured every later window against it. NOTHING ON FILE IS NOT ZERO: a page with no cumulative row on either side is absent.
     const canon = canonicalPageKey(page), start = startCum.get(canon), end = endCum.get(canon);
     if (start === undefined && end === undefined) continue;
-    out.set(page, subtract(start, end));
+    const metrics = subtract(start, end);
+    if (!metrics) return { status: "unavailable", reason: "Search Console cumulative totals are inconsistent across this window." };
+    out.set(page, metrics);
   }
   if (args.siteTotal) {
     const skip = canonicalPageKey(args.siteTotal.exclude);
@@ -130,9 +135,11 @@ export async function readWindowForPages(args: {
       const t: Cumulative = { clicks: 0, impressions: 0, posWeighted: 0 };
       for (const [page, c] of m) if (page !== skip) { t.clicks += c.clicks; t.impressions += c.impressions; t.posWeighted += c.posWeighted; }
       return t; };
-    out.set(args.siteTotal.key, subtract(total(startCum), total(endCum)));
+    const metrics = subtract(total(startCum), total(endCum));
+    if (!metrics) return { status: "unavailable", reason: "Search Console site totals are inconsistent across this window." };
+    out.set(args.siteTotal.key, metrics);
   }
-  return out;
+  return { status: "available", data: out };
 }
 
 /** The one spelling the cumulative map is keyed by: canonical absolute url, with a scheme supplied for a scheme-less page key. */

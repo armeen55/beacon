@@ -1,6 +1,5 @@
 /** THE CANONICAL SHIPMENT (V1 Truth Convergence Phase 6). Protected here: ONE Shipment per (proposal, version applied) and a retry that heals instead of duplicating; a partial bundle stored as one; the stamp and the starting numbers written exactly once; pre-Phase-6 rows still decoding; a check naming another account's Shipment landing nothing; and the 28-day ranking window read from the stamp. Fixtures only: the fake Postgres below holds the rows. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-/** `offline` = no Supabase configured at all (local dev). `upsertError`/`updateError` = the pre-migration window, where the table is there and the Shipment columns are not. `file` is the per-tenant ledger file both fallbacks write to. */
 const db = vi.hoisted(() => ({ state: { rows: [] as Row[], file: [] as Row[], offline: false, upsertError: null as Row | null, updateError: null as Row | null }, client: {} as Record<string, unknown> }));
 const gsc = vi.hoisted(() => ({ window: vi.fn(), lastFinal: vi.fn() }));
 const ai = vi.hoisted(() => ({ views: vi.fn(), records: vi.fn() }));
@@ -14,13 +13,11 @@ vi.mock("@/app/(shell)/results/results-surface-store", () => ({ invalidateResult
 vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async () => {} }));
 const storeReads = vi.hoisted(() => ({ n: 0 }));
 vi.mock("@/domains/decision/proposal-store", () => ({ loadChangeProposals: async () => { storeReads.n += 1; return new Map(); } }));
-vi.mock("@/domains/measurement/proof-gsc/gsc-window", () => ({ readWindowForPages: gsc.window, readLastFinalizedDate: gsc.lastFinal, readCumulativeSince: async () => new Map() }));
-/** The comparison set this account's site can offer, which the recording seam asks for and never depends on. */
+vi.mock("@/domains/measurement/proof-gsc/gsc-window", () => ({ readWindowForPages: async (...args: unknown[]) => { const read = await gsc.window(...args); return read?.status ? read : { status: "available", data: read }; }, readLastFinalizedDate: gsc.lastFinal, readCumulativeSince: async () => ({ status: "available", data: new Map() }) }));
 const ctl = vi.hoisted(() => ({ pages: [] as string[] }));
 vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/assemble-packet", () => ({
   loadPageSurgeonContext: async () => ({ gscByUrl: new Map(), snapshotByCanon: new Map() }), assemblePacketForUrl: () => ({ gsc: null }), topPagesByDemand: () => ctl.pages,}));
 vi.mock("@/domains/evidence/ai-visibility/ai-observations", async (orig) => ({ ...((await orig()) as object), readAiObservationViews: ai.views, readAiObservations: ai.records }));
-/** The settle pass's own three seams: what it measured, and the two things a fresh verdict is worthless without. */
 const settle = vi.hoisted(() => ({ pass: vi.fn(), rebuilt: [] as string[], harvested: [] as string[] }));
 vi.mock("@/domains/measurement/proof-gsc/auto-measure-pass", () => ({ autoMeasureDuePass: settle.pass }));
 vi.mock("@/app/(shell)/results/results-ledger-data", () => ({ rebuildResultsSurface: async (t: string) => void settle.rebuilt.push(t) }));
@@ -43,15 +40,12 @@ const origin = (over: Record<string, unknown> = {}) => ({
 const ship = (over: Record<string, unknown> = {}) => recordShippedChange({
   tenantId: T, page: PAGE, path: "/nowruz-guide", actionType: "title-family", before: "Nowruz", shippedAt: NOW.toISOString(), now: NOW, shipment: origin() as never,
   after: "Nowruz Traditions and the Haft-Seen Table", targetQueries: ["nowruz traditions"], controlPages: ["https://x.test/a", "https://x.test/b"], ...over });
-/** A pre-Phase-6 row: the manual "Record shipped change" path, no Shipment columns at all. */
 const legacyRow = (): Row => ({
   tenant_id: T, id: "/cities::2026-06-20", page: "https://www.fixture-outdoors.example/cities", path: "/cities", action_type: "meta", before_text: "old", after_text: "new",
   shipped_at: "2026-06-20T00:00:00.000Z", baseline: { clicks: 5, impressions: 400, ctr: 0.0125, position: 12, windowDays: 28 }, target_queries: [], control_pages: [], windows: [],
   verdict: "measuring", confidence: "low", measured_at: null, notes: null, verified_live: false, live_source_url: null, recrawl_requested_at: null, created_at: "2026-06-20T00:00:00.000Z", updated_at: "2026-06-20T00:00:00.000Z",});
-/** THE SITE'S OWN MOVEMENT BESIDE THE PAGE, which is the comparison a change falls back on. `clicks` is the treated page's own, and matched pages ride along where a walk needs them. */
 const withSiteHistory = (clicks = 9, matched: Array<[string, unknown]> = []) => gsc.window.mockImplementation(async (a: { siteTotal?: { key: string } }) => new Map<string, unknown>([[PAGE, { clicks, impressions: 1200, ctr: clicks / 1200, position: 14 }], ...matched, ...(a.siteTotal ? [[a.siteTotal.key, { clicks: 900, impressions: 120000, ctr: 0.0075, position: 14 }] as [string, unknown]] : [])]));
 const verification = (status: ShipmentVerification["status"]): ShipmentVerification => ({ status, checkedAt: "2026-08-02T00:00:00.000Z", components: [{ kind: "title", state: "verified", note: null }] });
-/** ONE stored proof window, shared by every walk that needs one: three hand-rolled copies drifted apart on the fields none of them meant to vary. `controlsUsed` is the only one a caller ever has a reason to move, because zero comparison pages is what makes a window unreadable. */
 const ranWindow = (day: number, adjustedLift: number, controlsUsed = 3) => ({ day, checkOn: "2026-09-25", ran: true, treatedDelta: 0, controlDelta: 0, adjustedLift, treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0.02, treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0, controlsUsed, treatedPostImpressions: 5000,});
 beforeEach(() => {
   Object.assign(db.state, { rows: [], file: [], offline: false, upsertError: null, updateError: null });
@@ -99,20 +93,16 @@ describe("the canonical Shipment", () => {
   it("still decodes a record written before there were Shipments", async () => {
     db.state.rows.push(legacyRow()); const [stored] = await loadShippedChangesForTenant(T); expect(stored.path).toBe("/cities"); expect(stored.baseline.clicks).toBe(5);
     expect([stored.proposalId, stored.implementedAt, stored.shipmentBaseline, stored.verification]) .toEqual([null, null, null, null]);
-    // AND THE ORDINARY PASS REPAIRS WHAT IT DECODES: a row with no reading plan and no yardstick can never resolve, so one pass stamps both and says so on the row. FORWARD ONLY, so a row that already carries them keeps every one of its own fields and is never annotated.
     const at = new Date("2026-10-01T00:00:00.000Z"), measure = (r: ShippedChangeRecord) => measureRecord(T, r, at, "2026-09-05", new Set());
     const fixed = await measure(stored); expect([fixed.primaryWindowDays, fixed.judgedMetric, fixed.notes]).toEqual([28, "clicks", "Stamped the reading plan and the yardstick this change is judged on, where they were missing: a change without them can never resolve."]);
     const again = await measure({ ...stored, primaryWindowDays: 14, judgedMetric: "ai_citation", notes: "kept" });
     expect([again.primaryWindowDays, again.judgedMetric, again.notes], "a stamped plan is never overwritten and the note is never written twice").toEqual([14, "ai_citation", "kept"]);
-    // AND DAY ZERO IS THE DAY GOOGLE READ THE CHANGE wherever an inspection has said so: the same row closes its 7 day window a week after it shipped, and a week after the crawl once that stamp lands.
     const closesOn = async (over: Partial<ShippedChangeRecord>) => (await measure({ ...stored, ...over })).windows.find((w) => w.day === 7)?.checkOn;
     expect([await closesOn({}), await closesOn({ lastCrawlAt: "2026-07-03T09:00:00.000Z" })]).toEqual(["2026-06-27", "2026-07-10"]);
-    // AND A VALUE THAT PREDATES THE CRAWL STAMP IS NOT ONE: 17 live rows hold a recrawl REQUEST time in that same column under the old meaning, roughly the ship moment, and read back as a crawl they would drag day zero backwards on a settled June row or read it as still waiting for Google. It decodes as nothing, so those rows read exactly as they always did, and a stamp written since reads back whole.
     db.state.rows = [{ ...legacyRow(), recrawl_requested_at: "2026-06-22T00:00:00.000Z" }, { ...legacyRow(), id: "/fresh::2026-06-20", path: "/fresh", recrawl_requested_at: "2026-09-03T10:00:00.000Z" }];
     const [old, fresh] = (await loadShippedChangesForTenant(T)).sort((a, b) => a.path.localeCompare(b.path));
     expect([old!.lastCrawlAt, fresh!.lastCrawlAt]).toEqual([null, "2026-09-03T10:00:00.000Z"]);
     expect(await closesOn({ lastCrawlAt: old!.lastCrawlAt }), "the June row counts from its ship date exactly as it always did").toBe("2026-06-27");});});
-/** THE FOURTH CHECKPOINT IS BOUGHT ONCE. A recompute rebuilds 7/14/28 from scratch, so a day-56 reading already taken and already judged on must be carried through it untouched. */
 describe("recording what the live check found", () => {
   it("carries a day-56 reading through a recompute that could not ask for it again, and never re-buys it", async () => {
     const held = { ...(await ship()), verdict: "inconclusive" as const, windows: [ranWindow(56, 400)] as never };
@@ -125,7 +115,6 @@ describe("recording what the live check found", () => {
     expect(await recordVerification(T, "shp_nothing", verification("not_found"))).toBe(false);
     expect((await loadShippedChangesForTenant(T))[0].verification).toBeNull(); expect(await recordVerification(T, record.id, verification("verified"))).toBe(true);
     expect([(await loadShippedChangesForTenant(T)).length, ...[(await loadShippedChangesForTenant(T))[0]].map((s) => [s.verification?.status, s.implementedAt, s.shipmentBaseline?.search?.clicks, s.after])], "A FAILED CHECK CANNOT ERASE, DUPLICATE OR ROLL BACK AN APPLIED CHANGE: two refusals and one write later the shipment is there exactly once, with the stamp, the starting numbers and the applied copy it was recorded with").toEqual([1, ["verified", NOW.toISOString(), 9, record.after]]);});});
-/** THE PRE-MIGRATION WINDOW. The columns are not there yet, the table is, and production reads the table: a write that quietly lands in a file is a write nobody will ever read back. */
 describe("when the Shipment columns are not there yet", () => {
   const MISSING_COLUMN = { code: "PGRST204", message: "Could not find the 'implemented_at' column of 'shipped_change_proof' in the schema cache" };
   it("refuses a Shipment it cannot store durably, but still files a pre-Shipment row nothing reads from the table", async () => {
@@ -139,7 +128,6 @@ describe("when the Shipment columns are not there yet", () => {
     const record = await ship(); await upsertShippedChange(record); // the table takes the row, and the file mirrors it
     db.state.updateError = { code: "PGRST204", message: "Could not find the 'verification' column of 'shipped_change_proof' in the schema cache" };
     expect(await recordVerification(T, record.id, verification("verified"))).toBe(true); expect((db.state.file[0] as { verification?: ShipmentVerification }).verification?.status).toBe("verified");});});
-/** PRODUCT TRUTH: start measurement only after implementation is VERIFIED on the live page. Measuring a change I never found there would credit search movement to work that may never have landed. */
 describe("measurement waits for the change to be found on the page", () => {
   const LATER = new Date("2026-08-20T12:00:00.000Z"), FINAL = "2026-08-19";
   const due = async (v: ShipmentVerification | null) => isDueForMeasure({ ...(await ship()), verification: v }, FINAL, LATER);
@@ -147,7 +135,6 @@ describe("measurement waits for the change to be found on the page", () => {
     expect(await due(verification("verified"))).toBe(true); expect(await due(verification("partially_verified"))).toBe(true);
     expect(await due(null)).toBe(false);            // never checked: there is nothing honest to measure yet
     expect(await due(verification("not_found"))).toBe(false); expect(await due(verification("blocked"))).toBe(false); expect(await due(verification("differs"))).toBe(false);
-    // A VERIFIED ROW PARKED WITH NOTHING TO COMPARE IT AGAINST IS DUE AGAIN, once a day, so the revival inside the reading is actually reached: this gate answered "not due" for 26 of them and the debt that opens a pass is counted with this very function. Once a day, so a row that can never revive asks again tomorrow instead of forever. And a page Google has not read since the change carries no signal of it, so that one waits.
     const state = async (over: Partial<ShippedChangeRecord>) => isDueForMeasure({ ...(await ship()), verification: verification("verified"), updatedAt: "2026-08-19T00:00:00.000Z", ...over }, FINAL, LATER);
     expect([await state({ measurementState: "insufficient_comparison" }), await state({ measurementState: "measurement_unavailable" }), await state({ measurementState: "insufficient_comparison", updatedAt: "2026-08-20T01:00:00.000Z" }), await state({ measurementState: "insufficient_comparison", lastCrawlAt: "2026-07-01T00:00:00.000Z" })]).toEqual([true, true, false, false]);});
   it("keeps measuring a record written before there were Shipments, which has no answer to wait for", async () => {
@@ -155,13 +142,11 @@ describe("measurement waits for the change to be found on the page", () => {
 describe("what is still under measurement", () => {
   const row = (id: string, implementedAt: string, path: string, v: ShipmentVerification | null): Row => ({ ...legacyRow(), id, path, page: `https://www.fixture-outdoors.example${path}`, implemented_at: implementedAt, verification: v, proposal_id: `p-${id}` });
   beforeEach(() => {
-    // s1 waits on its first check; s3 was looked for and is not there, so the page is free; s4 could not be looked at, which is when I am least sure, so it HOLDS; s5 is past the window and s6 carries no stamp at all.
     db.state.rows = [row("s1", "2026-07-25T00:00:00.000Z", "/nowruz-guide", null), row("s2", "2026-07-20T00:00:00.000Z", "/tehran", verification("verified")),
       row("s3", "2026-07-28T00:00:00.000Z", "/shiraz", verification("not_found")), row("s4", "2026-07-29T00:00:00.000Z", "/isfahan", verification("blocked")),
       row("s5", "2026-05-01T00:00:00.000Z", "/kish", verification("verified")), { ...legacyRow(), id: "s6", path: "/never-shipped" }];});
   it("windows on the stamp, keeps only what is really being measured, and belongs to one account", async () => {
     expect(await pagesUnderMeasurementFromShipments(T, NOW), "named by the spelling that carries a host: a bare path is matched downstream by a suffix test, so /isfahan claimed every address ending in it").toEqual(["https://www.fixture-outdoors.example/nowruz-guide", "https://www.fixture-outdoors.example/tehran", "https://www.fixture-outdoors.example/isfahan"]); expect(await pagesUnderMeasurementFromShipments("acct-b", NOW)).toEqual([]);});});
-/** MEASUREMENT USED TO NEED A VISITOR: the engine fired only from a Results render, so a verdict waited on somebody opening the page and production sat on sixteen measurable shipments. The scheduled run drives this now, and a reading is only true on screen once Results is rebuilt and only reaches ranking once winner memory re-harvests. */
 describe("the measurement pass settles itself, all the way to the screen", () => {
   const result = (over: Record<string, number>) => ({ considered: 16, due: 16, measured: 0, changed: 0, settled: 0, revived: 0, reopened: 0, crawlStamped: 0, failed: 0, outcomes: [], ...over });
   beforeEach(() => { settle.rebuilt.length = 0; settle.harvested.length = 0; settle.pass.mockReset(); });
@@ -173,7 +158,6 @@ describe("the measurement pass settles itself, all the way to the screen", () =>
     settle.pass.mockRejectedValue(new Error("the ledger did not answer"));
     expect(await settleDueMeasurements(T)).toBe(0); // fail-soft: a reading I could not take never pauses the pass that asked for it
   });});
-/** RECORDING IS NOT MEASURING. What the operator applied is a fact and is written down whatever the data says; whether it can be fairly compared is a SEPARATE fact, recorded beside it and never used to refuse the write. The path used to refuse below two comparison pages, so a true implementation left no record at all and the queue offered it back. */
 describe("the recording seam", () => {
   const facts = (over: Record<string, unknown> = {}) => ({ ...origin(), tenantId: T, page: PAGE, path: "/nowruz-guide", actionType: "title-family", before: "Nowruz", after: "Nowruz Traditions", targetQueries: ["nowruz traditions"], now: NOW, ...over });
   const LIVE_ON = "2026-07-10T00:00:00.000Z", WORDING = "Nowruz Traditions and the Haft-Seen Table";
@@ -181,7 +165,6 @@ describe("the recording seam", () => {
     placement: "the page title", source: "pasted in the CMS", page: PAGE, path: "/nowruz-guide", actionType: "title-family", componentsApplied: [{ kind: "title", label: "Page title" }], now: NOW, ...over } as never);
   const stored = async () => (await loadShippedChangesForTenant(T))[0]!;
   beforeEach(() => { ctl.pages = ["https://x.test/a", "https://x.test/b", "https://x.test/c"]; });
-  /** PROOF 11 OF THE LOOP PLAN, the shipment half, standing beside the store's no-duplicate-purchase promise: a drive that reprocesses a change and finds nothing about it changed re-derives the same version, so the door lands on the record already on file and writes nothing. */
   it("makes no second record when a change is processed again unchanged, keeps its stamp and the live check already on it, and gives each account its own one record", async () => {
     withSiteHistory();
     for (const tenant of ["acct-one", "acct-two"]) {
@@ -196,7 +179,6 @@ describe("the recording seam", () => {
     await recordShipment(facts({ tenantId: "acct-one" }) as never); await recordShipment(facts({ tenantId: "acct-two" }) as never);
     expect([(await loadShippedChangesForTenant("acct-one")).length, (await loadShippedChangesForTenant("acct-two")).length, db.state.rows.length]).toEqual([1, 1, 2]); });
   it("a batch of ten records ten Shipments off one ledger read and one open-changes read, invalidates nothing per row, and a retry adds none", async () => {
-    // THE BATCH'S ONE READ OF EACH (operator, 2026-09-01): every row used to re-read the whole ledger and the whole proposal store inside the comparison, and invalidate the saved surfaces on its own.
     const ten = Array.from({ length: 10 }, (_, i) => facts({ proposalId: `${T}::/p${i}::existing_edit::missing_description`, page: `https://www.fixture-outdoors.example/p${i}`, path: `/p${i}` }));
     storeReads.n = 0; invalidations.n = 0; const ledger = await loadShippedChangesForTenant(T);
     for (const f of ten) await recordShipment(f as never, { preloadedLedger: ledger, openPaths: ["/elsewhere"], invalidate: false });
@@ -212,7 +194,6 @@ describe("the recording seam", () => {
     expect(measured.windows.find((w) => w.day === 28)?.comparedToSite).toBe(true);
     expect(readLedger([measured], new Date("2026-10-01T00:00:00.000Z"), "2026-09-05")[0].headline).toContain("Measured against the site's own movement, because too few untouched pages matched this one. That is a weaker comparison than matched pages, and a rise the whole site shared shows up here as no change.");
     await upsertShippedChange(measured, T); expect((await stored()).windows.find((w) => w.day === 28)?.comparedToSite, "the basis survives the store, so a reader downstream can tell a site reading from a matched one").toBe(true);
-    // AND UNDER SIX CLICKS BEFORE THE CHANGE THERE IS NO SHARE WORTH SCALING: no drift verdict is formed at all, and the row reads as the too-little-history one it is rather than carrying a vacuous number.
     withSiteHistory(5);
     const thin = readLedger([await measureRecord(T, await stored(), new Date("2026-10-01T00:00:00.000Z"), "2026-09-05", new Set())], new Date("2026-10-01T00:00:00.000Z"), "2026-09-05")[0];
     expect([thin.comparison, thin.headline]).toEqual(["insufficient", "The change is recorded. Its effect cannot be separated from the rest of the site yet."]);});
@@ -221,13 +202,12 @@ describe("the recording seam", () => {
     db.state.rows = []; gsc.lastFinal.mockResolvedValue("2026-07-30"); gsc.window.mockResolvedValue(new Map());
     expect([(await recordShipment(facts())).measurement, db.state.rows.length]).toEqual(["measurement_unavailable", 1]);
     expect((await stored()).shipmentBaseline).toBeNull(); // nothing on file is not zero: no starting point rather than a row of zeros
-    // AND A ROW STAMPED UNMEASURABLE IS ASKED AGAIN ON THE NEXT ORDINARY PASS: 29 of them had stopped being measured at all. It revives FORWARD only, only where a basis now exists, and never over a live check that is still owed.
+    const noHistory = await measureRecord(T, await stored(), new Date("2026-08-30T12:00:00Z"), "2026-08-30", new Set()); expect([noHistory.windows.some((w) => w.ran), noHistory.measuredAt]).toEqual([false, null]);
     withSiteHistory();
     const revive = async (state: string, final: string | null = "2026-09-05", controls: string[] = []) => (await measureRecord(T, { ...(await ship({ controlPages: controls })), measurementState: state as never }, new Date("2026-10-01T00:00:00.000Z"), final, new Set())).measurementState;
     expect([await revive("insufficient_comparison"), await revive("measurement_unavailable"), await revive("verification_needed"), await revive("measuring"), await revive("insufficient_comparison", null)]).toEqual(["measuring", "measuring", "verification_needed", "measuring", "insufficient_comparison"]);
     gsc.window.mockResolvedValue(new Map([[PAGE, { clicks: 9, impressions: 1200, ctr: 0.0075, position: 14 }]])); // three comparison pages stored, none of them carrying search data, and no site history either
     expect(await revive("insufficient_comparison", "2026-09-05", ["https://x.test/a", "https://x.test/b", "https://x.test/c"]), "stored is not usable: with no basis at all nothing is promoted over a reading that says so").toBe("insufficient_comparison");
-    // AND THE REVIVAL IS REACHED BY THE PASS THE RUNTIME CYCLE CALLS, not only by the reading underneath it: the stored dead row is walked from that entry, and a live check that had stopped with no next date is put back on its own bounded schedule on the way, which is the one repair no due gate could ever ask for.
     withSiteHistory(); const { autoMeasureDuePass } = await vi.importActual<typeof import("@/domains/measurement/proof-gsc/auto-measure-pass")>("@/domains/measurement/proof-gsc/auto-measure-pass");
     db.state.rows = []; db.state.file = []; const NEXT_DAY = new Date("2026-10-01T12:00:00.000Z");
     await upsertShippedChange({ ...(await ship({ path: "/dead" })), measurementState: "insufficient_comparison", verification: verification("verified"), updatedAt: "2026-09-30T00:00:00.000Z" }, T);
@@ -237,12 +217,25 @@ describe("the recording seam", () => {
     expect([pass.due, pass.measured, pass.revived, pass.reopened], "one dead row read and revived, one stopped check put back on its schedule, and the record that names nothing to look for left alone: when THAT one comes back is the due door's own question").toEqual([1, 1, 1, 1]);
     expect((await loadShippedChangesForTenant(T)).map((r) => [r.path, r.measurementState, r.verification?.recheckAfter ?? null]).sort())
       .toEqual([["/dead", "measuring", null], ["/names-nothing", null, null], ["/stuck", null, "2026-10-01"]]); });
+  it("records implementation without inventing a failed baseline, then leaves an existing outcome untouched until source reads recover", async () => {
+    gsc.window.mockResolvedValue({ status: "unavailable", reason: "source unavailable" });
+    const written = await recordShipment(facts()), failed = await stored();
+    expect([written.measurement, failed.implementedAt, failed.shipmentBaseline?.search ?? null, failed.windows.length, failed.measuredAt]).toEqual(["measurement_unavailable", NOW.toISOString(), null, 0, null]);
+    withSiteHistory(); const held = { ...(await ship()), verification: verification("verified"), lastCrawlAt: "2026-08-01T12:00:00Z" };
+    db.state.rows = []; await upsertShippedChange(held, T); const before = await stored();
+    const { autoMeasureDuePass } = await vi.importActual<typeof import("@/domains/measurement/proof-gsc/auto-measure-pass")>("@/domains/measurement/proof-gsc/auto-measure-pass");
+    const next = new Date("2026-08-30T12:00:00Z"); gsc.lastFinal.mockResolvedValue("2026-08-30"); withSiteHistory(); const available = gsc.window.getMockImplementation()!;
+    gsc.window.mockImplementation(async (a: { start: string; end: string }) => a.start === "2026-07-31" && a.end === "2026-08-28" ? { status: "unavailable", reason: "source unavailable" } : available(a));
+    const stopped = await autoMeasureDuePass(T, { now: next });
+    expect([stopped.due, stopped.measured, stopped.failed, stopped.settled, stopped.outcomes.length]).toEqual([1, 0, 1, 0, 0]); expect(await stored()).toEqual(before);
+    withSiteHistory(); const resumed = await autoMeasureDuePass(T, { now: next });
+    expect([resumed.due, resumed.measured, resumed.failed, (await stored()).windows.some((w) => w.day === 28 && w.ran)]).toEqual([1, 1, 0, true]);
+  });
   it("measures when the comparison is really there, and a second press rewrites nothing", async () => {
     const first = await recordShipment(facts()); expect([first.measurement, (await stored()).measurementState]).toEqual(["measuring", "measuring"]);
     await recordVerification(T, first.shipmentId, verification("verified")); const again = await recordShipment(facts());
     expect([again.shipmentId, again.measurement, db.state.rows.length]).toEqual([first.shipmentId, "measuring", 1]);
     expect((await stored()).verification?.status).toBe("verified"); // the check was not erased back to due
-    // AND MATCHED PAGES ARE STILL THE WHOLE COMPARISON where there are two of them with search data behind them: the reading is the one it always was, and nothing about the site's own movement rides it.
     withSiteHistory(9, [["https://x.test/a", { clicks: 20, impressions: 4000, ctr: 0.005, position: 11 }], ["https://x.test/b", { clicks: 30, impressions: 5000, ctr: 0.006, position: 9 }]]);
     const w28 = (await measureRecord(T, await stored(), new Date("2026-10-01T00:00:00.000Z"), "2026-09-05", new Set())).windows.find((w) => w.day === 28)!;
     expect([w28.controlsUsed, w28.comparedToSite]).toEqual([2, undefined]); });
@@ -256,7 +249,6 @@ describe("the recording seam", () => {
     const first = await repair(); expect([(await repair()).shipmentId, db.state.rows.length]).toEqual([first.shipmentId, 1]);
     db.state.rows = []; ctl.pages = [];
     expect((await repair()).measurement).toBe("verification_needed");});}); // no page matched it, so the site's own movement is the comparison, and the live check is owed before any of it
-/** THE STARTING NUMBERS ARE FROZEN OVER THIS CHANGE'S OWN SEARCHES, at mark time, once: the account-wide day compared an account-wide before against a scope-filtered after, two different measures. */
 describe("the AI baseline is frozen over the change's own scope (AEO reconstruction, 2026-08-19)", () => {
   const SITE = "https://www.fixture-outdoors.example", DAY = "2026-07-30";
   const link = (domain: string) => ({ url: `https://${domain}/page`, domain, title: null });
@@ -294,13 +286,10 @@ describe("the AI baseline is frozen over the change's own scope (AEO reconstruct
     const row = (await loadShippedChangesForTenant(T))[0]!;
     expect(row.aiScope).toEqual(scope); // exactly what the card claimed, remeasurable
     expect(row.targetQueries).toEqual(["nowruz traditions"]); }); // and the Google scope is untouched by it
-  /** ONE DECLARATION DRIVES BOTH HALVES (reviewer, 2026-08-19): the yardstick is read off the same scope the baseline is frozen over, never off the impact block, so a change raised to earn a citation is not graded on mentions it already had. */
   it("derives the judged metric from the scope the baseline is frozen over, not from the impact block", async () => {
     const { objectiveOfStage } = await import("@/domains/measurement/shipment-ai-outcome");
-    // a reporting gap is never a mention problem, so citations_unreported is judged on citations exactly as a missing credit is.
     expect(["rivals_cited_own_not_retrieved", "owned_retrieved_not_cited", "owned_mentioned_not_cited", "citations_unreported", null].map(objectiveOfStage))
       .toEqual(["ai_retrieval", "ai_citation_conversion", "ai_citation", "ai_citation", "ai_mentions"]);});});
-/** WHAT EACH KIND OF WORK HAS ACTUALLY RETURNED HERE. Pure: the rows handed in are the whole input and the counts are the whole output, which is exactly why the surface can be built on it without a database. */
 describe("the treatment record", () => {
   /** WHAT THE PAGE WAS ALREADY EARNING over the same 28 days the reading covers, which is the only thing that turns plus ten clicks into a percent. */ const standing = (clicks: number) => ({ clicks, impressions: 0, ctr: 0, position: 0, windowDays: 28 }), row = (over: Record<string, unknown> = {}) => ({ actionType: "edit_title", after: "Words really on the page", windows: [ranWindow(28, 10)], implementedAt: NOW.toISOString(), verification: verification("verified"), operatorVerdictOverride: null, pinnedRead: null, componentsApplied: null, treatmentStamp: { signature: { family: "edit_title", treatment: "title_or_h1", field: "title", cause: "ctr_snippet" }, overlapAtShip: 0 }, baseline: standing(100), controlsReceipt: [{ path: "/c1", reasons: [] }, { path: "/c2", reasons: [] }, { path: "/c3", reasons: [] }], ...over } as Parameters<typeof treatmentLearning>[0][number]);
   it("reads an old row's kind off its own stored fields, and never guesses the two that were never stored", () => {

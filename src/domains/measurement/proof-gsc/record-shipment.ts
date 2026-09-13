@@ -136,7 +136,7 @@ async function write(
   // A baseline nobody could capture is a baseline gap, said out loud rather than left as a zero, and the
   // STORED row carries the same state the operator is told: writing "measuring" while reporting
   // "measurement_unavailable" left the ledger claiming a comparison it could never make.
-  const measurement: MeasurementState = extra.measurement === "measuring" && record.shipmentBaseline == null
+  const measurement: MeasurementState = record.measurementState === "measurement_unavailable" || extra.measurement === "measuring" && record.shipmentBaseline == null
     ? "measurement_unavailable" : extra.measurement;
   record.measurementState = measurement;
   await upsertShippedChange(record, f.tenantId, { invalidate: f.invalidate !== false }); // a batch invalidates once, after its last row

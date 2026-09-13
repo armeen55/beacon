@@ -111,11 +111,13 @@ function storedVerdictFor(record: ShippedChangeRecord, now: Date, lastFinal: str
   return { verdict: STORED_VERDICT[read.verdict] ?? "measuring", confidence: read.confidence };
 }
 
-/** Recompute the outcome for a shipped change from GSC. Reads the pre window once and each post window once, for the treated page + all
- *  controls, and returns a NEW record with windows/verdict/confidence/measuredAt updated. A control that is itself an active treatment can
- *  be excluded from the diff. EVERY CHECKPOINT COUNTS FROM THE STAMP (implementedAt), the day the change actually went live; a record
- *  written before there was a stamp counts from its ship date as it always did. The day-56 read is CONDITIONAL: it runs only for a change
- *  whose 28-day read did not settle, or that moved or hid the page. */
+class SearchReadUnavailable extends Error {}
+function metricsOf(read: Awaited<ReturnType<typeof readWindowForPages>>): Map<string, GscWindowMetrics> {
+  if (read.status === "unavailable") throw new SearchReadUnavailable(read.reason);
+  return read.data;
+}
+
+/** Compute from valid source reads; a failed read aborts the candidate update without erasing stored outcomes. */
 export async function measureRecord(
   tenantId: string,
   record: ShippedChangeRecord,
@@ -138,10 +140,11 @@ export async function measureRecord(
   // THE SITE'S OWN MOVEMENT RIDES THE SAME SNAPSHOTS the pages are read from, so it costs no extra read:
   // whole families ship at once, matched pages run out, and this is what stands behind the change then.
   const siteTotal = { key: SITE_SERIES, exclude: record.page };
-  const pre = await readWindowForPages({ tenantId, pages, start: preStart, end: shipDate, siteTotal });
+  const pre = metricsOf(await readWindowForPages({ tenantId, pages, start: preStart, end: shipDate, siteTotal }));
 
   const readWindow = async (day: ProofWindowDay, ran: boolean): Promise<ProofWindowResult> => {
-    const post = ran ? await readWindowForPages({ tenantId, pages, start: shipDate, end: addDays(shipDate, day), siteTotal }) : null;
+    const post = ran ? metricsOf(await readWindowForPages({ tenantId, pages, start: shipDate, end: addDays(shipDate, day), siteTotal })) : null;
+    const observed = ran && pre.has(record.page) && post?.has(record.page) === true;
     const treatedPre = pre.get(record.page) ?? NULL_METRICS;
     const treatedPost = post?.get(record.page) ?? NULL_METRICS;
     const matched = controlPages
@@ -149,7 +152,7 @@ export async function measureRecord(
       .filter((c) => c.pre.impressions > 0 && (!ran || c.post.impressions > 0));
     const drift = matched.length >= MIN_CONTROLS ? null : siteDrift(treatedPre, pre.get(SITE_SERIES), post?.get(SITE_SERIES));
     return computeWindowLift({
-      day, checkOn: addDays(shipDate, day), ran, treatedPre, treatedPost, controls: drift ?? matched,
+      day, checkOn: addDays(shipDate, day), ran: observed, treatedPre, treatedPost, controls: drift ?? matched,
       comparedToSite: drift != null, preWindowDays: BASELINE_WINDOW_DAYS,
     });
   };
@@ -349,9 +352,11 @@ export async function matchedControlsFor(
   const excluded = contaminationFor(ledger, open, now, { path: toPath(treatedPage), shippedAt: shipDate });
   // The SAME pre-change window the diff in diff reads, so "traffic beside it" and "the baseline holds
   // data" are the numbers the measurement itself will use, not a 90-day average standing in for them.
-  const baseline = await readWindowForPages({
+  const baselineRead = await readWindowForPages({
     tenantId, pages: [treatedPage, ...pool], start: addDays(shipDate, -BASELINE_WINDOW_DAYS), end: shipDate,
-  }).catch(() => new Map<string, GscWindowMetrics>());
+  });
+  if (baselineRead.status === "unavailable") return null;
+  const baseline = baselineRead.data;
   const jobs = await cachedPageJobs(tenantId, ctx, [treatedPage, ...pool]);
   const typeOf = (u: string): string | null => jobs.get(canonicalUrlKey(u))?.pageType ?? null;
   return selectMatchedControls({
@@ -407,12 +412,11 @@ export async function recordShippedChange(args: {
   const shippedAt = args.shippedAt ?? defaultPacificShipDate(now);
   const shipDate = dateOnly(shippedAt);
   const preStart = addDays(shipDate, -BASELINE_WINDOW_DAYS);
-  const pre = await readWindowForPages({ tenantId: args.tenantId, pages: [args.page], start: preStart, end: shipDate })
-    .catch(() => new Map<string, GscWindowMetrics>());
+  const pre = await readWindowForPages({ tenantId: args.tenantId, pages: [args.page], start: preStart, end: shipDate });
   // NOTHING ON FILE IS NOT ZERO. A page Search Console holds no row for gets NO frozen starting point
   // rather than a row of zeros, which would read on screen as "it had no traffic before" and become the
   // number every later window is compared against.
-  const held = pre.get(args.page) ?? null;
+  const held = pre.status === "available" ? pre.data.get(args.page) ?? null : null;
   const base = held ?? NULL_METRICS;
   const ship = args.shipment ?? null;
   const searchBaseline = { ...base, windowDays: BASELINE_WINDOW_DAYS };
@@ -448,7 +452,7 @@ export async function recordShippedChange(args: {
     implementedAt: ship?.implementedAt ?? null,
     preChangeContentHash: ship?.preChangeContentHash ?? null,
     preChangeHashUnavailable: ship?.preChangeHashUnavailable === true,
-    measurementState: args.measurementState ?? null,
+    measurementState: pre.status === "unavailable" ? "measurement_unavailable" : args.measurementState ?? null,
     // Written once, here, and never touched again: the store refuses a second write.
     // THE TWO HALVES FREEZE INDEPENDENTLY. This captured the AI starting numbers only when Google already had
     // something to say about the page, so a new or quiet page with a perfectly good AI baseline lost it, and
@@ -476,6 +480,11 @@ export async function recordShippedChange(args: {
     args.ledger ?? loadShippedChangesForTenant(args.tenantId).catch(() => [] as ShippedChangeRecord[]), // a batch hands its one ledger read through
     args.openPaths ?? openChangePaths(args.tenantId), // and its one read of the open changes
   ]);
-  return measureRecord(args.tenantId, draft, now, undefined,
-    new Set(contaminationFor(ledger, open, now, draft).keys()));
+  if (pre.status === "unavailable") return draft;
+  try {
+    return await measureRecord(args.tenantId, draft, now, undefined, new Set(contaminationFor(ledger, open, now, draft).keys()));
+  } catch (error) {
+    if (!(error instanceof SearchReadUnavailable)) throw error;
+    return { ...draft, measurementState: "measurement_unavailable" };
+  }
 }
