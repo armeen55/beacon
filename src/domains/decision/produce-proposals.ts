@@ -382,21 +382,21 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     if ((row.status !== "needs_review" && row.status !== "ready") || (row.researchOnly === true && row.status !== "ready") || (row.status === "needs_review" && row.recommendedChange.kind === "existing_edit" && !row.recommendedChange.after.trim())) continue;
     const on = snapshot.ownedPages.find((x) => pageKeys(x.url).some((k) => pageKeys(row.pageUrl ?? row.pagePath).includes(k))); const kept = [...(on?.search?.topQueries ?? [])].filter((q) => q.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 10).map((q) => q.query);
     const schemaRow = row.recommendedChange.kind === "existing_edit" && row.recommendedChange.field === "schema" && !!row.pageUrl, schemaBody = schemaRow ? sweepBodies?.get(canonicalUrlKey(row.pageUrl!)) ?? (await loadOwnedPageBodies(tenantId, [row.pageUrl!]).catch(() => null))?.get(canonicalUrlKey(row.pageUrl!)) ?? null : null;
-    const schemaContext = canonTextOf(on, schemaBody, (row.supportFacts ?? []).map((fact) => fact.fact));
+    const schemaContext = { ...canonTextOf(on, schemaBody, (row.supportFacts ?? []).map((fact) => fact.fact)), now: opts.now };
     let schemaCanon = schemaRow ? validateProposal(row, schemaContext) : null;
-    if (schemaCanon?.schemaReplacement && schemaBody && !row.bundle && !(row.faults ?? []).some((why) => /^the evaluator's exact objection:|^No defensible improvement can be written/.test(why))) {
-      const change = row.recommendedChange;
-      if (change.kind === "existing_edit") {
-        const after = schemaCanon.schemaReplacement, pairs = SCHEMA.pairs(SCHEMA.read(after));
-        const corrected: ChangeProposal = { ...row, status: "needs_review", obligation: undefined, recommendedChange: { ...change, after },
-          copyStamp: `${[schemaBody.title, schemaBody.h1, schemaBody.metaDescription, ...schemaBody.headings].filter(Boolean).join("|").slice(0, 300)}|capture:${schemaBody.contentHash}`,
-          claims: pairs.map((pair, i) => ({ text: pair.answer, supportedBy: [`page-copy-${i + 1}`] })),
-          supportFacts: pairs.map((pair, i) => ({ id: `page-copy-${i + 1}`, fact: `${pair.question}\n${pair.answer}`, sources: [{ url: schemaBody.url, kind: "owned_snapshot" }] })),
-          previousCopy: { after: change.after, retiredBecause: "FAQ answers were reconciled with their current complete HTML pairs without a model call", at: (opts.now ?? new Date()).toISOString(), attempts: row.previousCopy?.attempts ?? 0 },
-          faults: (row.faults ?? []).filter((why) => !/^this structured data/i.test(why)) };
-        const checked = validateProposal(corrected, schemaContext);
-        if (checked.verdict === "ready" && checked.qualityStatus === "ready") { row = corrected; schemaCanon = checked; }
-      }
+    const change = row.recommendedChange;
+    if (schemaCanon?.schemaReplacement && schemaBody && change.kind === "existing_edit" && !row.bundle && !(row.faults ?? []).some((why) => /^the evaluator's exact objection:|^No defensible improvement can be written/.test(why))) {
+      const after = schemaCanon.schemaReplacement, graph = SCHEMA.read(after), pairs = SCHEMA.pairs(graph);
+      const oldAnswers = new Set(SCHEMA.pairs(SCHEMA.read(change.after)).map((pair) => pair.answer)), keptClaims = (row.claims ?? []).filter((claim) => !oldAnswers.has(claim.text.trim()) || graph.nodes.some((node) => Object.values(node).includes(claim.text.trim())));
+      const faqFacts = pairs.map((pair) => ({ id: `page-copy-faq-${createHash("sha256").update(JSON.stringify(pair)).digest("hex").slice(0, 20)}`, fact: `${pair.question}\n${pair.answer}`, sources: [{ url: schemaBody.url, kind: "owned_snapshot" }] }));
+      const corrected: ChangeProposal = { ...row, status: "needs_review", obligation: undefined, recommendedChange: { ...change, after },
+        copyStamp: `${[schemaBody.title, schemaBody.h1, schemaBody.metaDescription, ...schemaBody.headings].filter(Boolean).join("|").slice(0, 300)}|capture:${schemaBody.contentHash}`,
+        claims: [...keptClaims, ...pairs.map((pair, i) => ({ text: pair.answer, supportedBy: [faqFacts[i]!.id] }))],
+        supportFacts: [...(row.supportFacts ?? []).filter((fact) => !faqFacts.some((current) => current.id === fact.id) && (!fact.id.startsWith("page-copy-faq-") || keptClaims.some((claim) => claim.supportedBy.includes(fact.id)))), ...faqFacts],
+        previousCopy: { after: change.after, retiredBecause: "FAQ answers were reconciled with their current complete HTML pairs without a model call", at: (opts.now ?? new Date()).toISOString(), attempts: row.previousCopy?.attempts ?? 0 },
+        faults: (row.faults ?? []).filter((why) => !/^this structured data/i.test(why)) };
+      const checked = validateProposal(corrected, schemaContext);
+      if (checked.verdict === "ready" && checked.qualityStatus === "ready") { row = corrected; schemaCanon = checked; }
     }
     if (schemaCanon?.need && (schemaCanon.verdict !== "rejected" || schemaCanon.reasons.every((why) => why.startsWith("This structured data attaches the wrong answer")))) row = { ...row, status: "needs_review", obligation: { kind: "evidence", need: schemaCanon.need } };
     else if (schemaCanon?.verdict === "ready" && row.obligation?.kind === "evidence" && row.obligation.need.reasonCode === "schema_visible_pair_unconfirmed") row = { ...row, obligation: undefined };

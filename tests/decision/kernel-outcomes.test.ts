@@ -916,16 +916,16 @@ describe("the $0 release loop converts what it can, and never touches what is be
   const pass = async (row: ChangeProposal) => { reset(snap([{ ...GAP, content: { ...GAP.content!, outline: [...(GAP.content!.outline ?? []), Q, ANSWER] } }], looked([["nowruz traditions", GAP_URL]])));
     env.pairedFaq = true; env.store = new Map([[row.id, row], [shipped.id, shipped]]); let paid = 0;
     await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true, complete: (async () => { paid += 1; return { error: "no provider may be reached", retryable: false }; }) as never });
-    return { row: env.store.get(row.id)!, done: env.store.get(shipped.id)!, paid }; };
+    return { row: env.store.get(row.id)!, done: env.store.get(shipped.id)!, paid, writes: env.saved.filter((saved) => saved.id === row.id).length }; };
   it("files a stored JSON-LD block under its own typed field at $0, refuses it as no kind of prose, and never walks an implemented row back to a brief", async () => {
     const out = await pass(block("ready")); const c = out.row.recommendedChange as { field: string; after: string; where?: string };
     expect([c.field, c.after.startsWith("{"), (c.where ?? "").length > 0, out.row.limitations.some((l) => /^Contains raw HTML markup/.test(l)), validateProposal(out.row, { pageBodyText: `${Q} ${ANSWER}` }).verdict, out.paid, out.row.status, out.row.faults ?? []], "the block is filed as structured data with its wrapper off and its placement stated, no rule written for sentences refuses it as markup, paired current capture passes while flat text alone stays unconfirmed, and none of it costs a call").toEqual(["schema", true, true, false, "needs_review", 0, "ready", []]);
     expect([out.done.status, out.done.researchOnly ?? false, out.done.limitations], "and a change the operator already marked done is never re-minted as research, whatever its claims lean on").toEqual(["implemented_pending_verification", false, shipped.limitations]); });
-  it("proves a schema block against the page's own body, clearing an answer it carries and refusing one it invents", async () => {
-    reset(snap([GAP], looked([["nowruz traditions", GAP_URL]]))); // Q and ANSWER are NOT among this page's four stored fields: only its body carries the answer
-    env.pairedFaq = true; const carried = block("ready");
-    env.store = new Map([[carried.id, carried]]);
-    await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true });
-    const out = env.store.get(carried.id)!;
-    expect([out.status, (out.recommendedChange as { field: string }).field], "the page's own body carries this answer, so the canon's visible-content proof is satisfied off the whole page rather than a stored excerpt").toEqual(["ready", "schema"]); });
+  it.each([false, true])("reconciles changed published FAQ answers while preserving unrelated graph and support, then writes nothing on replay (mixed=%s)", async (mixed) => {
+    const old = "A haft seen table is laid out for the autumn festival.", faq = JSON.parse(FAQ); faq.mainEntity[0].acceptedAnswer.text = old;
+    const other = { "@type": "WebPage", "@id": "#page", name: "Nowruz", identifier: "retain" }, after = JSON.stringify({ "@context": "https://schema.org", "@graph": [faq, ...(mixed ? [other] : [])] });
+    const original = { ...block("ready"), claims: [{ text: old, supportedBy: ["fact-old"] }, { text: "Nowruz", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "fact-old", fact: old }, { id: "page-copy-1", fact: "Nowruz" }], recommendedChange: { kind: "existing_edit" as const, field: "schema" as const, before: null, after } };
+    const out = await pass(original), replay = await pass(out.row), { SCHEMA } = await import("@/domains/evidence/pages/schema-validator"), graph = SCHEMA.read((out.row.recommendedChange as { after: string }).after);
+    expect([SCHEMA.pairs(graph), mixed ? graph.nodes.find((node) => node["@id"] === "#page") : null, out.row.status, out.paid, out.row.previousCopy?.after]).toEqual([[{ question: Q, answer: ANSWER }], mixed ? other : null, "ready", 0, after]);
+    expect([out.row.claims?.some((claim) => claim.text === old), out.row.claims?.find((claim) => claim.text === "Nowruz"), out.row.supportFacts?.find((fact) => fact.id === "page-copy-1"), replay.writes, replay.paid]).toEqual([false, original.claims[1], original.supportFacts[1], 0, 0]); });
 });

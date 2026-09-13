@@ -9,6 +9,7 @@ import { checkFactualEntailment, type AuthoritativeFact } from "@/domains/decisi
 import { SCHEMA } from "@/domains/evidence/pages/schema-validator";
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
+import { isCurrent } from "@/domains/evidence/freshness";
 import type { EvidenceRequirement } from "./producers/contract";
 import type { ClassifiableSource } from "@/domains/decision/drafts/source-authority";
 import { looksLikePlaceholder } from "./placeholder-detection";
@@ -125,7 +126,7 @@ function schemaFailures(p: ChangeProposal, change: Extract<RecommendedChange, { 
   const missing = visible.find((v) => !pairedWords.has(v) && !carried.includes(flatten(v)));
   if (missing) failures.push(`The page does not visibly carry "${missing.slice(0, 70)}", and structured data may only mark up words that are already on the page.`);
   const capture = opts.pageCapture;
-  const current = capture?.version === "current" && !!capture.contentHash && Number.isFinite(Date.parse(capture.fetchedAt ?? ""))
+  const current = capture?.version === "current" && !!capture.contentHash && isCurrent("owned_page", capture.fetchedAt, (opts.now ?? new Date()).getTime())
     && !!p.pageUrl && !!capture.url && canonicalUrlKey(capture.url) === canonicalUrlKey(p.pageUrl);
   const held = current ? (capture.faqs ?? []).filter((pair) => pair.answerComplete === true && ["html_details", "html_section"].includes(pair.source)) : [];
   let unknown: string | undefined, mismatched = false;
@@ -147,8 +148,7 @@ function schemaFailures(p: ChangeProposal, change: Extract<RecommendedChange, { 
   }
   if (unknown && !p.pageUrl) failures.push("This structured data has no target page URL, so its visible questions and answers cannot be checked.");
   const need: EvidenceRequirement | undefined = unknown && !!p.pageUrl && failures.every((why) => why.startsWith("This structured data attaches the wrong answer")) ? { kind: "page_source", query: unknown, url: p.pageUrl, proposalId: p.id, reasonCode: "schema_visible_pair_unconfirmed" } : undefined;
-  const schemaReplacement = mismatched && !unknown && [...types].every((type) => ["FAQPage", "Question", "Answer"].includes(type))
-    ? SCHEMA.rewriteFaq(change.after, held) ?? undefined : undefined;
+  const schemaReplacement = mismatched && !unknown ? SCHEMA.rewriteFaq(change.after, held) ?? undefined : undefined;
   return { failures, limitations, need, schemaReplacement };
 }
 
