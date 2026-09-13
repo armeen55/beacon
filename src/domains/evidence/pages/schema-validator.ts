@@ -82,16 +82,50 @@ function read(input: unknown): Graph {
   return { roots: [...new Set(roots.map(resolved))], nodes: [...new Set(nodes.map(resolved))], unread, value };
 }
 
-function pairs(graph: Graph): { question: string; answer: string }[] {
+function faqEntries(graph: Graph): { q: Node; a: Node }[] {
   if (graph.unread) return [];
-  const out: { question: string; answer: string }[] = [];
+  const out: { q: Node; a: Node }[] = [];
   for (const faq of graph.nodes.filter((n) => types(n).includes("FAQPage"))) {
     for (const v of values(faq.mainEntity)) {
       const q = resolve(v, graph.nodes), a = resolve(q?.acceptedAnswer, graph.nodes);
-      if (q && a && types(q).includes("Question") && types(a).includes("Answer") && text(q.name) && text(a.text)) out.push({ question: q.name.trim(), answer: a.text.trim() });
+      if (q && a && types(q).includes("Question") && types(a).includes("Answer") && text(q.name) && text(a.text)) out.push({ q, a });
     }
   }
   return out;
+}
+
+function pairs(graph: Graph): { question: string; answer: string }[] {
+  return faqEntries(graph).map(({ q, a }) => ({ question: (q.name as string).trim(), answer: (a.text as string).trim() }));
+}
+
+/** Replace only identified FAQ answers, preserving graph identity and unrelated properties. */
+function rewriteFaq(input: string, held: readonly { question: string; answer: string }[]): string | null {
+  const graph = read(input), entries = faqEntries(graph), replacements = new Map<Node | string, string>();
+  const normalized = (s: string): string => s.replace(/\s+/g, " ").trim().toLowerCase();
+  if (!entries.length) return null;
+  for (const { q, a } of entries) {
+    const answers = new Set(held.filter((p) => normalized(p.question) === normalized(q.name as string)).map((p) => p.answer));
+    if (answers.size !== 1) return null;
+    const answer = [...answers][0]!, key = text(a["@id"]) ? a["@id"] : a;
+    if (replacements.has(key) && normalized(replacements.get(key)!) !== normalized(answer)) return null;
+    replacements.set(key, answer);
+  }
+  let changed = false;
+  const copy = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(copy);
+    const node = nodeOf(value);
+    if (!node) return value;
+    const answer = replacements.get(text(node["@id"]) ? node["@id"] : node);
+    return Object.fromEntries(Object.entries(node).map(([key, value]) => {
+      if (key === "text" && answer !== undefined && normalized(String(value)) !== normalized(answer)) {
+        changed = true;
+        return [key, answer];
+      }
+      return [key, copy(value)];
+    }));
+  };
+  const documents = copy(graph.value) as unknown[];
+  return changed ? JSON.stringify(documents.length === 1 ? documents[0] : documents, null, 2) : null;
 }
 
 function warnings(input: unknown): string[] {
@@ -159,4 +193,4 @@ function warnings(input: unknown): string[] {
   return [...new Set(out)];
 }
 
-export const SCHEMA = { read, contains, pairs, warnings, types };
+export const SCHEMA = { read, contains, pairs, rewriteFaq, warnings, types };

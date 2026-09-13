@@ -68,7 +68,7 @@ export type ResearchCycleSteps = {
   investigationFocus: (tenantId: string, basis: string | null) => Promise<ResearchFocus | null>;
   /** GO AND GET EXACTLY THE READING A FUNDED CANDIDATE WAS REFUSED FOR (Codex, 2026-08-23). Not the ordinary broad
    * investigation, which picks its own topic: THIS reading, named by the producer or the drafting gate that could not proceed without it. EVERY kind the requirement union declares executes here, through machinery that already exists, and the switch is exhaustive so a new kind without a handler fails typecheck instead of becoming a typed dead end. Returns whether the reading landed, so an unfulfilled requirement stays owed. */
-  acquireEvidence: (tenantId: string, need: Pick<EvidenceRequirement, "kind" | "query" | "url" | "missingTopic" | "topic" | "rivalUrl" | "proposalId">, basis: string | null, budgetMs: number) => Promise<{ acquired: boolean; detail: string;
+  acquireEvidence: (tenantId: string, need: Pick<EvidenceRequirement, "kind" | "query" | "url" | "missingTopic" | "topic" | "rivalUrl" | "proposalId"> & Partial<Pick<EvidenceRequirement, "reasonCode">>, basis: string | null, budgetMs: number) => Promise<{ acquired: boolean; detail: string;
     /** WHETHER THE OBLIGATION THIS PURCHASE WAS BOUGHT FOR CAN NOW BE MET, which is a different question from whether the reading landed (live 2026-09-05): a source read and banked below the confidence its consumer requires is a reading that happened and an obligation that did not move, and calling that acquired is how a row re-owed the same purchase every drive for two days. Absent means the two answers are the same. */ unlocked?: boolean; /** THE PROVIDER WAS POSTED FOR THIS READING AND HAS NOT ANSWERED YET (production run p3, 2026-09-06): the money moves at the post, the answer is collected with a free follow-up, and the drive that collects it therefore buys nothing. Present ONLY where there is a post to collect, so absent is the one answer for every reading that landed, failed or cannot post at all. */ posted?: boolean }>;
   /** FINISH WHAT WAS ALREADY PAID FOR, FREE. A posted provider task is charged when it is posted and collected with a GET; the only collector ran on the scheduler tick, so while hosting was paused 51 tasks sat pending for days, the results pages they had already bought were never banked, and every gate asking for one answered no. Bounded, GET only, nothing posted. */
   collectBought: (budgetMs: number) => Promise<{ pending: number; ready: number }>;
@@ -305,7 +305,6 @@ export const defaultSteps: ResearchCycleSteps = {
   async investigationFocus(tenantId, basis) { return chooseInvestigation(tenantId, basis).catch(() => null); },
   async acquireEvidence(tenantId, need, basis, budgetMs) {
     if (!need.query.trim() && !need.url) return { acquired: false, detail: "the requirement names nothing to read" };
-    // THE READER NEEDS THE BASIS THE RUN IS WORKING UNDER (Codex, 2026-08-23). A null cursor was handed in, the funnel reads its basis off that cursor, and so every "exact reading" failed before it looked at anything: the one search that finishes the account's strongest page was never fetched, on any dispatch. Runtime already knows the basis.
     if (!basis) return { acquired: false, detail: "this dispatch has no confirmed basis, so nothing can be read against it" };
     const unitStatus = (out: unknown): string => (out as { status?: string }).status ?? "unknown";
     const landed = (out: unknown): boolean => unitStatus(out) === "done" || unitStatus(out) === "advanced"; // stage one of winning-pages persists its reads and answers `advanced`; both words mean the write landed
@@ -322,6 +321,13 @@ export const defaultSteps: ResearchCycleSteps = {
       case "page_source": {
         if (!need.url) return { acquired: false, detail: "a page_source requirement names no page" };
         const out = await winningPagesUnit({}, [], null, need.url, null)(tenantId, { basis }, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) }));
+        if (need.reasonCode === "schema_visible_pair_unconfirmed") {
+          const { loadOwnedPageBodies } = await import("@/domains/evidence/pages/owned-context");
+          const body = (await loadOwnedPageBodies(tenantId, [need.url]).catch(() => null))?.get(canonicalUrlKey(need.url));
+          const same = (question: string): boolean => question.trim().replace(/\s+/g, " ").toLowerCase() === need.query.trim().replace(/\s+/g, " ").toLowerCase();
+          const acquired = body?.version === "current" && !!body.contentHash && body.faqs.some((pair) => pair.answerComplete === true && same(pair.question));
+          return { acquired, detail: `own-page FAQ capture of ${need.url}: ${acquired ? "current complete HTML pair on file" : "the required current complete HTML pair is not on file"}` };
+        }
         return { acquired: landed(out), detail: `own-page read of ${need.url}: ${unitStatus(out)}` };
       }
       case "factual_source": {
@@ -330,7 +336,6 @@ export const defaultSteps: ResearchCycleSteps = {
         if (prop) {
           const seeded = await seedMissingProposition(tenantId, prop.url, prop.subject, need.topic, basis).catch((e) => { log.warn("[research-run] the missing proposition could not be seeded", { tenantId, url: prop.url, error: e instanceof Error ? e.message : String(e) }); return false; });
           if (!seeded) return { acquired: false, detail: `the missing proposition could not be inventoried for ${prop.url}, so nothing was researched` };
-          // AND A PROPOSITION ALREADY RESEARCHED AT THIS VERSION BUYS NOTHING (live 2026-09-05): the seed above answers "already researched" and the pass ran anyway, so five stalled rows spent a whole source pass every drive researching OTHER statements of their page while their own answer sat on file. The answer on file is the answer, at $0.
           const already = await propositionState(tenantId, prop.url, prop.subject, need.topic ? basis : undefined).catch(() => null);
           if (already?.researched) return { acquired: true, unlocked: already.usable, detail: `no source was bought for ${prop.url}: the answer to "${prop.subject}" is ${already.why}` };
         }
@@ -340,7 +345,6 @@ export const defaultSteps: ResearchCycleSteps = {
         return { acquired: out.status !== "failed" && out.banked > 0, detail: `fact check of ${need.url ?? "the owed page"}: ${out.status}, ${out.banked} banked` };
       }
       case "semantic_review": {
-        // THE ONE REQUIREMENT THAT BUYS NO NEW READING: the copy is already final and its sources are already banked beside it, and what is missing is that nobody has read the two together. Filed as a `factual_source` before this case existed, so the runtime went and bought facts while the reading stayed untaken for ever.
         if (!need.proposalId) return { acquired: false, detail: "a review requirement names no change, so there is nothing to read" }; // ONE ROW, BY ITS OWN ID: reading the whole account's queue to find one change is an egress bill for a lookup
         const { loadChangeProposal, saveChangeProposal } = await import("@/domains/decision/proposal-store");
         const { reviewFinishedCopy } = await import("@/domains/decision/drafted-copy");
@@ -349,7 +353,6 @@ export const defaultSteps: ResearchCycleSteps = {
         const read = await reviewFinishedCopy(row, { tenantId, now: new Date() }).catch((e: unknown) => ({ row: null, detail: e instanceof Error ? e.message : String(e) }));
         if (!read.row) return { acquired: false, detail: `reading the sources behind ${row.id}: ${read.detail}` }; // a provider that could not answer leaves the row exactly as it stands
         const saved = await saveChangeProposal(read.row).catch(() => "failed" as const);
-        // A REFUSED READING IS STILL THE READING (falsifier, 2026-09-02): the requirement was "read these words against the sources they name", and a refusal answers it. Discharged either way once the verdict is durable, so the same review is never bought twice in a day; the faults it wrote move the row's obligation to `redraft`, and a reading is owed again only when the copy has changed. Only a provider that could not answer leaves it owed.
         return { acquired: saved === "saved" || saved === "unchanged", detail: `review of ${row.id}: ${read.detail} (${saved})` };
       }
       default: { const impossible: never = need.kind; return { acquired: false, detail: `no acquisition handler exists for ${String(impossible)}` }; }
@@ -367,13 +370,10 @@ export const defaultSteps: ResearchCycleSteps = {
       return { pending: keys.length, ready };
     } catch (e) { log.warn("[research-run] the free task collection could not run", { error: e instanceof Error ? e.message.slice(0, 160) : String(e) }); return { pending: 0, ready: 0 }; } },
   async funnelUnit(phase, tenantId, cursor, budgetMs, focus) {
-    // An OPEN INVESTIGATION needs BOTH halves: the results page for that exact search AND the pages that win it. The topic is the RUN's, frozen by the caller, never re-picked here: landing a results page closes that search, so a second, independent lookup handed winning-pages a different three than the ones just paid for. The page COMPARISON rides the same phase that reads those winners, because the winners ARE the page set, but as its SECOND stage, so a real lease renewal sits in front of it. A topic whose next legal read is still in the future contributes no search at all: a cooldown is not a queue position.
     const { queries, cases, ownedUrl } = focusReads(focus, Date.now(), (cursor?.basis as string) ?? null);
     if (phase === "serp_analysis") return serpAnalysisUnit({}, queries)(tenantId, cursor, budgetMs);
     if (phase === "winning_pages") {
-      // The ask is recomputed for the SAME frozen topic under the CURRENT basis, and only at the comparison stage: nothing is asked for before winners exist. Fail-soft, and no reconfirmed ask means no buy.
       const ask = cursor?.stage === "compare" ? await comparisonForFocus(tenantId, focus, (cursor.basis as string) ?? null).catch(() => null) : null;
-      // AT MOST ONE page of the account's OWN per run, and only one the frozen plan named and is due to read. THE OPERATOR'S OWN CHANGE BUSTS THE PAGE'S FRESHNESS (Phase 6). The unit's fifth argument `ownedBustedAt` is when that page's truth moved underneath me, and the Shipment record is its supplier: the moment the operator implemented something at that address. A body read before that moment describes a page that no longer exists, however recent the clock says it is, so it forces a re-read INSIDE the ordinary freshness window instead of serving a stale body for a week. Lean and fail-soft: no shipment for that page, or an unreadable read, is null, which is the same answer as "nothing changed it". The SAME deferral still runs the other way for the ceiling marker this run persists onto its own row (progress.capped): `caseResearchReceipt`'s `cappedToday` argument has no production CALLER yet, because the surface that shows one case's receipt is Phase 8 work. The marker is written now so that surface has something true to read the day it is built, and it is day-scoped so it cannot go stale waiting.
       const bustedAt = ownedUrl ? await shipmentBustedAt(tenantId, ownedUrl).catch(() => null) : null;
       return winningPagesUnit({}, queries, ask, ownedUrl, bustedAt)(tenantId, cursor, budgetMs);
     }

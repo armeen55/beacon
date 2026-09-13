@@ -129,7 +129,7 @@ function bodyOf(row: Row): OwnedPageBody {
   let fixed = [title ?? "", cap(row.meta_description, MAX_META_CHARS) ?? "", ...headings, ...cardTexts, ...entityNames].join(" ").length;
   const faqs: OwnedPageBody["faqs"] = [];
   for (const f of visibleFaqs(row.faqs).slice(0, MAX_FAQS)) {
-    const question = cap(f.question, MAX_ITEM_CHARS) ?? "", complete = f.answer_complete === true && typeof f.answer_text === "string";
+    const question = f.question.trim(), complete = f.answer_complete === true && typeof f.answer_text === "string";
     const original = complete ? f.answer_text!.trim() : cap(f.answer_excerpt, MAX_ITEM_CHARS) ?? "";
     const answer = original.slice(0, Math.max(0, MAX_PAGE_CHARS - fixed - question.length));
     if (question && answer) { faqs.push({ question, answer, source: f.source, answerComplete: complete && answer.length === original.length }); fixed += question.length + answer.length; }

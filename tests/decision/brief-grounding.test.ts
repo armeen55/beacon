@@ -1,21 +1,9 @@
-/** A BRIEF MAY NOT GROUND A CLAIM, AT EVERY DOOR THAT MINTS ONE (campaign review, 2026-09-05).
- *
- *  The campaign closed this at the writer's door (decision/drafted-copy, `groundingOf`), at the promotion door
- *  (decision/proposal-store) and at the release sweep (decision/produce-proposals). A FOURTH call site minted `ready`
- *  rows and still handed the producer's own diagnosis lines to the canon as grounding: `proposeExistingPageChange`
- *  (decision/propose), which the walk calls and whose answer it persists. The hints it grounded on are built by
- *  `hintsFor` (decision/opportunities), which prints a bare count ("AI answers cite this page N times") beside the
- *  diagnosis sentence, so exactly the class of figure the other three doors refuse was grounding there. The hints are
- *  out of that array now: what grounds a claim is the page's own outline and the line being replaced.
- *
- *  ARM 1 is the release sweep and carries its own falsifier. ARM 2 is the fourth door.
- */
+/** Writer, replay and approval ground claims on held page words and checked facts, never briefing instructions. */
 import { describe, it, expect, vi } from "vitest";
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "t", domain: "alpha.example", growth_goal: null }), basisTag: () => "basis_test" }));
-import { validateProposal } from "@/domains/decision/validate-proposal";
-import { canonTextOf } from "@/domains/decision/drafted-copy";
+import { validateProposal, canonTextOf } from "@/domains/decision/validate-proposal";
 import { proposeExistingPageChange } from "@/domains/decision/propose";
 import type { ChangeProposal, EvidenceInput } from "@/domains/decision/contracts";
 

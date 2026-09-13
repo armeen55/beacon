@@ -231,6 +231,7 @@ function decideFinished(incoming0: ChangeProposal, prior00: ChangeProposal | nul
     // words: a finished prior whose words do not survive into the incoming row stamps the retirement receipt.
     const incomingAfter = incoming.recommendedChange.kind === "existing_edit" ? incoming.recommendedChange.after.trim() : "";
     if (prior && deliverableGaps(prior).length === 0 && priorAfter && priorAfter !== incomingAfter) {
+      if (incoming.previousCopy?.after === priorAfter) return incoming; // A caller's exact retirement receipt owns its actual attempt count, including a no-model reconciliation.
       return { ...incoming, previousCopy: { after: priorAfter, attempts: factMoved ? 0 : (prior.previousCopy?.attempts ?? 0) + 1, // A REDRAFT OWNS ITS ATTEMPTS: nothing on the row counted them, so a row could cycle through the same gates for ever and every pass read it as a first try.
         retiredBecause: identityMoves(prior, incoming), at: incoming.createdAt } };
     }

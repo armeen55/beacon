@@ -1,7 +1,7 @@
 /** THE NIGHT THE SEARCH READ TIMED OUT. One statement timeout on the 90-day page-signal aggregate was served to every surface as an account with no search data at all: every page then judged clean, every $0 producer emitted nothing, and the sweep behind them read that silence as "the generator no longer stands behind these cards" and withdrew the operator's open queue mid-edit. Withdrawal is permanent in practice, so the cards were gone. Each test below pins one link of that chain. Fixture level: no live replay. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 type RpcAnswer = { data?: unknown; error?: { message: string; code?: string } | null };
-const env = vi.hoisted(() => ({ /** Queued answers per RPC name; the last one repeats. */ rpc: {} as Record<string, RpcAnswer[]>, calls: [] as Array<{ name: string; args: unknown }>, snapshot: null as unknown,
+const env = vi.hoisted(() => ({ /** Queued answers per RPC name; the last one repeats. */ rpc: {} as Record<string, RpcAnswer[]>, calls: [] as Array<{ name: string; args: unknown }>, snapshot: null as unknown, schemaBody: undefined as unknown,
   /** EVERY DURABLE WRITE THE PRODUCE PATH CAN MAKE, named as it happens, so a dry run can be asked to have made none. */ wrote: [] as string[],
   /** THE LAST ROW THE STORE WAS HANDED FOR EACH ID: what persistence actually keeps. */ saved: new Map<string, ChangeProposal>(), store: new Map<string, unknown>(), withdrawn: [] as string[],
   /** The 28-day AI window as the producer's read sees it: rows, or the read failing outright. */ aiWindow: [] as unknown[] | "fail",
@@ -40,11 +40,13 @@ vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, get
 /** The real loader unless a test pins a snapshot: part of this file exercises it, part feeds the producer. */
 vi.mock("@/domains/evidence/snapshot-loader", async (orig) => { const actual = (await orig()) as typeof import("@/domains/evidence/snapshot-loader");
   return { ...actual, loadEvidenceSnapshot: async (t: string, o: never) => env.snapshot ?? actual.loadEvidenceSnapshot(t, o) }; });
+vi.mock("@/domains/evidence/pages/owned-context", async (orig) => { const actual = (await orig()) as typeof import("@/domains/evidence/pages/owned-context");
+  return { ...actual, loadOwnedPageBodies: async (...args: Parameters<typeof actual.loadOwnedPageBodies>) => env.schemaBody === undefined ? actual.loadOwnedPageBodies(...args) : new Map(env.schemaBody ? [["fixture.example/a", env.schemaBody]] : []) }; });
 vi.mock("@/domains/decision/proposal-store", async (orig) => { const actual = (await orig()) as typeof import("@/domains/decision/proposal-store");
   return { ...actual, loadChangeProposals: async () => new Map(env.store as Map<string, ChangeProposal>), withdrawnProposalIds: async () => new Set<string>(),
     withdrawChangeProposal: async (p: ChangeProposal) => { env.withdrawn.push(p.id); return true; },
     publishCustomerRelease: async () => { env.wrote.push("publishCustomerRelease"); return true; },
-    saveChangeProposal: async (p: ChangeProposal) => { env.wrote.push(`saveChangeProposal:${p.id}`); env.saved.set(p.id, p); return "unchanged" as const; } }; });
+    saveChangeProposal: async (p: ChangeProposal) => { env.wrote.push(`saveChangeProposal:${p.id}`); env.saved.set(p.id, p); if (env.schemaBody !== undefined) { env.store.set(p.id, p); return "saved" as const; } return "unchanged" as const; } }; });
 vi.mock("@/domains/decision/ai-case-store", async (orig) => { const a = await orig() as { recordAiCaseDispositions: (...x: never[]) => Promise<unknown> }; // RECORDING, NEVER REPLACING: these two write elsewhere and the rest of this file depends on what they really do.
   return { ...a, recordAiCaseDispositions: async (...x: never[]) => { env.wrote.push("recordAiCaseDispositions"); return a.recordAiCaseDispositions(...x); } }; });
 vi.mock("@/domains/decision/coverage-pass", async (orig) => { const a = await orig() as { recordCoverageNeeds: (...x: never[]) => Promise<unknown> };
@@ -75,9 +77,23 @@ const openCard = (suffix: string): ChangeProposal => ({
   recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A short answer block." },
   whyItMatters: "The page never answers the question it ranks for.", estimatedEffortMinutes: 10, riskLevel: "low", confidence: "medium", limitations: [], impactScore: 20, upsidePerMonth: 5,
   publish: "manual", createdAt: "2026-08-10T00:00:00.000Z", });
-beforeEach(() => { env.rpc = {}; env.calls = []; env.snapshot = null; env.store = new Map(); env.withdrawn = [];
+beforeEach(() => { env.rpc = {}; env.calls = []; env.snapshot = null; env.schemaBody = undefined; env.store = new Map(); env.withdrawn = [];
   env.aiWindow = []; env.dispositions = new Map(); env.upserts = 0; });
 describe("a search read that did not answer", () => {
+  it("replays schema capture debt into corrected Ready copy with no paid writer and no counted attempt", async () => {
+    const markup = JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: { "@type": "Question", name: "When do seals rest?", acceptedAnswer: { "@type": "Answer", text: "Seals rest at low tide." } } });
+    const p = { ...openCard("schema"), pagePath: "/a", pageUrl: "https://fixture.example/a", researchOnly: false, status: "ready" as const, recommendedChange: { kind: "existing_edit" as const, field: "schema" as const, before: null, after: markup } };
+    const complete = vi.fn(async () => { throw new Error("no provider is allowed"); });
+    env.snapshot = snapshotWith("fresh"); env.schemaBody = null; env.store = new Map([[p.id, p]]);
+    const waiting = await produceProposalsForTenant(TENANT, { maxDrafts: 0, complete });
+    const owed = env.store.get(p.id) as ChangeProposal;
+    expect([owed.status, owed.obligation?.kind, waiting.paid.evidenceOwed?.find((need) => need.proposalId === p.id)?.reasonCode]).toEqual(["needs_review", "evidence", "schema_visible_pair_unconfirmed"]);
+    env.schemaBody = { url: p.pageUrl, version: "current", contentHash: "current-hash", fetchedAt: "2026-09-13T00:00:00Z", title: "Seals", h1: "Seals", metaDescription: null, headings: [], passages: ["Seals rest at high tide."], vocabulary: "Seals rest at high tide.", faqs: [{ question: "When do seals rest?", answer: "Seals rest at high tide.", source: "html_details", answerComplete: true }] };
+    await produceProposalsForTenant(TENANT, { maxDrafts: 0, complete });
+    const landed = env.store.get(p.id) as ChangeProposal;
+    expect([landed.status, landed.obligation, landed.previousCopy?.after, landed.previousCopy?.attempts, complete.mock.calls.length]).toEqual(["ready", undefined, markup, 0, 0]);
+    expect((landed.recommendedChange as { after: string }).after).toContain("Seals rest at high tide.");
+  });
   it("throws instead of handing back an account with no search data, and marks a read cut short after some rows INCOMPLETE while keeping what landed", async () => {
     env.rpc = { gsc_page_signals_v1: [{ error: TIMEOUT }] };
     await expect(loadGscPageSignalsForTenant(TENANT, new Date("2026-08-12T09:00:00Z"))).rejects.toThrow(/statement timeout/);
