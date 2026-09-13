@@ -37,7 +37,7 @@ export const PROMPT_REGISTRY = {
   // v1 is the honest first identity for the wording each carries today. This is prompt-cache versioning and has
   // nothing to do with VERIFICATION_RULES_VERSION, which stays at 4.
   // The comparison reading (campaign, 2026-09-05): shown one search group, the owned page's own passages and up to three winners' main text, it confirms which candidate differences are real and names the ones a token comparison could not see. It reads and never drafts, so the wording that forbids inventing a quote, naming a page it was not shown or stating a difference the supplied text does not carry is the whole contract; any change to it must bump this version.
-  "draft.competitor_comparison": 2,
+  "draft.competitor_comparison": 3,
   "draft.fact_claim_extraction": 1,
   "draft.fact_claim_judgement": 3, // v2 (2026-08-29): every supporting source returns its own support ruling with verbatim spans (claim-support artifact v2), so a cached v1 answer cannot satisfy the new contract
   "draft.batch_adjudication": 1,

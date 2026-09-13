@@ -41,7 +41,7 @@ const research = (s: Site, prose: string) => ({
     extract: { title: "Winner", h1: null, wordCount: 2100, headings: [s.gap], faqCount: 0, entityNames: [], hasList: false, hasTable: false,
       mainText: prose, truncated: false, heldChars: prose.length, totalChars: prose.length, h3s: [], schemaTypes: [] } }],
 }) as never;
-const owned = (s: Site) => ({ url: s.own, text: `${s.ownHeads.join(" ")} ${s.ownPassages.join(" ")}`, headings: s.ownHeads, passages: s.ownPassages });
+const owned = (s: Site) => ({ url: s.own, text: `${s.ownHeads.join(" ")} ${s.ownPassages.join(" ")}`, headings: s.ownHeads, passages: s.ownPassages, complete: true });
 /** ONE FUNDED JOB, drawn through the real money surface, so what the meter says is what a card's operator would read. */
 const funded = (key: string) => {
   const budget = DRAFT_BUDGET.plan({ jobs: [{ key, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 });
@@ -53,37 +53,22 @@ const READING_USD = 0.0091;
 const answered = async () => ({ value: { observations: [] }, httpAttempts: 1, provenance: { costUsd: READING_USD } });
 
 describe("the confirming reading is bought against the winner it read", () => {
-  it.each(SITES)("$t: a winner whose words moved is a different reading, so an unchanged winner is never bought twice", async (s) => {
-    const asked: string[] = [];
-    const complete = async (req: { user?: string; messages?: { content?: string }[] }) => {
-      asked.push(req.user ?? req.messages?.map((m) => m.content ?? "").join("\n") ?? "");
-      return { value: { observations: [] } };
-    };
-    for (const prose of [s.early, s.moved]) {
-      const c = jobComparison(research(s, prose), s.queries, owned(s));
-      expect(c.verdict).toBe("names"); // a candidate exists, so the reading is worth buying
-      await readComparison(c, { url: s.own, passages: s.ownPassages }, { tenantId: `${s.t}::key`, complete: complete as never });
+  it.each(SITES)("$t: visible and unshown changes in either page move the reading identity", async (s) => {
+    const filler = `${s.early} `.repeat(Math.ceil(4_900 / (s.early.length + 1))), ownFiller = `${s.ownPassages[0]} `.repeat(Math.ceil(4_900 / (s.ownPassages[0]!.length + 1)));
+    const pairs = [
+      [jobComparison(research(s, s.early), s.queries, owned(s)), jobComparison(research(s, s.moved), s.queries, owned(s))],
+      [jobComparison(research(s, `${filler}${s.tail}`), s.queries, owned(s)), jobComparison(research(s, `${filler}${s.tail.toUpperCase()}`), s.queries, owned(s))],
+      [jobComparison(research(s, s.early), s.queries, { ...owned(s), passages: [ownFiller], text: `${ownFiller}${s.tail}` }), jobComparison(research(s, s.early), s.queries, { ...owned(s), passages: [ownFiller], text: `${ownFiller}${s.tail.toUpperCase()}` })],
+    ];
+    for (const [i, pair] of pairs.entries()) {
+      const asked: string[] = [], [before, after] = pair;
+      const complete = async (req: { user?: string }) => { asked.push(req.user ?? ""); return { value: { observations: [] } }; };
+      if (i === 0) expect([before!.verdict, after!.verdict, before!.winners[0]!.held.includes(s.early), after!.winners[0]!.held.includes(s.moved)]).toEqual(["names", "names", true, true]);
+      else { const a = i === 1 ? before!.winners[0]! : before!.owned!, b = i === 1 ? after!.winners[0]! : after!.owned!; expect([a.held === b.held, a.bodyKey === b.bodyKey], "unchanged excerpts cannot reuse a ruling against a changed capture").toEqual([true, false]); }
+      for (const c of pair) await readComparison(c!, { url: s.own, passages: s.ownPassages }, { tenantId: `${s.t}::identity-${i}`, complete: complete as never });
+      expect(asked).toHaveLength(2); expect(asked[0]).not.toEqual(asked[1]);
+      if (i === 0) { expect(asked[0]).toContain(s.early); expect(asked[1]).toContain(s.moved); }
     }
-    expect(asked).toHaveLength(2);
-    expect(asked[0]).toContain(s.early);
-    expect(asked[1]).toContain(s.moved);
-    expect(asked[0]).not.toEqual(asked[1]); // the prompt is the cache key's own input, so the key moved with the page
-  });
-
-  it.each(SITES)("$t: a word that moves past the part one reading is shown is still a different reading", async (s) => {
-    const asked: string[] = [];
-    const complete = async (req: { user?: string }) => { asked.push(req.user ?? ""); return { value: { observations: [] } }; };
-    /* PAST THE CUT (campaign review, 2026-09-05): the prompt carries the first 4,000 characters of the winner, so a
-     * page that rewrote only what stands after that served the earlier answer for ever. The filler below is the same
-     * in both captures; only the sentence after 4,000 characters differs. */
-    const filler = `${s.early} `.repeat(Math.ceil(4_200 / (s.early.length + 1)));
-    const before = jobComparison(research(s, `${filler}${s.tail}`), s.queries, owned(s));
-    const after = jobComparison(research(s, `${filler}${s.tail.toUpperCase()}`), s.queries, owned(s));
-    expect([before.winners[0]!.held === after.winners[0]!.held, before.winners[0]!.bodyKey === after.winners[0]!.bodyKey],
-      "the part a reading is shown is identical, and the key over the whole capture is not").toEqual([true, false]);
-    for (const c of [before, after]) await readComparison(c, { url: s.own, passages: s.ownPassages }, { tenantId: `${s.t}::past`, complete: complete as never });
-    expect(asked).toHaveLength(2);
-    expect(asked[0]).not.toEqual(asked[1]); // so the cache key moved and the second reading is bought against the page as it stands
   });
 
   it.each(SITES)("$t: a bought reading lands on the page's own meter, and a cached one costs nothing and gives the attempt back", async (s) => {

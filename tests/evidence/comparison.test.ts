@@ -28,7 +28,7 @@ const group = (s: Site, urls: string[], over: Record<string, unknown> = {}) => (
   winningPages: urls.map((url) => ({ url, domain: new URL(url).hostname, engines: [], examplePrompts: [], appearances: [{ query: s.queries[0]! }], extract: extract(s, over) })),
 }) as never;
 const research = (s: Site, over: Record<string, unknown> = {}, url = s.win) => group(s, [url], over);
-const owned = (s: Site) => ({ url: s.own, text: `${s.ownHeads.join(" ")} ${s.ownPassages.join(" ")}`, headings: s.ownHeads, passages: s.ownPassages });
+const owned = (s: Site) => ({ url: s.own, text: `${s.ownHeads.join(" ")} ${s.ownPassages.join(" ")}`, headings: s.ownHeads, passages: s.ownPassages, complete: true });
 
 describe("what one comparison of the winners says", () => {
   it.each(SITES)("$t: a requested section outranks repeated query prose and retains its qualifications", (s) => {
@@ -63,7 +63,7 @@ describe("what one comparison of the winners says", () => {
       expect([whole.verdict, partial.verdict, partial.winners[0]!.truncated, never.verdict, never.winners[0]!.namesRead, never.winners[0]!.shape.lists, never.winners[0]!.shape.questions, whole.winners[0]!.shape.questions], "whole, cut and unexamined captures retain distinct absence and shape rulings").toEqual(["nothing", "unread", true, "unread", false, null, 0, 0]);
     });
 
-    it(`${s.t}: a long winner is read where it answers the search, and a winner shown only in part never proves an absence`, () => {
+    it(`${s.t}: long owned and winning pages carry their relevant material without pretending it is the whole page`, async () => {
       const rail = "Home Menu Contact Newsletter Sign up here. ".repeat(120), deep = `${rail}${s.prose} ${rail}`;
       const far = jobComparison(research(s, { mainText: deep, truncated: false, heldChars: deep.length, totalChars: deep.length }), s.queries, owned(s)).winners[0]!;
       expect([deep.length > 4_000, far.held.includes(s.prose), far.held.startsWith("Home Menu"), far.heldWhole],
@@ -72,6 +72,10 @@ describe("what one comparison of the winners says", () => {
       const partial = jobComparison(research(s, { mainText: long, headings: [s.covered], entityNames: [], faqCount: 0, truncated: false, heldChars: long.length, totalChars: long.length }), s.queries, owned(s));
       expect([partial.verdict, comparisonLines(partial)[0]!.includes("Only its passages about this search were read")],
         "a winner carrying nothing this page lacks, read whole but shown in part, is unread rather than the fact that it names nothing").toEqual(["unread", true]);
+      const witness = `${s.ownPassages[0]} The boundary is seasonal, not permanent.\nBoundary | Area\nSeasonal | The named area`, text = `${rail}\n${s.gap}\n${witness}`;
+      const relevant = jobComparison(research(s), s.queries, { ...owned(s), text, headings: [...s.ownHeads, s.gap], complete: true }, undefined, "seo", [s.gap]); let prompt = "";
+      const checked = await readComparison(relevant, { url: s.own, passages: [rail, witness] }, { tenantId: s.t, complete: (async (req: { user: string }) => { prompt = req.user; return { value: { observations: [] } }; }) as never });
+      expect([text.length > 4800, relevant.owned!.held.includes(witness), relevant.owned!.held.length <= 4800, relevant.owned!.heldWhole, prompt.includes(witness), prompt.includes(relevant.owned!.bodyKey), checked.verdict], "the late answer, qualifications and rows reach the unchanged-budget request; an empty result on selected owned material proves no whole-page absence").toEqual([true, true, true, false, true, true, "unread"]);
     });
 
     it(`${s.t}: the publisher class follows the host, so an authority is labelled rather than dropped`, () => {

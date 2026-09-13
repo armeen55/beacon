@@ -6,11 +6,11 @@
   },
   "tests": {
     "_note": "14650 since 2026-08-29 by explicit operator authorization, for the source-to-claim support cutover, WHICH IS LANDED: artifact v2 minted inside the fact judgement, the one authorization gate, the deterministic fallback, the backfill, and the live-shape fixtures. The suite landed at exactly 14650, so the authorized ceiling IS the ratchet: not a line of the grant is unspent headroom, and the next behaviour pays for itself by consolidation or deletion, exactly as before the grant.",
-    "max": 20532,
+    "max": 20525,
     "target": 4000
   },
   "combined": {
-    "hardCap": 95009,
+    "hardCap": 95002,
     "target": 60000
   },
   "domains": {
