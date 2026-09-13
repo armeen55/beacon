@@ -90,6 +90,12 @@ describe("what a card says after a batch press, and what it says when it cannot 
     expect([brief.includes("/california-persian-cities/berkeley: 20 pages share one templated line"), brief.includes("Update the title to sharpen it for")], "the file name never leads the card; the change says what it does, and the page it does it to is the line above").toEqual([false, true]);
     const real = await card(atomic(), { proposal: proposal({ status: "ready", riskLevel: "low", modeledOn: SHAPE, bundle: undefined, opportunityType: "Answer the question people actually type into Google" }) });
     expect(real.includes("Answer the question people actually type into Google"), "and a headline that carries no address is still the producer's own sentence").toBe(true);});
+  it("renders only the recorded mutation: an addition never becomes a deletion, and schema is never visible prose", async () => {
+    const base = proposal({ status: "ready", riskLevel: "low", modeledOn: SHAPE, bundle: undefined });
+    const addition = await card({ ...base, recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Nowruz is celebrated at the spring equinox.", where: 'A new section headed "When is Nowruz?", placed after "Nowruz"' } }, {});
+    expect([addition.includes("Nothing is deleted"), addition.includes("Delete that old line")]).toEqual([true, false]);
+    for (const before of [null, '{"@type":"FAQPage"}']) { const schema = await card({ ...base, recommendedChange: { kind: "existing_edit", field: "schema", before, after: '{"@context":"https://schema.org","@type":"FAQPage"}', where: "HEAD of this page" } }, {});
+      expect([schema.includes(before ? "replace it with the complete block" : "add the complete JSON-LD block"), schema.includes("Do not paste it into visible page text"), schema.includes("new answer paragraph"), schema.includes("unrelated markup")]).toEqual([true, true, false, true]); } });
   it("prints what a change is waiting on where the change is, and prints nothing of the sort on work that is ready to make", async () => {
     const waiting = (input: string) => proposal({ status: "needs_review", riskLevel: "low", rankingReceipt: { ...proposal().rankingReceipt!, factors: [...proposal().rankingReceipt!.factors, { name: "readiness", input, contribution: 0, max: 0 }] } });
     const held = await card(waiting("a source reading is owed before these words can be written"), { review: true });

@@ -90,19 +90,11 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
   const shape = groupingOwed ? "no_change" as const : collection ? "section" as const : rewrite ? "exact_replacement" as const
 
     : backedProps.length > 0 && (kind === "missing_answer" || kind === "incomplete_answer") && backedProps.every(carriedByOne) ? "no_change" as const
-    : kind === "scattered_answer" || kind === "weak_extractability" ? "direct_answer" as const
-    : backedProps.length === 0 || backedProps.length >= 3 ? "section" as const
-    : relevant || (backedProps.length > 0 && heading) ? "inline_addition" as const
-    : "direct_answer" as const;
+    : undefined;
   const packetShape = AEO_BAR.applies(field, standard, packet.unpublished, rewrite && kind === "scattered_answer" ? "restructure" : shape, packet);
-  const cap = packetShape ? 0 : shape === "inline_addition" ? 2
-    : shape === "direct_answer" ? 3
-    : shape === "exact_replacement" ? (rewrite?.replaces ?? "").split(/(?<=[.!?])\s+/).filter((x) => x.trim().length > 0).length + 1
-    : 0;
   const anchor = shape === "no_change" ? null
-    : shape === "inline_addition" ? relevant?.x ?? heading
     : shape === "exact_replacement" ? rewrite?.heading ?? heading
-    : heading;
+    : relevant?.x ?? heading;
   const defining = /^(?:what|who)\s+(?:is|are|was|were)\b|\b(?:meanings?|definitions?)\b/i.test(props[0] ?? "");
   const entity = (props[0] ?? "").replace(/^(?:what|who)\s+(?:is|are|was|were)\s+(?:an?|the)?\s*/i, "").replace(/\s*\b(?:meanings?|definitions?)\b\s*$/i, "").replace(/\s*\([^)]*\)\s*$/, "").replace(/\?+$/, "").trim();
   const plural = /s$/i.test(entity.split(/\s+/).at(-1) ?? "");
@@ -115,33 +107,31 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     : `open with the direct answer in one self-contained sentence: say the thing itself, not that this page covers it, and never name the page or its headings`;
   return {
     ...base,
-    shape,
+    ...(shape ? { shape } : {}),
     ...(groupingOwed ? { owed: groupingOwed } : {}),
     anchor,
-    ...(cap > 0 ? { maxSentences: cap } : {}),
-    opening: packetShape ? "a self-contained answer paragraph with a useful distinction and bounded scope" : shape === "inline_addition" || shape === "direct_answer" ? `${opening}. Never open with a bare "Yes" or "No": that is a reply to a question, and this copy is a sentence standing on the page.` : opening,
+    opening: packetShape ? "a self-contained answer paragraph with a useful distinction and bounded scope" : shape == null ? `${opening}. Never open with a bare "Yes" or "No": that is a reply to a question, and this copy is a sentence standing on the page.` : opening,
     treatment: shape === "section" ? "section" as const
       : shape === "exact_replacement" ? (kind === "scattered_answer" ? "restructure" as const : "replacement" as const) : "answer_block" as const,
     format: groupingOwed ? groupingOwed : packetShape ? `${AEO_BAR.policy} Keep what is true, add the improvement the completion test below names, and cite a supporting fact for each new claim.` : shape === "no_change" ? EDITOR_SHARED.NO_CHANGE_SAYS
-      : shape === "exact_replacement" ? `at most ${cap} sentences standing exactly where the replaced words stand: keep what the passage says that is true, add the improvement the completion test below names, cite a supporting fact for any statement the page does not already carry, and write no heading`
+      : shape === "exact_replacement" ? `complete copy standing exactly where the replaced words stand: keep what the passage says that is true, add the improvement the completion test below names, cite a supporting fact for any statement the page does not already carry, and write no heading`
       : shape === "section" ? "a descriptive heading, then the smallest complete treatment this gap takes, and no introduction, conclusion or summary of the page"
-      : shape === "inline_addition" ? "one or two sentences that land inside the page's existing prose with NO heading of their own: lead with the missing information, repeat no background to add length, and stop once the gap is answered"
-      : "one to three sentences a reader could lift whole, with NO heading of their own: lead with the missing information, never summarise the page, and stop once the gap is answered",
-    mustLeadWith: packetShape ? "a liftable answer paragraph in sentences of your own explaining the supported selection and its boundary; distribute the entity facts under the criteria, never pour every fact into the lead" : (lead.length > 0 ? `${lead.join("; ")} (in plain words, naming the subject the way this page names it and never the way the search phrases it, then say with whom or when only if a cited fact says so).`
+      : "choose a contextual insertion only when the adjacent passage already supplies the question, subject and scope; otherwise write a standalone section with a descriptive or genuinely reader-facing question heading. Deliver the supported explanation, distinctions, examples, qualifications or steps the diagnosed task needs, without a sentence quota or padding",
+    mustLeadWith: packetShape ? "a liftable answer paragraph in sentences of your own explaining the supported selection and its boundary; distribute the entity facts under the criteria, never pour every fact into the lead" : (lead.length > 0 ? `the direct answer to the diagnosed reader task, supported by these checked statements: ${lead.join("; ")}. Synthesize the answer in your own words and distribute the supporting detail through the treatment; do not squeeze every checked fact into its first sentence.`
       : "the answer itself, in sentences of your own. Nothing checked is on file behind this gap, so the only ground you have is what this page's own passages already establish about the subject: draw the answer out of them rather than restating any one of them, state no figure or claim past them, and say what is still owed in your limitations.") + " No line may restate another line.",
     mayReuse: packetShape ? "the page’s supported entity details under the checked grouping criteria; cite the lead and criteria to fact-* and each entity detail to its own source" : standard === "restructuring" || standard === "repositioning" ? "every passage, entry and figure this page already publishes: assembling what they say into one place a reader can lift IS the job of this edit, in the page's own words"
-      : "one or two of the page's own entries or figures, named exactly as the page writes them, as the example the new statement stands on",
+      : "the supported own-page details needed to make this treatment intelligible and correctly scoped, without duplicating the complete answer or repeating its adjacent passage",
     mustPreserve: `every existing heading, entry, meaning, link, product, image and call to action${rewrite ? " OUTSIDE the passage named above, which this copy rewrites where it stands" : ""}, and every passage carrying a search this page earns clicks on: nothing else on the page is deleted or rewritten${(packet.reading?.sells ?? []).length > 0 ? `. This page sells, and these are the things it sells and the actions it asks for, every one of which must still be there afterwards: ${packet.reading!.sells.join("; ")}` : ""}`,
     mustNotRepeat: packetShape ? "how this page arranges its material or a bare roster: the lead and criteria must add the checked distinction, and entity records must serve that distinction" : rewrite ? "the page's own entries, meanings, headings and examples that STAY on the page: the passage named above is the one thing this copy carries over, and only the part of it that is true"
       : standard === "restructuring" || standard === "repositioning" ? "how this page arranges its material: name the things a reader asked for, never the headings, sections, lists or categories they sit in"
-      : "the page's own entries, meanings, headings and examples: a reader is already looking at them, and copy that restates them is refused however well it reads",
+      : "needless repetition of the page's own entries, meanings and examples: use necessary context, but the treatment must deliver the diagnosed addition rather than duplicate an already complete answer",
     placement: shape === "exact_replacement" ? "replacement" as const : "additive" as const,
-    completionTest: `a reader who came for "${base.intent[0] ?? gap}" can finish that task on this copy alone and could not have on the page before: ${deliver.join("; ") || "the smallest complete answer this page's own passages and the checked facts on file can give it"}. How this page is arranged is never that answer.`,
+    completionTest: `a reader who came for "${base.intent[0] ?? gap}" can finish the diagnosed task using this section alone, or this insertion with its adjacent passage, and could not have on the page before: ${deliver.join("; ") || "the smallest complete answer this page's own passages and the checked facts on file can give it"}. How this page is arranged is never that answer.`,
   };
 };
 const worksFromThePage = (a: Assignment): boolean => AEO_BAR.applies("answer_block", a.standard, false, a.shape, { targetUrl: a.page, trackedQuestion: a.intent[0] }) || a.standard !== "missing_answer" && a.standard !== "correction";
 const assignmentLines = (a: Assignment): string[] => [
-  `THE ASSIGNMENT. Every id below is context for it${worksFromThePage(a) ? ", and the page's own words are the material this edit works from" : ", and the page's own words are never the subject of the new copy"}.`,
+  `THE ASSIGNMENT. Every id below is context for it${worksFromThePage(a) ? ", and the page's own words are the material this edit works from" : ", and its supported words provide reader context and background; new copy delivers the diagnosed addition rather than narrating the page"}.`,
   `THE PAGE: ${a.page}`,
   `THE TREATMENT: ${a.treatment}`,
   `THE STANDARD THIS WORK IS JUDGED BY, and the only editorial rule that applies to it: ${STANDARDS[a.standard ?? "missing_answer"]}`,
@@ -152,7 +142,7 @@ const assignmentLines = (a: Assignment): string[] => [
   `OUTPUT FORMAT: ${a.format}${a.checkedGroups?.length ? ` Use only these exact checked group names for ## headings: ${a.checkedGroups.join("; ")}.` : ""}`,
   `MUST LEAD WITH, in your first sentence, in plain public English: ${a.mustLeadWith}`,
   `SUPPORTING FACTS you may state and must cite: ${(a.facts ?? (a.supportingFacts ?? []).map((id) => ({ id, says: "" }))).map((f) => (f.says ? `${f.id} says ${f.says}` : f.id)).join("; ") || "none"}`,
-  `PAGE CONTEXT, for tone, placement, what to preserve and what not to repeat${worksFromThePage(a) ? ", and it is the material this edit works from" : ", never material for the new copy"}: ${a.pageContext.join(", ") || "none"}`,
+  `PAGE CONTEXT, for tone, placement, what to preserve and what not to repeat${worksFromThePage(a) ? ", and it is the material this edit works from" : ", usable where necessary for reader context and supported background, never proof of a new unsupported claim"}: ${a.pageContext.join(", ") || "none"}`,
   ...((a.sells ?? []).length > 0 ? [`WHAT THIS PAGE SELLS AND ASKS FOR, which your copy must leave standing and may lead a reader towards but never replaces: ${a.sells!.join("; ")}`] : []),
   ...(a.forbidden.length > 0 ? [`NAMED BY THE DIAGNOSIS AND CARRIED BY NOTHING CHECKED, so it is a subject to cover from what IS on file and never a statement of your own: ${a.forbidden.join("; ")}`] : []),
   ...(a.rivals.length > 0 ? [`THE PAGES THAT ALREADY WIN THIS SEARCH (${a.rivals.join(", ")}), read for the subjects they carry and this page does not, which choose the shape and the subjects of this copy and are never a fact you may state: ${[...new Set((a.observations ?? []).map((o) => `"${o.quote}" (${o.publisher}, ${LABELLED_CLASS[o.publisherClass] ?? o.publisherClass})`))].join("; ") || "read but naming nothing this page lacks"}`] : []),
@@ -162,7 +152,7 @@ const assignmentLines = (a: Assignment): string[] => [
   `MAY REUSE: ${a.mayReuse}`,
   `MUST PRESERVE: ${a.mustPreserve}`,
   `MUST NOT REPEAT: ${a.mustNotRepeat}`,
-  `PLACEMENT: ${a.placement === "field" ? "it REPLACES this page's own line and lands nowhere else: it is not a section, it has no heading, and it names no place on the page" : a.placement === "replacement" ? "it replaces the passage named above and nothing else" : a.shape === "inline_addition" || a.shape === "direct_answer" ? `your sentences land directly after "${a.anchor ?? ""}", inside the copy that is already there. Return that exact wording as placementAnchor and return naturalHeading as null: this shape has no outer heading; follow OUTPUT FORMAT for headings inside finalCopy` : "a new section after an existing heading; it replaces nothing"}`,
+  `PLACEMENT: ${a.placement === "field" ? "it REPLACES this page's own line and lands nowhere else: it is not a section, it has no heading, and it names no place on the page" : a.placement === "replacement" ? "it replaces the passage named above and nothing else" : a.shape === "inline_addition" || a.shape === "direct_answer" ? `your sentences land directly after "${a.anchor ?? ""}", inside the copy that is already there. Return that exact wording as placementAnchor and return naturalHeading as null: this shape has no outer heading; follow OUTPUT FORMAT for headings inside finalCopy` : `it adds copy after "${a.anchor ?? ""}" and deletes nothing. Return that exact wording as placementAnchor. Choose naturalHeading only when this treatment needs its own heading; the adjacent passage must supply the context of a headingless insertion`}`,
   ...(a.owed ? [`WHAT THIS ROW STILL OWES FROM ITS LAST ATTEMPT: ${a.owed}`] : []),
   `COMPLETION TEST: ${a.completionTest}`,
 ];

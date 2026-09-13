@@ -1020,7 +1020,7 @@ it.skip("rules a claim against the exact passage it names, refuses an unrelated 
     const D = { actionType: "meta" as const, targetUrl: P.targetUrl, placementAnchor: "the page's description field", beforeText: P.metaDescription, naturalHeading: null, evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 3, measurementTarget: "clicks on this page", claims: [{ text: "No official Achaemenid flag design has been preserved", supportedBy: ["page-copy-1", "page-title"] }, { text: "Ancient reliefs and inscriptions suggest banners with an eagle and winged sun, and the flag is often depicted with a red background and a golden Faravahar emblem from 550 to 330 BCE", supportedBy: ["page-copy-1", "page-copy-2"] }], supportFacts: [], finalCopy: "No official Achaemenid flag design has been preserved: reliefs and inscriptions suggest a red banner with a golden Faravahar eagle, 550 to 330 BCE." }, T = { ...D, actionType: "title" as const, beforeText: P.title, placementAnchor: "the page title", finalCopy: "Achaemenid Flag: What Reliefs and Inscriptions Suggest" };
     const WRONG = "the line it says it replaces is not the one this page carries", blk = (o: Record<string, unknown>) => deliverableFailures({ ...D, actionType: "answer_block", beforeText: null, finalCopy: BODY, ...o } as never, P)[0];
     expect([deliverableFailures(D, P), deliverableFailures(T, P), deliverableFailures({ ...D, beforeText: "a description this page never carried" }, P)[0], deliverableFailures({ ...T, beforeText: "A title this page never carried" }, P)[0],
-      deliverableFailures({ ...D, claims: [{ text: "Cyrus raised it himself", supportedBy: ["made-up-7"] }] }, P)[0], blk({ naturalHeading: "What the reliefs show", placementAnchor: "a heading nowhere on the page" }), blk({ naturalHeading: P.trackedQuestion, placementAnchor: "ancient reliefs and inscriptions" })]).toEqual([[], [], WRONG, WRONG, "it names evidence that is not on file: made-up-7", "the place it says it lands is not on the stored page", "its heading is the tracked question said back word for word"]); });
+      deliverableFailures({ ...D, claims: [{ text: "Cyrus raised it himself", supportedBy: ["made-up-7"] }] }, P)[0], blk({ naturalHeading: "What the reliefs show", placementAnchor: "a heading nowhere on the page" }), blk({ naturalHeading: P.trackedQuestion, placementAnchor: "ancient reliefs and inscriptions" })]).toEqual([[], [], WRONG, WRONG, "it names evidence that is not on file: made-up-7", "the place it says it lands is not on the stored page", "every line of it is already on this page, so it hands the reader the same words twice under a new heading: add what the page does not carry, or nothing is owed here"]); });
   it("classifies the live destruction reason as soft, and every one of the four hard classes as hard", () => {
     expect(DRAFT_BUDGET.HARD_REFUSAL.test("it uses words this account does not publish: Farsi")).toBe(false); // the exact live reason: SOFT
     expect(DRAFT_BUDGET.HARD_REFUSAL.test("its copy is 68 long, outside the 80 to 150 this field takes, or carries something nobody can paste")).toBe(false);
@@ -1205,18 +1205,6 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     expect(out.status).toBe("needs_review");                              // downgraded, visible in the Review lane
     expect(out.limitations.join(" ")).toContain("does not publish");      // with the reason on the card
     expect(out.previousCopy).toBeUndefined(); });                         // nothing was retired, because nothing was lost
-  it("holds back a ready row that today's rules refuse, without losing a word of it", async () => {
-    const stuffed = "Persian girl names: Afsaneh, Afsoon, Aida.";
-    store.rows.set(CITIES, heldRow({ status: "ready", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap",
-      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: stuffed, where: 'A new section headed "Names", placed after "Names heading"' },
-      claims: [{ text: "Persian girl names here include Afsaneh, Afsoon and Aida.", supportedBy: ["page-copy-1"] }],
-      supportFacts: [{ id: "page-copy-1", fact: "Persian girl names here include Afsaneh, Afsoon and Aida. Afsaneh: Goddess, divine and strong. Afsoon: Charming, enchanting, and alluring. Aida: Radiance and eternal beauty." },
-        { id: "page-copy-2", fact: "The page's Names heading introduces the list." }] }));
-    await runWith(incoming({ pagePath: "/elsewhere", pageUrl: "https://fixture-content.example/elsewhere", id: "fixture-tenant::/elsewhere::existing_edit::ai_answer_gap" }));
-    const out = store.rows.get(CITIES)!;
-    expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toBe(stuffed); // every word kept
-    expect(out.status).toBe("needs_review");
-    expect(out.limitations.join(" ")).toContain("outside the"); });
   it("re-reads stored rows on a day nothing earns an action", async () => {
     const OTHER = "fixture-tenant::/quiet-page::existing_edit::ai_answer_gap";
     const stuffed = "Persian girl names: Afsaneh, Afsoon, Aida.";
@@ -1442,12 +1430,12 @@ describe("typed refusal contract", () => { // ── the typed refusal contract:
       literal: null, usage: null, sources: [{ url: "https://en.wiktionary.org/x", kind: "dictionary", says: "dar-YAH" }],
       agreement: "single_source", confidence: "confirmed", verdict: "page_correct", alsoAt: [], note: "",
       pageContentHash: bodyHash, pageLocator: "missing", sourceReadAt: NOW.toISOString(), state: "checked", rulesVersion: RULES, evidenceBasis: null, checkedAt: NOW.toISOString() };
-    factStore.rows = [FACT]; const NEW_COPY = "Most classic Persian girls' names are pronounced with even stress, so Darya is dar-YAH and Afsaneh is af-sah-NEH, which helps parents say each name aloud with confidence."; // NO SUPERLATIVE THE FACT DOES NOT CARRY (campaign, 2026-09-05): this closed "from the first try", and "the first" was grounded only by the ASSIGNMENT's own instruction to open in the first sentence, which the canon no longer reads as evidence
+    factStore.rows = [FACT]; const NEW_COPY = "Most classic Persian girls' names are pronounced with even stress. Darya is pronounced dar-YAH. Afsaneh is pronounced af-sah-NEH. These pronunciations help parents say each name aloud."; // NO SUPERLATIVE THE FACT DOES NOT CARRY (campaign, 2026-09-05): this closed "from the first try", and "the first" was grounded only by the ASSIGNMENT's own instruction to open in the first sentence, which the canon no longer reads as evidence
     const seen: string[] = []; const out2 = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never,
       judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ claims: d.claims.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })), pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" })) as never,
       budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/persian-female-first-names", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
       complete: async ({ user }: { user: string }) => (seen.push(user), { value: { field: "answer_block", before: null, rationale: "grounded", ...TAIL, placementAnchor: "Persian Female Names",
-        after: NEW_COPY, naturalHeading: null, claims: [{ text: NEW_COPY, supportedBy: ["fact-1"] }] } }) } as never);
+        after: NEW_COPY, naturalHeading: "How are Persian girls' names pronounced?", claims: [{ text: NEW_COPY, supportedBy: ["fact-1"] }] } }) } as never);
     expect(seen.join(" ")).toContain(JSON.stringify("Most classic Persian girls' names are pronounced with even stress, so Darya is dar-YAH and Afsaneh is af-sah-NEH. This is about \"Pronunciation guide for parents\".").slice(1, -1)); // the researched fact reached the writer as citable evidence
     expect(seen.join(" ")).toContain("rival-1"); // the rival stayed briefing beside it
     expect(out2[0]!.status).toBe("ready"); const done = out2[0]!; // THE READING REACHES THE FINISHED ROW, bound to the completed proposal and carrying the editor's own mapping, so the one canonical gate has something to trust instead of holding substantive work it just approved.
@@ -1455,6 +1443,7 @@ describe("typed refusal contract", () => { // ── the typed refusal contract:
     expect(done.semanticReview!.version).toBe(REVIEW_CONTRACT);
     expect(done.semanticReview!.claims).toEqual(done.claims!.map((c, i) => ({ i, by: [...c.supportedBy].sort(), entailed: true })));
     expect(unreviewed(done), "and the canonical gate holds nothing").toBeNull();
+    expect(done.recommendedChange.kind === "existing_edit" ? [done.recommendedChange.field, done.recommendedChange.before, done.recommendedChange.after] : null, "all four sentences and the reader question travel as one actual pasteable section, not a heading hidden in instructions").toEqual(["section", null, `## How are Persian girls' names pronounced?\n${NEW_COPY}`]);
     for (const [what, broken] of [["changed copy", { recommendedChange: { ...done.recommendedChange, after: `${(done.recommendedChange as { after: string }).after} More.` } }],
       ["a changed claim", { claims: done.claims!.map((c, i) => (i === 0 ? { ...c, text: `${c.text} extra` } : c)) }],
       ["a changed mapping", { claims: done.claims!.map((c, i) => (i === 0 ? { ...c, supportedBy: ["fact-9"] } : c)) }],

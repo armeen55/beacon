@@ -101,6 +101,7 @@ function untouchedOf(p: ChangeProposal): string | null {
     case "title": return "Only the title tag changes. The heading and page text stay as they are.";
     case "meta": return "Only the meta description changes. Nothing on the page itself changes.";
     case "h1": return "Only this heading changes. The text under it stays as it is.";
+    case "schema": return "Only this page's structured data changes. Its visible text and unrelated markup stay as they are.";
     case "section": case "answer_block":
       return c.before ? "Only this passage changes. Everything around it stays." : "This adds new copy. Nothing on the page is deleted.";
     default: return null;
@@ -116,10 +117,8 @@ function doLineOf(p: ChangeProposal): string {
   if (c.field === "meta") return c.before ? "Do this: open the page's SEO settings and replace the current meta description with the line below." : "Do this: open the page's SEO settings and set the meta description to the line below.";
   if (c.field === "title") return "Do this: replace the page title in your page editor with the line below. The visible heading is untouched.";
   if (c.field === "h1") return "Do this: replace the page's main heading with the line below. The text under it stays.";
+  if (c.field === "schema") return c.before ? "Do this: find the exact existing JSON-LD block shown under Now in this page's custom code and replace it with the complete block below. Do not paste it into visible page text or delete unrelated markup." : "Do this: add the complete JSON-LD block below to this page's custom code at the location named under Where it goes. Do not paste it into visible page text or replace unrelated markup.";
   if (c.before) return "Do this: find the exact text shown under Now, delete it, and paste the new copy in its place. Nothing else changes.";
-  const anchor = /placed after (?:the heading )?[\u201c"]([^\u201d"]+)/.exec(c.where ?? "")?.[1] ?? null;
-  const restates = anchor ? c.after.replace(/\s+/g, " ").trim().toLowerCase().startsWith(anchor.replace(/\s+/g, " ").trim().toLowerCase().slice(0, 40)) : false;
-  if (restates) return "Do this: the new copy opens by rewriting the line named under Where it goes. Delete that old line and paste this in its place, so the sentence appears once.";
   return `Do this: paste the copy below onto the page as a new ${c.field === "section" ? "section under its own heading" : "answer paragraph"}, at the spot named under Where it goes. Nothing is deleted.`;
 }
 /** THE WORDS THERE NOW AND THE WORDS TO PUT THERE, off the same field the detail page renders. */
