@@ -58,9 +58,9 @@ export function supabaseFake(o: SupabaseFakeOptions) {
       lte: (c: string, v: string) => where((r) => r[c] != null && String(r[c]) <= v),
       lt: (c: string, v: string) => where((r) => r[c] != null && String(r[c]) < v),
       gt: (c: string, v: unknown) => where((r) => r[c] != null && (typeof v === "number" ? (r[c] as number) > v : String(r[c]) > String(v))),
-      // The ONE keyset shape every paged reader here builds: strictly past one row, in the query's own order.
-      or: (expr: string) => { const m = /^(\w+)\.lt\."([^"]*)",and\(\w+\.eq\."[^"]*",id\.lt\."([^"]*)"\)$/.exec(expr);
-        return m ? where((r) => String(r[m[1]!] ?? "") < m[2]! || (String(r[m[1]!] ?? "") === m[2]! && String(r.id) < m[3]!)) : q; },
+      or: (expr: string) => { const due = /^blocked_until\.is\.null,blocked_until\.lte\."([^"]*)"$/.exec(expr);
+        const m = /^(\w+)\.lt\."([^"]*)",and\(\w+\.eq\."[^"]*",id\.lt\."([^"]*)"\)$/.exec(expr);
+        return due ? where((r) => r.blocked_until == null || Date.parse(String(r.blocked_until)) <= Date.parse(due[1]!)) : m ? where((r) => String(r[m[1]!] ?? "") < m[2]! || (String(r[m[1]!] ?? "") === m[2]! && String(r.id) < m[3]!)) : q; },
       then: (resolve: (v: unknown) => void) => resolve(run()),};
     return q;};
   return { from };}

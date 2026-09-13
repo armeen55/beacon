@@ -47,8 +47,8 @@ describe("the owned-page inventory: what the site says it has, and what my read 
     expect(await nextCrawlCandidates(T, 10, at(2))).toEqual(["https://own.com/locked"]); // due again, and a 404 never is
     await markBlocked(T, "https://own.com/locked", 403, at(2)); expect((await locked()).blocked_until).toBe(at(9).toISOString()); // SAME refusal, second attempt: a day was not enough, so a week
     await markBlocked(T, "https://own.com/locked", 403, at(9)); expect((await locked()).blocked_until).toBe(at(39).toISOString()); // then a month, the ceiling: the ladder is attempt-driven, not status-driven
-    await upsertDiscovery(T, [{ url: "https://own.com/flaky", via: "sitemap" }]); await markBlocked(T, "https://own.com/flaky", 500, NOW); // a server error is a failure, never a read
-    const flaky = (await readInventory(T)).find((r) => r.url.endsWith("/flaky"))!; expect([flaky.crawl_state, flaky.last_crawled_at, flaky.blocked_until, await nextCrawlCandidates(T, 10, at(0.5))]).toEqual(["uncrawled", null, at(1).toISOString(), []]); }); // unread, unstamped, waiting
+    await upsertDiscovery(T, [{ url: "https://own.com/flaky", via: "sitemap" }, { url: "https://own.com/due", via: "nav" }]); await markBlocked(T, "https://own.com/flaky", 500, NOW); // a server error is a failure, never a read
+    const flaky = (await readInventory(T)).find((r) => r.url.endsWith("/flaky"))!; expect([flaky.crawl_state, flaky.last_crawled_at, flaky.blocked_until, await nextCrawlCandidates(T, 1, at(0.5))]).toEqual(["uncrawled", null, at(1).toISOString(), ["https://own.com/due"]]); }); // Waiting rows cannot consume the bounded slot owed to an eligible page.
   it("calls a server error a fault only after the same answer comes back on a SECOND Pacific day, and drops it the moment the page answers", async () => {
     const flaky = async () => (await readInventory(T)).find((r) => r.url.endsWith("/flaky"))!; await upsertDiscovery(T, [{ url: "https://own.com/flaky", via: "sitemap" }]); await markBlocked(T, "https://own.com/flaky", 500, NOW);
     expect((await flaky()).status_reconfirmed_at).toBe(null); // one 500 is a bad minute and says nothing at all

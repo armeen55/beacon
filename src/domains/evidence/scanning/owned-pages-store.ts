@@ -165,16 +165,12 @@ export async function nextCrawlCandidates(
     const out: string[] = [];
     const take = async (build: (q: ReturnType<typeof buildBase>) => ReturnType<typeof buildBase>) => {
       if (out.length >= want) return;
-      const { data, error } = await build(buildBase(admin, tenantId)).limit(want - out.length);
+      const { data, error } = await build(buildBase(admin, tenantId).or(`blocked_until.is.null,blocked_until.lte."${nowIso}"`)).limit(want - out.length);
       if (error) {
         failClosed("read", tenantId, error);
         return;
       }
-      // A PROMISED WAIT IS NEVER A CANDIDATE, whatever state the row is in. The blocked pass below
-      // already asks the database for that; an uncrawled row backing off a transient failure keeps
-      // its own retry date and is held back here, or a 500 would be re-fetched on every pass.
-      for (const r of (data ?? []) as { url: string; blocked_until?: string | null }[]) {
-        if (r.blocked_until && r.blocked_until > nowIso) continue;
+      for (const r of (data ?? []) as { url: string }[]) {
         if (r.url && !out.includes(r.url)) out.push(r.url);
       }
     };
