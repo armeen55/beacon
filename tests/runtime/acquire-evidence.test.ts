@@ -1,4 +1,3 @@
-/** Runtime acquisition executes EVERY kind the requirement union declares, through the machinery that already  exists: serp through the serp unit, competitor_page through the winning-pages unit's priority-query read,  page_source through that unit's owned-read seat, and factual_source through the fact-check pass. Two of the  four kinds used to be typed dead ends: minted by producers, refused at the one consumer with "nothing here  can buy a competitor_page", so the requirement system promised readings the runtime could never make. */
 import { describe, expect, it, vi } from "vitest";
 const CALLS = vi.hoisted(() => ({ serp: [] as string[][], win: [] as { qs: string[]; owned: string | null }[] }));
 const STATE = vi.hoisted(() => { const at = (q: string) => `https://rival.example/${q.replace(/\s+/g, "-")}`; return { done: ["iran flag"] as string[], read: ["iran flag"] as string[], winner: (query: string) => ({ url: at(query), domain: "rival.example", engines: [], examplePrompts: [], appearances: [{ kind: "serp_organic", query, rank: 1, citedUrl: at(query), observedAt: "2026-09-05T00:00:00.000Z" }], extract: { url: at(query), wordCount: 900, mainText: "what the page winning that search says", truncated: false, fetchedAt: "2026-09-05T00:00:00.000Z" }, readOutcome: null }) }; });
@@ -7,6 +6,7 @@ vi.mock("@/domains/evidence", async (actual) => ({ ...(await actual<Record<strin
   serpAnalysisUnit: (_d: unknown, qs: string[]) => async () => (CALLS.serp.push(qs), { status: "done", cursor: null, progress: {} }),
   winningPagesUnit: (_d: unknown, qs: string[] = [], _i: unknown = null, owned: string | null = null) => async () => (CALLS.win.push({ qs, owned }), { status: "advanced", cursor: null, progress: {} }) }));
 import { canonicalUrlKey } from "@/domains/evidence/snapshot"; // the fakes below key their answer exactly as the real reader does (host and path), or a raw-url lookup would pass here and miss in production
+import type { EvidenceRequirement } from "@/domains/decision/producers/contract";
 import { defaultSteps } from "@/domains/runtime/ops/research-steps";
 describe("acquireEvidence is exhaustive over the requirement union", () => {
   it("routes serp, competitor_page and page_source to the existing units, and factual_source to the fact-check pass", async () => {
@@ -27,7 +27,6 @@ describe("acquireEvidence is exhaustive over the requirement union", () => {
     WORKED.length = 0; REOPENED.length = 0; await steps.factCheck("t1", 1_000, undefined);
     expect([WORKED, REOPENED, deriveSupport(ctx) != null], "A MISSING ANSWER IS A CUSTOMER'S WAITING ANSWER BLOCK: the page holding an owed question is worked before a hub holding nine hundred times its demand in inventory claims. AND THE RULES-STALE FLAG IS THE ROW'S OWN: this row is what the second slice selects, its artifacts are current under the proposition identity so nothing else would ever hand it back, and it is owed again once, in the account's own words").toEqual([[FLAGS], [["flag-gap", "Reopened: the rules that judge a missing answer changed."]], true]);
     put({}); const once = await seed(), twice = await seed(); expect([once, twice, (put({ verdict: "page_correct" }), await seed()), (put({ proposed: null }), await seed()), (put({ verdict: "page_correct", rulesVersion: 4 }), await seed())], "THE HELICOPTER ROW IS RE-RESEARCHED ONCE: a checked row holding an undecided statement answered a different subject, so it is owed again in the account's own words; the reopened row and a row whose answer IS about this page's own subject are left alone. AND A ROW THAT PROPOSED NOTHING WITH NO SOURCE READ BEHIND IT IS UNFINISHED RESEARCH (journey review, 2026-09-07): it is read once more where the winner's own heading starts, and the reopened row it becomes is not reopened again. AND A QUESTION JUDGED UNDER 4, the rules a correction is judged under, is not read as researched at this version however sound its verdict looks: nothing else re-judges it").toEqual([[["owed", "Reopened: the answer must be about this page's own subject."]], [], [], [["owed", "Reopened: read once without finding a passage about it, so the winner is read again where its own heading starts."]], [["owed", "Reopened: the rules that judge a missing answer changed."]]]); });
-  /** AND THE PURCHASE IS JUDGED AGAINST THE NEED IT WAS SENT FOR (live 2026-09-05). `banked > 0` asked whether ANY claim on the page moved, so a pass that researched eleven other statements of the same page reported this row's own topic acquired, stamped it bought for the day, and the walk re-minted the identical requirement on the next drive: on the live account ten funded jobs ended a pass owing readings the same day had already paid for. */
   it.each(["tenant-one", "tenant-two"])("answers for the topic it was sent to research and not for the page it ran on: a topic that is still owed is not acquired, one researched below what the evidence rules allow is a reading that happened and an obligation that did not move, and one that stands is both [%s]", async (tenant) => {
     vi.resetModules(); const ROWS: Record<string, unknown>[] = [];
     vi.doMock("@/domains/evidence/pages/fact-checks", async (a) => ({ ...(await a<Record<string, unknown>>()), readFactChecks: async () => ROWS, recordOwedClaims: async () => 1, recordFactChecks: async (_t: string, _p: string, rs: Record<string, unknown>[]) => (ROWS.splice(0, ROWS.length, ...rs), rs.length) }));
@@ -47,7 +46,6 @@ describe("acquireEvidence is exhaustive over the requirement union", () => {
     expect(weak.detail, "and the reason is on the receipt in plain words, never as a stored code").toContain("rated disputed and does not meet the evidence rules copy must stand on");
     expect([nothing.acquired, nothing.unlocked], "a topic still owed after the pass is not acquired at all").toEqual([false, false]);
     vi.doUnmock("@/domains/evidence/pages/fact-checks"); vi.doUnmock("@/domains/evidence/snapshot-loader"); vi.doUnmock("@/domains/evidence/pages/owned-context"); vi.resetModules(); });
-  /** A READING THE CONSUMER CAN ALREADY USE IS NEVER RE-OWED AND NEVER RE-BOUGHT (round-three reviewer, 2026-09-05). The free support pass decides, per row, whether a claim its own quote cannot carry is banked with its reason or REOPENED, and reopening buys fresh research. It asked `confidence !== "confirmed"`, which was the whole-account bar before the evidence bar became proportional to what a treatment risks, so an ADDITIVE answer graded `likely` (which the writer may now stand on) was sent back to be paid for on every drive. The bar is asked of the one door that decides it rather than mirrored as a grade. */
   it.each(["tenant-one", "tenant-two"])("banks a missing answer the copy may already stand on instead of buying it again, and still reopens one the copy may not [%s]", async (tenant) => {
     vi.resetModules(); const ROWS: Record<string, unknown>[] = [], TARGETS: Array<{ statementKey: string; onUnsupported: string }> = [];
     vi.doMock("@/domains/evidence/pages/claim-support", async (a) => ({ ...(await a<Record<string, unknown>>()), backfillClaimSupport: async (_t: string, targets: Array<{ statementKey: string; onUnsupported: string }>) => (TARGETS.push(...targets), []) }));
@@ -57,14 +55,12 @@ describe("acquireEvidence is exhaustive over the requirement union", () => {
     const { pageHashOf, claimIdentity } = await import("@/domains/evidence/pages/fact-check-run"), facts = await import("@/domains/evidence/pages/fact-checks"), { defaultSteps: steps } = await import("@/domains/runtime/ops/research-steps");
     const ASK = "how deep is the well", ANSWER = "The old quarter well is 18 metres deep.", QUOTE = "The old quarter well is 18 metres deep, according to the municipal survey.", SRC = "https://reference.example/wells";
     const key = claimIdentity(ASK, "", "missing"), hash = pageHashOf("The Well\nThe Well\nA well in the old quarter.");
-    // A row the free pass SELECTS (its one source carries a quote and no support artifact yet), additive, at the rules its own shape is judged under.
     const put = (confidence: string) => { const r = { page: "/well", statementKey: key, subject: ASK, current: "", proposed: ANSWER, pageLocator: "missing", state: "checked", verdict: "page_correct", agreement: "single_source", confidence, sourceReadAt: "2026-09-01T00:00:00.000Z", checkedAt: "2026-09-01T00:00:00.000Z", evidenceBasis: null, alsoAt: [], note: "", literal: null, usage: null, pageContentHash: hash, sources: [{ url: SRC, kind: "encyclopedia", says: QUOTE, support: null }] } as Record<string, unknown>;
       ROWS.splice(0, ROWS.length, { ...r, rulesVersion: facts.rulesVersionFor(r as never) }); TARGETS.length = 0; };
     put("likely"); const usableLikely = facts.authorizedCorrections([ROWS[0] as never], undefined, tenant).length; await steps.factCheck(tenant, 1_000, undefined); const likely = TARGETS.find((t) => t.statementKey === key)?.onUnsupported ?? "not selected";
     put("unsupported"); const usableWeak = facts.authorizedCorrections([ROWS[0] as never], undefined, tenant).length; await steps.factCheck(tenant, 1_000, undefined); const weak = TARGETS.find((t) => t.statementKey === key)?.onUnsupported ?? "not selected";
-    expect([usableLikely, likely, usableWeak, weak], "the money and the copy read ONE bar, and under ship mode (operator, 2026-09-10) that bar admits an additive answer whose source was read even when its artifact rated it unsupported: both rows are banked, neither is bought again, and the two sides of the ledger still agree").toEqual([1, "bank", 1, "bank"]);
+    expect([usableLikely, likely, usableWeak, weak], "usable likely evidence is reused; unsupported evidence is refused by the same authorization rule the acquisition applies").toEqual([1, "bank", 0, "reopen"]);
     vi.doUnmock("@/domains/evidence/pages/claim-support"); vi.doUnmock("@/domains/evidence/pages/fact-checks"); vi.doUnmock("@/domains/evidence/snapshot-loader"); vi.doUnmock("@/domains/evidence/pages/owned-context"); vi.resetModules(); });
-  /** TWO SYNTHETIC ACCOUNTS, THE REAL ACQUISITION AND THE REAL FACT ENGINE, with the search and the source read scripted. THE MISSING SUBJECT IS RESEARCHED IN CONTEXT AND THE PAGE THAT ALREADY CARRIES IT IS READ FIRST (campaign, 2026-09-06). Production filed "failed, 0 banked; the answer is still owed" for a subject the winner of the row's own search gives a whole section to: the subject was seeded as the bare label the comparison lifted off that winner, the engine searched it as written and read nothing that answers it, and the winner the requirement names was never read at all because the acquisition's own type dropped `rivalUrl`. */
   const SITES = [
     { t: "tenant-kiln", host: "kiln.example", path: "/studio-kilns", title: "Studio Kilns", h1: "Studio Kilns", body: "Studio kilns are built for one small room and fired to a plan.",
       search: "studio kilns", topic: "Firing schedules", rival: "https://ref-kiln.example/studio-kilns", found: "https://found-kiln.example/schedules",
@@ -73,33 +69,40 @@ describe("acquireEvidence is exhaustive over the requirement union", () => {
       search: "vellum binding", topic: "Repair methods", rival: "https://ref-vellum.example/vellum-binding", found: "https://found-vellum.example/repairs",
       says: "Repair methods for vellum binding begin by humidifying the skin and pressing the board flat again." },
   ] as const;
-  /** ONE WORLD: the account's own page on file, the requirement the ladder files for a subject a winner covers, and the two paid doors answered from a script. `reads` is every provider call in order, so which door was opened is measured and never claimed. */
-  const world = async (s: typeof SITES[number], source: string, rivalText: string | null) => {
-    vi.resetModules(); const ROWS: Record<string, unknown>[] = [], reads: string[] = [], asked: string[] = [];
+  const world = async (s: typeof SITES[number], source: string, rivalText: string | null, prospective = false) => {
+    vi.resetModules(); const raw: Record<string, unknown>[] = [], reads: string[] = [], asked: string[] = [], ownedReads: string[] = [];
     const body = [s.title, s.h1, s.body].join("\n"), TEXT: Record<string, string> = { [s.found]: s.says, ...(rivalText == null ? {} : { [s.rival]: rivalText }) };
-    vi.doMock("@/domains/evidence/pages/fact-checks", async (a) => { const real = await a<typeof import("@/domains/evidence/pages/fact-checks")>(); return { ...real,
-      readFactChecks: async () => ROWS, readInventoryCoverage: async () => COV, recordInventoryCoverage: async () => true,
-      recordOwedClaims: async (_t: string, page: string, cs: { statementKey: string; subject: string; current: string; locator: string }[], hash: string, basis: string | null) =>
-        (ROWS.push(...cs.map((c) => ({ page, statementKey: c.statementKey, subject: c.subject, current: c.current, pageLocator: c.locator, state: "owed", rulesVersion: real.rulesVersionFor(c), proposed: null, literal: null, usage: null, sources: [], agreement: "none_found", confidence: "unsupported", verdict: "undecidable", alsoAt: [], note: "", pageContentHash: hash, sourceReadAt: null, evidenceBasis: basis, checkedAt: "2026-09-06T00:00:00.000Z" }))), cs.length),
-      recordFactChecks: async (_t: string, _p: string, rs: Record<string, unknown>[]) => { for (const r of rs) { const at = ROWS.findIndex((x) => x.statementKey === r.statementKey); if (at >= 0) ROWS[at] = r; else ROWS.push(r); } return rs.length; } }; });
-    vi.doMock("@/domains/evidence/snapshot-loader", async (a) => ({ ...(await a<Record<string, unknown>>()), loadEvidenceSnapshot: async () => ({ ownedPages: [{ url: `https://${s.host}${s.path}`, search: { impressions90d: 900, topQueries: [] } }], research: {}, sources: [], scope: { tenantId: s.t, site: s.host } }) }));
-    vi.doMock("@/domains/evidence/pages/owned-context", async (a) => ({ ...(await a<Record<string, unknown>>()), loadOwnedPageBodies: async (_t: string, us: string[]) => new Map([[canonicalUrlKey(us[0]!), { title: s.title, h1: s.h1, headings: [], passages: [s.body] }]]) }));
+    const { supabaseFake } = await import("../helpers/supabase-fake");
+    vi.doMock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => supabaseFake({ rows: (t) => t === "page_source_facts" ? raw : [], same: (a, b) => ["tenant_id", "page_key", "statement_key"].every((k) => a[k] === b[k]) }) }));
+    vi.doMock("@/domains/evidence/snapshot-loader", async (a) => ({ ...(await a<Record<string, unknown>>()), loadEvidenceSnapshot: async () => ({ ownedPages: prospective ? [] : [{ url: `https://${s.host}${s.path}`, search: { impressions90d: 900, topQueries: [] } }], research: {}, sources: [], scope: { tenantId: s.t, site: s.host } }) }));
+    vi.doMock("@/domains/evidence/pages/owned-context", async (a) => ({ ...(await a<Record<string, unknown>>()), loadOwnedPageBodies: async (_t: string, us: string[]) => { ownedReads.push(...us); return prospective ? new Map() : new Map([[canonicalUrlKey(us[0]!), { title: s.title, h1: s.h1, headings: [], passages: [s.body] }]]); } }));
     vi.doMock("@/domains/evidence/dataforseo/capabilities", async (a) => ({ ...(await a<Record<string, unknown>>()),
-      providerCall: async (cap: string, input: Record<string, string>) => { reads.push(`${cap} ${input.url ?? input.keyword}`); return { state: "ok", envelope: { cap, input } }; },
-      collectCapability: async () => null,
-      parseCapability: (cap: string, env: { input: Record<string, string> }) => cap === "serp_organic"
-        ? { organic: [{ domain: new URL(s.found).hostname, url: s.found, title: s.topic }] }
-        : { title: s.title, bodyText: TEXT[env.input.url!] ?? "", openingSample: null, headings: [] } }));
-    vi.doMock("@/domains/decision/llm/structured-drafter", async (a) => ({ ...(await a<Record<string, unknown>>()),
-      callStructuredLLM: async (i: { kind: string; user: string }) => { asked.push(`${i.kind} ${i.user}`); return { status: "drafted", value: i.kind === "fact_claim_extraction" ? { statements: [] }
-        : { verdict: "page_correct", proposed: s.says, confidence: "likely", note: "", supporting: [{ url: source, quote: s.says }], subjects: [{ url: source, sameEntity: true, language: "English", script: null, why: "the page is about this subject" }] } }; } }));
-    const { pageHashOf } = await import("@/domains/evidence/pages/fact-check-run"), COV = { pageContentHash: pageHashOf(body), coveredChars: body.length, totalChars: body.length };
-    const { defaultSteps: steps } = await import("@/domains/runtime/ops/research-steps");
-    const need = { kind: "factual_source" as const, query: `${s.topic} ${s.search}`, url: `https://${s.host}${s.path}`, missingTopic: s.topic, rivalUrl: s.rival };
-    const got = await steps.acquireEvidence(s.t, need, "b1", 120_000);
-    const done = () => { for (const m of ["@/domains/evidence/pages/fact-checks", "@/domains/evidence/snapshot-loader", "@/domains/evidence/pages/owned-context", "@/domains/evidence/dataforseo/capabilities", "@/domains/decision/llm/structured-drafter"]) vi.doUnmock(m); vi.resetModules(); };
-    return { got, ROWS, reads, asked, done };
+      providerCall: async (cap: string, input: Record<string, string>) => { reads.push(`${cap} ${input.url ?? input.keyword}`); return { state: "ok", envelope: { cap, input } }; }, collectCapability: async () => null,
+      parseCapability: (cap: string, env: { input: Record<string, string> }) => cap === "serp_organic" ? { organic: [{ domain: new URL(s.found).hostname, url: s.found, title: s.topic }] } : { title: s.title, bodyText: TEXT[env.input.url!] ?? "", openingSample: null, headings: [] } }));
+    vi.doMock("@/domains/decision/llm/structured-drafter", async (a) => ({ ...(await a<Record<string, unknown>>()), callStructuredLLM: async (i: { kind: string; user: string }) => {
+      asked.push(`${i.kind} ${i.user}`); return { status: "drafted", value: i.kind === "fact_claim_extraction" ? { statements: [] } : { verdict: "page_correct", proposed: s.says, confidence: "likely", note: "", supporting: [{ url: source, quote: s.says }], subjects: [{ url: source, sameEntity: true, language: "English", script: null, why: "the source addresses this topic" }] } }; } }));
+    const { defaultSteps: steps } = await import("@/domains/runtime/ops/research-steps"), facts = await import("@/domains/evidence/pages/fact-checks");
+    const need: EvidenceRequirement = { kind: "factual_source", reasonCode: "missing_information", query: `${s.topic} ${s.search}`, ...(prospective ? { topic: { key: `topic:${s.search}`, label: s.search }, missingTopic: `${s.search} ${s.topic}` } : { url: `https://${s.host}${s.path}`, missingTopic: s.topic }), rivalUrl: s.rival };
+    const got = await steps.acquireEvidence(s.t, need, "b1", 120_000), ROWS = await facts.readFactChecks(s.t);
+    const done = () => { for (const m of ["@/lib/persistence/supabase", "@/domains/evidence/pages/fact-checks", "@/domains/evidence/snapshot-loader", "@/domains/evidence/pages/owned-context", "@/domains/evidence/dataforseo/capabilities", "@/domains/decision/llm/structured-drafter"]) vi.doUnmock(m); vi.resetModules(); };
+    return { got, ROWS, raw, reads, asked, ownedReads, need, steps, facts, done };
   };
+  it.each(SITES)("banks and reuses an exact prospective topic with no owned page or fabricated body hash [$t]", async (s) => {
+    const w = await world(s, s.rival, s.says, true);
+    try {
+      const row = w.ROWS[0]!;
+      expect([row.page, row.subject, row.pageContentHash, row.evidenceBasis, row.proposed, row.sources[0]?.support?.supported]).toEqual([w.need.topic!.key, `${s.search} ${s.topic}`, null, "b1", s.says, true]);
+      expect([w.got.acquired, w.got.unlocked, w.ownedReads, w.asked.some((u) => u.startsWith("fact_claim_extraction")), w.asked[0]?.includes(`Its intended topic: ${s.search}`)]).toEqual([true, true, [], false, true]);
+      const calls = [...w.reads], again = await w.steps.acquireEvidence(s.t, w.need, "b1", 120_000);
+      expect([again.acquired, again.unlocked, w.reads, w.raw.length, (await w.facts.readFactChecks("another-tenant")).length]).toEqual([true, true, calls, 1, 0]);
+      w.raw[0]!.evidence_basis = "old-basis";
+      const refreshed = await w.steps.acquireEvidence(s.t, w.need, "b1", 120_000);
+      expect([refreshed.unlocked, (await w.facts.readFactChecks(s.t))[0]?.evidenceBasis, w.raw.length, w.reads.length]).toEqual([true, "b1", 1, calls.length + 1]);
+      const before = w.reads.length;
+      for (const bad of [{ ...w.need, url: `https://${s.host}/wrong` }, { ...w.need, topic: { key: "/owned-page", label: s.search } }, { ...w.need, missingTopic: undefined }]) expect((await w.steps.acquireEvidence(s.t, bad, "b1", 120_000)).acquired).toBe(false);
+      expect(w.reads.length).toBe(before);
+    } finally { w.done(); }
+  });
   it.each(SITES)("researches a missing subject in the frame of its own search, reads the page the requirement named before buying any search, and banks the answer quoted from that page [$t]", async (s) => {
     const w = await world(s, s.rival, s.says);
     const row = w.ROWS[0] as { subject: string; state: string; proposed: string | null; rulesVersion: number; sources: { url: string; says: string; support?: { supported: boolean } }[] };
@@ -117,11 +120,9 @@ describe("acquireEvidence is exhaustive over the requirement union", () => {
     expect([row.state, row.proposed, row.sources.map((x) => x.url), w.got.acquired, w.got.unlocked],
       "and the statement stands on the source the search found, exactly as it did before any page was ever named").toEqual(["checked", s.says, [s.found], true, true]);
     w.done(); });
-  /** AND THE READING A SETTLED ROW OWES NAMES NO PAGE AT ALL (reviewer two, 2026-09-06). Nobody has read the winners of that search, so the requirement carries the search and no url: the results page is already on file and buying it again reads nothing new, while the winning pages unit takes the search as its priority query and reads the pages ranking for it, which is the one purchase that moves what is on file from unread to read. */
   it.each(["tenant-one", "tenant-two"])("reads the winners of a search that names no page, through the winning pages unit and never the results page again [%s]", async (tenant) => {
     CALLS.serp.length = 0; CALLS.win.length = 0; STATE.done = ["how deep is the well"]; STATE.read = ["how deep is the well"]; const got = await defaultSteps.acquireEvidence(tenant, { kind: "competitor_page", query: "how deep is the well" }, "b", 5_000);
     expect([got.acquired, CALLS.win, CALLS.serp], "the search alone is enough to buy the reading it owes, and nothing sends it back to the results page it already has").toEqual([true, [{ qs: ["how deep is the well"], owned: null }], []]); });
-  /** AND A READING THAT DID NOT LAND IS NOT AN ACQUISITION (reviewer three, 2026-09-06). The unit's own status was the whole answer, so a search no results page on file ranks anything for finished `advanced` and reported acquired: no attempt was ever counted against it, the drive's same-answer stop could never fire, and the identical unbuyable reading was bought on every drive for ever. */
   it.each(["tenant-one", "tenant-two"])("answers not acquired where no winner of that search carries a reading on file, so the drive counts the attempt instead of buying it again [%s]", async (tenant) => {
     CALLS.win.length = 0; STATE.done = []; STATE.read = []; const got = await defaultSteps.acquireEvidence(tenant, { kind: "competitor_page", query: "how deep is the well" }, "b", 5_000);
     expect([got.acquired, got.detail], "the unit ran, nothing readable came back, and the receipt says exactly that in plain words").toEqual([false, 'winning pages for "how deep is the well": no winner of that search carries a reading on file under b after the unit finished']); });

@@ -157,7 +157,7 @@ type FactCheckUnitDeps = {
   fetchSource?: (url: string) => Promise<SourceAnswer>; /** A CLAIM WHOSE ANSWER IS THE SOURCE'S OWN STRUCTURE (2026-09-10): read as the source laid out in its sections, so the judge can name a heading as a group instead of quoting the lede. */ structured?: (subject: string) => boolean;
   /** THE PAGE THAT ALREADY CARRIES THIS SUBJECT, named by the requirement that asked for the reading: the winner a comparison found the subject on. It is read FIRST and it is not an authority of its own, only a candidate the ordinary policy admits; `subject` is the proposition it was named for, so a pass that reaches a different claim never spends it. */
   rival?: { subject: string; url: string; /** THE WINNER'S OWN HEADING FOR THE SUBJECT (delivery loop, 2026-09-07): the window opened on the whole proposition phrase, which no page carries verbatim, so it fell back to the region densest in the search's words, the introduction, and the judge read "a general list of notable people" for a subject the page gives a section to. The heading is where that section starts. */ anchor?: string };
-  page: { url: string; path: string; body: string };
+  page: { url: string; path: string; body: string; prospective?: string };
   /** Claims this pass already failed on: aside for the rest of it, never for ever. */ skip?: ReadonlySet<string>;
   tenantId: string; now: Date; basis: string | null;
   /** Checks already on file for this page, so a current one is skipped and a stale one is redone. */
@@ -206,12 +206,12 @@ const fail = (failure: UnitFailure, cursor: FactCheckCursor | null, reason: stri
 /** ONE unit: at most one claim researched (or one section inventoried), everything durable before it returns. */
 export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckUnitResult> {
   const { tenantId, page, now } = d;
-  if (!page.body.trim()) return fail("no_page_body", null, "no stored words for this page");
-  const hash = pageHashOf(page.body), own = [...new Set(page.body.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 2))].join(" ").split(/\s+/).slice(0, 8).join(" "); // THE PAGE'S OWN SUBJECT: its title and its h1, which owned-context joins as the first two lines of the stored body, an identical pair counted once and eight words at most so a long title can never crowd the question out of the query. A row with no current wording is researched ABOUT THIS, never about its question alone.
+  if (page.prospective ? !d.statementKey || !d.basis : !page.body.trim()) return fail("no_page_body", null, "no stored words or scoped prospective proposition to research");
+  const hash = page.prospective ? null : pageHashOf(page.body), own = page.prospective ?? [...new Set(page.body.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 2))].join(" ").split(/\s+/).slice(0, 8).join(" ");
   const mine = (d.held ?? []).filter((h) => h.page === page.path);
-  let inventory = mine.filter((h) => h.pageContentHash === hash && h.state !== "superseded");
-  const covRead = d.readCoverage ? await d.readCoverage().catch(() => null) : null;
-  let cov: InventoryCoverage = covRead && covRead.pageContentHash === hash
+  let inventory = mine.filter((h) => h.pageContentHash === hash && h.state !== "superseded" && (!page.prospective || (h.current.trim() === "" && h.evidenceBasis === d.basis)));
+  const covRead = !page.prospective && d.readCoverage ? await d.readCoverage().catch(() => null) : null;
+  let cov = covRead && covRead.pageContentHash === hash
     ? covRead : { pageContentHash: hash, coveredChars: 0, totalChars: page.body.length };
   // A VERDICT FROM OBSOLETE RULES IS NOT CURRENT EVIDENCE (Codex, 2026-08-18): the one live checked row was
   // AND A CONFIRMED VERDICT THE QUOTE-BOUND CONTRACT NOW REFUSES IS A CLAIM STILL OWED, not a settled finding: withdrawing the card without reopening the claim would strand the exact live defects this contract was written about (Alborz, Jasmine) as permanent dead findings, because a checked row is never re-inventoried. TARGETED, never a blanket version bump: only the rows the new authorization refuses reopen, so the four sound live corrections keep their verdicts and cards. Loop-safe: generation now binds to quotes too, so a re-researched claim either banks a carried gloss or holds below confirmed, where unauthorizedReason is null.
@@ -221,7 +221,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     inventory = inventory.map((h) => (obsolete.includes(h) ? { ...h, state: "owed" as const, rulesVersion: rulesVersionFor(h) } : h));}
   const waiting = (h: FactCheck): boolean => h.pageLocator === "missing" || rulesVersionFor(h) === MISSING_ANSWER_RULES_VERSION, seededFirst = (rows: typeof inventory) => [...rows].sort((a, b) => (waiting(b) ? 1 : 0) - (waiting(a) ? 1 : 0)); // and a question this page does not answer outranks its inventory whatever its locator says, because a reopened row keeps the locator it was banked with
   let owed = seededFirst(inventory.filter((h) => h.state === "owed" && (!d.statementKey || h.statementKey === d.statementKey)));
-  if (!d.statementKey && cov.coveredChars < cov.totalChars) {
+  if (!page.prospective && !d.statementKey && cov.coveredChars < cov.totalChars) {
     // EXTRACT THE NEXT SECTION, WHATEVER IS ALREADY OWED. Waiting for the owed queue to empty is a deadlock: a another character. Live: rules v4 re-opened 21 claims, the queue stood at 33, and eighteen passes left coverage at 0 of 11,589 while ~160 entries were neither owed nor checked. Extraction is what gives an entry a disposition at all and costs about two cents a section, so it no longer queues behind research.
     if (!enough(d.deadlineAt, 20_000)) return fail("lease_exhausted", null, "not enough of this lease remains to read the page");
     const chunk = page.body.slice(cov.coveredChars, cov.coveredChars + EXTRACT_CHUNK);
@@ -245,7 +245,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
       // THE PAGE MOVED ON: whatever was held against an older version, or objects to wording this version no
       // longer carries, becomes history now rather than a second live instruction beside its own replacement.
       const body = page.body.toLowerCase();
-      await supersedeStaleFacts(tenantId, page.path, hash, (current) => body.includes(current.trim().toLowerCase()))
+      await supersedeStaleFacts(tenantId, page.path, hash!, (current) => body.includes(current.trim().toLowerCase()))
         .catch((e) => { log.warn("[fact-check] stale claims could not be retired", { tenantId, page: page.path, error: String(e) }); return 0; });}
     // THE INVENTORY AND ITS COVERAGE ARE THE CURSOR, stored BEFORE one claim is researched. A write that did not land is a failed unit: researching against an inventory nobody stored is how page two was lost.
     const wrote = claims.length === 0 ? 0 : await recordOwedClaims(tenantId, page.path, claims, hash, d.basis).catch(() => -1);
@@ -255,7 +255,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     const at = last ? chunk.toLowerCase().lastIndexOf(last.toLowerCase().slice(0, 60)) : -1;
     const read = at >= 0 ? Math.max(1, at + Math.min(last!.length, 60)) : chunk.length;
     cov = { pageContentHash: hash, coveredChars: Math.min(cov.coveredChars + read, page.body.length), totalChars: page.body.length };
-    if (d.writeCoverage && !(await d.writeCoverage(cov).catch(() => false)))
+    if (d.writeCoverage && !(await d.writeCoverage({ ...cov, pageContentHash: hash! }).catch(() => false)))
       return fail("inventory_write_failed", null, "the section's coverage could not be stored, so it would be read and paid for again");
     inventory = [...inventory, ...claims.map((c) => ({ ...EMPTY_ROW, page: page.path, statementKey: c.statementKey, rulesVersion: rulesVersionFor(c),
       subject: c.subject, current: c.current, pageLocator: c.locator, pageContentHash: hash, evidenceBasis: d.basis,
@@ -340,7 +340,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const verdict = await d.read({ kind: "fact_claim_judgement", system: JUDGE_SYSTEM,
     // A MISSING PROPOSITION IS RESEARCHED, NOT COMPARED: an owed claim with no current wording is the page's acknowledged gap (the missing-information loop seeds exactly these), so the judge is asked what the passages establish about the subject rather than to grade an empty quotation. `proposed` then carries the researched statement, which is what the writer's fact-* evidence renders. AND IT ANSWERS THE QUESTION ABOUT THIS PAGE'S OWN SUBJECT OR IT PROPOSES NOTHING (reviewer, 2026-09-02): asked for "the accurate, source-supported statement of this subject" over passages about Iran's army aviation, the judge wrote "Iran has AH-1 Cobra attack helicopters." for the Persian cobra page and noted that the sources do not address snakes. The page's own subject is named, one sentence from one quotable passage is what may be proposed, and `page_correct` is what says both held.
     user: [`Claim type: ${type}`, `Subject: ${claim.subject}`,
-      claim.current.trim() ? `The page says: "${claim.current}"` : `The page does not answer this yet. This page is about: ${own}. From the passages alone, state in \`proposed\` ONE sentence that answers this question ABOUT THAT SUBJECT, taken from a single passage you can quote from one source; verdict page_correct means that sentence answers the question and the passage you quote supports it. If no passage answers this question about that subject, propose nothing, answer unsupported, and return verdict undecidable.`,
+      claim.current.trim() ? `The page says: "${claim.current}"` : `${page.prospective ? "The proposed page does not exist yet. Its intended topic" : "The page does not answer this yet. This page is about"}: ${own}. From the passages alone, state in \`proposed\` ONE sentence that answers this question ABOUT THAT SUBJECT, taken from a single passage you can quote from one source; verdict page_correct means that sentence answers the question and the passage you quote supports it. If no passage answers this question about that subject, propose nothing, answer unsupported, and return verdict undecidable.`,
       "Passages fetched from real sources:",
       ...passages.map((p) => `--- [${p.kind}] ${p.url}${p.title ? ` (document title: ${p.title})` : ""}\n${p.text}`), "", "Return the JSON now."].join("\n"),
     grounded: passages.map((p) => p.text).join("\n"), projectedCostUsd: 0.02, maxTokens: 1500 }).catch(() => ({ hold: "unavailable" as const }));
@@ -439,7 +439,7 @@ type FactCheckPassDeps = {
   target?: { page: string; statementKey: string };
   tenantId: string; basis: string | null; deadlineAt: number;
   /** Pages in the order they should be worked, bodies loaded lazily so an untouched page costs nothing. */
-  pages: { url: string; path: string; loadBody: () => Promise<string> }[];
+  pages: { url: string; path: string; loadBody: () => Promise<string>; prospective?: string }[];
   /** Every row on file for this account (the store's own read, '#' rows excluded). */
   held: FactCheck[];
   /** Re-read one page's rows after a durable write, so the next unit sees what just landed. */
@@ -464,14 +464,14 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
     if (d.target && page.path !== d.target.page) continue;
     if (attempts >= ATTEMPTS_PER_PASS || Date.now() >= d.deadlineAt) break;
     const body = await page.loadBody().catch(() => "");
-    if (!body.trim()) continue; // never crawled: nothing is owed on words nobody has stored
+    if (!body.trim() && !page.prospective) continue;
     opened += 1;
     while (attempts < ATTEMPTS_PER_PASS && Date.now() < d.deadlineAt) {
       if (d.renew && !(await d.renew().catch(() => false)))
         return { status: banked > 0 ? "advanced" : "failed", banked, bankedPages: [...bankedPages], pagesComplete, attempts, failure: "lease_lost", reason: "the lease was lost, so nothing further was researched" };
       attempts += 1; // EVERY attempt counts: banked, failed and waiting alike.
       const out = await runFactCheckUnit({ tenantId: d.tenantId, now: new Date(), basis: d.basis, deadlineAt: d.deadlineAt,
-        statementKey: d.target?.statementKey, held: held.filter((h) => h.page === page.path), page: { url: page.url, path: page.path, body }, skip: setAside,
+        statementKey: d.target?.statementKey, held: held.filter((h) => h.page === page.path), page: { url: page.url, path: page.path, body, prospective: page.prospective }, skip: setAside,
         read: d.read, searchSources: d.searchSources, warmSearch: d.warmSearch, fetchSource: d.fetchSource, ...(d.rival ? { rival: d.rival } : {}), ...(d.structured ? { structured: d.structured } : {}),
         readCoverage: () => d.readCoverage(page.path), writeCoverage: (cov) => d.writeCoverage(page.path, cov) });
       // A CLAIM THAT WILL NOT RESOLVE IS SET ASIDE, NOT THE WHOLE PASS. Ending on any failed unit is right for a spent budget or an outage, which repeat; wrong for a per-claim failure, because the owed order is stable so it returned to the head every pass. Live: `fetch_refused` at $0 on five passes while 167 others were never reached once. Set aside for THIS pass only; it is owed again on the next.

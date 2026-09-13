@@ -145,7 +145,7 @@ type Allowance = { left: number; record?: (r: unknown) => void };
 const DOORS = [
   { door: "the winners reading", kind: "winning_pattern", cost: 1, run: (s: Site, a: Allowance, c: unknown) => readWinningPattern(winners(s), null, s.t, { complete: c as never, now: NOW, label: s.q, attempts: a }) },
   { door: "the headline draft in propose", kind: "atomic_edit", cost: 1, run: (s: Site, a: Allowance, c: unknown) => proposeExistingPageChange(INPUT(s), { complete: c as never, now: NOW, attempts: a }) },
-  { door: "the new page brief", kind: "new_page_brief", cost: 1, run: (s: Site, a: Allowance, c: unknown) => buildNewPageProposal(TOPIC(s), s.t, { complete: c as never, now: NOW, attempts: a }) },
+  { door: "the new page brief", kind: "new_page_brief", cost: 1, run: (s: Site, a: Allowance, c: unknown) => buildNewPageProposal(TOPIC(s), s.t, { complete: c as never, now: NOW, attempts: a, site: host(s) }) },
   { door: "the headline draft in the bundle", kind: "atomic_edit", cost: 1, run: (s: Site, a: Allowance, c: unknown) => produceBundleForSnapshot(SNAPSHOT(s), { complete: c as never, now: NOW, attempts: a }) },
   { door: "the comparison reading", kind: "competitor_comparison", cost: 1, run: (s: Site, a: Allowance, c: unknown) => { a.left -= 1; /* its caller pays on the way in, exactly as the writer's door does */
     return readComparison(COMPARE(s), { url: s.url, passages: s.lines }, { tenantId: s.t, now: NOW, complete: c as never, attempts: a }); } },

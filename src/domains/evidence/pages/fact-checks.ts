@@ -1,18 +1,8 @@
 import "server-only";
 
-/** evidence/pages/fact-checks - STATEMENTS A PAGE MAKES, CHECKED AGAINST SOURCES OUTSIDE IT, ONE ROW PER
- *  STATEMENT. THE PAGE'S OWN WORDS ARE EVIDENCE OF WHAT IT SAYS, NEVER PROOF THAT IT IS TRUE (operator,
- *  2026-08-17), so a correction is only ever as strong as the independent source under it.
- *
- *  ROW-WISE ON PURPOSE. The first version banked an array in one JSON blob, which failed three ways at once
- *  (Codex, 2026-08-18): the blob store was not mirrored to Supabase so production held nothing, a failed read
- *  degraded to `[]` and the next write would have erased every other page's facts, and two pages checked at
- *  once lost each other. A natural key of (tenant, page, statement) makes every write idempotent and
- *  independent, and a read that fails THROWS, because an empty list would say this account's pages check out.
- *
- *  CONFIDENCE IS PART OF THE FACT. Only `confirmed` may authorize replacing published words; `likely` and
- *  `disputed` stay in review; `unsupported` names the missing source and proposes NOTHING. THE PAGE AS IT READ
- *  IS PART OF THE FACT TOO: `pageContentHash` is what tells a corrected statement from an untouched one. */
+/** Canonical tenant-scoped, row-wise factual evidence for owned pages and prospective topics.
+ * Corrections bind to observed page versions; prospective propositions have no live body hash.
+ * Sources and claim-support receipts survive independently of draft and runtime state. */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { asksAQuestion, AUTHORITATIVE_KIND, GLOSS_STOP, supportShortfall } from "./claim-support";
@@ -173,7 +163,7 @@ export async function owedClaimDebt(tenantId: string): Promise<{ owed: number; e
  *  (Codex, 2026-08-18). Existing rows are untouched, so an inventory write cannot reset a researched claim. */
 export async function recordOwedClaims(tenantId: string, page: string,
   claims: readonly { statementKey: string; subject: string; current: string; locator: string | null }[],
-  pageContentHash: string, evidenceBasis: string | null): Promise<number> {
+  pageContentHash: string | null, evidenceBasis: string | null): Promise<number> {
   const rows = claims.filter((c) => c.subject.trim() && c.statementKey).map((c) => ({
     tenant_id: tenantId, page_key: page, statement_key: c.statementKey, page_content_hash: pageContentHash,
     subject: c.subject.trim(), current_wording: c.current, page_locator: c.locator,
@@ -350,12 +340,9 @@ export function unauthorizedReason(c: CorrectionCandidate): string | null {
 export function authorizedCorrections(checks: readonly FactCheck[],
   current: { pageContentHash: string | null; evidenceBasis?: string | null } | undefined,
   tenantId: string): FactCheck[] {
-  /* SHIP MODE FOR ADDITIVE ANSWERS (operator, 2026-09-10): a missing-information row whose source WAS read and whose judge proposed an answer is usable material for a NEW section even when the verbatim-support artifact rated it below likely, because for weeks "researched, rated unsupported" parked every substantive section behind a quote-matching test while the customer surface carried links and metas. The card still says "Backed by 1 checked source" and the writer's fact line still names the source and its quote; a CORRECTION keeps the whole bar, it replaces published words. */
-  const shipAdditive = (c: FactCheck): boolean => c.current.trim() === "" && c.state === "checked" && c.rulesVersion === rulesVersionFor(c) && !!c.proposed?.trim() && c.verdict === "page_correct" && c.confidence !== "disputed" && c.agreement !== "sources_conflict"
-    && c.sources.some((x) => x.says.trim() !== "") /* the banked passage window is the read receipt here: rows whose verbatim supporter did not verify carry sourceReadAt null while holding the fetched window itself, and for weeks that null parked every one of them */ ; /* an ADDITIVE answer is about the page SUBJECT, not its bytes: the page-version conjunct kept excluding these rows whenever the body had been re-fetched since the bank, though nothing the new section stands on changed; a correction still binds to the exact page version it corrects */
-
-  return checks.filter((c) => shipAdditive(c) || (c.state === "checked"
+  return checks.filter((c) => (c.state === "checked"
     && c.rulesVersion === rulesVersionFor(c)
+    && c.agreement !== "sources_conflict"
     // THE GRADE IT OWES IS THE GRADE ITS TREATMENT RISKS, NOT ONE GRADE FOR EVERYTHING (operator's proportional rule, 2026-09-01; measured 2026-09-05). `confirmed` is what two independent sources earn between them, and it is right for a CORRECTION, which replaces published words and whose mistake survives until somebody notices it. An ADDITIVE answer states what the page never said, and a reader undoes it by deleting the sentence, so the operator's own section rule already asks one publisher for it. Held to `confirmed`, the account's whole missing-answer lane was dead: the money was spent every drive, the reading landed with its sources against the right page version, and the row owed the identical purchase again for ever. `likely` is a reading two ordinary sources or one authoritative one carried; `disputed` and `unsupported` are refused here as they always were, and the authority, subject-identity and quote-binding rule below is asked of an addition exactly as hard.
     && (c.current.trim() === "" ? c.confidence === "confirmed" || c.confidence === "likely" : c.confidence === "confirmed")
     // A CORRECTION corrects wording the page carries, so only a wrong or imprecise verdict authorizes one. A row
