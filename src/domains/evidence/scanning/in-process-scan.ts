@@ -286,7 +286,7 @@ export async function runInProcessColdStartScan(args: {
       if (candidates.length >= maxPages) break;
     }
 
-    const robotsCache = new Map<string, string[]>();
+    const robotsCache = new Map<string, ReturnType<typeof parseRobotsText>["directives"]>();
     const snapshots: PageSnapshot[] = [];
     const pages: PageEntity[] = [];
     let crawled = 0;

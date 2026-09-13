@@ -6,8 +6,8 @@
  * origin, hard timeout, sequential callers only. `fetchImpl` is
  * injectable so tests never touch the network.
  *
- * robots.txt parsing is deliberately minimal + conservative: we honor
- * `Disallow` rules under `User-agent: *` and `User-agent: BeaconBot`.
+ * robots.txt groups are parsed by the same Evidence parser discovery uses;
+ * the matching crawler's rules precede wildcard groups, with longest-match Allow/Disallow.
  * A robots fetch failure is treated as PERMISSIVE (we already identify
  * ourselves + fetch rarely and sequentially) — same call the scanner
  * script made.
@@ -16,6 +16,7 @@
 import type { ResearchWinningAppearance } from "@/domains/evidence/funnel/research-evidence";
 import { perfCountExternal } from "@/lib/obs/perf-log";
 import { isSafeRedirectHopUrl } from "@/lib/net/safe-source-fetch";
+import { parseRobotsText, type RobotsFile } from "../pages/robots-parser";
 
 export const COMPETITOR_INTEL_UA = "BeaconBot/1.0 (competitor-intel)";
 const TIMEOUT_MS = 10_000;
@@ -38,37 +39,32 @@ type PoliteFetchDeps = {
 
 type RobotsVerdict = "allowed" | "blocked";
 
-/** Parse robots.txt: collect Disallow prefixes for UA groups `*` and
- *  `beaconbot`. Empty Disallow ("Disallow:") allows everything. */
-function parseRobotsDisallows(robotsTxt: string): string[] {
-  const disallows: string[] = [];
-  let applies = false;
-  for (const rawLine of robotsTxt.split(/\r?\n/)) {
-    const line = rawLine.replace(/#.*$/, "").trim();
-    if (line === "") continue;
-    const sep = line.indexOf(":");
-    if (sep === -1) continue;
-    const field = line.slice(0, sep).trim().toLowerCase();
-    const value = line.slice(sep + 1).trim();
-    if (field === "user-agent") {
-      const ua = value.toLowerCase();
-      applies = ua === "*" || ua.includes("beaconbot");
-    } else if (field === "disallow" && applies) {
-      if (value !== "") disallows.push(value);
+function isPathAllowed(path: string, groups: RobotsFile["directives"]): boolean {
+  const specific = groups.filter((g) => g.userAgent.toLowerCase() === "beaconbot");
+  const rules = (specific.length ? specific : groups.filter((g) => g.userAgent === "*")).flatMap((g) => g.rules);
+  const octets = (s: string): string => s.replace(/%[\da-f]{2}|[^\x00-\x7f]/giu, (x) => x[0] !== "%" ? encodeURIComponent(x)
+    : /^[a-z\d._~-]$/i.test(String.fromCharCode(parseInt(x.slice(1), 16))) ? String.fromCharCode(parseInt(x.slice(1), 16)) : x.toUpperCase());
+  const matches = (pattern: string, target: string, ended: boolean): boolean => {
+    let i = 0, j = 0, star = -1, retry = 0;
+    while (j < target.length) {
+      if (pattern[i] === "*") { star = i++; retry = j; }
+      else if (i < pattern.length && pattern[i] === target[j]) { i++; j++; }
+      else if (i === pattern.length && !ended) return true;
+      else if (star >= 0) { i = star + 1; j = ++retry; }
+      else return false;
+    }
+    while (pattern[i] === "*") i++;
+    return i === pattern.length;
+  };
+  const target = octets(path); let length = -1, allowed = true;
+  for (const rule of rules) {
+    const pattern = octets(rule.pattern), ended = pattern.endsWith("$"), text = ended ? pattern.slice(0, -1) : pattern;
+    const size = pattern.length;
+    if (matches(text, target, ended) && (size > length || size === length && rule.kind === "allow")) {
+      length = size; allowed = rule.kind === "allow";
     }
   }
-  return disallows;
-}
-
-function isPathAllowed(
-  path: string,
-  disallows: ReadonlyArray<string>,
-): boolean {
-  for (const rule of disallows) {
-    if (rule === "/") return false;
-    if (path.startsWith(rule)) return false;
-  }
-  return true;
+  return allowed;
 }
 
 /**
@@ -77,7 +73,7 @@ function isPathAllowed(
  */
 async function robotsVerdictFor(
   url: string,
-  robotsCache: Map<string, string[]>,
+  robotsCache: Map<string, RobotsFile["directives"]>,
   deps: PoliteFetchDeps = {},
 ): Promise<RobotsVerdict> {
   const fetchImpl = deps.fetchImpl ?? fetch;
@@ -86,25 +82,25 @@ async function robotsVerdictFor(
   try {
     const u = new URL(url);
     origin = u.origin;
-    path = u.pathname || "/";
+    path = (u.pathname || "/") + u.search;
   } catch {
     return "blocked"; // unfetchable URL — never try
   }
 
-  let disallows = robotsCache.get(origin);
-  if (disallows == null) {
+  let groups = robotsCache.get(origin);
+  if (groups == null) {
     try {
       const res = await fetchImpl(`${origin}/robots.txt`, {
         headers: { "User-Agent": COMPETITOR_INTEL_UA },
         signal: AbortSignal.timeout(deps.timeoutMs ?? TIMEOUT_MS),
       });
-      disallows = res.ok ? parseRobotsDisallows(await res.text()) : [];
+      groups = res.ok ? parseRobotsText(await res.text(), `${origin}/robots.txt`, res.status).directives : [];
     } catch {
-      disallows = []; // fetch failure → permissive (identified UA + rare, sequential pulls)
+      groups = []; // fetch failure → permissive (identified UA + rare, sequential pulls)
     }
-    robotsCache.set(origin, disallows);
+    robotsCache.set(origin, groups);
   }
-  return isPathAllowed(path, disallows) ? "allowed" : "blocked";
+  return isPathAllowed(path, groups) ? "allowed" : "blocked";
 }
 
 type PoliteHtmlResult =
@@ -123,7 +119,7 @@ type PoliteHtmlResult =
 /** Fetch one page's HTML with the identified UA + timeout. */
 export async function fetchPageHtml(
   url: string,
-  robotsCache: Map<string, string[]>,
+  robotsCache: Map<string, RobotsFile["directives"]>,
   deps: PoliteFetchDeps = {},
 ): Promise<PoliteHtmlResult> {
   const verdict = await robotsVerdictFor(url, robotsCache, deps);

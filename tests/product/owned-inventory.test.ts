@@ -106,7 +106,7 @@ describe("a crawl is finished only when the inventory is", () => {
     const hold = { s: state({ frontier: ["https://own.com/a"] }) }, { out } = await batch(hold, { "https://own.com/a": html("Page a says this.") });
     expect([out.complete, hold.s.status, hold.s.frontier]).toEqual([false, "in_progress", ["https://own.com/b"]]); }); // /b was never in the blob: only the inventory knew it existed
   it("reads a page it has not read on every pass until there are none left, and never the same page twice", async () => {
-    const urls = ["a", "b", "c", "d", "e"].map((p) => `https://own.com/${p}`), pages = Object.fromEntries(urls.map((u) => [u, html("Ordinary prose.")])); await upsertDiscovery(T, urls.map((url) => ({ url, via: "sitemap" as const })));
+    const urls = ["a", "b", "c", "d", "e"].map((p) => `https://own.com/${p}`), pages = { "https://own.com/robots.txt": "User-agent: *\nDisallow: /\nUser-agent: BeaconBot\nUser-agent: OtherBot\nDisallow: /\nAllow: /a\nAllow: /b\nAllow: /c\nAllow: /d\nAllow: /e", ...Object.fromEntries(urls.map((u) => [u, html("Ordinary prose.")])) }; await upsertDiscovery(T, urls.map((url) => ({ url, via: "sitemap" as const })));
     const hold = { s: state({ page_cap: 2 }) }; // two pages a pass, so three passes is the whole five-page site
     const p1 = await batch(hold, pages), p2 = await batch(hold, pages), p3 = await batch(hold, pages);
     expect([p1.read.length, p2.read.length, p3.read.length, new Set([...p1.read, ...p2.read, ...p3.read]).size]).toEqual([2, 2, 1, 5]); // every pass advances, and the batches are disjoint
@@ -122,9 +122,9 @@ describe("a crawl is finished only when the inventory is", () => {
     await batch(hold, { "https://own.com/sitemap.xml": urlset(["https://own.com/x", "https://own.com/y", "https://own.com/z"]) });
     expect([(await readInventory(T)).map((r) => r.url), hold.s.discovery_cursor]).toEqual([["https://own.com/z"], 0]); });
   it("stays open while a refused page waits out its retry date, never asks before it, and closes once the page answers", async () => {
-    await upsertDiscovery(T, [{ url: "https://own.com/locked", via: "sitemap" }]);
-    await markBlocked(T, "https://own.com/locked", 403, NOW); // refused: due again a day from now
-    const hold = { s: state() }, page = { "https://own.com/locked": html("It opens now.") }, early = await batch(hold, page, at(0.5));
+    await upsertDiscovery(T, [{ url: "https://own.com/page.htm", via: "sitemap" }]);
+    await batch({ s: state() }, { "https://own.com/robots.txt": "User-agent: *\nAllow: /page\nDisallow: /*.htm", "https://own.com/page.htm": html("It opens now.") }); // Actual robots precedence refuses it: due again a day from now.
+    const hold = { s: state() }, page = { "https://own.com/page.htm": html("It opens now.") }, early = await batch(hold, page, at(0.5));
     expect([early.read, early.out.complete, hold.s.status]).toEqual([[], false, "in_progress"]); // never asked inside the wait, and never called finished either
     const due = await batch(hold, page, at(2));
     expect([due.read.length, due.out.crawled, hold.s.status]).toEqual([1, 1, "complete"]); }); // the promise is kept on a later pass, and only then is the site done

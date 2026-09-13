@@ -380,7 +380,7 @@ export async function runCrawlBatch(args: {
 
     const started = now();
     const deadlineAt = started + budgetMs;
-    const robotsCache = new Map<string, string[]>();
+    const robotsCache: Parameters<typeof fetchPageHtml>[1] = new Map();
     const visited = new Set(state.visited);
     let frontier = [...state.frontier];
 
