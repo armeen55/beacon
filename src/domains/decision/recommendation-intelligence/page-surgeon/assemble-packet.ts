@@ -13,6 +13,7 @@ import { loadGscPageSignalsForTenant } from "@/domains/evidence/readers/gsc-page
 import { loadClarityPageSignalsForTenant } from "@/domains/evidence/readers/clarity-page-signals";
 import { loadGa4PageValuesForTenant } from "@/domains/evidence/readers/ga4-page-values";
 import type { PageSnapshot } from "@/domains/evidence/pages/types";
+import { visibleFaqs } from "@/domains/evidence/pages/types";
 import { selectPageVersion } from "@/domains/evidence/pages/page-version";
 
 import { expectedCtrForPosition as expectedCtr } from "./expected-ctr";
@@ -296,14 +297,7 @@ export function assemblePacketForUrl(
       metaDescription: snap.meta_description ?? null,
       h2List: snap.h2_list ?? [],
       h3List: snap.h3_list ?? [],
-      // Serialize crawl FAQs as readable "question: answer" text, not a raw JSON blob (keys + source enum), the judge reads this as its ground truth, so a
-      // blob both wastes tokens and reads as noise instead of the actual Q&A.
-      faqs: (snap.faqs ?? []).map((f) => {
-        if (typeof f === "string") return f;
-        const q = (f as { question?: string }).question ?? "";
-        const a = (f as { answer?: string }).answer ?? "";
-        return [q, a].filter(Boolean).join(": ").trim() || JSON.stringify(f);
-      }),
+      faqs: visibleFaqs(snap.faqs).map((f) => `${f.question}: ${f.answer_excerpt}`),
       schemaTypes: snap.schema_types ?? [],
       wordCount: snap.word_count ?? null,
       internalLinkCount: snap.internal_link_count ?? null,

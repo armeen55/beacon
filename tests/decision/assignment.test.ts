@@ -1,4 +1,3 @@
-/** ONE ASSIGNMENT, NO CONTRADICTIONS, THE WHOLE BRIEF (campaign, 2026-09-05; the contradictions closed 2026-09-06). On the captured hub row below, one sentence stood under WHAT A READER MUST KNOW AFTERWARDS and again under NAMED BUT UNSUPPORTED "so it may not be stated at all"; a replacement was told nothing on the page is rewritten; a restructuring was told the page's own ids are "never material for the new copy"; and a general body brief carried a lesson about scripts and romanization. The DELETED promise is the script clause, which named a language no page had declared: what stands in its place is that no line of any brief is a lesson about a language. The envelope a body edit is written, judged, promoted and re-read from lived inside the editor file and told the writer two incompatible things at once: a replacement had to "add what they miss" and "invent no wording this page does not already carry", and every edit was told the page's own words were never the subject of the new copy while the restructuring and summary standards make those words the whole material. It is one module now, it carries the eight things the work needs and nothing else, and each rule holds only where its own standard holds. TWO SYNTHETIC ACCOUNTS, neither a real customer and neither on the same subject. */
 import { describe, it, expect } from "vitest";
 import { deliverableFailures } from "@/domains/decision/drafted-copy";
 import { ASSIGNMENT_EDITOR, assignmentOf } from "@/domains/decision/assignment";
@@ -70,7 +69,6 @@ describe("what one assignment carries", () => {
         "the page-context line answers the same question the same way, so a restructuring is never told to assemble what it may not use, and what it may not repeat is the arrangement rather than the material").toEqual([true, true, true, true]);
     });
 
-    /* AN UNAVAILABLE FACT BLOCKS ITS OWN CLAIM AND NOTHING ELSE (campaign, 2026-09-06). The envelope printed every diagnosed proposition as what a reader must know and printed the unsupported ones again as what "may not be stated at all", so the writer was ordered to deliver the one sentence it was refused for writing, and the reader's own task went unnamed. */
     it(`${s.t}: a proposition nothing checked carries is never both what a reader must know and what may not be stated`, () => {
       const bare = assignmentOf(packetOf(s, { evidence: { "page-title": s.title, "page-copy-1": s.passage }, checkedSentences: [] }), null, "answer_block")!;
       const must = ASSIGNMENT_EDITOR.lines(bare).find((l) => l.startsWith("WHAT A READER MUST KNOW")) ?? "";
@@ -89,12 +87,11 @@ describe("what one assignment carries", () => {
     it(`${s.t}: the winners reach the brief as publishers with what they are, never as a raw class slug`, () => {
       const lines = ASSIGNMENT_EDITOR.lines(assignmentOf(packetOf(s, { evidence: { "page-title": s.title, "rival-1": `${s.winner} carries this.` } }), null, "answer_block")!);
       const rival = lines.find((l) => l.startsWith("THE PAGES THAT ALREADY WIN THIS SEARCH")) ?? "";
-      expect([rival.includes("rival-1"), rival.includes(`${s.winner}, a publisher covering these topics`), /publisher_|_unknown|_directory/.test(rival), rival.includes(`"${s.quote}"`), rival.includes("never a fact you may state")],
+      expect([rival.includes("rival-1"), rival.includes(`${s.winner}, a publisher covering these topics`), /publisher_|_unknown|_directory/.test(rival), rival.includes(`"${s.quote}"`), rival.includes("never whole-page absence") && rival.includes("or facts you may state")],
         "the id a claim may never cite, the publisher and what it is in plain words, no raw slug, the winner's own words as the subject this copy may take, and never as a fact").toEqual([true, true, false, true, true]);
     });
   }
 
-  /** THE ACCOUNT'S OWN STALLED HUB ROW, CAPTURED (2026-09-05; tenant id, site domain and owned URLs neutralised, every other word the capture's own). Its brief printed one sentence twice: "WHAT A READER MUST KNOW AFTERWARDS: <publisher> gives "Artists" a section of its own and nothing on this page covers it" and, eleven lines later, "NAMED BUT UNSUPPORTED, so it may not be stated at all: <the same sentence>". Beside it the brief said the page's own words are never the subject AND told the writer to state only what the page's own words carry. */
   it("the captured hub packet's brief carries no contradictory pair, and the winners are read for the question's subject", () => {
     const q = HUB.card.primaryQuery, body = HUB.body.passages.join(" ");
     const cmp = jobComparison(HUB.research as never, [q], { url: HUB.body.url, text: body, headings: HUB.body.headings, passages: HUB.body.passages });

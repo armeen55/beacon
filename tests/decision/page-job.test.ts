@@ -108,7 +108,7 @@ describe("page identification is not absence evidence", () => {
     const { demandOf } = await import("@/domains/decision/drafted-copy"), { substantiveGapOf } = await import("@/domains/decision/diagnosis");
     const url = "https://mysite.example/village-poets", rows = [{ query: "list of village poets", impressions: 900 }, { query: "who are the village poets", impressions: 400 }];
     const page = { url, content: { title: "Voices of a Thousand Years", h1: "Voices of a Thousand Years", outline: [] }, search: { topQueries: rows.map((r) => ({ ...r, clicks: 0, position: 9 })) } }; // a title that names the subject nowhere, which is why the reading is the only thing that can say what this page promises
-    const body = { url, title: "Voices of a Thousand Years", h1: "Voices of a Thousand Years", metaDescription: null, vocabulary: "", headings: [], completeness: "complete" as const,
+    const body = { url, title: "Voices of a Thousand Years", h1: "Voices of a Thousand Years", metaDescription: null, vocabulary: "", headings: [], completeness: "complete" as const, version: "current" as const,
       passages: ["Writing has shaped this region for a thousand years and is studied everywhere today."] }; // a page that announces a roster and delivers a paragraph about the subject instead
     const reading = { promise: "a list of the village poets who shaped the writing of the region", missing: "the poets themselves, by name", sells: [] };
     const withReading = substantiveGapOf({ primaryQuery: rows[0]!.query } as never, (demandOf as never as (...a: unknown[]) => unknown)(page, body, [], null, tenant, undefined, reading) as never);

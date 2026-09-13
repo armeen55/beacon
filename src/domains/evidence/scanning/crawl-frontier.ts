@@ -25,6 +25,7 @@ import { fetchPageHtml } from "@/domains/evidence/competitor-intel/polite-fetch"
 import { loadBusinessProfile } from "@/domains/account";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import type { PageEntity, PageSnapshot } from "@/domains/evidence/pages/types";
+import { visibleFaqs } from "@/domains/evidence/pages/types";
 import { syncPages, syncPageSnapshots } from "@/lib/persistence/dual-write";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { log } from "@/lib/logger";
@@ -173,8 +174,7 @@ function enqueueDiscovered(
 
 const QUESTION_SHAPE_RE = /^(what|how|why|when|where|who|which|is|are|does|do|can|should)\b|\?\s*$/i;
 
-/** Question-shaped lines on one snapshot: title, H1/H2s, FAQ questions. */
-function questionLinesFromSnapshot(snap: { title: string | null; h1: string | null; h2_list: string[]; faqs: { question: string }[] }): string[] {
+function questionLinesFromSnapshot(snap: Pick<PageSnapshot, "title" | "h1" | "h2_list" | "faqs">): string[] {
   const out: string[] = [];
   const push = (line: string | null | undefined) => {
     const t = (line ?? "").trim();
@@ -186,7 +186,7 @@ function questionLinesFromSnapshot(snap: { title: string | null; h1: string | nu
   push(snap.title);
   push(snap.h1);
   for (const h2 of snap.h2_list) push(h2);
-  for (const f of snap.faqs) push(f.question);
+  for (const f of visibleFaqs(snap.faqs)) push(f.question);
   return out;
 }
 
@@ -194,7 +194,7 @@ function questionLinesFromSnapshot(snap: { title: string | null; h1: string | nu
 function pageFactFromSnapshot(snap: PageSnapshot, path: string): CrawlPageFact {
   return { url: snap.url, path, title: snap.title, h1: snap.h1, word_count: snap.word_count,
     has_meta_description: Boolean(snap.meta_description?.trim()),
-    faq_count: snap.faqs.length, questions: questionLinesFromSnapshot(snap) };
+    faq_count: visibleFaqs(snap.faqs).length, questions: questionLinesFromSnapshot(snap) };
 }
 
 /** PURE. What one failed fetch means as an HTTP status: the server's own number, 403 for a robots refusal,

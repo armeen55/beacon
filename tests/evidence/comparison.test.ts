@@ -58,6 +58,8 @@ describe("what one comparison of the winners says", () => {
     it(`${s.t}: only a whole capture that looked for entities can establish nothing is missing`, () => {
       const same = { mainText: s.ownPassages[0]!, headings: [s.covered], entityNames: [], faqCount: 0 };
       const whole = jobComparison(research(s, { ...same, truncated: false }), s.queries, owned(s));
+      const partialOwned = jobComparison(research(s, { ...same, truncated: false }), s.queries, { ...owned(s), complete: false });
+      expect(partialOwned.verdict, "unshown owned content remains unknown even when all supplied winners are readable and name nothing").toBe("unread");
       const partial = jobComparison(research(s, { ...same, truncated: true, heldChars: 12_000, totalChars: 48_000 }), s.queries, owned(s));
       const never = jobComparison(research(s, { ...same, entityNames: undefined, hasList: undefined }), s.queries, owned(s));
       expect([whole.verdict, partial.verdict, partial.winners[0]!.truncated, never.verdict, never.winners[0]!.namesRead, never.winners[0]!.shape.lists, never.winners[0]!.shape.questions, whole.winners[0]!.shape.questions], "whole, cut and unexamined captures retain distinct absence and shape rulings").toEqual(["nothing", "unread", true, "unread", false, null, 0, 0]);
@@ -112,6 +114,10 @@ describe("what the confirming reading may change", () => {
         .toEqual([[ ["answers", quote, null], ["covers", quote, s.gap], ["names", quote, entity] ], [{ topic: s.gap, url: s.win }, { topic: entity, url: s.win }], "names"]);
       const emptied = await readComparison(found, { url: s.own, passages: s.ownPassages }, { tenantId: s.t, complete: (async () => ({ value: { observations: [] } })) as never });
       expect([emptied.winners[0]!.observations.length, emptied.verdict]).toEqual([0, "nothing"]);
+      const mismatched = await readComparison(found, { url: "https://other-owned.example/unshown", passages: [] }, { tenantId: s.t, complete: (async () => ({ value: { observations: [] } })) as never });
+      expect([mismatched.owned?.heldWhole, mismatched.verdict], "a comparison capture belonging to another address was never supplied as this owned page and cannot authorize an empty whole-page ruling").toEqual([false, "unread"]);
+      const scoped = { ...found, owned: { ...found.owned!, heldWhole: false } }, scopedRead = await readComparison(scoped, { url: s.own, passages: s.ownPassages }, { tenantId: s.t, complete: (async () => ({ value })) as never });
+      expect([scopedRead.verdict, scopedRead.winners[0]!.observations.length, comparisonLines(scopedRead).join(" ").includes("not whole-page absence or factual authority")], "useful source-bound candidates survive incomplete owned captures but never become whole-page or factual proof").toEqual(["names", 3, true]);
       const invalid = await readComparison(found, { url: s.own, passages: s.ownPassages }, { tenantId: s.t, complete: (async () => ({ value: { observations: [row("answers", invented)] } })) as never });
       expect([invalid.winners[0]!.observations.length, invalid.verdict]).toEqual([0, "unread"]);
     });

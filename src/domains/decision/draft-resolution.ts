@@ -104,18 +104,12 @@ function gainResolution(judge: DraftResolution, snapshot: EvidenceSnapshot, card
   const q = card.primaryQuery, qk = canonicalQueryKey(q);
   if (judge === "no_valid_treatment") return { resolution: "no_valid_treatment" };
   if ((body?.passages ?? []).length === 0) return { resolution: "acquire_page_source", need: { kind: "page_source", query: q, url: page.url, reasonCode: "page_unread" } };
+  if (body?.completeness !== "complete" || body.version !== "current") return { resolution: "acquire_page_source", need: { kind: "page_source", query: q, url: page.url, reasonCode: "acquire_page_source" } };
   const serpRow = (snapshot.research?.serpEvidence ?? []).find((s) => canonicalQueryKey(s.query) === qk) ?? null;
   if (!serpRow) return { resolution: "acquire_serp", need: { kind: "serp", query: q, reasonCode: "no_exact_serp" } };
-  // THE MISSING INFORMATION ITSELF, AHEAD OF READING ONE MORE RIVAL. This sat BEHIND a rung demanding an extract for
-  // each of the top FIVE organic rivals, while the acquisition that rung mints banks at most THREE for a query, so the
-  // ladder could never reach the only rung that banks a NEW external fact and the writer never received one. A gap the
-  // comparison has ALREADY established needs no further rival read to act on: the rivals' own comparison names the subjects
-  // NOTHING on this page mentions, and the deadlock this rung closes is exactly that a rival may identify what
-  // is missing while its copy may support nothing, the fact check re-checked only claims the page ALREADY makes,
-  // and the writer therefore never received one new authorized fact. The requirement carries the missing topic
-  // as the proposition to research, and only a fact banked FOR THAT TOPIC satisfies it: an unrelated stored fact
-  // leaves it standing, which is what `facts` (the authorized rows themselves, not a count) is here to prove.
-  const compared = jobComparison(snapshot.research, [q], { url: page.url, text: `${page.content?.title ?? ""} ${(body?.passages ?? []).join(" ")}`, headings: page.content?.outline ?? [], passages: body?.passages ?? [] });
+  // Source-bound comparison topics are research candidates, not claims or proof of semantic absence.
+  // Research the candidate before buying another rival read; only support banked for that topic satisfies it.
+  const compared = jobComparison(snapshot.research, [q], { url: page.url, text: `${page.content?.title ?? ""} ${(body?.passages ?? []).join(" ")}`, headings: page.content?.outline ?? [], passages: body?.passages ?? [], complete: body?.completeness === "complete" && body.version === "current" });
   const answered = new Set(facts.map((f) => f.subject.trim().toLowerCase()));
   const owedTopic = comparisonTopics(compared).find((m) => !answered.has(m.topic.trim().toLowerCase()));
   if (owedTopic) return { resolution: "acquire_factual_source",

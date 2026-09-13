@@ -5,7 +5,8 @@
 
 import { load as cheerioLoad } from "cheerio";
 import { createHash } from "node:crypto";
-import type { PageSnapshot, FaqItem } from "./types";
+import type { PageSnapshot } from "./types";
+import { visibleFaqs } from "./types";
 import { validateSchemaToStrings } from "./schema-validator";
 import {
   locationRegexFrom,
@@ -63,7 +64,7 @@ export function extractPageSnapshot(
   });
 
   // ── FAQ extraction ──
-  const faqs: FaqItem[] = [];
+  const faqs: PageSnapshot["faqs"] = [];
 
   // JSON-LD FAQPage schema
   $('script[type="application/ld+json"]').each((_, el) => {
@@ -165,8 +166,7 @@ export function extractPageSnapshot(
   if (h1Count > 1) {
     structuralWarnings.push(`multiple_h1: ${h1Count} <h1> tags found - should have exactly one`);
   }
-  // FAQ in HTML but no FAQPage JSON-LD
-  const hasHtmlFaqs = faqs.some((f) => f.source === "html_section" || f.source === "html_details");
+  const hasHtmlFaqs = visibleFaqs(faqs).length > 0;
   const hasFaqSchema = schemaTypes.includes("FAQPage");
   if (hasHtmlFaqs && !hasFaqSchema) {
     structuralWarnings.push(`faq_without_schema: FAQ content in HTML but no FAQPage JSON-LD schema`);
@@ -419,8 +419,8 @@ export function extractPageSnapshot(
 
 // ── Helpers ──
 
-function extractFaqFromJsonLd(data: unknown): FaqItem[] {
-  const items: FaqItem[] = [];
+function extractFaqFromJsonLd(data: unknown): PageSnapshot["faqs"] {
+  const items: PageSnapshot["faqs"] = [];
   if (!data || typeof data !== "object") return items;
 
   // Handle top-level arrays: [{...}, {...}, {...FAQPage...}]

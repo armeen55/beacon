@@ -1,8 +1,8 @@
-/** CANONICAL PAGE TRUTH (operator, 2026-09-01). Every reader chooses the same capture for a page: the newest confirmed body, never a newer blank over it, and a stale body proves presence but never a current absence. Live counterexample: /iranian-actors-actresses held a newer zero-word capture marked uncertain beside an older 921-word confirmed body, and the diagnosis read zero while the writer read 921. */
 import { describe, expect, it, vi } from "vitest";
 import { selectPageVersion } from "@/domains/evidence/pages/page-version";
+import { pageExtractFrom } from "@/domains/evidence/funnel/research-evidence";
+import { assemblePacketForUrl } from "@/domains/decision/recommendation-intelligence/page-surgeon/assemble-packet";
 const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], calls: 0, failAfter: Infinity }));
-// The `in` list is HONOURED, so a paged read is a real paged read here: each query answers for its own chunk, and `failAfter` breaks one chunk while the others still land.
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => { let asked: string[] = [];
   const q = { select: () => q, eq: () => q, in: (_c: string, list: string[]) => (asked = list, q), order: () => q,
     limit: async (n: number) => (db.calls += 1) > db.failAfter ? { data: null, error: { message: "chunk down" } } : { data: db.rows.filter((r) => asked.includes(String(r.url))).sort((a, b) => String(b.fetched_at).localeCompare(String(a.fetched_at))).slice(0, n), error: null } }; // newest first and cut at the budget, as the store answers
@@ -25,15 +25,15 @@ describe("one rule decides which capture is the page", () => {
     const flag = (await loadOwnedPageBodies("t", ["https://iranopedia.com/iran-flags/iran-islamic-republic-flag-history"])).get("iranopedia.com/iran-flags/iran-islamic-republic-flag-history")!;
     expect([flag.version, flag.completeness, pageContains(flag, "Takbir"), pageContains(flag, "Pahlavi")]).toEqual(["current", "complete", "yes", "no"]);
     const hidden = Array.from({ length: 20 }, () => ({ question: "Markup-only question?", answer_excerpt: "Markup-only assertion", source: "jsonld" }));
-    db.rows = [{ ...db.rows[0], faqs: [...hidden, { question: "Visible question?", answer_excerpt: "Visible excerpt", source: "html_details" }] }];
+    db.rows = [{ ...db.rows[0], schema_entity_names: ["Markup-only entity"], faqs: [...hidden, { question: "Unanswered heading?", answer_excerpt: "", source: "html_section" }, { question: "Unknown origin?", answer_excerpt: "Legacy assertion" }, { question: "Visible question?", answer_excerpt: "Visible excerpt", source: "html_details" }] }];
     const visible = (await loadOwnedPageBodies("t", [flag.url])).get("iranopedia.com/iran-flags/iran-islamic-republic-flag-history")!;
     expect(visible.faqs).toEqual([{ question: "Visible question?", answer: "Visible excerpt", source: "html_details" }]);
+    expect(assemblePacketForUrl({ tenantId: "t", publishChannel: "none", boilerplateTerms: [], snapshotByCanon: new Map([[flag.url, db.rows[0]]]), gscByUrl: new Map(), clarityByUrl: new Map(), ga4ByUrl: new Map() } as never, flag.url).crawl?.faqs, "the next reader receives the actual visible answer, not a dropped answer field or markup assertions").toEqual(["Visible question?: Visible excerpt"]);
     expect(pageContains(visible, "Markup-only assertion")).toBe("no");
+    expect([pageExtractFrom(db.rows[0] as never).faqCount, pageContains(visible, "Markup-only entity"), pageContains({ ...visible, version: undefined }, "An unshown answer"), (db.rows[0]!.faqs as unknown[]).length]).toEqual([1, "no", "unknown", 23]);
     db.rows = [{ ...db.rows[0], body_text: null, faqs: hidden, word_count: 3, h1: null, title: null }];
     const sample = (await loadOwnedPageBodies("t", [flag.url])).get("iranopedia.com/iran-flags/iran-islamic-republic-flag-history")!;
     expect([sample.completeness, pageContains(sample, "An unshown answer")]).toEqual(["sample_only", "unknown"]);
-    // A NINE-PAGE ASK IS NINE PAGES, and a page with no body says WHY. Anything wider than one query's own width was REFUSED and answered with an EMPTY map, which every reader downstream reads as "this page has no text",
-    // so a split asking about eight pages made all eight look blank and a whole-page judgement was taken off nothing. The width bounds one query now, the ask is paged, and no chunk erases another.
     db.rows = Array.from({ length: 9 }, (_v, i) => row(`https://iranopedia.com/p${i}`, "2026-08-30T22:00:00Z", `Page ${i} says something true about its own subject.`, 9, "confirmed"));
     const urls = db.rows.map((r) => String(r.url)); db.calls = 0;
     const misses = new Map<string, string>(); expect([(await loadOwnedPageBodies("t", [...urls, "https://iranopedia.com/never-crawled"], misses as Map<string, "no_capture" | "read_failed">)).size, [...misses]]).toEqual([9, [["iranopedia.com/never-crawled", "no_capture"]]]);
@@ -41,7 +41,6 @@ describe("one rule decides which capture is the page", () => {
     const nine = db.rows; db.rows = [...Array.from({ length: 30 }, (_v, i) => row("https://iranopedia.com/busy-one", `2026-08-30T2${String(i % 4)}:${String(10 + i).padStart(2, "0")}:00Z`, `Busy one, version ${i}.`, 9, "confirmed")), ...Array.from({ length: 30 }, (_v, i) => row("https://iranopedia.com/busy-two", `2026-08-30T2${String(i % 4)}:${String(10 + i).padStart(2, "0")}:00Z`, `Busy two, version ${i}.`, 9, "confirmed")), ...Array.from({ length: 3 }, (_v, i) => row("https://iranopedia.com/quiet", `2026-08-29T0${String(i)}:00:00Z`, `Quiet page, older capture ${i}.`, 9, "confirmed"))];
     db.calls = 0; const capped = new Map<string, "no_capture" | "read_failed">(); const three = await loadOwnedPageBodies("t", ["https://iranopedia.com/busy-one", "https://iranopedia.com/busy-two", "https://iranopedia.com/quiet"], capped);
     expect([three.size, three.has("iranopedia.com/quiet"), [...capped], db.calls], "the page the cut read left out is asked for again on its own, comes back with its own newest capture, and is never reported as never captured").toEqual([3, true, [], 2]); db.rows = nine;
-    // AND A CHUNK THAT COULD NOT BE READ NEVER ERASES THE CHUNKS THAT DID: its own pages are UNKNOWN by name, and the pages already in hand still answer.
     db.calls = 0; db.failAfter = 1; const broke = new Map<string, "no_capture" | "read_failed">();
     const partial = await loadOwnedPageBodies("t", urls, broke); db.failAfter = Infinity;
     expect([partial.size, [...broke.values()]]).toEqual([7, ["read_failed", "read_failed"]]); }); });

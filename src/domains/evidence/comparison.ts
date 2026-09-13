@@ -1,4 +1,4 @@
-/** Task-scoped comparison of query-backed winners; partial readings never prove absence. */
+/** Query-backed source observations are research candidates, not proof that a whole owned page lacks their subject. */
 import { createHash } from "node:crypto";
 import { classifyDomain, type CompetitorKind } from "./competitors/classify";
 import { canonicalQueryKey, FURNITURE_LABEL, topicTokens } from "./relevance-gate";
@@ -88,19 +88,19 @@ export function jobComparison(research: Research, queries: readonly string[], ow
       if (obs.length >= 2 || s.length < 40 || s.length > 600) continue;
       const t = topicTokens(s); if (t.filter((x) => askBag.has(x)).length < 2) continue;
       const novel = [...new Set(t.filter((x) => !askBag.has(x) && !carries(ownBag, x)))]; if (novel.length < 2) continue;
-      note(obs, host, { kind: "answers", text: `${host} answers this search in its own prose and this page carries none of ${novel.slice(0, 3).join(", ")}.`, quote: cut(s, QUOTE_CHARS) });
+      note(obs, host, { kind: "answers", text: `${host} supplies a candidate explanation for this search; ${novel.slice(0, 3).join(", ")} were not matched in the supplied owned text.`, quote: cut(s, QUOTE_CHARS) });
     }
     for (const h of heads) {
       if (obs.length >= 4 || h.length < 3 || h.length > 120 || topicTokens(h).length === 0 || FURNITURE_LABEL.test(h) || covers(ownBag, h)) continue;
       const brand = host.replace(/^www\./i, "").replace(/\.[a-z.]+$/i, "").replace(/[^a-z0-9]/gi, "").toLowerCase(); if (brand.length >= 4 && h.toLowerCase().replace(/[^a-z0-9]/g, "").includes(brand)) continue; /* a short host stem like a.example would match every heading containing its letter, so only a real brand word is asked */
       const under = sectionUnder(body, h, heads, e.sections); if (!under && thin) continue;
-      note(obs, host, { kind: "covers", topic: h, text: `${host} gives "${h}" a section of its own and nothing on this page covers it.`, quote: cut(under ?? h, QUOTE_CHARS) });
+      note(obs, host, { kind: "covers", topic: h, text: `${host} gives "${h}" a section of its own; its subject was not matched in the supplied owned text. Compare the explanation before commissioning work.`, quote: cut(under ?? h, QUOTE_CHARS) });
     }
     const names = reading && !thin ? [...new Set((e.entityNames ?? []).map(tidy).filter((n) => n.length > 2 && topicTokens(n).length > 0 && !FURNITURE_LABEL.test(n) && !covers(ownBag, n)))].slice(0, 6) : [];
-    if (names.length > 0 && obs.length < MAX_OBSERVATIONS) note(obs, host, { kind: "names", text: `${host} names ${names.length} things this page does not name: ${names.join(", ")}.`, quote: cut(names.join(", "), QUOTE_CHARS) });
+    if (names.length > 0 && obs.length < MAX_OBSERVATIONS) note(obs, host, { kind: "names", text: `${host} names ${names.length} candidate subjects not matched in the supplied owned text: ${names.join(", ")}.`, quote: cut(names.join(", "), QUOTE_CHARS) });
     const asks = heads.filter((h) => h.trim().endsWith("?"));
     if ((e.faqCount ?? 0) > 0 && asks.length > 0 && !owned.headings.some((h) => h.trim().endsWith("?")) && obs.length < MAX_OBSERVATIONS) {
-      note(obs, host, { kind: "shape", text: `${host} answers as ${e.faqCount} question entries and this page carries none.`, quote: cut(tidy(asks[0]!), QUOTE_CHARS) });
+      note(obs, host, { kind: "shape", text: `${host} was captured with ${e.faqCount} question entries; no question heading was identified in the supplied owned heading list.`, quote: cut(tidy(asks[0]!), QUOTE_CHARS) });
     }
     const sections = e.sections?.length ? e.sections : sectionsOf(body, heads);
     const shown = heldFor(body, askBag, Math.min(READING_CHARS, Math.floor(12_000 / Math.max(1, read.length))), new Set(focus.flatMap((t) => topicTokens(t))), sections);
@@ -108,15 +108,16 @@ export function jobComparison(research: Research, queries: readonly string[], ow
       shape: { words: e.wordCount, lists: e.hasList ?? null, tables: e.hasTable ?? null, questions: e.faqCount ?? null }, namesRead: e.entityNames != null,
       read: reading, truncated: e.truncated === true, held: shown.held, heldWhole: shown.whole, bodyKey: keyOf(tidy(body)), observations: obs.slice(0, MAX_OBSERVATIONS) });
   }
-  return { queries: [...queries], ...(focus.length ? { focus: [...focus] } : {}), owned: { url: owned.url, held: shownOwned.held, heldWhole: shownOwned.whole && owned.complete === true, bodyKey: keyOf(JSON.stringify([owned.text, owned.headings, owned.complete ?? null])) }, winners, keep, verdict: verdictOf(winners) };
+  const captured = { url: owned.url, held: shownOwned.held, heldWhole: shownOwned.whole && owned.complete === true, bodyKey: keyOf(JSON.stringify([owned.text, owned.headings, owned.complete ?? null])) };
+  return { queries: [...queries], ...(focus.length ? { focus: [...focus] } : {}), owned: captured, winners, keep, verdict: verdictOf(winners, captured) };
 }
-const verdictOf = (winners: readonly ComparedWinner[]): JobComparison["verdict"] =>
-  winners.some((w) => w.observations.length > 0) ? "names" : winners.length === 0 || winners.some((w) => !w.read || w.truncated || !w.namesRead || !w.heldWhole) ? "unread" : "nothing";
+const verdictOf = (winners: readonly ComparedWinner[], owned: JobComparison["owned"]): JobComparison["verdict"] =>
+  winners.some((w) => w.observations.length > 0) ? "names" : !owned?.heldWhole || winners.length === 0 || winners.some((w) => !w.read || w.truncated || !w.namesRead || !w.heldWhole) ? "unread" : "nothing";
 
 export const comparisonLines = (c: JobComparison): string[] => c.winners.map((w) =>
   [`${w.publisher} is ${LABEL[w.publisherClass]} and answers this search in ${w.shape.words} words${(w.shape.questions ?? 0) > 0 ? ` across ${w.shape.questions} question entries` : ""} at ${w.url}.${w.querySupport ? ` Query-matched evidence: best organic rank ${w.querySupport.rank ?? "unreported"}; ${w.querySupport.citationObservations} distinct citation observations (not proof of causation).` : ""}`,
     !w.read ? "None of its own words are on file, so what it carries is unknown rather than absent." : w.truncated ? "Only the opening of it was captured, so what it carries past that is unknown rather than absent." : !w.namesRead ? "The read of it lists nothing it names, so the things it names are unknown rather than absent." : !w.heldWhole ? "Only its passages about this search were read, so what it carries elsewhere is unknown rather than absent." : "",
-    ...w.observations.map((o) => `${o.text} Its own words: "${o.quote}"`)].filter(Boolean).join(" "));
+    ...w.observations.map((o) => `Research candidate about the supplied passages, not whole-page absence or factual authority: ${o.text} Its own words: "${o.quote}"`)].filter(Boolean).join(" "));
 const LABEL: Readonly<Record<CompetitorKind, string>> = { commercial_competitor: "a business selling what this account sells", citation_authority: "a source assistants quote", publisher: "a publisher covering these topics", marketplace_directory: "a marketplace or directory", government_educational: "a government or school source", social_community: "a social platform", owned: "this account's own site", irrelevant_unknown: "a site whose part here is not settled" };
 export const comparisonObservations = (c: JobComparison): ComparisonObservation[] => c.winners.flatMap((w) => w.observations);
 export const comparisonTopics = (c: JobComparison): { topic: string; url: string }[] => c.winners.flatMap((w) =>
@@ -124,5 +125,5 @@ export const comparisonTopics = (c: JobComparison): { topic: string; url: string
   .filter((t) => t.topic.length > 2);
 export const withObservations = (c: JobComparison, by: ReadonlyMap<string, ComparisonObservation[]>): JobComparison => {
   const winners = c.winners.map((w) => ({ ...w, observations: (by.get(w.url) ?? []).slice(0, MAX_OBSERVATIONS) }));
-  return { ...c, winners, verdict: verdictOf(winners) === "nothing" && c.owned && !c.owned.heldWhole ? "unread" : verdictOf(winners) };
+  return { ...c, winners, verdict: verdictOf(winners, c.owned) };
 };

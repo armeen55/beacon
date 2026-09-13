@@ -40,20 +40,6 @@ function isNonEmptyArray(v: unknown): v is unknown[] {
   return Array.isArray(v) && v.length > 0;
 }
 
-function firstTypeOf(node: Record<string, unknown>): string | null {
-  const t = node["@type"];
-  if (typeof t === "string") return t;
-  if (Array.isArray(t) && typeof t[0] === "string") return t[0];
-  return null;
-}
-
-function hasType(node: Record<string, unknown>, target: string): boolean {
-  const t = node["@type"];
-  if (typeof t === "string") return t === target;
-  if (Array.isArray(t)) return t.includes(target);
-  return false;
-}
-
 // ---------------------------------------------------------------------------
 // Per-type validators
 // ---------------------------------------------------------------------------
@@ -424,6 +410,3 @@ function formatWarning(w: SchemaWarning): string {
 export function validateSchemaToStrings(data: unknown): string[] {
   return validateSchema(data).map(formatWarning);
 }
-
-// Re-export hasType for any future callers; not used internally beyond validators.
-export { hasType, firstTypeOf };

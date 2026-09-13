@@ -15,6 +15,7 @@
 
 import "server-only";
 import { selectPageVersion } from "./pages/page-version";
+import { visibleFaqs } from "./pages/types";
 
 import { basisTag, getTenant, loadBusinessProfile } from "@/domains/account";
 import { readGscPageSignalsForTenant, type GscPageSignal } from "@/domains/evidence/readers/gsc-page-signals";
@@ -181,8 +182,8 @@ async function readEvidenceSnapshot(
       h2: s.h2_list ?? [],
       outline: [...(s.h2_list ?? []), ...(s.h3_list ?? [])],
       schemaTypes: s.schema_types ?? [],
-      hasFaq: (s.faqs?.length ?? 0) > 0,
-      faqCount: s.faqs?.length ?? 0,
+      hasFaq: visibleFaqs(s.faqs).length > 0,
+      faqCount: visibleFaqs(s.faqs).length,
       wordCount: s.word_count ?? 0, extractionCertainty: s.extraction_certainty ?? null,
       internalLinks: (s.internal_links ?? []).map((l) => ({ href: l.href, anchorText: l.anchor_text })),
       fetchedAt: s.fetched_at ?? null,

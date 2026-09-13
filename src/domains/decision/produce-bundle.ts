@@ -85,7 +85,7 @@ function winnerPattern(read: Research["winningPages"], c: NonNullable<OwnedPageE
   if (read.length < 2) return null;
   const words = [...read.map((w) => w.extract!.wordCount)].sort((a, b) => a - b); const median = words[Math.floor(words.length / 2)]!;
   const faq = read.filter((w) => (w.extract!.faqCount ?? 0) > 0).length; const bits: string[] = []; // a read that does not report question entries counts towards nothing here: the sentence below says how many winners DO answer that way, and an unknown is not one of them
-  if (faq >= 2) bits.push(`${faq} of them answer it in a question and answer block${c.hasFaq ? " and so does this page" : ", and this page has none"}`);
+  if (faq >= 2) bits.push(`${faq} of them were reported with question and answer entries${c.hasFaq ? "; visible answered pairs were also captured here" : "; no visible answered pairs were identified in this page's capture"}`);
   if (median >= Math.round(c.wordCount * 1.5)) bits.push(`the middle one runs ${median.toLocaleString()} words against this page's ${c.wordCount.toLocaleString()}`);
   return bits.length === 0 ? null : `Of the ${read.length} pages read that come up for "${primary}", ${bits.join(", and ")}.`;
 }
@@ -391,7 +391,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       const slot = CORE_PRODUCERS[finding.cause];
     if (typeof slot !== "function") return { status: "none", reason: finding.cause === "no_problem" ? diagnosis.explanation : finding.explanation };
     const checked = held ? await readFactChecks(tenantId, pathOf(page.url)).catch(() => [] as FactCheck[]) : [];
-    const compared = snapshot.research ? jobComparison(snapshot.research, [primary], { url: page.url, text: `${content.title ?? ""} ${(held?.passages ?? []).join(" ")}`, headings: content.outline ?? [], passages: held?.passages ?? [] }) : null;
+    const compared = snapshot.research ? jobComparison(snapshot.research, [primary], { url: page.url, text: `${content.title ?? ""} ${(held?.passages ?? []).join(" ")}`, headings: content.outline ?? [], passages: held?.passages ?? [], complete: held?.completeness === "complete" && held.version === "current" }) : null;
     const drafters = producerDrafts(tenantId, opts, now, snapshot.ownedPages.map((p) => pathOf(p.url)), held, heldBodies, authed, checked, compared);
     const ctx: ProducerCtx = { finding, primary, tenantId,
       page: { url: page.url, title: content.title, h1: content.h1, outline: content.outline, internalLinkCount: content.internalLinks.length },

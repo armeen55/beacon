@@ -6,6 +6,7 @@
  */
 
 import type { ParsedPageIntersection } from "../page-intersection";
+import { visibleFaqs } from "../pages/types";
 
 export type ResearchEngine = "chatgpt" | "gemini" | "claude" | "perplexity";
 
@@ -247,7 +248,7 @@ type ExtractableSnapshot = {
 export function pageExtractFrom(snap: ExtractableSnapshot): ResearchPageExtract {
   return {
     title: snap.title, h1: snap.h1, wordCount: snap.word_count,
-    headings: strings(snap.h2_list, 20), faqCount: (snap.faqs ?? []).length,
+    headings: strings(snap.h2_list, 20), faqCount: visibleFaqs(snap.faqs).length,
     metaDescription: str(snap.meta_description),
     openingSample: str(strings(snap.body_paragraph_sample, 8).join(" ").slice(0, OPENING_SAMPLE_CHARS)),
     entityNames: strings(snap.schema_entity_names, 12),

@@ -51,11 +51,21 @@ export type PageEntity = {
 
 // ── PageSnapshot (future extraction) ────────────────────────────────
 
-export type FaqItem = {
+type FaqItem = {
   question: string;
   answer_excerpt: string;
   source: "jsonld" | "html_details" | "html_section";
 };
+
+/** Visible answered pairs, never markup assertions or legacy entries of unknown origin. Raw snapshots remain intact. */
+export function visibleFaqs(items: unknown): (FaqItem & { source: Exclude<FaqItem["source"], "jsonld"> })[] {
+  return (Array.isArray(items) ? items : []).filter((item): item is FaqItem & { source: Exclude<FaqItem["source"], "jsonld"> } => {
+    const f = item as Partial<FaqItem> | null;
+    return !!f && (f.source === "html_details" || f.source === "html_section")
+      && typeof f.question === "string" && !!f.question.trim()
+      && typeof f.answer_excerpt === "string" && !!f.answer_excerpt.trim();
+  });
+}
 
 export type PageSnapshot = {
   id: string;
@@ -139,4 +149,3 @@ export type PageSnapshot = {
   /** Owning tenant. */
   tenant_id: string;
 };
-

@@ -8,6 +8,7 @@ import { log } from "@/lib/logger";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { selectPageVersion } from "./page-version";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { visibleFaqs } from "./types";
 
 /** What my own page says, in its own words, with an honest account of how much of it I have. `fetchedAt`
  *  rides along so the caller judges staleness itself: a 46-day-old body is evidence with a date on it. */
@@ -37,7 +38,7 @@ export type OwnedPageBody = {
   contentHash: string | null;
   /** What I hold and what I do not, in plain words, with the numbers. */
   heldNote: string;
-  /** WHICH CAPTURE THESE WORDS ARE (pages/page-version). `stale_known_good` = the newest read captured nothing and an older confirmed body stands in: it proves presence, never a current absence. Absent means current. */
+  /** An older known-good body proves historical presence, never current absence; missing version means unconfirmed freshness. */
   version?: ReturnType<typeof selectPageVersion>["state"];
   /** When the newest, blank read happened, on a stale body. */
   newestAt?: string | null;
@@ -84,7 +85,6 @@ function passagesFromFullText(full: string): string[] {
 }
 const cap = (value: unknown, chars: number): string | null => { const s = typeof value === "string" ? value.trim() : ""; return s ? s.slice(0, chars) : null; };
 const items = (value: unknown, max: number, chars: number): string[] => (Array.isArray(value) ? value : []).map((x) => cap(x, chars)).filter((x): x is string => !!x).slice(0, max);
-const wordsIn = (parts: readonly string[]): number => parts.join(" ").split(/\s+/).filter(Boolean).length;
 
 /** The crawler now keeps list boundaries, so its own bullet is dropped here before anything is matched: what a page CONTAINS is exactly what it contained before the boundaries went in. */
 
@@ -123,8 +123,7 @@ function bodyOf(row: Row): OwnedPageBody {
     : items(row.body_paragraph_sample, MAX_PASSAGES, MAX_PASSAGE_CHARS);
   const cardTexts = items(row.card_texts, CRAWL_CARDS, MAX_ITEM_CHARS);
   const entityNames = items(row.schema_entity_names, MAX_ENTITIES, MAX_ITEM_CHARS);
-  const faqs: OwnedPageBody["faqs"] = (Array.isArray(row.faqs) ? row.faqs : [])
-    .filter((f) => f?.source === "html_details" || f?.source === "html_section")
+  const faqs: OwnedPageBody["faqs"] = visibleFaqs(row.faqs)
     .map((f) => ({ question: cap(f.question, MAX_ITEM_CHARS) ?? "", answer: cap(f.answer_excerpt, MAX_ITEM_CHARS) ?? "", source: f.source }))
     .filter((f) => f.question).slice(0, MAX_FAQS);
   const internalLinks = (Array.isArray(row.internal_links) ? row.internal_links : []).slice(0, MAX_LINKS)
@@ -138,7 +137,7 @@ function bodyOf(row: Row): OwnedPageBody {
   const passages: string[] = [];
   let used = fixed;
   for (const p of stored) { if (used + p.length > MAX_PAGE_CHARS) break; passages.push(p); used += p.length; }
-  const heldWords = wordsIn([...headings, ...passages, ...cardTexts, ...faqs.flatMap((f) => [f.question, f.answer])]);
+  const heldWords = passages.join(" ").split(/\s+/).filter(Boolean).length;
   const pageWords = typeof row.word_count === "number" && row.word_count > 0 ? row.word_count : null;
   // Only a nonempty held body proves capture scope; metadata and excerpts cannot reconstruct a whole page.
   const sampled = !held || full.length === 0;

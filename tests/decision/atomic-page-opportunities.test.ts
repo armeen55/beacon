@@ -1,8 +1,4 @@
-/** ONE PAGE IS A CONTAINER OF ATOMIC OPPORTUNITIES (Product Truth, one page is never one opportunity). A page that
- *  earns two searches it never answers owes two sections: two changes, each ranked on its own demand, each opening
- *  at its own address. The reader stopped at the biggest unanswered search and the producers named every card after
- *  the PAGE alone, so for as long as the bigger change stood unimplemented the smaller one was invisible. Two
- *  synthetic accounts with unrelated subjects: nothing here names a real customer, language or page family. */
+/** Separate reader tasks on a page retain their own ranked work identities across two unrelated accounts. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { EvidenceSnapshot, OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { emptyResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
@@ -52,7 +48,7 @@ const page = (s: Site, rows: Array<[string, number]>): OwnedPageEvidence => ({ u
   content: { title: s.title, metaDescription: "d", h1: s.title, h2: [], outline: [], schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 900, internalLinks: [], fetchedAt: NOW.toISOString() },
   search: { clicks90d: 10, impressions90d: 9000, ctr90d: 0.01, position90d: 8, topQueries: rows.map(([query, impressions]) => ({ query, impressions, clicks: 1, position: 8 })) },
   engagement: null, friction: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } });
-const body = (s: Site): unknown => ({ url: url(s), title: s.title, h1: s.title, metaDescription: null, headings: [], passages: [s.passage], vocabulary: "", cardTexts: [], faqs: [], entityNames: [], internalLinks: [], openingSample: s.passage, fetchedAt: NOW.toISOString(), completeness: "complete", contentHash: "h", heldNote: null });
+const body = (s: Site): unknown => ({ url: url(s), title: s.title, h1: s.title, metaDescription: null, headings: [], passages: [s.passage], vocabulary: "", cardTexts: [], faqs: [], entityNames: [], internalLinks: [], openingSample: s.passage, fetchedAt: NOW.toISOString(), completeness: "complete", version: "current", contentHash: "h", heldNote: null });
 const snapshot = (s: Site, pages: OwnedPageEvidence[]): EvidenceSnapshot => ({ scope: { tenantId: s.t, site: `${s.t}.example`, builtAt: NOW.toISOString() },
   aiCitations: { ownedCited: 0, competitorCited: 0, engines: [], rowsScanned: 0 }, sources: [], competitors: [], keywordDemand: [], questionDemand: [], intentClusters: [],
   cannibalization: [], contentGaps: [], internalLinkOpportunities: [], evidenceHash: "fixture", research: emptyResearchEvidence(), ownedPages: pages });
