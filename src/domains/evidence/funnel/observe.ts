@@ -8,7 +8,7 @@ import {
 } from "@/domains/evidence/ai-visibility/ai-observations";
 import type { CachedCallResult, CapabilityKey, FunnelCounters, FunnelUnitFn, FunnelUnitOutcome, ParsedAiAnswer, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
-import { normalizeKeyword, selectSerpAgenda } from "./normalize";
+import { normalizeKeyword, owedWinnerReads, selectSerpAgenda } from "./normalize";
 import { type FunnelPair, type FunnelSerp, type FunnelState } from "./state";
 import { type FunnelResearchEvidence, type ObservationMode, type ResearchEngine } from "./research-evidence";
 import { isCurrent } from "@/domains/evidence/freshness";
@@ -479,7 +479,7 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
   const missing = Math.max(0, state.prompts.pairs.length - donePairs.length)
     + state.serps.queries.filter((s) => s.status !== "done" || !!s.identityMismatch).length + state.serps.queries.filter((s) => s.aiModeFailed).length;
   // FAIL CLOSED ON IDENTITY: a look the provider answered for a DIFFERENT phrase is missing coverage, never this search's evidence, so it is counted above and dropped here however its row happens to be marked.
-  const doneSerps = state.serps.queries.filter((s) => s.status === "done" && !s.identityMismatch);
+  const doneSerps = owedWinnerReads(state.serps.queries, [], null).currentSerps;
   return {
     // LINEAGE rides along: how each keyword was found, the confirmed theme it was found from, the case it joined, the page of my own that already ranks for it, and what acting on it would mean. Every one is a recorded fact, so nothing downstream has to guess them. THE WHOLE JOURNEY rides along too (`origins`), so a fan-out can be traced back to the question, the engine, the day and the stored answer that produced it; a row stored before it was kept projects without it rather than with an invented one.
     retainedKeywords: state.discovery.retained.map((k) => ({ query: k.keyword, searchVolume: k.searchVolume, competition: k.competition, competitionLevel: k.competitionLevel ?? competitionLevel(k.competition), difficulty: k.difficulty ?? null, intent: k.intent, discoveredVia: k.discoveredVia, seed: k.seed ?? null, ownedRankingUrl: k.ownedRankingUrl ?? null, ownedPosition: k.ownedPosition ?? null, parentCaseId: k.caseId ?? null, supports: k.supports ?? null, ...(k.origins ? { origins: k.origins } : {}), ...(k.moreOrigins ? { moreOrigins: k.moreOrigins } : {}) })),

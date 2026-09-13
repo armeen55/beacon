@@ -17,12 +17,11 @@ import { askIdentity, normalizePageIntersection, parsePageIntersection, type Pag
 import { publisherHost } from "@/domains/evidence/serp-shape";
 import { mainOf, pageExtractFrom, pageExtractFromRecord, type IntersectionUnavailable, type OwnedPageReadOutcome, type ResearchPageComparison, type ResearchPageExtract, type ResearchWinningAppearance, type WinnerReadOutcome } from "./research-evidence";
 import { isCurrent } from "@/domains/evidence/freshness";
+import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, NO_BASIS_DETAIL, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
 import type { CanonicalPairObservation } from "./research-evidence";
 
-/** ONE explicit acquisition budget per cycle, never a global free-for-all. 15 winning pages are ranked, so three priority searches keep their own five, and 18 is the MOST I ever go out and read: those 15 plus at
- *  most ONE substitute for each of the three priority searches, every one of them spending an ATTEMPT from the same total. Paid body reads are bounded SEPARATELY at 6, because they are the only page work that
- *  costs money, so a cycle where every publisher refuses can no longer buy a paid read for all fifteen. Bought comparisons kept: 8. And at most THREE searches a pass are served for having no page of their own on file, so a reserve for work nobody asked for still leaves most of the budget to the order this account has earned. */
+/** Per cycle: three queries' five-page reserves, one substitute each, and a separate paid-read ceiling. */
 const WINNER_READ_BUDGET = 15, MAX_COMPARISONS = 8, MAX_PAGE_ATTEMPTS = 18, MAX_PAID_BODY_READS = 6;
 /** CONTENT identity, never the address: the same parsed extract in any key order hashes the SAME, and a changed title, heading, opening or body hashes DIFFERENTLY. Banking sha16(url) on the provider path froze
  *  a page's identity at its address forever, so a rewritten page looked unchanged to a store whose whole point is content-hash-aware reuse. fetchedAt is when I looked, not what the page says, so it is excluded. */
@@ -30,12 +29,11 @@ const extractHash = (x: ResearchPageExtract): string => sha16(JSON.stringify(Obj
 /** A WINNER CARRIES A READING when its extract holds the page's own words, or says in type that the read happened and found none (`truncated` is written by every read and by no row banked before reading existed). THE one test, asked where a banked row is reused and where the winners are written, so one of them can never call a page read while the other calls it unread. */ const carriesReading = (x: ResearchPageExtract | null | undefined): boolean => !!x && (x.mainText != null || x.truncated != null);
 /** The engines and the real prompt texts of ONE page's OWN appearances, derived wherever a winner row is written so a carried row describes the evidence that names it today rather than the evidence that named it when it was read. */ const facetsOf = (as: ResearchWinningAppearance[]) => ({ engines: [...new Set(as.map((a) => a.engine).filter((e): e is string => !!e))].sort(), examplePrompts: [...new Set(as.map((a) => a.promptText).filter((t): t is string => !!t))].slice(0, 5) });
 
-// ── B5: winning pages ───────────────────────────────────────────────────────
 
 /** SERPs plus dated canonical AI citations. Ranking dedupes modes after redirects resolve. */
 function collectAppearances(state: FunnelState, fallbackIso: string, observations: CanonicalPairObservation[]): ResearchWinningAppearance[] {
   const out: ResearchWinningAppearance[] = [];
-  for (const s of state.serps.queries.filter((x) => x.status === "done")) {
+  for (const s of owedWinnerReads(state.serps.queries, [], null).currentSerps) {
     const at = s.observedAt || state.updatedAt || fallbackIso;
     for (const o of s.organic ?? []) out.push({ kind: "serp_organic", query: s.query, promptId: null, promptText: null, engine: null, rank: o.rank, citedUrl: o.url, observedAt: at, modelServed: null, observationMode: null });
     for (const a of s.aiOverview ?? []) out.push({ kind: "ai_overview", query: s.query, promptId: null, promptText: null, engine: null, rank: null, citedUrl: a.url, observedAt: at, modelServed: null, observationMode: null });
@@ -127,7 +125,7 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
 }
 
 /** Read winners before comparing them under a renewed lease. Short turns persist one public reading and resume. */
-export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[] = [], intersection: FunnelIntersectionAsk | null = null, ownedUrl: string | null = null, ownedBustedAt: string | null = null): FunnelUnitFn {
+export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[] = [], intersection: FunnelIntersectionAsk | null = null, ownedUrl: string | null = null, ownedBustedAt: string | null = null, competitorUrl: string | null = null): FunnelUnitFn {
   const d = resolveDeps(deps);
   const resolve = deps.resolveCitations ?? resolveCitationTargets; // wrapper citations resolve to their REAL target before ranking, so one page is never two winners
   return async (tenantId, cursor, budgetMs) => {
@@ -139,8 +137,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
     const ctx: SaveCtx = { rowVersion: loaded.rowVersion }, nowIso = new Date(d.now()).toISOString();
     const pages: FunnelWinningPage[] = []; let attempts = 0; // attempts = pages I actually went out and read this cycle, the bounded total the counter reports
     try {
-      // STAGE TWO of the SAME phase: the winners are already persisted and the caller renewed the RUN lease in between, so the ONE comparison is the FIRST side effect
-      // this invocation has. Newest first, ONE row per topic, bounded. No ask (none earned, or the frozen topic could not be reconfirmed) is a $0 pass.
+      // The caller renews the run lease between persisted readings and this comparison stage.
       if ((cursor as { stage?: string } | null)?.stage === "compare") {
         const bought = intersection ? await buyComparison(d, state, intersection, ids, nowIso) : null;
         if (bought) { state.pageComparisons = [bought, ...state.pageComparisons.filter((c) => c.topicKey !== bought.topicKey)].slice(0, MAX_COMPARISONS);
@@ -162,10 +159,12 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
       const bank = async (url: string, x: ResearchPageExtract) => { await d.writePageExtract(url, x as unknown as Record<string, unknown>, extractHash(x)).catch(() => {}); };
       // A SEARCH THIS ACCOUNT PAID FOR WHOSE PAGES NOTHING HAS EVER RANKED TAKES ITS OWN RESERVE, newest search first and at most three a pass, off THE one selection rule in funnel/normalize. The global order is by ACCUMULATED appearances, so the ten pages of a results page bought this morning carry one each and lose every slot to pages that have been winning for weeks (proved on this file's own starvation pin): the search is paid for, nothing off it is ever read, and the row that owed that reading asks for the same results page again tomorrow. runtime/ops/due-work counts the pages of exactly these searches to make the read due, so a pass opened for that reason discharges what opened it and the receipt can never promise a search this pass will not take. The ORDER is that rule's too: appended behind the focused cases, an owed search fell off the far side of the reserve's own ceiling the moment this account carried forty of them, and the receipt named three pages nobody would open.
       const priority = owedWinnerReads(state.serps.queries, state.winningPages.map((w) => w.url), ownDomain, priorityQueries).queries;
-      const ranked = rankWinningPages(resolved, ownDomain, WINNER_READ_BUDGET, priority), bench = new Map<string, typeof ranked>(), substituted = new Set<string>();
+      const requested = competitorUrl ? rankWinningPages(resolved.filter((a) => [a.citedUrl, a.viaUrl].some((u) => !!u && canonicalUrlKey(u) === canonicalUrlKey(competitorUrl)) && priorityQueries.some((q) => canonicalQueryKey(q) === canonicalQueryKey(a.query ?? a.promptText ?? ""))), ownDomain, 1)[0] : null;
+      if (competitorUrl && !requested) return { status: "failed", cursor, progress: {}, detail: "The requested competitor page is not backed by this query's stored search or citation evidence; nothing was fetched." };
+      const normal = rankWinningPages(resolved, ownDomain, WINNER_READ_BUDGET, priority), same = (c: typeof normal[number]) => !!requested && canonicalUrlKey(c.url) === canonicalUrlKey(requested.url);
+      const ranked = requested ? [{ ...requested, ownerQuery: canonicalQueryKey(requested.appearances[0]?.query ?? requested.appearances[0]?.promptText ?? "") }, ...normal.filter((c) => !c.standby && !same(c))].slice(0, WINNER_READ_BUDGET).concat(normal.filter((c) => c.standby && !same(c))) : normal, bench = new Map<string, typeof ranked>(), substituted = new Set<string>();
       for (const c of ranked) if (c.standby && c.ownerQuery) bench.set(c.ownerQuery, [...(bench.get(c.ownerQuery) ?? []), c]);
-      // FOCUS BEFORE BREADTH, AND CASE BY CASE INSIDE IT: the reserves arrive interleaved (every case's first winner, then every case's second), then the substitutes their unreadable pages earn, then the global fill,
-      // every one of them spending from the SAME attempt and paid-read totals. That order is what stops six paid reads landing entirely inside the first two cases while the third gets none.
+      // Interleave focused cases before substitutes and global fill; all share the same attempt/spend ceilings.
       const focus = ranked.filter((c) => !c.standby && c.ownerQuery), queue = [...focus, ...ranked.filter((c) => !c.standby && !c.ownerQuery)]; let focusEnd = focus.length, paidReads = 0;
       for (let i = 0; i < queue.length; i += 1) { const c = queue[i]!;
         // A short turn reads at most one public page, leaving time to save and no paid fallback.
@@ -175,8 +174,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
         // Reuse a cached public extract before any read; never re-read in freshness. Keep the CACHE ROW'S date when the extract predates the field: an undated winner never counts toward a comparison.
         const cached = await d.readPageExtract(c.url).catch(() => null);
         const rec = cached ? pageExtractFromRecord(cached.extract) : null, legacy = rec && cached ? { ...rec, fetchedAt: rec.fetchedAt ?? cached.fetchedAt ?? null } : null;
-        // A CACHED ROW THAT CARRIES NO READING IS NOT A READ PAGE, so it is never a reason to skip the read: measured on the first drives of the content comparison, 133 banked extracts held not one word of their pages
-        // because every one predates the reading, so reuse alone left every winner unread for ever. Freshness still owns a row that DOES carry one, and a read that honestly found no words carries `truncated: false`.
+        // Legacy metadata alone is not a reading. An explicitly completed empty reading is reusable, not useful copy evidence.
         if (carriesReading(legacy)) { extract = legacy; outcome = null; }
         // A URL whose last read failed keeps that answer until retryAfter and spends no attempt before it.
         else if (attempts < MAX_PAGE_ATTEMPTS && d.now() <= deadline && !(outcome && d.now() < Date.parse(outcome.retryAfter))) {
@@ -194,18 +192,16 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
               paidReads += 1;
               const r = interp(await d.callProvider("onpage_content_parsing", { url: c.url }, ids)); track(state, r);
               const got = r.kind === "evidence" ? (d.parse("onpage_content_parsing", r.payload as never) as ResearchPageExtract | null) : null;
-              // An empty parse is not a body: it stays a named gap, never a fake extract. Never invent freshness either, so the provider's OWN fetch time wins whenever it sends one.
-              // AND THE WINNER'S OWN WORDS ARE HELD TO THE COMPARISON CEILING BEFORE THEY ARE BANKED, carrying the provider's own total, so a cut read says how much of the page it stands on.
+              // Preserve provider freshness and total size; an empty parse remains evidence debt.
               if (got && got.wordCount > 0) { extract = { ...got, ...mainOf(got.mainText, got.totalChars ?? 0), fetchedAt: got.fetchedAt ?? nowIso }; outcome = null; await bank(c.url, extract); }
               // A CAP OR A DAILY LIMIT IS NOT THE PAGE'S FAULT. Those cost nothing and read nothing, so stamping the 7 day hold on them froze pages the provider never even looked at, and one cap event stamped every remaining winner. They wait a day.
               else outcome = readOutcomeAt(r.kind === "evidence" ? "provider_unavailable" : "temporarily_unavailable", d.now());
             }
           } catch { outcome = readOutcomeAt("temporarily_unavailable", d.now()); }
         }
-        // AND A RE-READ THAT DID NOT LAND LOSES NOTHING, from the cache OR from the row I already hold: whichever of them carries a reading stands exactly as it was banked, with the failure's own retry date beside it, so what is held is never traded for a failed read.
+        // Failed re-reads preserve banked words alongside their failure hold.
         if (!extract) extract = [legacy, was?.extract ?? null].find(carriesReading) ?? legacy;
-        // The ranked URL is evidence in its own right, so an unreadable body never deletes a winner. An unreadable page frees ONE substitute, for ITS OWN search only, from that search's own bench, and admitting
-        // it SPENDS that opportunity: one failure buys one substitute, and a publisher whose body I already hold teaches me nothing new. Anything else let a single failure unlock every bench on every topic.
+        // An unreadable ranked page earns one same-query substitute, never unrelated acquisition.
         if (extract) readPublishers.add(publisherHost(c.url));
         else if (c.ownerQuery && !substituted.has(c.ownerQuery)) { const sub = (bench.get(c.ownerQuery) ?? []).find((b) => !readPublishers.has(publisherHost(b.url)));
           if (sub) { substituted.add(c.ownerQuery); queue.splice(focusEnd, 0, sub); focusEnd += 1; } }
@@ -220,14 +216,11 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
       // AT MOST ONE page of the account's OWN, named by the caller, read here rather than anywhere a render can reach.
       let ownedPause: string | null = null;
       if (ownedUrl && !shortRead) { const owned = await readOwnedPage(d, tenantId, state.ownedReads ?? [], ownedUrl, deadline, profile, ownedBustedAt); state.ownedReads = owned.held; ownedPause = owned.pause; }
-      // The winners land BEFORE this phase hands the run back. This save is the FUNNEL ROW's optimistic
-      // row_version and nothing more: it proves only that no concurrent writer moved the research document.
-      // It is NOT the ResearchRun lease, a different guarantee the caller renews between the two stages.
+      // Optimistic funnel persistence is separate from the caller's renewed ResearchRun lease.
       await save(d, tenantId, basis, state, ctx);
       log.info("[research-funnel] page read budget", { tenantId, attempts, paidReads, ceilings: [MAX_PAGE_ATTEMPTS, MAX_PAID_BODY_READS] }); // internal progress truth: both ceilings, never silent
       const counters = { pageReadsAttempted: attempts, cacheHits: state.cycle.cacheHits, spendUsd: round(state.cycle.spentUsd) };
-      // The winners still landed, but a body I could not persist pauses this phase rather than handing the run
-      // on as though the page were read. A retry re-enters stage one, where read-before-fetch decides honestly.
+      // Unacknowledged owned-body persistence pauses without pretending delivery succeeded.
       if (ownedPause) return { status: "failed", cursor: null, progress: counters, detail: ownedPause };
       return { status: "advanced", cursor: { stage: shortRead && attempts > 0 ? "read" : "compare" }, progress: counters };
     } catch (e) {

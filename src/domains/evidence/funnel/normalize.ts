@@ -465,17 +465,19 @@ export function rankWinningPages(
   return [...picked, ...standbys];
 }
 
-/** PURE. THE SEARCHES A WINNING-PAGES PASS TAKES, IN THE ORDER IT TAKES THEM, AND THE PAGES OF EXACTLY THE ONES IT OWES A READING FOR. `queries` is the pass's whole priority list: the focused cases it was handed, cut to leave room, then the searches it owes; `pageKeys` is the promise, and every one of those pages is reserved by the order above it. THE one rule, read by the unit that reserves the reads and by the runtime receipt that makes them due, so the promise and the work cannot differ: the receipt counted the pages of EVERY unrepresented search while the pass reserves for `OWED_SEARCHES_PER_PASS` of them and leaves the rest to the global weight order, which loses, so with four owed searches the receipt named pages no pass would open. It counts what the pass RESERVES and nothing beyond it, and a search captured under two spellings is one search here exactly as it is one case there. A results page lands whole and its pages become winners only when this pass next ranks them, so a search bought at the head of today's drive holds no winner at all; a search is complete only when every reserved comparison page is on file. This account's own pages and social or forum pages are never winners and are never counted. Newest search first; a search with no date sorts last. */
-export function owedWinnerReads(serps: readonly unknown[], banked: readonly string[], ownDomain: string | null, focus: readonly string[] = []): { queries: string[]; pageKeys: string[] } {
-  const onFile = new Set(banked.map((u) => canonicalUrlKey(u))), paid = new Map<string, { q: string; at: string; keys: string[]; held: boolean }>();
-  for (const s of serps as ({ query?: unknown; status?: unknown; observedAt?: unknown; organic?: readonly { url?: string; rank?: number }[] | null } | null)[]) {
-    if (s?.status !== "done" || typeof s.query !== "string" || !s.query) continue;
+/** One newest completed, identity-valid result per canonical query. Receipts, acquisition and projection share this selection; history remains stored. Owed reads fit the pass's reserve, excluding owned/noise pages. */
+export function owedWinnerReads<T>(serps: readonly T[], banked: readonly string[], ownDomain: string | null, focus: readonly string[] = []): { queries: string[]; pageKeys: string[]; currentSerps: T[] } {
+  const onFile = new Set(banked.map((u) => canonicalUrlKey(u))), paid = new Map<string, { q: string; at: number; keys: string[]; held: boolean; row: T }>();
+  for (const row of serps) {
+    const s = row as { query?: unknown; status?: unknown; identityMismatch?: unknown; observedAt?: unknown; organic?: readonly { url?: string; rank?: number }[] | null } | null;
+    if (s?.status !== "done" || s.identityMismatch || typeof s.query !== "string" || !canonicalQueryKey(s.query)) continue;
+    const key = canonicalQueryKey(normalizeKeyword(s.query)), seen = paid.get(key), parsed = typeof s.observedAt === "string" ? Date.parse(s.observedAt) : NaN, at = Number.isFinite(parsed) ? parsed : -Infinity;
+    if (seen && seen.at > at) continue;
     const keys = (s.organic ?? []).filter((o) => typeof o?.rank === "number" && o.rank <= 10).sort((a, b) => a.rank! - b.rank!).map((o) => canonicalUrlKey(o?.url ?? ""))
       .filter((k) => !!k && !isOwnPage(k, ownDomain) && !isNoiseDomain(k));
-    /* ONE SEARCH IS ONE SEARCH, HOWEVER IT WAS SPELT (reviewer, 2026-09-06): keyed on the raw string, one phrase captured under two casings was two owed searches to the receipt and ONE case to the reserve, so the promise counted a read the pass would never make. The key is the reserve's own, and the wording kept is the one first seen. */ const key = canonicalQueryKey(normalizeKeyword(s.query)), seen = paid.get(key), at = typeof s.observedAt === "string" ? s.observedAt : "";
-    const allKeys = [...new Set([...(seen?.keys ?? []), ...keys])]; paid.set(key, { q: seen?.q ?? s.query, at: seen != null && seen.at > at ? seen.at : at, keys: allKeys, held: allKeys.length > 0 && allKeys.slice(0, PRIORITY_WINNERS_PER_QUERY).every((k) => onFile.has(k)) });
+    const distinct = [...new Set(keys)]; paid.set(key, { q: s.query, at, keys: distinct, held: distinct.length > 0 && distinct.slice(0, PRIORITY_WINNERS_PER_QUERY).every((k) => onFile.has(k)), row });
   }
-  const take = [...paid.values()].filter((v) => v.keys.length > 0 && !v.held).sort((x, y) => y.at.localeCompare(x.at)).slice(0, OWED_SEARCHES_PER_PASS);
+  const take = [...paid.values()].filter((v) => v.keys.length > 0 && !v.held).sort((x, y) => y.at - x.at).slice(0, OWED_SEARCHES_PER_PASS);
   const reserved = (ks: readonly string[]): string[] => ks.slice(0, PRIORITY_WINNERS_PER_QUERY);
-  /** AND THE OWED SEARCHES FIT INSIDE THE CEILING THE RESERVE STOPS AT (reviewer, 2026-09-06): the pass handed its focused cases first and appended these behind them, and `rankWinningPages` reserves for the first MAX_PRIORITY_QUERIES of that list, so an account already carrying forty focused cases got a receipt naming three pages no pass would open. The focused cases keep their precedence, page for page; what they give up is the tail of a list a runaway stop already cuts. ONE spelling, so the promise and the order the pass takes cannot differ. */ return { queries: [...focus.slice(0, Math.max(0, MAX_PRIORITY_QUERIES - take.length)), ...take.map((v) => v.q)], pageKeys: [...new Set(take.flatMap((v) => reserved(v.keys)))] };
+  return { queries: [...focus.slice(0, Math.max(0, MAX_PRIORITY_QUERIES - take.length)), ...take.map((v) => v.q)], pageKeys: [...new Set(take.flatMap((v) => reserved(v.keys)))], currentSerps: [...paid.values()].map((v) => v.row) };
 }

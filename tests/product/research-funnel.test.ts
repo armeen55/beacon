@@ -25,6 +25,24 @@ const DAY_A = "2026-07-21", DAY_B = "2026-07-22"; // THE PLANNER owns the report
 const plan = (ps: { id: string; text: string }[], day = DAY_A, slot: 0 | 1 | 2 = 0): DueObservation[] => ps.flatMap((p) => ENG.map((engine) => ({ promptId: p.id, version: 1, text: p.text, engine, slot, day })));
 const canon = (over: Partial<CanonicalPairObservation> = {}): CanonicalPairObservation => ({ observationId: "obs_1", promptId: "p1", promptVersion: 2, promptText: "where to buy saffron", engine: "chatgpt", modelRequested: null, modelServed: null, observationMode: "consumer_search", reportingDay: DAY_A, observedAt: null, answerHash: "h", webSearchReported: null, fanOutQueries: null, citations: null, retrievedResults: null, brandMentions: null, analysis: null, ...over });
 describe("short winner turns", () => {
+  it.each(["acct-a", "acct-b"])("prioritizes the exact current query-backed target and preserves other banked readings for %s", async (t) => {
+    const at = new Date(NOW).toISOString(), old = "https://old.example/page", target = "https://target.example/page", other = "https://other.example/page", wrapper = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/id";
+    const seed = emptyFunnelState(t, BASIS), row = (when: string, urls: string[]) => ({ query: "Read This", cacheKey: null, status: "done" as const, observedAt: when, organic: urls.map((url, i) => ({ url, rank: i + 1, domain: new URL(url).hostname, title: null })) });
+    seed.serps.queries = [row(at, [target, other]), row(WEEKS_AGO, [old]), { ...row(at, ["https://wrong.example/page"]), identityMismatch: { asked: "read this", served: "wrong query" } }];
+    seed.winningPages = [{ url: other, domain: "other.example", engines: [], examplePrompts: [], appearances: [], extract: { title: "Other", h1: null, wordCount: 5, headings: [], faqCount: 0, mainText: "Other banked words", truncated: false, fetchedAt: at } }];
+    const store = memStore(seed), fetched: string[] = [], paid = vi.fn(), words = "The exact target supplies the comparison material this query needs.";
+    const deps: FunnelDeps = { ...store.deps, now: () => NOW, loadProfile: async () => emptyBusinessProfile(t), getAccount: async () => ({ domain: "own.example" } as Account), resolveCitations: async (a) => a, readPageExtract: async (url) => url === other ? { extract: seed.winningPages[0]!.extract as unknown as Record<string, unknown>, fetchedAt: at, contentHash: "other-body" } : null, writePageExtract: async () => {}, callProvider: paid,
+      fetchPage: async (url) => { fetched.push(url); return { ok: true, html: `<html><main><h1>Target</h1><p>${words}</p></main></html>`, status: 200 }; } };
+    const out = await winningPagesUnit(deps, ["read this"], null, null, null, target)(t, cur(), 60_000), saved = store.peek(t, BASIS)!;
+    expect([out.status, fetched, paid.mock.calls, saved.winningPages.find((w) => w.url === target)?.extract?.mainText?.includes(words), saved.winningPages.find((w) => w.url === other)?.extract?.mainText]).toEqual(["advanced", [target], [], true, "Other banked words"]);
+    expect(projectFunnelEvidence(saved, NOW).serpEvidence.map((s) => s.organic.map((o) => o.url))).toEqual([[target, other]]);
+    for (const url of [old, "https://unbacked.example/page", "https://wrong.example/page"]) expect((await winningPagesUnit(deps, ["read this"], null, null, null, url)(t, cur(), 60_000)).status).toBe("failed");
+    expect((await winningPagesUnit(deps, ["another query"], null, null, null, target)(t, cur(), 60_000)).status).toBe("failed"); expect(fetched).toEqual([target]);
+    const wrapped = emptyFunnelState(t, "wrapper-basis"); wrapped.serps.queries = [row(at, [wrapper])]; const ws = memStore(wrapped);
+    const resolved: FunnelDeps = { ...deps, ...ws.deps, resolveCitations: async (as) => as.map((a) => ({ ...a, citedUrl: target, viaUrl: a.citedUrl })) };
+    expect((await winningPagesUnit(resolved, ["read this"], null, null, null, wrapper)(t, { basis: "wrapper-basis" }, 60_000)).status).toBe("advanced"); expect(fetched).toEqual([target, target]); expect(paid).not.toHaveBeenCalled();
+    expect(store.peek(t, "wrapper-basis")).toBeUndefined(); expect(ws.peek("another-account", "wrapper-basis")).toBeUndefined();
+  });
   it.each(["acct-a", "acct-b"])("holds %s's failed first short read, advances healthy winners, and retries deferred work after the hold", async (t) => {
     const seed = emptyFunnelState(t, BASIS); seed.serps.queries = [{ query: "read this", status: "done", organic: [1, 2, 3].map((n) => ({ url: `https://winner${n}.example/page`, rank: n, title: "Page", snippet: null })) }] as FunnelState["serps"]["queries"];
     const store = memStore(seed), cache = new Map<string, Record<string, unknown>>(); let at = NOW; const reads: string[] = [], paid = vi.fn();
