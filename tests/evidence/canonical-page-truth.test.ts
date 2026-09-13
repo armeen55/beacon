@@ -16,14 +16,14 @@ describe("one rule decides which capture is the page", () => {
   it("carries same-sized material revisions from extraction through the stored projection into job identity, without clock churn", async () => {
     const { extractPageSnapshot } = await import("@/domains/evidence/pages/extractor");
     const url = "https://fixture-revision.example/page", at = new Date("2026-09-10T12:00:00Z");
-    const html = `<html><head><title>Harbour seals</title><script type="application/ld+json">{"@type":"ImageObject","caption":"Harbour colony","contentUrl":"https://fixture-revision.example/seals.jpg"}</script></head><body><main><h1>Harbour seals</h1><h2>Where they rest</h2><p>${"Seals rest near the harbour. ".repeat(15)}</p><details><summary>When do seals rest?</summary>${"They rest at low tide. ".repeat(15)}June.</details></main></body></html>`;
+    const html = `<html><head><title>Harbour seals</title><script type="application/ld+json">{"@type":"ImageObject","caption":"Harbour colony","contentUrl":"https://fixture-revision.example/seals.jpg"}</script></head><body><main><header><h1>Harbour seals</h1></header><h2>Where they rest</h2><p>${"Seals rest near the harbour. ".repeat(15)}</p><h3>When they return</h3><details><summary>When do seals rest?</summary>${"They rest at low tide. ".repeat(15)}June.</details></main></body></html>`;
     const capture = (text: string) => ({ ...extractPageSnapshot(text, url, "p1", "t"), fetched_at: at.toISOString() });
     const read = () => loadEvidenceSnapshot("t", { site: "fixture-revision.example", now: at, resolveBasis: async () => null, loadObservations: async () => [] });
     const before = capture(html); db.rows = [JSON.parse(JSON.stringify(before))];
     const owned = (await loadOwnedPageBodies("t", [url])).get("fixture-revision.example/page")!, pair = owned.faqs[0]!;
     expect([owned.version, pair.question, pair.answer, pair.answerComplete, before.body_text?.includes("Harbour seals Where they rest Seals rest")]).toEqual(["current", "When do seals rest?", `${"They rest at low tide. ".repeat(15)}June.`, true, true]);
-    const pollution = `<details><summary>Unheld question?</summary>Unheld assertion.</details>`, dirty = capture(html.replace("<main>", `${pollution}<nav>${pollution}</nav><main><div hidden>${pollution}</div><div aria-hidden="true">${pollution}</div><div style="display: none !important">${pollution}</div><template>${pollution}</template>`));
-    expect([dirty.faqs, dirty.body_text, dirty.content_hash, dirty.faq_hash]).toEqual([before.faqs, before.body_text, before.content_hash, before.faq_hash]);
+    const pollution = `<h1>Unheld headline</h1><h2>Unheld outline</h2><h3>Unheld subsection</h3><details><summary>Unheld question?</summary>Unheld assertion.</details>`, dirty = capture(html.replace("<main>", `${pollution}<nav>${pollution}</nav><main><div hidden>${pollution}</div><div aria-hidden="true">${pollution}</div><div style="display: none !important">${pollution}</div><template>${pollution}</template>`));
+    expect([dirty.faqs, dirty.body_text, dirty.content_hash, dirty.faq_hash, dirty.h1, dirty.h2_list, dirty.h3_list, dirty.h3_count, dirty.headings_hash, dirty.structural_warnings]).toEqual([before.faqs, before.body_text, before.content_hash, before.faq_hash, before.h1, before.h2_list, before.h3_list, before.h3_count, before.headings_hash, before.structural_warnings]);
     const more = "A second content region has useful facts too.";
     for (const tag of ["main", "article"]) expect(capture(html.replace("<details><summary>", "<div><h2>").replace("</summary>", "</h2></div><div><p>").replace("</details>", "</p></div>").replaceAll("main>", `${tag}>`).replace(`</${tag}>`, `</${tag}><${tag}><p>${more}</p></${tag}>`))).toMatchObject({ body_text: expect.stringContaining(more), faqs: before.faqs.map((f) => ({ ...f, source: "html_section" })) });
     for (const repeats of [1500, 6000]) {
@@ -41,7 +41,7 @@ describe("one rule decides which capture is the page", () => {
     await expect(supabaseBackend.getPageSnapshots()).rejects.toThrow(/forTenant/); await expect(supabaseBackend.forTenant("").getPageSnapshots()).rejects.toThrow(/explicit tenant/);
     db.rows = [before]; const base = await read(), key = jobEvidenceHash(base, [url], "harbour seals");
     expect(base.ownedPages[0]!.content?.revision).toEqual({ content_hash: before.content_hash, headings_hash: before.headings_hash, faq_hash: before.faq_hash, schema_hash: before.schema_hash });
-    for (const changed of [html.replace("June.", "July."), html.replace("Harbour colony", "Harbour animals"), html.replace("seals.jpg", "shore.jpg"), html.replaceAll("near the harbour", "near the islands")]) {
+    for (const changed of [html.replace("June.", "July."), html.replace("Harbour colony", "Harbour animals"), html.replace("seals.jpg", "shore.jpg"), html.replaceAll("near the harbour", "near the islands"), html.replace("When they return", "When they gather"), html.replace("h3>", "h4>").replace("</h3>", "</h4>")]) {
       const after = capture(changed); db.rows = [after];
       expect([after.title, after.word_count, after.h2_list.length, after.schema_types]).toEqual([before.title, before.word_count, before.h2_list.length, before.schema_types]);
       expect(jobEvidenceHash(await read(), [url], "harbour seals")).not.toBe(key);

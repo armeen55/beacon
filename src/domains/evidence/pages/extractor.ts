@@ -45,7 +45,8 @@ export function extractPageSnapshot(
   const $ = cheerioLoad(html);
   const schemaGraph = SCHEMA.read(html);
   const $content = cheerioLoad(html);
-  $content("nav, footer, header, aside, script, style, noscript, svg, iframe, template, [hidden], [aria-hidden=true]").remove();
+  $content("nav, footer, aside, script, style, noscript, svg, iframe, template, [hidden], [aria-hidden=true]").remove();
+  $content("header").filter((_, el) => !$content(el).parents("main, article").length).remove();
   $content("[style]").filter((_, el) => /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important\s*)?(?:;|$)/i.test($content(el).attr("style") ?? "")).remove();
   const mains = $content("main").filter((_, el) => $content(el).parents("main").length === 0), articles = $content("article");
   const contentRoot = mains.length ? mains : articles.length === 1 ? articles : $content("body");
@@ -59,22 +60,13 @@ export function extractPageSnapshot(
   const robotsMeta =
     $('meta[name="robots"]').attr("content")?.trim() || null;
 
-  const h1 = $("h1").first().text().trim() || null;
-  const h1Count = $("h1").length;
-  const h2List: string[] = [];
-  $("h2").each((_, el) => {
-    const text = $(el).text().trim();
-    if (text) h2List.push(text);
-  });
-  const h3Count = $("h3").length;
-
-  // Bounded heading capture, in document order.
-  const h3List: string[] = [];
-  $("h3").each((_, el) => {
-    if (h3List.length >= 30) return;
-    const text = $(el).text().trim();
-    if (text) h3List.push(text.slice(0, 200));
-  });
+  const h1Nodes = contentRoot.find("h1"), h3Nodes = contentRoot.find("h3");
+  const h1 = h1Nodes.first().text().trim() || null;
+  const h1Count = h1Nodes.length;
+  const headingTexts = (tag: string): string[] => contentRoot.find(tag).toArray().map((el) => $content(el).text().trim()).filter(Boolean);
+  const h2List = headingTexts("h2");
+  const h3Count = h3Nodes.length;
+  const h3List = headingTexts("h3").slice(0, 30).map((text) => text.slice(0, 200));
 
   // ── FAQ extraction ──
   const faqs: PageSnapshot["faqs"] = [];
@@ -313,7 +305,7 @@ export function extractPageSnapshot(
   // content on file, never a claim about bytes nobody kept.
   const dedupedSchemaTypes = [...new Set(schemaTypes)];
   const contentHash = hash(bodyTextHeld);
-  const headingsHash = hash([h1 ?? "", ...h2List].join("|"));
+  const headingsHash = hash(JSON.stringify(["headings-v3", contentRoot.find("h1,h2,h3,h4,h5,h6").toArray().map((el) => [$content(el).prop("tagName")?.toLowerCase(), $content(el).text().trim()])]));
   const faqHash = hash(JSON.stringify(["answers-v2", faqMaterial]));
   const schemaHash = hash(JSON.stringify(["values-v2", schemaMaterial.sort()]));
 
