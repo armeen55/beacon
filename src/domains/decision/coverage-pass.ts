@@ -276,11 +276,11 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
       for (const [key, body] of read ?? []) if (isCurrent("owned_page", body.fetchedAt, nowMs)) bodies.set(key, body);
       // AN EMPTY BODY STORE IS UNKNOWN COVERAGE, NEVER PROOF A PAGE HAS NO WORDS. A page my own results name,
       // whose words are not on file, is NAMED for the run's page phase to read under its lease; naming it here is free and safe, and fetching it here was the whole defect.
-      const owed = want.find((u) => !bodies.has(u));
+      candidates = ownedCandidatesFor(snapshot, inv, bodies);
+      const owed = want.find((u) => !candidates.find((c) => c.url === u)?.bodyHeld);
       if (owed) { ownedUrl = owed; ownedRead = ownedReads.get(owed) ?? null; }
       // DECIDE AGAIN IN THE SAME PASS: a body already stored is judged in this breath, and a read that failed hands the verdict its persisted reason so the verdict says which failure this was and on what date.
-      if (ownedRead || want.some((u) => bodies.has(u))) {
-        candidates = ownedCandidatesFor(snapshot, inv, bodies);
+      if (ownedRead || want.length > 0) {
         try { decision = await adjudicateCoverage(inv, candidates, tenantId, { ...judge, ownedRead }); } catch { continue; }
       }
     }

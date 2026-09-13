@@ -447,7 +447,7 @@ async function ladder(
     if (failed) return refuse(inv, ids, "owned_content",
       `${unread.url} could not be read, so whether it already answers "${inv.label}" cannot be said yet. Tried again ${when(failed.retryAfter, at)}.`,
       "A page that did not answer today is not a page anybody refused, and it is not treated as one.", failed.retryAfter);
-    return refuse(inv, ids, "owned_content", `Your page ${unread.url} could already be the answer to "${inv.label}", and its own words are not on file yet, so it gets read before anything is said about it.`,
+    return refuse(inv, ids, "owned_content", `Your page ${unread.url} could already be the answer to "${inv.label}", and its current captured content is not confirmed yet, so it gets read before anything is said about it.`,
       "No page is called missing while one of yours that might already answer it sits unread.");
   }
   // EVERY CHEAPER CHECK IS BEHIND US, so this is the one topic that earned the paid comparison. With it in hand the verdict is final and free; without it the topic

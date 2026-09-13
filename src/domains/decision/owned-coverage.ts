@@ -19,6 +19,7 @@ import { anchoredTopicMatch, canonicalQueryKey, topicTokens } from "@/domains/ev
 import { classifyResult, publisherHost } from "@/domains/evidence/serp-shape";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import type { TopicInvestigation } from "@/domains/evidence/topic-investigation";
+import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 
 // ── the contract ─────────────────────────────────────────────────────────────
 
@@ -39,14 +40,12 @@ export type OwnedCandidate = {
   openingSample: string | null; entities: string[];
   /** When I last read this page, so staleness is visible rather than assumed. */
   fetchedAt: string | null;
-  /** False when I hold no words for this page: unknown coverage, never absent. */
+  /** A current, version-bound capture, not metadata or an excerpt; an empty confirmed capture is still a read. */
   bodyHeld: boolean;
   signals: OwnedSignal[]; strongSignals: number;
 };
 
-/** What a caller already read of an owned page's own words (the targeted body
- *  reader's shape), passed in so this stays pure. */
-type HeldBody = { title?: string | null; openingSample?: string | null; entityNames?: string[]; fetchedAt?: string | null };
+type HeldBody = Partial<Pick<OwnedPageBody, "url" | "title" | "openingSample" | "entityNames" | "fetchedAt" | "vocabulary" | "contentHash" | "completeness" | "version">>;
 type Draft = { url: string; page: OwnedPageEvidence | null; signals: OwnedSignal[]; impressions: number };
 type Extract = NonNullable<EvidenceSnapshot["research"]["winningPages"][number]["extract"]>;
 
@@ -177,17 +176,18 @@ export function ownedCandidatesFor(snapshot: EvidenceSnapshot, investigation: To
 
 function finish(d: Draft, body: HeldBody | undefined, x: Extract | undefined): OwnedCandidate {
   const c = d.page?.content ?? null;
-  const bodyHeld = !!body?.openingSample || !!x?.openingSample || (!!c && (c.wordCount > 0 || !!c.title));
+  const bodyHeld = !!body?.contentHash && canonicalUrlKey(body.url ?? "") === d.url && body.version === "current"
+    && (body.completeness === "complete" || body.completeness === "partial") && typeof body.vocabulary === "string";
   const signals = [...d.signals];
   if (!bodyHeld) signals.push({ kind: "body_not_held", strength: "unknown", basis: d.url,
-    detail: "This page's words are not on file, so whether it already covers this is unknown." });
+    detail: "A current, version-bound capture of this page is not held, so whether it already covers this is unknown." });
   signals.sort((a, b) => STRENGTH_ORDER.indexOf(a.strength) - STRENGTH_ORDER.indexOf(b.strength)
     || a.kind.localeCompare(b.kind) || a.basis.localeCompare(b.basis));
   return {
     url: d.url, path: pathOf(d.url), title: c?.title ?? body?.title ?? x?.title ?? null, h1: c?.h1 ?? x?.h1 ?? null,
     wordCount: c?.wordCount ?? x?.wordCount ?? null, outlineLength: c?.outline.length ?? x?.headings.length ?? 0,
     openingSample: body?.openingSample ?? x?.openingSample ?? null, entities: body?.entityNames ?? x?.entityNames ?? [],
-    fetchedAt: c?.fetchedAt ?? body?.fetchedAt ?? x?.fetchedAt ?? null, bodyHeld, signals,
+    fetchedAt: body?.fetchedAt ?? c?.fetchedAt ?? x?.fetchedAt ?? null, bodyHeld, signals,
     strongSignals: signals.filter((s) => s.strength === "strong").length,
   };
 }

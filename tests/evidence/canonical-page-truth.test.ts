@@ -76,7 +76,8 @@ describe("one rule decides which capture is the page", () => {
     expect([sample.completeness, pageContains(sample, "An unshown answer")]).toEqual(["sample_only", "unknown"]);
     for (const [body, certainty, expected] of [["", "confirmed", "current"], [null, "confirmed", "stale_known_good"], ["", "uncertain", "blank"]]) {
       db.rows = [{ ...row(flag.url, "2026-09-10", "", 0, String(certainty)), body_text: body }, ...(certainty === "uncertain" ? [] : [row(flag.url, "2026-09-09", "A trusted older body.", 4, "confirmed")])];
-      expect((await loadOwnedPageBodies("t", [flag.url])).get("iranopedia.com/iran-flags/iran-islamic-republic-flag-history")?.version).toBe(expected);
+      const read = (await loadOwnedPageBodies("t", [flag.url])).get("iranopedia.com/iran-flags/iran-islamic-republic-flag-history")!;
+      expect([read.version, pageContains(read, "Unshown words")]).toEqual([expected, expected === "current" ? "no" : "unknown"]);
     }
     db.rows = Array.from({ length: 9 }, (_v, i) => row(`https://iranopedia.com/p${i}`, "2026-08-30T22:00:00Z", `Page ${i} says something true about its own subject.`, 9, "confirmed"));
     const urls = db.rows.map((r) => String(r.url)); db.calls = 0;

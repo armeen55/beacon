@@ -139,8 +139,8 @@ function bodyOf(row: Row): OwnedPageBody {
   for (const p of stored) { if (used + p.length > MAX_PAGE_CHARS) break; passages.push(p); used += p.length; }
   const heldWords = passages.join(" ").split(/\s+/).filter(Boolean).length;
   const pageWords = typeof row.word_count === "number" && row.word_count > 0 ? row.word_count : null;
-  // Only a nonempty held body proves capture scope; metadata and excerpts cannot reconstruct a whole page.
-  const sampled = !held || full.length === 0;
+  // Confirmed empty bodies are real reads; an unqualified blank or excerpts cannot prove absence.
+  const sampled = !held || (full.length === 0 && row.extraction_certainty !== "confirmed");
   const truncated = passages.length < stored.length || (full.length >= CRAWL_BODY_TEXT_CHARS);
   // TRUNCATION RECORDS EXACTLY WHAT IS HELD, whichever verdict it lands under, and says WHOSE ceiling cut it.
   const range = passages.length < stored.length

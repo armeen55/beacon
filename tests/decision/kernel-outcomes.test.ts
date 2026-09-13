@@ -1,14 +1,14 @@
 import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1")); afterEach(() => vi.unstubAllEnvs());
+beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1")); afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers(); });
 
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} })); // Budget is not this file's subject: always-allowed, no-op hermetic seam.
-const env = vi.hoisted(() => ({ snap: null as unknown, pairedFaq: false, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>(), withdrawn: [] as string[], failWrites: false, failIds: new Set<string>(), refuseIds: new Set<string>(), withdrawnIds: new Set<string>(), bundleTarget: null as string | null, bundle: null as unknown, realBundle: false, ledger: [] as unknown[], door: null as { door: string; evidence: { query: string | null } } | null }));
+const env = vi.hoisted(() => ({ snap: null as unknown, pairedFaq: false, coverageBody: {} as Record<string, unknown>, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>(), withdrawn: [] as string[], failWrites: false, failIds: new Set<string>(), refuseIds: new Set<string>(), withdrawnIds: new Set<string>(), bundleTarget: null as string | null, bundle: null as unknown, realBundle: false, ledger: [] as unknown[], door: null as { door: string; evidence: { query: string | null } } | null }));
 const fenv = vi.hoisted(() => ({ cards: null as null | unknown[], review: null as null | ((c: readonly unknown[]) => readonly unknown[]) })); vi.mock("@/domains/measurement/proof-gsc/load-ledger", () => ({ loadProofLedgerPersisted: async () => env.ledger, loadProofLedgerCached: async () => env.ledger })); // THE SHIPMENT LEDGER BOTH RANKING DOORS EAT, in the test's own hands: the real read reaches Supabase, fails soft to nothing, and would leave this account's track record unpinnable
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...((await orig()) as object), // Keyed the way the producer reads it (canonical, so a stored row and a full address are one page), or the page's own words are silently dropped.
   loadOwnedPageBodies: async (_t: string, urls: string[]) => new Map(urls.filter((u) => !u.includes("unreadable"))
-    .flatMap((u) => [u, u.replace(/^https?:\/\//, "").replace(/\/+$/, "")].map((k) => [k, { url: u, title: "T", h1: null, metaDescription: null, headings: [], passages: ["A haft seen table is the spread a household sets out for the new year."], openingSample: "A haft seen table is the spread a household sets out for the new year.", vocabulary: "A haft seen table is the spread a household sets out for the new year.", cardTexts: [], faqs: env.pairedFaq ? [{ question: "What is a haft seen table?", answer: "A haft seen table is the spread a household sets out for the new year.", source: "html_details", answerComplete: true }] : [], entityNames: [], internalLinks: [], fetchedAt: "2026-07-25T00:00:00.000Z", completeness: "complete", version: "current", contentHash: env.pairedFaq ? "current-capture" : null, heldNote: "" }] as const))) }));
+    .flatMap((u) => [u, u.replace(/^https?:\/\//, "").replace(/\/+$/, "")].map((k) => [k, { url: u, title: "T", h1: null, metaDescription: null, headings: [], passages: ["A haft seen table is the spread a household sets out for the new year."], openingSample: "A haft seen table is the spread a household sets out for the new year.", vocabulary: "A haft seen table is the spread a household sets out for the new year.", cardTexts: [], faqs: env.pairedFaq ? [{ question: "What is a haft seen table?", answer: "A haft seen table is the spread a household sets out for the new year.", source: "html_details", answerComplete: true }] : [], entityNames: [], internalLinks: [], fetchedAt: "2026-07-25T00:00:00.000Z", completeness: "complete", version: "current", contentHash: "current-capture", heldNote: "", ...(u === "fixture-outdoors.example/nowruz-table" ? env.coverageBody : {}) }] as const))) }));
 vi.mock("@/domains/decision/proposal-store", async () => { const actual = await vi.importActual<typeof import("@/domains/decision/proposal-store")>("@/domains/decision/proposal-store");
   return { ...actual, loadChangeProposals: async () => env.store, withdrawnProposalIds: async () => env.withdrawnIds, // The canonical store's OWN rule, emulated: a proposal identical to the stored row writes nothing at all.
     withdrawChangeProposal: async (p: ChangeProposal) => { env.withdrawn.push(p.id); env.store.delete(p.id); return true; }, saveChangeProposal: async (p: ChangeProposal) => { const prior = env.store.get(p.id); if (prior && actual.proposalFingerprint(prior) === actual.proposalFingerprint(p)) return "unchanged";
@@ -195,7 +195,7 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
 const NOW = new Date("2026-07-26T00:00:00.000Z");
 /** A REAL but smaller gap (169 clicks) that is listed FIRST, ahead of GAP's 300. */ const WEAK = ownedPage("fixture-outdoors.example/nowruz-food", "Nowruz Food", { impressions: 3000, clicks: 60 }, [{ query: "nowruz food traditions", impressions: 2800, clicks: 55, position: 4.1 }], ["Persian New Year Customs", "Haft-Seen"]);
 const BOTH = () => snap([WEAK, GAP], looked([["nowruz food traditions", "fixture-outdoors.example/nowruz-food"], ["nowruz traditions", GAP_URL]]));
-const reset = (s: EvidenceSnapshot): void => { env.snap = s; env.pairedFaq = false; env.saved = []; env.store = new Map(); env.withdrawn = []; env.failWrites = false; env.failIds = new Set(); env.refuseIds = new Set(); env.withdrawnIds = new Set(); env.bundleTarget = null; env.bundle = null; env.realBundle = false; env.door = null; };
+const reset = (s: EvidenceSnapshot): void => { env.snap = s; env.pairedFaq = false; env.coverageBody = {}; env.saved = []; env.store = new Map(); env.withdrawn = []; env.failWrites = false; env.failIds = new Set(); env.refuseIds = new Set(); env.withdrawnIds = new Set(); env.bundleTarget = null; env.bundle = null; env.realBundle = false; env.door = null; };
 const counting = (): { complete: CompleteFn; calls: () => number } => { let n = 0; return { complete: async () => { n += 1; return { value: VALID_ATOMIC_EDIT }; }, calls: () => n }; };
 const run = (complete: CompleteFn) => produceProposalsForTenant("fixture-tenant", { complete, now: NOW, bypassCache: true });
 describe("a refresh re-pays nothing, and a pass that saved nothing says so", () => { it("aims the deep change at the STRONGEST gap, drafts and writes ONCE, then does nothing at all on the next pass", async () => { reset(BOTH()); const first = counting(); const one = await run(first.complete);
@@ -322,9 +322,9 @@ describe("the pass says what it is investigating without turning any of it into 
     const key = keyOf(READY()); reset(snap([GAP], READY({ topicKey: key }), DEMAND)); const held = await produceProposalsForTenant("fixture-tenant", { now: NOW });
     expect([held.coverage!.investigation.key, held.coverage!.decision.verdict, held.coverage!.decision.missing]).toEqual([key, "create_new", []]); // nothing injected, and nothing bought twice
     for (const drift of [{ topicKey: "inv_somebody_else" }, { topicKey: key, pages: [...COMPARED, "https://r9.example/a"] }]) { // an answer to another question, and an answer to another set of pages
-      const research = READY(drift); const stuck = await readCoverage(snap([GAP], research, DEMAND), "fixture-tenant", { basis: "basis_today", maxQueries: 1 });
+      const research = READY(drift); const stuck = await readCoverage(snap([GAP], research, DEMAND), "fixture-tenant", { basis: "basis_today", maxQueries: 1, now: NOW });
       expect([stuck.decided, stuck.needs[0]!.requirement, stuck.needs[0]!.comparison !== null]).toEqual([null, "page_intersection", true]); }
-    const blind = await readCoverage(snap([GAP], READY({ topicKey: key }), DEMAND), "fixture-tenant", { basis: null, maxQueries: 1 }); // a basis I cannot read proves nothing current
+    const blind = await readCoverage(snap([GAP], READY({ topicKey: key }), DEMAND), "fixture-tenant", { basis: null, maxQueries: 1, now: NOW }); // a basis I cannot read proves nothing current
     expect([blind.decided, blind.needs[0]!.requirement]).toEqual([null, "page_intersection"]);
     const quiet = await readCoverage(snap([GAP], READY({ topicKey: "inv_nobody" }), DEMAND), "fixture-tenant", { basis: "basis_today" }); // asked for no research: none is queued, comparison included
     expect(quiet.needs).toEqual([]); });
@@ -334,6 +334,8 @@ describe("the pass says what it is investigating without turning any of it into 
     const one = at(emptyResearchEvidence()), two = at(GUIDED); // before the look, and after it
     expect([two.key, two.queries[0] === one.queries[0]]).toEqual([one.key, true]); }); // the case is never renamed when the look it asked for lands
   it("buys a comparison only for a topic THIS run froze, under the basis it froze it under, even when the plan holds several", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
     const key = keyOf(READY()); reset(snap([GAP], READY({ topicKey: "inv_bought_for_nobody" }), DEMAND)); // the comparison is still owed, and the plan is up to three topics, not one
     const plan = await chooseInvestigation("fixture-tenant", "basis_today"); expect(plan!.topics.length).toBeGreaterThan(0);
     const mixed = { basis: "basis_today", topics: [{ topicKey: "inv_not_this_run", query: "something else", requirement: "exact_search" }, ...plan!.topics] };
@@ -341,7 +343,7 @@ describe("the pass says what it is investigating without turning any of it into 
       await comparisonForFocus("fixture-tenant", { basis: "basis_today", topics: mixed.topics.slice(0, 1) }, "basis_today"), // a plan this run froze that never earned this comparison
       await comparisonForFocus("fixture-tenant", mixed, "basis_moved_on")]).toEqual([key, null, null]); }); }); // and one frozen under a basis the account has left
 const PARKED = "nowruz table settings"; const PARK_RIVAL = (n: number) => `https://p${n}.example/a`; const UNREAD_URL = "fixture-outdoors.example/nowruz-table";
-const UNREAD: OwnedPageEvidence = { ...ownedPage(UNREAD_URL, "T", { impressions: 10, clicks: 1 }, []), content: null };
+const UNREAD = ownedPage(UNREAD_URL, "T", { impressions: 10, clicks: 1 }, []);
 const PARKED_DEMAND: EvidenceSnapshot["keywordDemand"] = [{ query: PARKED, searchVolume: 2000, source: "dataforseo", competition: null, competitionLevel: null, gscImpressions: null }];
 const withParked = (r: FunnelResearchEvidence): FunnelResearchEvidence => ({ ...r, retainedKeywords: [...r.retainedKeywords, { query: PARKED, searchVolume: 2000, competition: null, competitionLevel: null, difficulty: null, intent: "informational", discoveredVia: "gsc", seed: null }],
   serpEvidence: [...r.serpEvidence, { query: PARKED, observedAt: LOOKED_AT, aiOverview: [], aiMode: [], paa: [], related: [], organic: [...[1, 2, 3].map((rank) => ({ rank, domain: `p${rank}.example`, url: PARK_RIVAL(rank), title: `${PARKED} guide` })), { rank: 4, domain: "fixture-outdoors.example", url: UNREAD_URL, title: "T" }] }],
@@ -364,17 +366,25 @@ describe("a new page needs a positive yes, never just the absence of a no", () =
     expect(topicPositivelyAuthorized(world, tied, null)).toBe(true); // the operator's own anchors reach it
     const drifted = { ...tied, label: "submarine cable maintenance", queries: ["submarine cable maintenance"] }; expect(topicPositivelyAuthorized(world, drifted, null)).toBe(false);});});
 describe("a subject I own no page for becomes ONE researched page, and nothing else does", () => {
-  it("reads a page of mine whose words are already stored, decides again in the SAME pass, and still judges the topic that OWNS the comparison", async () => {
+  it.each([
+    [{}, true], [{ vocabulary: "", passages: [], openingSample: null }, true], [{ completeness: "partial" }, true],
+    [{ completeness: "sample_only" }, false], [{ version: "stale_known_good" }, false], [{ version: "blank" }, false],
+    [{ version: undefined }, false], [{ contentHash: null }, false], [{ vocabulary: undefined }, false],
+    [{ url: "https://rival.example/a" }, false], [{ fetchedAt: "2026-01-01T00:00:00Z" }, false],
+  ])("uses an actual qualified stored capture, or names the exact page still owed: %j", async (body, held) => {
     const research = withParked(READY({ topicKey: keyOf(READY()) })); const world = snap([GAP, UNREAD], research, [...DEMAND, ...PARKED_DEMAND]);
+    reset(world); env.coverageBody = body;
     const order = buildTopicInvestigations(world); const parked = order.find((i) => i.label === PARKED)!;
     const read = await readCoverage(world, "fixture-tenant", { basis: "basis_today", maxQueries: 3, now: NOW }); // the clock is injected: the stored body's currency is judged against the fixture's day, never the wall
     expect(rankInvestigations(order)[0]!.key).toBe(parked.key); // it ranks first, and its own page sat unread while its words were already on file
-    expect(read.needs.find((n) => n.topicKey === parked.key)?.requirement).toBe("page_intersection"); // one bounded read moved it on without sending the operator away
-    expect([read.decided!.investigation.label, read.decided!.decision.verdict]).toEqual([HAFT, "create_new"]); }); // and the comparison I paid for is read for the topic that owns it
+    const need = read.needs.find((n) => n.topicKey === parked.key)!;
+    expect([need.requirement, need.ownedUrl]).toEqual([held ? "page_intersection" : "owned_content", held ? null : UNREAD_URL]);
+    expect([read.decided!.investigation.label, read.decided!.decision.verdict]).toEqual([HAFT, "create_new"]); });
   it("NAMES the page of mine it cannot judge without, fetches no website at all doing it, and repeats the stored retry date instead of sliding it", async () => {
     const DARK_URL = "fixture-outdoors.example/nowruz-unreadable"; const HOLD = "2026-07-27T00:00:00.000Z";
-    const dark: OwnedPageEvidence = { ...ownedPage(DARK_URL, "T", { impressions: 400, clicks: 4 }, [{ query: PARKED, impressions: 400, clicks: 4, position: 6 }]), content: null };
+    const dark = ownedPage(DARK_URL, "T", { impressions: 400, clicks: 4 }, [{ query: PARKED, impressions: 400, clicks: 4, position: 6 }]);
     const world = (ownedReads: FunnelResearchEvidence["ownedReads"] = []) => snap([GAP, UNREAD, dark], { ...withParked(READY({ topicKey: keyOf(READY()) })), ownedReads }, [...DEMAND, ...PARKED_DEMAND]);
+    reset(world());
     const read = (w: EvidenceSnapshot) => readCoverage(w, "fixture-tenant", { basis: "basis_today", maxQueries: 6, now: NOW }); const owed = (r: Awaited<ReturnType<typeof readCoverage>>) => r.needs.find((n) => n.requirement === "owned_content");
     const net: string[] = []; const realFetch = globalThis.fetch; // ANY website read, by any module, through the one socket a render could use
     globalThis.fetch = (async (u: RequestInfo | URL) => { net.push(String(u)); throw new Error("a render may never reach a website"); }) as typeof fetch;
@@ -457,14 +467,12 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     const held = [...env.store.values()].find((x) => x.kind === "new_page");
     expect(held, "pass one banks the brief, the opening and the one section that wrote, on the page's own row").toBeTruthy();
     const pieces0 = held!.newPageDraft?.pieces?.length ?? 0; expect(pieces0).toBeGreaterThan(1);
-    // PASS 2: another topic's verdict. The partial page must survive it.
     const PREADY: FunnelResearchEvidence = { ...withParked(emptyResearchEvidence()), pageComparisons: [{ topicKey: "", askKey: askIdentity({ pages: [PARK_RIVAL(1), PARK_RIVAL(2), PARK_RIVAL(3)], intersection_mode: "union" }), pages: [PARK_RIVAL(1), PARK_RIVAL(2), PARK_RIVAL(3)], excludePages: [], observedAt: LOOKED_AT, receipt: null, unavailable: null,
       comparison: { intersectionMode: "union", excludePages: [], pages: [PARK_RIVAL(1), PARK_RIVAL(2), PARK_RIVAL(3)].map((url, i) => ({ page: i + 1, url })), keywords: [PARKED, "parked b", "parked c"].map((keyword, i) => ({ keyword, searchVolume: 500, competition: null, competitionLevel: null, difficulty: null, mainIntent: "informational", ranks: (i === 2 ? [3, 4] : [2, 3]).map((page) => ({ page, url: PARK_RIVAL(page), title: null, rank: page })) })) } }] };
     env.snap = snap([GAP, UNREAD], PREADY, PARKED_DEMAND);
     const two = briefSeam(); const second = await produceProposalsForTenant("fixture-tenant", { complete: two.complete, now: NOW, produce: true });
     expect(env.withdrawn.includes(held!.id), `a verdict about ${second.coverage?.investigation.label ?? "another topic"} retires no page about ${HAFT}`).toBe(false);
     expect(env.store.has(held!.id), "the partial page and its paid pieces are still on the store").toBe(true);
-    // PASS 3: the page's own topic returns. The stored brief resumes; no second brief is bought; the page completes whole.
     env.snap = snap([GAP], READY({ topicKey: keyOf(READY()) }), DEMAND);
     const three = briefSeam();
     await produceProposalsForTenant("fixture-tenant", { complete: three.complete, now: NOW, produce: true });
@@ -503,10 +511,8 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
 const HEADS = ["What a haft seen table is", "Setting out the table", "What each piece stands for"];
 const OPENS = "Families set one of these out at the turn of the year, and every piece on it carries a meaning.";
 const rich = (w: FunnelResearchEvidence["winningPages"][number], i: number) => ({ ...w, extract: { title: `${HAFT} guide`, h1: `${HAFT} guide`, wordCount: 900 + i, headings: HEADS, faqCount: 2, fetchedAt: LOOKED_AT, openingSample: OPENS, entityNames: ["Nowruz"] } });
-/** A FOURTH ranked winner whose read is months old: it ranks, and I do not currently hold its words. */
 const STALE = { url: RIVAL(4), domain: "r4.example", engines: [], examplePrompts: [], appearances: [{ kind: "serp_organic" as const, query: HAFT, promptId: null, promptText: null, engine: null, rank: 4, citedUrl: RIVAL(4), observedAt: LOOKED_AT, modelServed: null }], extract: { title: `${HAFT} guide`, h1: null, wordCount: 200, headings: [], faqCount: 0, fetchedAt: "2026-01-04T00:00:00.000Z" } };
 const READABLE = (over: Partial<ResearchPageComparison> = {}): FunnelResearchEvidence => { const r = READY(over); return { ...r, winningPages: [...r.winningPages.map(rich), STALE] }; };
-/** A reading in its OWN words: it repeats the shape it was handed, names only what every cited page carries, and writes a gap only against a page of mine. */
 const PATTERN = (user: string) => ({ archetype: user.match(/SETTLED: (\w+)/)?.[1] ?? "unknown", commonHeadings: [{ heading: "what each piece means", seenOn: [0, 1, 2] }], commonEntities: [{ entity: "Nowruz", seenOn: [0, 1, 2] }],
   questionsAnswered: ["What belongs on it?"], openingPattern: "Each of them answers the question in its first sentence.", disagreements: ["Some of them call it a custom and others call it a shopping list."],
   ownedGaps: user.includes("I hold no page of my own") ? [] : [{ gap: "your page never walks through the pieces one by one", seenOn: [0, 1, 2] }], uniqueNotCommon: [{ detail: "one of them prices the pieces", seenOn: [1] }] });
@@ -578,16 +584,16 @@ describe("a page earns the deep read through the door its own evidence opens", (
 }); // ── do I already have the right page for what I investigated? ────────────────
 const FOOD = "fixture-outdoors.example/nowruz-food"; const cands = (s: EvidenceSnapshot) => ownedCandidatesFor(s, buildTopicInvestigations(s)[0]!);
 const UBIQUITOUS = ["food", "music", "gifts", "fire", "dance", "poetry", "cards", "tables", "flowers", "travel"].map((w) => ({ query: `nowruz ${w}`, searchVolume: null, competition: null, competitionLevel: null, difficulty: null, intent: null })); const LOOKALIKE = ownedPage("fixture-outdoors.example/nowruz-gifts", "Nowruz Traditions and Gifts", { impressions: 400, clicks: 8 }, [{ query: "nowruz gifts", impressions: 400, clicks: 8, position: 9 }]); // every phrase this account owns carries one word, so that word proves nothing here
-describe("do I already have the right page for what I investigated", () => { it("treats an exact Search Console query as proof of coverage and matching wording as only a hint", () => {
+describe("do I already have the right page for what I investigated", () => { it("uses an exact Search Console query to locate a page, never to claim its body is held", () => {
     const out = cands(snap([GAP, LOOKALIKE], looked([["nowruz traditions", GAP_URL]]))); expect(out.map((c) => [c.url, c.strongSignals])).toEqual([[GAP_URL, 2], ["fixture-outdoors.example/nowruz-gifts", 0]]); // the page Google serves beats the page that only reads like the topic
-    expect(out[0]!.signals.map((s) => s.kind)).toEqual(["gsc_exact_query", "ranks_for_query"]); expect(out[1]!.signals.every((s) => s.strength !== "strong")).toBe(true);
+    expect([out[0]!.bodyHeld, out[0]!.signals.map((s) => s.kind)]).toEqual([false, ["gsc_exact_query", "ranks_for_query", "body_not_held"]]); expect(out[1]!.signals.every((s) => s.strength !== "strong")).toBe(true);
     expect(out[0]!.signals[0]!.detail).toContain('Google already shows this page for "nowruz traditions": 6,000 views and 180 clicks.'); });
   it("maps no page at all on one word this account puts on everything", () => { // the whole topic IS that one word, so nothing about it is distinguishing
-    expect(cands(snap([GAP, LOOKALIKE], { ...looked([["nowruz", GAP_URL]]), retainedKeywords: UBIQUITOUS })).map((c) => [c.url, c.signals.map((s) => s.strength)])).toEqual([[GAP_URL, ["strong"]]]); }); // only the page Google actually returns
+    expect(cands(snap([GAP, LOOKALIKE], { ...looked([["nowruz", GAP_URL]]), retainedKeywords: UBIQUITOUS })).map((c) => [c.url, c.signals.map((s) => s.strength)])).toEqual([[GAP_URL, ["strong", "unknown"]]]); }); // only the page Google actually returns
   it("never turns a rival's page into a page of mine", () => { expect(cands(SEEN()).map((c) => c.url)).toEqual([GAP_URL]); });
   it("reads a page whose words I do not hold as unknown coverage, never as no coverage", () => {
     const unread = "fixture-outdoors.example/nowruz-unread"; const page = cands(snap([GAP], looked([["nowruz traditions", unread]]))).find((c) => c.url === unread)!;
-    expect([page.bodyHeld, page.strongSignals]).toEqual([false, 1]); expect(page.signals.find((s) => s.strength === "unknown")!.detail).toBe("This page's words are not on file, so whether it already covers this is unknown."); });
+    expect([page.bodyHeld, page.strongSignals]).toEqual([false, 1]); expect(page.signals.find((s) => s.strength === "unknown")!.detail).toBe("A current, version-bound capture of this page is not held, so whether it already covers this is unknown."); });
   it("surfaces BOTH of my pages when both already cover the topic", () => { expect(cands(BOTH()).map((c) => [c.url, c.strongSignals])).toEqual([[GAP_URL, 2], [FOOD, 2]]); });
 }); // ── WHY this page loses the click: one named cause, or none ─────────────────
 /** The reading the drafting pass hands the verdict: what the winners share, and what MY page does not do. */
@@ -625,7 +631,7 @@ describe("why this page loses the click, one named cause at a time", () => { it(
       const world = snap([page], READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) }), DEMAND);
       const read = await readCoverage(world, "fixture-tenant", { basis: "basis_today", now: NOW, patternFor: { topicKey: keyOf(READY()), pattern } });
       return compileCandidates(world, { coverage: read.decided })[0]!;};
-    const noGaps = { ...PATTERN_HELD, ownedGaps: [] }; const bare = { ...noGaps, commonHeadings: [], commonEntities: [] };
+    const noGaps = { ...PATTERN_HELD, ownedGaps: [] }; const bare = { ...noGaps, commonHeadings: [], commonEntities: [], openingPattern: "" };
     expect((await laddered(GAP, noGaps)).cause.cause).not.toBe("incomplete_coverage"); // ABSENCE IS PROVEN OFF THE PAGE'S OWN WORDS, NEVER ASSUMED (operator, 2026-09-01): this compile path holds no body, so it cannot name what the page lacks and walks on; the bundle path diagnoses with the held body
     const listy = ownedPage(GAP_URL, "Top 10 Nowruz Traditions", { impressions: 6400, clicks: 190 }, [{ query: "nowruz traditions", impressions: 6000, clicks: 180, position: 4.1 }]);
     expect((await laddered(listy, bare)).cause.cause).toBe("serp_shape_shift"); // and the kind of page that wins is asked after that
