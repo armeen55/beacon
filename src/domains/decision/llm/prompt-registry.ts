@@ -1,12 +1,7 @@
 /**
- * llm/prompt-registry (2026-07-03, BEACON 500 R16 / P6) - every production prompt has a NAME and a VERSION, and every gateway call carries them.
- *
- * Why: prompts are load-bearing product logic, and a reworded system prompt can silently break the parsing/validation path that consumes the model's output.
- * Each entry maps a stable promptId to its CURRENT version, and the version is folded into the call cache key, so wording that changes the output contract
- * MUST bump the version here: a stale answer taken under the old wording can then never be served under the new one. The version sits in the same diff as
- * the prompt text's call site, so a reviewer can hold that line.
- *
- * PURE - constants only, no I/O, importable from anywhere (including tests).
+ * Every gateway prompt has a stable identity and a version in its cache key.
+ * Change the version alongside an output-contract change; preserve unrelated prompt identities.
+ * Pure constants, with no I/O.
  */
 
 export const PROMPT_REGISTRY = {
@@ -23,6 +18,7 @@ export const PROMPT_REGISTRY = {
   // Bumped to v6 (2026-07-11, pilot loop 6): every rephrase-class retry instruction (superlative-only, too-thin-only, and the combined instruction) now closes with a reminder not to introduce any number,
   // percentage, or statistic absent from the evidence. A prompt-wording change, so the cache must not serve a stale v5 response under the new guidance.
   "draft.answer_block": 6,
+  "draft.body_edit": 1, // Scoped primary body-copy replacement; unchanged title/meta prompt identities stay intact.
   "draft.page_acceptance": 2,
   // draft.atomic_edit bumped to v2 (2026-08-23, grounded utility): the head clause now names the actual field (an answer block is no longer told it is a title edit) and the intent directive carries the AEO shape vocabulary, so the cache must never serve a v1 answer written under the two-assignments prompt. Previously: stayed at v1 (2026-08-01, V1 Closure); the opening-answer clause is APPENDED only when the field is
   // answer_block, a value nothing ever passed before, and the cache key folds in the system text itself, so no stored title or meta draft can be served under wording it was not taken under.
