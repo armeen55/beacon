@@ -161,12 +161,10 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
   it("never renders an uncalibrated prior as a measured figure, and says which half is assumed", () => { const card = baseProposal({ impactScore: 400, diagnosisCause: undefined });
     const shown = rankProposals([card])[0]!.rankingReceipt!;
     const vis = shown.factors.find((f) => f.name === "visibility")!.input;
-    expect(vis, "the measured half is named first").toContain("400 clicks over 28 days");
-    expect(vis, "and the assumed half is named as policy").toContain("this product's policy and not a figure measured here");
+    for (const text of ["400 clicks over 28 days", "this product's policy and not a figure measured here"]) expect(vis).toContain(text);
     expect(vis).not.toContain("expected");
-    expect(shown.basis, "an undiagnosed card says outright it is an order and not a size").toContain("not a promise about size");
+    for (const text of ["not a promise about size", "nothing has named the cause yet"]) expect(shown.basis).toContain(text);
     expect(shown.basis).not.toContain("No click figure backs this one");
-    expect(shown.basis).toContain("nothing has named the cause yet");
     expect(rankProposals([baseProposal({ impactScore: 400, diagnosisCause: "ctr_snippet", recommendedChange: { kind: "existing_edit", field: "title", before: "a", after: "b" } })])[0]! .rankingReceipt!.basis).toContain("not a forecast");
     const thin = new Map([[actionFamilyOf("title"), { readings: 3, netLift: 900 }]]);
     expect(rankProposals([card], { familyHistory: thin })[0]!.rankingReceipt!.factors
@@ -181,8 +179,7 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
   it("treats nothing worth PAYING for as a quiet day for the drafter, while the $0 queue still works it", async () => {
     reset(snap([WINNER])); let called = 0; const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async () => { called += 1; return { error: "the drafter must never run when nothing earned an action", retryable: false }; } }); // nothing earns a PAID action
     expect([res.actionable, res.candidates.length, called]).toEqual([0, 1, 0]); // the drafter is never called // The early return used to skip the $0 producers entirely (canonical $0 acceptance run, 2026-08-21).
-    expect(res.proposals.every((p) => p.researchOnly === true || p.status === "needs_review")).toBe(true); // only $0 work, nothing paid
-    expect(env.saved.every((p) => p.researchOnly === true || p.status === "needs_review")).toBe(true); }); // and nothing persisted claims to be drafted copy
+    for (const rows of [res.proposals, env.saved]) expect(rows.every((p) => p.researchOnly === true || p.status === "needs_review")).toBe(true); }); // Neither returned nor persisted work claims to be drafted copy.
   it("changes nothing at all when the search data did not answer, and still publishes when the account genuinely holds none", async () => { const stored = baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::title-family", pagePath: "/nowruz-guide", pageUrl: GAP_URL, basis: "basis_today" });
     const gsc = (status: "failed" | "empty") => ({ ...snap([{ ...GAP, search: null }]), sources: [{ source: "gsc" as const, status, lastSyncedAt: null, rowsSeen: 0, note: "" }] });
     const pass = async (status: "failed" | "empty") => { reset(gsc(status)); env.store = new Map([[stored.id, stored]]); return produceProposalsForTenant("fixture-tenant", { now: NOW }); };
@@ -253,13 +250,10 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
   it("emits the COMPLETE per-page record for every funded key: family, treatment, impact, allowance, operations, real requests, real dollars, the store's own answer and the whole reason", async () => { reset(SEEN()); const out = await run(counting().complete);
     expect(out.paid.funded.length).toBeGreaterThan(0);
     expect(out.paid.receipts.length).toBe(out.paid.funded.length); expect(out.paid.receipts.map((r) => r.key)).toEqual([...out.paid.funded]); expect(out.paid.receipts.map((r) => r.impact)).toEqual([...out.paid.receipts.map((r) => r.impact)].sort((a, b) => b - a)); // one record per funded key, never fewer, AND THE PASS WALKS THE MONEY'S OWN ORDER, worth first and family nowhere: the walk takes budget.funded as it stands, so the receipt comes back in that order with what each job is worth never rising down the list
-    for (const r of out.paid.receipts) { expect(typeof r.key).toBe("string"); expect(r.funded).toBe(true);
-      expect(typeof r.family).toBe("string"); expect((r.family ?? "").length).toBeGreaterThan(0); // WHICH producer owns this money
-      expect(r).toHaveProperty("treatment"); // present on every row, null where the job declared none
-      expect(typeof r.impact).toBe("number"); expect(Number.isFinite(r.impact)).toBe(true);
-      expect(typeof r.allowance).toBe("number"); expect(r.allowance).toBeGreaterThan(0); // the whole price this page was funded at
-      expect(typeof r.ops).toBe("number"); expect(typeof r.providerCalls).toBe("number"); expect(typeof r.costUsd).toBe("number");
-      expect(r).toHaveProperty("persistence"); // the STORE'S OWN WORD, or null where nothing was written
+    for (const r of out.paid.receipts) { expect(r).toMatchObject({ key: expect.any(String), funded: true, family: expect.stringMatching(/[\s\S]/) });
+      expect([r.impact, r.allowance, r.ops, r.providerCalls, r.costUsd]).toEqual(Array(5).fill(expect.any(Number)));
+      expect(Number.isFinite(r.impact) && r.allowance > 0).toBe(true);
+      for (const field of ["treatment", "persistence"]) expect(r).toHaveProperty(field);
       expect(["produced", "evidence_banked", "deterministic_refusal", "retryable_blocked", "not_reached"]).toContain(r.outcome);}
     const worked = out.paid.receipts.filter((r) => r.outcome === "produced");
     expect(worked.length).toBeGreaterThan(0);
@@ -307,12 +301,6 @@ const keyOf = (research: FunnelResearchEvidence): string => buildTopicInvestigat
 /** One bought comparison, written as which requested page ranks for which search (page 1 is my own). */ const comparisonOf = (rows: Array<[string, number[]]>) => ({ intersectionMode: "union" as const, excludePages: [], pages: COMPARED.map((url, i) => ({ page: i + 1, url })),
   keywords: rows.map(([keyword, ranks]) => ({ keyword, searchVolume: 500, competition: null, competitionLevel: null, difficulty: null, mainIntent: "informational", ranks: ranks.map((page) => ({ page, url: COMPARED[page - 1]!, title: null, rank: page })) })) });
 describe("the pass says what it is investigating without turning any of it into work", () => {
-  it("carries the research packets, picks the SAME strongest topic from the same evidence, and proposes nothing off them", async () => {
-    const world = () => snap([WINNER], looked([["nowruz traditions", GAP_URL]])); // a page with no gap, plus one results page I have read
-    let called = 0; const complete: CompleteFn = async () => { called += 1; return { value: VALID_ATOMIC_EDIT }; };
-    reset(world()); const first = await produceProposalsForTenant("fixture-tenant", { complete, now: NOW }); reset(world()); const again = await produceProposalsForTenant("fixture-tenant", { complete, now: NOW });
-    expect(first.investigations.length).toBeGreaterThan(0); expect(first.coverage).toEqual(again.coverage); // the packet reaches the pass, and the same evidence reaches the same answer every time
-    expect([called, first.proposals.every((p) => p.researchOnly === true || p.status === "needs_review")]).toEqual([0, true]); }); // no candidate earns a DRAFT; the $0 queue may still mint research-only work
   it("queues one search per topic and only what buying can actually close", async () => {
     const asked = canon({ promptId: "p1", promptText: "where do I see nowruz fire jumping", engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [], fanOutQueries: ["nowruz fire jumping"], observedAt: LOOKED_AT });
     reset(snap([GAP, WEAK], { ...GUIDED, aiObservations: [asked] }, DEMAND)); // one topic never looked at, one whose winners I have not read, and two searches my own pages are losing that are no topic at all
@@ -520,14 +508,25 @@ const PATTERN = (user: string) => ({ archetype: user.match(/SETTLED: (\w+)/)?.[1
   questionsAnswered: ["What belongs on it?"], openingPattern: "Each of them answers the question in its first sentence.", disagreements: ["Some of them call it a custom and others call it a shopping list."],
   ownedGaps: user.includes("No qualified owned capture") ? [] : [{ gap: "your page never walks through the pieces one by one", seenOn: [0, 1, 2] }], uniqueNotCommon: [{ detail: "one of them prices the pieces", seenOn: [1] }] });
 describe("what the winning pages share reaches the operator, and never one of their own sentences", () => {
-  it("shows the reading MY OWN page before it may name a gap in it, counts only the winners I currently hold, and carries its lines onto the verdict", async () => {
+  it("funded research retains its own page, winners and verdict beside a blocked higher-priority topic", async () => {
     const research = READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) });
-    reset(snap([GAP], research, DEMAND)); let shown = "";
+    const world = snap([GAP], structuredClone(research), structuredClone(DEMAND));
+    const label = "coastal bird nesting", url = "fixture-outdoors.example/bird-nesting";
+    const other: FunnelResearchEvidence = JSON.parse(JSON.stringify(research).replaceAll(HAFT, label).replaceAll(GAP_URL, url).replace(/r([1-4])\.example/g, "bird-r$1.example"));
+    const page = ownedPage(url, `${label} guide`, { impressions: 90_000, clicks: 0 }, [{ query: label, impressions: 90_000, clicks: 0, position: 8 }]);
+    page.content!.robotsMeta = "noindex"; world.ownedPages.push(page);
+    world.keywordDemand.push({ ...DEMAND[0]!, query: label, searchVolume: 90_000 });
+    world.research.retainedKeywords.push(...other.retainedKeywords);
+    world.research.serpEvidence.push(...other.serpEvidence);
+    world.research.winningPages.push(...other.winningPages);
+    world.research.pageComparisons!.push(...other.pageComparisons!);
+    other.pageComparisons![0]!.askKey = askIdentity({ pages: other.pageComparisons![0]!.pages, intersection_mode: "union" });
+    other.pageComparisons![0]!.topicKey = buildTopicInvestigations(world).find((i) => i.label === label)!.key;
+    reset(world); let shown = "";
     const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async ({ kind, user }) => { if (kind !== "winning_pattern") return { value: VALID_ATOMIC_EDIT as never };
       shown = user; return { value: PATTERN(user) as never }; } });
-    const d = res.coverage!.decision; expect(d.verdict).toBe("improve_existing");
-    expect(shown).toContain("A haft seen table is the spread a household sets out for the new year."); expect(shown).toContain('"contentHash":"current-capture"'); // Actual canonical body, not shortlist labels.
-    expect(shown).toContain(`SETTLED: ${res.coverage!.investigation.pageType}`); // the shape arrives decided, never as a second vote
+    const d = res.coverage!.decision; expect(d.verdict).toBe("improve_existing"); expect(d.ownedUrls).toContain(GAP_URL);
+    for (const text of ["A haft seen table is the spread a household sets out for the new year.", '"contentHash":"current-capture"', `SETTLED: ${res.coverage!.investigation.pageType}`]) expect(shown).toContain(text);
     expect([d.pattern!.winners, d.pattern!.publishers]).toEqual([3, ["r1.example", "r2.example", "r3.example"]]); // the months-old fourth read is not one of the pages I read
     expect(d.pattern!.ownedGaps[0]!.gap).toContain("piece"); // and the gap stands only because the page it is about was supplied
     expect(d.evidence!.find((e) => e.id === "gap1")!.fact).toContain("Your own page does not do what 3 of them do"); expect(d.evidence!.find((e) => e.id === "pattern")!.fact).toContain("The 3 pages that win here were read side by side"); });

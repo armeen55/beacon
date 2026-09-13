@@ -94,10 +94,10 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     demandOf: (url: string) => audience.get(canonicalUrlKey(url)) ?? 0 }); // THE ACCOUNT'S OWN NUMBERS DECIDE WHICH TWELVE SURVIVE THE CUT, because the reader of a technical list is choosing what to fix first and the finding list is bounded
   let coverage: DecidedTopic | null = null, waitingUntil: string | null = null;
   const extraHeld: { pageUrl: string; reason: string }[] = []; // Filled once the $0 producers run; the same array rides the result so held work reaches the receipt.
-  try { const read = await readCoverage(snapshot, tenantId, { basis, profile, now: opts.now, intersection: opts.intersection, technical, curve }); coverage = read.decided; waitingUntil = read.waitingUntil; } // THE COVERAGE VERDICT, AT $0. The reading of the winning pages that can refine it is PAID, so it is no longer bought here, ahead of everything: it is declared on the pass's ONE manifest below, priced like every other job, and run only if the one ranking funds it (Codex, 2026-08-22, "delete the paid reserve that runs before the rank, or represent that work explicitly in the same manifest").
+  const coverageContext = { basis, profile, now: opts.now, intersection: opts.intersection, technical, curve };
+  try { const read = await readCoverage(snapshot, tenantId, coverageContext); coverage = read.decided; waitingUntil = read.waitingUntil; } // Coverage is free; pattern research is funded by the one manifest below.
   catch (e) { log.warn("[produce-proposals] coverage verdict failed (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) }); }
   const patternKey = coverage && (coverage.decision.verdict === "create_new" || coverage.decision.verdict === "improve_existing") && coverage.investigation.currentReadableWinners >= 2 && !coverage.decision.pattern ? `pattern:${coverage.investigation.key}` : null;
-  // Prepare once at $0: funding memory and the funded reader must name the same owned capture.
   const patternUrl = patternKey ? coverage!.decision.ownedUrls[0] ?? coverage!.candidates[0]?.url : undefined;
   const patternOwned = await (async () => { const url = patternUrl, key = canonicalUrlKey(url ?? "");
     const body = url ? sweepBodies?.get(key) ?? (await loadOwnedPageBodies(tenantId, [url]).catch(() => null))?.get(key) : null;
@@ -110,7 +110,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
       extractPageFacts(jobWinners(snapshot.research, [at.investigation.label, ...at.investigation.queries], at.investigation.demandBasis === "ai" ? "aeo" : "seo").filter((r) => mine.has(r.url))), patternOwned, tenantId,
       { complete: opts.complete, now: opts.now, pageType: at.investigation.pageType, label: at.investigation.label, queries: at.investigation.queries, attempts: slice, refused: () => { refused = true; } },
     ).catch(() => null);
-    if (!pattern) return refused; const again = await readCoverage(snapshot, tenantId, { basis, profile, now: opts.now, intersection: opts.intersection, curve, patternFor: { topicKey: at.investigation.key, pattern } }).catch(() => null);
+    if (!pattern) return refused; const again = await readCoverage(snapshot, tenantId, { ...coverageContext, patternFor: { topicKey: at.investigation.key, pattern } }).catch(() => null);
     if (again?.decided) { coverage = again.decided; waitingUntil = again.waitingUntil; } return false; };
   const research = () => ({ investigations, coverage, waitingUntil, held: extraHeld });
   const decline = new Map<string, NonNullable<ReturnType<Windows["get"]>>>(); for (const [url, w] of windows) for (const k of pageKeys(url)) decline.set(k, w); const compile = () => compileCandidates(snapshot, { coverage, ...measuring, decline, curve }), bound = maxDrafts === 0 ? 0 : Number.MAX_SAFE_INTEGER; // THE PAGE'S OWN TWO WINDOWS REACH THE DIAGNOSIS, keyed every way a candidate can be matched. DECLARATION IS FREE AND COMPLETE (operator, 2026-08-30): every earned candidate joins the manifest so `candidates_exhausted` means what it says; only FUNDING is bounded, by the money. A zero-draft pass still declares nothing, which keeps every paid row shielded from the sweep below exactly as before.
