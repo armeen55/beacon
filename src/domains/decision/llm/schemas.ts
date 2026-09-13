@@ -373,9 +373,9 @@ const FactualReviewSchema = z.object({ rulings: z.array(z.object({
   claims: z.array(z.object({ claim: z.number().int().min(0), factIds: z.array(z.string().min(1)),
     entailed: z.boolean(), why: z.string().min(1).max(200) })).min(1).max(12) })).min(1).max(12) });
 
-/** THE COMPARISON READING (campaign, 2026-09-05): a READER, never a writer. It is shown one search group, the owned page's own passages and up to three winning pages' main text, and it answers which of the deterministic candidates are real differences and which differences a token comparison could not see. Every entry names the winner it came from and quotes that winner's own words, and the code that consumes it keeps nothing it cannot find verbatim in the text it supplied, so an invented quote is dropped rather than briefed. */
+/** One source-bound observation; a topic identifies the source heading/entity, never its explanatory quote. */
 const CompetitorComparisonSchema = z.object({ observations: z.array(z.object({ winner: z.string().max(400), kind: z.enum(["answers", "covers", "names", "shape"]),
-  text: z.string().min(3).max(300), quote: z.string().min(3).max(200) })).max(12) });
+  topic: z.string().min(3).max(120).nullable().default(null), text: z.string().min(3).max(300), quote: z.string().min(3).max(200) })).max(12) });
 
 /** THE AEO GAP READER'S ANSWER: a closed diagnosis vocabulary and only ids the packet supplied. A reader, never a writer. */
 const AeoGapSchema = z.object({ kind: z.enum(["already_answered", "scattered_answer", "missing_information", "extraction_or_structure_gap", "authority_or_source_gap", "freshness_gap", "reachability_gap", "unknown"]),

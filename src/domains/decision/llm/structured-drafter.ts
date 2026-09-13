@@ -859,41 +859,32 @@ function unmarkAnchor<T>(data: T, phrase?: string): T {
   return moved ? (out as T) : data;
 }
 
-/** ONE READING OF WHAT THE PAGES WINNING A SEARCH CARRY THAT THE OWNED PAGE DOES NOT (campaign, 2026-09-05). The
- *  deterministic comparison in the evidence layer supplies the candidates; this confirms which of them are real and
- *  names the differences a token comparison cannot see (the same thing said in other words, an answer given without a
- *  heading, an entity written differently). It READS and never drafts: it proposes no copy, and its observations are
- *  briefing that no claim may cite. NOTHING IT CANNOT SHOW IS KEPT: an observation naming a page that was not supplied,
- *  or quoting words that are not in the text it was given, is dropped here rather than reaching a writer. A refusal,
- *  an empty budget or a missing key leaves the deterministic candidates exactly as they were, so the pass degrades to
- *  what the words themselves establish rather than to nothing. The cache key folds the prompts, which carry the
- *  winners' own content, so an unchanged page and an unchanged owned passage are never bought twice. */
+/** Comparison observations remain research, not claim authority. Quotes bind exclusively to the exact sanitized
+ * source supplied below; candidate suggestions cannot authenticate themselves. Topics retain source identity. */
 export async function readComparison(comparison: JobComparison, owned: { url: string; passages: readonly string[] },
-  /** THE READING SPENDS THE JOB'S OWN ALLOWANCE, EXACTLY AS THE WRITER DOES (campaign review, 2026-09-05). It took no
-   *  allowance at all, so its real requests and real dollars reached no page meter and the campaign's own kill
-   *  condition could not be read off the number that would prove it; the caller spent one attempt on the way in and,
-   *  unlike the writer, never gave it back when the answer came out of the cache. The caller still decides whether an
-   *  attempt is affordable; the receipt is filed here, where the result comes back, and a cached answer is refunded
-   *  here because it reached no provider. */
+  /** Receipts and cache refunds belong to the owning job's existing allowance. */
   opts: { tenantId: string; now?: Date; complete?: CompleteFn; attempts?: { left: number; record?: (r: unknown) => void } }): Promise<JobComparison> {
   const winners = comparison.winners.filter((w) => w.held.trim().length > 0);
   if (winners.length === 0 || !winners.some((w) => w.observations.length > 0)) return comparison; // no candidates, no call, no cost
+  const source = new Map(winners.map((w) => [w.url, sanitizeNullableEvidence(w.held) ?? ""]));
   const system = "You are READING two or more web pages side by side for an editor. You are shown one group of searches a reader asks, the passages one page already publishes, and the main text of up to five pages that win those searches. Answer ONLY with observations of what a winning page carries that the owned page does not: an answer it gives ('answers'), a subject it gives a section to ('covers'), things it names ('names'), or the shape it answers in ('shape'). Rules: every observation names one winner by the exact url shown to you; every quote is copied verbatim from that winner's own supplied text and is at most 200 characters; you never write copy, never propose a change, never state a fact neither text carries, and never repeat a candidate the owned passages already answer in their own words. Where a candidate below is not a real difference, leave it out. Where a real difference is missing from the candidates, add it. Prioritize differences independently supported by multiple publishers; never call a pattern shared without quotes from at least two. Give each readable winner a fair hearing. Where a winner's text is marked cut, say nothing about what it does not carry.";
-  const user = [`THE SEARCHES: ${comparison.queries.join("; ")}`, `THE OWNED PAGE (${owned.url}) PUBLISHES THESE SELECTED PASSAGES (not a full-page absence proof):`,
+  const user = [`THE SEARCHES: ${comparison.queries.join("; ")}`, `THE TASK FOCUS: ${(comparison.focus ?? []).join("; ") || "the searches above"}`, "Topics identify exact source headings/entities, not explanatory sentences: for covers or names return one source heading/entity as topic, with its supporting passage as quote. Source text alone supports quotations; candidate suggestions never do.", `THE OWNED PAGE (${owned.url}) PUBLISHES THESE SELECTED PASSAGES (not a full-page absence proof):`,
     ...sanitizeEvidenceTexts(owned.passages.slice(0, 8).map((p) => `- ${p.slice(0, 600)}`)),
-    ...winners.flatMap((w) => [`WINNER ${w.url} (${w.shape.words} words${w.truncated ? ", capture cut, so what it carries past this is unknown" : ""}, capture ${w.bodyKey}):`,
-      sanitizeEvidenceTexts([w.held])[0] ?? "", `CANDIDATE DIFFERENCES FOR ${w.url}: ${w.observations.map((o) => `${o.kind}: ${o.quote}`).join(" | ") || "none"}`]),
+    ...winners.flatMap((w) => [`WINNER ${w.url} (${w.shape.words} words${w.truncated || !w.heldWhole || source.get(w.url) !== w.held ? ", selected or cut text, so anything not shown is unknown" : ""}, capture ${w.bodyKey}):`,
+      source.get(w.url)!, ...sanitizeEvidenceTexts([`CANDIDATE SUGGESTIONS (not quotation authority) FOR ${w.url}: ${JSON.stringify(w.observations)}`])]),
     "Return the JSON now."].join("\n");
   const r = await callStructuredLLM({ kind: "competitor_comparison", tenantId: opts.tenantId, system, user, grounded: user,
     projectedCostUsd: 0.01, maxTokens: 1200, timeoutMs: 60_000, now: opts.now, complete: opts.complete }).catch(() => null);
   opts.attempts?.record?.(r); // THE MONEY LANDS WHERE THE RESULT COMES BACK, whatever it says: a call that refused, blocked or threw was still made, and the page's meter is the only place the reading's cost can be read.
   DRAFT_BUDGET.refundIfNoCallMade(opts.attempts, r); // A CACHED ANSWER COST NOTHING, SO IT COUNTS AS NOTHING, on the one rule beside the meter that every paid door now reads.
   if (!r || r.status !== "drafted") return comparison;
-  const flat = (t: string): string => t.toLowerCase().replace(/\s+/g, " ").trim();
-  const by = new Map(winners.map((w) => [w.url, [] as { kind: "answers" | "covers" | "names" | "shape"; text: string; quote: string }[]]));
-  for (const o of r.value.observations) { const w = winners.find((x) => x.url === o.winner || flat(x.url) === flat(o.winner)); if (!w) continue;
-    const quote = o.quote.trim(); const holds = flat(`${w.held} ${w.observations.map((c) => c.quote).join(" ")}`);
-    if (quote.length < 3 || !holds.includes(flat(quote))) continue; // a quote nobody can find is an invention, not an observation
-    by.get(w.url)!.push({ kind: o.kind, text: o.text.trim(), quote }); }
-  return withObservations(comparison, by);
+  const flat = (t: string): string => t.replace(/\s+/g, " ").trim();
+  const by = new Map(winners.map((w) => [w.url, [] as JobComparison["winners"][number]["observations"]]));
+  let rejected = 0;
+  for (const o of r.value.observations) { const w = winners.find((x) => x.url === o.winner); if (!w) { rejected += 1; continue; }
+    const quote = o.quote.trim(), holds = flat(source.get(w.url)!), topic = o.topic?.trim();
+    if (!holds.includes(flat(quote)) || ((o.kind === "covers" || o.kind === "names") && (!topic || !holds.toLowerCase().includes(flat(topic).toLowerCase())))) { rejected += 1; continue; }
+    by.get(w.url)!.push({ kind: o.kind, text: o.text.trim(), quote, ...(topic ? { topic } : {}) }); }
+  const read = withObservations(comparison, by);
+  return rejected > 0 && read.verdict === "nothing" ? { ...read, verdict: "unread" } : read;
 }

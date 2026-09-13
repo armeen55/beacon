@@ -127,7 +127,7 @@ export const comparisonLines = (c: JobComparison): string[] => c.winners.map((w)
 const LABEL: Readonly<Record<CompetitorKind, string>> = { commercial_competitor: "a business selling what this account sells", citation_authority: "a source assistants quote", publisher: "a publisher covering these topics", marketplace_directory: "a marketplace or directory", government_educational: "a government or school source", social_community: "a social platform", owned: "this account's own site", irrelevant_unknown: "a site whose part here is not settled" };
 export const comparisonObservations = (c: JobComparison): ComparisonObservation[] => c.winners.flatMap((w) => w.observations);
 export const comparisonTopics = (c: JobComparison): { topic: string; url: string }[] => c.winners.flatMap((w) =>
-  w.observations.filter((o) => o.kind === "covers" || o.kind === "names").flatMap((o) => (o.kind === "covers" ? [o.topic ?? o.quote] : o.quote.split(", ")).map((t) => ({ topic: tidy(t), url: w.url }))))
+  w.observations.filter((o) => o.kind === "covers" || o.kind === "names").flatMap((o) => (o.topic ? [o.topic] : o.kind === "covers" ? [o.quote] : o.quote.split(", ")).map((t) => ({ topic: tidy(t), url: w.url }))))
   .filter((t) => t.topic.length > 2);
 export const withObservations = (c: JobComparison, by: ReadonlyMap<string, ComparisonObservation[]>): JobComparison => {
   const winners = c.winners.map((w) => ({ ...w, observations: (by.get(w.url) ?? []).slice(0, MAX_OBSERVATIONS) }));
