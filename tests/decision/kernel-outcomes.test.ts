@@ -518,7 +518,7 @@ const STALE = { url: RIVAL(4), domain: "r4.example", engines: [], examplePrompts
 const READABLE = (over: Partial<ResearchPageComparison> = {}): FunnelResearchEvidence => { const r = READY(over); return { ...r, winningPages: [...r.winningPages.map(rich), STALE] }; };
 const PATTERN = (user: string) => ({ archetype: user.match(/SETTLED: (\w+)/)?.[1] ?? "unknown", commonHeadings: [{ heading: "what each piece means", seenOn: [0, 1, 2] }], commonEntities: [{ entity: "Nowruz", seenOn: [0, 1, 2] }],
   questionsAnswered: ["What belongs on it?"], openingPattern: "Each of them answers the question in its first sentence.", disagreements: ["Some of them call it a custom and others call it a shopping list."],
-  ownedGaps: user.includes("I hold no page of my own") ? [] : [{ gap: "your page never walks through the pieces one by one", seenOn: [0, 1, 2] }], uniqueNotCommon: [{ detail: "one of them prices the pieces", seenOn: [1] }] });
+  ownedGaps: user.includes("No qualified owned capture") ? [] : [{ gap: "your page never walks through the pieces one by one", seenOn: [0, 1, 2] }], uniqueNotCommon: [{ detail: "one of them prices the pieces", seenOn: [1] }] });
 describe("what the winning pages share reaches the operator, and never one of their own sentences", () => {
   it("shows the reading MY OWN page before it may name a gap in it, counts only the winners I currently hold, and carries its lines onto the verdict", async () => {
     const research = READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) });
@@ -526,7 +526,7 @@ describe("what the winning pages share reaches the operator, and never one of th
     const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async ({ kind, user }) => { if (kind !== "winning_pattern") return { value: VALID_ATOMIC_EDIT as never };
       shown = user; return { value: PATTERN(user) as never }; } });
     const d = res.coverage!.decision; expect(d.verdict).toBe("improve_existing");
-    expect(shown).toContain("Persian New Year Customs"); expect(shown).not.toContain("I hold no page of my own"); // the page the gap is about was really put in front of it
+    expect(shown).toContain("A haft seen table is the spread a household sets out for the new year."); expect(shown).toContain('"contentHash":"current-capture"'); // Actual canonical body, not shortlist labels.
     expect(shown).toContain(`SETTLED: ${res.coverage!.investigation.pageType}`); // the shape arrives decided, never as a second vote
     expect([d.pattern!.winners, d.pattern!.publishers]).toEqual([3, ["r1.example", "r2.example", "r3.example"]]); // the months-old fourth read is not one of the pages I read
     expect(d.pattern!.ownedGaps[0]!.gap).toContain("piece"); // and the gap stands only because the page it is about was supplied

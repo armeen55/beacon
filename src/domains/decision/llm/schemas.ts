@@ -299,7 +299,7 @@ export type AnswerAnalysisBatch = z.infer<typeof AnswerAnalysisBatchSchema>;
 // registry stands.
 const CaseSynthesisSchema = z.object({ merges: z.array(z.object({ keepId: z.string().min(1).max(60), absorbIds: z.array(z.string().min(1).max(60)).min(1).max(4), reason: z.string().min(1).max(300) })).max(6), splits: z.array(z.object({ fromId: z.string().min(1).max(60), moveQueries: z.array(z.string().min(1).max(200)).min(1).max(12), reason: z.string().min(1).max(300) })).max(3), pageLinks: z.array(z.object({ caseId: z.string().min(1).max(60), url: z.string().min(1).max(500), relation: z.enum(["covers", "partially_covers", "does_not_cover"]), reason: z.string().min(1).max(300) })).max(24), parentOf: z.array(z.object({ parentId: z.string().min(1).max(60), childId: z.string().min(1).max(60) })).max(12) });
 export type CaseSynthesis = z.infer<typeof CaseSynthesisSchema>;
-// ── winning pattern (V1 Truth Convergence Phase 3, 2026-07-31): what the pages that WIN a search have in common ── The model reads bounded FACTS about pages numbered from 0 upward, never their prose. It may cite only
+// ── winning pattern: held content and observed facts about pages numbered from 0 upward. It may cite only
 // the numbers it was handed and writes every pattern in its own words. The caller throws the WHOLE reading away on any of five: an eight-word run off a supplied line in ANY field, a heading over five words handed back
 // verbatim, a section or thing no cited page carries, a gap with no page of mine supplied, or an `archetype` re-voting the shape.
 const SeenOnSchema = z.array(z.number().int().min(0).max(11)).min(1).max(12);

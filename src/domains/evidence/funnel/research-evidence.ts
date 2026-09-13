@@ -259,7 +259,7 @@ export function pageExtractFrom(snap: ExtractableSnapshot): ResearchPageExtract 
     fetchedAt: str(snap.fetched_at),
     // THE READING ITSELF: the crawler already strips nav, header, footer and aside before it counts a word, so the
     // main content is on the snapshot and was being thrown away here every time a winner was read.
-    ...mainOf(snap.body_text), h3s: strings(snap.h3_list, 20), schemaTypes: strings(snap.schema_types, 12),
+    ...mainOf(snap.body_text), h3s: strings(snap.h3_list, 20), ...(Array.isArray(snap.schema_types) ? { schemaTypes: strings(snap.schema_types, 12) } : {}),
   };
 }
 

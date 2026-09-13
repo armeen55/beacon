@@ -59,7 +59,7 @@ export const PROMPT_REGISTRY = {
   // five words rather than sixty characters, forbid an eight-word run from ANY supplied line in ANY field, require every named section and thing to exist on every page cited
   // for it, order ownedGaps empty when no page of mine is supplied, and hand the model the already-settled page shape to repeat rather than re-vote. A contract change, so a
   // stale v1 answer must never be served under it.
-  "draft.winning_pattern": 2,
+  "draft.winning_pattern": 3, // Held main content + capture scope + search identity replace metadata-only comparison.
   // What ONE owned page is FOR (2026-08-11, page job): its purpose in a sentence, its shape, who it is written for, its subject
   // words, and whether it sells. Read off the page's own stored extract and nothing else, so the wording that forbids naming a
   // subject the extract does not carry is the whole contract; any change to it must bump this version. The cache key already

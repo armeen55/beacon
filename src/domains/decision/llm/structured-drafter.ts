@@ -5,7 +5,7 @@ import { checkBudget, recordSpend, reserveOnboardingSpend, reconcileOnboardingSp
 import { log } from "@/lib/logger";
 import { buildWinnerFewShots, buildWinnerFewShotsWithPattern } from "./winner-memory";
 import type { DraftPatternId } from "./draft-pattern";
-import { openAIStructuredResponse, llmFailureOf, type LlmFailure, type LlmProvenance } from "./gateway";
+import { openAIStructuredResponse, estimateCost, llmFailureOf, type LlmFailure, type LlmProvenance } from "./gateway";
 import { PROMPT_REGISTRY, type PromptId } from "./prompt-registry";
 import { llmCallCacheKey, resolveCacheImpl, type CacheImpl } from "./call-cache"; import { DRAFT_BUDGET } from "../draft-budget";
 import { looksTemplated, REPEAT_FLAG, REPEAT_HISTORY_SIZE, VARIATION_INSTRUCTION } from "./de-templating";
@@ -519,7 +519,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   }
   if (!complete) return { status: "off" };
 
-  const projectedCostUsd = req.projectedCostUsd ?? 0.02;
+  const projectedCostUsd = Math.max(req.projectedCostUsd ?? 0.02, estimateCost(MODEL, Math.ceil((req.system.length + req.user.length + JSON.stringify(z.toJSONSchema(schema)).length) / 3), req.maxTokens ?? 6000));
   const isOnboarding = req.budgetPlatform === "onboarding-openai";
   // B82: fail CLOSED on unknown budget; onboarding reserves per real attempt (D10) instead of this pre-loop check.
   if (!isOnboarding) {
