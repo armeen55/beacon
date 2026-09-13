@@ -87,16 +87,15 @@ type VerifyDeps = {
 /** How many live pages ONE pass may read for verification. A verification is one free read of a page the
  *  account owns, and three of them is a pass's worth: the rest are still due on the next visit. */
 const MAX_VERIFICATIONS_PER_PASS = 15, TARGET_SCAN_BOUND = 50; // verifications 3 to 15 (operator, 2026-08-30): 56 changes measuring drained at three a pass; the fetch itself is the only cost
-/** Under this many words at the proposed address, a new page is live but not yet a page. */
-const THIN_PAGE_WORDS = 120;
 /** The kinds a live page answers for on its own, with no wording needed to check them. */
-const COPY_FREE_KINDS: ReadonlySet<string> = new Set(["new_page", "noindex", "redirect", "consolidation", "navigation"]);
+const COPY_FREE_KINDS: ReadonlySet<string> = new Set(["noindex", "redirect", "consolidation", "navigation"]);
 /** Where a sitemap lives when nobody has told me otherwise. Anything else is honestly unreadable rather than graded against a guess. */
 const SITEMAP_PATH = "/sitemap.xml";
 const TEMPLATE_SLOT = /\b(NUMBER|YEAR|SOURCE|TODO|TBD)\b/; // COPY THAT IS STILL A TEMPLATE was applied to nothing: two answer blocks on file read "has a population of NUMBER as of YEAR (SOURCE)", and grading a page against an unfilled slot calls work undone that nobody was ever handed
 
-const norm = (s: string): string => s.toLowerCase().replace(/[‘’“”]/g, "'").replace(/[^a-z0-9']+/g, " ").trim();
-/** The claim's own opening words, which is how much of a proposal I can honestly expect to find verbatim. */
+const norm = (s: string): string => s.normalize("NFKC").toLowerCase().replace(/[‘’“”]/g, "'").replace(/[^\p{L}\p{N}']+/gu, " ").trim();
+const copyText = (s: string): string => s.normalize("NFKC").toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, " ").trim();
+/** Opening-word checks are for Google's potentially rewritten display, never copy-delivery proof. */
 const opener = (s: string, words = 12): string => norm(s).split(" ").filter(Boolean).slice(0, words).join(" ");
 const firstLine = (s: string): string => s.split(/\r?\n/).map((l) => l.trim()).find((l) => !!l) ?? "";
 const urlIn = (s: string): string | null => s.match(/https?:\/\/[^\s"'<>)\]]+|(?:^|\s)\/[a-z0-9][a-z0-9\-/_]*/i)?.[0]?.trim() ?? null;
@@ -111,17 +110,18 @@ const noExpectation = (kind: string, after: string, anchorAfter?: string | null)
 // THE PAGES AS THE STORE ALREADY HOLDS THEM, through the ONE canonical body reader: it picks the capture that IS the page (a newer blank never erases a confirmed body), so a javascript page answers from the rendered read already bought for it, and a closed reading learns its page moved. No second crawler, no spend.
 const heldBodies = (urls: string[], tenantId: string): Promise<Map<string, OwnedPageBody>> => loadOwnedPageBodies(tenantId, urls);
 
-/** What the live page says, reduced to the facts a component can be checked against. `text` is the page's
- *  own words: the extractor's main-content capture PLUS the raw body stripped of markup, so a paragraph far
- *  below the fold is still found and "I did not see it" means I really did look at the whole page. */
+/** Copy is checked against main content, never pooled metadata, navigation or schema assertions. */
 /** `sitemap` is the account's own sitemap as it reads right now, fetched ONLY when a change asked to be
  *  listed in it and null when there was none to read: no read of the PAGE can answer whether it is on that list. */
 /** `blind` is a read whose BODY never arrived (a javascript page hands the polite fetch a shell) and that no held capture could answer for. ONE fact for the whole reading: honoured in the two structured-data branches alone, one page said its markup builds in the browser while its sections said the operator did no work. */
-type LiveRead = { snap: PageSnapshot; text: string; schema: ReturnType<typeof schemaClaim>; markupBlind: boolean; finalUrl: string | null; requestedUrl: string; sitemap: string | null; blind: boolean };
+type LiveRead = { snap: PageSnapshot; text: string; opening: string; schema: ReturnType<typeof schemaClaim>; markupBlind: boolean; finalUrl: string | null; requestedUrl: string; sitemap: string | null; blind: boolean };
 
-function liveTextOf(snap: PageSnapshot, html: string): string {
-  const captured = [snap.title, snap.h1, ...(snap.h2_list ?? []), ...(snap.h3_list ?? []), ...(snap.body_paragraph_sample ?? []), ...(snap.card_texts ?? [])].filter(Boolean).join(" ");
-  return norm(`${captured} ${html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ")}`);
+function liveTextOf(html: string): { text: string; opening: string } {
+  const $ = load(html); $("nav, body > header, footer, aside, script, style, noscript, svg, iframe, [hidden], [aria-hidden=true]").remove();
+  const root = $("main").first().length ? $("main").first() : $("article").first().length ? $("article").first() : $("body");
+  root.find("br, p, div, section, article, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, pre, table, caption, tr, th, td, figure, figcaption").each((_, el) => { $(el).before(" ").after(" "); });
+  const text = copyText(root.text()); root.find("h1").remove();
+  return { text, opening: copyText(root.text()) };
 }
 
 /** WHAT GOOGLE PUTS ON SCREEN for one search: the rows of a results page, reduced to the address and the two
@@ -194,17 +194,8 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
     : norm(value) === norm(proposed) ? judged("verified", `Your ${what} matches the prepared wording exactly.`) : norm(value) === norm(component.before ?? "") ? judged("not_verified", `Your ${what} still reads the way it did before this change.`, "not_published_yet")
       : judged("changed_differently", `Your ${what} is live, and it is not the prepared wording. Your page says "${value.trim().slice(0, 140)}", which is what this change is measured on.`, "published_differently");
   const headings = [...(snap.h2_list ?? []), ...(snap.h3_list ?? [])].map(norm).filter(Boolean);
-  const wanted = opener(firstLine(proposed), 8), wantedWords = wanted.split(" ").filter(Boolean);
-  // A HEADING VERIFIES A SECTION ONLY IF IT COVERS IT. Either the proposed heading is on the page in full,
-  // or the live heading carries at least half of its words and never fewer than three. Measured by chars,
-  // a two word fragment ("our prices") passed for a nine word section, so a page that answered almost none
-  // of what was asked for read as verified.
-  const covers = (h: string): boolean => {
-    if (h.includes(wanted)) return true;
-    const words = new Set(h.split(" ").filter(Boolean)), shared = wantedWords.filter((w) => words.has(w)).length;
-    return shared >= Math.max(3, Math.ceil(wantedWords.length / 2));
-  };
-  const headingHit = !!wanted && headings.some(covers);
+  const wanted = copyText(proposed), headingHit = !!wanted && headings.includes(norm(proposed));
+  const carries = !!wanted && (` ${live.text} `).includes(` ${wanted} `);
   // A link is compared as an ADDRESS, never as a string: a relative href on the page and an absolute one in
   // the proposal are the same link, and www or a trailing slash is not a difference.
   const absolute = (href: string): string => { try { return new URL(href, live.requestedUrl).toString(); } catch { return href; } };
@@ -218,17 +209,16 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
     case "meta": return field(snap.meta_description, "search description");
     case "h1": return field(snap.h1, "headline");
     case "opening_answer": {
-      const sample = norm((snap.body_paragraph_sample ?? []).join(" ")), want = opener(proposed);
-      if (!sample) return judged("unverifiable", "The opening of your page could not be read, so this one is not called either way.", "rendered_content_gap");
-      return sample.includes(want) ? judged("verified", "Your page opens with the prepared answer.") : judged("changed_differently", "Your page opens with different words than the prepared ones.", "published_differently");
+      if (!live.opening) return judged("unverifiable", "The opening of your page could not be read, so this one is not called either way.", "rendered_content_gap");
+      return (` ${live.opening} `).startsWith(` ${wanted} `) ? judged("verified", "Your page opens with the complete recorded answer.") : live.blind ? judged("unverifiable", "The complete opening could not be read, so the answer cannot be confirmed.", "rendered_content_gap") : judged("changed_differently", "Your page opens with different words than the prepared ones.", "published_differently");
     }
     case "section": case "section_add": case "section_rewrite": case "restructure": case "table_or_list_add":
-      return headingHit || (!!wanted && live.text.includes(wanted)) ? judged("verified", "The section this change asked for is on the page.")
+      return headingHit ? judged("unverifiable", "The record names only a heading, so it cannot confirm the section's substantive copy.", "applied_wording_missing") : carries ? judged("verified", "The complete recorded section copy is on the page.")
         : !wanted ? judged("unverifiable", "This change names no wording to look for.", "applied_wording_missing")
           : live.blind ? judged("unverifiable", "Your page builds its content in the browser, so what is on it could not be read from the outside.", "rendered_content_gap") : judged("not_verified", "Your whole page was read, and this section is not on it.", "not_published_yet");
     case "section_remove":
       return !wanted ? judged("unverifiable", "This change names no heading to look for.", "applied_wording_missing")
-        : headingHit ? judged("not_verified", "That section is still on the page.") : judged("verified", "That section is gone.");
+        : headingHit || carries ? judged("not_verified", "The recorded section heading or copy is still on the page.") : live.blind ? judged("unverifiable", "The page could not be read completely, so the removal cannot be confirmed.", "rendered_content_gap") : judged("verified", "The recorded section heading or copy is no longer present.");
     // A RENAMED LINK IS CHECKED ON ITS WORDS, NEVER ON ITS ADDRESS. The swap renames a link that already
     // exists, so asking whether a link to that address is on the page answered yes the moment the change was
     // written: it read verified without anything having happened. What changed is the wording, so the wording
@@ -291,11 +281,10 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
         : /noindex/i.test(snap.robots_meta) ? judged("verified", "Your page now asks search engines to leave it out.")
           : judged("changed_differently", "Your page still asks search engines to keep it.", "not_published_yet");
     case "new_page":
-      return snap.word_count >= THIN_PAGE_WORDS ? judged("verified", "The new page is live and has real content on it.")
-        : judged("changed_differently", `The address answers, and only ${snap.word_count} words are on it.`, "not_published_yet");
+      return !wanted ? judged("unverifiable", "The page is live, but no applied page copy was recorded to verify.", "applied_wording_missing") : carries ? judged("verified", "The complete recorded page copy is live.")
+        : live.blind ? judged("unverifiable", "The page's content could not be read.", "rendered_content_gap") : judged("not_verified", "The address answers, but the complete recorded page copy is not there.", "not_published_yet");
     default: {
-      const want = opener(proposed);
-      return !want ? judged("unverifiable", "This change names no wording to look for.", "applied_wording_missing") : live.text.includes(want) ? judged("verified", "This wording is on your page.")
+      return !wanted ? judged("unverifiable", "This change names no wording to look for.", "applied_wording_missing") : carries ? judged("verified", "The complete recorded wording is on your page.")
         : live.blind ? judged("unverifiable", "Your page builds its content in the browser, so what is on it could not be read from the outside.", "rendered_content_gap") : judged("not_verified", "Your whole page was read, and this wording is not on it.", "not_published_yet");
     }
   }
@@ -337,13 +326,14 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
   const snap = extractPageSnapshot(res.html, requested, pageIdFor(canonicalUrlKey(shipment.url)), tenantId, res.status, profile ?? undefined); // ONE PAGE IDENTITY (operator, 2026-09-01): the raw address minted a second page id for eight pages beside the crawler's canonical one
   const shell = !snap.title && snap.word_count === 0; // A READ THAT PARSED NOTHING IS NOT AN EMPTY PAGE: a javascript site hands the polite fetch a shell, so the page store answers for it below, and only while its capture is newer than the change, because older words prove what the page said before it and never what it says now
   const held = shell ? await (deps.readHeld ?? heldBodies)([requested], tenantId).then((m) => m.get(canonicalUrlKey(requested)) ?? null).catch(() => null) : null;
-  const fresh = held && (!shipment.implementedAt || (held.fetchedAt ?? "") >= shipment.implementedAt) ? held : null;
+  const fresh = held && ["current", "sample_only"].includes(held.version ?? "") && !!held.fetchedAt && (!shipment.implementedAt || held.fetchedAt >= shipment.implementedAt) ? held : null;
   // Fail-soft on purpose: the verification I just computed is the evidence, and a snapshot row I could not save changes nothing about what I read with my own eyes. A shell is never written OVER the capture that IS the page.
   if (!shell) await (deps.writeOwnedPage ?? ((s: PageSnapshot, t: string) => syncPageSnapshots([s], t)))(snap, tenantId).catch(() => {});
   // ONE extra read, only when a change asked to be listed in the sitemap, and never a second time.
   const got = shipment.components.some((c) => c.kind === "navigation") ? await fetchPage(`${new URL(requested).origin}${SITEMAP_PATH}`, new Map(), {}).catch(() => null) : null;
   const asRead = fresh ? { ...snap, title: fresh.title, meta_description: fresh.metaDescription, h1: fresh.h1, h2_list: fresh.headings, body_paragraph_sample: fresh.passages, internal_links: fresh.internalLinks.map((l) => ({ href: l.href, anchor_text: l.anchorText })) } : snap;
-  const live: LiveRead = { snap: asRead, text: fresh ? norm([fresh.vocabulary, ...fresh.passages, ...fresh.headings].join(" ")) : liveTextOf(snap, res.html), schema: schemaClaim(res.html), markupBlind: snap.extraction_certainty === "uncertain", finalUrl: res.finalUrl ?? null, requestedUrl: requested, sitemap: got?.ok ? got.html : null, blind: snap.extraction_certainty === "uncertain" && !fresh };
+  const heldText = copyText(fresh?.passages.join(" ") ?? ""), heldH1 = copyText(fresh?.h1 ?? "");
+  const live: LiveRead = { snap: asRead, ...(fresh ? { text: heldText, opening: heldH1 && heldText.startsWith(`${heldH1} `) ? heldText.slice(heldH1.length).trim() : heldText } : liveTextOf(res.html)), schema: schemaClaim(res.html), markupBlind: snap.extraction_certainty === "uncertain", finalUrl: res.finalUrl ?? null, requestedUrl: requested, sitemap: got?.ok ? got.html : null, blind: fresh ? fresh.completeness !== "complete" : snap.extraction_certainty === "uncertain" };
   const components = shipment.components.map((c) => ({ kind: c.kind, ...classify(c, live) })), seen = components.filter((c) => c.state !== "unverifiable");
   const status: ShipmentVerification["status"] = seen.length === 0 ? "blocked"
     : components.every((c) => c.state === "verified") ? "verified" : seen.some((c) => c.state === "verified") ? "partially_verified" : "differs";
