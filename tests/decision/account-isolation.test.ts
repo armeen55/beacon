@@ -78,9 +78,9 @@ describe("callStructuredLLM keeps accounts isolated end to end", () => { // â”€â
   it("refuses unavailable history rather than buying with silently reduced context", async () => {
     const complete = vi.fn(), cache = partitionedCache().impl; cache.recentTexts = async () => { throw new Error("outage"); };
     const out = await callStructuredLLM({ ...REQ, tenantId: "history-outage", complete, cacheImpl: cache }); expect(out.status === "validation_failed" && out.reason).toBe("cache_history_unavailable"); expect(complete).not.toHaveBeenCalled(); });
-  it("applies the existing answer-completeness check to banked answers without a paid retry", async () => {
-    const answer = "Ceremonialcelebrationsandcustomspracticedbyparticipants ".repeat(10).trim(), complete = vi.fn(), cache = partitionedCache().impl; cache.read = async (tenantId, key) => ({ tenantId, key, kind: "answer_block", promptId: "draft.answer_block", promptVersion: 1, createdAt: "2026-09-12", lastUsedAt: "2026-09-12", primaryText: null, value: { ...VALID, answer } });
-    const out = await callStructuredLLM({ ...REQ, kind: "answer_block", grounded: answer, tenantId: "thin-bank", complete, cacheImpl: cache }); expect(out.status === "validation_failed" && out.reason).toBe("too_thin_answer"); expect(complete).not.toHaveBeenCalled(); });
+  it("refuses an old flat body cache without deleting it or paying for a retry", async () => {
+    const complete = vi.fn(), cache = partitionedCache().impl; cache.read = async (tenantId, key) => ({ tenantId, key, kind: "body_edit", promptId: "draft.body_edit", promptVersion: 2, createdAt: "2026-09-12", lastUsedAt: "2026-09-12", primaryText: null, value: { ...VALID, field: "answer_block" } });
+    const out = await callStructuredLLM({ ...REQ, kind: "body_edit", tenantId: "flat-bank", complete, cacheImpl: cache }); expect(out.status === "validation_failed" && out.failure).toBe("schema_invalid"); expect(complete).not.toHaveBeenCalled(); });
   it("account B gets a MISS on account A's byte-identical prompt; A still hits at $0", async () => {
     const cache = partitionedCache();
     const a1 = seam([{ value: VALID, provenance: RECEIPT }]); const outA = await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: a1.complete, cacheImpl: cache.impl }); // Account A generates + caches (pays).

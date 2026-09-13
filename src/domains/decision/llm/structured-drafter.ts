@@ -26,7 +26,6 @@ import {
   pageEntailsDraftClaims,
   classifySourceAuthority,
   extractDomain,
-  ungroundedSuperlatives,
   type ClassifiableSource,
 } from "@/domains/decision/drafts/source-authority";
 import { safeFetchSourceText } from "@/lib/net/safe-source-fetch";
@@ -98,43 +97,27 @@ function fewShotProvenanceFrom(
 
 export const SUPERLATIVES = /\b(best|leading|#1|number one|top-rated|guaranteed|world-class|ultimate|premier)\b/i;
 
-const NO_NEW_NUMBERS_RETRY_REMINDER =
-  "Do not introduce any number, percentage, or statistic that is not present in the evidence; if " +
-  "unsure, write the sentence without a number.";
-
-const SUPERLATIVE_REPHRASE_INSTRUCTION =
-  'Your previous answer used a superlative or ranking claim (for example "most famous", ' +
-  '"most celebrated", "leading", "best-known", "the first") that none of your cited sources ' +
-  "actually states. Do NOT simply repeat it, and do NOT drop the topic. Do NOT swap it for a " +
-  'DIFFERENT unproven superlative either (for example replacing "most famous" with "leading" or ' +
-  '"best-known" is still ungrounded and will fail again) - introduce NO new superlative or ranking ' +
-  "claim that was not in your first answer. REPHRASE it as a grounded, non-superlative fact using " +
-  'the specific credentials, dates, roles, and work in the evidence: for example write "holds the ' +
-  'certification named on the page and has worked in it since the date given" instead of "the most ' +
-  'trusted provider". A concrete grounded fact is always the better answer than any superlative - ' +
-  "prefer it every time. Only keep a superlative if a cited source explicitly asserts that exact " +
-  "superlative. " +
-  NO_NEW_NUMBERS_RETRY_REMINDER;
-
-const COMBINED_THIN_AND_SUPERLATIVE_RETRY_INSTRUCTION =
-  "Your previous answer had TWO problems - fix BOTH in this rewrite. First, it was too short: write " +
-  "a complete answer of 80 to 150 words, grounded ONLY in the evidence provided - add the missing " +
-  "length with MORE grounded single-fact sentences (one honor, one work, one date, one role per " +
-  "sentence), never by padding or writing longer compound sentences. Second, it used a superlative " +
-  'or ranking claim (for example "most famous", "most celebrated", "leading", "best-known") that ' +
-  "none of your cited sources actually states - remove it or REPHRASE it as a grounded, " +
-  "non-superlative fact using the specific honors, dates, roles, and works in the evidence. Do NOT " +
-  "swap it for a DIFFERENT unproven superlative and introduce NO new superlative or ranking claim " +
-  "that was not in your first answer. Only keep a superlative if a cited source explicitly asserts " +
-  "that exact superlative. " +
-  NO_NEW_NUMBERS_RETRY_REMINDER;
-
 /** Presentation normalization never rewrites evidence, URLs, exact anchors, replaced text or JSON-LD. */
 function sanitizeDashesDeep(v: unknown): unknown {
   if (!v || typeof v !== "object" || Array.isArray(v)) return v;
   const out = { ...v as Record<string, unknown> };
   for (const key of ["after", "answer", "body", "naturalHeading"]) if (out.field !== "schema" && typeof out[key] === "string") out[key] = (out[key] as string).replace(/\s*[—–]\s*/g, " - ");
+  if (Array.isArray(out.units)) out.units = out.units.map((unit) => {
+    const u = unit as Record<string, unknown>, clean = (text: string) => text.replace(/\s*[—–]\s*/g, " - ");
+    return { ...u, ...(typeof u.text === "string" ? { text: clean(u.text) } : {}), ...(Array.isArray(u.items) ? { items: u.items.map((text) => typeof text === "string" ? clean(text) : text) } : {}) };
+  });
   return out;
+}
+
+function bodyCopy(value: z.infer<typeof SCHEMA_BY_KIND.body_edit>): string {
+  return value.units.map((unit) => {
+    switch (unit.kind) {
+      case "paragraph": return unit.text;
+      case "heading": return `${"#".repeat(unit.level)} ${unit.text}`;
+      case "ordered_list": return unit.items.map((text, i) => `${i + 1}. ${text}`).join("\n");
+      case "unordered_list": return unit.items.map((text) => `- ${text}`).join("\n");
+    }
+  }).join("\n\n");
 }
 
 function buildRequestLedger(grounded: string, nowYear: number): GroundedNumbers {
@@ -153,7 +136,7 @@ function primaryCustomerText(kind: StructuredDraftKind, value: unknown): string 
   const v = value as Record<string, unknown>;
   const pick = (k: string): string | null => (typeof v?.[k] === "string" ? (v[k] as string) : null);
   switch (kind) {
-    case "answer_block": return pick("answer");
+    case "body_edit": return Array.isArray(v?.units) ? bodyCopy(v as z.infer<typeof SCHEMA_BY_KIND.body_edit>) : null;
     case "atomic_edit": return pick("after");
     case "outreach_pitch": return pick("body");
     default: return null;
@@ -167,11 +150,7 @@ function stampAnySources(value: unknown, tenantAllowlist?: readonly string[]): u
   return { ...v, sources: stampSourceAuthority(v.sources as ClassifiableSource[], tenantAllowlist) };
 }
 
-const ANSWER_MIN_WORDS = 15; // a SANITY floor against pathological output only (lowered 2026-08-25): a 39-word complete answer was refused over one word by a 40-word constant, and completeness is the evaluator's question, never a count's
-function countWords(text: string): number {
-  const t = (text ?? "").trim();
-  return t ? t.split(/\s+/).length : 0;
-}
+
 
 /** How many cited sources per draft the generation-time verifier will fetch (cost cap - real drafts carry 1-2; anything past this stays unverified). */
 const MAX_SOURCES_TO_VERIFY = 3;
@@ -473,15 +452,13 @@ function validateDraftValue(req: StructuredDraftRequest<StructuredDraftKind>, sc
   if (Array.isArray(refs) && !evidenceIsGrounded(refs)) return { errors: [UNGROUNDED_EVIDENCE_ERROR] };
   const data = unmarkAnchor(stampAnySources(parsed.data, req.authoritativeSourceDomains), req.unmarkPhrase);
   const fw = runContentFirewalls(draftProseStringValues(req.observationGrounded == null ? data : { ...data as Record<string, unknown>, evidenceRefs: undefined }), ledger, {
-    deferSuperlativeCheck: req.kind === "answer_block" || req.kind.startsWith("answer_analysis") || req.deferSuperlatives === true || primaryCustomerText(req.kind, data) == null,
+    deferSuperlativeCheck: req.kind.startsWith("answer_analysis") || req.deferSuperlatives === true || primaryCustomerText(req.kind, data) == null,
     skipPlaceholderCheck: primaryCustomerText(req.kind, data) == null, ownWords: req.ownWords,
   });
   const observed = req.observationGrounded == null ? { ok: true as const } : runContentFirewalls(draftProseStringValues(refs), buildRequestLedger(req.observationGrounded, year), { deferSuperlativeCheck: true, skipPlaceholderCheck: true });
   return !fw.ok || !observed.ok ? { errors: [`firewall:${!fw.ok ? fw.reason : !observed.ok ? observed.reason : "invalid"}`] } : { data };
 }
 const unpaidFailure = (reason: string, errors = [reason], failure: LlmFailure = "transient"): StructuredDraftResult<never> => ({ status: "validation_failed", reason, errors, failure, costUsd: 0, retried: false, attempts: 0 });
-const sourceSuperlatives = (req: StructuredDraftRequest<StructuredDraftKind>, value: unknown): string[] => req.kind === "answer_block" && primaryCustomerText(req.kind, value) != null ? ungroundedSuperlatives(primaryCustomerText(req.kind, value)!, (value as { sources?: ClassifiableSource[] }).sources, req.authoritativeSourceDomains, (req.now ?? new Date()).getFullYear()) : [];
-const answerIsThin = (kind: StructuredDraftKind, primary: string | null): boolean => kind === "answer_block" && primary != null && countWords(primary) < ANSWER_MIN_WORDS;
 
 /** The engine: cache ($0 repeats) → validate → retry-once → fail-closed. Returns a typed, schema-valid draft or a non-"drafted" status. Never throws. / */
 export async function callStructuredLLM<K extends StructuredDraftKind>(
@@ -498,7 +475,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   const complete = req.complete ?? (apiKey ? defaultComplete(apiKey, promptId) : null);
   const schema = SCHEMA_BY_KIND[req.kind] as z.ZodTypeAny;
   const nowYear = (req.now ?? new Date()).getFullYear();
-  const ledger = ["atomic_edit", "answer_block", "outreach_pitch"].includes(req.kind) ? buildGroundedNumbers(req.grounded) : buildRequestLedger(req.grounded, nowYear);
+  const ledger = ["atomic_edit", "body_edit", "outreach_pitch"].includes(req.kind) ? buildGroundedNumbers(req.grounded) : buildRequestLedger(req.grounded, nowYear);
   const cache = resolveCacheImpl(req.cacheImpl);
   let cacheKey: string | null = null;
   try { if (cache) cacheKey = llmCallCacheKey({ tenantId, promptId, promptVersion, kind: req.kind, system: req.system, user: req.user + "\n" + JSON.stringify([req.grounded, req.observationGrounded ?? null, req.maxTokens ?? 6000]), model: MODEL, schema: z.toJSONSchema(schema) }); }
@@ -511,9 +488,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       if (hit.key !== cacheKey || hit.tenantId !== tenantId) return unpaidFailure("cache_identity_mismatch");
       const checked = validateDraftValue(req, schema, hit.value, ledger, nowYear);
       if ("errors" in checked) return unpaidFailure(checked.errors[0]!, checked.errors, "schema_invalid");
-      if (answerIsThin(req.kind, primaryCustomerText(req.kind, checked.data))) return unpaidFailure("too_thin_answer", undefined, "schema_invalid");
-      const ungrounded = sourceSuperlatives(req, checked.data);
-      if (ungrounded.length) return unpaidFailure(`superlative_ungrounded:${ungrounded.slice(0, 3).join(",")}`, undefined, "schema_invalid");
+
       return { status: "drafted", kind: req.kind, value: checked.data as z.infer<(typeof SCHEMA_BY_KIND)[K]>, costUsd: 0, retried: false, attempts: 0, cached: true, ...(hit.repeatFlag ? { repeatFlag: hit.repeatFlag } : {}), ...(req.fewShotProvenance ? { fewShot: req.fewShotProvenance } : {}) };
     }
   }
@@ -546,25 +521,13 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   let failure: LlmFailure = "schema_invalid";
   const errors: string[] = [];
   let lastFailureWasTemplated = false;
-  let lastFailureWasThin = false;
-  let lastFailureWasSuperlative = false;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const retried = attempt > 0;
     let system = req.system;
     if (retried) {
-      if (lastFailureWasSuperlative && lastFailureWasThin) {
-        // Pilot loop 5 (2026-07-11): attempt 1 failed BOTH the word-count floor and the superlative check at once - one combined instruction, not whichever single-issue instruction would otherwise win below (this branch must be checked BEFORE the plain superlative/thin branches).
-        system = `${req.system}\n\n${COMBINED_THIN_AND_SUPERLATIVE_RETRY_INSTRUCTION}`;
-      } else if (lastFailureWasSuperlative) {
-        // G4: ungrounded superlative - retry with the REPHRASE instruction.
-        system = `${req.system}\n\n${SUPERLATIVE_REPHRASE_INSTRUCTION}`;
-      } else if (lastFailureWasTemplated) {
-        // R16 de-templating: read like a repeat - retry with variation.
+      if (lastFailureWasTemplated) {
         system = `${req.system}\n\n${VARIATION_INSTRUCTION}`;
-      } else if (lastFailureWasThin) {
-        // W5 (J-71): the first answer was under the 80-word floor - retry asking for the full band rather than an "invalid output" correction. Pilot loop 4 (2026-07-10): a live re-run showed the model can lengthen a too-thin answer by adding a FRESH ungrounded superlative ("a leading classical vocalist") instead of more grounded facts - the same loophole SUPERLATIVE_REPHRASE_INSTRUCTION already closes for a superlative- triggered retry, but this retry reason never carried that reminder. State it here too, so lengthening never trades away groundedness. Pilot loop 6 (2026-07-11): also closes with NO_NEW_NUMBERS_RETRY_REMINDER so lengthening never trades away groundedness for an invented number either - the same reminder every other rephrase-class retry carries.
-        system = `${req.system}\n\nYour previous answer stopped before it answered the search. Complete it, grounded ONLY in the evidence provided. Add the missing length with MORE grounded facts (names, dates, honors, works) - do NOT introduce a new superlative or ranking claim while lengthening it. ${NO_NEW_NUMBERS_RETRY_REMINDER}`;
       } else {
         // AND ONLY ASK FOR A FIELD THIS KIND ACTUALLY HAS. The evidenceRefs sentence was appended to every retry
         // of every kind, so a judgement whose schema has no such field was told to fill one in, which is an
@@ -582,10 +545,8 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       }
     }
 
-    // The retry-instruction flags above have now been consumed for this attempt; clear them so any failure below re-sets only the reason that actually applies (the explicit resets on each failure path stay as documentation).
-    lastFailureWasSuperlative = false;
+    // Consume the variation reminder once; only a newly detected repetition sets it again.
     lastFailureWasTemplated = false;
-    lastFailureWasThin = false;
 
     // Slice 5 D10: onboarding durably RESERVES its projected cost before each real attempt (retries reserve again); a refusal makes no call and fails closed to the deterministic fallback.
     if (isOnboarding) {
@@ -609,7 +570,6 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       errors.push(`llm_${out.error}`);
       failure = out.failure ?? "schema_invalid";
       lastFailureWasTemplated = false;
-      lastFailureWasThin = false;
       // Non-retryable (refusal/incomplete/budget/4xx) FAILS CLOSED; a retryable error re-enters the SAME 2-attempt ceiling.
       if (!out.retryable) break;
       continue;
@@ -618,7 +578,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     failure = "schema_invalid"; // it answered, so nothing below is the transport's fault any more
 
     const checked = validateDraftValue(req, schema, out.value, ledger, nowYear);
-    if ("errors" in checked) { errors.push(...checked.errors); lastFailureWasTemplated = false; lastFailureWasThin = false; continue; }
+    if ("errors" in checked) { errors.push(...checked.errors); lastFailureWasTemplated = false; continue; }
     const result = { data: checked.data };
 
     // R16 de-templating guard: a validated draft whose customer-facing text is a near-copy (>70 percent 3-gram overlap) of a recent same-family output gets ONE variation retry; a second near-copy ships FLAGGED ("reads like a repeat") for the draft-quality gate to demote - style never fails closed.
@@ -627,12 +587,10 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     if (templated && !retried) {
       errors.push("templated");
       lastFailureWasTemplated = true;
-      lastFailureWasThin = false;
       continue;
     }
 
-    // W5 P2 (J-71): an answer block under the 80-word floor is flagged here. Pilot loop 5 (2026-07-11): verification (needed for the superlative check right below) now runs BEFORE this decision is acted on, so a draft that is BOTH too thin AND carrying an ungrounded superlative gets BOTH problems diagnosed on the SAME attempt - previously this check's own `continue` skipped verification entirely, silently hiding a co-occurring superlative problem from the retry (the retry only ever named ONE of the two issues, whichever check happened to run first, and the run could die on attempt 2 still carrying the other).
-    const thinAnswer = answerIsThin(req.kind, primary);
+
 
     // W5 stop-ship F2: verify each cited source AT GENERATION TIME (SSRF-safe fetch + span-level entailment + final-host authority) AFTER the firewalls, so the added verification metadata never enters the numeric firewall. When no verifier is configured (vitest without injection), STRIP every verification field so an LLM-supplied `verified: true` can never survive.
     const verifiedData = sourceFetch
@@ -646,30 +604,6 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
           primary,
         )) as z.infer<(typeof SCHEMA_BY_KIND)[K]>)
       : (stripSourceVerificationFields(result.data) as z.infer<(typeof SCHEMA_BY_KIND)[K]>);
-
-    // G4 (2026-07-10): SUPERLATIVE post-check, verification-aware (runs on `answer_block` only; every other kind's marketing-superlative reject stays in runContentFirewalls above). A superlative is allowed ONLY when a QUALIFYING verified source asserts it (superlative-parity); an ungrounded one is not shipped.
-    const ungroundedSuperlative = sourceSuperlatives(req, verifiedData);
-    const hasUngroundedSuperlative = ungroundedSuperlative.length > 0;
-
-    if (thinAnswer) errors.push("too_thin_answer");
-    if (hasUngroundedSuperlative) errors.push(`superlative_ungrounded:${ungroundedSuperlative.slice(0, 3).join(",")}`);
-
-    // A superlative is the highest-risk claim, so it ALWAYS forces a continue (one rephrase retry, then fail closed) on either attempt - never shipped ungrounded, unchanged from before. Pilot loop 5: when the SAME draft is ALSO too thin, flag both reasons together so the retry-instruction builder above merges them into ONE combined instruction instead of only addressing the superlative.
-    if (hasUngroundedSuperlative) {
-      if (!retried) {
-        lastFailureWasSuperlative = true;
-        lastFailureWasThin = thinAnswer;
-        continue; // rephrase retry (combined with the length instruction when also too thin)
-      }
-      continue; // second attempt still ungrounded -> fall through to fail-closed
-    }
-
-    // W5 P2 (J-71): a too-thin-only draft (no superlative problem) gets ONE word-count retry so the drafter never caches a too-thin answer the quality gate would only reject later. A style-class retry, never a fail-closed: if the second attempt is still short it ships as-is for the gate to hold as too_thin (redrafting endlessly would just burn budget) - unchanged single-error behavior.
-    if (thinAnswer && !retried) {
-      lastFailureWasThin = true;
-      continue;
-    }
-
     const drafted = {
       status: "drafted" as const,
       kind: req.kind,
@@ -766,13 +700,15 @@ const ATOMIC_EDIT_SYSTEM =
   '"claims" (array of {"text","supportedBy"}, one per material statement the copy makes, where supportedBy lists the exact grounding ids given to you that carry it), "implementationMinutes" (how long this takes an operator). TWO DIFFERENT VOCABULARIES, AND MIXING THEM THROWS THE EDIT AWAY: an evidenceRefs "source" is one of the KINDS listed above (gsc, owned_snapshot, fanout and the rest), while the "supportedBy" on a claim holds only the exact grounding IDS printed below (page-copy-1, card-2, demand-3). Never put a source kind in supportedBy. Every id in supportedBy must be one handed to you. State no figure the grounding does not already show. '
   + 'Keep references concise. Each claim.text states one material assertion actually made in after; grounding IDs belong ONLY in supportedBy, not in claim.text or after. Put instructions, reasoning and omissions in their metadata fields, never in after. Research observations and draft context cannot support factual claims.';
 
+const BODY_EDIT_SYSTEM = "Write final publication content for the owning page, not a report about it. Use the strict schema: units are paragraphs, reader-facing headings or complete ordered/unordered lists in publication order. naturalHeading is only the outer heading for an addition; internal headings are heading units. Code supplies the exact predecessor and assembles units without removing content. Claims cover every material assertion with the supplied claim-support IDs, never research observations or proposed companion copy. Sources must identify real supporting readings. Evidence references explain the grounded decision; GSC/DataForSEO/owned evidence is primary, GA4/Clarity is only a modifier. Put reasoning, instructions and uncertainty in rationale, operatorSteps and risks, never publication units. For a replacement, preservation accounts for each changed, corrected, moved or removed unit using the canonical disposition, its reason and supporting IDs or actual destination. State no invented figures, rankings, sources or business facts. Complete the reader task without padding, sentence quotas or keyword lists.";
+
 /** One body-copy contract; replacement scope takes precedence over additive delivery hints. */
 const BODY_COPY_CLAUSE = " Write as the publisher of the page, giving the reader the information itself. after contains only final publishable copy; assignment instructions, evidence commentary and omissions stay in metadata. Lead with the supported answer or distinction. Complete the diagnosed task with the necessary explanation, meanings, examples, qualifications or ordered steps; depth follows the task, not a sentence quota. Use winning-page observations for useful structure and depth, never as factual claim support or wording to copy. Each factual assertion must stand on the exact claim-support evidence IDs supplied. Respect the assignment's reuse and preservation scope; do not merely describe or repeat the page.";
 const BODY_DELIVERY = {
-  replacement: " REPLACE THE EXACT PASSAGE SHOWN AS CURRENT. before is that passage; after is the complete replacement, not an addition. Keep the surrounding content and existing outer heading; naturalHeading is null. Preserve every supported unit, link and qualification, or record its correction, move or justified removal in metadata. Internal headings belong in after only when the assigned replacement structure needs them.",
+  replacement: " REPLACE THE EXACT PASSAGE SHOWN AS CURRENT. Deliver its complete replacement, not an addition. Keep the surrounding content and existing outer heading; naturalHeading is null. Preserve every supported unit, link and qualification, or record its correction, move or justified removal in metadata. Include internal headings only when the assigned replacement structure needs them.",
   inline: " ADD INSIDE THE EXISTING CONTEXT. The existing anchor must establish the question, subject and scope; naturalHeading is null. Add the supported information that completes that context, without repeating the adjacent copy or adding an outer heading.",
   adaptive: " ADD COPY AND DELETE NOTHING. Use an inline insertion with naturalHeading null only when the existing adjacent passage already establishes the question, subject and scope. Otherwise supply a descriptive naturalHeading or a question the reader genuinely asks, plus the complete section that answers it.",
-  section: " ADD ONE COMPLETE HEADED SECTION. naturalHeading names its actual question or subject, not a repeated H1 or an awkward keyword label. after contains all supporting section copy, without repeating its outer heading. A name or dictionary entry retains the page's compact format rather than being inflated into a generic paragraph.",
+  section: " ADD ONE COMPLETE HEADED SECTION. naturalHeading names its actual question or subject, not a repeated H1 or an awkward keyword label. Deliver all supporting section copy without repeating its outer heading. A name or dictionary entry retains the page's compact format rather than being inflated into a generic paragraph.",
 };
 const META_SUBJECT_CLAUSE = ' DESCRIBE THE THING THE PAGE IS ABOUT, NEVER THE PAGE. OPEN BY NAMING IT, in the words the page\'s own title and heading use, and include the plain noun for what it is: a reader who sees only your first few words must know what this is. "A limited rebuild of the original vertical stripe design" never says the thing is a shirt. Then say what is true of it: for an item, its real attributes (what it is made of, how it looks, its colour, its cut, its size, what it is for); for a subject, the specific answer the page gives. Take those only from the page\'s own stored words handed to you. NEVER describe the page\'s structure or its sections: no "FAQs", no "frequently asked questions", no shipping, returns, delivery or policy topics, no "on this page", "here you will find", "learn more", and no naming of a question the page asks. If the evidence gives no useful description beyond the H1, refuse; never return an empty description, a statement that no description exists, or the H1 rephrased. WRITE ONE NATURAL, PAGE-SPECIFIC LINE: a complete sentence, a definition, and a line carrying a colon are each correct where they say what the thing is. Where the page is about ONE entity, name that entity first. Where it is a list, a directory or a category, it may open with an intent verb (Find, Explore, Compare, Browse) and then say what is actually in it. Where it is a submission form or a tool, open with the direct action it performs. Never write a list of the page\'s headings, and never claim anything about assistants, AI answers or search itself. A restrained invitation may close the line once it has already said what the subject is; it may never stand in place of that, and no invitation is required. ';
 /** APPENDED ONLY FOR `title` and `h1`. THE FORM IS NOT THE TEST (operator, 2026-09-05): this ordered a noun phrase and forbade a question mark outright, while the reader who would click it is often asking exactly that question, and the evaluator was simultaneously refusing any verbless line. A noun phrase is the ordinary shape and no verb is required; a question is right where a reader really asks it in those words. What a summary line owes is that it says what this page answers. */ const TITLE_SHAPE_CLAUSE = ' A NOUN PHRASE LED BY THE ENTITY OR THE SEARCH is the ordinary shape and needs no verb; a question is correct where a reader really asks it in those words, and neither form is required of you. Never a comma list of search phrasings. It must sit naturally beside the page\'s own H1 and mean the same thing it does; where the H1 names the subject one way, do not rename it. One natural line, no repeated word, no stacked keyword phrases separated by pipes or commas. ';
@@ -787,7 +723,8 @@ export async function draftAtomicEditStructured(
     sourceFetch?: SourceTextFetcher;
   } = {},
 ): Promise<StructuredDraftResult<AtomicEditDraft>> {
-  const currentValue = sanitizeNullableEvidence(input.field === "answer_block" ? input.replaces ?? input.currentValue : input.currentValue);
+  const body = input.field === "answer_block" && input.unmarkPhrase == null, replaces = body ? input.replaces ?? input.currentValue : null;
+  const currentValue = sanitizeNullableEvidence(body ? replaces : input.currentValue);
   const outline = sanitizeEvidenceTexts(input.outline).filter((h) => input.field !== "meta" || !h.trim().endsWith("?"));
   const evidenceHints = sanitizeEvidenceTexts(input.evidenceHints ?? []);
   const grounded = input.packet ? COPY_RULES.grounding(input.packet) : [
@@ -823,13 +760,13 @@ export async function draftAtomicEditStructured(
     fewShots = await buildWinnerFewShots(input.tenantId, lever).catch(() => "");
   }
 
-  const result = await callStructuredLLM({
-    deferSuperlatives: input.currentValue == null && typeof input.replaces !== "string",
-    kind: "atomic_edit",
-    ...(input.field === "answer_block" ? { promptId: "draft.body_edit" as const } : {}),
-    tenantId: input.tenantId, ownWords: input.field === "answer_block" ? input.replaces : [input.pageLabel, ...outline].join(" "), // a summary field may repeat a superlative the page's own title or headings carry; a body REPLACEMENT may repeat one the exact passage it replaces carries, and a body addition carries none
+  const request = {
+    deferSuperlatives: input.currentValue == null && replaces == null && typeof input.replaces !== "string",
+    kind: "atomic_edit" as const,
+    ...(body ? { promptId: "draft.body_edit" as const } : {}),
+    tenantId: input.tenantId, ownWords: input.field === "answer_block" ? replaces ?? input.replaces : [input.pageLabel, ...outline].join(" "), // a summary field may repeat a superlative the page's own title or headings carry; a body REPLACEMENT may repeat one the exact passage it replaces carries, and a body addition carries none
     ...(input.unmarkPhrase ? { unmarkPhrase: input.unmarkPhrase } : {}),
-    system: (ATOMIC_HEAD[input.field] ?? ATOMIC_HEAD.default!) + ATOMIC_EDIT_SYSTEM + (input.field === "answer_block" ? BODY_COPY_CLAUSE + BODY_DELIVERY[input.replaces != null ? "replacement" : input.answerShape === "inline" ? "inline" : input.answerShape === "adaptive" ? "adaptive" : "section"] + (input.answerShape === "packet" ? AEO_BAR.policy : "") : input.field === "meta" ? META_SUBJECT_CLAUSE : input.field === "title" || input.field === "h1" ? TITLE_SHAPE_CLAUSE : "") + fewShots,
+    system: (body ? BODY_EDIT_SYSTEM : (ATOMIC_HEAD[input.field] ?? ATOMIC_HEAD.default!) + ATOMIC_EDIT_SYSTEM) + (input.field === "answer_block" ? (body ? BODY_COPY_CLAUSE.replace(/\bafter\b/g, "the assembled publication") : BODY_COPY_CLAUSE) + BODY_DELIVERY[(replaces ?? input.replaces) != null ? "replacement" : input.answerShape === "inline" ? "inline" : input.answerShape === "adaptive" ? "adaptive" : "section"] + (body ? " The predecessor is code-owned; do not echo it. Return final publication units rather than a flat after field." : "") + (input.answerShape === "packet" ? AEO_BAR.policy : "") : input.field === "meta" ? META_SUBJECT_CLAUSE : input.field === "title" || input.field === "h1" ? TITLE_SHAPE_CLAUSE : "") + fewShots,
     user,
     grounded,
     ...(input.packet ? { observationGrounded: [...Object.values(input.packet.evidence), ...(input.packet.demand.unanswered ?? [])].join("\n") } : {}),
@@ -840,7 +777,10 @@ export async function draftAtomicEditStructured(
     fewShotProvenance,
     authoritativeSourceDomains: opts.authoritativeSourceDomains,
     sourceFetch: opts.sourceFetch,
-  });
+  };
+  const result: StructuredDraftResult<AtomicEditDraft> = body
+    ? await callStructuredLLM({ ...request, kind: "body_edit" }).then((result) => result.status !== "drafted" ? result : { ...result, value: { ...result.value, before: replaces, after: bodyCopy(result.value) } })
+    : await callStructuredLLM(request);
 
   if (result.status === "drafted" && result.fewShot) {
     const merged = `${result.fewShot.sentence} ${result.value.rationale}`.trim().slice(0, 400);

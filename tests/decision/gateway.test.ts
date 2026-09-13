@@ -27,7 +27,7 @@ function fakeFetch(envelope: unknown, opts: { ok?: boolean; status?: number; thr
   return { impl, capture };}
 function baseArgs(over: Partial<StructuredCallArgs> = {}): StructuredCallArgs {
   return {
-    promptId: "draft.answer_block", promptVersion: 6, action: "gateway-test", apiKey: "sk-test", model: "gpt-5-mini",
+    promptId: "draft.body_edit", promptVersion: 2, action: "gateway-test", apiKey: "sk-test", model: "gpt-5-mini",
     instructions: "You are a strict JSON generator.", input: "Make a title.", schemaName: "test_schema", zodSchema: SCHEMA,
     maxOutputTokens: 512, timeoutMs: 30_000, budget: { mode: "caller", note: "test" }, tenantId: "tenant-fixture", ...over,};}
 const allowBreaker: CostBreakerImpl = { check: async () => ({ tripped: false }) };

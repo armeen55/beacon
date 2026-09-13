@@ -5,7 +5,7 @@
  */
 
 export const PROMPT_REGISTRY = {
-  // ── structured-drafter kinds (all parse through callStructuredLLM) ──────── draft.answer_block bumped to v2 (2026-07-09, W5/J-71): 80-150 word target
+  // Structured drafter kinds all parse through the same validated gateway.
   // + "sources" field + cite-sources instruction replace the old 40-60 word prompt - the content-hash call cache must never serve a stale v1 response under the new contract.
   // Bumped to v3 (2026-07-10, drafter last-mile G4): the system prompt now instructs grounding superlative-intent topics in specific facts (no
   // unprovable superlative), paired with a verification-aware superlative post-check + rephrase retry - a contract change, so the cache must not serve a stale v2 response.
@@ -17,8 +17,7 @@ export const PROMPT_REGISTRY = {
   // too-thin + superlative-rephrase instruction when attempt 1 fails both checks at once. A prompt-wording change, so the cache must not serve a stale v4 response under the new guidance.
   // Bumped to v6 (2026-07-11, pilot loop 6): every rephrase-class retry instruction (superlative-only, too-thin-only, and the combined instruction) now closes with a reminder not to introduce any number,
   // percentage, or statistic absent from the evidence. A prompt-wording change, so the cache must not serve a stale v5 response under the new guidance.
-  "draft.answer_block": 6,
-  "draft.body_edit": 1, // Scoped primary body-copy replacement; unchanged title/meta prompt identities stay intact.
+  "draft.body_edit": 2, // Structured publication units and canonical preservation accounting; no flat body fallback.
   "draft.page_acceptance": 2,
   // draft.atomic_edit bumped to v2 (2026-08-23, grounded utility): the head clause now names the actual field (an answer block is no longer told it is a title edit) and the intent directive carries the AEO shape vocabulary, so the cache must never serve a v1 answer written under the two-assignments prompt. Previously: stayed at v1 (2026-08-01, V1 Closure); the opening-answer clause is APPENDED only when the field is
   // answer_block, a value nothing ever passed before, and the cache key folds in the system text itself, so no stored title or meta draft can be served under wording it was not taken under.

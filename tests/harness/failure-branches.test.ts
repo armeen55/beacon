@@ -3,6 +3,7 @@
  *  left, and a phase that throws after real work landed. They live beside each other so a repair to one is measured against the others in the same cycle
  *  rather than on the next half-hour tick. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { publicationDraft } from "../helpers/publication-draft";
 vi.mock("@/lib/persistence/supabase", async () => { const w = await import("./world"); const c = w.client(); return { getSupabaseAdmin: () => c, isSupabaseConfigured: () => true }; });
 vi.mock("@/lib/logger", async () => { const w = await import("./world"); return { log: { debug: () => {}, info: (m: string, x?: unknown) => w.logs.push(`${m} ${JSON.stringify(x ?? {})}`), warn: (m: string, x?: unknown) => w.logs.push(`${m} ${JSON.stringify(x ?? {})}`), error: (m: string, x?: unknown) => w.logs.push(`${m} ${JSON.stringify(x ?? {})}`) } }; });
 
@@ -46,7 +47,7 @@ const need = (over: Row = {}): Row => ({ key: `${HUB}::body::${QUERY}`, kind: "s
   reason: "no results page for this search is on file", workKey: `${HUB}::body::${QUERY}::wc5::e1`, unlocks: { proposalId: `${T}::${HUB}::existing_edit::demand_recovery`, step: "draft" }, ...over });
 
 let basis = "";
-beforeEach(async () => { vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1"); // Exercise the shipped packet policy alongside timing behavior.
+beforeEach(async () => {
   reset(); installFetch();
   vi.stubEnv("DATAFORSEO_AUTH_B64", "harness-not-a-key");
   vi.stubEnv("OPENAI_API_KEY", "harness-not-a-key");
@@ -209,9 +210,9 @@ describe("the providers taking their real time", () => {
     : { html: `<html><head><title>Famous Iranians, by the work they did</title></head><body><h1>Famous Iranians through history</h1><h2>Poets</h2><h2>Athletes</h2><h2>Scientists</h2><p>${"Famous Iranians are listed here by the work they did, with the years each of them worked and one line on why they are remembered. ".repeat(20)}</p></body></html>` });
   const readyCopy = async (): Promise<string | null> => { const row = [...(await loadChangeProposals(T)).values()].find((r) => (r.pagePath ?? "") === HUB); return row?.status === "ready" && row.recommendedChange.kind === "existing_edit" ? row.recommendedChange.after : null; };
   type Walk = { jobs?: Record<string, { calls: number; last: string; settled: boolean }>; waiting?: string[]; outcomes?: { ended?: string; receipts?: { key: string; outcome: string; providerCalls: number }[] } };
-  const walkOf = (r: RunRow): Walk | undefined => (r.progress as { replenish?: Walk }).replenish, writersHired = (): number => reasoningAsked.filter((a) => a.kind === "atomic_edit").length;
+  const walkOf = (r: RunRow): Walk | undefined => (r.progress as { replenish?: Walk }).replenish, writersHired = (): number => reasoningAsked.filter((a) => a.kind === "body_edit").length;
   /** DEFECT FOUND BY THE TWO RESUME CASES BELOW (lane B, 2026-09-07), pinned at its measured value so the case that found it stays green and the repair that closes it turns this number to zero: the finished row is saved under the section-family identity (`...::existing_edit::section-family::...::page-copy-1,page-heading-2,...`) while the walk declared and funded the job under the deep-bundle one (`...::existing_edit::deep_bundle::...`), so neither the deep door's reuse of a finished row (`p.workKey === wantKey`) nor the day memory's settlement by rows (`settledByRows`, keyed on the job's workKey) ever matches the row that job produced. A drive that lost the walk's receipt, and a drive whose box cut the walk off, both hire the writer again for a job whose finished copy is already on the store; the readings are not bought again, and the copy stands. */
-  beforeEach(() => { table("page_snapshots").length = 0; seedOwnedPages([HUB_PAGE]); script.reasoning = (body) => reasoningReply({ ...REASONING, atomic_edit: WRITER, editor_judgement: JUDGE }, body); script.search = healthySearch({ posts: 0 }); script.page = rivalPage; });
+  beforeEach(() => { table("page_snapshots").length = 0; seedOwnedPages([HUB_PAGE]); script.reasoning = (body) => reasoningReply({ ...REASONING, body_edit: publicationDraft(WRITER), editor_judgement: JUDGE }, body); script.search = healthySearch({ posts: 0 }); script.page = rivalPage; });
 
   it("a substantive body job for the hub row finishes inside the 200 second slice when a search takes 800 ms, the writer 2.5 s and a page 600 ms, and its copy is on the store", async () => {
     seedResearchState(basis, { serps: serpFor(QUERY) }); script.latency = SLOW; const from = clock.ms, began = Date.now(); // everything the row needs is on file but the rival at position five, which this same drive reads for itself

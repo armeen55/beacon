@@ -3,7 +3,7 @@
  *  drives instead of a scheduler waited on, the captured production rows seeded through the canonical stores, and the three providers answered from a
  *  script. Nothing here is a second runtime and nothing is marked Ready by hand: what an arm asserts, the shipped code decided. */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1")); afterEach(() => vi.unstubAllEnvs());
+import { publicationDraft } from "../helpers/publication-draft";
 
 vi.mock("@/lib/persistence/supabase", async () => { const w = await import("./world"); const c = w.client(); return { getSupabaseAdmin: () => c, isSupabaseConfigured: () => true }; });
 vi.mock("@/lib/logger", async () => { const w = await import("./world"); return { log: { debug: () => {}, info: (m: string, x?: unknown) => w.logs.push(`${m} ${JSON.stringify(x ?? {})}`), warn: (m: string, x?: unknown) => w.logs.push(`${m} ${JSON.stringify(x ?? {})}`), error: (m: string, x?: unknown) => w.logs.push(`${m} ${JSON.stringify(x ?? {})}`) } }; });
@@ -52,7 +52,7 @@ const pageScript = (url: string) => (url.endsWith("/robots.txt") ? { html: "User
   : { html: `<html><head><title>Famous Iranians, by the work they did</title></head><body><h1>Famous Iranians through history</h1><h2>Poets</h2><h2>Athletes</h2><h2>Scientists</h2><p>${"Famous Iranians are listed here by the work they did, with the years each of them worked and one line on why they are remembered. ".repeat(20)}</p></body></html>` });
 import { WRITER, JUDGE } from "./world";
 /** The words the reasoning gateway hands back where a door reads them; every other field comes from the request's own schema. */
-const REASONING = { page_job: { topics: ["names", "notable people", "history"], job: "Name the people this page covers and say why each is remembered.", audience: "readers looking a person up", promise: "a named list with one line each", missing: "a direct opening answer", sells: ["guides", "lists"] }, atomic_edit: WRITER, editor_judgement: JUDGE };
+const REASONING = { page_job: { topics: ["names", "notable people", "history"], job: "Name the people this page covers and say why each is remembered.", audience: "readers looking a person up", promise: "a named list with one line each", missing: "a direct opening answer", sells: ["guides", "lists"] }, body_edit: publicationDraft(WRITER), editor_judgement: JUDGE };
 
 const ownedPage = () => seedOwnedPages([{ path: HUB, title: "Most Famous Iranians and Persians of All Time", h1: "Famous and Influential Iranian People",
   meta: "Explore the most famous Iranians and Persians in history.", h2: ["Famous Iranian Poets", "Famous Iranian Athletes", "Famous Iranian Actors"],
@@ -203,7 +203,7 @@ describe("the finished work, and recording that the operator applied it", () => 
     script.search = searchScript({ ready: true, posts: 0 });
     for (let i = 0; i < 2; i += 1) { advance(30 * 60_000); await drive(["read_winner_pages"], "winning_pages"); }
 
-    const asked = reasoningAsked.filter((a) => a.kind === "atomic_edit").at(-1);
+    const asked = reasoningAsked.filter((a) => a.kind === "body_edit").at(-1);
     expect([asked != null, asked?.ask.includes(QUERY) === true, asked?.ask.includes("page-copy-1") === true],
       "the writer is hired for this row's own search and handed the page's stored words under the ids a claim may cite").toEqual([true, true, true]);
     const read = reasoningAsked.filter((a) => a.kind === "editor_judgement").at(-1);
@@ -331,7 +331,7 @@ describe("three opportunities waiting on their own results page", () => {
     expect([walkAt >= 0, PAGES.map((p) => boughtAt(p.query) >= 0 && boughtAt(p.query) < walkAt), lower.map((n) => boughtAt(n.query)).filter((at) => at >= 0 && at < walkAt)],
       "the three pages the hub rows wait on were posted by the drive before, so finishing them costs nothing and all three are collected in front of the walk whatever their rank; and not one of the eleven lower-ranked readings is paid for in front of it, because none of them unlocks a row the last walk reached").toEqual([true, [true, true, true], []]);
     const stillOwed = new Set(((runs[runs.length - 1]!.progress as { evidenceOwed?: { query?: string }[] }).evidenceOwed ?? []).map((n) => String(n.query)));
-    expect([reasoningAsked.some((a) => a.kind === "atomic_edit" && a.ask.includes(QUERY)), lower.filter((n) => boughtAt(n.query) > walkAt).length, lower.every((n) => boughtAt(n.query) > walkAt || stillOwed.has(n.query))],
+    expect([reasoningAsked.some((a) => a.kind === "body_edit" && a.ask.includes(QUERY)), lower.filter((n) => boughtAt(n.query) > walkAt).length, lower.every((n) => boughtAt(n.query) > walkAt || stillOwed.has(n.query))],
       "the writer is hired for the hub row on the drive its last dependency landed; seven of the eleven are bought behind the walk on that same drive, and every one the room behind it could not pay for is still owed at its own rank for the next drive").toEqual([true, 7, true]);
     expect([...(await loadChangeProposals(T)).values()].filter((r) => (r.pagePath ?? "") === HUB).map((r) => r.status),
       "so the copy the hub row was waiting for reaches the store on that drive, where the eleven purchases in front of the walk used to take its turn").toEqual(["ready"]);
@@ -369,7 +369,7 @@ it.skip("15: the missing subject is researched in the frame of the row's own sea
       "and what is banked is the missing subject carried in the frame of the search the row is about, answered in the winner's own words with the winner named behind it").toEqual([1, `${QUERY} ${SUBJECT}`, "checked", SAYS, [RIVAL]]);
     const held = await readFactChecks(T), body = (await loadOwnedPageBodies(T, [`https://${SITE}${HUB}`])).get(canonicalUrlKey(`https://${SITE}${HUB}`))!;
     const version = pageHashOf([body.title, body.h1, ...(body.headings ?? []), ...(body.passages ?? [])].filter(Boolean).join("\n"));
-    expect([authorizedCorrections(held, { pageContentHash: version, evidenceBasis: await resolveCurrentBasis(T) }, T).map((f) => f.subject), reasoningAsked.some((a) => a.kind === "atomic_edit"), reasoningAsked.filter((a) => a.kind === "atomic_edit").some((a) => /\bfact-1\b/.test(a.ask) && a.ask.includes(SAYS))],
+    expect([authorizedCorrections(held, { pageContentHash: version, evidenceBasis: await resolveCurrentBasis(T) }, T).map((f) => f.subject), reasoningAsked.some((a) => a.kind === "body_edit"), reasoningAsked.filter((a) => a.kind === "body_edit").some((a) => /\bfact-1\b/.test(a.ask) && a.ask.includes(SAYS))],
       "the fact stands against the page as this drive read it and under the basis the drafting pass works in, so it is evidence a writer's packet may carry under a fact-* id; the row's next step on this same drive is that writer; and the writer hired for this hub page is handed that fact under fact-1 in the winner's own words (journey review, 2026-09-06: the editor the bundle producer hires was handed sibling passages alone)").toEqual([[`${QUERY} ${SUBJECT}`], true, true]);
   });
 });
@@ -410,7 +410,7 @@ it.skip("18: when the judge names the group a section is about, the words the wi
     const need = { key: `${HUB}::body::${QUERY}`, kind: "factual_source", query: `${SUBJECT} ${QUERY}`, url: `https://${SITE}${HUB}`, missingTopic: SUBJECT, rivalUrl: RIVAL, rank: 1,
       reasonCode: "missing_information", reason: `nothing checked on file answers "${SUBJECT}"`, workKey: `${HUB}::body::${QUERY}::wc5::e1`, unlocks: { proposalId: `${T}::${HUB}::existing_edit::demand_recovery`, step: "draft" } };
     await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need] });
-    const banked = (await readFactChecks(T)).find((h) => h.subject === `${QUERY} ${SUBJECT}`), writer = reasoningAsked.filter((a) => a.kind === "atomic_edit").map((a) => a.ask).join("\n");
+    const banked = (await readFactChecks(T)).find((h) => h.subject === `${QUERY} ${SUBJECT}`), writer = reasoningAsked.filter((a) => a.kind === "body_edit").map((a) => a.ask).join("\n");
     expect([banked?.sources[0]?.groups, banked?.sources[0]?.groupExcerpts?.map((e) => e.heading), new RegExp(`under its heading \\\\?"${SUBJECT}\\\\?" says \\\\?"${SAYS.slice(0, 60)}`).test(writer), /\bfact-1\b/.test(writer)],
       "the group the judge named is banked with the winner's own words under that heading, ordered ahead of the introduction, and the writer hired on this same drive is handed those words under fact-1 rather than the one sentence the judge quoted").toEqual([[SUBJECT], [SUBJECT, "Introduction"], true, true]);
   });
@@ -478,7 +478,7 @@ describe("the whole-page writer and the pages winning the search", () => {
     seedResearchState(basis, { serps: serpFor(QUERY) });
     script.search = searchScript({ ready: true, posts: 0 });
     const run = await drive(["replenish_ready"], "keyword_discovery");
-    const writer = reasoningAsked.filter((a) => a.kind === "atomic_edit").map((a) => a.ask).join("\n"), receipt = ((run.progress as { replenish?: { outcomes?: { receipts?: { family: string; outcome: string }[] } } }).replenish?.outcomes?.receipts ?? []).find((r) => r.family === "deep_bundle");
+    const writer = reasoningAsked.filter((a) => a.kind === "body_edit").map((a) => a.ask).join("\n"), receipt = ((run.progress as { replenish?: { outcomes?: { receipts?: { family: string; outcome: string }[] } } }).replenish?.outcomes?.receipts ?? []).find((r) => r.family === "deep_bundle");
     expect([receipt?.outcome, writer.length > 0, /\brival-\d\b/.test(writer), writer.includes("Its own words:")],
       "the deep door writes the hub on this drive, and the writer it hires reads the winners' words under rival ids where before it read the page's own headings alone and narrated them (journey review L-030)").toEqual(["produced", true, true, true]);
   });

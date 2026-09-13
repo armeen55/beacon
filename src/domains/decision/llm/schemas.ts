@@ -77,18 +77,6 @@ const base = {
 
 // ── the draft schemas (the Sprint 2 minimum set) ────────────────────────────
 
-/** 1. AnswerBlockDraft, the 80-150 word extractable AEO answer block (J-71: "80-150 words WITH source citations - 40-60 is too thin"). `answer`'s max is widened to 1200 chars (150 words needs ~1050), the 80-150 word
- *  BAND itself is enforced by NOTHING at read time any more: the door that held it was deleted on 2026-09-05 for refusing all 56 stored body drafts including every finished one, and this schema only bounds the shape. `sources` is additive with a `[]` default so every persisted pre-W5 draft still deserializes clean. W5
- *  P2 (2026-07-09): the min is raised to 450 chars (a coarse floor for the 80-word contract) so the drafter cannot cache an obviously-too-thin answer the quality gate would reject. NEITHER THIS SCHEMA NOR THAT FLOOR IS REACHED (measured, 2026-09-05): nothing anywhere requests `kind: "answer_block"`, every body edit is drafted through `atomic_edit`, and all 43 stored body drafts with copy are under 450 characters (the longest is 437), so wiring this shape as it stands would refuse every body answer this account has ever written, exactly as the deleted band did. */
-const AnswerBlockDraftSchema = z.object({
-  answer: z.string().min(450).max(1200),
-  citationHook: z.string().max(200).nullable().default(null),
-  /** W5 (J-69): the 1-2 authoritative sources backing this answer's claims. Defaults to [], an empty list is exactly what "no source yet" means; the quality gate (never this schema) decides whether that blocks copy. */
-  sources: z.preprocess((v) => Array.isArray(v) ? v.filter((x) => x != null && typeof (x as { url?: unknown }).url === "string" && ((x as { url: string }).url).trim() !== "") : v, z.array(SourceRefSchema).default([])), /* WRITE FIRST, CHECK BEHIND (operator receipts, 2026-09-11): a draft with nothing to cite emits sources: [{url: ""}] and the min(1) fields failed the WHOLE page as schema_invalid; an all-blank source row IS the empty list this field already defaults to, so it is dropped, and a row naming a real url still answers to every field. */
-  proofPlan: ProofPlanSchema,
-  ...base,
-});
-
 /** 2. AtomicEditDraft, one precise field change on an existing page. */
 const AtomicEditDraftSchema = z.object({
   field: z.enum(["title", "meta", "h1", "answer_block", "section"]),
@@ -107,7 +95,20 @@ const AtomicEditDraftSchema = z.object({
   implementationMinutes: z.number().int().min(0).max(600).default(0),
   ...base,
 });
-export type AtomicEditDraft = z.infer<typeof AtomicEditDraftSchema>;
+const BodyEditDraftSchema = AtomicEditDraftSchema.omit({ before: true, after: true, field: true, claims: true }).extend({
+  field: z.enum(["answer_block", "section"]),
+  units: z.array(z.union([
+    z.object({ kind: z.literal("paragraph"), text: z.string().min(1) }),
+    z.object({ kind: z.literal("heading"), level: z.number().int().min(2).max(6), text: z.string().min(1) }),
+    z.object({ kind: z.literal("ordered_list"), items: z.array(z.string().min(1)).min(1) }),
+    z.object({ kind: z.literal("unordered_list"), items: z.array(z.string().min(1)).min(1) }),
+  ])).min(1),
+  claims: z.array(AtomicEditDraftSchema.shape.claims.unwrap().element).default([]),
+  preservation: z.array(z.object({ text: z.string().min(1), disposition: z.enum(["kept", "corrected", "removed", "moved"]),
+    why: z.string().optional(), to: z.string().optional(),
+    basis: z.enum(["duplicate_of", "replaced_by", "unsupported", "obsolete", "owner_confirmed"]).optional(), by: z.array(z.string()).optional() })).default([]),
+});
+export type AtomicEditDraft = z.infer<typeof AtomicEditDraftSchema> & Pick<import("../contracts").ChangeProposal, "preservation">;
 
 /** 4. ToolAssetSpec, spec for an interactive tool/calculator. */
 const ToolAssetSpecSchema = z.object({
@@ -333,7 +334,7 @@ export type PageJob = z.infer<typeof PageJobSchema>;
 export type StructuredDraftKind =
   | "aeo_gap"
   | "competitor_comparison"
-  | "answer_block"
+  | "body_edit"
   | "atomic_edit"
   | "editor_judgement" | "page_acceptance"
   | "tool_asset"
@@ -349,7 +350,7 @@ export type StructuredDraftKind =
 /** THE EDITOR'S JUDGE (decision/drafted-copy): the seven rulings a finished edit survives, the one sentence that decided it, and the TYPED RESOLUTION a refusal owes ("none" on a pass): the smallest correct next step, so the runtime executes data instead of parsing the sentence. Every field is owed, so a body missing one is a refusal rather than a pass. MIRRORED with drafted-copy's JudgeVerdict. */
 /** `claims` REPLACES a coarse `claimsEntailed` boolean: the editor is already handed every claim with the exact evidence ids it cites and the stored words behind each, and answered yes or no about all of them at once, so the only answer the store may trust was thrown away and substantive work could never earn the receipt the factual family earns. One ruling per claim, in the canonical shape ChangeProposal.semanticReview persists. */
 const EditorJudgementSchema = EditorAcceptanceSchema.extend({
-  claims: z.array(z.object({ i: z.number().int().min(0), by: z.array(z.string()), entailed: z.boolean() })).max(24),
+  claims: z.array(z.object({ i: z.number().int().min(0), by: z.array(z.string()), entailed: z.boolean() })),
   aeoPacket: AEO_BAR.schema.optional(),
   resolution: z.enum(["none", "structural_synthesis", "use_stored_verified_evidence", "acquire_serp", "acquire_page_source", "acquire_competitor_page", "acquire_factual_source", "no_valid_treatment"]) });
 
@@ -390,7 +391,7 @@ export const SCHEMA_BY_KIND = {
   fact_claim_extraction: FactClaimExtractionSchema,
   fact_claim_judgement: FactClaimJudgementSchema,
   factual_review: FactualReviewSchema,
-  answer_block: AnswerBlockDraftSchema, atomic_edit: AtomicEditDraftSchema, tool_asset: ToolAssetSpecSchema,
+  body_edit: BodyEditDraftSchema, atomic_edit: AtomicEditDraftSchema, tool_asset: ToolAssetSpecSchema,
   commerce_asset: CommerceAssetSpecSchema, experiment_plan: ExperimentPlanSchema,
   batch_adjudication: BatchAdjudicationSchema, strategy_review: StrategyReviewSchema,
   outreach_pitch: OutreachPitchSchema, coverage_adjudication: CoverageAdjudicationSchema, new_page_brief: NewPageBriefSchema,
@@ -421,7 +422,7 @@ export function draftProseStringValues(value: unknown): string[] {
   // allowlist, not prose the model wrote. Scanning them meant a real customer address containing the word "best" tripped the superlative firewall and killed the verdict on every pass, forever, at two paid calls a
   // time. A page address cannot make a claim. A case synthesis carries ids, addresses and the operator's own search phrases, all echoed from a supplied list: a page whose address says "best" makes no claim, so it can
   // never kill the reading. Its `reason` stays scanned.
-  const NON_PROSE_KEYS = new Set(["sources", "proofPlan", "operatorSteps", "risks", "ownedUrls", "evidenceKeys", "keepId", "absorbIds", "fromId", "caseId", "url", "parentId", "childId", "moveQueries", "observationId", "before", "beforeText", "placementAnchor", "supportedBy", "placementId"]);
+  const NON_PROSE_KEYS = new Set(["preservation", "sources", "proofPlan", "operatorSteps", "risks", "ownedUrls", "evidenceKeys", "keepId", "absorbIds", "fromId", "caseId", "url", "parentId", "childId", "moveQueries", "observationId", "before", "beforeText", "placementAnchor", "supportedBy", "placementId"]);
   const out: string[] = [];
   const walk = (v: unknown): void => {
     if (typeof v === "string") out.push(v);

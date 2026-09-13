@@ -279,7 +279,7 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect(by.get("noor")!.limitations[0], "nothing deterministic holds a composed line").toContain("has not read this correction yet");
     const { staleCopyReasons } = await import("@/domains/decision/drafted-copy");
     expect(staleCopyReasons(by.get("noor")!, new Map(), []).filter((r) => r.includes("its copy is"))).toEqual([]);
-    expect(staleCopyReasons({ ...by.get("noor")!, changeFamily: "answer_gap" }, new Map(), []).join(" ")).toContain("its copy is");
+    expect(staleCopyReasons({ ...by.get("noor")!, changeFamily: "answer_gap" }, new Map(), []).filter((r) => r.includes("its copy is")), "a body answer is judged on its assigned task, never a generic word quota").toEqual([]);
     const { openHold } = await import("@/domains/decision/completeness");
     const kinds = (k: string) => openHold(by.get(k)!).advisories.map((a) => a.kind).filter((x) => x === "single_source");
     expect([kinds("leila"), kinds("noor"), openHold(by.get("noor")!).defects.some((d) => /publisher|second/i.test(d))], "REPLACES the second-source ask: two quoted publishers say nothing, one says how many stand behind it, and a source COUNT holds neither back").toEqual([[], ["single_source"], false]); });

@@ -1,6 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1"));
-afterEach(() => vi.unstubAllEnvs());
+import { describe, it, expect, vi } from "vitest";
 const fix = vi.hoisted(() => ({ map: new Map<string, unknown>(), rows: [] as unknown[] })), bodies = fix, facts = fix;
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
@@ -40,7 +38,7 @@ const run = async (s: Site, c: ChangeProposal, draft: Record<string, unknown> | 
   const out = await applyDraftedCopy([c], { tenantId: s.t, snapshot: snap as never, now: NOW, refusals: why, unsettled, owe: (_k: string, n: unknown) => owed.push(n), resolved: settled as never,
     note: (_k: string, o: string, w?: string) => notes.push(`${o}:${w ?? ""}`), budget: DRAFT_BUDGET.plan({ jobs: [{ key: c.pagePath!, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
     complete: async ({ kind, system, user }: { kind: string; system: string; user: string }) => { seen.push({ kind, text: `${system}\n${user}` });
-      if (kind !== "editor_judgement") { emitted = typeof draft === "function" ? draft(/Field to edit: (\w+)/.exec(user)?.[1] ?? "") : draft; return { value: emitted }; }
+      if (kind !== "editor_judgement") { emitted = typeof draft === "function" ? draft(/Field to edit: (\w+)/.exec(user)?.[1] ?? "") : draft; const { before: _before, after, ...body } = emitted; return { value: kind === "body_edit" ? { ...body, units: [{ kind: "paragraph", text: after }] } : emitted }; }
       if (verdict === "throw") throw new Error("the reader of meaning never answered");
       return verdict ? { value: { ...verdict, claims: rule((emitted.claims ?? []) as never) } } : { error: "no answer", retryable: true }; } } as never);
   return { row: out[0]!, owed, settled: [...settled.values()], notes, why: [...why.values()], unsettled: [...unsettled], judged: seen.filter((x) => x.kind === "editor_judgement").map((x) => x.text), wrote: seen.filter((x) => x.kind !== "editor_judgement").map((x) => x.text) };
@@ -55,7 +53,7 @@ describe("the editorial standard one edit is judged by", () => {
     const demand = { ...snapOf(s), ownedPages: [{ ...snapOf(s).ownedPages[0], search: { clicks90d: 1, impressions90d: 900, ctr90d: 0.01, position90d: 8, topQueries: [{ query: s.q, impressions: 900, clicks: 0, position: 8 }] } }], research: { winningPages: [seen], serpEvidence: [{ query: s.q, observedAt: null, organic: [{ rank: 1, url: at, domain: seen.domain, title: null }], aiOverview: [], aiMode: [], paa: [], related: [] }] } };
     const good = await run(s, mk(), draft, PASS, [await reading(s)], bodyOf(s), demand);
     const wrongField = await run(s, mk(), { ...draft, field: "meta" }, PASS, [await reading(s)], bodyOf(s), demand);
-    expect([wrongField.row.status === "ready", wrongField.judged.length, wrongField.wrote.filter((text) => text.includes("Field to edit:")).length, wrongField.why.some((why) => why.includes("different field"))], "a schema-valid response for a different task cannot become body copy or buy an editorial reread").toEqual([false, 0, 1, true]);
+    expect([wrongField.row.status === "ready", wrongField.judged.length, wrongField.wrote.filter((text) => text.includes("Field to edit:")).length, wrongField.why.some((why) => why.includes("field:"))], "a response with the wrong body field fails strict validation, exhausts only its bounded schema retry and buys no editorial reread").toEqual([false, 0, 2, true]);
     const hold = openHold(good.row);
     const packet = (text: string) => JSON.parse(/^SHARED EVIDENCE PACKET.*?: (.*)$/m.exec(text)![1]!); expect(packet(good.wrote.find((text) => text.includes("SHARED EVIDENCE PACKET"))!)).toEqual(packet(good.judged[0]!)); expect(good.row.supportFacts?.every((f) => packet(good.wrote.find((text) => text.includes("SHARED EVIDENCE PACKET"))!).evidence.some((e: { id: string; text: string; sources: unknown }) => e.id === f.id && e.text === f.fact && (!f.sources || JSON.stringify(e.sources) === JSON.stringify(f.sources))))).toBe(true);
     expect(packet(good.judged[0]!).comparison.winners[0]).toMatchObject({ id: "rival-1", url: at, role: "research_not_claim_support", held, read: true, truncated: false, heldWhole: true });
