@@ -74,13 +74,14 @@ function evidenceFingerprint(p: ChangeProposal): string {
 
 /** PURE: the fingerprint of everything an operator would act on. EXCLUDES createdAt and anything else that moves on its own, so a pass re-deriving the same decision writes nothing. THE REASONING IS MATERIAL: leaving `causeFinding` out let a re-stamped cause short-circuit as "unchanged" and never persist. */
 export function proposalFingerprint(p: ChangeProposal): string {
+  const draft = p.newPageDraft ? deserializeChangeProposal(serializeChangeProposal(p))?.newPageDraft ?? p.newPageDraft : null;
   const material = {
     id: p.id, status: p.status, confidence: p.confidence, basis: p.basis ?? null,
     ...(p.workKey ? { workKey: p.workKey } : {}), // and reuse could never match anything. Conditional, so a row minted before the key existed is never churned.
     change: p.recommendedChange, limitations: p.limitations.filter((l) => !/^The exact .* lands on the next pass/.test(l)), cause: p.causeFinding ?? null, /* THE OWED NOTE IS DISPLAY, NOT IDENTITY (reviewer, 2026-09-04): it flipped on twenty-five untouched rows in one zero-call drive and re-versioned each; a refusal sentence stays material, this note never was */
     components: (p.bundle?.components ?? []).map((c) => [c.kind, c.page ?? null, c.where ?? null, c.before, c.after, // EVERY MATERIAL FIELD OF A PIECE, so a piece cannot change what it MEANS without a new identity. Kind, words, evidence and risk alone left the page it lands on, the place on that page, what it is for and why it works out of the hash: a four-address differentiation could drop an address, move a component from one page to another, or re-aim the whole change, and compute "unchanged" against the row it replaced.
       c.evidenceKeys, c.risk, c.objective ?? null, c.mechanism ?? null, c.anchorAfter ?? null, c.redirectTo ?? null]),
-    dispositions: p.bundle?.dispositions ?? null,
+    dispositions: p.bundle?.dispositions ?? null, ...(draft ? { newPageDraft: draft } : {}),
     ...(p.copyStamp ? { stamp: p.copyStamp } : {}), // THE PAGE THE WORDS WERE WRITTEN FOR. Conditional, like the ids below: a row minted before the stamp existed hashes byte for byte what it always did and is never churned to say the identical thing.
     ...(p.claims?.length ? { claims: p.claims.map((c) => [c.text, [...c.supportedBy].sort()]) } : {}),
     ...(p.winnersOnFile ? { winnersOnFile: p.winnersOnFile } : {}), // WHAT IS ON FILE FOR THE ROW'S OWN SEARCH IS MATERIAL (production 10:31Z, 2026-09-06): the producer re-emitted the settled hub rows with this field stamped and everything else byte for byte, the store answered unchanged, and the ladder that turns a settled row into its owed results page never ran. Conditional, so a row minted before the field existed is never churned.

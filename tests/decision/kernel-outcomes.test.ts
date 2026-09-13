@@ -414,6 +414,9 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     const unsupported = { ...page, claims: page.claims!.map((c) => ({ ...c, supportedBy: ["page-heading-1"] })) }; expect([openHold(unsupported).defects.length > 0, openHold(unsupported).advisories.some((a) => a.kind === "single_source"), nextObligation(unsupported) != null]).toEqual([true, false, true]);
     const queue = await loadProposalQueue("fixture-tenant", { currentBasis: page.basis!, now: NOW }); expect(queue.ready.map((p) => p.id)).toContain(page.id); // exact accepted publication reaches the operator's Ready lane
     const again = await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW }); expect(again.reused).toBe(1); // a refresh re-pays nothing
+    const { reviewFinishedCopy } = await import("@/domains/decision/drafted-copy"); const rejected = (await reviewFinishedCopy(page, { tenantId: page.tenantId, now: NOW, judge: async (d) => ({ ...judged(""), wouldHandToCustomer: false, resolution: "structural_synthesis", notes: "The first section must answer its heading rather than describe the writing.", repairs: [{ component: 3, instruction: "Explain the table itself in the first section." }], claims: d.claims.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })) }) as never })).row!; env.store.set(page.id, { ...rejected, status: "needs_review" });
+    const repairing: string[] = []; const repaired = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async (r) => { repairing.push(r.kind); if (r.kind === "new_page_brief") throw new Error("never rebrief a rejected complete page"); return { value: (r.kind === "atomic_edit" ? { ...sectionDraft(r.user), after: sectionDraft(r.user).after.replace("It says what belongs there and why", "It explains what each item means and how families arrange it") } : judged(r.user)) as never }; } }); const landed = repaired.proposals.find((p) => p.id === page.id)!;
+    expect([repairing, landed.status, nextObligation(landed), landed.newPageDraft?.repair]).toEqual([["atomic_edit", "editor_judgement", "page_acceptance"], "ready", null, undefined]); expect(landed.newPageDraft!.pieces[1]!.after).not.toBe(page.newPageDraft!.pieces[1]!.after); for (const n of [0, 2, 3]) expect(landed.newPageDraft!.pieces[n]).toEqual(page.newPageDraft!.pieces[n]);
     const said = { competitors: [{ name: "waterwise", position: 1 }], materialOmissions: ["what it costs currently"] }; // TWO answers say the same thing, and one statement claims the present, which may never be shown on a line I did not read today
     reset(snap([GAP], { ...READY({ topicKey: keyOf(READY()) }), aiObservations: [{ ...asked[0]!, fanOutQueries: [`what goes on a ${HAFT}`], analysis: said }, { ...asked[0]!, observationId: "obs_fx2", promptId: "p10", engine: "gemini", analysis: said }] }, DEMAND));
     const built = (await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW })).proposals.find((p) => p.kind === "new_page")!; const at = (k: string) => built.bundle!.receipt.items.find((i) => i.key === k)!;
@@ -518,7 +521,6 @@ describe("what the winning pages share reaches the operator, and never one of th
     expect([d.pattern!.winners, d.pattern!.publishers]).toEqual([3, ["r1.example", "r2.example", "r3.example"]]); // the months-old fourth read is not one of the pages I read
     expect(d.pattern!.ownedGaps[0]!.gap).toContain("piece"); // and the gap stands only because the page it is about was supplied
     expect(d.evidence!.find((e) => e.id === "gap1")!.fact).toContain("Your own page does not do what 3 of them do"); expect(d.evidence!.find((e) => e.id === "pattern")!.fact).toContain("The 3 pages that win here were read side by side"); });
-  /** AND THE READING SPENDS INSIDE ITS SHARE OF THE BOX LIKE EVERY OTHER JOB (R8 residual 3, named rather than made blind at the round-nine landing). It was the one funded family left outside the share, because its verdict is read off whether the purse moved and the share reports the purse empty once a job's half of the box has ended: wrapped blind, a reading the CLOCK stopped would have written "the pages that win this subject do not yet come from enough separate publishers", a settled refusal that reopens only when another winner is read, about evidence nobody looked at. What "nothing was asked" means is settled here: it means this reader's own deterministic rule read today's winners and declined to spend, and it can never mean the drive ran out of box. */
   it.each(["tenant-one", "tenant-two"])("%s: files a reading its own share of the box stopped as owed again, never as a settled refusal about the winners it never read", async (asTenant) => {
     const research = READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) });
     reset(snap([GAP], research, DEMAND)); vi.useFakeTimers({ toFake: ["Date"] }); const at = Date.now();
@@ -544,7 +546,6 @@ const doorWorld = (over: Partial<FunnelResearchEvidence> = {}, pages: OwnedPageE
   const world = { ...snap(pages, research, DEMAND), cannibalization: can };
   const key = buildTopicInvestigations(world).find((i) => i.label === HAFT)?.key ?? ""; // The comparison is pinned to the case THIS world actually builds, so an extra answer in the evidence never orphans it.
   return { ...world, research: { ...research, pageComparisons: (research.pageComparisons ?? []).map((c) => ({ ...c, topicKey: key })) } };};
-/** The REAL producer, through the REAL pass: nothing about the deep change is stubbed here. */
 const doorRun = (world: EvidenceSnapshot, read: (u: string) => unknown = PATTERN) => { reset(world); env.realBundle = true;
   return produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: async (r) => (r.kind === "winning_pattern" ? { value: read(r.user) as never } : pageSeam(BRIEF)(r)) }); };
 describe("a page earns the deep read through the door its own evidence opens", () => {
@@ -560,7 +561,6 @@ describe("a page earns the deep read through the door its own evidence opens", (
     const res = await doorRun(doorWorld({ aiObservations: [ASKED] }), noGaps); expect([env.door!.door, env.door!.evidence.query]).toEqual(["coverage_verdict", HAFT]); const deep = res.proposals.find((p) => p.bundle)!;
     expect(deep.bundle!.components.every((c) => c.kind !== "title")).toBe(true); // still never a reworded title
   });
-  /** WHAT A REFUSAL COSTS AND WHAT IT SETTLES: the sentence reaches the operator's receipt, and a stored change whose claims stopped resolving is re-judged and TAKEN BACK rather than quietly kept on their list. */
   it("carries a refusal onto the candidate line, and takes back the stored change whose evidence stopped resolving", async () => {
     const owed = "I could write 1 of the 3 sections this rebuild needs and 2 are still owed, so I am not handing you half a page.";
     reset(doorWorld()); env.bundle = { status: "none", reason: owed };
@@ -593,7 +593,6 @@ describe("do I already have the right page for what I investigated", () => { it(
 const PATTERN_HELD = { archetype: "informational_guide" as const, commonHeadings: [{ heading: "what each piece means", seenOn: [0, 1, 2] }], commonEntities: [], questionsAnswered: [], openingPattern: "Each of them answers the question in its first sentence.", disagreements: [], uniqueNotCommon: [],
   ownedGaps: [{ gap: "your page never walks through the pieces one by one", seenOn: [0, 1, 2] }], winners: 3, publishers: ["r1.example", "r2.example", "r3.example"], fingerprint: "fixture" };
 /** The five causes nothing in this generation can test, which must therefore never be guessed at. */
-/** Causes NOT CONSIDERED when this caller holds none of their evidence. demand_decline and ranking_loss are a RULE now (the two four week windows), so they are named here for the same honest reason as the rest: nobody handed this pass the windows. retrieved_not_cited went live when the projection began carrying the retrieval list. */
 const NEVER_HELD = ["demand_decline", "ranking_loss", "technical_indexability", "measuring_change"];
 /** An engine answering this page's own search and naming everybody except this page. */
 const CITED_ELSEWHERE = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), aiObservations: [canon({ promptId: "p1", promptText: "nowruz traditions explained", engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true,
@@ -689,7 +688,6 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     expect(Math.abs(fresh.contribution), "RECORDED, NEVER A DISCOUNT (operator, 2026-08-29): overlap is context for the reading, and a card loses no rank for standing beside a measured change").toBe(0);
     expect([Math.abs(stale.contribution), stale.input]).toEqual([0, "nothing is being measured on this page"]);
     expect(fresh.input).toBe("this page already has a change under measurement, noted for the reading"); });
-  /** THE SAFETY NET ON BOTH SIDES OF THE STORE: a stored change whose claims stopped resolving may not RENDER, and the next canonical pass takes it back even when nothing re-selects that page for a deep read. */
   it("neither renders nor keeps a stored change whose claims no longer resolve, without waiting to be re-selected", async () => {
     const bad = (basis: string): ChangeProposal => baseProposal({ id: "fixture-tenant::/split::existing_edit::bundle", pagePath: "/split", basis, status: "needs_review", riskLevel: "high", bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] }, alternatives: [], risks: [], confidenceReasons: [],
         receipt: { items: [{ key: "demand-exact", kind: "gsc_demand", fact: "f", observedAt: null }], missing: [], freshestObservedAt: null }, components: [{ kind: "consolidation", label: "Settle which page owns this search", before: null, after: "Keep one of these pages.", evidenceKeys: ["demand-competing"], risk: "dangerous", where: "across both", objective: "o", mechanism: "m", measurementPlan: "p" }] } });
@@ -697,7 +695,6 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     expect((await loadProposalQueue("fixture-tenant", { currentBasis: "b" })).ranked.map((p) => p.id)).toEqual(["good"]); // it never reaches the screen
     reset(snap([WINNER])); env.store = new Map([[bad("basis_test").id, bad("basis_test")]]); // and no door opens on that page at all
     await produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: async () => ({ value: VALID_ATOMIC_EDIT }) }); expect(env.withdrawn).toEqual([bad("b").id]); });
-  /** AND A ROW THAT WENT COLD IS SAID, NOT SWEPT (owner's editorial policy, 2026-09-06). A thirty day window took a whole standing change out of the queue and then withdrew it, on a clock rather than on anything about the work; the date the readings carry is a caveat on the card now, and a stale FACT that contradicts a checked source is still a defect the canon catches. */
   it("keeps a change whose readings went cold and names the date they carry, so a clock hides no finished work", async () => {
     const aged = (observedAt: string): ChangeProposal => baseProposal({ id: "fixture-tenant::/aged::existing_edit::bundle", pagePath: "/aged", basis: "basis_test", status: "ready", bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] }, alternatives: [], risks: [], confidenceReasons: [],
         receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "f", observedAt }], missing: [], freshestObservedAt: observedAt }, components: [{ kind: "title", label: "Title", before: "a", after: "b", evidenceKeys: ["k1"], risk: "safe" }] } });
@@ -710,7 +707,6 @@ describe("why this page loses the click, one named cause at a time", () => { it(
         expect(c.cause.competingExplanations.every((x) => x.reason.length > 0)).toBe(true); expect(c.cause.falsifier.length).toBeGreaterThan(0);
         expect(c.cause.notConsidered.map((n) => n.cause)).toEqual(expect.arrayContaining(NEVER_HELD)); expect(c.cause.notConsidered.every((n) => n.missing.length > 0)).toBe(true);
         expect(`${c.cause.explanation} ${c.cause.falsifier}`).not.toMatch(/[–—]|SERP|experiment|baseline/); } } }); });
-/** THE BAR EVERY GAP IS MEASURED AGAINST (2026-08-12). fitTenantCtrCurve was named in this module's own header and never existed, so every account was judged by an industry table promising 28 percent at position 1 while this one earns 1.34, and every card in the queue was sized about twenty times too big. */
 describe("the click curve is fitted to the account it judges", () => {
   const rows = (ctrByBand: Record<number, number>, per = 40) => Object.entries(ctrByBand).flatMap(([band, ctr]) => Array.from({ length: per }, (_, i) => ({ query: `q${band}x${i}`, position: Number(band), impressions: 500, clicks: Math.round(500 * ctr) })));
   it("learns this account's own rate, holds the curve decreasing, and keeps the industry table for the bands it never saw", () => {
@@ -725,7 +721,6 @@ describe("the click curve is fitted to the account it judges", () => {
     expect([one.source, one.expectedCtrAt(1)]).toEqual(["default", defaultExpectedCtrAt(1)]);
     const brandy = [...rows({ 1: 0.01 }), ...Array.from({ length: 40 }, (_, i) => ({ query: `iranopedia ${i}`, position: 1, impressions: 500, clicks: 450 }))];
     expect(fitTenantCtrCurve(brandy, { brandTokens: ["iranopedia"] }).expectedCtrAt(1)).toBeCloseTo(0.01, 3); });
-  /** THE FITTED CURVE MUST NOT LOCK THE PASS SHUT. A flat 0.02 deficit floor is unclearable once the curve says the best position on this account pays 0.9 percent: a search earning ZERO clicks on 60,000 views sits 0.0035 under its curve, fails a 0.02 bar, and the kernel calls a page that never earns a click healthy. */
   it("a search earning nothing at all still earns work, and the refusal names the floor that actually bound it", () => {
     const curve = fitTenantCtrCurve(Array.from({ length: 40 }, (_, i) => ({ query: `q${i}`, position: 1, impressions: 5_000, clicks: 45 })));
     expect(curve.expectedCtrAt(1)).toBeCloseTo(0.009, 4); // the whole account tops out under 1 percent
@@ -733,7 +728,6 @@ describe("the click curve is fitted to the account it judges", () => {
     expect([dead.action, dead.recoverableClicks]).toEqual(["research_needed", 66]); // NOT watch: zero clicks on 60,000 views is the clearest gap there is
     const near = compileCandidates(snap([page(200)]), { curve })[0]!; // AND THE FLOOR THAT REFUSED IT IS THE ONE NAMED, in its own unit: a search worth 539 clicks used to read "under the 50 clicks on 500 searches that earn a change".
     expect([near.action, /under the 50 clicks/.test(near.reason)]).toEqual(["watch", false]); expect(near.reason).toContain("which is most of what that position gives, so its wording is not visibly costing you the click"); }); }); // ── work identity is the JOB'S OWN evidence, never the account's ──────────────
-/** The audited defect this pins: every fixture in this suite hardcodes `evidenceHash: "fixture"`, so an entire  class of account-wide identity bugs was invisible to the suite BY CONSTRUCTION (627 versions on one live row,  a finished answer overwritten by a worse redraft, twelve-call rewrites re-bought). These tests use the REAL  `hashSnapshot`, move an UNRELATED page's Google figures between passes, and hold the identity still. */
 describe("work identity survives unrelated drift and moves with the job's own evidence", () => {
   const AT = ownedPage("fixture-outdoors.example/hiking-socks", "Hiking Socks", { impressions: 9000, clicks: 700 }, [{ query: "hiking socks", impressions: 9000, clicks: 700, position: 1.2 }]);
   /** Healthy on every axis (a description on file, clicks at position), so no producer mints work for it: its ONLY role is to drift. */
@@ -813,7 +807,6 @@ describe("the unruled review pass", () => { // ── a pass whose review never 
     await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 5 });
     expect(env.store.get(mint().id)?.status).toBe("needs_review");
     fenv.cards = null; fenv.review = null; }); });
-/** SPENDING AND AUTHORIZATION ARE TWO QUESTIONS (operator, 2026-08-31). Six finished descriptions with positive readings sat at needs_review while the results pages their gate asked for landed the same day: the same-day stop refused the re-buy, which is its job, and nothing else could re-read the stored work, which is nobody's. Ready means safe to try: complete, placed, reasonably better, reversible, no known material defect. The $0 replay re-reads stored finished copy against today's full deterministic authorization, attaches newly landed shape backing, calls no provider, and a materially defective sibling in the same pass stays held with every word intact. */
 describe("the $0 replay: a held finished draft promotes when its evidence lands, with no provider call", () => {
   const gateLine = "it replaces the description this page already has on demand evidence alone: demand proves the page matters, never that these words beat the current ones, so it is held until a diagnosis names what is wrong with the current description or a stored results page backs this shape";
   const meta = (id: string, after: string, over: Partial<ChangeProposal> = {}): ChangeProposal => baseProposal({
@@ -831,7 +824,6 @@ describe("the $0 replay: a held finished draft promotes when its evidence lands,
     expect([held.status, held.limitations.includes(gateLine)], "the defective sibling stays held with every word and reason").toEqual(["needs_review", true]);
     expect([paidCalls, out.outcome !== "evidence_unreadable"], "no provider was called for any of it").toEqual([0, true]); });
   const OBJECTION = "the evaluator's exact objection: this reads as a list of searches rather than a sentence";
-  /** A RESULTS PAGE THAT DOES NOT BACK THE SHAPE IS AN ANSWER, NOT A WAIT (falsifier, 2026-09-02): eight held descriptions had their results page on file, `shapeBackingOf` found fewer than two ranked titles leading with the copy's first token, and the row still answered `{evidence: serp}` for ever. */
   it("owes nothing for a shape the results page does not back, and says the benefit is uncertain instead", async () => { reset(snap([{ ...GAP, content: { ...GAP.content!, metaDescription: "Old line about the holiday." } }], looked([["nowruz traditions", GAP_URL]])));
     const off = meta("/nowruz-guide", "Haft-Seen table customs and the spring timing of the Persian new year, described in plain language for a first visit.", { modeledOn: undefined });
     env.store = new Map([[off.id, off]]); await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true });
@@ -846,7 +838,6 @@ describe("the $0 replay: a held finished draft promotes when its evidence lands,
     const out = env.store.get(stale.id)!;
     expect([out.status, out.faults ?? [], !!out.modeledOn], "and the withdrawn rule's line leaves with it, the results page on file backing the shape").toEqual(["ready", [], true]); });
 });
-/** RAW MARKUP IS NOT PASTE COPY (operator, 2026-08-31). A stored link row from before the typed-anchor contract carried an <a> tag in a section body and the $0 replay promoted it: nothing typed owned the rule that operator copy is text. The canon owns it now, so every door that mints or replays Ready refuses it. */
 describe("the canon refuses raw HTML in operator copy", () => {
   it("holds the stored row that carries a tag, at $0, while its clean sibling still promotes", async () => {
     const gateLine = "it replaces the description this page already has on demand evidence alone: demand proves the page matters, never that these words beat the current ones, so it is held until a diagnosis names what is wrong with the current description or a stored results page backs this shape";
@@ -863,7 +854,6 @@ describe("the canon refuses raw HTML in operator copy", () => {
     await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true });
     const demoted = env.store.get(standing.id)!;
     expect([demoted.status, demoted.limitations.some((l) => l.startsWith("it did not pass the re-read of a stored change against the rules that stand today: Contains raw HTML markup"))], "demoted with the canon's own reason on the row, and through the ONE composer, so the gate opener is there for the next promotion candidate to strip and re-earn instead of the raw sentence standing as a customer caveat for ever").toEqual(["needs_review", true]); });
-  /** A VERDICT THAT DEPENDS ON A PAGE'S TEMPLATE SIBLINGS IS ASKED OF THE WHOLE FAMILY, NEVER OF THE ROWS THAT HAPPENED TO BE HELD (measured live, 2026-09-05): /california-persian-cities/beverly-hills was promoted in one hosted pass one second before the same rule refused a sibling, because each pass asked the rule against whatever window was open. The sweep reads the family out of the account's OWN page inventory now, whether or not a sibling carries a row, and the pass receipt says how much of it came back, so a reader can tell a whole-family verdict from a partial one. */
   it.each(["tenant-one", "tenant-two"])("reads a candidate page's whole family out of the page inventory rather than the held rows, and says on the receipt how much of it came back [%s]", async () => {
     const kin = (slug: string) => ownedPage(`fixture-outdoors.example/cities/${slug}`, slug, { impressions: 900, clicks: 20 }, [{ query: `${slug} guide`, impressions: 900, clicks: 20, position: 6 }]);
     const held = baseProposal({ researchOnly: false, id: "fixture-tenant::/cities/one::existing_edit::missing_description", pagePath: "/cities/one", pageUrl: "https://fixture-outdoors.example/cities/one", changeFamily: "meta", status: "needs_review", primaryQuery: "one guide", basis: "basis_test::d8", recommendedChange: { kind: "existing_edit", field: "meta", before: "Old line.", after: "A line about the first city and the spread a household sets out for the new year." } });
@@ -874,7 +864,6 @@ describe("the canon refuses raw HTML in operator copy", () => {
     const partial = await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true });
     expect(partial.paid.familyRead, "and a family the store could not hand over whole says so on the receipt instead of the pass quietly deciding on the part of it that answered").toEqual({ asked: 2, loaded: 1 }); });
 });
-/** A PRODUCER THAT READ NOTHING CANNOT CLAIM THE PAGE MOVED (operator, 2026-08-31). Live, the $0 re-mint of a description card arrived with no copyStamp over a finished promoted meta carrying the page as the drafting pass read it; null against that stamp broke copy identity, and the template replaced the finished description whole, words to a receipt, backing and status gone. */
 describe("a stampless re-mint never replaces finished work", () => {
   it("keeps the finished copy, the backing and the status under the re-minted template", async () => {
     const { preferFinished } = await import("@/domains/decision/completeness");
@@ -887,7 +876,6 @@ describe("a stampless re-mint never replaces finished work", () => {
     const moved = preferFinished(rewrite, finished);
     expect([(moved.recommendedChange as { after: string }).after.startsWith("Write a description"), moved.previousCopy?.after], "a real page change still retires the old words onto a receipt").toEqual([true, (finished.recommendedChange as { after: string }).after]); });
 });
-/** THE $0 RELEASE LOOP RE-READS WHAT IS ON FILE, AND ONLY WHAT IT MAY TOUCH. STRUCTURED DATA FILED AS A SECTION IS STILL STRUCTURED DATA (Codex, 2026-09-02): a JSON-LD block stored under `section` was read as prose by every gate, so two live rows carried seven refusals about wording no reader ever sees, and the prose re-read had no length band for it at all. AND A CHANGE THE OPERATOR ALREADY MARKED DONE IS NOT WALKED BACK TO A BRIEF (falsifier, 2026-09-02): the contaminated-support sweep demoted any row at all, so a shipped change under measurement could be re-minted as research and its measurement orphaned. */
 describe("the $0 release loop converts what it can, and never touches what is being measured", () => {
   const Q = "What is a haft seen table?", ANSWER = "A haft seen table is the spread a household sets out for the new year.";
   const FAQ = JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: [{ "@type": "Question", name: Q, acceptedAnswer: { "@type": "Answer", text: ANSWER } }] });
@@ -903,7 +891,6 @@ describe("the $0 release loop converts what it can, and never touches what is be
     const out = await pass(block("ready")); const c = out.row.recommendedChange as { field: string; after: string; where?: string };
     expect([c.field, c.after.startsWith("{"), (c.where ?? "").length > 0, out.row.limitations.some((l) => /^Contains raw HTML markup/.test(l)), validateProposal(out.row, { pageBodyText: `${Q} ${ANSWER}` }).verdict, out.paid], "the block is filed as structured data with its wrapper off and its placement stated, no rule written for sentences refuses it as markup, the canon's own JSON-LD gate passes it, and none of it costs a call").toEqual(["schema", true, true, false, "ready", 0]);
     expect([out.done.status, out.done.researchOnly ?? false, out.done.limitations], "and a change the operator already marked done is never re-minted as research, whatever its claims lean on").toEqual(["implemented_pending_verification", false, shipped.limitations]); });
-  /** THE REPLAY READS THE WHOLE PAGE FOR A SCHEMA ROW (falsifier, 2026-09-02): the canon proves structured data against what the page VISIBLY carries, and the candidate was judged against the four stored fields plus whatever the sweep window held, so an answer the page really carries read as absent off a 160-character excerpt. */
   it("proves a schema block against the page's own body, clearing an answer it carries and refusing one it invents", async () => {
     reset(snap([GAP], looked([["nowruz traditions", GAP_URL]]))); // Q and ANSWER are NOT among this page's four stored fields: only its body carries the answer
     const carried = block("ready");

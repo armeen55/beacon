@@ -77,6 +77,8 @@ export function nextObligation(p: ChangeProposal): Obligation | null {
   const attempt = (p.previousCopy?.attempts ?? 0) + 1, redraft = (instruction: string): Obligation => attempt > MAX_ATTEMPTS ? { kind: "terminal", reason: SETTLED_AFTER_RETRIES } : { kind: "redraft", attempt, instruction }, refused = p.previousCopy && (p.faults ?? []).includes(p.previousCopy.retiredBecause) ? p.previousCopy.retiredBecause : null;
   if (p.recommendedChange.kind === "new_page") {
     if (unwritten || owed > 0) return { kind: "sections", owed: Math.max(owed, 1) };
+    const repair = p.newPageDraft?.repair;
+    if (repair?.of === copyKey(p)) return repair.resolution === "no_valid_treatment" ? { kind: "terminal", reason: repair.targets[0]?.instruction ?? p.faults?.[0] ?? "The page has no defensible treatment on its current evidence." } : /^(structural_synthesis|use_stored_verified_evidence)$/.test(repair.resolution) && repair.targets.length > 0 ? redraft(repair.targets.map((t) => t.instruction).join("; ")) : { kind: "review" };
   } else if (p.researchOnly === true || unwritten) return refused ? redraft(refused) : { kind: "draft" }; // A REFUSED FUNDED DRAFT OWES A CORRECTIVE ONE, NOT A FIRST ONE (R9 and D2i, 2026-09-05): the objection rides as the instruction, the owed step moves from draft to redraft so the work identity moves and the day's memory hands the writer the second attempt today, and `redraft` still settles the third on the two-attempt rule.
   // A REVIEW THAT IS OWED IS NOT A REDRAFT WEARING A FAULT (live, 2026-09-04). The sweep writes whatever blocks a
   // ready row into `faults`, so "the reading on file was made under an older review contract" sat as a typed fault

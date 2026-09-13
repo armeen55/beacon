@@ -386,7 +386,7 @@ export const SCHEMA_BY_KIND = {
   aeo_gap: AeoGapSchema,
   competitor_comparison: CompetitorComparisonSchema,
   editor_judgement: EditorJudgementSchema,
-  page_acceptance: EditorJudgementSchema.omit({ claims: true, aeoPacket: true }),
+  page_acceptance: EditorJudgementSchema.omit({ claims: true, aeoPacket: true }).extend({ repairs: z.array(z.object({ component: z.number().int().nonnegative(), instruction: z.string().min(1).max(600) })).max(24).default([]) }),
   fact_claim_extraction: FactClaimExtractionSchema,
   fact_claim_judgement: FactClaimJudgementSchema,
   factual_review: FactualReviewSchema,

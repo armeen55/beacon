@@ -6,10 +6,10 @@ import type { AuthoritativeFact } from "@/domains/decision/drafts/factual-entail
 // TYPE ONLY (erased at compile, no runtime edge). The cause ladder owns the cause vocabulary; this contract carries it rather than keeping a second copy that could drift. Obligation is the same arrangement in the other direction: decision/obligation derives it from a row, this file only carries it, and the import being type-only is what keeps the two files off each other's runtime graph.
 import type { CauseFinding } from "./diagnosis";
 import type { Obligation } from "./obligation";
+import type { DraftResolution } from "./producers/contract";
 /** The editor's complete acceptance verdict, banked separately from claim entailment. */
 export const EditorAcceptanceSchema = z.object({ pageFit: z.boolean(), usefulAndNatural: z.boolean(), placementCorrect: z.boolean(), resolvesDiagnosis: z.boolean(), implementableNow: z.boolean(), improvesPage: z.boolean(), wouldHandToCustomer: z.boolean(), contested: z.boolean().optional(), notes: z.string().min(1).max(300) });
 
-// ── EvidenceInput: the ONE normalized input the kernel consumes ───────────────
 /** The demand + page context for one opportunity. Structural on purpose: the  evidence assembler owns HOW these are computed, the kernel only consumes them. */
 export interface EvidenceInput {
   tenantId: string;
@@ -47,7 +47,6 @@ export interface EvidenceInput {
   sizing?: { impactScore?: number | null; upsidePerMonth?: number | null };
 }
 
-// ── Candidate diagnosis (decision truth replacement, 2026-07-27) ──────────────
 /** What the evidence actually justifies for one page or topic, decided BEFORE any draft is written. Doing  nothing is the default: a page is not a problem because it is big. Only the two `act_` outcomes may become a ChangeProposal; the rest are the honest answer and live in the run receipt, never manufactured work.  Internal to Decision: NOT persisted as its own record and never a public type. */
 // No `act_new_page`: a page this account does not own is decided by the coverage ladder over researched TOPICS, never by this per-page diagnosis over pages it already has.
 type CandidateAction = "act_existing_page" | "consolidate" | "watch" | "research_needed" | "do_nothing";
@@ -83,7 +82,6 @@ export type EvidenceReadiness = {
   serp: boolean;
   /** Inspectable extracts of pages that actually rank or are cited FOR that query. */
   winners: number;
-  /** The page's own WORDS beyond its title, so a claim about it can be checked. No body  store exists yet, so this is false everywhere today and High confidence on an edit is currently unreachable. That is the truth, not a gap to paper over. */
   body: boolean;
 };
 
@@ -121,7 +119,6 @@ export function confidenceFor(r: EvidenceReadiness, d?: ActionDiagnosis | null):
   if (!evidenceComplete(r) || (d !== undefined && !readyForAction(d))) return "low";
   return r.winners >= 2 && r.body ? "high" : "medium"; }
 
-// ── ChangeProposal: the ONE persisted output ──────────────────────────────────
 
 /** `new_page` is earned: only the page by page comparison proves this account reaches none of what the winners share. */
 type ProposalKind = "existing_edit" | "new_page";
@@ -140,7 +137,6 @@ export type RecommendedChange =
 /** A compact, frozen copy of what grounded this proposal, never a live handle: enough for the operator to see why Beacon recommends it and for the validator to re-run on load. `evidenceRefCount` is the draft's. */
 type ProposalEvidence = { query: string; hints: string[]; evidenceRefCount: number };
 
-// ── ChangeBundle: the atomic components implemented together on one page ────── A bundle rides ON a ChangeProposal: the proposal stays the one persisted, ranked, validated record and the bundle is its deep, copy-ready form. Never a second pipeline, never a second status vocabulary.
 
 /** THE COMPLETE CHANGE UNIVERSE (Phase 4): every lever Beacon may recommend on one page, named once. ADDITIVE ONLY, so every stored bundle still decodes, and never CMS-specific: WHAT to change and WHERE, not which editor. */
 export type BundleComponentKind =
@@ -295,7 +291,9 @@ export type ChangeProposal = {
   /** The onboarding/research basis this proposal was generated under. A proposal whose basis is not the account's CURRENT basis is WITHHELD at load, never deleted. Absent on pre-basis rows, which read stale. */
   basis?: string;
   /** THIS CARD IS A READ, NOT AN EDIT: nothing on it is written, so no surface offers it as copy and the server refuses to record it done. Set where such a card is minted (decision/authorization). It was read off a substring of customer-facing prose until 2026-08-14, so rewording that line handed out a Copy button and a Mark done. Absent on a pre-field row, which reads as an edit. */
-  researchOnly?: boolean; research?: { missing: string; next: string }; /** A NEW PAGE HALF WRITTEN, KEPT ON ITS OWN ROW so the next pass buys only what is still owed (production, topic inv_3446de602284, 2026-09-06): the brief this page was planned from, and every piece already finished with the claims, the sources and the rulings it came back with. `brief` is re-read through the same refusal gates that admitted it the first time, so a stored brief is never trusted for being stored. Absent on a page written in one pass. */ newPageDraft?: { brief: Record<string, unknown>; pieces: readonly { editor?: z.infer<typeof EditorAcceptanceSchema>; reviewOf?: string; heading: string | null; after: string; claims: readonly { text: string; supportedBy: readonly string[] }[]; supportFacts: readonly { id: string; fact: string; sources?: readonly { url: string; kind: string }[] }[]; review: readonly { i: number; by: string[]; entailed: boolean }[]; gain?: { adds: string; by: readonly string[]; pageWhole: boolean } }[] };
+  researchOnly?: boolean; research?: { missing: string; next: string };
+  /** Banked pieces and copy-bound repair work for the same unpublished page. */
+  newPageDraft?: { brief: Record<string, unknown>; repair?: { of: string; resolution: DraftResolution; targets: readonly { component: number; instruction: string }[] }; metadata?: readonly { component: number; piece: NewPagePiece }[]; pieces: readonly NewPagePiece[] };
   /** THE ONE CHOSEN TREATMENT for this page's diagnosis (Codex, 2026-08-23): a closed vocabulary every producer, drafter, queue card and measurement scope reads, so the same stage can never mean "answer block" to one of them and "reachability work" to another. Absent on rows minted before it existed. */
   /** THE IDENTITY OF THE WORK ITSELF, not of the page it lands on (Codex, 2026-08-23): reuse compared the broad cause alone, so an incomplete title bundle and a newly selected rewrite both read as "cannibalization" and the writer was skipped for a page worth 312 recoverable clicks. Two pieces of work are the same only when the page, the evidence, the family, the treatment, the cause and the search all match. */ workKey?: string;
   treatment?: "rewrite_existing_section" | "add_answer_section" | "title_or_h1" | "meta_description" | "internal_link_or_navigation" | "technical_reachability" | "consolidate_or_differentiate" | "factual_correction_batch" | "new_page"; // `research`: WHAT THE MINTING PRODUCER ALREADY KNOWS, typed so the feed never re-guesses it from `recommendedChange.after` or the last string in `operatorSteps`; absent on a row minted before this field existed, said honestly rather than guessed.
@@ -339,7 +337,6 @@ export type ChangeProposal = {
   createdAt: string;
 };
 
-// ── Zod schema (re-validate on every load; reject tampered/legacy rows) ────────
 
 const RecommendedChangeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("existing_edit"), field: z.enum(["title", "meta", "h1", "answer_block", "section", "schema"]),
@@ -404,6 +401,8 @@ const ChangeBundleSchema: z.ZodType<ChangeBundle> = z.object({
   }
 }) as z.ZodType<ChangeBundle>;
 
+type NewPagePiece = { editor?: z.infer<typeof EditorAcceptanceSchema>; reviewOf?: string; heading: string | null; after: string; claims: readonly { text: string; supportedBy: readonly string[] }[]; supportFacts: readonly { id: string; fact: string; sources?: readonly { url: string; kind: string }[] }[]; review: readonly { i: number; by: string[]; entailed: boolean }[]; gain?: { adds: string; by: readonly string[]; pageWhole: boolean } };
+const NewPagePieceSchema: z.ZodType<NewPagePiece> = z.object({ editor: EditorAcceptanceSchema.optional(), reviewOf: z.string().optional(), heading: z.string().nullable(), after: z.string().min(1), claims: z.array(z.object({ text: z.string().min(1), supportedBy: z.array(z.string().min(1)) })), supportFacts: z.array(z.object({ id: z.string().min(1), fact: z.string().min(1), sources: z.array(z.object({ url: z.string().min(1), kind: z.string().min(1) })).optional() })), review: z.array(z.object({ i: z.number().int().min(0), by: z.array(z.string()), entailed: z.boolean() })), gain: z.object({ adds: z.string().min(1), by: z.array(z.string()), pageWhole: z.boolean() }).optional() });
 const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   id: z.string().min(1), tenantId: z.string().min(1), kind: z.enum(["existing_edit", "new_page"]),
   pagePath: z.string().nullable(), pageUrl: z.string().nullable(), pageLabel: z.string(),
@@ -425,7 +424,9 @@ const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
     fanoutKey: z.string().optional(), fanouts: z.array(z.string()), observationIds: z.array(z.string()).optional(), stage: z.string() }).optional(),
   bundle: ChangeBundleSchema.optional(),
   basis: z.string().optional(), workKey: z.string().optional(),
-  researchOnly: z.boolean().optional(), research: z.object({ missing: z.string().min(1), next: z.string().min(1) }).optional(), newPageDraft: z.object({ brief: z.record(z.string(), z.unknown()), pieces: z.array(z.object({ editor: EditorAcceptanceSchema.optional(), reviewOf: z.string().optional(), heading: z.string().nullable(), after: z.string().min(1), claims: z.array(z.object({ text: z.string().min(1), supportedBy: z.array(z.string().min(1)) })), supportFacts: z.array(z.object({ id: z.string().min(1), fact: z.string().min(1), sources: z.array(z.object({ url: z.string().min(1), kind: z.string().min(1) })).optional() })), review: z.array(z.object({ i: z.number().int().min(0), by: z.array(z.string()), entailed: z.boolean() })), gain: z.object({ adds: z.string().min(1), by: z.array(z.string()), pageWhole: z.boolean() }).optional() })) }).optional(),
+  researchOnly: z.boolean().optional(), research: z.object({ missing: z.string().min(1), next: z.string().min(1) }).optional(), newPageDraft: z.object({ brief: z.record(z.string(), z.unknown()),
+    repair: z.object({ of: z.string().min(1), resolution: z.enum(["none", "structural_synthesis", "use_stored_verified_evidence", "acquire_serp", "acquire_page_source", "acquire_competitor_page", "acquire_factual_source", "no_valid_treatment"]), targets: z.array(z.object({ component: z.number().int().nonnegative(), instruction: z.string().min(1).max(600) })).max(24) }).optional(),
+    metadata: z.array(z.object({ component: z.number().int().min(0).max(1), piece: NewPagePieceSchema })).max(2).optional(), pieces: z.array(NewPagePieceSchema) }).optional(),
   treatment: z.enum(["rewrite_existing_section", "add_answer_section", "title_or_h1", "meta_description", "internal_link_or_navigation", "technical_reachability", "consolidate_or_differentiate", "factual_correction_batch", "new_page"]).optional(), // unknown keys are STRIPPED here: leave researchOnly out and a research card reloads as an edit
   diagnosisCause: z.string().min(1).optional(), winnersOnFile: z.enum(["none", "unread", "read"]).optional(),
   causeFinding: z.object({ cause: z.string().min(1), action: z.string().nullable(), evidenceKeys: z.array(z.string()),
@@ -468,7 +469,6 @@ export function deserializeChangeProposal(content: string | null | undefined): C
     return res?.success ? res.data : null; } catch { return null; }
 }
 
-// ── pure derivations (identity, family, effort) ───────────────────────────────
 
 /** The coarse family used for identity + UI. */
 export function proposalFamily(input: EvidenceInput): string {

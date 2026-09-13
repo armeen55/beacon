@@ -88,7 +88,7 @@ describe("a new page half written, at the door that stores it", () => {
     const p = halfWritten(s); await saveChangeProposal(p);
     const { newPageDraft: _dropped, ...mint } = p; await saveChangeProposal(mint as ChangeProposal);
     const stored = (await loadChangeProposals(s.t)).get(p.id)!;
-    expect(stored.newPageDraft?.pieces.length ?? 0, "a producer that re-mints the topic holds no draft, and the words already paid for are on the row").toBe(1);
+    expect([stored.newPageDraft?.pieces.length ?? 0, stored.researchOnly, stored.research, stored.faults ?? []], "a remint preserves the partial page and its research debt without falsely marking it complete or inventing lost-claim faults").toEqual([1, true, p.research, []]);
   });
 });
 
