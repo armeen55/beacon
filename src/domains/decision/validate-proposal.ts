@@ -126,12 +126,9 @@ function schemaVisible(after: string): { parsed: unknown; types: Set<string>; vi
   try { parsed = JSON.parse(after.trim().replace(/^<script[^>]*>/i, "").replace(/<\/script>$/i, "").trim()); } catch { return { parsed: null, types, visible }; }
   readSchema(parsed, types, visible);
   return { parsed, types, visible }; }
-/** FAQ RICH RESULTS ARE GONE FOR ALMOST EVERY SITE (Google, August 2023): the display is limited to well known
- *  authoritative government and health sites, so a card selling an FAQ block as a richer listing is selling
- *  this customer something Google will not give them. The markup still helps a machine read the page, which is
- *  exactly what the row may say instead. */
+/** Google retired FAQ rich results on May 7, 2026. Markup describes content, never guaranteed visibility. */
 const RICH_CLAIM = /\brich (?:result|snippet)|\bricher (?:display|listing|result|search)|\benhanced result|\beligib\w*/i;
-export const FAQ_SCHEMA_LIMIT = "FAQPage markup helps search engines and assistants read these questions and answers, and it does not change how Google displays the page.";
+export const FAQ_SCHEMA_LIMIT = "This markup describes the page's published questions and answers, and it does not change how Google displays the page. No ranking or citation gain is promised.";
 
 /** STRUCTURED DATA ANSWERS TO ITS OWN QUESTIONS. Every prose rule in this file fires on a JSON-LD block by
  *  construction, and both live schema rows were refused four times over for exactly that (raw markup, a
@@ -163,7 +160,7 @@ function schemaFailures(p: ChangeProposal, change: Extract<RecommendedChange, { 
   if (already) failures.push(`The page already carries a ${already} block, so this must replace it, not add a second one.`);
   if (types.has("FAQPage")) {
     const said = [p.opportunityType, p.whyItMatters, change.where ?? "", ...p.limitations, ...(p.claims ?? []).map((c) => c.text), ...(p.operatorSteps ?? [])].join(" ");
-    if (RICH_CLAIM.test(said)) failures.push("This sells an FAQ block as a richer search listing, and since 2023 Google shows those only for well known government and health sites, so that is not a promise this change can make.");
+    if (RICH_CLAIM.test(said)) failures.push("This sells an FAQ block as a richer search listing, but Google stopped showing FAQ rich results on May 7, 2026, so that is not a promise this change can make.");
     limitations.push(FAQ_SCHEMA_LIMIT);
   }
   return { failures, limitations };
@@ -288,7 +285,7 @@ function componentFailures(components: readonly BundleComponent[], heldHeadings:
  *  over for reasons that were never about structured data. Nothing in them needs rewriting: the block is
  *  written, its placement is stated, and the only thing missing is the type it should have been filed under.
  *  This converts ONE stored row in place, with no model and no spend: the script wrapper comes off, the field
- *  becomes `schema`, the rich-result promise Google withdrew in 2023 leaves the limitations and the honest
+ *  becomes `schema`, the retired rich-result promise leaves the limitations and the honest
  *  sentence takes its place. Null when the row is not one of these, so a caller may run it over a whole
  *  queue. Idempotent: a row already typed `schema` converts to null, not to itself again. PURE. */
 export function convertSectionToSchema(p: ChangeProposal): ChangeProposal | null {

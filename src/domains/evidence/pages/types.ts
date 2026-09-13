@@ -54,6 +54,9 @@ export type PageEntity = {
 type FaqItem = {
   question: string;
   answer_excerpt: string;
+  /** Complete captured HTML answer, only within the held main-content budget; old excerpts stay samples. */
+  answer_text?: string;
+  answer_complete?: boolean;
   source: "jsonld" | "html_details" | "html_section";
 };
 

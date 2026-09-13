@@ -26,8 +26,8 @@ export type OwnedPageBody = {
   /** EVERY stored word of the page, for word-containment checks only, never for prompting. Empty when the crawl kept no body_text. */
   vocabulary: string;
   cardTexts: string[];
-  /** Visible HTML questions with sampled answers; markup-only assertions stay in the raw snapshot. */
-  faqs: { question: string; answer: string; source: "html_details" | "html_section" }[];
+  /** Captured HTML pairs with explicit answer scope; markup-only assertions stay in the raw snapshot. */
+  faqs: { question: string; answer: string; source: "html_details" | "html_section"; answerComplete?: boolean }[];
   entityNames: string[];
   internalLinks: { href: string; anchorText: string }[];
   fetchedAt: string | null;
@@ -46,8 +46,7 @@ export type OwnedPageBody = {
 
 /** ONE QUERY'S OWN WIDTH: one split's pages, whole, plus the page under work. Sized to the ladder's MAX_SPLIT_PAGES plus the page under work. It bounds a QUERY, never the caller's question: a wider ask is paged. */
 const MAX_URLS = 7;
-/** The byte ceiling on ONE page's held content: roughly four times the largest capture the crawler can
- *  produce, so it truncates nothing real today and still bounds this read if the capture grows. */
+/** Reader-specific held-text budget; a larger stored capture remains explicitly partial here. */
 const MAX_PAGE_CHARS = 48_000;
 const CRAWL_CARDS = 20;
 /** The crawler's whole-page ceiling. A body_text that reached it was cut, so the read is partial. */
@@ -123,17 +122,20 @@ function bodyOf(row: Row): OwnedPageBody {
     : items(row.body_paragraph_sample, MAX_PASSAGES, MAX_PASSAGE_CHARS);
   const cardTexts = items(row.card_texts, CRAWL_CARDS, MAX_ITEM_CHARS);
   const entityNames = items(row.schema_entity_names, MAX_ENTITIES, MAX_ITEM_CHARS);
-  const faqs: OwnedPageBody["faqs"] = visibleFaqs(row.faqs)
-    .map((f) => ({ question: cap(f.question, MAX_ITEM_CHARS) ?? "", answer: cap(f.answer_excerpt, MAX_ITEM_CHARS) ?? "", source: f.source }))
-    .filter((f) => f.question).slice(0, MAX_FAQS);
   const internalLinks = (Array.isArray(row.internal_links) ? row.internal_links : []).slice(0, MAX_LINKS)
     .map((l) => { const link = (l ?? {}) as { href?: unknown; anchor_text?: unknown };
       return { href: cap(link.href, MAX_ITEM_CHARS) ?? "", anchorText: cap(link.anchor_text, MAX_ITEM_CHARS) ?? "" }; })
     .filter((l) => l.href);
   // THE CEILING, SPENT ON THE FIXED PARTS FIRST, then on passages in the order the page said them, so
   // truncation always records exactly how many of the store's passages made it in.
-  const fixed = [title ?? "", cap(row.meta_description, MAX_META_CHARS) ?? "", ...headings, ...cardTexts, ...entityNames,
-    ...faqs.flatMap((f) => [f.question, f.answer])].join(" ").length;
+  let fixed = [title ?? "", cap(row.meta_description, MAX_META_CHARS) ?? "", ...headings, ...cardTexts, ...entityNames].join(" ").length;
+  const faqs: OwnedPageBody["faqs"] = [];
+  for (const f of visibleFaqs(row.faqs).slice(0, MAX_FAQS)) {
+    const question = cap(f.question, MAX_ITEM_CHARS) ?? "", complete = f.answer_complete === true && typeof f.answer_text === "string";
+    const original = complete ? f.answer_text!.trim() : cap(f.answer_excerpt, MAX_ITEM_CHARS) ?? "";
+    const answer = original.slice(0, Math.max(0, MAX_PAGE_CHARS - fixed - question.length));
+    if (question && answer) { faqs.push({ question, answer, source: f.source, answerComplete: complete && answer.length === original.length }); fixed += question.length + answer.length; }
+  }
   const passages: string[] = [];
   let used = fixed;
   for (const p of stored) { if (used + p.length > MAX_PAGE_CHARS) break; passages.push(p); used += p.length; }

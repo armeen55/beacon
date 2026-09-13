@@ -51,7 +51,7 @@ const validateFAQPage: Validator = (node) => {
     warnings.push({
       type: "FAQPage",
       severity: "critical",
-      message: "FAQPage has no mainEntity array — rich results won't fire.",
+      message: "FAQPage has no mainEntity array — its questions are not described.",
     });
     return warnings;
   }
@@ -80,7 +80,7 @@ const validateFAQPage: Validator = (node) => {
     warnings.push({
       type: "FAQPage",
       severity: "critical",
-      message: `${missingAnswerCount} of ${entities.length} questions missing acceptedAnswer.text — rich results won't fire for these.`,
+      message: `${missingAnswerCount} of ${entities.length} questions missing acceptedAnswer.text — their answers are not described.`,
     });
   }
   return warnings;

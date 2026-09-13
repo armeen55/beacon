@@ -1,4 +1,3 @@
-/** EVIDENCE - the owned-page inventory (discovery through the site's OWN answer inside hard bounds, first_seen kept, a refusing page held back, a crawl finished only when the inventory is) and the whole-page read that can finally answer "no". ONE in-memory stand-in for the two tables, with filters, ordering and paging applied for real, so a query that forgot its tenant scope shows up here as another account's row coming back. No network. */
 import { beforeEach, describe, expect, it, vi } from "vitest"; import { createHash } from "node:crypto";
 const db = vi.hoisted(() => ({ owned: [] as Record<string, unknown>[], snaps: [] as Record<string, unknown>[], missing: "", fails: false, client: {} as Record<string, unknown> }));
 const FRESH = { crawl_state: "uncrawled", completeness: "missing", is_canonical_target: true, http_status: null, last_crawled_at: null, status_reconfirmed_at: null, content_hash: null, blocked_until: null, redirects_to: null };
@@ -93,13 +92,11 @@ describe("evidence - my own page's actual words, read narrowly", () => {
     expect((await read()).completeness).toBe("sample_only"); // the crawler's PARAGRAPH cap is a stop, not an ending
     db.snaps = [snapRow({ body_text: "held prose. ".repeat(6_000), word_count: 5, card_texts: [], internal_links: [] })]; const held = await read();
     expect([held.completeness, held.heldNote.includes("past the 48000 character ceiling")]).toEqual(["partial", true]); });});
-/** THE SITE IS EVENTUALLY READ IN FULL. Every bound is per PASS: the page cap used to be a lifetime clamp (a 1,000-page site simply had 400 pages Beacon would never read) and one discovery pass was the whole enumeration. Passes provably ADVANCE and never repeat, an oversized sitemap continues where it stopped, and "that is your whole website" is said only when nothing is left, not even a page waiting out a refusal. */
 describe("a crawl is finished only when the inventory is", () => {
   const html = (w: string) => `<html><head><title>T</title></head><body><main><p>${w}</p></main></body></html>`;
   const noWrite = { syncPagesImpl: async () => {}, syncPageSnapshotsImpl: async () => {} };
   const state = (o: Partial<CrawlFrontierState> = {}): CrawlFrontierState => ({ tenant_id: T, domain: "own.com", status: "in_progress", frontier: [], visited: [], pages_crawled: 0, pages_failed: 0,
     page_cap: 600, source: "sitemap", started_at: NOW.toISOString(), updated_at: NOW.toISOString(), last_batch_at: null, batches_run: 0, page_facts: [], ...o });
-  /** One batch against a live inventory, reporting which of the site's OWN pages that batch actually asked for. */
   const batch = async (hold: { s: CrawlFrontierState }, map: Record<string, string>, when = NOW) => { const from = asked.length;
     const out = await runCrawlBatch({ tenantId: T, deps: { sleep: async () => {}, now: () => when.getTime(), ...noWrite, loadState: async () => hold.s, saveState: async (s) => { hold.s = s; }, fetchImpl: serve(map) } });
     return { out, read: asked.slice(from).filter((u) => !u.endsWith("robots.txt") && !u.endsWith(".xml")) }; };

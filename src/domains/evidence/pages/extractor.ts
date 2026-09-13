@@ -43,6 +43,12 @@ export function extractPageSnapshot(
     );
   }
   const $ = cheerioLoad(html);
+  const $content = cheerioLoad(html);
+  $content("nav, footer, header, aside, script, style, noscript, svg, iframe, template, [hidden], [aria-hidden=true]").remove();
+  $content("[style]").filter((_, el) => /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important\s*)?(?:;|$)/i.test($content(el).attr("style") ?? "")).remove();
+  const mains = $content("main").filter((_, el) => $content(el).parents("main").length === 0), articles = $content("article");
+  const contentRoot = mains.length ? mains : articles.length === 1 ? articles : $content("body");
+  contentRoot.find("br, p, div, section, article, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, pre, table, caption, tr, th, td, figure, figcaption, details, summary").each((_, el) => { $content(el).before(" ").after(" "); });
 
   const title = $("title").first().text().trim() || null;
   const metaDescription =
@@ -72,7 +78,7 @@ export function extractPageSnapshot(
   const faqs: PageSnapshot["faqs"] = [];
   const faqMaterial: string[] = [];
   const holdFaq = (question: string, answer: string, source: PageSnapshot["faqs"][number]["source"]): void => {
-    faqs.push({ question, answer_excerpt: answer.slice(0, 200), source });
+    faqs.push({ question, answer_excerpt: answer.slice(0, 200), source, ...(source !== "jsonld" ? { answer_text: normalizeExtractedText(answer), answer_complete: false } : {}) });
     faqMaterial.push(JSON.stringify([question, answer.replace(/\s+/g, " ").trim(), source]));
   };
 
@@ -88,24 +94,24 @@ export function extractPageSnapshot(
   });
 
   // HTML <details>/<summary> pattern
-  $("details").each((_, el) => {
-    const q = $(el).find("summary").first().text().trim();
-    const a = $(el).text().replace(q, "").trim();
+  contentRoot.find("details").each((_, el) => {
+    const q = $content(el).find("summary").first().text().trim();
+    const a = $content(el).text().replace(q, "").trim();
     if (q && q.length > 5) {
       holdFaq(q, a, "html_details");
     }
   });
 
   // Heading-based FAQ sections (h2/h3 parent + h3 question children)
-  $("h2, h3").each((_, el) => {
+  contentRoot.find("h2, h3").each((_, el) => {
     const tag = (el as unknown as { tagName: string }).tagName?.toLowerCase();
-    const text = $(el).text().trim().toLowerCase();
+    const text = $content(el).text().trim().toLowerCase();
     if (
       text.includes("frequently asked") ||
       text.includes("faq") ||
       text.includes("common questions")
     ) {
-      let sibling = $(el).next();
+      let sibling = $content(el).next();
       const stopTag = tag === "h3" ? "h2" : undefined;
       while (sibling.length) {
         const sibTag = (sibling[0] as unknown as { tagName: string }).tagName?.toLowerCase();
@@ -189,33 +195,14 @@ export function extractPageSnapshot(
     }
   });
 
-  // The ORDERED PARAGRAPH VIEW of the content area (prefer <main>/<article>; fall back to <body>
-  // minus nav/footer/header/aside). Boilerplate is excluded so cross-page menus never read as
-  // covered topics. body_text below holds the whole thing; this stays the paragraph-shaped read.
-  // The block-level fallback exists because some builders render body copy in leaf <span>/<div>
-  // nodes with zero <p> tags at all, and it fires ONLY when the <p> pass found nothing usable.
+  // Paragraphs, cards, FAQ pairs and held body share the same pruned main-content root.
   const bodyParagraphSample: string[] = [];
   const cardTexts: string[] = [];
   const MAX_PARAGRAPHS = 20;
   const MAX_PARAGRAPH_CHARS = 300;
   const MIN_PARAGRAPH_WORDS = 8;
   {
-    const $clone = cheerioLoad($.html());
-    // Remove non-content regions before content extraction. Removing these
-    // from the clone (not the main $) means word_count and other downstream
-    // extractors are unaffected by this cleanup.
-    $clone("nav, footer, header, aside, script, style, noscript, svg, iframe").remove();
-
-    // Prefer <main>/<article> if present; otherwise fall back to the body
-    // of the pruned clone.
-    const mainCount = $clone("main").length;
-    const articleCount = $clone("article").length;
-    const contentRoot =
-      mainCount > 0
-        ? $clone("main").first()
-        : articleCount > 0
-          ? $clone("article").first()
-          : $clone("body");
+    const $clone = $content;
 
     // Body paragraph sample: pick <p> nodes inside the content root with
     // >= MIN_PARAGRAPH_WORDS words (drop captions, tiny footers, empty divs
@@ -229,15 +216,7 @@ export function extractPageSnapshot(
       bodyParagraphSample.push(text.slice(0, MAX_PARAGRAPH_CHARS));
     });
 
-    // Fallback: no usable <p> paragraphs were found, but the content root
-    // may still carry real prose in block-level divs/spans/list items (the
-    // "list-heavy Wix page" shape) rather than <p> tags at all. Walk LEAF
-    // block elements only (no element children) in document order. This
-    // is what keeps the fallback from re-emitting the same sentence once
-    // per wrapper <div> on deeply-nested builder markup, since only the
-    // innermost node carries the text directly. A generic word-count floor
-    // (not a class-name allowlist) keeps this tenant-generic: it works on
-    // any CMS's block markup, not just one vendor's naming convention.
+    // Leaf blocks recover builder prose without re-emitting wrapper text.
     if (bodyParagraphSample.length === 0) {
       const BLOCK_FALLBACK_SELECTOR = "div, span, li, dd, blockquote, figcaption";
       const seenText = new Set<string>();
@@ -326,12 +305,9 @@ export function extractPageSnapshot(
     if (rows >= 2) tableCount++; // At least header + 1 data row
   });
 
-  // ── Main content text (page CONTENT only) ── Chrome and non-text nodes are pruned on a fresh clone, so
-  // shared menus never inflate the count, mask a thin page, or disturb the main $.
-  const $wc = cheerioLoad($.html());
-  $wc("nav, header, footer, aside, script, style, noscript, svg, iframe").remove();
-  // ONE FLAT TEXT, and the hash preimage every banked claim inventory and content hash was taken from: boundary markers were tried here (2026-09-02) and changed pageContains answers on minified markup and re-hashed every page, so they are not stored.
-  const flat = $wc("body").text().replace(/\s+/g, " ").trim();
+  // Held text and FAQ publication authority use the same main-content scope.
+  // Normalize block separators to spaces, never inject evidence or boundary-marker tokens.
+  const flat = contentRoot.text().replace(/\s+/g, " ").trim();
   const wordCount = flat ? flat.split(/\s+/).length : 0;
   const bodyText = flat;
   // THE WHOLE PAGE, KEPT (2026-08-03). The 20x300-char paragraph sample could prove a phrase was
@@ -339,6 +315,13 @@ export function extractPageSnapshot(
   // holds the same de-chromed text the word count is taken from, under one explicit ceiling, and
   // a cut is RECORDED rather than silently swallowed.
   const bodyTextHeld = bodyText.slice(0, BODY_TEXT_CEILING);
+  let faqRoom = BODY_TEXT_CEILING;
+  for (const f of faqs) if (f.answer_text !== undefined) {
+    const answer = f.answer_text;
+    f.answer_complete = !!answer && answer.length <= faqRoom && bodyTextHeld.includes(answer);
+    if (f.answer_complete) faqRoom -= answer.length;
+    else delete f.answer_text;
+  }
   if (bodyText.length > BODY_TEXT_CEILING) structuralWarnings.push(`body_text_truncated: kept the first ${BODY_TEXT_CEILING} characters of ${bodyText.length}`);
 
   // ── Location + service terms (from business config or inline defaults) ──

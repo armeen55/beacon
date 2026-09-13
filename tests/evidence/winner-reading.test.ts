@@ -1,13 +1,10 @@
-/** A WINNER READ IS A READING, NOT A FINGERPRINT (campaign, 2026-09-05). Every page that wins one of this account's searches was fetched, parsed and banked as 20 headings, 12 entity names and 600 characters of opening, so the only comparison the writer ever saw could ask whether two labels matched and never what a winning page ANSWERS. The extract now carries the page's own main content with the furniture removed, what was kept of it and what there was, its subheadings and its structured-data types; a cut capture is unknown beyond the cut and never absent. TWO SYNTHETIC ACCOUNTS, neither a real customer and neither on the same subject. */
 import { describe, it, expect } from "vitest";
 import { mainOf, pageExtractFrom, pageExtractFromRecord } from "@/domains/evidence/funnel/research-evidence";
-/** The comparison ceiling, read off the one function that applies it rather than a second copy of the number. */
 const MAIN_TEXT_CEILING = mainOf("word ".repeat(20_000)).heldChars!;
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import { parseCapability } from "@/domains/evidence/dataforseo/capabilities";
 import { jobEvidenceHash } from "@/domains/evidence/snapshot";
 
-/** TWO SYNTHETIC WINNERS, each on its own subject, each with the same shape a real winning page has: a navigation rail, a heading run, prose that answers the search, a subheading and a footer. */
 const SITES = [
   { t: "tenant-one", url: "https://alpha.example/harbour-seals", nav: "Home Shop Newsletter", h2: "Where they haul out",
     h3: "Best months to look", body: "Harbour seals haul out on the sand bars below the point at low tide, and the colony is largest between June and August.",

@@ -75,6 +75,7 @@ type EvidencePacket = {
     h2List: string[];
     h3List: string[];
     faqs: string[];
+    faqAnswersComplete?: boolean;
     schemaTypes: string[];
     wordCount: number | null;
     internalLinkCount: number | null;
@@ -297,7 +298,8 @@ export function assemblePacketForUrl(
       metaDescription: snap.meta_description ?? null,
       h2List: snap.h2_list ?? [],
       h3List: snap.h3_list ?? [],
-      faqs: visibleFaqs(snap.faqs).map((f) => `${f.question}: ${f.answer_excerpt}`),
+      faqs: visibleFaqs(snap.faqs).map((f) => `${f.question}: ${f.answer_complete === true && typeof f.answer_text === "string" ? f.answer_text : f.answer_excerpt}`),
+      faqAnswersComplete: visibleFaqs(snap.faqs).length > 0 && visibleFaqs(snap.faqs).every((f) => f.answer_complete === true && typeof f.answer_text === "string"),
       schemaTypes: snap.schema_types ?? [],
       wordCount: snap.word_count ?? null,
       internalLinkCount: snap.internal_link_count ?? null,
