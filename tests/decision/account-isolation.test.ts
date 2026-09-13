@@ -1,11 +1,18 @@
 /** Account isolation for the structured-output cache and budget: per-account store, account-keyed hashes, explicit routing with owner stamping, scoped recentTexts, and fail-closed on a missing account. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: vi.fn(async () => ({ allowed: true, remaining: 10 })), recordSpend: vi.fn(async () => {}) })); // Budget seam: spy on the real adjudicator budget so we can assert the explicit account reaches the cap check + spend record (drafter uses these directly).
-const readStoreMock = vi.fn(async () => [] as unknown[]); const writeStoreMock = vi.fn(async () => {}); // json-store seam: assert storeCacheImpl routes with an EXPLICIT { tenantId }.
-vi.mock("@/lib/persistence/json-store", () => ({ readStore: (...a: unknown[]) => readStoreMock(...(a as [])), writeStore: (...a: unknown[]) => writeStoreMock(...(a as [])) }));
+const db = vi.hoisted(() => ({ rows: new Map<string, { scope_key: string; store_name: string; content: unknown; updated_at: string }>(), unavailable: false, unacknowledged: false, writes: 0 }));
+vi.mock("@/domains/account", async (original) => ({ ...await original<object>(), getTenant: async (id: string) => ({ id, slug: id }) }));
+vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ from: () => ({
+  select: () => { const filters: Array<[string, string]> = []; const rows = () => [...db.rows.values()].filter((r) => filters.every(([k, v]) => k === "content->0->>kind" ? (r.content as Array<{ kind: string }>)[0]?.kind === v : r[k as keyof typeof r] === v));
+    const query = { eq: (k: string, v: string) => { filters.push([k, v]); return query; }, order: () => query,
+      maybeSingle: async () => ({ data: db.unavailable ? null : rows()[0] ?? null, error: db.unavailable ? { message: "outage" } : null }),
+      limit: async (n: number) => ({ data: rows().slice(0, n), error: db.unavailable ? { message: "outage" } : null }) }; return query; },
+  upsert: (row: { scope_key: string; store_name: string; content: unknown; updated_at: string }) => ({ select: async () => { db.writes++; if (!db.unavailable && !db.unacknowledged) db.rows.set(row.scope_key, JSON.parse(JSON.stringify(row))); return { data: db.unacknowledged ? [] : [{ scope_key: row.scope_key }], error: db.unavailable ? { message: "outage" } : null }; } }),
+}) }) }));
 import { checkBudget, recordSpend } from "@/domains/decision/llm/adjudicator-budget";
 import { callStructuredLLM, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
-import { storeCacheImpl, type CacheImpl, type LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
+import { storeCacheImpl, llmCallCacheKey, type CacheImpl, type LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
 import { classifyStore } from "@/lib/persistence/store-classification";
 const VALID = { field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen",
   rationale: "The current title is one word and misses the customs searchers ask about.",
@@ -33,18 +40,47 @@ function seam(values: Array<{ value: unknown; provenance?: typeof RECEIPT } | { 
 beforeEach(() => {
   (checkBudget as unknown as ReturnType<typeof vi.fn>).mockClear();
   (recordSpend as unknown as ReturnType<typeof vi.fn>).mockClear();
-  readStoreMock.mockClear(); readStoreMock.mockResolvedValue([]); writeStoreMock.mockClear(); });
+  db.rows.clear(); db.unavailable = false; db.unacknowledged = false; db.writes = 0; });
 describe("the call cache is per-account, keyed by account", () => { // ── store classification + key isolation ─────────────────────────────────────
-  it("storeCacheImpl routes with an EXPLICIT { tenantId }, stamps the owner, and throws on an empty account", async () => { // The REAL impl: an omitted tenantId falls back to AMBIENT resolution downstream, so a regression is silent.
+  it("independent durable entries survive concurrent writes, outage and failed acknowledgments without crossing accounts", async () => {
     expect(classifyStore("llm-call-cache")).toBe("per-tenant"); // the store itself is per account, never global
     const entry = { key: "k1", tenantId: "ignored-overwritten", kind: "atomic_edit", promptId: "p",
       promptVersion: 1, value: VALID, primaryText: "A", createdAt: "t", lastUsedAt: "t" } as LlmCallCacheEntry;
-    await storeCacheImpl.write("tenant-a", entry); expect(readStoreMock).toHaveBeenCalledWith("llm-call-cache", undefined, { tenantId: "tenant-a" });
-    const w = writeStoreMock.mock.calls.at(-1) as unknown as [string, LlmCallCacheEntry[], { tenantId: string }];
-    expect(w[2]).toEqual({ tenantId: "tenant-a" }); // explicit routing, never the ambient fallback
-    expect(w[1][0]!.tenantId).toBe("tenant-a"); // owner stamped, not the caller's value
-    await expect(storeCacheImpl.read("", "k")).rejects.toThrow(/tenantId is required/); }); });
+    await Promise.all([storeCacheImpl.write("tenant-a", entry), storeCacheImpl.write("tenant-a", { ...entry, key: "k2", primaryText: "B" }), storeCacheImpl.write("tenant-b", entry)]);
+    await storeCacheImpl.write("tenant-a", entry); expect(db.rows.size).toBe(3);
+    expect((await storeCacheImpl.read("tenant-a", "k1"))?.tenantId).toBe("tenant-a"); expect((await storeCacheImpl.read("tenant-a", "k2"))?.primaryText).toBe("B");
+    expect((await storeCacheImpl.read("tenant-b", "k1"))?.tenantId).toBe("tenant-b"); expect(await storeCacheImpl.recentTexts("tenant-a", "atomic_edit", 2)).toEqual(["A", "B"]);
+    await expect(storeCacheImpl.read("", "k")).rejects.toThrow(/tenantId is required/); expect(db.writes).toBe(4);
+    db.unavailable = true; await expect(storeCacheImpl.read("tenant-a", "k1")).rejects.toThrow(/unavailable/);
+    const complete = vi.fn(); const out = await callStructuredLLM({ ...REQ, tenantId: "tenant-a", cacheImpl: storeCacheImpl, complete });
+    expect([out.status, out.status === "validation_failed" && out.costUsd, complete.mock.calls.length]).toEqual(["validation_failed", 0, 0]);
+    db.unavailable = false; db.unacknowledged = true; await expect(storeCacheImpl.write("tenant-a", entry)).rejects.toThrow(/unacknowledged/); expect(db.rows.size).toBe(3);
+    expect((await storeCacheImpl.read("tenant-a", "k2"))?.primaryText).toBe("B"); });
+  it("keeps historical blobs read-only while new requests use independent records", async () => {
+    const old = { key: "old", tenantId: "historical", kind: "atomic_edit", lastUsedAt: "2026-09-01", primaryText: "Banked words" };
+    db.rows.set("llm-call-cache::tenant:historical", { scope_key: "llm-call-cache::tenant:historical", store_name: "llm-call-cache", content: [old], updated_at: old.lastUsedAt });
+    expect(await storeCacheImpl.read("historical", "old")).toEqual(old); expect(await storeCacheImpl.recentTexts("historical", "atomic_edit", 2)).toEqual(["Banked words"]); expect(db.writes).toBe(0); expect(db.rows.size).toBe(1); });
+  it("request identity changes with tenant, requested model, or server schema", () => {
+    const parts = { tenantId: "a", promptId: "p", promptVersion: 1, kind: "atomic_edit", system: "s", user: "u", model: "m1", schema: { minLength: 1 } };
+    expect(new Set([llmCallCacheKey(parts), llmCallCacheKey({ ...parts, tenantId: "b" }), llmCallCacheKey({ ...parts, model: "m2" }), llmCallCacheKey({ ...parts, schema: { minLength: 2 } })]).size).toBe(4); expect(llmCallCacheKey(parts)).toBe(llmCallCacheKey({ ...parts })); }); });
 describe("callStructuredLLM keeps accounts isolated end to end", () => { // ── callStructuredLLM: end-to-end account isolation ──────────────────────────
+  it.each([{}, { ...VALID, after: "[INSERT TITLE]" }, { ...VALID, after: "Nowruz Traditions: 999 Persian New Year Customs" }, { ...VALID, evidenceRefs: [{ source: "clarity", detail: "clicks" }] }])("revalidates banked outputs without deleting or repurchasing invalid work: %j", async (value) => {
+    const cache = partitionedCache(); await callStructuredLLM({ ...REQ, tenantId: "revalidation", complete: seam([{ value: VALID }]).complete, cacheImpl: cache.impl });
+    const entry = cache.store.get("revalidation")![0]!; entry.value = value; const complete = vi.fn();
+    const out = await callStructuredLLM({ ...REQ, tenantId: "revalidation", complete, cacheImpl: cache.impl });
+    expect([out.status, out.status === "validation_failed" && out.costUsd, out.status === "validation_failed" && out.attempts, complete.mock.calls.length]).toEqual(["validation_failed", 0, 0, 0]); expect(cache.store.get("revalidation")![0]).toBe(entry); });
+  it("reuses validated work with billing credentials off, and refuses a wrong owner without calling a provider", async () => {
+    const cache = partitionedCache(); await callStructuredLLM({ ...REQ, tenantId: "off-reuse", complete: seam([{ value: VALID }]).complete, cacheImpl: cache.impl });
+    const entry = cache.store.get("off-reuse")![0]!; entry.repeatFlag = "style-caveat"; vi.stubEnv("OPENAI_API_KEY", "");
+    try { const out = await callStructuredLLM({ ...REQ, tenantId: "off-reuse", cacheImpl: cache.impl }); expect(out.status === "drafted" && [out.cached, out.costUsd, out.repeatFlag]).toEqual([true, 0, "style-caveat"]);
+      entry.tenantId = "other"; const complete = vi.fn(); const refused = await callStructuredLLM({ ...REQ, tenantId: "off-reuse", cacheImpl: cache.impl, complete }); expect(refused.status === "validation_failed" && refused.reason).toBe("cache_identity_mismatch"); expect(complete).not.toHaveBeenCalled();
+    } finally { vi.unstubAllEnvs(); } });
+  it("refuses unavailable history rather than buying with silently reduced context", async () => {
+    const complete = vi.fn(), cache = partitionedCache().impl; cache.recentTexts = async () => { throw new Error("outage"); };
+    const out = await callStructuredLLM({ ...REQ, tenantId: "history-outage", complete, cacheImpl: cache }); expect(out.status === "validation_failed" && out.reason).toBe("cache_history_unavailable"); expect(complete).not.toHaveBeenCalled(); });
+  it("applies the existing answer-completeness check to banked answers without a paid retry", async () => {
+    const answer = "Ceremonialcelebrationsandcustomspracticedbyparticipants ".repeat(10).trim(), complete = vi.fn(), cache = partitionedCache().impl; cache.read = async (tenantId, key) => ({ tenantId, key, kind: "answer_block", promptId: "draft.answer_block", promptVersion: 1, createdAt: "2026-09-12", lastUsedAt: "2026-09-12", primaryText: null, value: { ...VALID, answer } });
+    const out = await callStructuredLLM({ ...REQ, kind: "answer_block", grounded: answer, tenantId: "thin-bank", complete, cacheImpl: cache }); expect(out.status === "validation_failed" && out.reason).toBe("too_thin_answer"); expect(complete).not.toHaveBeenCalled(); });
   it("account B gets a MISS on account A's byte-identical prompt; A still hits at $0", async () => {
     const cache = partitionedCache();
     const a1 = seam([{ value: VALID, provenance: RECEIPT }]); const outA = await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: a1.complete, cacheImpl: cache.impl }); // Account A generates + caches (pays).

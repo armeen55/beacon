@@ -42,9 +42,6 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   // Resumable cold-start crawl cursor - every batch is its own lambda, so the
   // mirror is what lets the crawl advance past batch one on hosted prod.
   "crawl-frontier",
-  // Structured-drafter call cache (content hash -> validated output): the
-  // $0-repeat guarantee on Vercel. domains/decision/llm/call-cache.ts.
-  "llm-call-cache",
   // Winner memory (few-shot injection for the drafter); domains/decision/llm/winner-memory.ts.
   "winner-memory",
   // Competitor overlap verdicts: the $0-repeat guarantee on Vercel, or every dispatch re-buys the same reading.

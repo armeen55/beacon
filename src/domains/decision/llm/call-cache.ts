@@ -1,31 +1,17 @@
 import "server-only";
 
-/**
- * llm/call-cache (2026-07-03 R16; Slice 3 2026-07-23 account isolation) - PER-ACCOUNT content-hash cache for structured LLM calls: prompt + inputs hash -> the VALIDATED output, scoped to ONE account.
- *
- * An identical request never pays twice WITHIN an account: re-opening a Move or a nightly re-prepare of the same evidence finds the prior validated output at
- * $0. The explicit "Regenerate" passes `bypassCache: true` and always pays for a fresh take (which REPLACES the cached entry).
- *
- * ISOLATION (Slice 3): every read/write/recentTexts takes an EXPLICIT `tenantId` and routes storage per-account (the "llm-call-cache" json-store is now
- * TENANT_SCOPED: `.data/tenants/{slug}/llm-call-cache.json`, Supabase-mirrored per scope key). The account is folded INTO the content hash AND recorded on each
- * entry, so a byte-identical prompt from account B is a MISS against account A's cache and B pays for its own generation. A missing/empty tenantId THROWS before
- * any storage access - no global fallback, no cross-account reuse. The prior GLOBAL blob (`llm-call-cache::global`) is left inert: its rows' ownership is
- * unprovable, so they are never migrated or read. Fresh per-account caches start empty (a one-time $0-cache refill per account; accepted and honest).
- *
- * The cache rows double as the de-templating history: the last outputs for a lever family (SAME account only) are what a new draft is compared against.
- *
- * VITEST: the drafter consults the cache outside tests only unless a CacheImpl is injected - pinned suites stay byte-identical and no test touches the real cache.
- */
+/** Tenant-scoped structured-output reuse and same-family writing history.
+ * Request identity includes model and schema; reads never mutate banked entries.
+ * Unavailable storage throws rather than impersonating an empty cache. */
 
 import { createHash } from "node:crypto";
-import { readStore, writeStore } from "@/lib/persistence/json-store";
-import { log } from "@/lib/logger";
+import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { getTenant } from "@/domains/account";
 
-const LLM_CALL_CACHE_STORE = "llm-call-cache";
 const LLM_CALL_CACHE_MAX_ENTRIES = 300;
 
 export type LlmCallCacheEntry = {
-  /** sha256 of tenantId | promptId | version | kind | system | user. */
+  /** Content hash of the tenant, prompts, inputs, requested model and schema. */
   key: string;
   /** The owning account. Recorded on every entry (defense in depth). */
   tenantId: string;
@@ -37,6 +23,7 @@ export type LlmCallCacheEntry = {
   value: unknown;
   /** The primary customer-facing text, for the de-templating history. */
   primaryText: string | null;
+  repeatFlag?: string;
   createdAt: string;
   lastUsedAt: string;
 };
@@ -58,12 +45,12 @@ export function llmCallCacheKey(parts: {
   kind: string;
   system: string;
   user: string;
+  model: string;
+  schema: unknown;
 }): string {
   return createHash("sha256")
     .update(
-      [requireTenant(parts.tenantId), parts.promptId, String(parts.promptVersion), parts.kind, parts.system, parts.user].join(
-        "\u0000",
-      ),
+      JSON.stringify([requireTenant(parts.tenantId), parts.promptId, parts.promptVersion, parts.kind, parts.system, parts.user, parts.model, parts.schema]),
     )
     .digest("hex");
 }
@@ -81,89 +68,56 @@ function sortByLastUsedDesc(rows: LlmCallCacheEntry[]): LlmCallCacheEntry[] {
   return [...rows].sort((a, b) => (a.lastUsedAt < b.lastUsedAt ? 1 : a.lastUsedAt > b.lastUsedAt ? -1 : 0));
 }
 
-/** Pure prune: replace/insert the entry, cap to max by last-used. Exported for tests. */
-function upsertAndPrune(
-  rows: LlmCallCacheEntry[],
-  entry: LlmCallCacheEntry,
-  max = LLM_CALL_CACHE_MAX_ENTRIES,
-): LlmCallCacheEntry[] {
-  const kept = rows.filter((r) => r.key !== entry.key);
-  kept.push(entry);
-  const sorted = sortByLastUsedDesc(kept);
-  return sorted.slice(0, max);
+const scopeKey = (tenantId: string, key: string): string => `llm-call-cache::${JSON.stringify([tenantId, key])}`;
+const storeName = (tenantId: string): string => `llm-call-cache::${JSON.stringify([tenantId])}`;
+function inventory(content: unknown): LlmCallCacheEntry[] {
+  if (!Array.isArray(content) || content.some((r) => !r || typeof r.key !== "string" || typeof r.tenantId !== "string" || typeof r.kind !== "string" || typeof r.lastUsedAt !== "string")) throw new Error("[llm-call-cache] unreadable cache inventory");
+  return content as LlmCallCacheEntry[];
+}
+function ownedEntry(content: unknown, tenantId: string, key?: string): LlmCallCacheEntry {
+  const rows = inventory(content), entry = rows[0];
+  if (rows.length !== 1 || !entry || entry.tenantId !== tenantId || key !== undefined && entry.key !== key) throw new Error("[llm-call-cache] cache identity mismatch");
+  return entry;
+}
+/** Historical blobs are read-only. Unknown old model identities never match a new request hash.
+ * One pull serves a burst; no disk fallback, mutation, eviction or automatic stored-data deletion. */
+const legacy = new Map<string, { at: number; rows: LlmCallCacheEntry[] }>();
+async function legacyRows(tenantId: string): Promise<LlmCallCacheEntry[]> {
+  const hit = legacy.get(tenantId);
+  if (hit && Date.now() - hit.at < 60_000) return hit.rows;
+  const account = await getTenant(tenantId, { strict: true });
+  if (!account?.slug) throw new Error("[llm-call-cache] account identity unavailable");
+  const { data, error } = await getSupabaseAdmin().from("json_store_blobs").select("content").eq("scope_key", `llm-call-cache::tenant:${account.slug}`).maybeSingle();
+  if (error || data === undefined) throw new Error("[llm-call-cache] historical cache unavailable");
+  const rows = data === null ? [] : inventory(data.content).filter((r) => r.tenantId === tenantId);
+  if (legacy.size >= 16) legacy.delete(legacy.keys().next().value!);
+  legacy.set(tenantId, { at: Date.now(), rows });
+  return rows;
 }
 
-/** ONE BLOB PULL SERVES A WHOLE BURST OF READS. Every cache read used to pull the full multi-megabyte store
- *  row again, so one research pass's forty lookups cost forty blob reads of identical bytes and the account's
- *  egress went on re-downloading its own cache. Reads inside READ_TTL_MS share one pull; every mutation
- *  re-reads fresh inside its queue and updates the memo with exactly what it wrote. */
-const held = new Map<string, { at: number; rows: LlmCallCacheEntry[] }>();
-const READ_TTL_MS = 60_000;
-
-/** Read this account's rows only (routed per-tenant; owner re-checked in memory). */
-async function readAll(tenantId: string, fresh = false): Promise<LlmCallCacheEntry[]> {
-  const hit = held.get(tenantId);
-  if (!fresh && hit && Date.now() - hit.at < READ_TTL_MS) return hit.rows;
-  try {
-    const rows = await readStore<LlmCallCacheEntry>(LLM_CALL_CACHE_STORE, undefined, { tenantId });
-    const mine = Array.isArray(rows)
-      ? rows.filter((r) => r && typeof r.key === "string" && r.tenantId === tenantId)
-      : [];
-    held.set(tenantId, { at: Date.now(), rows: mine });
-    return mine;
-  } catch {
-    return [];
-  }
-}
-
-/**
- * THE WHOLE BLOB IS ONE ROW, so every write is a read-modify-write and two of them at once lose one. Four page
- * readings and a batch of answer analyses run concurrently in one process: each read the same rows, added its own
- * and wrote the whole file back, so the last writer erased the other three and they were paid for again next pass.
- * Every mutation now runs inside a per-account queue, and the rows are re-read INSIDE it, so each one sees what
- * landed before it. This is one process; the durable per-row stores are what make a write safe across processes.
- */
-const mutating = new Map<string, Promise<void>>();
-function mutate(tenantId: string, entry: LlmCallCacheEntry): Promise<void> {
-  const run = (mutating.get(tenantId) ?? Promise.resolve()).then(async () => {
-    const rows = await readAll(tenantId, true);
-    const next = upsertAndPrune(rows, entry);
-    await writeStore<LlmCallCacheEntry>(LLM_CALL_CACHE_STORE, next, { tenantId });
-    held.set(tenantId, { at: Date.now(), rows: next });
-  });
-  const settled = run.catch(() => {});
-  mutating.set(tenantId, settled);
-  void settled.then(() => { if (mutating.get(tenantId) === settled) mutating.delete(tenantId); });
-  return run;
-}
-
-/** The store-backed default cache. Fail-soft everywhere: a cache problem only costs the discount. */
+/** Independent primary-key upserts are safe across processes; reads never write. */
 export const storeCacheImpl: CacheImpl = {
   async read(tenantId, key) {
     const t = requireTenant(tenantId);
-    // A CACHE READ NEVER WRITES. The old touch stamped lastUsedAt on every hit by rewriting the whole
-    // multi-megabyte store blob: one operator walking four pages produced seventy 2 MB writes in ten
-    // minutes and drained the database's Disk IO budget. lastUsedAt is now stamped only when an entry
-    // is written or replaced, so the prune keeps entries by replacement recency, and losing an old
-    // entry to the prune costs one re-buy where the touch cost 2 MB of writes per read, every read.
-    return (await readAll(t)).find((r) => r.key === key) ?? null;
+    const { data, error } = await getSupabaseAdmin().from("json_store_blobs").select("content").eq("scope_key", scopeKey(t, key)).maybeSingle();
+    if (error || data === undefined) throw new Error("[llm-call-cache] cache read unavailable");
+    return data === null ? (await legacyRows(t)).find((r) => r.key === key) ?? null : ownedEntry(data.content, t, key);
   },
   async write(tenantId, entry) {
     const t = requireTenant(tenantId);
-    try {
-      await mutate(t, { ...entry, tenantId: t });
-    } catch (e) {
-      log.warn("[llm-call-cache] write failed (non-fatal)", {
-        error: e instanceof Error ? e.message : String(e),
-      });
-    }
+    const key = scopeKey(t, entry.key);
+    const { data, error } = await getSupabaseAdmin().from("json_store_blobs").upsert({ scope_key: key, store_name: storeName(t), content: [{ ...entry, tenantId: t }], updated_at: new Date().toISOString() }, { onConflict: "scope_key" }).select("scope_key");
+    if (error || !Array.isArray(data) || data.length !== 1 || data[0]?.scope_key !== key) throw new Error("[llm-call-cache] cache write unacknowledged");
   },
   async recentTexts(tenantId, kind, limit) {
     const t = requireTenant(tenantId);
-    const rows = await readAll(t);
-    return sortByLastUsedDesc(rows.filter((r) => r.kind === kind && typeof r.primaryText === "string" && r.primaryText.length > 0))
-      .slice(0, limit)
-      .map((r) => r.primaryText as string);
+    const count = Math.min(LLM_CALL_CACHE_MAX_ENTRIES, Math.max(0, Math.floor(limit)));
+    if (!Number.isFinite(count) || count === 0) return [];
+    const { data, error } = await getSupabaseAdmin().from("json_store_blobs").select("content").eq("store_name", storeName(t)).eq("content->0->>kind", kind).order("updated_at", { ascending: false }).limit(count);
+    if (error || !Array.isArray(data)) throw new Error("[llm-call-cache] writing history unavailable");
+    const rows = data.map((r) => ownedEntry(r.content, t)), keys = new Set(rows.map((r) => r.key));
+    if (rows.length < count) rows.push(...(await legacyRows(t)).filter((r) => r.kind === kind && !keys.has(r.key)));
+    return sortByLastUsedDesc(rows).filter((r) => typeof r.primaryText === "string" && r.primaryText.length > 0).slice(0, count).map((r) => r.primaryText as string);
   },
 };
 

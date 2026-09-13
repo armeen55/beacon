@@ -44,7 +44,7 @@ describe("structured-drafter strict transport", () => {
     expect([edit.status, edit.status === "drafted" && (edit.value as { after: string }).after, edit.status === "drafted" && (edit.value as { operatorSteps: string[] }).operatorSteps[0]], "the anchor the caller resolved is unwrapped in the copy AND in the steps, because the firewall reads both").toEqual(["drafted", "Kashan pile is denser than the Zanjan Rug weave.", "Link the words Zanjan Rug in that sentence"]);
     const banked = { ...VALID_ATOMIC_EDIT, after: "Kashan pile is denser than the [Zanjan Rug] weave." } as unknown as LlmCallCacheEntry["value"]; // A HIT RETURNS BEFORE THE FIREWALLS, so a draft banked under an older prompt version would serve the brackets the fresh path takes off: what the customer reads may not depend on which door the answer came through.
     const served = await callStructuredLLM({ kind: "atomic_edit" as const, tenantId: "t", system: "s", user: "u", grounded: "Zanjan Rug", unmarkPhrase: "Zanjan Rug", complete: seam([{ error: "should-never-run", retryable: false }]).complete,
-      cacheImpl: { read: async () => ({ value: banked } as LlmCallCacheEntry), write: async () => {}, recentTexts: async () => [] } });
+      cacheImpl: { read: async (tenantId, key) => ({ value: banked, tenantId, key } as LlmCallCacheEntry), write: async () => {}, recentTexts: async () => [] } });
     expect([served.status, served.status === "drafted" && served.cached, served.status === "drafted" && (served.value as { after: string }).after],
       "the cached answer is cleaned exactly like a fresh one, and still costs nothing").toEqual(["drafted", true, "Kashan pile is denser than the Zanjan Rug weave."]); });
   it("drafts a VALUE, retries a recoverable answer once and no more, and never pays twice for one answer", async () => {
@@ -61,7 +61,7 @@ describe("structured-drafter strict transport", () => {
     const now = new Date("2026-07-23T00:00:00Z").toISOString();
     const entry = { key: "ignored-key-is-derived", tenantId: "tenant-fixture", kind: "atomic_edit", promptId: "draft.atomic_edit",
       promptVersion: 1, value: VALID_ATOMIC_EDIT, primaryText: VALID_ATOMIC_EDIT.after, createdAt: now, lastUsedAt: now } as LlmCallCacheEntry;
-    const cacheImpl: CacheImpl = { read: async () => entry, write: async () => {}, recentTexts: async () => [] }; const hit = seam([{ error: "should-never-run", retryable: false }]);
+    const cacheImpl: CacheImpl = { read: async (tenantId, key) => ({ ...entry, tenantId, key }), write: async () => {}, recentTexts: async () => [] }; const hit = seam([{ error: "should-never-run", retryable: false }]);
     const cached = await callStructuredLLM({ ...REQ, complete: hit.complete, cacheImpl }); // served before any call
     expect(cached.status === "drafted" && [cached.cached, cached.costUsd, hit.calls()]).toEqual([true, 0, 0]); const blocked = seam([{ error: "blocked_budget", retryable: false }]);
     const stopped = await callStructuredLLM({ ...REQ, complete: blocked.complete }); // a budget block fired no call

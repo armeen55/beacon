@@ -1,19 +1,6 @@
-/** WHAT THE CONFIRMING READING IS BOUGHT AGAINST, AND WHAT IT SPENDS (campaign review, 2026-09-05).
- *
- *  The campaign's own kill condition is "the comparison reading costs more than 0.05 USD per job", so what the
- *  reading spends has to be measurable on the job that bought it. Three things decide that:
- *  1. THE KEY. `callStructuredLLM` keys the cache on {tenantId, promptId, promptVersion, kind, system, user} and
- *     `readComparison` folds each winner's held text into `user`, so a winner whose content moved is a different
- *     call. It folds `held`, the first READING_CHARS (4,000) of the winner's main text, NOT the whole capture the
- *     extract holds, so a change PAST that cut re-served the earlier reading for ever. The winner now carries a key
- *     over its whole main text and the prompt carries that key, so any word moving anywhere is a new reading.
- *  2. THE MONEY ON A MISS. `readComparison` took no allowance, so its real requests and real dollars reached no
- *     page meter and the kill condition could not be read off the number that would prove it.
- *  3. THE MONEY ON A HIT. The caller spends one attempt before the call and, unlike the writer, never gave it back
- *     when the answer came out of the cache, so a cached reading starved the card that paid for it.
- *
- *  TWO SYNTHETIC ACCOUNTS with unrelated subjects and different languages: a rule that holds for one is not a rule.
- */
+/** Comparison identity tracks changes anywhere in a held winner, not only its prompt excerpt.
+ * Real receipts charge the owning job; validated cache reuse refunds its attempt at zero cost.
+ * Two unrelated synthetic accounts protect both promises without provider calls. */
 import { describe, it, expect, vi } from "vitest";
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
@@ -23,8 +10,8 @@ const CACHE_ROWS = new Map<string, unknown>();
 vi.mock("@/domains/decision/llm/call-cache", async (orig) => {
   const actual = await orig<typeof import("@/domains/decision/llm/call-cache")>();
   return { ...actual, resolveCacheImpl: () => ({
-    read: async (_t: string, k: string) => (CACHE_ROWS.has(k) ? { key: k, value: CACHE_ROWS.get(k) } as never : null),
-    write: async (_t: string, e: { key: string; value: unknown }) => { CACHE_ROWS.set(e.key, e.value); },
+    read: async (_t: string, k: string) => (CACHE_ROWS.get(k) as never ?? null),
+    write: async (_t: string, e: { key: string; value: unknown }) => { CACHE_ROWS.set(e.key, e); },
     recentTexts: async () => [] }) };
 });
 import { jobComparison } from "@/domains/evidence/comparison";

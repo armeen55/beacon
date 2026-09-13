@@ -465,6 +465,23 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
   budgetPlatform?: "onboarding-openai";
 };
 
+function validateDraftValue(req: StructuredDraftRequest<StructuredDraftKind>, schema: z.ZodTypeAny, value: unknown, ledger: GroundedNumbers, year: number): { data: unknown } | { errors: string[] } {
+  const parsed = schema.safeParse(sanitizeDashesDeep(value));
+  if (!parsed.success) return { errors: parsed.error.issues.slice(0, 4).map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`) };
+  const refs = (parsed.data as { evidenceRefs?: { source?: string }[] }).evidenceRefs;
+  if (Array.isArray(refs) && !evidenceIsGrounded(refs)) return { errors: [UNGROUNDED_EVIDENCE_ERROR] };
+  const data = unmarkAnchor(stampAnySources(parsed.data, req.authoritativeSourceDomains), req.unmarkPhrase);
+  const fw = runContentFirewalls(draftProseStringValues(req.observationGrounded == null ? data : { ...data as Record<string, unknown>, evidenceRefs: undefined }), ledger, {
+    deferSuperlativeCheck: req.kind === "answer_block" || req.kind.startsWith("answer_analysis") || req.deferSuperlatives === true || primaryCustomerText(req.kind, data) == null,
+    skipPlaceholderCheck: primaryCustomerText(req.kind, data) == null, ownWords: req.ownWords,
+  });
+  const observed = req.observationGrounded == null ? { ok: true as const } : runContentFirewalls(draftProseStringValues(refs), buildRequestLedger(req.observationGrounded, year), { deferSuperlativeCheck: true, skipPlaceholderCheck: true });
+  return !fw.ok || !observed.ok ? { errors: [`firewall:${!fw.ok ? fw.reason : !observed.ok ? observed.reason : "invalid"}`] } : { data };
+}
+const unpaidFailure = (reason: string, errors = [reason], failure: LlmFailure = "transient"): StructuredDraftResult<never> => ({ status: "validation_failed", reason, errors, failure, costUsd: 0, retried: false, attempts: 0 });
+const sourceSuperlatives = (req: StructuredDraftRequest<StructuredDraftKind>, value: unknown): string[] => req.kind === "answer_block" && primaryCustomerText(req.kind, value) != null ? ungroundedSuperlatives(primaryCustomerText(req.kind, value)!, (value as { sources?: ClassifiableSource[] }).sources, req.authoritativeSourceDomains, (req.now ?? new Date()).getFullYear()) : [];
+const answerIsThin = (kind: StructuredDraftKind, primary: string | null): boolean => kind === "answer_block" && primary != null && countWords(primary) < ANSWER_MIN_WORDS;
+
 /** The engine: cache ($0 repeats) → validate → retry-once → fail-closed. Returns a typed, schema-valid draft or a non-"drafted" status. Never throws. / */
 export async function callStructuredLLM<K extends StructuredDraftKind>(
   req: StructuredDraftRequest<K>,
@@ -478,34 +495,28 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   const promptId = `draft.${req.kind}` as PromptId;
   const promptVersion = PROMPT_REGISTRY[promptId];
   const complete = req.complete ?? (apiKey ? defaultComplete(apiKey, promptId) : null);
-  if (!complete) return { status: "off" }; // no injected transport and no key
-
-  const schemaForCache = SCHEMA_BY_KIND[req.kind] as z.ZodTypeAny;
+  const schema = SCHEMA_BY_KIND[req.kind] as z.ZodTypeAny;
+  const nowYear = (req.now ?? new Date()).getFullYear();
+  const ledger = ["atomic_edit", "answer_block", "outreach_pitch"].includes(req.kind) ? buildGroundedNumbers(req.grounded) : buildRequestLedger(req.grounded, nowYear);
   const cache = resolveCacheImpl(req.cacheImpl);
-  const cacheKey = cache
-    ? llmCallCacheKey({ tenantId, promptId, promptVersion, kind: req.kind, system: req.system, user: req.user + "\n" + JSON.stringify([req.grounded, req.observationGrounded ?? null]) })
-    : null;
-
-  // R16 call cache: an identical request (same prompt version + prompts) returns the prior VALIDATED output at $0 - before the budget gate, because a hit spends nothing. `bypassCache` (the explicit Regenerate) forces a paid take.
+  let cacheKey: string | null = null;
+  try { if (cache) cacheKey = llmCallCacheKey({ tenantId, promptId, promptVersion, kind: req.kind, system: req.system, user: req.user + "\n" + JSON.stringify([req.grounded, req.observationGrounded ?? null, req.maxTokens ?? 6000]), model: MODEL, schema: z.toJSONSchema(schema) }); }
+  catch { return unpaidFailure("cache_identity_unavailable"); }
   if (cache && cacheKey && req.bypassCache !== true) {
-    const hit = await cache.read(tenantId, cacheKey).catch(() => null);
+    let hit;
+    try { hit = await cache.read(tenantId, cacheKey); }
+    catch { return unpaidFailure("cache_read_unavailable"); }
     if (hit) {
-      const revalidated = schemaForCache.safeParse(hit.value);
-      if (revalidated.success) {
-        // A cache hit is now ALWAYS same-account (the key + storage are scoped to tenantId), so a hit can never serve another account. Re-stamp authority against this request's allowlist anyway - source-authority.ts is the one place `authority` is decided (stampSourceAuthority only overwrites it; `verified` and every other field survive).
-        return {
-          status: "drafted",
-          kind: req.kind,
-          // THE SAME REPAIR ON BOTH DOORS (operator, 2026-08-31): a hit returns here BEFORE the firewalls and before the unwrap, so a draft banked under an older prompt version could serve the customer the brackets the fresh path now takes off. What a cached answer says must not depend on which door it came through.
-          value: unmarkAnchor(stampAnySources(revalidated.data, req.authoritativeSourceDomains), req.unmarkPhrase) as z.infer<(typeof SCHEMA_BY_KIND)[K]>,
-          costUsd: 0,
-          retried: false, attempts: 0,
-          cached: true,
-          ...(req.fewShotProvenance ? { fewShot: req.fewShotProvenance } : {}),
-        };
-      }
+      if (hit.key !== cacheKey || hit.tenantId !== tenantId) return unpaidFailure("cache_identity_mismatch");
+      const checked = validateDraftValue(req, schema, hit.value, ledger, nowYear);
+      if ("errors" in checked) return unpaidFailure(checked.errors[0]!, checked.errors, "schema_invalid");
+      if (answerIsThin(req.kind, primaryCustomerText(req.kind, checked.data))) return unpaidFailure("too_thin_answer", undefined, "schema_invalid");
+      const ungrounded = sourceSuperlatives(req, checked.data);
+      if (ungrounded.length) return unpaidFailure(`superlative_ungrounded:${ungrounded.slice(0, 3).join(",")}`, undefined, "schema_invalid");
+      return { status: "drafted", kind: req.kind, value: checked.data as z.infer<(typeof SCHEMA_BY_KIND)[K]>, costUsd: 0, retried: false, attempts: 0, cached: true, ...(hit.repeatFlag ? { repeatFlag: hit.repeatFlag } : {}), ...(req.fewShotProvenance ? { fewShot: req.fewShotProvenance } : {}) };
     }
   }
+  if (!complete) return { status: "off" };
 
   const projectedCostUsd = req.projectedCostUsd ?? 0.02;
   const isOnboarding = req.budgetPlatform === "onboarding-openai";
@@ -516,14 +527,12 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     if (budget.allowed === false) return { status: "blocked_budget", reason: (budget as { reason?: string }).reason ?? "cap reached" };
   }
 
-  const schema = SCHEMA_BY_KIND[req.kind] as z.ZodTypeAny;
-  const nowYear = (req.now ?? new Date()).getFullYear();
   const maxTokens = req.maxTokens ?? 6000;
   const timeoutMs = req.timeoutMs ?? 60_000;
-  const ledger = ["atomic_edit", "answer_block", "outreach_pitch"].includes(req.kind) ? buildGroundedNumbers(req.grounded) : buildRequestLedger(req.grounded, nowYear);
   // R16 de-templating history: the last cached same-family outputs (or the injected list). Empty history keeps the guard dormant.
-  const recentTexts =
-    req.recentOutputs ?? (cache ? await cache.recentTexts(tenantId, req.kind, REPEAT_HISTORY_SIZE).catch(() => []) : []);
+  let recentTexts: string[];
+  try { recentTexts = req.recentOutputs ?? (cache ? await cache.recentTexts(tenantId, req.kind, REPEAT_HISTORY_SIZE) : []); }
+  catch { return unpaidFailure("cache_history_unavailable"); }
 
   // W5 P0-1: the generation-time source verifier (null under vitest unless a hermetic fetcher is injected) + a per-request URL cache so the same source cited on both attempts is fetched once.
   const sourceFetch = resolveSourceFetch(req.sourceFetch, timeoutMs);
@@ -607,32 +616,9 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     lastProvenance = out.provenance ? { ...out.provenance, retryCount: attempt } : undefined;
     failure = "schema_invalid"; // it answered, so nothing below is the transport's fault any more
 
-    // The drafter runs its OWN Zod safeParse (second validation) after normalizing em/en dashes in every string field of the gateway's schema-shaped value.
-    const parsed = schema.safeParse(sanitizeDashesDeep(out.value));
-    if (!parsed.success) {
-      errors.push(...parsed.error.issues.slice(0, 4).map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`));
-      lastFailureWasTemplated = false;
-      lastFailureWasThin = false;
-      continue;
-    }
-    // ANALYTICS ALONE IS NOT EVIDENCE OF A SEARCH: ga4 and clarity report what people did once they had already arrived, so a change argued from them alone has nothing behind the search it is meant to win. Refused with the reason, which the retry then carries.
-    const refs = (parsed.data as { evidenceRefs?: { source?: string }[] }).evidenceRefs;
-    if (Array.isArray(refs) && !evidenceIsGrounded(refs)) { errors.push(UNGROUNDED_EVIDENCE_ERROR); lastFailureWasTemplated = false; lastFailureWasThin = false; continue; }
-    // W5 (J-69): the LLM may PROPOSE sources, but only source-authority.ts decides `authority`, re-stamp before any firewall/cache/return step.
-    const result = { ...parsed, data: stampAnySources(parsed.data, req.authoritativeSourceDomains) as typeof parsed.data };
-    // answer_analysis is a RESTATEMENT of somebody else's AI answer, never copy this product publishes, so the flat marketing-superlative reject does not apply to it: a verbatim "the best sushi in town" is the observed fact being recorded. The numeric firewall still applies, grounded on the answer text itself, so an invented figure is still caught.
-    if (req.unmarkPhrase) result.data = unmarkAnchor(result.data, req.unmarkPhrase);
-    const fw = runContentFirewalls(draftProseStringValues(req.observationGrounded == null ? result.data : { ...result.data as Record<string, unknown>, evidenceRefs: undefined }), ledger, {
-      deferSuperlativeCheck: req.kind === "answer_block" || req.kind.startsWith("answer_analysis") || req.deferSuperlatives === true || primaryCustomerText(req.kind, result.data) == null, /* an ADDITIVE atomic edit defers too (operator, 2026-09-11, one pass): a new paragraph's superlative rides the card as a caveat instead of failing the page closed */ // A VERDICT IS NOT COPY EITHER (live 2026-09-02): a fact judgement quoting a source's "ultimate" failed closed five times and the cheetah's national-animal source was never banked
-      skipPlaceholderCheck: primaryCustomerText(req.kind, result.data) == null, ownWords: req.ownWords,
-    });
-    const observed = req.observationGrounded == null ? { ok: true as const } : runContentFirewalls(draftProseStringValues(refs), buildRequestLedger(req.observationGrounded, nowYear), { deferSuperlativeCheck: true, skipPlaceholderCheck: true });
-    if (!fw.ok || !observed.ok) {
-      errors.push(`firewall:${!fw.ok ? fw.reason : !observed.ok ? observed.reason : "invalid"}`);
-      lastFailureWasTemplated = false;
-      lastFailureWasThin = false;
-      continue;
-    }
+    const checked = validateDraftValue(req, schema, out.value, ledger, nowYear);
+    if ("errors" in checked) { errors.push(...checked.errors); lastFailureWasTemplated = false; lastFailureWasThin = false; continue; }
+    const result = { data: checked.data };
 
     // R16 de-templating guard: a validated draft whose customer-facing text is a near-copy (>70 percent 3-gram overlap) of a recent same-family output gets ONE variation retry; a second near-copy ships FLAGGED ("reads like a repeat") for the draft-quality gate to demote - style never fails closed.
     const primary = primaryCustomerText(req.kind, result.data);
@@ -645,7 +631,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     }
 
     // W5 P2 (J-71): an answer block under the 80-word floor is flagged here. Pilot loop 5 (2026-07-11): verification (needed for the superlative check right below) now runs BEFORE this decision is acted on, so a draft that is BOTH too thin AND carrying an ungrounded superlative gets BOTH problems diagnosed on the SAME attempt - previously this check's own `continue` skipped verification entirely, silently hiding a co-occurring superlative problem from the retry (the retry only ever named ONE of the two issues, whichever check happened to run first, and the run could die on attempt 2 still carrying the other).
-    const thinAnswer = req.kind === "answer_block" && primary != null && countWords(primary) < ANSWER_MIN_WORDS;
+    const thinAnswer = answerIsThin(req.kind, primary);
 
     // W5 stop-ship F2: verify each cited source AT GENERATION TIME (SSRF-safe fetch + span-level entailment + final-host authority) AFTER the firewalls, so the added verification metadata never enters the numeric firewall. When no verifier is configured (vitest without injection), STRIP every verification field so an LLM-supplied `verified: true` can never survive.
     const verifiedData = sourceFetch
@@ -661,10 +647,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       : (stripSourceVerificationFields(result.data) as z.infer<(typeof SCHEMA_BY_KIND)[K]>);
 
     // G4 (2026-07-10): SUPERLATIVE post-check, verification-aware (runs on `answer_block` only; every other kind's marketing-superlative reject stays in runContentFirewalls above). A superlative is allowed ONLY when a QUALIFYING verified source asserts it (superlative-parity); an ungrounded one is not shipped.
-    const ungroundedSuperlative =
-      req.kind === "answer_block" && primary != null
-        ? ungroundedSuperlatives(primary, (verifiedData as { sources?: ClassifiableSource[] }).sources, req.authoritativeSourceDomains, nowYear)
-        : [];
+    const ungroundedSuperlative = sourceSuperlatives(req, verifiedData);
     const hasUngroundedSuperlative = ungroundedSuperlative.length > 0;
 
     if (thinAnswer) errors.push("too_thin_answer");
@@ -707,10 +690,11 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
           promptVersion,
           value: verifiedData,
           primaryText: primary,
+          ...(templated ? { repeatFlag: REPEAT_FLAG } : {}),
           createdAt: nowIso,
           lastUsedAt: nowIso,
         })
-        .catch(() => {});
+        .catch(() => { log.warn("[structured-drafter] completed output was not acknowledged by the reuse cache", { tenantId, kind: req.kind }); });
     }
     return drafted;
   }

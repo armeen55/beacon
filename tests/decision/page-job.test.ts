@@ -30,7 +30,7 @@ describe("what one page is for, held durably", () => {
   /** THE PAGE-READING POOL IS ON THE ONE ATTEMPT RULE TOO (reviewer, 2026-09-06, sixth pass). Its own clause asked the cache flag by itself, so a reading the cache served beside real dollars handed its unit back and the same page could be bought again on money already spent. It reads `DRAFT_BUDGET.noCallMade` now, exactly as the writer, the judging and the six other paid doors do. */
   it.each(["tenant-one", "tenant-two"])("a reading that reached the provider costs the pass's pool a unit, and one the cache served costs it none [%s]", async (tenant) => {
     budget.allowed = true; const s = seam(READING), pool = { left: 3 };
-    const hit = { read: async () => ({ value: READING }), write: async () => {}, recentTexts: async () => [] } as never;
+    const hit = { read: async (tenantId: string, key: string) => ({ value: READING, tenantId, key }), write: async () => {}, recentTexts: async () => [] } as never;
     await loadPageJobs(tenant, [extract("/tabriz")], { complete: s.complete, store: store(false), reads: pool });
     await loadPageJobs(tenant, [extract("/shiraz")], { complete: s.complete, store: store(false), cacheImpl: hit, reads: pool });
     await loadPageJobs(tenant, [extract("/yazd")], { complete: (async () => ({ value: READING })) as never, store: store(false), reads: pool }); // a reading whose receipt counts no request at all: the dollars record none for it, so the pool may not be charged for one either
@@ -58,7 +58,7 @@ const POOL = [{ t: "acct-reef", e: { url: "https://acct-reef.example/tide-pool-g
 const DOORS = [["blocked_budget", "budget"], ["blocked_credit", "credit_exhausted"], ["blocked_budget", "budget"], ["blocked_budget", "budget"], ["missing_tenant", "transient"], ["unsupported_schema: page_job", "schema_invalid"]] as const; // the six doors the gateway holds in front of the wire, in its own order: research paused, a held credit balance, the cost breaker, the day's cap, no account, a schema nothing can convert. Each stamps zero requests and zero dollars, and each arrives at the pool as `validation_failed`.
 const refused = (error: string, failure: string): CompleteFn => (async () => ({ error, retryable: false, failure, httpAttempts: 0 })) as never;
 describe("the page-reading pool", () => {
-  it.each(POOL)("$t: hands one unit back for one call and never twice", async (s) => { budget.allowed = true; const pool = { left: 3 }, hit = { read: async () => ({ value: READING }), write: async () => {}, recentTexts: async () => [] } as never;
+  it.each(POOL)("$t: hands one unit back for one call and never twice", async (s) => { budget.allowed = true; const pool = { left: 3 }, hit = { read: async (tenantId: string, key: string) => ({ value: READING, tenantId, key }), write: async () => {}, recentTexts: async () => [] } as never;
     await loadPageJobs(s.t, [s.e], { complete: seam(READING).complete, store: store(false), cacheImpl: hit, reads: pool }); expect(pool.left, "the reservation is taken before the reading and given back once when the reading turned out free").toBe(3); });
   it.each(POOL)("$t: costs nothing for a reading the provider door refused before the wire", async (s) => { budget.allowed = true; const left: number[] = [];
     for (const [error, failure] of DOORS) { const pool = { left: 3 }; await loadPageJobs(s.t, [s.e], { complete: refused(error, failure), store: store(false), reads: pool }); left.push(pool.left); }
