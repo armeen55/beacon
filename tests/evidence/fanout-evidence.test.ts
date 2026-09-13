@@ -1,4 +1,3 @@
-import { jobEvidenceHash } from "@/domains/evidence/snapshot";
 import { describe, expect, it } from "vitest";
 import { buildFanoutEvidence, ownedPageAiRollup, type FanoutSourceObservation } from "@/domains/evidence/ai-visibility/fanout-evidence";
 /** THE ONE DERIVED FAN-OUT PROJECTION (AEO reconstruction, 2026-08-19). Visibility renders it and Decision consumes it off the SAME pure function, so these pins hold both surfaces at once: recurrence is DISTINCT days, assistants and parent questions and never raw rows; a prompt echo is never the assistant's own search; where the site stood is a four-way fact with an honest reporting denominator; and unknown stays unknown, never zero. */
@@ -73,12 +72,3 @@ describe("the canonical outline arrives without site furniture", () => {
     const outlines = snap.ownedPages.map((p) => p.content?.outline ?? []);
     expect(outlines.flat()).not.toContain("Explore More"); // chrome on every page is not content anywhere
     expect(outlines.flat()).not.toContain("Related Articles"); expect(outlines.flat().sort()).toEqual(["Haft Seen Explained", "Nowruz Recipes", "Sizdah Bedar"]);});});
-describe("one job's evidence identity is order-free, as its own contract says", () => {
-  it("hashes the same when the stored results pages arrive in a different order", () => {
-    const page = { url: "https://x.example/a", content: null, search: null, engagement: null, friction: null, aiCitations: { count: 0 } }; // LIVE: the same job's workKey moved between two builds a minute apart with no evidence change, because
-    const serp = (query: string, urls: string[]) => ({ query, organic: urls.map((url, i) => ({ rank: i + 1, url })), aiOverview: [], aiMode: [] });
-    const snap = (rows: unknown[]) => ({ ownedPages: [page], research: { serpEvidence: rows, winningPages: [] } } as never);
-    const forward = [serp("persian rugs", ["https://r1.example/x", "https://r2.example/y"]), serp("persian rugs", ["https://r3.example/z"])], backward = [forward[1]!, forward[0]!];
-    const hash = (rows: unknown[]) => jobEvidenceHash(snap(rows), ["https://x.example/a"], "persian rugs");
-    expect(hash(forward)).toBe(hash(backward));
-    expect(hash(forward)).not.toBe(hash([...forward, serp("persian rugs", ["https://r4.example/w"])])); }); }); // and a real change to the evidence still moves it

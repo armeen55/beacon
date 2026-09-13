@@ -16,6 +16,12 @@ import {
 function hash(input: string): string {
   return createHash("sha256").update(input).digest("hex").slice(0, 16);
 }
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  const obj = value as Record<string, unknown>;
+  return `{${Object.keys(obj).sort().map((k) => `${JSON.stringify(k)}:${stableJson(obj[k])}`).join(",")}}`;
+}
 
 /** The per-page ceiling on stored main-content text. 100k characters is roughly 15,000 words: past
  *  any real page, and a hard bound on one row whatever a generator emits. */
@@ -54,8 +60,7 @@ export function extractPageSnapshot(
   });
   const h3Count = $("h3").length;
 
-  // Plan A + B1 (2026-04-20): capture H3 text (not just count) parallel to
-  // h2_list. Cap at 30 entries, 200 chars each.
+  // Bounded heading capture, in document order.
   const h3List: string[] = [];
   $("h3").each((_, el) => {
     if (h3List.length >= 30) return;
@@ -65,13 +70,18 @@ export function extractPageSnapshot(
 
   // ── FAQ extraction ──
   const faqs: PageSnapshot["faqs"] = [];
+  const faqMaterial: string[] = [];
+  const holdFaq = (question: string, answer: string, source: PageSnapshot["faqs"][number]["source"]): void => {
+    faqs.push({ question, answer_excerpt: answer.slice(0, 200), source });
+    faqMaterial.push(JSON.stringify([question, answer.replace(/\s+/g, " ").trim(), source]));
+  };
 
   // JSON-LD FAQPage schema
   $('script[type="application/ld+json"]').each((_, el) => {
     try {
       const data = JSON.parse($(el).html() || "");
       const items = extractFaqFromJsonLd(data);
-      for (const item of items) faqs.push(item);
+      for (const item of items) holdFaq(item.question, item.answer_excerpt, item.source);
     } catch {
       // malformed JSON-LD
     }
@@ -82,7 +92,7 @@ export function extractPageSnapshot(
     const q = $(el).find("summary").first().text().trim();
     const a = $(el).text().replace(q, "").trim();
     if (q && q.length > 5) {
-      faqs.push({ question: q, answer_excerpt: a.slice(0, 200), source: "html_details" });
+      holdFaq(q, a, "html_details");
     }
   });
 
@@ -115,11 +125,7 @@ export function extractPageSnapshot(
               answerParts.push(ansNext.text().trim());
               ansNext = ansNext.next();
             }
-            faqs.push({
-              question: qText,
-              answer_excerpt: answerParts.join(" ").slice(0, 200),
-              source: "html_section",
-            });
+            holdFaq(qText, answerParts.join(" "), "html_section");
             sibling = ansNext;
             continue;
           }
@@ -128,11 +134,7 @@ export function extractPageSnapshot(
         // Also check strong/b/dt inside block-level siblings
         const possibleQ = sibling.find("strong, b, dt").first().text().trim();
         if (possibleQ && possibleQ.endsWith("?")) {
-          faqs.push({
-            question: possibleQ,
-            answer_excerpt: sibling.text().replace(possibleQ, "").trim().slice(0, 200),
-            source: "html_section",
-          });
+          holdFaq(possibleQ, sibling.text().replace(possibleQ, "").trim(), "html_section");
         }
         sibling = sibling.next();
       }
@@ -141,20 +143,19 @@ export function extractPageSnapshot(
 
   // ── Schema types + structural audit + G8 spec validation ──
   const schemaTypes: string[] = [];
+  const schemaMaterial: string[] = [];
   let faqSchemaBlockCount = 0;
   const structuralWarnings: string[] = [];
   const schemaValidationWarnings: string[] = [];
   $('script[type="application/ld+json"]').each((_, el) => {
     try {
       const data = JSON.parse($(el).html() || "");
+      schemaMaterial.push(stableJson(data));
       collectSchemaTypes(data, schemaTypes);
       faqSchemaBlockCount += countFaqPageBlocks(data);
-      // G8: validate this block's structured data against Google rich-result specs.
-      // Warnings are appended as strings; empty / all-valid blocks contribute
-      // nothing. Pure function - no side effects outside this array.
       schemaValidationWarnings.push(...validateSchemaToStrings(data));
     } catch {
-      // malformed
+      schemaMaterial.push(JSON.stringify(["unparseable", $(el).html() || ""]));
       schemaValidationWarnings.push(
         "schema_critical:UNPARSEABLE: JSON-LD block did not parse as valid JSON.",
       );
@@ -359,8 +360,8 @@ export function extractPageSnapshot(
   const dedupedSchemaTypes = [...new Set(schemaTypes)];
   const contentHash = hash(bodyTextHeld);
   const headingsHash = hash([h1 ?? "", ...h2List].join("|"));
-  const faqHash = hash(faqs.map((f) => f.question).join("|"));
-  const schemaHash = hash(dedupedSchemaTypes.sort().join("|"));
+  const faqHash = hash(JSON.stringify(["answers-v2", faqMaterial]));
+  const schemaHash = hash(JSON.stringify(["values-v2", schemaMaterial.sort()]));
 
   // ── Extraction certainty ── ONLY real body content confirms a read. JSON-LD used to vouch on its own,
   // so a client-rendered page with zero extracted words graded "confirmed" (the 500-surname page stored
@@ -443,7 +444,7 @@ function extractFaqFromJsonLd(data: unknown): PageSnapshot["faqs"] {
         const q = String(e.name ?? "").trim();
         const accepted = e.acceptedAnswer as Record<string, unknown> | undefined;
         const a = String(accepted?.text ?? "").trim();
-        if (q) items.push({ question: q, answer_excerpt: a.slice(0, 200), source: "jsonld" });
+        if (q) items.push({ question: q, answer_excerpt: a, source: "jsonld" });
       }
     }
   }

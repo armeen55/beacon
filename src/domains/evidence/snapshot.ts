@@ -35,6 +35,7 @@ export type OwnedQuerySignal = {
   clicks: number;
   position: number | null;};
 export type OwnedPageContent = {
+  revision?: Pick<import("./pages/types").PageSnapshot, "content_hash" | "headings_hash" | "faq_hash" | "schema_hash"> | null;
   /** The crawler's own confidence in the capture, and which capture these words are (pages/page-version). */
   extractionCertainty?: string | null; versionState?: ReturnType<typeof import("./pages/page-version").selectPageVersion>["state"]; contentAt?: string | null; newestAt?: string | null;
   title: string | null;
@@ -567,7 +568,7 @@ export function hashSnapshot(snapshot: Omit<EvidenceSnapshot, "evidenceHash">): 
     src: snapshot.sources.map((s) => [s.source, s.status, s.rowsSeen]),
     op: snapshot.ownedPages.map((p) => [
       p.url,
-      p.content ? [p.content.title, p.content.wordCount, p.content.schemaTypes] : null,
+      materialContent(p.content),
       p.search ? [p.search.clicks90d, p.search.impressions90d, p.search.position90d] : null,
       p.engagement ? [p.engagement.conversions28d, p.engagement.revenueUsd] : null,
       p.friction ? [p.friction.frictionScore] : null,
@@ -586,43 +587,37 @@ export function hashSnapshot(snapshot: Omit<EvidenceSnapshot, "evidenceHash">): 
       // The SETTLED READING is material too: same citations, same fan-outs, a reading now on file is different evidence.
       ai: snapshot.research.aiObservations.map((o) => [o.promptId, o.engine, o.observationMode, o.modelServed, o.modelRequested, o.webSearchReported, o.citationsObserved, (o.citations ?? []).map((c) => [c.url, c.domain]), o.fanOutQueries, o.analysisHash ?? null]),
       serp: snapshot.research.serpEvidence.map((s) => [s.query, s.organic.map((o) => [o.rank, o.url]), s.aiOverview.map((c) => c.url), s.aiMode.map((c) => c.url), s.paa.map((p) => p.question), s.related]),
-      win: snapshot.research.winningPages.map((w) => [w.url, w.engines, w.examplePrompts, w.extract ? [w.extract.title, w.extract.h1, w.extract.wordCount, w.extract.headings, w.extract.faqCount] : null]),
+      win: snapshot.research.winningPages.map((w) => [w.url, w.engines, w.examplePrompts, materialExtract(w.extract)]),
     },
   };
   return createHash("sha256").update(JSON.stringify(stable)).digest("hex").slice(0, 16);
 }
 
-/** THE EVIDENCE IDENTITY OF ONE JOB, not of the account. `snapshot.evidenceHash` folds every owned page's 90-day
- *  search figures, so folding IT into a per-row work identity re-minted every row on the account whenever any one
- *  page's ordinary Google numbers wobbled: the "unchanged" short-circuit never fired (4,926 material saves across
- *  22 live rows), the finished-copy guard failed open because the stored key never matched the incoming one, and
- *  the deep-bundle reuse gate re-bought twelve-call rewrites it already held. This hash covers exactly what one
- *  job stands on: the AFFECTED pages' own material slices (the same fields hashSnapshot's `op:` row folds), and
- *  the research already bought for the job's own search (the exact-query results page, and the winning pages that
- *  answer it, matched by those organic urls). A sibling page moving does not move it; the job's own page changing,
- *  its results page landing, or one of its winners being read does, which is what reopens settled work when the
- *  evidence it was refused for arrives. PAGE SET, NOT ONE PAGE: a bundle writes on siblings, so the caller passes
- *  every address the job changes and a sibling's drift honestly moves the identity. Deterministic and order-free. */
+const materialContent = (c: OwnedPageContent | null) => c ? [c.revision ?? null, c.title, c.metaDescription, c.h1, c.h2, c.outline, [...c.schemaTypes].sort(), c.faqCount, c.wordCount, c.internalLinks, c.versionState ?? null, c.extractionCertainty ?? null, c.finalUrl ?? null, c.canonicalUrl ?? null, c.robotsMeta ?? null, c.hasCanonicalMismatch ?? null] : null;
+const materialExtract = (x: EvidenceSnapshot["research"]["winningPages"][number]["extract"]) => x ? [
+  x.title, x.h1, x.wordCount, x.headings, x.faqCount ?? null, x.metaDescription ?? null, x.openingSample ?? null, x.entityNames ?? null,
+  x.hasList ?? null, x.hasTable ?? null, x.internalLinkCount ?? null, x.externalLinkCount ?? null, x.mainText ?? null,
+  x.truncated ?? null, x.heldChars ?? null, x.totalChars ?? null, x.h3s ?? null, x.sections ?? null, x.schemaTypes ?? null] : null;
+
+/** Job-scoped identity: affected owned revisions and exact-query winning material, never unrelated account drift
+ * or capture clocks. Unknown and partial captures retain their actual scope, not fabricated complete evidence. */
 export function jobEvidenceHash(snapshot: Pick<EvidenceSnapshot, "ownedPages" | "research">, pageKeys: readonly string[], primaryQuery: string): string {
   const keys = new Set(pageKeys.map((k) => canonicalUrlKey(k)).filter(Boolean));
   const pages = snapshot.ownedPages.filter((p) => keys.has(canonicalUrlKey(p.url)))
     .map((p) => [canonicalUrlKey(p.url),
-      p.content ? [p.content.title, p.content.wordCount, p.content.schemaTypes] : null,
+      materialContent(p.content),
       p.search ? [p.search.clicks90d, p.search.impressions90d, p.search.position90d] : null,
       p.engagement ? [p.engagement.conversions28d, p.engagement.revenueUsd] : null,
       p.friction ? [p.friction.frictionScore] : null, p.aiCitations.count])
     .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
   const qk = canonicalQueryKey(primaryQuery ?? "");
-  // SORTED, BECAUSE THESE ROWS ARRIVE IN WHATEVER ORDER THE DATABASE FELT LIKE. `pages` and `winners` are sorted
-  // and this was not, so an account holding more than one stored results page for a query hashed a different
-  // identity every pass: live, one job's workKey moved between two builds a minute apart with no evidence change,
-  // re-minting the row and re-stamping the ranking. The docstring above already promised order-free.
+  // Database row ordering is not new evidence.
   const serp = qk ? snapshot.research.serpEvidence.filter((s) => canonicalQueryKey(s.query) === qk)
     .map((s) => [[...s.organic].sort((a, b) => a.rank - b.rank || a.url.localeCompare(b.url)).map((o) => [o.rank, o.url]),
       [...s.aiOverview].map((c) => c.url).sort(), [...s.aiMode].map((c) => c.url).sort()])
     .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))) : [];
   const winners = jobWinners(snapshot.research, primaryQuery)
-    .map((w) => [canonicalUrlKey(w.url), w.extract ? [w.extract.wordCount, w.extract.headings.length] : null])
+    .map((w) => [canonicalUrlKey(w.url), materialExtract(w.extract)])
     .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
   return createHash("sha256").update(JSON.stringify({ pages, serp, winners })).digest("hex").slice(0, 16);
 }

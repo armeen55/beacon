@@ -278,7 +278,8 @@ export function pageExtractFromRecord(rec: Record<string, unknown>): ResearchPag
     // A ROW BANKED BEFORE THE READING EXISTED HELD NO WORDS, and that is honest absence: `mainText: null` with
     // `truncated: null` says nothing was captured, which no door may read as a page that carries nothing.
     mainText: str(rec.mainText), truncated: bool(rec.truncated) ?? null, heldChars: num(rec.heldChars) ?? null,
-    totalChars: num(rec.totalChars) ?? null, h3s: strings(rec.h3s, 20), schemaTypes: strings(rec.schemaTypes, 12),
+    totalChars: num(rec.totalChars) ?? null, ...(Array.isArray(rec.h3s) ? { h3s: strings(rec.h3s, 20) } : {}), ...(Array.isArray(rec.schemaTypes) ? { schemaTypes: strings(rec.schemaTypes, 12) } : {}),
+    ...(Array.isArray(rec.sections) ? { sections: rec.sections.filter((s): s is Record<string, unknown> => s != null && typeof s === "object" && typeof s.text === "string").map((s) => ({ heading: str(s.heading), text: s.text as string })) } : {}),
   };
 }
 

@@ -731,7 +731,6 @@ describe("the click curve is fitted to the account it judges", () => {
     expect([near.action, /under the 50 clicks/.test(near.reason)]).toEqual(["watch", false]); expect(near.reason).toContain("which is most of what that position gives, so its wording is not visibly costing you the click"); }); }); // ── work identity is the JOB'S OWN evidence, never the account's ──────────────
 describe("work identity survives unrelated drift and moves with the job's own evidence", () => {
   const AT = ownedPage("fixture-outdoors.example/hiking-socks", "Hiking Socks", { impressions: 9000, clicks: 700 }, [{ query: "hiking socks", impressions: 9000, clicks: 700, position: 1.2 }]);
-  /** Healthy on every axis (a description on file, clicks at position), so no producer mints work for it: its ONLY role is to drift. */
   const UNRELATED: OwnedPageEvidence = { ...AT, content: { ...AT.content!, metaDescription: "Socks for hiking, sized and rated for every season." } };
   const real = (s: EvidenceSnapshot): EvidenceSnapshot => ({ ...s, evidenceHash: hashSnapshot(s) });
   it("an unrelated page's ordinary Google drift re-mints no identity, re-buys nothing, rewrites no row, and leaves finished copy byte-identical", async () => { reset(real(snap([WEAK, GAP, UNRELATED], looked([["nowruz food traditions", "fixture-outdoors.example/nowruz-food"], ["nowruz traditions", GAP_URL]]))));
@@ -747,12 +746,14 @@ describe("work identity survives unrelated drift and moves with the job's own ev
     expect([again.reused > 0, second.calls(), env.saved.map((p) => p.id)]).toEqual([true, 0, []]); // no redraft, no provider attempt, not one row rewritten
     for (const [id, [after, workKey]] of before) { const now = env.store.get(id)!;
       expect([now.recommendedChange.kind === "existing_edit" ? now.recommendedChange.after : "", now.workKey ?? ""]).toEqual([after, workKey]); } });
-  it("the job's OWN page moving does move the identity, so the stored row re-stamps once instead of standing on stale evidence", async () => { reset(real(snap([WEAK, GAP, UNRELATED], looked([["nowruz food traditions", "fixture-outdoors.example/nowruz-food"], ["nowruz traditions", GAP_URL]]))));
+  it.each(["metrics", "body"])("the job's OWN %s revision moves identity and re-stamps stored work", async (mode) => { reset(real(snap([WEAK, GAP, UNRELATED], looked([["nowruz food traditions", "fixture-outdoors.example/nowruz-food"], ["nowruz traditions", GAP_URL]]))));
     await run(counting().complete);
     const guideId = [...env.store.keys()].find((id) => id.includes("/nowruz-guide"))!; const heldKey = env.store.get(guideId)!.workKey!;
     const base = env.snap as EvidenceSnapshot;
     env.snap = real({ ...base, ownedPages: base.ownedPages.map((p) => p.url === GAP_URL
-      ? { ...p, search: { ...p.search!, impressions90d: p.search!.impressions90d + 4000, clicks90d: p.search!.clicks90d + 5 } } : p) });
+      ? mode === "metrics"
+        ? { ...p, search: { ...p.search!, impressions90d: p.search!.impressions90d + 4000, clicks90d: p.search!.clicks90d + 5 } }
+        : { ...p, content: { ...p.content!, revision: { content_hash: "changed body", headings_hash: "same", faq_hash: "same", schema_hash: "same" } } } : p) });
     env.saved = []; await run(counting().complete);
     const moved = env.store.get(guideId)!;
     expect(moved.workKey).not.toBe(heldKey); // the identity follows the job's own evidence

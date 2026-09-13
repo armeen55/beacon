@@ -182,6 +182,7 @@ async function readEvidenceSnapshot(
       h2: s.h2_list ?? [],
       outline: [...(s.h2_list ?? []), ...(s.h3_list ?? [])],
       schemaTypes: s.schema_types ?? [],
+      revision: { content_hash: s.content_hash, headings_hash: s.headings_hash, faq_hash: s.faq_hash, schema_hash: s.schema_hash },
       hasFaq: visibleFaqs(s.faqs).length > 0,
       faqCount: visibleFaqs(s.faqs).length,
       wordCount: s.word_count ?? 0, extractionCertainty: s.extraction_certainty ?? null,

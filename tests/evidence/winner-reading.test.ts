@@ -5,6 +5,7 @@ import { mainOf, pageExtractFrom, pageExtractFromRecord } from "@/domains/eviden
 const MAIN_TEXT_CEILING = mainOf("word ".repeat(20_000)).heldChars!;
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import { parseCapability } from "@/domains/evidence/dataforseo/capabilities";
+import { jobEvidenceHash } from "@/domains/evidence/snapshot";
 
 /** TWO SYNTHETIC WINNERS, each on its own subject, each with the same shape a real winning page has: a navigation rail, a heading run, prose that answers the search, a subheading and a footer. */
 const SITES = [
@@ -23,52 +24,34 @@ const htmlOf = (s: (typeof SITES)[number], body = s.body): string => `<html><hea
 
 describe("what one read of a winning page carries", () => {
   for (const s of SITES) {
-    it(`${s.t}: the fresh read keeps the page's own main content, its subheadings and its schema types, and leaves the furniture out`, () => {
-      const x = pageExtractFrom(extractPageSnapshot(htmlOf(s), s.url, "p1", s.t));
-      expect([x.mainText?.includes(s.body), x.mainText?.includes(s.nav), x.mainText?.includes(s.foot), x.mainText?.includes(s.rail), x.h3s, x.schemaTypes, x.truncated],
-        "the words a reader gets are held, the navigation rail, the footer and a heading standing inside the footer are not, and an uncut capture says so").toEqual([true, false, false, false, [s.h3], [s.schema], false]);
-      /* AND THE HEADING LIST IS HONEST ABOUT WHERE IT COMES FROM (reviewer, 2026-09-05): the crawler builds it off the WHOLE document, so a heading a site repeats in its footer IS banked, and this test only ever measured the main text. What refuses that label as a subject is the one navigation-label definition, asked at the comparison (tests/evidence/comparison-furniture.test.ts) rather than here. */
-      expect(x.headings.includes(s.rail), "a heading standing in the footer is still banked, so the comparison is where it has to be refused").toBe(true);
-      expect([x.heldChars === (x.mainText ?? "").length, x.totalChars === x.heldChars], "what was kept and what there was are the same number on a page that fits").toEqual([true, true]);
-    });
-
-    it(`${s.t}: a stored read comes back whole and a row banked before the reading existed reads as absence, never as a page with no words`, () => {
+    it(`${s.t}: fresh and stored bodies retain content, scope and honest legacy absence`, () => {
       const fresh = pageExtractFrom(extractPageSnapshot(htmlOf(s), s.url, "p1", s.t));
+      expect([fresh.mainText?.includes(s.body), fresh.mainText?.includes(s.nav), fresh.mainText?.includes(s.foot), fresh.mainText?.includes(s.rail), fresh.h3s, fresh.schemaTypes, fresh.truncated]).toEqual([true, false, false, false, [s.h3], [s.schema], false]);
+      expect(fresh.headings.includes(s.rail)).toBe(true); // labels remain banked; main-content comparison qualifies them
+      expect([fresh.heldChars === (fresh.mainText ?? "").length, fresh.totalChars === fresh.heldChars]).toEqual([true, true]);
       const back = pageExtractFromRecord(JSON.parse(JSON.stringify(fresh)) as Record<string, unknown>);
       expect([back.mainText, back.h3s, back.schemaTypes, back.truncated, back.heldChars, back.totalChars],
         "every field the read banked is the field the next pass reads").toEqual([fresh.mainText, fresh.h3s, fresh.schemaTypes, fresh.truncated, fresh.heldChars, fresh.totalChars]);
       const legacy = pageExtractFromRecord({ title: s.h2, h1: s.h2, wordCount: 900, headings: [s.h2], faqCount: 0, openingSample: s.body });
       expect([legacy.mainText, legacy.truncated, legacy.heldChars, legacy.totalChars, legacy.openingSample === s.body, legacy.entityNames],
         "a row from before the reading says nothing was captured, which is not the claim that the page carries nothing, and a row that banked no entity list hands back no list rather than an empty one").toEqual([null, null, null, null, true, undefined]);
-    });
-
-    it(`${s.t}: a page longer than one comparison reads is held to the ceiling and says how much of it stands behind the read`, () => {
       const long = `${s.body} `.repeat(400), x = pageExtractFrom(extractPageSnapshot(htmlOf(s, long), s.url, "p1", s.t));
       expect([x.truncated, x.heldChars, (x.totalChars ?? 0) > MAIN_TEXT_CEILING, (x.mainText ?? "").length],
         "the cut is recorded with both counts, so everything past it is unknown rather than absent").toEqual([true, MAIN_TEXT_CEILING, true, MAIN_TEXT_CEILING]);
       expect(mainOf(x.mainText, x.totalChars ?? 0).totalChars, "re-holding a capture at the same ceiling never understates the page it came from").toBe(x.totalChars);
     });
 
-    it(`${s.t}: the paid read hands back the page's own main content, and a parse with no words is a gap rather than a body`, () => {
-      const envelope = { tasks: [{ result: [{ items: [{ page_content: { main_topic: [{ main_title: s.h2, h_title: s.h2, primary_content: [{ text: s.body }] }],
+    it(`${s.t}: cached provider sections retain their words and move exact-query job identity, never inventing unreported fields`, () => {
+      const envelope = { tasks: [{ result: [{ items: [{ page_content: { main_topic: [{ main_title: s.h2, h_title: s.h2, primary_content: [{ text: s.body }], table_content: [{ table_content: [["one", "two"]] }] }],
         secondary_topic: [{ h_title: s.h3, primary_content: [{ text: s.body }] }] } }] }] }] };
-      const got = parseCapability("onpage_content_parsing", envelope as never);
+      const got = parseCapability("onpage_content_parsing", envelope as never)!;
       expect([got?.mainText?.includes(s.body), got?.headings, (got?.wordCount ?? 0) > 0], "the provider's main and secondary topics are the reading, and its headings ride with it").toEqual([true, [s.h2, s.h3], true]);
+      const back = pageExtractFromRecord(JSON.parse(JSON.stringify(got))); expect([back.sections, back.h3s, back.schemaTypes]).toEqual([got.sections, undefined, undefined]);
+      const key = (extract: object) => jobEvidenceHash({ ownedPages: [], research: { serpEvidence: [{ query: s.h2, organic: [{ rank: 1, url: s.url }], aiOverview: [], aiMode: [] }], winningPages: [{ url: s.url, appearances: [], extract }] } } as never, [], s.h2);
+      expect(key(back)).toBe(key(got)); expect(key({ ...back, mainText: `${back.mainText} Changed evidence.` })).not.toBe(key(back)); expect(key({ ...back, fetchedAt: "2099-01-01" })).toBe(key(back));
+      expect([got.hasTable, got.faqCount, got.metaDescription, got.entityNames, got.hasList, got.internalLinkCount, got.externalLinkCount]).toEqual([true, undefined, undefined, undefined, undefined, undefined, undefined]);
       const empty = parseCapability("onpage_content_parsing", { tasks: [{ result: [{ items: [{ page_content: {} }] }] }] } as never);
       expect([empty?.mainText, empty?.wordCount, empty?.truncated], "a read that came back with no words carries none, so nothing downstream can mistake it for a page that answers").toEqual([null, 0, false]);
-    });
-
-    /* WHAT THE PAID READ NEVER SAW IS NOT A ZERO (Build Queue E-039). `page_content` sends the page's topics, their
-     * paragraphs and their tables, and nothing else: a question-entry count of 0 stood on every winner read this way,
-     * beside crawled winners whose 0 was measured, and the meta description, the entity list, the list flag and the
-     * link counts were simply missing with nothing saying so. */
-    it(`${s.t}: the paid read claims only the parts the payload carries and leaves the rest not captured`, () => {
-      const envelope = { tasks: [{ result: [{ items: [{ page_content: { main_topic: [{ main_title: s.h2, h_title: s.h2,
-        primary_content: [{ text: s.body }], table_content: [{ table_content: [["one", "two"]] }] }] } }] }] }] };
-      const got = parseCapability("onpage_content_parsing", envelope as never)!;
-      expect([got.hasTable, got.faqCount, got.metaDescription, got.entityNames, got.hasList, got.internalLinkCount, got.externalLinkCount],
-        "the table the payload shows is a fact this read may state, and the six parts it never sends stay absent, because no question entries, no entities, no list and no links are claims this endpoint cannot make")
-        .toEqual([true, undefined, undefined, undefined, undefined, undefined, undefined]);
     });
   }
 });
