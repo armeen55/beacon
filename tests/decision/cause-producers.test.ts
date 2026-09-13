@@ -98,7 +98,7 @@ describe("a named cause produces the change that fixes it", () => {
       expect(c.after.startsWith(ANSWER)).toBe(true); expect(c.after).toContain(REBUILT); // THE COPY, NOT A PLAN: the page's own opening, then every section the winners agree on, in order.
       expect(c.mechanism).toContain("2 things are wrong at once");
       expect(bought.filter((k) => k === "editor_judgement")).toHaveLength(3); // the opening and the two sections the rebuild wrote, each read for sense by the ONE evaluator // BOTH SECTIONS THE WINNERS AGREE ON were bought, and neither was shipped as an unwritten heading.
-      expect(out.proposal.status).toBe("needs_review"); expect(openHold(out.proposal).blocking).toContain("have not been read against the sources they name"); // A REBUILD ASSEMBLED FROM SEVERAL AUTHORIZED PIECES IS NOT ITSELF AUTHORIZED: its own copy is nobody's ruled claim, so the door holds it and says so instead of letting the pieces vouch for the whole.
+      expect(out.proposal.status).toBe("needs_review"); expect(openHold(out.proposal).blocking).toContain("complete editor acceptance"); // A REBUILD ASSEMBLED FROM SEVERAL AUTHORIZED PIECES IS NOT ITSELF AUTHORIZED: its own copy is nobody's ruled claim, so the door holds it and says so instead of letting the pieces vouch for the whole.
     });
     it("never rebuilds when every competing explanation was RULED OUT", async () => {
       const out = await rebuildOf("Rain barrel sizing"); // a subject this page already covers: it does not fire

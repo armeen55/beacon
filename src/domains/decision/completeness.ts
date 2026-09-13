@@ -3,7 +3,7 @@ import { COPY_RULES } from "./copy-sanitize";
 /** decision/completeness: THE ONE CHECK THAT ASKS WHETHER BEACON HAS FINISHED THE WORK. A customer-facing Change states exactly what to add, replace, delete, move, link, redirect or create, exactly where, and the FINAL COPY wherever copy is involved. IMPERFECT WORK STAYS VISIBLE (operator, 2026-08-15): anything short of that is a genuine opportunity still being developed, and it is RANKED and SHOWN, on the ranked queue and on Today, as a research card carrying what is known, what is still missing and what happens next. What this boundary decides is never whether the operator sees a row, only which of the three lanes it lands in, that it carries no copy to paste and no control that records it done, and that the server refuses to put it into measurement or mark it implemented until the deliverable is actually finished. PURE and derived from the deliverable ITSELF, never from the prose around it, so the queue, the card (a client component) and the server mutation all ask one question and a voice edit moves none of them. It sits beside the contract rather than inside the validator because a client bundle may reach this and may not reach that. */
 
 import { componentIdOf, dangerousComponents } from "./contracts"; import { footprintCovers } from "./mutation-footprint";
-import { copyKey, evidenceShortfall } from "./proof";
+import { copyKey, evidenceShortfall, unreviewed } from "./proof";
 import { domainOf } from "@/domains/evidence/relevance-gate";
 import type { ChangeProposal } from "./contracts";
 import { withholdReason } from "./authorization";
@@ -120,7 +120,7 @@ export function openHold(p: ChangeProposal, also: { found?: readonly string[] } 
   for (const part of p.bundle?.components ?? []) if (part.kind === "meta") bodyDefects.push(...AEO_BAR.emptyMeta(part.after, heading));
   const canReask = AEO_BAR.forRow(p) && c.kind === "existing_edit" && /^(answer_block|section)$/.test(c.field) && !p.bundle?.components.length && stands && p.researchOnly !== true;
   const liveSoft = canReask ? AEO_BAR.copyRefusals.live(p) : [];
-  const current = (why: string): boolean => !canReask || (![AEO_BAR.holds.lead, AEO_BAR.holds.groups, AEO_BAR.holds.criteria, AEO_BAR.holds.accuracy].includes(why) && !AEO_BAR.copyRefusals.owns(why));
+  const current = (why: string): boolean => !(COPY_RULES.supersededEditorFinding(why) && unreviewed(p) == null) && (!canReask || (![AEO_BAR.holds.lead, AEO_BAR.holds.groups, AEO_BAR.holds.criteria, AEO_BAR.holds.accuracy].includes(why) && !AEO_BAR.copyRefusals.owns(why)));
   const hard = [...bodyDefects, ...liveSoft, ...gaps, ...lims.filter((l) => current(l) && HARD_LIMITATION.test(l))];
   const publicCopy = c.kind === "new_page" ? [c.openingAnswer, ...p.bundle?.components.filter((part) => /^(opening_answer|section|section_add|section_rewrite)$/.test(part.kind)).map((part) => part.after) ?? []] : c.kind === "existing_edit" && c.field !== "schema" ? [c.after, ...(p.bundle?.components.filter((part) => /^(opening_answer|section|section_add|section_rewrite|meta|title|h1|internal_link)$/.test(part.kind)).map((part) => part.after) ?? [])] : [];
   if (p.researchOnly !== true && publicCopy.some((copy) => COPY_RULES.workflow.test(copy))) hard.push("it narrates Beacon's writing task or the page instead of answering the reader");

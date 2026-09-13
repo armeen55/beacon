@@ -2,7 +2,6 @@ import { z } from "zod";
 import type { ChangeProposal } from "./contracts";
 import { topicTokens } from "@/domains/evidence/relevance-gate";
 
-const SELF_POINTER = /\b(?:covered|described|explained|shown|listed)\s+(?:in|on|here)\b|\b(?:shown|listed|given|provided)\s+(?:beside|alongside|next to)\s+each\b|\bthis (?:guide|page|article)\b|\bsee the\b|\bsections?\s+(?:below|above)\b|\bheadings?\s+below\b|\bthe page(?:['\u2019]s)?\b|\bhere (?:are|is)\b|\buse the [^.]{0,60}?\b(?:links?|categories)\b|\bas (?:shown|listed) (?:below|above)\b|\b(?:does not (?:show|explain|give|list|state)|is not (?:shown|listed|given|explained|stated)|the stored copy)\b|\b(?:is|are)\s+(?:presented|grouped|organi[sz]ed|arranged|collected|listed|shown|covered|summari[sz]ed|laid out)\s+(?:here|below|on this page|in this guide)\b/i;  const ARRANGES = /(?<!\bhow to )\b(?:groups?|lists?|organi[sz]es?|presents?|arranges?|sorts?|divides?|categori[sz]es?|catalogu?es?|collects?|breaks?\s+down|lays?\s+out)\s+(?:its|the|these|by|into|as|under)\b|\b(?:is|are|was|were)\s+(?:(?:previously|originally|formerly|once)\s+)?(?:divided|organi[sz]ed|grouped|broken\s+down|arranged|sorted|presented|laid\s+out|categori[sz]ed)\s+(?:into|by|as|under)\b|\b(?:is|are|was|were)\s+(?:previously|originally|formerly|once)\s+(?:divided|organi[sz]ed|grouped|broken\s+down|arranged|sorted|presented|laid\s+out|categori[sz]ed|split|spread|scattered|separated)\b|\b(?:is|are|was|were)\s+(?:(?:previously|originally|formerly|once)\s+)?(?:split|spread|scattered|separated|divided|grouped|organi[sz]ed|arranged|sorted|listed|presented)\s+(?:across|over|among|between|throughout|in)\s+(?:\w+\s+){0,3}?(?:headings?|subheadings?|sections?|categor(?:y|ies)|pages?|lists?|columns?|tables?|entries|paragraphs?|blocks?|parts?)\b/i, QUOTED = /"[^"]*"|\u201c[^\u201d]*\u201d|\u2018[^\u2019]*\u2019/g, pointsAtPage = (copy: string): boolean => SELF_POINTER.test(copy) || ARRANGES.test(copy.replace(QUOTED, " "));
 const QUALIFIER = /\b(international(?:ly)?|excluding|from|up to|per|depending)\b/i;
 const CARRIER = new Set(["include", "includes", "including", "cover", "covers", "carry", "carries", "list", "lists", "mean", "means", "meaning", "also", "such", "offer", "offers", "use", "uses", "used", "refer", "refers", "state", "states",
   "they", "them", "these", "those", "that", "this", "people", "person", "has", "have", "had", // THE REST OF THE CLOSED GRAMMAR (2026-08-22): pronouns, light verbs and quantifiers that any faithful paraphrase must use and no page's stored copy reliably prints. Live passes refused finished copy over "they", "has", "like" and "people", which is the vocabulary test this gate's own charter forbids. Every content noun, name and meaning still has to be carried by a claim and the passage it cites.
@@ -20,12 +19,12 @@ function figures(copy: string, bodyText: string): string[] {
 }
 
 // Only these stored soft findings can be re-asked from the banked record alone.
-const owns = (why: string): boolean => why === "it points at the page instead of answering" || /^the figure's own sentence says /.test(why) || /^(?:the claim .* cites evidence that is about something else|the sources this cites are about something else)/.test(why);
+const owns = (why: string): boolean => /^the figure's own sentence says /.test(why) || /^(?:the claim .* cites evidence that is about something else|the sources this cites are about something else)/.test(why);
 function live(p: ChangeProposal): string[] {
   const c = p.recommendedChange;
   if (c.kind !== "existing_edit") return [];
   const facts = p.supportFacts ?? [], evidence = new Map(facts.map((f) => [f.id, f.fact]));
-  const out = pointsAtPage(c.after) ? ["it points at the page instead of answering"] : [];
+  const out: string[] = [];
   // Independent evidence records must never form one sentence.
   out.push(...figures(c.after, facts.map((f) => f.fact).join("\n")));
   const adrift = (p.claims ?? []).find((x) => { const mine = topicTokens(x.text).filter((w) => !CARRIER.has(w));
@@ -34,7 +33,7 @@ function live(p: ChangeProposal): string[] {
   if (adrift) out.push(`the claim "${adrift.text.slice(0, 60)}" cites evidence that is about something else: name the id whose words actually carry it`);
   return out;
 }
-const COPY_REFUSALS = { pointsAtPage, figures, carrier: CARRIER, owns, live };
+const COPY_REFUSALS = { figures, carrier: CARRIER, owns, live };
 
 const enabled = () => true; // the env flag is deleted (operator rule: no flags); the packet regime itself is retired above
 const hasGrouping = (sources: readonly { says: string; groups?: readonly string[]; groupExcerpts?: readonly { heading: string }[] }[]): string[] => [...new Set(sources.flatMap((s) => (s.groups ?? []).filter((g) => g.trim() && (s.says.includes(g) || (s.groupExcerpts ?? []).some((e) => e.heading === g)))))]; // a group the source keeps as a heading of its own is carried by the words under that heading, which the quote cannot hold beside the others

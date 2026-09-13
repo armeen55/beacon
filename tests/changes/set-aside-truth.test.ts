@@ -147,11 +147,11 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
   it("takes a yes on judgement alone and refuses one on a fact about the work", async () => {
     const { reviewDraftAction } = await import("@/app/(shell)/changes/actions"), { confirmedVersion, loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");
     const link = async (p: ChangeProposal) => { vi.mocked(resolveCurrentBasis).mockResolvedValue(NOW); vi.mocked(loadChangeProposal).mockResolvedValue(p); }; const soft = { ...bundled(NOW, "t::draft"), status: "needs_review" } as ChangeProposal;
-    const hard = { ...soft, faults: ["it points at the page instead of answering"] } as ChangeProposal; // a DEFECT of the one verdict (narration), never the old split sentence: a split settled on only some of its pages is the owner's call under the editorial policy of 2026-09-06 and rides the card as a caveat
+    const hard = { ...soft, faults: ["no serious editor would hand this to a customer"] } as ChangeProposal; // a DEFECT of the one verdict (narration), never the old split sentence: a split settled on only some of its pages is the owner's call under the editorial policy of 2026-09-06 and rides the card as a caveat
     await link(soft); const yes = await reviewDraftAction({ proposalId: soft.id, version: confirmedVersion(soft), decision: "approve" });
     await link(hard); const no = await reviewDraftAction({ proposalId: hard.id, version: confirmedVersion(hard), decision: "approve" });
     await link(soft); const better = await reviewDraftAction({ proposalId: soft.id, version: confirmedVersion(soft), decision: "improve" }); const { answerReviewedProposal: answer } = await import("@/domains/decision");
-    expect([yes.success, no.success, no.error?.includes("points at the page"), better.success, vi.mocked(answer).mock.calls.map((c) => (c[4] as { kind: string }).kind)]) .toEqual([true, false, true, true, ["promote", "redraft"]]); });
+    expect([yes.success, no.success, no.error?.includes("hand this to a customer"), better.success, vi.mocked(answer).mock.calls.map((c) => (c[4] as { kind: string }).kind)]) .toEqual([true, false, true, true, ["promote", "redraft"]]); });
   it("keeps everything this release actually knows when the bar moves under it", async () => {
     const stored = { schemaVersion: 2, releaseId: "t:1", computedAt: new Date().toISOString(), tenantId: "t",
       changes: { ...emptyView(0), proposals: [bundled("basis_old::d2", "t::old")], ready: [bundled("basis_old::d2", "t::old")],

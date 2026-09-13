@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1")); afterEach(() => vi.unstubAllEnvs());
 import { renderToStaticMarkup } from "react-dom/server"; import { createElement, type ReactElement } from "react";
 import type { CauseFinding, ChangeProposal, RankedProposalQueue } from "@/domains/decision";
-import { proofOf } from "@/domains/decision/proof";
+import { proofOf, unreviewed } from "@/domains/decision/proof";
 import type { ChangesView } from "@/app/(shell)/changes-data";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => { const redirected = (u: string) => { throw new Error(`NEXT_REDIRECT:${u}`); };
@@ -146,18 +146,18 @@ describe("a card says why this opportunity and why these words, and never trades
     expect(r.limits).toContain("Two sources give different dates for the 1980 change.");
     expect(JSON.stringify(r)).not.toContain("agree"); });
 
-  it("an answer that narrates page furniture is refused: the reader wanted the answer, not a tour", async () => {
-    const { staleCopyReasons } = await import("@/domains/decision/drafted-copy");
-    const P = (after: string) => ({ ...proposal(), status: "ready", bundle: undefined,
-      claims: [{ text: "x.", supportedBy: ["f1"] }], supportFacts: [{ id: "f1", fact: "banked." }],
-      recommendedChange: { kind: "existing_edit", field: "section", before: null, after } } as ChangeProposal);
-    const long = " The rest of this answer carries enough real words to clear the section floor on its own merit for the test.";
-    expect(staleCopyReasons(P("Common phrases are hello and thanks, with pronunciations shown beside each." + long), new Map(), []).join(" ")).toContain("points at the page instead of answering");
-    expect(staleCopyReasons(P("Anzali sits beside the Caspian Sea and is Iran's busiest northern port." + long), new Map(), []).join(" ")).not.toContain("points at the page");
-    for (const shipped of ["Iranian names here are Persian first names and surnames, grouped as girl names, boy names, and last names with meanings." + long, "The basic Persian phrases to start with here are hello, thank you, yes, no, help, and nice to meet you." + long, "The most famous Iranians are organized by field. The page also calls out Rumi and Hafez. Use the category links for the deeper lists." + long])
-      expect(staleCopyReasons(P(shipped), new Map(), []).join(" "), "the three container narrations that shipped Ready on 2026-09-01 are refused: page-deictic here, the page as agent, and use-the-links").toContain("points at the page instead of answering");
-    expect(staleCopyReasons(P("Goodbye is a listed topic, but its Persian wording is not shown." + long), new Map(), []).join(" "), "telling a reader what the page does NOT say is the diagnosis leaking into customer copy").toContain("points at the page instead of answering");
-    expect(staleCopyReasons(P("Shoma is the deferential or formal you, and to is the familiar or intimate you." + long + "\n- shoma: deferential or formal you"), new Map(), []).join(" "), "a bullet that adds no word the opening did not already say is the same thing said twice, and the sweep reads it off the banked row").toContain("says the same thing twice"); });
+  it("body narration owes contextual acceptance rather than an arranging-verb rejection", async () => {
+    const { reviewFinishedCopy } = await import("@/domains/decision/drafted-copy");
+    const { openHold } = await import("@/domains/decision/completeness");
+    for (const [after, acceptable] of [["Common phrases are listed here with pronunciations shown beside each.", false], ["The article groups its entries by profession.", false], ["Anzali sits beside the Caspian Sea.", true]] as const) {
+      const p = { ...proposal(), bundle: undefined, recommendedChange: { kind: "existing_edit", field: "section", before: null, after, where: "At the end of the main article" }, claims: [{ text: after, supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: after }] } as ChangeProposal;
+      expect(unreviewed(p)).not.toBeNull();
+      const r = await reviewFinishedCopy(p, { tenantId: p.tenantId, now: new Date(), judge: (async () => ({ pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: acceptable, notes: "Judge publisher role in context.", claims: [{ i: 0, by: ["page-copy-1"], entailed: true }] })) as never });
+      expect(r.row && openHold(r.row).defects.length === 0).toBe(acceptable);
+    }
+    const { staleCopyReasons } = await import("@/domains/decision/drafted-copy"), after = "Shoma is the deferential or formal you, and to is the familiar or intimate you.\n- shoma: deferential or formal you";
+    expect(staleCopyReasons({ ...proposal(), bundle: undefined, recommendedChange: { kind: "existing_edit", field: "section", before: null, after }, claims: [{ text: after, supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: after }] } as ChangeProposal, new Map(), []).join(" ")).toContain("says the same thing twice");
+  });
 
   it("a replacement names what it removes, and a lost link refuses Ready outright", async () => {
     const P = (before: string | null, after: string) => ({ ...proposal(), status: "ready", bundle: undefined,

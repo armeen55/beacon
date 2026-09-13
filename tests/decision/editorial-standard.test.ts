@@ -7,7 +7,8 @@ vi.mock("@/domains/evidence/pages/fact-checks", async (o) => ({ ...(await o<Reco
 vi.mock("@/domains/evidence/pages/owned-context", async (o) => ({ ...(await o<Record<string, unknown>>()), loadOwnedPageBodies: async () => bodies.map }));
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "t", domain: "fixture.example", growth_goal: null }), basisTag: () => "basis_test" }));
 const passState = vi.hoisted(() => ({ snapshot: null as unknown })); vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => passState.snapshot })); vi.mock("@/domains/decision/llm/gateway", async (o) => ({ ...(await o<Record<string, unknown>>()), creditBreakerHeld: async () => false })); import { produceProposalsForTenant } from "@/domains/decision/produce-proposals"; import { emptyResearchEvidence } from "@/domains/evidence/funnel/research-evidence"; import { applyDraftedCopy, deliverableFailures, draftFieldForPage, reviewFinishedCopy, staleCopyReasons } from "@/domains/decision/drafted-copy"; import { nextObligation } from "@/domains/decision/obligation"; import { openHold, preferFinished } from "@/domains/decision/completeness";
-import { DRAFT_BUDGET } from "@/domains/decision/draft-budget"; import { editorialStandard, evidenceShortfall, REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof"; import { canonicalUrlKey } from "@/domains/evidence/snapshot"; import { deserializeChangeProposal, serializeChangeProposal, type ChangeProposal } from "@/domains/decision/contracts";
+import { DRAFT_BUDGET } from "@/domains/decision/draft-budget"; import { editorialStandard, evidenceShortfall, REVIEW_CONTRACT, copyKey, unreviewed } from "@/domains/decision/proof"; import { canonicalUrlKey } from "@/domains/evidence/snapshot"; import { deserializeChangeProposal, serializeChangeProposal, type ChangeProposal } from "@/domains/decision/contracts";
+import { COPY_RULES } from "@/domains/decision/copy-sanitize";
 const NOW = new Date("2026-09-05T00:00:00.000Z"); const SITES = [
   { t: "tenant-one", url: "https://alpha.example/tide-pools", label: "Tide Pools", q: "tide pool safety", title: "Tide Pools", h1: "Tide Pools",
     ask: "how cold is the water in tide pools", answer: "The water in a tide pool holds close to the ocean temperature until the sun warms the shallowest of them.",
@@ -64,12 +65,12 @@ describe("the editorial standard one edit is judged by", () => {
     expect(openHold({ ...good.row, supportFacts: good.row.supportFacts?.map((f) => ({ ...f, sources: f.sources?.map((s) => ({ ...s, url: "https://different.example/source" })) })) }).defects.some((why) => why.includes("complete editor acceptance"))).toBe(true);
     expect([good.row.status, good.row.researchOnly === true, hold.defects, (good.row.recommendedChange as { after?: string }).after?.includes(s.lines[0]!) ?? false, good.row.claims?.every((c) => c.supportedBy.every((id) => id.startsWith("page-") || id.startsWith("fact-") || id.startsWith("rival-") || id.startsWith("serp-") || id.startsWith("owned-"))) ?? false, nextObligation(good.row)],
       "the grounded addition is COMPLETE ACTIONABLE READY WORK: ready status, not research, zero defects on the one verdict, its own copy, every claim on a packet id, and nothing owed").toEqual(["ready", false, [], true, true, null]);
-    for (const fault of ["it does not resolve the diagnosed problem this change exists to fix", "no serious editor would hand this to a customer", "it points at the page instead of answering", "most of what it says is already on the page"]) {
+    for (const fault of ["it does not resolve the diagnosed problem this change exists to fix", "no serious editor would hand this to a customer", "most of what it says is already on the page"]) {
       const stale = { ...good.row, faults: [fault] };
       expect(openHold(stale).defects, "the serving contract must not soften an essential copy failure after the writer refused it").toContain(fault);
       expect(nextObligation(stale)?.kind).toBe("redraft");
     }
-    for (const leak of ["A clear answer should explain the subject.", "I will draft the missing section now.", "The FAQ also pairs the names with their meanings."]) { const bad = await run(s, mk(), { ...draft, after: `${draft.after} ${leak}` }, PASS, [await reading(s)], bodyOf(s), demand); expect([bad.row.status === "ready", bad.why.some((why) => why.includes("narrates Beacon"))], JSON.stringify({ leak, why: bad.why, faults: bad.row.faults })).toEqual([false, true]); }
+    for (const leak of ["A clear answer should explain the subject.", "I will draft the missing section now."]) { const bad = await run(s, mk(), { ...draft, after: `${draft.after} ${leak}` }, PASS, [await reading(s)], bodyOf(s), demand); expect([bad.row.status === "ready", bad.why.some((why) => why.includes("narrates Beacon"))], JSON.stringify({ leak, why: bad.why, faults: bad.row.faults })).toEqual([false, true]); }
     const blocked = await run(s, mk({ id: `${s.t}::${new URL(s.url).pathname}::existing_edit::blocked-essential` }), draft, { ...PASS, resolvesDiagnosis: false, notes: "It is fine prose that answers a different question than the one diagnosed." }, [await reading(s)], bodyOf(s), demand);
     expect([blocked.row.researchOnly === true || (blocked.row.recommendedChange as { after?: string }).after === "The exact wording has not been written yet." || (blocked.row.faults ?? []).length > 0, blocked.why.join(" ").includes("does not resolve the diagnosed problem") || (blocked.row.faults ?? []).join(" ").includes("does not resolve the diagnosed problem")],
       "the same copy under an unresolved-diagnosis verdict is BLOCKED with the essential reason on record, never caveated through (wc20)").toEqual([true, true]);
@@ -86,8 +87,6 @@ describe("the editorial standard one edit is judged by", () => {
         { field: "title", before: s.title, after, ...TAIL, placementAnchor: s.h1, naturalHeading: null, measurementTarget: s.q, claims: [{ text: after, supportedBy: ["page-title"] }] });
       const noun = await t(`${s.title}: ${s.heads[0]} and ${s.heads[1]}`), ask = await t(`${s.title}: ${s.heads[1]}?`);
       expect([noun.row.status, noun.why, ask.row.status, ask.why], "neither the missing verb nor the question mark is a defect at any door Beacon owns").toEqual(["ready", [], "ready", []]); });
-    const c = card(s, { changeFamily: "section", primaryQuery: s.q, treatment: "rewrite_existing_section", causeFinding: { cause: "retrieved_not_cited", action: null, evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [], falsifier: "f", explanation: "The answer is spread across three passages.", payload: { cause: "retrieved_not_cited", engine: "chatgpt", promptText: s.q, missing: s.lines[2]!, aeoKind: "scattered_answer" } } as never, recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Reorganise what this page already says." },
-      assignment: { page: s.url, standard: "restructuring", treatment: "restructure", gapKind: "scattered_answer", propositions: [s.lines[2]!], diagnosedGap: s.lines[2]!, mustLeadWith: s.lines[2]!, opening: "open with the whole answer", format: "one to three sentences", intent: [s.q], supportingFacts: [], pageContext: ["page-copy-1"], forbidden: [], rivals: [], briefing: [], mayReuse: "the page's own words", mustPreserve: "every heading", mustNotRepeat: "the page's own entries", placement: "additive", completionTest: "a reader can lift it whole" } });
     it(`${s.t}: a section on a subject this page carries nothing of owes that source and hires no writer`, async () => {
       const at = `https://rival-${s.t}.example/page`, held = s.lines.join(" ");
       const seen = { url: at, domain: `rival-${s.t}.example`, engines: [], examplePrompts: [], appearances: [{ query: s.q }], extract: { title: "Winner", h1: null, wordCount: 900, headings: [s.unheld], faqCount: 0, entityNames: [], mainText: held, truncated: false, heldChars: held.length, totalChars: held.length } };
@@ -113,24 +112,34 @@ describe("the editorial standard one edit is judged by", () => {
     const stored = r.row;
     const seen: string[] = []; const re = await reviewFinishedCopy(stored, { tenantId: S.t, now: NOW, complete: (async ({ system }: { system: string }) => (seen.push(system), { value: { ...PASS, claims: (stored.claims ?? []).map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })) } })) as never });
     expect([seen[0]?.includes("SUMMARY LINE"), re.row?.semanticReview?.version], "the paid re-read is given the same standard, and banks its reading under the contract already on file").toEqual([true, REVIEW_CONTRACT]); expect(staleCopyReasons(stored, new Map([[canonicalUrlKey(S.url), bodyOf(S) as never]]), [], { title: S.title, h1: S.h1, metaDescription: "Old line.", outline: S.heads }), "and the serving door, reading the same standard, keeps the words").toEqual([]); });
-  it("quality round: a stored additive section that narrates the page, or only re-says it, is retired to a redraft under the entity-first brief, and a fact-backed one is left alone", async () => {
-    const { staleCopyReasons } = await import("@/domains/decision/drafted-copy"), { DRAFT_BUDGET } = await import("@/domains/decision/draft-budget");
-    const s0 = SITES[0]!, body = bodyOf(s0), bodies = new Map([[canonicalUrlKey(s0.url), body]]);
-    const base = card(s0, { researchOnly: false, changeFamily: "section" });
-    const mk = (after: string, supportedBy: string[]) => ({ ...base, claims: [{ text: after.slice(0, 60), supportedBy }], supportFacts: supportedBy.map((id) => ({ id, fact: "x" })), recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after } });
-    const narrates = mk("The page also calls out several figures. Use the category links for the deeper lists.", ["page-copy-1"]);
-    const resays = mk(`${s0.lines[0] ?? "The reserve holds animals."}`, ["page-copy-1"]);
-    const teaches = mk("Anahita is the Persian goddess of fertility and water, first attested in Achaemenid inscriptions from the fifth century BCE at Persepolis.", ["fact-1"]);
-    const why = (p0: ReturnType<typeof mk>) => staleCopyReasons(p0 as never, bodies as never, []);
-    const r1 = why(narrates), r2 = why(resays), r3 = why(teaches);
-    expect([r1.some((w) => /rewritten under the entity-first brief/.test(w) && DRAFT_BUDGET.HARD_REFUSAL.test(w)), r2.some((w) => /add specifics/.test(w) && DRAFT_BUDGET.HARD_REFUSAL.test(w)), r3.filter((w) => /entity-first/.test(w))],
-      "narration and zero-gain retire hard, so the sweep routes them to previousCopy plus a redraft instead of a review downgrade; a section teaching new specifics from a checked fact passes untouched").toEqual([true, true, []]);
+  it("reconciles obsolete editorial findings only after exact-copy current acceptance, preserves unrelated defects and replays without another review", async () => {
+    const after = S.lines[0]!, old = "it points at the page instead of answering", unrelated = "it lands in the wrong place";
+    const p = card(S, { changeFamily: "section", recommendedChange: { kind: "existing_edit", field: "section", before: null, after, where: 'At the end of the main content' }, claims: [{ text: after, supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: after }], faults: [old], limitations: [old] });
+    expect(nextObligation(p)).toEqual({ kind: "review" });
+    const approved = { ...p, semanticReview: { of: copyKey(p), version: REVIEW_CONTRACT, editor: PASS, claims: rule(p.claims!) } };
+    for (const bad of [{ ...approved, semanticReview: undefined }, { ...approved, semanticReview: { ...approved.semanticReview, version: REVIEW_CONTRACT - 1 } }, { ...approved, semanticReview: { ...approved.semanticReview, of: "wrong-copy" } }, { ...approved, semanticReview: { ...approved.semanticReview, claims: [] } }, { ...approved, semanticReview: { ...approved.semanticReview, claims: [{ i: 0, by: ["other-source"], entailed: true }] } }, { ...approved, semanticReview: { ...approved.semanticReview, claims: [{ i: 0, by: ["page-copy-1"], entailed: false }] } }]) {
+      expect(unreviewed(bad)).not.toBeNull();
+      expect(openHold(bad).defects).toContain(old);
+    }
+    const reviewed = await reviewFinishedCopy({ ...p, faults: [old, unrelated], limitations: [old, unrelated] }, { tenantId: S.t, now: NOW, complete: (async () => ({ value: { ...PASS, claims: rule(p.claims!) } })) as never });
+    expect(reviewed.row?.faults).toEqual([unrelated]);
+    expect(reviewed.row?.limitations).toEqual([unrelated]);
+    expect(reviewed.row?.recommendedChange).toEqual(p.recommendedChange);
+    expect(nextObligation(reviewed.row!)?.kind).toBe("redraft");
+    expect(openHold(approved).defects).toEqual([]);
+    expect(nextObligation(approved)).toBeNull();
+    const failed = await reviewFinishedCopy(p, { tenantId: S.t, now: NOW, complete: (async () => { throw new Error("offline"); }) as never });
+    expect(failed.row).toBeNull();
+    expect(p.faults).toEqual([old]);
+    const refused = await reviewFinishedCopy(p, { tenantId: S.t, now: NOW, complete: (async () => ({ value: { ...PASS, wouldHandToCustomer: false, claims: rule(p.claims!) } })) as never });
+    expect(refused.row?.faults).toContain(old);
+    expect(nextObligation(refused.row!)?.kind).toBe("redraft");
   });
   it("retires the objection the owner judges for themselves whatever standard wrote it, and leaves every other stored row exactly as it was", () => {
     const RETIRED = "it repeats the search instead of improving the page", REAL = "it lands in the wrong place";
     const stored = (over: Partial<ChangeProposal>) => card(S, { status: "needs_review", recommendedChange: { kind: "existing_edit", field: "meta", before: "Old line.", after: "A finished description of this page." }, ...over });
     expect(nextObligation(stored({ faults: [RETIRED] })), "a summary is judged on the line it replaces and can never be handed that sentence again, so it owes no paid rewrite for it").toBeNull(); expect(nextObligation(stored({ faults: [RETIRED, REAL] }))?.kind, "a real fault standing beside it is untouched").toBe("redraft"); expect(nextObligation(stored({ faults: [REAL] }))?.kind, "and a row that never carried the retired sentence is not touched at all").toBe("redraft");
-    for (const over of [{}, { changeFamily: "section", recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "A finished section.", where: 'A new section headed "H"' } }] as Partial<ChangeProposal>[]) expect([nextObligation(stored({ ...over, faults: [RETIRED] })), openHold(stored({ ...over, faults: [RETIRED] })).advisories.map((a) => a.kind).filter((x) => x === "matches_search")], "matches_search is advisory on every standard, never a paid rewrite").toEqual([null, ["matches_search"]]);
+    for (const over of [{}, { changeFamily: "section", recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "A finished section.", where: 'A new section headed "H"' } }] as Partial<ChangeProposal>[]) expect([nextObligation(stored({ ...over, faults: [RETIRED] }))?.kind ?? null, openHold(stored({ ...over, faults: [RETIRED] })).advisories.map((a) => a.kind).filter((x) => x === "matches_search")], "matches_search is advisory on every standard, never a paid rewrite").toEqual([over.changeFamily === "section" ? "review" : null, ["matches_search"]]);
     const reviewed = stored({ changeFamily: "factual_correction", claims: [{ text: "c", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "f" }] });
     expect(nextObligation({ ...reviewed, semanticReview: { of: copyKey(reviewed), version: REVIEW_CONTRACT, claims: [{ i: 0, by: ["fact-1"], entailed: true }] } }), "and a reading banked under the contract on file is not re-bought: the editorial rules moved, the evidence contract did not").toBeNull(); });
   it.each(SITES)("retires the promise objection where the row's own record of the page carries the word, keeps it where the page never says it, and asks nothing of a row that holds no record at all, on $t", (s) => {
@@ -145,7 +154,7 @@ describe("the editorial standard one edit is judged by", () => {
       claims: [{ text: `The page groups this under ${s.heads[1]}.`, supportedBy: ["page-copy-1", "page-copy-2"] }],
       supportFacts: [{ id: "page-copy-1", fact: s.lines[0]! }, { id: "page-copy-2", fact: s.lines[1]! }],
       informationGain: { adds: "puts the page's own material in one place a reader can scan", by: ["page-copy-1", "page-copy-2"], pageWhole: true } });
-    const read = (p: ChangeProposal): ChangeProposal => ({ ...p, semanticReview: { aeoPacket: PASS.aeoPacket, of: copyKey(p), version: REVIEW_CONTRACT, materialChange: true, claims: (p.claims ?? []).map((x, i) => ({ i, by: [...x.supportedBy], entailed: true })) } });
+    const read = (p: ChangeProposal): ChangeProposal => ({ ...p, semanticReview: { editor: PASS, aeoPacket: PASS.aeoPacket, of: copyKey(p), version: REVIEW_CONTRACT, materialChange: true, claims: (p.claims ?? []).map((x, i) => ({ i, by: [...x.supportedBy], entailed: true })) } });
     expect(evidenceShortfall(read(reorganized)), "a gain made only of this page's own units, read against the whole page, answers for the passage it reorganizes").toBeNull();
     const outside = { ...reorganized, claims: [{ text: `The page groups this under ${s.heads[1]}.`, supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: `an encyclopedia says ${s.heads[1]}` }],
       informationGain: { adds: "adds a checked fact the page never carried", by: ["fact-1"], pageWhole: true } } as ChangeProposal;
@@ -158,41 +167,41 @@ describe("the editorial standard one edit is judged by", () => {
 });
 describe("the standard says what the work is, and the id says where the words came from", () => {
   const ASSIGN = (over: Record<string, unknown>): ChangeProposal["assignment"] => ({ page: "p", treatment: "section", gapKind: "missing_answer", propositions: ["p"], diagnosedGap: "p", mustLeadWith: "p", opening: "o", format: "f", intent: [], supportingFacts: [], pageContext: [], forbidden: [], rivals: [], briefing: [], mayReuse: "n", mustPreserve: "n", mustNotRepeat: "n", placement: "additive", completionTest: "t", ...over } as ChangeProposal["assignment"]);
-  const POINTS = "it points at the page instead of answering";
-  it.each(SITES)("lets a page whose title promises what it never delivers say what it does today, and refuses the same sentence from every other kind of body work, on $t", (s) => {
-    const body = (standard: string): ChangeProposal => card(s, { changeFamily: "section", claims: [{ text: "c", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: s.lines[0]! }],
-      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `This guide covers ${s.heads[1]!.toLowerCase()} and nothing else, so a reader looking for anything wider is in the wrong place.`, where: 'A new section headed "H"' }, assignment: ASSIGN({ standard, gapKind: standard === "repositioning" ? "false_page_promise" : "missing_answer" }) });
-    const reasons = (standard: string): string[] => staleCopyReasons(body(standard), new Map([[canonicalUrlKey(s.url), bodyOf(s)]]) as never, [], { title: s.title, h1: s.h1, outline: s.heads } as never, false, []);
-    expect([reasons("repositioning").includes(POINTS), reasons("missing_answer").includes(POINTS), reasons("restructuring").includes(POINTS)],
-      "the honest treatment of a false promise IS a sentence about what this page delivers, so the container rule is not asked of it, and it is asked of every other body standard exactly as before").toEqual([false, true, true]); });
-  it.each(SITES)("refuses copy that presents the page instead of answering, at the writer's door and on the banked row, and takes the same words as a sentence that states the answer, on $t", async (s) => {
-    const parts = `${s.heads[0]!.toLowerCase()}, ${s.heads[1]!.toLowerCase()} and ${s.heads[2]!.toLowerCase()}`;
-    const narrated = `${s.label} is presented here as a grouped list of ${parts}, with one short entry for each of them.`, answered = `${s.label} includes ${parts}, with one short entry for each of them.`;
-    const gap = card(s, { changeFamily: "section", treatment: "add_answer_section", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Add the missing answer." },
-      causeFinding: { cause: "retrieved_not_cited", action: null, evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [], falsifier: "f", explanation: "e", payload: { cause: "retrieved_not_cited", engine: "chatgpt", promptText: s.q, missing: s.lines[2]!, aeoKind: "missing_information" } } as never });
-    const wrote = async (after: string): Promise<string[]> => deliverableFailures({ actionType: "answer_block", targetUrl: s.url, finalCopy: after, beforeText: null, naturalHeading: s.heads[0], placementAnchor: s.h1, measurementTarget: s.q, claims: [], evidenceIdsUsed: [], uncertaintyOrOmitted: [] } as never, { targetUrl: s.url, title: s.title, h1: s.h1, bodyText: s.lines.join(" "), headings: s.heads, evidence: {}, trackedQuestion: s.q, ownedPaths: [], bannedTerms: [], demand: { preserve: [], vocabulary: [] }, assignment: ASSIGN({ standard: "missing_answer", shape: "inline_addition" }) } as never);
-    const stored = (after: string): string[] => staleCopyReasons(card(s, { changeFamily: "section", claims: [{ text: "c", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: s.lines[0]! }],
-      recommendedChange: { kind: "existing_edit", field: "section", before: null, after, where: 'A new section headed "H"' }, assignment: ASSIGN({ standard: "missing_answer" }) }), new Map([[canonicalUrlKey(s.url), bodyOf(s)]]) as never, [], { title: s.title, h1: s.h1, outline: s.heads } as never, false, []);
-    expect([(await wrote(narrated)).some((r) => r.includes(POINTS)), (await wrote(answered)).some((r) => r.includes(POINTS)), stored(narrated).includes(POINTS), stored(answered).includes(POINTS)],
-      "the writer is refused for narrating the page before a cent is spent reading the copy for sense, a stored row of that shape goes back for a corrective redraft instead of standing, and the identical subjects said as an answer pass both doors").toEqual([true, false, true, false]); });
-  it.each(SITES)("refuses a sentence whose main clause arranges its subject at both doors, in the present tense or the past, and takes the same subjects stated as a fact, carried inside a quotation, or asked as a question, on $t", async (s) => {
-    const parts = `${s.heads[0]!.toLowerCase()}, ${s.heads[1]!.toLowerCase()} and ${s.heads[2]!.toLowerCase()}`;
-    const CASES = [`${s.label} groups its items by category, not as one flat list, and each category holds one short entry for the reader.`,
-      `${s.label} is divided into four sections, and each one of them holds a short entry a reader can take away.`,
-      `${s.label} centres on ${parts}, with one short entry for each of them.`, `${s.label} includes ${parts}, with one short entry for each of them.`,
-      `${s.label} carries the survey line "the shore is divided into three shelves" word for word, and every one of them holds ${parts}.`,
-      `A reader who asks how to sort the ${s.heads[1]!.toLowerCase()} finds every step in one place. ${s.lines[1]}`,
-      `Those items were previously split across separate headings, and each of them now sits in one place.`, `${s.label} was previously grouped, and a reader had to hunt through it.`,
-      `${s.heads[2]} is scattered across three sections.`, `${s.label} was spread over several sections before today.`, `${s.label} was divided into four parts until today, and one of them held every entry.`,
-      `The paste was spread over the surface and left to dry, which is what gives it the colour.`, `${s.label} was once named after the craft itself, and the name has not changed since.`,
-      `The strands are separated by hand before the work begins.`];
-    const gap = card(s, { changeFamily: "section", treatment: "add_answer_section", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Add the missing answer." },
-      causeFinding: { cause: "retrieved_not_cited", action: null, evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [], falsifier: "f", explanation: "e", payload: { cause: "retrieved_not_cited", engine: "chatgpt", promptText: s.q, missing: s.lines[2]!, aeoKind: "missing_information" } } as never });
-    const verdicts: boolean[] = [];
-    for (const after of CASES) { const wrote = { why: deliverableFailures({ actionType: "answer_block", targetUrl: s.url, finalCopy: after, beforeText: null, naturalHeading: s.heads[0], placementAnchor: s.h1, measurementTarget: s.q, claims: [], evidenceIdsUsed: [], uncertaintyOrOmitted: [] } as never, { targetUrl: s.url, title: s.title, h1: s.h1, bodyText: s.lines.join(" "), headings: s.heads, evidence: {}, trackedQuestion: s.q, ownedPaths: [], bannedTerms: [], demand: { preserve: [], vocabulary: [] }, assignment: ASSIGN({ standard: "missing_answer", shape: "inline_addition" }) } as never) };
-      verdicts.push(wrote.why.some((r) => r.includes(POINTS)), staleCopyReasons(card(s, { changeFamily: "section", claims: [{ text: "c", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: s.lines[0]! }],
-        recommendedChange: { kind: "existing_edit", field: "section", before: null, after, where: 'A new section headed "H"' }, assignment: ASSIGN({ standard: "restructuring" }) }), new Map([[canonicalUrlKey(s.url), bodyOf(s)]]) as never, [], { title: s.title, h1: s.h1, outline: s.heads } as never, false, []).includes(POINTS)); }
-    expect(verdicts, "an arrangement statement is refused before a cent is spent on reading it for sense and again on the banked row it was serving from, whatever the subject and whatever tense it narrates in, and a factual verb, a quoted sentence, a reader's own question and a thing genuinely spread over a surface or separated by hand are untouched at both doors").toEqual([true, true, true, true, false, false, false, false, false, false, false, false, true, true, true, true, true, true, true, true, true, true, false, false, false, false, false, false]); });
+  it.each(SITES)("judges subject facts, publisher authority and narration in context rather than banning arranging verbs, on $t", async (s) => {
+    const examples = [
+      ["The territory was divided into provinces governed by local officials.", true],
+      ["Scientists group these species by skeletal anatomy.", true],
+      ["The paste was spread over the surface and left to dry.", true],
+      ["According to the independent museum's survey, the shore has three shelves.", true],
+      ["According to this page, the territory was divided into provinces.", false],
+      [`According to ${new URL(s.url).host}, the shore has three shelves.`, false],
+      ["The article groups its entries under three headings.", false],
+      ["I will draft the missing section now.", false],
+    ] as const;
+    for (const [after, acceptable] of examples) {
+      const p = card(s, { changeFamily: "section", primaryQuery: "subject explanation", recommendedChange: { kind: "existing_edit", field: "section", before: null, after, where: 'At the end of the main content' }, claims: [{ text: after, supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: after }] });
+      const systems: string[] = [];
+      const read = await reviewFinishedCopy(p, { tenantId: s.t, now: NOW, complete: (async ({ system }: { system: string }) => {
+        systems.push(system); return { value: { ...PASS, wouldHandToCustomer: acceptable, notes: acceptable ? "Direct supported subject information." : "This narrates the container or treats its owner as an outside authority.", claims: rule(p.claims!) } };
+      }) as never });
+      expect(systems[0]).toContain(COPY_RULES.publisher);
+      expect(read.row?.semanticReview?.editor?.wouldHandToCustomer === true).toBe(acceptable);
+      expect(read.row && openHold(read.row).defects.length === 0).toBe(acceptable);
+      if (!acceptable) expect(read.row?.faults?.join(" ")).toMatch(/hand this to a customer/);
+    }
+  });
+  it.each(SITES)("allows honest coverage only under its assigned repositioning task, on $t", async (s) => {
+    const after = `This guide covers ${s.heads[1]!.toLowerCase()} and nothing else.`;
+    for (const standard of ["repositioning", "missing_answer"]) {
+      const p = card(s, { changeFamily: "section", recommendedChange: { kind: "existing_edit", field: "section", before: null, after, where: 'At the end of the main content' }, claims: [{ text: after, supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: after }], assignment: ASSIGN({ standard, gapKind: standard === "repositioning" ? "false_page_promise" : "missing_answer" }) });
+      const r = await reviewFinishedCopy(p, { tenantId: s.t, now: NOW, complete: (async ({ system }: { system: string }) => {
+        expect(system).toContain(COPY_RULES.publisher);
+        return { value: { ...PASS, wouldHandToCustomer: standard === "repositioning", claims: rule(p.claims!) } };
+      }) as never });
+      expect(r.row && unreviewed(r.row) == null).toBe(standard === "repositioning");
+      expect(r.row && openHold(r.row).defects.length === 0).toBe(standard === "repositioning");
+    }
+  });
   it.each(SITES)("owes the results page for a search whose winners were never read, keeps the settlement where they were read and carry nothing, and hires the writer where one carries something, on $t", async (s) => {
     const W = `https://winner-${s.t}.example/page`, novel = s.t === "tenant-one"
       ? "The water in these tide pools drops to four degrees each February, when the anemones seal themselves shut against the frost."

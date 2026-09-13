@@ -16,6 +16,7 @@
 
 import { deliverableGaps, openHold } from "./completeness";
 import { unreviewed, copyKey } from "./proof"; import { AEO_BAR } from "./accept-worthy";
+import { COPY_RULES } from "./copy-sanitize";
 import type { ChangeProposal } from "./contracts";
 import type { EvidenceRequirement } from "./producers/contract";
 
@@ -91,6 +92,7 @@ export function nextObligation(p: ChangeProposal): Obligation | null {
     && [...(p.faults ?? []), ...p.limitations].some((f) => NO_RECORD.test(f)); // the STORE's own finding that this row's record was lost, never a fresh guess: a row that never carried claims is not a row that lost them
   const ownRecord = [p.copyStamp ?? "", p.recommendedChange.kind === "existing_edit" ? p.recommendedChange.before ?? "" : "", ...(p.supportFacts ?? []).filter((x) => /^page-/.test(x.id)).map((x) => x.fact)].join(" ").toLowerCase(); // the row's OWN record of the page, typed: what the page said when it was last read, the line this change replaces, and the passages the row banked as the page's // AND AN OBJECTION THE OWNER JUDGES FOR THEMSELVES IS NOT A DEBT AT ALL (owner's editorial policy, 2026-09-06): the one readiness verdict partitions this row's own faults, so a sentence it files as an advisory buys no corrective draft and can never spend an attempt or settle a row; only a defect Beacon owes reaches the rungs below.
   const faults = (p.faults ?? []).filter((f) => hold.defects.includes(f) && f !== owedReview
+    && !(owedReview != null && COPY_RULES.supersededEditorFinding(f))
     && (!markup || /^this structured data/i.test(f)) && !NO_RECORD.test(f)
     && !((w) => w != null && ownRecord.includes(w.toLowerCase()))(PROMISED.exec(f)?.[1])); // the record sentence is never a statement about the words: it is answered by the reading below while the record is missing, and by the record itself once that reading has rebuilt it
   // A REFUSED REVIEW IS NOT BOUGHT AGAIN THE SAME DAY (falsifier, 2026-09-02). Review outranked redraft, so /farsi-numbers, whose paid reviewer refused it at 02:56Z and again at 03:08Z with the same objection sitting on the row as a typed fault, still answered `review` and the runtime paid the evaluator every drive. A reading is for copy with no KNOWN defect; a row that carries one owes the corrective draft first, and the reading is owed again only once the words have moved.

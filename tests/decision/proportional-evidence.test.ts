@@ -19,7 +19,7 @@ const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); c
 const edit = (field: string, before: string | null, after: string, more: Record<string, unknown> = {}) =>
   ({ recommendedChange: { kind: "existing_edit", field, before, after }, ...more });
 /** A RECEIPT IS ABOUT EXACT WORDS: every fixture receipt is bound to the copy it rides, as a producer stamps it. */
-const bind = (p: ChangeProposal): ChangeProposal => ({ ...p, semanticReview: { of: copyKey(p), version: REVIEW_CONTRACT, claims: (p.claims ?? []).map((x, i) => ({ i, by: [...x.supportedBy], entailed: true })) } });
+const bind = (p: ChangeProposal): ChangeProposal => ({ ...p, semanticReview: { editor: { pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "Grounded customer-ready task." }, of: copyKey(p), version: REVIEW_CONTRACT, claims: (p.claims ?? []).map((x, i) => ({ i, by: [...x.supportedBy], entailed: true })) } });
 
 describe("the proof burden matches the promise, at the one door every surface reads", () => {
   it("scales the evidence each treatment owes, and refuses the promise the evidence never made", async () => {
@@ -51,7 +51,7 @@ describe("the proof burden matches the promise, at the one door every surface re
       claims: [{ text: "salam is the standard greeting", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "dictionary: salam" }], ...over }));
     const GAIN = { adds: "names khodahafez as the standard farewell, which the page never states", by: ["fact-1"], pageWhole: true };
     expect(evidenceShortfall(aeo({})), "an outside source is not a gain receipt").toContain("what a reader gains");
-    expect(evidenceShortfall(aeo({ claims: [] })), "recurrence alone authorizes nothing").toContain("what a reader gains");
+    expect(evidenceShortfall(aeo({ claims: [] })), "recurrence and an editor boolean cannot authorize body copy without declared claim rulings").toContain("complete editor acceptance");
     expect(evidenceShortfall(aeo({ informationGain: GAIN })), "a named, cited, whole-page gain passes").toBeNull();
     expect(evidenceShortfall(aeo({ informationGain: { ...GAIN, pageWhole: false } })), "judged against part of the page").toContain("only part of this page");
     expect(evidenceShortfall(aeo({ informationGain: { ...GAIN, by: ["fact-9"] } })), "an id no claim cites").toContain("belongs to a different reading");
@@ -87,9 +87,9 @@ describe("the proof burden matches the promise, at the one door every surface re
     const gained = aeo({ informationGain: GAIN });
     const authorized = body(`${KEEP} ${CTA}`, KEEP, { workKey: "W", copyStamp: "S", preservation: [{ text: CTA, disposition: "removed", basis: "obsolete", by: ["fact-1"], why: "the course closed" }] }); // 10. ONE CANONICAL DECISION: the queue lanes by the very same verdict, so the held title reaches the operator as a draft to review and never as Ready, while the diagnosed fill stays Ready. 9b. A RECEIPT IS ABOUT EXACT WORDS. `copyIdentity` excludes the copy and `workKey` names the job, so a reading written for one draft rode another's words and Beacon served "Light" under a receipt for "Radiant".
     const edited = { ...authorized, recommendedChange: { ...authorized.recommendedChange, after: `${KEEP} Extra.` } } as ChangeProposal;
-    expect(evidenceShortfall(edited), "one material word after authorization voids the reading").toContain("reviewer has read them together");
+    expect(evidenceShortfall(edited), "one material word after authorization voids the reading").toContain("complete editor acceptance");
     const elsewhere = (p: ChangeProposal) => ({ ...p, semanticReview: { ...p.semanticReview!, of: `${p.semanticReview!.of}x` } }) as ChangeProposal;
-    expect(evidenceShortfall(elsewhere(authorized)), "a reading written for other words").toContain("reviewer has read them together");
+    expect(evidenceShortfall(elsewhere(authorized)), "a reading written for other words").toContain("complete editor acceptance");
     expect(evidenceShortfall(aeo({ informationGain: { adds: "improves clarity", by: [], pageWhole: true } })), "an addition naming no evidence").toContain("naming no evidence");
     const bankedA = { ...authorized, informationGain: undefined, preservation: undefined } as ChangeProposal; // THE IMPOSSIBLE RECORD: banked copy A, and a redraft of B whose receipts were written for B. Preservation keeps A, so B's receipts may not ride it; identity cannot answer this because it excludes the copy.
     const draftB = { ...edited, informationGain: { adds: "written for B", by: ["fact-1"], pageWhole: true } } as ChangeProposal;
@@ -106,9 +106,9 @@ describe("the proof burden matches the promise, at the one door every surface re
     const readAt = bind(authorized), reworded = { ...readAt, claims: [{ text: "the same fact, said a better way", supportedBy: [...(readAt.claims ?? [])[0]!.supportedBy] }] } as ChangeProposal; // A CLAIM IS PART OF THE COPY, so rewording one retires the reading taken over it: a pass that refreshed the sentences on a settled card left its paid receipt attached to words the reviewer never saw, and only `copyKey` hashing the claims kept that out of the queue.
     const refactedEvidence = { ...readAt, supportFacts: [...(readAt.supportFacts ?? []), { id: "fact-9", fact: "a source nobody read when this was judged" }] } as ChangeProposal;
     expect([evidenceShortfall(readAt), copyKey(reworded) === copyKey(readAt), copyKey(refactedEvidence) === copyKey(readAt)], "the reading stands on its own words").toEqual([null, false, false]);
-    for (const moved of [reworded, refactedEvidence]) expect(evidenceShortfall(moved), "a moved claim or moved evidence retires it").toContain("actually support what it claims");
+    for (const moved of [reworded, refactedEvidence]) expect(evidenceShortfall(moved), "a moved claim or moved evidence retires it").toContain("complete editor acceptance");
     const glue = (after: string) => ({ ...authorized, informationGain: undefined, preservation: undefined, recommendedChange: { ...authorized.recommendedChange, field: "section", where: 'The "Noor" entry', before: "Meaning:Bright, radiant, or glowing.", after } }) as ChangeProposal; // PRESERVATION KEEPS FINISHED WORK, AND A LINE THAT WOULD PASTE AS ONE GLUED PHRASE IS NOT FINISHED WORK (operator, 2026-08-28): three corrections sat Ready reading "Meaning:Light." because the page's own missing space had been copied into them, and preservation kept handing that banked line back, so the repair that puts the one space there could never reach the rows it was written for.
-    const banked = glue("Meaning:Light."), repaired = glue("Meaning: Light.");
+    const banked = bind(glue("Meaning:Light.")), repaired = bind(glue("Meaning: Light."));
     expect([deliverableGaps(banked)[0], deliverableGaps(repaired), (preferFinished(repaired, banked).recommendedChange as { after: string }).after], "a glued label is unfinished, the spaced line is finished, and the repair replaces the banked typo").toEqual([expect.stringContaining("one glued phrase"), [], "Meaning: Light."]);
     const placed = (stamp: string) => ({ ...authorized, informationGain: undefined, preservation: undefined, limitations: [], claims: [{ text: "t", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: "a body passage the claims cite" }], copyStamp: stamp, recommendedChange: { ...authorized.recommendedChange, field: "section", before: null, after: "A finished section that answers the question for a reader.", where: 'A new section headed "H", placed after "Nowruz - Persian New Year"' } }) as ChangeProposal; // AND A PLACEMENT BEACON ITSELF CHOSE IS PROVEN BY THE CARD'S OWN RECORD OF THE PAGE (live, 2026-08-28): the anchor is picked mechanically from the page's H1, title and headings, while `supportFacts` carries only the body passages the claims cite, and a heading is never one of those.
     expect(openHold(placed("T|Nowruz - Persian New Year|D|O")).blocking ?? "", "the card's own page record proves the placement it names").not.toContain("Where this copy goes");
@@ -139,7 +139,7 @@ describe("the proof burden matches the promise, at the one door every surface re
       claims: [{ text: "Noor means light", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "Tehran is the capital of Iran." }],
       preservation: [{ text: "Meaning:Wisdom.", disposition: "corrected", by: ["fact-1"] }], ...over });
     const reviewed = (p: ChangeProposal, rulings: { i: number; by: string[]; entailed: boolean }[]) =>
-      ({ ...p, semanticReview: { of: copyKey(p), version: REVIEW_CONTRACT, claims: rulings } }) as ChangeProposal;
+      ({ ...p, semanticReview: { editor: { pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "Exact grounded task." }, of: copyKey(p), version: REVIEW_CONTRACT, claims: rulings } }) as ChangeProposal;
     expect(evidenceShortfall(claimed()), "no reading at all").toContain("actually support what it claims");
     expect(evidenceShortfall(reviewed(claimed(), [{ i: 0, by: ["fact-1"], entailed: false }])), "the reviewer said it does not follow").toContain("not shown to follow");
     expect(evidenceShortfall(reviewed(claimed(), [])), "silence about a claim is not a pass").toContain("did not rule on every claim");
@@ -155,7 +155,7 @@ describe("the proof burden matches the promise, at the one door every surface re
     const substantive = row("kp", { ...edit("section", KEEP, `${KEEP} Kerman rugs use 300 KPSI.`, { where: 'Replaces the existing passage under "Rugs"' }), // A substantive claim answers the same way: perfect identity and a gain receipt are not support.
       informationGain: { adds: "names the knot density the page never states", by: ["fact-1"], pageWhole: true },
       claims: [{ text: "Kerman rugs use 300 KPSI", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "Tehran is the capital of Iran." }] });
-    expect(evidenceShortfall(substantive), "a substantive claim owes the same reading").toContain("actually support what it claims");
+    expect(evidenceShortfall(substantive), "a substantive claim owes the same reading").toContain("complete editor acceptance");
     expect(evidenceShortfall(reviewed(substantive, [{ i: 0, by: ["fact-1"], entailed: false }])), "and an unrelated fact fails it there too").toContain("not shown to follow");
     const served = (x: ChangeProposal): string | null => openHold(x).defects[0] ?? null; /* 10. ONE VERDICT, EVERY CONSUMER, AND NOW LITERALLY ONE CALL. The list, the release builder Today reads, the detail page, Mark done and the promotion door each used to compose openHold with unsettledCause and four other doors; they read `defects` now, and the proof burden is asked INSIDE it, so all of them refuse together or none does. WHAT THE SHORTFALL MEANS IS THE OWNER'S POLICY (2026-09-06): a replacement that destroys material it does not account for is a defect every consumer refuses, and a shape no results page backs yet and a section that repeats supported facts are caveats every consumer carries. */
     expect(served(body(`${KEEP} ${CTA}`, KEEP)), "a passage destroyed without a reckoning is refused by every consumer of the verdict").toBe(evidenceShortfall(body(`${KEEP} ${CTA}`, KEEP)));
