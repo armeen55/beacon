@@ -102,49 +102,44 @@ export function extractPageSnapshot(
     }
   });
 
-  // Heading-based FAQ sections (h2/h3 parent + h3 question children)
-  contentRoot.find("h2, h3").each((_, el) => {
-    const tag = (el as unknown as { tagName: string }).tagName?.toLowerCase();
-    const text = $content(el).text().trim().toLowerCase();
-    if (
-      text.includes("frequently asked") ||
-      text.includes("faq") ||
-      text.includes("common questions")
-    ) {
-      let sibling = $content(el).next();
-      const stopTag = tag === "h3" ? "h2" : undefined;
-      while (sibling.length) {
-        const sibTag = (sibling[0] as unknown as { tagName: string }).tagName?.toLowerCase();
-
-        if (stopTag && sibTag === stopTag) break;
-        if (sibTag === "h2" && tag === "h2") break;
-
-        // h3 headings ending with ? are FAQ questions
-        if (sibTag === "h3") {
-          const qText = sibling.text().trim();
-          if (qText.endsWith("?")) {
-            const answerParts: string[] = [];
-            let ansNext = sibling.next();
-            while (ansNext.length) {
-              const ansTag = (ansNext[0] as unknown as { tagName: string }).tagName?.toLowerCase();
-              if (ansTag === "h2" || ansTag === "h3") break;
-              answerParts.push(ansNext.text().trim());
-              ansNext = ansNext.next();
-            }
-            holdFaq(qText, answerParts.join(" "), "html_section");
-            sibling = ansNext;
-            continue;
-          }
-        }
-
-        // Also check strong/b/dt inside block-level siblings
-        const possibleQ = sibling.find("strong, b, dt").first().text().trim();
-        if (possibleQ && possibleQ.endsWith("?")) {
-          holdFaq(possibleQ, sibling.text().replace(possibleQ, "").trim(), "html_section");
-        }
-        sibling = sibling.next();
+  // Heading-defined answers follow document order, not a builder's wrapper layout.
+  contentRoot.each((_, root) => {
+    type Node = ReturnType<typeof contentRoot.contents>[number];
+    type Answer = { question: string; level: number; scope: Node; parts: string[] };
+    let faqLevel: number | null = null;
+    let faqScope: Node | null = null;
+    let answers: Answer[] = [];
+    const finish = (matches: (answer: Answer) => boolean = () => true) => {
+      for (const answer of answers.filter(matches)) holdFaq(answer.question, normalizeExtractedText(answer.parts.join("")), "html_section");
+      answers = answers.filter((answer) => !matches(answer));
+    };
+    const walk = (node: Node, scope: Node): void => {
+      if (node.type === "text") { for (const answer of answers) answer.parts.push(node.data); return; }
+      if (!("name" in node)) return;
+      const tag = node.name.toLowerCase();
+      const heading = /^h[1-6]$/.test(tag), level = heading ? Number(tag[1]) : 7;
+      const text = heading || tag === "details" || /^(strong|b|dt)$/.test(tag) ? $content(node).text().trim() : "";
+      const faq = heading && /frequently asked|\bfaq\b|common questions/i.test(text);
+      const question = text.endsWith("?") && (heading || (faqLevel !== null && /^(strong|b|dt)$/.test(tag)));
+      if (heading || question) {
+        finish((answer) => level <= answer.level);
+        if (heading && faqLevel !== null && level <= faqLevel) faqLevel = null;
+        if (faq) { faqLevel = level; faqScope = scope; }
+        for (const answer of answers) answer.parts.push(text);
+        if (question) answers.push({ question: text, level, scope, parts: [] });
+        return;
       }
-    }
+      // Details already have an explicit pair; their descendants are not inferred again.
+      if (tag === "details") { for (const answer of answers) answer.parts.push(text); return; }
+      const independent = tag === "section" || tag === "article";
+      if (tag === "article") { finish(); faqLevel = null; faqScope = null; }
+      const childScope = independent ? node : scope;
+      if ("children" in node) for (const child of node.children) walk(child, childScope);
+      if (independent) finish((answer) => answer.scope === node);
+      if (independent && faqScope === node) { faqLevel = null; faqScope = null; }
+    };
+    walk(root, root);
+    finish();
   });
 
   // ── Schema types + structural audit + G8 spec validation ──
