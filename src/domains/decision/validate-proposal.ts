@@ -151,14 +151,14 @@ function schemaFailures(p: ChangeProposal, change: Extract<RecommendedChange, { 
   const limitations = warnings.filter((w) => !w.startsWith("schema_critical:")).map((w) => w.replace(/^schema_\w+:\s*/, ""));
   // THE PAGE HAS TO REALLY SAY IT. Structured data marks up what a reader can see, so a question, an answer or
   // a caption that exists only inside the block is a claim about a page that does not make it.
-  const banked = [opts.pageBodyText ?? "", ...(p.supportFacts ?? []).map((f) => f.fact)].join(" ");
-  const carried = flatten(banked);
+  const published = opts.pageBodyText ?? ""; // Research can support a claim, never establish that it is published.
+  const carried = flatten(published);
   const missing = visible.find((v) => !carried.includes(flatten(v)));
   if (missing) failures.push(`The page does not visibly carry "${missing.slice(0, 70)}", and structured data may only mark up words that are already on the page.`);
   // ONE BLOCK PER TYPE. A second FAQPage or ImageObject beside the one the page already carries reads to Google
   // as a mistake, never as more coverage. The page's own types come from the caller when it holds a snapshot,
   // else from the block this row banked as the page's current state.
-  const live = new Set([...(opts.pageSchemaTypes ?? []), ...[...banked.matchAll(/"@type"\s*:\s*"([A-Za-z]+)"/g)].map((m) => m[1]!)]);
+  const live = new Set([...(opts.pageSchemaTypes ?? []), ...[...published.matchAll(/"@type"\s*:\s*"([A-Za-z]+)"/g)].map((m) => m[1]!)]);
   const already = change.before == null ? [...types].find((t) => live.has(t)) : null;
   if (already) failures.push(`The page already carries a ${already} block, so this must replace it, not add a second one.`);
   if (types.has("FAQPage")) {
