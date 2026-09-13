@@ -23,14 +23,15 @@ type MarkProposalImplementedResponse = { success: boolean; error?: string; note?
 type Shipped = { ok: true; complete: boolean; recorded: number; remaining: number; shipmentId: string; measurement: MeasurementState };
 
 /** The exact version applied: its copy, its components, the basis it was drafted under AND THE PIECES THIS PRESS ACTUALLY APPLIED. Deliberately EXCLUDES status, so the flip that follows cannot change the id and a retry lands on the same record. Applying a different subset later is a DIFFERENT thing to measure, so it gets its own record instead of being silently swallowed by the first one. */
-function shippedVersionOf(p: ChangeProposal, appliedIds: readonly string[]): string {
-  const material = {
+function shippedVersionOf(p: ChangeProposal, appliedIds: readonly string[], liveUrl?: string, appliedText?: string | null): string {
+  return createHash("sha256").update(JSON.stringify({
     change: p.recommendedChange,
-    components: (p.bundle?.components ?? []).map((c) => [c.kind, c.before, c.after]),
+    page: liveUrl ?? p.pageUrl ?? p.pagePath,
+    appliedText: appliedText ?? null,
+    components: (p.bundle?.components ?? []).map((c) => [c.kind, c.before, c.after, c.page ?? null, c.where ?? null, c.redirectTo ?? null, c.anchorAfter ?? null]),
     basis: p.basis ?? null,
     applied: [...appliedIds].sort(),
-  };
-  return createHash("sha256").update(JSON.stringify(material)).digest("hex").slice(0, 16);
+  })).digest("hex").slice(0, 16);
 }
 
 /** THE WORDS THAT HAVE TO END UP ON THE LINK, carried the same way by whichever door records the press. The live check reads a link on BOTH its address and its words, and a shipment that hands it only the address is confirmed by any link to that page under any wording at all, which is not the change that was asked for. The piece's own typed words win; a link piece that carries none takes the ones typed on the change itself, and nothing is stamped on a kind the live check would not read it off. */
@@ -84,47 +85,42 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
   opts: { appliedIds: readonly string[]; appliedText?: string | null; liveUrl?: string; preloadedLedger?: Awaited<ReturnType<typeof loadShippedChanges>>; openPaths?: readonly string[]; invalidate?: boolean },
 ): Promise<Shipped | { ok: false; error: string; retryable: true }> {
   const bundleIds = (proposal.bundle?.components ?? []).map(componentIdOf);
+  const pageRef = (opts.liveUrl ?? proposal.pageUrl ?? proposal.pagePath ?? "").trim();
+  const change = proposal.recommendedChange;
+  const all = proposal.bundle?.components.map((c, i) => ({ id: componentIdOf(c, i), kind: c.kind, label: c.label, after: c.after ?? null, before: c.before ?? null,
+    page: c.page ?? pageRef, where: c.where ?? null, risk: c.risk ?? null, ...anchorFor(proposal, c.kind, c.anchorAfter),
+    redirectTo: c.redirectTo ?? (LINK_KIND.has(c.kind) && change.kind === "existing_edit" ? change.linkTo : null) ?? null }))
+    ?? [{ id: null, kind: change.kind === "existing_edit" && change.linkTo ? "internal_link_add" : change.kind === "existing_edit" && change.field === "schema" ? (change.before ? "schema_replace" : "schema_add") : proposal.changeFamily,
+      label: atomicLabel(proposal, change.kind === "existing_edit" && !!change.linkTo), after: change.kind === "existing_edit" ? change.after : null, before: change.kind === "existing_edit" ? change.before : null,
+      page: pageRef, where: change.kind === "existing_edit" ? change.where ?? null : null, risk: null, redirectTo: change.kind === "existing_edit" ? change.linkTo ?? null : null,
+      ...anchorFor(proposal, change.kind === "existing_edit" && change.linkTo ? "internal_link_add" : proposal.changeFamily) }];
+  const selected = all.filter((c) => c.id == null || opts.appliedIds.some((id) => sameComponentId(id, c.id!)));
   try {
     // FAIL CLOSED ON THE DUPLICATE CHECK. A ledger I could not read is not proof there is no prior record: writing blind resets the live check and moves the ship date, the exact bug this lookup exists to stop. A batch press hands its ONE read through, so twenty cards no longer read the ledger twenty times.
     const ledger = opts.preloadedLedger ?? await loadShippedChanges();
-    // WHAT IS ALREADY ON FILE COMES OUT OF THIS PRESS: the picker offers every piece by default, so a partial press followed by the obvious next one wrote a SECOND record measuring the same component twice, and no screen can cause that now whatever it sends. The same id twice in one press is one piece too, so a repeated pick cannot mint a second version of one record. NAMES ARE COMPARED ACROSS ERAS. A piece recorded before its exact copy was part of its name can only ever be compared at the precision it was written with; two names of today's era compare whole, so a redrafted piece is genuinely new work and is measured.
     const already = new Set<string>();
     const mine = ledger.filter((r) => r.proposalId === proposal.id);
-    for (const r of mine) for (const c of r.componentsApplied ?? []) if (c.id) already.add(c.id);
-    const covers = (set: Iterable<string>, id: string) => [...set].some((a) => sameComponentId(a, id));
-    const fresh = [...new Set(opts.appliedIds)].filter((id) => !covers(already, id));
+    let previous: (typeof mine)[number] | undefined;
+    for (const r of mine) for (const c of r.componentsApplied ?? []) for (const current of all)
+      if (sameComponentId(c.id ?? "", current.id ?? "", [{ ...c, before: c.before === undefined && r.componentsApplied?.length === 1 ? r.before : c.before, page: c.page ?? r.page }, current])
+        && (!opts.appliedText || selected.length !== 1 || !selected.includes(current) || (c.appliedAfter ?? c.after) === opts.appliedText)) { if (current.id) already.add(current.id); previous = r; }
+    const fresh = selected.filter((c) => c.id && !already.has(c.id)).map((c) => c.id!);
     const state = (recorded: number, shipmentId: string | null, measurement: MeasurementState): Shipped | { ok: false; error: string; retryable: true } => {
-      const covered = new Set([...already, ...(recorded > 0 ? fresh : [])]);
-      const left = bundleIds.filter((id) => !covers(covered, id));
+      const left = bundleIds.filter((id) => !already.has(id) && !(recorded > 0 && fresh.includes(id)));
       if (!shipmentId) {
         log.error("markProposalImplemented: no record could be named for this press, so nothing was flipped", { proposalId: proposal.id });
         return { ok: false, retryable: true, error: "Measuring this change could not start, so it is not recorded as done. Press it again in a moment." };
       }
       return { ok: true, complete: left.length === 0, recorded, remaining: left.length, shipmentId, measurement };
     };
-    // Nothing new to measure, so nothing is written and the record already on file keeps whatever it can be compared against.
-    if (bundleIds.length > 0 && fresh.length === 0) return state(0, mine[0]?.id ?? null, mine[0]?.measurementState ?? "measuring");
-    const version = shippedVersionOf(proposal, fresh);
-    // Every component unless the operator named the ones they applied; an atomic change has no bundle, so the change itself is its one component. THE EXACT COPY TRAVELS, because verifying is comparing what was proposed against what is on the page. THE RISK GRADE TRAVELS TOO: measurement saw only the kind, so a dangerous grade on an ordinary kind lost its day-56 follow up.
-    const all = proposal.bundle?.components.map((c, i) => ({ id: componentIdOf(c, i), kind: c.kind, label: c.label, after: c.after ?? null, risk: c.risk ?? null,
-      // A LINK RIDES WITH ITS WORDS AND A FORWARD WITH ITS DESTINATION. Without the destination the live check read the first address out of the sentence, which is the one being MOVED, and graded a correct forward as a wrong one.
-      ...anchorFor(proposal, c.kind, c.anchorAfter), ...(c.redirectTo ? { redirectTo: c.redirectTo } : {}) }))
-      // An atomic change has no component to carry a grade, so it reads null rather than a guess.
-      ?? [((c) => c?.kind === "existing_edit" && c.linkTo
-        // AN ATOMIC LINK IS VERIFIED AS A LINK (operator, 2026-09-01): shipped as its field family it was read as a section and nineteen of them could never be confirmed. The destination rides in the address slot the live check reads and the anchor in the words slot.
-        ? { id: null, kind: "internal_link_add", label: atomicLabel(proposal, true), after: c.after, risk: null, redirectTo: c.linkTo, ...anchorFor(proposal, "internal_link_add") }
-        // AND STRUCTURED DATA IS VERIFIED AS STRUCTURED DATA, by the same rule: a block shipped as its field family is read as a section, and no heading on the page will ever match a JSON-LD block. Whether it ADDS a block or REPLACES the one that was there is decided here, off the change's own before, because only a replacement can be told from a page that already had one.
-        : c?.kind === "existing_edit" && c.field === "schema"
-          ? { id: null, kind: c.before ? "schema_replace" : "schema_add", label: atomicLabel(proposal), after: c.after, before: c.before, risk: null }
-          : { id: null, kind: proposal.changeFamily, label: atomicLabel(proposal), after: c?.kind === "existing_edit" ? c.after : null, risk: null, ...anchorFor(proposal, proposal.changeFamily) })(proposal.recommendedChange)];
-    const picked = bundleIds.length > 0 ? all.filter((c) => c.id != null && covers(fresh, c.id)) : all;
+    if (fresh.length === 0 && previous) return state(0, previous.id, previous.measurementState ?? "measuring");
+    const version = shippedVersionOf(proposal, fresh, opts.liveUrl, selected.length === 1 ? opts.appliedText : null);
+    const picked = bundleIds.length > 0 ? all.filter((c) => c.id != null && fresh.includes(c.id)) : all;
     // THE VERSION THE OPERATOR APPLIED, BOUND TO THE PIECE IT REPLACED, and only where this press recorded exactly one piece: with several recorded there is no honest way to say which one their words landed on, so those keep the prepared wording and the note on the row. The prepared wording is never overwritten, so the record holds the suggestion and the applied version side by side, and the live check reads the page for the one that is on it.
     const componentsApplied = opts.appliedText && picked.length === 1 ? [{ ...picked[0]!, appliedAfter: opts.appliedText }] : picked;
 
     // The page as Beacon already holds it: canonical URL, path and the content hash from the last crawl, nothing fetched. THE OPERATOR'S OWN ADDRESS WINS for a new page: it is the only one that exists.
-    const pageRef = (opts.liveUrl ?? proposal.pageUrl ?? proposal.pagePath ?? "").trim();
     const meta = pageRef ? await captureChangeMeta(tenantId, pageRef).catch(() => null) : null;
-    const change = proposal.recommendedChange;
 
     // THE ONE DOOR THAT WRITES A SHIPMENT. It always writes and always answers with the row's id, so an implementation the operator really made is recorded whatever the search data can support; whether it can be fairly compared comes back beside it and is said out loud rather than used to refuse the record. Idempotent on (proposal, version): a retry lands on the row already on file.
     const landed = await recordShipment({
@@ -166,7 +162,7 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
       // THE OPERATOR'S OWN WORDS TRAVEL WITH THE PRESS, on the row as well as on the piece: the row is where every surface already reads them, the piece is what the page is read against, and Beacon still goes and looks at the page itself before it says anything.
       operatorNote: opts.appliedText ?? null,
     }, opts.preloadedLedger ? { preloadedLedger: opts.preloadedLedger, openPaths: opts.openPaths, invalidate: opts.invalidate } : undefined);
-    return state(fresh.length, landed.shipmentId, landed.measurement);
+    return state(bundleIds.length ? fresh.length : 1, landed.shipmentId, landed.measurement);
   } catch (err) {
     log.error("markProposalImplemented: the shipment did not land, so nothing was flipped", {
       proposalId: proposal.id, error: err instanceof Error ? err.message : String(err),

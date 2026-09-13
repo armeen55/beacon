@@ -37,7 +37,8 @@ describe("only the evidenced applied unit may teach", () => {
     const r = await delivered(), v = r.verification!;
     const bad = [ { ...v, status: "blocked" }, { ...v, status: "partially_verified", components: [...v.components, { kind: "title", state: "not_verified", note: null }] },
       { ...v, checkerContract: undefined }, { ...v, checkedAt: "2026-04-01T00:00:00Z" }, { ...v, components: [] } ] as ShipmentVerification[];
-    const rows = [...bad.map((verification) => ({ ...r, verification })), { ...r, componentsApplied: [{ ...r.componentsApplied![0]!, appliedAfter: "Unverified changed copy" }] }];
+    const changes = [{ appliedAfter: "Unverified changed copy" }, { before: "Another predecessor" }, { page: "https://example.test/other" }, { where: "A different section" }, { redirectTo: "/different-destination" }, { anchorAfter: "Different anchor" }];
+    const rows = [...bad.map((verification) => ({ ...r, verification })), ...changes.map((change) => ({ ...r, componentsApplied: [{ ...r.componentsApplied![0]!, ...change }] }))];
     for (const row of rows) { const read = readLedger([row], new Date(NOW), "2026-07-15")[0]!; expect([lesson(row), treatmentLearning([row])[0]!.sampleSize]).toEqual(["measuring", 0]); expect(read.lift).toBe(160);
       expect(buildResultsBrain([{ read, implementedAt: row.implementedAt, verification: row.verification, baseline: null, learning: row }], new Date(NOW)).thoughts[0]!.verifiedSample).toBe(0); }
   });

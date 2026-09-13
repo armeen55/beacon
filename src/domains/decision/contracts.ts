@@ -196,13 +196,14 @@ export type ComponentPlan = {
 /** PURE: does this component change factual content, so a source pack is owed? */
 export function needsSourcePack(c: BundleComponent): boolean { return FACTUAL_KINDS.has(c.kind); }
 
-/** A tiny stable fingerprint of one piece's exact copy (FNV-1a, base 36), written out rather than imported so a card in the browser computes byte for byte what the server does and no node module reaches the bundle. */
+/** Stable browser copy selectors; recorded delivery additionally compares exact mutation material, never a fingerprint alone. */
 const contentFingerprint = (text: string): string => { let h = 0x811c9dc5; for (let i = 0; i < text.length; i += 1) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(36); };
-/** THE STABLE NAME OF ONE PIECE INSIDE ITS BUNDLE: position, kind AND THE EXACT COPY IT CARRIES, derived from the stored bundle and nothing else, so no schema moves. Two pieces of one kind are ticked apart instead of sharing one state, and the server intersects what the operator says they applied against what it holds, never a list of kinds a hand-made request could invent. THE COPY IS PART OF THE NAME because position and kind alone were not identity: a redraft that rewrote the title in place kept the same name, so brand new wording read as already applied and was never measured, and reordering a bundle handed one piece another piece's history. */
 export const componentIdOf = (component: { kind: string; after?: string | null }, index: number): string => `${index}:${component.kind}:${contentFingerprint(component.after ?? "")}`;
-/** Do two names mean the same recorded piece? A name written before the copy was part of it carries position and kind alone and can only ever be compared at that precision, so history keeps matching itself; two of the same era compare whole, so a redraft is never mistaken for work already done and pressing the SAME version twice is still one piece, which is what keeps a retry idempotent. */
-export const sameComponentId = (a: string, b: string): boolean => { const [ai, ak, af] = a.split(":"), [bi, bk, bf] = b.split(":");
-  return a === b || (ai === bi && ak === bk && (af === undefined || bf === undefined)); };
+export const sameComponentId = (a: string, b: string, pieces?: readonly Partial<{ [K in "after" | "before" | "page" | "where" | "redirectTo" | "anchorAfter"]: BundleComponent[K] | null }>[]): boolean => {
+  const [ai, ak, af] = a.split(":"), [bi, bk, bf] = b.split(":");
+  const material = pieces?.map((c) => JSON.stringify([c.after ?? null, c.before ?? null, c.page ?? null, c.where ?? null, c.redirectTo ?? null, c.anchorAfter ?? null]));
+  return (a === b || (ai === bi && ak === bk && (af === undefined || bf === undefined))) && (!material || (material.length === 2 && material[0] === material[1]));
+};
 
 /** THE TWO-STEP HOLD. There is no parallel confirmation flag in this product: `needs_review` means Beacon will not present the change as ready and the operator has to look and then act. */
 export function dangerousComponents(components: readonly BundleComponent[]): BundleComponent[] {

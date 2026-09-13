@@ -5,9 +5,9 @@ type Claim = Partial<Pick<ShippedChangeRecord, "page" | "actionType" | "implemen
 const digest = (text: string): string => createHash("sha256").update(text).digest("hex");
 function components(r: Claim) {
   const copy = (r.after ?? "").trim(), was = (r.before ?? "").trim(), applied = r.componentsApplied ?? [];
-  if (!applied.length) return copy || r.actionType ? [{ id: null, kind: r.actionType || "content", after: copy, before: was || null, anchorAfter: null, redirectTo: null }] : [];
+  if (!applied.length) return copy || r.actionType ? [{ id: null, kind: r.actionType || "content", after: copy, before: was || null, page: r.page ?? null, where: null, anchorAfter: null, redirectTo: null }] : [];
   const lone = applied.length === 1;
-  return applied.map((c) => ({ id: c.id ?? null, kind: c.kind, anchorAfter: c.anchorAfter ?? null, redirectTo: c.redirectTo ?? null,
+  return applied.map((c) => ({ id: c.id ?? null, kind: c.kind, page: c.page ?? r.page ?? null, where: c.where ?? null, anchorAfter: c.anchorAfter ?? null, redirectTo: c.redirectTo ?? null,
     before: (c.before ?? "").trim() || (lone || c.kind === r.actionType ? was : "") || null,
     after: (c.appliedAfter ?? "").trim() || (c.after ?? "").trim() || (lone || c.kind === r.actionType ? copy : "") }));
 }

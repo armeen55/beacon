@@ -10,7 +10,7 @@ import {
 } from "@/lib/perf-trace";
 import { loadProofLedgerPersisted } from "@/domains/measurement";
 import { findProofForChange, proofResultHref } from "@/domains/measurement";
-import { actionableProposalFailures, loadChangeProposal, resolveCurrentBasis, validateProposal } from "@/domains/decision";
+import { actionableProposalFailures, componentIdOf, loadChangeProposal, resolveCurrentBasis, sameComponentId, validateProposal } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { pageLabel } from "../types";
@@ -52,9 +52,12 @@ export default async function ChangeDetailPage({
     // WHAT IS ALREADY ON FILE, so the picker opens on the pieces nobody has recorded yet. Fail-soft: an unreadable ledger offers
     // everything, which the server subtracts from anyway, so no press can record one piece twice.
     if (found?.bundle) {
-      const recorded = new Set((await loadProofLedgerPersisted(tenantId).catch(() => []))
-        .filter((r) => r.proposalId === found.id)
-        .flatMap((r) => (r.componentsApplied ?? []).map((c) => c.id).filter((cid): cid is string => Boolean(cid))));
+      const ledger = (await loadProofLedgerPersisted(tenantId).catch(() => [])).filter((r) => r.proposalId === found.id), change = found.recommendedChange;
+      const recorded = new Set(found.bundle.components.flatMap((c, i) => {
+        const link = ["internal_link_add", "internal_links", "anchor_text"].includes(c.kind), current = { ...c, page: c.page ?? found.pageUrl ?? found.pagePath,
+          anchorAfter: link ? (c.anchorAfter ?? (change.kind === "existing_edit" ? change.anchorText : null))?.trim() || null : null, redirectTo: c.redirectTo ?? (link && change.kind === "existing_edit" ? change.linkTo : null) ?? null };
+        return ledger.some((r) => (r.componentsApplied ?? []).some((applied) => applied.id && sameComponentId(applied.id, componentIdOf(c, i), [{ ...applied, before: applied.before === undefined && r.componentsApplied?.length === 1 ? r.before : applied.before, page: applied.page ?? r.page }, current]))) ? [componentIdOf(c, i)] : [];
+      }));
       return <BundleDetail proposal={found} bundle={found.bundle} recorded={recorded} />;
     }
     // LIVE WORK WITH NOTHING TO UNPACK still gets its own page: once the queue became mostly suggestion and

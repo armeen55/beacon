@@ -1,7 +1,7 @@
 /** THE MARK-IMPLEMENTED TRANSACTION. There is no bare status flip on the decision facade: the record is written FIRST and the change is flipped SECOND, carrying that record's own id, so a crash between the two leaves a record the next press heals where the reverse would leave a change marked done that nothing on earth is measuring. A piece is named by its exact copy too, so a redraft is genuinely new work while pressing the SAME version twice stays one record. AN UNFINISHED DELIVERABLE IS NOT WORK SOMEBODY CAN HAVE DONE. The server asks the ONE completeness boundary, never the prose, so no stale tab opens a 28 day reading on work nobody wrote. THE BOUNDARY IS THE TYPED FACT: a producer that writes a brief instead of copy stamps it as it mints the card, and a blank nobody filled in is still a blank, whoever wrote it. THE ONE DOOR, standing in for the real one: it always writes and always answers with the row's id, it is idempotent on (proposal, version), and the row is durable the moment it lands, which is exactly what a retry after a crash finds. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ChangeProposal } from "@/domains/decision";
-type Rec = { id: string; proposalId: string; proposalVersion: string; componentsApplied: Array<{ id: string; kind?: string; anchorAfter?: string; redirectTo?: string; appliedAfter?: string }>; path: string; page: string; implementedAt: string | null; operatorNote?: string | null; verification?: string | null; treatmentStamp: { signature: Record<string, string | null>; overlapAtShip: number } | null };
+type Rec = { id: string; proposalId: string; proposalVersion: string; componentsApplied: Array<{ id: string; kind?: string; after?: string; before?: string | null; page?: string; where?: string | null; anchorAfter?: string; redirectTo?: string; appliedAfter?: string }>; path: string; page: string; implementedAt: string | null; operatorNote?: string | null; verification?: string | null; treatmentStamp: { signature: Record<string, string | null>; overlapAtShip: number } | null };
 const led = vi.hoisted(() => ({ verified: [] as string[], records: [] as Rec[], breakWrite: false, noRecordId: false, flip: vi.fn(async (..._a: unknown[]) => true) }));
 const stored = vi.hoisted(() => ({ proposal: null as unknown, byId: null as Map<string, unknown> | null, disposition: null as string | null, tenant: "t" }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -138,14 +138,6 @@ describe("nothing is marked done that no record stands behind", () => {
     expect(led.records).toHaveLength(1); // the record is durable, and it is what the retry finds
     expect((await press(change())).success).toBe(true);
     expect([led.records.length, led.flip.mock.calls.length, led.flip.mock.calls[1]![2]]).toEqual([1, 2, "rec-1"]); }); // no second record, and the flip lands carrying it
-  it("treats a re-press of the SAME version as nothing at all, a redrafted piece as new work, and an older era's name at its own precision", async () => {
-    expect((await press(change())).success).toBe(true);
-    const again = await press(change()); // the identical version, pressed again
-    expect([again.success, led.records.length, /already on file/.test(again.note ?? "")]).toEqual([true, 1, true]); const REDRAFT = "Iranian comedians: who is actually funny in 2026";
-    expect((await press(change(REDRAFT))).success).toBe(true);
-    expect(led.records).toHaveLength(2); // new wording is a new piece, measured on its own
-    led.records[1]!.componentsApplied = [{ id: "0:title" }]; // as an older era wrote it, before the copy was part of the name
-    expect(/already on file/.test((await press(change(REDRAFT))).note ?? "")).toBe(true); }); // still matched, at that name's own precision
 });
 
 /** THE OPERATOR LOOP RECORDS EXACTLY WHAT HAPPENED (2026-09-05). Two accounts with nothing in common, the real action, the store faked: a
@@ -164,20 +156,27 @@ const pressOn = async (s: Site, p: ChangeProposal, over: Record<string, unknown>
 
 describe("one press is one record, and every ending of a press is named", () => {
   for (const s of SITES) {
-    it(`${s.t}: a second press of the same version writes no second record, moves no date, and never erases what the live check found`, async () => {
-      const first = await pressOn(s, atomic(s), { appliedText: s.mine });
-      const stamp = led.records[0]!.implementedAt;
-      led.records[0]!.verification = "confirmed on the page"; // the live check has since answered on this record
-      const again = await pressOn(s, atomic(s), { appliedText: s.mine });
-      expect([first.success, again.success, led.records.length], "the same press twice is one record").toEqual([true, true, 1]);
-      expect([led.records[0]!.implementedAt, led.records[0]!.verification], "the day it was applied does not move and the live check is untouched").toEqual([stamp, "confirmed on the page"]);
-      expect([led.records[0]!.componentsApplied[0]!.appliedAfter, led.records[0]!.operatorNote], "and their own wording survives the retry, on the piece it replaced and on the row").toEqual([s.mine, s.mine]); });
-
-    it(`${s.t}: a press on a change already recorded says it is being measured and writes nothing`, async () => {
-      expect((await pressOn(s, card(s))).success).toBe(true);
-      const again = await pressOn(s, card(s, { status: "implemented_pending_verification" }));
-      expect([again.success, again.retryable ?? null, led.records.length], "a row already on file answers yes, is never a bad moment, and mints no duplicate").toEqual([true, null, 1]);
-      expect(again.note, "and it says plainly that there is nothing left here for them to do").toContain("already on file and being measured"); });
+    it(`${s.t}: retries preserve receipts while changed physical edits are recorded independently`, async () => {
+      const p = card(s); expect((await pressOn(s, p, { appliedText: s.mine })).success).toBe(true);
+      led.records[0]!.verification = "confirmed on the page";
+      const original = structuredClone(led.records[0]!);
+      const again = await pressOn(s, { ...p, status: "implemented_pending_verification" }, { appliedText: s.mine });
+      expect([again.success, led.records.length, led.records[0], again.note]).toEqual([true, 1, original, expect.stringContaining("already on file")]);
+      const variants = [
+        [{ after: "A genuinely redrafted page title" }, null],
+        [{ before: "A different predecessor" }, null],
+        [{ page: `https://${s.t}.example/other` }, null],
+        [{ where: "A different location on the page" }, null],
+        [{}, "Different wording actually applied by the operator"],
+      ] as const;
+      for (const [i, [variant, wording]] of variants.entries()) {
+        const next = structuredClone(p); Object.assign(next.bundle!.components[0]!, variant);
+        expect((await pressOn(s, next, { appliedText: wording })).success).toBe(true);
+        expect([led.records.length, led.records.at(-1)!.componentsApplied[0], led.records[0]]).toEqual([i + 2, expect.objectContaining({ ...variant, ...(wording ? { appliedAfter: wording } : {}) }), original]);
+        expect((await pressOn(s, next, { appliedText: wording })).note).toContain("already on file");
+        expect(led.records).toHaveLength(i + 2);
+      }
+    });
 
     it(`${s.t}: a bad moment keeps the press and a verdict settles it, each in the sentence the server gave`, async () => {
       led.noRecordId = true; const noReading = await pressOn(s, atomic(s));
@@ -206,7 +205,7 @@ describe("one press is one record, and every ending of a press is named", () => 
       const { MARK_PRESS } = await import("@/app/(shell)/changes/change-controls");
       const landed = await pressOn(s, atomic(s));
       const refused = await pressOn(s, atomic(s, { researchOnly: true }));
-      led.breakWrite = true; const moment = await pressOn(s, atomic(s)); led.breakWrite = false;
+      led.breakWrite = true; const moment = await pressOn(s, atomic(s), { appliedText: "A new operator version that has not been recorded" }); led.breakWrite = false;
       const out = MARK_PRESS.flush([landed, refused, moment, null]);
       expect(out.keep, "the bad moment and the throw stay on the device; the record and the verdict do not").toEqual([2, 3]);
       expect(out.said, "one landed, one is refused in the server's own words, two are still waiting, and a refusal is never counted as recorded").toBe(

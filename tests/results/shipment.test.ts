@@ -34,7 +34,7 @@ Object.assign(db.client, supabaseFake({ rows: () => db.state.rows, same: (stored
   error: (_t, op) => (op === "update" ? db.state.updateError : op === "upsert" ? db.state.upsertError : null) as { message: string } | null }));
 const T = "acct-a", NOW = new Date("2026-07-31T12:00:00.000Z");
 const PAGE = "https://www.fixture-outdoors.example/nowruz-guide";
-const COMPONENTS = [{ kind: "title", label: "Page title" }, { kind: "opening_answer", label: "Opening answer" }];
+const COMPONENTS = [{ kind: "title", label: "Page title", before: "Old title", page: PAGE, where: "The page title" }, { kind: "opening_answer", label: "Opening answer", before: "Old answer", page: `${PAGE}/other`, where: "Under the question heading" }];
 const origin = (over: Record<string, unknown> = {}) => ({
   proposalId: `${T}::/nowruz-guide::existing_edit::bundle`, proposalVersion: "v-abc123", basis: "basis_today::d6", caseId: null,
   bundleHypothesis: "Say what the searcher asked for in the line Google shows.", componentsApplied: COMPONENTS, implementedAt: NOW.toISOString(), preChangeContentHash: "hash-before", ...over,});
