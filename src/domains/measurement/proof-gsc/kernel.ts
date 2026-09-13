@@ -22,6 +22,7 @@ import { readLastFinalizedDate } from "./gsc-window";
 import { buildHeadline, learningShape, metricFor, monthDay, overlapClosures } from "./read-honesty";
 import { applyPinnedRead } from "./pinned-read";
 import { learningEligibility, MIN_CONTROLS } from "./types";
+import type { SHIPMENT_PROOF } from "./shipment-proof";
 export { metricFor };
 
 // ── The kernel's own small verdict vocabulary ──────────────────────────────
@@ -158,7 +159,7 @@ export type KernelRead = {
   cleanUntil: string | null;
   /** What this read carries forward for later account-scoped learning. Shape only:
    *  nothing here is aggregated, scored, or compared across accounts. */
-  learning: { actionFamily: string; diagnosisCause: string | null; evidenceCompleteness: number | null; outcomeDirection: "up" | "down" | "flat" | "unclear" };
+  learning: { eligible?: boolean; actionFamily: string; diagnosisCause: string | null; evidenceCompleteness: number | null; outcomeDirection: "up" | "down" | "flat" | "unclear" };
   /** The small outcome signal fed back into recommendation ranking, in [-1, 1].
    *  Zero for anything not cleanly settled (waiting / insufficient / confounded /
    *  no clear movement). Never claims clean causality. */
@@ -495,40 +496,15 @@ export function evaluateChange(input: KernelInput, windows: KernelWindowRead[], 
   };
 }
 
-// ── Point 8: the ranking outcome signal, aggregated per action type ──────────
-
-/**
- * Aggregate the per-change ranking signals into a per action-type prior in
- * [-1, 1], the small outcome signal recommendation ranking consumes. Only
- * cleanly settled reads contribute (waiting / insufficient / confounded / no
- * clear movement are all zero-signal and ignored). An action type needs at least
- * MIN_RANKING_SAMPLES contributing reads before it earns a prior. Pure.
- */
-const MIN_RANKING_SAMPLES = 3;
-
-export function rankingPriors(reads: ReadonlyArray<{ actionType: string; read: Pick<KernelRead, "rankingSignal"> }>): Map<string, number> {
-  const sums = new Map<string, { total: number; n: number }>();
-  for (const { actionType, read } of reads) {
-    if (!actionType || read.rankingSignal === 0) continue;
-    const cur = sums.get(actionType) ?? { total: 0, n: 0 };
-    cur.total += read.rankingSignal;
-    cur.n += 1;
-    sums.set(actionType, cur);
-  }
-  const out = new Map<string, number>();
-  for (const [at, { total, n }] of sums) {
-    if (n < MIN_RANKING_SAMPLES) continue;
-    out.set(at, Math.round((total / n) * 100) / 100);
-  }
-  return out;
-}
-
 // ── Compat adapter: map a historical ledger record to a KernelInput ──────────
 
 /** The subset of the historical ShippedChangeRecord the kernel reads. Kept
  *  structural (not an import of the full type) so the kernel is decoupled from
  *  the shrinking record shape. */
 export type LedgerRecordLike = {
+  verification?: Parameters<typeof SHIPMENT_PROOF.of>[0]["verification"];
+  controlsReceipt?: readonly unknown[] | null;
+  before?: string | null; after?: string | null;
   id: string; page: string; path: string; actionType: string; shippedAt: string;
   baseline?: { impressions?: number; clicks?: number } | null;
   windows?: ReadonlyArray<{
@@ -552,7 +528,7 @@ export type LedgerRecordLike = {
   shipment?: unknown;
   /** What the operator says they applied. One record is ONE treatment however many
    *  components it carries, and page movement is never split between them. */
-  componentsApplied?: ReadonlyArray<{ kind: string }> | null;
+  componentsApplied?: import("./shipped-change-store").ShippedChangeRecord["componentsApplied"];
   /** Held on the proposal rather than the ledger today, so they ride the read when a
    *  caller has them and read null when nobody does. Never guessed. */
   diagnosisCause?: string | null;
@@ -645,6 +621,7 @@ function windowsFromRanFlags(input: KernelInput): KernelWindowRead[] {
  * "measuring" (never trains ranking on an early or unseparable signal). Pure.
  */
 export function learningVerdictOf(read: KernelRead): "won" | "lost" | "measuring" {
+  if (read.learning.eligible !== true) return "measuring";
   if (!isMature(read.basisDay)) return "measuring";
   if (read.verdict === "directional_improvement" || read.verdict === "stronger_improvement") return "won";
   if (read.verdict === "directional_decline") return "lost";
@@ -671,10 +648,14 @@ export function readRecordsForLearning(
     const o = overlaps.get(input.id) ?? { ids: [], cleanUntil: null };
     // ONE DURABLE RESULT. Learning used to re-derive its own verdict while the operator was served the
     // FROZEN one, so ranking could be taught a number no screen ever showed. Same tuple, both sides.
-    return applyPinnedRead(
+    const read = applyPinnedRead(
       evaluateChange(input, windowsFromRanFlags(input), o.ids, o.cleanUntil),
       (records[idx].pinnedRead ?? null) as Parameters<typeof applyPinnedRead>[1],
     );
+    const r = records[idx], basis = r.windows?.find((w) => w.day === read.basisDay), pin = r.pinnedRead as { controlsUsed?: number } | null | undefined;
+    const comparison = basis && { ...basis, controlsUsed: Math.max(basis.controlsUsed ?? 0, pin?.controlsUsed ?? 0) };
+    const eligible = learningEligibility(comparison, { ...r, verification: r.verification ?? null }) === "eligible" && read.verdict !== "confounded";
+    return { ...read, rankingSignal: eligible ? read.rankingSignal : 0, learning: { ...read.learning, eligible } };
   });
 }
 

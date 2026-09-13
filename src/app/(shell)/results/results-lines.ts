@@ -115,8 +115,8 @@ const STATE_LABEL: Record<ResultState, string> = { recorded: "Recorded", waiting
   live_verified: "Live verified", reading: "Reading", historical_ahead: "Historical read ahead", historical_behind: "Historical read behind",
   historical_unclear: "Historical unclear", verified_early: "Early reading at 14 days", verified_mature: "Verified at 28 days",
   confounded: "Shared with a later change", inconclusive: "Inconclusive", not_measurable: "Not measurable" };
-/** ONLY A LIVE-CONFIRMED CHANGE MAY TEACH: the same two answers treatment-learning counts, and never a row with no implementation stamp. */
-const liveConfirmed = (p: ShipmentPresentation): boolean => p.implementedAt != null && (p.verification?.status === "verified" || p.verification?.status === "partially_verified");
+/** Use the same applied-unit qualification as ranking, never a status label alone. */
+const liveConfirmed = (p: ShipmentPresentation): boolean => treatmentLearning([{ ...learningRowOf(p), implementedAt: p.implementedAt, verification: p.verification, windows: [] }])[0]?.verified === 1;
 /** THE ONE TEST FOR A RETIRED RECOMMENDATION, so the chip, the belief and the next step can never disagree about which rows are history. */
 const isRetired = (p: ShipmentPresentation): boolean => p.recommendation?.state === "retired";
 /** WHY THE RECOMMENDATION BEHIND A CHANGE NO LONGER STANDS, one plain sentence each. A finished reading closing the queue's own

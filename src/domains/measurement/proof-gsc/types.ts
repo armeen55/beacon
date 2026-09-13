@@ -1,9 +1,4 @@
-/**
- * Shared persisted measurement types (CORE 100K). Leaf module: NO imports, so
- * the store, the GSC reader, and the measure pass can all depend on it without a
- * cycle. These describe what is stored on a shipped-change record; the verdict
- * math itself lives in kernel.ts.
- */
+import { SHIPMENT_PROOF } from "./shipment-proof";
 
 export type GscWindowMetrics = {
   clicks: number;
@@ -60,8 +55,9 @@ export type ProofBaseline = GscWindowMetrics & { windowDays: number };
 export const MIN_CONTROLS = 2;
 /** THE ONE ELIGIBILITY VERDICT, and there is no second one. It used to be written twice: the kernel filed `insufficient_evidence` under MIN_CONTROLS while the learner accepted any window with a single comparison page, so five live readings the screen called unreadable were teaching the ranking their comparison's own 75 click fall. FOUR ANSWERS, KEPT APART, because they are four different facts: `unavailable` is nothing closed to read against, `unknown` is a reading that ran and cannot be separated from the rest of the site, `confounded` is a reading whose only comparison WAS the rest of the site, and `eligible` is a reading this account may learn from. A MEASURED ZERO IS NONE OF THE THREE: it is an eligible reading whose answer is nothing, which is evidence about a treatment and not an absence of evidence. PROVENANCE IS NEVER INVENTED: a row that says it used comparison pages and holds no record of which ones cannot support a lesson, so it reads `unknown`; a caller holding no comparison record refuses nothing on it, and a row from before that record existed (no implementation stamp) was never owed one. */
 export function learningEligibility(w: { ran?: boolean; controlsUsed?: number; comparedToSite?: boolean } | null | undefined,
-  row: { measurementState?: string | null; implementedAt?: string | null; controlsReceipt?: readonly unknown[] | null } = {}): "eligible" | "unknown" | "unavailable" | "confounded" {
+  row: Parameters<typeof SHIPMENT_PROOF.of>[0] & { measurementState?: string | null; controlsReceipt?: readonly unknown[] | null } = {}): "eligible" | "unknown" | "unavailable" | "confounded" {
   if (w == null || w.ran === false || row.measurementState === "measurement_unavailable") return "unavailable";
+  if ("verification" in row && !SHIPMENT_PROOF.of(row)) return "unknown";
   if (row.measurementState === "insufficient_comparison") return "unknown";
   if (w.comparedToSite === true) return "confounded";
   const used = w.controlsUsed ?? 0;

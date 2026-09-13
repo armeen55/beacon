@@ -1,37 +1,8 @@
 import "server-only";
 import { load } from "cheerio";
 
-/**
- * measurement/verify-shipment (V1 Truth Convergence Phase 6, 2026-07-31) - DID THE CHANGE ACTUALLY LAND ON
- * THE LIVE PAGE?
- *
- * A CLICK IS NOT A SHIPMENT, AND IT NEVER BECOMES ONE. "Mark implemented" is the operator telling me what
- * they did, and until I have read the page myself that is a claim, not a fact. The claim STARTS this check
- * and can never finish it: there is no button, no note and no argument that lands a change in the verified
- * state without page evidence behind it. This module goes and looks: ONE read of a page the account OWNS,
- * through the same polite fetch and the same extractor every other read of their own pages goes through,
- * never a paid provider, never from a page render. Then it says, component by component, what it could
- * actually see, in the four honest states there are: verified, not_verified, changed_differently (the page
- * carries a different change in that spot than the one I wrote), and unverifiable (I could not read it).
- *
- * WHAT IT WILL NEVER DO. It will never call a component not_verified when the truth is that I cannot see
- * that kind of change from outside the page (a noindex sent in a header, structured data a raw fetch never
- * renders): that is `unverifiable`, said out loud, every time.
- *
- * DELIVERED IS NOT SHOWING. New words on the page are not the same fact as Google putting them on screen, so
- * a title or description shipment also asks ONE results-page read for that page's own top search, through the
- * shared cache on the cheapest queue, bounded per pass and silent when no provider is configured. It is
- * stored BESIDE the page components and never inside the roll-up, so what Google shows can never move a
- * shipment's own status. No position is read or shown anywhere: a page that starts answering more questions
- * is found by more searches, so its average position gets worse exactly as the page gets better.
- *
- * WHY IT IS NOT A LOOP. Every ending is bounded by MAX_CHECKS live reads and nothing reopens after them: a
- * difference, a site that stayed silent and a page whose pieces could none of them be graded all come back
- * on the promised day and stand for good on the third read. A verified reading is final the moment it lands,
- * and so is a robots rule refusing the read, which is the site's own standing instruction and is said out
- * loud. Bounded to fifteen shipments per pass on top of that, and to one read per address inside a pass
- * whose answers are not landing.
- */
+/** Verify the applied unit from owned-page evidence; bind the receipt to its copy and checker.
+ * Historical requalification keeps the original read bound and never buys a SERP. */
 
 import { loadBusinessProfile } from "@/domains/account";
 import { isDataForSeoConfigured } from "@/domains/evidence/dataforseo/client";
@@ -45,6 +16,7 @@ import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { syncPageSnapshots } from "@/lib/persistence/dual-write";
 import { log } from "@/lib/logger";
 import { reportingDay } from "@/lib/reporting-day";
+import { SHIPMENT_PROOF } from "./proof-gsc/shipment-proof";
 import {
   loadShippedChangesForTenant, recordVerification,
   type ShipmentVerification, type ShippedChangeRecord,
@@ -60,7 +32,9 @@ type Reason = NonNullable<ShipmentVerification["reason"]>;
  *  proposal (the copy, or the exact structural instruction). */
 type VerifiableShipment = {
   id: string; url: string;
-  components: Array<{ kind: string; after: string; anchorAfter?: string | null; redirectTo?: string | null; before?: string | null }>;
+  components: Array<Pick<ReturnType<typeof SHIPMENT_PROOF.components>[number], "kind" | "after"> & Partial<Omit<ReturnType<typeof SHIPMENT_PROOF.components>[number], "kind" | "after">>>;
+  claim?: Parameters<typeof SHIPMENT_PROOF.of>[0];
+  requalification?: boolean;
   /** The searches this change was recorded against; the first of them is the one Google is asked about. */
   targetQueries?: string[];
   /** How many live reads this shipment has already had, so every recheck loop stays bounded. */
@@ -298,7 +272,7 @@ const allUnknown = (shipment: VerifiableShipment, note: string) => shipment.comp
  * other read of the account's own pages writes) so the next read of that page is served from what I already
  * hold instead of going back out to the customer's website.
  */
-export async function verifyShipment(tenantId: string, shipment: VerifiableShipment, deps: VerifyDeps = {}): Promise<ShipmentVerification> {
+async function verifyShipmentReading(tenantId: string, shipment: VerifiableShipment, deps: VerifyDeps = {}): Promise<ShipmentVerification> {
   const now = deps.now ?? Date.now, stamp = (): string => new Date(now()).toISOString(), fetchPage = deps.fetchPage ?? fetchPageHtml; /* A READING IS STAMPED WHEN IT ANSWERS, NEVER WHEN IT STARTS (measured on the live ledger, 2026-09-05). The stamp was taken before the fetch and this door writes the capture it just read, so every reading left behind a capture stamped AFTER itself: shp_d5a9862db7099a2d645c97139634540f read iranopedia.com/cities at 07:32:52.706Z and wrote a capture at 07:32:53.665Z, 959 ms later, which the closed-row door below reads as "the page moved since" and reopens. Twenty-eight live reads against a bound of three, each one manufacturing the capture that reopened it, and that pile of captures is what starved the body reader. Stamped on the way out, a reading's own capture can never be newer than it. */
   const requested = /^https?:\/\//i.test(shipment.url) ? shipment.url : `https://${shipment.url}`;
   // NO READ THAT SAW NOTHING IS FINAL ON ITS FIRST ANSWER (R-059, 2026-09-03). A read that could not see the
@@ -346,28 +320,21 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
   const causes = graded.map((c) => c.reason).filter((r): r is Reason => !!r);
   const reason: Reason | null = status === "verified" ? (shows?.state === "not_verified" ? "google_not_updated" : null)
     : shell && held && !fresh ? "stale_reading" : causes.find((r) => r === "published_differently") ?? causes[0] ?? "unmeasurable";
-  return { status, checkedAt: stamp(), checks, reason, components: (shows ? [...graded, shows] : graded).map(({ kind, state, note }) => ({ kind, state, note })), recheckAfter: again ? reportingDay(now() + (early ? 1 : 2) * 86_400_000) : null };
+  const claim = shipment.claim ?? { page: shipment.url, implementedAt: shipment.implementedAt, componentsApplied: shipment.components.map((c) => ({ ...c, label: "" })) };
+  return { status, checkedAt: stamp(), checks, reason, proof: SHIPMENT_PROOF.of(claim, JSON.stringify([res.html, fresh])), components: (shows ? [...graded, shows] : graded).map(({ kind, state, note }) => ({ kind, state, note })), recheckAfter: again ? reportingDay(now() + (early ? 1 : 2) * 86_400_000) : null };
 }
 
-/** WHAT THE OPERATOR SAID THEY APPLIED, with the exact copy WHERE I HOLD IT. A Shipment names the
- *  components that were applied; the wording it stores is the change's own before/after, so a single
- *  component carries its copy and the others carry none. A component whose copy I do not hold is checked
- *  anyway when its kind can be seen without copy (a redirect, a noindex, structured data) and is honestly
- *  UNKNOWN when it cannot. Inventing wording to check against would be worse than saying I cannot tell. */
-/** AND THE PAGE IS READ AGAINST THE VERSION THAT IS ACTUALLY ON IT. Where the operator told this door they applied their own wording, that wording is what the page is checked for, and the prepared wording stays on the record beside it: both versions are kept, the suggestion and the version applied, and neither is overwritten by the other. */
-function componentsOf(r: ShippedChangeRecord): VerifiableShipment["components"] {
-  const copy = (r.after ?? "").trim(), was = (r.before ?? "").trim(); // AND WHAT IT REPLACED, on the same fallback the copy already takes: the row holds the wording that was there before and the component was handed none of it, so the page still carrying it read as the operator's own version
-  const applied = (r.componentsApplied ?? []) as Array<{ kind: string; after?: string | null; appliedAfter?: string | null; anchorAfter?: string | null; redirectTo?: string | null; before?: string | null }>;
-  if (applied.length === 0) return copy || r.actionType ? [{ kind: r.actionType || "content", after: copy, before: was || null }] : [];
-  const lone = applied.length === 1;
-  return applied.map((c) => ({ kind: c.kind, anchorAfter: c.anchorAfter ?? null, redirectTo: c.redirectTo ?? null, before: (c.before ?? "").trim() || (lone || c.kind === r.actionType ? was : "") || null,
-    after: (c.appliedAfter ?? "").trim() || (c.after ?? "").trim() || (lone || c.kind === r.actionType ? copy : "") }));
+export async function verifyShipment(tenantId: string, shipment: VerifiableShipment, deps: VerifyDeps = {}): Promise<ShipmentVerification> {
+  return { ...await verifyShipmentReading(tenantId, shipment, deps), checkerContract: SHIPMENT_PROOF.contract };
 }
+
+/** AND THE PAGE IS READ AGAINST THE VERSION THAT IS ACTUALLY ON IT. Where the operator told this door they applied their own wording, that wording is what the page is checked for, and the prepared wording stays on the record beside it: both versions are kept, the suggestion and the version applied, and neither is overwritten by the other. */
+const componentsOf = SHIPMENT_PROOF.components;
 
 /** One Shipment row, as verification reads it. A row that already holds an answer is here on the day that
  *  answer promised, carrying the reads it has had so the bound is counted from them and never from zero. */
 const toVerifiable = (r: ShippedChangeRecord): VerifiableShipment =>
-  ({ id: r.id, url: r.page, components: componentsOf(r), targetQueries: r.targetQueries ?? [], implementedAt: r.implementedAt ?? null, ...(r.verification != null ? { priorChecks: r.verification.checks ?? 1 } : {}) });
+  ({ id: r.id, url: r.page, claim: r, requalification: r.verification?.status === "verified" && !SHIPMENT_PROOF.of(r), components: componentsOf(r), targetQueries: r.targetQueries ?? [], implementedAt: r.implementedAt ?? null, ...(r.verification != null ? { priorChecks: r.verification.checks ?? 1 } : {}) });
 
 /** The most live reads one shipment ever gets, and the ONE place that number is written (seventh round: the repair pass beside this one carried its own literal 3 for want of an export slot, so two files could drift apart on the bound that decides whether a customer's page is ever read again). */
 export const MAX_CHECKS = 3;
@@ -388,6 +355,7 @@ export async function shipmentsAwaitingVerification(tenantId: string, limit = MA
   const moved = closed.length === 0 ? new Map<string, OwnedPageBody>() : await (deps.readHeld ?? heldBodies)(closed.map((r) => r.page), tenantId).catch(() => new Map<string, OwnedPageBody>());
   const due = (r: ShippedChangeRecord): boolean => {
     if (r.verification == null) return true;
+    if (r.verification.status === "verified" && !SHIPMENT_PROOF.of(r)) return (r.verification.checks ?? 1) < MAX_CHECKS && componentsOf(r).some((c) => noExpectation(c.kind, c.after, c.anchorAfter) == null);
     const at = r.verification.recheckAfter ?? null;
     // A CLOSED READING IS REOPENED BY THE PAGE ITSELF, exactly once per capture. A row terminal since August carries a live headline equal to its applied copy byte for byte, and nothing could ever ask again. No fetch decides this: the capture already on file does, and the answer the re-read writes back is stamped later than that capture, so the same capture can never open it twice.
     // AND A RECORD THAT HOLDS NO WORDING IS NOT REOPENED BY A CAPTURE EITHER: a newer read of the page cannot answer a record that names nothing to look for, so it is reconciled from what it holds and never queued for live work again. AND THE BOUND HOLDS AT THIS DOOR TOO (measured, 2026-09-05): it was written into the reading and never into the door that reopens one, so a shipment on a page that keeps being captured came back for a twenty-eighth live read against a bound of three. A reading closed on its last check is the last one there is, whatever the page does next; the next change made to that page is measured on its own record.
@@ -419,7 +387,7 @@ export async function verifyDueShipments(tenantId: string, deps: VerifyDeps = {}
   for (const shipment of due) {
     const address = canonicalUrlKey(shipment.url);
     if (unsavable.has(address)) continue;
-    const verification = await verifyShipment(tenantId, shipment, { serpReads, ...deps, fetchPage: fetchOnce, writeOwnedPage: writeOnce }).catch(() => null);
+    const verification = await verifyShipment(tenantId, shipment, { serpReads, ...deps, ...(shipment.requalification ? { readSerp: async () => null } : {}), fetchPage: fetchOnce, writeOwnedPage: writeOnce }).catch(() => null);
     if (!verification) continue;
     // A verification that could not be SAVED is not a verification: the shipment stays due and I check it
     // again on the next visit, which is the ONE case where the same page is read twice.

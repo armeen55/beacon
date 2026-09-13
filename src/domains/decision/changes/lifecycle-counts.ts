@@ -1,32 +1,5 @@
-/**
- * lifecycle-counts (2026-07-02, FP3 - "the app contradicts itself") - THE one place a lifecycle-stage count is computed. PURE, no I/O; a surface hands it
- * the canonical ledger rows it already loaded and reads the result.
- *
- * THE ONE-COUNT RULE
- * ------------------
- * A shipped change is DECIDED exactly when its measurement is mature: the 28 day window closed, the read had at least 2 comparison pages and 200 baseline
- * impressions, the stored verdict is "won" or "lost", and no overlapping edit on the same page weakened attribution (deriveMeasurementMaturity === "mature_result",
- * the SAME resolver Results has always used to place a row in "Wins" or "What we learned"). "won" is the subset of decided whose verdict is "won".
- *
- * EVERYTHING ELSE that has shipped is MEASURING: still collecting, an early 7 or 14 day read, waiting on Google data, a 28 day window that closed too thin to call,
- * or an attribution-limited overlap. This is the same set Results shows as "In flight", so a link that promises "16 measuring" lands on a list showing 16, never 25 (the FP3 killer finding).
- *
- * REVERTS ARE NOT CHANGES (bug #14, 2026-07-06): when a losing change is reverted, the executor records "the old version was put back" as its OWN ledger row with
- * actionType `revert_<original>` (run-revert.ts). That row is bookkeeping, not a distinct operator change, so splitLedgerLifecycle drops every `revert_*` row BEFORE
- * counting or overlap detection (excludeRevertBookkeeping). A ship + its revert reads as ONE change everywhere, and the revert never inflates Wins. The genuine measurement
- * history survives: the ORIGINAL row (carrying its restored-version note) is kept.
- *
- * TONIGHT: picked = the active plan's selected changes (accepted plan first, else the preview). applied = picked minus the items still waiting on the operator's
- * edit (ready_to_apply / verification_pending / verification_failed) - byte-for-byte the same formula the "Tonight: N of M applied" progress bar on Today's checklist
- * uses (execution-checklist.ts summary.left), so the two can never disagree.
- *
- * TO DO: the canonical Changes list's own open count (changes-data.ts summary.todo, computed after fusion + dedupe). It is threaded through here so it comes from one place, never re-derived.
- *
- * No surface may re-derive its own version of any of these numbers. Consumers: Today (src/app/(shell)/page.tsx week strip and last-win line) and the
- * Changes list (changes-data.ts canonical annotations). Results stopped calling splitLedgerLifecycle at the 2026-08 redesign and groups its own rows
- * (results-presentation.ts groupOf + isMature) instead, so the invariant that keeps the two honest is MATURITY, not a shared call: bandOf here and
- * groupOf there settle a row on the same 28 or 56 day rule, including a shared-credit read, so "out of N finished" on Today is the count Results shows.
- */
+/** Cross-surface counts from full-ledger reads: history stays visible;
+ * only qualified applied units count as wins. Revert bookkeeping is not a new treatment. */
 import { bandOf, readRecordsForLearning, type LedgerRecordLike } from "@/domains/measurement/proof-gsc/kernel";
 
 /** The minimal shape of a shipped-change ledger row this module needs - structurally
@@ -40,7 +13,11 @@ export type LedgerLifecycleRow = {
    *  legacy row still reads exactly as it did, counting from its ship date. */
   implementedAt?: string | null;
   /** The live check, when one ran: only a change confirmed on the page may file as a win. */
-  verification?: { status?: string | null } | null;
+  verification?: LedgerRecordLike["verification"];
+  before?: LedgerRecordLike["before"]; after?: LedgerRecordLike["after"];
+  componentsApplied?: LedgerRecordLike["componentsApplied"];
+  controlsReceipt?: LedgerRecordLike["controlsReceipt"];
+  measurementState?: string | null;
   verdict: string;
   windows: ReadonlyArray<{
     day: number;
@@ -104,6 +81,8 @@ function toLedgerRecordLike(row: LedgerLifecycleRow): LedgerRecordLike & { opera
     actionType: row.actionType ?? "change",
     shippedAt: row.shippedAt,
     implementedAt: row.implementedAt ?? null,
+    verification: row.verification ?? null, before: row.before, after: row.after, componentsApplied: row.componentsApplied,
+    controlsReceipt: row.controlsReceipt, measurementState: row.measurementState,
     baseline: { impressions: row.baseline?.impressions ?? 0, clicks: row.baseline?.clicks ?? 0 },
     pinnedRead: row.pinnedRead ?? null,
     windows: row.windows.map((w) => ({
@@ -137,8 +116,7 @@ export function splitLedgerLifecycle<T extends LedgerLifecycleRow>(
   // A WIN NOBODY CONFIRMED ON THE LIVE PAGE IS NOT A WIN (operator, 2026-09-01): Today printed "6 wins" and Changes "6 clear wins" off
   // reads whose live page was never read back, beside a Results page saying nothing was verified. A finished improving read files as
   // won only when the change was confirmed live; otherwise it is finished context and counts with what was learned.
-  const confirmed = (r: T): boolean => r.implementedAt != null && (r.verification?.status === "verified" || r.verification?.status === "partially_verified");
-  real.forEach((row, i) => { const band = bandOf(reads[i]); out[band === "won" && !confirmed(row) ? "learned" : band].push(row); });
+  real.forEach((row, i) => { const band = bandOf(reads[i]); out[band === "won" && reads[i].learning.eligible !== true ? "learned" : band].push(row); });
   return out;
 }
 
@@ -164,4 +142,3 @@ export function countLedgerLifecycle(
     won: split.won.length,
   };
 }
-

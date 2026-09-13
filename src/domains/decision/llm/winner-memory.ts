@@ -1,31 +1,11 @@
 import "server-only";
 
-/**
- * winner-memory (BEACON_500 item 30, 2026-07-02) - feeds the drafters the house's own MEASURED winners instead of letting every draft rediscover style nightly.
- *
- * daily-experiment-planner.ts's aggregateSettled already tallies won/lost/flat per (pageFamily, actionFamily) for a debate line. This module goes one step
- * further: it retains the actual winning before/after TEXT (when the ledger has it) plus deterministic structural features, and turns the top examples per
- * actionFamily into few-shot prompt fragments for structured-drafter.ts.
- *
- * Honesty notes:
- *   - ShippedChangeRecord.before/after are free-text fields the operator or the
- *     auto-record path may or may not populate (e.g. a title/meta edit records
- *     the literal before/after strings; an answer-block or new-page ship often
- *     only has the after text, or neither). When `before` is missing we retain
- *     `afterText` alone and mark `beforeText: null` - we NEVER fabricate a prior.
- *   - Only MATURE, cleanly-measured "won" verdicts are harvested (deriveMeasurementMaturity
- *     === "mature_result" + verdict "won"). An early/interim signal or an
- *     inconclusive/lost result is never retained as a "winner".
- *   - Idempotent: harvesting twice on the same ledger produces the same stored
- *     set (newest ship first, capped at MAX_PER_FAMILY). Fail-soft everywhere;
- *     never throws into a caller.
- *
- * PURE feature extractor (extractStructuralFeatures) is unit-tested directly; harvestWinners/buildWinnerFewShots do I/O and are covered by the store round-trip.
- */
+/** Tenant examples are requalified against the full ledger before they can teach a writer. */
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { log } from "@/lib/logger";
-import { loadShippedChanges, type ShippedChangeRecord } from "@/domains/measurement/proof-gsc/shipped-change-store";
+import { loadShippedChangesForTenant, type ShippedChangeRecord } from "@/domains/measurement/proof-gsc/shipped-change-store";
+import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
 import { actionFamilyOf, type ExperimentFamily } from "@/domains/measurement/proof-gsc/change-family";
 import { readRecordsForLearning, learningVerdictOf } from "@/domains/measurement/proof-gsc/kernel";
 import { classifyDraftPattern, aggregateWinsByPattern, bestConfidentPattern, patternInsightSentence, MIN_DECIDED_FOR_CONFIDENCE, PATTERN_LABEL, type DraftPatternId, type PatternOutcomeRow, type PatternCellTally } from "./draft-pattern";
@@ -49,6 +29,8 @@ type StructuralFeatures = {
 };
 
 type WinnerExample = {
+  shipmentId?: string;
+  appliedHash?: string;
   tenantId: string;
   actionFamily: ExperimentFamily;
   page: string;
@@ -104,11 +86,7 @@ function extractStructuralFeatures(text: string): StructuralFeatures {
 type StoredRow = WinnerExample;
 
 async function readAll(): Promise<StoredRow[]> {
-  try {
-    return await readStore<StoredRow>(STORE, []);
-  } catch {
-    return [];
-  }
+  return readStore<StoredRow>(STORE, []);
 }
 
 /** Latest 28-day window's adjustedCtrLift, or null when not present. */
@@ -117,11 +95,7 @@ function matureCtrLift(record: ShippedChangeRecord): number | null {
   return w28 ? w28.adjustedCtrLift : null;
 }
 
-function isMatureWon(record: ShippedChangeRecord, now: Date): boolean {
-  // Kernel gate: only a MATURE (28-day) directional improvement is a winner. An early/interim signal or a confounded / inconclusive result is never
-  // harvested as house style. With no wins, buildWinnerFewShots returns "" and the drafters run without few-shots (their existing designed fallback).
-  return learningVerdictOf(readRecordsForLearning([record], now)[0]) === "won";
-}
+const appliedCopy = (r: ShippedChangeRecord): string => SHIPMENT_PROOF.components(r).map((c) => c.after).filter(Boolean).join("\n\n").trim();
 
 /**
  * Read every mature, cleanly-won shipped change for this tenant, extract the before/after text + structural features, and persist the top MAX_PER_FAMILY
@@ -137,8 +111,8 @@ export async function harvestWinners(
   if (!tenantId) return { harvested: 0, families: 0 };
   const now = opts.now ?? new Date();
   try {
-    const records = await loadShippedChanges();
-    const won = records.filter((r) => isMatureWon(r, now));
+    const records = await loadShippedChangesForTenant(tenantId), reads = readRecordsForLearning(records, now);
+    const won = records.filter((_, i) => learningVerdictOf(reads[i]!) === "won");
 
     // A SHIPMENT WHOSE RECORDED WORDING STILL CARRIES BLANKS TAUGHT NOTHING, because those are not the words that went live. /tabriz and /isfahan were shipped as "<City> has a population of NUMBER as of
     // YEAR (SOURCE)." and the operator filled the blanks by hand, so the ledger holds a template and the page holds the real line. Left in, the template becomes a WinnerExample and this product starts
@@ -146,14 +120,15 @@ export async function harvestWinners(
     // published wording is recorded, which is a fact about the RECORD and not a judgement about the change.
     const byFamily = new Map<ExperimentFamily, WinnerExample[]>();
     for (const r of won) {
-      const afterText = (r.after ?? "").trim();
+      const afterText = appliedCopy(r);
       if (afterText === "" || UNRECORDED.test(afterText)) continue; // nothing to learn from - honest skip, no fabrication
       const family = actionFamilyOf(r.actionType);
       const example: WinnerExample = {
+        shipmentId: r.id, appliedHash: SHIPMENT_PROOF.of(r)!.appliedHash,
         tenantId,
         actionFamily: family,
         page: r.page,
-        beforeText: r.before && r.before.trim() !== "" ? r.before.trim() : null,
+        beforeText: SHIPMENT_PROOF.components(r).map((c) => c.before).filter(Boolean).join("\n\n") || null,
         afterText,
         features: extractStructuralFeatures(afterText),
         pattern: classifyDraftPattern(afterText),
@@ -176,6 +151,8 @@ export async function harvestWinners(
     }
 
     const all = await readAll();
+    const identity = (rows: WinnerExample[]): string => JSON.stringify(rows.map(({ capturedAt: _capturedAt, ...r }) => r).sort((a, b) => (a.shipmentId ?? "").localeCompare(b.shipmentId ?? "")));
+    if (identity(all.filter((r) => r.tenantId === tenantId)) === identity(nextForTenant)) return { harvested: 0, families: byFamily.size };
     const others = all.filter((r) => r.tenantId !== tenantId);
     await writeStore(STORE, [...others, ...nextForTenant]);
 
@@ -189,18 +166,16 @@ export async function harvestWinners(
   }
 }
 
-/** Retained winners for one tenant, newest ship first. Fail-soft → [].
- *  Fail-closed calibration quarantine, review fix 6 (2026-07-11): the READ path
- *  is gated too - a stored winner persisted before the quarantine (no version on
- *  record) or under an unregistered version is never served as a few-shot, even
- *  though it stays in the store as history. Every few-shot builder flows through
- *  here (loadWinnersForLever -> buildWinnerFewShots), so one gate covers all. */
+/** Cached examples require current applied-copy and measurement qualification. */
 async function loadWinners(tenantId: string): Promise<WinnerExample[]> {
   if (!tenantId) return [];
   try {
     const all = await readAll();
+    const records = await loadShippedChangesForTenant(tenantId), reads = readRecordsForLearning(records);
+    const qualified = new Map(records.filter((_, i) => learningVerdictOf(reads[i]!) === "won").map((r) => [r.id, r]));
     return all
       .filter((r) => r.tenantId === tenantId)
+      .filter((w) => { const r = qualified.get(w.shipmentId ?? ""); return r != null && SHIPMENT_PROOF.of(r)?.appliedHash === w.appliedHash && appliedCopy(r) === w.afterText; })
       .sort((a, b) => (a.shippedAt < b.shippedAt ? 1 : -1));
   } catch {
     return [];
@@ -266,7 +241,7 @@ export async function buildWinnerFewShots(
 function decidedVerdictOf(
   read: ReturnType<typeof readRecordsForLearning>[number],
 ): "won" | "lost" | "inconclusive" | null {
-  if (read.basisDay !== 28) return null; // still measuring
+  if (read.learning.eligible !== true || read.basisDay !== 28) return null; // still measuring or unqualified
   if (read.verdict === "confounded" || read.verdict === "insufficient_evidence") return null;
   if (read.verdict === "directional_improvement" || read.verdict === "stronger_improvement") return "won";
   if (read.verdict === "directional_decline") return "lost";
@@ -287,11 +262,11 @@ async function loadPatternAggregateWithRows(
   if (!tenantId) return { cells: [], rows: [] };
   const now = opts.now ?? new Date();
   try {
-    const records = await loadShippedChanges();
+    const records = await loadShippedChangesForTenant(tenantId);
     const reads = readRecordsForLearning(records, now);
     const rows: TaggedShippedRow[] = [];
     records.forEach((r, i) => {
-      const afterText = (r.after ?? "").trim();
+      const afterText = appliedCopy(r);
       if (afterText === "" || UNRECORDED.test(afterText)) return; // nothing to classify - honest skip
       const verdict = decidedVerdictOf(reads[i]);
       if (verdict == null) return; // pending / confounded / thin - excluded from the tally

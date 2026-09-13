@@ -13,7 +13,7 @@ import { loadTodayView } from "./today-view-data";
 import { currentTenantId } from "@/lib/tenant-context";
 import { requireReadyAccount } from "@/domains/account";
 import { ScoreboardSection } from "./scoreboard-section";
-import { loadProofLedgerCached } from "@/domains/measurement";
+import { loadProofLedgerCached, treatmentLearning } from "@/domains/measurement";
 import { splitLedgerLifecycle } from "@/domains/decision";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
@@ -153,7 +153,7 @@ function weekStrip(rows: Awaited<ReturnType<typeof loadProofLedgerCached>>, nowM
   if (rows.length === 0) return null;
   const b = splitLedgerLifecycle(rows, new Date(nowMs));
   const made = rows.filter((r) => Date.parse(r.implementedAt ?? r.shippedAt) >= nowMs - WEEK_MS);
-  const conf = (r: LedgerRow): boolean => r.verification?.status === "verified" || r.verification?.status === "partially_verified", flight = [...b.measuring, ...b.promising], live = flight.filter(conf).length; /* TWO STATES, NOT ONE COUNT (2026-09-04): "124 changes measuring" merged the changes confirmed on the live page with the ones nothing has read back yet, which are different facts about different work. The rows already carry the live check, and splitLedgerLifecycle reads that same field to keep an unconfirmed read out of "won", so the split is printed rather than hidden. */
+  const conf = (r: LedgerRow): boolean => treatmentLearning([{ ...r, windows: [] }])[0]?.verified === 1, flight = [...b.measuring, ...b.promising], live = flight.filter(conf).length;
   const settled = b.won.length + b.learned.length;
   return {
     made: {

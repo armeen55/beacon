@@ -1,15 +1,13 @@
-/** TODAY ANSWERS TWO QUESTIONS AND NOTHING ELSE: the one thing to do, and whether the last thing worked, both off the SAME ledger rows Results reads.
- *  Rendered through the real page component, so what is pinned here is what a customer sees rather than what a helper returns. Three promises the
- *  live screen broke: only a WIN was ever reported, so an account whose newest finished reading came in level or behind read a blank space as
- *  "nothing has happened"; the page it names was a raw address; and a finished reading the live page has never confirmed was offered as a result. */
+/** Real Today rendering: qualified wins, losses, zeros and unconfirmed history all remain readable. */
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactElement } from "react";
+import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
 
 const LEDGER = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[] }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "tenant-one" }));
 vi.mock("@/domains/account", () => ({ requireReadyAccount: async () => ({ access: { kind: "ready" } }) }));
-vi.mock("@/domains/measurement", () => ({ loadProofLedgerCached: async () => LEDGER.rows }));
+vi.mock("@/domains/measurement", async () => ({ loadProofLedgerCached: async () => LEDGER.rows, treatmentLearning: (await import("@/domains/measurement/treatment-learning")).treatmentLearning }));
 vi.mock("@/components/today/data-sources-strip", () => ({ countConnectedDataSources: async () => 2 }));
 vi.mock("@/components/today/refresh-my-data-button", () => ({ RefreshMyDataButton: () => null }));
 vi.mock("@/app/(shell)/scoreboard-section", () => ({ ScoreboardSection: () => null }));
@@ -21,10 +19,11 @@ vi.mock("@/lib/load-with-deadline", () => ({ loadWithDeadline: async (p: Promise
 /** One ledger row in the shape Today's own loader hands over, with every window closed forty days back so the reading is mature whenever this runs. */
 const day = (back: number): string => new Date(Date.now() - back * 86_400_000).toISOString();
 const win = (lift: number) => [7, 14, 28].map((d) => ({ day: d, ran: true, controlsUsed: 3, adjustedLift: lift, adjustedCtrLift: lift / 2_000, adjustedImpressionsLift: 120, treatedPostImpressions: 5_000 })); // the click rate moves the way the clicks do, or a fixture claims one direction and is read in the other
-const row = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+const row = (over: Record<string, unknown> = {}): Record<string, unknown> => { const r = {
   id: "s1", page: "https://own.example/california-persian-cities/beverly-hills", path: "/california-persian-cities/beverly-hills",
   actionType: "meta", verdict: "won", shippedAt: day(40), implementedAt: day(40),
-  verification: { status: "verified", checkedAt: day(39) }, baseline: { clicks: 200, impressions: 9_100 }, windows: win(40), ...over });
+  after: "The updated description.", controlsReceipt: [{ path: "/a" }, { path: "/b" }, { path: "/c" }], baseline: { clicks: 200, impressions: 9_100 }, windows: win(40), ...over };
+  return { ...r, verification: "verification" in over ? over.verification : { status: "verified", checkedAt: day(39), checkerContract: SHIPMENT_PROOF.contract, proof: SHIPMENT_PROOF.of(r, "Inspected page"), components: [{ kind: "meta", state: "verified", note: null }] } }; };
 
 /** The page wraps its own body in a Suspense boundary, and the static renderer paints the fallback rather than the async child, so the child is taken from the tree the page returned and awaited here. Nothing is stubbed in: this is the real component. */
 async function today(): Promise<string> {

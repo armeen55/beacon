@@ -1,29 +1,26 @@
-/** A FAMILY IS NOT A BET (2026-09-05). This account's ledger holds nine internal links that all finished behind, and the record the queue
- *  read was keyed on the coarse family alone, so every internal link it will ever ship was discounted whatever its anchor, its page or the
- *  cause it was raised against, and one batch of descriptions would have discounted a description somebody wrote by hand. The record is
- *  keyed by the work's own signature AND by the family now, the queue asks the finer one first, and the receipt says which of the two spoke.
- *  Driven through the REAL adapter and the REAL ranking, on two synthetic accounts with nothing in common, from stored rows only. */
+/** Signature-specific learning through real ranking and Results consumers on two synthetic accounts. */
 import { describe, expect, it } from "vitest";
 import { learningFromShipments } from "@/domains/measurement";
 import { rankProposals } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
+import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
 
 const SHIPPED = "2026-07-01T00:00:00.000Z", VERIFIED = { status: "verified" as const, checkedAt: "2026-07-02T00:00:00.000Z", components: [] };
-/** TWO SYNTHETIC ACCOUNTS, unrelated subjects, and the same two bets inside one family: a link added because the page was hard to reach,
- *  and a link added because assistants never read it. The ledger holds a losing run of the first and a winning run of the second. */
+/** Two unrelated accounts; losing and winning bets in the same family. */
 const SITES = [
   { t: "acct-tide", page: "/tide-pools", q: "tide pool safety" },
   { t: "acct-bordado", page: "/bordado", q: "puntadas de bordado" },
 ];
 type Row = Parameters<typeof learningFromShipments>[0][number];
-const read = (lift: number, treatment: string | null): Row => ({
+const read = (lift: number, treatment: string | null): Row => { const r = {
+  page: "https://fixture.example/page", before: null,
   actionType: "internal_links", after: "A sentence pointing readers at the other page.", implementedAt: SHIPPED, verification: VERIFIED,
   operatorVerdictOverride: null, pinnedRead: null, componentsApplied: null,
   treatmentStamp: { signature: { family: "internal_links", treatment, field: null, cause: null }, overlapAtShip: 0 },
   baseline: { clicks: 200, impressions: 4000, windowDays: 28, capturedAt: SHIPPED },
   controlsReceipt: [{ path: "/a", reasons: [] }, { path: "/b", reasons: [] }, { path: "/c", reasons: [] }],
   windows: [{ day: 28, ran: true, adjustedLift: lift, controlsUsed: 3, checkOn: "2026-07-29", treatedDelta: 0, controlDelta: 0 }],
-} as unknown as Row);
+} as unknown as Row; return { ...r, verification: { ...VERIFIED, checkerContract: SHIPMENT_PROOF.contract, proof: SHIPMENT_PROOF.of(r, "Inspected page"), components: [{ kind: "internal_links", state: "verified", note: null }] } }; };
 /** Nine losing readings of one treatment and three winning readings of another, in one family. */
 const LEDGER: Row[] = [...Array(9).fill(0).map(() => read(-20, "technical_reachability")), ...Array(3).fill(0).map(() => read(30, "internal_link_or_navigation"))];
 

@@ -1,4 +1,5 @@
 /** Four-surface smoke (Core 100K product contract): Today, Changes, Results, Connections each render their frame without throwing, plus the Today claims a stranger reads first (the ready count, the one CTA, the hero chart sentence). Deep behavior lives in the kept behavioral contract suites. */
+import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
 import { describe, it, expect, vi } from "vitest";
 import { renderToReadableStream, renderToStaticMarkup } from "react-dom/server"; import type { ReactElement } from "react";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -25,9 +26,8 @@ describe("Today renders, and tells the truth about its own queue", () => {
     ["@/app/(shell)/results/page", ["Results", "7, 14 and 28 days"]]] as const)("renders the %s frame without throwing", async (mod, claims) => {
     const { default: Page } = await import(mod) as { default: (a?: unknown) => Promise<ReactElement> }; const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
     for (const claim of claims) expect(html).toContain(claim); }, 15_000);
-  /** "124 changes measuring" merged two different facts about two different pieces of work (2026-09-04): a change confirmed on the live page, and one nothing has read back yet. The rows already carry that check, and the strip prints the split rather than one number over both. */
   it("splits what is measuring into the changes confirmed live and the ones still waiting on that check", async () => {
-    vi.resetModules(); const ago = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString(), row = (id: string, status: string | null) => ({ id, path: "/p", page: "/p", shippedAt: ago(3), implementedAt: ago(3), verdict: "measuring", verification: status ? { status } : null, windows: [], baseline: { impressions: 0, clicks: 0 } });
+    vi.resetModules(); const ago = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString(), row = (id: string, status: string | null) => { const r = { id, path: `/${id}`, page: `https://fixture.example/${id}`, actionType: "section_add", after: "The complete section gives readers the supported explanation, its scope, and the distinctions needed to understand the subject without sending them elsewhere", shippedAt: ago(3), implementedAt: ago(3), verdict: "measuring", verification: null, windows: [], baseline: { impressions: 0, clicks: 0 } }; return { ...r, verification: status ? { status, checkedAt: ago(2), checkerContract: SHIPMENT_PROOF.contract, proof: SHIPMENT_PROOF.of(r, "Inspected page"), components: [{ kind: "section_add", state: "verified", note: null }] } : null }; };
     vi.doMock("@/domains/measurement", async (o) => ({ ...(await o<Record<string, unknown>>()), loadProofLedgerCached: async () => [row("a", "verified"), row("b", null), row("c", "not_found")] }));
     vi.doMock("@/app/(shell)/today-gate-data", () => ({ loadTodayV2GateData: async () => ({ unreadable: false, isDemoMode: false, firstReading: { isFirstReading: false, context: null } }) }));
     vi.doMock("@/app/(shell)/today-view-data", async (o) => ({ ...(await o<Record<string, unknown>>()), loadTodayView: async () => ({ hasChanges: true, today: { headerSentence: "", nextOpportunities: [], readyTotal: 0, toDoTotal: 0 } }) }));

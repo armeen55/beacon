@@ -25,7 +25,6 @@ export {
   evaluateWindows,
   verdictPhrase,
   evaluateChange,
-  rankingPriors,
   toKernelInput,
   readLedger,
   bandOf,

@@ -1,5 +1,5 @@
 /**
- * treatment-learning - WHAT EACH KIND OF WORK HAS ACTUALLY RETURNED ON THIS ACCOUNT, off its own ledger and nothing else. PURE: no I/O, no clock, deterministic from the rows handed in; the ONE eligibility verdict it reads is the measurement kernel's own rule over the stored window (proof-gsc/types), which is a leaf with no imports of its own.
+ * Account treatment learning from qualified applied units and recorded comparisons; pure over the supplied ledger.
  * THE QUESTION NOBODY COULD ASK BEFORE. Two files computed a track record, both keyed on the coarse action family alone, and a family is not a bet: an answer block added because assistants never read the page and an answer block added because the opening buried the answer counted as the same kind of change, so a treatment that has never worked here was ranked on the record of one that has. The SIGNATURE is the finer identity, stamped at the press where the family, the treatment, the field and the diagnosed cause are all still in hand.
  * WHOSE READING MAY COUNT. A Shipment is a claim until the live check finds the change on the page, so an unverified one is work SHIPPED and never work that moved anything. A row carrying no stamp at all predates that check entirely: nothing was ever owed one, and refusing those would delete this account's whole track record, because all twenty five settled readings on file today are pre-stamp rows. The one eligibility rule for POLICY numbers (operator, 2026-08-30): only a live-confirmed reading may teach, and a legacy row (no recorded implementation moment) is honestly labelled history and never verified. Verified-only means verified.
  * THIS RETURNS NUMBERS AND NOT SENTENCES. Whether three finished readings may be called evidence is the surface's sentence to write, and `early` plus `overlapping` are the two facts it needs to write it honestly. Nothing here is observational language.
@@ -8,9 +8,11 @@
 import { actionFamilyOf } from "./proof-gsc/change-family";
 import type { ShippedChangeRecord } from "./proof-gsc/shipped-change-store";
 import { learningEligibility, type TreatmentSignature } from "./proof-gsc/types";
+import { SHIPMENT_PROOF } from "./proof-gsc/shipment-proof";
+import { overlapClosures } from "./proof-gsc/read-honesty";
 
 /** WHAT THIS READS OFF A SHIPMENT, and nothing else, so the live ledger, a replay and a test all present the same handful of fields. Type only, which is why importing the store here pulls no server module into this pure file. `baseline` is what the page was already earning, the only thing that turns a reading of plus ten clicks into a percentage anybody can compare, and it is optional because a caller who only wants the family off a row has no page in hand at all. */
-type LearningRow = Pick<ShippedChangeRecord, "actionType" | "after" | "windows" | "implementedAt" | "verification" | "operatorVerdictOverride" | "pinnedRead" | "treatmentStamp" | "componentsApplied"> & Partial<Pick<ShippedChangeRecord, "baseline" | "measurementState" | "controlsReceipt">>;
+type LearningRow = Pick<ShippedChangeRecord, "actionType" | "after" | "windows" | "implementedAt" | "verification" | "operatorVerdictOverride" | "pinnedRead" | "treatmentStamp" | "componentsApplied"> & Partial<Pick<ShippedChangeRecord, "id" | "path" | "page" | "before" | "baseline" | "measurementState" | "controlsReceipt">>;
 
 /** ONE GROUP: every shipment sharing a family and a treatment, and what became of them. `family` is null on the one group that exists only when a row names no kind of work at all; those are reported as unsigned rather than filed under a family somebody guessed. */
 export type TreatmentGroup = {
@@ -20,7 +22,7 @@ export type TreatmentGroup = {
   treatment: string | null;
   /** Every change of this kind the operator marked done, whatever happened next. */
   shipped: number;
-  /** Of those, the ones whose reading may count at all: the change was found on the page, or the row predates the live check. */
+  /** Applied units found under the current checker contract; legacy history never counts. */
   verified: number;
   /** Finished readings that moved the page up, down, and neither. `inconclusive` counts every reading that names NO DIRECTION: an operator's pin, a reading whose credit is shared with a later change on the same page, and a clean no-movement. The first two claim nothing and are also kept out of the numbers below; the third is a measured answer and is one of the readings `sampleSize` counts. */
   ahead: number; behind: number; inconclusive: number;
@@ -42,8 +44,6 @@ const UNSIGNED = "unsigned";
 const FIRST_READING_DAYS = 14, MATURE_WINDOW_DAYS = 28;
 /** A SHIPMENT WHOSE RECORDED WORDING STILL CARRIES BLANKS IS NOT WHAT WENT LIVE: two pages hold "population of NUMBER as of YEAR (SOURCE)" on the ledger while the live pages hold real figures the operator typed, so the stored copy is a template and it votes on nothing. */
 const TEMPLATE_BLANKS = /\[[^\]]*\]|_{3,}|\b(?:NUMBER|YEAR|SOURCE|TBD|XXX+)\b/;
-/** The only two answers that mean the change was really found on the page. A claim, a note and a legacy override row are all "not read yet". */
-const CONFIRMED: ReadonlySet<string> = new Set(["verified", "partially_verified"]);
 /** Readings that have run the full 28 days before a group stops being early. Five is the smallest sample at which a median is not simply the loudest reading, and a 14 day reading is not one of the five. */
 const EARLY_UNDER = 5;
 /** HOW HARD A SMALL SAMPLE IS PULLED TOWARDS NOTHING before it may order anything, which is what the ranking's own comment demands of this input: n/(n+5) hands over a sixth of the record at one reading, half of it at five, and converges on the whole of it as readings pile up. So a thin record can never decide the queue and a real one is never erased. */
@@ -80,10 +80,13 @@ function medianOf(xs: readonly number[]): number | null {
 }
 
 /** THE ONE FINISHED READING on a row, in clicks against comparable pages, with the day it closed on, or null. Longest window wins, so a row whose 28 day window has since closed is read at 28 and never counted twice, and it still has to have actually run, have had real comparison pages behind it, and have closed at or past the first checkpoint. A READING TAKEN AGAINST THE SITE'S OWN MOVEMENT IS REFUSED HERE whatever day it closed on (reviewer, 2026-09-03): too few untouched pages matched, so on the very day a whole family ships at once that comparison subtracts the shared gain from itself and reports that nothing moved. Learning from it would teach this engine that the work does nothing, when what happened is that the comparison went blind. It still renders on its own row. The DAY rides out too: one reading owes the caller two answers, whether it may move the numbers and whether it may end the early standing. */
-function settledLift(r: LearningRow): { lift: number; day: number } | null {
-  if (TEMPLATE_BLANKS.test(r.after ?? "")) return null;
+function settledLift(r: LearningRow, overlap?: { ids: string[]; cleanUntil: string | null }): { lift: number; day: number } | null {
+  if (TEMPLATE_BLANKS.test(SHIPMENT_PROOF.components(r).map((c) => c.after).join("\n"))) return null;
   // ONE ELIGIBILITY VERDICT, THE MEASUREMENT KERNEL'S OWN (proof-gsc/types, learningEligibility). "Any comparison page at all" stood here, and the kernel filed the identical window insufficient below MIN_CONTROLS: five live 14 day readings the screen called unreadable were teaching the ranking their comparison's own 75 click fall. Unknown, unavailable and confounded are all refused here and stay three different facts on the row.
-  const w = [...(r.windows ?? [])].filter((x) => x.adjustedLift != null && x.day >= FIRST_READING_DAYS && learningEligibility(x, r) === "eligible").sort((a, b) => b.day - a.day)[0];
+  const w = [...(r.windows ?? [])].filter((x) => x.adjustedLift != null && x.day >= FIRST_READING_DAYS
+    && learningEligibility({ ...x, controlsUsed: Math.max(x.controlsUsed ?? 0, r.pinnedRead?.basisDay === x.day ? r.pinnedRead.controlsUsed ?? 0 : 0) }, r) === "eligible"
+    && (!overlap?.ids.length || (overlap.cleanUntil != null && Date.parse(r.implementedAt!.slice(0, 10)) + x.day * 86_400_000 <= Date.parse(overlap.cleanUntil))))
+    .sort((a, b) => b.day - a.day)[0];
   return w ? { lift: Math.round(w.adjustedLift), day: w.day } : null;
 }
 
@@ -105,6 +108,7 @@ export function signatureOfShipment(r: LearningRow): TreatmentSignature | null {
 export function treatmentLearning(rows: readonly LearningRow[]): TreatmentGroup[] {
   type Acc = Omit<TreatmentGroup, "key" | "sampleSize" | "netEffect" | "medianEffect" | "early" | "estimate"> & { reads: { lift: number; base: number }[]; mature: number };
   const acc = new Map<string, Acc>();
+  const overlaps = overlapClosures(rows.filter((r) => r.id && r.path && r.implementedAt).map((r) => ({ id: r.id!, path: r.path!, anchoredAt: r.implementedAt! })));
   for (const r of rows) {
     const sig = signatureOfShipment(r);
     // GROUPED ON THE COARSE FAMILY, never on the raw action word: `edit_title`, `title` and `title_meta_rewrite` are one bet spelled three
@@ -116,9 +120,9 @@ export function treatmentLearning(rows: readonly LearningRow[]): TreatmentGroup[
     g.shipped += 1;
     // A LEGACY ROW IS HISTORY, NEVER A TEACHER (operator, 2026-08-30): rows from before live verification existed were counting as verified and training rank. They keep their own honestly labelled count and touch nothing else.
     if (r.implementedAt == null) { g.legacy += 1; acc.set(key, g); continue; }
-    if (!CONFIRMED.has(r.verification?.status ?? "")) { acc.set(key, g); continue; }
+    if (!SHIPMENT_PROOF.of(r)) { acc.set(key, g); continue; }
     g.verified += 1;
-    const read = settledLift(r);
+    const read = settledLift(r, overlaps.get(r.id ?? ""));
     if (read != null) {
       if ((r.treatmentStamp?.overlapAtShip ?? 0) > 0) g.overlapping += 1;
       // MUTED AND ZERO READINGS ARE HISTORY, NEVER SAMPLES (operator, 2026-08-30): an operator's inconclusive pin, a confounded frozen reading, and a clean no-movement each increment the visible count and enter NO effect, sample, median, or family history. They used to be pushed into effects first and excluded only from the direction tally, so three confounded readings could still swing a treatment's net. A KEPT READING CARRIES ITS OWN STANDING OUT WITH IT: what the page was already earning over exactly the span this window covers, which is what makes plus ten clicks on a big page and plus ten on a small one two different facts rather than one fact said twice.

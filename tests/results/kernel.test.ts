@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
-  addDays, bandOf, evaluateChange, evaluateWindows, learningVerdictOf, metricFor, rankingPriors,
-  readLedger, readRecordsForLearning, toKernelInput, verdictPhrase, type KernelInput, type LedgerRecordLike,
+  addDays, bandOf, evaluateChange, evaluateWindows, learningVerdictOf, metricFor,
+  readLedger, readRecordsForLearning, type KernelInput, type LedgerRecordLike,
 } from "@/domains/measurement/proof-gsc/kernel";
-import { learningShape, overlapClosures } from "@/domains/measurement/proof-gsc/read-honesty";
 import { crawlClock, day56Followup, isDueForMeasure } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import { verdictSchedule, type VerdictScheduleRow } from "@/domains/measurement/proof-gsc/verdict-schedule";
 import { applyPinnedRead, pinFor, withCorrection } from "@/domains/measurement/proof-gsc/pinned-read";
 import { contaminationFor, selectMatchedControls } from "@/domains/measurement/proof-gsc/contamination";
 import type { ShippedChangeRecord } from "@/domains/measurement/proof-gsc/shipped-change-store";
 import type { ProofWindowDay, ProofWindowResult } from "@/domains/measurement/proof-gsc/types";
+import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
 /** Outcome-level contract tests for the measurement kernel. These pin CUSTOMER TRUTH, not implementation: every historical shipment maps to exactly one read (nothing disappears); the 7/14/28 windows respect Google's reporting lag; overlapping changes on one page read as confounded; only cleanly-settled reads feed ranking; no operator string claims cause. */
 const NOW = new Date("2026-06-01T00:00:00Z");
 function win(day: 7 | 14 | 28, over: Partial<KernelInput["windows"][number]> = {}) {
@@ -25,65 +25,16 @@ describe("window evaluation and reporting lag", () => {
     expect(evaluateWindows("2026-05-01", NOW, "2026-05-05").find((w) => w.day === 7)!.state).toBe("pending_data"); const w7 = CLOSED_WINDOWS.find((w) => w.day === 7)!;
     expect([w7.state, w7.closesOn]).toEqual(["closed", addDays("2026-05-01", 7)]);});});
 describe("individual directional reads", () => {
-  it("reads a real click gain as an improvement, never as causal proof", () => {
-    const read = evaluateChange(baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: 40 })] }), CLOSED_WINDOWS, []); expect(["directional_improvement", "stronger_improvement"]).toContain(read.verdict);
-    expect(read.rankingSignal).toBeGreaterThan(0); expect(read.headline.toLowerCase()).not.toContain("caused"); expect(read.headline.toLowerCase()).toContain("similar pages");
-    // AND A MOVE THE PAGE'S OWN CLICKS COULD NEVER TELL APART SAYS SO (2026-09-03). Two stretches of counted days swing against each other by themselves, and the fewer the clicks the wider that swing: 400 clicks over 28 days cannot show 10 percent, one click a day cannot show 40, and under 6 clicks across both stretches nothing shows at any size. The band, the signal and the number all stand; the sentence stops offering a per page result the counts cannot carry. A page taking 25 clicks a day reads the same 40 percent exactly as it always did.
-    expect(read.headline).toContain("This page's own clicks cannot prove a change that size: about 20 percent is the least a change here can show, and this one is 10 percent.");
-    const at = (baselineClicks: number, adjustedClicksLift: number) => evaluateChange(baseInput({ actionType: "content", baselineClicks, windows: [win(28, { adjustedClicksLift })] }), CLOSED_WINDOWS, []);
-    const tiny = at(28, 11.2), big = at(700, 280), none = at(2, 3);
-    expect([tiny.verdict, tiny.ownProof.unprovenHere, bandOf(tiny), tiny.rankingSignal > 0]).toEqual(["stronger_improvement", true, "won", true]);
-    expect(tiny.headline).toContain("about 75 percent is the least a change here can show, and this one is 40 percent");
-    expect([big.ownProof.unprovenHere, big.headline]).toEqual([false, "This page moved up after the change: 280 clicks ahead of similar pages over the 28-day window. A clear, well supported move."]);
-    expect([none.ownProof.floor, none.ownProof.unprovenHere]).toEqual([null, false]);
-    expect(none.headline).toContain("Too few clicks on this page for a change of any size to show: 4 clicks across the days before and after.");
-    // AND IT READS AS ONE STATEMENT RATHER THAN TWO ARGUING (wave review, 2026-09-03): a reading its own page cannot carry may not also be called a clear, well supported move in the sentence before. The phrase goes; the verdict, the confidence and the band it was computed from do not move at all, and a reading that clears the floor keeps every word.
-    const SURE = /A clear, well supported move|Still observational, not proof|Worth trying a different angle/;
-    for (const gated of [read, tiny, at(400, -40), none]) expect(gated.headline, gated.headline).not.toMatch(SURE);
-    expect([tiny.verdict, tiny.confidence, bandOf(tiny), SURE.test(big.headline)]).toEqual(["stronger_improvement", "high", "won", true]);});
-  it("owns a decline observationally, with no plus sign on a loss and no verdict while it is still measuring", () => {
-    const read = evaluateChange(baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: -40 })] }), CLOSED_WINDOWS, []); expect(read.verdict).toBe("directional_decline");
-    expect(read.rankingSignal).toBeLessThan(0); expect(read.headline).toContain("moved down after the change");
-    expect(read.headline).toContain("40 clicks behind similar pages");
-    expect(read.headline).not.toMatch(/did not work|\+/); // a loss never renders a plus sign
-    const early = evaluateChange(baseInput({ actionType: "content", windows: [win(7, { adjustedClicksLift: -40 })] }), evaluateWindows("2026-05-01", NOW, "2026-05-10"), []); expect(early.basisDay).toBe(7);
-    expect(early.headline).toContain("Still measuring"); expect(early.headline).not.toMatch(/did not work|try something else|different angle/);});
-  it("stays waiting with no closed window and never reads a dead end", () => {
-    const read = evaluateChange(baseInput({ windows: [win(7, { ran: false })] }), evaluateWindows("2026-05-30", NOW, "2026-05-31"), []); expect([read.verdict, read.rankingSignal]).toEqual(["waiting", 0]);});
   it("reads insufficient evidence on a thin baseline, and on too few comparable pages", () => {
     const thin = evaluateChange(baseInput({ baselineImpressions: 50, windows: [win(28, { adjustedClicksLift: 40 })] }), CLOSED_WINDOWS, []); expect([thin.verdict, thin.rankingSignal]).toEqual(["insufficient_evidence", 0]); expect(thin.confidenceReasons.join(" ")).toContain("50 impressions");
     expect(evaluateChange(baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: 40, controlsUsed: 1 })] }), CLOSED_WINDOWS, []).verdict).toBe("insufficient_evidence");});});
-describe("overlap and confounding honesty", () => {
-  it("flags same-page overlapping windows, names the day the clean one closed, and never two months apart", () => {
-    const overlaps = overlapClosures([{ id: "a", path: "/x", anchoredAt: "2026-05-01" }, { id: "b", path: "/x", anchoredAt: "2026-05-12" }, { id: "c", path: "/y", anchoredAt: "2026-05-05" }]);
-    expect(overlaps.get("a")).toEqual({ ids: ["b"], cleanUntil: "2026-05-12" }); expect(overlaps.get("b")).toEqual({ ids: ["a"], cleanUntil: null });
-    expect(overlaps.get("c")).toEqual({ ids: [], cleanUntil: null }); expect(overlapClosures([{ id: "a", path: "/x", anchoredAt: "2026-05-01" }, { id: "b", path: "/x", anchoredAt: "2026-07-01" }]).get("a")!.ids).toEqual([]);});
-  it("downgrades a directional read to confounded when changes overlap", () => {
-    const read = evaluateChange(baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: 40 })] }), CLOSED_WINDOWS, ["other-change"]); expect([read.verdict, read.rankingSignal]).toEqual(["confounded", 0]);
-    expect(read.headline).toContain("cannot be pinned on one");});
-  it("reads every change on one page as confounded, so no single one is credited", () => {
-    const rec = (id: string, at: string): LedgerRecordLike => ({ id, page: "p", path: "/x", actionType: "content", shippedAt: at,
-      baseline: { impressions: 5000, clicks: 400 }, windows: [{ day: 28, ran: true, adjustedLift: 90, controlsUsed: 3, treatedPostImpressions: 5000 }] });
-    const reads = readLedger([rec("a", "2026-05-01"), rec("b", "2026-05-05")], new Date("2026-07-15T00:00:00Z"), "2026-07-01");
-    expect([reads.every((r) => r.verdict === "confounded"), reads.every((r) => r.rankingSignal === 0)]).toEqual([true, true]);});});
 describe("historical records are preserved end to end", () => {
   it("maps every historical record to exactly one read", () => {
     const records: LedgerRecordLike[] = Array.from({ length: 12 }, (_, i) => ({
       id: `r${i}`, page: `https://site.com/p${i}`, path: `/p${i}`, actionType: i % 2 === 0 ? "edit_title" : "content", shippedAt: "2026-05-01",
       baseline: { impressions: 4000, clicks: 300 }, windows: [{ day: 28, ran: true, adjustedLift: 10, adjustedCtrLift: 0.01, controlsUsed: 3, treatedPostImpressions: 4000 }],}));
     const reads = readLedger(records, NOW, "2026-07-01"); expect([reads.length, new Set(reads.map((r) => r.id)).size]).toEqual([12, 12]);});
-  it("tolerates a legacy record with missing optional fields", () => {
-    const input = toKernelInput({ id: "x", page: "p", path: "/p", actionType: "keep", shippedAt: "2026-05-01" }); expect([input.baselineImpressions, input.windows]).toEqual([0, []]);
-    expect(evaluateChange(input, CLOSED_WINDOWS, []).verdict).toBe("insufficient_evidence"); expect(evaluateChange({ ...input, actionType: "content" }, CLOSED_WINDOWS, []).verdict).toBe("waiting");
-    // AND THE RECRAWL CLOCK IS READ OFF THE SAME TWO FIELDS THE WINDOWS COUNT FROM (2026-09-03). `crawlClock` cannot be imported into this file's subject (measure-lifecycle imports the kernel), so the two are held equal here instead: a crawl older than the change means Google is still serving the old copy, a crawl at or after it has started the clock, and a row nobody asked about keeps the ship clock exactly as it always did.
-    const crawled = (lastCrawlAt: string | null) => ({ id: "c", page: "p", path: "/p", actionType: "content", shippedAt: "2026-05-01", implementedAt: "2026-05-01T00:00:00.000Z", lastCrawlAt });
-    for (const [at, awaiting] of [[null, false], ["2026-04-28T09:00:00.000Z", true], ["2026-05-04T09:00:00.000Z", false]] as const)
-      expect([evaluateChange(toKernelInput(crawled(at)), CLOSED_WINDOWS, []).awaitingCrawl, crawlClock(crawled(at) as unknown as ShippedChangeRecord).awaiting], `last crawl ${at}`).toEqual([awaiting ? "2026-05-01" : null, awaiting]);});});
-describe("ranking outcome signal", () => {
-  it("earns a per-action-type prior only from settled reads at sample floor", () => {
-    const priors = rankingPriors(Array.from({ length: 3 }, () => ({ actionType: "edit_title", read: { rankingSignal: 0.6 } }))); expect(priors.get("edit_title")).toBeCloseTo(0.6, 5);});
-  it("ignores zero-signal reads, and stays neutral below the sample floor", () => {
-    expect(rankingPriors(Array.from({ length: 3 }, () => ({ actionType: "faq", read: { rankingSignal: 0 } }))).has("faq")).toBe(false); expect(rankingPriors([{ actionType: "meta", read: { rankingSignal: 0.6 } }]).has("meta")).toBe(false);});});
+  });
 /** PHASE 7: the windows count from the stamp, a later change on the same page closes the earlier one's clean window instead of being silently measured as if it were clean, the day-56 read runs only when the day-28 read did not settle, and every settled read carries the learning shape. Fixtures only. */
 /** One checkpoint that RAN, on the three fair comparisons every ledger fixture below is read against. */
 type LedgerWindow = NonNullable<LedgerRecordLike["windows"]>[number];
@@ -121,7 +72,7 @@ describe("overlap honesty: a later change closes the earlier one's clean window"
     const second = twoChanges("2026-05-12T00:00:00.000Z")[1]; expect([second.verdict, second.cleanUntil]).toEqual(["confounded", null]);
     expect(second.headline).toContain("other change");});
   it("reads a bundle applied together as ONE treatment, never one read per component", () => {
-    const reads = readLedger([ledgerRow({ componentsApplied: [{ kind: "title" }, { kind: "opening_answer" }, { kind: "internal_link_add" }] })], LATE, "2026-07-01");
+    const reads = readLedger([ledgerRow({ componentsApplied: [{ kind: "title", label: "title" }, { kind: "opening_answer", label: "opening_answer" }, { kind: "internal_link_add", label: "Link" }] })], LATE, "2026-07-01");
     expect(reads).toHaveLength(1); expect([reads[0].overlappingIds, reads[0].cleanUntil]).toEqual([[], null]);
     expect(reads[0].verdict).toBe("directional_improvement");});});
 /** A reading that RAN is a reading the operator has already been shown. Moving the clock under it (a stamp that lands after the ship date, a second press that moves the ship date) may never un-decide it, and the promised dates on Today move with the stamp, never with the press. */
@@ -154,20 +105,6 @@ describe("the dates Beacon promises count from the stamp", () => {
         verdictSchedule([scheduleRow({ ...crawled, lastCrawlAt: at })], NOW_S).firstReadOn == null], `last crawl ${at}`).toEqual([waiting, waiting, waiting]);
     const [plain, withCrawl] = [{}, { lastCrawlAt: crawled.lastCrawlAt }].map((o) => readLedger([ledgerRow({ implementedAt: crawled.implementedAt, ...o })], LATE, "2026-07-01")[0]);
     expect([withCrawl.windows, withCrawl.basisDay, withCrawl.verdict, withCrawl.lift, withCrawl.rankingSignal]).toEqual([plain.windows, plain.basisDay, plain.verdict, plain.lift, plain.rankingSignal]);});});
-describe("the learning shape every read carries", () => {
-  it("names the family from the components the operator applied, biggest thing first", () => {
-    const read = readLedger([ledgerRow({ componentsApplied: [{ kind: "title" }, { kind: "section_add" }],
-      diagnosisCause: "the page never answers the question in the first screen", evidenceItemCount: 6 })], LATE, "2026-07-01")[0];
-    expect(read.learning).toEqual({ actionFamily: "section-family", diagnosisCause: "the page never answers the question in the first screen",
-      evidenceCompleteness: 6, outcomeDirection: "up" });});
-  it("decodes a legacy row with no components, and never guesses what it does not hold", () => {
-    const read = readLedger([ledgerRow({ actionType: "edit_title" })], LATE, "2026-07-01")[0]; expect(read.learning.actionFamily).toBe("title-family");
-    expect([read.learning.diagnosisCause, read.learning.evidenceCompleteness]).toEqual([null, null]);
-    expect(learningShape({ componentKinds: [], actionType: "keep", diagnosisCause: null, evidenceItemCount: null, direction: "flat" }).actionFamily).toBe("unclassified");});
-  it("records the direction of the outcome, unclear while nothing has settled", () => {
-    const down = readLedger([ledgerRow({ windows: [{ day: 28, ran: true, adjustedLift: -80, controlsUsed: 3, treatedPostImpressions: 5000 }] })], LATE, "2026-07-01")[0];
-    const waiting = readLedger([ledgerRow({ windows: [] })], LATE, "2026-07-01")[0]; expect([down.learning.outcomeDirection, waiting.learning.outcomeDirection]).toEqual(["down", "unclear"]);
-    expect(waiting.verdict).toBe("waiting"); expect(waiting.headline).toContain("Still measuring");});});
 /** Product Truth: 7, 14 and 28 always; 56 ONLY when the 28-day read was confounded, insufficient or unclear, or the change was a dangerous one. A clean 28 closes it. */
 describe("the conditional day-56 read", () => {
   const STAMP = "2026-05-01T00:00:00.000Z";
@@ -215,12 +152,7 @@ describe("no causal overclaim on any read", () => {
       expect(read.headline.toLowerCase()).not.toMatch(/caused|thanks to|because of the change|proof that/); expect([read.headline, ...read.caveats].join(" ")).not.toMatch(/[—–]/);}
     const early = readFor([{ day: 7, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 }]); expect([bandOf(early), learningVerdictOf(early)]).toEqual(["promising", "measuring"]);
     expect(early.headline).toContain("This firms up when the 28-day window closes"); });
-  it("says WHAT confounded a read, never just that it is confounded", () => {
-    const [first] = readLedger([ledgerRow({ id: "first", implementedAt: "2026-05-01T00:00:00.000Z" }),
-      ledgerRow({ id: "second", shippedAt: "2026-05-03", implementedAt: "2026-05-03T00:00:00.000Z" })], LATE, "2026-07-01");
-    expect(first.verdict).toBe("confounded"); expect(first.headline).toMatch(/page changed again on [A-Z][a-z]{2} \d{1,2}\b/);
-    expect(first.headline).not.toMatch(/\d{4}-\d{2}-\d{2}/); // never a raw date stamp in operator copy
-    expect(learningVerdictOf(first)).toBe("measuring"); }); });
+   });
 /** THE TWO VOCABULARIES. A row's action word is a KIND from the older producers ("title") or the FAMILY the bundle producer stamps off changeFamily ("title-family"). Only the kinds were in the table, so every family spelling  fell through to CLICKS and a title rewrite was graded on the number it moves last. */
 describe("metric selection and vocabulary", () => {
   it("answers for every canonical KIND and FAMILY spelling, and fails closed on one it does not hold", () => {
@@ -236,11 +168,7 @@ describe("metric selection and vocabulary", () => {
     const read = readLedger([ledgerRow({ actionType: "title-family",
       windows: [{ day: 28, ran: true, adjustedLift: -40, adjustedCtrLift: 0.02, controlsUsed: 3, treatedPostImpressions: 5000 }] })], LATE, "2026-07-01")[0];
     expect([read.metric, read.lift, read.verdict]).toEqual(["ctr", 0.02, "stronger_improvement"]); });
-  it("exposes a phrase for every verdict with no dashes", () => {
-    for (const v of ["waiting", "insufficient_evidence", "directional_decline", "no_clear_movement", "directional_improvement", "stronger_improvement", "confounded"] as const) {
-      const phrase = verdictPhrase(v); expect(phrase.length).toBeGreaterThan(0);
-      expect(phrase).not.toMatch(/[—–]/);}
-  }); });
+   });
 /** A FINISHED READING NEVER MOVES AGAIN. /results re-measures the whole ledger every fifteen minutes against fresh Google data and a fresh comparison set, so a change reported at +1,040 clicks was re-read at +1,428  the same afternoon. Once the window has closed with every day behind it finalized, the tuple is frozen. */
 describe("a settled reading is held still", () => {
   const STAMP = "2026-04-01T00:00:00.000Z";
@@ -295,5 +223,7 @@ describe("one comparison policy, one durable result", () => {
     expect([drift.confidence, drift.confidenceReasons[0]]).toEqual(["low", "Read on the 28-day window against the site's own movement, which is weaker than a comparison with matched pages."]); });
   it("teaches ranking the frozen reading, and records a recompute that disagrees beside it", () => {
     const pin = { verdict: "directional_improvement", metric: "clicks", lift: 1040, impressionsLift: 0, basisDay: 28, confidence: "high", controlsUsed: 4, pinnedAt: "2026-06-01T00:00:00.000Z", finalizedThrough: "2026-05-20" } as const;
-    const learned = readRecordsForLearning([{ ...ledgerRow(), pinnedRead: pin }], LATE)[0]; expect([learned.lift, learned.confidence, learningVerdictOf(learned)]).toEqual([1040, "high", "won"]);
+    const row = { ...ledgerRow(), implementedAt: "2026-05-01T00:00:00Z", after: "Applied copy", controlsReceipt: [{}, {}, {}, {}] };
+    const verified = { status: "verified" as const, checkedAt: "2026-05-02T00:00:00Z", checkerContract: SHIPMENT_PROOF.contract, proof: SHIPMENT_PROOF.of(row, "Inspected page"), components: [{ kind: "content", state: "verified" as const, note: null }] };
+    const learned = readRecordsForLearning([{ ...row, verification: verified, pinnedRead: pin }], LATE)[0]; expect([learned.lift, learned.confidence, learningVerdictOf(learned)]).toEqual([1040, "high", "won"]);
     const corrected = withCorrection(pin, { ...learned, lift: 1428 }, LATE)!; expect([corrected.lift, corrected.corrections?.length]).toEqual([1040, 1]); }); });

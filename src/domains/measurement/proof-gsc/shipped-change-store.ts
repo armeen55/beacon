@@ -22,6 +22,8 @@ const TABLE = "shipped_change_proof", STORE = "proof-gsc-ledger";
  *  each piece so a partly-applied bundle reads as partly applied. A click never stands in for a reading, and the
  *  retired `operator_confirmed` label it once stood in as is gone: no row in the ledger carries it. */
 export type ShipmentVerification = {
+  checkerContract?: 1;
+  proof?: { appliedHash: string; inspectedHash: string } | null;
   status: "verified" | "partially_verified" | "not_found" | "blocked" | "differs";
   checkedAt: string;
   components: Array<{ kind: string; state: "verified" | "not_verified" | "changed_differently" | "unverifiable"; note: string | null }>;
