@@ -7,6 +7,7 @@ import { linkFit, loadPageJobs, pageJobFor, sectionFit, type OwnedPageJob } from
 import type { PageUnderstanding } from "@/domains/decision/producers/page-understanding";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
+import { PROMPT_REGISTRY } from "@/domains/decision/llm/prompt-registry";
 const extract = (path: string, h1 = "Tabriz, Iran") => ({ url: `https://mysite.example${path}`, title: "Tabriz, Iran: what to know before you go", h1, headings: ["Tabriz population", "Tabriz climate", "Things to see in Tabriz"], wordCount: 737 });
 const READING = { job: "This page tells a traveller what the city of Tabriz is like before they visit.", pageType: "city" as const, audience: "travellers planning a trip to Iran", topics: ["Tabriz", "iran travel", "city guide"], commercial: false, promise: "a guide to what the city of Tabriz is like", missing: "what a visitor should do on a first day there", sells: [] };
 /** A completion seam that answers with one fixed reading and counts how many times it actually ran. */
@@ -18,7 +19,7 @@ const store = (remember = true) => { const rows = new Map<string, PageUnderstand
     cursor: async (_t: string, next?: string | null) => (next === undefined ? at : (at = next ? canonicalUrlKey(next) : null)) }; };
 const job = (over: Partial<OwnedPageJob> = {}): OwnedPageJob => ({ ...READING, topics: ["tabriz", "iran travel", "city guide"], url: "https://mysite.example/tabriz", ...over });
 /** Six readings of one account, the shape of a site about one country: "persian", "iranian" and "iran" are on most of its pages, which is why sharing one of them with a search proves nothing. */
-const page = (url: string, pageType: OwnedPageJob["pageType"], job: string, audience: string, topics: string[]): OwnedPageJob => ({ url: `https://mysite.example/${url}`, pageType, job, audience, topics, commercial: pageType === "product", promise: job, missing: `what ${topics[0]} costs`, sells: pageType === "product" ? ["add to basket"] : [] });
+const page = (url: string, pageType: OwnedPageJob["pageType"], job: string, audience: string, topics: string[]): OwnedPageJob => ({ url: `https://mysite.example/${url}`, pageType, job, audience, topics, commercial: pageType === "product", promise: job, sells: pageType === "product" ? ["add to basket"] : [] });
 const PAINTERS = page("painters", "guide", "Introduces the Persian painters of Iran and their work.", "art lovers", ["persian painter", "iranian art", "painting"]);
 const POETS = page("poets", "list", "Lists the Persian poets of Iran who shaped Iranian writing.", "readers", ["persian poet", "poetry", "literature"]);
 const RUGS = page("rugs", "product", "Sells hand woven Persian rugs made in Iran.", "rug buyers", ["persian rug", "carpet", "weaving"]);
@@ -27,7 +28,6 @@ const POPULATION = page("population", "guide", "Reports how many people live in 
 const CORPUS: ReadonlyMap<string, OwnedPageJob> = new Map([PAINTERS, POETS, RUGS, SCIENCE, POPULATION,
   page("music", "guide", "Explains Persian music and the instruments Iranian players use.", "listeners", ["persian music", "instrument", "musician"])].map((j) => [canonicalUrlKey(j.url), j]));
 describe("what one page is for, held durably", () => {
-  /** THE PAGE-READING POOL IS ON THE ONE ATTEMPT RULE TOO (reviewer, 2026-09-06, sixth pass). Its own clause asked the cache flag by itself, so a reading the cache served beside real dollars handed its unit back and the same page could be bought again on money already spent. It reads `DRAFT_BUDGET.noCallMade` now, exactly as the writer, the judging and the six other paid doors do. */
   it.each(["tenant-one", "tenant-two"])("a reading that reached the provider costs the pass's pool a unit, and one the cache served costs it none [%s]", async (tenant) => {
     budget.allowed = true; const s = seam(READING), pool = { left: 3 };
     const hit = { read: async (tenantId: string, key: string) => ({ value: READING, tenantId, key }), write: async () => {}, recentTexts: async () => [] } as never;
@@ -35,12 +35,10 @@ describe("what one page is for, held durably", () => {
     await loadPageJobs(tenant, [extract("/shiraz")], { complete: s.complete, store: store(false), cacheImpl: hit, reads: pool });
     await loadPageJobs(tenant, [extract("/yazd")], { complete: (async () => ({ value: READING })) as never, store: store(false), reads: pool }); // a reading whose receipt counts no request at all: the dollars record none for it, so the pool may not be charged for one either
     expect([pool.left, s.calls()], "a unit pays for a reading that actually left the process, so the pool is charged once and both the reading the cache served and the one that counts no request are handed back for the next page").toEqual([2, 1]); });
-  it("reads a page once, keeps the reading, and serves it free afterwards even when the cache is gone", async () => {
-    budget.allowed = true; const s = seam(READING), db = store();
-    const first = await pageJobFor("t_fixture", extract("/tabriz"), { complete: s.complete, store: db }); expect([first.reason, first.job?.pageType, first.job?.topics, s.calls(), db.rows.size]).toEqual(["read", "city", ["tabriz", "iran travel", "city guide"], 1, 1]);
-    const again = await pageJobFor("t_fixture", extract("/tabriz"), { complete: s.complete, store: db }); // the row IS the answer: nothing is bought twice
-    expect([again.reason, again.job?.job, s.calls()]).toEqual(["read", READING.job, 1]);
-    const changed = await pageJobFor("t_fixture", extract("/tabriz", "Tabriz, Iran: 2026 update"), { store: db, buy: false }); expect([changed.reason, changed.job?.job]).toEqual(["stale", READING.job]);}); // A page that CHANGED under its reading is still answered, labelled stale, until a pass can afford a fresh one.
+  it("keeps an unsaved reading useful but never calls it durable or refunds the provider attempt", async () => {
+    budget.allowed = true; const db = { ...store(), save: async () => false }, pool = { left: 1 }, reasons: string[] = [];
+    const out = await loadPageJobs("t_fixture", [extract("/tabriz")], { store: db, complete: seam(READING).complete, reads: pool, onRead: (_u, r) => reasons.push(r) });
+    expect([reasons, out.get(canonicalUrlKey(extract("/tabriz").url))?.job, db.rows.size, pool.left]).toEqual([["unsaved"], READING.job, 0, 0]); });
   it("says WHY a page has no job instead of answering null five different ways", async () => {
     budget.allowed = true; const db = store();
     expect((await pageJobFor("t_fixture", { url: "https://mysite.example/unread" }, { store: db })).reason).toBe("unreadable"); expect((await pageJobFor("t_fixture", extract("/a"), { store: db })).reason).toBe("not_asked");
@@ -58,8 +56,6 @@ const POOL = [{ t: "acct-reef", e: { url: "https://acct-reef.example/tide-pool-g
 const DOORS = [["blocked_budget", "budget"], ["blocked_credit", "credit_exhausted"], ["blocked_budget", "budget"], ["blocked_budget", "budget"], ["missing_tenant", "transient"], ["unsupported_schema: page_job", "schema_invalid"]] as const; // the six doors the gateway holds in front of the wire, in its own order: research paused, a held credit balance, the cost breaker, the day's cap, no account, a schema nothing can convert. Each stamps zero requests and zero dollars, and each arrives at the pool as `validation_failed`.
 const refused = (error: string, failure: string): CompleteFn => (async () => ({ error, retryable: false, failure, httpAttempts: 0 })) as never;
 describe("the page-reading pool", () => {
-  it.each(POOL)("$t: hands one unit back for one call and never twice", async (s) => { budget.allowed = true; const pool = { left: 3 }, hit = { read: async (tenantId: string, key: string) => ({ value: READING, tenantId, key }), write: async () => {}, recentTexts: async () => [] } as never;
-    await loadPageJobs(s.t, [s.e], { complete: seam(READING).complete, store: store(false), cacheImpl: hit, reads: pool }); expect(pool.left, "the reservation is taken before the reading and given back once when the reading turned out free").toBe(3); });
   it.each(POOL)("$t: costs nothing for a reading the provider door refused before the wire", async (s) => { budget.allowed = true; const left: number[] = [];
     for (const [error, failure] of DOORS) { const pool = { left: 3 }; await loadPageJobs(s.t, [s.e], { complete: refused(error, failure), store: store(false), reads: pool }); left.push(pool.left); }
     expect(left, "an empty balance, a tripped breaker and a paused research switch all answer here with zero requests and zero dollars, which is the one rule's own definition of a call nobody made, so the pass keeps the unit for a page it can still read").toEqual([3, 3, 3, 3, 3, 3]); });
@@ -68,19 +64,23 @@ describe("the page-reading pool", () => {
   it.each(POOL)("$t: and the rotation does not step over a page it never read", async (s) => { budget.allowed = true; const moved: (string | null)[] = [], db = { read: async () => new Map(), save: async () => true, cursor: async (_t: string, next?: string | null) => (next === undefined ? null : (moved.push(next), null)) };
     for (const [error, failure] of DOORS) await loadPageJobs(s.t, [s.e, { ...s.e, url: `${s.e.url}-two` }], { complete: refused(error, failure), store: db as never, reads: { left: 3 }, priority: 0, maxNewReads: 2 });
     expect(moved, "a pass that bought nothing moves nothing, so the next pass starts at the page this one could not afford").toEqual([]); });});
-/** WHAT A PAGE PROMISES, WHAT IT STILL LACKS AND WHAT IT SELLS (landed 2026-09-05 with three schema members, three prompt lines, three columns and no counterexample behind any of them; reviewer, round 2.5). Each pin below is the behaviour a consumer depends on, on two synthetic tenants. */
-describe("the three things a reading says about a page, and what each one changes", () => {
-  it.each(["tenant-one", "tenant-two"])("reads a page once per fingerprint, and re-reads a row that predates the fields instead of serving it as read for ever [%s]", async (tenant) => {
+describe("page identification is not absence evidence", () => {
+  it.each(["tenant-one", "tenant-two"])("keeps identity free but refreshes an old contract without importing its missing-capability guess [%s]", async (tenant) => {
     budget.allowed = true; const db = store(), s = seam(READING);
     const first = await pageJobFor(tenant, extract("/tabriz"), { complete: s.complete, store: db });
-    expect([first.reason, s.calls()], "the first pass buys the reading").toEqual(["read", 1]);
+    expect([first.reason, first.job?.pageType, first.job?.topics, s.calls(), db.rows.size]).toEqual(["read", "city", ["tabriz", "iran travel", "city guide"], 1, 1]);
     expect([(await pageJobFor(tenant, extract("/tabriz"), { complete: s.complete, store: db })).reason, s.calls()], "and the same page under the same fingerprint is served free, for ever, without a second call").toEqual(["read", 1]);
-    const held = [...db.rows.values()][0]!; db.rows.set([...db.rows.keys()][0]!, { ...held, promise: "", missing: "" }); // the shape of every row this account already holds: the fingerprint is the hash of the EXTRACT, so adding a field to what a reading SAYS does not move it
+    expect([(await pageJobFor(tenant, extract("/tabriz", "Tabriz, Iran: 2026 update"), { store: db, buy: false })).reason, s.calls()]).toEqual(["stale", 1]);
+    const version = PROMPT_REGISTRY["draft.page_job"];
+    try { (PROMPT_REGISTRY as Record<string, number>)["draft.page_job"] = version + 1;
+      expect([(await pageJobFor(tenant, extract("/tabriz"), { store: db, buy: false })).reason, s.calls()]).toEqual(["stale", 1]);
+    } finally { (PROMPT_REGISTRY as Record<string, number>)["draft.page_job"] = version; }
+    const held = [...db.rows.values()][0]!; db.rows.set([...db.rows.keys()][0]!, { ...held, contentFingerprint: "legacy-extract-only-fingerprint", missing: READING.missing } as PageUnderstanding);
     const predates = await pageJobFor(tenant, extract("/tabriz"), { store: db, buy: false });
-    expect([predates.reason, predates.job?.job], "a row written before those fields existed still describes the page and is served, and it is STALE, so the ordinary rotation refreshes it; served as read it would answer with them empty for ever and nothing would ever say so").toEqual(["stale", READING.job]);
+    expect([predates.reason, predates.job?.job, "missing" in (predates.job ?? {})]).toEqual(["stale", READING.job, false]);
     const s2 = seam(READING); const refreshed = await pageJobFor(tenant, extract("/tabriz"), { complete: s2.complete, store: db });
-    expect([refreshed.reason, refreshed.job?.promise, refreshed.job?.missing, s2.calls()], "and one pass that can afford a reading fills them in, once").toEqual(["read", READING.promise, READING.missing, 1]); });
-  it.each(["tenant-one", "tenant-two"])("hands the writer the capability a reader still cannot get here and the things the page sells, and asks for both to be left standing [%s]", async (tenant) => {
+    expect([refreshed.reason, refreshed.job?.promise, "missing" in (refreshed.job ?? {}), s2.calls()]).toEqual(["read", READING.promise, false, 1]); });
+  it.each(["tenant-one", "tenant-two"])("hands the writer the evidenced diagnosis and conversion actions, never the old metadata guess [%s]", async (tenant) => {
     vi.resetModules(); const url = "https://mysite.example/hand-loom", asked: string[] = [];
     const body = { url, title: "The Hand Loom", h1: "The Hand Loom", metaDescription: null, vocabulary: "", headings: ["What a hand loom is"], completeness: "complete" as const,
       passages: ["A hand loom is a frame a weaver works by hand rather than by machine.", "Every piece in the collection ships within a week."] };
@@ -100,7 +100,7 @@ describe("the three things a reading says about a page, and what each one change
     await applyDraftedCopy([card] as never, { tenantId: tenant, snapshot: snapshot as never, now: new Date("2026-09-05T00:00:00.000Z"), complete: (async ({ user }: { user: string }) => (asked.push(user), { error: "no reading", retryable: false })) as never,
       budget: DRAFT_BUDGET.plan({ jobs: [{ key: DRAFT_BUDGET.keyOf(card as never), family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }) } as never);
     const prompt = asked.join(" ");
-    expect([asked.length > 0, prompt.includes(reading.missing), prompt.includes("Add to basket; Request a shipping quote")], "the writer is told the shortfall a reading of this page named, and the conversion actions its copy must leave standing").toEqual([true, true, true]);
+    expect([asked.length > 0, prompt.includes(reading.missing), prompt.includes(SUBJECT), prompt.includes("Add to basket; Request a shipping quote")]).toEqual([true, false, true, true]);
     expect(prompt.includes("This page sells, and these are the things it sells and the actions it asks for, every one of which must still be there afterwards"), "and the preservation rule names them out loud rather than leaving the writer to guess what a commercial page owes").toBe(true);
     expect([prompt.includes(`${SUBJECT}: ${ANSWER}`), prompt.includes(JSON.stringify(`${ANSWER} This is about "${SUBJECT}".`).slice(1, -1)), prompt.includes("Judged as an answer this page does not carry, which one publisher that was read for it may stand behind, rated likely")], "and the checked statement reaches the writer under its own id AS THE SENTENCE IT IS, with the search it answers behind that sentence rather than standing in front of it as a label, still saying which bar admitted it, so a card that stands on an addition can be told from one that replaces the page's own words").toEqual([false, true, true]);
     vi.doUnmock("@/domains/decision/producers/page-understanding"); vi.doUnmock("@/domains/evidence/pages/owned-context"); vi.doUnmock("@/domains/evidence/pages/fact-checks"); vi.resetModules(); });

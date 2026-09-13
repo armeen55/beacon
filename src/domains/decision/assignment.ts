@@ -37,7 +37,6 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     return w.length > 0 && w.filter((x) => ownWords.has(x)).length * 2 >= w.length;
   };
   const base = { page: packet.targetUrl, standard, gapKind: kind,
-    ...(packet.reading?.missing?.trim() ? { pageMissing: packet.reading.missing.trim() } : {}),
     ...((packet.reading?.sells ?? []).length > 0 ? { sells: [...packet.reading!.sells] } : {}),
     propositions: props, diagnosedGap: gap,
     intent: [...new Set([...(packet.comparison?.queries ?? []), packet.trackedQuestion ?? "", ...(packet.demand.unanswered ?? [])])].filter((x): x is string => !!x).slice(0, 6),
@@ -154,7 +153,6 @@ const assignmentLines = (a: Assignment): string[] => [
   `MUST LEAD WITH, in your first sentence, in plain public English: ${a.mustLeadWith}`,
   `SUPPORTING FACTS you may state and must cite: ${(a.facts ?? (a.supportingFacts ?? []).map((id) => ({ id, says: "" }))).map((f) => (f.says ? `${f.id} says ${f.says}` : f.id)).join("; ") || "none"}`,
   `PAGE CONTEXT, for tone, placement, what to preserve and what not to repeat${worksFromThePage(a) ? ", and it is the material this edit works from" : ", never material for the new copy"}: ${a.pageContext.join(", ") || "none"}`,
-  ...(a.pageMissing ? [`WHAT A READING OF THIS PAGE SAYS A READER STILL CANNOT GET HERE, which is the shortfall your copy has to close rather than the search string: ${a.pageMissing}`] : []),
   ...((a.sells ?? []).length > 0 ? [`WHAT THIS PAGE SELLS AND ASKS FOR, which your copy must leave standing and may lead a reader towards but never replaces: ${a.sells!.join("; ")}`] : []),
   ...(a.forbidden.length > 0 ? [`NAMED BY THE DIAGNOSIS AND CARRIED BY NOTHING CHECKED, so it is a subject to cover from what IS on file and never a statement of your own: ${a.forbidden.join("; ")}`] : []),
   ...(a.rivals.length > 0 ? [`THE PAGES THAT ALREADY WIN THIS SEARCH (${a.rivals.join(", ")}), read for the subjects they carry and this page does not, which choose the shape and the subjects of this copy and are never a fact you may state: ${[...new Set((a.observations ?? []).map((o) => `"${o.quote}" (${o.publisher}, ${LABELLED_CLASS[o.publisherClass] ?? o.publisherClass})`))].join("; ") || "read but naming nothing this page lacks"}`] : []),

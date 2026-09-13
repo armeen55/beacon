@@ -3,17 +3,10 @@ import "server-only";
 /**
  * decision/producers/page-understanding - THE DURABLE RECORD OF WHAT EACH PAGE IS FOR.
  *
- * One row per (account, canonical page), never a cache entry. The reading used to live in the shared
- * llm-call-cache: 300 rows for a whole account, shared with the nightly answer analyses, pruned by last
- * use, and written back as one whole JSON blob so three of four concurrent readings were lost. A page
- * reading is a durable fact about the site, not an answer to a repeated question, so it is held in a
- * table keyed by the page and versioned by the fingerprint of the extract it was read from.
- *
- * FINGERPRINT VERSIONING. The row carries the hash of the exact extract it was read from. Equal to the
- * current extract means the row still describes the page and is served free. Different means the page
- * changed under it: the row is STALE, still served (a stale sentence about a page is far better than no
- * sentence) and refreshed the next time the pass can afford to buy a reading. There is only ever ONE
- * current row per page, so nothing here ever grows a version history to prune.
+ * One row per (account, canonical page), independent of the shared call cache.
+ * The fingerprint covers the exact selected extract and its reading contract (prompt and schema).
+ * Equal means this identification is reusable; changed means stale, refreshed within the normal pool.
+ * This is page identification, NOT a whole-page reading or a diagnosis of absent information.
  *
  * FAILS CLOSED, SOFT. A missing table, an unconfigured database or a failed write returns empty or
  * false with one honest log line naming the migration. Nothing here throws, and no caller may read an
@@ -30,7 +23,7 @@ const TABLE = "page_understanding";
 const CURSOR_TABLE = "page_job_cursor";
 /** One read never returns more than this, and one batch never asks for more addresses than this. */
 const MAX_ROWS = 500;
-const COLUMNS = "page_key, url, content_fingerprint, job, page_type, audience, topics, commercial, promise, missing, sells, read_at, source_extract_at";
+const COLUMNS = "page_key, url, content_fingerprint, job, page_type, audience, topics, commercial, promise, sells, read_at, source_extract_at";
 
 /** One page's reading, as the store holds it. */
 export type PageUnderstanding = PageJob & {
@@ -45,7 +38,7 @@ export type PageUnderstanding = PageJob & {
 type Row = {
   page_key: string; url: string; content_fingerprint: string; job: string; page_type: string;
   audience: string; topics: string[] | null; commercial: boolean; read_at: string; source_extract_at: string | null;
-  /** NULLABLE BY MIGRATION, so a row written before these fields existed reads back as empty rather than as a page that promises nothing and is missing nothing. */ promise: string | null; missing: string | null; sells: string[] | null;
+  /** Legacy rows can lack a promise or named conversion actions. */ promise: string | null; sells: string[] | null;
 };
 
 /** The table is not there yet, told apart from a real failure so the pre-migration window reads as
@@ -69,7 +62,7 @@ function failClosed(op: string, tenantId: string, error: unknown): void {
 const decode = (r: Row): PageUnderstanding => ({
   url: r.url, contentFingerprint: r.content_fingerprint, job: r.job,
   pageType: r.page_type as PageJob["pageType"], audience: r.audience,
-  topics: (r.topics ?? []).map((t) => t.toLowerCase()), commercial: !!r.commercial, promise: r.promise ?? "", missing: r.missing ?? "", sells: r.sells ?? [],
+  topics: (r.topics ?? []).map((t) => t.toLowerCase()), commercial: !!r.commercial, promise: r.promise ?? "", sells: r.sells ?? [],
   readAt: r.read_at, sourceExtractAt: r.source_extract_at,
 });
 
@@ -103,7 +96,7 @@ async function readPageUnderstanding(
 /**
  * Record what one page is for. ONE upsert on the primary key, never a read then a write, so two passes
  * reading two pages at the same moment cannot overwrite each other and two readings of the SAME page
- * settle on the later one. A changed extract updates the row in place with its new fingerprint, which
+ * settle by write completion, not source recency. A changed extract updates the row in place, which
  * is what keeps exactly one current row per page. False when the write could not land.
  */
 async function savePageUnderstanding(tenantId: string, reading: PageUnderstanding): Promise<boolean> {
@@ -113,7 +106,7 @@ async function savePageUnderstanding(tenantId: string, reading: PageUnderstandin
     const { error } = await getSupabaseAdmin().from(TABLE).upsert({
       tenant_id: tenantId, page_key: key, url: reading.url, content_fingerprint: reading.contentFingerprint,
       job: reading.job, page_type: reading.pageType, audience: reading.audience,
-      topics: reading.topics, commercial: reading.commercial, promise: reading.promise, missing: reading.missing, sells: reading.sells,
+      topics: reading.topics, commercial: reading.commercial, promise: reading.promise, sells: reading.sells,
       read_at: reading.readAt, source_extract_at: reading.sourceExtractAt, updated_at: new Date().toISOString(),
     }, { onConflict: "tenant_id,page_key" });
     if (error) {

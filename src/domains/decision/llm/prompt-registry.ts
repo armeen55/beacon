@@ -68,7 +68,7 @@ export const PROMPT_REGISTRY = {
   // words, and whether it sells. Read off the page's own stored extract and nothing else, so the wording that forbids naming a
   // subject the extract does not carry is the whole contract; any change to it must bump this version. The cache key already
   // folds the extract text, so a re-crawled page pays again on its own and an unchanged page never pays twice.
-  "draft.page_job": 1,
+  "draft.page_job": 2,
   // Registered schema kinds with no bespoke production prompt yet (P8 targets); callStructuredLLM derives draft.<kind>, so they must resolve to a version.
   "draft.tool_asset": 1,
   "draft.commerce_asset": 1,

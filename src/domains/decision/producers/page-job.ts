@@ -1,14 +1,16 @@
 import "server-only";
 
-/** decision/producers/page-job: WHAT ONE PAGE IS FOR, in a sentence, read off the page's own stored extract. Every producer in this folder decides which page a search belongs on by counting shared words. Shared words are a coincidence detector, not an understanding: a page of Persian boy names and a page about a city in Iran share the word "Iranian", so a section about one landed on the other. A page job is the missing sentence. It says what the page is for, what shape it is, who reads it, which subjects it covers and whether it sells, and a fit check reads that instead of guessing from an overlap. FOUR RULES HOLD THIS FILE. 1. THE READING IS DURABLE. It lives in page_understanding, one row per page, versioned by the fingerprint of the extract it was read from. It used to live in the shared call cache, which held 300 rows for a whole account and was emptied nightly by the answer analyses, so a site that had been read woke up knowing nothing about itself. A row whose fingerprint still matches is served free forever; a row whose page changed under it is served STALE and refreshed when the pass can afford to. 2. A MISSING READING IS TYPED, never a bare null. "Not asked" and "could not afford" and "the page has no words" are opposite facts that used to arrive as the same silence. Callers act on the reason: a card that carries a subject from somewhere else onto a page HOLDS when the reason is not_asked or refused, because placing an essay on a page nobody has read is research, not publishable work; unaffordable and unreadable keep the old fail-open behaviour so a budget ceiling never empties the queue. 3. THE WHOLE SITE GETS READ. One pass buys at most MAX_NEW_READS_PER_PASS new readings, spent on the pages that matter first and then on a rotation through everything else, resumed from a persisted cursor, so a large site converges over passes instead of re-reading the same sixty pages forever. 4. BOUNDED SPEND. Every read goes through the drafter's own checkBudget/recordSpend gateway, and a durable or cached hit costs nothing and counts against nothing. The reading NAMES the page. It never writes copy, never proposes a change, and never decides that a page should exist: that verdict belongs to the coverage path, which owns new-page identity. */
+/** Page identification from a bounded owned extract: purpose, shape, audience, subjects and observed conversion actions. This is NOT whole-page understanding or absence evidence. One durable row per page is reusable only under its extract and reading contract. Stale identity remains a free hint; normal bounded priority and rotation refresh it. Missing, refused, unaffordable and unsaved readings have distinct reasons. Page coverage and change diagnosis belong to the existing evidence/diagnosis paths, never this reader. */
 
 import { createHash } from "node:crypto";
+import { z } from "zod";
 import { log } from "@/lib/logger";
 import { topicTokens } from "@/domains/evidence/relevance-gate";
 import { canonicalUrlKey, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { callStructuredLLM, type CompleteFn } from "@/domains/decision/llm/structured-drafter"; import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import type { CacheImpl } from "@/domains/decision/llm/call-cache";
-import type { PageJob } from "@/domains/decision/llm/schemas";
+import { SCHEMA_BY_KIND, type PageJob } from "@/domains/decision/llm/schemas";
+import { PROMPT_REGISTRY } from "@/domains/decision/llm/prompt-registry";
 import { pageStore, type PageUnderstanding } from "./page-understanding";
 
 /** What one page's stored capture holds, as much of it as the caller actually has. Every field is optional on
@@ -32,8 +34,8 @@ export type OwnedPageJob = PageJob & { url: string };
  *  read: a current reading, from the durable row or bought just now. stale: a reading taken before the page
  *  changed, served as the best thing known. not_asked: nobody asked, so nobody knows. unaffordable: the pass or
  *  the account was out of budget. unreadable: the capture holds no words to read. refused: the reading was asked
- *  for and did not come back usable. */
-type JobReason = "read" | "stale" | "not_asked" | "unaffordable" | "unreadable" | "refused";
+ *  for and did not come back usable. unsaved: usable in memory, but not recorded durably. */
+type JobReason = "read" | "stale" | "not_asked" | "unaffordable" | "unreadable" | "refused" | "unsaved";
 
 /** The durable store, injectable so tests exercise the whole path with no database. */
 type Store = typeof pageStore;
@@ -63,8 +65,7 @@ const SYSTEM = [
   "5. topics: 3 to 8 lowercase subject words or short phrases the page is actually about. No filler, no slogans, no site name.",
   "6. commercial: true only when the page exists to sell something.",
   "7. promise: what this page's TITLE promises a reader, in one plain clause, taken from the title and heading alone. If the title announces a roster, a list or a comparison, say so in those words.",
-  "8. missing: the ONE capability a reader arriving for this page's own subject still cannot get here, in one plain clause. Never advice, never a change to make, never a subject the page was never about.",
-  "9. sells: the products and the conversion actions the given text names, in its own words (for example a price, an add to basket, a booking, a quote request, a sign up). Empty array when the page only informs.",
+  "8. sells: only the products and conversion actions the supplied text explicitly names, in its own words. Empty array means none were observed in this extract, NOT that none exist on the whole page. This selected extract cannot establish missing information; diagnose no absence or change.",
   "Write plain English. Use no dashes. Use no number you were not given.",
 ].join("\n");
 
@@ -76,7 +77,7 @@ const pathOf = (url: string): string => {
   try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return url; }
 };
 
-/** The page as the model sees it. This text IS both the cache key input and the durable row's fingerprint, so a
+/** The page as the model sees it. This text and its reading contract determine reuse, so a
  *  page whose capture changed asks a different question and a page whose capture did not is answered for free. */
 function extractLines(extract: PageExtract): string[] {
   const headings = (extract.headings ?? [])
@@ -93,8 +94,8 @@ function extractLines(extract: PageExtract): string[] {
   ];
 }
 
-/** THE FINGERPRINT of the exact capture a reading was taken from. Equal means the row still describes the page. */
-const fingerprintOf = (lines: readonly string[]): string => createHash("sha256").update(lines.join("\n")).digest("hex").slice(0, 32);
+/** The selected extract plus its exact prompt/schema contract. This does not fingerprint unseen body content. */
+const fingerprintOf = (lines: readonly string[]): string => createHash("sha256").update(JSON.stringify([PROMPT_REGISTRY["draft.page_job"], SYSTEM, z.toJSONSchema(SCHEMA_BY_KIND.page_job), lines])).digest("hex").slice(0, 32);
 
 /** A page with no words of its own captured cannot be read, and paying to be told so is waste. */
 const readable = (extract: PageExtract): boolean =>
@@ -126,8 +127,8 @@ async function readPageJob(
   const fingerprint = fingerprintOf(lines);
   // THE DURABLE ROW FIRST, always free. Its fingerprint decides whether it still describes this page.
   const held = opts.held !== undefined ? opts.held : (await store.read(tenantId, [extract.url]).catch(() => null))?.get(canonicalUrlKey(extract.url)) ?? null;
-  const asJob = (r: NonNullable<typeof held>): OwnedPageJob => ({ job: r.job, pageType: r.pageType, audience: r.audience, topics: r.topics, commercial: r.commercial, promise: r.promise, missing: r.missing, sells: r.sells, url: extract.url });
-  /* A ROW THAT PREDATES A FIELD STILL DESCRIBES THE PAGE, AND IS STALE (2026-09-05). The fingerprint is the hash of the EXTRACT, so adding a field to what a reading says does not move it and every row already on file would have answered "read" with the new fields empty for ever. A row missing them is served exactly as a row whose page moved under it is served: it answers now, free, and the ordinary rotation refreshes it when the pass can afford one. No site-wide reread, no second cursor, and no caller has to know the difference. */ if (held && held.contentFingerprint === fingerprint && held.promise.trim() !== "" && held.missing.trim() !== "") return { job: asJob(held), reason: "read", paid: false };
+  const asJob = (r: NonNullable<typeof held>): OwnedPageJob => ({ job: r.job, pageType: r.pageType, audience: r.audience, topics: r.topics, commercial: r.commercial, promise: r.promise, sells: r.sells, url: extract.url });
+  if (held && held.contentFingerprint === fingerprint && held.promise.trim() !== "") return { job: asJob(held), reason: "read", paid: false };
   const stale = (): { job: OwnedPageJob | null; reason: JobReason; paid: boolean } =>
     held ? { job: asJob(held), reason: "stale", paid: false } : { job: null, reason: "unaffordable", paid: false };
   if (opts.buy === false) return stale();
@@ -159,11 +160,11 @@ async function readPageJob(
     }
     const value = call.value as PageJob;
     const job: OwnedPageJob = { ...value, topics: value.topics.map((t) => t.toLowerCase()), url: extract.url };
-    await store.save(tenantId, {
+    const saved = await store.save(tenantId, {
       ...job, contentFingerprint: fingerprint,
       readAt: (opts.now ?? new Date()).toISOString(), sourceExtractAt: extract.fetchedAt ?? null,
     }).catch(() => false);
-    return { job, reason: "read", paid: !DRAFT_BUDGET.noCallMade(call) }; // ONE RULE, NOT A SECOND SPELLING OF IT (reviewer, 2026-09-06, sixth pass): asked on the cache flag alone, a reading the cache served beside real dollars handed its unit back to the pool, so the pass could buy the same page again on money it had already spent. Nothing else moves: the gateway stamps zero dollars on every cache hit it serves.
+    return { job, reason: saved ? "read" : "unsaved", paid: !DRAFT_BUDGET.noCallMade(call) };
   } catch (e) {
     log.warn("[page-job] page job read failed (the page keeps the behaviour it had without one)", {
       error: e instanceof Error ? e.message.slice(0, 200) : String(e),
