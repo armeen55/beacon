@@ -117,6 +117,7 @@ function schemaFailures(p: ChangeProposal, change: Extract<RecommendedChange, { 
   if (types.size === 0) return { failures: ["This structured data names no type, so nothing in it tells a search engine what the page is."], limitations: [] };
   const warnings = SCHEMA.warnings(change.after).map((w) => w.replace(/\s*[–—]\s*/g, ", "));
   const failures = warnings.filter((w) => w.startsWith("schema_critical:")).map((w) => `This structured data is incomplete: ${w.slice("schema_critical:".length).trim()}`);
+  if (change.before != null && (SCHEMA.read(change.before).unread || schemaVisible(change.before).types.size === 0)) failures.push("The existing block shown for replacement is not readable Schema.org JSON-LD. Identify the exact existing markup before replacing it; visible page text is not a schema block.");
   const limitations = warnings.filter((w) => !w.startsWith("schema_critical:")).map((w) => w.replace(/^schema_\w+:\s*/, ""));
   const published = opts.pageBodyText ?? "";
   const carried = flatten(published);
@@ -140,7 +141,7 @@ function schemaFailures(p: ChangeProposal, change: Extract<RecommendedChange, { 
   const already = change.before == null ? [...types].find((t) => live.has(t)) : null;
   if (already) failures.push(`The page already carries a ${already} block, so this must replace it, not add a second one.`);
   if (types.has("FAQPage")) {
-    const said = [p.opportunityType, p.whyItMatters, change.where ?? "", ...p.limitations, ...(p.claims ?? []).map((c) => c.text), ...(p.operatorSteps ?? [])].join(" ");
+    const said = [p.opportunityType, p.whyItMatters, change.where ?? "", ...p.limitations, ...(p.claims ?? []).filter((claim) => !visible.some((value) => flatten(value) === flatten(claim.text))).map((c) => c.text), ...(p.operatorSteps ?? [])].join(" ");
     if (RICH_CLAIM.test(said)) failures.push("This sells an FAQ block as a richer search listing, but Google stopped showing FAQ rich results on May 7, 2026, so that is not a promise this change can make.");
     limitations.push(FAQ_SCHEMA_LIMIT);
   }
@@ -250,18 +251,33 @@ function componentFailures(components: readonly BundleComponent[], heldHeadings:
   return out;
 }
 
-/** Convert a stored schema-as-section once without paid drafting. */
+/** Schema action metadata comes from its typed block, never inherited prose instructions or promises. */
 export function convertSectionToSchema(p: ChangeProposal): ChangeProposal | null {
   const c = p.recommendedChange;
-  if (c.kind !== "existing_edit" || c.field === "schema") return null;
+  if (c.kind !== "existing_edit" || p.bundle || !["ready", "needs_review"].includes(p.status)) return null;
+  if (c.before != null && (SCHEMA.read(c.before).unread || schemaVisible(c.before).types.size === 0)) return null;
   const after = c.after.trim().replace(/^<script[^>]*>/i, "").replace(/<\/script>$/i, "").trim();
   if (!/^[[{]/.test(after)) return null;
-  const { parsed, types } = schemaVisible(after);
+  const { parsed, graph, types } = schemaVisible(after);
   if (parsed == null || types.size === 0) return null;
-  const kept = p.limitations.filter((l) => !RICH_CLAIM.test(l)); // AND THE SAME LINE IS NOT A CLAIM EITHER (falsifier, 2026-09-02): the FAQ row's own "FAQ rich results" claim asserted an outcome no source carries, so the row refused itself for ever on the very sentence this conversion exists to retire.
-  const claims = (p.claims ?? []).filter((x) => !RICH_CLAIM.test(x.text));
-  return { ...p, ...(p.claims ? { claims } : {}), recommendedChange: { ...c, field: "schema", after, where: c.where?.trim() || "Add this block to this page's own custom code, in the head of this page only. It adds no visible text and changes nothing a reader sees." },
-    limitations: types.has("FAQPage") ? [...new Set([...kept, FAQ_SCHEMA_LIMIT])] : kept }; }
+  const faq = types.has("FAQPage") && [...types].every((type) => ["FAQPage", "Question", "Answer"].includes(type)), action = c.before == null ? "Add" : "Replace";
+  if (c.field === "schema" && !faq) return null;
+  const kept = c.field === "schema" ? p.limitations : p.limitations.filter((l) => !RICH_CLAIM.test(l));
+  const where = "In this page's own custom code, in the page head. This is JSON-LD, not visible page text.";
+  const normalized: ChangeProposal = { ...p,
+    opportunityType: `${action} ${faq ? "FAQ" : [...types].sort().join(", ")} structured data`,
+    whyItMatters: faq ? `${SCHEMA.pairs(graph).length} question and answer associations are represented in this block. ${FAQ_SCHEMA_LIMIT}`
+      : "This block describes the page's content in machine-readable form. It does not rewrite the page or promise ranking or citation gains.",
+    recommendedChange: { ...c, field: "schema", after, where },
+    operatorSteps: [c.before == null
+      ? "Add the complete block shown here to this page's own custom code. Do not replace unrelated markup."
+      : "Find the exact existing block shown under Now and replace only that block with the complete replacement. Preserve unrelated markup.",
+    `Do not paste JSON-LD into visible page text. Confirm ${faq ? "every question and answer" : "the represented content"} still matches the published page before applying it.`,
+    "After publishing, check the live page and mark this change implemented. If the represented content changes later, its markup must be updated too."],
+    ...(after !== c.after.trim() ? { previousCopy: { after: c.after.trim(), retiredBecause: "Schema action conversion removed the script wrapper without a model call", at: new Date().toISOString(), attempts: p.previousCopy?.attempts ?? 0 } } : {}),
+    limitations: faq ? [...new Set([...kept, FAQ_SCHEMA_LIMIT])] : kept };
+  return JSON.stringify(normalized) === JSON.stringify(p) ? null : normalized;
+}
 
 /** Refuse edits that empty or gut the current value. */
 function isDestructiveEdit(before: string | null, after: string): boolean {
@@ -315,11 +331,9 @@ export function validateProposal(
   const change = proposal.recommendedChange;
   if (proposal.researchOnly === true && change.kind === "existing_edit") return { verdict: "needs_review", qualityStatus: "useful_but_needs_review", reasons: ["the exact copy is not written yet, so there is nothing here for the canon to read"], factViolations: [], corrections: [], safetyFlags: [], limitations: [], confidence: "low" }; // A BRIEF IS NOT OPERATOR COPY (D-036; operator, 2026-09-02): a research row's `after` is the INSTRUCTION for the work, and pointing the copy gates at it rejected 79 of 90 briefs as thin, generic or off-topic writing, which is a verdict about words nobody has written. The canon abstains and the row waits for the draft it is owed. A new-page BRIEF keeps its own gate (evaluateNewPageBrief) and is deliberately not covered here.
   const texts = operatorFacingText(proposal), query = proposal.primaryQuery;
-  // STRUCTURED DATA IS JUDGED BY ITS OWN GATE, and by that gate ONLY: the prose rules below all read a JSON-LD
-  // block as broken prose, so they are asked of every field except this one.
+  // Structured data uses its own gate instead of prose quality rules.
   const schema = change.kind === "existing_edit" && change.field === "schema" ? schemaFailures(proposal, change, opts) : null;
 
-  // ── hard-safety scanners (deterministic, no LLM) ────────────────────────────
   const safetyFlags: string[] = [];
   for (const t of texts) {
     if (looksLikePlaceholder(t)) safetyFlags.push("Contains a placeholder / template stub.");
@@ -343,7 +357,6 @@ export function validateProposal(
       })
     : { entailed: true, violations: [], corrections: [], findings: [] };
 
-  // ── draft-quality gate (generic/thin/relevance/source-authority) ────────────
   let quality: DraftQualityResult;
   if (schema) {
     quality = schema.failures.length > 0
@@ -367,7 +380,6 @@ export function validateProposal(
     quality = evaluateNewPageBrief(proposal, change, opts.evidenceText ?? null);
   }
 
-  // ── the component gate + the two-step hold ──────────────────────────────────
   const components = proposal.bundle?.components ?? [];
   const componentFails = [...componentFailures(components, opts.heldHeadings ?? []),
     ...receiptIntegrityFailures(proposal)];

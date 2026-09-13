@@ -1443,46 +1443,7 @@ describe("typed refusal contract", () => { // ── the typed refusal contract:
       expect(unreviewed({ ...done, ...broken } as never), `${what} voids the reading`).toContain("complete editor acceptance");
     expect((out2[0]!.recommendedChange as { where?: string }).where).toContain("placed after"); // exact placement on the rendered change
     bodyStore.map = null; });
-  /* RETIRED WITH SHIP MODE (operator, 2026-09-10): this case pinned a taste gate or the packet regime that no longer refuses additive body work; parked, not deleted, so the inventory shows exactly what was cut. */
-it.skip("holds an ungrouped list and a lone fact when the assignment owes a complete packet", async () => {
-    const { canonicalUrlKey: ck6 } = await import("@/domains/evidence/snapshot");
-    const URL_R = "https://www.iranopedia.com/persian-rugs";
-    const body = { url: URL_R, title: "Persian Rugs", h1: "Persian Rugs", metaDescription: null, vocabulary: "",
-      headings: ["Tabriz", "Kashan", "Kerman"],
-      passages: ["Persian rugs come in many types, woven city by city.",
-        "Tabriz rugs are knotted tightly and their patterns hold fine detail.",
-        "Kashan rugs use a central medallion, and Kerman rugs use open ground with a wide decorated border."] };
-    const page = { url: URL_R, content: { wordCount: 400, title: body.title, h1: body.h1, outline: body.headings }, search: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } };
-    const rival = { url: "https://rival.example/rug-types", domain: "rival.example", engines: [], examplePrompts: [], appearances: [{ query: "types of persian rugs" }],
-      extract: { title: "Rug Types", h1: null, wordCount: 2000, headings: ["Knot density"], faqCount: 0, entityNames: [], openingSample: "", hasList: true } };
-    const snapshot = { ownedPages: [page], research: { serpEvidence: [{ query: "types of persian rugs", organic: [{ rank: 1, url: rival.url }] }], winningPages: [rival] },
-      sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
-    const card = prop({ id: `${TENANT}::/persian-rugs::existing_edit::ai_answer_gap`, pagePath: "/persian-rugs", pageUrl: URL_R,
-      changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "types of persian rugs",
-      treatment: "add_answer_section", limitations: [], evidence: { query: "types of persian rugs", hints: [], evidenceRefCount: 1 },
-      recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the question." } });
-    factStore.rows = []; // NO checked fact anywhere, which is the production reality this page has always been in
-    bodyStore.map = new Map([[ck6(URL_R), body]]);
-    const L1 = "Persian rugs are named for the city that wove them, and the weave is what tells the types apart.";
-    const L2 = "Tabriz rugs are knotted tightly, which is what lets their patterns hold fine detail.";
-    const L3 = "Kashan rugs use a central medallion, and Kerman rugs use open ground with a wide decorated border.";
-    const why = new Map<string, string>();
-    const run = async () => applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, refusals: why,
-      judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ claims: d.claims.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })), pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" })) as never,
-      budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/persian-rugs", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
-      complete: async () => ({ value: { field: "answer_block", before: null, rationale: "grounded", ...TAIL, placementAnchor: "Persian Rugs",
-        after: `${L1}\n${L2}\n${L3}`, naturalHeading: "How the main types differ",
-        claims: [{ text: L1, supportedBy: ["page-copy-1"] }, { text: L2, supportedBy: ["page-copy-2"] }, { text: L3, supportedBy: ["page-copy-3"] }] } }) } as never);
-    const landed = await run();
-    expect(landed[0]!.status).toBe("needs_review"); expect([...why.values()].join(" ")).toContain("Group the answer under one to three headings");
-    const why2 = new Map<string, string>();
-    const thin = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, refusals: why2,
-      judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ claims: d.claims.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })), pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" })) as never,
-      budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/persian-rugs", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
-      complete: async () => ({ value: { field: "answer_block", before: null, rationale: "grounded", ...TAIL, placementAnchor: "Persian Rugs",
-        after: L1, naturalHeading: "How the main types differ", claims: [{ text: L1, supportedBy: ["page-copy-1"] }] } }) } as never);
-    expect(thin[0]!.status).toBe("needs_review"); // Retired: short body copy no longer satisfies a full section assignment.
-    bodyStore.map = null; factStore.rows = []; });});
+});
 describe("a day holding writable AI work is not a quiet day", () => {
   const card = (treatment: string | null) => ({ treatment });
   it("opens the editor on any dispatched pass that holds a writable card: consent decides, never a queue count", async () => {

@@ -146,8 +146,7 @@ export function openHold(p: ChangeProposal, also: { found?: readonly string[] } 
   if (dated && dated < new Date(Date.parse(p.createdAt) || Date.now()).toISOString().slice(0, 10) && !advisories.some((a) => a.kind === "reading_dated")) advisories.push({ kind: "reading_dated", say: `Backed by readings last taken on ${dated}. Check the page still reads that way before you paste.`, weight: 0.5 });
   const defects = heldBy.filter((x) => x !== DANGER), blocking = hard.find((h) => heldBy.includes(h)) ?? null;
   return { lane: p.researchOnly === true || gaps.some((g) => NOT_WRITTEN.test(g)) ? "research" : "review",
-    // EVERYTHING BEACON KNOWS ABOUT WHY THIS IS HELD, not the first kind of reason it happens to find: a row with a safety hold AND a copy fault used to print only the hold, so the defect stayed invisible.
-    // AND WHAT IS LEFT FOR THE OPERATOR TO KEEP IN MIND, DECIDED HERE AND NOWHERE ELSE. A caveat is what a person should bear in mind about finished words; a sentence one of Beacon's own gates wrote is a defect Beacon owns, named above or answered by the typed fault and the obligation. The ten advisory kinds ride here in the operator's own words, so a condition that used to hide the work now reaches the card as a caveat and a ranking weight, and no screen can invent a second vocabulary for either half.
+    // Report every hold owner and keep advisories separate from Beacon-owned defects.
     why: heldBy.length > 0 ? heldBy : [UNJUDGED], caveats: [...tasteSaid.map((t) => `A reviewing editor objected: ${t}. Read it once yourself before pasting.`), ...advisories.map((a) => a.say), ...AEO_BAR.writerLimitations(p.limitations).filter((l) => current(l) && !GATE_WORDS.test(l) && !said.includes(l))], blocking, faulted: defects.length > 0, safetyHold: blocking === DANGER, defects, advisories };
 }
 
@@ -206,8 +205,7 @@ export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal |
   const row0 = decideFinished(incoming, prior);
   const row = !row0.semanticReview && prior?.semanticReview && prior.semanticReview.of === copyKey(row0)
     ? { ...row0, semanticReview: prior.semanticReview } : row0;
-  // THE SAME WORDS BACK AGAIN ARE NOT A SECOND ATTEMPT, THEY ARE THE ANSWER (operator, 2026-09-02): a writer handing
-  // back copy this row already retired has said everything it has to say, so the row settles rather than cycling.
+  // Returning retired words settles the row instead of cycling.
   const again = row.recommendedChange.kind === "existing_edit" && !!row.previousCopy
     && row.recommendedChange.after.trim() === row.previousCopy.after.trim();
   return again ? { ...row, obligation: { kind: "terminal", reason: "the writer handed back the exact words this change already retired, so it is settled rather than drafted again" } } : row;
@@ -227,8 +225,7 @@ function decideFinished(incoming0: ChangeProposal, prior00: ChangeProposal | nul
   const inherited = prior?.previousCopy && !incoming.previousCopy ? { previousCopy: factMoved ? { ...prior.previousCopy, attempts: 0, retiredBecause: identityMoves(prior!, incoming) } : prior.previousCopy, ...(!factMoved && (prior.faults ?? []).includes(prior.previousCopy.retiredBecause) ? { faults: [...new Set([...(incoming.faults ?? []), prior.previousCopy.retiredBecause])] } : {}) } : {}; // AND THE SENTENCE THAT RETIRED THE WORDS RIDES WITH THE RECEIPT (RV8 residual 1, 2026-09-05): a producer re-mints a research row every pass carrying no faults, so a refusal the drafting pass had just stamped survived exactly one pass and the row went back to owing a first draft. Only the retirement's OWN reason is carried, and only while the prior stands behind it as a typed fault, so an identity move or a stale-rules re-read carries nothing; the incoming row's own faults are kept beside it.
   const priorAfter = prior?.recommendedChange.kind === "existing_edit" ? prior.recommendedChange.after.trim() : "", settledStep = sameWork && (prior!.obligation?.kind === "terminal" || (prior!.obligation?.kind === "evidence" && prior!.obligation.need.reasonCode === "no_winner_to_read")) && !incoming.obligation && !prior!.redraftRequested ? { obligation: prior!.obligation } : {};
   if (!prior || !sameWork) {
-    // FINISHED COPY IS NEVER LOST WITHOUT A RECEIPT, whether the replacement is a brief OR different finished
-    // words: a finished prior whose words do not survive into the incoming row stamps the retirement receipt.
+    // Replacing finished words records their retirement.
     const incomingAfter = incoming.recommendedChange.kind === "existing_edit" ? incoming.recommendedChange.after.trim() : "";
     if (prior && deliverableGaps(prior).length === 0 && priorAfter && priorAfter !== incomingAfter) {
       if (incoming.previousCopy?.after === priorAfter) return incoming; // A caller's exact retirement receipt owns its actual attempt count, including a no-model reconciliation.
@@ -241,10 +238,7 @@ function decideFinished(incoming0: ChangeProposal, prior00: ChangeProposal | nul
   if (prior.redraftRequested) return { ...incoming, ...inherited };
   // A RESEARCH BRIEF IS NEVER FINISHED WORK, however complete its sentences read (Codex, 2026-08-23): a gap-free instruction ("the work is reachability first") beat the finished /funny-farsi-phrases answer here, one second after that answer saved. Only a row that is itself a deliverable may replace one. AND A SECOND GENERATION OF THE SAME WORK DOES NOT GET TO REPLACE THE ONE THAT ALREADY PASSED. A model varies run to run, which is fine BEFORE validation and never after it: five inspected deliverables persisted as three because a later pass under the same identity re-drafted them and saved whatever it got that time, once storing "Goodbye: goodbye." over a finished answer. Identity is the whole of it, so anything that would make the old answer wrong reopens it: `workKey` folds the writer contract, the basis, the evidence hash, the treatment, the cause and the query, and `copyStamp` is the page as it was last read. A missing stamp on either side is NOT a match, so a row from before this rule is replaced exactly as it was.
   const settled = prior.status === "ready" && deliverableGaps(prior).length === 0 && !!prior.workKey && prior.workKey === incoming.workKey && !!prior.copyStamp && prior.copyStamp === incoming.copyStamp;
-  // A PAID REVIEW BOUND TO THE PRIOR'S EXACT COPY OUTRANKS AN UNREVIEWED RE-MINT (live, 2026-09-01): the $0
-  // template a producer mints every pass looked complete, so it replaced a drafted and adversarially read row
-  // whole, and two paid redrafts were erased the pass after they landed. The reviewed prior takes the kept
-  // path below, where its provenance is still demanded before a word survives.
+  // A review bound to the prior exact copy outranks an unreviewed re-mint; its provenance must still survive.
   const reviewedPrior = !!prior.semanticReview && prior.semanticReview.of === copyKey(prior) && !(incoming.semanticReview && incoming.semanticReview.of === copyKey(incoming));
   if (!settled && !reviewedPrior && ((incoming.researchOnly !== true && deliverableGaps(incoming).length === 0) || deliverableGaps(prior).length > 0 && !(prior.kind === "new_page" && prior.newPageDraft && !incoming.newPageDraft))) return { ...incoming, ...inherited, ...settledStep };
   // COPY NOBODY CAN TRACE IS NOT FINISHED WORK. An atomic card's words are written by the editor, which hands back every claim beside the evidence ids carrying it, and this branch banked the words and dropped the claims: all three ready cards on the live account carried `claims: null` and no persisted mapping from a sentence to the thing behind it, so nothing on the row could ever be re-checked. Banked words survive only WITH their provenance now, and copy that reached the row before this did is redrafted once rather than served on for ever as an unsupported claim. A bundle answers on its receipt instead and is left alone.
@@ -253,16 +247,11 @@ function decideFinished(incoming0: ChangeProposal, prior00: ChangeProposal | nul
   // AND A CLAIM POINTING AT AN ID NOBODY BANKED THE WORDS FOR IS NOT PROVENANCE EITHER. The ids resolve inside the pass that drafted the copy and nowhere else, so banked words survive only while every id their claims name has its exact quoted fact banked beside them. Copy banked before the pairs existed is redrafted once, exactly as copy banked before the claims existed was.
   const banked = new Set((prior.supportFacts ?? []).map((f) => f.id));
   if (!prior.bundle && (prior.claims ?? []).some((c) => c.supportedBy.some((id) => !banked.has(id)))) return { ...incoming, ...inherited, ...settledStep };
-  // The words, where they land, what they cost, what was said about them AND what each claim stands on stay as banked; THIS pass's evidence, ranking and receipt still land on the row, so the card keeps arguing from what is true today.
-  // EVERY COPY-OWNED FIELD RIDES WITH THE COPY, off ONE named list rather than a hand-copied spread that drifts: the hand list carried limitations and dropped `faults`, so the one path that KEEPS a defective row's words silently lost Beacon's own typed statement of the defect and the lane fell back to guessing owners from sentence shape. The operator's yes (`approval`) travels with `confirmedVersion` for the same reason: they are one fact. A pass that changes the work fails the identity above and `incoming` wins whole, faults and all.
+  // Copy-owned fields stay with banked words; current evidence and ranking still land.
   const kept: ChangeProposal = { ...incoming, ...inherited, recommendedChange: prior.recommendedChange, researchOnly: prior.researchOnly ?? false, research: prior.researchOnly ? prior.research : undefined, status: prior.status, // AND A ROW WHOSE WORDS ARE FINISHED CARRIES NO BRIEF (incident recovery, 2026-09-04): the incoming re-mint's assignment rode onto the preserved copy, so a row holding a deliverable still had an instruction to write it stored beside the words
     limitations: prior.limitations, estimatedEffortMinutes: prior.estimatedEffortMinutes };
   const fits = copyKey(kept) === copyKey(incoming); // A RECEIPT MAY ARRIVE LATE ONLY IF IT WAS WRITTEN FOR THESE WORDS: the exception claimed identity proved the copy byte-identical, but `copyIdentity` EXCLUDES the copy and `workKey` names the job, so a redraft's receipts rode the banked words (Codex, 2026-08-28)
-  // THE STEPS FOLLOW THE WORDS THEY DESCRIBE. `fits` means the kept copy is byte for byte what this pass would
-  // have written, so the instructions for carrying it out are the ones today's rules produce. Deliberately ONLY
-  // the steps: `claims` and `supportFacts` are hashed into `copyKey`, so refreshing either moves the key and
-  // silently retires the paid reading attached to it, which is a copy change and belongs in front of the
-  // reviewer rather than swapped in underneath one. That is a live defect this shipped and reverted once.
+  // Exact-copy matches refresh steps only; changed claims/facts invalidate the paid reading.
   for (const f of COPY_OWNED) {
     if (fits && f === "operatorSteps") continue; // already carrying this pass's value from `incoming`
     if (prior[f] != null) (kept as Record<string, unknown>)[f] = prior[f];
@@ -278,9 +267,7 @@ const COPY_OWNED = ["claims", "supportFacts", "operatorSteps", "bundle", "newPag
 export function confirmedVersion(p: ChangeProposal): string {
   const c = p.recommendedChange, b = p.bundle, f = p.causeFinding;
   const sorted = <T>(xs: readonly T[] | undefined): T[] => [...xs ?? []].sort((x, y) => JSON.stringify(x).localeCompare(JSON.stringify(y))); // A DOOR MAY REFUSE A CHANGE; IT MAY NEVER CRASH ON ONE: the one verdict is asked of every stored row at every door now, so a legacy bundle missing an array a fresh mint always carries is stamped, never thrown on top of the operator.
-  // THE CONFIRMATION STILL PINS THE BASIS AND EVERY RENDERED SENTENCE: copy PRESERVATION dropped them from its
-  // own identity (a reworded producer must not destroy finished words), but an operator's yes was given to one
-  // account truth and one exact screen, so those stay part of THIS stamp explicitly.
+  // Confirmation pins the basis and every rendered sentence, even when copy preservation keeps words.
   const material = [p.basis ?? null, p.riskLevel, copyIdentity(p), p.diagnosisCause ?? null, sorted(p.limitations.filter((l) => !OWED_NOTE.test(l))), p.operatorSteps ?? [],
     c.kind === "existing_edit" ? [c.field, c.before, c.after, c.where ?? null] : [c.proposedTitle, c.metaDescription, c.openingAnswer, c.outline, c.faqQuestions, c.schemaTypes],
     (p.claims ?? []).map((x) => [x.text, [...x.supportedBy].sort()]), sorted((p.supportFacts ?? []).map((x) => [x.id, x.fact])), p.informationGain ?? null, p.preservation ?? null,

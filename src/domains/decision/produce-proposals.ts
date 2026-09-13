@@ -235,7 +235,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const recoverable = recoverableByKey.get(key) ?? recoverableByKey.get(pathKey);
     const qk = canonicalQueryKey(p.primaryQuery); // only the readiness measured for THIS proposal's own search may set its confidence
     const readiness = readinessByKey.get(`${key}::${qk}`) ?? readinessByKey.get(`${pathKey}::${qk}`); const finding = causeByKey.get(key) ?? causeByKey.get(pathKey);
-    const stamped: ChangeProposal = { ...p, ...(basis ? { basis } : {}),
+    const stamped: ChangeProposal = { ...(convertSectionToSchema(p) ?? p), ...(basis ? { basis } : {}),
       ...(finding && p.diagnosisCause == null ? { causeFinding: finding, diagnosisCause: finding.cause } : {}), // The ladder's own reasoning, carried rather than re-derived, and ONLY onto a proposal that brought none.
       impactScore: recoverable ?? p.impactScore,
       confidence: p.bundle ? p.confidence : readiness ? confidenceFor(readiness, diagnosisByKey.get(`${key}::${qk}`) ?? null) : p.confidence, // A BUNDLE KEEPS ITS OWN CONFIDENCE: it built its own receipt, so a coarser readiness never overwrites it.

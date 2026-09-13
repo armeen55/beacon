@@ -82,7 +82,7 @@ beforeEach(() => { env.rpc = {}; env.calls = []; env.snapshot = null; env.schema
 describe("a search read that did not answer", () => {
   it("replays schema capture debt into corrected Ready copy with no paid writer and no counted attempt", async () => {
     const markup = JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: { "@type": "Question", name: "When do seals rest?", acceptedAnswer: { "@type": "Answer", text: "Seals rest at low tide." } } });
-    const p = { ...openCard("schema"), pagePath: "/a", pageUrl: "https://fixture.example/a", researchOnly: false, status: "ready" as const, recommendedChange: { kind: "existing_edit" as const, field: "schema" as const, before: null, after: markup } };
+    const p = { ...openCard("schema"), pagePath: "/a", pageUrl: "https://fixture.example/a", researchOnly: false, status: "ready" as const, whyItMatters: "Marking them up is how those answers become eligible to be shown directly and quoted as a source.", operatorSteps: ["Paste the copy below onto the page as a new answer paragraph."], recommendedChange: { kind: "existing_edit" as const, field: "schema" as const, before: null, after: markup } };
     const complete = vi.fn(async () => { throw new Error("no provider is allowed"); });
     env.snapshot = snapshotWith("fresh"); env.schemaBody = null; env.store = new Map([[p.id, p]]);
     const waiting = await produceProposalsForTenant(TENANT, { maxDrafts: 0, complete });
@@ -93,6 +93,9 @@ describe("a search read that did not answer", () => {
     const landed = env.store.get(p.id) as ChangeProposal;
     expect([landed.status, landed.obligation, landed.previousCopy?.after, landed.previousCopy?.attempts, complete.mock.calls.length]).toEqual(["ready", undefined, markup, 0, 0]);
     expect((landed.recommendedChange as { after: string }).after).toContain("Seals rest at high tide.");
+    expect([landed.whyItMatters.includes("eligible"), landed.operatorSteps?.some((step) => step.includes("new answer paragraph")), landed.operatorSteps?.some((step) => step.includes("updated too"))]).toEqual([false, false, true]);
+    env.wrote = []; await produceProposalsForTenant(TENANT, { maxDrafts: 0, complete });
+    expect([env.wrote.includes(`saveChangeProposal:${p.id}`), complete.mock.calls.length]).toEqual([false, 0]);
   });
   it("throws instead of handing back an account with no search data, and marks a read cut short after some rows INCOMPLETE while keeping what landed", async () => {
     env.rpc = { gsc_page_signals_v1: [{ error: TIMEOUT }] };
