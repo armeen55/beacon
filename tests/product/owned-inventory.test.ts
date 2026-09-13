@@ -88,7 +88,7 @@ describe("evidence - my own page's actual words, read narrowly", () => {
     expect([(await read()).completeness, pageContains(await read(), "kite festival"), pageContains(await read(), "opening hours")]).toEqual(["sample_only", "yes", "unknown"]); expect((await read()).heldNote).toContain("unknown, not missing");
     db.snaps = [snapRow({ body_paragraph_sample: ["The kite festival opens at dawn."], word_count: undefined })]; // no word count is the same unprovable claim
     expect((await read()).completeness).toBe("sample_only");
-    db.snaps = [snapRow({ body_paragraph_sample: undefined, body_text: "" })]; expect([(await read()).completeness, pageContains(await read(), "anything at all")]).toEqual(["complete", "no"]); // held whole and genuinely empty, so absence is provable
+    db.snaps = [snapRow({ body_paragraph_sample: undefined, body_text: "" })]; expect([(await read()).completeness, pageContains(await read(), "anything at all")]).toEqual(["sample_only", "unknown"]); // blank content cannot distinguish an empty page from failed extraction
     db.snaps = [snapRow({ body_paragraph_sample: Array.from({ length: 20 }, (_, i) => `Passage ${i + 1}.`), word_count: 2, card_texts: [], internal_links: [] })];
     expect((await read()).completeness).toBe("sample_only"); // the crawler's PARAGRAPH cap is a stop, not an ending
     db.snaps = [snapRow({ body_text: "held prose. ".repeat(6_000), word_count: 5, card_texts: [], internal_links: [] })]; const held = await read();

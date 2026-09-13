@@ -25,7 +25,8 @@ export type OwnedPageBody = {
   /** EVERY stored word of the page, for word-containment checks only, never for prompting. Empty when the crawl kept no body_text. */
   vocabulary: string;
   cardTexts: string[];
-  faqs: { question: string; answer: string }[];
+  /** Visible HTML questions with sampled answers; markup-only assertions stay in the raw snapshot. */
+  faqs: { question: string; answer: string; source: "html_details" | "html_section" }[];
   entityNames: string[];
   internalLinks: { href: string; anchorText: string }[];
   fetchedAt: string | null;
@@ -47,10 +48,7 @@ const MAX_URLS = 7;
 /** The byte ceiling on ONE page's held content: roughly four times the largest capture the crawler can
  *  produce, so it truncates nothing real today and still bounds this read if the capture grows. */
 const MAX_PAGE_CHARS = 48_000;
-/** The CRAWLER's own caps (extractor.ts). A stored passage that reached the per paragraph limit was cut mid
- *  sentence, and a capture holding exactly the paragraph cap, or the card cap, stopped where the cap was rather
- *  than where the page ended. Any one of them is proof on its own that the capture is a sample of the page. */
-const CRAWL_PARAGRAPH_CHARS = 300, CRAWL_CARDS = 20, CRAWL_PARAGRAPHS = 20;
+const CRAWL_CARDS = 20;
 /** The crawler's whole-page ceiling. A body_text that reached it was cut, so the read is partial. */
 const CRAWL_BODY_TEXT_CHARS = 100_000;
 /** What this reader takes from ONE row before the ceiling decides, deliberately far above what the crawler
@@ -117,9 +115,7 @@ function bodyOf(row: Row): OwnedPageBody {
   // A HEADING IS A LABEL FOR TEXT, NEVER THE TEXT, so headings can never stand in for body passages here.
   // THE WHOLE PAGE WHEN THE CRAWL KEPT IT: body_text is the de-chromed main content in full, so it replaces
   // the 20-paragraph sample outright. Only a row written before that column existed falls back to the sample.
-  // THE COLUMN'S PRESENCE is what says the page was held whole, never its length: a page with
-  // nothing to say holds an empty string, and reading that as "no body on file" would have called
-  // a genuinely empty page a sample and left every absence unknowable on it.
+  // Column presence chooses the representation; nonempty captured content establishes its scope below.
   const held = typeof row.body_text === "string";
   const full = held ? (row.body_text as string).trim() : "";
   const stored = held
@@ -127,10 +123,10 @@ function bodyOf(row: Row): OwnedPageBody {
     : items(row.body_paragraph_sample, MAX_PASSAGES, MAX_PASSAGE_CHARS);
   const cardTexts = items(row.card_texts, CRAWL_CARDS, MAX_ITEM_CHARS);
   const entityNames = items(row.schema_entity_names, MAX_ENTITIES, MAX_ITEM_CHARS);
-  const faqs = (Array.isArray(row.faqs) ? row.faqs : []).slice(0, MAX_FAQS)
-    .map((f) => { const q = (f ?? {}) as { question?: unknown; answer_excerpt?: unknown };
-      return { question: cap(q.question, MAX_ITEM_CHARS) ?? "", answer: cap(q.answer_excerpt, MAX_ITEM_CHARS) ?? "" }; })
-    .filter((f) => f.question);
+  const faqs: OwnedPageBody["faqs"] = (Array.isArray(row.faqs) ? row.faqs : [])
+    .filter((f) => f?.source === "html_details" || f?.source === "html_section")
+    .map((f) => ({ question: cap(f.question, MAX_ITEM_CHARS) ?? "", answer: cap(f.answer_excerpt, MAX_ITEM_CHARS) ?? "", source: f.source }))
+    .filter((f) => f.question).slice(0, MAX_FAQS);
   const internalLinks = (Array.isArray(row.internal_links) ? row.internal_links : []).slice(0, MAX_LINKS)
     .map((l) => { const link = (l ?? {}) as { href?: unknown; anchor_text?: unknown };
       return { href: cap(link.href, MAX_ITEM_CHARS) ?? "", anchorText: cap(link.anchor_text, MAX_ITEM_CHARS) ?? "" }; })
@@ -144,18 +140,8 @@ function bodyOf(row: Row): OwnedPageBody {
   for (const p of stored) { if (used + p.length > MAX_PAGE_CHARS) break; passages.push(p); used += p.length; }
   const heldWords = wordsIn([...headings, ...passages, ...cardTexts, ...faqs.flatMap((f) => [f.question, f.answer])]);
   const pageWords = typeof row.word_count === "number" && row.word_count > 0 ? row.word_count : null;
-  // WITH body_text THE PAGE IS HELD, so the only question left is whether a ceiling cut it: the crawler's at
-  // 100,000 characters, or mine. WITHOUT it the capture is a sample whenever the crawler cut a paragraph mid
-  // sentence, stopped at its own paragraph or card cap, or kept fewer words than the page it counted. No word
-  // count on file proves nothing, so that is a sample too: an unprovable claim of completeness is exactly what
-  // this type exists to prevent.
-  // AN EMPTY 200 IS NOT A PAGE READ WHOLE: body_text present but empty made `held` true and nothing looked cut, so a
-  // crawl that captured no words graded "complete", the one verdict that lets a caller prove a fact ABSENT.
-  const sampled = heldWords === 0 ? true
-    : held
-    ? false
-    : stored.some((p) => p.length >= CRAWL_PARAGRAPH_CHARS) || stored.length === CRAWL_PARAGRAPHS
-      || cardTexts.length >= CRAWL_CARDS || pageWords == null || heldWords < pageWords;
+  // Only a nonempty held body proves capture scope; metadata and excerpts cannot reconstruct a whole page.
+  const sampled = !held || full.length === 0;
   const truncated = passages.length < stored.length || (full.length >= CRAWL_BODY_TEXT_CHARS);
   // TRUNCATION RECORDS EXACTLY WHAT IS HELD, whichever verdict it lands under, and says WHOSE ceiling cut it.
   const range = passages.length < stored.length

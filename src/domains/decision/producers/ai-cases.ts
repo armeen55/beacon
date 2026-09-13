@@ -103,20 +103,25 @@ async function diagnoseGap(c: { tenantId: string; caseKey: string; query: string
   passages: readonly string[]; banked?: AeoGapDiagnosis; meter: AeoMeter; persist: boolean; now: Date }): Promise<AeoGapDiagnosis | null> {
   const body = (await loadOwnedPageBodies(c.tenantId, [c.pageUrl]).catch(() => new Map())).get(canonicalUrlKey(c.pageUrl)) ?? null;
   const obsIds = [...c.observationIds].slice(0, 40).sort();
-  const owned: [string, string][] = body == null ? [] : [
-    ...body.passages.slice(0, 40).map((t: string, i: number) => [`own-${i + 1}`, t.slice(0, 700)] as [string, string]),
-    ...body.faqs.slice(0, 12).map((f: { question: string; answer: string }, i: number) => [`faq-${i + 1}`, `${f.question} ${f.answer}`.slice(0, 500)] as [string, string])];
+  const owned: [string, string][] = [];
+  let room = 40 * 700 + 12 * 500; // the existing body-plus-FAQ allowance now carries intact main-content passages
+  for (const [i, text] of (body?.passages ?? []).entries()) {
+    if (owned.length === 40 || text.length > room) break;
+    owned.push([`own-${i + 1}`, text]); room -= text.length;
+  }
+  const completeness = body?.completeness === "complete" && body.version === "current"
+    && owned.length === body.passages.length ? "complete" : "partial";
   const ev: [string, string][] = c.passages.slice(0, 4).map((t, i) => [`ans-${i + 1}`, t.slice(0, 700)] as [string, string]);
   // THE PACKET IS THE IDENTITY. Everything the reading is made from, canonicalized in one string: change any of it and the banked verdict is stale by construction rather than by a subset test that only notices additions. THE WORDS THEMSELVES ARE PART OF THE IDENTITY, not only the hash the crawler may not have stored: a body with no contentHash could otherwise change entirely while its reading still looked current. Ids ride with their text so a passage moving between ids is a change too.
   const packet = createHash("sha256").update(JSON.stringify([c.tenantId, c.caseKey, c.query, c.stage, canonicalUrlKey(c.pageUrl),
-    body?.contentHash ?? "", body?.completeness ?? "", obsIds, owned, ev, DIAGNOSIS_CONTRACT])).digest("hex").slice(0, 32);
+    body?.contentHash ?? "", body?.passages ?? [], body?.completeness ?? "", body?.version ?? "", completeness,
+    obsIds, owned, ev, DIAGNOSIS_CONTRACT])).digest("hex").slice(0, 32);
   if (freshDiagnosis(c.banked, packet)) return c.banked!;
   if (!c.persist || body == null || owned.length === 0) return null;
   // THE PASS FUNDS THE ATTEMPT BEFORE IT IS MADE, AND ONE RULE DECIDES WHAT COMES BACK. A refusal that reached the provider costs a unit exactly as a verdict does, because both bought a reading; an answer that never left the process gives its unit back, and that is four answers and not one: the model is off, the day cap refused the call before it was made, the call cache served it, or the receipt itself counts no request, and never any of them beside real dollars.
   if (!c.meter.draw()) return null;
-  const completeness = body.completeness;
   const user = [`Search or question: "${c.query}"`, `What the assistants did (the stage): ${c.stage}`,
-    `The owned page, ${completeness === "complete" ? "complete" : `INCOMPLETE (${completeness}): what is not shown is UNKNOWN, never absent`}. Its stored passages and FAQ entries, by id:`,
+    `The captured main content shown here, ${completeness === "complete" ? "complete and current" : "INCOMPLETE or freshness unconfirmed: what is not shown is UNKNOWN, never absent"}. Its passages by owned id; FAQ/schema excerpts are not whole-page answer evidence:`,
     ...owned.map(([id, t]) => `${id}: ${t}`),
     ev.length > 0 ? "What credited answers drew on, by id:" : "NO credited passage is on file for this search, so nothing outside this page is in evidence here.",
     ...ev.map(([id, t]) => `${id}: ${t}`), "Return the JSON now."].join("\n");
@@ -125,16 +130,11 @@ async function diagnoseGap(c: { tenantId: string; caseKey: string; query: string
   DRAFT_BUDGET.refundIfNoCallMade(c.meter, r); // THE PRIVATE CLAUSE IS GONE (reviewer, 2026-09-06, sixth pass): asked on the cache flag alone, this door charged a unit for an answer the gateway refused before the wire, and no cost could gate it, so a cached receipt naming real dollars was given its unit back. It reads the rule the dollars read now.
   if (r?.status !== "drafted") return null;
   const v = r.value as { kind: AeoGapDiagnosis["kind"]; ownedIds: string[]; evidenceIds: string[]; missing: string; explanation: string };
-  const known = new Set([...owned, ...ev].map(([id]) => id));
-  if ([...v.ownedIds, ...v.evidenceIds].some((id) => !known.has(id))) return null; // an id nobody supplied rules nothing
+  const ownedIds = new Set(owned.map(([id]) => id)), evidenceIds = new Set(ev.map(([id]) => id));
+  if (v.ownedIds.some((id) => !ownedIds.has(id)) || v.evidenceIds.some((id) => !evidenceIds.has(id))) return null;
   let kind = v.kind; const limits: string[] = [];
-  // A DATE THE MODEL TYPED IS NOT A DATED CONFLICT. Every date the diagnosis names must appear VERBATIM in a passage this packet supplied, and the packet must carry both sides, or there is nothing to compare.
-  // FRESHNESS IS NOT DIAGNOSABLE FROM THIS PACKET, AND SAYING SO IS THE HONEST RULE. Two approximations died here:
-  // dates appearing anywhere in the joined text (satisfied by two dates inside the rival's own sentence), then
-  // dates differing between a named owned and credited passage, which "The museum opened in 2019" against "The
-  // rule changed in 2024" satisfies while the two statements are about nothing in common. A dated CONFLICT needs
-  // both sides to be about the same proposition, which is semantics this packet does not carry, so the state stays
-  // in the vocabulary for a future evidence shape and authorizes nothing today (operator, 2026-08-28).
+  // This packet cannot establish proposition-level dated conflicts: unrelated statements may carry different
+  // dates. Freshness stays unknown until the evidence binds both dated statements to the same proposition.
   const hasCredited = ev.length > 0;
   if (kind === "already_answered" && v.ownedIds.length === 0) return null;
   if (kind === "scattered_answer" && new Set(v.ownedIds).size < 2) return null;
@@ -143,7 +143,7 @@ async function diagnoseGap(c: { tenantId: string; caseKey: string; query: string
   if (!hasCredited && (kind === "missing_information" || kind === "authority_or_source_gap" || kind === "freshness_gap")) {
     kind = "unknown"; limits.push("no credited passage is on file for this search, so nothing outside this page is in evidence"); }
   if (kind === "missing_information" && (v.evidenceIds.length === 0 || !v.missing.trim())) return null;
-  if (kind === "missing_information" && completeness !== "complete") { kind = "unknown"; limits.push("the stored copy of this page is incomplete, so absence cannot be claimed; a full page read comes first"); }
+  if (kind === "missing_information" && completeness !== "complete") { kind = "unknown"; limits.push("the supplied main-content reading is incomplete or not confirmed current, so absence cannot be claimed; a complete current reading comes first"); }
   // AUTHORITY IS A FACT ABOUT A PUBLISHER, AND THIS PACKET CARRIES PASSAGE TEXT ONLY. Nothing here types who published a passage or what standing they have, so no arrangement of prose may earn the diagnosis; it waits for a source-authority basis rather than being inferred from words that sound institutional.
   if (kind === "authority_or_source_gap") { kind = "unknown"; limits.push("no typed source authority is on file for the credited passages, so a standing difference is not diagnosable here"); }
   if (kind === "freshness_gap") { kind = "unknown"; limits.push("no proposition-level dated conflict is proven: dates on each side may be about different statements, which this evidence cannot separate"); }

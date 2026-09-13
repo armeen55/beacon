@@ -31,7 +31,7 @@ export const PROMPT_REGISTRY = {
   "draft.factual_review": 5, // v5 (2026-08-30): the ruling gains materialChange for suspected wording-only changes, so a cached v3 ruling never silently skips the question. v3 (2026-08-28): the prompt, the response schema, the reviewer packet, the mapping validation and what is persisted all changed, so a receipt banked under v2 is not the same promise and must fail closed as old
   // The AEO gap reader (2026-08-28): compares a search, the complete stored owned page and the credited
   // passages, and returns what the page LACKS from a closed vocabulary. Judgment only; it drafts nothing.
-  "draft.aeo_gap": 2, // v2 (2026-08-28): the reader's packet and instructions changed (it is told explicitly when no credited passage is on file, and the owned side is supplied as exact id/text tuples), so a v1 answer was given to a different question and must not be served from cache.
+  "draft.aeo_gap": 3, // v3: visible main-content scope/freshness and separate owned/credited authority replace FAQ excerpt pooling.
   // The fact-check pair (2026-08-29): both are called through `draft.${kind}` and neither was ever registered,
   // so promptVersion resolved to undefined and only the folded system text separated one contract from the next.
   // v1 is the honest first identity for the wording each carries today. This is prompt-cache versioning and has

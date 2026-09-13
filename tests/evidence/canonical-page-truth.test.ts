@@ -24,6 +24,14 @@ describe("one rule decides which capture is the page", () => {
     db.rows = [row("https://iranopedia.com/iran-flags/iran-islamic-republic-flag-history", "2026-08-29T20:51:00Z", "The flag adopted in 1980 carries the Takbir twenty-two times along the edges of the green and red bands.", 129, "confirmed")];
     const flag = (await loadOwnedPageBodies("t", ["https://iranopedia.com/iran-flags/iran-islamic-republic-flag-history"])).get("iranopedia.com/iran-flags/iran-islamic-republic-flag-history")!;
     expect([flag.version, flag.completeness, pageContains(flag, "Takbir"), pageContains(flag, "Pahlavi")]).toEqual(["current", "complete", "yes", "no"]);
+    const hidden = Array.from({ length: 20 }, () => ({ question: "Markup-only question?", answer_excerpt: "Markup-only assertion", source: "jsonld" }));
+    db.rows = [{ ...db.rows[0], faqs: [...hidden, { question: "Visible question?", answer_excerpt: "Visible excerpt", source: "html_details" }] }];
+    const visible = (await loadOwnedPageBodies("t", [flag.url])).get("iranopedia.com/iran-flags/iran-islamic-republic-flag-history")!;
+    expect(visible.faqs).toEqual([{ question: "Visible question?", answer: "Visible excerpt", source: "html_details" }]);
+    expect(pageContains(visible, "Markup-only assertion")).toBe("no");
+    db.rows = [{ ...db.rows[0], body_text: null, faqs: hidden, word_count: 3, h1: null, title: null }];
+    const sample = (await loadOwnedPageBodies("t", [flag.url])).get("iranopedia.com/iran-flags/iran-islamic-republic-flag-history")!;
+    expect([sample.completeness, pageContains(sample, "An unshown answer")]).toEqual(["sample_only", "unknown"]);
     // A NINE-PAGE ASK IS NINE PAGES, and a page with no body says WHY. Anything wider than one query's own width was REFUSED and answered with an EMPTY map, which every reader downstream reads as "this page has no text",
     // so a split asking about eight pages made all eight look blank and a whole-page judgement was taken off nothing. The width bounds one query now, the ask is paged, and no chunk erases another.
     db.rows = Array.from({ length: 9 }, (_v, i) => row(`https://iranopedia.com/p${i}`, "2026-08-30T22:00:00Z", `Page ${i} says something true about its own subject.`, 9, "confirmed"));

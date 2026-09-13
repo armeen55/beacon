@@ -29,10 +29,7 @@ type SerpEvidence = Research["serpEvidence"][number];
 type Keyword = Research["retainedKeywords"][number];
 
 const norm = (s: string): string => s.trim().toLowerCase(); const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-type OwnedBody = { openingSample: string | null; fetchedAt: string | null; contentHash?: string | null; // the page's OWN WORDS, whole, read by the caller through the targeted Evidence reader; absent means absent
-  cardTexts?: string[]; entityNames?: string[]; internalLinks?: { href: string; anchorText: string }[]; metaDescription?: string | null;
-  headings?: string[]; passages?: string[]; faqs?: { question: string; answer: string }[]; vocabulary?: string;
-  completeness?: "complete" | "partial" | "sample_only"; heldNote?: string };
+type OwnedBody = Pick<OwnedPageBody, "openingSample" | "fetchedAt"> & Partial<Omit<OwnedPageBody, "url" | "openingSample" | "fetchedAt">>;
 
 /** RECOVERABLE OPPORTUNITY, never gross traffic: per DEMAND UNIT clearing MIN_QUERY_IMPRESSIONS on the unit's combined impressions, the shortfall under what its members' positions earn on THE SAME curve the diagnosis used, past CTR_DEFICIT_SHARE of it. Units, not single rows: an intent spread across many phrasings is ONE audience, and reading it a row at a time hid most of the site's demand from the only path that can act. `at` defaults to the industry table only outside a pass, which holds no fitted curve. */
 type Gap = /** `recoverable` is the shared 28-day horizon every opportunity is sized on; `over90` is the SAME shortfall across the ninety days this gap's own impressions and clicks were read over, carried only so a sentence quoting ninety-day evidence stays internally consistent: "6,000 saw this in 90 days and 90 clicked" may not end on a 28-day figure. */ { query: string; impressions: number; clicks: number; position: number; recoverable: number; over90: number; vocabulary?: string[] };
@@ -311,7 +308,8 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     : { url, title: c?.title ?? null, h1: c?.h1 ?? null, metaDescription: b.metaDescription ?? c?.metaDescription ?? null,
       headings: b.headings ?? c?.outline ?? [], passages: b.passages ?? [], openingSample: b.openingSample, vocabulary: b.vocabulary ?? "", cardTexts: b.cardTexts ?? [],
       faqs: b.faqs ?? [], entityNames: b.entityNames ?? [], internalLinks: b.internalLinks ?? [], fetchedAt: b.fetchedAt,
-      completeness: b.completeness ?? "sample_only", contentHash: b.contentHash ?? null, heldNote: b.heldNote ?? "A sample of this page is on file, not the whole page." };
+      completeness: b.completeness ?? "sample_only", contentHash: b.contentHash ?? null, heldNote: b.heldNote ?? "A sample of this page is on file, not the whole page.",
+      version: b.version, newestAt: b.newestAt };
   const held = heldOf(page.url, content, body ?? undefined);
   const heldBodies = new Map(snapshot.ownedPages.flatMap((p) => {
     const one = heldOf(p.url, p.content, opts.bodyByUrl?.get(canonicalUrlKey(p.url)));
