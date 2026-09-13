@@ -6,7 +6,7 @@ import {
   type DraftQualityStatus,
 } from "@/domains/decision/drafts/draft-quality";
 import { checkFactualEntailment, type AuthoritativeFact } from "@/domains/decision/drafts/factual-entailment";
-import { validateSchemaToStrings } from "@/domains/evidence/pages/schema-validator";
+import { SCHEMA } from "@/domains/evidence/pages/schema-validator";
 import type { ClassifiableSource } from "@/domains/decision/drafts/source-authority";
 import { looksLikePlaceholder } from "./placeholder-detection";
 import { containsUuid, AUTOPUBLISH_RE, COPY_RULES, HOST_RE } from "./copy-sanitize";
@@ -110,22 +110,18 @@ function operatorFacingText(proposal: ChangeProposal): string[] {
 /** The fields of a block that assert something a reader can SEE on the page, per type. An Organization's own
  *  name and a breadcrumb's label describe the site, not the page's words, so neither is claimed for the page. */
 const CLAIMED_ON_PAGE: Record<string, readonly string[]> = { Question: ["name"], Answer: ["text"], ImageObject: ["name", "caption"] };
-/** WALK ONE BLOCK ONCE: the @types it declares and the strings it claims the page carries. */
-function readSchema(node: unknown, types: Set<string>, visible: string[]): void {
-  if (!node || typeof node !== "object") return;
-  if (Array.isArray(node)) { for (const n of node) readSchema(n, types, visible); return; }
-  const o = node as Record<string, unknown>, raw = o["@type"];
-  for (const t of (Array.isArray(raw) ? raw : [raw]).filter((x): x is string => typeof x === "string")) {
-    types.add(t);
-    for (const f of CLAIMED_ON_PAGE[t] ?? []) { const v = o[f]; if (typeof v === "string" && v.trim()) visible.push(v.trim()); } }
-  for (const v of Object.values(o)) if (v && typeof v === "object") readSchema(v, types, visible); }
-/** The block as JSON, whatever wrapper travelled with it. `parsed` null means it is not readable JSON at all. */
+/** Resolve the same graph the crawler and live verifier read, retaining its visible entity values. */
 function schemaVisible(after: string): { parsed: unknown; types: Set<string>; visible: string[] } {
-  const types = new Set<string>(), visible: string[] = [];
-  let parsed: unknown = null;
-  try { parsed = JSON.parse(after.trim().replace(/^<script[^>]*>/i, "").replace(/<\/script>$/i, "").trim()); } catch { return { parsed: null, types, visible }; }
-  readSchema(parsed, types, visible);
-  return { parsed, types, visible }; }
+  const graph = SCHEMA.read(after), types = new Set<string>(), visible: string[] = [];
+  for (const node of graph.nodes) for (const type of SCHEMA.types(node)) {
+    types.add(type);
+    for (const field of CLAIMED_ON_PAGE[type] ?? []) {
+      const value = node[field];
+      if (typeof value === "string" && value.trim()) visible.push(value.trim());
+    }
+  }
+  return { parsed: graph.value, types, visible };
+}
 /** Google retired FAQ rich results on May 7, 2026. Markup describes content, never guaranteed visibility. */
 const RICH_CLAIM = /\brich (?:result|snippet)|\bricher (?:display|listing|result|search)|\benhanced result|\beligib\w*/i;
 export const FAQ_SCHEMA_LIMIT = "This markup describes the page's published questions and answers, and it does not change how Google displays the page. No ranking or citation gain is promised.";
@@ -143,7 +139,7 @@ function schemaFailures(p: ChangeProposal, change: Extract<RecommendedChange, { 
   if (parsed == null) return { failures: ["This structured data is not valid JSON, so no search engine could read it and nobody should paste it."], limitations: [] };
   if (types.size === 0) return { failures: ["This structured data names no type, so nothing in it tells a search engine what the page is."], limitations: [] };
   // THE VALIDATOR'S OWN WORDS, minus the dash Beacon never writes: these strings were written for a crawler's warning list and they land in front of the operator here.
-  const warnings = validateSchemaToStrings(parsed).map((w) => w.replace(/\s*[–—]\s*/g, ", "));
+  const warnings = SCHEMA.warnings(change.after).map((w) => w.replace(/\s*[–—]\s*/g, ", "));
   const failures = warnings.filter((w) => w.startsWith("schema_critical:")).map((w) => `This structured data is incomplete: ${w.slice("schema_critical:".length).trim()}`);
   const limitations = warnings.filter((w) => !w.startsWith("schema_critical:")).map((w) => w.replace(/^schema_\w+:\s*/, ""));
   // THE PAGE HAS TO REALLY SAY IT. Structured data marks up what a reader can see, so a question, an answer or

@@ -103,12 +103,12 @@ export type PageSnapshot = {
   schema_hash: string;
   /** How confident the extractor is: "confirmed" when real body content was read, "uncertain" when a raw fetch may have missed client-rendered content. */
   extraction_certainty?: "confirmed" | "uncertain";
-  /** Number of distinct FAQPage JSON-LD blocks found (>1 = duplicate on the page) */
+  /** Number of observed FAQPage entities after supported @id merging; several entities alone do not prove duplication. */
   faq_schema_block_count?: number;
   /** Structural warnings detected during extraction */
   structural_warnings?: string[];
   /**
-   * G8 — JSON-LD schema validation warnings vs Google rich-result specs.
+   * Supported Schema.org graph/content warnings, not a rich-result eligibility guarantee.
    * Format: `schema_<severity>:<type>: <message>` (see `schema-validator.ts`).
    * Empty or undefined means no recognized schemas or all valid.
    */

@@ -8,6 +8,7 @@ import { loadBusinessProfile } from "@/domains/account";
 import { isDataForSeoConfigured } from "@/domains/evidence/dataforseo/client";
 import { parseCapability, providerCall } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { fetchPageHtml } from "@/domains/evidence/competitor-intel/polite-fetch";
+import { SCHEMA } from "@/domains/evidence/pages/schema-validator";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { PageSnapshot } from "@/domains/evidence/pages/types";
@@ -78,7 +79,7 @@ const judged = (state: ComponentState, note: string, reason: Reason | null = nul
 const labelIn = (s: string): string => { const one = firstLine(s); return one === s.trim() && !/["“”]|(?<![A-Za-z0-9])['‘’]|['‘’](?![A-Za-z0-9])/.test(s) && one.split(/\s+/).filter(Boolean).length <= 12 ? one : ""; }; // AN APOSTROPHE INSIDE A WORD IS NOT A QUOTATION MARK (reviewer, 2026-09-05): every straight or curly single quote was rejected, so the one live rename reading "Pallas's Cat facts" read as unreadable while its exact new words sat on the row. A quote MARKS a passage and stands at a word boundary; a possessive stands between letters. Measured on the account's 27 stored renames: 1 unresolved before, 0 after.
 /** A RECORD THAT NAMES NOTHING TO LOOK FOR, and the sentence that says so; null where the live page really can answer. Some kinds are visible with no wording at all (the address forwards, the page asks to be left out of search, the page exists); every other kind needs the exact wording that was applied, and what is on file is either empty, still the template with its slots unfilled, or a note ABOUT the change rather than the words it applied. THE ONE PLACE THAT ANSWERS IT (measured, 2026-09-05): a link rename asked the same question a second time inside the reading, AFTER a live read had already been spent, so a record could be written off for naming nothing while this rule said it named something. One rule, asked before any fetch and asked again at the door that reopens a closed record, so the two can never disagree. Wording is never invented to check against. */
 const noExpectation = (kind: string, after: string, anchorAfter?: string | null): string | null => {
-  if (["schema", "schema_add", "schema_replace"].includes(kind)) { const claim = schemaClaim(after); return claim.unread || !claim.roots.length ? "The record does not contain JSON-LD this checker can certify. A type name, malformed JSON or unsupported context cannot confirm the applied values. Keep the exact applied block for review; another page read cannot resolve this record." : null; }
+  if (["schema", "schema_add", "schema_replace"].includes(kind)) { const claim = SCHEMA.read(after); return claim.unread || !claim.roots.length ? "The record does not contain JSON-LD this checker can certify. A type name, malformed JSON or unsupported context cannot confirm the applied values. Keep the exact applied block for review; another page read cannot resolve this record." : null; }
   return COPY_FREE_KINDS.has(kind) || (norm(after) && !TEMPLATE_SLOT.test(after) && (kind !== "anchor_text" || !!norm(anchorAfter ?? "") || !!norm(labelIn(after)))) ? null : `${!norm(after) ? "The exact wording that was applied here was never recorded, so no reading of the page can confirm it." : TEMPLATE_SLOT.test(after) ? "What was recorded here is still the template wording, with its NUMBER, YEAR or SOURCE never filled in, so no live page could be carrying it." : "What was recorded here reads as a note about the change and not as the words that were applied, so no reading of the page can confirm it."} Nothing more is read for it. Record the words that are on the page and the next check reads them.`;
 };
 // THE PAGES AS THE STORE ALREADY HOLDS THEM, through the ONE canonical body reader: it picks the capture that IS the page (a newer blank never erases a confirmed body), so a javascript page answers from the rendered read already bought for it, and a closed reading learns its page moved. No second crawler, no spend.
@@ -88,7 +89,7 @@ const heldBodies = (urls: string[], tenantId: string): Promise<Map<string, Owned
 /** `sitemap` is the account's own sitemap as it reads right now, fetched ONLY when a change asked to be
  *  listed in it and null when there was none to read: no read of the PAGE can answer whether it is on that list. */
 /** `blind` is a read whose BODY never arrived (a javascript page hands the polite fetch a shell) and that no held capture could answer for. ONE fact for the whole reading: honoured in the two structured-data branches alone, one page said its markup builds in the browser while its sections said the operator did no work. */
-type LiveRead = { snap: PageSnapshot; text: string; opening: string; schema: ReturnType<typeof schemaClaim>; markupBlind: boolean; finalUrl: string | null; requestedUrl: string; sitemap: string | null; blind: boolean };
+type LiveRead = { snap: PageSnapshot; text: string; opening: string; schema: ReturnType<typeof SCHEMA.read>; markupBlind: boolean; finalUrl: string | null; requestedUrl: string; sitemap: string | null; blind: boolean };
 
 function liveTextOf(html: string): { text: string; opening: string } {
   const $ = load(html); $("nav, body > header, footer, aside, script, style, noscript, svg, iframe, [hidden], [aria-hidden=true]").remove();
@@ -124,39 +125,6 @@ async function googleShows(s: VerifiableShipment, tenantId: string, live: LiveRe
   return shown.includes(opener(firstLine(part.after ?? ""), 8))
     ? { kind: GOOGLE_SHOWS, state: "verified", note: `Google is showing your new ${what}.` }
     : { kind: GOOGLE_SHOWS, state: "not_verified", note: `${old && shown.includes(old) ? `Google still shows the old ${what}` : `Google is not yet showing your new ${what}`}${when}.` };
-}
-
-/** Read recorded Schema.org properties, nested nodes and standard @graph/@id links; custom contexts remain uncertified. */
-function schemaClaim(block: string): { roots: Record<string, unknown>[]; nodes: Record<string, unknown>[]; unread: boolean } {
-  const roots: Record<string, unknown>[] = [], nodes: Record<string, unknown>[] = []; let unread = false;
-  const walk = (node: unknown, context: boolean, root: boolean): void => {
-    if (Array.isArray(node)) { node.forEach((n) => walk(n, context, root)); return; }
-    if (!node || typeof node !== "object") return;
-    const o = node as Record<string, unknown>;
-    if (o["@context"] !== undefined) context = typeof o["@context"] === "string" && /^https?:\/\/schema\.org\/?$/.test(o["@context"]);
-    if (!context) unread = true;
-    if (Object.keys(o).some((k) => k.startsWith("@") && !["@context", "@type", "@id", "@graph", "@list", "@value", "@language"].includes(k))) unread = true;
-    if (o["@type"] !== undefined) { const types = Array.isArray(o["@type"]) ? o["@type"] : [o["@type"]]; if (!types.length || types.some((t) => typeof t !== "string" || !t.trim())) unread = true; if (root) roots.push(o); }
-    if (o["@type"] !== undefined || (typeof o["@id"] === "string" && Object.keys(o).some((k) => !k.startsWith("@")))) nodes.push(o);
-    for (const [k, v] of Object.entries(o)) if (k !== "@context" && v && typeof v === "object") walk(v, context, k === "@graph" ? root : false);
-  };
-  const text = block.trim(), $ = text.startsWith("<") ? load(text) : null;
-  const bodies = $ ? $("script").filter((_, el) => ($(el).attr("type") ?? "").trim().toLowerCase() === "application/ld+json").map((_, el) => $(el).html() ?? "").get() : text ? [text] : [];
-  for (const body of bodies) { try { walk(JSON.parse(body), false, true); } catch { unread = true; } }
-  const byId = new Map<string, Record<string, unknown>>();
-  for (const node of nodes) if (typeof node["@id"] === "string") { const prior = byId.get(node["@id"]); if (!prior) byId.set(node["@id"], { ...node }); else for (const [k, v] of Object.entries(node)) { if (k !== "@context" && k in prior && !(schemaContains(v, prior[k], []) && schemaContains(prior[k], v, []))) unread = true; else prior[k] = v; } }
-  const resolved = (n: Record<string, unknown>) => typeof n["@id"] === "string" ? byId.get(n["@id"])! : n;
-  return { roots: roots.map(resolved), nodes: nodes.map(resolved), unread };
-}
-function schemaContains(want: unknown, live: unknown, nodes: readonly Record<string, unknown>[]): boolean {
-  if (want === live) return true;
-  if (Array.isArray(want)) { if (!Array.isArray(live)) return false; const owners = new Map<number, number>();
-    const place = (i: number, visited: Set<number>): boolean => live.some((l, j) => { if (visited.has(j) || !schemaContains(want[i], l, nodes)) return false; visited.add(j); const prior = owners.get(j); if (prior !== undefined && !place(prior, visited)) return false; owners.set(j, i); return true; });
-    return want.every((_, i) => place(i, new Set())); }
-  if (!want || !live || typeof want !== "object" || typeof live !== "object" || Array.isArray(live)) return false;
-  const w = want as Record<string, unknown>, l = live as Record<string, unknown>;
-  if (typeof l["@id"] === "string" && Object.keys(l).length === 1 && Object.keys(w).length > 1) return nodes.some((n) => n["@id"] === l["@id"] && schemaContains(w, n, nodes));
-  return Object.entries(w).every(([k, v]) => k === "@context" || (k === "@list" ? Array.isArray(v) && Array.isArray(l[k]) && v.length === l[k].length && v.every((item, i) => schemaContains(item, (l[k] as unknown[])[i], nodes)) : k === "@type" ? schemaContains(Array.isArray(v) ? v : [v], Array.isArray(l[k]) ? l[k] : [l[k]], nodes) : schemaContains(v, l[k], nodes)));
 }
 
 /** ONE component, judged against the page as it stands right now. Pure. */
@@ -226,15 +194,15 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
         : linkHit ? judged("not_verified", "That link is still on the page.", "not_published_yet") : judged("verified", "That link is gone.");
     // Verify the recorded values in their own entities, not globally pooled types/names or truncated answers.
     case "schema_add": case "schema_replace": case "schema": {
-      const want = schemaClaim(proposed), seen = live.schema;
+      const want = SCHEMA.read(proposed), seen = live.schema;
       if (seen.unread) return judged("unverifiable", "The live JSON-LD contains malformed data, unsupported context or conflicting entity values, so this exact block cannot be confirmed.", "unmeasurable");
       if (!seen.nodes.length) return live.markupBlind ? judged("unverifiable", "The page's live structured data could not be read; a saved text capture cannot answer for its markup.", "rendered_content_gap") : judged("not_verified", "No structured data is on your page at all.", "not_published_yet");
-      const carries = (claim: ReturnType<typeof schemaClaim>) => !claim.unread && claim.roots.length > 0 && claim.roots.every((w) => seen.nodes.some((n) => schemaContains(w, n, seen.nodes)));
-      const here = carries(want), old = schemaClaim(component.before ?? ""), oldHere = carries(old);
-      if (here && oldHere && old.roots.some((w) => seen.nodes.some((n) => schemaContains(w, n, seen.nodes) && !want.roots.some((next) => schemaContains(next, n, seen.nodes))))) return judged("changed_differently", "Both the old and replacement structured data remain on the page.", "published_differently");
+      const carries = (claim: ReturnType<typeof SCHEMA.read>) => !claim.unread && claim.roots.length > 0 && claim.roots.every((w) => seen.nodes.some((n) => SCHEMA.contains(w, n, seen.nodes)));
+      const here = carries(want), old = SCHEMA.read(component.before ?? ""), oldHere = carries(old);
+      if (here && oldHere && old.roots.some((w) => seen.nodes.some((n) => SCHEMA.contains(w, n, seen.nodes) && !want.roots.some((next) => SCHEMA.contains(next, n, seen.nodes))))) return judged("changed_differently", "Both the old and replacement structured data remain on the page.", "published_differently");
       if (here) return judged("verified", "Every recorded structured-data property matches the live block, including its full answer text and entity values.");
       if (oldHere) return judged("not_verified", "Your page still carries the structured-data block that was there before this change.", "not_published_yet");
-      return want.roots.some((w) => seen.nodes.some((n) => schemaContains({ "@type": w["@type"] }, n, seen.nodes))) ? judged("changed_differently", "The requested schema type is live, but its recorded property values do not match the prepared block.", "published_differently") : judged("not_verified", "The requested structured-data block is not on your page yet.", "not_published_yet");
+      return want.roots.some((w) => seen.nodes.some((n) => SCHEMA.contains({ "@type": w["@type"] }, n, seen.nodes))) ? judged("changed_differently", "The requested schema type is live, but its recorded property values do not match the prepared block.", "published_differently") : judged("not_verified", "The requested structured-data block is not on your page yet.", "not_published_yet");
     }
     case "canonical":
       return !target ? judged("unverifiable", "This change names no address to look for.", "applied_wording_missing")
@@ -307,7 +275,7 @@ async function verifyShipmentReading(tenantId: string, shipment: VerifiableShipm
   const got = shipment.components.some((c) => c.kind === "navigation") ? await fetchPage(`${new URL(requested).origin}${SITEMAP_PATH}`, new Map(), {}).catch(() => null) : null;
   const asRead = fresh ? { ...snap, title: fresh.title, meta_description: fresh.metaDescription, h1: fresh.h1, h2_list: fresh.headings, body_paragraph_sample: fresh.passages, internal_links: fresh.internalLinks.map((l) => ({ href: l.href, anchor_text: l.anchorText })) } : snap;
   const heldText = copyText(fresh?.passages.join(" ") ?? ""), heldH1 = copyText(fresh?.h1 ?? "");
-  const live: LiveRead = { snap: asRead, ...(fresh ? { text: heldText, opening: heldH1 && heldText.startsWith(`${heldH1} `) ? heldText.slice(heldH1.length).trim() : heldText } : liveTextOf(res.html)), schema: schemaClaim(res.html), markupBlind: snap.extraction_certainty === "uncertain", finalUrl: res.finalUrl ?? null, requestedUrl: requested, sitemap: got?.ok ? got.html : null, blind: fresh ? fresh.completeness !== "complete" : snap.extraction_certainty === "uncertain" };
+  const live: LiveRead = { snap: asRead, ...(fresh ? { text: heldText, opening: heldH1 && heldText.startsWith(`${heldH1} `) ? heldText.slice(heldH1.length).trim() : heldText } : liveTextOf(res.html)), schema: SCHEMA.read(res.html), markupBlind: snap.extraction_certainty === "uncertain", finalUrl: res.finalUrl ?? null, requestedUrl: requested, sitemap: got?.ok ? got.html : null, blind: fresh ? fresh.completeness !== "complete" : snap.extraction_certainty === "uncertain" };
   const components = shipment.components.map((c) => ({ kind: c.kind, ...classify(c, live) })), seen = components.filter((c) => c.state !== "unverifiable");
   const status: ShipmentVerification["status"] = seen.length === 0 ? "blocked"
     : components.every((c) => c.state === "verified") ? "verified" : seen.some((c) => c.state === "verified") ? "partially_verified" : "differs";

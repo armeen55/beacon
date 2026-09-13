@@ -7,7 +7,7 @@ import { load as cheerioLoad } from "cheerio";
 import { createHash } from "node:crypto";
 import type { PageSnapshot } from "./types";
 import { visibleFaqs } from "./types";
-import { validateSchemaToStrings } from "./schema-validator";
+import { SCHEMA } from "./schema-validator";
 import {
   locationRegexFrom,
   serviceRegexFrom,
@@ -43,6 +43,7 @@ export function extractPageSnapshot(
     );
   }
   const $ = cheerioLoad(html);
+  const schemaGraph = SCHEMA.read(html);
   const $content = cheerioLoad(html);
   $content("nav, footer, header, aside, script, style, noscript, svg, iframe, template, [hidden], [aria-hidden=true]").remove();
   $content("[style]").filter((_, el) => /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important\s*)?(?:;|$)/i.test($content(el).attr("style") ?? "")).remove();
@@ -82,16 +83,8 @@ export function extractPageSnapshot(
     faqMaterial.push(JSON.stringify([question, answer.replace(/\s+/g, " ").trim(), source]));
   };
 
-  // JSON-LD FAQPage schema
-  $('script[type="application/ld+json"]').each((_, el) => {
-    try {
-      const data = JSON.parse($(el).html() || "");
-      const items = extractFaqFromJsonLd(data);
-      for (const item of items) holdFaq(item.question, item.answer_excerpt, item.source);
-    } catch {
-      // malformed JSON-LD
-    }
-  });
+  // Linked JSON-LD answers are observations, never proof of visible publication.
+  for (const pair of SCHEMA.pairs(schemaGraph)) holdFaq(pair.question, pair.answer, "jsonld");
 
   // HTML <details>/<summary> pattern
   contentRoot.find("details").each((_, el) => {
@@ -143,18 +136,15 @@ export function extractPageSnapshot(
   });
 
   // ── Schema types + structural audit + G8 spec validation ──
-  const schemaTypes: string[] = [];
+  const schemaTypes = schemaGraph.nodes.flatMap(SCHEMA.types);
   const schemaMaterial: string[] = [];
-  let faqSchemaBlockCount = 0;
+  const faqSchemaBlockCount = schemaGraph.nodes.filter((n) => SCHEMA.types(n).includes("FAQPage")).length;
   const structuralWarnings: string[] = [];
-  const schemaValidationWarnings: string[] = [];
-  $('script[type="application/ld+json"]').each((_, el) => {
+  const schemaValidationWarnings = SCHEMA.warnings(html);
+  $("script").filter((_, el) => ($(el).attr("type") ?? "").trim().toLowerCase() === "application/ld+json").each((_, el) => {
     try {
       const data = JSON.parse($(el).html() || "");
       schemaMaterial.push(stableJson(data));
-      collectSchemaTypes(data, schemaTypes);
-      faqSchemaBlockCount += countFaqPageBlocks(data);
-      schemaValidationWarnings.push(...validateSchemaToStrings(data));
     } catch {
       schemaMaterial.push(JSON.stringify(["unparseable", $(el).html() || ""]));
       schemaValidationWarnings.push(
@@ -162,33 +152,21 @@ export function extractPageSnapshot(
       );
     }
   });
-  if (faqSchemaBlockCount > 1) {
-    structuralWarnings.push(`duplicate_faq_schema: ${faqSchemaBlockCount} FAQPage JSON-LD blocks found - likely duplicate`);
-  }
   if (h1Count > 1) {
     structuralWarnings.push(`multiple_h1: ${h1Count} <h1> tags found - should have exactly one`);
   }
   const hasHtmlFaqs = visibleFaqs(faqs).length > 0;
   const hasFaqSchema = schemaTypes.includes("FAQPage");
-  if (hasHtmlFaqs && !hasFaqSchema) {
+  if (hasHtmlFaqs && !hasFaqSchema && !schemaGraph.unread) {
     structuralWarnings.push(`faq_without_schema: FAQ content in HTML but no FAQPage JSON-LD schema`);
   }
 
   // ── JSON-LD presence (checked before script removal for word count) ──
 
-  // Plan A + B1 (2026-04-20): schema entity names. Distinct from
-  // schema_types (which only captures @type). Harvest .name fields from
-  // Service/Offer/Organization/BreadcrumbList/ListItem entities so that a
-  // Service named "Whole-Home Remodel" contributes to coverage text.
-  const schemaEntityNames: string[] = [];
-  $('script[type="application/ld+json"]').each((_, el) => {
-    try {
-      const data = JSON.parse($(el).html() || "");
-      collectSchemaEntityNames(data, schemaEntityNames);
-    } catch {
-      // malformed - already tracked in schema_validation_warnings
-    }
-  });
+  const namedTypes = new Set(["Service", "Offer", "Product", "Organization", "LocalBusiness",
+    "HomeAndConstructionBusiness", "BreadcrumbList", "ListItem", "ItemList", "Place", "CreativeWork", "WebPage", "Article"]);
+  const schemaEntityNames = schemaGraph.nodes.filter((n) => SCHEMA.types(n).some((t) => namedTypes.has(t)))
+    .map((n) => typeof n.name === "string" ? n.name.trim() : "").filter((n) => n.length >= 3 && n.length <= 100).slice(0, 20);
 
   // Paragraphs, cards, FAQ pairs and held body share the same pruned main-content root.
   const bodyParagraphSample: string[] = [];
@@ -397,134 +375,6 @@ export function extractPageSnapshot(
 }
 
 // ── Helpers ──
-
-function extractFaqFromJsonLd(data: unknown): PageSnapshot["faqs"] {
-  const items: PageSnapshot["faqs"] = [];
-  if (!data || typeof data !== "object") return items;
-
-  // Handle top-level arrays: [{...}, {...}, {...FAQPage...}]
-  if (Array.isArray(data)) {
-    for (const node of data) {
-      items.push(...extractFaqFromJsonLd(node));
-    }
-    return items;
-  }
-
-  const obj = data as Record<string, unknown>;
-
-  const typeIsFaqPage =
-    obj["@type"] === "FAQPage" ||
-    (Array.isArray(obj["@type"]) && (obj["@type"] as string[]).includes("FAQPage"));
-  if (typeIsFaqPage && Array.isArray(obj.mainEntity)) {
-    for (const entity of obj.mainEntity) {
-      if (typeof entity === "object" && entity !== null) {
-        const e = entity as Record<string, unknown>;
-        const q = String(e.name ?? "").trim();
-        const accepted = e.acceptedAnswer as Record<string, unknown> | undefined;
-        const a = String(accepted?.text ?? "").trim();
-        if (q) items.push({ question: q, answer_excerpt: a, source: "jsonld" });
-      }
-    }
-  }
-
-  if (Array.isArray(obj["@graph"])) {
-    for (const node of obj["@graph"]) {
-      items.push(...extractFaqFromJsonLd(node));
-    }
-  }
-
-  return items;
-}
-
-/** Plan A + B1 (2026-04-20): harvest `.name` fields from common JSON-LD
- *  entity types that carry editorial labels. Same recursive walk style as
- *  `collectSchemaTypes`. Capped so a list-heavy page (BreadcrumbList,
- *  ItemList) doesn't explode the set. */
-function collectSchemaEntityNames(data: unknown, out: string[]): void {
-  if (out.length >= 20) return;
-  if (!data || typeof data !== "object") return;
-  if (Array.isArray(data)) {
-    for (const node of data) {
-      if (out.length >= 20) return;
-      collectSchemaEntityNames(node, out);
-    }
-    return;
-  }
-  const obj = data as Record<string, unknown>;
-  const rawType = obj["@type"];
-  const types = Array.isArray(rawType)
-    ? (rawType as unknown[])
-    : typeof rawType === "string"
-      ? [rawType]
-      : [];
-  const ENTITY_TYPES_WITH_NAMES = new Set([
-    "Service", "Offer", "Product", "Organization", "LocalBusiness",
-    "HomeAndConstructionBusiness", "BreadcrumbList", "ListItem",
-    "ItemList", "Place", "CreativeWork", "WebPage", "Article",
-  ]);
-  const isNamedType = types.some(
-    (t) => typeof t === "string" && ENTITY_TYPES_WITH_NAMES.has(t),
-  );
-  if (isNamedType && typeof obj.name === "string") {
-    const name = obj.name.trim();
-    if (name.length >= 3 && name.length <= 100) out.push(name.slice(0, 100));
-  }
-  if (Array.isArray(obj["@graph"])) {
-    for (const node of obj["@graph"]) {
-      if (out.length >= 20) return;
-      collectSchemaEntityNames(node, out);
-    }
-  }
-  if (Array.isArray(obj.itemListElement)) {
-    for (const node of obj.itemListElement) {
-      if (out.length >= 20) return;
-      collectSchemaEntityNames(node, out);
-    }
-  }
-}
-
-function collectSchemaTypes(data: unknown, types: string[]): void {
-  if (!data || typeof data !== "object") return;
-
-  // Handle top-level arrays: [{...}, {...}, {...}]
-  if (Array.isArray(data)) {
-    for (const node of data) collectSchemaTypes(node, types);
-    return;
-  }
-
-  const obj = data as Record<string, unknown>;
-
-  if (typeof obj["@type"] === "string") {
-    types.push(obj["@type"]);
-  } else if (Array.isArray(obj["@type"])) {
-    for (const t of obj["@type"]) {
-      if (typeof t === "string") types.push(t);
-    }
-  }
-
-  if (Array.isArray(obj["@graph"])) {
-    for (const node of obj["@graph"]) collectSchemaTypes(node, types);
-  }
-}
-
-function countFaqPageBlocks(data: unknown): number {
-  if (!data || typeof data !== "object") return 0;
-  if (Array.isArray(data)) {
-    let count = 0;
-    for (const node of data) count += countFaqPageBlocks(node);
-    return count;
-  }
-  const obj = data as Record<string, unknown>;
-  const isFaq =
-    obj["@type"] === "FAQPage" ||
-    (Array.isArray(obj["@type"]) && (obj["@type"] as string[]).includes("FAQPage"));
-  let count = isFaq ? 1 : 0;
-  if (Array.isArray(obj["@graph"])) {
-    for (const node of obj["@graph"]) count += countFaqPageBlocks(node);
-  }
-  return count;
-}
-
 
 /**
  * N19 (2026-07-02): normalize extracted node text before word-counting it.
