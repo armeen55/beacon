@@ -168,8 +168,8 @@ function topicsFor(snapshot: EvidenceSnapshot, promoted: readonly string[] = [])
   return [...built, ...extra];
 }
 
-/** The whole pass may read at most this many of my own pages' STORED words, once each. */
-const MAX_BODY_READS = 3;
+/** Stored-read calls per pass; each reads the investigation's whole candidate frontier, with no URL repeated. */
+const MAX_BODY_FRONTS = 3;
 /** ONE topic, the ONE thing it is stuck on, and either the exact purchase that closes it (a search to look
  *  up, the comparison, or the page of my own Evidence must go and read) or the date I may try again. A case
  *  that can only WAIT is still listed, because a requirement nobody can see is a requirement nobody fixes.
@@ -244,9 +244,10 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
   const max = opts.maxQueries ?? 0;
   const needs: ResearchNeed[] = [];
   const seen = new Set<string>();
-  // ONE body cache for the whole pass, and one bounded read: at most three of my own pages, asked for once each, never the site. Every candidate rebuild reads out of this map.
+  // Three stored-read frontiers, each candidate-complete and bounded by the mapper; every URL asked once, never the site.
   const bodies = new Map<string, OwnedPageBody>();
   const asked = new Set<string>();
+  let bodyReads = 0;
   let queries = 0;
   const nowMs = (opts.now ?? new Date()).getTime();
   let decided: DecidedTopic | null = null;
@@ -264,12 +265,11 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
       ...(opts.patternFor && opts.patternFor.topicKey === inv.key ? { pattern: opts.patternFor.pattern } : {}) };
     let decision: CoverageDecision;
     try { decision = await adjudicateCoverage(inv, candidates, tenantId, judge); } catch { continue; }
-    // A PAGE OF MINE WHOSE WORDS ARE ALREADY STORED IS NOT AN UNREAD PAGE: the strong ones are read now and
-    // judged again in the SAME pass, because a requirement I can close in this breath is not a reason to send the operator away.
     let ownedRead: OwnedPageReadOutcome | null = null;
     let ownedUrl: string | null = null;
     if (decision.missing[0] === "owned_content") {
-      const want = candidates.filter((c) => c.strongSignals > 0 && !c.bodyHeld && !asked.has(c.url)).slice(0, MAX_BODY_READS - asked.size).map((c) => c.url);
+      const want = bodyReads < MAX_BODY_FRONTS ? candidates.filter((c) => c.strongSignals > 0 && !c.bodyHeld && !asked.has(c.url)).map((c) => c.url) : [];
+      if (want.length > 0) bodyReads += 1;
       for (const u of want) asked.add(u);
       const read = want.length > 0 ? await loadOwnedPageBodies(tenantId, want).catch(() => null) : null;
       // ONE FRESHNESS MATRIX, BOTH SIDES OF THE FENCE: judging a body of any age as held here made this gate and Evidence's own page phase disagree about the word "current".
@@ -277,7 +277,7 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
       // AN EMPTY BODY STORE IS UNKNOWN COVERAGE, NEVER PROOF A PAGE HAS NO WORDS. A page my own results name,
       // whose words are not on file, is NAMED for the run's page phase to read under its lease; naming it here is free and safe, and fetching it here was the whole defect.
       candidates = ownedCandidatesFor(snapshot, inv, bodies);
-      const owed = want.find((u) => !candidates.find((c) => c.url === u)?.bodyHeld);
+      const owed = candidates.find((c) => c.strongSignals > 0 && !c.bodyHeld)?.url;
       if (owed) { ownedUrl = owed; ownedRead = ownedReads.get(owed) ?? null; }
       // DECIDE AGAIN IN THE SAME PASS: a body already stored is judged in this breath, and a read that failed hands the verdict its persisted reason so the verdict says which failure this was and on what date.
       if (ownedRead || want.length > 0) {

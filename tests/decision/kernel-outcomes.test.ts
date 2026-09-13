@@ -371,15 +371,18 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     [{ completeness: "sample_only" }, false], [{ version: "stale_known_good" }, false], [{ version: "blank" }, false],
     [{ version: undefined }, false], [{ contentHash: null }, false], [{ vocabulary: undefined }, false],
     [{ url: "https://rival.example/a" }, false], [{ fetchedAt: "2026-01-01T00:00:00Z" }, false],
+    [{ storedReadWidth: 4 }, true],
   ])("uses an actual qualified stored capture, or names the exact page still owed: %j", async (body, held) => {
-    const research = withParked(READY({ topicKey: keyOf(READY()) })); const world = snap([GAP, UNREAD], research, [...DEMAND, ...PARKED_DEMAND]);
+    const extra = "storedReadWidth" in body ? [1, 2, 3].map((i) => ownedPage(`fixture-outdoors.example/parked-${i}`, "T", { impressions: 400, clicks: 4 }, [{ query: PARKED, impressions: 400, clicks: 4, position: 6 }])) : [];
+    const research = withParked(READY({ topicKey: keyOf(READY()) })); const world = snap([GAP, UNREAD, ...extra], research, [...DEMAND, ...PARKED_DEMAND]);
     reset(world); env.coverageBody = body;
     const order = buildTopicInvestigations(world); const parked = order.find((i) => i.label === PARKED)!;
     const read = await readCoverage(world, "fixture-tenant", { basis: "basis_today", maxQueries: 3, now: NOW }); // the clock is injected: the stored body's currency is judged against the fixture's day, never the wall
     expect(rankInvestigations(order)[0]!.key).toBe(parked.key); // it ranks first, and its own page sat unread while its words were already on file
     const need = read.needs.find((n) => n.topicKey === parked.key)!;
     expect([need.requirement, need.ownedUrl]).toEqual([held ? "page_intersection" : "owned_content", held ? null : UNREAD_URL]);
-    expect([read.decided!.investigation.label, read.decided!.decision.verdict]).toEqual([HAFT, "create_new"]); });
+    expect((await readCoverage(world, "fixture-tenant", { basis: "basis_today", maxQueries: 3, now: NOW })).needs).toEqual(read.needs);
+    expect([read.decided?.investigation.label ?? null, read.decided?.decision.verdict ?? null]).toEqual([HAFT, "create_new"]); });
   it("NAMES the page of mine it cannot judge without, fetches no website at all doing it, and repeats the stored retry date instead of sliding it", async () => {
     const DARK_URL = "fixture-outdoors.example/nowruz-unreadable"; const HOLD = "2026-07-27T00:00:00.000Z";
     const dark = ownedPage(DARK_URL, "T", { impressions: 400, clicks: 4 }, [{ query: PARKED, impressions: 400, clicks: 4, position: 6 }]);
@@ -596,12 +599,9 @@ describe("do I already have the right page for what I investigated", () => { it(
     expect([page.bodyHeld, page.strongSignals]).toEqual([false, 1]); expect(page.signals.find((s) => s.strength === "unknown")!.detail).toBe("A current, version-bound capture of this page is not held, so whether it already covers this is unknown."); });
   it("surfaces BOTH of my pages when both already cover the topic", () => { expect(cands(BOTH()).map((c) => [c.url, c.strongSignals])).toEqual([[GAP_URL, 2], [FOOD, 2]]); });
 }); // ── WHY this page loses the click: one named cause, or none ─────────────────
-/** The reading the drafting pass hands the verdict: what the winners share, and what MY page does not do. */
 const PATTERN_HELD = { archetype: "informational_guide" as const, commonHeadings: [{ heading: "what each piece means", seenOn: [0, 1, 2] }], commonEntities: [], questionsAnswered: [], openingPattern: "Each of them answers the question in its first sentence.", disagreements: [], uniqueNotCommon: [],
   ownedGaps: [{ gap: "your page never walks through the pieces one by one", seenOn: [0, 1, 2] }], winners: 3, publishers: ["r1.example", "r2.example", "r3.example"], fingerprint: "fixture" };
-/** The five causes nothing in this generation can test, which must therefore never be guessed at. */
 const NEVER_HELD = ["demand_decline", "ranking_loss", "technical_indexability", "measuring_change"];
-/** An engine answering this page's own search and naming everybody except this page. */
 const CITED_ELSEWHERE = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), aiObservations: [canon({ promptId: "p1", promptText: "nowruz traditions explained", engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true,
   citations: [{ url: "https://rival.example/a", domain: "rival.example", title: null }], fanOutQueries: ["nowruz traditions"], observedAt: LOOKED_AT })] });
 const ACTORS_SEEN = () => snap([ACTORS], actorsSerp("Persian Screen | Iranopedia"));
