@@ -89,14 +89,11 @@ const heldBodies = (urls: string[], tenantId: string): Promise<Map<string, Owned
 /** `sitemap` is the account's own sitemap as it reads right now, fetched ONLY when a change asked to be
  *  listed in it and null when there was none to read: no read of the PAGE can answer whether it is on that list. */
 /** `blind` is a read whose BODY never arrived (a javascript page hands the polite fetch a shell) and that no held capture could answer for. ONE fact for the whole reading: honoured in the two structured-data branches alone, one page said its markup builds in the browser while its sections said the operator did no work. */
-type LiveRead = { snap: PageSnapshot; text: string; opening: string; schema: ReturnType<typeof SCHEMA.read>; markupBlind: boolean; finalUrl: string | null; requestedUrl: string; sitemap: string | null; blind: boolean };
+type LiveRead = { snap: PageSnapshot; text: string; opening: string; schema: ReturnType<typeof SCHEMA.read>; markupBlind: boolean; finalUrl: string | null; requestedUrl: string; addressMatches: boolean; sitemap: string | null; blind: boolean };
 
-function liveTextOf(html: string): { text: string; opening: string } {
-  const $ = load(html); $("nav, body > header, footer, aside, script, style, noscript, svg, iframe, [hidden], [aria-hidden=true]").remove();
-  const root = $("main").first().length ? $("main").first() : $("article").first().length ? $("article").first() : $("body");
-  root.find("br, p, div, section, article, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, pre, table, caption, tr, th, td, figure, figcaption").each((_, el) => { $(el).before(" ").after(" "); });
-  const text = copyText(root.text()); root.find("h1").remove();
-  return { text, opening: copyText(root.text()) };
+function publishedTextOf(mainHtml: string): { text: string; opening: string } {
+  const $ = load(mainHtml), text = copyText($("body").text()); $("h1").first().remove();
+  return { text, opening: copyText($("body").text()) };
 }
 
 /** WHAT GOOGLE PUTS ON SCREEN for one search: the rows of a results page, reduced to the address and the two
@@ -113,6 +110,7 @@ const serpRows = async (query: string, tenantId: string): Promise<SerpRow[] | nu
  *  shipment that named a search, and only while the pass has a read left. Returns the ONE extra component to
  *  store beside the page's own, or nothing at all, which is what every unanswerable case comes back as. */
 async function googleShows(s: VerifiableShipment, tenantId: string, live: LiveRead, deps: VerifyDeps, checkedAt: string): Promise<ShipmentVerification["components"][number] | null> {
+  if (!live.addressMatches) return null;
   const part = s.components.find((c) => (c.kind === "title" || c.kind === "meta") && !!norm(c.after ?? "")), budget = deps.serpReads ?? { left: 1 };
   const query = (s.targetQueries ?? []).map((q) => (q ?? "").trim()).find(Boolean);
   if (!part || !query || budget.left <= 0) return null; budget.left -= 1;
@@ -131,6 +129,7 @@ async function googleShows(s: VerifiableShipment, tenantId: string, live: LiveRe
 function classify(component: { kind: string; after: string; anchorAfter?: string | null; redirectTo?: string | null; before?: string | null }, live: LiveRead): { state: ComponentState; note: string; reason: Reason | null } {
   const { snap } = live, proposed = component.after ?? "", nothingToFind = noExpectation(component.kind, proposed, component.anchorAfter); // NO COPY, NO CLAIM: the same rule the whole reading is settled by above, asked here for one piece of a bundle whose other pieces the page can answer for, and asked with everything the piece holds so a link rename is judged by ONE rule rather than by this one and then again below
   if (nothingToFind) return judged("unverifiable", nothingToFind, "applied_wording_missing");
+  if (!live.addressMatches && !["redirect", "consolidation"].includes(component.kind)) return judged("unverifiable", live.finalUrl ? "That address answered from a different page, so its content cannot confirm this change." : "The final page address was not observed, so this change cannot be confirmed against the intended page.", "address_mismatch");
   // A FIELD IS ABSENT ONLY WHERE THE READ COULD SEE ONE: a head that never parsed proves nothing about what is in it. And the wording that was there BEFORE, still live, is a publish that has not happened; calling that the operator's own version blamed them for a CMS cache and taught the loop off a page they never wrote.
   const field = (value: string | null, what: string) => !value?.trim() ? (live.blind && !snap.title ? judged("unverifiable", `Your page builds its content in the browser, so its ${what} could not be read from the outside.`, "rendered_content_gap") : judged("not_verified", `Your page has no ${what} at all.`, "not_published_yet"))
     : norm(value) === norm(proposed) ? judged("verified", `Your ${what} matches the prepared wording exactly.`) : norm(value) === norm(component.before ?? "") ? judged("not_verified", `Your ${what} still reads the way it did before this change.`, "not_published_yet")
@@ -265,17 +264,19 @@ async function verifyShipmentReading(tenantId: string, shipment: VerifiableShipm
       : blockedRead("Your website did not answer, so this change could not be checked.", "page_unreachable");
   }
   const profile = deps.loadProfile ? await deps.loadProfile(tenantId).catch(() => null) : await loadBusinessProfile(tenantId).catch(() => null);
-  const snap = extractPageSnapshot(res.html, requested, pageIdFor(canonicalUrlKey(shipment.url)), tenantId, res.status, profile ?? undefined); // ONE PAGE IDENTITY (operator, 2026-09-01): the raw address minted a second page id for eight pages beside the crawler's canonical one
+  let mainHtml = "";
+  const snap = extractPageSnapshot(res.html, requested, pageIdFor(canonicalUrlKey(shipment.url)), tenantId, res.status, profile ?? undefined, res.finalUrl ?? null, (captured) => { mainHtml = captured; });
+  const addressMatches = !!res.finalUrl && canonicalUrlKey(res.finalUrl) === canonicalUrlKey(requested);
   const shell = !snap.title && snap.word_count === 0; // A READ THAT PARSED NOTHING IS NOT AN EMPTY PAGE: a javascript site hands the polite fetch a shell, so the page store answers for it below, and only while its capture is newer than the change, because older words prove what the page said before it and never what it says now
   const held = shell ? await (deps.readHeld ?? heldBodies)([requested], tenantId).then((m) => m.get(canonicalUrlKey(requested)) ?? null).catch(() => null) : null;
   const fresh = held && ["current", "sample_only"].includes(held.version ?? "") && !!held.fetchedAt && (!shipment.implementedAt || held.fetchedAt >= shipment.implementedAt) ? held : null;
   // Fail-soft on purpose: the verification I just computed is the evidence, and a snapshot row I could not save changes nothing about what I read with my own eyes. A shell is never written OVER the capture that IS the page.
-  if (!shell) await (deps.writeOwnedPage ?? ((s: PageSnapshot, t: string) => syncPageSnapshots([s], t)))(snap, tenantId).catch(() => {});
+  if (!shell && addressMatches) await (deps.writeOwnedPage ?? ((s: PageSnapshot, t: string) => syncPageSnapshots([s], t)))(snap, tenantId).catch(() => {});
   // ONE extra read, only when a change asked to be listed in the sitemap, and never a second time.
   const got = shipment.components.some((c) => c.kind === "navigation") ? await fetchPage(`${new URL(requested).origin}${SITEMAP_PATH}`, new Map(), {}).catch(() => null) : null;
   const asRead = fresh ? { ...snap, title: fresh.title, meta_description: fresh.metaDescription, h1: fresh.h1, h2_list: fresh.headings, body_paragraph_sample: fresh.passages, internal_links: fresh.internalLinks.map((l) => ({ href: l.href, anchor_text: l.anchorText })) } : snap;
   const heldText = copyText(fresh?.passages.join(" ") ?? ""), heldH1 = copyText(fresh?.h1 ?? "");
-  const live: LiveRead = { snap: asRead, ...(fresh ? { text: heldText, opening: heldH1 && heldText.startsWith(`${heldH1} `) ? heldText.slice(heldH1.length).trim() : heldText } : liveTextOf(res.html)), schema: SCHEMA.read(res.html), markupBlind: snap.extraction_certainty === "uncertain", finalUrl: res.finalUrl ?? null, requestedUrl: requested, sitemap: got?.ok ? got.html : null, blind: fresh ? fresh.completeness !== "complete" : snap.extraction_certainty === "uncertain" };
+  const live: LiveRead = { snap: asRead, ...(fresh ? { text: heldText, opening: heldH1 && heldText.startsWith(`${heldH1} `) ? heldText.slice(heldH1.length).trim() : heldText } : publishedTextOf(mainHtml)), schema: SCHEMA.read(res.html), markupBlind: snap.extraction_certainty === "uncertain", finalUrl: res.finalUrl ?? null, requestedUrl: requested, addressMatches, sitemap: got?.ok ? got.html : null, blind: fresh ? fresh.completeness !== "complete" : snap.extraction_certainty === "uncertain" };
   const components = shipment.components.map((c) => ({ kind: c.kind, ...classify(c, live) })), seen = components.filter((c) => c.state !== "unverifiable");
   const status: ShipmentVerification["status"] = seen.length === 0 ? "blocked"
     : components.every((c) => c.state === "verified") ? "verified" : seen.some((c) => c.state === "verified") ? "partially_verified" : "differs";
@@ -289,7 +290,7 @@ async function verifyShipmentReading(tenantId: string, shipment: VerifiableShipm
   const reason: Reason | null = status === "verified" ? (shows?.state === "not_verified" ? "google_not_updated" : null)
     : shell && held && !fresh ? "stale_reading" : causes.find((r) => r === "published_differently") ?? causes[0] ?? "unmeasurable";
   const claim = shipment.claim ?? { page: shipment.url, implementedAt: shipment.implementedAt, componentsApplied: shipment.components.map((c) => ({ ...c, label: "" })) };
-  return { status, checkedAt: stamp(), checks, reason, proof: SHIPMENT_PROOF.of(claim, JSON.stringify([res.html, fresh])), components: (shows ? [...graded, shows] : graded).map(({ kind, state, note }) => ({ kind, state, note })), recheckAfter: again ? reportingDay(now() + (early ? 1 : 2) * 86_400_000) : null };
+  return { status, checkedAt: stamp(), checks, reason, proof: SHIPMENT_PROOF.of(claim, JSON.stringify([requested, res.finalUrl ?? null, mainHtml, res.html, fresh])), components: (shows ? [...graded, shows] : graded).map(({ kind, state, note }) => ({ kind, state, note })), recheckAfter: again ? reportingDay(now() + (early ? 1 : 2) * 86_400_000) : null };
 }
 
 export async function verifyShipment(tenantId: string, shipment: VerifiableShipment, deps: VerifyDeps = {}): Promise<ShipmentVerification> {

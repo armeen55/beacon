@@ -23,8 +23,7 @@ function stableJson(value: unknown): string {
   return `{${Object.keys(obj).sort().map((k) => `${JSON.stringify(k)}:${stableJson(obj[k])}`).join(",")}}`;
 }
 
-/** The per-page ceiling on stored main-content text. 100k characters is roughly 15,000 words: past
- *  any real page, and a hard bound on one row whatever a generator emits. */
+/** Stored main-content text is bounded; truncation is recorded, never full-page absence authority. */
 const BODY_TEXT_CEILING = 100_000;
 
 export function extractPageSnapshot(
@@ -36,6 +35,7 @@ export function extractPageSnapshot(
   profile?: import("@/domains/account").BusinessProfile | null,
   /** Where the fetch landed after redirects. Defaults to the requested address. */
   finalUrl?: string | null,
+  capture?: (mainHtml: string) => void,
 ): PageSnapshot {
   if (!tenantId) {
     throw new Error(
@@ -50,6 +50,7 @@ export function extractPageSnapshot(
   const mains = $content("main").filter((_, el) => $content(el).parents("main").length === 0), articles = $content("article");
   const contentRoot = mains.length ? mains : articles.length === 1 ? articles : $content("body");
   contentRoot.find("br, p, div, section, article, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, pre, table, caption, tr, th, td, figure, figcaption, details, summary").each((_, el) => { $content(el).before(" ").after(" "); });
+  capture?.($content.html(contentRoot));
 
   const title = $("title").first().text().trim() || null;
   const metaDescription =
@@ -283,10 +284,7 @@ export function extractPageSnapshot(
   const flat = contentRoot.text().replace(/\s+/g, " ").trim();
   const wordCount = flat ? flat.split(/\s+/).length : 0;
   const bodyText = flat;
-  // THE WHOLE PAGE, KEPT (2026-08-03). The 20x300-char paragraph sample could prove a phrase was
-  // PRESENT and never that it was absent, so every whole-page judgement was unprovable. body_text
-  // holds the same de-chromed text the word count is taken from, under one explicit ceiling, and
-  // a cut is RECORDED rather than silently swallowed.
+  // Store the shared main-content projection with an explicit truncation warning.
   const bodyTextHeld = bodyText.slice(0, BODY_TEXT_CEILING);
   let faqRoom = BODY_TEXT_CEILING;
   for (const f of faqs) if (f.answer_text !== undefined) {
@@ -330,7 +328,7 @@ export function extractPageSnapshot(
     page_id: pageId,
     url,
     canonical_url: canonicalUrl,
-    final_url: finalUrl ?? url,
+    final_url: finalUrl === undefined ? url : finalUrl,
     fetched_at: new Date().toISOString(),
     http_status: httpStatus,
     title,

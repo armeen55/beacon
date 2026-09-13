@@ -8,13 +8,13 @@ function components(r: Claim) {
   if (!applied.length) return copy || r.actionType ? [{ id: null, kind: r.actionType || "content", after: copy, before: was || null, page: r.page ?? null, where: null, anchorAfter: null, redirectTo: null }] : [];
   const lone = applied.length === 1;
   return applied.map((c) => ({ id: c.id ?? null, kind: c.kind, page: c.page ?? r.page ?? null, where: c.where ?? null, anchorAfter: c.anchorAfter ?? null, redirectTo: c.redirectTo ?? null,
-    before: (c.before ?? "").trim() || (lone || c.kind === r.actionType ? was : "") || null,
+    before: c.before !== undefined ? c.before?.trim() || null : (lone ? was : "") || null,
     after: (c.appliedAfter ?? "").trim() || (c.after ?? "").trim() || (lone || c.kind === r.actionType ? copy : "") }));
 }
 
 /** One applied-unit identity and checker contract. Old observations remain history, not delivery permission. */
 export const SHIPMENT_PROOF = {
-  contract: 2 as const,
+  contract: 3 as const,
   components,
   of(r: Claim, inspectedEvidence?: string): NonNullable<ShipmentVerification["proof"]> | null {
     const at = Date.parse(r.implementedAt ?? ""), pieces = components(r);

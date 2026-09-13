@@ -13,7 +13,7 @@ import type { ShippedChangeRecord, ShipmentVerification } from "@/domains/measur
 const T = "tenant-learning", AT = "2026-05-01T12:00:00Z", NOW = Date.parse("2026-07-15T12:00:00Z");
 const COPY = "The operator's complete published section explains the subject, its scope and its distinguishing features in original words, with the supported qualifications needed to understand it.";
 const HTML = `<html><head><title>Example guide</title></head><body><main><h1>Example guide</h1><p>${COPY}</p></main></body></html>`;
-const deps = { now: () => NOW, loadProfile: async () => null, writeOwnedPage: async () => {}, fetchPage: async () => ({ ok: true as const, html: HTML, status: 200 }), readSerp: async () => null };
+const deps = { now: () => NOW, loadProfile: async () => null, writeOwnedPage: async () => {}, fetchPage: async (url: string) => ({ ok: true as const, html: HTML, status: 200, finalUrl: url }), readSerp: async () => null };
 async function delivered(over: Partial<ShippedChangeRecord> = {}): Promise<ShippedChangeRecord> {
   const r = { id: "first", page: "https://example.test/guide", path: "/guide", actionType: "section_add", before: null, after: "The proposal included unapplied NUMBER and YEAR blanks.", shippedAt: AT, implementedAt: AT,
     baseline: { impressions: 5000, clicks: 400, ctr: 0.08, position: 8, windowDays: 28 }, controlsReceipt: [{ path: "/a" }, { path: "/b" }, { path: "/c" }],
@@ -26,7 +26,7 @@ const lesson = (r: ShippedChangeRecord) => learningVerdictOf(readRecordsForLearn
 beforeEach(() => { io.ledger.clear(); io.memory = []; io.fail = false; io.load.mockClear(); io.write.mockClear(); });
 describe("only the evidenced applied unit may teach", () => {
   it("a fully verified applied subset teaches once and the writer receives the operator's actual copy", async () => {
-    const r = await delivered(); expect([r.verification?.status, lesson(r), treatmentLearning([r])[0]!.sampleSize]).toEqual(["verified", "won", 1]);
+    const r = await delivered(); expect([r.verification?.status, lesson(r), treatmentLearning([r])[0]!.sampleSize, ...SHIPMENT_PROOF.components({ ...r, before: "Root predecessor", componentsApplied: [{ kind: "section_add", label: "New section", before: null }, { kind: "section_add", label: "Another page" }] }).map((c) => c.before)]).toEqual(["verified", "won", 1, null, null]);
     expect(r.verification?.proof?.inspectedHash).toMatch(/^[a-f0-9]{64}$/); io.ledger.set(T, [r]);
     expect(await harvestWinners(T)).toEqual({ harvested: 1, families: 1 });
     expect(await harvestWinners(T)).toEqual({ harvested: 0, families: 1 });
