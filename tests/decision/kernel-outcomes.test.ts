@@ -8,7 +8,7 @@ const fenv = vi.hoisted(() => ({ cards: null as null | unknown[], review: null a
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...((await orig()) as object), // Keyed the way the producer reads it (canonical, so a stored row and a full address are one page), or the page's own words are silently dropped.
   loadOwnedPageBodies: async (_t: string, urls: string[]) => new Map(urls.filter((u) => !u.includes("unreadable"))
-    .flatMap((u) => [u, u.replace(/^https?:\/\//, "").replace(/\/+$/, "")].map((k) => [k, { url: u, title: "T", h1: null, metaDescription: null, headings: [], passages: ["A haft seen table is the spread a household sets out for the new year."], openingSample: "A haft seen table is the spread a household sets out for the new year.", vocabulary: "A haft seen table is the spread a household sets out for the new year.", cardTexts: [], faqs: env.pairedFaq ? [{ question: "What is a haft seen table?", answer: "A haft seen table is the spread a household sets out for the new year.", source: "html_details", answerComplete: true }] : [], entityNames: [], internalLinks: [], fetchedAt: "2026-07-25T00:00:00.000Z", completeness: "complete", version: "current", contentHash: "current-capture", heldNote: "", ...(u === "fixture-outdoors.example/nowruz-table" ? env.coverageBody : {}) }] as const))) }));
+    .flatMap((u) => [u, u.replace(/^https?:\/\//, "").replace(/\/+$/, "")].map((k) => [k, { url: u, title: "T", h1: null, metaDescription: null, headings: [], passages: ["A haft seen table is the spread a household sets out for the new year."], openingSample: "A haft seen table is the spread a household sets out for the new year.", vocabulary: "A haft seen table is the spread a household sets out for the new year.", cardTexts: [], faqs: env.pairedFaq ? [{ question: "What is a haft seen table?", answer: "A haft seen table is the spread a household sets out for the new year.", source: "html_details", answerComplete: true }] : [], entityNames: [], internalLinks: [], fetchedAt: "2026-07-25T00:00:00.000Z", completeness: "complete", version: "current", contentHash: "current-capture", heldNote: "", ...(u === "fixture-outdoors.example/nowruz-table" || u.replace(/^https?:\/\//, "") === env.coverageBody.url ? env.coverageBody : {}) }] as const))) }));
 vi.mock("@/domains/decision/proposal-store", async () => { const actual = await vi.importActual<typeof import("@/domains/decision/proposal-store")>("@/domains/decision/proposal-store");
   return { ...actual, loadChangeProposals: async () => env.store, withdrawnProposalIds: async () => env.withdrawnIds, // The canonical store's OWN rule, emulated: a proposal identical to the stored row writes nothing at all.
     withdrawChangeProposal: async (p: ChangeProposal) => { env.withdrawn.push(p.id); env.store.delete(p.id); return true; }, saveChangeProposal: async (p: ChangeProposal) => { const prior = env.store.get(p.id); if (prior && actual.proposalFingerprint(prior) === actual.proposalFingerprint(p)) return "unchanged";
@@ -531,6 +531,28 @@ describe("what the winning pages share reaches the operator, and never one of th
     expect([d.pattern!.winners, d.pattern!.publishers]).toEqual([3, ["r1.example", "r2.example", "r3.example"]]); // the months-old fourth read is not one of the pages I read
     expect(d.pattern!.ownedGaps[0]!.gap).toContain("piece"); // and the gap stands only because the page it is about was supplied
     expect(d.evidence!.find((e) => e.id === "gap1")!.fact).toContain("Your own page does not do what 3 of them do"); expect(d.evidence!.find((e) => e.id === "pattern")!.fact).toContain("The 3 pages that win here were read side by side"); });
+  it("funding memory follows the selected owned capture and every member query, not unrelated drift or recapture clocks", async () => {
+    const related = "haft seen meanings", research = READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) });
+    research.retainedKeywords.push({ ...research.retainedKeywords[0]!, query: related, searchVolume: 10, seed: HAFT });
+    research.serpEvidence.push({ ...research.serpEvidence[0]!, query: related });
+    research.winningPages.push(rich({ ...STALE, url: RIVAL(5), domain: "r5.example", appearances: [{ ...STALE.appearances[0]!, query: related, citedUrl: RIVAL(5) }] }, 5));
+    research.pageComparisons![0]!.topicKey = keyOf(research);
+    const world = snap([GAP], research, DEMAND), run = async (s: EvidenceSnapshot, body: Record<string, unknown> = {}, memory = {}) => {
+      reset(s); env.coverageBody = { url: GAP_URL, ...body };
+      return produceProposalsForTenant("fixture-tenant", { now: NOW, memory, complete: async ({ kind, user }) => ({ value: (kind === "winning_pattern" ? PATTERN(user) : VALID_ATOMIC_EDIT) as never }) }); };
+    const first = await run(world), key = first.paid.receipts.find((r) => r.family === "winning_pattern")!.workKey;
+    expect(first.coverage!.investigation.queries).toContain(related);
+    const memory = { [key]: { calls: 1, last: "evidence_banked", settled: true } }, stable = structuredClone(world);
+    stable.research.serpEvidence.reverse(); stable.research.winningPages.reverse(); stable.research.retainedKeywords.reverse();
+    const same = await run(stable, { fetchedAt: "2026-07-26T00:00:00.000Z" }, memory);
+    expect(same.paid.declined?.some((r) => r.family === "winning_pattern" && r.reason.includes("settled"))).toBe(true);
+    expect(same.paid.receipts.some((r) => r.family === "winning_pattern")).toBe(false);
+    const changed = structuredClone(world); changed.research.winningPages.find((w) => w.url === RIVAL(5))!.extract!.mainText = "Each item has a different meaning. Families assemble the table before the new year.";
+    for (const [s, body, moves] of [[world, { contentHash: "new-capture", passages: ["Families choose each haft seen item for its meaning."] }, true], [world, { completeness: "partial" }, true], [changed, {}, true]] as const) {
+      const result = await run(s, body, memory), receipt = result.paid.receipts.find((r) => r.family === "winning_pattern");
+      expect(receipt != null, JSON.stringify(body)).toBe(moves);
+    }
+  });
   it.each(["tenant-one", "tenant-two"])("%s: files a reading its own share of the box stopped as owed again, never as a settled refusal about the winners it never read", async (asTenant) => {
     const research = READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) });
     reset(snap([GAP], research, DEMAND)); vi.useFakeTimers({ toFake: ["Date"] }); const at = Date.now();

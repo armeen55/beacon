@@ -7,7 +7,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 import { log } from "@/lib/logger";
-import { RELATIONAL, topicTokens } from "@/domains/evidence/relevance-gate";
+import { canonicalQueryKey, RELATIONAL, topicTokens } from "@/domains/evidence/relevance-gate";
 import { publisherHost, type SerpPageType } from "@/domains/evidence/serp-shape";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
@@ -220,7 +220,7 @@ export async function readWinningPattern(
 
   // A SETTLED SHAPE IS PART OF THE ASK, so it rides the fingerprint too: the same pages under a shape that has since changed are a different question and must not be answered out of the old reading's cache.
   const settled = opts.pageType && opts.pageType !== "mixed" && opts.pageType !== "unknown" ? opts.pageType : null;
-  const lines = [`SEARCH QUESTION: ${JSON.stringify(opts.label ?? null)}`, `RELATED SEARCHES: ${JSON.stringify(opts.queries ?? [])}`, ...factLines(pages, owned), ...(settled ? [`THE KIND OF PAGE THAT ALREADY WINS HERE, SETTLED: ${settled}`] : [])];
+  const lines = [`SEARCH QUESTION: ${JSON.stringify(opts.label ?? null)}`, `RELATED SEARCHES: ${JSON.stringify([...new Set((opts.queries ?? []).map(canonicalQueryKey).filter(Boolean))].sort())}`, ...factLines(pages, owned), ...(settled ? [`THE KIND OF PAGE THAT ALREADY WINS HERE, SETTLED: ${settled}`] : [])];
   const fingerprint = createHash("sha256").update(lines.join("\n")).digest("hex").slice(0, 16);
   const user = [
     "THE PAGES THAT WIN THIS SEARCH (cite these numbers and no others)",

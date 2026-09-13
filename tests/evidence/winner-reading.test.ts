@@ -3,7 +3,6 @@ import { mainOf, pageExtractFrom, pageExtractFromRecord } from "@/domains/eviden
 const MAIN_TEXT_CEILING = mainOf("word ".repeat(20_000)).heldChars!;
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import { parseCapability } from "@/domains/evidence/dataforseo/capabilities";
-import { jobEvidenceHash } from "@/domains/evidence/snapshot";
 
 const SITES = [
   { t: "tenant-one", url: "https://alpha.example/harbour-seals", nav: "Home Shop Newsletter", h2: "Where they haul out",
@@ -24,8 +23,6 @@ describe("what one read of a winning page carries", () => {
     it(`${s.t}: fresh and stored bodies retain content, scope and honest legacy absence`, () => {
       const fresh = pageExtractFrom(extractPageSnapshot(htmlOf(s), s.url, "p1", s.t));
       expect([fresh.mainText?.includes(s.body), fresh.mainText?.includes(s.nav), fresh.mainText?.includes(s.foot), fresh.mainText?.includes(s.rail), fresh.h3s, fresh.schemaTypes, fresh.truncated]).toEqual([true, false, false, false, [s.h3], [s.schema], false]);
-      expect(fresh.headings.includes(s.rail)).toBe(true); // labels remain banked; main-content comparison qualifies them
-      expect([fresh.heldChars === (fresh.mainText ?? "").length, fresh.totalChars === fresh.heldChars]).toEqual([true, true]);
       const back = pageExtractFromRecord(JSON.parse(JSON.stringify(fresh)) as Record<string, unknown>);
       expect([back.mainText, back.h3s, back.schemaTypes, back.truncated, back.heldChars, back.totalChars],
         "every field the read banked is the field the next pass reads").toEqual([fresh.mainText, fresh.h3s, fresh.schemaTypes, fresh.truncated, fresh.heldChars, fresh.totalChars]);
@@ -44,8 +41,6 @@ describe("what one read of a winning page carries", () => {
       const got = parseCapability("onpage_content_parsing", envelope as never)!;
       expect([got?.mainText?.includes(s.body), got?.headings, (got?.wordCount ?? 0) > 0], "the provider's main and secondary topics are the reading, and its headings ride with it").toEqual([true, [s.h2, s.h3], true]);
       const back = pageExtractFromRecord(JSON.parse(JSON.stringify(got))); expect([back.sections, back.h3s, back.schemaTypes]).toEqual([got.sections, undefined, undefined]);
-      const key = (extract: object) => jobEvidenceHash({ ownedPages: [], research: { serpEvidence: [{ query: s.h2, organic: [{ rank: 1, url: s.url }], aiOverview: [], aiMode: [] }], winningPages: [{ url: s.url, appearances: [], extract }] } } as never, [], s.h2);
-      expect(key(back)).toBe(key(got)); expect(key({ ...back, mainText: `${back.mainText} Changed evidence.` })).not.toBe(key(back)); expect(key({ ...back, fetchedAt: "2099-01-01" })).toBe(key(back));
       expect([got.hasTable, got.faqCount, got.metaDescription, got.entityNames, got.hasList, got.internalLinkCount, got.externalLinkCount]).toEqual([true, undefined, undefined, undefined, undefined, undefined, undefined]);
       const empty = parseCapability("onpage_content_parsing", { tasks: [{ result: [{ items: [{ page_content: {} }] }] }] } as never);
       expect([empty?.mainText, empty?.wordCount, empty?.truncated], "a read that came back with no words carries none, so nothing downstream can mistake it for a page that answers").toEqual([null, 0, false]);

@@ -601,7 +601,7 @@ const materialExtract = (x: EvidenceSnapshot["research"]["winningPages"][number]
 
 /** Job-scoped identity: affected owned revisions and exact-query winning material, never unrelated account drift
  * or capture clocks. Unknown and partial captures retain their actual scope, not fabricated complete evidence. */
-export function jobEvidenceHash(snapshot: Pick<EvidenceSnapshot, "ownedPages" | "research">, pageKeys: readonly string[], primaryQuery: string): string {
+export function jobEvidenceHash(snapshot: Pick<EvidenceSnapshot, "ownedPages" | "research">, pageKeys: readonly string[], primaryQuery: string | readonly string[]): string {
   const keys = new Set(pageKeys.map((k) => canonicalUrlKey(k)).filter(Boolean));
   const pages = snapshot.ownedPages.filter((p) => keys.has(canonicalUrlKey(p.url)))
     .map((p) => [canonicalUrlKey(p.url),
@@ -610,16 +610,15 @@ export function jobEvidenceHash(snapshot: Pick<EvidenceSnapshot, "ownedPages" | 
       p.engagement ? [p.engagement.conversions28d, p.engagement.revenueUsd] : null,
       p.friction ? [p.friction.frictionScore] : null, p.aiCitations.count])
     .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
-  const qk = canonicalQueryKey(primaryQuery ?? "");
-  // Database row ordering is not new evidence.
-  const serp = qk ? snapshot.research.serpEvidence.filter((s) => canonicalQueryKey(s.query) === qk)
-    .map((s) => [[...s.organic].sort((a, b) => a.rank - b.rank || a.url.localeCompare(b.url)).map((o) => [o.rank, o.url]),
+  const grouped = typeof primaryQuery !== "string", queries = [...new Set((typeof primaryQuery === "string" ? [primaryQuery] : primaryQuery).map(canonicalQueryKey).filter(Boolean))].sort();
+  const serp = snapshot.research.serpEvidence.filter((s) => queries.includes(canonicalQueryKey(s.query)))
+    .map((s) => [...(grouped ? [canonicalQueryKey(s.query)] : []), [...s.organic].sort((a, b) => a.rank - b.rank || a.url.localeCompare(b.url)).map((o) => [o.rank, o.url, ...(grouped ? [o.title ?? null] : [])]),
       [...s.aiOverview].map((c) => c.url).sort(), [...s.aiMode].map((c) => c.url).sort()])
-    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))) : [];
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
   const winners = jobWinners(snapshot.research, primaryQuery)
-    .map((w) => [canonicalUrlKey(w.url), materialExtract(w.extract)])
+    .map((w) => [canonicalUrlKey(w.url), materialExtract(w.extract), ...(grouped ? [[...new Set((w.appearances ?? []).filter((a) => queries.includes(canonicalQueryKey(a.query ?? a.promptText ?? ""))).map((a) => JSON.stringify([a.kind, canonicalQueryKey(a.query ?? a.promptText ?? ""), a.rank, a.engine, a.promptId, a.promptVersion ?? null, a.modelServed, a.observationMode ?? null, a.kind === "ai_answer" ? a.reportingDay ?? a.observedAt.slice(0, 10) : null])))].sort()] : [])])
     .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
-  return createHash("sha256").update(JSON.stringify({ pages, serp, winners })).digest("hex").slice(0, 16);
+  return createHash("sha256").update(JSON.stringify({ pages, ...(grouped ? { queries } : {}), serp, winners })).digest("hex").slice(0, 16);
 }
 
 /** THE PAGES ACQUIRED FOR ONE JOB'S OWN SEARCH, by the two ways a page is ever acquired for it: it ranks on that

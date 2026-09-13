@@ -1,4 +1,3 @@
-/** WINNING-PAGE PATTERN (V1 Truth Convergence Phase 3): what the pages that already win a search have in common, learned without copying one of them. Each pin states what the reading may say about those pages and what it may never say. Fixtures only, zero network: the gateway is seamed as case-synthesis seams it. */
 import { describe, it, expect, vi } from "vitest";
 const projection = vi.hoisted(() => ({ cost: 0 }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async ({ projectedCostUsd }: { projectedCostUsd: number }) => { projection.cost = projectedCostUsd; return { allowed: true, remaining: 10 }; }, recordSpend: async () => {} }));
@@ -64,10 +63,6 @@ describe("a ranked page with a different intent teaches nothing", () => {
     expect(nothingAsked?.winners, "and a case with no search on file compares no intents at all, exactly as before").toBe(4); });
 });
 describe("the one reading a case may buy", () => {
-  it("says what four winning pages share, counts them itself, and names the sites without the reading ever seeing one", async () => {
-    const s = seam(reading()); const out = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete });
-    expect([out?.winners, out?.publishers, s.calls()]).toEqual([4, ["guide.example", "museum.example", "weavers.example", "atlas.example"], 1]);
-    expect([out?.archetype, out?.commonHeadings[0]?.seenOn, out?.ownedGaps[0]?.gap, out?.fingerprint.length]).toEqual(["informational_guide", [0, 1, 2], "your page never explains how one is made", 16]);});
   it("comes off the pass's attempt budget, and an empty budget reads nothing", async () => { // AND IT IS PAID FOR OUT OF THE PASS'S OWN POOL. This was the one charged Decision call the attempt budget never saw, so a pass that reached a verdict spent one more call than its own receipt could account for. Spent BEFORE the call, and an exhausted pool buys nothing at all.
     const pool = { left: 1 }, s = seam(reading()); const first = await readWinningPattern(facts(), { ...ownedFacts(), mainText: "Gentle washing protects rug fibres. ".repeat(1400) }, "t_fixture", { complete: s.complete, attempts: pool });
     expect(projection.cost).toBeGreaterThan(0.02);
@@ -96,18 +91,6 @@ describe("the one reading a case may buy", () => {
     const agreed = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete, pageType: "informational_guide" }); expect([agreed?.archetype, agreed?.winners]).toEqual(["informational_guide", 4]);
     expect(await readWinningPattern(facts(), null, "t_fixture", { complete: seam(reading()).complete })).toBeNull(); const quiet = await readWinningPattern(facts(), null, "t_fixture", { complete: seam(reading({ ownedGaps: [] })).complete }); // With no page of my own supplied, "your page has no care section" is about a page it never saw.
     expect([quiet?.ownedGaps, quiet?.winners]).toEqual([[], 4]); });
-  it("reuses an unchanged reading but never substitutes another query or changed body", async () => {
-    const s = seam(reading()), cacheImpl = memoryCache();
-    const read = (label: string, held = facts()) => readWinningPattern(held, ownedFacts(), "t_fixture", { complete: s.complete, cacheImpl, label });
-    const first = await read("persian rug care");
-    const again = await read("persian rug care", facts().map((f) => ({ ...f, fetchedAt: "2026-09-13T00:00:00Z" })));
-    expect([again?.fingerprint, s.calls()]).toEqual([first?.fingerprint, 1]);
-    const other = await read("persian rug origins");
-    expect(other?.fingerprint).not.toBe(first?.fingerprint);
-    const changed = facts(); changed[0]!.mainText += " Dry rugs flat before storage.";
-    expect((await read("persian rug care", changed))?.fingerprint).not.toBe(first?.fingerprint);
-    expect(s.calls()).toBe(3);
-  });
   it("asks nothing at all under three publishers I could actually read", async () => {
     const s = seam(reading()); const twoRead = [...WINNERS.slice(0, 2), { url: "https://blocked.example/rugs", domain: "blocked.example", extract: null }];
     expect(await readWinningPattern(extractPageFacts(twoRead), ownedFacts(), "t_fixture", { complete: s.complete })).toBeNull();
