@@ -37,6 +37,8 @@ export type PageSnapshotLinkGraph = {
   fetched_at: string;
   tenant_id: string;
   internal_links: { href: string; anchor_text: string }[];
+  word_count?: number;
+  extraction_certainty?: PageSnapshot["extraction_certainty"];
 };
 
 export interface SeedDataRepository {

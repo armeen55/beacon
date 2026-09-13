@@ -3,12 +3,14 @@ import { pageExtractFrom } from "@/domains/evidence/funnel/research-evidence";
 import { assemblePacketForUrl } from "@/domains/decision/recommendation-intelligence/page-surgeon/assemble-packet";
 import { jobEvidenceHash } from "@/domains/evidence/snapshot";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
-const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], calls: 0, failAfter: Infinity }));
-vi.mock("@/lib/persistence/repositories", () => ({ getRepository: () => ({ forTenant: (t: string) => ({ getPageSnapshots: async () => db.rows.filter((r) => r.tenant_id === t) }) }) }));
-vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => { let asked: string[] = [];
-  const q = { select: () => q, eq: () => q, in: (_c: string, list: string[]) => (asked = list, q), order: () => q,
-    limit: async (n: number) => (db.calls += 1) > db.failAfter ? { data: null, error: { message: "chunk down" } } : { data: db.rows.filter((r) => asked.includes(String(r.url))).sort((a, b) => String(b.fetched_at).localeCompare(String(a.fetched_at))).slice(0, n), error: null } }; // newest first and cut at the budget, as the store answers
-  return { from: () => q }; } }));
+import { supabaseFake } from "../helpers/supabase-fake";
+const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], calls: 0, failAfter: Infinity, reads: [] as { max: number; cols: string; inBytes: number }[] }));
+vi.mock("@/lib/persistence/repositories", async () => { const { supabaseBackend } = await import("@/lib/persistence/repositories/supabase-backend"); return { getRepository: () => supabaseBackend }; });
+vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => supabaseFake({
+  rows: (table) => table === "page_snapshots" ? db.rows.map((r, i) => ({ ...r, id: r.id ?? `r${String(i).padStart(6, "0")}`, page_id: r.page_id ?? r.url, tenant_id: r.tenant_id ?? "t" })) : [],
+  error: () => ++db.calls > db.failAfter ? { message: "chunk down" } : null,
+  onSelect: (_table, read) => db.reads.push(read),
+}) }));
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context"; import { pageContains } from "@/domains/evidence/pages/page-version";
 describe("one rule decides which capture is the page", () => {
   it("carries same-sized material revisions from extraction through the stored projection into job identity, without clock churn", async () => {
@@ -27,6 +29,14 @@ describe("one rule decides which capture is the page", () => {
     for (const repeats of [1500, 6000]) {
       db.rows = [capture(html.replace("They rest at low tide. ".repeat(15), "They rest at low tide. ".repeat(repeats)))]; const wide = (await loadOwnedPageBodies("t", [url])).get("fixture-revision.example/page")!;
       expect([wide.faqs[0]!.answerComplete, wide.faqs[0]!.answer, wide.completeness]).toEqual([repeats === 1500, repeats === 1500 ? `${"They rest at low tide. ".repeat(repeats)}June.` : before.faqs[0]!.answer_excerpt, "partial"]); expect([wide.title ?? "", wide.metaDescription ?? "", ...wide.headings, ...wide.cardTexts, ...wide.entityNames].join(" ").length + wide.faqs.reduce((n, f) => n + f.question.length + f.answer.length, 0) + wide.passages.reduce((n, p) => n + p.length, 0)).toBeLessThanOrEqual(48000); }
+    const busy = Array.from({ length: 1200 }, (_, i) => ({ ...before, id: `busy-${String(i).padStart(4, "0")}`, page_id: "a", url: "https://fixture-revision.example/busy", word_count: 0, extraction_certainty: "uncertain", internal_links: [] }));
+    const quiet = Array.from({ length: 540 }, (_, i) => ({ ...before, id: `quiet-${i}-${"capture".repeat(30)}`, page_id: `q${String(i).padStart(4, "0")}`, url: `https://fixture-revision.example/quiet-${i}`, internal_links: [] }));
+    db.rows = [...busy, { ...before, id: "good", page_id: "a", url: busy[0]!.url, fetched_at: "2026-09-09T12:00:00Z", internal_links: [] }, ...quiet, { ...before, id: "other", page_id: "other", tenant_id: "other", url: "https://other.example/page" }]; db.reads = [];
+    const complete = await read(); expect(complete.ownedPages).toHaveLength(541); expect(complete.ownedPages.some((p) => p.url.endsWith("/quiet-539"))).toBe(true); db.reads = [];
+    const { supabaseBackend } = await import("@/lib/persistence/repositories/supabase-backend"); const selected = await supabaseBackend.forTenant("t").getPageSnapshots(), recovered = selected.filter((r) => r.page_id === "a");
+    expect([selected.length, recovered.map((r) => r.id), selected.every((r) => r.tenant_id === "t"), db.reads.every((r) => r.max <= 500 && r.inBytes <= 8000 && !r.cols.includes("body_text"))]).toEqual([542, ["busy-1199", "good"], true, true]);
+    expect((await supabaseBackend.forTenant("t").getPageSnapshotLinkGraphs()).length).toBe(542); db.calls = 0; db.failAfter = 1; await expect(supabaseBackend.forTenant("t").getPageSnapshots()).rejects.toThrow(/history read failed/); db.failAfter = Infinity;
+    await expect(supabaseBackend.getPageSnapshots()).rejects.toThrow(/forTenant/); await expect(supabaseBackend.forTenant("").getPageSnapshots()).rejects.toThrow(/explicit tenant/);
     db.rows = [before]; const base = await read(), key = jobEvidenceHash(base, [url], "harbour seals");
     expect(base.ownedPages[0]!.content?.revision).toEqual({ content_hash: before.content_hash, headings_hash: before.headings_hash, faq_hash: before.faq_hash, schema_hash: before.schema_hash });
     for (const changed of [html.replace("June.", "July."), html.replace("Harbour colony", "Harbour animals"), html.replace("seals.jpg", "shore.jpg"), html.replaceAll("near the harbour", "near the islands")]) {

@@ -72,7 +72,7 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
   const graphsByKey = new Map<string, typeof graphs>();
   for (const g of graphs) { const key = canonicalUrlKey(g.url); graphsByKey.set(key, [...(graphsByKey.get(key) ?? []), g]); }
   const linksByPage = new Map<string, Set<string>>();
-  for (const [key, group] of graphsByKey) { const v = selectPageVersion(group, (g) => ({ fetchedAt: g.fetched_at ?? null, words: g.internal_links.length, bodyHeld: true, certainty: null })); if (v.content) linksByPage.set(key, new Set(v.content.internal_links.map((l) => pathOf(l.href).toLowerCase()))); }
+  for (const [key, group] of graphsByKey) { const v = selectPageVersion(group, (g) => ({ fetchedAt: g.fetched_at ?? null, words: g.word_count ?? g.internal_links.length, bodyHeld: Array.isArray(g.internal_links), certainty: g.extraction_certainty ?? null })); if (v.content) linksByPage.set(key, new Set(v.content.internal_links.map((l) => pathOf(l.href).toLowerCase()))); }
   // WHAT EACH PAGE IS HELD UP BY, off the same graph: how many pages point at it today. That is the link's purpose said as a number the operator can check, rather than as link equity.
   const inbound = new Map<string, number>();
   for (const links of linksByPage.values()) for (const to of links) inbound.set(to, (inbound.get(to) ?? 0) + 1);

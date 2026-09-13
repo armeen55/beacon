@@ -6,14 +6,14 @@ export type SupabaseFakeOptions = { rows: (table: string) => Row[]; error?: (tab
   same?: (stored: Row, sent: Row) => boolean; clash?: (sent: Row, rows: Row[]) => Err;
   insertDefaults?: () => Row; landsNothing?: () => boolean;
   /** Every SELECT this fake runs, so a test can prove a reader asked for a BOUNDED page and never the lot. */
-  onSelect?: (table: string, read: { max: number; head: boolean; cols: string }) => void };
+  onSelect?: (table: string, read: { max: number; head: boolean; cols: string; inBytes: number }) => void };
 export function supabaseFake(o: SupabaseFakeOptions) {
   const same = o.same ?? ((stored: Row, sent: Row) => stored.id === sent.id);
   const from = (table = "") => {
     const tests: ((r: Row) => boolean)[] = [];
     let op: Op = "select", patch: Row = {}, sent: Row[] = [], skipDup = false;
     const orders: [string, boolean][] = [];
-    let first = 0, max = Number.MAX_SAFE_INTEGER, counting = false, head = false, cols = "";
+    let first = 0, max = Number.MAX_SAFE_INTEGER, counting = false, head = false, cols = "", inBytes = 0;
     const cmp = (a: Row, b: Row, c: string) => (typeof a[c] === "number" && typeof b[c] === "number"
       ? (a[c] as number) - (b[c] as number) : String(a[c] ?? "").localeCompare(String(b[c] ?? "")));
     const rows = () => o.rows(table);
@@ -23,7 +23,7 @@ export function supabaseFake(o: SupabaseFakeOptions) {
       const hit = rows().filter((r) => tests.every((t) => t(r)));
       if (op === "update") { for (const r of hit) Object.assign(r, patch); return { data: hit.map((r) => ({ ...r })), error: null }; }
       if (op === "select") {
-        o.onSelect?.(table, { max, head, cols });
+        o.onSelect?.(table, { max, head, cols, inBytes });
         if (orders.length) hit.sort((a, b) => { for (const [c, asc] of orders) { const d = cmp(a, b, c); if (d !== 0) return asc ? d : -d; } return 0; });
         // ASK FOR WHAT YOU READ: a projection hands back the columns it named and nothing else, so a reader that quietly depends on a heavy column it did not select is caught here rather than in production.
         const want = cols && cols !== "*" ? cols.split(",").map((c) => c.trim()).filter(Boolean) : null;
@@ -47,7 +47,9 @@ export function supabaseFake(o: SupabaseFakeOptions) {
       order: (c: string, x?: { ascending?: boolean }) => { orders.push([c, x?.ascending !== false]); return q; },
       limit: (n: number) => { max = n; return q; }, range: (a: number, z: number) => { first = a; max = z - a + 1; return q; },
       eq: (c: string, v: unknown) => where((r) => (r[c] ?? null) === v), is: (c: string, v: unknown) => where((r) => (r[c] ?? null) === v),
-      in: (c: string, vs: readonly unknown[]) => where((r) => vs.includes(r[c])),
+      in: (c: string, vs: readonly unknown[]) => {
+        inBytes += new URLSearchParams({ [c]: `in.(${vs.map((v) => JSON.stringify(v)).join(",")})` }).toString().length;
+        return where((r) => vs.includes(r[c])); },
       // SQL LIKE, honoring backslash-escaped wildcards, so a basis prefix containing an underscore matches itself and nothing else.
       like: (c: string, v: string) => { const rx = new RegExp(`^${v.replace(/\\([%_\\])|([.*+?^${}()|[\]])|%|_/g,
         (m, esc: string, meta: string) => esc ? esc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : meta ? `\\${meta}` : m === "%" ? ".*" : ".")}$`, "s");

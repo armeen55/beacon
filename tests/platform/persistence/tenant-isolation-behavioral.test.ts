@@ -20,34 +20,22 @@ import {
 const TENANT = "tenant-fixture-local";
 const OTHER = "tenant-other";
 describe("buildTenantRepo behavioral isolation", () => { // ── A. buildTenantRepo facade ───────────────────────────────────────────────
-  const prompt = (id: string, tenant_id: string) =>
-    ({ id, tenant_id, account_id: tenant_id, text: id, is_active: true }) as unknown as never;
-  const entity = (id: string, tenant_id: string) =>
-    ({ id, tenant_id, account_id: tenant_id, name: id, entity_type: "competitor", is_owned: false, is_active: true }) as unknown as never;
-  const ALL_PROMPTS = [prompt("p-a-1", "tenant-a"), prompt("p-a-2", "tenant-a"), prompt("p-c-1", "tenant-c")];
-  const ALL_ENTITIES = [entity("e-a-1", "tenant-a"), entity("e-c-1", "tenant-c")];
-  function fakeBase(): SeedDataRepository {
-    const fake = {
-      getTrackedPrompts: async () => ALL_PROMPTS,
-      getTrackedEntities: async () => ALL_ENTITIES,
-      forTenant: (tenantId: string) => buildTenantRepo(fake as SeedDataRepository, tenantId),
-    } as unknown as SeedDataRepository;
-    return fake;}
-  it("a populated tenant gets ONLY its own tracked prompts + entities", async () => {
-    const repoA = buildTenantRepo(fakeBase(), "tenant-a"); const prompts = await repoA.getTrackedPrompts();
-    const entities = await repoA.getTrackedEntities(); expect(prompts.map((p) => p.id).sort()).toEqual(["p-a-1", "p-a-2"]);
-    expect(entities.map((e) => e.id)).toEqual(["e-a-1"]);});
-  it("an empty tenant gets [] even though the base holds other tenants' rows", async () => {
-    const repoB = buildTenantRepo(fakeBase(), "tenant-b-empty"); expect(await repoB.getTrackedPrompts()).toEqual([]);
-    expect(await repoB.getTrackedEntities()).toEqual([]);});
-  it("two populated tenants are mutually isolated (disjoint id sets)", async () => {
-    const base = fakeBase();
-    const [promptsA, promptsC] = await Promise.all([
-      buildTenantRepo(base, "tenant-a").getTrackedPrompts(),
-      buildTenantRepo(base, "tenant-c").getTrackedPrompts(),]);
-    const aIds = new Set(promptsA.map((p) => p.id));
-    for (const p of promptsC) expect(aIds.has(p.id)).toBe(false);
-    expect(promptsA.length).toBe(2); expect(promptsC.length).toBe(1);});});
+  const ALL_PROMPTS = [{ id: "p-a-1", tenant_id: "tenant-a" }, { id: "p-a-2", tenant_id: "tenant-a" }, { id: "p-c-1", tenant_id: "tenant-c" }];
+  const ALL_ENTITIES = [{ id: "e-a-1", tenant_id: "tenant-a" }, { id: "e-c-1", tenant_id: "tenant-c" }];
+  const base = {
+    getTrackedPrompts: async () => ALL_PROMPTS,
+    getTrackedEntities: async () => ALL_ENTITIES,
+  } as unknown as SeedDataRepository;
+  it.each([
+    ["tenant-a", ["p-a-1", "p-a-2"], ["e-a-1"]],
+    ["tenant-c", ["p-c-1"], ["e-c-1"]],
+    ["tenant-b-empty", [], []],
+  ])("%s receives exactly its own prompts and entities", async (tenant, prompts, entities) => {
+    const repo = buildTenantRepo(base, tenant as string);
+    expect((await repo.getTrackedPrompts()).map((p) => p.id).sort()).toEqual(prompts);
+    expect((await repo.getTrackedEntities()).map((e) => e.id).sort()).toEqual(entities);
+  });
+});
 describe("dual-write tenant validation (fires before any I/O)", () => { // ── B. dual-write validation layer ──────────────────────────────────────────
   it("assertRowsScopedToTenant throws on empty tenantId and on any mismatched row", () => {
     expect(() => assertRowsScopedToTenant([{ tenant_id: TENANT }], "", "results")).toThrow(/tenantId must be a non-empty string/);

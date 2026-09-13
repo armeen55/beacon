@@ -1,6 +1,6 @@
 /** `DATA_SOURCE=supabase` implementation of `SeedDataRepository`. Route-critical tables read from Postgres; supplementary + json-store-only domains still hit disk (`readDotDataJson` / `readStore`) until migrated — same behavior as pre-cutover direct-file access, centralized here. */
 import { getSupabaseAdmin } from "../supabase";
-import type { SeedDataRepository } from "./types";
+import type { PageSnapshotLinkGraph, SeedDataRepository } from "./types";
 
 // (Section 5 observation_runs → ProfoundImportRun mapper removed 2026-07-21, CORE 100K Lane O: the getProfoundImportRuns read path lost its last caller when the repeat-citation loader was deleted.)
 
@@ -20,10 +20,69 @@ import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapsh
 import type { TrackedEntity } from "@/domains/evidence/ai-visibility/tracked-entities";
 import type { TrackedPrompt } from "@/domains/evidence/ai-visibility/tracked-prompts";
 import { mapRowToEntity } from "./key-mapper";
+import { selectPageVersion } from "@/domains/evidence/pages/page-version";
 
 /** THE ONE snapshot projection both read paths use. body_text (up to 100,000 characters per page) and the other heavy payloads are deliberately absent: a page's own words are read narrowly through evidence/pages/owned-context. `internal_links` IS here and must stay: omitting it while snapshot-loader mapped `internal_links ?? []` sent every owned page to Decision with zero links, judging a site of 36,281 real links as a site with none. */
 const SNAPSHOT_COLUMNS =
   "id, page_id, observation_run_id, url, canonical_url, final_url, fetched_at, http_status, title, meta_description, h1, h2_list, h3_count, faqs, schema_types, location_terms, service_terms, internal_links, internal_link_count, external_link_count, word_count, robots_meta, has_canonical_mismatch, content_hash, headings_hash, faq_hash, schema_hash, extraction_certainty, faq_schema_block_count, structural_warnings, table_count, h3_list, schema_validation_warnings, tenant_id";
+
+type Capture = Pick<PageSnapshot, "id" | "page_id" | "fetched_at" | "word_count" | "extraction_certainty">;
+const captureFacts = (s: Capture) => ({ fetchedAt: s.fetched_at, words: s.word_count ?? 0, bodyHeld: false, certainty: s.extraction_certainty ?? null });
+/** Select per-page identities before payloads. A busy page cannot crowd out another page; completed page
+ * groups skip their remaining history. Only an untrusted boundary group needs older identity records. */
+async function selectedSnapshots<T extends Pick<PageSnapshot, "id" | "fetched_at">>(tenantId: string, columns: string): Promise<T[]> {
+  if (!tenantId.trim()) throw new Error("page snapshots require an explicit tenant");
+  const sb = getSupabaseAdmin(), selected = new Map<string, Capture[]>(), pageSize = 500;
+  const identities = () => sb.from("page_snapshots").select("id, page_id, fetched_at, word_count, extraction_certainty").eq("tenant_id", tenantId);
+  const keep = (rows: Capture[]) => { for (const row of rows) {
+    const v = selectPageVersion([...(selected.get(row.page_id) ?? []), row], captureFacts);
+    selected.set(row.page_id, v.current === v.content ? [v.current!] : [v.current!, v.content!]);
+  } };
+  let afterPage: string | null = null;
+  for (;;) {
+    let q = identities().order("page_id", { ascending: true }).order("fetched_at", { ascending: false }).order("id", { ascending: false });
+    if (afterPage !== null) q = q.gt("page_id", afterPage);
+    const { data, error } = await q.limit(pageSize);
+    if (error) throw new Error(`Supabase snapshot identity read failed: ${error.message}`);
+    const rows = (data ?? []) as Capture[];
+    keep(rows);
+    if (rows.length < pageSize) break;
+    let boundary = rows[rows.length - 1]!;
+    while (selectPageVersion(selected.get(boundary.page_id)!, captureFacts).state === "blank") {
+      const at = JSON.stringify(boundary.fetched_at), id = JSON.stringify(boundary.id);
+      const older = await identities().eq("page_id", boundary.page_id)
+        .or(`fetched_at.lt.${at},and(fetched_at.eq.${at},id.lt.${id})`)
+        .order("fetched_at", { ascending: false }).order("id", { ascending: false }).limit(pageSize);
+      if (older.error) throw new Error(`Supabase snapshot history read failed: ${older.error.message}`);
+      const history = (older.data ?? []) as Capture[];
+      keep(history);
+      if (history.length < pageSize) break;
+      boundary = history[history.length - 1]!;
+    }
+    afterPage = boundary.page_id;
+  }
+  const ids = [...selected.values()].flatMap((rows) => rows.map((r) => r.id)), out: T[] = [];
+  // PostgREST echoes the URI in response headers. Bound encoded bytes, not just rows;
+  // long capture identities otherwise overflow the HTTP parser before JSON arrives.
+  const baseBytes = Buffer.byteLength(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "") + 24;
+  const query = new URLSearchParams({ select: columns.replace(/\s/g, ""), tenant_id: `eq.${tenantId}`, limit: String(pageSize) });
+  for (let start = 0; start < ids.length;) {
+    const chunk: string[] = [];
+    let bytes = baseBytes + query.toString().length + "&id=in.%28%29".length;
+    while (start < ids.length && chunk.length < pageSize) {
+      const id = ids[start]!, cost = new URLSearchParams({ id: JSON.stringify(id) }).toString().length + 3;
+      if (bytes + cost > 8000) break;
+      chunk.push(id); bytes += cost; start++;
+    }
+    if (!chunk.length) throw new Error("Supabase snapshot identity exceeds the encoded request budget");
+    const { data, error } = await sb.from("page_snapshots").select(columns).eq("tenant_id", tenantId).in("id", chunk).limit(pageSize);
+    if (error) throw new Error(`Supabase selected snapshot read failed: ${error.message}`);
+    const rows = (data ?? []) as unknown as T[];
+    if (rows.length !== chunk.length) throw new Error("Supabase selected snapshot read was incomplete");
+    out.push(...rows);
+  }
+  return out.sort((a, b) => b.fetched_at.localeCompare(a.fetched_at) || b.id.localeCompare(a.id));
+}
 
 /**
  * E2 (operator audit, 2026-05-05) — egress observability.
@@ -245,51 +304,8 @@ export const supabaseBackend: SeedDataRepository = {
   // Phase 1E pages: 5929 rows as of 2026-04-24 — past PostgREST's 1000-row cap. Without pagination, buildPageInventory saw only ~3 owned rows on hosted and the resolver fell through to create_new_page for every blocker cluster.
   getPages: () => queryAllPaged<PageEntity>("pages"),
 
-  // Link-graph feed (2026-06-12 night shift): internal_links is DELIBERATELY absent from the lean snapshot projection (the egress pin) — this scoped read exists for the once-per-generation cross-page link triggers (orphan_page, internal_link_opportunity), which were silently emission-less on hosted/cron without it. Never called by the web surfaces the egress pin protects.
-  getPageSnapshotLinkGraphs: async () => {
-    const { data, error } = await getSupabaseAdmin()
-      .from("page_snapshots")
-      .select("page_id, url, fetched_at, tenant_id, internal_links")
-      .not("internal_links", "is", null)
-      .order("fetched_at", { ascending: false })
-      .limit(500);
-    if (error)
-      throw new Error(
-        `Supabase query failed on page_snapshots(link graphs): ${error.message}`,
-      );
-    const seen = new Set<string>();
-    const out: import("./types").PageSnapshotLinkGraph[] = [];
-    for (const row of (data ?? []) as import("./types").PageSnapshotLinkGraph[]) {
-      if (seen.has(row.page_id)) continue;
-      seen.add(row.page_id);
-      if (Array.isArray(row.internal_links) && row.internal_links.length > 0) {
-        out.push(row);
-      }
-    }
-    return out;
-  },
-
-  getPageSnapshots: async () => {
-    // Supabase accumulates snapshot history (35 rows per scan); routes expect only the latest per page, deduped here (PostgREST has no DISTINCT ON). THE SAME LEAN PROJECTION AND CAP THE TENANT PATH USES, for the same reason: select("*") now drags every page's whole 100,000-character body_text over the wire (/today 17MB).
-    const { data, error } = await getSupabaseAdmin()
-      .from("page_snapshots")
-      .select(SNAPSHOT_COLUMNS)
-      .order("fetched_at", { ascending: false })
-      .limit(500);
-    if (error)
-      throw new Error(
-        `Supabase query failed on page_snapshots: ${error.message}`,
-      );
-    const seen = new Set<string>();
-    const latest: PageSnapshot[] = [];
-    for (const row of (data ?? []) as PageSnapshot[]) {
-      if (!seen.has(row.page_id)) {
-        seen.add(row.page_id);
-        latest.push(row);
-      }
-    }
-    return latest;
-  },
+  getPageSnapshotLinkGraphs: async () => { throw new Error("page link graphs require forTenant"); },
+  getPageSnapshots: async () => { throw new Error("page snapshots require forTenant"); },
   getObservationRuns: () => query<ObservationRun>("observation_runs"),
 
   // (Dead columns removed 2026-07-21, CORE 100K Lane O: citation/answer-intel index reads, page-snapshot-diffs, render-checks, legacy-global sitemap-reconciliation, visibility runs, rollout/pattern/frontier/wave/ asset/outcome/truth-label reads, page summaries — zero callers. The tenant-scoped sitemap pair in forTenant below is LIVE and untouched.)
@@ -372,63 +388,14 @@ export const supabaseBackend: SeedDataRepository = {
         );
       },
 
-      // page_snapshots: tenant-scoped + dedupe-by-page_id (latest first), capped at 500 rows (EGRESS-P0, 2026-05-07: the heavy payload columns are 5-15KB each and dominated the wire cost of every surface read; nothing on /today, /changes or /results consumes them, and a consumer that needs one fetches it through its own scoped helper). schema_validation_warnings stays IN the projection: the invalid-schema trigger reads it, and it is a short string.
       getPageSnapshots: async () => {
-        const t0 = Date.now();
-        const { data, error } = await getSupabaseAdmin()
-          .from("page_snapshots")
-          .select(SNAPSHOT_COLUMNS)
-          .eq("tenant_id", tenantId)
-          .order("fetched_at", { ascending: false })
-          .limit(500);
-        if (error)
-          throw new Error(
-            `Supabase query failed on page_snapshots: ${error.message}`,
-          );
-        // THE NEWEST ROW AND THE NEWEST TRUSTED ROW PER PAGE (operator, 2026-09-01): keeping only the newest per page
-        // handed the readers a blank August capture and threw away the confirmed August body under the same page id,
-        // so every reader downstream fell back to a June sample. The page-version selector needs both, and no more.
-        const seen = new Set<string>(), trusted = new Set<string>();
-        const latest: PageSnapshot[] = [];
-        for (const row of (data ?? []) as PageSnapshot[]) {
-          const good = (row.word_count ?? 0) > 0 && row.extraction_certainty !== "uncertain";
-          if (!seen.has(row.page_id)) { seen.add(row.page_id); latest.push(row); if (good) trusted.add(row.page_id); }
-          else if (good && !trusted.has(row.page_id)) { trusted.add(row.page_id); latest.push(row); }
-        }
-        logEgress({
-          table: "page_snapshots[capped+dedup+projected]",
-          rows: latest.length,
-          data: data ?? [],
-          durationMs: Date.now() - t0,
-          tenantId,
-          filter: "limit=500 dedup_by=page_id projected_columns",
-        });
-        return latest;
+        const started = Date.now(), rows = await selectedSnapshots<PageSnapshot>(tenantId, SNAPSHOT_COLUMNS);
+        logEgress({ table: "page_snapshots[selected]", rows: rows.length, data: rows, durationMs: Date.now() - started, tenantId, filter: "current_and_trusted_per_page" });
+        return rows;
       },
-
-      // Link-graph feed (2026-06-12): tenant-scoped variant of the scoped internal_links read (see base impl note) — placed AFTER getPageSnapshots so the egress pin's block regex anchors on the lean projection above, not this deliberate heavy read. Once per generation run; web surfaces never call it.
       getPageSnapshotLinkGraphs: async () => {
-        const { data, error } = await getSupabaseAdmin()
-          .from("page_snapshots")
-          .select("page_id, url, fetched_at, tenant_id, internal_links")
-          .eq("tenant_id", tenantId)
-          .not("internal_links", "is", null)
-          .order("fetched_at", { ascending: false })
-          .limit(500);
-        if (error)
-          throw new Error(
-            `Supabase query failed on page_snapshots(link graphs): ${error.message}`,
-          );
-        const seen = new Set<string>();
-        const out: import("./types").PageSnapshotLinkGraph[] = [];
-        for (const row of (data ?? []) as import("./types").PageSnapshotLinkGraph[]) {
-          if (seen.has(row.page_id)) continue;
-          seen.add(row.page_id);
-          if (Array.isArray(row.internal_links) && row.internal_links.length > 0) {
-            out.push(row);
-          }
-        }
-        return out;
+        const rows = await selectedSnapshots<PageSnapshotLinkGraph & Pick<PageSnapshot, "id">>(tenantId, "id, page_id, url, fetched_at, tenant_id, internal_links, word_count, extraction_certainty");
+        return rows.filter((r) => Array.isArray(r.internal_links)).map((r) => ({ ...r, internal_links: r.internal_links! }));
       },
 
       // ─────────────────────────────────────────────────────────────
