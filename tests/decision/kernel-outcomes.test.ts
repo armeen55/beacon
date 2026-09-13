@@ -891,7 +891,7 @@ describe("the $0 release loop converts what it can, and never touches what is be
     return { row: env.store.get(row.id)!, done: env.store.get(shipped.id)!, paid }; };
   it("files a stored JSON-LD block under its own typed field at $0, refuses it as no kind of prose, and never walks an implemented row back to a brief", async () => {
     const out = await pass(block("ready")); const c = out.row.recommendedChange as { field: string; after: string; where?: string };
-    expect([c.field, c.after.startsWith("{"), (c.where ?? "").length > 0, out.row.limitations.some((l) => /^Contains raw HTML markup/.test(l)), validateProposal(out.row, { pageBodyText: `${Q} ${ANSWER}` }).verdict, out.paid], "the block is filed as structured data with its wrapper off and its placement stated, no rule written for sentences refuses it as markup, the canon's own JSON-LD gate passes it, and none of it costs a call").toEqual(["schema", true, true, false, "ready", 0]);
+    expect([c.field, c.after.startsWith("{"), (c.where ?? "").length > 0, out.row.limitations.some((l) => /^Contains raw HTML markup/.test(l)), validateProposal(out.row, { pageBodyText: `${Q} ${ANSWER}` }).verdict, out.paid, out.row.status, out.row.faults ?? []], "the block is filed as structured data with its wrapper off and its placement stated, no rule written for sentences refuses it as markup, the canon's own JSON-LD gate passes it, and none of it costs a call").toEqual(["schema", true, true, false, "ready", 0, "ready", []]);
     expect([out.done.status, out.done.researchOnly ?? false, out.done.limitations], "and a change the operator already marked done is never re-minted as research, whatever its claims lean on").toEqual(["implemented_pending_verification", false, shipped.limitations]); });
   it("proves a schema block against the page's own body, clearing an answer it carries and refusing one it invents", async () => {
     reset(snap([GAP], looked([["nowruz traditions", GAP_URL]]))); // Q and ANSWER are NOT among this page's four stored fields: only its body carries the answer
@@ -900,6 +900,4 @@ describe("the $0 release loop converts what it can, and never touches what is be
     await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true });
     const out = env.store.get(carried.id)!;
     expect([out.status, (out.recommendedChange as { field: string }).field], "the page's own body carries this answer, so the canon's visible-content proof is satisfied off the whole page rather than a stored excerpt").toEqual(["ready", "schema"]); });
-  it("leaves a stored JSON-LD block that already wears Ready exactly where it stands", async () => {
-    const out = await pass(block("ready"));
-    expect([out.row.status, out.row.faults ?? []], "structured data is not prose, so no rule about unwritten copy may touch it").toEqual(["ready", []]); });});
+});

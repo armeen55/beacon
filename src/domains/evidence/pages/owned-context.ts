@@ -7,8 +7,8 @@ import "server-only";
 import { log } from "@/lib/logger";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { selectPageVersion } from "./page-version";
-import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { visibleFaqs } from "./types";
+import { selectedSnapshots } from "@/lib/persistence/repositories/snapshot-reader";
+import { visibleFaqs, type PageSnapshot } from "./types";
 
 /** What my own page says, in its own words, with an honest account of how much of it I have. `fetchedAt`
  *  rides along so the caller judges staleness itself: a 46-day-old body is evidence with a date on it. */
@@ -57,10 +57,8 @@ const MAX_PASSAGES = 200, MAX_PASSAGE_CHARS = 1_000;
 const MAX_OPENING_CHARS = 1200, MAX_OPENING_PARAGRAPHS = 8;
 const MAX_TITLE_CHARS = 200, MAX_META_CHARS = 320, MAX_ITEM_CHARS = 300;
 const MAX_HEADINGS = 60, MAX_FAQS = 20, MAX_ENTITIES = 12, MAX_LINKS = 12;
-/** A page keeps a snapshot history: read a few rows per URL newest-first and keep the newest. */
-const MAX_ROWS = MAX_URLS * 8;
 /** Every column of the capture that carries page CONTENT, and nothing else. */
-const COLUMNS = "url, title, h1, meta_description, fetched_at, word_count, h2_list, h3_list, faqs, body_text, body_paragraph_sample, card_texts, schema_entity_names, internal_links, content_hash, extraction_certainty";
+const COLUMNS = "id, url, title, h1, meta_description, fetched_at, word_count, h2_list, h3_list, faqs, body_text, body_paragraph_sample, card_texts, schema_entity_names, internal_links, content_hash, extraction_certainty";
 
 type Row = {
   extraction_certainty?: unknown;
@@ -185,16 +183,10 @@ export async function loadOwnedPageBodies(tenantId: string, urls: string[], miss
   for (let at = 0; at < asked.length; at += MAX_URLS) {
     const slice = asked.slice(at, at + MAX_URLS);
     try {
-      let pending = slice; /* A CAPPED READ IS RE-ASKED FOR WHAT IT LEFT UNANSWERED (reviewer, 2026-09-05): one row budget per chunk, ordered newest first across every page in it, let two pages with dozens of stored versions take the whole budget, so three pages with three captures each came back with no row at all, were reported as never captured, and the sibling rule fell silent on them and let a refused description through. A read cut at the budget asks again for the pages it did not answer; a page still unanswered after a cut that answered nothing new is UNKNOWN, never absent. */
-      for (let round = 0; pending.length > 0 && round < 3; round += 1) {
-        const { data, error } = await getSupabaseAdmin().from("page_snapshots").select(COLUMNS).eq("tenant_id", tenantId).in("url", variantsOf(pending)).order("fetched_at", { ascending: false }).limit(MAX_ROWS);
-        if (error) throw new Error(error.message ?? String(error));
-        // ONE RULE FOR WHICH CAPTURE IS THE PAGE (pages/page-version), the same one the snapshot loader applies, so the writer and the diagnosis can never hold two different pages under one address.
-        for (const row of (data ?? []) as Row[]) { const key = canonicalUrlKey(typeof row.url === "string" ? row.url : ""); if (key && wanted.has(key)) captures.set(key, [...(captures.get(key) ?? []), row]); }
-        const capped = (data ?? []).length >= MAX_ROWS, left = pending.filter((u) => !captures.has(canonicalUrlKey(u)));
-        if (!capped || left.length === 0) break; // the read was not cut short, or every page it was asked for answered: what is still absent has no capture
-        if (left.length === pending.length || round === 2) { for (const u of left) failed.add(canonicalUrlKey(u)); break; } // a cut read that answered none of the pages it was asked for, or the third cut in a row: those pages are unknown this pass
-        pending = left;
+      const rows = await selectedSnapshots<PageSnapshot>(tenantId, COLUMNS, variantsOf(slice));
+      for (const row of rows) {
+        const key = canonicalUrlKey(row.url);
+        if (wanted.has(key)) captures.set(key, [...(captures.get(key) ?? []), row]);
       }
     } catch (e) {
       // THIS CHUNK ALONE IS UNKNOWN. Failing the whole read closed threw away pages that were genuinely in hand and told the caller they had no text, which is the very lie this reader exists to prevent.

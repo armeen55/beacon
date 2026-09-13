@@ -63,7 +63,7 @@ describe("the owned-page inventory: what the site says it has, and what my read 
 describe("evidence - my own page's actual words, read narrowly", () => {
   const long = Array.from({ length: 12 }, (_, i) => `Paragraph ${i + 1}. ${"ordinary prose about this page. ".repeat(8)}`).join(" ") + " The Zephyr Archive opens at dawn.";
   const html = `<html><head><title>Deep</title></head><body><nav>Menu Home About</nav><main>${long.split(". ").map((s) => `<p>${s}.</p>`).join("")}</main><footer>Footer</footer></body></html>`;
-  const snapRow = (over: Record<string, unknown> = {}) => ({ tenant_id: T, url: "https://own.com/actors", title: "T", meta_description: "M", fetched_at: "2026-06-11T00:00:00.000Z",
+  const snapRow = (over: Record<string, unknown> = {}) => ({ id: `${over.tenant_id ?? T}::${over.url ?? "https://own.com/actors"}`, page_id: over.url ?? "https://own.com/actors", tenant_id: T, url: "https://own.com/actors", title: "T", meta_description: "M", fetched_at: "2026-06-11T00:00:00.000Z",
     body_paragraph_sample: ["Iran has a deep film history."], card_texts: ["Card"], schema_entity_names: ["Person"], internal_links: [{ href: "/a", anchor_text: "A" }], ...over });
   const read = async (url = "https://own.com/actors") => (await loadOwnedPageBodies(T, [url])).get(url.replace("https://", ""))!;
   it("reads only the asked tenant and the asked URLs, answers a wide ask page by page with a typed miss, fails closed to no bodies, and never passes headings off as body text", async () => {

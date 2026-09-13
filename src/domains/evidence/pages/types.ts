@@ -1,6 +1,6 @@
 // ── Page types ──────────────────────────────────────────────────────
 
-export type PageType =
+type PageType =
   | "homepage"
   | "city_page"
   | "service_page"

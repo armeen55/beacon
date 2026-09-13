@@ -23,7 +23,7 @@ import { parseRobotsText } from "@/domains/evidence/pages/robots-parser";
 import { upsertDiscovery, type DiscoveredPage, type DiscoveredVia } from "./owned-pages-store";
 import { loadBusinessProfile } from "@/domains/account";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
-import type { PageEntity, PageSnapshot, PageType } from "@/domains/evidence/pages/types";
+import type { PageEntity, PageSnapshot } from "@/domains/evidence/pages/types";
 import { syncPages, syncPageSnapshots } from "@/lib/persistence/dual-write";
 import { pickSecondaryPaths } from "@/domains/account/onboarding/fetch-site-profile";
 
@@ -101,7 +101,7 @@ export function pageIdFor(key: string): string {
   return `page-${createHash("sha256").update(key).digest("hex").slice(0, 16)}`;
 }
 
-export function inferPageType(path: string): PageType {
+export function inferPageType(path: string): PageEntity["page_type"] {
   return path === "/" ? "homepage" : "other";
 }
 

@@ -20,94 +20,13 @@ import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapsh
 import type { TrackedEntity } from "@/domains/evidence/ai-visibility/tracked-entities";
 import type { TrackedPrompt } from "@/domains/evidence/ai-visibility/tracked-prompts";
 import { mapRowToEntity } from "./key-mapper";
-import { selectPageVersion } from "@/domains/evidence/pages/page-version";
+import { selectedSnapshots } from "./snapshot-reader";
 
 /** THE ONE snapshot projection both read paths use. body_text (up to 100,000 characters per page) and the other heavy payloads are deliberately absent: a page's own words are read narrowly through evidence/pages/owned-context. `internal_links` IS here and must stay: omitting it while snapshot-loader mapped `internal_links ?? []` sent every owned page to Decision with zero links, judging a site of 36,281 real links as a site with none. */
 const SNAPSHOT_COLUMNS =
   "id, page_id, observation_run_id, url, canonical_url, final_url, fetched_at, http_status, title, meta_description, h1, h2_list, h3_count, faqs, schema_types, location_terms, service_terms, internal_links, internal_link_count, external_link_count, word_count, robots_meta, has_canonical_mismatch, content_hash, headings_hash, faq_hash, schema_hash, extraction_certainty, faq_schema_block_count, structural_warnings, table_count, h3_list, schema_validation_warnings, tenant_id";
 
-type Capture = Pick<PageSnapshot, "id" | "page_id" | "fetched_at" | "word_count" | "extraction_certainty">;
-const captureFacts = (s: Capture) => ({ fetchedAt: s.fetched_at, words: s.word_count ?? 0, bodyHeld: false, certainty: s.extraction_certainty ?? null });
-/** Select per-page identities before payloads. A busy page cannot crowd out another page; completed page
- * groups skip their remaining history. Only an untrusted boundary group needs older identity records. */
-async function selectedSnapshots<T extends Pick<PageSnapshot, "id" | "fetched_at">>(tenantId: string, columns: string): Promise<T[]> {
-  if (!tenantId.trim()) throw new Error("page snapshots require an explicit tenant");
-  const sb = getSupabaseAdmin(), selected = new Map<string, Capture[]>(), pageSize = 500;
-  const identities = () => sb.from("page_snapshots").select("id, page_id, fetched_at, word_count, extraction_certainty").eq("tenant_id", tenantId);
-  const keep = (rows: Capture[]) => { for (const row of rows) {
-    const v = selectPageVersion([...(selected.get(row.page_id) ?? []), row], captureFacts);
-    selected.set(row.page_id, v.current === v.content ? [v.current!] : [v.current!, v.content!]);
-  } };
-  let afterPage: string | null = null;
-  for (;;) {
-    let q = identities().order("page_id", { ascending: true }).order("fetched_at", { ascending: false }).order("id", { ascending: false });
-    if (afterPage !== null) q = q.gt("page_id", afterPage);
-    const { data, error } = await q.limit(pageSize);
-    if (error) throw new Error(`Supabase snapshot identity read failed: ${error.message}`);
-    const rows = (data ?? []) as Capture[];
-    keep(rows);
-    if (rows.length < pageSize) break;
-    let boundary = rows[rows.length - 1]!;
-    while (selectPageVersion(selected.get(boundary.page_id)!, captureFacts).state === "blank") {
-      const at = JSON.stringify(boundary.fetched_at), id = JSON.stringify(boundary.id);
-      const older = await identities().eq("page_id", boundary.page_id)
-        .or(`fetched_at.lt.${at},and(fetched_at.eq.${at},id.lt.${id})`)
-        .order("fetched_at", { ascending: false }).order("id", { ascending: false }).limit(pageSize);
-      if (older.error) throw new Error(`Supabase snapshot history read failed: ${older.error.message}`);
-      const history = (older.data ?? []) as Capture[];
-      keep(history);
-      if (history.length < pageSize) break;
-      boundary = history[history.length - 1]!;
-    }
-    afterPage = boundary.page_id;
-  }
-  const ids = [...selected.values()].flatMap((rows) => rows.map((r) => r.id)), out: T[] = [];
-  // PostgREST echoes the URI in response headers. Bound encoded bytes, not just rows;
-  // long capture identities otherwise overflow the HTTP parser before JSON arrives.
-  const baseBytes = Buffer.byteLength(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "") + 24;
-  const query = new URLSearchParams({ select: columns.replace(/\s/g, ""), tenant_id: `eq.${tenantId}`, limit: String(pageSize) });
-  for (let start = 0; start < ids.length;) {
-    const chunk: string[] = [];
-    let bytes = baseBytes + query.toString().length + "&id=in.%28%29".length;
-    while (start < ids.length && chunk.length < pageSize) {
-      const id = ids[start]!, cost = new URLSearchParams({ id: JSON.stringify(id) }).toString().length + 3;
-      if (bytes + cost > 8000) break;
-      chunk.push(id); bytes += cost; start++;
-    }
-    if (!chunk.length) throw new Error("Supabase snapshot identity exceeds the encoded request budget");
-    const { data, error } = await sb.from("page_snapshots").select(columns).eq("tenant_id", tenantId).in("id", chunk).limit(pageSize);
-    if (error) throw new Error(`Supabase selected snapshot read failed: ${error.message}`);
-    const rows = (data ?? []) as unknown as T[];
-    if (rows.length !== chunk.length) throw new Error("Supabase selected snapshot read was incomplete");
-    out.push(...rows);
-  }
-  return out.sort((a, b) => b.fetched_at.localeCompare(a.fetched_at) || b.id.localeCompare(a.id));
-}
-
-/**
- * E2 (operator audit, 2026-05-05) — egress observability.
- *
- * Wrap every Supabase read with a tiny logger that, when
- * `BEACON_SUPABASE_EGRESS_DEBUG=1`, emits a structured trace per call
- * with table, row count, approximate JSON byte size, duration, and
- * tenant scope. The flag is OFF by default so production logs aren't
- * spammed. Operator runs `BEACON_SUPABASE_EGRESS_DEBUG=1 npm run dev`
- * (or sets the var on Vercel preview) when investigating egress.
- *
- * Approximate JSON byte size = `JSON.stringify(data ?? []).length`.
- * It's not exact wire bytes (PostgREST adds modest framing overhead)
- * but is close enough to spot the heavy offenders.
- *
- * Pure observability. No behavior change.
- */
-/**
- * Quota/waste pass (2026-06-17): a read returning more than this many rows is
- * an egress smell (the class of read that burned the egress quota — e.g. a
- * full prompt_answer_observations pull of 8,700 rows / 17 MB). We ALWAYS warn
- * on these (cheap — row count is already known, no stringify), even when the
- * verbose debug flag is off, so an anomalous read can never sneak by unnoticed
- * again. Full per-read detail (byte estimate) stays behind the debug flag.
- */
+/** Reads of 2,000+ rows always warn; detailed egress traces require BEACON_SUPABASE_EGRESS_DEBUG. */
 const BIG_READ_WARN_ROWS = 2_000;
 
 function logEgress(opts: {

@@ -32,6 +32,8 @@ describe("one rule decides which capture is the page", () => {
     const busy = Array.from({ length: 1200 }, (_, i) => ({ ...before, id: `busy-${String(i).padStart(4, "0")}`, page_id: "a", url: "https://fixture-revision.example/busy", word_count: 0, extraction_certainty: "uncertain", internal_links: [] }));
     const quiet = Array.from({ length: 540 }, (_, i) => ({ ...before, id: `quiet-${i}-${"capture".repeat(30)}`, page_id: `q${String(i).padStart(4, "0")}`, url: `https://fixture-revision.example/quiet-${i}`, internal_links: [] }));
     db.rows = [...busy, { ...before, id: "good", page_id: "a", url: busy[0]!.url, fetched_at: "2026-09-09T12:00:00Z", internal_links: [] }, ...quiet, { ...before, id: "other", page_id: "other", tenant_id: "other", url: "https://other.example/page" }]; db.reads = [];
+    const targeted = await loadOwnedPageBodies("t", [busy[0]!.url, quiet[539]!.url]);
+    expect([targeted.size, targeted.get("fixture-revision.example/busy")?.version, targeted.get("fixture-revision.example/busy")?.fetchedAt, targeted.has("fixture-revision.example/quiet-539")]).toEqual([2, "stale_known_good", "2026-09-09T12:00:00Z", true]);
     const complete = await read(); expect(complete.ownedPages).toHaveLength(541); expect(complete.ownedPages.some((p) => p.url.endsWith("/quiet-539"))).toBe(true); db.reads = [];
     const { supabaseBackend } = await import("@/lib/persistence/repositories/supabase-backend"); const selected = await supabaseBackend.forTenant("t").getPageSnapshots(), recovered = selected.filter((r) => r.page_id === "a");
     expect([selected.length, recovered.map((r) => r.id), selected.every((r) => r.tenant_id === "t"), db.reads.every((r) => r.max <= 500 && r.inBytes <= 8000 && !r.cols.includes("body_text"))]).toEqual([542, ["busy-1199", "good"], true, true]);
@@ -72,13 +74,13 @@ describe("one rule decides which capture is the page", () => {
     db.rows = [{ ...db.rows[0], body_text: null, faqs: hidden, word_count: 3, h1: null, title: null }];
     const sample = (await loadOwnedPageBodies("t", [flag.url])).get("iranopedia.com/iran-flags/iran-islamic-republic-flag-history")!;
     expect([sample.completeness, pageContains(sample, "An unshown answer")]).toEqual(["sample_only", "unknown"]);
-    db.rows = [row(flag.url, "2026-09-10", "", 0, "uncertain")]; expect((await loadOwnedPageBodies("t", [flag.url])).get("iranopedia.com/iran-flags/iran-islamic-republic-flag-history")?.version).toBe("blank");
+    for (const [body, certainty, expected] of [["", "confirmed", "current"], [null, "confirmed", "stale_known_good"], ["", "uncertain", "blank"]]) {
+      db.rows = [{ ...row(flag.url, "2026-09-10", "", 0, String(certainty)), body_text: body }, ...(certainty === "uncertain" ? [] : [row(flag.url, "2026-09-09", "A trusted older body.", 4, "confirmed")])];
+      expect((await loadOwnedPageBodies("t", [flag.url])).get("iranopedia.com/iran-flags/iran-islamic-republic-flag-history")?.version).toBe(expected);
+    }
     db.rows = Array.from({ length: 9 }, (_v, i) => row(`https://iranopedia.com/p${i}`, "2026-08-30T22:00:00Z", `Page ${i} says something true about its own subject.`, 9, "confirmed"));
     const urls = db.rows.map((r) => String(r.url)); db.calls = 0;
     const misses = new Map<string, string>(); expect([(await loadOwnedPageBodies("t", [...urls, "https://iranopedia.com/never-crawled"], misses as Map<string, "no_capture" | "read_failed">)).size, [...misses]]).toEqual([9, [["iranopedia.com/never-crawled", "no_capture"]]]);
-    const nine = db.rows; db.rows = [...Array.from({ length: 30 }, (_v, i) => row("https://iranopedia.com/busy-one", `2026-08-30T2${String(i % 4)}:${String(10 + i).padStart(2, "0")}:00Z`, `Busy one, version ${i}.`, 9, "confirmed")), ...Array.from({ length: 30 }, (_v, i) => row("https://iranopedia.com/busy-two", `2026-08-30T2${String(i % 4)}:${String(10 + i).padStart(2, "0")}:00Z`, `Busy two, version ${i}.`, 9, "confirmed")), ...Array.from({ length: 3 }, (_v, i) => row("https://iranopedia.com/quiet", `2026-08-29T0${String(i)}:00:00Z`, `Quiet page, older capture ${i}.`, 9, "confirmed"))];
-    db.calls = 0; const capped = new Map<string, "no_capture" | "read_failed">(); const three = await loadOwnedPageBodies("t", ["https://iranopedia.com/busy-one", "https://iranopedia.com/busy-two", "https://iranopedia.com/quiet"], capped);
-    expect([three.size, three.has("iranopedia.com/quiet"), [...capped], db.calls], "the page the cut read left out is asked for again on its own, comes back with its own newest capture, and is never reported as never captured").toEqual([3, true, [], 2]); db.rows = nine;
-    db.calls = 0; db.failAfter = 1; const broke = new Map<string, "no_capture" | "read_failed">();
+    db.calls = 0; db.failAfter = 2; const broke = new Map<string, "no_capture" | "read_failed">();
     const partial = await loadOwnedPageBodies("t", urls, broke); db.failAfter = Infinity;
     expect([partial.size, [...broke.values()]]).toEqual([7, ["read_failed", "read_failed"]]); }); });
