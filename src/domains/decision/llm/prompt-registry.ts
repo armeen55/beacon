@@ -22,7 +22,7 @@ export const PROMPT_REGISTRY = {
   // draft.atomic_edit bumped to v2 (2026-08-23, grounded utility): the head clause now names the actual field (an answer block is no longer told it is a title edit) and the intent directive carries the AEO shape vocabulary, so the cache must never serve a v1 answer written under the two-assignments prompt. Previously: stayed at v1 (2026-08-01, V1 Closure); the opening-answer clause is APPENDED only when the field is
   // answer_block, a value nothing ever passed before, and the cache key folds in the system text itself, so no stored title or meta draft can be served under wording it was not taken under.
   "draft.atomic_edit": 9, // Shared publisher role across publication fields.
-  "draft.editor_judgement": 6, // Shared publisher-role and material-form acceptance.
+  "draft.editor_judgement": 7, // 7: refuses page talk, self-definitions and copied navigation (2026-09-15); 6: shared publisher-role and material-form acceptance.
   "draft.factual_review": 5, // v5 (2026-08-30): the ruling gains materialChange for suspected wording-only changes, so a cached v3 ruling never silently skips the question. v3 (2026-08-28): the prompt, the response schema, the reviewer packet, the mapping validation and what is persisted all changed, so a receipt banked under v2 is not the same promise and must fail closed as old
   // The AEO gap reader (2026-08-28): compares a search, the complete stored owned page and the credited
   // passages, and returns what the page LACKS from a closed vocabulary. Judgment only; it drafts nothing.
