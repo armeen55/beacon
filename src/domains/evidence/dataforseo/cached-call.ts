@@ -152,7 +152,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     return { state: "error", cacheKey, disposition: "none", detail: `The pre-call receipt could not be saved (${short(err)}). No provider call was made, and it is tried again.` };
   }
 
-  if (!(await CREDIT_BREAKER.claimProbe(r.tenantId, {}, "dataforseo").catch(() => true))) { await d.adjustProviderSpend(r.tenantId, PLATFORM, -r.estCostUsd).catch(() => {}); if (!(await holdBlocked(d, cacheKey, now, "HTTP 402"))) return { state: "error", cacheKey, disposition: "none", detail: CREDIT_BREAKER.sentence("dataforseo") }; return blockedResult(cacheKey, "HTTP 402"); } // THE STOP ON FILE REFUSES BEFORE THE NETWORK, and one probe per cooldown is the only call that may try to clear it (2026-09-15)
+  if (!(await CREDIT_BREAKER.claimProbe(r.tenantId, {}, "dataforseo").catch(() => true))) { await d.adjustProviderSpend(r.tenantId, PLATFORM, -r.estCostUsd).catch(() => {}); await releaseClaim(d, cacheKey, now, "credit_held"); return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") }; } // THE STOP ON FILE REFUSES BEFORE THE NETWORK and RELEASES the claim (reviewer, 2026-09-15: a blocked hold is for ever, a credit stop is until a call goes through); one probe per cooldown is the only call that may try to clear it
   const transport = await runDataForSeoTransport({ url: `${API_BASE}/${r.postPath}`, payload, estCostUsd: r.estCostUsd, env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence" });
   if (transport.ok) await CREDIT_BREAKER.clear(r.tenantId, {}, "dataforseo").catch(() => {});
   if (!transport.ok) {

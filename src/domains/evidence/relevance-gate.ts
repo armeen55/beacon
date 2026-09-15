@@ -129,7 +129,7 @@ export function domainOf(url: string): string {
 }
 
 /** A MEDIA LIBRARY, A CATEGORY INDEX OR A TAG PAGE IS NOT A PAGE TO MODEL ON (operator audit, 2026-09-15): a Wikimedia Commons category listing ("Subcategories: Imperial standards of Qajar dynasty (20 F)") was read as a winner whose section the owned page lacked, and a funded answer told readers that "Qajar flag subcategories include dynasty-specific flag groupings". Its words are navigation, never an answer. */
-const NOISE_PATH = /\/wiki\/(?:category|file|special|template|portal|talk|user):|\/(?:tag|tags|category|categories|topics?|search|page|author|archive)\/|\/wiki\/index\.php|[?&](?:s|q|search|tag)=/i;
+const NOISE_PATH = /\/wiki\/(?:category|file|special|template|portal|talk|user):|\/(?:tag|tags|category|categories|search|author|archive)\/|\/wiki\/index\.php|[?&](?:s|q|search|tag)=/i; /* never /topic/: britannica.com/topic/... is the strongest encyclopedic winner there is (reviewer, 2026-09-15) */
 export function isNoiseDomain(url: string): boolean {
   const d = domainOf(url);
   return (!!d && (NOISE_DOMAINS.some((n) => d === n || d.endsWith(`.${n}`)) || d === "commons.wikimedia.org")) || NOISE_PATH.test(url);

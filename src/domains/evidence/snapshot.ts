@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto";
 
-import { anchoredTopicMatch, canonicalUrlKey, canonicalQueryKey, domainOf, templateHeadings, topicTokens, weakAnchorTokens } from "./relevance-gate";
+import { anchoredTopicMatch, canonicalUrlKey, canonicalQueryKey, domainOf, isNoiseDomain, templateHeadings, topicTokens, weakAnchorTokens } from "./relevance-gate";
 export { canonicalUrlKey } from "./relevance-gate";
 import type { FunnelResearchEvidence } from "./funnel/research-evidence";
 
@@ -626,6 +626,7 @@ export function jobWinners(research: Pick<EvidenceSnapshot["research"], "serpEvi
     for (const a of w.appearances ?? []) if (keys.has(canonicalQueryKey(a.query ?? a.promptText ?? "")) && a.kind !== "serp_organic") citations.add(a.kind === "ai_answer" ? `${a.kind}|${a.promptId ?? a.promptText ?? a.query}|${a.promptVersion ?? ""}|${a.engine}|${a.reportingDay ?? a.observedAt.slice(0, 10)}` : `${a.kind}|${canonicalQueryKey(a.query ?? "")}|${a.observedAt}`);
     return { rank: ranks.length ? Math.min(...ranks) : null, citationObservations: citations.size }; };
   return (research.winningPages ?? [])
+    .filter((w) => !isNoiseDomain(w.url)) // a category, tag, search or media index page is never a winner to compare against or model on, however it ranks (reviewer, 2026-09-15: one join feeds the comparison, winnersRead and the packet)
     .map((w) => ({ ...w, querySupport: support(w) }))
     .filter((w) => w.querySupport.rank != null || w.querySupport.citationObservations > 0 || (w.appearances ?? []).some((a) => keys.has(canonicalQueryKey(a.query ?? a.promptText ?? ""))))
     .sort((a, b) => (channel === "aeo" ? b.querySupport.citationObservations - a.querySupport.citationObservations : 0) || (a.querySupport.rank ?? Infinity) - (b.querySupport.rank ?? Infinity) || b.querySupport.citationObservations - a.querySupport.citationObservations || Number(!!b.extract?.mainText) - Number(!!a.extract?.mainText) || canonicalUrlKey(a.url).localeCompare(canonicalUrlKey(b.url)))
