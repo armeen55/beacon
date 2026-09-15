@@ -1,5 +1,5 @@
 import "server-only";
-import { spendingClosed } from "@/lib/spend-scope";
+import { spendingClosed } from "@/lib/spend-scope"; import { CREDIT_BREAKER } from "@/lib/cost/credit-breaker";
 import { createHash } from "node:crypto";
 import { isDataForSeoConfigured, runDataForSeoTransport } from "./client";
 import { collectResolvedTask, identityCacheKey, runResolvedCall, type ResolvedCall } from "./cached-call";
@@ -7,10 +7,7 @@ import { resolveDeps } from "./default-deps";
 import { normalizePageIntersection, parsePageIntersection, MAX_INTERSECTION_PAGES } from "../page-intersection";
 import { freshnessMsFor } from "../freshness";
 import { mainOf } from "../funnel/research-evidence";
-import type {
-  CachedCallResult, CapabilityInputByKey, CapabilityKey, EngineModelResolution, FunnelBoundaryDeps,
-  ObservationIdentity, ParsedAiAnswer, ParsedByCapability, ParsedKeywordItem, ParsedSerp, ProviderEnvelope,
-} from "./funnel-boundary";
+import type { CachedCallResult, CapabilityInputByKey, CapabilityKey, EngineModelResolution, FunnelBoundaryDeps, ObservationIdentity, ParsedAiAnswer, ParsedByCapability, ParsedKeywordItem, ParsedSerp, ProviderEnvelope } from "./funnel-boundary";
 /** capabilities - the typed DataForSEO provider registry behind the frozen funnel-boundary contract. ONE entry per CapabilityKey owns the EXACT request
  *  builder (only fields the docs document for that endpoint), the optional ask NORMALIZATION that runs BEFORE the cache identity, the reservation, the
  *  cache dimensions, the envelope parser, and its route (post + free task_get + free tasks_ready). providerCall is the ONE model-resolution point: it
@@ -218,6 +215,8 @@ export async function providerCall<K extends CapabilityKey>(
 ): Promise<CachedCallResult> {
   // SAME BOUNDARY AS THE MODEL DOOR (lib/spend-scope): `capped` is what every caller reads as "not buying now", so a paused day leaves the work owed, never failed.
   if (await spendingClosed(ids.tenantId)) return { state: "capped", cacheKey: null, detail: "Research is paused for this account, so nothing was bought. This is owed, not failed." };
+  const peek = (deps as { creditPeek?: typeof CREDIT_BREAKER.peek }).creditPeek ?? CREDIT_BREAKER.peek; // AND NO PAID POST WHILE THE MODEL DOOR IS HELD (2026-09-14): research bought with no credit to reason on it is money spent on a queue nobody can read. The free GET collects never pass here.
+  if (await peek(ids.tenantId).catch(() => "clear" as const) === "held") return { state: "capped", cacheKey: null, detail: "The OpenAI balance for this account is empty, so no paid research is bought until a call goes through. This is owed, not failed." };
   const entry = REGISTRY[capability];
   let resolution: EngineModelResolution | null = null, modelRequested: string | null = null;
   if (entry.engine) { // ONE resolution: the method routes the call AND the model rides the request

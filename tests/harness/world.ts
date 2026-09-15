@@ -379,19 +379,20 @@ export const reasoningAsked: { kind: string; ask: string }[] = [];
 
 /** THE WORDS THE WRITER HANDS BACK FOR THE HUB ROW, in the shape the canonical editor accepts: an opening that answers the search outright, one claim per assertion, and every claim naming an id
  *  the packet really carries. It is a script and never a bypass: the same deterministic contract, the same evaluator and the same per-claim ruling read these words as they read production's. */
-export const WRITER = { field: "answer_block", before: null, naturalHeading: "Who the widely known Iranians are", placementId: "", implementationMinutes: 15,
+const HUB_BODY = ["Iran has produced writers, athletes and performers whose work travelled far beyond its borders.", "The poets section lists three poets with a short line on each.", "The athletes section lists wrestlers and weightlifters who won world titles.", "The actors section lists screen performers who worked at home and abroad.", "Each entry gives a name, a period and one sentence about why the person is remembered."]; /* the opening passage the writer replaces: every sentence of it survives verbatim behind the new opening, and the writer's ledger says so unit by unit, exactly as the per-unit preservation contract demands of production copy */
+export const WRITER = { field: "answer_block", before: null, naturalHeading: "Who the widely known Iranians are", placementId: "", implementationMinutes: 15, preservation: HUB_BODY.map((text) => ({ text, disposition: "kept" as const })),
   rationale: "The first lines never say who the search is about, so the answer is stated before the sections that hold the names.",
-  after: "Iran's widely known figures fall into three groups of people: poets, athletes and screen actors. The athletes are wrestlers and weightlifters who won world titles, and the actors worked on screen at home and abroad.",
+  after: `Iran's widely known figures fall into three groups of people: poets, athletes and screen actors. ${HUB_BODY.join(" ")}`, // the new opening states the answer once; the page's own sentences that already carry the detail follow it unchanged
   claims: [{ text: "Poets, athletes and screen actors are the three kinds of people named.", supportedBy: ["page-heading-2", "page-heading-3", "page-heading-4"] },
     { text: "The athletes are wrestlers and weightlifters who won world titles, and the actors worked on screen at home and abroad.", supportedBy: ["page-copy-1"] }] };
 /** THE READING OF THOSE WORDS, one ruling per claim by the index the evaluator is shown. A judge that says yes is still the REAL judge: what it may say is fixed by the schema the gateway sends, and
  *  every deterministic gate in front of it has already run on this same copy. */
 export const JUDGE = { pageFit: true, usefulAndNatural: true, placementCorrect: true, resolvesDiagnosis: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, contested: false,
-  claims: [0, 1].map((i) => ({ i, by: WRITER.claims[i]!.supportedBy, entailed: true })), notes: "The first lines now name who the search is about before the sections that hold the names.", resolution: "none" };
+  claims: [0, 1].map((i) => ({ i, by: WRITER.claims[i]!.supportedBy, entailed: true })), notes: "The first lines now name who the search is about before the sections that hold the names.", resolution: "none", preservation: HUB_BODY.map((text) => ({ text, disposition: "kept" as const, verified: true, reason: "The sentence survives verbatim behind the new opening.", after: text, by: [], to: null })) }; // one VERIFIED ruling per original unit the reviewer is shown, in the exact shape the acceptance schema fixes
 /** THE HUB PAGE AS THE CRAWL BANKS IT, with the three sections the writer's claims cite. */
 export const HUB_PAGE = { path: "/famous-iranians", title: "Most Famous Iranians and Persians of All Time", h1: "Famous and Influential Iranian People",
   meta: "Explore the most famous Iranians and Persians in history.", h2: ["Famous Iranian Poets", "Famous Iranian Athletes", "Famous Iranian Actors"],
-  body: ["Iran has produced writers, athletes and performers whose work travelled far beyond its borders.", "The poets section lists three poets with a short line on each.", "The athletes section lists wrestlers and weightlifters who won world titles.", "The actors section lists screen performers who worked at home and abroad.", "Each entry gives a name, a period and one sentence about why the person is remembered."].join("\n") };
+  body: HUB_BODY.join("\n") };
 
 /** THE STALLED HUB OPPORTUNITIES exactly as the store holds them, with the account's identity replaced. `pick` selects by page. */
 export function seedProposals(pick?: (row: Row) => boolean): Row[] {

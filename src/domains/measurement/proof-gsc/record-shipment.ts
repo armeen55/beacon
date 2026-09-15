@@ -22,7 +22,6 @@ import "server-only";
  * reverse leaves a change marked done that nothing on earth is measuring.
  */
 
-import { createHash } from "node:crypto";
 
 import { log } from "@/lib/logger";
 import { readLastFinalizedDate } from "./gsc-window";
@@ -165,68 +164,4 @@ export async function recordShipment(facts: ShipmentFacts, opts?: { /** THE BATC
   const { controlPages, controlsReceipt, measurement } =
     await comparisonFor(facts.tenantId, facts.page, facts.implementedAt ?? now.toISOString(), now, { ledger: opts?.preloadedLedger, open: opts?.openPaths });
   return write({ ...facts, invalidate: opts?.invalidate, openPaths: opts?.openPaths, ledger: opts?.preloadedLedger }, { measurement, controlPages, controlsReceipt, preChangeHashUnavailable: false });
-}
-
-/** What the operator can tell Beacon about a change that was already live before it was ever recorded. */
-type RepairFacts = {
-  tenantId: string;
-  proposalId: string;
-  /** THE DAY IT ACTUALLY WENT LIVE, in the operator's own account of it. Every window counts from here. */
-  implementedAt: string;
-  /** The wording that is on the page now. The live check looks FORWARD for exactly this. */
-  finalWording: string;
-  /** Where on the page it went, in their words. */
-  placement: string;
-  /** How they applied it, in their words. */
-  source: string;
-  componentsApplied: ShipmentComponent[];
-  /** The page identity, supplied by the caller: Measurement never reads a Decision record. */
-  page: string;
-  path: string;
-  actionType: string;
-  targetQueries?: string[];
-  now?: Date;
-};
-
-/**
- * THE REPAIR DOOR. One narrow, tenant-scoped way to record a change that went live before anything
- * wrote it down, built ENTIRELY from what the operator supplies.
- *
- * NOTHING IS INVENTED. `before` is null and the row is marked `preChangeHashUnavailable`, because no
- * snapshot of the page as it stood beforehand exists and none will: the live check compares FORWARD
- * only, against the wording the operator says is there, and no before-state is ever claimed for it.
- * The 28-day baseline is recomputed from Search data ALREADY SYNCED over the days that really
- * preceded the stamp; when there is none, the starting point stays null and the measurement state
- * says so. Idempotent on (proposal, version) exactly like the ordinary door.
- */
-export async function recordRepairShipment(facts: RepairFacts): Promise<RecordedShipment> {
-  const wording = facts.finalWording.trim();
-  // The version is derived from the operator's own account, so running the repair twice with the same
-  // account of it lands on the same row instead of minting a second record of one change.
-  const version = `repair-${createHash("sha256")
-    .update(JSON.stringify([wording, facts.implementedAt, facts.componentsApplied.map((c) => c.kind)]))
-    .digest("hex").slice(0, 12)}`;
-  const base = { tenantId: facts.tenantId, proposalId: facts.proposalId, proposalVersion: version };
-  const held = await heldShipment(base);
-  if (held != null) return { shipmentId: held.id, measurement: held.measurementState ?? "verification_needed" };
-  // A single piece with no wording of its own gets the wording the operator says is live, because the
-  // check needs something concrete to look for. A list of several is passed through untouched.
-  const components = facts.componentsApplied.length === 1 && !facts.componentsApplied[0]!.after
-    ? [{ ...facts.componentsApplied[0]!, after: wording }] : facts.componentsApplied;
-  const { controlPages, controlsReceipt, measurement } =
-    await comparisonFor(facts.tenantId, facts.page, facts.implementedAt, facts.now ?? new Date());
-  return write({
-    ...base, page: facts.page, path: facts.path, actionType: facts.actionType,
-    before: null, after: wording, targetQueries: facts.targetQueries ?? [],
-    basis: null, caseId: null,
-    bundleHypothesis: "Recorded after the change was already live, from what the operator applied.",
-    componentsApplied: components, implementedAt: facts.implementedAt, preChangeContentHash: null,
-    operatorNote: `Applied by the operator before this was recorded. Placement: ${facts.placement.trim()}. Source: ${facts.source.trim()}.`,
-    now: facts.now,
-  }, {
-    // A repair holds no before-state and its page has not been read, so even a full comparison set
-    // does not make it "measuring": the live check is owed first, and the row says which one it is.
-    measurement: measurement === "measuring" ? "verification_needed" : measurement,
-    controlPages, controlsReceipt, preChangeHashUnavailable: true,
-  });
 }

@@ -5,13 +5,13 @@
  *
  * SCOPE SPLIT (locked): This module no longer requests multiple scopes in a single OAuth flow. Each `buildGoogleAuthUrl(kind, ...)` call requests exactly one scope set:
  * • kind="gsc" → webmasters.readonly only
- * • kind="gbp" → business.manage only
- * • kind="ga4" → analytics.readonly only      (Slice 9.A1 — read-only GA4 + Analytics Admin)
+ * • kind="ga4" → analytics.readonly only      (read-only GA4 + Analytics Admin)
+ * The retired "gbp" kind (business.manage) has no scope any more: a state naming it is rejected as malformed, so no Business Profile consent can start. The literal stays in the kind union only because the OAuth callback route still compares against it.
  *
- * Why: requesting multiple scopes forces broader permissions onto a single consent screen than the connector needs. The per-grant model matches Google's own authorization shape (refresh tokens are bound to the scopes granted at consent). A GA4-only operator never has to grant GSC or GBP permissions to enable Analytics.
+ * Why: requesting multiple scopes forces broader permissions onto a single consent screen than the connector needs. The per-grant model matches Google's own authorization shape (refresh tokens are bound to the scopes granted at consent). A GA4-only operator never has to grant Search Console permissions to enable Analytics.
  *
  * SIGNED STATE (locked): Every auth URL carries a signed `state` parameter encoding:
- * • k — connector kind ("gsc" | "gbp" | "ga4")
+ * • k, connector kind ("gsc" | "ga4")
  * • t — tenantId at request time
  * • n — random nonce
  * • i — issued-at unix-ms (for sanity TTL)
@@ -38,16 +38,12 @@ const GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 /** GSC read scope. Used for both URL Inspection + Search Analytics APIs. */
 const GSC_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
 
-/** GBP scope. Despite the name, the connector uses read-only operations (review fetch, location list). No write API calls are made — enforced at the application layer (Section 7 lock: pull-only). */
-const GBP_SCOPE = "https://www.googleapis.com/auth/business.manage";
-
 /** GA4 read scope (Slice 9.A1, 2026-05-18). Grants read-only access to the Google Analytics Admin API (`accountSummaries.list`) AND the Data API; Slice 9.A1 uses ONLY the Admin API to list properties during the property-picker flow. Data API usage lands in a future slice (9.A2 — Mode A outcome attribution). */
 const GA4_SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
 
-/** Per-kind single DATA scope. Each OAuth flow requests exactly one of these. */
-const SCOPES: Record<GoogleConnectorKind, string> = {
+/** Per-kind single DATA scope. Each OAuth flow requests exactly one of these; the retired gbp kind has none. */
+const SCOPES: Partial<Record<GoogleConnectorKind, string>> = {
   gsc: GSC_SCOPE,
-  gbp: GBP_SCOPE,
   ga4: GA4_SCOPE,
 };
 
@@ -104,7 +100,7 @@ function getRedirectUri(): string {
 // ─────────────────────────────────────────────────────────────────────
 
 type OAuthStatePayload = {
-  /** Connector kind: "gsc" | "gbp" | "ga4". */
+  /** Connector kind: "gsc" | "ga4". */
   k: GoogleConnectorKind;
   /** Tenant id at request time. */
   t: string;
@@ -192,7 +188,7 @@ export function decodeOAuthState(raw: string | null | undefined): OAuthStateDeco
   }
   const p = parsed as Partial<OAuthStatePayload>;
   if (
-    (p.k !== "gsc" && p.k !== "gbp" && p.k !== "ga4") ||
+    (p.k !== "gsc" && p.k !== "ga4") ||
     typeof p.t !== "string" ||
     typeof p.n !== "string" ||
     typeof p.i !== "number"
@@ -217,7 +213,6 @@ export function decodeOAuthState(raw: string | null | undefined): OAuthStateDeco
  *
  * The auth URL requests exactly ONE scope (the scope mapped to `kind`). State is REQUIRED — pass a signed state produced by `encodeOAuthState`. The callback validates the state and persists the token under the provider key matching the kind:
  * • kind="gsc" → provider "google_gsc"
- * • kind="gbp" → provider "google_gbp"
  * • kind="ga4" → provider "google_ga4"
  */
 export function buildGoogleAuthUrl(
@@ -228,12 +223,16 @@ export function buildGoogleAuthUrl(
   if (state == null || state === "") {
     throw new Error("buildGoogleAuthUrl: state parameter is required");
   }
+  const dataScope = SCOPES[kind];
+  if (dataScope == null) {
+    throw new Error(`buildGoogleAuthUrl: no scope for retired connector kind ${kind}`);
+  }
   const params = new URLSearchParams({
     client_id: getClientId(),
     redirect_uri: getRedirectUri(),
     response_type: "code",
     // The single least-privilege DATA scope for this kind PLUS the universal identity scopes (openid + email). Space-separated; URLSearchParams URL-encodes the spaces. The data scopes are never bundled ACROSS kinds - a GSC flow still never asks for analytics.readonly, and vice versa.
-    scope: [SCOPES[kind], ...IDENTITY_SCOPES].join(" "),
+    scope: [dataScope, ...IDENTITY_SCOPES].join(" "),
     access_type: "offline",
     // Per-tenant OAuth (2026-07-09): every OAuth flow reachable here is a deliberate (re)authorization - a first connect, an explicit "Replace Google account", or a reconnect after death. Ordinary syncs/refreshes NEVER run OAuth, so there is no accidental re-consent of a HEALTHY grant to protect against (the old refresh-token-cap-churn failure mode). All three intents therefore show the account chooser (select_account) AND force a fresh consent so the chosen account mints its own refresh token. Google accepts space-separated prompt values; the space is URL-encoded.
     prompt: promptForIntent(intent),

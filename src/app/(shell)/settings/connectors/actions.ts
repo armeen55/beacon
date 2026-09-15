@@ -23,6 +23,7 @@ import {
   type GoogleConnectorKind,
   type OAuthIntent,
 } from "@/lib/connectors/google-auth";
+import { isAccountOwner } from "@/lib/auth/can-publish";
 import { currentTenantId } from "@/lib/tenant-context";
 import { now } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
@@ -85,6 +86,8 @@ const TROUBLE = {
   disconnect: "That could not be disconnected just now. Try again in a moment.",
   list: "Your Analytics properties could not be read just now. Try again in a moment.",
   sync: "This source could not be refreshed just now. Try again in a moment.",
+  // Owner gate (2026-09-14): every connector mutation applies the same owner rule the Changes and Results mutations do; a member sees the connections, never changes them.
+  owner: "Only this account's owner can change connections.",
 } as const;
 
 /** ONE place the real error reaches the log, and it never reaches the screen. */
@@ -110,6 +113,7 @@ export async function getGoogleAuthUrl(
 ): Promise<{ url: string | null; error?: string }> {
   const action = "getGoogleAuthUrl";
   try {
+    if (!(await isAccountOwner())) return { url: null, error: TROUBLE.owner };
     const tenantId = await currentTenantId();
     // Derive the honest intent from the stored token, then reconcile with what the client asked for. Store unreadable → treat as no grant ("connect"), which is always the safest posture.
     let derived: OAuthIntent = "connect";
@@ -163,6 +167,7 @@ export async function disconnectGoogle(): Promise<{
   const action = "disconnectGoogle";
   const t0 = Date.now();
   log.info("Action started", { action });
+  if (!(await isAccountOwner())) return { success: false, error: TROUBLE.owner };
   try {
     // GSC uses SOFT disconnect so cached historical state in `gsc_url_inspections` is preserved. Reconnect via the standard OAuth flow naturally clears `disconnected_at` because saveConnectorToken upserts a fresh payload without the field.
     //
@@ -221,6 +226,7 @@ export async function selectGa4Property(
       error: "Property id + display name are required.",
     };
   }
+  if (!(await isAccountOwner())) return { success: false, error: TROUBLE.owner };
   try {
     const tenantId = await currentTenantId();
     // Defense-in-depth: re-list the operator's properties + verify the submitted id is in the latest set. Skips when the listing fails (e.g., transient API error), in that case we trust the form submission since the operator must have just seen the property in the picker to have submitted it. The picker UI re-runs listGa4Properties after disconnect/reconnect so a stale id never lingers in the rendered HTML.
@@ -235,11 +241,11 @@ export async function selectGa4Property(
         };
       }
     }
+    // Null, never undefined: the patch travels as JSON, which drops undefined, so an account name cleared by the picker would otherwise survive on the row.
     await updateConnectorToken("google_ga4", {
       ga4_property_id: propertyId,
       ga4_property_display_name: propertyDisplayName,
-      ga4_account_display_name:
-        accountDisplayName !== "" ? accountDisplayName : undefined,
+      ga4_account_display_name: accountDisplayName !== "" ? accountDisplayName : null,
     });
     revalidatePath("/settings/connectors");
     log.info("Action completed", { action, durationMs: Date.now() - t0 });
@@ -258,13 +264,15 @@ export async function disconnectGoogleGa4(): Promise<{
   const action = "disconnectGoogleGa4";
   const t0 = Date.now();
   log.info("Action started", { action });
+  if (!(await isAccountOwner())) return { success: false, error: TROUBLE.owner };
   try {
     const nowIso = new Date().toISOString();
+    // Null, never undefined: JSON drops undefined, so the RPC patch never cleared the property and a reconnect skipped the picker.
     await updateConnectorToken("google_ga4", {
       disconnected_at: nowIso,
-      ga4_property_id: undefined,
-      ga4_property_display_name: undefined,
-      ga4_account_display_name: undefined,
+      ga4_property_id: null,
+      ga4_property_display_name: null,
+      ga4_account_display_name: null,
     });
     revalidatePath("/settings/connectors");
     log.info("Action completed", { action, durationMs: Date.now() - t0 });
@@ -275,7 +283,7 @@ export async function disconnectGoogleGa4(): Promise<{
   }
 }
 
-// ── Connect-cards slice (2026-06-12), Clarity ── Self-serve: paste a key, it stays on this server, the syncs activate the moment it lands (dormant-honest until then). Disconnect = soft (cached data kept).
+// ── Connect-cards slice (2026-06-12), Clarity ── Self-serve: paste a key, it stays on this server, the syncs activate the moment it lands (dormant-honest until then). Disconnect is soft (the row keeps its cached data, `disconnected_at` stops every pull) after the card's confirm step; a fresh token save upserts a payload without the flag, which reconnects.
 
 export async function saveClarityConnection(input: {
   apiToken: string;
@@ -287,6 +295,7 @@ export async function saveClarityConnection(input: {
     return { success: false, error: "Enter your Clarity API token." };
   }
   log.info("Action started", { action });
+  if (!(await isAccountOwner())) return { success: false, error: TROUBLE.owner };
   try {
     await saveConnectorToken({
       provider: "clarity",
@@ -306,8 +315,9 @@ export async function disconnectClarity(): Promise<{ success: boolean; error?: s
   const action = "disconnectClarity";
   const t0 = Date.now();
   log.info("Action started", { action });
+  if (!(await isAccountOwner())) return { success: false, error: TROUBLE.owner };
   try {
-    await deleteConnectorToken("clarity");
+    await updateConnectorToken("clarity", { disconnected_at: new Date().toISOString() });
     revalidatePath("/settings/connectors");
     log.info("Action completed", { action, durationMs: Date.now() - t0 });
     return { success: true };
@@ -330,55 +340,39 @@ export type ConnectorSyncNowResult = {
 };
 
 /**
- * #87/#88 honesty fix (2026-06-14), reasons that genuinely mean "this source simply isn't connected / has nothing yet": a benign skip, NOT a failure. Everything NOT in this set (auth expired, supabase down, upsert failed, …) is surfaced as a real failure so the owner is told to act.
- *
- * • no_token / no_key / no_property / no_domain / disconnected, never set up.
- * • no_property_derivable, GSC connected but no domain configured yet.
+ * Reasons that genuinely mean "this source is not connected / has nothing yet": a benign skip, NOT a failure. Everything NOT in this set (auth expired, database down, upsert failed, a refused Clarity pull) is surfaced as a real failure so the owner is told to act. Only reason codes an engine actually emits belong here.
  */
 const BENIGN_SKIP_REASONS = new Set([
   "no_token",
-  "no_key",
   "no_property",
   "disconnected",
-  // #208, `no_domain` / `no_property_derivable` now route to the more specific NEEDS_DOMAIN_REASONS copy ("set your website domain in Config") instead of the generic "not connected yet" line. GSC: token store genuinely had no row → never connected (#87).
+  // GSC: the token store genuinely had no row, so this account never connected (#87).
   "no_usable_gsc_token",
-  // Clarity: no token connected yet, distinct from a real API error. (The engine still uses the legacy combined reason; treat it as a skip so an unconnected source never alarms. A genuine upsert_failed stays a failure.)
-  "no_token_or_api_error",
 ]);
 
-/** #87 (2026-06-14), reasons that mean "you WERE connected but the auth broke": an honest FAILURE that tells the owner to reconnect, never a harmless "skipped". Each maps to plain-English copy (no jargon). */
+/** Reasons that mean "you WERE connected but the auth broke": an honest FAILURE that tells the owner to reconnect, never a harmless "skipped". Plain English, no jargon. */
 const RECONNECT_REASONS: Record<string, string> = {
-  // GSC: token row exists but the grant expired / went stale (>7d).
-  gsc_token_expired:
-    "Your Google connection expired. Reconnect Google to refresh.",
-  // GSC: a mid-sync 401/403 the refresh couldn't recover (revoked / lost scope).
-  gsc_auth_failed_401:
-    "Your Google connection expired. Reconnect Google to refresh.",
-  gsc_auth_failed_403:
-    "Google revoked access for this site. Reconnect Google to refresh.",
+  // GSC: the stored grant no longer refreshes; GA4: the same, under its engine's own code.
+  gsc_token_expired: "Your Google connection expired. Reconnect Google to refresh.",
+  token_expired: "Your Google connection expired. Reconnect Google to refresh.",
+  // GSC: a mid-sync 401/403 the refresh could not recover (revoked / lost scope).
+  gsc_auth_failed_401: "Your Google connection expired. Reconnect Google to refresh.",
+  gsc_auth_failed_403: "Google revoked access for this site. Reconnect Google to refresh.",
 };
 
-/** #208, plain-English copy for genuine FAILURE reason codes the sync engines emit. Pre-fix these fell through to "Sync failed: <raw_code>." which leaks an internal token (e.g. "supabase_unavailable", "no_key_or_api_error") to a non-technical owner. Anything still NOT in this map keeps the generic "Sync didn't finish" fallback below, never the raw code. */
+/** Plain-English copy for genuine FAILURE reason codes the sync engines emit, so a raw code such as "supabase_unavailable" never reaches a non-technical owner. Anything NOT in this map keeps the generic "Sync didn't finish" fallback below. */
 const FAILED_REASON_COPY: Record<string, string> = {
   // Beacon's database was briefly unreachable, transient, retry works.
-  supabase_unavailable:
-    "Beacon couldn't reach its database just now, please try again in a moment.",
+  supabase_unavailable: "Beacon couldn't reach its database just now, please try again in a moment.",
   // Writing the pulled rows failed, transient, retry works.
-  upsert_failed:
-    "Beacon pulled your data but couldn't save it, please try again in a moment.",
-  // The key is missing OR the API rejected the request.
-  no_key_or_api_error:
-    "This data source could not be reached. Check the connection details on this card and try again.",
-  // No competitor configured yet to pull citations against.
-  no_known_competitor:
-    "Add at least one competitor in Settings → Config, then sync again.",
+  upsert_failed: "Beacon pulled your data but couldn't save it, please try again in a moment.",
+  // Clarity's platform cap is ten pulls a day; the next automatic pull waits 24 hours.
+  http_429: "Clarity's limit of 10 pulls a day is used up. The next pull runs tomorrow; the saved data still shows.",
+  // Clarity rejected the saved token: the fix is a new token on this card, not a retry.
+  http_401: "Clarity rejected the saved API token. Paste a current token from your Clarity project settings on this card.",
+  // Clarity could not be reached or answered with something unreadable.
+  api_error: "This source could not be reached just now. The next pull runs tomorrow; try Sync now if it cannot wait.",
 };
-
-/** #208, reasons that mean "you're connected, but Beacon needs your website domain in Config before it can pull data". A benign, actionable state, not an alarming failure, but distinct from the generic "not connected yet" so the owner knows the exact next step. */
-const NEEDS_DOMAIN_REASONS = new Set([
-  "no_property_derivable",
-  "no_domain",
-]);
 
 /** Normalize a connector sync engine's discriminated result into the UI shape WITHOUT coupling to each connector's exact fields. The engines all carry a `synced` boolean discriminant; on success they expose some of {rows_upserted, rows, imported, days, citation_rows}; on skip they expose a `reason`. We read those defensively so one summarizer serves all five. */
 function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
@@ -430,16 +424,12 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
   if (r.reason != null && RECONNECT_REASONS[r.reason] != null) {
     return { ok: false, error: RECONNECT_REASONS[r.reason] };
   }
-  // #208, connected, but Beacon needs the website domain set in Config before it can pull. A specific, actionable next step (not a raw code).
-  if (r.reason != null && NEEDS_DOMAIN_REASONS.has(r.reason)) {
+  // Connected, but Beacon needs the website domain set in Config before it can derive the Search Console property. A specific, actionable next step (not a raw code).
+  if (r.reason === "no_property_derivable") {
     return {
       ok: false,
       error: "Set your website domain in Settings → Config, then sync again.",
     };
-  }
-  // #208, GA4 ran fine but there's simply no traffic data yet. A benign "nothing yet" state, not a failure to alarm the owner about.
-  if (r.reason === "no_traffic_data") {
-    return { ok: true, detail: "Synced, no traffic data yet." };
   }
   // Benign skip, the source isn't connected yet. Not an alarming failure.
   if (r.reason != null && BENIGN_SKIP_REASONS.has(r.reason)) {
@@ -480,7 +470,8 @@ async function writeLastSyncedAt(
         );
         break;
       case "clarity":
-        await updateConnectorToken(provider, patch, tenantId);
+        // A good manual pull also lifts the retry-after a refused pull stamped.
+        await updateConnectorToken(provider, { ...patch, retry_after: null }, tenantId);
         break;
     }
   } catch (e) {

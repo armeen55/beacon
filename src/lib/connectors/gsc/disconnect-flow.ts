@@ -23,9 +23,6 @@
  * Pure (in the "delegates to existing helpers, no new I/O surface"
  * sense). The actual Supabase write happens inside
  * `updateConnectorToken` via the existing tenant-scoped boundary.
- *
- * Pinned by:
- *   • `tests/lib/connectors/gsc/disconnect-flow.test.ts`
  */
 
 import "server-only";

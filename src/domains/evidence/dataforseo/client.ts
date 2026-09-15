@@ -3,18 +3,10 @@ import "server-only";
 import { perfCountExternal } from "@/lib/obs/perf-log";
 import type { DataForSeoEnv } from "./types";
 
-/**
- * dataforseo/client — env/config truth + the ONE shared HTTP transport core for
- * every DataForSEO call. Policy (configured / breaker / atomic
- * reservation / cache) lives in cached-call.ts behind the frozen
- * funnel-boundary contract; this module owns only what every call shares:
- * credentials resolution, the monthly cap, and the
- * fetch + HTTP-status + provider-cost extraction. The legacy per-reader money
- * gauntlet (dataForSeoRequest) was deleted with its readers in Slice 6 — the
- * reservation path is the ONLY way money moves.
- */
-
-// ─── Env contract (canonical home; the readers re-export for stability) ──────
+/** dataforseo/client: env truth and the ONE shared HTTP transport for every DataForSEO call. Policy (configured, breaker,
+ *  atomic reservation, cache) lives in cached-call.ts behind the funnel-boundary contract; this module owns only what every
+ *  call shares: credentials, the monthly cap, and fetch plus HTTP status plus provider cost. The reservation path is the
+ *  only way money moves. */
 
 function readEnv(env: NodeJS.ProcessEnv = process.env): DataForSeoEnv {
   return {
@@ -65,13 +57,8 @@ function extractActualCostUsd(body: unknown, fallbackUsd: number): number {
 
 // ─── The core ────────────────────────────────────────────────────────────────
 
-/**
- * The ONE shared HTTP transport core: send the request, check the HTTP status,
- * extract the provider-reported cost. NO money (reservation / record) and NO
- * configured policy — callers own it. `dataForSeoRequest` wraps it
- * with the legacy money gauntlet; `cachedDataForSeoCall` wraps it with the
- * atomic Slice 6 reservation. Never throws; returns a discriminated result.
- */
+/** The ONE shared HTTP transport: send the request, check the HTTP status, extract the provider-reported cost. No money
+ *  (reservation, record) and no configured policy; `cachedDataForSeoCall` wraps it with the atomic reservation. Never throws. */
 export async function runDataForSeoTransport(args: {
   /** Full request URL (scheme + host + path). */
   url: string;

@@ -24,7 +24,7 @@ vi.mock("@/app/(shell)/results/results-ledger-data", () => ({ rebuildResultsSurf
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ harvestWinners: async (t: string) => void settle.harvested.push(t) }));
 import { settleDueMeasurements } from "@/domains/measurement/proof-gsc/auto-measure-on-use";
 import { measureRecord, recordShippedChange } from "@/domains/measurement/proof-gsc/measure-pass";
-import { recordRepairShipment, recordShipment } from "@/domains/measurement/proof-gsc/record-shipment";
+import { recordShipment } from "@/domains/measurement/proof-gsc/record-shipment";
 import { isDueForMeasure } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import { loadShippedChangesForTenant, pagesUnderMeasurementFromShipments, recordVerification, upsertShippedChange, type ShipmentVerification, type ShippedChangeRecord } from "@/domains/measurement/proof-gsc/shipped-change-store";
 import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
@@ -161,9 +161,6 @@ describe("the measurement pass settles itself, all the way to the screen", () =>
   });});
 describe("the recording seam", () => {
   const facts = (over: Record<string, unknown> = {}) => ({ ...origin(), tenantId: T, page: PAGE, path: "/nowruz-guide", actionType: "title-family", before: "Nowruz", after: "Nowruz Traditions", targetQueries: ["nowruz traditions"], now: NOW, ...over });
-  const LIVE_ON = "2026-07-10T00:00:00.000Z", WORDING = "Nowruz Traditions and the Haft-Seen Table";
-  const repair = (over: Record<string, unknown> = {}) => recordRepairShipment({ tenantId: T, proposalId: origin().proposalId, implementedAt: LIVE_ON, finalWording: WORDING,
-    placement: "the page title", source: "pasted in the CMS", page: PAGE, path: "/nowruz-guide", actionType: "title-family", componentsApplied: [{ kind: "title", label: "Page title" }], now: NOW, ...over } as never);
   const stored = async () => (await loadShippedChangesForTenant(T))[0]!;
   beforeEach(() => { ctl.pages = ["https://x.test/a", "https://x.test/b", "https://x.test/c"]; });
   it("makes no second record when a change is processed again unchanged, keeps its stamp and the live check already on it, and gives each account its own one record", async () => {
@@ -239,17 +236,7 @@ describe("the recording seam", () => {
     expect((await stored()).verification?.status).toBe("verified"); // the check was not erased back to due
     withSiteHistory(9, [["https://x.test/a", { clicks: 20, impressions: 4000, ctr: 0.005, position: 11 }], ["https://x.test/b", { clicks: 30, impressions: 5000, ctr: 0.006, position: 9 }]]);
     const w28 = (await measureRecord(T, await stored(), new Date("2026-10-01T00:00:00.000Z"), "2026-09-05", new Set())).windows.find((w) => w.day === 28)!;
-    expect([w28.controlsUsed, w28.comparedToSite]).toEqual([2, undefined]); });
-  it("records a change that was already live, claims no before-state, and still owes the live check", async () => {
-    expect((await repair()).measurement).toBe("verification_needed"); const row = await stored();
-    expect([row.preChangeHashUnavailable, row.preChangeContentHash, row.before, row.verification]).toEqual([true, null, null, null]); // no before-state is held or claimed
-    expect([row.implementedAt, row.componentsApplied?.[0]?.after]).toEqual([LIVE_ON, WORDING]); // windows count from the day it went live; the check looks for this
-    expect(row.operatorNote).toMatch(/Placement: the page title\. Source: pasted in the CMS\./);
-    expect(gsc.window.mock.calls.some((c) => (c[0] as { start?: string }).start === "2026-06-12")).toBe(true); }); // the 28 days BEFORE it went live
-  it("repairs idempotently on the same account of it, and stays honest when there is nothing to compare", async () => {
-    const first = await repair(); expect([(await repair()).shipmentId, db.state.rows.length]).toEqual([first.shipmentId, 1]);
-    db.state.rows = []; ctl.pages = [];
-    expect((await repair()).measurement).toBe("verification_needed");});}); // no page matched it, so the site's own movement is the comparison, and the live check is owed before any of it
+    expect([w28.controlsUsed, w28.comparedToSite]).toEqual([2, undefined]); });});
 describe("the AI baseline is frozen over the change's own scope (AEO reconstruction, 2026-08-19)", () => {
   const SITE = "https://www.fixture-outdoors.example", DAY = "2026-07-30";
   const link = (domain: string) => ({ url: `https://${domain}/page`, domain, title: null });

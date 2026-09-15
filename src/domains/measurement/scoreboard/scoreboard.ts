@@ -18,19 +18,14 @@
 
 import {
   splitLedgerLifecycle,
+  type LedgerLifecycleRow,
   type LedgerLifecycleStage,
 } from "@/domains/decision/changes/lifecycle-counts";
-import { type VerdictScheduleRow } from "@/domains/measurement/proof-gsc/verdict-schedule";
 
 type ScoreboardDay = { date: string; clicks: number; impressions: number };
 
-/**
- * The scoreboard reads the FULL ledger row (with windows + baseline), not a slim
- * verdict-string projection, so it can classify each change through the canonical
- * lifecycle rule instead of re-deriving its own from `verdict`. Structurally satisfied
- * by ShippedChangeRecord.
- */
-export type ScoreboardLedgerRow = VerdictScheduleRow;
+/** The scoreboard reads the canonical lifecycle row, never a slim verdict-string projection, so each change is classified through the one lifecycle rule. Structurally satisfied by ShippedChangeRecord. */
+export type ScoreboardLedgerRow = LedgerLifecycleRow;
 
 type ScoreboardMarker = {
   date: string; // yyyy-mm-dd

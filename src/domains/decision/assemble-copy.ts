@@ -2,18 +2,18 @@ import type { BundleComponent, ChangeProposal } from "./contracts";
 import { componentIdOf } from "./contracts";
 import { COPY_RULES } from "./copy-sanitize";
 import type { draftFieldForPage } from "./drafted-copy";
-type Piece = Pick<NonNullable<Awaited<ReturnType<typeof draftFieldForPage>>>, "after" | "heading" | "claims" | "supportFacts" | "review" | "gain" | "editor" | "reviewOf"> & { preservation?: ChangeProposal["preservation"] };
+type Piece = Pick<NonNullable<Awaited<ReturnType<typeof draftFieldForPage>>>, "assignment" | "after" | "units" | "target" | "heading" | "claims" | "supportFacts" | "review" | "gain" | "editor" | "reviewOf" | "draftNotes"> & { before?: string | null; preservation?: ChangeProposal["preservation"] };
 
 /** Writer packet ids are local. Resolve them before combining separately reviewed pieces. */
 export function assembleCopy(components: readonly BundleComponent[], pieces: readonly { index: number; copy: Piece }[]) {
   const claims: NonNullable<ChangeProposal["claims"]>[number][] = [], review: NonNullable<ChangeProposal["semanticReview"]>["claims"][number][] = [];
   const supportFacts = new Map<string, NonNullable<ChangeProposal["supportFacts"]>[number]>(), identities = new Map<string, string>();
   const reserved = new Set(pieces.flatMap(({ copy }) => copy.supportFacts.map((f) => f.id)));
-  const gains: NonNullable<Piece["gain"]>[] = [], preservation: NonNullable<ChangeProposal["preservation"]>[number][] = [];
+  const gains: NonNullable<Piece["gain"]>[] = [], preservation: NonNullable<ChangeProposal["preservation"]>[number][] = [], editors: Parameters<typeof COPY_RULES.joinedEditor>[0][number][] = [];
   for (const { index, copy } of pieces) {
     const ids = new Map<string, string>();
     for (const fact of copy.supportFacts) {
-      const identity = JSON.stringify([fact.id, fact.fact, (fact.sources ?? []).map((s) => [s.url, s.kind]).sort()]);
+      const identity = JSON.stringify([fact.id, fact.fact, (fact.sources ?? []).map((s) => [s.url, s.kind]).sort(), ...(fact.finding ? [[fact.finding.tenantId, fact.finding.page, fact.finding.statementKey]] : [])]);
       let id = identities.get(identity);
       if (!id) {
         id = fact.id;
@@ -32,12 +32,10 @@ export function assembleCopy(components: readonly BundleComponent[], pieces: rea
       claims.push({ ...claim, supportedBy: remap(claim.supportedBy), of: componentIdOf(components[index]!, index) });
     });
     if (copy.gain) gains.push({ ...copy.gain, by: remap(copy.gain.by) });
-    preservation.push(...(copy.preservation ?? []).map((p) => ({ ...p, ...(p.by ? { by: remap(p.by) } : {}) })));
+    const of = componentIdOf(components[index]!, index); preservation.push(...(copy.preservation ?? []).map((p) => ({ ...p, of, ...(p.by ? { by: remap(p.by) } : {}) }))); editors.push({ of, remap, editor: copy.reviewOf === COPY_RULES.pieceKey(copy) ? copy.editor : undefined });
   }
   const hashes = new Set(gains.map((g) => g.bodyHash));
   const gain = gains.length === 0 ? null : { adds: gains.map((g) => g.adds).join(" "), by: [...new Set(gains.flatMap((g) => g.by))], pageWhole: gains.every((g) => g.pageWhole),
     ...(hashes.size === 1 && gains[0]!.bodyHash ? { bodyHash: gains[0]!.bodyHash } : {}), ...(gains.length === 1 && gains[0]!.targetHash ? { targetHash: gains[0]!.targetHash } : {}) };
-  const editors = pieces.map(({ copy }) => copy.reviewOf === COPY_RULES.pieceKey(copy) && COPY_RULES.accepted(copy.editor) ? copy.editor : undefined);
-  const editor = editors.length > 0 && editors.every((e) => e != null) ? { ...editors[0]!, usefulAndNatural: editors.every((e) => e!.usefulAndNatural), notes: editors.map((e) => e!.notes).join(" ").slice(0, 300) } : undefined;
-  return { claims, review, supportFacts: [...supportFacts.values()], preservation, gain, editor };
+  return { claims, review, supportFacts: [...supportFacts.values()], preservation, gain, draftNotes: [...new Set(pieces.flatMap(({ copy }) => copy.draftNotes ?? []))], editor: COPY_RULES.joinedEditor(editors) };
 }

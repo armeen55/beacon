@@ -9,7 +9,6 @@
  * and stores the result in Supabase under the provider key matching the
  * state's connector kind:
  *   • kind="gsc" → provider "google_gsc"
- *   • kind="gbp" → provider "google_gbp"
  *   • kind="ga4" → provider "google_ga4"
  *
  * ACCOUNT IDENTITY (2026-07-09): every auth URL now requests the basic
@@ -151,12 +150,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     return settingsRedirect(request, { error: "not_authorized" });
   }
 
-  const provider: "google_gsc" | "google_gbp" | "google_ga4" =
-    kind === "gsc"
-      ? "google_gsc"
-      : kind === "gbp"
-        ? "google_gbp"
-        : "google_ga4";
+  const provider: "google_gsc" | "google_ga4" = kind === "gsc" ? "google_gsc" : "google_ga4";
 
   let tokens;
   try {
@@ -193,9 +187,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   const stored: GoogleConnectorToken | null =
     storedRead.ok &&
     storedRead.token != null &&
-    (storedRead.token.provider === "google_gsc" ||
-      storedRead.token.provider === "google_gbp" ||
-      storedRead.token.provider === "google_ga4")
+    (storedRead.token.provider === "google_gsc" || storedRead.token.provider === "google_ga4")
       ? storedRead.token
       : null;
   const sameAccountAsStored =
@@ -292,8 +284,6 @@ export async function GET(request: Request): Promise<NextResponse> {
     if (stored.ga4_property_id != null) payload.ga4_property_id = stored.ga4_property_id;
     if (stored.ga4_property_display_name != null) payload.ga4_property_display_name = stored.ga4_property_display_name;
     if (stored.ga4_account_display_name != null) payload.ga4_account_display_name = stored.ga4_account_display_name;
-    if (stored.selected_location_id != null) payload.selected_location_id = stored.selected_location_id;
-    if (stored.selected_location_name != null) payload.selected_location_name = stored.selected_location_name;
     if (stored.last_synced_at != null) payload.last_synced_at = stored.last_synced_at;
   }
 

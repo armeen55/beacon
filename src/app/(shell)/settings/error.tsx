@@ -10,8 +10,8 @@ export default function SettingsError({
   return (
     <div className="min-h-[50vh] flex items-center justify-center p-6">
       <div className="w-full max-w-md rounded-lg border border-border/60 bg-surface-inset/30 p-6 text-center">
-        <h1 className="text-base font-semibold text-foreground">We couldn&apos;t load this page</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Your data is safe. Try again, and if it keeps happening, come back in a few minutes.</p>
+        <h1 className="text-base font-semibold text-foreground">This page could not load</h1>
+        <p className="mt-2 text-sm text-muted-foreground">Nothing was lost. Press Try again; if it keeps happening, come back in a few minutes.</p>
         <button
           type="button"
           onClick={() => reset()}

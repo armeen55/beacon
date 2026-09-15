@@ -35,61 +35,18 @@ function live(p: ChangeProposal): string[] {
 }
 const COPY_REFUSALS = { figures, carrier: CARRIER, owns, live };
 
-const enabled = () => true; // the env flag is deleted (operator rule: no flags); the packet regime itself is retired above
 const hasGrouping = (sources: readonly { says: string; groups?: readonly string[]; groupExcerpts?: readonly { heading: string }[] }[]): string[] => [...new Set(sources.flatMap((s) => (s.groups ?? []).filter((g) => g.trim() && (s.says.includes(g) || (s.groupExcerpts ?? []).some((e) => e.heading === g)))))]; // a group the source keeps as a heading of its own is carried by the words under that heading, which the quote cannot hold beside the others
-const foldDemonym = (token: string): string => token.length >= 7 && token.endsWith("ian") ? token.slice(0, -3) : token;
-const phraseTokens = (value: string): string[] => value.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).map((w) => foldDemonym(w.replace(/s$/, ""))).filter(Boolean);
-const phraseIncludes = (heading: string, entity: string): boolean => { const h = phraseTokens(heading), e = phraseTokens(entity); return h.length > 0 && e.length > 0 && (` ${h.join(" ")} `.includes(` ${e.join(" ")} `) || e.every((token) => h.includes(token))); };
-const signal = (row: { pageUrl?: string | null; pagePath?: string | null; targetUrl?: string; primaryQuery?: string; trackedQuestion?: string | null; assignment?: { checkedGroups?: readonly string[] } }): string => { const path = (row.pageUrl ?? row.pagePath ?? row.targetUrl ?? "").split(/[?#]/)[0]!.replace(/\/+$/, ""); return path ? path.slice(path.lastIndexOf("/") + 1) : row.primaryQuery ?? row.trackedQuestion ?? ""; };
-/* THE PACKET REGIME IS RETIRED AS A GATE (operator, 2026-09-10, "cut any rules, any guardrails, any tests, to have body paragraphs and new pages by tonight"): fifteen releases tuned this bar and the customer surface never once carried a body answer. `applies` is pinned false, so the rubric, the grouping debt, the six checks and the packet holds all stand down; the vocabulary below stays because stored rows carry its sentences as faults and the verdict must still recognize them to retire them. */
-const applies = (field: string, standard?: string, unpublished = false, shape?: string, row: Parameters<typeof signal>[0] = {}) => false && enabled() && !unpublished && /^(answer_block|section)$/.test(field) && (AEO_BAR.collection(signal(row)) || ["section", "direct_answer", "restructure"].includes(shape ?? "")) && !["correction", "internal_link", "repositioning"].includes(standard ?? "");
 const holds = {"lead": "The opening needs a complete answer paragraph that explains more than the names.", "groups": "Group the answer under one to three headings that explain how the examples were selected.", "criteria": "Each heading needs a selection criterion and explanatory prose, with children written as plain text rather than tables, bold labels or link lists.", "entities": "Entity distinctions should read as plain text under one to three groups; table scaffolds and label styling are optional at most.", "accuracy": "The accuracy questions need to be resolved before this copy is ready.", "unreviewed": "These exact words still need a review of their structure, accuracy and relevance.", "sixChecks": "The answer still needs to pass the required readiness checks for lead quality, grouped sections, factual support and query fit."};
 const writerLimitations = (limitations: readonly string[]) => limitations.filter((l) => !Object.values(holds).includes(l.trim()));
-const criteria = ["leadAnswer", "groupedH2s", "defendedClaims", "entityBlock", "boundedScope", "h1QueryAlignment"] as const;
-const required = ["leadAnswer", "groupedH2s", "defendedClaims", "h1QueryAlignment"] as const;
 const schema = z.object({ leadAnswer: z.boolean(), groupedH2s: z.boolean(), defendedClaims: z.boolean(), entityBlock: z.boolean(), boundedScope: z.boolean(), h1QueryAlignment: z.boolean() });
-const passed = (r: unknown): boolean => { const parsed = schema.safeParse(r); return parsed.success && required.every((k) => parsed.data[k] === true); };
-const policy = "WRITE THE PACKET IN THIS ORDER: choose supported entities and their distinguishing facts; write a liftable lead paragraph that answers the query directly; forbid page deixis in the lead and every section answer (including mid-sentence here is/are, this page, this guide); state the supported facts themselves, preserving each date and its animal-group/count relationship; add one to three Markdown ## grouped sections with qualifying prose; finish with concise supporting details as plain text children. These are publishable words, never instructions or an outline. ANSWER-READY AEO PACKET (required checks): (1) Start finalCopy with a self-contained opening answer paragraph that explains a useful distinction, never an introduction to a names dump. (2) Follow with one to three Markdown ## H2 groups supported by evidence, with prose that explains what qualifies in each group. Keep child examples as plain text lines, not tables, bold label scaffolds or per-child Markdown links. (3) Attribute only the exact claim a cited passage defends, never the whole packet. Mere presence or a heading does not establish native, endemic, current or official status. Omit unsupported optional claims; if core accuracy or membership is unclear, refuse. (4) Keep the answer aligned with query intent and the page H1; if either is missing or mismatched, fail closed. Guidance, not ready blockers when required checks pass: broader scope narration and strict format caps. SHOULD: add useful FAQ question-answer pairs and relevant internal links to known owned destinations when evidence supports them; omission alone is not a failure. Meta is a separate companion when the page needs body and description together. Preserve existing material outside the exact placement.";
-const groupLabel = (s: string): string => s.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim().replace(/[.。．!！?？:;；,，]+$/u, ""); // A HEADING IS THE SAME GROUP WHATEVER ITS CAPITALS (independent review, 2026-09-10): the writer is told the exact checked names and writes "## Mammal species" for "mammal species", and a case-sensitive match refused the whole packet for a capital letter.
-const failures = (field: string, copy: string, limitations: readonly string[] = [], standard?: string, unpublished = false, shape?: string, row: Parameters<typeof signal>[0] = {}): string[] => {
-  if (!applies(field, standard, unpublished, shape, row)) return [];
-  const out: string[] = [], lines = copy.trim().split(/\n+/).map((s) => s.trim()).filter(Boolean);
-  const first = lines.find((s) => !/^#{1,6}\s/.test(s)) ?? "";
-  const plain = first.replace(/\*\*/g, "");
-  if (/^#{1,6}\s/.test(lines[0] ?? "") || /^(?:[-*•]|\d+[.)])\s/.test(first) || !/[.!?](?:["”’])?$/.test(plain) || (plain.split(/[,;•]/).length >= 5 && !/[.!?]\s+/.test(plain))) out.push(holds.lead);
-  const grouped = lines.filter((s) => /^##\s+\S/.test(s));
-  if (grouped.length < 1 || grouped.length > 3 || row.assignment?.checkedGroups && grouped.some((h) => !row.assignment!.checkedGroups!.some((g) => groupLabel(g) === groupLabel(h.replace(/^##\s+/, ""))))) out.push(holds.groups);
-  const groups = copy.split(/^##\s+(.+)$/m).slice(1), tableRows = [...copy.matchAll(/^\|(?:[ \t]*:?-{3,}:?[ \t]*\|)+[ \t]*\r?\n((?:\|[^\n]+\|[ \t]*(?:\r?\n|$))+)/gm)].map((m) => m[1]).join("\n");
-  const entities = [...copy.matchAll(/^[-*•]\s+([^:\n]+):/gm), ...tableRows.matchAll(/^\|\s*([^|]+)\|/gm)].map((m) => (m[1] ?? "").trim()).filter(Boolean);
-  const tableStyled = /^\s*\|.+\|\s*$/m.test(copy);
-  const boldLabeled = /^\s*(?:[-*•]\s+)?\*\*[^*\n]{2,}\*\*:/m.test(copy);
-  const markdownLinks = copy.match(/\[[^\]]+\]\([^)]+\)/g) ?? [];
-  if (boldLabeled || markdownLinks.length > 1 || (tableStyled && markdownLinks.length > 0)) out.push(holds.criteria);
-  for (let i = 0; i < groups.length; i += 2) {
-    const heading = (groups[i] ?? "").trim(), prose = (groups[i + 1] ?? "").split("\n").filter((l) => !/^\s*(?:[-*•|#]|\d+[.)])/.test(l)).join(" ").trim();
-    if (entities.some((entity) => phraseIncludes(heading, entity)) || !/[.!?]/.test(prose)) { out.push(holds.criteria); break; }
-  }
-  const uncertainty = [copy, ...writerLimitations(limitations)].join(" ");
-  if (/(?:owed|missing|needs?|still|requires?).{0,60}(?:grouped|inclusion criteria|headings|accuracy)|(?:grouped|inclusion criteria|headings).{0,60}(?:owed|missing|required)|check every word|may be incomplete|overreads? (?:native|endemic) status|accuracy (?:is |remains )?(?:unclear|uncertain)|verify (?:every|all) (?:claim|entry|word)|cannot confirm/i.test(uncertainty) || (copy.match(/\b(?:may|might|possibly|perhaps|unclear|uncertain)\b/gi) ?? []).length >= 3) out.push(holds.accuracy);
-  return out;
-};
-const bodyParts = (p: ChangeProposal) => {
-  if (p.kind !== "existing_edit") return [];
-  const c = p.recommendedChange, standard = p.changeFamily === "factual_correction" ? "correction" : p.assignment?.standard,
-    shape = p.assignment?.treatment === "restructure" ? "restructure" : p.assignment?.shape;
-  return [...(c.kind === "existing_edit" && !c.linkTo && applies(c.field, standard, false, shape, p) ? [c.after] : []),
-    ...(p.bundle?.components ?? []).filter((x) => /^(opening_answer|section|section_add|section_rewrite|restructure)$/.test(x.kind) && applies("section", standard, false, shape, p)).map((x) => x.after)];
-};
 const emptyMeta = (copy: string, heading: string): string[] => {
   const tokens = (t: string) => t.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
   const known = new Set(tokens(`${heading} a an the is are about and of for with description details information`));
   return !copy.trim() || /\b(?:no (?:added |useful |additional )?description|description (?:not available|unavailable|missing)|nothing to describe)\b/i.test(copy)
     || (known.size > 0 && tokens(copy).every((w) => known.has(w))) ? ["The description is empty or repeats the heading without describing the subject."] : [];
 };
-export const AEO_BAR = { copyRefusals: COPY_REFUSALS, enabled, collection: (query: string) => !/\bhow many\b/i.test(query) && /\b(?:animals|wildlife|people|figures|species)\b/i.test(query.replace(/[-_/]/g, " ")), groupingQuestion: "Which groups of this page’s subject does the source distinguish, and what qualifies for each?", hasGrouping, emptyMeta, applies, policy, failures, schema, passed, holds, writerLimitations,
-  rowFailures: (p: ChangeProposal): string[] => bodyParts(p).flatMap((copy) => failures("section", copy, p.limitations, undefined, false, "section", p)),
-  approved: Object.fromEntries(criteria.map((k) => [k, true])) as z.infer<typeof schema>,
-  forRow: (p: ChangeProposal): boolean => bodyParts(p).length > 0,
+/* THE PACKET REGIME IS DELETED (audit, 2026-09-14): its rubric, policy, holds and grouping debt were pinned off on 2026-09-10 and shipped dead. What remains is what stored rows and live doors still read: the hold sentences stored rows carry as limitations, the persisted six-boolean shape, the grouping question the runtime still names, and the meta and figure rules. */
+export const AEO_BAR = { copyRefusals: COPY_REFUSALS, groupingQuestion: "Which groups of this page’s subject does the source distinguish, and what qualifies for each?", hasGrouping, emptyMeta, schema, holds, writerLimitations,
   sameRejectedCopy: (a: ChangeProposal, b: ChangeProposal): boolean => {
     if (a.researchOnly === true || b.researchOnly === true) return false;
     const key = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();

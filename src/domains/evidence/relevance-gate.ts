@@ -133,6 +133,16 @@ export function isNoiseDomain(url: string): boolean {
   return !!d && NOISE_DOMAINS.some((n) => d === n || d.endsWith(`.${n}`));
 }
 
+export function canonicalUrlKey(value: string | null | undefined): string {
+  if (!value) return "";
+  try {
+    const parsed = new URL(value.startsWith("http") ? value : `https://${value}`);
+    return `${parsed.hostname.replace(/^www\./i, "").toLowerCase()}${parsed.pathname.replace(/\/+$/, "") || "/"}`;
+  } catch {
+    return value.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/+$/, "").toLowerCase();
+  }
+}
+
 /**
  * CANONICAL QUERY IDENTITY (query fidelity closure, 2026-07-26). Two queries are
  * the SAME research subject only when their full normalized token multisets are
@@ -215,5 +225,3 @@ function scoreTopicMatch(a: string | null | undefined, b: string | null | undefi
   const score = shared.length / Math.min(ta.length, tb.length);
   return { relevant: true, score, reason: "relevant", sharedTerms: shared };
 }
-
-

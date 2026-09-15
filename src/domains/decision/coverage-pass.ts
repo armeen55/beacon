@@ -14,6 +14,7 @@ import { adjudicateCoverage, intersectionComparison, readComparison,
 import type { OwnedPageReadOutcome } from "@/domains/evidence/funnel/research-evidence";
 import { isCurrent } from "@/domains/evidence/freshness";
 import { answerIntelOf } from "@/domains/evidence/answer-intel";
+import { citesOwnSite } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
@@ -70,23 +71,23 @@ export async function recordCoverageNeeds(
 }
 
 /** The banked searches that have earned the walk, in this account's own words. Fail-soft to nothing. */
-async function promotedNeeds(tenantId: string, snapshot: EvidenceSnapshot): Promise<string[]> {
+async function promotedNeeds(tenantId: string, snapshot: EvidenceSnapshot, nowMs: number): Promise<string[]> {
   try {
     const held = await readStore<CoverageNeed>(COVERAGE_NEEDS, [], { tenantId });
     if (held.length === 0) return [];
-    const site = (snapshot.scope?.site ?? "").replace(/^www\./, "").toLowerCase();
+    const site = snapshot.scope?.site ?? null;
     // HOW MANY STORED ANSWERS TO THIS QUESTION HANDED IT TO SOMEBODY ELSE. Counted off answers already on file.
     const citing = new Map<string, number>();
     for (const o of snapshot.research.aiObservations) {
       const cites = o.citations ?? [];
-      if (cites.length === 0 || (site && cites.some((c) => c.domain.replace(/^www\./, "").toLowerCase().endsWith(site)))) continue;
+      if (cites.length === 0 || citesOwnSite(cites, site)) continue;
       const key = canonicalQueryKey(o.promptText);
       if (key) citing.set(key, (citing.get(key) ?? 0) + 1);
     }
     // A need nobody has raised in three weeks is not promoted again and again: the site may have grown the
     // page, and every promotion buys a results-page read. Recency is a window, not a deletion.
     const RECENT_MS = 21 * 24 * 60 * 60 * 1000;
-    const cutoff = Date.now() - RECENT_MS;
+    const cutoff = nowMs - RECENT_MS;
     return held.filter((n) => Date.parse(n.lastSeen ?? "") >= cutoff
       && earnsOwnPage(n, citing.get(canonicalQueryKey(n.query)) ?? 0)).map((n) => n.query);
   } catch { return []; }
@@ -254,7 +255,7 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
   let waitingUntil: string | null = null;
   // WHY A PAGE OF MINE IS UNREAD, off the research row Evidence persisted it to. Not a fetch, and not a guess.
   const ownedReads = new Map((snapshot.research.ownedReads ?? []).map((o) => [o.url, o]));
-  const promoted = await promotedNeeds(tenantId, snapshot);
+  const promoted = await promotedNeeds(tenantId, snapshot, nowMs);
   for (const inv of rankInvestigations(topicsFor(snapshot, promoted), (i) => ownedOpportunity(snapshot, i, opts.curve?.expectedCtrAt))) {
     // STOPPING ON A PARK IS HOW THE RULE BELOW BECAME DEAD CODE: production reads this pass with no research budget, so the walk ended the moment ANY verdict landed, and a park ranks first.
     if (decided && ACTS.has(decided.decision.verdict) && queries >= max && (max <= 0 || needs.some((n) => n.comparison))) break;

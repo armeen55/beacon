@@ -143,7 +143,8 @@ export async function stampFreshness(provider: ReadProvider, tenantId: string): 
         );
         break;
       case "clarity":
-        await updateConnectorToken("clarity", patch, tenantId);
+        // A good pull also lifts the retry-after a refused pull stamped.
+        await updateConnectorToken("clarity", { ...patch, retry_after: null }, tenantId);
         break;
     }
   } catch (e) {
@@ -177,10 +178,12 @@ export async function autoRefreshStaleConnectorsForTenant(
       }
     }),
   );
+  // A source that refused its last pull (Clarity's retry_after, 24h after a quota or token refusal) is not owed another attempt until that instant passes.
   const stale = infos.filter(
     ({ source, info }) =>
       info?.status === "connected" &&
-      isStale(info.last_synced_at, AUTO_REFRESH_STALE_HOURS[source.provider], now),
+      isStale(info.last_synced_at, AUTO_REFRESH_STALE_HOURS[source.provider], now) &&
+      !(info.retry_after != null && Date.parse(info.retry_after) > now.getTime()),
   );
   if (stale.length === 0) return [];
 

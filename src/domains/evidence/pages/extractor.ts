@@ -51,7 +51,8 @@ export function extractPageSnapshot(
   const mains = $content("main").filter((_, el) => $content(el).parents("main").length === 0), articles = $content("article");
   const contentRoot = mains.length ? mains : articles.length === 1 ? articles : $content("body");
   contentRoot.find("br, p, div, section, article, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, pre, table, caption, tr, th, td, figure, figcaption, details, summary").each((_, el) => { $content(el).before(" ").after(" "); });
-  capture?.($content.html(contentRoot));
+  const mainHtml = $content.html(contentRoot);
+  capture?.(mainHtml);
 
   const title = $("title").first().text().trim() || null;
   const metaDescription =
@@ -130,11 +131,12 @@ export function extractPageSnapshot(
 
   // ── Schema types + structural audit + G8 spec validation ──
   const schemaTypes = schemaGraph.nodes.flatMap(SCHEMA.types);
-  const schemaMaterial: string[] = [];
+  const schemaMaterial: string[] = [], jsonLd: string[] = [];
   const faqSchemaBlockCount = schemaGraph.nodes.filter((n) => SCHEMA.types(n).includes("FAQPage")).length;
   const structuralWarnings: string[] = [];
   const schemaValidationWarnings = SCHEMA.warnings(html);
   $("script").filter((_, el) => ($(el).attr("type") ?? "").trim().toLowerCase() === "application/ld+json").each((_, el) => {
+    jsonLd.push($(el).html() || "");
     try {
       const data = JSON.parse($(el).html() || "");
       schemaMaterial.push(stableJson(data));
@@ -170,34 +172,20 @@ export function extractPageSnapshot(
   {
     const $clone = $content;
 
-    // Body paragraph sample: pick <p> nodes inside the content root with
-    // >= MIN_PARAGRAPH_WORDS words (drop captions, tiny footers, empty divs
-    // with <p>, and editor-placeholder <p> tags that hold only a zero-width
-    // space or other invisible whitespace).
-    contentRoot.find("p").each((_, el) => {
-      if (bodyParagraphSample.length >= MAX_PARAGRAPHS) return;
-      const text = normalizeExtractedText($clone(el).text());
-      const words = text.split(/\s+/).filter(Boolean).length;
-      if (words < MIN_PARAGRAPH_WORDS) return;
-      bodyParagraphSample.push(text.slice(0, MAX_PARAGRAPH_CHARS));
-    });
-
-    // Leaf blocks recover builder prose without re-emitting wrapper text.
-    if (bodyParagraphSample.length === 0) {
-      const BLOCK_FALLBACK_SELECTOR = "div, span, li, dd, blockquote, figcaption";
-      const seenText = new Set<string>();
-      contentRoot.find(BLOCK_FALLBACK_SELECTOR).each((_, el) => {
-        if (bodyParagraphSample.length >= MAX_PARAGRAPHS) return;
-        const hasElementChildren = $clone(el).children().length > 0;
-        if (hasElementChildren) return; // not a leaf; its text is counted via descendants
+    // Legacy samples are projections only; the source capture retains actual boundaries and links.
+    const meaningful = (text: string) => text.split(/\s+/).filter(Boolean).length >= MIN_PARAGRAPH_WORDS;
+    const samples = (selector: string, leaves = false): string[] => {
+      const out: string[] = [];
+      contentRoot.find(selector).each((_, el) => {
+        if (out.length >= MAX_PARAGRAPHS) return false;
+        if (leaves && $clone(el).children().length) return;
         const text = normalizeExtractedText($clone(el).text());
-        const words = text.split(/\s+/).filter(Boolean).length;
-        if (words < MIN_PARAGRAPH_WORDS) return;
-        if (seenText.has(text)) return; // dedupe identical repeated card/label text
-        seenText.add(text);
-        bodyParagraphSample.push(text.slice(0, MAX_PARAGRAPH_CHARS));
+        if (meaningful(text) && (!leaves || !out.includes(text))) out.push(text);
       });
-    }
+      return out;
+    };
+    const paragraphs = samples("p"), sample = paragraphs.length ? paragraphs : samples("div, span, li, dd, blockquote, figcaption", true);
+    bodyParagraphSample.push(...sample.map((text) => text.slice(0, MAX_PARAGRAPH_CHARS)));
 
     // Card / tile / item texts: <li>, <article>, or elements whose class
     // matches a card-pattern regex. Restricted to the content root.
@@ -278,6 +266,12 @@ export function extractPageSnapshot(
   const bodyText = flat;
   // Store the shared main-content projection with an explicit truncation warning.
   const bodyTextHeld = bodyText.slice(0, BODY_TEXT_CEILING);
+  // A cut HTML string would invent repaired structure on parsing. Hold whole payload parts or mark missing.
+  let captureRoom = BODY_TEXT_CEILING;
+  const heldMain = mainHtml.length <= captureRoom ? mainHtml : "";
+  captureRoom -= heldMain.length;
+  const heldJsonLd = jsonLd.filter((block) => { if (block.length > captureRoom) return false; captureRoom -= block.length; return true; });
+  const contentCapture = { version: 1 as const, mainHtml: heldMain, jsonLd: heldJsonLd, complete: heldMain === mainHtml && heldJsonLd.length === jsonLd.length };
   let faqRoom = BODY_TEXT_CEILING;
   for (const f of faqs) if (f.answer_text !== undefined) {
     const answer = f.answer_text;
@@ -355,6 +349,7 @@ export function extractPageSnapshot(
     // absent column means a pre-2026-08-03 sample-era row, so writing undefined here made a
     // genuinely empty page indistinguishable from one we never held whole.
     body_text: bodyTextHeld,
+    content_capture: contentCapture,
     body_paragraph_sample:
       bodyParagraphSample.length > 0 ? bodyParagraphSample : undefined,
     card_texts: cardTexts.length > 0 ? cardTexts : undefined,

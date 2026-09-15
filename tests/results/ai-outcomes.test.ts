@@ -1,7 +1,8 @@
 /** AI OUTCOME MEASUREMENT (V1 Truth Convergence Phase 7). Protected here: only the canonical first reading of a question feeds a trend; a rate with nothing behind it is null and never zero; a model or mode change splits the series and is named; a Shipment is judged before against after on the same rule with its coverage visible; thin coverage is "unclear", not a verdict; a missed day stays missed; and one account never reads another's answers. Fixtures only: every read is injected, zero network, zero cost. */
 import { describe, it, expect, vi } from "vitest";
 import { aiOutcomes, visibilitySeries } from "@/domains/measurement/ai-outcomes";
-import { aiBaselineFor, aiOutcomeForShipment, aiOutcomesForShipments } from "@/domains/measurement/shipment-ai-outcome";
+import { aiBaselineFor, aiOutcomesForShipments } from "@/domains/measurement/shipment-ai-outcome";
+/** ONE shipment through the batch reader, which is the only production door. */ const aiOutcomeForShipment: (t: string, s: Parameters<typeof aiOutcomesForShipments>[1][number], o?: Parameters<typeof aiOutcomesForShipments>[2]) => Promise<Awaited<ReturnType<typeof aiOutcomesForShipments>>[number]> = async (t, s, o = {}) => (await aiOutcomesForShipments(t, [s], o))[0] ?? null;
 import type { AiObservationRecord } from "@/domains/evidence/ai-visibility/ai-observations"; const T = "acct-a", SITE = "fixture-outdoors.example";
 type RowOver = Partial<AiObservationRecord> & { day?: string; mentioned?: boolean | null };
 /** One stored observation, in the shape the store actually holds. */

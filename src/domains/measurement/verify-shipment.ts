@@ -23,14 +23,11 @@ import {
   type ShipmentVerification, type ShippedChangeRecord,
 } from "./proof-gsc/shipped-change-store";
 
-/** The Shipment store owns the canonical `ShipmentVerification`; this module produces one and hands it
- *  straight back. The store is the ONE reader and writer of a shipment row, so nothing here talks to a table. */
+/** The canonical Shipment store owns verification persistence; this module only produces its verdict. */
 type ComponentState = ShipmentVerification["components"][number]["state"];
 type Reason = NonNullable<ShipmentVerification["reason"]>;
 
-/** What verification needs off a Shipment, named STRUCTURALLY: Measurement never imports Decision, so a
- *  component arrives as a kind and the exact copy the operator was handed, nothing else. `after` is the
- *  proposal (the copy, or the exact structural instruction). */
+/** Verification consumes the applied component record, including its saved publication units. */
 type VerifiableShipment = {
   id: string; url: string;
   components: Array<Pick<ReturnType<typeof SHIPMENT_PROOF.components>[number], "kind" | "after"> & Partial<Omit<ReturnType<typeof SHIPMENT_PROOF.components>[number], "kind" | "after">>>;
@@ -69,7 +66,7 @@ const SITEMAP_PATH = "/sitemap.xml";
 const TEMPLATE_SLOT = /\b(NUMBER|YEAR|SOURCE|TODO|TBD)\b/; // COPY THAT IS STILL A TEMPLATE was applied to nothing: two answer blocks on file read "has a population of NUMBER as of YEAR (SOURCE)", and grading a page against an unfilled slot calls work undone that nobody was ever handed
 
 const norm = (s: string): string => s.normalize("NFKC").toLowerCase().replace(/[‘’“”]/g, "'").replace(/[^\p{L}\p{N}']+/gu, " ").trim();
-const copyText = (s: string): string => s.normalize("NFKC").toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, " ").trim();
+const copyText = (s: string): string => s.normalize("NFC").replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, " ").trim();
 /** Opening-word checks are for Google's potentially rewritten display, never copy-delivery proof. */
 const opener = (s: string, words = 12): string => norm(s).split(" ").filter(Boolean).slice(0, words).join(" ");
 const firstLine = (s: string): string => s.split(/\r?\n/).map((l) => l.trim()).find((l) => !!l) ?? "";
@@ -78,26 +75,63 @@ const judged = (state: ComponentState, note: string, reason: Reason | null = nul
 // THE WORDS A LINK WAS RENAMED TO where the Shipment stored them as the label itself: a single short line with no quotation marks IS the wording, a sentence written about the link is not. 27 applied renames read as unreadable while their new words sat on the row, each equal to a live anchor.
 const labelIn = (s: string): string => { const one = firstLine(s); return one === s.trim() && !/["“”]|(?<![A-Za-z0-9])['‘’]|['‘’](?![A-Za-z0-9])/.test(s) && one.split(/\s+/).filter(Boolean).length <= 12 ? one : ""; }; // AN APOSTROPHE INSIDE A WORD IS NOT A QUOTATION MARK (reviewer, 2026-09-05): every straight or curly single quote was rejected, so the one live rename reading "Pallas's Cat facts" read as unreadable while its exact new words sat on the row. A quote MARKS a passage and stands at a word boundary; a possessive stands between letters. Measured on the account's 27 stored renames: 1 unresolved before, 0 after.
 /** A RECORD THAT NAMES NOTHING TO LOOK FOR, and the sentence that says so; null where the live page really can answer. Some kinds are visible with no wording at all (the address forwards, the page asks to be left out of search, the page exists); every other kind needs the exact wording that was applied, and what is on file is either empty, still the template with its slots unfilled, or a note ABOUT the change rather than the words it applied. THE ONE PLACE THAT ANSWERS IT (measured, 2026-09-05): a link rename asked the same question a second time inside the reading, AFTER a live read had already been spent, so a record could be written off for naming nothing while this rule said it named something. One rule, asked before any fetch and asked again at the door that reopens a closed record, so the two can never disagree. Wording is never invented to check against. */
-const noExpectation = (kind: string, after: string, anchorAfter?: string | null): string | null => {
+/** LEGACY FAMILY LABELS ON STORED RECORDS, mapped to the comparator that can read them (audit, 2026-09-14): production components carry title-family, edit_title, edit_meta, add_answer_block, intro_answer_block, entity_expansion, source_update and source_pack, and the default arm called every one of them unverifiable for ever. Only a kind with no possible comparator reaches that arm. */
+const LEGACY_KIND: Record<string, string> = { "title-family": "title", edit_title: "title", edit_meta: "meta", add_answer_block: "answer_block", intro_answer_block: "opening_answer", entity_expansion: "section", source_update: "section", source_pack: "section" };
+const BODY_KINDS = new Set(["opening_answer", "answer_block", "section", "section_add", "section_rewrite", "full_rewrite", "restructure", "table_or_list_add", "paragraph_correction", "factual_correction", "content", "new_page"]);
+const noExpectation = (c: VerifiableShipment["components"][number]): string | null => {
+  const structured = !!c.units?.length || !!c.target; // a record with neither is a flat one, read for its words below; a record with one and not the other names a structure it cannot be held to
+  if (structured && (c.kind === "full_rewrite" || c.target?.mode === "whole_body") && (c.kind !== "full_rewrite" || !c.before?.trim() || c.target?.mode !== "whole_body")) return "A complete body replacement needs the full-rewrite kind, its complete original body and explicit whole-body scope; an atomic field or section cannot certify that replacement.";
+  const { kind, after = "", anchorAfter } = c;
+  if (structured && (!c.units?.length || !c.target)) return "The applied record carries part of its publication structure without the rest: saved units need an explicit target and a target needs its units, and another page read cannot recover the missing half.";
   if (["schema", "schema_add", "schema_replace"].includes(kind)) { const claim = SCHEMA.read(after); return claim.unread || !claim.roots.length ? "The record does not contain JSON-LD this checker can certify. A type name, malformed JSON or unsupported context cannot confirm the applied values. Keep the exact applied block for review; another page read cannot resolve this record." : null; }
   return COPY_FREE_KINDS.has(kind) || (norm(after) && !TEMPLATE_SLOT.test(after) && (kind !== "anchor_text" || !!norm(anchorAfter ?? "") || !!norm(labelIn(after)))) ? null : `${!norm(after) ? "The exact wording that was applied here was never recorded, so no reading of the page can confirm it." : TEMPLATE_SLOT.test(after) ? "What was recorded here is still the template wording, with its NUMBER, YEAR or SOURCE never filled in, so no live page could be carrying it." : "What was recorded here reads as a note about the change and not as the words that were applied, so no reading of the page can confirm it."} Nothing more is read for it. Record the words that are on the page and the next check reads them.`;
 };
 // THE PAGES AS THE STORE ALREADY HOLDS THEM, through the ONE canonical body reader: it picks the capture that IS the page (a newer blank never erases a confirmed body), so a javascript page answers from the rendered read already bought for it, and a closed reading learns its page moved. No second crawler, no spend.
 const heldBodies = (urls: string[], tenantId: string): Promise<Map<string, OwnedPageBody>> => loadOwnedPageBodies(tenantId, urls);
 
-/** Copy is checked against main content, never pooled metadata, navigation or schema assertions. */
-/** `sitemap` is the account's own sitemap as it reads right now, fetched ONLY when a change asked to be
- *  listed in it and null when there was none to read: no read of the PAGE can answer whether it is on that list. */
-/** `blind` is a read whose BODY never arrived (a javascript page hands the polite fetch a shell) and that no held capture could answer for. ONE fact for the whole reading: honoured in the two structured-data branches alone, one page said its markup builds in the browser while its sections said the operator did no work. */
-type LiveRead = { snap: PageSnapshot; text: string; opening: string; schema: ReturnType<typeof SCHEMA.read>; markupBlind: boolean; finalUrl: string | null; requestedUrl: string; addressMatches: boolean; sitemap: string | null; blind: boolean };
+/** Visible body structure, metadata and live markup remain distinct evidence. */
+type LiveRead = { snap: PageSnapshot; text: string; opening: string; unrepresented: string; blocks: Array<{ tag: string; text: string; items?: string[]; links: Array<{ href: string; text: string }> }>; schema: ReturnType<typeof SCHEMA.read>; markupBlind: boolean; finalUrl: string | null; requestedUrl: string; addressMatches: boolean; sitemap: string | null; blind: boolean };
 
-function publishedTextOf(mainHtml: string): { text: string; opening: string } {
-  const $ = load(mainHtml), text = copyText($("body").text()); $("h1").first().remove();
-  return { text, opening: copyText($("body").text()) };
+function publishedTextOf(mainHtml: string): Pick<LiveRead, "text" | "opening" | "blocks" | "unrepresented"> {
+  const $ = load(mainHtml), text = copyText($("body").text()), opening = copyText($("body").clone().find("h1").first().remove().end().text()); // the main text after the headline, which a flat opening answer must start
+  const blocks = $("h1,h2,h3,h4,h5,h6,p,ol,ul").filter((_, el) => !$(el).parents("ol,ul").length).toArray().map((el) => ({ tag: el.tagName, text: copyText($(el).text()), links: $(el).find("a[href]").toArray().map((a) => ({ href: $(a).attr("href")!, text: copyText($(a).text()) })), ...(["ol", "ul"].includes(el.tagName) ? { items: $(el).children("li").toArray().map((li) => copyText($(li).text())) } : {}) }));
+  return { text, opening, blocks, unrepresented: copyText($("body").clone().find("h1,h2,h3,h4,h5,h6,p,ol,ul").remove().end().text()) };
 }
 
-/** WHAT GOOGLE PUTS ON SCREEN for one search: the rows of a results page, reduced to the address and the two
- *  pieces of wording Google writes there. No rank travels with them, so no surface can print one. */
+/** A RECORD WITH NO SAVED STRUCTURE IS READ FOR ITS WORDS (2026-09-14): every body shipment before the units cutover and every wording the operator applied by hand carries flat copy only, and contract 5 had made all of them unverifiable for ever. Markdown heading and list markers are stripped from the expected copy, every block of it must be on the page's main content, and a held rendered capture answers from its stored passages; a page that could not be read completely is unknown, never a difference. */
+const flat = (s: string): string => s.normalize("NFKC").toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/\s+/g, " ").trim();
+const blocksOf = (copy: string): string[] => copy.split(/\n\s*\n/).map((b) => flat(b.split(/\r?\n/).map((l) => l.replace(/^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)/, "")).join(" "))).filter(Boolean);
+function wordingMatch(component: VerifiableShipment["components"][number], live: LiveRead, headings: readonly string[]): ReturnType<typeof judged> {
+  const wanted = blocksOf(component.after ?? ""), page = ` ${flat(live.text)} `, atOpening = component.kind === "opening_answer" || component.kind === "answer_block" && (component.target?.mode ?? "opening") === "opening"; // A FLAT OPENING IS READ AT THE OPENING (audit, 2026-09-14): the same answer later on the page is not the opening, and a prefix of it is not the complete answer
+  if (wanted.length === 1 && headings.includes(norm(wanted[0]!))) return judged("unverifiable", "The record names only a heading, so it cannot confirm the section's substantive copy.", "applied_wording_missing");
+  if (atOpening) { if (!live.opening) return judged("unverifiable", "The opening of your page could not be read, so this one is not called either way.", "rendered_content_gap");
+    return (` ${flat(live.opening)} `).startsWith(` ${wanted.join(" ")} `) ? judged("verified", "Your page opens with the complete recorded answer.") : live.blind ? judged("unverifiable", "The complete opening could not be read, so the answer cannot be confirmed.", "rendered_content_gap") : judged("changed_differently", "Your page opens with different words than the prepared ones.", "published_differently"); }
+  let from = 0; if (wanted.every((b) => { const at = page.indexOf(` ${b} `, from); from = at < 0 ? at : at + b.length + 1; return at >= 0; })) return judged("verified", "The complete recorded wording is on the page."); // every block whole (padded, so none matches inside a longer token) and in its recorded order
+  return live.blind ? judged("unverifiable", "Your page builds its content in the browser, so what is on it could not be read from the outside.", "rendered_content_gap") : judged("not_verified", "Your whole page was read, and this wording is not on it.", "not_published_yet");
+}
+function publicationMatch(component: VerifiableShipment["components"][number], live: LiveRead): ReturnType<typeof judged> {
+  const units = component.units!, target = component.target!;
+  const matches = (u: typeof units[number], b: LiveRead["blocks"][number]) => u.kind === "heading" ? b.tag === `h${u.level}` && b.text === copyText(u.text) : u.kind === "paragraph" ? b.tag === "p" && b.text === copyText(u.text)
+    : b.tag === (u.kind === "ordered_list" ? "ol" : "ul") && JSON.stringify(b.items) === JSON.stringify(u.items.map(copyText));
+  const starts = live.blocks.flatMap((b, i) => units.every((u, j) => live.blocks[i + j] && matches(u, live.blocks[i + j]!)) ? [i] : []);
+  const heading = (b: LiveRead["blocks"][number]) => /^h[1-6]$/.test(b.tag), blocks = live.blocks;
+  if (target.mode === "whole_body") { if (live.unrepresented) return judged("unverifiable", "This body contains visible material outside the saved publication-unit vocabulary, so a complete replacement cannot be certified from these blocks alone.", "rendered_content_gap"); const body = blocks.filter((b) => b.tag !== "h1"); return body.length === units.length && units.every((u, i) => matches(u, body[i]!)) ? judged("verified", "The complete replacement body is live in its saved structure; the page headline is outside this change.") : judged("not_verified", "The visible main-content body does not equal the complete saved replacement in its recorded structure.", "not_published_yet"); }
+  const anchors = blocks.flatMap((b, i) => target.mode === "opening" ? b.tag === "h1" ? [i] : [] : target.anchorKind === "heading" ? heading(b) && b.text === copyText(target.anchor!) ? [i] : [] : !heading(b) && b.text.includes(copyText(target.anchor!)) ? [i] : []);
+  if (anchors.length > 1) return judged("unverifiable", "The saved target matches multiple content blocks; placement cannot be certified without disambiguating that target.", "applied_wording_missing");
+  const at = anchors[0], end = at == null ? -1 : target.anchorKind === "heading" ? blocks.findIndex((b, i) => i > at && heading(b) && Number(b.tag[1]) <= Number(blocks[at]!.tag[1])) : at + 1;
+  const boundary = end < 0 ? blocks.length : end;
+  const positioned = starts.filter((i) => at != null && (target.mode === "after_section" ? end < 0 ? i + units.length === blocks.length : i === boundary : target.mode === "replace" ? i > at && i + units.length <= boundary : i === at + 1));
+  if (!positioned.length) return live.blind ? judged("unverifiable", "The complete publication structure could not be read.", "rendered_content_gap") : judged("not_verified", "The complete saved headings, paragraphs and lists were not found together in their recorded placement.", "not_published_yet");
+  if (/^(internal_links|internal_link_add)$/.test(component.kind)) {
+    if (!component.redirectTo || !component.anchorAfter) return judged("unverifiable", "The publication names no exact link destination or anchor words.", "applied_wording_missing");
+    const key = (href: string) => { try { return canonicalUrlKey(new URL(href, live.requestedUrl).toString()); } catch { return null; } };
+    if (!positioned.some((i) => blocks.slice(i, i + units.length).some((b) => b.links.some((l) => key(l.href) === key(component.redirectTo!) && l.text === copyText(component.anchorAfter!))))) return judged("not_verified", "The saved passage is in place, but its exact link is missing or different there.", "not_published_yet");
+  }
+  if (component.before && copyText(component.before) !== copyText(component.after ?? "") && blocks.slice(target.mode === "opening" ? at! + 1 : at!, boundary).map((b) => b.text).join(" ").includes(copyText(component.before))) return judged("changed_differently", "The replacement is present, but the recorded original copy remains in its target region too.", "published_differently");
+  return judged("verified", "The complete saved publication structure is live together in its recorded placement.");
+}
+
+/** Google's displayed URL/title/snippet for one search; no rank is carried or printable. */
 type SerpRow = { url: string; title: string | null; snippet: string | null };
 /** The whole pass's ceiling on paid results-page reads, and the tag the Results surface reads this one reading back by (app/(shell)/results/results-presentation.ts). */
 const SERP_READS_PER_PASS = 12, GOOGLE_SHOWS = "google_display";
@@ -126,15 +160,17 @@ async function googleShows(s: VerifiableShipment, tenantId: string, live: LiveRe
 }
 
 /** ONE component, judged against the page as it stands right now. Pure. */
-function classify(component: { kind: string; after: string; anchorAfter?: string | null; redirectTo?: string | null; before?: string | null }, live: LiveRead): { state: ComponentState; note: string; reason: Reason | null } {
-  const { snap } = live, proposed = component.after ?? "", nothingToFind = noExpectation(component.kind, proposed, component.anchorAfter); // NO COPY, NO CLAIM: the same rule the whole reading is settled by above, asked here for one piece of a bundle whose other pieces the page can answer for, and asked with everything the piece holds so a link rename is judged by ONE rule rather than by this one and then again below
+function classify(stored: VerifiableShipment["components"][number], live: LiveRead): ReturnType<typeof judged> {
+  const component = LEGACY_KIND[stored.kind] ? { ...stored, kind: LEGACY_KIND[stored.kind]! } : stored, { snap } = live, proposed = component.after ?? "", nothingToFind = noExpectation(component); // NO COPY, NO CLAIM: the same rule the whole reading is settled by above, asked here for one piece of a bundle whose other pieces the page can answer for, and asked with everything the piece holds so a link rename is judged by ONE rule rather than by this one and then again below
   if (nothingToFind) return judged("unverifiable", nothingToFind, "applied_wording_missing");
   if (!live.addressMatches && !["redirect", "consolidation"].includes(component.kind)) return judged("unverifiable", live.finalUrl ? "That address answered from a different page, so its content cannot confirm this change." : "The final page address was not observed, so this change cannot be confirmed against the intended page.", "address_mismatch");
+  const headings = [...(snap.h2_list ?? []), ...(snap.h3_list ?? [])].map(norm).filter(Boolean);
+  // SAVED STRUCTURE IS CERTIFIED AS STRUCTURE WHERE THE READ HAS ANY; flat copy, and any copy on a read that shows no blocks (a rendered capture answering for a javascript shell), is read for its words.
+  if (BODY_KINDS.has(component.kind) || component.units && /^(internal_links|internal_link_add)$/.test(component.kind)) return component.units?.length && component.target && live.blocks.length ? publicationMatch(component, live) : wordingMatch(component, live, headings);
   // A FIELD IS ABSENT ONLY WHERE THE READ COULD SEE ONE: a head that never parsed proves nothing about what is in it. And the wording that was there BEFORE, still live, is a publish that has not happened; calling that the operator's own version blamed them for a CMS cache and taught the loop off a page they never wrote.
   const field = (value: string | null, what: string) => !value?.trim() ? (live.blind && !snap.title ? judged("unverifiable", `Your page builds its content in the browser, so its ${what} could not be read from the outside.`, "rendered_content_gap") : judged("not_verified", `Your page has no ${what} at all.`, "not_published_yet"))
     : norm(value) === norm(proposed) ? judged("verified", `Your ${what} matches the prepared wording exactly.`) : norm(value) === norm(component.before ?? "") ? judged("not_verified", `Your ${what} still reads the way it did before this change.`, "not_published_yet")
       : judged("changed_differently", `Your ${what} is live, and it is not the prepared wording. Your page says "${value.trim().slice(0, 140)}", which is what this change is measured on.`, "published_differently");
-  const headings = [...(snap.h2_list ?? []), ...(snap.h3_list ?? [])].map(norm).filter(Boolean);
   const wanted = copyText(proposed), headingHit = !!wanted && headings.includes(norm(proposed));
   const carries = !!wanted && (` ${live.text} `).includes(` ${wanted} `);
   // A link is compared as an ADDRESS, never as a string: a relative href on the page and an absolute one in
@@ -149,14 +185,6 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
     case "title": return field(snap.title, "page title");
     case "meta": return field(snap.meta_description, "search description");
     case "h1": return field(snap.h1, "headline");
-    case "opening_answer": {
-      if (!live.opening) return judged("unverifiable", "The opening of your page could not be read, so this one is not called either way.", "rendered_content_gap");
-      return (` ${live.opening} `).startsWith(` ${wanted} `) ? judged("verified", "Your page opens with the complete recorded answer.") : live.blind ? judged("unverifiable", "The complete opening could not be read, so the answer cannot be confirmed.", "rendered_content_gap") : judged("changed_differently", "Your page opens with different words than the prepared ones.", "published_differently");
-    }
-    case "section": case "section_add": case "section_rewrite": case "restructure": case "table_or_list_add":
-      return headingHit ? judged("unverifiable", "The record names only a heading, so it cannot confirm the section's substantive copy.", "applied_wording_missing") : carries ? judged("verified", "The complete recorded section copy is on the page.")
-        : !wanted ? judged("unverifiable", "This change names no wording to look for.", "applied_wording_missing")
-          : live.blind ? judged("unverifiable", "Your page builds its content in the browser, so what is on it could not be read from the outside.", "rendered_content_gap") : judged("not_verified", "Your whole page was read, and this section is not on it.", "not_published_yet");
     case "section_remove":
       return !wanted ? judged("unverifiable", "This change names no heading to look for.", "applied_wording_missing")
         : headingHit || carries ? judged("not_verified", "The recorded section heading or copy is still on the page.") : live.blind ? judged("unverifiable", "The page could not be read completely, so the removal cannot be confirmed.", "rendered_content_gap") : judged("verified", "The recorded section heading or copy is no longer present.");
@@ -221,24 +249,13 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
       return snap.robots_meta == null ? judged("unverifiable", "This setting cannot be seen from outside your page.", "unmeasurable")
         : /noindex/i.test(snap.robots_meta) ? judged("verified", "Your page now asks search engines to leave it out.")
           : judged("changed_differently", "Your page still asks search engines to keep it.", "not_published_yet");
-    case "new_page":
-      return !wanted ? judged("unverifiable", "The page is live, but no applied page copy was recorded to verify.", "applied_wording_missing") : carries ? judged("verified", "The complete recorded page copy is live.")
-        : live.blind ? judged("unverifiable", "The page's content could not be read.", "rendered_content_gap") : judged("not_verified", "The address answers, but the complete recorded page copy is not there.", "not_published_yet");
-    default: {
-      return !wanted ? judged("unverifiable", "This change names no wording to look for.", "applied_wording_missing") : carries ? judged("verified", "The complete recorded wording is on your page.")
-        : live.blind ? judged("unverifiable", "Your page builds its content in the browser, so what is on it could not be read from the outside.", "rendered_content_gap") : judged("not_verified", "Your whole page was read, and this wording is not on it.", "not_published_yet");
-    }
+    default: return judged("unverifiable", "This mutation has no supported publication comparator; finding its words somewhere on a page cannot certify it.", "applied_wording_missing");
   }
 }
 /** Every component unverifiable, for the cases where the page itself could not be read. */
 const allUnknown = (shipment: VerifiableShipment, note: string) => shipment.components.map((c) => ({ kind: c.kind, state: "unverifiable" as ComponentState, note }));
 
-/**
- * VERIFY ONE SHIPMENT against the live page. One fetch, on the free owned-page path, and the answer is
- * whatever I could actually see. The page snapshot is persisted on the way through (the same row every
- * other read of the account's own pages writes) so the next read of that page is served from what I already
- * hold instead of going back out to the customer's website.
- */
+/** Read each applied page within the owned-page boundary; bank the actual inspected evidence. */
 async function verifyShipmentReading(tenantId: string, shipment: VerifiableShipment, deps: VerifyDeps = {}): Promise<ShipmentVerification> {
   const now = deps.now ?? Date.now, stamp = (): string => new Date(now()).toISOString(), fetchPage = deps.fetchPage ?? fetchPageHtml; /* A READING IS STAMPED WHEN IT ANSWERS, NEVER WHEN IT STARTS (measured on the live ledger, 2026-09-05). The stamp was taken before the fetch and this door writes the capture it just read, so every reading left behind a capture stamped AFTER itself: shp_d5a9862db7099a2d645c97139634540f read iranopedia.com/cities at 07:32:52.706Z and wrote a capture at 07:32:53.665Z, 959 ms later, which the closed-row door below reads as "the page moved since" and reopens. Twenty-eight live reads against a bound of three, each one manufacturing the capture that reopened it, and that pile of captures is what starved the body reader. Stamped on the way out, a reading's own capture can never be newer than it. */
   const requested = /^https?:\/\//i.test(shipment.url) ? shipment.url : `https://${shipment.url}`;
@@ -248,13 +265,14 @@ async function verifyShipmentReading(tenantId: string, shipment: VerifiableShipm
   const early = !!shipment.implementedAt && now() - Date.parse(shipment.implementedAt) < PUBLISH_GRACE_MS;
   const checks = (shipment.priorChecks ?? 0) + (early ? 0 : 1); // a read inside the grace window is free: it informs, it never counts
   // NO LIVE READ FOR A RECORD NO PAGE CAN ANSWER. Every piece names nothing to look for, so the answer is settled from the record itself: no fetch, no check spent, no day promised, and the row is never scheduled again. A historical record is reconciled from what it holds; only a page that could carry the change is read.
-  const unanswerable = shipment.components.map((c) => noExpectation(c.kind, c.after ?? "", c.anchorAfter));
+  const unanswerable = shipment.components.map((c) => noExpectation(c));
   if (shipment.components.length > 0 && unanswerable.every((n) => n != null)) return { status: "blocked", checkedAt: stamp(), checks: shipment.priorChecks ?? 0, reason: "applied_wording_missing", recheckAfter: null, components: shipment.components.map((c, i) => ({ kind: c.kind, state: "unverifiable" as ComponentState, note: unanswerable[i]! })) };
   const blockedRead = (note: string, reason: Reason): ShipmentVerification =>
     ({ status: "blocked", checkedAt: stamp(), components: allUnknown(shipment, note), checks, reason, recheckAfter: checks < MAX_CHECKS ? reportingDay(now() + 86_400_000) : null });
   let res: Awaited<ReturnType<typeof fetchPageHtml>>;
   try { res = await fetchPage(requested, new Map(), {}); } catch { return blockedRead("Your website did not answer, so this change could not be checked.", "page_unreachable"); }
   if (!res.ok) {
+    if (res.detail === "read_boundary") return blockedRead("The owned-page read boundary was reached before this page was inspected.", "unmeasurable");
     if (/^http_(404|410)$/.test(res.detail ?? "")) {
       // NOT_FOUND INSIDE THE PUBLISH LAG IS THE SAME LAG (operator, 2026-08-29): Mark Done means applied in the editor and the site may be published once at the end of the session, so a page not there yet is re-read on the same bounded schedule rather than buried on read one.
       return { status: "not_found", checkedAt: stamp(), checks, reason: early ? "not_published_yet" : "address_mismatch", components: allUnknown(shipment, early ? "There is no page at that address yet. Sites are often published later in the session, so it is read again tomorrow." : "There is no page at that address right now."), recheckAfter: early ? reportingDay(now() + 86_400_000) : checks < MAX_CHECKS ? reportingDay(now() + 2 * 86_400_000) : null };
@@ -276,21 +294,28 @@ async function verifyShipmentReading(tenantId: string, shipment: VerifiableShipm
   const got = shipment.components.some((c) => c.kind === "navigation") ? await fetchPage(`${new URL(requested).origin}${SITEMAP_PATH}`, new Map(), {}).catch(() => null) : null;
   const asRead = fresh ? { ...snap, title: fresh.title, meta_description: fresh.metaDescription, h1: fresh.h1, h2_list: fresh.headings, body_paragraph_sample: fresh.passages, internal_links: fresh.internalLinks.map((l) => ({ href: l.href, anchor_text: l.anchorText })) } : snap;
   const heldText = copyText(fresh?.passages.join(" ") ?? ""), heldH1 = copyText(fresh?.h1 ?? "");
-  const live: LiveRead = { snap: asRead, ...(fresh ? { text: heldText, opening: heldH1 && heldText.startsWith(`${heldH1} `) ? heldText.slice(heldH1.length).trim() : heldText } : publishedTextOf(mainHtml)), schema: SCHEMA.read(res.html), markupBlind: snap.extraction_certainty === "uncertain", finalUrl: res.finalUrl ?? null, requestedUrl: requested, addressMatches, sitemap: got?.ok ? got.html : null, blind: fresh ? fresh.completeness !== "complete" : snap.extraction_certainty === "uncertain" };
-  const components = shipment.components.map((c) => ({ kind: c.kind, ...classify(c, live) })), seen = components.filter((c) => c.state !== "unverifiable");
+  const live: LiveRead = { snap: asRead, ...(fresh ? { text: heldText, opening: heldH1 && heldText.startsWith(`${heldH1} `) ? heldText.slice(heldH1.length).trim() : heldText, blocks: [], unrepresented: heldText } : publishedTextOf(mainHtml)), schema: SCHEMA.read(res.html), markupBlind: snap.extraction_certainty === "uncertain", finalUrl: res.finalUrl ?? null, requestedUrl: requested, addressMatches, sitemap: got?.ok ? got.html : null, blind: fresh ? fresh.completeness !== "complete" : snap.extraction_certainty === "uncertain" };
+  const pageOf = (c: VerifiableShipment["components"][number]) => { try { return new URL(c.page || requested, requested).toString(); } catch { return null; } }, pages = [...new Map(shipment.components.map(pageOf).filter((u): u is string => !!u && canonicalUrlKey(u) !== canonicalUrlKey(requested)).map((u) => [canonicalUrlKey(u), u])).values()];
+  const extra = new Map<string, ShipmentVerification>();
+  for (const page of pages.slice(0, MAX_VERIFICATIONS_PER_PASS - 1)) if (new URL(page).origin === new URL(requested).origin) extra.set(canonicalUrlKey(page), await verifyShipmentReading(tenantId, { ...shipment, url: page, targetQueries: [], components: shipment.components.filter((c) => !!pageOf(c) && canonicalUrlKey(pageOf(c)!) === canonicalUrlKey(page)) }, deps));
+  const components = shipment.components.map((c) => {
+    const page = pageOf(c); if (page && canonicalUrlKey(page) === canonicalUrlKey(requested)) return { kind: c.kind, ...classify(c, live) };
+    const read = page ? extra.get(canonicalUrlKey(page)) : null, index = shipment.components.filter((x) => !!page && !!pageOf(x) && canonicalUrlKey(pageOf(x)!) === canonicalUrlKey(page)).indexOf(c), answer = read?.components[index];
+    return { kind: c.kind, ...(answer ? { state: answer.state, note: answer.note ?? "Its page was read without a component note.", reason: read?.reason ?? null } : judged("unverifiable", "This component's page could not be inspected within the owned-page read boundary.", "address_mismatch")) };
+  }), seen = components.filter((c) => c.state !== "unverifiable");
   const status: ShipmentVerification["status"] = seen.length === 0 ? "blocked"
     : components.every((c) => c.state === "verified") ? "verified" : seen.some((c) => c.state === "verified") ? "partially_verified" : "differs";
   // A DIFFERENCE, OR A READING THAT GRADED NOTHING, IS RE-READ AND NEVER BURIED. CMSes serve the old page through caches and build queues for hours after a paste, so the first read routinely differs, and a page where every piece came back unreadable is a fact about that one read. Up to MAX_CHECKS bounded reads, two days apart; a verified answer is final on any read, and the third read's answer stands whatever it is. AND A READING TAKEN OFF A CAPTURE OLDER THAN THE CHANGE IS NOT ANSWERED BY FETCHING AGAIN: the same shell comes back every time, so it closes here rather than promising a day. The page itself reopens it the moment a newer capture lands, which is the rule shipmentsAwaitingVerification already carries.
   const again = status !== "verified" && (early || checks < MAX_CHECKS) && !(shell && held && !fresh), spent = !again && checks >= MAX_CHECKS && status !== "verified"; /* AND THE READING THAT SPENDS THE LAST CHECK SAYS SO, ON THE RECORD (2026-09-05): `checks` at the bound with no day promised is where the recheck ends, and a record that does not say it reads as one still waiting its turn. */
   // WHAT GOOGLE SHOWS IS BANKED AFTER THE ROLL-UP AND NEVER INSIDE IT: a results page that has not caught up yet is a fact about Google, and letting it into `status` would take a landed change back off the board.
   const said = <T extends { state: ComponentState; note: string }>(c: T, tail: string): T => c.state !== "verified" && c.state !== "unverifiable" ? { ...c, note: `${c.note} ${tail}` } : c;
-  const graded = early && again ? components.map((c) => said(c, "Sites are often published later in the session, so this is read again tomorrow without counting against the check limit.")) : spent ? components.map((c) => said(c, `That is ${MAX_CHECKS} reads of this page, which is the limit, so this one stands and nothing more is read for it. Apply it again and mark it done, or make the next change on this page and measure that.`)) : components, shows = await googleShows(shipment, tenantId, live, deps, stamp());
+  const graded = early && again ? components.map((c) => said(c, "Sites are often published later in the session, so this is read again tomorrow without counting against the check limit.")) : spent ? components.map((c) => said(c, `That is ${MAX_CHECKS} reads of this page, which is the limit, so this one stands and nothing more is read for it. Apply it again and mark it done, or make the next change on this page and measure that.`)) : components, shows = await googleShows({ ...shipment, components: shipment.components.filter((c) => !!pageOf(c) && canonicalUrlKey(pageOf(c)!) === canonicalUrlKey(requested)) }, tenantId, live, deps, stamp());
   // ONE TYPED CAUSE FOR THE WHOLE READING, off the pieces that produced it, so an unconfirmed backlog partitions by what is actually wrong instead of by the outcome. The operator's own wording wins the tie: it is the one cause that ends the waiting rather than extending it. The cause never travels inside a component.
   const causes = graded.map((c) => c.reason).filter((r): r is Reason => !!r);
   const reason: Reason | null = status === "verified" ? (shows?.state === "not_verified" ? "google_not_updated" : null)
     : shell && held && !fresh ? "stale_reading" : causes.find((r) => r === "published_differently") ?? causes[0] ?? "unmeasurable";
   const claim = shipment.claim ?? { page: shipment.url, implementedAt: shipment.implementedAt, componentsApplied: shipment.components.map((c) => ({ ...c, label: "" })) };
-  return { status, checkedAt: stamp(), checks, reason, proof: SHIPMENT_PROOF.of(claim, JSON.stringify([requested, res.finalUrl ?? null, mainHtml, res.html, fresh])), components: (shows ? [...graded, shows] : graded).map(({ kind, state, note }) => ({ kind, state, note })), recheckAfter: again ? reportingDay(now() + (early ? 1 : 2) * 86_400_000) : null };
+  return { status, checkedAt: stamp(), checks, reason, proof: SHIPMENT_PROOF.of(claim, JSON.stringify([requested, res.finalUrl ?? null, mainHtml, res.html, fresh, [...extra]])), components: (shows ? [...graded, shows] : graded).map(({ kind, state, note }) => ({ kind, state, note })), recheckAfter: again ? reportingDay(now() + (early ? 1 : 2) * 86_400_000) : null };
 }
 
 export async function verifyShipment(tenantId: string, shipment: VerifiableShipment, deps: VerifyDeps = {}): Promise<ShipmentVerification> {
@@ -324,12 +349,12 @@ export async function shipmentsAwaitingVerification(tenantId: string, limit = MA
   const moved = closed.length === 0 ? new Map<string, OwnedPageBody>() : await (deps.readHeld ?? heldBodies)(closed.map((r) => r.page), tenantId).catch(() => new Map<string, OwnedPageBody>());
   const due = (r: ShippedChangeRecord): boolean => {
     if (r.verification == null) return true;
-    if (r.verification.status === "verified" && !SHIPMENT_PROOF.of(r)) return (r.verification.checks ?? 1) < MAX_CHECKS && componentsOf(r).some((c) => noExpectation(c.kind, c.after, c.anchorAfter) == null);
+    if (r.verification.status === "verified" && !SHIPMENT_PROOF.of(r)) return (r.verification.checks ?? 1) < MAX_CHECKS && componentsOf(r).some((c) => noExpectation(c) == null);
     const at = r.verification.recheckAfter ?? null;
     // A CLOSED READING IS REOPENED BY THE PAGE ITSELF, exactly once per capture. A row terminal since August carries a live headline equal to its applied copy byte for byte, and nothing could ever ask again. No fetch decides this: the capture already on file does, and the answer the re-read writes back is stamped later than that capture, so the same capture can never open it twice.
     // AND A RECORD THAT HOLDS NO WORDING IS NOT REOPENED BY A CAPTURE EITHER: a newer read of the page cannot answer a record that names nothing to look for, so it is reconciled from what it holds and never queued for live work again. AND THE BOUND HOLDS AT THIS DOOR TOO (measured, 2026-09-05): it was written into the reading and never into the door that reopens one, so a shipment on a page that keeps being captured came back for a twenty-eighth live read against a bound of three. A reading closed on its last check is the last one there is, whatever the page does next; the next change made to that page is measured on its own record.
     // BUT A RECORD CLOSED BY A RULE THAT NO LONGER HOLDS IS RE-DERIVED, NOT LEFT WRITTEN OFF (measured, 2026-09-05). `applied_wording_missing` is not a verdict about the page: it is this code's own answer to "does the record name anything to look for", so it is asked again from the record every pass instead of being kept as a stored fact. The day the reader learned that an apostrophe inside a word is not a quotation mark, shp_6de7016c5cdf7e078f597a28f5a8975b held the exact words "Pallas's Cat facts" and stayed written off for ever, because the fix was forward-only and the door excluded that reason by name. The same one rule decides both sides now, and the arithmetic bounds it rather than an argument about which branch answers: a re-derivation may take the read the bound allows and ONE more, never a third, so a record whose reading still cannot grade it is closed for ever on that read instead of coming back every pass.
-    if (!at) return r.verification.status !== "verified" && (r.verification.reason === "applied_wording_missing" ? (r.verification.checks ?? 1) <= MAX_CHECKS && componentsOf(r).some((c) => noExpectation(c.kind, c.after ?? "", c.anchorAfter) == null) : (r.verification.checks ?? 1) < MAX_CHECKS && (moved.get(canonicalUrlKey(r.page))?.fetchedAt ?? "") > (r.verification.checkedAt ?? ""));
+    if (!at) return r.verification.status !== "verified" && (r.verification.reason === "applied_wording_missing" ? (r.verification.checks ?? 1) <= MAX_CHECKS && componentsOf(r).some((c) => noExpectation(c) == null) : (r.verification.checks ?? 1) < MAX_CHECKS && (moved.get(canonicalUrlKey(r.page))?.fetchedAt ?? "") > (r.verification.checkedAt ?? ""));
     return today >= at;
   };
   return rows
@@ -339,10 +364,6 @@ export async function shipmentsAwaitingVerification(tenantId: string, limit = MA
     .map(toVerifiable);
 }
 
-/**
- * ONE bounded verification pass: up to three live pages read, each one written back exactly once. Nothing
- * here pauses a run, and nothing here spends a cent. Returns how many verifications actually landed.
- */
 /** ONE SHIPMENT, CHECKED NOW: "did my paste land" waited for the next sweep, which is the wrong answer at ten to thirty applies a day, and the verifier, the due read and the record all existed already (Codex, 2026-08-28). Same path, so this is no second verification route; a shipment no longer due is simply absent and this returns 0. */
 export const verifyShipmentNow = (tenantId: string, shipmentId: string, deps: VerifyDeps = {}): Promise<number> => verifyDueShipments(tenantId, deps, (s) => s.id === shipmentId); // the target is picked BY ID across a wider bound, so a shipment fourth in the due order is still the one checked
 
@@ -351,15 +372,13 @@ export async function verifyDueShipments(tenantId: string, deps: VerifyDeps = {}
   const due = (await shipmentsAwaitingVerification(tenantId, only ? TARGET_SCAN_BOUND : MAX_VERIFICATIONS_PER_PASS, deps)).filter((s) => !only || only(s)).slice(0, MAX_VERIFICATIONS_PER_PASS); let written = 0; const serpReads = { left: SERP_READS_PER_PASS }; // ONE ceiling for the whole pass, carried across every shipment in it
   const unsavable = new Set<string>(); // BOUNDED IN-RUN SKIP, carried on the pass and nowhere else: an answer that could not be SAVED means the shipment is still due, so a second shipment at the SAME address would send me back to the customer's website inside one pass for a result I already know I cannot store
   const read = new Map<string, ReturnType<NonNullable<VerifyDeps["fetchPage"]>>>(), stored = new Set<string>(); /** ONE ADDRESS IS READ ONCE A PASS, AND STORED ONCE (measured, 2026-09-05). Four shipments sit on iranopedia.com/iran-animals, so one pass fetched that page four times and wrote four captures of it inside five seconds; 79 of the account's 1,086 stored page versions are that one address, and a pile like that is what the body reader's row budget has to page around. The fetch is shared across the shipments at one address and the capture is written once, so every shipment still gets its own reading of the same words. */
-  const fetchOnce: NonNullable<VerifyDeps["fetchPage"]> = (url, ...rest) => { const k = canonicalUrlKey(url), had = read.get(k); if (had) return had; const got = (deps.fetchPage ?? fetchPageHtml)(url, ...rest); read.set(k, got); return got; },
+  const fetchOnce: NonNullable<VerifyDeps["fetchPage"]> = (url, ...rest) => { const k = canonicalUrlKey(url), had = read.get(k); if (had) return had; if (read.size >= MAX_VERIFICATIONS_PER_PASS) return Promise.resolve({ ok: false, reason: "fetch_failed", detail: "read_boundary" }); const got = (deps.fetchPage ?? fetchPageHtml)(url, ...rest); read.set(k, got); return got; },
     writeOnce = async (snapshot: PageSnapshot, tenant: string): Promise<void> => { const k = canonicalUrlKey(snapshot.url); if (stored.has(k)) return; stored.add(k); await (deps.writeOwnedPage ?? ((s: PageSnapshot, t: string) => syncPageSnapshots([s], t)))(snapshot, tenant); };
   for (const shipment of due) {
     const address = canonicalUrlKey(shipment.url);
-    if (unsavable.has(address)) continue;
+    if (unsavable.has(address) || read.size >= MAX_VERIFICATIONS_PER_PASS && !read.has(address)) continue;
     const verification = await verifyShipment(tenantId, shipment, { serpReads, ...deps, ...(shipment.requalification ? { readSerp: async () => null } : {}), fetchPage: fetchOnce, writeOwnedPage: writeOnce }).catch(() => null);
     if (!verification) continue;
-    // A verification that could not be SAVED is not a verification: the shipment stays due and I check it
-    // again on the next visit, which is the ONE case where the same page is read twice.
     const saved = await (deps.record ?? recordVerification)(tenantId, shipment.id, verification).catch(() => false);
     if (saved) written += 1; else unsavable.add(address);
     log.info("[verify-shipment] checked what you marked as done", { tenantId, shipment: shipment.id, status: verification.status, saved });

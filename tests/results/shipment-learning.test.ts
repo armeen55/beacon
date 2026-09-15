@@ -18,7 +18,7 @@ async function delivered(over: Partial<ShippedChangeRecord> = {}): Promise<Shipp
   const r = { id: "first", page: "https://example.test/guide", path: "/guide", actionType: "section_add", before: null, after: "The proposal included unapplied NUMBER and YEAR blanks.", shippedAt: AT, implementedAt: AT,
     baseline: { impressions: 5000, clicks: 400, ctr: 0.08, position: 8, windowDays: 28 }, controlsReceipt: [{ path: "/a" }, { path: "/b" }, { path: "/c" }],
     windows: [{ day: 28, ran: true, adjustedLift: 160, controlsUsed: 3, treatedPostImpressions: 5000 }], measurementState: "measuring", operatorVerdictOverride: null, pinnedRead: null,
-    componentsApplied: [{ id: "section", kind: "section_add", label: "Section", after: "The prepared wording.", appliedAfter: COPY }], verification: null, ...over } as ShippedChangeRecord;
+    componentsApplied: [{ id: "section", kind: "section_add", label: "Section", after: COPY, units: [{ kind: "paragraph", text: COPY }], target: { mode: "opening", anchorKind: null, anchor: null }, where: "At the start of the main content, immediately after the page headline and before its existing opening." }], verification: null, ...over } as ShippedChangeRecord;
   r.verification = await verifyShipment(T, { id: r.id, url: r.page, implementedAt: r.implementedAt, claim: r, components: SHIPMENT_PROOF.components(r) }, deps);
   return r;
 }

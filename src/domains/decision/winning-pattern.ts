@@ -5,6 +5,7 @@ import "server-only";
  * page means it was not supplied here, not that the account owns no suitable page. */
 
 import { createHash } from "node:crypto";
+import { pageExtractFrom } from "@/domains/evidence/funnel/research-evidence";
 
 import { log } from "@/lib/logger";
 import { canonicalQueryKey, RELATIONAL, topicTokens } from "@/domains/evidence/relevance-gate";
@@ -89,6 +90,7 @@ const isQuestion = (h: string): boolean => QUESTION.test(h) || h.trim().endsWith
 export function extractPageFacts(pages: readonly ReadPage[]): PageFacts[] {
   return pages.map((p) => {
     const body = p.body;
+    const structure = body ? pageExtractFrom({ title: body.title, h1: body.h1, word_count: 0, body_text: body.vocabulary, content_capture: body.sourceCapture }) : null;
     const mainText = body?.passages.join(" ");
     const x: HeldExtract | null = body ? {
       title: body.title,
@@ -97,6 +99,7 @@ export function extractPageFacts(pages: readonly ReadPage[]): PageFacts[] {
       openingSample: body.openingSample,
       entityNames: body.entityNames,
       cardTexts: body.cardTexts,
+      hasList: structure?.hasList, hasTable: structure?.hasTable,
       mainText,
       truncated: body.completeness === "complete" ? false : body.completeness === "partial" ? true : null,
       heldChars: mainText!.length,
@@ -106,7 +109,6 @@ export function extractPageFacts(pages: readonly ReadPage[]): PageFacts[] {
       schemaTypes: p.extract?.schemaTypes,
     } : p.extract ?? null;
     const headings = (x?.headings ?? []).map((h) => h.trim().replace(/\s+/g, " ")).filter(Boolean);
-    const cards = x?.cardTexts ?? null;
     return {
       domain: (p.domain ?? "").trim() || publisherHost(p.url),
       sourceId: createHash("sha256").update(canonicalUrlKey(p.url)).digest("hex").slice(0, 16),
@@ -116,8 +118,8 @@ export function extractPageFacts(pages: readonly ReadPage[]): PageFacts[] {
       entities: (x?.entityNames ?? []).map((e) => e.trim()).filter(Boolean).slice(0, MAX_ENTITIES),
       wordCount: typeof x?.wordCount === "number" ? x.wordCount : null,
       faqCount: typeof x?.faqCount === "number" ? x.faqCount : null,
-      // A LIST IS A LIST WHEREVER THE READ SAW ONE: the flag when it was captured, the cards it actually banked when it was not, and null when neither was ever recorded.
-      hasList: x?.hasList ?? (cards ? cards.length > 0 : null),
+      // Captured structure proves presence; absence needs complete coherent HTML. Card samples are not structural observations.
+      hasList: x?.hasList ?? null,
       hasTable: x?.hasTable ?? null,
       hasSchema: x?.schemaTypes == null ? null : x.schemaTypes.length > 0,
       schemaTypes: x?.schemaTypes == null ? null : [...x.schemaTypes],

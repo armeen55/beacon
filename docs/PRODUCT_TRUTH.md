@@ -509,7 +509,7 @@ separate from the active account's recurring spend cap.
 
 Beacon speaks like a confident expert working for the customer:
 
-- first person when describing Beacon's work; plain English before technical detail;
+- no first person, the product is not a person (operator amendment 2026-08-11); subjectless plain facts before technical detail;
 - concrete numbers when trustworthy; one obvious next action;
 - no provider, pipeline, scheduler, experiment, treatment, or internal status jargon on primary surfaces;
 - no fake precision, causal overclaim, raw identifiers, bare zeros, or hardcoded customer names;

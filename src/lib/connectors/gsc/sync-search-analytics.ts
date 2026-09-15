@@ -86,7 +86,7 @@ async function classifyMissingGscToken(
   if (token.disconnected_at != null && token.disconnected_at !== "") {
     return "gsc_token_expired";
   }
-  // expires within / past window, or a stale_under_7d refresh that just failed.
+  // The refresh through the stored refresh token failed (or there is none).
   return "gsc_token_expired";
 }
 
@@ -130,18 +130,8 @@ async function stampGscAuthFailure(tenantId: string, now: Date): Promise<GscAuth
           tenantId,
           connectedAt: token.connected_at,
         });
-        // alive → clear the reconnect marker (the write is fail-soft; its failure never flips the verdict). SPLIT (2026-07-09, review P1-1): token fields and the reconnect marker now travel separate paths. A rotated refresh_token captured here (the nightly probe is also our chance to catch one, only when Google returned it) MUST go through the guarded compare-and-swap, never a patch: the patch path refuses refresh_token and a read-merge-write here is the cross-instance race the CAS resolves. persistRefreshedGoogleToken is fail-soft itself.
-        if (refreshed.refresh_token) {
-          await persistRefreshedGoogleToken(
-            "google_gsc",
-            {
-              access_token: refreshed.access_token,
-              expires_in: refreshed.expires_in,
-              refresh_token: refreshed.refresh_token,
-            },
-            tenantId,
-          );
-        }
+        // alive → clear the reconnect marker (the write is fail-soft; its failure never flips the verdict). The refreshed access token and its expiry are ALWAYS persisted (guarded compare-and-swap, never a patch): until 2026-09-14 only a rotated refresh token was, so an idle grant this probe had just proven alive stayed stored as expired and the next sync refused it again. persistRefreshedGoogleToken is fail-soft itself.
+        await persistRefreshedGoogleToken("google_gsc", refreshed, tenantId);
         try {
           await updateConnectorToken(
             "google_gsc",

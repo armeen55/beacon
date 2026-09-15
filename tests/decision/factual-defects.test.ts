@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-const checks = vi.hoisted(() => ({ rows: [] as unknown[] }));
+const checks = vi.hoisted(() => ({ rows: [] as unknown[], live: "live-fixture-version" }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/lib/llm-call-cache", () => ({ readLlmCallCache: async () => null, writeLlmCallCache: async () => {}, llmCallCacheKey: () => "k", recentLlmCallTexts: async () => [] }));
 vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {
@@ -15,7 +15,8 @@ vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<t
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<typeof import("@/domains/evidence/pages/owned-context")>()), // THE PAGE AS DECISION CAN SEE IT: a correction is work only while the page still says what it objected to.
   loadOwnedPageBodies: async (_t: string, urls: string[]) => { if (store.bodyFails) throw new Error("the page bodies could not be read"); // KEYED AS THE REAL LOADER KEYS: canonically. Raw-url keying here hid the producer reading this map with the wrong key and refusing every banked check site-wide; with this keying, every mint test below IS the regression pin for that join.
     if ((urls?.length ?? 0) > 7) return new Map(); // AND BOUNDED AS THE REAL LOADER IS BOUNDED: an over-wide ask returns nothing at all, which live starved the mint the day checks crossed seven pages.
-    return new Map([[canonicalUrlKey(PAGE), { title: "Persian female names", h1: null, headings: [], passages: ["Afsaneh means Goddess, divine and strong."] }]]); } }));
+    return new Map([[canonicalUrlKey(PAGE), { title: "Persian female names", h1: null, headings: [], passages: ["Afsaneh means Goddess, divine and strong.", ...(checks.rows as { current?: string; pageContentHash?: string }[]).filter((c) => c.pageContentHash === checks.live).map((c) => c.current ?? "").filter(Boolean)] }]]); } })); /* THE PAGE CARRIES EVERY WORDING ITS CHECKS OBJECT TO (audit, 2026-09-14): a correction is authorized only while the words it replaces are still on the page, so the fixture page says them; the version hash is pinned below so a check bound to another version still fails as before. */
+vi.mock("@/domains/evidence/pages/fact-check-run", async (orig) => { const real = await orig<typeof import("@/domains/evidence/pages/fact-check-run")>(); return { ...real, pageHashOf: (body: string) => body.startsWith("Persian female names\nAfsaneh means Goddess, divine and strong.") ? checks.live : real.pageHashOf(body) }; });
 import { FACTUAL_DEFECTS } from "@/domains/decision/producers/factual-defects";
 import { loadChangeProposal, saveChangeProposal } from "@/domains/decision/proposal-store";
 import { openHold } from "@/domains/decision/completeness";
@@ -24,13 +25,12 @@ import { supabaseFake } from "../helpers/supabase-fake";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 Object.assign(db.client, supabaseFake({ rows: () => db.rows, insertDefaults: () => ({ created_at: "2026-07-01T00:00:00.000Z" }) }));
 const factualDefectCards = FACTUAL_DEFECTS.cards, reviewFactualBundle = FACTUAL_DEFECTS.review;
-import { pageHashOf } from "@/domains/evidence/pages/fact-check-run";
 import { VERIFICATION_RULES_VERSION } from "@/domains/evidence/pages/fact-checks";
 import { claimTypeOf, deriveSupport } from "@/domains/evidence/pages/claim-support";
 import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
 const NOW = new Date("2026-08-17T00:00:00.000Z");
 const PAGE = "https://x.example/persian-female-first-names";
-const LIVE_HASH = pageHashOf(["Persian female names", "Afsaneh means Goddess, divine and strong."].join("\n"));
+const LIVE_HASH = checks.live;
 const snapshot = { scope: { site: "x.example" }, ownedPages: [{ url: PAGE, search: { impressions90d: 100 } }] } as unknown as EvidenceSnapshot;
 /** EVERY FIXTURE EARNS ITS ARTIFACTS THE REAL WAY: each source's quote goes through the same deterministic derivation production runs, so a quote that genuinely carries its claim is supported and one that does not is refused. Nothing is hand-signed. */
 type Src = { url: string; kind: string; says: string; titleContext?: string; support?: unknown };
@@ -137,7 +137,7 @@ describe("a page's own statements against their sources", () => {
     expect(glossCarriedBy("Sea", ['darya means "sea"'])).toBe(true); });
 
   it("mints nothing off a stale page version, an unread source, history, or replaced verification rules", async () => {
-    for (const bad of [{ pageContentHash: "stale" }, { sourceReadAt: null }, { state: "history" }, { rulesVersion: 1 }]) { checks.rows = [check(bad)];
+    for (const bad of [{ pageContentHash: "stale", current: "Wording the page no longer carries." }, { sourceReadAt: null }, { state: "history" }, { rulesVersion: 1 }]) { checks.rows = [check(bad)]; // a stale version is a page that no longer carries the wording: the presence read is the binding now, not the projection hash
       expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards).toHaveLength(0); } });
   it("checks spread over more pages than one body read allows still mint, batch by batch", async () => {
     const wide = { scope: { site: "x.example" }, ownedPages: [{ url: PAGE, search: { impressions90d: 100 } }, ...Array.from({ length: 7 }, (_, i) => ({ url: `https://x.example/p${i}` }))] } as unknown as EvidenceSnapshot;

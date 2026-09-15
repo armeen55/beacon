@@ -6,12 +6,12 @@
  * Replaces the prior `.data/connector-tokens.json` file store, which crashed on Vercel post-deploy with `ENOENT: no such file or directory, open '/var/task/.data/connector-tokens.json.tmp'` — lambda FS is read-only post-init and `.data/` is gitignored.
  *
  * Provider keys (locked):
- * • `google_gsc` — Google Search Console (webmasters.readonly).
- * • `google_gbp` — Google Business Profile (business.manage).
- * • `google_ga4` — Google Analytics 4 (analytics.readonly). Slice 9.A1 — OAuth + Admin API property picker only; Data API consumption lands in Slice 9.A2.
- * • `yelp`      — Yelp Fusion API key.
+ * • `google_gsc`: Google Search Console (webmasters.readonly).
+ * • `google_ga4`: Google Analytics 4 (analytics.readonly).
+ * • `clarity`: Microsoft Clarity Data Export token.
+ * • `google_gbp`: a retired Business Profile grant. Nothing reads it; the row is deleted when Google is disconnected, and the key stays only so that delete and the OAuth callback's type comparisons compile.
  *
- * Two-token Google storage reflects Google's per-grant authorization model: refresh tokens are bound to the scope set granted at consent. A single "google" slot would force both scopes to live in one grant — the trust bug operators reported when GSC connect asked for GBP edit/create/delete permissions.
+ * Two-token Google storage reflects Google's per-grant authorization model: refresh tokens are bound to the scope set granted at consent, so each Google source holds its own grant.
  *
  * Posture:
  * • All public functions are `async`. Read + write go through the Supabase service-role admin client (`getSupabaseAdmin()`).
@@ -45,11 +45,9 @@ export type ConnectorProvider =
   | "google_gsc"
   | "google_gbp"
   | "google_ga4"
-  | "yelp"
-  | "callrail"
   | "clarity";
 
-/** Google OAuth token shape (GSC, GBP, or GA4 — discriminated by provider). */
+/** Google OAuth token shape (GSC or GA4, discriminated by provider; google_gbp only as a retired stored row). */
 export type GoogleConnectorToken = {
   provider: "google_gsc" | "google_gbp" | "google_ga4";
   access_token: string;
@@ -62,21 +60,20 @@ export type GoogleConnectorToken = {
   scopes: string[];
   /** ISO 8601 — last successful on-demand pull. */
   last_synced_at?: string;
-  /** GBP resource name of the selected location (e.g. "accounts/123/locations/456"). google_gbp only. */
+  /** Retired Business Profile fields, kept only so a stored legacy row still parses. */
   selected_location_id?: string;
-  /** Display name of the selected location — convenience only, never used for API calls. google_gbp only. */
   selected_location_name?: string;
-  /** GA4 property id (numeric string; e.g. "123456789"). Persisted on the google_ga4 token payload via JSONB extension — no schema migration. Selected by the operator on `/settings/connectors` after OAuth via the property-picker flow. google_ga4 only. Slice 9.A1 (2026-05-18). */
-  ga4_property_id?: string;
-  /** GA4 property display name — convenience only, never used for API calls. google_ga4 only. Slice 9.A1 (2026-05-18). */
-  ga4_property_display_name?: string;
-  /** GA4 account display name — convenience only, surfaced in the settings card alongside the property name. google_ga4 only. Slice 9.A1 (2026-05-18). */
-  ga4_account_display_name?: string;
+  /** GA4 property id (numeric string; e.g. "123456789"). Persisted on the google_ga4 token payload via JSONB extension, no schema migration. Selected by the operator on `/settings/connectors` after OAuth via the property-picker flow. google_ga4 only. Null clears it: the patch RPC merges JSONB, and JSON drops `undefined`, so only an explicit null ever reaches the row. */
+  ga4_property_id?: string | null;
+  /** GA4 property display name, convenience only, never used for API calls. google_ga4 only. */
+  ga4_property_display_name?: string | null;
+  /** GA4 account display name, convenience only, surfaced in the settings card alongside the property name. google_ga4 only. */
+  ga4_account_display_name?: string | null;
   /** J5 (2026-05-18) — ISO 8601 timestamp set when the operator clicks "Disconnect" on `/settings/connectors`. Soft disconnect: the token row stays in `connector_tokens` (cached historical state preserved) but `getConnectorInfo` reports `status: "disconnected"` and downstream connectors fail-soft as if no token. Reconnect via the OAuth callback upserts a fresh payload WITHOUT this field, naturally clearing the disconnect state. Absent on legacy rows (pre-J5). Applies to GSC + GA4 (GBP retains destructive delete path per Section 7 lock). */
   disconnected_at?: string;
   /** Reconnect signal (2026-06-15). ISO 8601 timestamp stamped by the GSC/GA4 sync paths when a sync TERMINATES in an auth failure — the refresh token itself is dead/revoked/scope-lost (gsc_token_expired, gsc_auth_failed_401/403, GA4 token_expired). This is the only authoritative "needs reconnect" signal: an `expires_at < now` alone is NOT, because the next refresh silently heals it. CLEARED (set to null) on a successful sync (synced:true, auth OK — even 0 rows). `getConnectorHealth` reads this to surface a "Reconnect" state. The write is fail-soft from the sync path (a token-write error never changes the sync's own outcome). Absent on legacy rows. google_gsc + google_ga4 only. */
   auth_failed_at?: string | null;
-  /** Bounded auth-failure escalation (2026-07-11, refresh-reliability BUG 2). ISO 8601 timestamp stamped when a source has failed N consecutive nightly syncs spanning >= M days WITHOUT ever proving the grant dead (only transient classifications, so auth_failed_at stayed null and the operator saw no reconnect prompt while data silently went stale). This is a distinct "needs attention" marker, NOT a revocation claim: the copy says "I have not been able to pull your data since <date>. Reconnecting usually fixes this." auth_failed_at (proven-dead) always OUTRANKS it. Cleared (null) on the next successful sync. Never set unless the failure pattern is durably bad, so a live grant is never falsely alarmed. google_gsc + google_ga4 only. */
+  /** Bounded auth-failure escalation (2026-07-11, refresh-reliability BUG 2). ISO 8601 timestamp stamped when a source has failed N consecutive nightly syncs spanning >= M days WITHOUT ever proving the grant dead (only transient classifications, so auth_failed_at stayed null and the operator saw no reconnect prompt while data silently went stale). This is a distinct "needs attention" marker, NOT a revocation claim: the copy says the pulls have failed since <date> and that reconnecting usually fixes it. auth_failed_at (proven-dead) always OUTRANKS it. Cleared (null) on the next successful sync. Never set unless the failure pattern is durably bad, so a live grant is never falsely alarmed. google_gsc + google_ga4 only. */
   needs_attention_at?: string | null;
   /** The date (ISO 8601) the failing streak began - the last time Beacon successfully pulled this source before the run of failures. Feeds the "since <date>" in the needs-attention copy. Only meaningful when needs_attention_at is set. */
   needs_attention_since?: string | null;
@@ -88,40 +85,18 @@ export type GoogleConnectorToken = {
   google_account_email?: string;
 };
 
-/** Yelp Fusion — API key (never sent to the client). */
-type YelpConnectorToken = {
-  provider: "yelp";
-  api_key: string;
-  connected_at: string;
-  /** Yelp Fusion business id or alias (may mirror Settings → Config). */
-  business_id: string;
-  last_synced_at?: string;
-};
-
-/** CallRail API — API token + account id (never sent to the client). Token-header auth (no OAuth). `account_id` scopes the calls endpoint (/v3/a/{account_id}/calls.json). Soft-disconnect via `disconnected_at` mirrors the other connectors so cached call attribution is preserved. */
-type CallRailConnectorToken = {
-  provider: "callrail";
-  api_key: string;
-  account_id: string;
-  connected_at: string;
-  last_synced_at?: string;
-  disconnected_at?: string;
-};
-
-/** Microsoft Clarity Data Export API — per-project bearer token (never sent to the client). Hard platform limits: 10 requests/day, 1-3 day lookback, no backfill — the nightly harvester budgets ONE pull/day and accumulates history locally (the research-note hedge). */
+/** Microsoft Clarity Data Export API, per-project bearer token (never sent to the client). Hard platform limits: 10 requests/day, 1-3 day lookback, no backfill, so the harvester budgets ONE pull/day and accumulates history locally. */
 type ClarityConnectorToken = {
   provider: "clarity";
   api_token: string;
   connected_at: string;
   last_synced_at?: string;
   disconnected_at?: string;
+  /** ISO 8601 instant before which the on-use refresh must not pull again: stamped 24 hours out when Clarity refused a pull (quota, rejected token, outage), cleared on the next successful pull. Ten requests a day is the whole budget. */
+  retry_after?: string | null;
 };
 
-type ConnectorToken =
-  | GoogleConnectorToken
-  | YelpConnectorToken
-  | CallRailConnectorToken
-  | ClarityConnectorToken;
+type ConnectorToken = GoogleConnectorToken | ClarityConnectorToken;
 
 /** "unknown" (2026-08-12) is the state the read path was missing: a store read that FAILED is not a disconnection. Nothing about the grant moved, so calling it "disconnected" told connected customers to connect, out of a Supabase blip. Consumers asking `status === "connected"` still get the same fail-soft answer; the surfaces can now say the honest thing instead of the false one. */
 type ConnectorStatus = "connected" | "disconnected" | "unknown";
@@ -129,13 +104,11 @@ type ConnectorStatus = "connected" | "disconnected" | "unknown";
 export type ConnectorInfo = {
   status: ConnectorStatus;
   connected_at: string | null;
-  /** OAuth access expiry (Google only); null for Yelp. */
+  /** OAuth access expiry (Google only); null for Clarity. */
   expires_at: number | null;
   last_synced_at: string | null;
-  /** GBP selected location resource name (google_gbp only). */
-  selected_location_id?: string | null;
-  /** GBP selected location display name (google_gbp only). */
-  selected_location_name?: string | null;
+  /** Clarity only: the on-use refresh holds off until this instant after a refused pull. */
+  retry_after?: string | null;
   /** GA4 selected property id (google_ga4 only). null when the operator has connected GA4 but not yet selected a property (mid-flow state on the settings card). Slice 9.A1 (2026-05-18). */
   ga4_property_id?: string | null;
   /** GA4 selected property display name (google_ga4 only). */
@@ -249,13 +222,6 @@ export async function getGoogleConnectorToken(
     : null;
 }
 
-export async function getYelpConnectorToken(
-  tenantId?: string,
-): Promise<YelpConnectorToken | null> {
-  const t = await getConnectorToken("yelp", tenantId);
-  return t != null && t.provider === "yelp" ? t : null;
-}
-
 export async function getConnectorInfo(
   provider: ConnectorProvider,
   tenantId?: string,
@@ -266,53 +232,44 @@ export async function getConnectorInfo(
   if (!read.ok) return { status: "unknown", ...empty };
   const token = read.token;
   if (token == null) return { status: "disconnected", ...empty };
-  if (
-    token.provider === "google_gsc" ||
-    token.provider === "google_gbp" ||
-    token.provider === "google_ga4"
-  ) {
-    // J5 (2026-05-18) — soft-disconnect: the row stays in `connector_tokens` so cached historical state is preserved, but `getConnectorInfo` reports `disconnected` when the `disconnected_at` field is set. The UI then shows the Connect button + the "Last refreshed at X days ago" tooltip.
-    const sharedFields = {
-      connected_at: token.connected_at,
-      expires_at: token.expires_at,
-      last_synced_at: token.last_synced_at ?? null,
-      // GBP convenience fields (null on non-GBP providers).
-      selected_location_id: token.selected_location_id ?? null,
-      selected_location_name: token.selected_location_name ?? null,
-      // GA4 convenience fields (null on non-GA4 providers). Slice 9.A1 (2026-05-18) — surfaced so the settings card can render the connected-with-property state without a second round-trip to the token store.
-      ga4_property_id: token.ga4_property_id ?? null,
-      ga4_property_display_name: token.ga4_property_display_name ?? null,
-      ga4_account_display_name: token.ga4_account_display_name ?? null,
-      // Reconnect signal (2026-06-15) — carried through so getConnectorHealth can surface a "Reconnect Google" state without a second token read. Null on healthy connections + non-Google providers.
-      auth_failed_at: token.auth_failed_at ?? null,
-      // Bounded escalation marker (2026-07-11, BUG 2), carried through so the connectors card can surface a needs-attention line for a source that has silently failed to pull for days without proving the grant dead.
-      needs_attention_at: token.needs_attention_at ?? null,
-      needs_attention_since: token.needs_attention_since ?? null,
-      needs_attention_kind: token.needs_attention_kind ?? null,
-      // Per-tenant OAuth (2026-07-09), the connected Google account email, surfaced as "Connected as <email>" on the card. Null on older grants.
-      google_account_email: token.google_account_email ?? null,
-    } as const;
-    if (token.disconnected_at != null && token.disconnected_at !== "") {
-      return {
-        status: "disconnected",
-        ...sharedFields,
-      };
-    }
+  if (token.provider === "clarity") {
+    // Clarity soft-disconnect mirrors the Google connectors: the row is preserved so cached data survives, but `disconnected` is reported when `disconnected_at` is set (UI shows Connect + last-synced).
+    const softDisconnected = token.disconnected_at != null && token.disconnected_at !== "";
     return {
-      status: "connected",
+      status: softDisconnected ? "disconnected" : "connected",
+      connected_at: token.connected_at,
+      expires_at: null,
+      last_synced_at: token.last_synced_at ?? null,
+      retry_after: token.retry_after ?? null,
+    };
+  }
+  // J5 (2026-05-18), soft-disconnect: the row stays in `connector_tokens` so cached historical state is preserved, but `getConnectorInfo` reports `disconnected` when the `disconnected_at` field is set. The UI then shows the Connect button + the "Last refreshed at X days ago" tooltip.
+  const sharedFields = {
+    connected_at: token.connected_at,
+    expires_at: token.expires_at,
+    last_synced_at: token.last_synced_at ?? null,
+    // GA4 convenience fields (null on non-GA4 providers). Slice 9.A1 (2026-05-18), surfaced so the settings card can render the connected-with-property state without a second round-trip to the token store.
+    ga4_property_id: token.ga4_property_id ?? null,
+    ga4_property_display_name: token.ga4_property_display_name ?? null,
+    ga4_account_display_name: token.ga4_account_display_name ?? null,
+    // Reconnect signal (2026-06-15), carried through so getConnectorHealth can surface a "Reconnect Google" state without a second token read. Null on healthy connections + non-Google providers.
+    auth_failed_at: token.auth_failed_at ?? null,
+    // Bounded escalation marker (2026-07-11, BUG 2), carried through so the connectors card can surface a needs-attention line for a source that has silently failed to pull for days without proving the grant dead.
+    needs_attention_at: token.needs_attention_at ?? null,
+    needs_attention_since: token.needs_attention_since ?? null,
+    needs_attention_kind: token.needs_attention_kind ?? null,
+    // Per-tenant OAuth (2026-07-09), the connected Google account email, surfaced as "Connected as <email>" on the card. Null on older grants.
+    google_account_email: token.google_account_email ?? null,
+  } as const;
+  if (token.disconnected_at != null && token.disconnected_at !== "") {
+    return {
+      status: "disconnected",
       ...sharedFields,
     };
   }
-  // CallRail soft-disconnect mirrors the Google connectors: the row is preserved so cached data survives, but we report `disconnected` when `disconnected_at` is set (UI shows Connect + last-synced).
-  const softDisconnected =
-    token.provider === "callrail" &&
-    token.disconnected_at != null &&
-    token.disconnected_at !== "";
   return {
-    status: softDisconnected ? "disconnected" : "connected",
-    connected_at: token.connected_at,
-    expires_at: null,
-    last_synced_at: token.last_synced_at ?? null,
+    status: "connected",
+    ...sharedFields,
   };
 }
 
@@ -448,8 +405,8 @@ async function deriveConnectorHealth(
         ...info,
         health: "needs_attention",
         healthReason: since
-          ? `I have not been able to pull Google data for this site since ${since}. Reconnect Google and I will start fresh from today.`
-          : "I have not been able to pull Google data for this site in a while. Reconnect Google and I will start fresh from today.",
+          ? `No Google data pulled for this site since ${since}. Reconnect Google to start fresh from today.`
+          : "No Google data pulled for this site in a while. Reconnect Google to start fresh from today.",
       };
     }
     // Streak escalation (2026-07-20): the source has failed N consecutive syncs (the "streak" kind). Lead with the day count when we can compute it from the last good sync (needs_attention_since), so the operator sees exactly how long it has been silent; fall back to the dated phrasing when there is no usable since date.
@@ -464,10 +421,10 @@ async function deriveConnectorHealth(
       health: "needs_attention",
       healthReason:
         daysStale != null
-          ? `This source has not synced in ${daysStale} day${daysStale === 1 ? "" : "s"}. I keep retrying, but it may need your attention.`
+          ? `Not synced in ${daysStale} day${daysStale === 1 ? "" : "s"} despite daily retries. Reconnect Google to fix it.`
           : since
-            ? `I have not been able to pull your data since ${since}. Reconnecting usually fixes this.`
-            : "I have not been able to pull your data for several days. Reconnecting usually fixes this.",
+            ? `Every pull has failed since ${since}. Reconnect Google, which usually fixes this.`
+            : "Every pull has failed for several days. Reconnect Google, which usually fixes this.",
     };
   }
 
@@ -504,7 +461,7 @@ async function deriveConnectorHealth(
   return { ...info, health: "connected", healthReason: null };
 }
 
-/** The read data-source connectors that, when ANY is connected, mean the tenant is operating on its own LIVE data — not demo/sample content. Derived from the ONE canonical connector registry (the four live connectors). Legacy providers (google_gbp rides the gsc grant, CallRail/Yelp are auxiliary) are not live sources, so they are not in the registry and never count toward "this is a real tenant". */
+/** The read data-source connectors that, when ANY is connected, mean the tenant is operating on its own LIVE data, not demo/sample content. Derived from the ONE canonical connector registry, so a retired google_gbp row never counts toward "this is a real tenant". */
 const REAL_DATA_SOURCE_PROVIDERS: LiveConnectorId[] = CONNECTOR_REGISTRY.map(
   (c) => c.id,
 );
@@ -632,32 +589,13 @@ type GoogleConnectorPatch = Partial<
     | "needs_attention_kind"
   >
 >;
-type YelpConnectorPatch = Partial<
-  Pick<YelpConnectorToken, "api_key" | "last_synced_at" | "business_id">
->;
-type CallRailConnectorPatch = Partial<
-  Pick<
-    CallRailConnectorToken,
-    "api_key" | "account_id" | "last_synced_at" | "disconnected_at"
-  >
->;
 type ClarityConnectorPatch = Partial<
-  Pick<ClarityConnectorToken, "api_token" | "last_synced_at" | "disconnected_at">
+  Pick<ClarityConnectorToken, "api_token" | "last_synced_at" | "disconnected_at" | "retry_after">
 >;
 
 export async function updateConnectorToken(
   provider: "google_gsc" | "google_gbp" | "google_ga4",
   patch: GoogleConnectorPatch,
-  tenantId?: string,
-): Promise<void>;
-export async function updateConnectorToken(
-  provider: "yelp",
-  patch: YelpConnectorPatch,
-  tenantId?: string,
-): Promise<void>;
-export async function updateConnectorToken(
-  provider: "callrail",
-  patch: CallRailConnectorPatch,
   tenantId?: string,
 ): Promise<void>;
 export async function updateConnectorToken(
@@ -667,11 +605,7 @@ export async function updateConnectorToken(
 ): Promise<void>;
 export async function updateConnectorToken(
   provider: ConnectorProvider,
-  patch:
-    | GoogleConnectorPatch
-    | YelpConnectorPatch
-    | CallRailConnectorPatch
-    | ClarityConnectorPatch,
+  patch: GoogleConnectorPatch | ClarityConnectorPatch,
   tenantId?: string,
 ): Promise<void> {
   const tid = await resolveTenantId(tenantId);
@@ -712,7 +646,7 @@ export async function updateConnectorToken(
     await saveConnectorToken(merged, tid);
     return;
   }
-  // Non-Google providers keep the app-side read-merge-write (no OAuth refresh-token race to guard against).
+  // Clarity keeps the app-side read-merge-write (no OAuth refresh-token race to guard against).
   const existing = await getConnectorToken(provider, tid);
   if (existing == null) return;
   if (existing.provider !== provider) return;

@@ -38,9 +38,9 @@ describe("the held content reaches the funded reader", () => {
     let shown = "";
     await readWinningPattern(held, ownedFacts(), "fixture", { complete: async ({ user }) => { shown = user; return { httpAttempts: 1, value: reading({ commonHeadings: [], commonEntities: [], ownedGaps: [], uniqueNotCommon: [] }) }; } });
     expect(held.map((f) => [f.hasSchema, f.scope])).toEqual([[true, "complete"], [false, "partial"], [null, "unknown"]]);
-    expect(shown).toContain(held[0]!.mainText!);
-    expect(shown).toContain('"scope":"partial"');
-    expect(shown).toContain('"schemaTypes":["FAQPage"]');
+    expect(shown).toContain(held[0]!.mainText!); expect(shown).toContain('"scope":"partial"'); expect(shown).toContain('"schemaTypes":["FAQPage"]');
+    const capture = (mainHtml: string, complete: boolean) => ({ version: 1 as const, mainHtml, complete, jsonLd: [] }), blocks = "<ul><li>Wool</li></ul><table><tr><td>Silk</td></tr></table>";
+    for (const [sourceCapture, vocabulary, cards, expected] of [[capture(blocks, true), "WoolSilk", [], [true, true]], [capture(blocks, false), "WoolSilk", [], [true, true]], [capture("<p>Wool</p>", true), "Wool", [], [false, false]], [capture("<p>Wool</p>", false), "Wool", [], [null, null]], [capture(blocks, true), "Different capture", [], [null, null]], [undefined, "Wool", [], [null, null]], [undefined, "Wool", ["Wool"], [null, null]]] as const) { const f = extractPageFacts([{ url: "https://mysite.example/rugs", body: { title: "Rugs", h1: "Rugs", headings: [], passages: [vocabulary], vocabulary, completeness: sourceCapture?.complete === false ? "partial" : "complete", cardTexts: cards, entityNames: [], sourceCapture } as never }])[0]!; const rival = extractPageFacts([{ url: "https://rival.example/rugs", extract: pageExtractFrom({ title: "Rugs", h1: "Rugs", word_count: 0, body_text: vocabulary, content_capture: sourceCapture, card_texts: [...cards], table_count: 999 }) }])[0]!; expect([[f.hasList, f.hasTable], [rival.hasList, rival.hasTable]], JSON.stringify(sourceCapture)).toEqual([expected, expected]); let input = ""; await readWinningPattern(facts(), f, "fixture", { cacheImpl: memoryCache(), complete: async ({ user }) => { input = user; return { httpAttempts: 1, value: reading({ ownedGaps: [] }) }; } }); expect(input).toContain(`"hasList":${expected[0]},"hasTable":${expected[1]}`); }
     expect(await readWinningPattern(facts(), { ...ownedFacts(), scope: "partial" }, "fixture", { complete: seam(reading()).complete })).toBeNull();
   });
 });

@@ -33,7 +33,7 @@ import { currentTenantSlug, slugForTenantId } from "@/lib/tenant-context";
 
 import { classifyStore, type StoreScope } from "./store-classification";
 
-const rootDataDir = (): string => join(process.cwd(), ".data");
+const rootDataDir = (): string => getDataDir(); // ONE root, honoured with tenant.ts
 const globalDir = (): string => join(rootDataDir(), "global");
 
 type ResolvedPath = {

@@ -1,7 +1,6 @@
-/** THE WHOLE RESEARCH-TO-CONTENT SEQUENCE IN ONE TEST CYCLE. The campaign debugged production by waiting for the next half-hour tick, so each round found
- *  only what the round before had opened. Every drive below is the REAL `runResearchCycle` over the REAL `defaultSteps`, with the clock advanced between
- *  drives instead of a scheduler waited on, the captured production rows seeded through the canonical stores, and the three providers answered from a
- *  script. Nothing here is a second runtime and nothing is marked Ready by hand: what an arm asserts, the shipped code decided. */
+/** Native research-to-content tests use the real runtime/default steps and canonical stores behind scripted I/O.
+ * Clock advances instead of waiting for cron; direct acquisition controls isolate exact-record refresh.
+ * No artifact is marked Ready by hand. These simulations do not certify hosted execution or model quality. */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { publicationDraft } from "../helpers/publication-draft";
 
@@ -130,7 +129,7 @@ describe("the owed results page, bought once and finished for nothing", () => {
 
 describe("the winners of a search on file", () => {
   it("5 and 6: the due-work receipt and the reading unit agree on what is owed, the words are retained, and a capture that was cut keeps its typed answer", async () => {
-    const held = fixture<FixtureWinner[]>("winners.json").filter((w) => !w.extract);
+    const held = fixture<FixtureWinner[]>("winners.json").filter((w) => !w.extract).map((w) => w.readOutcome ? { ...w, readOutcome: { ...w.readOutcome, retryAfter: new Date(clock.ms + 86_400_000).toISOString() } } : w);
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: held });
     script.search = searchScript({ ready: true, posts: 0 });
 
@@ -147,7 +146,7 @@ describe("the winners of a search on file", () => {
     expect(cut.map((w) => (w.readOutcome as { state?: string }).state).sort(), "a capture that was cut carries the reason it was cut, typed, and is not silently dropped")
       .toEqual(["provider_unavailable", "robots_blocked", "robots_blocked"]);
     expect(cut.every((w) => !meter.requests.some((q) => q.url === w.url)), "and nothing fetched it again before its own retry date").toBe(true);
-    expect(meter.paidUsd, "reading a public page is a polite free fetch, so the winner reads cost nothing").toBe(0);
+    expect(meter.paidUsd, "reading a public page is a polite free fetch, so the winner reads cost nothing").toBe(0); advance(86_400_001); const expired = await dueWork(T, now()); expect(expired.winners.unread, "each refused reading becomes due only when its promised retry date arrives").toBe(3); expect(expired.due).toContain("read_winner_pages");
   });
 
   /** A READING IS NEVER EVICTED BY A RANKING (production, 2026-09-06). The winners array was rebuilt from the ranked window on every pass, so the pages read for one search were thrown away as soon as this account's other searches competed for the same fifteen slots: the row that needed them read "none of the pages winning it has been read", bought the readings again, and lost them again. On the captured rows: five searches, four readings on file, one pass, and three of the four lost under the rule this replaces. */
@@ -164,7 +163,7 @@ describe("the winners of a search on file", () => {
 });
 
 describe("the reading the comparison names", () => {
-  /* RETIRED WITH SHIP MODE (operator, 2026-09-10): this case pinned the economy where a taste refusal minted the evidence hop; the fact-pass wiring it exercised stays proven by the unit cases (the anchored window, the sections digest, the banked excerpts) and by case 20. Parked. */
+  // Known refresh replaces the retired discovery-era test; the separate new-question window control remains below.
 it.skip("7: the drive buys the exact reading the refusal named and drafts again in the same turn", async () => {
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     script.search = searchScript({ ready: true, posts: 0 });
@@ -211,7 +210,7 @@ describe("the finished work, and recording that the operator applied it", () => 
       "and the reading of those words is given the copy itself and the claims it declared, not a summary of them").toEqual([true, true, true]);
 
     const rows = [...(await loadChangeProposals(T)).values()].filter((r) => (r.pagePath ?? "") === HUB);
-    expect(rows.map((r) => r.status), "one change stands for the page, and the copy the drive wrote survives a reload as work the operator can act on").toEqual(["ready"]);
+    expect(rows.map((r) => [r.status, nextObligation(r)]), "the finished change reloads as Ready with no remaining operator obligation").toEqual([["ready", null]]);
     const change = rows[0]!.recommendedChange;
     expect(change.kind === "existing_edit" && change.after.includes("poets, athletes and screen actors"),
       "and what reloads is the finished copy itself, not a note about it").toBe(true);
@@ -349,28 +348,40 @@ describe("the subject the winning page carries and this page does not", () => {
     if (path.startsWith("on_page/content_parsing")) { state.parsed.push(String((payload as { url?: string }[] | null)?.[0]?.url ?? ""));
       return { body: { status_code: 20000, cost: 0.002, tasks: [{ status_code: 20000, result: [{ items: [{ page_content: { main_topic: [{ main_title: "List of Iranians", h_title: SUBJECT, primary_content: [{ text: SAYS }] }] } }] }] }] } }; }
     return searchScript(state)(path); };
-  /* RETIRED WITH SHIP MODE (operator, 2026-09-10): this case pinned the economy where a taste refusal minted the evidence hop; the fact-pass wiring it exercised stays proven by the unit cases (the anchored window, the sections digest, the banked excerpts) and by case 20. Parked. */
-it.skip("15: the missing subject is researched in the frame of the row's own search, from the winner that carries it, in one acquisition that buys no search, and what it banks is evidence the writer it then hires may stand on", async () => {
+  it.each(["missing", "published", "legacy", "cached", "partial", "expired", "undated"] as const)("15: refreshes the exact known %s finding despite a broader query, and reuses it without another provider call", async (mode) => {
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     const state = { ready: true, posts: 0, parsed: [] as string[] }; script.search = factScript(state);
+    script.page = (url) => url === RIVAL ? { html: `<html><head><title>List of Iranians</title></head><body><main><h1>List of Iranians</h1><h2>${SUBJECT}</h2><p>${SAYS}</p></main></body></html>` } : pageScript(url);
+    const sourceAt = new Date(now().getTime() - 60_000).toISOString(); if (["cached", "partial", "expired", "undated"].includes(mode)) { const { writePublicPageExtract } = await import("@/domains/evidence/dataforseo/page-extract-cache"); await writePublicPageExtract(RIVAL, { title: "List of Iranians", headings: [SUBJECT], mainText: SAYS, wordCount: 24, truncated: mode === "partial", heldChars: SAYS.length, totalChars: mode === "partial" ? SAYS.length + 10_000 : SAYS.length }, "known-source-body"); const entry = table("evidence_cache").find(r => r.endpoint === "public/page_extract")!; (entry.payload as { fetched_at: string }).fetched_at = mode === "undated" ? "" : sourceAt; if (mode === "expired") entry.expires_at = sourceAt; }
     script.reasoning = (body) => reasoningReply({ ...REASONING, fact_claim_extraction: { statements: [] },
       fact_claim_judgement: { verdict: "page_correct", proposed: SAYS, confidence: "confirmed", note: "", supporting: [{ url: RIVAL, quote: SAYS, groups: [], supported: true, supportSpan: SAYS, subjectSpan: `${QUERY} ${SUBJECT}`, subjectFrom: "quote", relationSpan: "", meaningSpans: [] }],
         subjects: [{ url: RIVAL, sameEntity: true, language: "English", script: null, why: "the article covers the people this subject is about" }] } }, body);
-    const need = { key: `${HUB}::body::${QUERY}`, kind: "factual_source", query: `${SUBJECT} ${QUERY}`, url: `https://${SITE}${HUB}`, missingTopic: SUBJECT, rivalUrl: RIVAL, rank: 1,
-      reasonCode: "missing_information", reason: `nothing checked on file answers "${SUBJECT}"`, workKey: `${HUB}::body::${QUERY}::wc5::e1`, unlocks: { proposalId: `${T}::${HUB}::existing_edit::demand_recovery`, step: "draft" } };
-
-    const run = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need] });
-
-    const mine = acquisitions(run).filter((a) => a.kind === "factual_source");
-    expect([mine.length, mine[0]?.outcome, state.parsed, state.posts],
-      "one acquisition serves the row: the winner the requirement named is the one page read for it, and no results page is bought to rediscover a page the row already names").toEqual([1, "unlocked", [RIVAL], 0]);
-    const banked = table("page_source_facts").filter((r) => String(r.subject ?? "").toLowerCase().includes(SUBJECT.toLowerCase()));
-    expect([banked.length, banked[0]?.subject, banked[0]?.claim_state, banked[0]?.proposed, (banked[0]?.sources as { url: string }[] | undefined)?.map((x) => x.url)],
-      "and what is banked is the missing subject carried in the frame of the search the row is about, answered in the winner's own words with the winner named behind it").toEqual([1, `${QUERY} ${SUBJECT}`, "checked", SAYS, [RIVAL]]);
-    const held = await readFactChecks(T), body = (await loadOwnedPageBodies(T, [`https://${SITE}${HUB}`])).get(canonicalUrlKey(`https://${SITE}${HUB}`))!;
-    const version = pageHashOf([body.title, body.h1, ...(body.headings ?? []), ...(body.passages ?? [])].filter(Boolean).join("\n"));
-    expect([authorizedCorrections(held, { pageContentHash: version, evidenceBasis: await resolveCurrentBasis(T) }, T).map((f) => f.subject), reasoningAsked.some((a) => a.kind === "body_edit"), reasoningAsked.filter((a) => a.kind === "body_edit").some((a) => /\bfact-1\b/.test(a.ask) && a.ask.includes(SAYS))],
-      "the fact stands against the page as this drive read it and under the basis the drafting pass works in, so it is evidence a writer's packet may carry under a fact-* id; the row's next step on this same drive is that writer; and the writer hired for this hub page is handed that fact under fact-1 in the winner's own words (journey review, 2026-09-06: the editor the bundle producer hires was handed sibling passages alone)").toEqual([[`${QUERY} ${SUBJECT}`], true, true]);
+    const url = `https://${SITE}${HUB}`, owner = (await loadOwnedPageBodies(T, [url])).get(canonicalUrlKey(url))!, evidenceBasis = await resolveCurrentBasis(T);
+    const current = mode === "published" ? owner.passages[0]! : "", locator = mode === "published" ? owner.h1 : "missing";
+    const key = mode === "legacy" ? "scientists" : claimIdentity(SUBJECT, current, locator), hash = pageHashOf([owner.title, owner.h1, ...owner.headings, ...owner.passages].filter(Boolean).join("\n"));
+    const facts = await import("@/domains/evidence/pages/fact-checks"); await facts.recordOwedClaims(T, HUB, [{ statementKey: key, subject: SUBJECT, current, locator }], hash, evidenceBasis);
+    if (mode === "published") await facts.recordFactChecks(T, HUB, [{ ...(await readFactChecks(T)).find(f => f.statementKey === key)!, state: "superseded", pageContentHash: "older-owned-version", evidenceBasis: "older-basis", rulesVersion: 0 }]);
+    const need = { kind: "factual_source" as const, query: `${SUBJECT} ${QUERY}`, url, missingTopic: SUBJECT, rivalUrl: RIVAL, reasonCode: "source_support_unconfirmed", finding: { tenantId: T, page: HUB, statementKey: key } };
+    const first = await defaultSteps.acquireEvidence(T, need, evidenceBasis, 90_000);
+    const held = await readFactChecks(T), original = held.find(f => f.statementKey === key);
+    expect([first.acquired, original?.state, original?.subject, original?.current, original?.pageLocator, original?.statementKey, held.length],
+      "Only the originating statement settles; no empty-current or query-expanded replacement is invented.").toEqual([true, "checked", SUBJECT, current, locator, key, 1]);
+    expect(first.unlocked).toBe(mode !== "published");
+    expect([original?.pageContentHash, original?.evidenceBasis, original?.rulesVersion, original?.sourceReadAt != null]).toEqual([hash, evidenceBasis, rulesVersionFor({ subject: SUBJECT, current }), true]);
+    expect([state.parsed.length, mode === "cached" ? original?.sourceReadAt : sourceAt], "A complete dated source is reused without parsing; partial or expired evidence cannot masquerade as that complete read, and cached source age is not reset.").toEqual([mode === "cached" ? 0 : 1, sourceAt]);
+    const count = reasoningAsked.length, parsed = [...state.parsed], posts = state.posts;
+    expect(await defaultSteps.acquireEvidence(T, need, evidenceBasis, 90_000)).toMatchObject({ acquired: true, unlocked: first.unlocked });
+    for (const axis of [{ tenantId: "foreign-tenant" }, { page: "/another-owner" }, { statementKey: "not-inventoried" }]) expect(await defaultSteps.acquireEvidence(T, { ...need, finding: { ...need.finding, ...axis } }, evidenceBasis, 90_000)).toMatchObject({ acquired: false });
+    expect([reasoningAsked.length, state.parsed, state.posts]).toEqual([count, parsed, posts]);
+    if (mode === "published") {
+      const missing = claimIdentity(SUBJECT, "", "missing"); await facts.recordOwedClaims(T, HUB, [{ statementKey: missing, subject: SUBJECT, current: "", locator: "missing" }], hash, evidenceBasis);
+      const run = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [{ ...need, key: `${HUB}::known-published`, workKey: "known-published", rank: 1 }, { ...need, finding: { ...need.finding, statementKey: missing }, key: `${HUB}::known-missing`, workKey: "known-missing", rank: 2 }] });
+      expect([(await readFactChecks(T)).find(f => f.statementKey === missing)?.state, acquisitions(run).filter(a => a.kind === "factual_source" && a.key.includes("::known-")).map(a => a.outcome)]).toEqual(["checked", ["read_not_usable", "unlocked"]]);
+      const calls = reasoningAsked.length, reads = [...state.parsed], snapshot = table("page_snapshots").find(r => r.url === url)!;
+      Object.assign(snapshot, { body_text: "Current content no longer carries the original claimed passage.", body_paragraph_sample: [], h1: "An updated published title", content_hash: "new-body-version" });
+      expect(await defaultSteps.acquireEvidence(T, need, evidenceBasis, 90_000)).toMatchObject({ acquired: false });
+      expect([reasoningAsked.length, state.parsed, (await readFactChecks(T)).find(f => f.statementKey === key)?.current]).toEqual([calls, reads, current]);
+    }
   });
 });
 
@@ -387,6 +398,7 @@ describe("the section the winner carries, read where it starts", () => {
   it("16: the winner's own heading opens the source window on its section, past an introduction the search's words are densest in, so the judge reads the words under the heading and not the page's opening", async () => {
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     const state = { ready: true, posts: 0, parsed: [] as string[] }; script.search = longPage(state);
+    script.page = (url) => url === RIVAL ? { html: `<html><head><title>List of Iranians</title></head><body><main><h1>List of Iranians</h1><h2>Introduction</h2><p>${INTRO}</p><h2>${SUBJECT}</h2><p>${SAYS}</p></main></body></html>` } : pageScript(url);
     script.reasoning = (body) => reasoningReply({ ...REASONING, fact_claim_extraction: { statements: [] },
       fact_claim_judgement: { verdict: "page_correct", proposed: SAYS, confidence: "confirmed", note: "", supporting: [{ url: RIVAL, quote: SAYS, groups: [], supported: true, supportSpan: SAYS, subjectSpan: `${QUERY} ${SUBJECT}`, subjectFrom: "quote", relationSpan: "", meaningSpans: [] }],
         subjects: [{ url: RIVAL, sameEntity: true, language: "English", script: null, why: "the article covers the people this subject is about" }] } }, body);
@@ -400,22 +412,7 @@ describe("the section the winner carries, read where it starts", () => {
     expect(acquisitions(run).filter((a) => a.kind === "factual_source").map((a) => a.outcome), "and the reading lands as usable evidence on the first attempt").toEqual(["unlocked"]);
   });
 
-  /* RETIRED WITH SHIP MODE (operator, 2026-09-10): this case pinned the economy where a taste refusal minted the evidence hop; the fact-pass wiring it exercised stays proven by the unit cases (the anchored window, the sections digest, the banked excerpts) and by case 20. Parked. */
-it.skip("18: when the judge names the group a section is about, the words the winner keeps under that heading reach the writer under the fact they belong to", async () => {
-    seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
-    const state = { ready: true, posts: 0, parsed: [] as string[] }; script.search = longPage(state);
-    script.reasoning = (body) => reasoningReply({ ...REASONING, fact_claim_extraction: { statements: [] },
-      fact_claim_judgement: { verdict: "page_correct", proposed: SAYS, confidence: "confirmed", note: "", supporting: [{ url: RIVAL, quote: SAYS, groups: [SUBJECT], supported: true, supportSpan: SAYS, subjectSpan: `${QUERY} ${SUBJECT}`, subjectFrom: "quote", relationSpan: "", meaningSpans: [] }],
-        subjects: [{ url: RIVAL, sameEntity: true, language: "English", script: null, why: "the article covers the people this subject is about" }] } }, body);
-    const need = { key: `${HUB}::body::${QUERY}`, kind: "factual_source", query: `${SUBJECT} ${QUERY}`, url: `https://${SITE}${HUB}`, missingTopic: SUBJECT, rivalUrl: RIVAL, rank: 1,
-      reasonCode: "missing_information", reason: `nothing checked on file answers "${SUBJECT}"`, workKey: `${HUB}::body::${QUERY}::wc5::e1`, unlocks: { proposalId: `${T}::${HUB}::existing_edit::demand_recovery`, step: "draft" } };
-    await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need] });
-    const banked = (await readFactChecks(T)).find((h) => h.subject === `${QUERY} ${SUBJECT}`), writer = reasoningAsked.filter((a) => a.kind === "body_edit").map((a) => a.ask).join("\n");
-    expect([banked?.sources[0]?.groups, banked?.sources[0]?.groupExcerpts?.map((e) => e.heading), new RegExp(`under its heading \\\\?"${SUBJECT}\\\\?" says \\\\?"${SAYS.slice(0, 60)}`).test(writer), /\bfact-1\b/.test(writer)],
-      "the group the judge named is banked with the winner's own words under that heading, ordered ahead of the introduction, and the writer hired on this same drive is handed those words under fact-1 rather than the one sentence the judge quoted").toEqual([[SUBJECT], [SUBJECT, "Introduction"], true, true]);
-  });
 
-  /* RETIRED WITH SHIP MODE (operator, 2026-09-10): this case pinned the economy where a taste refusal minted the evidence hop; the fact-pass wiring it exercised stays proven by the unit cases (the anchored window, the sections digest, the banked excerpts) and by case 20. Parked. */
 it.skip("17: a subject judged undecidable before the anchor existed, whose passages carried no word of it, is read once more where its heading starts and then never re-read", async () => {
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     const state = { ready: true, posts: 0, parsed: [] as string[] }; script.search = longPage(state);

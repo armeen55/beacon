@@ -1,5 +1,14 @@
 import { defineConfig } from "vitest/config";
-import { resolve } from "node:path";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+
+/** EVERY FILE STORE A TEST TOUCHES LIVES IN A PER-RUN TEMP DIRECTORY (2026-09-14). DATA_SOURCE=file made json-store write to
+ * ./.data on disk, and an unmocked store write blanked the operator's real results surface. The hydrate hook fills this
+ * directory from tests/fixtures/ci-data and removes it at teardown; set here, in the main process, so the hook and
+ * every worker read the same path. */
+const DATA_DIR = process.env.BEACON_DATA_DIR?.trim() || mkdtempSync(join(tmpdir(), "beacon-vitest-"));
+process.env.BEACON_DATA_DIR = DATA_DIR;
 
 export default defineConfig({
   resolve: {
@@ -16,14 +25,10 @@ export default defineConfig({
     fileParallelism: true,
     maxWorkers: 4,
     testTimeout: 30_000,
-    /**
-     * Hydrates a small synthetic `.data/` fixture in CI when the operator's
-     * curated `.data/` is absent. Local dev with a real `.data/` is detected
-     * by the presence of `.data/global/tenants.json` and is left untouched.
-     * See tests/setup/global-fixture-hydrate.ts for the full guard logic.
-     */
+    /** Hydrates the synthetic fixture tree into the per-run data directory above; the operator's real `.data/` is never read or written. */
     globalSetup: ["tests/setup/global-fixture-hydrate.ts"],
     env: {
+      BEACON_DATA_DIR: DATA_DIR,
       // Quota/waste guard (2026-06-17): `npm test` is HERMETIC by default — it
       // must never touch a hosted Supabase (the dev/prod boundary failure that
       // burned prod egress). Force file mode + blank Supabase creds so every

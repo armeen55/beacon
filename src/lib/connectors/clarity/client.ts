@@ -29,6 +29,11 @@ import { log } from "@/lib/logger";
 const ENDPOINT =
   "https://www.clarity.ms/export-data/api/v1/project-live-insights";
 
+/** Why a pull returned nothing: `no_token` (nothing connected, a benign skip), `http_429` (the 10 pulls a day are used up), `http_401` (the saved token was rejected), `api_error` (anything else). The sync stamps a 24 hour retry-after on every reason but `no_token`. */
+type ClarityFetchResult =
+  | { ok: true; metrics: ClarityUrlMetrics[] }
+  | { ok: false; reason: "no_token" | "http_429" | "http_401" | "api_error" };
+
 type ClarityUrlMetrics = {
   url: string;
   sessions: number;
@@ -77,7 +82,7 @@ function urlField(row: Record<string, unknown>): string | null {
  *  per refresh, never fetched in bulk. */
 export async function fetchClarityUrlMetrics(args: {
   tenantId: string;
-}): Promise<ClarityUrlMetrics[] | null> {
+}): Promise<ClarityFetchResult> {
   const token = await getConnectorToken("clarity", args.tenantId);
   if (
     token == null ||
@@ -85,7 +90,7 @@ export async function fetchClarityUrlMetrics(args: {
     !token.api_token ||
     (token.disconnected_at != null && token.disconnected_at !== "")
   ) {
-    return null;
+    return { ok: false, reason: "no_token" };
   }
   let raw: RawMetric[];
   try {
@@ -98,15 +103,15 @@ export async function fetchClarityUrlMetrics(args: {
     );
     if (!res.ok) {
       log.warn("[clarity-client] non-2xx", { status: res.status });
-      return null;
+      return { ok: false, reason: res.status === 429 ? "http_429" : res.status === 401 ? "http_401" : "api_error" };
     }
     raw = (await res.json()) as RawMetric[];
-    if (!Array.isArray(raw)) return null;
+    if (!Array.isArray(raw)) return { ok: false, reason: "api_error" };
   } catch (err) {
     log.warn("[clarity-client] fetch failed", {
       error: err instanceof Error ? err.message : String(err),
     });
-    return null;
+    return { ok: false, reason: "api_error" };
   }
 
   const byUrl = new Map<string, ClarityUrlMetrics>();
@@ -156,5 +161,5 @@ export async function fetchClarityUrlMetrics(args: {
       }
     }
   }
-  return [...byUrl.values()];
+  return { ok: true, metrics: [...byUrl.values()] };
 }

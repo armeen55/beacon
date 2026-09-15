@@ -52,10 +52,6 @@ import "server-only";
  *   the host, and strips trailing slashes. This mirrors the
  *   canonical Website shape
  *   for `business-config.domain`.
- *
- * Pinned by:
- *   • tests/lib/connectors/ga4/normalize-page-path.test.ts
- *   • tests/architecture/ga4-url-traffic-stored-as-full-url.test.ts
  */
 
 /**

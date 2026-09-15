@@ -179,13 +179,15 @@ export async function recordOwedClaims(tenantId: string, page: string,
   return rows.length;
 }
 
-/** THE PAGE MOVED ON. Every row held for another version, and every row whose objectionable wording is gone,
- *  becomes `superseded`: history, never a live instruction. Nothing is deleted and no wording is rewritten. */
+/** THE PAGE MOVED ON. Every row whose objectionable wording is gone becomes `superseded`: history, never a live
+ *  instruction. THE WORDING IS THE IDENTITY, NEVER THE READER'S HASH (2026-09-14): the stamped hash is a hash of the
+ *  reader projection, which moves whenever the capture is read differently, and a hash-inequality rule here would
+ *  have retired all 974 checked facts on the account the day the structured capture landed. The hash rides on the
+ *  row for reporting only. Nothing is deleted and no wording is rewritten. */
 export async function supersedeStaleFacts(tenantId: string, page: string, pageContentHash: string,
   stillPresent: (current: string) => boolean): Promise<number> {
   const held = await readFactChecks(tenantId, page);
-  const stale = held.filter((h) => h.state !== "superseded"
-    && (h.pageContentHash !== pageContentHash || !stillPresent(h.current)));
+  const stale = held.filter((h) => h.state !== "superseded" && h.current.trim() !== "" && !stillPresent(h.current));
   if (stale.length === 0) return 0;
   const at = new Date().toISOString();
   const { error } = await getSupabaseAdmin().from(TABLE).upsert(stale.map((g) => ({
@@ -337,8 +339,13 @@ export function unauthorizedReason(c: CorrectionCandidate): string | null {
   return null;
 }
 
+/** THE PAGE VERSION A CORRECTION IS HELD AGAINST IS ITS OWN WORDING ON THE PAGE'S CURRENT BODY (2026-09-14), never
+ *  the projection hash: a caller that hands the body over binds every correction to wording the body still carries;
+ *  a caller naming a version without the body waives the presence read (the next fact-check pass supersedes what
+ *  left the page); a caller naming neither has not read the page and authorizes nothing against it. */
+const wordingOn = (body: string, current: string): boolean => body.toLowerCase().includes(current.trim().toLowerCase());
 export function authorizedCorrections(checks: readonly FactCheck[],
-  current: { pageContentHash: string | null; evidenceBasis?: string | null } | undefined,
+  current: { pageContentHash: string | null; evidenceBasis?: string | null; body?: string } | undefined,
   tenantId: string): FactCheck[] {
   return checks.filter((c) => (c.state === "checked"
     && c.rulesVersion === rulesVersionFor(c)
@@ -358,7 +365,8 @@ export function authorizedCorrections(checks: readonly FactCheck[],
     // stand only on a source whose current artifact carries this proposal, so a passage that merely discusses
     // the subject authorizes nothing. Missing-information rows keep their own contract inside the shortfall.
     && supportShortfall(c, tenantId) == null
-    && (!current || (c.pageContentHash != null && c.pageContentHash === current.pageContentHash
+    && (!current || (c.pageContentHash != null
+      && (current.body === undefined ? !!current.pageContentHash : c.current.trim() === "" || wordingOn(current.body, c.current)) /* an empty-string hash is no hash: nothing is authorized without a body or a real version (audit, 2026-09-14) */
       && (current.evidenceBasis === undefined || (c.evidenceBasis ?? null) === (current.evidenceBasis ?? null))))));
 }
 

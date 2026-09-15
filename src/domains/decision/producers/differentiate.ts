@@ -20,6 +20,7 @@
 
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { BundleComponent } from "../contracts";
+import { COPY_RULES } from "../copy-sanitize";
 import { log } from "@/lib/logger";
 import { topicTokens } from "@/domains/evidence/relevance-gate";
 import { effortMinutesFor } from "./contract"; import type { Produced, ProducerCtx } from "./contract";
@@ -55,7 +56,7 @@ export async function produceDifferentiation(ctx: ProducerCtx, named: readonly s
     const subject = (body.h1 ?? body.title ?? ctx.primary).replace(/\s+/g, " ").trim();
     for (const field of ["title", "h1", "answer_block"] as const) {
       const done = await ctx.draft.pageField({
-        field, body, query: subject, minutes: effortMinutesFor(field === "answer_block" ? "opening_answer" : field),
+        field, body, delivery: field === "answer_block" ? "opening" : undefined, query: subject, minutes: effortMinutesFor(field === "answer_block" ? "opening_answer" : field),
         // THE PROVEN OWNER OF THE SEARCH IS NEVER STEERED OFF IT. Told to write every page "narrower than" the
         // shared search, the drafter took "Girl Names" out of the title of the page whose own strongest search is
         // "persian girl names": the card would have cost the operator the very clicks it was measured on. The
@@ -84,9 +85,9 @@ export async function produceDifferentiation(ctx: ProducerCtx, named: readonly s
       const label = field === "title" ? "Page title" : field === "h1" ? "Page heading" : "Opening lines";
       components.push({
         kind: field === "title" ? "title" : field === "h1" ? "h1" : "opening_answer",
-        label: `${label} on ${path}`, page: path, before: done.before, after: done.after,
+        label: `${label} on ${path}`, page: path, before: done.before, after: done.after, units: done.units, target: done.target,
         evidenceKeys: [...ctx.finding.evidenceKeys], risk: "safe",
-        where: field === "answer_block" ? `the top of ${path}, ${done.anchor ? `just before "${done.anchor}"` : "before its first section"}` : `the ${label.toLowerCase()} of ${path}`,
+        where: done.target ? COPY_RULES.where(done.target) : field === "answer_block" ? `the top of ${path}, ${done.anchor ? `just before "${done.anchor}"` : "before its first section"}` : `the ${label.toLowerCase()} of ${path}`,
         objective: `Say on ${path} which search it answers, so it stops competing with ${others(path)}.`,
         mechanism: `Google is choosing between ${count(pages.length)} pages of this site for "${ctx.primary}" every time somebody runs it, and no address may move because each of these pages answers a search the others do not, so the only thing left is to say so on every one of them.`,
         measurementPlan: `Clicks and average position for "${ctx.primary}" across all ${count(pages.length)} addresses, read at 7, 14 and 28 days after you publish them.`,
@@ -110,4 +111,3 @@ export async function produceDifferentiation(ctx: ProducerCtx, named: readonly s
       ...[...verdicts.values()].filter((v) => v.verdict === "keep_as_is").map((v) => `Leave ${v.page} exactly as it is: nothing came back for it that would not narrow it off a subject its siblings do not cover`),
       `Come back here and mark it done, and clicks and average position for "${ctx.primary}" get read across all ${count(pages.length)} addresses`] };
 }
-

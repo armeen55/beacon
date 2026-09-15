@@ -7,7 +7,7 @@
  *
  * NO live Google call, no new sync, no migration, no writes. The property it reports is the one the LAST sync actually wrote rows under — derived from the tenant's own data, never hardcoded. Fail-soft EVERYWHERE: a no-env / missing- table / read error degrades to a coherent verdict (never throws), so a render is never blocked.
  *
- * Coverage source — `gsc_daily_rows` (migration 2026-06-12_gsc_search_analytics.sql): columns: tenant_id, property, date, page, query, clicks, impressions, ctr, position, is_final, pulled_at; PK (tenant_id, property, date, page, query). We read `property`, `date`, and a row `count` for the tenant. When more than one property has rows (e.g. a property-shape changed between syncs), we report the one with the most RECENT data + that property's own row count.
+ * Coverage source: `gsc_daily_rows` (migration 2026-06-12_gsc_search_analytics.sql): columns: tenant_id, property, date, page, query, clicks, impressions, ctr, position, is_final, pulled_at; PK (tenant_id, property, date, page, query). The read is a HEAD count plus the oldest and newest rows; the property reported is the one the newest row was written under.
  */
 
 import "server-only";
@@ -64,14 +64,33 @@ type CoverageRead =
       toDate: string;
       rowCount: number;
     }
-  // HEAD count proved rows EXIST, but the (property,date) span read failed or timed out (a large gsc_daily_rows table). We must NOT report "no data yet" in this case — data is present, only its date span is unavailable.
+  // HEAD count proved rows EXIST, but the date-span reads failed (a large gsc_daily_rows table). Never report "no data yet" in this case: data is present, only its span is unavailable.
   | { spanUnknown: true; rowCount: number }
   | null;
 
+/** The oldest or newest (property, date) row for a tenant: one indexed, single-row read, the same shape as `min(date)` / `max(date)` without an aggregate. Null on error or no rows. */
+async function edgeRow(
+  admin: ReturnType<typeof getSupabaseAdmin>,
+  tenantId: string,
+  newest: boolean,
+): Promise<{ property: string; date: string } | null> {
+  const { data, error } = await admin
+    .from(GSC_DAILY_ROWS_TABLE)
+    .select("property,date")
+    .eq("tenant_id", tenantId)
+    .order("date", { ascending: !newest })
+    .limit(1);
+  if (error != null || !Array.isArray(data) || data.length === 0) return null;
+  const r = data[0] as { property?: unknown; date?: unknown };
+  return typeof r.property === "string" && typeof r.date === "string"
+    ? { property: r.property, date: r.date.slice(0, 10) }
+    : null;
+}
+
 /**
- * Read the synced-row coverage for the tenant, tenant-scoped. Returns the property with the MOST RECENT data (plus that property's row count + date span), or null when there are no rows / no Supabase env / the table is undefined. Fail-soft: any error → null (the caller maps that to a coherent verdict, never throws).
+ * Read the synced-row coverage for the tenant, tenant-scoped: the total row count (HEAD only) plus the oldest and newest dates. Null when there are no rows / no Supabase env / the table is undefined. Fail-soft: any error → null (the caller maps that to a coherent verdict, never throws).
  *
- * No aggregate RPC: we read (property, date) projected rows tenant-scoped and fold them in memory — `count: "exact"` gives the total without pulling the heavy metric columns. The (tenant_id, page, date desc) index keeps the ordered read cheap.
+ * Until 2026-09-14 this read EVERY (property, date) row with no range and no paging, so PostgREST's default 1,000 row cap silently clipped the span and "Search data X to Y" named the wrong window for any tenant past a few days of history. Two single-row edge reads replace it. The property reported is the one the newest row was written under.
  */
 async function readCoverage(tenantId: string): Promise<CoverageRead> {
   let admin;
@@ -87,78 +106,17 @@ async function readCoverage(tenantId: string): Promise<CoverageRead> {
       .from(GSC_DAILY_ROWS_TABLE)
       .select("*", { count: "exact", head: true })
       .eq("tenant_id", tenantId);
-    if (countRes.error != null) {
-      if (isUndefinedTableError(countRes.error)) return null;
-      return null;
-    }
+    if (countRes.error != null) return null;
     const totalRows = countRes.count ?? 0;
     if (totalRows === 0) return null;
 
-    // Per-property date span + per-property row count. We read the (property, date) projection ordered by date desc and fold in memory: the first time we see a property fixes its toDate (newest), and we keep extending its fromDate. Bounded read — a tenant has a handful of properties at most.
-    const spanRes = await admin
-      .from(GSC_DAILY_ROWS_TABLE)
-      .select("property,date")
-      .eq("tenant_id", tenantId)
-      .order("date", { ascending: false });
-    if (spanRes.error != null) {
-      if (isUndefinedTableError(spanRes.error)) return null;
-      // The HEAD count already proved rows EXIST; this span read failed (a large gsc_daily_rows table can statement-timeout here). Report data-present / span-unknown so we never downgrade a tenant WITH data to "no data yet".
-      return { spanUnknown: true, rowCount: totalRows };
-    }
-    const rows = (spanRes.data ?? []) as Array<{
-      property?: string;
-      date?: string;
-    }>;
-    // Rows exist (count > 0) but the span projection came back empty — same story: data is present, its span is just unavailable. Don't claim no data.
-    if (rows.length === 0) return { spanUnknown: true, rowCount: totalRows };
-
-    // Fold per property: rows are date-desc, so the first row for a property is its newest date; the last is its oldest. Track newest-overall to pick the reported property.
-    const byProperty = new Map<
-      string,
-      { toDate: string; fromDate: string; rowCount: number }
-    >();
-    for (const r of rows) {
-      const property = typeof r.property === "string" ? r.property : "";
-      const date = typeof r.date === "string" ? r.date.slice(0, 10) : "";
-      if (property === "" || date === "") continue;
-      const existing = byProperty.get(property);
-      if (existing == null) {
-        byProperty.set(property, {
-          toDate: date,
-          fromDate: date,
-          rowCount: 1,
-        });
-      } else {
-        // date-desc order → `date` here is <= existing.fromDate, so it only ever extends fromDate backward.
-        if (date < existing.fromDate) existing.fromDate = date;
-        existing.rowCount += 1;
-      }
-    }
-    if (byProperty.size === 0) return { spanUnknown: true, rowCount: totalRows };
-
-    // Pick the property with the most recent data (newest toDate wins; ties broken by higher row count for determinism).
-    let picked: { property: string; toDate: string; fromDate: string; rowCount: number } | null =
-      null;
-    for (const [property, span] of byProperty) {
-      if (
-        picked == null ||
-        span.toDate > picked.toDate ||
-        (span.toDate === picked.toDate && span.rowCount > picked.rowCount)
-      ) {
-        picked = { property, ...span };
-      }
-    }
-    if (picked == null) return null;
-
-    // Prefer the exact total count for the SINGLE-property case (HEAD count is the cheapest exact source); when multiple properties exist, the picked property's own folded count is the honest number.
-    const rowCount =
-      byProperty.size === 1 ? totalRows : picked.rowCount;
-    return {
-      property: picked.property,
-      fromDate: picked.fromDate,
-      toDate: picked.toDate,
-      rowCount,
-    };
+    const [newest, oldest] = await Promise.all([
+      edgeRow(admin, tenantId, true),
+      edgeRow(admin, tenantId, false),
+    ]);
+    // The HEAD count already proved rows EXIST; a failed edge read must never downgrade a tenant WITH data to "no data yet".
+    if (newest == null || oldest == null) return { spanUnknown: true, rowCount: totalRows };
+    return { property: newest.property, fromDate: oldest.date, toDate: newest.date, rowCount: totalRows };
   } catch {
     return null;
   }
@@ -312,7 +270,7 @@ export function describeGscReadiness(
       return {
         headline: "Connected, but no Search Console data yet",
         detail:
-          "Click “Pull my Search Console data” to backfill your search history.",
+          "Press “Pull your Search Console data” to backfill your search history; after that it refreshes every day on its own.",
         tone: "attention",
       };
     }

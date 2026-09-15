@@ -24,15 +24,12 @@ import "server-only";
  *   discriminator.
  *
  * Date-range helper (pure):
- *   `computeRefreshDateRange(edits, now)` — exported for unit
- *   testing. v1 policy:
- *     • endDate = today (UTC).
- *     • defaultStart = today − 90 days (UTC).
- *     • If verified-live edits have a parseable `live_at` earlier
- *       than defaultStart, expand the window back to min(live_at).
- *     • Hard cap: never earlier than today − 180 days. Protects
- *       against arbitrary historical backfill.
- *     • Conservative first version — tunable post-deploy.
+ *   `computeRefreshDateRange(latestStoredDate, now)`, exported for unit
+ *   testing. A watermark, not a rewrite (2026-09-14): a cold start pulls
+ *   the full 420 day retention window once; every later sync pulls from
+ *   the newest stored date minus 7 days (GA4 restates recent days) to
+ *   today, so an hourly sync moves tens of rows, not ~27,000. The revenue
+ *   report shares the same window.
  *
  * 9.A2γ.1 page-path normalization (added 2026-05-19):
  *   GA4's `pagePath` dimension is path-only (`/services/whole-home-
@@ -53,10 +50,6 @@ import "server-only";
  *   `business-config.domain`. Mode A continues to surface
  *   `no_traffic_data` honestly in that case.
  *
- * Pinned by:
- *   • tests/lib/connectors/ga4/persist-url-traffic.test.ts
- *   • tests/architecture/outcome-attribution-refresh-no-customer-surface.test.ts
- *   • tests/architecture/ga4-url-traffic-stored-as-full-url.test.ts
  */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
@@ -94,15 +87,11 @@ function chunk<T>(rows: ReadonlyArray<T>, size: number): T[][] {
   return out;
 }
 
-/** Default lookback when no edit has an earlier `live_at`. Raised to ~14
- *  months (2026-06-15) — GA4's standard data-retention max — so the unified
- *  dashboard reflects the FULL traffic history the property holds, not just a
- *  recent slice. GA4 returns from the property's data-start; requesting beyond
- *  retention simply yields no rows for those days (harmless). */
-const DEFAULT_LOOKBACK_DAYS = 420;
+/** Cold-start lookback: ~14 months, GA4's standard data-retention max, so the first pull holds the FULL history the property has. Requesting beyond retention simply yields no rows (harmless). */
+const COLD_START_LOOKBACK_DAYS = 420;
 
-/** Hard cap on history (defensive bound). Matches GA4's ~14-month retention. */
-const MAX_LOOKBACK_DAYS = 420;
+/** GA4 restates the most recent days as late hits and processing settle, so a watermarked pull re-reads this many days behind the newest stored date. */
+const RESTATE_DAYS = 7;
 
 const ONE_DAY_MS = 86_400_000;
 
@@ -168,49 +157,27 @@ type PersistGa4UrlTrafficResult =
     };
 
 /**
- * Compute the [startDate, endDate] window for a refresh run. Pure
- * helper; exported for unit testing.
+ * The [startDate, endDate] window for one refresh run, from the newest date
+ * already stored for the tenant (null on a cold start). Pure; exported for
+ * unit testing.
  *
  *   • endDate = today (UTC, YYYY-MM-DD).
- *   • Default window: [today − 90d, today].
- *   • If any edit's `live_at` is earlier than today − 90d AND
- *     within today − 180d, expand startDate to min(live_at).
- *   • Hard cap: startDate ≥ today − 180d.
+ *   • No stored date: [today − 420d, today] (the one full pull).
+ *   • Otherwise: [stored − 7d, today], never earlier than today − 420d and
+ *     never later than today (a stored date past today, from a clock
+ *     oddity, still re-reads today).
  */
 export function computeRefreshDateRange(
-  edits: ReadonlyArray<{ live_at?: string | null }>,
+  latestStoredDate: string | null,
   now: Date,
 ): { startDate: string; endDate: string } {
-  const todayUtcMs = Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate(),
-  );
-  const endDate = isoDateUtc(todayUtcMs);
-
-  const defaultStartMs = todayUtcMs - DEFAULT_LOOKBACK_DAYS * ONE_DAY_MS;
-  const maxStartMs = todayUtcMs - MAX_LOOKBACK_DAYS * ONE_DAY_MS;
-
-  let minLiveAtMs: number | null = null;
-  for (const e of edits) {
-    if (e.live_at == null || e.live_at === "") continue;
-    const t = Date.parse(e.live_at);
-    if (!Number.isFinite(t)) continue;
-    if (minLiveAtMs == null || t < minLiveAtMs) minLiveAtMs = t;
-  }
-
-  // Default to the 90-day window. Only expand back if we have a real
-  // earlier live_at.
-  let startMs = defaultStartMs;
-  if (minLiveAtMs != null && minLiveAtMs < startMs) {
-    startMs = minLiveAtMs;
-  }
-
-  // Hard floor at MAX_LOOKBACK_DAYS — clamp aggressively-old live_at
-  // values to the cap rather than expanding the window arbitrarily.
-  if (startMs < maxStartMs) startMs = maxStartMs;
-
-  return { startDate: isoDateUtc(startMs), endDate };
+  const todayUtcMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const floorMs = todayUtcMs - COLD_START_LOOKBACK_DAYS * ONE_DAY_MS;
+  const storedMs = latestStoredDate ? Date.parse(latestStoredDate.slice(0, 10)) : NaN;
+  const startMs = Number.isFinite(storedMs)
+    ? Math.min(todayUtcMs, Math.max(floorMs, storedMs - RESTATE_DAYS * ONE_DAY_MS))
+    : floorMs;
+  return { startDate: isoDateUtc(startMs), endDate: isoDateUtc(todayUtcMs) };
 }
 
 function isoDateUtc(ms: number): string {

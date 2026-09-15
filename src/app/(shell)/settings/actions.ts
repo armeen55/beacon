@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { setResearchPaused } from "@/domains/runtime";
+import { isAccountOwner } from "@/lib/auth/can-publish";
 import { currentTenantId } from "@/lib/tenant-context";
 import { log } from "@/lib/logger";
 
@@ -18,6 +19,8 @@ import { log } from "@/lib/logger";
  */
 export async function setResearchPausedNow(paused: boolean): Promise<{ ok: boolean }> {
   try {
+    // Owner gate: pausing or resuming paid research is an owner mutation, the same rule every Changes and Results mutation applies.
+    if (!(await isAccountOwner())) return { ok: false };
     if (!(await setResearchPaused(await currentTenantId(), paused))) return { ok: false };
     revalidatePath("/settings");
     revalidatePath("/");

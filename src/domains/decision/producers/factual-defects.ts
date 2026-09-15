@@ -199,11 +199,11 @@ async function reviewFactualCards(cards: readonly ChangeProposal[], wiring: { te
 }
 
 /** Every page whose banked checks contradict it, as one card each, at $0. Guarded like every producer: a read that fails narrows the pass and sweeps nothing. Beacon's own sense review is a separate ranked candidate. */
-async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date }): Promise<FactualDefectRun> {
+async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date; checked?: readonly FactCheck[] | null }): Promise<FactualDefectRun> {
   const { tenantId, snapshot, now } = input;
   const noOpWhy = new Map<string, string>();
   try {
-    const checks = await readFactChecks(tenantId);
+    const checks = input.checked === null ? null : input.checked ?? await readFactChecks(tenantId); if (checks === null) return { cards: [], complete: false };
     if (checks.length === 0) return { cards: [], complete: true };
     const owned = new Map(snapshot.ownedPages.map((p) => [canonicalUrlKey(p.url), p]));
     const byPage = new Map<string, FactCheck[]>();
@@ -216,7 +216,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
     // with a live correction meant a page whose corrections ALL lost their evidence was never read, so it was
     // never judged, so its stale cards could never be withdrawn: the one case the withdrawal below exists for.
     const candidateUrls = [...byPage].filter(([k]) => owned.has(k)).map(([k]) => owned.get(k)!.url);
-    const pageHashes = new Map<string, string>();
+    const pageHashes = new Map<string, string>(), pageTexts = new Map<string, string>();
     if (candidateUrls.length > 0) {
       const [{ loadOwnedPageBodies }, { pageHashOf }] = await Promise.all([
         import("@/domains/evidence/pages/owned-context"), import("@/domains/evidence/pages/fact-check-run")]);
@@ -236,7 +236,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
         // written, which is why the dead join minted for weeks before it starved the queue.
         const b = bodies?.get?.(canonicalUrlKey(url));
         const body = b ? [b.title, b.h1, ...b.headings, ...b.passages].filter(Boolean).join("\n") : "";
-        if (body.trim()) pageHashes.set(canonicalUrlKey(url), pageHashOf(body));
+        if (body.trim()) { pageHashes.set(canonicalUrlKey(url), pageHashOf(body)); pageTexts.set(canonicalUrlKey(url), body); }
       }
     }
     const cards: ChangeProposal[] = [];
@@ -251,7 +251,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
       const qd = new Map<string, number>();
       for (const q of page.search?.topQueries ?? []) for (const w of q.query.toLowerCase().split(/\s+/)) if (w.length > 2) qd.set(w, (qd.get(w) ?? 0) + q.impressions);
       const subjectDemand = (t: string): number => Math.max(0, ...t.toLowerCase().split(/\s+/).filter((w) => w.length > 2).map((w) => qd.get(w) ?? 0));
-      const corrections = authorizedCorrections(rows, { pageContentHash: pageHashes.get(key) ?? null }, tenantId).filter((c) => c.current.trim() !== "")
+      const corrections = authorizedCorrections(rows, { pageContentHash: pageHashes.get(key) ?? null, body: pageTexts.get(key) }, tenantId).filter((c) => c.current.trim() !== "")
         .sort((a, b) => subjectDemand(b.subject) - subjectDemand(a.subject) || correctionSeverity(b) - correctionSeverity(a) || a.subject.localeCompare(b.subject));
       const held = rows.filter((r) => !corrections.includes(r) && r.verdict !== "page_correct");
       const disputed = held.filter((r) => r.confidence === "disputed" || r.confidence === "likely");

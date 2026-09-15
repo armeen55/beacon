@@ -18,7 +18,6 @@ export type {
 } from "./kernel";
 export {
   MIN_CONTROLS,
-  GSC_LAG_DAYS,
   metricFor,
   isMature,
   addDays,
@@ -30,7 +29,6 @@ export {
   bandOf,
   learningVerdictOf,
   readRecordsForLearning,
-  loadKernelLedger,
 } from "./kernel";
 
 // Ledger loading
@@ -59,10 +57,6 @@ export { pinFor, applyPinnedRead, withCorrection } from "./pinned-read";
 export type { ControlReceipt } from "./contamination";
 export { contaminationFor, selectMatchedControls } from "./contamination";
 
-// Verdict schedule
-export type { VerdictScheduleRow } from "./verdict-schedule";
-export { verdictSchedule } from "./verdict-schedule";
-
 // Change <-> proof linking (surface navigation)
 export { findProofForChange, proofResultHref } from "./change-proof-link";
 
@@ -90,4 +84,4 @@ export {
 // THE RECORDING SEAM: implementation truth is stored always, measurement availability travels beside it
 export type { MeasurementState } from "./types";
 export type { RecordedShipment } from "./record-shipment";
-export { recordShipment, recordRepairShipment } from "./record-shipment";
+export { recordShipment } from "./record-shipment";

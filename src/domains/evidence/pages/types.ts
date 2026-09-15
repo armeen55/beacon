@@ -130,6 +130,8 @@ export type PageSnapshot = {
    *  what lets a reader answer "no, this page does not say that". Absent on pre-2026-08-03
    *  snapshots, which is exactly what marks them as sample-era captures. */
   body_text?: string;
+  /** Observed source markup and JSON-LD, never publication copy or rendered-visibility certification. */
+  content_capture?: { version: 1; mainHtml: string; jsonLd: string[]; complete: boolean };
   /** Ordered main-content excerpt, pulled from <main>/<article> (fallback:
    *  <body> minus <nav>/<footer>/<header>/<aside>). Cap 20 entries x 300
    *  chars each (~6k chars total, N19 2026-07-02, was 10x300/~3k under

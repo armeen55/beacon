@@ -48,6 +48,10 @@ describe("exact provider paths + DYNAMIC method routing", () => {
     const chat = harness(llmResponsesTaskPostAck, { modelsBody: STD }); const res = await providerCall("llm_chatgpt", { user_prompt: "hi", web_search: true }, IDS, chat.deps);
     if (res.state !== "waiting") throw new Error(res.state); expect(res.modelRequested).toBe("gpt-4o"); expect(chat.task()[0]).toBe(BASE + "ai_optimization/chat_gpt/llm_responses/task_post"); expect(chat.calls.bodies[0][0].tag).toBe(res.cacheKey);
     const px = harness(perplexityLive, { modelsBody: modelsFor("sonar", false) }); await providerCall("llm_perplexity", { user_prompt: "hi" }, IDS, px.deps); expect(px.task()[0]).toBe(BASE + "ai_optimization/perplexity/llm_responses/live"); });
+  it("posts nothing while the account's model credit is held, and still collects a finished task for free", async () => {
+    const held = harness(llmResponsesTaskPostAck, { modelsBody: STD, creditPeek: async () => "held" }); const res = await providerCall("llm_chatgpt", { user_prompt: "hi", web_search: true }, IDS, held.deps);
+    expect([res.state, res.state === "capped" && res.detail.includes("balance"), held.task().length], "a typed capped hold, named, with no request leaving the process").toEqual(["capped", true, 0]);
+    const free = harness(llmResponsesTaskGet, { creditPeek: async () => "held", cacheRead: async () => taskRow("ai_optimization/chat_gpt/llm_responses/task_post") }); expect((await collectCapability("k", free.deps)).state).toBe("ok"); });
   it("routes the SAME engine to Standard or to Live purely from the model resolution", async () => {
     for (const [post, path] of [[true, "task_post"], [false, "live"]] as [boolean, string][]) {
       const g = harness(post ? llmResponsesTaskPostAck : perplexityLive, { modelsBody: modelsFor("gemini-2.5-pro", post) }); await providerCall("llm_gemini", { user_prompt: "g", web_search: true }, IDS, g.deps); expect(g.task()[0]).toBe(`${BASE}ai_optimization/gemini/llm_responses/${path}`);

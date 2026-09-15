@@ -319,7 +319,9 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     expect(authorizedCorrections([{ ...c, sourceReadAt: null }], undefined, "t")).toHaveLength(0); const read = { ...c, sourceReadAt: NOW.toISOString() };
     expect(authorizedCorrections([bare, { ...bare, sourceReadAt: NOW.toISOString() }], undefined, "t"), "an artifact-less confirmed correction authorizes NOTHING now").toHaveLength(0);
     expect(authorizedCorrections([read], { pageContentHash: "h1", evidenceBasis: "b1" }, "other-tenant"), "another tenant's artifact is stale here").toHaveLength(0);
-    expect(authorizedCorrections([read], { pageContentHash: "h2" }, "t")).toHaveLength(0); // stale page version
+    expect(authorizedCorrections([read], { pageContentHash: "h2", body: "The page no longer says it." }, "t")).toHaveLength(0); // the wording left the page's current body
+    expect(authorizedCorrections([read], { pageContentHash: "h2", body: "Afsaneh means Goddess." }, "t"), "a moved projection hash alone retires nothing while the wording stands").toHaveLength(1);
+    expect([authorizedCorrections([read], { pageContentHash: null }, "t").length, authorizedCorrections([read], { pageContentHash: "" }, "t").length], "a caller naming neither a version nor a body has not read the page, and an empty-string version is no version").toEqual([0, 0]);
     expect(authorizedCorrections([{ ...read, state: "owed" }], undefined, "t")).toHaveLength(0);
     expect(authorizedCorrections([{ ...read, rulesVersion: 1 }], undefined, "t")).toHaveLength(0); // verdict from replaced rules
     expect(authorizedCorrections([read], { pageContentHash: "h1", evidenceBasis: "b1" }, "t")).toHaveLength(1);

@@ -12,11 +12,11 @@ import { Pill, type PillIntent } from "@/components/ui/pill";
 // A client bundle cannot import the server-only kernel facade, so the ONE pure rule for what is dangerous and
 // the ONE stable name for a piece come from the contract module itself rather than a copy of them living here.
 import { componentIdOf, dangerousComponents } from "@/domains/decision/contracts";
-import { copyKey, proofOf } from "@/domains/decision/proof";
+import { proofOf, reviewFits } from "@/domains/decision/proof";
 import { citedPublishers, confirmedVersion, openHold } from "@/domains/decision/completeness";
 import type { ChangeBundle, ChangeProposal } from "@/domains/decision";
 import { cardCaveats, pageLabel } from "./types";
-import { CopyButton, MarkImplemented, ReviewAnswer } from "./change-controls";
+import { CopyButton, PublicationCopy, MarkImplemented, ReviewAnswer } from "./change-controls";
 
 /** The producer's own boilerplate. It said the same sentence on all 37 title cards, so it is dropped outright
  *  rather than reprinted anywhere: a sentence true of every row is a fact about the producer, not a reason. */
@@ -195,7 +195,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   const waiting = ((w: string) => (w ? `${w[0]!.toUpperCase()}${w.slice(1)}.` : null))((proposal.rankingReceipt?.factors ?? []).find((f) => f.name === "readiness")?.input?.trim() ?? "");
   const placement = proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.where ?? null : null;
   // WHAT STANDS BEHIND FINISHED WORK, SAID ON THE CARD THAT OFFERS IT (measured, 2026-09-05: all six Ready rows carry a paid reading bound to their exact copy, not one of them said so, and the only sentence the hold had for them was "nothing has read them for sense yet", which their own record disproves). Read off the row itself: the reading is claimed only while `semanticReview` names THESE exact words, and sources are counted by PUBLISHER and never by fact id, which is the same count the proportional evidence bar uses. A row with no outside publisher stands on words this account already publishes, its own page's or the page a link points at, and says that instead of a bare zero.
-  const reading = ready && !merge && proposal.semanticReview?.of === copyKey(proposal);
+  const reading = ready && !merge && reviewFits(proposal, proposal.semanticReview?.of); // a row accepted on a legacy-keyed reading still says what stands behind it (audit, 2026-09-14)
   const sources = reading ? citedPublishers(proposal).size : 0;
 
   if (done || recorded) return (
@@ -252,7 +252,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
               <li key={i} className="rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
                 <p className="text-[12px] font-semibold text-foreground"><span className="tabular-nums">{i + 1}. </span>{c.label}</p>
                 {c.before ? <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">Now: <span className="line-through">{c.before}</span></p> : null}
-                <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-foreground">{c.after}</p>
+                <PublicationCopy text={c.after} units={c.units} />
                 {c.where ? <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">Where it goes: {c.where}</p> : null}
               </li>
             ))}
@@ -269,12 +269,12 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
             <p className="text-[13px] font-medium leading-relaxed text-foreground" data-do-line="true">{doLineOf(proposal)}</p>
             <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
               {/* LINE BREAKS ARE PART OF THE DELIVERABLE: a list-shaped answer renders one item per line. */}
-              <p className="min-w-0 flex-1 whitespace-pre-line text-[14px] font-semibold leading-relaxed text-foreground">
-                <span className="font-normal text-muted-foreground">{isNew ? `Page ${field}: ` : "Change to: "}</span>{after}
-              </p>
+              <div className="min-w-0 flex-1 text-[14px] leading-relaxed text-foreground">
+                <p className="text-muted-foreground">{isNew ? `Page ${field}:` : "Change to:"}</p><PublicationCopy text={after} units={proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.units : undefined} />
+              </div>
               {/* THE BUTTON NAMES THE REAL OBJECT: "Copy new section" on a title, and "Copy draft" anywhere,
                   both made the operator re-read the card to learn what they were holding. */}
-              <CopyButton text={after} onToast={onToast}
+              <CopyButton text={after} units={proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.units : undefined} onToast={onToast}
                 label={`Copy ${targetWordOf(proposal)} · ${effortLabel(proposal.estimatedEffortMinutes)}`} />
             </div>
             {before ? (

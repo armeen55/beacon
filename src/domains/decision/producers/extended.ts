@@ -12,14 +12,14 @@
 import { topicTokens } from "@/domains/evidence/relevance-gate";
 import { authorizedCorrections, readFactChecks } from "@/domains/evidence/pages/fact-checks";
 import { classifyResult } from "@/domains/evidence/serp-shape"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
-import type { BundleComponent } from "../contracts";
+import type { BundleComponent, ChangeProposal } from "../contracts"; import { COPY_RULES } from "../copy-sanitize"; import { createHash } from "node:crypto"; import { canonicalUrlKey } from "@/domains/evidence/relevance-gate";
 import type { CauseFinding } from "../diagnosis"; import { RECEIPT } from "../diagnose";
 import { effortMinutesFor } from "./contract"; import type { Produced, Producer, ProducerCtx } from "./contract";
 import { produceDifferentiation } from "./differentiate";
 /** Two links is the whole budget, and a rebuild is earned by causes agreeing, never by one loud one. */
-const MAX_REQUIREMENTS = 4, MAX_HEADINGS = 6, MIN_STRUCTURAL_CAUSES = 2;
-/** A rebuild that names more losses than this is not a rebuild, it is a different page; a merge that lists more than MAX_MOVED is a rebuild of the page that survives. */
-const MAX_LOSSES = 8, MAX_MOVED = 6;
+const MAX_REQUIREMENTS = 4, MIN_STRUCTURAL_CAUSES = 2;
+/** A merge that lists more than MAX_MOVED is a rebuild of the page that survives. */
+const MAX_MOVED = 6;
 /** Pages under one prefix past which they are a SET, and a set's member is never folded into its hub. */
 const MIN_SIBLINGS = 5;
 
@@ -302,71 +302,66 @@ const ARCHETYPE: Readonly<Record<string, string>> = {
   tool: "a page built around something a reader can use",
   forum: "a page of real answers from people who have done it",
 };
-/**
- * NOT registered to one cause: a rebuild is what the causes conclude TOGETHER, and it writes the WHOLE page or
- * nothing. Every heading the winners agree on is drafted through the section drafter, bounded at MAX_HEADINGS
- * and on the same budget as every other draft. Stopped part way, there is no component: the refusal names what is owed, and the next pass resumes free because the same section is served from cache.
+/** A rebuild is earned by causes together. Its source-bound pieces and preservation debt live on ONE private proposal until
+ * its opening and every planned section are present and the whole replacement qualifies. Interruption stops
+ * at the first failure; only missing slots are drafted after restoring the unchanged assignment's bank.
  */
 export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes: readonly Cause[]): Promise<Produced> {
   const keys = evidenceKeysOf(ctx);
   if (!keys) return refuse(NO_EVIDENCE);
   const structural = [...new Set(causes)].filter((c) => STRUCTURAL.has(c));
   if (structural.length < MIN_STRUCTURAL_CAUSES) return refuse("Only one thing about this page is wrong at the level a rebuild fixes, so rebuilding it is a bigger swing than the evidence pays for. Make that one change first and the page gets read again.");
+  if (!ctx.body || ctx.body.completeness !== "complete" || ctx.body.version !== "current" || !ctx.body.passages.join(" ").trim()) return { ...refuse("A whole-body replacement needs the complete current original page before any drafting; banked work stays intact."), requirement: { kind: "page_source", query: ctx.primary, url: ctx.page.url, reasonCode: "page_source_owed" } };
+  if (!ctx.draft.compose) return refuse("The drafting path cannot retain the exact publication structure and source receipts of a complete replacement, so no rewrite is bought.");
   const pattern = ctx.pattern;
-  const headings = (pattern?.commonHeadings ?? []).map((h) => h.heading.trim()).filter((h) => h.length > 0).slice(0, MAX_HEADINGS);
-  const questions = (pattern?.questionsAnswered ?? []).map((q) => q.trim()).filter((q) => q.length > 0).slice(0, MAX_HEADINGS);
+  const headings = [...new Set((pattern?.commonHeadings ?? []).map((h) => h.heading.trim()).filter((h) => h.length > 0))];
+  const questions = [...new Set((pattern?.questionsAnswered ?? []).map((q) => q.trim()).filter((q) => q.length > 0))];
   if (!pattern || (headings.length === 0 && questions.length === 0)) return refuse("The pages that win this subject have not been read side by side, so what this page has to become is unknown. They need reading first, and then the brief gets written.");
   const shape = ARCHETYPE[pattern.archetype] ?? "a page that answers this search directly, in a shape the pages winning it have not settled so it is yours to pick";
   const covers = headings.length > 0 ? headings : questions;
   const wrongs = structural.map((c) => STRUCTURAL.get(c)!);
-  // THE COPY ITSELF, one drafted section per planned heading, grounded in the reading of the pages that win
-  // and in what this page already carries. My own figures are not page copy, so they are not handed over here.
   const hints = [...(pattern.commonEntities ?? []).map((e) => e.entity), ...questions,
     ...(ctx.body?.openingSample ? [`The page opens: ${ctx.body.openingSample}`] : []), ...(ctx.body?.cardTexts ?? []).slice(0, 4)];
-  const planned = covers.slice(0, MAX_HEADINGS), drafted: { asked: string; text: string }[] = [];
-  for (const heading of planned) {
-    const section = await ctx.draft.section({ query: ctx.primary, pageLabel: ctx.page.h1 ?? ctx.page.title ?? ctx.page.url, heading,
-      brief: `This page is being rebuilt as ${shape} for "${ctx.primary}", and every page that wins that search covers ${heading}. Write that section, in this page's own terms, keeping anything it already says that earns its place.`,
-      outline: ctx.page.outline, evidenceHints: hints });
-    if (section) drafted.push({ asked: heading, text: `${plain(section.heading)}\n\n${nodash(section.body).trim()}` });
+  const planned = covers, before = ctx.body.passages.join("\n\n"), slots = [0, ...planned.map((_, i) => i + 1)];
+  const identity = createHash("sha256").update(JSON.stringify([ctx.tenantId, canonicalUrlKey(ctx.page.url), ctx.primary, before, ctx.page, ctx.body.headings, ctx.body.entityNames, ctx.body.internalLinks, ...(ctx.body.sourceCapture ? [["original_main_content", ctx.body.sourceCapture.version, ctx.body.sourceCapture.complete, ctx.body.sourceCapture.mainHtml]] : []), pattern.fingerprint, planned, [...structural].sort(), ctx.draftContext ?? null])).digest("hex");
+  const taskFor = (slot: number): NonNullable<ChangeProposal["assignment"]> => {
+    const subject = slot === 0 ? ctx.primary : planned[slot - 1]!;
+    return { page: ctx.body!.url, basis: identity, standard: "restructuring", gapKind: "full_rewrite_piece", propositions: [subject], intent: [ctx.primary],
+      diagnosedGap: `This page is being rebuilt as ${shape}. Complete ${slot === 0 ? "the opening" : `the section about ${subject}`}; ${wrongs.join("; ")}.`,
+      treatment: slot === 0 ? "answer_block" : "section", shape: slot === 0 ? "direct_answer" : "section", anchor: ctx.body!.h1 ?? ctx.body!.title,
+      mustLeadWith: `the supported answer or distinction about ${subject}, with enough subject and scope to stand on its own`, opening: "Teach the subject directly in the owning publisher's voice.",
+      format: slot === 0 ? "An opening answer followed by the explanation and qualifications it needs; no outer heading." : "A natural descriptive or reader-question heading and its complete supporting section copy.",
+      pageContext: [], forbidden: [], rivals: [], briefing: [], mayReuse: "Supported original-page material is the substance being reorganized; cite its exact page-* evidence. New claims require their own supplied claim-support evidence.",
+      mustPreserve: "Retain supported original material across the completed replacement. Account for corrections, moves and removals against copy and sources; this piece does not authorize deletion of another section.",
+      mustNotRepeat: `Do not duplicate another planned section's treatment or narrate the page's arrangement. The complete plan is: opening; ${planned.join("; ")}.`, placement: "additive",
+      completionTest: `A reader can understand and use the supported answer about ${subject} from this piece. Its factual claims, qualifications and preservation records remain source-bound; whole-page acceptance is still owed.` };
+  };
+  const stored = ctx.draftBank, ready = new Map<number, { slot: number; heading: string | null; body: string; assignment: ChangeProposal["assignment"] }>();
+  if (stored && (stored.brief.kind !== "full_rewrite" || stored.brief.identity !== identity || JSON.stringify(stored.brief.headings) !== JSON.stringify(planned))) return refuse("The banked rewrite belongs to different page, evidence or assignment inputs; preserve it and reconcile that change before buying more copy.");
+  for (const piece of stored?.pieces ?? []) { const slot = piece.slot; if (slot == null || !slots.includes(slot) || ready.has(slot) || COPY_RULES.recordKey(piece.assignment) !== COPY_RULES.recordKey(taskFor(slot)) || slot === 0 && piece.heading != null || slot > 0 && !piece.heading) return refuse("The banked rewrite has an ambiguous or unqualified piece record; reconstruct it without discarding or rebuying the preserved copy."); const restored = await ctx.draft.restore?.(piece); if (!restored) return refuse("The banked rewrite piece cannot be qualified on these inputs; preserve its copy without rebuying it."); ready.set(slot, { slot, heading: restored.heading, body: restored.after, assignment: restored.assignment }); }
+  for (const [i, heading] of planned.entries()) {
+    const slot = i + 1; if (ready.has(slot)) continue;
+    const assignment = taskFor(slot), section = await ctx.draft.section({ query: ctx.primary, pageLabel: ctx.page.h1 ?? ctx.page.title ?? ctx.page.url, heading,
+      brief: assignment.diagnosedGap, assignment, outline: ctx.page.outline, evidenceHints: hints });
+    if (!section) break; ready.set(slot, { slot, heading: section.heading, body: section.body, assignment });
   }
-  const owed = planned.length - drafted.length; // sections asked for and not yet written
-  // FINISHED SECTIONS SHIP. A rebuild that stopped part way was withheld WHOLE, so paid finished copy sat invisible behind a refusal for as long as one section kept failing. What is written leaves as pasteable ADDITIONS, the remainder is named out loud, and nothing here is paid for twice next pass.
-  if (owed > 0) { if (drafted.length === 0) return refuse(`None of the ${count(planned.length)} sections this rebuild needs could be written this pass, so nothing is handed over. Ask again and it starts where it stopped.`);
-    return { components: drafted.map((d) => ({ kind: "section_add" as const, label: `Add the section: ${d.asked}`, before: null, after: d.text, evidenceKeys: [...keys, RECEIPT.cover(d.asked)], risk: "review" as const,
-      where: "a new section on the page, under its own heading", objective: `Cover ${d.asked}, which the pages winning "${ctx.primary}" cover and this page does not.`,
-      mechanism: `The full rebuild still owes ${count(owed)} ${owed === 1 ? "section" : "sections"} (${planned.filter((h) => !drafted.some((d) => d.asked === h)).join(", ")}). These are the ones already written; the rest costs nothing a second time next pass.`,
-      measurementPlan: `Clicks, views and average position for "${ctx.primary}", read at 7, 14, 28 and 56 days after you publish it, against what this page does today.` })), refusal: null };
-  }
-  const opening = ctx.draft.openingAnswer
-    ? await ctx.draft.openingAnswer({ query: ctx.primary, pageLabel: ctx.page.h1 ?? ctx.page.title ?? ctx.page.url,
-      currentValue: ctx.body?.openingSample ?? null, outline: ctx.page.outline, evidenceHints: hints })
-    : null;
-  if (!opening) return refuse(`All ${count(planned.length)} sections this rebuild needs are written and the page's own opening lines are not, so a page with no way in is not handed over. Ask again and the opening is the only thing left: the sections already written cost nothing a second time.`);
-  const after = [nodash(opening).trim(), ...drafted.map((d) => d.text)].join("\n\n");
-  // THE PRESERVATION MAP. A rebuild can quietly delete something that ranks, so every held section and named
-  // thing is checked against the draft: what appears SURVIVES, what does not is named as a LOSS with a reason.
+  if (ready.size === planned.length && !ready.has(0)) { const assignment = taskFor(0), opening = await ctx.draft.openingAnswer?.({ query: ctx.primary, pageLabel: ctx.page.h1 ?? ctx.page.title ?? ctx.page.url, currentValue: ctx.body.openingSample ?? null, outline: ctx.page.outline, evidenceHints: hints, assignment }); if (opening) ready.set(0, { slot: 0, heading: null, body: opening, assignment }); }
+  const ordered = slots.flatMap((slot) => ready.has(slot) ? [ready.get(slot)!] : []), composed = ordered.length ? ctx.draft.compose(ordered) : null, owed = slots.filter((slot) => !ready.has(slot));
+  if (!ordered.length) return refuse("No rewrite piece could be completed; drafting stopped at that failure and no publication copy is handed over."); if (!composed?.units || composed.pieces.length !== ordered.length) return refuse("The pieces could not be banked with their exact structure and source receipts; preserve the prior rewrite before buying anything else.");
+  const draftBank = { brief: { kind: "full_rewrite", identity, headings: planned, owed }, pieces: composed?.pieces ?? [] };
+  const after = composed?.after ?? "", target = { mode: "whole_body" as const, anchorKind: null, anchor: null };
   const written = plain(after).toLowerCase();
-  const holds = [...new Set([...(ctx.body?.headings ?? ctx.page.outline), ...(ctx.body?.entityNames ?? [])]
-    .map((h) => h.trim()).filter((h) => h.length > 0))];
-  const survives = (h: string): boolean => written.includes(h.toLowerCase());
+  const holds = [...new Set([...ctx.body.passages, ...ctx.body.headings, ...ctx.body.internalLinks.map((link) => `${link.anchorText}: ${link.href}`)]
+    .map((h) => h.trim()).filter((h) => h.length > 0 && h !== ctx.body!.h1))];
+  const ledger = composed.pieces.flatMap((piece) => piece.preservation ?? []), survives = (h: string): boolean => written.includes(plain(h).toLowerCase()) || ledger.some((record) => record.text === h && record.disposition === "kept");
   const preserves = { keeps: holds.filter(survives),
-    losses: holds.filter((h) => !survives(h)).slice(0, MAX_LOSSES).map((what) => ({ what,
-      why: `Not one of the ${count(pattern.winners)} pages that win "${ctx.primary}" carries it, so the rebuild spends that room on ${covers[0]} instead.` })) };
-  return {
-    components: [{
-      kind: "full_rewrite",
-      label: "Rebuild this page",
-      before: null,
-      after,
-      preserves,
-      evidenceKeys: [...keys, ...drafted.map((d) => RECEIPT.cover(d.asked))], // every section names the reading that authorized it, so a rebuild the receipt cannot back fails the check every bundle already runs
-      risk: "review",
-      where: "the whole page, from the first line down",
+    losses: holds.filter((h) => !survives(h)).map((what) => ({ what,
+      why: ledger.find((record) => record.text === what)?.why ?? "This original material is not yet accounted for in the proposed replacement; no deletion is authorized until its preservation is resolved by the whole-page review." })) };
+  return { draftBank, components: [{ kind: "full_rewrite", label: "Rebuild this page", before,
+      after, ...(composed?.units ? { units: composed.units } : {}), target, preserves,
+      evidenceKeys: [...keys, ...planned.map((heading) => RECEIPT.cover(heading))], risk: "review", where: COPY_RULES.where(target),
       objective: `Make this ${shape} for "${ctx.primary}", instead of fixing ${count(structural.length)} separate things on a page built for something else.`,
       mechanism: `${count(structural.length)} things are wrong at once and every one of them is about what this page is rather than how it is worded: ${wrongs.join("; ")}. Changing them one at a time leaves the rest of them standing.`,
       measurementPlan: `Clicks, views and average position for "${ctx.primary}", read at 7, 14, 28 and 56 days after you publish it, against what this page does today.`,
-    }],
-    refusal: null,
-  };
+    }], refusal: null };
 }

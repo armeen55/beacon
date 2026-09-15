@@ -5,7 +5,7 @@ import Link from "next/link";
 import { causeLabel, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, openHold, sameComponentId, unsettledCause } from "@/domains/decision";
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
-import { ConfirmDangerous, CopyButton, MarkImplemented, SetAsideChange } from "../change-controls";
+import { ConfirmDangerous, CopyButton, PublicationCopy, MarkImplemented, SetAsideChange } from "../change-controls";
 import { cardCaveats, pageLabel } from "../types";
 
 function Heading({ children }: { children: React.ReactNode }) {
@@ -304,7 +304,7 @@ function ComponentCard({
   const consequences = moves ? [
     to ? `Anyone who opens the old address lands on ${to}.` : "This page stops answering at its own address.",
     ...(component.preserves?.keeps.length ? [`What survives the change: ${component.preserves.keeps.join(", ")}.`] : []),
-    ...(component.preserves?.losses ?? []).map((l) => `Dropped: ${l.what}, because ${l.why}.`),
+    ...(component.preserves?.losses ?? []).map((l) => `${l.what}: ${l.why}`),
     to ? `To undo it: take the forward to ${to} off and publish this page at its own address again.`
       : "To undo it: put the page back the way it was, then say so here, and it is read again before anything is claimed.",
   ] : [];
@@ -339,9 +339,9 @@ function ComponentCard({
           {/* A SOURCED CORRECTION IS DETERMINISTIC BANK WORK: its exact replacement stays copyable while the
               bundle waits on review. Copying is reading; the record still goes through the same doors. */}
           {!moves && component.after.trim() && (!held || component.kind === "factual_correction")
-            ? <CopyButton text={component.after} label="Copy" /> : null}
+            ? <CopyButton text={component.after} units={component.units} label="Copy" /> : null}
         </div>
-        <CopyBlock component={component} />
+        <div className="rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2 text-[13px] leading-relaxed text-foreground"><PublicationCopy text={component.after} units={component.units} /></div>
       </div>
       {consequences.length > 0 ? (
         <div className="space-y-1 rounded-lg border border-status-warning/40 bg-status-warning/5 px-3 py-2" data-destructive-detail="true">
@@ -374,36 +374,6 @@ function ComponentCard({
       ) : null}
     </div>
   );
-}
-
-/** Slice 8: the copy-ready block. A page plan reads as a list and a source pack
- *  puts each source on its own line, so a multi-line insertion stays readable
- *  instead of one wall of text. Every other component stays one exact block. */
-function CopyBlock({ component }: { component: BundleComponent }) {
-  const box =
-    "rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2 text-[13px] leading-relaxed text-foreground";
-  const lines = component.after.split("\n").map((l) => l.trim()).filter(Boolean);
-  if (lines.length > 1 && component.kind === "section") {
-    return (
-      <ul className={`${box} list-disc space-y-1 break-words pl-7`}>
-        {lines.map((l, i) => (
-          <li key={i}>{l}</li>
-        ))}
-      </ul>
-    );
-  }
-  if (lines.length > 1 && component.kind === "source_pack") {
-    return (
-      <div className={`${box} space-y-1`}>
-        {lines.map((l, i) => (
-          <p key={i} className="break-words">
-            {l}
-          </p>
-        ))}
-      </div>
-    );
-  }
-  return <p className={`${box} whitespace-pre-wrap break-words`}>{component.after}</p>;
 }
 
 /** THE ONE-LAYER DETAIL for a card with no deep bundle: the same edit the list shows, said in full on its own
@@ -450,8 +420,8 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
         <div className="space-y-1">
           {before ? <p className="text-[13px] text-muted-foreground">Now: <span className="line-through">{before}</span></p> : null}
           <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
-            <p className="min-w-0 flex-1 whitespace-pre-line text-[15px] font-semibold leading-relaxed text-foreground">{after}</p>
-            {research || held ? null : <CopyButton text={after} label="Copy" />}
+            <div className="min-w-0 flex-1 text-[15px] leading-relaxed text-foreground"><PublicationCopy text={after} units={c.kind === "existing_edit" ? c.units : undefined} /></div>
+            {research || held ? null : <CopyButton text={after} units={c.kind === "existing_edit" ? c.units : undefined} label="Copy" />}
           </div>
           {/* WHERE IT GOES, ON THE PAGE THAT SHOWS THE COPY. Copy that lands somewhere new carries its placement
               and this page printed the words without it, so the operator read finished copy and still had to guess. */}

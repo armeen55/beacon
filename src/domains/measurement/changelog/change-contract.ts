@@ -6,11 +6,6 @@
  * whether changes actually shipped and helped.
  */
 
-import { cache } from "react";
-
-import { getRepository } from "@/lib/persistence/repositories";
-import { currentTenantId } from "@/lib/tenant-context";
-
 // ── Change Type Taxonomy ──
 
 type ChangeType =
@@ -108,25 +103,3 @@ type VerificationStatus = "pending" | "verified_match" | "verified_mismatch" | "
 // ── Attribution Readiness ──
 
 type AttributionReadiness = "strong" | "usable" | "weak";
-
-// ── Persistence ──
-
-// Night-shift fix (2026-06-11): 5th instance of the process-global
-// cache class, `_changeContracts` was keyed by NOTHING (first tenant
-// pinned its contracts for every later tenant in a warm process) AND
-// the unscoped base read pulled EVERY tenant's rows on hosted. Now a
-// per-tenant Map over the tenant-scoped repository read; stable array
-// references preserve the in-place mutator semantics.
-const _contractsByTenant = new Map<string, ChangeContract[]>();
-
-export const getChangeContracts = cache(
-  async (): Promise<ChangeContract[]> => {
-    const tenantId = await currentTenantId();
-    const cached = _contractsByTenant.get(tenantId);
-    if (cached) return cached;
-    const loaded = await getRepository().forTenant(tenantId).getChangeContracts();
-    _contractsByTenant.set(tenantId, loaded);
-    return loaded;
-  },
-);
-

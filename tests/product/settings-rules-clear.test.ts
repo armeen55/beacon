@@ -1,7 +1,7 @@
 /** PRODUCT - the two rule boxes on Settings are the operator's exact words, INCLUDING when they empty one. Live, the account held ZERO banned terms while a card was refused as though it held one, and the box that would have proved it could only ever ADD: `banned.length > 0 ? typed : stored` saved the stored list straight back, so a rule deleted on screen returned on the very next save and went on holding copy nobody had asked to hold. An ABSENT field is still no answer, which is what stops a partial save from wiping rules it never carried. Driven through the real profile repository seam, so the merge that reaches storage is what is asserted. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("server-only", () => ({}));
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() })); vi.mock("@/lib/auth/can-publish", () => ({ isAccountOwner: async () => true })); // the owner gate is proven in tests/sources/connector-refresh.test.ts
 vi.mock("@/lib/tenant-context", async () => ({ ...(await vi.importActual<typeof import("@/lib/tenant-context")>("@/lib/tenant-context")), currentTenantId: vi.fn(async () => "t") }));
 import { setBusinessProfileRepositoryForTests, __resetBusinessProfileCacheForTests } from "@/domains/account/business-profile";
 import type { BusinessProfile } from "@/domains/account";

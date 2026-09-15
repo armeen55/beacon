@@ -5,7 +5,8 @@
  *  file is only what can be DONE about it. Publishing stays MANUAL: nothing here writes to the operator's site.
  *  Every surface that hands over copy or records work renders these same controls, so a press means one thing. */
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { createElement, useEffect, useMemo, useState, useTransition } from "react";
+import type { BundleComponent } from "@/domains/decision";
 import { confirmDangerousChangeAction, dismissProposalAction, markProposalImplementedAction, reviewDraftAction } from "./actions";
 
 /** THE PRESS SURVIVES THE CONNECTION. A "Mark done" that THREW never reached the server, and telling the
@@ -100,13 +101,27 @@ function useMarkQueueFlush(): string | null {
  *  ONE COPY CONTROL FOR THE WHOLE PRODUCT: Today's top edit and the change detail render this same button, so
  *  a pasteable line is never handed over without the press that takes it. `onToast` is the LIST's echo and is
  *  absent everywhere else, because a server-rendered page cannot hand a function to a client component. */
-export function CopyButton({ text, label, onToast }: { text: string; label: string; onToast?: (t: string) => void }) {
+export function PublicationCopy({ text, units }: { text: string; units?: BundleComponent["units"] }) {
+  return <div className="space-y-2 whitespace-pre-wrap break-words">{units ? units.map((u, i) =>
+    u.kind === "paragraph" ? <p key={i}>{u.text}</p> : u.kind === "heading" ? createElement(`h${u.level}`, { key: i, className: "font-semibold" }, u.text)
+      : createElement(u.kind === "ordered_list" ? "ol" : "ul", { key: i, className: `pl-6 ${u.kind === "ordered_list" ? "list-decimal" : "list-disc"}` }, u.items.map((item, j) => <li key={j}>{item}</li>))) : <p>{text}</p>}</div>;
+}
+
+export function CopyButton({ text, units, label, onToast }: { text: string; units?: BundleComponent["units"]; label: string; onToast?: (t: string) => void }) {
   const [said, setSaid] = useState<string | null>(null);
   const say = (s: string, ms: number) => { setSaid(s); setTimeout(() => setSaid(null), ms); };
+  const copy = async () => {
+    if (!navigator.clipboard) throw new Error("Clipboard unavailable");
+    if (!units || typeof ClipboardItem === "undefined" || !navigator.clipboard.write) { await navigator.clipboard.writeText(text); return units ? "Copied Markdown · preserve headings/lists when pasting" : "Copied"; }
+    const escape = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+    const html = units.map((u) => u.kind === "paragraph" ? `<p>${escape(u.text)}</p>` : u.kind === "heading" ? `<h${u.level}>${escape(u.text)}</h${u.level}>`
+      : `<${u.kind === "ordered_list" ? "ol" : "ul"}>${u.items.map((item) => `<li>${escape(item)}</li>`).join("")}</${u.kind === "ordered_list" ? "ol" : "ul"}>`).join("");
+    await navigator.clipboard.write([new ClipboardItem({ "text/plain": new Blob([text], { type: "text/plain" }), "text/html": new Blob([html], { type: "text/html" }) })]); return "Copied with headings/lists · check your editor preserves them";
+  };
   return (
     <button type="button" data-copy-after="true"
-      onClick={() => { navigator.clipboard?.writeText(text).then(
-        () => { say("Copied", 2000); onToast?.("Copied"); },
+      onClick={() => { copy().then(
+        (message) => { say(message, 4000); onToast?.(message); },
         () => { say("Copy it by hand", 4000); onToast?.("Your clipboard could not be reached, so please copy it by hand."); }); }}
       className="shrink-0 rounded-md border border-border px-2 py-1 text-[12px] font-semibold text-muted-foreground hover:text-foreground">
       {said ?? label}

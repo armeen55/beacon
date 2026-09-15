@@ -483,6 +483,8 @@ export function ConnectorsClient({
     disconnect: () => Promise<{ success: boolean; error?: string }>,
     setInfo: (i: ConnectorInfo) => void,
   ) {
+    // The same confirm step Search Console uses, so a stray click never drops a connection.
+    if (!window.confirm("Disconnect Clarity? Your previously pulled data stays, reconnect any time to resume pulls.")) return;
     startTransition(async () => {
       const result = await disconnect();
       if (result.success) {
@@ -1032,8 +1034,8 @@ export function ConnectorsClient({
               </p>
             ) : null}
             <p className="text-[12px] text-muted-foreground">
-              Clarity only shares the last 1 to 3 days, so pull data every
-              couple of days to keep history without gaps.
+              Clarity only shares the last 1 to 3 days and allows 10 pulls a day;
+              one pull a day on its own schedule keeps history without gaps.
             </p>
           </div>
 
@@ -1070,8 +1072,8 @@ export function ConnectorsClient({
           <p className="mt-1 text-[12px] text-muted-foreground">
             Connect a Clarity API token to see where visitors get
             stuck on each page (rage clicks, dead clicks, scroll depth).
-            Clarity only shares the last 1 to 3 days, so pull data every
-            couple of days to keep history without gaps.
+            Clarity only shares the last 1 to 3 days; one pull a day on its
+            own schedule keeps history without gaps.
           </p>
 
           <div className="mt-3 space-y-2">

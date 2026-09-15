@@ -1,4 +1,5 @@
 import "server-only";
+import { load } from "cheerio";
 
 /** pages/owned-context - the TARGETED read of what my own page actually says, and which of its words are its own.
  *  A page crawled since 2026-08-03 carries `body_text`: the WHOLE de-chromed main content, capped at the crawler's 100,000 character ceiling. This reader hands that back, in order, for a HANDFUL of explicitly asked URLs, and says out loud how much of the page it is. A row from before that column existed carries only the old bounded capture (20 paragraphs cut at 300 characters), and reads as `sample_only` forever, because what is not in a sample is UNKNOWN, never absent.
@@ -17,7 +18,7 @@ export type OwnedPageBody = {
   title: string | null;
   h1: string | null;
   metaDescription: string | null;
-  /** Ordered headings AS STORED: the h1, then every h2, then every h3. */
+  /** Document-order headings when structure is captured; legacy rows retain their stored level groups. */
   headings: string[];
   /** Ordered body passages EXACTLY as the store holds them, each one the crawler's own entry. */
   passages: string[];
@@ -30,6 +31,7 @@ export type OwnedPageBody = {
   faqs: { question: string; answer: string; source: "html_details" | "html_section"; answerComplete?: boolean }[];
   entityNames: string[];
   internalLinks: { href: string; anchorText: string }[];
+  sourceCapture?: PageSnapshot["content_capture"];
   fetchedAt: string | null;
   /** complete = the whole page is in this read. partial = a ceiling cut it, mine or the crawler's.
    *  sample_only = the CRAWLER itself kept a sample, so what is not here is UNKNOWN, never absent. */
@@ -58,27 +60,25 @@ const MAX_OPENING_CHARS = 1200, MAX_OPENING_PARAGRAPHS = 8;
 const MAX_TITLE_CHARS = 200, MAX_META_CHARS = 320, MAX_ITEM_CHARS = 300;
 const MAX_HEADINGS = 60, MAX_FAQS = 20, MAX_ENTITIES = 12, MAX_LINKS = 12;
 /** Every column of the capture that carries page CONTENT, and nothing else. */
-const COLUMNS = "id, url, title, h1, meta_description, fetched_at, word_count, h2_list, h3_list, faqs, body_text, body_paragraph_sample, card_texts, schema_entity_names, internal_links, content_hash, extraction_certainty";
+const COLUMNS = "id, url, title, h1, meta_description, fetched_at, word_count, h2_list, h3_list, faqs, body_text, body_paragraph_sample, card_texts, schema_entity_names, internal_links, content_hash, extraction_certainty, content_capture";
 
-type Row = {
-  extraction_certainty?: unknown;
-  url?: string | null; title?: string | null; h1?: string | null; meta_description?: string | null;
-  fetched_at?: string | null; word_count?: unknown; body_text?: unknown;
-  h2_list?: unknown; h3_list?: unknown; faqs?: unknown;
-  body_paragraph_sample?: unknown; card_texts?: unknown; schema_entity_names?: unknown; internal_links?: unknown;
-  content_hash?: string | null;
-};
+type Row = Partial<Record<keyof PageSnapshot, unknown>> & Pick<Partial<PageSnapshot>, "url" | "fetched_at">;
 
-/** The whole page as ordered passages, split on whitespace so no word is cut in half. The stored text is
- *  one whitespace-normalized run, and a caller reading passage by passage should still read sentences. */
-function passagesFromFullText(full: string): string[] {
-  const out: string[] = []; let at = 0;
-  while (at < full.length && out.length < MAX_PASSAGES) {
-    let end = Math.min(at + MAX_PASSAGE_CHARS, full.length);
-    if (end < full.length) { const space = full.lastIndexOf(" ", end); if (space > at) end = space; }
-    out.push(full.slice(at, end).trim()); at = end + 1;
+/** Captured blocks retain their real boundaries. Legacy flat text has only word-safe chunks, never
+ * inferred paragraphs; a single long word stays whole and the reader's page budget still decides scope. */
+function passagesFromFullText(full: string, source?: ReturnType<typeof load>): string[] {
+  if (source) {
+    const children = source.root().contents(), out: string[] = []; let pending = "";
+    const flush = () => { const text = pending.replace(/\s+/g, " ").trim(); if (text) out.push(text); pending = ""; };
+    const walk = (node: typeof children[number]): void => {
+      if (node.type === "text") { pending += node.data; return; }
+      if (!("name" in node) || !("children" in node)) return;
+      if (/^(?:h[1-6]|p|ol|ul|dl|table|pre|blockquote|figure|details)$/.test(node.name)) { flush(); pending = source(node).text(); flush(); return; }
+      for (const child of node.children) walk(child);
+    };
+    children.each((_, node) => walk(node)); flush(); return out;
   }
-  return out.filter(Boolean);
+  return (full.slice(0, CRAWL_BODY_TEXT_CHARS).match(new RegExp(`[\\s\\S]{1,${MAX_PASSAGE_CHARS}}(?=\\s|$)|\\S{${MAX_PASSAGE_CHARS + 1},}`, "g")) ?? []).map((text) => text.trim()).filter(Boolean).slice(0, MAX_PASSAGES);
 }
 const cap = (value: unknown, chars: number): string | null => { const s = typeof value === "string" ? value.trim() : ""; return s ? s.slice(0, chars) : null; };
 const items = (value: unknown, max: number, chars: number): string[] => (Array.isArray(value) ? value : []).map((x) => cap(x, chars)).filter((x): x is string => !!x).slice(0, max);
@@ -107,8 +107,15 @@ function variantsOf(urls: string[]): string[] {
 /** PURE. One stored row as the complete useful content the store holds for that page, bounded, with the
  *  completeness verdict DERIVED from the crawler's own caps rather than assumed. */
 function bodyOf(row: Row): OwnedPageBody {
+  const raw = row.content_capture as PageSnapshot["content_capture"];
+  const sourceCapture = raw?.version === 1 && typeof raw.mainHtml === "string" && typeof raw.complete === "boolean"
+    && Array.isArray(raw.jsonLd) && raw.jsonLd.every((block) => typeof block === "string")
+    && raw.mainHtml.length + raw.jsonLd.reduce((n, block) => n + block.length, 0) <= CRAWL_BODY_TEXT_CHARS ? raw : undefined;
   const title = cap(row.title, MAX_TITLE_CHARS), h1 = cap(row.h1, MAX_ITEM_CHARS);
-  const headings = [...(h1 ? [h1] : []), ...items(row.h2_list, MAX_HEADINGS, MAX_ITEM_CHARS), ...items(row.h3_list, MAX_HEADINGS, MAX_ITEM_CHARS)].slice(0, MAX_HEADINGS);
+  const parsed = sourceCapture?.mainHtml ? load(sourceCapture.mainHtml) : undefined;
+  const source = parsed && typeof row.body_text === "string" && parsed.root().text().replace(/\s+/g, " ").trim() === row.body_text.trim() ? parsed : undefined;
+  const headings = source ? items(source("h1,h2,h3,h4,h5,h6").toArray().map((el) => source(el).text()), MAX_HEADINGS, MAX_ITEM_CHARS)
+    : [...(h1 ? [h1] : []), ...items(row.h2_list, MAX_HEADINGS, MAX_ITEM_CHARS), ...items(row.h3_list, MAX_HEADINGS, MAX_ITEM_CHARS)].slice(0, MAX_HEADINGS);
   // A HEADING IS A LABEL FOR TEXT, NEVER THE TEXT, so headings can never stand in for body passages here.
   // THE WHOLE PAGE WHEN THE CRAWL KEPT IT: body_text is the de-chromed main content in full, so it replaces
   // the 20-paragraph sample outright. Only a row written before that column existed falls back to the sample.
@@ -116,7 +123,7 @@ function bodyOf(row: Row): OwnedPageBody {
   const held = typeof row.body_text === "string";
   const full = held ? (row.body_text as string).trim() : "";
   const stored = held
-    ? passagesFromFullText(full)
+    ? passagesFromFullText(full, source)
     : items(row.body_paragraph_sample, MAX_PASSAGES, MAX_PASSAGE_CHARS);
   const cardTexts = items(row.card_texts, CRAWL_CARDS, MAX_ITEM_CHARS);
   const entityNames = items(row.schema_entity_names, MAX_ENTITIES, MAX_ITEM_CHARS);
@@ -141,11 +148,12 @@ function bodyOf(row: Row): OwnedPageBody {
   const pageWords = typeof row.word_count === "number" && row.word_count > 0 ? row.word_count : null;
   // Confirmed empty bodies are real reads; an unqualified blank or excerpts cannot prove absence.
   const sampled = !held || (full.length === 0 && row.extraction_certainty !== "confirmed");
-  const truncated = passages.length < stored.length || (full.length >= CRAWL_BODY_TEXT_CHARS);
+  const sourceConflict = !!parsed && !source, truncated = sourceConflict || sourceCapture?.complete === false || passages.length < stored.length || (full.length >= CRAWL_BODY_TEXT_CHARS);
   // TRUNCATION RECORDS EXACTLY WHAT IS HELD, whichever verdict it lands under, and says WHOSE ceiling cut it.
   const range = passages.length < stored.length
     ? ` Passages 1 to ${passages.length} of the ${stored.length} on file are held here; passages ${passages.length + 1} to ${stored.length} are past the ${MAX_PAGE_CHARS} character ceiling for one page.`
-    : truncated
+    : sourceConflict ? " The stored source structure disagrees with the held body text; reconcile that capture before judging or replacing the whole page."
+    : sourceCapture?.complete === false ? " The saved main-content capture is incomplete; uncaptured content is unknown, not absent. Reconcile that capture before judging or replacing the whole page." : truncated
       ? ` This page is longer than the ${CRAWL_BODY_TEXT_CHARS} characters one crawl keeps, so the end of it is not on file.`
       : "";
   return {
@@ -153,7 +161,7 @@ function bodyOf(row: Row): OwnedPageBody {
     title, h1, metaDescription: cap(row.meta_description, MAX_META_CHARS), headings, passages,
     openingSample: passages.length === 0 ? null
       : cap(passages.slice(0, MAX_OPENING_PARAGRAPHS).join(" ").replace(/\s+/g, " "), MAX_OPENING_CHARS),
-    vocabulary: full, cardTexts, faqs, entityNames, internalLinks,
+    vocabulary: full, cardTexts, faqs, entityNames, internalLinks, ...(sourceCapture ? { sourceCapture } : {}),
     fetchedAt: typeof row.fetched_at === "string" ? row.fetched_at : null,
     completeness: sampled ? "sample_only" : truncated ? "partial" : "complete",
     contentHash: typeof row.content_hash === "string" ? row.content_hash : null,

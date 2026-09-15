@@ -2,7 +2,8 @@
 
 import { createHash } from "node:crypto";
 
-import { anchoredTopicMatch, canonicalQueryKey, domainOf, templateHeadings, topicTokens, weakAnchorTokens } from "./relevance-gate";
+import { anchoredTopicMatch, canonicalUrlKey, canonicalQueryKey, domainOf, templateHeadings, topicTokens, weakAnchorTokens } from "./relevance-gate";
+export { canonicalUrlKey } from "./relevance-gate";
 import type { FunnelResearchEvidence } from "./funnel/research-evidence";
 
 // ── source identity + freshness ──────────────────────────────────────────────
@@ -220,16 +221,6 @@ const CITATION_WRAPPERS = new Set(["vertexaisearch.cloud.google.com", "www.googl
 const MAX_CITED_PAGES = 15, MAX_QUESTIONS = 30, MIN_QUESTION_LEN = 12, MAX_QUESTION_LEN = 160;
 
 // ── pure helpers ─────────────────────────────────────────────────────────────
-
-export function canonicalUrlKey(value: string | null | undefined): string {
-  if (!value) return "";
-  try {
-    const parsed = new URL(value.startsWith("http") ? value : `https://${value}`);
-    return `${parsed.hostname.replace(/^www\./i, "").toLowerCase()}${parsed.pathname.replace(/\/+$/, "") || "/"}`;
-  } catch {
-    return value.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/+$/, "").toLowerCase();
-  }
-}
 
 const norm = (s: string): string => s.trim().toLocaleLowerCase("en-US");
 

@@ -18,19 +18,13 @@
  *   • Soft-disconnect aware: when the `google_ga4` token has
  *     `disconnected_at` set, returns `{ ok: false, reason:
  *     "disconnected" }` without making an API call.
- *   • Expiry-aware: uses the existing `evaluateExpiry` helper
- *     (originally built for GSC J2) — fresh tokens use access_token
- *     directly; `stale_under_7d` triggers an OAuth refresh attempt;
- *     `stale_over_7d` returns `{ ok: false, reason: "token_expired" }`
- *     without burning a refresh.
+ *   • Expiry-aware: uses the shared `evaluateExpiry` helper. A fresh
+ *     token is used directly; a stale one is refreshed through the
+ *     stored refresh token however long it sat idle.
+ *   • Every call carries a 30 second timeout so a hung Google
+ *     response can never pin a sync open.
  *   • No page-load calls: the public function is only invoked from
- *     server actions on `/settings/connectors`. The architecture
- *     invariant `ga4-no-page-load-call` enforces this.
- *
- * Pinned by:
- *   • `tests/architecture/ga4-connector-server-only.test.ts`
- *   • `tests/architecture/ga4-connector-tenant-isolation.test.ts`
- *   • `tests/architecture/ga4-no-page-load-call.test.ts`
+ *     server actions on `/settings/connectors`.
  */
 
 import "server-only";
@@ -46,6 +40,8 @@ import { log } from "@/lib/logger";
 import type { Ga4ApiFetchResult } from "./types";
 
 const REQUIRED_SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
+/** Same ceiling the GSC client uses; a hung Google response fails the call instead of the whole sync. */
+const GA4_FETCH_TIMEOUT_MS = 30_000;
 
 type Ga4ApiFetchArgs = {
   /** Tenant id explicitly threaded by the caller. No ambient reads. */
@@ -91,14 +87,8 @@ export async function ga4ApiFetch<T = unknown>(
     return { ok: false, reason: "disconnected" };
   }
 
-  const now = args.now ?? new Date();
-  const expiryStatus = evaluateExpiry({ token, now });
-  if (expiryStatus === "stale_over_7d") {
-    return { ok: false, reason: "token_expired", message: ">7d past expiry" };
-  }
-
   let accessToken = token.access_token;
-  if (expiryStatus === "stale_under_7d") {
+  if (evaluateExpiry({ token, now: args.now ?? new Date() }) === "stale") {
     try {
       const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
         provider: "google_ga4",
@@ -127,6 +117,7 @@ export async function ga4ApiFetch<T = unknown>(
         ...(init?.headers ?? {}),
         Authorization: `Bearer ${accessToken}`,
       },
+      signal: AbortSignal.timeout(GA4_FETCH_TIMEOUT_MS),
     });
   } catch (e) {
     log.warn("[ga4-client] fetch threw; surfacing api_error", {
@@ -155,6 +146,7 @@ export async function ga4ApiFetch<T = unknown>(
             ...(init?.headers ?? {}),
             Authorization: `Bearer ${refreshed.access_token}`,
           },
+          signal: AbortSignal.timeout(GA4_FETCH_TIMEOUT_MS),
         });
         if (retry.ok) {
           const data = (await retry.json().catch(() => null)) as T | null;

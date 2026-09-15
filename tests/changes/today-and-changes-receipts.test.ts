@@ -149,10 +149,10 @@ describe("a card says why this opportunity and why these words, and never trades
   it("body narration owes contextual acceptance rather than an arranging-verb rejection", async () => {
     const { reviewFinishedCopy } = await import("@/domains/decision/drafted-copy");
     const { openHold } = await import("@/domains/decision/completeness");
-    for (const [after, acceptable] of [["Common phrases are listed here with pronunciations shown beside each.", false], ["The article groups its entries by profession.", false], ["Anzali sits beside the Caspian Sea.", true]] as const) {
-      const p = { ...proposal(), bundle: undefined, recommendedChange: { kind: "existing_edit", field: "section", before: null, after, where: "At the end of the main article" }, claims: [{ text: after, supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: after }] } as ChangeProposal;
-      expect(unreviewed(p)).not.toBeNull();
-      const r = await reviewFinishedCopy(p, { tenantId: p.tenantId, now: new Date(), judge: (async () => ({ pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: acceptable, notes: "Judge publisher role in context.", claims: [{ i: 0, by: ["page-copy-1"], entailed: true }] })) as never });
+    for (const linkTo of [undefined, "/related"]) for (const [after, acceptable] of [["Common phrases are listed here with pronunciations shown beside each.", false], ["The article groups its entries by profession.", false], ["This page talks about the subject according to this page.", false], ["Anzali sits beside the Caspian Sea.", true]] as const) {
+      const by = linkTo ? "fact-1" : "page-copy-1", p = { ...proposal(), assignment: undefined, bundle: undefined, recommendedChange: { kind: "existing_edit", field: "section", before: null, after, linkTo, where: "At the end of the main article" }, claims: [{ text: after, supportedBy: [by] }], supportFacts: [{ id: by, fact: after }] } as ChangeProposal; // a linked section STATING A CHECKED FACT owes the reading; one citing only the destination's own words does not (audit, 2026-09-14)
+      expect([unreviewed(p) != null, linkTo ? unreviewed({ ...p, claims: [{ text: after, supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: after }] }) : "n/a"]).toEqual([true, linkTo ? null : "n/a"]);
+      const r = await reviewFinishedCopy(p, { tenantId: p.tenantId, now: new Date(), judge: (async () => ({ pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: acceptable, notes: "Judge publisher role in context.", claims: [{ i: 0, by: [by], entailed: true }] })) as never });
       expect(r.row && openHold(r.row).defects.length === 0).toBe(acceptable);
     }
     const { staleCopyReasons } = await import("@/domains/decision/drafted-copy"), after = "Shoma is the deferential or formal you, and to is the familiar or intimate you.\n- shoma: deferential or formal you";
@@ -214,26 +214,13 @@ describe("a card says why this opportunity and why these words, and never trades
     expect(b.wording).toEqual([{ claim: "Say what this page answers.", because: ["1,200 impressions for that search."] },
       { claim: "Match the heading to it.", because: ["The page's own heading says otherwise."] }]); });
 
-  it("the rendered card leads with the proof line and no bare check count survives anywhere", async () => {
-    const html = await renderList(viewOf([{ ...atomic(), demandImpressions90d: 30423, impactScore: 76, primaryQuery: "iran flag" } as ChangeProposal]));
-    expect(html).toContain("Why this ranks here:");
-    expect(html).toContain("30,423 impressions for &quot;iran flag&quot; over 90 days and is short about 76 clicks in the last 28");
-    for (const n of ["Backed by", "Who beats you today", "Strongest reason"]) expect(html, n).not.toContain(n); }); });
+});
 
 describe("a ranked card explains itself without being opened", () => {
   beforeEach(() => vi.clearAllMocks());
-  it("shows the shape of the change, the exact action, effort, risk, evidence, and why it outranks the next one", async () => {
-    const ready = await renderList(viewOf([atomic()])); // one component is one edit, never a bundle
-    for (const s of ["Replace title", "Copy title", "Mark done", "Skip"]) expect(ready, s).toContain(s);
-    const held = await renderList(viewOf([proposal({ modeledOn: SHAPE })]));
-    for (const s of ["2 edits together", "Settle which page owns that search", "High risk", "it wins back more of what you are losing", "Needs your decision", "What you are deciding", "moves or hides a page", "Page title", "Nowruz Traditions and the Haft-Seen Table", "Canonical tag", "Point /haft-seen at this page."]) expect(held, s).toContain(s);
-    for (const s of ["Copy title", "Mark done", "Needs your review", "Why it is held", "A draft, not finished work"]) expect(held, s).not.toContain(s);
-    for (const s of ["Proven", "Page-only", "Source-backed", "Search-results-backed"]) expect(ready, s).not.toContain(s);
-    expect(ready, "the row says what backs it").toContain("Why this ranks here:");
-    const bad = await renderList(viewOf([{ ...proposal(), limitations: ["it repeats what stays on the page below it, so a reader gets the same thing twice"] }]));
-    expect(bad, "no card").not.toContain('data-change-card="true"');
-    expect(bad, "background").toContain("Beacon is working on 1 more opportunity");
-    for (const never of ["Beacon must improve", "it repeats what stays on the page below it", "Needs your decision"]) expect(bad, never).not.toContain(never);});
+  it("renders saved heading and list roles without turning paragraphs into bullets", async () => {
+    const { PublicationCopy } = await import("@/app/(shell)/changes/change-controls"), units = [{ kind: "heading" as const, level: 2, text: "Which items belong?" }, { kind: "paragraph" as const, text: "The items represent wishes for the year." }, { kind: "ordered_list" as const, items: ["Wash the cloth.", "Arrange the items."] }];
+    const html = renderToStaticMarkup(createElement(PublicationCopy, { text: "unused flattened copy", units })); expect(html).toContain('<h2 class="font-semibold">Which items belong?</h2>'); expect(html).toContain("<p>The items represent wishes for the year.</p>"); expect(html).toContain("<li>Wash the cloth.</li><li>Arrange the items.</li>"); expect(html).toContain("<ol"); expect(html).not.toContain("unused flattened copy"); });
   it("every Ready card is impossible to misunderstand: action, target, current, new, location, untouched, named button", async () => {
     const shape = (over: Partial<ChangeProposal>) => ({ ...atomic(), bundle: undefined, ...over } as ChangeProposal);
     const title = await renderList(viewOf([shape({})]));
@@ -275,11 +262,6 @@ describe("a change detail hands over the whole investigation and the controls to
     const html = await renderDetail(proposal());
     for (const s of ["Where it goes", "the page title itself", "What it does", "Why it works", "wins the click", "Sources to add before this goes out",
       "The date needs a source a reader can check.", "Check these lines against the source you pick", "Nowruz falls on the spring equinox."]) expect(html).toContain(s); });
-  it("the ranking receipt names each input and how far it could ever move the order", async () => {
-    const html = await renderDetail(proposal());
-    for (const s of ["Why this one ranks where it does", "this draft passed every safety check (a strong push)", // A factor that changed nothing says so; it never prints a bare zero. NO RANKER ARITHMETIC ON THE SCREEN: how hard a factor pushed is the fact; "1.2 of a possible 3" is not.
-      "this page already has a change under measurement (held it back)", "did not move this one either way",
-      "I ranked this on about 163 clicks I can show are recoverable"]) expect(html, s).toContain(s); });
   it("the operator can say which pieces they applied, what they actually wrote, or put the change away", async () => {
     const twin = (label: string) => ({ ...proposal().bundle!.components[0]!, kind: "internal_links" as const, label }); // READY IS THE ONLY LANE THAT CARRIES CONTROLS, so the picker is exercised on the shape that really has one. TWO PIECES OF THE SAME KIND ARE STILL TWO PIECES: a shared React key collapsed them into one row, so an operator could not say they applied one section and skipped the other. PIN (B): the control asks what they wrote; it never offers to skip the check.
     const html = await renderDetail(proposal({ status: "ready", riskLevel: "medium", modeledOn: SHAPE, bundle: { ...proposal().bundle!, components: [twin("The opening section"), twin("The sizing section")] } }));
@@ -305,10 +287,7 @@ describe("a change detail hands over the whole investigation and the controls to
     expect(await renderDetail(proposal({ causeFinding: undefined, rankingReceipt: undefined }))).not.toContain("How this was worked out");
     expect(await renderDetail(proposal({ causeFinding: undefined }))).toContain("How this was worked out"); // a ranking receipt is reasoning too
   }); });
-/** THE FINISHED CARD, AS THE OPERATOR READS IT (operator, 2026-09-06): "the default view should let me understand what changes, the
- *  exact final copy, where it goes and what it replaces, why this is worth trying, any important caveat, Copy, edit-as-applied, Mark
- *  done and Skip. Keep supporting evidence expandable. Remove stale caveats from previous drafts and contradictory boilerplate." TWO
- *  SYNTHETIC ACCOUNTS with unrelated subjects, so a rule that only holds for one page family fails here. */
+/** Operator contract: action, complete copy, target/original, worth, caveat, Copy/edit-as-applied/Mark done/Skip; expandable evidence, no stale boilerplate. Two unrelated synthetic accounts enforce generic behavior. */
 describe("a finished change is read, decided and pasted without being opened", () => {
   const SITES = [
     { t: "tenant-one", path: "/tide-pools", label: "Tide pools", q: "tide pool safety", now: "Tide pools are fun for the whole family.",

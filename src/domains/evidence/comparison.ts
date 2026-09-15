@@ -1,5 +1,6 @@
 /** Query-backed source observations are research candidates, not proof that a whole owned page lacks their subject. */
 import { createHash } from "node:crypto";
+import { load } from "cheerio";
 import { classifyDomain, type CompetitorKind } from "./competitors/classify";
 import { canonicalQueryKey, FURNITURE_LABEL, topicTokens } from "./relevance-gate";
 import { publisherHost } from "./serp-shape";
@@ -25,22 +26,20 @@ const READING_CHARS = 4_000;
 const heldFor = (body: string, ask: ReadonlySet<string>, limit: number, focus: ReadonlySet<string>, sections: readonly { heading: string | null; text: string }[] = []): { held: string; whole: boolean } => {
   if (body.length <= limit) return { held: body, whole: true };
   const score = (t: string, bag: ReadonlySet<string>): number => [...new Set(topicTokens(t))].filter((w) => bag.has(w)).length;
-  const chosen: string[] = []; let room = limit;
-  // A task's captured section travels with its explanation and qualifications before generic query prose.
-  for (const x of sections.map((s, i) => ({ t: [s.heading, s.text].filter(Boolean).join("\n"), i, n: score(s.heading ?? "", focus) * 3 + score(s.text, focus) + score(s.heading ?? "", ask) + score(s.text, ask) })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n || a.i - b.i)) {
-    if (room < 1 || chosen.some((t) => t.includes(x.t))) continue;
-    const t = x.t.length <= room ? x.t : chosen.length === 0 ? x.t.slice(0, room) : "";
-    if (t) { chosen.push(t); room -= t.length + 2; }
+  const blocks = sections.length ? sections : body.split(/\n\s*\n/).map((text) => ({ heading: null, text })), chosen: { t: string; i: number }[] = []; let room = limit;
+  for (const x of blocks.map((s, i) => ({ t: [s.heading, s.text].filter(Boolean).join("\n").trim(), i, n: score(s.heading ?? "", focus) * 3 + score(s.text, focus) + score(s.heading ?? "", ask) + score(s.text, ask) })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n || a.i - b.i)) {
+    if (!x.t || x.t.length + (chosen.length ? 2 : 0) > room || chosen.some((p) => tidy(p.t).includes(tidy(x.t)))) continue;
+    chosen.push(x); room -= x.t.length + (chosen.length > 1 ? 2 : 0);
   }
+  // A block never fits cut short: when the fitting blocks leave room, the best sentences and their neighbours fill it, each whole.
   const parts = body.split(/(?<=[.!?])\s+/).map((t) => t.trim()).filter(Boolean), keep = new Set<number>();
   for (const x of parts.map((t, i) => ({ t, i, n: score(t, focus) * 2 + score(t, ask) })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n || a.i - b.i)) {
     for (const i of [x.i, x.i - 1, x.i + 1]) { const t = parts[i];
-      if (!t || keep.has(i) || chosen.some((p) => tidy(p).includes(tidy(t))) || room < t.length + 1 || t.split(/\s+/).slice(0, 12).some((_, n, words) => FURNITURE_LABEL.test(words.slice(0, n + 1).join(" ")))) continue;
+      if (!t || keep.has(i) || chosen.some((p) => tidy(p.t).includes(tidy(t))) || room < t.length + 1 || t.split(/\s+/).slice(0, 12).some((_, n, words) => FURNITURE_LABEL.test(words.slice(0, n + 1).join(" ")))) continue;
       keep.add(i); room -= t.length + 1;
     }
   }
-  const held = [...chosen, parts.filter((_, i) => keep.has(i)).join(" ")].filter(Boolean).join("\n\n");
-  return { held: held || body.slice(0, limit), whole: false }; };
+  return { held: [...chosen.sort((a, b) => a.i - b.i).map((x) => x.t), parts.filter((_, i) => keep.has(i)).join(" ")].filter(Boolean).join("\n\n"), whole: false }; };
 const MAX_WINNERS = 5, MAX_OBSERVATIONS = 6, QUOTE_CHARS = 160, MAX_KEEP = 4, KEEP_CHARS = 240, MIN_SECTION_WORDS = 20, MIN_READ_WORDS = 60;
 const sectionUnder = (body: string, heading: string, heads: readonly string[], sections?: readonly { heading: string | null; text: string }[]): string | null => {
   const parsed = sections?.find((s) => (s.heading ?? "").trim().toLowerCase() === heading.trim().toLowerCase())?.text.trim(); if (parsed) return parsed.split(/\s+/).filter(Boolean).length >= MIN_SECTION_WORDS ? parsed.slice(0, 1_200) : null; // the provider's own section, where the capture carries one
@@ -56,9 +55,20 @@ const covers = (bag: Set<string>, label: string): boolean => { const ask = topic
 const tidy = (s: string): string => s.replace(/\s+/g, " ").trim();
 const cut = (s: string, n: number): string => (s.length <= n ? s : `${s.slice(0, n - 3).trimEnd()}...`);
 const keyOf = (s: string): string => createHash("sha256").update(s).digest("hex").slice(0, 16);
-const sectionsOf = (body: string, heads: readonly string[]): { heading: string; text: string }[] => {
+const sectionsOf = (body: string, heads: readonly string[], capture?: { version: number; mainHtml: string; complete: boolean }): { heading: string; text: string }[] => {
+  if (capture?.version === 1 && capture.mainHtml.length <= 100_000) {
+    const source = load(capture.mainHtml), children = source.root().contents().toArray(), locations: { heading: string; level: number; at: number; from: number }[] = []; let text = "";
+    const walk = (node: typeof children[number]): void => { if (node.type === "text") { text += node.data; return; } if (!("children" in node)) return;
+      const h = "name" in node && /^h[1-6]$/.test(node.name) ? { heading: source(node).text().trim(), level: Number(node.name[1]), at: text.length, from: 0 } : null;
+      if (h) locations.push(h); for (const child of node.children) walk(child); if (h) h.from = text.length; };
+    children.forEach(walk);
+    if (tidy(text) === tidy(body)) {
+      const depth = Math.min(...locations.filter((h) => h.level > 1).map((h) => h.level)), roots = locations.filter((h) => h.level <= depth);
+      return roots.map((h, i) => ({ heading: h.heading, text: text.slice(h.from, roots[i + 1]?.at ?? text.length).trim() }));
+    }
+  }
   let offset = 0; const labels = new Set(heads.map((h) => tidy(h).toLowerCase()));
-  const locations = body.split("\n").flatMap((line) => { const at = offset; offset += line.length + 1; return labels.has(tidy(line).toLowerCase()) ? [{ heading: line.trim(), at, from: at + line.length }] : []; }).filter((h, i, all) => !all.slice(i + 1).some((n) => n.heading.toLowerCase() === h.heading.toLowerCase()));
+  const locations = body.split("\n").flatMap((line) => { const at = offset; offset += line.length + 1; return labels.has(tidy(line).toLowerCase()) ? [{ heading: line.trim(), at, from: at + line.length }] : []; });
   return locations.map((h, i) => ({ heading: h.heading, text: body.slice(h.from, locations[i + 1]?.at ?? body.length).trim() }));
 };
 
@@ -70,9 +80,9 @@ const classOf = (research: Research, host: string, ownedHost: string): Competito
   return classifyDomain(host, { serpAppearances, aiCitations, competingQueries: queries.size, isOwned: host === ownedHost }).kind;
 };
 
-export function jobComparison(research: Research, queries: readonly string[], owned: { url: string; text: string; headings: readonly string[]; passages?: readonly string[]; complete?: boolean }, max = MAX_WINNERS, channel: "seo" | "aeo" = "seo", focus: readonly string[] = []): JobComparison {
+export function jobComparison(research: Research, queries: readonly string[], owned: { url: string; text: string; headings: readonly string[]; passages?: readonly string[]; complete?: boolean; sourceCapture?: { version: number; mainHtml: string; complete: boolean } }, max = MAX_WINNERS, channel: "seo" | "aeo" = "seo", focus: readonly string[] = []): JobComparison {
   const asked = [...new Set(queries.flatMap((q) => topicTokens(q)))], askBag = new Set(asked);
-  const focusBag = new Set((focus.length ? focus : queries).flatMap((t) => topicTokens(t))), ownSections = sectionsOf(owned.text, owned.headings);
+  const focusBag = new Set((focus.length ? focus : queries).flatMap((t) => topicTokens(t))), ownSections = sectionsOf(owned.text, owned.headings, owned.sourceCapture);
   const shownOwned = heldFor(owned.text, askBag, 4_800, focusBag, ownSections.length ? ownSections : (owned.passages ?? []).map((text) => ({ heading: null, text })));
   const ownBag = said(`${owned.text} ${owned.headings.join(" ")}`), ownedHost = publisherHost(owned.url);
   const passages = (owned.passages ?? []).map(tidy).filter(Boolean);
@@ -108,7 +118,7 @@ export function jobComparison(research: Research, queries: readonly string[], ow
       shape: { words: e.wordCount, lists: e.hasList ?? null, tables: e.hasTable ?? null, questions: e.faqCount ?? null }, namesRead: e.entityNames != null,
       read: reading, truncated: e.truncated === true, held: shown.held, heldWhole: shown.whole, bodyKey: keyOf(tidy(body)), observations: obs.slice(0, MAX_OBSERVATIONS) });
   }
-  const captured = { url: owned.url, held: shownOwned.held, heldWhole: shownOwned.whole && owned.complete === true, bodyKey: keyOf(JSON.stringify([owned.text, owned.headings, owned.complete ?? null])) };
+  const captured = { url: owned.url, held: shownOwned.held, heldWhole: shownOwned.whole && owned.complete === true, bodyKey: keyOf(JSON.stringify([owned.text, owned.headings, owned.complete ?? null, owned.sourceCapture ?? null])) };
   return { queries: [...queries], ...(focus.length ? { focus: [...focus] } : {}), owned: captured, winners, keep, verdict: verdictOf(winners, captured) };
 }
 const verdictOf = (winners: readonly ComparedWinner[], owned: JobComparison["owned"]): JobComparison["verdict"] =>

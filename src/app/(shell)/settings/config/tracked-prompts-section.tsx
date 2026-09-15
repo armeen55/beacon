@@ -53,7 +53,7 @@ export function TrackedPromptsSection({
     start(async () => {
       const r = await saveTrackedQuestionsAction(selection);
       if (!r.ok) { setError(r.error); return; }
-      setSaved(`Saved ${r.count} questions. Research resumes during your signed-in visits.`);
+      setSaved(`Saved ${r.count} questions. The next daily round checks them on its own schedule; a visit only resumes a missed day.`);
       router.refresh();
     });
   }
@@ -70,7 +70,7 @@ export function TrackedPromptsSection({
       <h2 className="text-[15px] font-semibold text-foreground">Questions tracked across AI assistants</h2>
       <p className="text-[13px] text-muted-foreground">
         {count > 0
-          ? `Tracking ${count} question${count === 1 ? "" : "s"}, checked once a day automatically.`
+          ? `Tracking ${count} question${count === 1 ? "" : "s"}, checked every day on Beacon's own schedule; a visit only resumes a missed day.`
           : "No questions are tracked yet, so there is nothing to check. Add at least 10 below and the next daily round picks them up."}
       </p>
       <p className="text-[12px] text-muted-foreground">

@@ -91,7 +91,7 @@ export type ShippedChangeRecord = {
   /** What applying the bundle was meant to achieve, in one sentence. */
   bundleHypothesis: string | null;
   /** The applied components, each with the EXACT copy the live check compares against, its graded risk, a renamed link's `anchorAfter` and a forward's `redirectTo`. Subset = partial bundle. `label` names the PIECE and is never the brief the writer was handed. `appliedAfter` is the operator's own version where they supplied one: the prepared wording stays in `after`, so a record that was applied differently holds both versions and the live check reads the page for the one that is on it. */
-  componentsApplied: Array<{ id?: string | null; kind: string; label: string; after?: string | null; appliedAfter?: string | null; risk?: string | null; anchorAfter?: string | null; redirectTo?: string | null; before?: string | null; page?: string | null; where?: string | null }> | null;
+  componentsApplied: Array<{ id?: string | null; kind: string; label: string; after?: string | null; units?: import("@/domains/decision").BundleComponent["units"] | null; target?: import("@/domains/decision").BundleComponent["target"] | null; appliedAfter?: string | null; appliedUnits?: import("@/domains/decision").BundleComponent["units"] | null; appliedTarget?: import("@/domains/decision").BundleComponent["target"] | null; risk?: string | null; anchorAfter?: string | null; redirectTo?: string | null; before?: string | null; page?: string | null; where?: string | null }> | null;
   /** THE STAMP. When the operator marked it done; the window is read from it. Write-once. */
   implementedAt: string | null;
   /** The owned page's HELD content hash at mark time, from the snapshot on file. */

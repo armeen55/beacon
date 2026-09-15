@@ -1,4 +1,4 @@
-# Beacon — instructions for Claude (Code / CLI / any agent)
+# Beacon - instructions for Claude (Code / CLI / any agent)
 **Read first, in order:** `docs/PRODUCT_TRUTH.md`, `docs/HANDOFF_VERIFIED_STATE.md`, then **`AGENTS.md`**.
 Product Truth is operator-controlled; propose amendments but never edit it without explicit operator approval.
 This file holds only Claude-specific rules.
@@ -12,7 +12,7 @@ instructions; a concrete number when one exists; always a next step; never a raw
 control, baseline, treatment, SERP) on a primary surface; wins in one sentence; no hedging; **no em or en dashes ever**.
 
 **Operator-journey rule (before marking ANY feature complete):** code green is not done. Walk the surface on
-the rendered app with real tenant data as a smart non-technical customer — "what is this telling me / what do
+the rendered app with real tenant data as a smart non-technical customer - "what is this telling me / what do
 I do next / did my action work / is this live or planned" must be obvious, with no jargon, raw slugs, or bare
 zeros. Quote the rendered copy in the report. Verify on the **main tree** (`beacon-audit`, port 3141 →
 `/Users/armeen/beacon`), never a worktree. Judge performance on prod, not dev compile times.
@@ -20,7 +20,7 @@ zeros. Quote the rendered copy in the report. Verify on the **main tree** (`beac
 **The $250 ritual (before any UI change is done):** does this screen convince a stranger to pay $250/mo? What
 number does it show? What decision does it enable? What would you cut? A weak answer means it is not done.
 
-**Execution contract:** an accepted plan authorizes the full landing strip — edit, test, commit (one per
+**Execution contract:** an accepted plan authorizes the full landing strip - edit, test, commit (one per
 coherent step), push `origin/main`, deploy, verify the exact prod SHA. Not "done" until deployed. **Pause
 before** destructive ops (file/branch deletion, `rm -rf`, force-push, `git reset --hard`), Supabase data
 deletion, hosted env-var changes, schema-dropping migrations, or over-budget paid runs. Report what was
@@ -39,6 +39,6 @@ must reduce uncertainty, never create scope. Approved work ships with no flags o
 files, abstractions, agents, tests, or lines. DataForSEO is external research; OpenAI is structured reasoning.
 Fable may assist bounded approved UI, never an alternate product, extra routes, or parallel component system.
 
-**Finish every task with:** `Task completed`, 1–5 bullets, exactly one next recommendation, and
+**Finish every task with:** `Task completed`, 1-5 bullets, exactly one next recommendation, and
 `Recommended capability for next step: [Fast / Balanced / Max]` + one-line why (Fast=Haiku, Balanced=Sonnet,
 Max=Opus).

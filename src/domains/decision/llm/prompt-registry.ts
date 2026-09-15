@@ -35,11 +35,6 @@ export const PROMPT_REGISTRY = {
   "draft.competitor_comparison": 4,
   "draft.fact_claim_extraction": 1,
   "draft.fact_claim_judgement": 3, // v2 (2026-08-29): every supporting source returns its own support ruling with verbatim spans (claim-support artifact v2), so a cached v1 answer cannot satisfy the new contract
-  "draft.batch_adjudication": 1,
-  "draft.strategy_review": 1,
-  "draft.outreach_pitch": 1,
-  // The coverage verdict (N3b, 2026-07-28): does this account already have the right page for a researched topic. Judgment only; it drafts nothing.
-  "draft.coverage_adjudication": 1,
   // The new page brief (N4, 2026-07-28): the one call an EARNED create_new verdict may make. It writes the page, never the decision that the page should exist.
   "draft.new_page_brief": 1,
   // Reading one AI engine's answer back (2026-07-31, V1 Truth Convergence Phase 1): what it said, who it named, what it left out. It restates the answer and
@@ -64,31 +59,11 @@ export const PROMPT_REGISTRY = {
   // subject the extract does not carry is the whole contract; any change to it must bump this version. The cache key already
   // folds the extract text, so a re-crawled page pays again on its own and an unchanged page never pays twice.
   "draft.page_job": 2,
-  // Registered schema kinds with no bespoke production prompt yet (P8 targets); callStructuredLLM derives draft.<kind>, so they must resolve to a version.
-  "draft.tool_asset": 1,
-  "draft.commerce_asset": 1,
-  "draft.experiment_plan": 1,
   // ── onboarding kinds (Slice 5, 2026-07-24) ────────────────────────────────
   "draft.business_profile_inference": 1,
   "draft.business_profile_patch": 1,
   "draft.prompt_candidates": 1,
-  // ── legacy demand-graph drafters (llm-answer-block.ts) ──────────────────── answer_block.text bumped to v2 (2026-07-09, W5/J-71): 80-150 word target
-  // + cite-sources instruction replace the old 40-60 word prompt.
-  "answer_block.text": 2,
-  "answer_block.faq_schema": 1,
-  // ── recommendation reasoning passes ───────────────────────────────────────
-  "rec.why_narrative": 1,
-  "rec.strategist": 1,
-  "rec.critic": 1,
-  "rec.specific_edit_bundle": 1,
-  "rec.page_intent_adjudicator": 1,
   "competitor.overlap_adjudication": 1,
-  // ── page surgeon ──────────────────────────────────────────────────────────
-  "page_surgeon.judge": 1,
-  "page_surgeon.serp_hypothesis": 1,
-  // ── other production egress ───────────────────────────────────────────────
-  "push.cluster_factory": 1,
-  "ai_visibility.engine_poll_openai": 1,
 } as const;
 
 export type PromptId = keyof typeof PROMPT_REGISTRY;

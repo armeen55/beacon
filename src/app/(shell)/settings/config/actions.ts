@@ -12,8 +12,12 @@ import {
 } from "@/domains/account";
 import { readTrackedQuestions, saveTrackedQuestions } from "@/domains/runtime";
 import { competitorOverrideLine, parseCompetitorOverrides, type CompetitorKind } from "@/domains/evidence";
+import { isAccountOwner } from "@/lib/auth/can-publish";
 import { currentTenantId } from "@/lib/tenant-context";
 import { revalidatePath } from "next/cache";
+
+/** Owner gate refusal, the same customer-safe shape the Changes and Results mutations return. */
+const OWNER_ONLY = "Only this account's owner can change these settings.";
 
 /** The business types the screen offers. Optional and never gating: research
  *  runs off what the operator sells and wants to be found for, not off a label. */
@@ -98,6 +102,7 @@ export async function saveSetup(data: {
 }): Promise<{ success: boolean; error?: string }> {
   const action = "saveSetup";
   const t0 = Date.now();
+  if (!(await isAccountOwner())) return { success: false, error: OWNER_ONLY };
   log.info("Action started", { action });
   try {
     const tenantId = await currentTenantId();
@@ -177,6 +182,7 @@ export async function loadTrackedQuestions(): Promise<{
 export async function saveTrackedQuestionsAction(
   input: { keepIds: string[]; edits: { id: string; newText: string }[]; additions: string[] },
 ): Promise<{ ok: true; count: number; added: number; skippedDuplicates: number; skippedBlank: number } | { ok: false; error: string }> {
+  if (!(await isAccountOwner())) return { ok: false, error: OWNER_ONLY };
   const result = await saveTrackedQuestions(await currentTenantId(), input);
   if (result.ok) {
     revalidatePath("/", "layout");

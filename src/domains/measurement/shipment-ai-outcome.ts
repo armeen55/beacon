@@ -235,10 +235,6 @@ export async function aiOutcomesForShipments(tenantId: string, shipments: readon
   });
 }
 
-export async function aiOutcomeForShipment(tenantId: string, shipment: ShipmentForOutcome, opts: ReadOpts & { now?: Date } = {}): Promise<ShipmentAiOutcome | null> {
-  return (await aiOutcomesForShipments(tenantId, [shipment], opts))[0] ?? null;
-}
-
 /** THE OBJECTIVE THIS ONE IS JUDGED ON: what was frozen at mark time wins, because that is the declaration; a shipment recorded before
  *  objectives existed falls back to the stage its scope preserved, and a change with no AI claim at all is judged on clicks and carries
  *  the AI line only as an observation. */

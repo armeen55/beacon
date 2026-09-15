@@ -4,7 +4,6 @@ import {
   readLedger, readRecordsForLearning, type KernelInput, type LedgerRecordLike,
 } from "@/domains/measurement/proof-gsc/kernel";
 import { crawlClock, day56Followup, isDueForMeasure } from "@/domains/measurement/proof-gsc/measure-lifecycle";
-import { verdictSchedule, type VerdictScheduleRow } from "@/domains/measurement/proof-gsc/verdict-schedule";
 import { applyPinnedRead, pinFor, withCorrection } from "@/domains/measurement/proof-gsc/pinned-read";
 import { contaminationFor, selectMatchedControls } from "@/domains/measurement/proof-gsc/contamination";
 import type { ShippedChangeRecord } from "@/domains/measurement/proof-gsc/shipped-change-store";
@@ -86,23 +85,15 @@ describe("a settled reading survives the clock moving under it", () => {
     expect(read.windows.filter((w) => w.day !== 28).map((w) => w.closesOn)).toEqual(["2026-05-27", "2026-06-03"]);});});
 describe("the dates Beacon promises count from the stamp", () => {
   const NOW_S = new Date("2026-05-25T00:00:00Z");
-  const scheduleRow = (over: Partial<VerdictScheduleRow> = {}): VerdictScheduleRow => ({ id: "s1", path: "/x", shippedAt: "2026-05-01T00:00:00.000Z", verdict: "measuring", windows: [], baseline: { impressions: 5000, clicks: 400 }, ...over,});
-  it("moves the promised dates onto the stamp, and never moves one because the change was pressed twice", () => {
-    expect(verdictSchedule([scheduleRow()], NOW_S)).toMatchObject({ firstReadOn: "2026-05-29", finalVerdictOn: "2026-05-29" });
-    expect(verdictSchedule([scheduleRow({ implementedAt: "2026-05-20T00:00:00.000Z" })], NOW_S))
-      .toMatchObject({ firstReadOn: "2026-05-27", finalVerdictOn: "2026-06-17" });
-    expect(verdictSchedule([scheduleRow({ implementedAt: "2026-05-20T00:00:00.000Z", shippedAt: "2026-05-24T00:00:00.000Z" })], NOW_S))
-      .toMatchObject({ firstReadOn: "2026-05-27", finalVerdictOn: "2026-06-17" });
-    // AND ONTO THE DAY GOOGLE ACTUALLY STARTED THE CLOCK (2026-09-03). A crawl two days after the change moves both promised dates by exactly two days, and the date the row itself renders IS the date this schedule names, so Today and Results cannot promise different days for one change. The promise is display only: the same row read with and without the crawl carries identical windows, basis, verdict and number, because what a reading is decided on is the stamp clock and never this.
+  it("moves the promised read onto the stamp and onto the day Google actually started the clock, and never onto a second press", () => {
+    const promised = (over: Partial<LedgerRecordLike>) => readLedger([ledgerRow({ windows: [], ...over })], NOW_S, "2026-05-24")[0].promisedRead;
+    expect([promised({ implementedAt: "2026-05-20T00:00:00.000Z" }), promised({ implementedAt: "2026-05-20T00:00:00.000Z", shippedAt: "2026-05-24T00:00:00.000Z" })], "the stamp, never the ship date, and a re-press moves nothing").toEqual(["2026-05-27", "2026-05-27"]);
+    // AND ONTO THE DAY GOOGLE ACTUALLY STARTED THE CLOCK (2026-09-03). A crawl two days after the change moves the promised date by exactly two days. The promise is display only: the same row read with and without the crawl carries identical windows, basis, verdict and number, because what a reading is decided on is the stamp clock and never this.
     const crawled = { implementedAt: "2026-05-01T00:00:00.000Z", lastCrawlAt: "2026-05-03T09:00:00.000Z" };
-    const shifted = verdictSchedule([scheduleRow(crawled)], NOW_S), asIs = verdictSchedule([scheduleRow({ implementedAt: crawled.implementedAt })], NOW_S);
-    expect([shifted.firstReadOn, shifted.finalVerdictOn, asIs.firstReadOn, asIs.finalVerdictOn]).toEqual(["2026-05-31", "2026-05-31", "2026-05-29", "2026-05-29"]);
-    const promised = (over: Partial<LedgerRecordLike>) => readLedger([ledgerRow({ windows: [], implementedAt: crawled.implementedAt, ...over })], NOW_S, "2026-05-24")[0].promisedRead;
-    expect([promised({ lastCrawlAt: crawled.lastCrawlAt }), promised({})]).toEqual([shifted.firstReadOn, asIs.firstReadOn]);
-    // AND THE CRAWL DAY RULE IS WRITTEN THREE TIMES (reviewer, 2026-09-03: measure-lifecycle, this kernel, verdict-schedule). A shared helper would have to be exported from a file all three may import and the export cap is full, so the three are held EQUAL here instead: whichever copy drifts, this fails.
+    expect([promised(crawled), promised({ implementedAt: crawled.implementedAt })]).toEqual(["2026-05-31", "2026-05-29"]);
+    // AND THE CRAWL DAY RULE IS WRITTEN TWICE (measure-lifecycle and this kernel), so the two are held EQUAL here: whichever copy drifts, this fails.
     for (const [at, waiting] of [[null, false], ["2026-04-28T09:00:00.000Z", true], ["2026-05-03T09:00:00.000Z", false]] as const)
-      expect([crawlClock({ ...crawled, lastCrawlAt: at } as unknown as ShippedChangeRecord).awaiting, promised({ lastCrawlAt: at }) == null,
-        verdictSchedule([scheduleRow({ ...crawled, lastCrawlAt: at })], NOW_S).firstReadOn == null], `last crawl ${at}`).toEqual([waiting, waiting, waiting]);
+      expect([crawlClock({ ...crawled, lastCrawlAt: at } as unknown as ShippedChangeRecord).awaiting, promised({ ...crawled, lastCrawlAt: at }) == null], `last crawl ${at}`).toEqual([waiting, waiting]);
     const [plain, withCrawl] = [{}, { lastCrawlAt: crawled.lastCrawlAt }].map((o) => readLedger([ledgerRow({ implementedAt: crawled.implementedAt, ...o })], LATE, "2026-07-01")[0]);
     expect([withCrawl.windows, withCrawl.basisDay, withCrawl.verdict, withCrawl.lift, withCrawl.rankingSignal]).toEqual([plain.windows, plain.basisDay, plain.verdict, plain.lift, plain.rankingSignal]);});});
 /** Product Truth: 7, 14 and 28 always; 56 ONLY when the 28-day read was confounded, insufficient or unclear, or the change was a dangerous one. A clean 28 closes it. */

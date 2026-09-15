@@ -6,7 +6,7 @@
  */
 
 import type { ParsedPageIntersection } from "../page-intersection";
-import { visibleFaqs } from "../pages/types";
+import { visibleFaqs, type PageSnapshot } from "../pages/types"; import { load } from "cheerio";
 
 export type ResearchEngine = "chatgpt" | "gemini" | "claude" | "perplexity";
 
@@ -241,19 +241,21 @@ type ExtractableSnapshot = {
   title: string | null; h1: string | null; word_count: number; h2_list?: string[]; faqs?: unknown[];
   meta_description?: string | null; body_paragraph_sample?: string[]; schema_entity_names?: string[];
   card_texts?: string[]; table_count?: number; internal_link_count?: number; external_link_count?: number;
-  fetched_at?: string; body_text?: string; h3_list?: string[]; schema_types?: string[];
+  fetched_at?: string; body_text?: string; h3_list?: string[]; schema_types?: string[]; content_capture?: PageSnapshot["content_capture"];
 };
 
 /** ONE mapper from a freshly extracted page snapshot onto the extract. Pure. */
 export function pageExtractFrom(snap: ExtractableSnapshot): ResearchPageExtract {
+  const capture = snap.content_capture, source = capture?.version === 1 && typeof capture.mainHtml === "string" && typeof snap.body_text === "string" ? load(capture.mainHtml) : null, coherent = source && source.root().text().replace(/\s+/g, " ").trim() === (snap.body_text ?? "").replace(/\s+/g, " ").trim();
+  const observed = (selector: string): boolean | undefined => coherent ? source!(selector).length > 0 ? true : capture!.complete === true ? false : undefined : undefined;
   return {
     title: snap.title, h1: snap.h1, wordCount: snap.word_count,
     headings: strings(snap.h2_list, 20), faqCount: visibleFaqs(snap.faqs).length,
     metaDescription: str(snap.meta_description),
     openingSample: str(strings(snap.body_paragraph_sample, 8).join(" ").slice(0, OPENING_SAMPLE_CHARS)),
     entityNames: strings(snap.schema_entity_names, 12),
-    hasList: strings(snap.card_texts, 1).length > 0,
-    hasTable: (snap.table_count ?? 0) > 0,
+    hasList: observed("ol,ul,dl"),
+    hasTable: observed("table"),
     internalLinkCount: snap.internal_link_count ?? 0,
     externalLinkCount: snap.external_link_count ?? 0,
     fetchedAt: str(snap.fetched_at),

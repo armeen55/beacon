@@ -14,7 +14,6 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("@/lib/connector-store", () => ({
   getConnectorInfo: async () => ({ status: CALLS.connected ? "connected" : "not_connected" }),
   getGoogleConnectorToken: async () => null,
-  getYelpConnectorToken: async () => null,
   deleteConnectorToken: async () => {},
   saveConnectorToken: async () => {},
   updateConnectorToken: async () => {},}));

@@ -1,8 +1,8 @@
-# Beacon — instructions for Codex (Code / CLI / any agent)
+# Beacon - instructions for Codex (Code / CLI / any agent)
 
 **Read first, in order:** `docs/PRODUCT_TRUTH.md`, then `docs/HANDOFF_VERIFIED_STATE.md`, before non-trivial work.
 
-This file is the **portable** project contract (use here, in Codex, or anywhere else). Cursor-specific rules live in `.cursor/rules/core.mdc` — keep them aligned when both are in use.
+This file is the **portable** project contract (use here, in Codex, or anywhere else). Cursor-specific rules live in `.cursor/rules/core.mdc` - keep them aligned when both are in use.
 
 ---
 
@@ -34,12 +34,12 @@ irreversible migrations; or paid work beyond its approved task budget.
 After every commit/push/deploy, **report exactly** what was committed (per-step summary),
 what was pushed (commit SHAs), what deployed (Vercel build status), and what was verified
 (hosted smoke results). Truth-up immediately if any step couldn't run from this environment
-(e.g., Vercel CLI unavailable, hosted env vars unreadable) — never imply work is deployed
+(e.g., Vercel CLI unavailable, hosted env vars unreadable) - never imply work is deployed
 when it's not.
 
 ---
 
-## Resource stewardship — permanent and binding
+## Resource stewardship - permanent and binding
 
 - Optimize durable customer outcomes per dollar, CPU-minute, build, write, and provider call. Consuming available quota
   is never progress. “Unlimited”, “maximum”, and “keep going” remove output quotas only, never resource boundaries.
@@ -62,7 +62,7 @@ when it's not.
 - Never create verification logs, architecture duplicates, task summaries, dated audits, roadmaps, WIP logs,
   migration READMEs, component READMEs, or in-repo archives. Git history and deployed state are the archive.
 
-**Finish** with: **Task completed**, 1–5 bullets of what changed, and **exactly one** next best recommendation aligned with the current handoff and operator-approved product truth.
+**Finish** with: **Task completed**, 1-5 bullets of what changed, and **exactly one** next best recommendation aligned with the current handoff and operator-approved product truth.
 
 **Do not:** create new docs unless necessary, duplicate plans, or preserve superseded product ideas as active context.
 
@@ -88,7 +88,7 @@ Before starting and again at the end of each task, recommend **one** tier and a 
 
 - **Stack:** Next.js (App Router), TypeScript strict, Supabase. Supabase is the REQUIRED production
   persistence destination. Legacy `.data/`/dual-write code is current removal work and must not be extended.
-- **Data:** `.data/` is **gitignored** — not committed; keep local backups of CSVs/exports you care about.
+- **Data:** `.data/` is **gitignored** - not committed; keep local backups of CSVs/exports you care about.
 - **Quality gate:** `npm run gate` (guard:foundation + typecheck + test + build) before considering work done.
 - **Migrations:** applied SQL migrations are immutable and date-prefixed. Use the configured Supabase
   management connection; never print credentials or run irreversible migrations without approval.
@@ -107,10 +107,10 @@ Before starting and again at the end of each task, recommend **one** tier and a 
 
 ---
 
-## FOUNDATION FREEZE — permanent bloat firewall (2026-07-22, BINDING)
+## FOUNDATION FREEZE - permanent bloat firewall (2026-07-22, BINDING)
 
-Beacon was rebuilt from 449,894 lines to a ~95k Foundation on three kernels
-(Evidence, Decision, Measurement) behind the approved surfaces (Today, Visibility,
+Beacon was rebuilt from 449,894 lines to a ~95k Foundation on five kernels (Account,
+Evidence, Decision, Measurement, Runtime) behind the approved surfaces (Today, Visibility,
 Changes, Results, Connections). It grew to 500k because the workflow rewarded code production:
 concurrent feature factories, speculative subsystems, per-incident guards, and
 "keep working continuously" with no terminal condition. These rules exist so
@@ -122,16 +122,16 @@ that can never happen again. They override the older single-user notes above
 `scripts/check-foundation-budget.mjs`, CI `.github/workflows/foundation.yml`)
 FAILS when production/test/combined LOC, customer routes, top-level domains,
 public exports, file sizes, or dependencies exceed budget. Run it in the gate:
-`npm run gate`. Ceilings are NON-INCREASING — ratchet them down as code shrinks,
+`npm run gate`. Ceilings are NON-INCREASING - ratchet them down as code shrinks,
 never up without explicit operator approval.
 
 ### Growth policy
 - `foundation-budget.json` is the authoritative numeric ceiling for every budget (LOC, routes, domains,
-  exports, files, deps, Markdown). Prose never overrides it; today it caps tests at 5,000.
+  exports, files, deps, Markdown). Prose never overrides it; the printed ceilings in that file govern.
 - Absolute MVP hard cap: 100,000 combined.
 - Ordinary feature task: ≤750 net new lines.
 - >750 net requires explicit operator approval. >2,000 must be decomposed or
-  REPLACE equivalent existing code — and a replacement DELETES the superseded
+  REPLACE equivalent existing code - and a replacement DELETES the superseded
   path in the same phase (never two pipelines after cutover).
 - No new top-level domain, customer route, or dependency without explicit approval.
 

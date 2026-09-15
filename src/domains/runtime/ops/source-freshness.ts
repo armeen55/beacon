@@ -48,18 +48,18 @@ export type AutoRefreshProvider = "google_gsc" | "google_ga4" | "clarity";
 
 /**
  * Per-provider auto-refresh staleness threshold (hours) for the on-USE refresh.
- * FREE sources (GSC, GA4, Clarity - Google/Microsoft APIs, no per-call cost) use
- * 1h so they effectively re-pull on every login session: the operator should never
- * see stale free data. (Their underlying data only changes ~daily - GSC is 3 days
- * behind - so 1h is "always fresh" without re-pulling on every single navigation;
- * the 2-min in-process throttle + durable last_synced_at prevent any hammering.)
- * This is a SYNC-age threshold (when we last pulled), NOT the DATA-age SLA above
- * (how recent the data is). Both live here so the freshness constants never drift.
+ * GSC and GA4 are free Google APIs, so 1h effectively re-pulls them once per
+ * session (their data only moves daily; the durable last_synced_at prevents
+ * hammering). Clarity caps a project at TEN requests a day and returns one
+ * aggregate for the trailing day, so one pull a day is both the budget and the
+ * whole signal: 24h. This is a SYNC-age threshold (when we last pulled), NOT
+ * the DATA-age SLA above (how recent the data is). Both live here so the
+ * freshness constants never drift.
  */
 export const AUTO_REFRESH_STALE_HOURS: Record<AutoRefreshProvider, number> = {
   google_gsc: 1,
   google_ga4: 1,
-  clarity: 1,
+  clarity: 24,
 };
 
 /** SYNC-age staleness check for the on-use auto-refresh: true when a source was

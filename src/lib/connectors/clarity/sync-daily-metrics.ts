@@ -2,21 +2,28 @@
  * Connect-cards slice (2026-06-12) — nightly Clarity harvester.
  * Clarity exposes only a rolling 1-3 day window (no backfill) and
  * caps the project at 10 requests/DAY — so Beacon pulls ONCE per
- * night (one request = 10% of the budget) and accumulates its own
+ * day (one request = 10% of the budget) and accumulates its own
  * per-URL history in clarity_daily_url_metrics. Rows are stamped
  * with YESTERDAY's date (numOfDays=1 ≈ the trailing 24h).
  *
  * Fail-soft: no token / API error / table missing → skip with a
- * reason; the cron never dies on this step.
+ * reason; the cron never dies on this step. A pull Clarity refused
+ * (quota, rejected token, outage) stamps `retry_after` 24 hours out
+ * on the token row so the on-use refresh does not spend the rest of
+ * the day's ten requests retrying it every cycle (41 failures in one
+ * day before 2026-09-14).
  */
 
 import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { updateConnectorToken } from "@/lib/connector-store";
 import { reportingDay } from "@/lib/reporting-day";
 import { log } from "@/lib/logger";
 
 import { fetchClarityUrlMetrics } from "./client";
+
+const RETRY_AFTER_MS = 24 * 60 * 60 * 1000;
 
 type ClaritySyncResult =
   | { synced: false; reason: string }
@@ -29,8 +36,18 @@ export async function syncClarityDailyMetricsForTenant(args: {
   const { tenantId } = args;
   const now = args.now ?? new Date();
 
-  const metrics = await fetchClarityUrlMetrics({ tenantId });
-  if (metrics == null) return { synced: false, reason: "no_token_or_api_error" };
+  const pulled = await fetchClarityUrlMetrics({ tenantId });
+  if (!pulled.ok) {
+    if (pulled.reason !== "no_token") {
+      await updateConnectorToken(
+        "clarity",
+        { retry_after: new Date(now.getTime() + RETRY_AFTER_MS).toISOString() },
+        tenantId,
+      ).catch(() => undefined);
+    }
+    return { synced: false, reason: pulled.reason };
+  }
+  const metrics = pulled.metrics;
   if (metrics.length === 0) return { synced: true, rows_upserted: 0 };
 
   const date = reportingDay(now.getTime() - 86_400_000);

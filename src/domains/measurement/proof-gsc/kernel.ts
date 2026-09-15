@@ -17,8 +17,6 @@ import "server-only";
 
 import { reportingDay } from "@/lib/reporting-day";
 import { detectableLift } from "../detectable-lift";
-import { loadShippedChangesForTenant } from "./shipped-change-store";
-import { readLastFinalizedDate } from "./gsc-window";
 import { buildHeadline, learningShape, metricFor, monthDay, overlapClosures } from "./read-honesty";
 import { applyPinnedRead } from "./pinned-read";
 import { learningEligibility, MIN_CONTROLS } from "./types";
@@ -128,8 +126,8 @@ export type KernelRead = {
    *  compared. Surfaced so an unreadable change can still show what happened, labelled unadjusted,
    *  without a verdict riding on it. Null while no window has closed with data. */
   unadjusted: { basisDay: CheckpointDay; clicksBefore: number; clicksAfter: number; impressionsBefore: number; impressionsAfter: number } | null;
-  /** THE DAY THIS ROW MAY SAY ITS FIRST RESULT LANDS, on the clock Google actually starts and by the same arithmetic verdict-schedule
-   *  uses, so Today and Results can never name two different days for one change. Null while the crawl has not caught the change (nothing
+  /** THE DAY THIS ROW MAY SAY ITS FIRST RESULT LANDS, on the clock Google actually starts, the one arithmetic Today and Results both
+   *  read, so they can never name two different days for one change. Null while the crawl has not caught the change (nothing
    *  to promise) and on a row with no checkpoint left to wait for. A PROMISE AND NEVER A READ ANCHOR: `closesOn` decides which checkpoints
    *  a later change confounded (:324), so moving that would move readings rather than promises. Every window state, the basis, the verdict
    *  and every stored reading are computed on the unchanged stamp clock. */
@@ -186,9 +184,6 @@ const MIN_LIFT_POSITION = 0.5;
 const STRONG_MULTIPLE = 3;
 /** The pre-ship baseline window length the diff in diff pro-rates from. */
 const BASELINE_WINDOW_DAYS = 28;
-/** Google reports a few days behind; a window is only readable once its close
- *  date is at least this many days behind the finalized data watermark. */
-export const GSC_LAG_DAYS = 3;
 
 /** THE CLOSED SET OF PHRASES buildHeadline ENDS A MATURE DIRECTIONAL SENTENCE ON, and the only text this file ever takes back out of it.
  *  A reading under its own page's floor may carry no confidence phrase at all; the pin in tests/results/kernel.test.ts renders a gated row
@@ -226,8 +221,8 @@ function daysBetween(fromIso: string, toIso: string): number {
 
 /**
  * Evaluate every checkpoint against the stamp, "now", and Google's finalized-data
- * watermark. A window is `closed` (readable) only when its close date is at least
- * GSC_LAG_DAYS behind the finalized data. Between calendar close and finalized data it is
+ * watermark. A window is `closed` (readable) only when its close date is at or behind the
+ * finalized data. Between calendar close and finalized data it is
  * `pending_data` (the honest "waiting on Google", not "stalled"). The day-56 checkpoint is
  * only evaluated when the caller says this change earned one. Pure.
  */
@@ -265,8 +260,7 @@ function anchorOf(input: Pick<KernelInput, "implementedAt" | "shippedAt">): stri
 
 /** WHEN THIS ROW MAY SAY ITS FIRST RESULT LANDS. Google starts the clock, not the press, so a crawl at or after the change is day zero and
  *  every promised date counts from it; a crawl BEFORE the change means the copy Google serves is still the old one and no date is offered.
- *  Same rule, same window list and same future-only test as verdict-schedule's `searchClock` + `rowFirstRead`, written here rather than
- *  imported because that file imports this one. Pure, and display only: nothing below reads it. */
+ *  Same rule as measure-lifecycle's crawl clock, held equal by tests/results/kernel.test.ts. Pure, and display only: nothing below reads it. */
 function promiseRead(input: KernelInput, now?: Date): string | null {
   const stamp = anchorOf(input), crawl = (input.lastCrawlAt ?? "").slice(0, 10);
   if (crawl !== "" && crawl < stamp) return null;
@@ -657,20 +651,4 @@ export function readRecordsForLearning(
     const eligible = learningEligibility(comparison, { ...r, verification: r.verification ?? null }) === "eligible" && read.verdict !== "confounded";
     return { ...read, rankingSignal: eligible ? read.rankingSignal : 0, learning: { ...read.learning, eligible } };
   });
-}
-
-// ── The one thin loader (point 1) ────────────────────────────────────────────
-
-/**
- * Load a tenant's shipped changes from the preserved historical store and
- * produce every read. This is the only I/O in the kernel: it reads the existing
- * shipped_change records (never reshaping the table) and the finalized-data
- * watermark, then runs the pure engine. Fail-soft: an empty or failed read
- * yields an empty ledger, never a throw into a surface.
- */
-export async function loadKernelLedger(tenantId: string, now: Date = new Date()): Promise<KernelRead[]> {
-  const records = await loadShippedChangesForTenant(tenantId).catch(() => []);
-  if (records.length === 0) return [];
-  const latestGscDate = await readLastFinalizedDate(tenantId).catch(() => null);
-  return readLedger(records as unknown as LedgerRecordLike[], now, latestGscDate);
 }

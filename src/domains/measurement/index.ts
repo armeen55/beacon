@@ -22,7 +22,6 @@ export {
   pinFor,
   applyPinnedRead,
   pagesUnderMeasurementFromShipments,
-  verdictSchedule,
   findProofForChange,
   proofResultHref,
   readLastFinalizedDate,
@@ -34,7 +33,6 @@ export {
   captureChangeMeta,
   recordShippedChange,
   recordShipment,
-  recordRepairShipment,
   selectControlPages,
   matchedControlsFor,
   contaminationFor,
@@ -61,7 +59,6 @@ export {
 
 // One shipment's own AI answers, on its own searches, judged on the objective it declared
 export {
-  aiOutcomeForShipment,
   aiOutcomesForShipments,
   objectiveOfStage,
   type ShipmentAiOutcome,

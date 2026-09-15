@@ -6,6 +6,7 @@ import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/do
 import { draftAtomicEditStructured } from "@/domains/decision/llm/structured-drafter"; import { DRAFT_BUDGET } from "./draft-budget"; import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, ComponentPlan, EvidenceReadiness, RecommendedChange } from "./contracts"; import { confidenceFor, CTR_DEFICIT_SHARE, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction, receiptComposition } from "./contracts"; import { copyKey, evidenceShortfall, REVIEW_CONTRACT } from "./proof";
 import { assembleCopy } from "./assemble-copy";
+import { COPY_RULES } from "./copy-sanitize";
 import { technicalKey, type TechnicalFinding } from "./technical-findings";
 import { diagnoseCandidate, ownedResultOf, recurringPattern, RECEIPT, type DiagnosisInput } from "./diagnose";
 import { causeLabel, diagnoseCauses, substantiveGapOf, type CauseFinding } from "./diagnosis";
@@ -210,7 +211,7 @@ type ProduceBundleOptions = ProposeOptions & {
   technical?: readonly TechnicalFinding[];
   /** The account's own banned vocabulary, read once by the caller: no editor here writes a word this account does not publish. */ bannedTerms?: readonly string[];
   /** THE BASIS THIS PASS WORKS UNDER, so the page's checked readings are authorized against it exactly as the atomic editor authorizes them (journey review, 2026-09-06). */ basis?: string | null;
-  /** THE PASS'S SHARED ATTEMPT BUDGET (decision/drafted-copy). Every charged call any editor here makes comes off it, failures included. Absent = a bundle produced outside a pass, which spends against the money caps alone. */ attempts?: { left: number };
+  /** THE PASS'S SHARED ATTEMPT BUDGET (decision/drafted-copy). Every charged call any editor here makes comes off it, failures included. Absent = a bundle produced outside a pass, which spends against the money caps alone. */ attempts?: { left: number }; held?: ChangeProposal;
 };
 
 /** The door contract, structurally satisfied by a DeepCandidate. Only what this file has to check. */
@@ -262,18 +263,21 @@ const oneComponent = (c: BundleComponent, items: readonly BundleEvidenceItem[]):
 type AuthorizedPiece = NonNullable<Awaited<ReturnType<typeof draftFieldForPage>>>;
 /** THE DRAFTERS a producer may buy, wired once for the same firewall, budget, cache and fail-closed posture. THE SUBSTANTIVE ONES ARE THE ONE CANONICAL EDITOR (2026-08-30): a bundle's sections and openings used to come from a second drafter that declared no claim, named no evidence id and was read for sense by nobody, so the only thing behind a paragraph on a customer's page was a receipt saying why the WORK was chosen. They go through the same drafter, deterministic contract, evaluator and per-claim ruling as every other word Beacon writes, and each piece's authorization is kept under its own exact copy so no piece can borrow another's. */
 function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date, ownedPaths: readonly string[], held: OwnedPageBody | null, siblings: ReadonlyMap<string, OwnedPageBody>, authed: Map<string, AuthorizedPiece>, checked: readonly FactCheck[], compared: JobComparison | null): ProducerDraft {
-  const editor = { tenantId, now, complete: opts.complete, bypassCache: opts.bypassCache, ...(opts.attempts ? { attempts: opts.attempts } : {}), ...(opts.bannedTerms ? { bannedTerms: opts.bannedTerms } : {}) };
+  let pending = false; const editor = { tenantId, now, complete: opts.complete, bypassCache: opts.bypassCache, ...(opts.attempts ? { attempts: opts.attempts } : {}), ...(opts.bannedTerms ? { bannedTerms: opts.bannedTerms } : {}) };
   // THE OTHER PAGES OF THIS ACCOUNT, under the one id a claim may cite: what a page cannot say about itself is what a sibling page carries, and it is the one route to information gain that costs nothing to read.
-  const facts = Object.fromEntries([...siblings.values()].filter((b) => held == null || canonicalUrlKey(b.url) !== canonicalUrlKey(held.url)).flatMap((b) => (b.passages ?? []).slice(0, 2).map((t) => `${pathOf(b.url)}: ${t}`)).slice(0, 6).map((t, i) => [`owned-page-${i + 1}`, t]));
-  const write = async (field: "answer_block", query: string, brief: string, evidenceHints: string[]): Promise<AuthorizedPiece | null> =>
-    !held ? null : draftFieldForPage({ field, body: held, query, brief, evidenceHints, ownedPaths, minutes: 15, facts, checked, basis: opts.basis ?? null, comparison: compared }, editor); // AND THE PAGES WINNING THE SEARCH (journey review L-030, 2026-09-10): the atomic packet minted rival lines from the comparison and this editor was never handed one, so a hub section was written from the page's own headings and refused as narration; the same comparison the diagnosis read is what this writer reads. // AND THE PAGE'S OWN CHECKED READINGS (journey review, 2026-09-06): the fact the runtime banked for this page's missing subject reached the atomic editor and never this one, so a hub section was written off sibling passages beside the very fact bought for it
+  const facts = [...siblings.values()].filter((b) => held == null || canonicalUrlKey(b.url) !== canonicalUrlKey(held.url)).flatMap((b) => (b.passages ?? []).slice(0, 2).map((text) => ({ fact: `${pathOf(b.url)}: ${text}`, sources: [{ url: b.url, kind: "owner" }] }))).slice(0, 6).map((fact, i) => ({ id: `owned-page-${i + 1}`, ...fact }));
+  const address = (heading: string | null, after: string, assignment?: ChangeProposal["assignment"]): string => assignment ? JSON.stringify([heading, after, COPY_RULES.recordKey(assignment)]) : heading == null ? after : `${heading}\n\n${after}`;
+  const write = async (field: "answer_block", query: string, brief: string, evidenceHints: string[], delivery?: "opening", assignment?: ChangeProposal["assignment"]): Promise<AuthorizedPiece | null> =>
+    { if (!held || pending) return null; const piece = await draftFieldForPage({ field, body: held, query, brief, evidenceHints, delivery, assignment, ownedPaths, minutes: 15, banked: facts, checked, basis: opts.basis ?? null, comparison: compared }, editor); pending = !!piece && !COPY_RULES.accepted(piece.editor); return piece; }; // Written copy awaiting review is banked before this producer stops further writing.
   return {
     // THE EDITOR ITSELF, for a page this card does not sit on: same deterministic checks, same judge, that page's own words.
-    pageField: (i) => draftFieldForPage({ ...i, ownedPaths }, editor),
-    section: async (i) => { const r = await write("answer_block", i.query, `${i.brief}${i.heading ? ` Write it under the heading "${i.heading}".` : ""}`, i.evidenceHints);
-      if (!r) return null; const heading = (r.heading ?? i.heading ?? "").trim(); authed.set(`${heading}\n\n${r.after}`, r); return { heading, body: r.after }; },
-    openingAnswer: async (i) => { const r = await write("answer_block", i.query, `Rewrite the first lines of this page so they answer "${i.query}" outright. It currently opens: "${(i.currentValue ?? "nothing on file").slice(0, 400)}".`, i.evidenceHints);
-      if (r) authed.set(r.after, r); return r?.after ?? null; },
+    pageField: async (i) => { if (pending) return null; const piece = await draftFieldForPage({ ...i, ownedPaths }, editor); pending = !!piece && !COPY_RULES.accepted(piece.editor); return piece; },
+    restore: async (piece) => { const accepted = COPY_RULES.accepted(piece.editor); if (!held || !piece.units?.length || piece.after !== COPY_RULES.bodyCopy(piece.units) || !piece.claims.length || piece.claims.some(claim => claim.supportedBy.some(id => piece.supportFacts.filter(fact => fact.id === id).length !== 1)) || accepted && (piece.reviewOf !== COPY_RULES.pieceKey(piece) || piece.review.length !== piece.claims.length || piece.claims.some((claim, i) => !COPY_RULES.ruling(claim, piece.review, i))) || !accepted && (piece.editor != null || piece.reviewOf != null || piece.review.length > 0)) return null; const reviewed = accepted || pending ? piece : await draftFieldForPage({ field: "answer_block", body: held, query: piece.assignment?.intent[0] ?? "", brief: piece.assignment?.diagnosedGap ?? "", evidenceHints: [], saved: piece, delivery: piece.slot === 0 ? "opening" : undefined, assignment: piece.assignment, ownedPaths, minutes: 15, checked, basis: opts.basis ?? null, comparison: compared }, editor); if (!reviewed) return null; const restored = { ...reviewed, slot: piece.slot }; pending ||= !COPY_RULES.accepted(restored.editor); authed.set(address(restored.heading, restored.after, restored.assignment), { ...restored, before: restored.before ?? null, anchor: restored.target?.anchor ?? restored.heading ?? "", minutes: 15 }); return restored; },
+    compose: (pieces) => { const copies = pieces.map((p) => authed.get(address(p.heading, p.body, p.assignment))); if (copies.length === 0 || copies.some((c) => !c?.units)) return null; const units = copies.flatMap((copy, i) => COPY_RULES.publication(copy!, pieces[i]!.heading).units!), after = COPY_RULES.bodyCopy(units), target = { mode: "whole_body" as const, anchorKind: null, anchor: null }, component: BundleComponent = { kind: "full_rewrite", label: "Rebuild this page", before: held?.passages.join("\n\n") ?? null, after, units, target, evidenceKeys: [], risk: "review" }, merged = assembleCopy([component], copies.map((copy) => ({ index: 0, copy: copy! }))); authed.set(after, { ...copies[0]!, heading: null, after, units, target, claims: merged.claims.map((claim) => ({ text: claim.text, supportedBy: claim.supportedBy })), supportFacts: merged.supportFacts, review: merged.review.map((r) => ({ ...r, by: [...r.by] })), gain: merged.gain ? { ...merged.gain, targetHash: undefined } : undefined, preservation: merged.preservation, draftNotes: merged.draftNotes, assignment: undefined, editor: undefined, reviewOf: undefined }); return { after, units, pieces: copies.map((copy, i) => { const { before, heading, after, units, target, assignment, editor, reviewOf, claims, supportFacts, review, gain, preservation, draftNotes } = copy!; return { slot: pieces[i]!.slot, before, heading, after, units, target, assignment, editor, reviewOf, claims, supportFacts, review, gain, preservation, draftNotes }; }) }; },
+    section: async (i) => { const r = await write("answer_block", i.query, `${i.brief}${i.heading ? ` Write it under the heading "${i.heading}".` : ""}`, i.evidenceHints, undefined, i.assignment);
+      if (!r) return null; const heading = (r.heading ?? i.heading ?? "").trim(); authed.set(address(heading, r.after, r.assignment), { ...r, heading }); return { heading, body: r.after }; },
+    openingAnswer: async (i) => { const r = await write("answer_block", i.query, `Rewrite the first lines of this page so they answer "${i.query}" outright. It currently opens: "${(i.currentValue ?? "nothing on file").slice(0, 400)}".`, i.evidenceHints, "opening", i.assignment);
+      if (r) authed.set(address(null, r.after, r.assignment), r); return r?.after ?? null; },
   };
 }
 
@@ -349,7 +353,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   const components: BundleComponent[] = []; let heldForReview = false; const authed = new Map<string, AuthorizedPiece>(); /** ONE TYPED GAP PER SECTION, AND NEVER THE SAME ONE TWICE (operator, 2026-09-02). Work too big for one block is split into sections, and nothing was stopping two of them being written against the same missing proposition: the reader then gets the same answer under two headings and the change cannot say which one closes the gap. Each section claims the proposition it is closest to, and a section whose nearest proposition is already claimed is dropped by name. Only asked where the cause payload actually names propositions; a finding that names none leaves the sections exactly as its producer wrote them. */ const gapProps = substantiveGapOf({ causeFinding: finding })?.propositions ?? [], claimed = new Set<string>(), gapFor = (c: BundleComponent): string | null => { const said = topicTokens(`${c.label} ${c.objective ?? ""} ${c.after}`); return gapProps.map((g) => ({ g, n: topicTokens(g).filter((w) => said.includes(w)).length })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n)[0]?.g ?? null; };
   /** WHAT TO DO WHEN THE CHANGE IS A JOB: a producer whose work cannot be pasted hands its instructions over
    *  here instead of writing them into the copy an operator clicks Copy on. Null means the copy IS the work. */
-  let steps: string[] | null = null; let dispositions: ChangeBundle["dispositions"] | null = null;
+  let steps: string[] | null = null; let dispositions: ChangeBundle["dispositions"] | null = null; let draftBank: ChangeProposal["newPageDraft"]; let draftPrivate = false;
   const receiptKeys = new Set(receipt.items.map((i) => i.key));
   // THE SECTIONS THIS PAGE CARRIES, held once: the plan keeps them and the validator holds a rebuild to them.
   const heldHeadings = (held?.headings ?? content.outline).map((h) => h.trim()).filter((h) => h.length > 0);
@@ -390,13 +394,13 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   } else {
       const slot = CORE_PRODUCERS[finding.cause];
     if (typeof slot !== "function") return { status: "none", reason: finding.cause === "no_problem" ? diagnosis.explanation : finding.explanation };
-    const checked = held ? await readFactChecks(tenantId, pathOf(page.url)).catch(() => [] as FactCheck[]) : [];
+    if (opts.held?.newPageDraft?.brief.kind === "full_rewrite" && (opts.held.tenantId !== tenantId || opts.held.basis !== opts.basis || canonicalUrlKey(opts.held.pageUrl ?? "") !== canonicalUrlKey(page.url))) return { status: "none", reason: "The rewrite bank does not belong to this tenant, basis and page; no work was bought." }; const checked = held ? await readFactChecks(tenantId, pathOf(page.url)).catch(() => [] as FactCheck[]) : [];
     const compared = snapshot.research ? jobComparison(snapshot.research, [primary], { url: page.url, text: `${content.title ?? ""} ${(held?.passages ?? []).join(" ")}`, headings: content.outline ?? [], passages: held?.passages ?? [], complete: held?.completeness === "complete" && held.version === "current" }) : null;
     const drafters = producerDrafts(tenantId, opts, now, snapshot.ownedPages.map((p) => pathOf(p.url)), held, heldBodies, authed, checked, compared);
     const ctx: ProducerCtx = { finding, primary, tenantId,
       page: { url: page.url, title: content.title, h1: content.h1, outline: content.outline, internalLinkCount: content.internalLinks.length },
-      body: held, ownedPages: inventory, pattern, ahead: receipt.ahead, receiptFacts: facts, readiness: receipt.readiness, draft: drafters, heldBodies, templateHeadings: templateHeadings([...heldBodies.values()].map((b) => b.headings ?? [])) }; // furniture is not content to move, and the set is computed from the SAME body headings the merge check reads: the canonical outline is stripped at the assembler now, so a set built from it would be empty and the defense would die silently
-    const produced = await slot(ctx);
+      body: held, ownedPages: inventory, pattern, ahead: receipt.ahead, receiptFacts: facts, readiness: receipt.readiness, draft: drafters, draftBank: opts.held?.tenantId === tenantId && opts.held.basis === opts.basis && canonicalUrlKey(opts.held.pageUrl ?? "") === canonicalUrlKey(page.url) ? opts.held.newPageDraft : undefined, draftContext: JSON.stringify([opts.basis ?? null, checked, compared, COPY_RULES.publisher, [...heldBodies].map(([url, b]) => [canonicalUrlKey(url), b.title, b.h1, b.headings, b.passages]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))]), heldBodies, templateHeadings: templateHeadings([...heldBodies.values()].map((b) => b.headings ?? [])) }; // Bank recovery binds the exact source material, not capture clocks or sibling enumeration order.
+    const causes = [finding.cause, ...finding.competingExplanations.filter((c) => c.fired === true).map((c) => c.cause)]; let produced = ctx.draftBank?.brief.kind === "full_rewrite" ? await produceFullRewriteRecommendation(ctx, causes) : await slot(ctx);
     steps = produced.operatorSteps ?? null; alternatives.push(...(produced.considered ?? [])); dispositions = produced.dispositions ?? null;
     for (const c of produced.components) {
       const field = fieldForComponent(c.kind);
@@ -404,10 +408,11 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     }
     // SMALLER COMPONENTS FIRST, A REBUILD LAST, and NEVER on a split: it is earned by a SECOND cause that FIRED.
     if (components.length === 0 && finding.cause !== "cannibalization") {
-      const rebuild = await produceFullRewriteRecommendation(ctx,
-        [finding.cause, ...finding.competingExplanations.filter((c) => c.fired === true).map((c) => c.cause)]);
+      const rebuild = produced.draftBank || ctx.draftBank ? produced : await produceFullRewriteRecommendation(ctx, causes);
+      if (rebuild.requirement || rebuild.draftBank) produced = rebuild;
       for (const c of rebuild.components) keep(c, { kind: "existing_edit", field: fieldForComponent(c.kind), before: c.before, after: c.after });
     }
+    draftBank = produced.draftBank; if (draftBank && (components.length === 0 || (draftBank.brief.owed as number[]).length > 0 || draftBank.pieces.some(piece => !COPY_RULES.accepted(piece.editor)))) { components.splice(0, components.length, ...produced.components); heldForReview = true; draftPrivate = true; }
     if (components.length === 0) return { status: "none", reason: produced.refusal ?? finding.explanation, ...(produced.requirement ? { requirement: produced.requirement } : {}), ...(produced.considered?.length ? { considered: produced.considered } : {}) };
   }
 
@@ -444,11 +449,13 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     confidenceReasons,
     measurementPlan: "Once you make the change, record it on Results with the page address, and clicks, views and average position for these searches get read at 7, 14 and 28 days, compared against pages you did not change.",
   };
-  const { claims, review, supportFacts, preservation, gain, editor } = assembleCopy(components, components.flatMap((c, index) => {
+  const writtenPieces = components.flatMap((c, index) => {
     const copy = authed.get(c.after); return copy ? [{ index, copy }] : [];
-  }));
+  });
+  for (const { index, copy } of writtenPieces) Object.assign(components[index]!, COPY_RULES.publication(copy, components[index]!.kind === "section" ? copy.heading : null));
+  const { claims, review, supportFacts, preservation, gain, editor, draftNotes } = assembleCopy(components, writtenPieces);
   const primaryComponent = components[0]!; // THE FAMILY THIS CHANGE BELONGS TO, worn by the id AND the stamp. The id ended in the literal word "bundle" and the family read "single", so a snippet rewrite and a body rebuild on one page fought over one id and every shipped bundle reached the proof ledger unclassifiable. Both read the store's own derivation now.
-  const recommendedChange: RecommendedChange = { kind: "existing_edit", field: fieldForComponent(primaryComponent.kind), before: primaryComponent.before, after: primaryComponent.after };
+  const recommendedChange: RecommendedChange = { kind: "existing_edit", field: fieldForComponent(primaryComponent.kind), before: primaryComponent.before, after: primaryComponent.after, units: primaryComponent.units, target: primaryComponent.target, where: primaryComponent.where };
   const family = actionFamilyOf({ kind: "existing_edit", bundle, recommendedChange });
   const proposal: ChangeProposal = {
       id: `${tenantId}::${pathOf(page.url)}::existing_edit::${family}`,
@@ -456,11 +463,11 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       pagePath: pathOf(page.url), pageUrl: page.url.startsWith("http") ? page.url : `https://${page.url}`,
       pageLabel: content.h1 ?? content.title ?? page.url, primaryQuery: primary,
       opportunityType: OPPORTUNITY_OF[finding.cause] ?? "Rewrite the page that already has the demand",
-      status: heldForReview ? "needs_review" : "ready", // an investigation I cannot close never reaches here at all
+      status: heldForReview ? "needs_review" : "ready", ...(draftBank ? { newPageDraft: draftBank, ...(draftPrivate ? { researchOnly: true } : {}) } : {}), // Partial or rejected rewrite pieces stay private; a complete safe bank may proceed to whole-page acceptance.
       recommendedChange, whyItMatters: leadStatement,
       // WHAT THIS COSTS AND WHAT IT RISKS, by the kind of change it is: a merge and a rebuild are not one price, and a lever that moves or hides a page carries the highest risk on the row.
       ...(steps ? { operatorSteps: steps } : {}),
-      estimatedEffortMinutes: effortMinutesFor(primaryComponent.kind), confidence, limitations: receipt.missing,
+      estimatedEffortMinutes: effortMinutesFor(primaryComponent.kind), confidence, limitations: [...new Set([...receipt.missing, ...draftNotes])],
       riskLevel: components.some((c) => c.risk === "dangerous") ? "high" : !wording && heldForReview ? "medium" : "low",
       // THE CAUSE THAT PRODUCED THESE COMPONENTS, and the whole reading behind it, so the ranker can ask whether this lever addresses the loss.
       diagnosisCause: finding.cause, causeFinding: finding,
@@ -474,7 +481,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   const row: ChangeProposal = review.length > 0 ? { ...proposal, semanticReview: { editor, of: copyKey(proposal), version: REVIEW_CONTRACT, claims: review } } : proposal;
   // THE WHOLE ROW, GATED: the per-component gate reads a synthetic proposal carrying no cause and no notes, so a claim that resolves to nothing reached the operator through the gap between a piece and the whole change.
   const failed = receiptIntegrityFailures(row);
-  if (failed.length > 0) return { status: "none", reason: `Not everything this change claims can be shown, so it is held back. Research this page again and the finding comes back here.` };
+  if (failed.length > 0) return draftBank ? { status: "bundled", proposal: { ...row, status: "needs_review", researchOnly: true, faults: failed } } : { status: "none", reason: `Not everything this change claims can be shown, so it is held back. Research this page again and the finding comes back here.` };
   // AND THE ONE SERVING VERDICT DECIDES THE STORED STATUS. A piece the door will refuse must never be minted `ready` for a screen to render and the sweep to demote a moment later: unsupported, unread or destructive copy stays internal here, carrying the door's own exact sentence.
   const short = evidenceShortfall(row);
   return { status: "bundled", proposal: short ? { ...row, status: "needs_review", limitations: [...new Set([...row.limitations, short])] } : row };

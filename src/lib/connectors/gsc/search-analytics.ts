@@ -5,7 +5,7 @@
  *
  * API contract (primary docs, cited in the slice commit): POST https://www.googleapis.com/webmasters/v3/sites/{siteUrl}/searchAnalytics/query body: { startDate, endDate (YYYY-MM-DD, PACIFIC TIME), dimensions, type, rowLimit (max 25000, default 1000), startRow, dataState ("final" | "all") } resp: rows[].keys (dimension values in request order), clicks, impressions, ctr (0–1 fraction), position (1-based avg).
  *
- * Token path mirrors `gscUrlInspect` exactly: explicit google_gsc grant → scope check → soft-disconnect → expiry ladder (fresh / stale_under_7d → refresh / stale_over_7d → fail-soft null). Fail-soft EVERYWHERE: a missing/expired token, quota error, or non-2xx returns null — callers skip, never throw.
+ * Token path: explicit google_gsc grant, scope check, soft-disconnect, then a fresh access token is used as is and a stale one is refreshed through the stored refresh token no matter how long it sat idle (only Google's invalid_grant proves a grant dead, and that stamps auth_failed_at). Fail-soft EVERYWHERE: a missing token, a dead grant, a quota error, or a non-2xx returns null so callers skip, never throw.
  */
 
 import "server-only";
@@ -13,14 +13,22 @@ import "server-only";
 import {
   getGoogleConnectorToken,
   persistRefreshedGoogleToken,
+  updateConnectorToken,
 } from "@/lib/connector-store";
 import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
 import { log } from "@/lib/logger";
 
 import { evaluateExpiry } from "./expiry-handler";
-import { backoffDelayMs } from "./quota-stagger";
 
 const REQUIRED_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
+/** Retry policy on a 429: three attempts, exponential backoff (1s, 2s, 4s), then give up. */
+const MAX_RETRIES_ON_429 = 3;
+
+/** Wait before retry attempt `n` (1-based), or -1 once the policy is exhausted. Pure. */
+function backoffDelayMs(attempt: number): number {
+  if (!Number.isFinite(attempt) || attempt < 1 || attempt > MAX_RETRIES_ON_429) return -1;
+  return 1000 * Math.pow(2, attempt - 1);
+}
 /** Google's documented per-request maximum. */
 export const GSC_SA_ROW_LIMIT = 25_000;
 
@@ -32,7 +40,7 @@ type GscSearchAnalyticsRow = {
   position: number;
 };
 
-/** Resolve a usable access token for the tenant's GSC grant, or null (fail-soft) when no token / wrong scope / disconnected / stale>7d. */
+/** Resolve a usable access token for the tenant's GSC grant, or null (fail-soft) when no token / wrong scope / disconnected / the refresh itself failed. */
 export async function resolveGscAccessToken(
   tenantId: string,
   now: Date = new Date(),
@@ -45,18 +53,15 @@ export async function resolveGscAccessToken(
   if (token.disconnected_at != null && token.disconnected_at !== "") {
     return null;
   }
-  const expiryStatus = evaluateExpiry({ token, now });
-  if (expiryStatus === "stale_over_7d") return null;
-  if (expiryStatus === "stale_under_7d") {
-    return refreshAndPersistGscToken(tenantId, token.refresh_token);
-  }
-  return token.access_token;
+  if (evaluateExpiry({ token, now }) === "fresh") return token.access_token;
+  if (!token.refresh_token) return null;
+  return refreshAndPersistGscToken(tenantId, token.refresh_token);
 }
 
 /**
  * Refresh the GSC access token via the long-lived refresh token and persist it back to the connector store. Returns the new access token, or null if the refresh ITSELF fails (refresh token dead/revoked → the operator genuinely must reconnect). Best-effort persist (a persist failure does NOT fail the refresh — the in-memory token is valid for this run).
  *
- * wave-9 (2026-06-14): persisting the refreshed token (in the epoch-ms format `evaluateExpiry` reads) stopped every nightly sync re-refreshing the same stale token (~9 wasted OAuth calls/day).
+ * wave-9 (2026-06-14): persisting the refreshed token (in the epoch-ms format `evaluateExpiry` reads) stopped every nightly sync re-refreshing the same stale token (~9 wasted OAuth calls/day). An invalid_grant answer stamps auth_failed_at right here (fail-soft), so the Connections card asks for a reconnect the same run the grant is proven dead instead of saying the connection is fine.
  */
 async function refreshAndPersistGscToken(
   tenantId: string,
@@ -94,10 +99,15 @@ async function refreshAndPersistGscToken(
     }
     return refreshed.access_token;
   } catch (err) {
-    log.warn("[gsc-search-analytics] token refresh failed", {
-      tenantId,
-      error: err instanceof Error ? err.message : String(err),
-    });
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn("[gsc-search-analytics] token refresh failed", { tenantId, error: message });
+    if (/invalid_grant/i.test(message)) {
+      await updateConnectorToken(
+        "google_gsc",
+        { auth_failed_at: new Date().toISOString() },
+        tenantId,
+      ).catch(() => undefined);
+    }
     return null;
   }
 }
@@ -148,7 +158,7 @@ export async function gscSearchAnalyticsQuery(
   // The token can be refreshed once mid-flight on a 401 (see below); use a local so the retry uses the new token.
   let accessToken = args.accessToken;
   let didAuthRefresh = false;
-  // Audit hardening #35 (2026-06-12): 429s retry with the connector's own exponential backoff (quota-stagger.backoffDelayMs — 1s/2s/4s, then give up). Other failures stay single-shot fail-soft.
+  // Audit hardening #35 (2026-06-12): 429s retry with exponential backoff (backoffDelayMs, 1s/2s/4s, then give up). Other failures stay single-shot fail-soft.
   for (let attempt = 1; ; attempt++) {
     try {
       const res = await fetchImpl(endpoint, {

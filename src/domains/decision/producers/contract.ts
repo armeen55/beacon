@@ -8,7 +8,7 @@
  * PURE CONTRACT: types only. No I/O, no imports of a store, no model call. Both the core producers and the extended ones speak this and nothing else, so the dispatcher never learns a second vocabulary.
  */
 
-import type { BundleComponent, BundleComponentKind, ChangeBundle, EvidenceReadiness } from "../contracts";
+import type { BundleComponent, BundleComponentKind, ChangeBundle, ChangeProposal, EvidenceReadiness } from "../contracts";
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 // The cause ladder OWNS the cause vocabulary and its finding shape (contracts.ts carries it the same way, by type import), so this file holds no second copy that could drift.
 import type { CauseFinding } from "../diagnosis";
@@ -38,15 +38,17 @@ export const effortMinutesFor = (kind: BundleComponentKind): number => EFFORT_MI
  *  A LINK DOOR STOOD HERE AND NOTHING COULD EVER KNOCK ON IT (reviewer, 2026-09-06): `internal_link_weakness` mints no producer at all (producers/core.ts), so the wire in produce-bundle.ts had no caller anywhere in src and still carried an attempt, a refund and a pin for a call nobody could make. The ranked link lane owns that cause and drafts each link through the atomic editor. */
 export type ProducerDraft = {
   /** A SECTION IS WRITTEN BY THE ONE CANONICAL EDITOR NOW (2026-08-30), so what comes back is copy that has already declared its claims, named the evidence id behind each one and been ruled on claim by claim; the caller keeps that authorization beside the piece. The old `sources` and `containsNumber` are gone with the second drafter that produced them: a self-declared source label is not provenance and nothing ever read it. */
-  section: (input: { query: string; pageLabel: string; heading: string | null; brief: string; outline: string[]; evidenceHints: string[] }) => Promise<{ heading: string; body: string } | null>;
+  section: (input: { query: string; pageLabel: string; heading: string | null; brief: string; outline: string[]; evidenceHints: string[]; assignment?: ChangeProposal["assignment"] }) => Promise<{ heading: string; body: string } | null>;
   /** The page's first lines, written through the atomic-edit drafter under its `answer_block` field. OPTIONAL
    *  so a caller that cannot buy one is a refusal rather than a compile error. */
-  openingAnswer?: (input: { query: string; pageLabel: string; currentValue: string | null; outline: string[]; evidenceHints: string[] }) => Promise<string | null>;
+  openingAnswer?: (input: { query: string; pageLabel: string; currentValue: string | null; outline: string[]; evidenceHints: string[]; assignment?: ChangeProposal["assignment"] }) => Promise<string | null>;
+  /** Compose exact banked pieces without changing their words or lending their approvals to the whole page. */
+  compose?: (pieces: readonly { slot?: number; heading: string | null; body: string; assignment?: ChangeProposal["assignment"] }[]) => (Pick<BundleComponent, "after" | "units"> & { pieces: NonNullable<ChangeProposal["newPageDraft"]>["pieces"] }) | null; restore?: (piece: NonNullable<ChangeProposal["newPageDraft"]>["pieces"][number]) => Promise<NonNullable<ChangeProposal["newPageDraft"]>["pieces"][number] | null>;
   /** THE EDITOR, ASKED FOR ONE FIELD ON ONE NAMED PAGE OF THIS ACCOUNT. A change that tells sibling pages apart
    *  writes on every one of their addresses, so each is drafted against ITS OWN stored body and read back by the
    *  same deterministic checks and the same judge. OPTIONAL, so a caller that cannot wire it refuses. */
-  pageField?: (input: { field: "title" | "h1" | "answer_block"; body: OwnedPageBody; query: string; brief: string;
-    evidenceHints: string[]; minutes: number }) => Promise<{ before: string | null; after: string; anchor: string; heading: string | null; minutes: number } | null>;
+  pageField?: (input: { field: "title" | "h1" | "answer_block"; body: OwnedPageBody; query: string; brief: string; delivery?: "opening";
+    evidenceHints: string[]; minutes: number }) => Promise<{ before: string | null; after: string; units?: BundleComponent["units"]; target?: BundleComponent["target"]; anchor: string; heading: string | null; minutes: number } | null>;
 };
 
 /** EVERY cause the ladder can name. A producer registry keyed by this is total by construction, so a new
@@ -58,7 +60,7 @@ export type CauseKey = CauseFinding["cause"];
  *  `kind` says what to buy, `query` or `url` says exactly which one. Runtime's acquireEvidence must execute every
  *  member of this union: its switch is exhaustive, so adding a kind without an acquisition handler fails typecheck. */
 /** `semantic_review` is the one member that buys no new reading: it is the paid evaluator reading copy that is ALREADY final against the sources already banked beside it. It exists because a review that was owed was filed as a `factual_source` acquisition, so the runtime went and bought facts while the reading nobody had taken stayed untaken. */
-export type EvidenceRequirement = { kind: "serp" | "page_source" | "competitor_page" | "factual_source" | "semantic_review"; query: string; url?: string; reasonCode: string;
+export type EvidenceRequirement = { kind: "serp" | "page_source" | "competitor_page" | "factual_source" | "semantic_review"; query: string; url?: string; reasonCode: string; finding?: NonNullable<ChangeProposal["supportFacts"]>[number]["finding"];
   /** THE MISSING INFORMATION ITSELF, for a factual_source born from a rival comparison: the topic or question the owned page cannot answer today, phrased as the proposition to research. Acquisition researches THIS, never the page's existing claims, and only a checked fact banked for this topic satisfies the requirement; an unrelated stored fact does not. */
   missingTopic?: string;
   /** A prospective page's factual scope, never an observed owned-page address. */
@@ -100,7 +102,7 @@ export type ProducerCtx = {
    *  is not content, so a change that moves sections off another page may never name one. Computed by the caller
    *  off the whole inventory (evidence/relevance-gate), because only the whole site can say what is repeated. */
   templateHeadings?: ReadonlySet<string>;
-  pattern: WinningPattern | null;
+  pattern: WinningPattern | null; draftBank?: ChangeProposal["newPageDraft"]; draftContext?: string;
   /** WHO IS ABOVE THIS PAGE on the results page for its own search, in rank order, each carrying its words when
    *  they are on file and nulls when they are not. A fall is explained by what moved past it, so a page nobody
    *  has read is a NAMED, buyable hole rather than a shrug. Empty means no results page for that exact search. */
@@ -114,7 +116,7 @@ export type ProducerCtx = {
 
 /** What one producer hands back: components that survive the caller's own gates, or one honest sentence
  *  saying why it wrote nothing. Both empty is impossible by construction: no components means a refusal. */
-export type Produced = { components: BundleComponent[]; refusal: string | null;
+export type Produced = { components: BundleComponent[]; refusal: string | null; draftBank?: ChangeProposal["newPageDraft"];
   /** THE EXACT READING THIS CAUSE CANNOT BE TREATED WITHOUT, as data (Codex, 2026-08-23). The refusal sentence beside it is for a person; this is for the runtime, which used to recognise "No results page for X is on file" with a regex and therefore never fetched the one thing that would finish the account's strongest page. */
   requirement?: EvidenceRequirement;
   /** ONE VERDICT PER PAGE THE FINDING NAMED, stamped before any drafting so an address cannot leave the change

@@ -40,24 +40,17 @@ async function loadConnectorsPageData() {
   // data source connects HERE, self-serve.
   const clarity = await getConnectorInfo("clarity");
 
-  // J5 (2026-05-18) - when the GSC connector is in soft-disconnected
-  // state (status="disconnected" but expires_at is populated from the
-  // preserved token row), render the "Last refreshed at X days ago"
-  // tooltip server-side. The formatter is `server-only` so it can't
-  // ship to the client bundle directly.
-  // "Last refreshed X days ago" must reflect the actual data SYNC time, not the
-  // OAuth token's expires_at (those diverge - a token can expire long after the
-  // last sync). Drive off last_synced_at and show nothing if it never synced.
-  const gscSyncedMs = googleGsc.last_synced_at
-    ? Date.parse(googleGsc.last_synced_at)
-    : NaN;
-  const gscStaleCopy =
-    googleGsc.status === "disconnected" && Number.isFinite(gscSyncedMs)
-      ? formatLastRefreshedCopy({
-          lastSyncedMs: gscSyncedMs,
-          now: Date.now(),
-        })
+  // A soft-disconnected source that still holds cached data says how old its last data SYNC is (never the OAuth expires_at, which diverges) and nothing when it never synced.
+  const staleCopy = (
+    info: { status: string; last_synced_at: string | null },
+    source: "Search Console" | "Google Analytics",
+  ): string | null => {
+    const syncedMs = info.last_synced_at ? Date.parse(info.last_synced_at) : NaN;
+    return info.status === "disconnected" && Number.isFinite(syncedMs)
+      ? formatLastRefreshedCopy({ source, lastSyncedMs: syncedMs, now: Date.now() })
       : null;
+  };
+  const gscStaleCopy = staleCopy(googleGsc, "Search Console");
 
   // MAX_SEO_AEO Phase 4 (2026-06-16) - GSC readiness surfacing. READ-ONLY:
   // composes the resolved property + backfill window + freshness + a hard
@@ -104,20 +97,7 @@ async function loadConnectorsPageData() {
     };
   }
 
-  // Slice 9.A1β (2026-05-18) - GA4 stale copy mirrors GSC's pattern.
-  // Server-side render keeps the formatting helper inlined (the GSC
-  // helper says "GSC" verbatim; the GA4 surface needs "Google
-  // Analytics" wording, so a separate helper lives here).
-  const ga4SyncedMs = googleGa4.last_synced_at
-    ? Date.parse(googleGa4.last_synced_at)
-    : NaN;
-  const ga4StaleCopy =
-    googleGa4.status === "disconnected" && Number.isFinite(ga4SyncedMs)
-      ? formatGa4StaleCopy({
-          lastSyncedMs: ga4SyncedMs,
-          now: Date.now(),
-        })
-      : null;
+  const ga4StaleCopy = staleCopy(googleGa4, "Google Analytics");
 
   // BUG 3 (2026-07-11): per-source refresh-ledger facts for the "last pulled /
   // data through / result" strip. Read-only, fail-soft: any error self-hides the
@@ -265,28 +245,4 @@ export default async function ConnectorsPage() {
       <RecentUpkeepList entries={recentUpkeep} />
     </div>
   );
-}
-
-/**
- * Slice 9.A1β (2026-05-18): GA4 staleness copy. Mirrors
- * `formatLastRefreshedCopy` from `gsc/expiry-handler.ts` but uses
- * "Google Analytics" wording for the customer-vocab-safe surface.
- * Kept inline (Server Component file) so it stays server-only
- * without adding a sibling module under `src/lib/connectors/ga4/`
- * (the substrate is locked from modification in 9.A1β).
- */
-function formatGa4StaleCopy(args: {
-  lastSyncedMs: number;
-  now: Date | number;
-}): string {
-  const nowMs = args.now instanceof Date ? args.now.getTime() : args.now;
-  const diffMs = Math.max(0, nowMs - args.lastSyncedMs);
-  const days = Math.floor(diffMs / (24 * 60 * 60 * 1000));
-  if (days <= 0) {
-    return "Google Analytics data last refreshed less than a day ago.";
-  }
-  if (days === 1) {
-    return "Google Analytics data last refreshed 1 day ago. Reconnect to refresh.";
-  }
-  return `Google Analytics data last refreshed ${days} days ago. Reconnect to refresh.`;
 }

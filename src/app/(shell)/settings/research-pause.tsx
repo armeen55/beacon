@@ -44,7 +44,7 @@ export function ResearchPause({ permission }: { permission: "paused" | "running"
         <>
           <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">
             {paused ? "Daily research is paused. Nothing new starts, and nothing already found was deleted."
-              : "Daily research is on. Your site is checked once a day automatically, so you do not need to leave Beacon open."}
+              : "Daily research is on. It runs every day on its own schedule, a visit only resumes a missed day, so there is no need to leave Beacon open."}
           </p>
           <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">
             Paused days stay blank, and research picks up from today.

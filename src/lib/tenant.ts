@@ -20,9 +20,10 @@
 import { join } from "node:path";
 import { existsSync, mkdirSync } from "node:fs";
 
-// Phase 7.8b-1 (2026-04-25): computed at call time so tests can
-// `process.chdir()` and have path resolution follow.
-const rootDataDir = (): string => join(process.cwd(), ".data");
+// Computed at call time so tests can `process.chdir()` and have path resolution follow. BEACON_DATA_DIR names
+// another root: vitest sets it to a per-run temp directory (2026-09-14) so no test ever reads or writes the
+// operator's real `.data/` (a live results surface was blanked by an unmocked store write).
+const rootDataDir = (): string => process.env.BEACON_DATA_DIR?.trim() || join(process.cwd(), ".data");
 const tenantsDir = (): string => join(rootDataDir(), "tenants");
 
 export function getDataDir(tenantSlug?: string | null): string {

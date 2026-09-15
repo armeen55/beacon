@@ -137,7 +137,7 @@ type UnitFailure = "no_page_body" | "lease_exhausted" | "inventory_write_failed"
 /** A search answer: readable results or a TYPED provider hold. Only the readable shape may settle a claim. */
 type SearchAnswer = { organic: { domain: string; url: string; title: string | null }[] } | { hold: ProviderHold };
 /** A source read: the page's words or a TYPED hold. A hold never clears the claim. */
-type SourceAnswer = { text: string; title?: string | null; sections?: readonly SourceSection[] } | { hold: ProviderHold }; type SourceSection = { heading: string | null; text: string };
+type SourceAnswer = { text: string; title?: string | null; sections?: readonly SourceSection[]; fetchedAt?: string } | { hold: ProviderHold }; type SourceSection = { heading: string | null; text: string };
 
 /** WHERE THE PAGE STANDS, read back from the persisted inventory rather than carried in a lease. */
 type FactCheckCursor = {
@@ -154,7 +154,7 @@ type FactCheckUnitDeps = {
   /** POST THE SUCCESSOR CLAIM'S SEARCH WHILE THIS ONE SETTLES, fire and forget (operator, 2026-08-30: provider waits are pipelined where safe). The cache layer keys on the INPUT, so the successor's real search collects the very task this posted instead of buying twice; a successor never reached leaves a paid task the NEXT pass collects from cache at $0. */
   warmSearch?: (query: string) => void;
   /** THE SOURCE ITSELF: fetch and parse one URL. A hold means nothing may be confirmed and nothing is banked. */
-  fetchSource?: (url: string) => Promise<SourceAnswer>; /** A CLAIM WHOSE ANSWER IS THE SOURCE'S OWN STRUCTURE (2026-09-10): read as the source laid out in its sections, so the judge can name a heading as a group instead of quoting the lede. */ structured?: (subject: string) => boolean;
+  fetchSource?: (url: string, required?: { structured: boolean }) => Promise<SourceAnswer>; /** A CLAIM WHOSE ANSWER IS THE SOURCE'S OWN STRUCTURE (2026-09-10): read as the source laid out in its sections, so the judge can name a heading as a group instead of quoting the lede. */ structured?: (subject: string) => boolean;
   /** THE PAGE THAT ALREADY CARRIES THIS SUBJECT, named by the requirement that asked for the reading: the winner a comparison found the subject on. It is read FIRST and it is not an authority of its own, only a candidate the ordinary policy admits; `subject` is the proposition it was named for, so a pass that reaches a different claim never spends it. */
   rival?: { subject: string; url: string; /** THE WINNER'S OWN HEADING FOR THE SUBJECT (delivery loop, 2026-09-07): the window opened on the whole proposition phrase, which no page carries verbatim, so it fell back to the region densest in the search's words, the introduction, and the judge read "a general list of notable people" for a subject the page gives a section to. The heading is where that section starts. */ anchor?: string };
   page: { url: string; path: string; body: string; prospective?: string };
@@ -208,8 +208,9 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const { tenantId, page, now } = d;
   if (page.prospective ? !d.statementKey || !d.basis : !page.body.trim()) return fail("no_page_body", null, "no stored words or scoped prospective proposition to research");
   const hash = page.prospective ? null : pageHashOf(page.body), own = page.prospective ?? [...new Set(page.body.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 2))].join(" ").split(/\s+/).slice(0, 8).join(" ");
-  const mine = (d.held ?? []).filter((h) => h.page === page.path);
-  let inventory = mine.filter((h) => h.pageContentHash === hash && h.state !== "superseded" && (!page.prospective || (h.current.trim() === "" && h.evidenceBasis === d.basis)));
+  const mine = (d.held ?? []).filter((h) => h.page === page.path), body = page.body.toLowerCase(), stands = (current: string): boolean => current.trim() === "" || body.includes(current.trim().toLowerCase());
+  // A ROW WHOSE WORDING STILL STANDS ON THE PAGE IS CURRENT WHATEVER THE READER'S PROJECTION HASHES TO (2026-09-14): the hash is stamped for reporting, and a re-read capture must not turn 974 checked facts into strangers.
+  let inventory = mine.filter((h) => (h.pageContentHash === hash || (!page.prospective && stands(h.current))) && h.state !== "superseded" && (!page.prospective || (h.current.trim() === "" && h.evidenceBasis === d.basis)));
   const covRead = !page.prospective && d.readCoverage ? await d.readCoverage().catch(() => null) : null;
   let cov = covRead && covRead.pageContentHash === hash
     ? covRead : { pageContentHash: hash, coveredChars: 0, totalChars: page.body.length };
@@ -242,10 +243,8 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
       .filter((c, i, all) => all.findIndex((x) => x.statementKey === c.statementKey) === i) .filter((c, i, all) => all.findIndex((x) => x.prop === c.prop) === i)
       .filter((c) => !knownIds.has(c.statementKey) && !knownProps.has(c.prop));
     if (cov.coveredChars === 0) {
-      // THE PAGE MOVED ON: whatever was held against an older version, or objects to wording this version no
-      // longer carries, becomes history now rather than a second live instruction beside its own replacement.
-      const body = page.body.toLowerCase();
-      await supersedeStaleFacts(tenantId, page.path, hash!, (current) => body.includes(current.trim().toLowerCase()))
+      // THE PAGE MOVED ON: whatever objects to wording this version no longer carries becomes history now rather than a second live instruction beside its own replacement.
+      await supersedeStaleFacts(tenantId, page.path, hash!, stands)
         .catch((e) => { log.warn("[fact-check] stale claims could not be retired", { tenantId, page: page.path, error: String(e) }); return 0; });}
     // THE INVENTORY AND ITS COVERAGE ARE THE CURSOR, stored BEFORE one claim is researched. A write that did not land is a failed unit: researching against an inventory nobody stored is how page two was lost.
     const wrote = claims.length === 0 ? 0 : await recordOwedClaims(tenantId, page.path, claims, hash, d.basis).catch(() => -1);
@@ -303,10 +302,10 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   let lastHold: ProviderHold = "unavailable";
   const readSource = async (c: { url: string; kind: SourceKind }): Promise<void> => {
     if (!d.fetchSource || !enough(d.deadlineAt, 20_000)) return;
-    const got = await d.fetchSource(c.url).catch(() => ({ hold: "unavailable" as const }));
+    const got = await d.fetchSource(c.url, { structured: d.structured?.(claim.subject) === true }).catch(() => ({ hold: "unavailable" as const }));
     if ("hold" in got) { lastHold = got.hold; return; }
     const heading = c.url === d.rival?.url && d.rival.anchor?.trim() ? d.rival.anchor.trim() : undefined; // the winner's own heading, where the requirement named one
-    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, title: got.title ?? null, readAt: new Date().toISOString(), sections: got.sections ?? [], text: d.structured?.(claim.subject) === true && (got.sections?.length ?? 0) >= 2 /* THE GROUPING QUESTION READS THE SOURCE AS ITS SECTIONS (live 16:30Z, 2026-09-10): asked over a window, the judge quoted the encyclopedia's lede and named no group, exactly as its rule for a lede says, so the row could never carry a group */ ? sectionDigest(got.sections ?? []) : subjectWindow(got.text, [claim.subject, ...(claim.current.match(/\b\d[\d,.]*\b/g) ?? [])], 6_000, 160, heading) }); };
+    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, title: got.title ?? null, readAt: got.fetchedAt ?? new Date().toISOString(), sections: got.sections ?? [], text: d.structured?.(claim.subject) === true && (got.sections?.length ?? 0) >= 2 /* THE GROUPING QUESTION READS THE SOURCE AS ITS SECTIONS (live 16:30Z, 2026-09-10): asked over a window, the judge quoted the encyclopedia's lede and named no group, exactly as its rule for a lede says, so the row could never carry a group */ ? sectionDigest(got.sections ?? []) : subjectWindow(got.text, [claim.subject, ...(claim.current.match(/\b\d[\d,.]*\b/g) ?? [])], 6_000, 160, heading) }); };
   const named = d.rival && d.rival.subject.trim().toLowerCase() === claim.subject.trim().toLowerCase() ? hostOf(d.rival.url) : ""; // the page was named for ONE proposition and is spent on that one only
   if (named && named !== ownSite && !named.endsWith(`.${ownSite}`) && !REJECTED.has(sourceClassOf(named))) await readSource({ url: d.rival!.url, kind: sourceClassOf(named) });
   if (passages.length === 0) {
@@ -448,7 +447,7 @@ type FactCheckPassDeps = {
   renew?: () => Promise<boolean>;
   read: StructuredRead;
   structured?: (subject: string) => boolean; searchSources: (query: string) => Promise<SearchAnswer>; warmSearch?: (query: string) => void; /** The page a requirement named as already carrying its proposition, read first by the unit that reaches that claim. */ rival?: { subject: string; url: string };
-  fetchSource: (url: string) => Promise<SourceAnswer>;
+  fetchSource: NonNullable<FactCheckUnitDeps["fetchSource"]>;
   readCoverage: (page: string) => Promise<InventoryCoverage | null>;
   writeCoverage: (page: string, cov: InventoryCoverage) => Promise<boolean>;};
 

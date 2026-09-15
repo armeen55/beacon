@@ -22,11 +22,6 @@
  *     returns a hierarchy deeper than `accountSummaries[*].
  *     propertySummaries[*]`, this module FLATTENS only the two
  *     documented levels and ignores deeper nesting.
- *
- * Pinned by:
- *   • `tests/architecture/ga4-connector-server-only.test.ts`
- *   • `tests/architecture/ga4-connector-tenant-isolation.test.ts`
- *   • `tests/lib/connectors/ga4/property-selection.test.ts`
  */
 
 import "server-only";

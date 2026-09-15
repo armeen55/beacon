@@ -28,7 +28,7 @@ function shippedVersionOf(p: ChangeProposal, appliedIds: readonly string[], live
     change: p.recommendedChange,
     page: liveUrl ?? p.pageUrl ?? p.pagePath,
     appliedText: appliedText ?? null,
-    components: (p.bundle?.components ?? []).map((c) => [c.kind, c.before, c.after, c.page ?? null, c.where ?? null, c.redirectTo ?? null, c.anchorAfter ?? null]),
+    components: (p.bundle?.components ?? []).map((c) => [c.kind, c.before, c.after, c.page ?? null, c.where ?? null, c.redirectTo ?? null, c.anchorAfter ?? null, ...(c.units ? [c.units] : []), ...(c.target ? [c.target] : [])]),
     basis: p.basis ?? null,
     applied: [...appliedIds].sort(),
   })).digest("hex").slice(0, 16);
@@ -87,11 +87,11 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
   const bundleIds = (proposal.bundle?.components ?? []).map(componentIdOf);
   const pageRef = (opts.liveUrl ?? proposal.pageUrl ?? proposal.pagePath ?? "").trim();
   const change = proposal.recommendedChange;
-  const all = proposal.bundle?.components.map((c, i) => ({ id: componentIdOf(c, i), kind: c.kind, label: c.label, after: c.after ?? null, before: c.before ?? null,
+  const all = proposal.bundle?.components.map((c, i) => ({ id: componentIdOf(c, i), kind: c.kind, label: c.label, after: c.after ?? null, units: c.units, target: c.target, before: c.before ?? null,
     page: c.page ?? pageRef, where: c.where ?? null, risk: c.risk ?? null, ...anchorFor(proposal, c.kind, c.anchorAfter),
     redirectTo: c.redirectTo ?? (LINK_KIND.has(c.kind) && change.kind === "existing_edit" ? change.linkTo : null) ?? null }))
     ?? [{ id: null, kind: change.kind === "existing_edit" && change.linkTo ? "internal_link_add" : change.kind === "existing_edit" && change.field === "schema" ? (change.before ? "schema_replace" : "schema_add") : proposal.changeFamily,
-      label: atomicLabel(proposal, change.kind === "existing_edit" && !!change.linkTo), after: change.kind === "existing_edit" ? change.after : null, before: change.kind === "existing_edit" ? change.before : null,
+      label: atomicLabel(proposal, change.kind === "existing_edit" && !!change.linkTo), after: change.kind === "existing_edit" ? change.after : null, units: change.kind === "existing_edit" ? change.units : undefined, target: change.kind === "existing_edit" ? change.target : undefined, before: change.kind === "existing_edit" ? change.before : null,
       page: pageRef, where: change.kind === "existing_edit" ? change.where ?? null : null, risk: null, redirectTo: change.kind === "existing_edit" ? change.linkTo ?? null : null,
       ...anchorFor(proposal, change.kind === "existing_edit" && change.linkTo ? "internal_link_add" : proposal.changeFamily) }];
   const selected = all.filter((c) => c.id == null || opts.appliedIds.some((id) => sameComponentId(id, c.id!)));
@@ -117,7 +117,7 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
     const version = shippedVersionOf(proposal, fresh, opts.liveUrl, selected.length === 1 ? opts.appliedText : null);
     const picked = bundleIds.length > 0 ? all.filter((c) => c.id != null && fresh.includes(c.id)) : all;
     // THE VERSION THE OPERATOR APPLIED, BOUND TO THE PIECE IT REPLACED, and only where this press recorded exactly one piece: with several recorded there is no honest way to say which one their words landed on, so those keep the prepared wording and the note on the row. The prepared wording is never overwritten, so the record holds the suggestion and the applied version side by side, and the live check reads the page for the one that is on it.
-    const componentsApplied = opts.appliedText && picked.length === 1 ? [{ ...picked[0]!, appliedAfter: opts.appliedText }] : picked;
+    const componentsApplied = opts.appliedText && picked.length === 1 ? [{ ...picked[0]!, appliedAfter: opts.appliedText, appliedUnits: null, appliedTarget: null }] : picked;
 
     // The page as Beacon already holds it: canonical URL, path and the content hash from the last crawl, nothing fetched. THE OPERATOR'S OWN ADDRESS WINS for a new page: it is the only one that exists.
     const meta = pageRef ? await captureChangeMeta(tenantId, pageRef).catch(() => null) : null;

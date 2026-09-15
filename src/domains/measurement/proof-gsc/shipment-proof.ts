@@ -5,16 +5,17 @@ type Claim = Partial<Pick<ShippedChangeRecord, "page" | "actionType" | "implemen
 const digest = (text: string): string => createHash("sha256").update(text).digest("hex");
 function components(r: Claim) {
   const copy = (r.after ?? "").trim(), was = (r.before ?? "").trim(), applied = r.componentsApplied ?? [];
-  if (!applied.length) return copy || r.actionType ? [{ id: null, kind: r.actionType || "content", after: copy, before: was || null, page: r.page ?? null, where: null, anchorAfter: null, redirectTo: null }] : [];
+  if (!applied.length) return copy || r.actionType ? [{ id: null, kind: r.actionType || "content", after: copy, before: was || null, page: r.page ?? null, where: null, anchorAfter: null, redirectTo: null, units: undefined, target: undefined }] : [];
   const lone = applied.length === 1;
   return applied.map((c) => ({ id: c.id ?? null, kind: c.kind, page: c.page ?? r.page ?? null, where: c.where ?? null, anchorAfter: c.anchorAfter ?? null, redirectTo: c.redirectTo ?? null,
+    ...(c.appliedAfter != null ? { ...(c.appliedUnits ? { units: c.appliedUnits } : {}), ...(c.appliedTarget ? { target: c.appliedTarget } : {}) } : { ...(c.units ? { units: c.units } : {}), ...(c.target ? { target: c.target } : {}) }),
     before: c.before !== undefined ? c.before?.trim() || null : (lone ? was : "") || null,
     after: (c.appliedAfter ?? "").trim() || (c.after ?? "").trim() || (lone || c.kind === r.actionType ? copy : "") }));
 }
 
 /** One applied-unit identity and checker contract. Old observations remain history, not delivery permission. */
 export const SHIPMENT_PROOF = {
-  contract: 4 as const,
+  contract: 4 as const, // UNCHANGED THROUGH THE UNITS CUTOVER (2026-09-14): a flat record verifies by its words under this contract as it did before, and a stored proof of one stays a proof; only a record that changes its own pieces re-earns
   components,
   of(r: Claim, inspectedEvidence?: string): NonNullable<ShipmentVerification["proof"]> | null {
     const at = Date.parse(r.implementedAt ?? ""), pieces = components(r);

@@ -19,15 +19,13 @@
  *   • Data API / persist fail → { synced: false, reason } (the cron logs
  *                                one line and continues — never dies here)
  *
- * Reuses the EXACT same helpers the operator refresh action uses
- * (`getGoogleConnectorToken("ga4")` → `token.ga4_property_id` →
- * `loadShippedChangesForTenant()` → `computeRefreshDateRange()` →
- * `persistGa4UrlTraffic()`), minus the operator-mode gate — the nightly
- * job is the trusted runner context, same as the GSC sync step. The
- * date range is bounded by `computeRefreshDateRange` (90-day default,
- * expanded back only to the earliest shipped edit's live_at, hard-floored
- * at the lookback cap) so the GA4 quota is never abused. Writes UPSERT
- * idempotently inside `persistGa4UrlTraffic`, so re-running a night is safe.
+ * `getGoogleConnectorToken("ga4")` → `token.ga4_property_id` →
+ * `computeRefreshDateRange()` → `persistGa4UrlTraffic()`. The date range
+ * is a watermark off the newest stored row (cold start pulls the full 420
+ * day window once; later runs re-read only the last 7 days plus anything
+ * newer), so the GA4 quota and the Postgres upsert budget are never
+ * spent rewriting history. Writes UPSERT idempotently inside
+ * `persistGa4UrlTraffic`, so re-running a night is safe.
  */
 
 import "server-only";
@@ -40,11 +38,11 @@ import {
   updateConnectorToken,
 } from "@/lib/connector-store";
 import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
-import { loadShippedChangesForTenant } from "@/domains/measurement/proof-gsc/shipped-change-store";
 import {
   deriveSyncFailureEscalation,
   listRecentRefreshRuns,
 } from "@/domains/runtime/ops/refresh-runs-store";
+import { latestDataDateForSource } from "@/domains/runtime/ops/source-data-date";
 
 import {
   computeRefreshDateRange,
@@ -86,11 +84,8 @@ export async function syncGa4UrlTrafficForTenant(args: {
     return { synced: false, reason: "no_property" };
   }
 
-  // Bound the pull to the same window the operator refresh uses: 90-day default, expanded back only to the
-  // earliest shipped change's stamp. READ OFF THE SHIPMENT LEDGER, the one canonical record of what shipped
-  // when: this used to read the retired recommended_edits lifecycle, whose writers are deleted.
-  const shipped = await loadShippedChangesForTenant(tenantId).catch(() => []);
-  const { startDate, endDate } = computeRefreshDateRange(shipped.map((r) => ({ live_at: r.implementedAt })), now);
+  // Watermark: the newest stored date decides the window (null = cold start = the one full pull). The reader is fail-soft, so an unreadable table costs one full pull, never a skipped sync.
+  const { startDate, endDate } = computeRefreshDateRange(await latestDataDateForSource(tenantId, "ga4"), now);
 
   const result = await persistGa4UrlTraffic({
     tenantId,
@@ -173,22 +168,11 @@ async function stampGa4AuthFailure(tenantId: string, now: Date): Promise<void> {
           tenantId,
           connectedAt: token.connected_at,
         });
-        // alive → clear the reconnect marker. SPLIT (2026-07-09, review P1-1):
-        // a rotated refresh_token captured on the nightly probe (only when
-        // Google returned one) MUST go through the guarded compare-and-swap, not
-        // a patch: the patch path refuses refresh_token and a read-merge-write
-        // here is the cross-instance race the CAS resolves. Fail-soft internally.
-        if (refreshed.refresh_token) {
-          await persistRefreshedGoogleToken(
-            "google_ga4",
-            {
-              access_token: refreshed.access_token,
-              expires_in: refreshed.expires_in,
-              refresh_token: refreshed.refresh_token,
-            },
-            tenantId,
-          );
-        }
+        // alive → clear the reconnect marker. The refreshed access token and
+        // expiry are ALWAYS persisted through the guarded compare-and-swap
+        // (never a patch); persisting only a rotated refresh token left an idle
+        // grant stored as expired after the probe had proven it alive.
+        await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
         await updateConnectorToken(
           "google_ga4",
           { auth_failed_at: null },
