@@ -52,6 +52,8 @@ const STATE_DATE = "1970-01-01";
 /** THE PROVIDERS THAT CAN RUN DRY, each with its own stop row (operator audit, 2026-09-15): DataForSEO answered every search with HTTP 402 for an hour while the OpenAI door was open, and nothing on any surface said so; the refusal was refunded per call and the run's blocker named only the model door. */
 export type CreditProvider = "openai" | "dataforseo";
 const PROVIDER_NAME: Record<CreditProvider, string> = { openai: "OpenAI", dataforseo: "DataForSEO" };
+/** The ledger platform each stop row is filed under: the table's platform check admits only its own spend platforms, so the search stop lives on the search platform's row at the stop date. */
+const STATE_PLATFORM: Record<CreditProvider, string> = { openai: "openai", dataforseo: "dataforseo-serp" };
 const LEDGER = "llm_budget_ledger";
 
 type CreditBreakerState = { trippedAt: string | null; probeAt: string | null };
@@ -84,7 +86,7 @@ async function readState(tenantId: string, provider: CreditProvider = "openai"):
   if (underVitest() || !isSupabaseConfigured()) return null;
   try {
     const { data, error } = await getSupabaseAdmin().from(LEDGER).select("metadata")
-      .eq("tenant_id", tenantId).eq("date_utc", STATE_DATE).eq("platform", provider).maybeSingle();
+      .eq("tenant_id", tenantId).eq("date_utc", STATE_DATE).eq("platform", STATE_PLATFORM[provider]).maybeSingle();
     if (error || !data) return null;
     const s = (data.metadata as { creditBreaker?: CreditBreakerState | null } | null)?.creditBreaker;
     return s?.trippedAt ? { trippedAt: String(s.trippedAt), probeAt: s.probeAt ? String(s.probeAt) : null } : null;
@@ -98,7 +100,7 @@ async function writeState(tenantId: string, state: CreditBreakerState | null, pr
   if (underVitest() || !isSupabaseConfigured()) return true;
   try {
     const { error } = await getSupabaseAdmin().from(LEDGER).upsert({
-      tenant_id: tenantId, date_utc: STATE_DATE, platform: provider, spent_usd: 0, call_count: 0,
+      tenant_id: tenantId, date_utc: STATE_DATE, platform: STATE_PLATFORM[provider], spent_usd: 0, call_count: 0,
       metadata: { creditBreaker: state }, updated_at: new Date().toISOString(),
     }, { onConflict: "tenant_id,date_utc,platform" });
     return !error;
