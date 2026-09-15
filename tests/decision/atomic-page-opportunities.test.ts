@@ -104,17 +104,20 @@ describe("a page carries as many changes as it has searches it never answers", (
     expect([new Set(two.map((c) => footprintKey(c))).size, two.map((c) => footprintKey(c).includes("::body::")), two.map((c) => c.changeFamily)],
       "two answers to two questions write two different things, so neither can quietly retire the other, and both are the same kind of work").toEqual([2, [true, true], ["answer_block", "answer_block"]]);
   });
+  it("reads a five-letter spelling of the page's own subject as the subject, so no answer is bought to define an Iranian singer as an Iranian singer", async () => {
+    const singers = { ...SITES[0]!, t: "tenant-one", path: "/famous-iranian-singers", title: "Famous Iranian Singers", passage: "These famous Iranian singers have left a lasting impact on Persian music, blending traditional and modern styles, making them some of the most popular Iranian (Persian) singers of all time." };
+    expect((await mintFor(singers, [["irani singer", 290], ["irani singers", 120]])).map((c) => [c.primaryQuery, c.researchOnly, c.obligation?.kind, c.opportunityType.startsWith("A read of what wins")]), "the first funded answer (2026-09-15) was minted because \"irani\" carries five letters and no rule joined it to \"iranian\"; the page answers its own subject, so the only card left is the reading of what wins it, never a draft").toEqual([["irani singer", true, "evidence", true]]); });
   /** AND THE WRITER IS SENT TO THE RIGHT QUESTION. The walk reads the page's demand for itself and used to take
    *  the page's leading gap for whatever card it held, so the second change would have been researched, briefed and
    *  judged against the FIRST change's search: one row, two subjects, and money spent on a question that card was
    *  never about. A card wearing its own search key takes the gap that names it, and takes nothing where this pass's
    *  demand no longer names it at all. */
-  it.each(SITES)("$t: keeps each change on its OWN search with no source bought first, and settles a search this page no longer asks", async (s) => {
+  it.each(SITES)("$t: keeps each change on its OWN search, reads that search's winners before a writer is hired with nothing on file, and settles a search this page no longer asks", async (s) => {
     const cards = await mintFor(s, [[s.big, 900], [s.small, 300]]), owed: string[][] = [];
     await walked(s, cards, owed); const away: string[][] = [], gone = await walked(s, [{ ...cards[1]!, primaryQuery: "which ferry crosses the sound", evidence: { query: "which ferry crosses the sound", hints: [], evidenceRefCount: 1 } }], away);
     expect([cards.map((c) => c.primaryQuery), owed, away, gone.map((r) => (r.obligation as { kind: string } | undefined)?.kind)],
-      "each change stays named after its own search and the walk buys no source before the writer under write first (operator, 2026-09-10, the check follows the draft), so neither card files a funding request, a card whose search the demand no longer names buys nothing either and says it has no gap rather than borrowing the other change's question")
-      .toEqual([[s.big, s.small], [], [], ["terminal"]]);
+      "each change stays named after its own search; with no checked fact and no winner's words on file the only ground is the page itself, so each card files the reading of its OWN search's winners (operator, 2026-09-15: the first funded answer restated the page to itself), never a fact check; a card whose search the demand no longer names buys nothing and says it has no gap rather than borrowing the other change's question")
+      .toEqual([[s.big, s.small], [[`${s.path}::body::${canon(s.big)}`, s.big], [`${s.path}::body::${canon(s.small)}`, s.small]], [], ["terminal"]]);
   });
   /** COVERAGE IS THE ARBITER, NOT THE PRODUCER. A finished change on file already writing that section takes the
    *  opportunity off the list; a finished change about the OTHER search takes nothing off it. */

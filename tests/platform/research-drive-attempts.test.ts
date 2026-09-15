@@ -108,14 +108,12 @@ const doorDrive = async (s: typeof SITES[number], unit: { status: string; detail
     funnelUnit: async () => (units_ += 1, { ...unit, cursor: { at: units_ }, progress: {} }) as never,
     replenishReady: async () => (walks += 1, { ready: 1, deficit: 0, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {}, evidenceOwed: [] as never }) } });
   const r = rows.at(-1)!; return { walks, collects, units: units_, rows, blocker: r.progress?.state?.blocker ?? null, phase: r.current_phase, status: r.status }; };
-
 describe("the walk the owed turn skipped", () => {
   it.each(SITES)("$t: an answer that did not finish, failed as much as waiting, sends the loop back for the walk its own turn skipped, and the row keeps the step's own reason", async (s) => {
     const waited = await doorDrive(s, { status: "waiting" }, CASES, "serp_analysis"), failed = await doorDrive(s, { status: "failed", detail: "the results-page provider refused" }, CASES, "serp_analysis");
     expect([waited.walks, failed.walks, failed.blocker], "the block is skipped for the phase's own turn on the promise that every answer sends the loop back through it, so a drive that spent its turn on a step that failed still prepares finished changes, and the row still carries the step's own reason")
       .toEqual([1, 1, "the results-page provider refused"]);
   });
-
   it.each(SITES)("$t: the door in front of the block asks the block's own question about room, and still says what the walk could not start", async (s) => {
     const owed = await doorDrive(s, { status: "waiting" }, CASES, "serp_analysis", true, 100_000), plain = await doorDrive(s, { status: "waiting" }, CASES, "serp_analysis", false, 100_000);
     expect([owed.walks, owed.collects, plain.walks, plain.collects], "the block asks for its 45-second minimum and the door in front of it asks the same question, so at 100 seconds the same drive runs the walk's free half and the free collection of results pages already bought whether or not a turn was owed on it")
@@ -123,12 +121,10 @@ describe("the walk the owed turn skipped", () => {
     expect(owed.blocker, "and the row still says what could not be STARTED on this drive, which is what round nine promised and what `noRoom` inside the walk then enforces").toContain("Preparing more finished changes needs 110 seconds");
   });
 });
-
 /** The three rules the same block already held before the reviewer read it, pinned so no repair can quietly cost them. */
 describe("what rounds eight to ten do hold", () => {
   const seed = (s: typeof SITES[number], progress: RR.ResearchRunProgress) => { const rows = freshRepo();
     rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: "serp_analysis", progress })); return rows; };
-
   it.each(SITES)("$t: the stock-first block runs at most once on a drive, whatever answers the phase gives it", async (s) => {
     seed(s, { plan: { units: ["replenish_ready", "plan_cases"] }, waited: { phase: "serp_analysis", drives: 1, unpaid: true } });
     let walks = 0; const answers = ["advanced", "waiting", "waiting"] as const; let n = 0;
@@ -138,7 +134,6 @@ describe("what rounds eight to ten do hold", () => {
       replenishReady: async () => (walks += 1, { ready: 1, deficit: 0, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {}, evidenceOwed: [] as never }) } });
     expect(walks, "an owed turn, an advanced answer that sends the loop back, then a waiting answer behind the block: the block's own `replenished` mark makes `stockDue` false, so neither door can open it a second time").toBe(1);
   });
-
   it.each(SITES)("$t: an owed turn whose step answers waiting under the walk's floor always writes the sentence before it pauses", async (s) => {
     const rows = seed(s, { plan: { units: ["replenish_ready", "plan_cases"] }, waited: { phase: "serp_analysis", drives: 1, unpaid: true } });
     await runResearchCycle(s.t, { now: () => new Date(NOW), deadlineMs: 100_000, steps: { ...BENIGN,
