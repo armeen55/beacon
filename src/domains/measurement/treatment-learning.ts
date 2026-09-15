@@ -5,6 +5,7 @@
  * THIS RETURNS NUMBERS AND NOT SENTENCES. Whether three finished readings may be called evidence is the surface's sentence to write, and `early` plus `overlapping` are the two facts it needs to write it honestly. Nothing here is observational language.
  */
 
+import { addDays, dayOfStamp } from "./outcome-windows";
 import { actionFamilyOf } from "./proof-gsc/change-family";
 import type { ShippedChangeRecord } from "./proof-gsc/shipped-change-store";
 import { learningEligibility, type TreatmentSignature } from "./proof-gsc/types";
@@ -85,7 +86,7 @@ function settledLift(r: LearningRow, overlap?: { ids: string[]; cleanUntil: stri
   // ONE ELIGIBILITY VERDICT, THE MEASUREMENT KERNEL'S OWN (proof-gsc/types, learningEligibility). "Any comparison page at all" stood here, and the kernel filed the identical window insufficient below MIN_CONTROLS: five live 14 day readings the screen called unreadable were teaching the ranking their comparison's own 75 click fall. Unknown, unavailable and confounded are all refused here and stay three different facts on the row.
   const w = [...(r.windows ?? [])].filter((x) => x.adjustedLift != null && x.day >= FIRST_READING_DAYS
     && learningEligibility({ ...x, controlsUsed: Math.max(x.controlsUsed ?? 0, r.pinnedRead?.basisDay === x.day ? r.pinnedRead.controlsUsed ?? 0 : 0) }, r) === "eligible"
-    && (!overlap?.ids.length || (overlap.cleanUntil != null && Date.parse(r.implementedAt!.slice(0, 10)) + x.day * 86_400_000 <= Date.parse(overlap.cleanUntil))))
+    && (!overlap?.ids.length || (overlap.cleanUntil != null && addDays(dayOfStamp(r.implementedAt) ?? r.implementedAt!, x.day) <= overlap.cleanUntil)))
     .sort((a, b) => b.day - a.day)[0];
   return w ? { lift: Math.round(w.adjustedLift), day: w.day } : null;
 }
@@ -108,7 +109,7 @@ export function signatureOfShipment(r: LearningRow): TreatmentSignature | null {
 export function treatmentLearning(rows: readonly LearningRow[]): TreatmentGroup[] {
   type Acc = Omit<TreatmentGroup, "key" | "sampleSize" | "netEffect" | "medianEffect" | "early" | "estimate"> & { reads: { lift: number; base: number }[]; mature: number };
   const acc = new Map<string, Acc>();
-  const overlaps = overlapClosures(rows.filter((r) => r.id && r.path && r.implementedAt).map((r) => ({ id: r.id!, path: r.path!, anchoredAt: r.implementedAt! })));
+  const overlaps = overlapClosures(rows.filter((r) => r.id && r.path && r.implementedAt).map((r) => ({ id: r.id!, path: r.path!, anchoredAt: dayOfStamp(r.implementedAt) ?? r.implementedAt! })));
   for (const r of rows) {
     const sig = signatureOfShipment(r);
     // GROUPED ON THE COARSE FAMILY, never on the raw action word: `edit_title`, `title` and `title_meta_rewrite` are one bet spelled three

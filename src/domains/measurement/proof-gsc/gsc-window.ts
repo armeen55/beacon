@@ -112,7 +112,7 @@ export async function readWindowForPages(args: {
   /** THE SITE'S OWN MOVEMENT over the same window: every page on file EXCEPT `exclude`, summed into one
    *  series and handed back under `key`. Off the same two snapshots the pages above are read from, so it
    *  costs no extra read. It is what a change is compared against when too few untouched pages match. */
-  siteTotal?: { key: string; exclude: string };
+  siteTotal?: { key: string; exclude: readonly string[] };
 }): Promise<SourceRead<Map<string, GscWindowMetrics>>> {
   const [startRead, endRead] = await Promise.all([readCumulativeSince(args.tenantId, args.start), readCumulativeSince(args.tenantId, args.end)]);
   if (startRead.status === "unavailable") return startRead;
@@ -130,10 +130,10 @@ export async function readWindowForPages(args: {
     out.set(page, metrics);
   }
   if (args.siteTotal) {
-    const skip = canonicalPageKey(args.siteTotal.exclude);
+    const skip = new Set(args.siteTotal.exclude.map(canonicalPageKey));
     const total = (m: Map<string, Cumulative>): Cumulative => {
       const t: Cumulative = { clicks: 0, impressions: 0, posWeighted: 0 };
-      for (const [page, c] of m) if (page !== skip) { t.clicks += c.clicks; t.impressions += c.impressions; t.posWeighted += c.posWeighted; }
+      for (const [page, c] of m) if (!skip.has(page)) { t.clicks += c.clicks; t.impressions += c.impressions; t.posWeighted += c.posWeighted; }
       return t; };
     const metrics = subtract(total(startCum), total(endCum));
     if (!metrics) return { status: "unavailable", reason: "Search Console site totals are inconsistent across this window." };

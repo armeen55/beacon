@@ -188,7 +188,6 @@ const MINTABLE: ReadonlySet<BundleComponentKind> = new Set<BundleComponentKind>(
 export const treatable = (cause: CauseFinding["cause"]): boolean => cause === "cannibalization" || [...CAUSE_LEVERS[cause]].some((k) => MINTABLE.has(k));
 /** The field's word on a card, for the sentences below. */
 const FIELD_WORD: Record<string, string> = { title: "title", meta: "description", h1: "heading" };
-const bareText = (t: string): string => t.toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "");
 
 /** WHAT A RECEIPT IS AUTHORIZED FOR, written out EXACTLY and compared exactly. A receipt is about a draft, never a job: `copyIdentity` excludes the copy and `workKey` names the work, so preservation kept copy A while an incoming draft's receipts rode along. The first repair bound it with `componentIdOf`, a 32-bit fingerprint meant for naming a bundle piece in a browser, and two real drafts collided on it and transferred a receipt through the very merge this was written to stop (Codex, 2026-08-28). A HASH NAMES A BUCKET; THIS NAMES THE THING: tenant and page, so the same sentence elsewhere is another decision; field and locator, so the same sentence in another slot is another decision; the replaced and proposed words; every bundle piece in order; and the CONTENT of every banked fact, so a passage rewritten under its old id goes stale. */
 const cut = (t: string, n = 60): string => (t.trim().length > n ? `${t.trim().slice(0, n)}...` : t.trim());

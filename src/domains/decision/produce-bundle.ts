@@ -17,7 +17,7 @@ import type { ProposeOptions } from "./propose"; import { receiptIntegrityFailur
 import { anchoredTopicMatch, canonicalQueryKey, isNoiseDomain, templateHeadings, topicTokens, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import { demandUnitsOf } from "@/domains/evidence/demand-units"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { answerIntelFacts, answerIntelOf } from "@/domains/evidence/answer-intel";
 import { readFactChecks, type FactCheck } from "@/domains/evidence/pages/fact-checks";
-import { biggerSearchesLine } from "./suggested-edits"; import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split"; import { actionFamilyOf } from "./proposal-store"; import { draftFieldForPage } from "./drafted-copy";
+import { biggerSearchesLine } from "./suggested-edits"; import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split"; import { actionFamilyOf } from "./proposal-store"; import { demandOf, draftFieldForPage } from "./drafted-copy";
 
 /** `considered` rides a REFUSAL so the levers a producer weighed reach the research card that replaces it: a card saying only what is missing reads as a shrug beside one that also says what was ruled out. */
 type BundleOutcome = { status: "bundled"; proposal: ChangeProposal } | { status: "none"; reason: string; considered?: { option: string; reason: string }[];
@@ -341,7 +341,8 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   const inventory = snapshot.ownedPages.filter((p) => canonicalUrlKey(p.url) !== canonicalUrlKey(page.url))
     .map((p) => ({ url: p.url, title: p.content?.title ?? null, h1: p.content?.h1 ?? null }))
     .sort((a, b) => byText(pathOf(a.url), pathOf(b.url))).slice(0, MAX_INVENTORY);
-  const producerEvidenceText = wording ? evidenceText : [evidenceText, ...(pattern?.commonHeadings ?? []).map((h) => h.heading),
+  const checked = held ? await readFactChecks(tenantId, pathOf(page.url)).catch(() => [] as FactCheck[]) : []; // A CHECKED READING IS EVIDENCE THE CANON READS (Stage 3, 2026-09-14): a section citing fact-1 for a name only that reading carries was refused by the name check as invented, so the readings this page is authorized to state ride the evidence text exactly as they ride the writer's packet
+  const producerEvidenceText = wording ? evidenceText : [evidenceText, ...(held ? demandOf(page, held, checked, opts.basis ?? null, tenantId).facts.map((f) => f.fact) : []), ...(pattern?.commonHeadings ?? []).map((h) => h.heading),
     ...(pattern?.commonEntities ?? []).map((e) => e.entity), ...(pattern?.questionsAnswered ?? []), ...(body?.entityNames ?? []),
     ...(body?.cardTexts ?? []), ...(body?.internalLinks ?? []).map((l) => `${l.anchorText} ${l.href}`),
     ...[...heldBodies.values()].flatMap((b) => [...b.headings, ...b.entityNames]), // every page of yours I actually hold, in its own words: a section moved off one of them is named, never invented
@@ -394,7 +395,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   } else {
     const slot = CORE_PRODUCERS[finding.cause as Exclude<typeof finding.cause, "ctr_snippet">];
     if (typeof slot !== "function") return { status: "none", reason: finding.cause === "no_problem" ? diagnosis.explanation : finding.explanation };
-    if (opts.held?.newPageDraft?.brief.kind === "full_rewrite" && (opts.held.tenantId !== tenantId || opts.held.basis !== opts.basis || canonicalUrlKey(opts.held.pageUrl ?? "") !== canonicalUrlKey(page.url))) return { status: "none", reason: "The rewrite bank does not belong to this tenant, basis and page; no work was bought." }; const checked = held ? await readFactChecks(tenantId, pathOf(page.url)).catch(() => [] as FactCheck[]) : [];
+    if (opts.held?.newPageDraft?.brief.kind === "full_rewrite" && (opts.held.tenantId !== tenantId || opts.held.basis !== opts.basis || canonicalUrlKey(opts.held.pageUrl ?? "") !== canonicalUrlKey(page.url))) return { status: "none", reason: "The rewrite bank does not belong to this tenant, basis and page; no work was bought." };
     const compared = snapshot.research ? jobComparison(snapshot.research, [primary], { url: page.url, text: `${content.title ?? ""} ${(held?.passages ?? []).join(" ")}`, headings: content.outline ?? [], passages: held?.passages ?? [], complete: held?.completeness === "complete" && held.version === "current" }) : null;
     const drafters = producerDrafts(tenantId, opts, now, snapshot.ownedPages.map((p) => pathOf(p.url)), held, heldBodies, authed, checked, compared);
     const ctx: ProducerCtx = { finding, primary, tenantId,
@@ -452,7 +453,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   const writtenPieces = components.flatMap((c, index) => {
     const copy = authed.get(c.after); return copy ? [{ index, copy }] : [];
   });
-  for (const { index, copy } of writtenPieces) Object.assign(components[index]!, COPY_RULES.publication(copy, components[index]!.kind === "section" ? copy.heading : null));
+  for (const { index, copy } of writtenPieces) Object.assign(components[index]!, COPY_RULES.publication(copy, /^section(?:_add)?$/.test(components[index]!.kind) ? copy.heading : null)); // AN ADDED SECTION CARRIES ITS HEADING (Stage 3, 2026-09-14): only `section` kept it, so a `section_add` labelled "Add a section: Scientists" published paste copy with no heading in it
   const { claims, review, supportFacts, preservation, gain, editor, draftNotes } = assembleCopy(components, writtenPieces);
   const primaryComponent = components[0]!; // THE FAMILY THIS CHANGE BELONGS TO, worn by the id AND the stamp. The id ended in the literal word "bundle" and the family read "single", so a snippet rewrite and a body rebuild on one page fought over one id and every shipped bundle reached the proof ledger unclassifiable. Both read the store's own derivation now.
   const recommendedChange: RecommendedChange = { kind: "existing_edit", field: fieldForComponent(primaryComponent.kind), before: primaryComponent.before, after: primaryComponent.after, units: primaryComponent.units, target: primaryComponent.target, where: primaryComponent.where };

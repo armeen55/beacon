@@ -16,7 +16,6 @@ const OWED_NOTE = /^The exact .* lands on the next pass/; /* the drafter's "land
 const SAYS_UNFINISHED = /\b(?:not been (?:drafted|read|written)|is not settled|not on this card|still owed|nothing here is|in your own words|write (?:this|it|these|them) yourself|fill (?:this|it|these) in)\b/i; /* AND AN INSTRUCTION TO WRITE IT YOURSELF (owner's editorial policy, 2026-09-06): copy that tells the operator to write the words is not the words. */
 
 const noCopy = (t: string | null | undefined): boolean => !t || t.trim().length === 0;
-const flat = (s: string): string => s.toLowerCase().replace(/\s+/g, " ").trim();
 /** Copy carrying a blank, or saying out loud that it is not written, is unfinished whoever wrote it. */
 const notFinal = (t: string): boolean => BLANK_TO_FILL.test(t) || SAYS_UNFINISHED.test(t);
 
@@ -40,7 +39,7 @@ export function deliverableGaps(p: ChangeProposal): string[] {
     }
     if (c.outline.length < 3) gaps.push("it names fewer than three sections");
     const bank = p.newPageDraft, made = bank ? COPY_RULES.newPagePieces(bank) : undefined; if (made === null || bank && Array.isArray(bank.brief.sections) && bank.brief.sections.length !== c.outline.length) gaps.push("the banked new page has an ambiguous plan or piece record");
-    const written = new Set((p.bundle?.components ?? []).filter((x) => /^(section|section_add|section_rewrite)$/.test(x.kind) && !noCopy(x.after) && !notFinal(x.after)).map((x) => flat(x.label))), owed = c.outline.filter((h, i) => made ? noCopy(made.get(i + 1)?.after) || notFinal(made.get(i + 1)?.after ?? "") : flat(h).length > 0 && !written.has(flat(h)));
+    const written = new Set((p.bundle?.components ?? []).filter((x) => /^(section|section_add|section_rewrite)$/.test(x.kind) && !noCopy(x.after) && !notFinal(x.after)).map((x) => COPY_RULES.flat(x.label))), owed = c.outline.filter((h, i) => made ? noCopy(made.get(i + 1)?.after) || notFinal(made.get(i + 1)?.after ?? "") : COPY_RULES.flat(h).length > 0 && !written.has(COPY_RULES.flat(h)));
     if (owed.length > 0) gaps.push(`${owed.length} of its ${c.outline.length} sections have no copy written`);
     return [...new Set(gaps)];
   }
@@ -53,7 +52,7 @@ export function deliverableGaps(p: ChangeProposal): string[] {
   if (noCopy(c.after)) gaps.push("it carries no copy");
   else if (notFinal(c.after)) gaps.push("it describes the work instead of being it");
   else if (glued(c.after)) gaps.push("its label runs straight into the words after it, so it would paste as one glued phrase");
-  else if (typeof c.before === "string" && c.before.trim() !== "" && flat(c.after) === flat(c.before)) gaps.push("it changes nothing: the new words are the words the page already carries");
+  else if (typeof c.before === "string" && c.before.trim() !== "" && COPY_RULES.flat(c.after) === COPY_RULES.flat(c.before)) gaps.push("it changes nothing: the new words are the words the page already carries");
   const placed = (t: string | null | undefined): boolean => !!t && t.trim().length >= 12 && !notFinal(t);
   const parts = p.bundle?.components ?? [];
   if (parts.some((part) => (part.kind === "full_rewrite" || part.target?.mode === "whole_body") && (part.kind !== "full_rewrite" || !part.before?.trim() || !part.units?.length || part.target?.mode !== "whole_body"))) gaps.push("the whole-page replacement lacks its full-rewrite kind, complete original body, publication structure or explicit body scope");

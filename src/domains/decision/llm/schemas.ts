@@ -1,4 +1,3 @@
-import { AEO_BAR } from "../accept-worthy";
 import { EditorAcceptanceSchema, PublicationUnitsSchema } from "../contracts";
 /** llm/schemas (2026-06-25, P4, structured drafts), Zod schemas for every product-critical LLM artifact. No loose blob text is ever the final product artifact: a draft is only trusted once it parses against one of
  *  these schemas. Every draft carries `evidenceRefs` (≥1, what grounds it) and `confidence`; operator steps, the measurement target and the caveats are CODE-OWNED (drafted-copy builds them), so the writer is never
@@ -194,7 +193,6 @@ export type StructuredDraftKind =
 const EditorJudgementSchema = EditorAcceptanceSchema.extend({
   preservation: z.array(EditorAcceptanceSchema.shape.preservation.unwrap().element.omit({ of: true })).default([]), /* ABSENT IS EMPTY, NEVER A SECOND PAID CALL (audit, 2026-09-14): a verdict with no unit rulings failed strict decode, the gateway bought the reading again, and every meta deliverable cost three calls where two were pinned; an empty ruling list still authorizes no unit that needs one */
   claims: z.array(z.object({ i: z.number().int().min(0), by: z.array(z.string()), entailed: z.boolean() })),
-  aeoPacket: AEO_BAR.schema.optional(),
   resolution: z.enum(["none", "structural_synthesis", "use_stored_verified_evidence", "acquire_serp", "acquire_page_source", "acquire_competitor_page", "acquire_factual_source", "no_valid_treatment"]) });
 
 /** THE CLAIMS A PAGE MAKES, and ONE OF THEM JUDGED against passages actually fetched. Their own schemas because Structured Outputs returns the schema it is given: asking `editor_judgement` for a claim list returns an editor's verdict on one finished edit and reads zero statements forever (Codex, 2026-08-18). */
@@ -227,7 +225,7 @@ export const SCHEMA_BY_KIND = {
   aeo_gap: AeoGapSchema,
   competitor_comparison: CompetitorComparisonSchema,
   editor_judgement: EditorJudgementSchema,
-  page_acceptance: EditorJudgementSchema.omit({ claims: true, aeoPacket: true, preservation: true }).extend({ repairs: z.array(z.object({ component: z.number().int().nonnegative(), instruction: z.string().min(1).max(600) })).max(24).default([]) }),
+  page_acceptance: EditorJudgementSchema.omit({ claims: true, preservation: true }).extend({ repairs: z.array(z.object({ component: z.number().int().nonnegative(), instruction: z.string().min(1).max(600) })).max(24).default([]) }),
   fact_claim_extraction: FactClaimExtractionSchema,
   fact_claim_judgement: FactClaimJudgementSchema,
   factual_review: FactualReviewSchema,

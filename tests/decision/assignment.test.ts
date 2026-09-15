@@ -72,8 +72,9 @@ describe("what one assignment carries", () => {
     it(`${s.t}: a proposition nothing checked carries is never both what a reader must know and what may not be stated`, () => {
       const bare = assignmentOf(packetOf(s, { evidence: { "page-title": s.title, "page-copy-1": s.passage }, checkedSentences: [] }), null, "answer_block")!;
       const must = ASSIGNMENT_EDITOR.lines(bare).find((l) => l.startsWith("WHAT A READER MUST KNOW")) ?? "";
-      expect([bare.forbidden, must.includes(s.prop), must.includes(s.queries[0]!), bare.completionTest.includes(s.prop), bare.completionTest.includes(s.queries[0]!), /sentences of your own/.test(bare.mustLeadWith)],
-        "the unsupported proposition is named once, as a subject nothing checked carries; what a reader must know and the completion test fall to the reader's own task; and the answer is written in the writer's own sentences rather than out of wording already on the page").toEqual([[s.prop], false, true, false, true, true]);
+      const half = s.prop.split(" ").slice(0, -2).join(" "), refuted = assignmentOf(packetOf(s, { evidence: { "page-title": s.title, "page-copy-1": s.passage }, checkedSentences: [], refuted: [half] }), null, "answer_block")!, line = (a: typeof bare, starts: string) => ASSIGNMENT_EDITOR.lines(a).some((l) => l.startsWith(starts));
+      expect([bare.forbidden, bare.unbacked, must.includes(s.prop), must.includes(s.queries[0]!), bare.completionTest.includes(s.prop), bare.completionTest.includes(s.queries[0]!), /sentences of your own/.test(bare.mustLeadWith), line(bare, "NAMED BY THE DIAGNOSIS AND CARRIED BY NOTHING CHECKED: state it only where this page already states it"), refuted.forbidden, refuted.unbacked, line(refuted, "CONTRADICTED BY A SOURCE ON FILE")],
+        "WRITE FIRST (Stage 3): on additive work the unsupported proposition is UNBACKED, so a reader must know it and the writer is told to state it where the page states it with one caveat line; the completion test still falls to the reader's own task; a wording a source on file refutes is FORBIDDEN, and the unsupported proposition overlapping it is in BOTH lists, never in neither").toEqual([[], [s.prop], true, false, false, true, true, true, [half, s.prop], [s.prop], true]);
       const kept = assignmentOf(packetOf(s), null, "answer_block")!;
       expect([kept.forbidden, kept.completionTest.includes(s.prop)], "and a proposition a checked fact carries is deliverable, so the completion test names it").toEqual([[], true]);
     });
@@ -99,8 +100,8 @@ describe("what one assignment carries", () => {
       evidence: Object.fromEntries(HUB.body.passages.map((t, i) => [`page-copy-${i + 1}`, t])), checkedSentences: [], comparison: cmp, trackedQuestion: q,
       gap: { kind: "incomplete_answer", propositions: [comparisonTopics(cmp)[0]!.topic] } } as unknown as SourcePacket, null, "answer_block")!;
     const lines = ASSIGNMENT_EDITOR.lines(a), at = (x: string): string => lines.find((l) => l.startsWith(x)) ?? "";
-    expect([a.forbidden.length, at("WHAT A READER MUST KNOW").includes(a.forbidden[0]!), a.completionTest.includes(a.forbidden[0]!), at("WHAT A READER MUST KNOW").includes(q), a.completionTest.includes(q)],
-      "the one thing nothing checked carries is named once, as a subject; what a reader must know and the completion test are the reader's own search").toEqual([1, false, false, true, true]);
+    expect([a.forbidden.length, a.unbacked?.length, at("WHAT A READER MUST KNOW").includes(a.unbacked![0]!), a.completionTest.includes(a.unbacked![0]!), at("WHAT A READER MUST KNOW").includes(q), a.completionTest.includes(q)],
+      "the one thing nothing checked carries is unbacked, not forbidden: a reader must know it, and the completion test is the reader's own search").toEqual([0, 1, true, false, false, true]);
     expect([/never material for the new copy/.test(at("PAGE CONTEXT")) && /state only what the page's own words carry/.test(a.mustLeadWith), /\bscripts?\b|romaniz|the form you explain/i.test(lines.join(" ")), at("MUST PRESERVE").includes("nothing on the page is deleted or rewritten") && !!a.replaces],
       "no line orders the page's own words as the only material while another rules them out, no line is a lesson about a language, and nothing is told to preserve a passage it replaces").toEqual([false, false, false]);
     const shown = cmp.winners.find((w) => w.observations.length > 0)!;

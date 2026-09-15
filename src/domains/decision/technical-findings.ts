@@ -12,7 +12,7 @@
  */
 
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
-import type { BundleComponent, BundleComponentKind } from "./contracts";
+import type { BundleComponent, BundleComponentKind } from "./contracts"; import { COPY_RULES } from "./copy-sanitize";
 
 /** THE V1 CATALOGUE: every technical fault observable from held data, and not one more. */
 export type TechnicalKind =
@@ -51,7 +51,6 @@ const SITEMAP: ReadonlySet<string> = new Set(["sitemap", "robots_sitemap"]);
 const VIA: Record<string, string> = { homepage: "reading your home page", nav: "following your own menu",
   implementation: "a change you recorded on it" };
 
-const flat = (s: string | null | undefined): string => (s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 const at = (u: string): string => {
   try { return new URL(u.startsWith("http") ? u : `https://${u}`).pathname.replace(/\/+$/, "") || "/"; } catch { return u; }
 };
@@ -126,7 +125,7 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
   // TWO PAGES WEARING ONE NAME, NEVER ONE PAGE WEARING ITS OWN: ONE member per address, so an alias groups with nobody, a twin on another host is a real duplicate named WITH its host, and no wording is invented, so it stays out of Ready.
   const duplicates = (of: "title" | "h1", kind: TechnicalKind, what: string): void => {
     const groups = new Map<string, CapturedPage[]>();
-    for (const p of pages) { const v = flat(p[of]), group = groups.get(v) ?? []; if (v && !group.some((x) => addressOf(x.url) === addressOf(p.url))) groups.set(v, [...group, p]); }
+    for (const p of pages) { const v = COPY_RULES.flat(p[of]), group = groups.get(v) ?? []; if (v && !group.some((x) => addressOf(x.url) === addressOf(p.url))) groups.set(v, [...group, p]); }
     for (const group of groups.values()) {
       if (group.length < 2) continue;
       const said = (group[0]![of] ?? "").trim(), paths = group.map((x) => at(x.url)), shown = new Set(paths).size === paths.length ? paths : group.map((x) => canonicalUrlKey(x.url));

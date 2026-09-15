@@ -1,6 +1,6 @@
 /**
  * read-honesty (V1 Truth Convergence Phase 7) - WHEN a measurement read stops being
- * clean, and HOW it is worded. Leaf module: nothing is imported at runtime, so the
+ * clean, and HOW it is worded. Leaf module: only the presenter is imported at runtime, so the
  * kernel leans on it without a cycle.
  *
  * Four pure jobs:
@@ -16,6 +16,7 @@
  *   3. THE HEADLINE. Directional, never causal: the page moved AFTER the change.
  */
 
+import { dayLabel } from "@/lib/presenter";
 import type { KernelMetric, KernelVerdict } from "./kernel";
 
 const DAY_MS = 86_400_000;
@@ -25,17 +26,8 @@ const OVERLAP_WINDOW_DAYS = 28;
 const dayOf = (iso: string): string => (iso.length > 10 ? iso.slice(0, 10) : iso);
 const msOf = (iso: string): number => Date.parse(`${dayOf(iso)}T00:00:00Z`);
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** "May 10" from a YYYY-MM-DD or ISO day. Operator copy never carries a raw date stamp, and
- *  Measurement may not import the component layer, so the month/day rendering lives here and
- *  matches monthDayLabel (src/components/data/receipt-line.tsx) exactly. An unparseable day
- *  returns itself rather than an invented date. PURE (UTC). */
-export function monthDay(iso: string): string {
-  const [y, m, d] = dayOf(iso).split("-").map((s) => parseInt(s, 10));
-  if (!Number.isFinite(y) || !Number.isFinite(d) || !MONTHS[m - 1]) return iso;
-  return `${MONTHS[m - 1]} ${d}`;
-}
+/** "May 10" from a day label, through the ONE presenter every surface uses; an unparseable day returns itself rather than an invented date. */
+const monthDay = (iso: string): string => dayLabel(dayOf(iso)) ?? iso;
 
 // ── Job 0: the metric table (both vocabularies, side by side) ────────────────
 

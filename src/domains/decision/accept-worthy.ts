@@ -1,4 +1,3 @@
-import { z } from "zod";
 import type { ChangeProposal } from "./contracts";
 import { topicTokens } from "@/domains/evidence/relevance-gate";
 
@@ -18,35 +17,19 @@ function figures(copy: string, bodyText: string): string[] {
   return [...new Set(out)];
 }
 
-// Only these stored soft findings can be re-asked from the banked record alone.
-const owns = (why: string): boolean => /^the figure's own sentence says /.test(why) || /^(?:the claim .* cites evidence that is about something else|the sources this cites are about something else)/.test(why);
-function live(p: ChangeProposal): string[] {
-  const c = p.recommendedChange;
-  if (c.kind !== "existing_edit") return [];
-  const facts = p.supportFacts ?? [], evidence = new Map(facts.map((f) => [f.id, f.fact]));
-  const out: string[] = [];
-  // Independent evidence records must never form one sentence.
-  out.push(...figures(c.after, facts.map((f) => f.fact).join("\n")));
-  const adrift = (p.claims ?? []).find((x) => { const mine = topicTokens(x.text).filter((w) => !CARRIER.has(w));
-    const its = new Set(topicTokens(x.supportedBy.map((id) => evidence.get(id) ?? "").join(" ")));
-    return mine.length >= 4 && mine.filter((w) => its.has(w)).length / mine.length < 0.25; });
-  if (adrift) out.push(`the claim "${adrift.text.slice(0, 60)}" cites evidence that is about something else: name the id whose words actually carry it`);
-  return out;
-}
-const COPY_REFUSALS = { figures, carrier: CARRIER, owns, live };
+const COPY_REFUSALS = { figures, carrier: CARRIER }; /* `owns` and `live` deleted (Stage 3, 2026-09-14): nothing read them */
 
 const hasGrouping = (sources: readonly { says: string; groups?: readonly string[]; groupExcerpts?: readonly { heading: string }[] }[]): string[] => [...new Set(sources.flatMap((s) => (s.groups ?? []).filter((g) => g.trim() && (s.says.includes(g) || (s.groupExcerpts ?? []).some((e) => e.heading === g)))))]; // a group the source keeps as a heading of its own is carried by the words under that heading, which the quote cannot hold beside the others
 const holds = {"lead": "The opening needs a complete answer paragraph that explains more than the names.", "groups": "Group the answer under one to three headings that explain how the examples were selected.", "criteria": "Each heading needs a selection criterion and explanatory prose, with children written as plain text rather than tables, bold labels or link lists.", "entities": "Entity distinctions should read as plain text under one to three groups; table scaffolds and label styling are optional at most.", "accuracy": "The accuracy questions need to be resolved before this copy is ready.", "unreviewed": "These exact words still need a review of their structure, accuracy and relevance.", "sixChecks": "The answer still needs to pass the required readiness checks for lead quality, grouped sections, factual support and query fit."};
 const writerLimitations = (limitations: readonly string[]) => limitations.filter((l) => !Object.values(holds).includes(l.trim()));
-const schema = z.object({ leadAnswer: z.boolean(), groupedH2s: z.boolean(), defendedClaims: z.boolean(), entityBlock: z.boolean(), boundedScope: z.boolean(), h1QueryAlignment: z.boolean() });
 const emptyMeta = (copy: string, heading: string): string[] => {
   const tokens = (t: string) => t.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
   const known = new Set(tokens(`${heading} a an the is are about and of for with description details information`));
   return !copy.trim() || /\b(?:no (?:added |useful |additional )?description|description (?:not available|unavailable|missing)|nothing to describe)\b/i.test(copy)
     || (known.size > 0 && tokens(copy).every((w) => known.has(w))) ? ["The description is empty or repeats the heading without describing the subject."] : [];
 };
-/* THE PACKET REGIME IS DELETED (audit, 2026-09-14): its rubric, policy, holds and grouping debt were pinned off on 2026-09-10 and shipped dead. What remains is what stored rows and live doors still read: the hold sentences stored rows carry as limitations, the persisted six-boolean shape, the grouping question the runtime still names, and the meta and figure rules. */
-export const AEO_BAR = { copyRefusals: COPY_REFUSALS, groupingQuestion: "Which groups of this page’s subject does the source distinguish, and what qualifies for each?", hasGrouping, emptyMeta, schema, holds, writerLimitations,
+/* THE PACKET REGIME IS DELETED (audit, 2026-09-14): its rubric, policy, holds and grouping debt were pinned off on 2026-09-10 and shipped dead. What remains is what stored rows and live doors still read: the hold sentences stored rows carry as limitations, the grouping question the runtime still names, and the meta and figure rules. */
+export const AEO_BAR = { copyRefusals: COPY_REFUSALS, groupingQuestion: "Which groups of this page’s subject does the source distinguish, and what qualifies for each?", hasGrouping, emptyMeta, holds, writerLimitations,
   sameRejectedCopy: (a: ChangeProposal, b: ChangeProposal): boolean => {
     if (a.researchOnly === true || b.researchOnly === true) return false;
     const key = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();

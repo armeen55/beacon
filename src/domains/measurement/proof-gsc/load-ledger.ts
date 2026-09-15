@@ -25,7 +25,7 @@ export async function loadProofLedger(tenantId: string, now: Date = new Date()):
   // THE ONE POLICY, asked once per record and scoped to THAT record's window: a page whose own
   // change closed before this window opened is comparable again, so the pool recovers.
   return Promise.all(records.map((r) =>
-    measureRecord(tenantId, r, now, lastFinal, new Set(contaminationFor(records, open, now, r).keys()))
+    measureRecord(tenantId, r, now, lastFinal, new Set(contaminationFor(records, open, now, r).keys()), records)
       .catch(() => r)));
 }
 

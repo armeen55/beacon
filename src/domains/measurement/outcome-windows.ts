@@ -4,16 +4,26 @@
  * stretches are read in pieces sized by the densest day actually seen, and a piece that will not read
  * fails ONLY the days it covers: the failure belongs to the shipments whose windows touch it and to
  * nothing else, never to the whole ledger. PURE except for the read function the caller injects.
+ * AND THE ONE HOME OF THE DAY ARITHMETIC every measurement clock counts with: the kernel, the lifecycle, the comparison policy and the AI
+ * outcome used to carry their own copies of addDays, and two of them anchored on a UTC calendar day while the operator's day is Pacific.
  */
+
+import { reportingDay } from "@/lib/reporting-day";
 
 type DayRange = { from: string; to: string }; // INTERNAL: `mergeRanges` and `readPartitioned` hand this shape back, so a caller names it by what it gets rather than by a second public name (export ceiling, 2026-09-05)
 
-export const addDays = (day: string, n: number): string =>
-  new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
-export const daysBetween = (from: string, to: string): number =>
-  Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
-
-export const overlaps = (a: DayRange, b: DayRange): boolean => a.from <= b.to && b.from <= a.to;
+const midnight = (day: string): number => Date.parse(`${day.slice(0, 10)}T00:00:00Z`);
+/** Add days to a YYYY-MM-DD (an ISO instant is read by its day label), returning YYYY-MM-DD. */
+export const addDays = (day: string, n: number): string => new Date(midnight(day) + n * 86_400_000).toISOString().slice(0, 10);
+export const daysBetween = (from: string, to: string): number => Math.round((midnight(to) - midnight(from)) / 86_400_000);
+/** THE ONE ANCHOR DAY. A stored stamp as the Pacific reporting day; a value already stored as a bare day label is a day and is never
+ *  shifted; null for a stamp nothing can read. Every checkpoint, overlap, contamination span and AI window counts from this. */
+export const dayOfStamp = (raw: string | null | undefined): string | null => {
+  const s = (raw ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const at = Date.parse(s);
+  return Number.isFinite(at) ? reportingDay(at) : null;
+};
 
 /** Overlapping or touching stretches joined into disjoint ones, oldest first, so no day is ever read twice. */
 export function mergeRanges(ranges: readonly DayRange[]): DayRange[] {

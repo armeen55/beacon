@@ -1,8 +1,8 @@
 import "server-only";
 import { load } from "cheerio";
 
-/** Verify the applied unit from owned-page evidence; bind the receipt to its copy and checker.
- * Historical requalification keeps the original read bound and never buys a SERP. */
+/** Verify the applied unit from owned-page evidence; bind the receipt to its copy and checker. The store keeps the original verified
+ * read when a later recheck differs (recordVerification); a requalification never buys a SERP. */
 
 import { loadBusinessProfile } from "@/domains/account";
 import { isDataForSeoConfigured } from "@/domains/evidence/dataforseo/client";
@@ -355,7 +355,7 @@ export async function shipmentsAwaitingVerification(tenantId: string, limit = MA
     // AND A RECORD THAT HOLDS NO WORDING IS NOT REOPENED BY A CAPTURE EITHER: a newer read of the page cannot answer a record that names nothing to look for, so it is reconciled from what it holds and never queued for live work again. AND THE BOUND HOLDS AT THIS DOOR TOO (measured, 2026-09-05): it was written into the reading and never into the door that reopens one, so a shipment on a page that keeps being captured came back for a twenty-eighth live read against a bound of three. A reading closed on its last check is the last one there is, whatever the page does next; the next change made to that page is measured on its own record.
     // BUT A RECORD CLOSED BY A RULE THAT NO LONGER HOLDS IS RE-DERIVED, NOT LEFT WRITTEN OFF (measured, 2026-09-05). `applied_wording_missing` is not a verdict about the page: it is this code's own answer to "does the record name anything to look for", so it is asked again from the record every pass instead of being kept as a stored fact. The day the reader learned that an apostrophe inside a word is not a quotation mark, shp_6de7016c5cdf7e078f597a28f5a8975b held the exact words "Pallas's Cat facts" and stayed written off for ever, because the fix was forward-only and the door excluded that reason by name. The same one rule decides both sides now, and the arithmetic bounds it rather than an argument about which branch answers: a re-derivation may take the read the bound allows and ONE more, never a third, so a record whose reading still cannot grade it is closed for ever on that read instead of coming back every pass.
     if (!at) return r.verification.status !== "verified" && (r.verification.reason === "applied_wording_missing" ? (r.verification.checks ?? 1) <= MAX_CHECKS && componentsOf(r).some((c) => noExpectation(c) == null) : (r.verification.checks ?? 1) < MAX_CHECKS && (moved.get(canonicalUrlKey(r.page))?.fetchedAt ?? "") > (r.verification.checkedAt ?? ""));
-    return today >= at;
+    return today >= at && (r.verification.checks ?? 1) < MAX_CHECKS; // the bound holds on a promised day too: a kept confirmation once carried a stale promise past it
   };
   return rows
     .filter((r) => !!r?.id && !!r.page && !!r.implementedAt && due(r))

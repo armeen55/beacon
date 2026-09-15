@@ -165,7 +165,7 @@ describe("what Beacon says overall, and what it refuses to say", () => {
   it("reads a difference inside the publish grace window as not published yet: no bounded check is spent and it is read again tomorrow", async () => { const at = (h: number) => new Date(NOW - h * 3_600_000).toISOString(); const early = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }], implementedAt: at(1) }, { ...base, fetchPage: serve(PAGE) }), late = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }], implementedAt: at(8) }, { ...base, fetchPage: serve(PAGE) });
     expect([early.status, early.checks, early.recheckAfter, (early.components[0]!.note ?? "").includes("published later"), late.status, late.checks, late.recheckAfter]).toEqual(["differs", 0, "2026-08-01", true, "differs", 1, "2026-08-02"]); });
   it("keeps failed cumulative reads distinct from missing history and measured zero, and never subtracts an invalid side", async () => {
-    const { readWindowForPages } = await import("@/domains/measurement/proof-gsc/gsc-window"), args = { tenantId: T, pages: ["own.com/nowruz", "https://www.own.com/nowruz/", "own.com/never"], start: "2026-08-05", end: "2026-09-02", siteTotal: { key: "site", exclude: URL_ } };
+    const { readWindowForPages } = await import("@/domains/measurement/proof-gsc/gsc-window"), args = { tenantId: T, pages: ["own.com/nowruz", "https://www.own.com/nowruz/", "own.com/never"], start: "2026-08-05", end: "2026-09-02", siteTotal: { key: "site", exclude: [URL_] } };
     const known = await readWindowForPages(args); expect(known.status).toBe("available"); if (known.status !== "available") throw new Error(known.reason);
     expect([known.data.get(args.pages[0]!)?.impressions, known.data.get(args.pages[1]!)?.impressions, known.data.has(args.pages[2]!)]).toEqual([900, 900, false]);
     const row = { page: URL_, clicks: 30, impressions: 900, pos_weighted: 4500 };
@@ -241,8 +241,8 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     expect([await silent(1), await silent(2)], "R-059: a silent site is read again on the promised day until the bound, and the third answer stands whatever it is").toEqual(["2026-08-01", null]);});
   it("owes that retry only once the promised day arrives, and never owes one for a robots denial", async () => {
     const blocked = (recheckAfter: string | null) => ({ status: "blocked", checkedAt: "2026-07-30T09:00:00Z", components: [], recheckAfter });
-    ROWS.push(row({ id: "waiting", verification: blocked("2026-08-01") }), row({ id: "refused", verification: blocked(null) }));
-    expect(await shipmentsAwaitingVerification(T, 3, { now: () => NOW })).toEqual([]); // 2026-07-31: not yet
+    ROWS.push(row({ id: "waiting", verification: blocked("2026-08-01") }), row({ id: "refused", verification: blocked(null) }), row({ id: "spent", verification: { status: "partially_verified", checkedAt: "2026-07-20T09:00:00Z", components: [], recheckAfter: "2026-07-25", checks: 3 } }));
+    expect(await shipmentsAwaitingVerification(T, 3, { now: () => NOW })).toEqual([]); // 2026-07-31: not yet, and a promised day past its bound owes nothing (a partly verified row once came back every pass for ever)
     const tomorrow = await shipmentsAwaitingVerification(T, 3, { now: () => NOW + DAY }); expect(tomorrow.map((s) => [s.id, s.priorChecks])).toEqual([["waiting", 1]]);
     ROWS.length = 0; const shut = (checkedAt: string) => ({ status: "differs", checkedAt, components: [], recheckAfter: null }); ROWS.push(row({ id: "closed", verification: shut("2026-07-30T09:00:00Z") }));
     const asked = async (at: string) => (await shipmentsAwaitingVerification(T, 3, { now: () => NOW, readHeld: async () => new Map([["own.com/nowruz", { fetchedAt: at } as never]]) })).map((s) => s.id);

@@ -2,14 +2,13 @@ import "server-only";
 /** shipment-ai-lines - the SENTENCES one shipment's AI outcome says, split from shipment-ai-outcome when it
  *  crossed its ceiling. One direction only: the outcome engine imports THIS as one bundle. */
 import type { AiObservationRecord } from "@/domains/evidence/ai-visibility/ai-observations";
+import { engineLabel } from "@/lib/presenter";
 import { AI_OUTCOME_SHARED, type Direction, type HeldAiBaseline, type ScopedMetric, type ShipmentAiOutcome, type ShipmentObjective } from "./shipment-ai-outcome";
 // Accessed at CALL time, never destructured at load: the two halves import each other by design, and a
 // top-level destructure runs before the exporting half has finished loading.
 const gapDir: typeof AI_OUTCOME_SHARED.gapDir = (...a) => AI_OUTCOME_SHARED.gapDir(...a);
 
-const ENGINE_LABELS: Readonly<Record<string, string>> = { chatgpt: "ChatGPT", claude: "Claude", gemini: "Gemini", perplexity: "Perplexity" };
 const MODE_LABELS: Readonly<Record<string, string>> = { api: "the standard answer", consumer_search: "the consumer search answer" };
-const engineLabel = (e: string): string => ENGINE_LABELS[e] ?? e;
 const modeLabel = (m: string): string => MODE_LABELS[m] ?? "an answer of an unnamed kind";
 
 

@@ -1,7 +1,8 @@
 import "server-only";
-/** Shipped-change ledger store - THE canonical Shipment: the operator-confirmed implementation of one
- * ChangeProposal and its verified live state. History preserved; every Shipment column nullable. WRITTEN
- * ONCE: implementedAt, shipmentBaseline, pinnedRead; verification null until the live check, null IS due. */
+/** Shipped-change ledger store - THE canonical Shipment: the operator-confirmed implementation of one ChangeProposal and its verified
+ * live state. History preserved; every Shipment column nullable. Write-once: implementedAt and shipmentBaseline (withHeldImmutables), the
+ * pinned read (recordPinnedRead) and a confirmed verification (recordVerification keeps it and files later rechecks beside it). A verdict
+ * decodes as "won" or "lost" only once its day 28 window has run; the verified_live column follows the verification status. */
 
 import { cache } from "react";
 import { existsSync, readFileSync } from "node:fs";
@@ -16,6 +17,7 @@ import type { ShipmentObjective } from "../shipment-ai-outcome";
 import type { GscProofConfidence, GscProofVerdict, MeasurementState, ProofBaseline, ProofWindowResult, TreatmentSignature } from "./types";
 import type { PinnedRead } from "./pinned-read";
 import type { ControlReceipt } from "./contamination";
+import { settledVerdictOf } from "./measure-lifecycle";
 
 const TABLE = "shipped_change_proof", STORE = "proof-gsc-ledger";
 /** What the live check found. FROZEN SHAPE, written only through `recordVerification`; `components` names
@@ -34,7 +36,24 @@ export type ShipmentVerification = {
    *  outcome. The status says what was seen, this says what to do about it. Null on a confirmed reading and on every row written before the cause was named. */
   reason?: "not_published_yet" | "page_unreachable" | "rendered_content_gap" | "address_mismatch"
     | "stale_reading" | "applied_wording_missing" | "published_differently" | "google_not_updated" | "unmeasurable" | null;
+  /** LATER READS THAT DISAGREED WITH A CONFIRMED ONE, filed beside it and never over it (keepConfirmed). */
+  rechecks?: Array<{ status: ShipmentVerification["status"]; checkedAt: string; reason: ShipmentVerification["reason"] }>;
 };
+/** The two answers that let measurement begin: the change was seen on the page, or part of it was. */
+const CONFIRMED: ReadonlySet<string> = new Set(["verified", "partially_verified"]);
+/** A CONFIRMED READ IS KEPT. Once the live page confirmed the change, a later recheck that differs (a cache serving the old page, a CMS
+ *  republish, a moved section) is filed as a subsequent observation on `rechecks` and changes neither the status nor the measurement
+ *  riding on it; only an explicit operator revert changes it. A first answer, a same-status refresh and a fresh full confirmation (the
+ *  requalification that re-earns the proof under a new checker contract) are written whole. PURE. */
+function keepConfirmed(held: ShipmentVerification | null | undefined, next: ShipmentVerification): ShipmentVerification {
+  if (held == null || !CONFIRMED.has(held.status) || next.status === "verified" || next.status === held.status) return next;
+  // THE RECHECK DAY IS THE LATEST READ'S, never the confirmed read's: a kept `recheckAfter` already in the past re-queued a partly verified row on every pass for ever, and `rechecks` grew without bound.
+  return { ...held, checks: next.checks ?? held.checks, recheckAfter: next.recheckAfter ?? null, rechecks: [...(held.rechecks ?? []), { status: next.status, checkedAt: next.checkedAt, reason: next.reason ?? null }] };
+}
+/** THE OPERATOR'S OWN CONFIRMATION IS NOT OVERWRITTEN BY A READ THAT SAW LESS. `verified_live` follows the automated status, except where it stands true off the
+ *  manual form with no confirming read behind it: a later not_found or differs is filed on the row and the flag stays; only a confirming read or the operator moves it. PURE. */
+const liveAfter = (heldLive: boolean | null | undefined, heldRead: ShipmentVerification | null | undefined, next: ShipmentVerification): boolean =>
+  CONFIRMED.has(next.status) || (heldLive === true && !CONFIRMED.has(heldRead?.status ?? ""));
 /** The immutable numbers this page stood at when the operator marked the change done. */
 type ShipmentBaseline = {
   /** NULL WHERE GOOGLE HAD NOTHING TO SAY YET. The halves freeze independently: holding the AI half hostage
@@ -216,7 +235,8 @@ function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     before: row.before_text ?? null, after: row.after_text ?? null, shippedAt: row.shipped_at,
     baseline: row.baseline ?? ZERO_BASELINE, targetQueries: row.target_queries ?? [],
     controlPages: row.control_pages ?? [], controlsReceipt: row.controls_receipt ?? null, windows: row.windows ?? [],
-    verdict: (VALID_VERDICTS.has(row.verdict) ? row.verdict : "inconclusive") as GscProofVerdict,
+    // THE WIN WORD IS REFUSED UNTIL THE DAY 28 WINDOW HAS RUN (Product Truth), at the one read seam, so no consumer of the column can retire, harvest or free a page on a day 7 or day 14 lean.
+    verdict: settledVerdictOf({ verdict: (VALID_VERDICTS.has(row.verdict) ? row.verdict : "inconclusive") as GscProofVerdict, windows: row.windows ?? [] }),
     confidence: (VALID_CONFIDENCES.has(row.confidence) ? row.confidence : "low") as GscProofConfidence,
     measuredAt: row.measured_at ?? null, notes: row.notes ?? null, verifiedLive: row.verified_live ?? false,
     liveSourceUrl: row.live_source_url ?? null, lastCrawlAt: crawlStampOf(row.recrawl_requested_at),
@@ -230,7 +250,7 @@ function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     preChangeHashUnavailable: row.pre_change_hash_unavailable === true,
     // A DEBT THE LIVE CHECK ALREADY PAID IS NOT STILL OWED (live, three rows, 2026-09-04): `verification_needed` says the page has not been read yet, `recordVerification` writes only the check itself, and three rows confirmed on the live page on 12 August still told the operator "the live page still has to be read before any result is claimed". Cleared HERE, on read, off the row's own confirmed check and nothing else, so the answer is the same on every surface and no script has to walk the store.
     measurementState: !VALID_MEASUREMENT_STATES.has(row.measurement_state ?? "") ? null
-      : row.measurement_state === "verification_needed" && (row.verification?.status === "verified" || row.verification?.status === "partially_verified") ? "measuring" : (row.measurement_state as MeasurementState),
+      : row.measurement_state === "verification_needed" && CONFIRMED.has(row.verification?.status ?? "") ? "measuring" : (row.measurement_state as MeasurementState),
     shipmentBaseline: row.shipment_baseline ?? null, verification: row.verification ?? null,
     operatorNote: row.operator_override_reason ?? null, aiScope: row.ai_scope ?? null, treatmentStamp: row.baseline_snapshot ?? null, pinnedRead: row.pinned_read ?? null,
     createdAt: row.created_at, updatedAt: row.updated_at,
@@ -304,7 +324,7 @@ export async function invalidateResultsSurfaceSafe(): Promise<void> {
 }
 /** PURE. The stamp and the baseline are written ONCE. Every later writer arrives with the whole record, so
  *  without this a recompute could move where the window starts. What is on file wins, and the log says so. */
-type WriteOnce = { implemented_at?: string | null; shipment_baseline?: ShipmentBaseline | null };
+type WriteOnce = { implemented_at?: string | null; shipment_baseline?: ShipmentBaseline | null; verification?: ShipmentVerification | null; verified_live?: boolean | null };
 
 function withHeldImmutables(held: WriteOnce | null, row: LedgerRow): LedgerRow {
   if (held?.implemented_at == null) return row;
@@ -316,10 +336,10 @@ function withHeldImmutables(held: WriteOnce | null, row: LedgerRow): LedgerRow {
   }
   return { ...row, implemented_at: held.implemented_at, shipment_baseline: held.shipment_baseline ?? row.shipment_baseline };
 }
-/** The two write-once columns already on file for this Shipment, or null. */
+/** The write-once columns already on file for this Shipment, and the verification a recheck is merged onto, or null. */
 async function heldImmutables(admin: ReturnType<typeof getSupabaseAdmin>, tid: string, id: string): Promise<WriteOnce | null> {
   try {
-    const { data, error } = await admin.from(TABLE).select("implemented_at, shipment_baseline").eq("tenant_id", tid).eq("id", id).limit(1);
+    const { data, error } = await admin.from(TABLE).select("implemented_at, shipment_baseline, verification, verified_live").eq("tenant_id", tid).eq("id", id).limit(1);
     if (error || !Array.isArray(data) || data.length === 0) return null;
     return data[0] as WriteOnce;
   } catch {
@@ -373,21 +393,23 @@ async function upsertFile(record: ShippedChangeRecord): Promise<void> {
 }
 
 const mirrorFile = async (record: ShippedChangeRecord): Promise<void> => { try { await upsertFile(record); } catch { /* best-effort local parity */ } };
-/** THE SEAM. Live verification calls this and nothing else: ONE column on ONE Shipment. The stamp and starting numbers are not in the
- *  update, so a later check can never move where the window starts. Fail-closed: false = nothing written, a foreign id matches no row. */
+/** THE SEAM. Live verification calls this and nothing else: the verification column and the verified_live flag it means, on ONE
+ *  Shipment. The stamp and starting numbers are not in the update, so a later check can never move where the window starts; a confirmed
+ *  read is kept (keepConfirmed). Fail-closed: false = nothing written, a foreign id matches no row. */
 export async function recordVerification(
-  tenantId: string, shipmentId: string, verification: ShipmentVerification,
+  tenantId: string, shipmentId: string, checked: ShipmentVerification,
 ): Promise<boolean> {
   if (!tenantId || !shipmentId) return false;
   let admin;
-  // FILE MODE, exactly as the upsert falls back: local dev has no Supabase, and an answer that cannot be saved is an answer I go back out and fetch again on every single visit, forever.
-  try { admin = getSupabaseAdmin(); } catch { return recordVerificationInFile(shipmentId, verification); }
+  // FILE MODE, exactly as the upsert falls back: local dev has no Supabase, and an answer that cannot be saved is an answer fetched again on every single visit, forever.
+  try { admin = getSupabaseAdmin(); } catch { return recordVerificationInFile(shipmentId, checked); }
   try {
+    const held = await heldImmutables(admin, tenantId, shipmentId), verification = keepConfirmed(held?.verification, checked);
     const { data, error } = await admin.from(TABLE)
-      .update({ verification, updated_at: new Date().toISOString() })
+      .update({ verification, verified_live: liveAfter(held?.verified_live, held?.verification, verification), updated_at: new Date().toISOString() })
       .eq("tenant_id", tenantId).eq("id", shipmentId).select("id");
     // The pre-migration window: no `verification` column to write, so the file holds the answer instead.
-    if (error != null && isUndefinedTableError(error)) return recordVerificationInFile(shipmentId, verification);
+    if (error != null && isUndefinedTableError(error)) return recordVerificationInFile(shipmentId, checked);
     if (error != null || !Array.isArray(data) || data.length === 0) {
       log.warn("[shipment] what the check found was not recorded: no change of yours matched that id", { tenant: tenantId, id: shipmentId, error: error?.message ?? "no row" });
       return false;
@@ -424,11 +446,12 @@ export async function recordPinnedRead(tenantId: string, shipmentId: string, pin
 
 /** The same ONE column on the same ONE Shipment, written to the file the upsert already mirrors into,
  *  stamp and starting numbers untouched. False = the id is not in the file either, so it stays due. */
-async function recordVerificationInFile(shipmentId: string, verification: ShipmentVerification): Promise<boolean> {
+async function recordVerificationInFile(shipmentId: string, checked: ShipmentVerification): Promise<boolean> {
   try {
     const rows = await readFile(), at = rows.findIndex((r) => r.id === shipmentId);
     if (at < 0) return false;
-    rows[at] = { ...rows[at]!, verification, updatedAt: new Date().toISOString() };
+    const verification = keepConfirmed(rows[at]!.verification, checked);
+    rows[at] = { ...rows[at]!, verification, verifiedLive: liveAfter(rows[at]!.verifiedLive, rows[at]!.verification, verification), updatedAt: new Date().toISOString() };
     await writeFile(rows); await invalidateResultsSurfaceSafe();
     return true;
   } catch (err) {

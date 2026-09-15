@@ -3,7 +3,7 @@
  *  run-measurement.ts). Pinned by measure-lifecycle.test.ts. */
 
 import { reportingDay } from "@/lib/reporting-day";
-import { addDays } from "./kernel";
+import { addDays, dayOfStamp } from "../outcome-windows";
 import { PROOF_WINDOW_DAYS } from "./types";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 
@@ -15,12 +15,16 @@ import type { ShippedChangeRecord } from "./shipped-change-store";
  *  row is `awaiting` and no early signal is computed for it. Absent (never asked, or no inspection grant) is the ship clock, unchanged. A
  *  stamp older than the crawl clock itself is not one and never reaches here: the store's own read seam decodes it as absent (CRAWL_STAMP_EPOCH,
  *  shipped-change-store.ts), because the column carried a different meaning on 17 rows before this existed. Pure. */
-export function crawlClock(record: ShippedChangeRecord): { anchor: string; awaiting: boolean } {
-  const stamp = record.implementedAt ?? record.shippedAt, crawl = record.lastCrawlAt ?? null;
+export function crawlClock(record: { implementedAt?: string | null; shippedAt: string; lastCrawlAt?: string | null }): { anchor: string; awaiting: boolean } {
+  const raw = record.implementedAt ?? record.shippedAt, stamp = dayOfStamp(raw) ?? raw.slice(0, 10), crawl = dayOfStamp(record.lastCrawlAt);
   if (crawl == null) return { anchor: stamp, awaiting: false };
-  return crawl.slice(0, 10) >= stamp.slice(0, 10) ? { anchor: crawl, awaiting: false } : { anchor: stamp, awaiting: true }; // compared by DAY, because every window is
+  return crawl >= stamp ? { anchor: crawl, awaiting: false } : { anchor: stamp, awaiting: true }; // compared by REPORTING DAY, because every window is
 }
 const anchorOf = (record: ShippedChangeRecord): string => crawlClock(record).anchor;
+/** A STORED VERDICT IS SETTLED ONLY AT DAY 28 (Product Truth: only the day 28 read may be called a win). The measure pass writes the win
+ *  word only once the 28 day window has run; a row still carrying an earlier "won", "lost" or "inconclusive" reads here as measuring until it has. Pure. */
+export const settledVerdictOf = (record: Pick<ShippedChangeRecord, "verdict" | "windows">): ShippedChangeRecord["verdict"] =>
+  (record.verdict === "won" || record.verdict === "lost" || record.verdict === "inconclusive") && !(record.windows ?? []).some((w) => w.ran && w.day >= MAX_MEASURE_WINDOW_DAYS) ? "measuring" : record.verdict; // a day 7 or day 14 no-movement read is not a settlement either
 
 const MAX_MEASURE_WINDOW_DAYS = Math.max(...PROOF_WINDOW_DAYS);
 /** Grace after the last window before a still-"measuring" record is "stale". */
@@ -59,14 +63,15 @@ function isDangerousComponent(c: { kind: string; risk?: string | null; after?: s
 export type OutcomeState = "measuring" | "win" | "loss" | "inconclusive" | "stale";
 
 function ageDaysOf(record: ShippedChangeRecord, now: Date): number {
-  return Math.floor((now.getTime() - Date.parse(anchorOf(record))) / 86_400_000);
+  return Math.floor((Date.parse(`${reportingDay(now)}T00:00:00Z`) - Date.parse(`${anchorOf(record)}T00:00:00Z`)) / 86_400_000);
 }
 
 /** Map the GSC verdict + age onto the spec's lifecycle states. PURE. */
 export function outcomeStateOf(record: ShippedChangeRecord, now: Date = new Date()): OutcomeState {
-  if (record.verdict === "won") return "win";
-  if (record.verdict === "lost") return "loss";
-  if (record.verdict === "inconclusive") return "inconclusive";
+  const verdict = settledVerdictOf(record);
+  if (verdict === "won") return "win";
+  if (verdict === "lost") return "loss";
+  if (verdict === "inconclusive") return "inconclusive";
   // "measuring" / "insufficient_data": in flight unless it aged out past the last window + grace with NOTHING ever read → stale (no usable
   // data). A record with a real window reading is never "stale" here even when old (that reading exists); E-39 D4's honest release of a
   // STUCK measurement is handled by resolveVerdictLag (recompute when data arrives; mark blocked_data + release when it does not) plus the
@@ -90,9 +95,8 @@ function resolveVerdictLag(
   lastFinalizedDate: string | null,
   now: Date = new Date(),
 ): VerdictLagAction {
-  if (record.verdict === "won" || record.verdict === "lost" || record.verdict === "inconclusive") {
-    return { kind: "settled" };
-  }
+  const verdict = settledVerdictOf(record);
+  if (verdict === "won" || verdict === "lost" || verdict === "inconclusive") return { kind: "settled" };
   const age = ageDaysOf(record, now);
   const horizon = MAX_MEASURE_WINDOW_DAYS + STALE_GRACE_DAYS;
   if (age <= horizon) return { kind: "in_window" };
@@ -134,7 +138,7 @@ export function day56Followup(
   const ran56 = windows.some((w) => w.day === FOLLOW_UP_WINDOW_DAY && w.ran);
   // A 28-day read that settled on won or lost is the primary directional read, and it is the whole answer. Anything else after a 28-day
   // window that HAS run is unsettled.
-  const settled28 = record.verdict === "won" || record.verdict === "lost";
+  const settled28 = settledVerdictOf(record) !== "measuring" && (record.verdict === "won" || record.verdict === "lost");
   const dangerous = (record.componentsApplied ?? []).some(isDangerousComponent);
   // A stored "measuring" verdict at a run 28-day window means exactly one thing the record can prove: that read did not settle. WHY it did
   // not (an overlapping change, or Google still catching up) is the live kernel's call, not this record's, so the reason says the true
@@ -152,10 +156,13 @@ export function day56Followup(
   return { runs, due, reason, checkOn };
 }
 
-/** The only answers that let measurement begin: I SAW the change on the page, or I saw part of it. There is no third way in. A claim, a
- *  note and a legacy override row are all "not read yet", and a reading taken over work I never found would credit whatever search does
- *  next to something that may never have happened. */
-const MEASURABLE_VERIFICATION: ReadonlySet<string> = new Set(["verified", "partially_verified"]);
+/** WHETHER MEASUREMENT MAY BEGIN AT ALL, asked by the due gate and by the reading itself so neither can run ahead of the other. A change
+ *  the live page has not confirmed is a claim, and a reading taken over work never found would credit whatever search does next to
+ *  something that may never have happened. A shipment carrying the stamp measures once the check found the change or part of it, or the
+ *  operator confirmed it explicitly (the manual form's "verified live", or a verdict override); a row written before there were shipments
+ *  has no check to wait for. PURE. */
+export const verifiedForMeasurement = (r: ShippedChangeRecord): boolean =>
+  r.implementedAt == null || r.verifiedLive || r.operatorVerdictOverride != null || r.verification?.status === "verified" || r.verification?.status === "partially_verified";
 /** The two states a row is parked in when nothing could be found to stand behind it. Neither is a finished answer; both are asked again. */
 const DEAD_COMPARISON: ReadonlySet<string> = new Set(["insufficient_comparison", "measurement_unavailable"]);
 
@@ -170,7 +177,7 @@ export function isDueForMeasure(
   lastFinalizedDate: string | null,
   now: Date = new Date(),
 ): boolean {
-  if (record.implementedAt != null && !MEASURABLE_VERIFICATION.has(record.verification?.status ?? "")) return false;
+  if (!verifiedForMeasurement(record)) return false;
   if (lastFinalizedDate == null) return false; // no finalized GSC data → can't measure
   // GOOGLE HAS NOT READ THE CHANGE YET, so there is nothing of it in the numbers: the row waits rather than banking a reading of the page as
   // it still stands. Its crawl stamp is refreshed by the pass itself, so this releases the moment the recrawl lands.

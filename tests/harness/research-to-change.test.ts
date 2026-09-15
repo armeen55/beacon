@@ -49,7 +49,7 @@ function searchScript(state: { ready: boolean; posts: number }) {
 /** A publisher that answers, in the shape the reader extracts: a title, a heading and enough words to be a reading. */
 const pageScript = (url: string) => (url.endsWith("/robots.txt") ? { html: "User-agent: *\nAllow: /", contentType: "text/plain" }
   : { html: `<html><head><title>Famous Iranians, by the work they did</title></head><body><h1>Famous Iranians through history</h1><h2>Poets</h2><h2>Athletes</h2><h2>Scientists</h2><p>${"Famous Iranians are listed here by the work they did, with the years each of them worked and one line on why they are remembered. ".repeat(20)}</p></body></html>` });
-import { WRITER, JUDGE } from "./world";
+import { WRITER, JUDGE, SECTION, SECTION_WRITER, SECTION_JUDGE } from "./world";
 /** The words the reasoning gateway hands back where a door reads them; every other field comes from the request's own schema. */
 const REASONING = { page_job: { topics: ["names", "notable people", "history"], job: "Name the people this page covers and say why each is remembered.", audience: "readers looking a person up", promise: "a named list with one line each", missing: "a direct opening answer", sells: ["guides", "lists"] }, body_edit: publicationDraft(WRITER), editor_judgement: JUDGE };
 
@@ -95,11 +95,9 @@ describe("the owed results page, bought once and finished for nothing", () => {
     expect(nextObligation({ ...stored, winnersOnFile: "none", obligation: { kind: "terminal", reason: "no substantive gap named" } }),
       "with no results page on file the ladder's next step is that results page, which is what the runtime then buys")
       .toEqual({ kind: "evidence", need: { kind: "serp", query: QUERY, reasonCode: "no_winner_to_read" } });
-
     seedResearchState(basis, { serps: [], winningPages: [] });
     const state = { ready: false, posts: 0 }; script.search = searchScript(state);
     const run = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need()] });
-
     expect([state.posts > 0, meter.paidUsd > 0], "the task is posted and the money moves at the post, which is where the provider charges").toEqual([true, true]);
     expect(new Set(acquisitions(run).filter((a) => a.query === QUERY).map((a) => `${a.kind}|${a.outcome}`)), "the need is stamped on the run row as bought and not yet read, never as a silence")
       .toEqual(new Set(["serp|not_read", "semantic_review|not_read"])); // Seeded body copy now owes current contextual acceptance as well as its missing results page.
@@ -111,10 +109,8 @@ describe("the owed results page, bought once and finished for nothing", () => {
     const state = { ready: false, posts: 0 }; script.search = searchScript(state);
     const first = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need()] });
     const postsAtPost = state.posts, searchesAtPost = requestsOf("search");
-
     state.ready = true; advance(30 * 60_000);
     const second = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owedAfter(first, [need()]) });
-
     expect(state.posts, "the drive that finishes the answer posts nothing: a task is charged at the post and collected with a free follow-up").toBe(postsAtPost);
     expect(requestsOf("search") > searchesAtPost, "and the finishing request did go out, so the answer was fetched rather than assumed").toBe(true);
     const forThisSearch = acquisitions(second).filter((a) => a.kind === "serp" && a.query === QUERY);
@@ -132,13 +128,10 @@ describe("the winners of a search on file", () => {
     const held = fixture<FixtureWinner[]>("winners.json").filter((w) => !w.extract).map((w) => w.readOutcome ? { ...w, readOutcome: { ...w.readOutcome, retryAfter: new Date(clock.ms + 86_400_000).toISOString() } } : w);
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: held });
     script.search = searchScript({ ready: true, posts: 0 });
-
     const owed = await dueWork(T, now());
     expect(owed.due.includes("read_winner_pages"), "a search on file whose pages nobody has read owes exactly that reading").toBe(true);
     expect(owed.winners.unread, "a capture the publisher refused is not owed again before its own retry date, so nothing on file is unread").toBe(0);
-
     await drive(["read_winner_pages"], "winning_pages");
-
     const read = winnersOf().filter((w) => (w.extract?.mainText ?? "").length > 0);
     expect(read.length > 0, "the pages that win this account's search are read and their words are kept").toBe(true);
     expect(read.some((w) => w.url.includes("List_of_Iranians")), "the winner at position one for the row's own search is among them").toBe(true);
@@ -154,9 +147,7 @@ describe("the winners of a search on file", () => {
     seedResearchState(basis, {}); // every captured search and every captured winner, four of them carrying words
     script.search = searchScript({ ready: true, posts: 0 });
     const read = () => new Set(winnersOf().filter((w) => (w.extract?.mainText ?? "").length > 0).map((w) => w.url)), before = read();
-
     await drive(["read_winner_pages"], "winning_pages");
-
     expect([before.size, [...before].filter((u) => !read().has(u))], "the readings on file before the pass are the readings on file after it: a ranking chooses which unread pages to read next, never which readings to keep").toEqual([4, []]);
     expect([...read()].some((u) => u.includes("List_of_Iranians")), "including the page at position one for the search this account's largest page owes a comparison for").toBe(true);
   });
@@ -167,9 +158,7 @@ describe("the reading the comparison names", () => {
 it.skip("7: the drive buys the exact reading the refusal named and drafts again in the same turn", async () => {
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     script.search = searchScript({ ready: true, posts: 0 });
-
     const run = await drive(["read_winner_pages"], "winning_pages");
-
     expect(logs.some((l) => l.includes("none of its words are on file")), "the refusal names the one page whose words would settle the comparison").toBe(true);
     expect(acquisitions(run).map((a) => [a.kind, a.outcome]), "and that exact reading is bought for the row that asked for it").toEqual([["competitor_page", "unlocked"]]);
     expect(logs.some((l) => l.includes("the reading landed, so the work that asked for it was drafted in the same turn")),
@@ -185,7 +174,6 @@ it.skip("7: the drive buys the exact reading the refusal named and drafts again 
     script.search = searchScript({ ready: true, posts: 0 });
     const refusals: string[] = [];
     for (let i = 0; i < 6; i += 1) { advance(30 * 60_000); await drive(["read_winner_pages"], "winning_pages"); refusals.push(logs.filter((l) => l.includes("no bundle this pass")).at(-1) ?? ""); logs.length = 0; }
-
     expect(refusals.some((r) => r.includes(FORUM)), `a page the reader will never take was demanded anyway: ${refusals.find((r) => r.includes(FORUM))}`).toBe(false);
     expect(new Set(refusals).size, "a drive that reads a winner leaves a different page to read, so no two drives may give the identical refusal").toBeGreaterThan(1);
     expect(refusals.at(-1), "and once every readable page above it has been read the comparison finishes, so the drive writes instead of asking for one more reading").toBe("");
@@ -201,19 +189,14 @@ describe("the finished work, and recording that the operator applied it", () => 
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     script.search = searchScript({ ready: true, posts: 0 });
     for (let i = 0; i < 2; i += 1) { advance(30 * 60_000); await drive(["read_winner_pages"], "winning_pages"); }
-
     const asked = reasoningAsked.filter((a) => a.kind === "body_edit").at(-1);
     expect([asked != null, asked?.ask.includes(QUERY) === true, asked?.ask.includes("page-copy-1") === true],
       "the writer is hired for this row's own search and handed the page's stored words under the ids a claim may cite").toEqual([true, true, true]);
     const read = reasoningAsked.filter((a) => a.kind === "editor_judgement").at(-1);
     expect([read != null, read?.ask.includes(WRITER.after) === true, read?.ask.includes(WRITER.claims[0]!.text) === true],
       "and the reading of those words is given the copy itself and the claims it declared, not a summary of them").toEqual([true, true, true]);
-
     const rows = [...(await loadChangeProposals(T)).values()].filter((r) => (r.pagePath ?? "") === HUB);
-    expect(rows.map((r) => [r.status, nextObligation(r)]), "the finished change reloads as Ready with no remaining operator obligation").toEqual([["ready", null]]);
-    const change = rows[0]!.recommendedChange;
-    expect(change.kind === "existing_edit" && change.after.includes("poets, athletes and screen actors"),
-      "and what reloads is the finished copy itself, not a note about it").toBe(true);
+    expect(rows.map((r) => [r.status, nextObligation(r), r.recommendedChange.kind === "existing_edit" && r.recommendedChange.after.includes("poets, athletes and screen actors")]), "the finished change reloads as Ready with no remaining operator obligation, and what reloads is the finished copy itself, not a note about it").toEqual([["ready", null, true]]);
   });
 
   /** STEP TWELVE, through the REAL Changes action: the press the operator makes on the card the drive just wrote. The change keeps the id it was written under, the record names the page and the exact
@@ -223,18 +206,10 @@ describe("the finished work, and recording that the operator applied it", () => 
     script.search = searchScript({ ready: true, posts: 0 });
     for (let i = 0; i < 2; i += 1) { advance(30 * 60_000); await drive(["read_winner_pages"], "winning_pages"); }
     const ready = [...(await loadChangeProposals(T)).values()].find((r) => (r.pagePath ?? "") === HUB)!;
-
     const { markProposalImplementedAction } = await import("@/app/(shell)/changes/actions");
     const pressed = await markProposalImplementedAction({ proposalId: ready.id });
-
-    expect(pressed.success, `the press was refused: ${"error" in pressed ? pressed.error : ""}`).toBe(true);
-    const after = (await loadChangeProposals(T)).get(ready.id);
-    expect([after?.id, after?.status], "the change keeps the identity it was written under and reads as work being measured").toEqual([ready.id, "implemented_pending_verification"]);
-    const shipped = table("shipped_change_proof").filter((r) => r.tenant_id === T);
-    expect(shipped.length, "and exactly one record stands behind it, so nothing is measured twice").toBe(1);
-    const facts = shipped[0] as { page?: string; components_applied?: { after?: string }[] };
-    expect([facts.page, (facts.components_applied ?? [])[0]?.after?.includes("poets, athletes and screen actors")],
-      "the record names the page it went out on and the exact words that went with it, which is what a later reading compares against").toEqual([`https://${SITE}${HUB}`, true]);
+    const after = (await loadChangeProposals(T)).get(ready.id), shipped = table("shipped_change_proof").filter((r) => r.tenant_id === T), facts = shipped[0] as { page?: string; components_applied?: { after?: string }[] } | undefined;
+    expect([pressed.success, after?.id, after?.status, shipped.length, facts?.page, (facts?.components_applied ?? [])[0]?.after?.includes("poets, athletes and screen actors")], `the press lands (${"error" in pressed ? pressed.error : "no error"}), the change keeps the identity it was written under and reads as work being measured, and exactly one record stands behind it naming the page and the exact words that went out, which is what a later reading compares against`).toEqual([true, ready.id, "implemented_pending_verification", 1, `https://${SITE}${HUB}`, true]);
   });
 });
 
@@ -245,10 +220,8 @@ describe("a pass that has nothing new to buy", () => {
     for (let i = 0; i < 2; i += 1) { advance(30 * 60_000); await drive(["read_winner_pages"], "winning_pages"); }
     const held = [...(await loadChangeProposals(T)).values()].find((r) => (r.pagePath ?? "") === HUB)!;
     const after = winnersOf().length, spent = meter.paidUsd, fetches = requestsOf("page"), copy = held.recommendedChange.kind === "existing_edit" ? held.recommendedChange.after : "";
-
     advance(30 * 60_000);
     await drive(["read_winner_pages"], "winning_pages");
-
     const again = [...(await loadChangeProposals(T)).values()].find((r) => (r.pagePath ?? "") === HUB);
     expect([again?.id, again?.status], "the finished change stands under the identity it was written with, and a later pass does not send it back to be reviewed").toEqual([held.id, "ready"]);
     expect(winnersOf().length >= after, "nothing already read is thrown away by a later pass").toBe(true);
@@ -287,16 +260,13 @@ describe("three opportunities waiting on their own results page", () => {
     seedResearchState(basis, { serps: [], winningPages: [] });
     const state = { ready: false, posted: [] as string[] }; script.search = threeTasks(state);
     const owed = PAGES.map((p, i) => owedSerp(p, [58, 63, 66][i]!)), keys = owed.map((n) => n.key).sort(), mine = (a: { key: string }) => keys.includes(a.key);
-
     const one = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owed });
     const posted = [...new Set(acquisitions(one).filter((a) => mine(a) && a.kind === "serp" && a.detail.includes("waiting")).map((a) => a.key))].sort();
     expect([posted, acquisitions(one).filter((a) => a.outcome === "deferred").length],
       "all three results pages are posted on the one drive, each receipt saying the provider is still working on it, and no reading is put off to a later drive").toEqual([keys, 0]);
     const postsAfterOne = PAGES.map((p) => state.posted.filter((q) => q === p.query).length);
-
     state.ready = true; advance(30 * 60_000);
     const two = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owedAfter(one, owed) });
-
     expect([PAGES.map((p) => state.posted.filter((q) => q === p.query).length), postsAfterOne, acquisitions(two).filter((a) => a.outcome === "deferred").length],
       "the drive that finishes them posts none of them again, and none of them is put off: one search is two posted tasks, the results page and the answer above it, each charged at the post and collected with a free follow-up").toEqual([postsAfterOne, [2, 2, 2], 0]);
     const onFile = new Set(serpsOf().filter((x) => x.status === "done").map((x) => x.query));
@@ -429,13 +399,11 @@ it.skip("17: a subject judged undecidable before the anchor existed, whose passa
       sources: [], agreement: "none_found", confidence: "unsupported", verdict: "undecidable", also_at: [], note: "No fetched passage carries a quote it relied on.",
       page_content_hash: version, page_locator: "missing", source_read_at: null, claim_state: "checked", rules_version: rulesVersionFor({ subject, current: "" }),
       evidence_basis: await resolveCurrentBasis(T), checked_at: "2026-09-06T12:00:00.000Z", superseded_at: null });
-
     const first = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need] });
     const banked = (await readFactChecks(T)).find((h) => h.statementKey === claimIdentity(subject, "", "missing"));
     expect([reasoningAsked.filter((a) => a.kind === "fact_claim_judgement").length, state.parsed, banked?.state, banked?.verdict, banked?.sourceReadAt != null,
       acquisitions(first).filter((a) => a.kind === "factual_source").map((a) => a.outcome)],
       "the settled row is reopened and read once more from the winner the requirement names, and what comes back is an answer with a source behind it").toEqual([1, [RIVAL], "checked", "page_correct", true, ["unlocked"]]);
-
     const second = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need] });
     expect([reasoningAsked.filter((a) => a.kind === "fact_claim_judgement").length, state.parsed, state.posts,
       acquisitions(second).filter((a) => a.kind === "factual_source").map((a) => a.outcome)],
@@ -478,6 +446,18 @@ describe("the whole-page writer and the pages winning the search", () => {
     const writer = reasoningAsked.filter((a) => a.kind === "body_edit").map((a) => a.ask).join("\n"), receipt = ((run.progress as { replenish?: { outcomes?: { receipts?: { family: string; outcome: string }[] } } }).replenish?.outcomes?.receipts ?? []).find((r) => r.family === "deep_bundle");
     expect([receipt?.outcome, writer.length > 0, /\brival-\d\b/.test(writer), writer.includes("Its own words:")],
       "the deep door writes the hub on this drive, and the writer it hires reads the winners' words under rival ids where before it read the page's own headings alone and narrated them (journey review L-030)").toEqual(["produced", true, true, true]);
+  });
+  it("21: the section family through the same door: named the heading every winner carries and this page lacks, and holding one checked reading, the writer adds a HEADED section citing fact-1 and the page's own words, the judge rules both claims exactly and contests nothing, and the section reloads as Ready with nothing owed", async () => {
+    seedResearchState(basis, { serps: serpFor(QUERY) }); script.search = searchScript({ ready: true, posts: 0 });
+    const url = `https://${SITE}${HUB}`, owner = (await loadOwnedPageBodies(T, [url])).get(canonicalUrlKey(url))!, evidenceBasis = await resolveCurrentBasis(T), at = now().toISOString(), facts = await import("@/domains/evidence/pages/fact-checks");
+    await facts.recordFactChecks(T, HUB, [{ page: HUB, statementKey: claimIdentity(SECTION.subject, "", "missing"), subject: SECTION.subject, current: "", proposed: SECTION.says, literal: null, usage: null, sources: [{ url: SECTION.source, kind: "encyclopedia", says: SECTION.says }], agreement: "single_source", confidence: "confirmed", verdict: "page_correct", alsoAt: [], note: "", pageContentHash: pageHashOf([owner.title, owner.h1, ...owner.headings, ...owner.passages].filter(Boolean).join("\n")), pageLocator: null, sourceReadAt: at, state: "checked", rulesVersion: rulesVersionFor({ subject: SECTION.subject, current: "" }), evidenceBasis, checkedAt: at }]);
+    script.reasoning = (body) => reasoningReply({ ...REASONING, body_edit: publicationDraft(SECTION_WRITER), editor_judgement: SECTION_JUDGE }, body);
+    /* THE COVERAGE VERDICT IS THE FIXTURE (the harness carries no discovery topics, so the coverage pass itself decides nothing here): the deep door is entered by the verdict door with the winners' shared heading, exactly as produce-proposals hands it over */
+    const { loadEvidenceSnapshot } = await import("@/domains/evidence/snapshot-loader"), { produceBundleForSnapshot } = await import("@/domains/decision/produce-bundle"), { saveChangeProposal } = await import("@/domains/decision/proposal-store"), pattern = { commonHeadings: [{ heading: SECTION.subject, seenOn: [SECTION.source] }], commonEntities: [], questionsAnswered: [], ownedGaps: [], winners: 3 };
+    const out = await produceBundleForSnapshot(await loadEvidenceSnapshot(T), { basis: evidenceBasis, now: now(), onlyPageUrl: url, bodyByUrl: await loadOwnedPageBodies(T, [url]), coverage: { investigation: { key: "inv", label: QUERY, queries: [QUERY], currentReadableWinners: 3, pageType: "unknown", demand: { intent: null } }, candidates: [], decision: { verdict: "improve_existing", ownedUrls: [url], pattern, missing: [], evidenceKeys: [], alternativesRuledOut: [], explanation: "", evidence: [] }, reading: null }, door: { pageUrl: url, door: "coverage_verdict", unit: "winners", strength: 3, entry: "", evidence: { query: QUERY, engine: null, promptText: null, competingUrls: [], window: null } } } as never);
+    if (out.status === "bundled") await saveChangeProposal(out.proposal); const row = [...(await loadChangeProposals(T)).values()].find((r) => (r.pagePath ?? "") === HUB && r.status === "ready"), change = row?.recommendedChange, judged = reasoningAsked.filter((a) => a.kind === "editor_judgement").map((a) => a.ask).join("\n");
+    expect([out.status, row?.bundle?.components.map((c) => [c.kind, c.label]), change?.kind === "existing_edit" ? [change.field, change.after.startsWith(`## ${SECTION.subject}\n\n${SECTION.says}`), change.units?.[0]] : null, row?.claims?.map((c) => c.supportedBy), row?.faults, row && nextObligation(row), /"id":"fact-1"/.test(judged.replace(/\\"/g, "\"")), judged.includes("PRESERVATION: the record proves every original unit by itself"), judged.includes("merely uncertain or unsourced")],
+      "a headed section_add reaches Ready as complete paste copy: the heading is its first unit, its first claim stands on fact-1 and its second on the page's own words, the judge was handed fact-1, owed no preservation ruling and was told what contested means").toEqual(["bundled", [["section_add", `Add a section: ${SECTION.subject}`]], ["section", true, { kind: "heading", level: 2, text: SECTION.subject }], [["fact-1"], ["page-copy-1"]], [], null, true, true, true]);
   });
 });
 

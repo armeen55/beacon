@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  addDays, bandOf, evaluateChange, evaluateWindows, learningVerdictOf, metricFor,
-  readLedger, readRecordsForLearning, type KernelInput, type LedgerRecordLike,
-} from "@/domains/measurement/proof-gsc/kernel";
+import { addDays } from "@/domains/measurement/outcome-windows";
+import { bandOf, evaluateChange, evaluateWindows, learningVerdictOf, metricFor, readLedger, readRecordsForLearning, type KernelInput, type LedgerRecordLike } from "@/domains/measurement/proof-gsc/kernel";
 import { crawlClock, day56Followup, isDueForMeasure } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import { applyPinnedRead, pinFor, withCorrection } from "@/domains/measurement/proof-gsc/pinned-read";
 import { contaminationFor, selectMatchedControls } from "@/domains/measurement/proof-gsc/contamination";
@@ -55,20 +53,20 @@ const shippedRecord = (stamp: string, over: Partial<ShippedChangeRecord> = {}): 
   operatorNote: null, aiScope: null, treatmentStamp: null, pinnedRead: null, createdAt: stamp, updatedAt: stamp, ...over,});
 describe("checkpoints count from the stamp", () => {
   it("counts from implementedAt when the row carries the stamp, and from the ship date when it does not", () => {
-    expect(readLedger([ledgerRow({ implementedAt: "2026-05-10T09:30:00.000Z" })], LATE, "2026-07-01")[0] .windows.map((w) => w.closesOn)).toEqual(["2026-05-17", "2026-05-24", "2026-06-07"]);
+    expect(readLedger([ledgerRow({ implementedAt: "2026-05-11T03:30:00.000Z" })], LATE, "2026-07-01")[0] .windows.map((w) => w.closesOn), "ONE anchor day: a stamp at 03:30 UTC is the evening of May 10 in Pacific, the reporting day Search Console and the operator both count from").toEqual(["2026-05-17", "2026-05-24", "2026-06-07"]);
     expect(readLedger([ledgerRow()], LATE, "2026-07-01")[0].windows.find((w) => w.day === 7)!.closesOn).toBe("2026-05-08");});});
 describe("overlap honesty: a later change closes the earlier one's clean window", () => {
-  const twoChanges = (secondStamp: string) => readLedger([ledgerRow({ id: "first", implementedAt: "2026-05-01T00:00:00.000Z" }), ledgerRow({ id: "second", shippedAt: secondStamp, implementedAt: secondStamp })], LATE, "2026-07-01");
+  const twoChanges = (secondStamp: string) => readLedger([ledgerRow({ id: "first", implementedAt: "2026-05-01T12:00:00.000Z" }), ledgerRow({ id: "second", shippedAt: secondStamp, implementedAt: secondStamp })], LATE, "2026-07-01");
   it("keeps the reads that closed before the second change and confounds the ones after it", () => {
-    const [first] = twoChanges("2026-05-12T00:00:00.000Z"); expect(first.cleanUntil).toBe("2026-05-12");
+    const [first] = twoChanges("2026-05-12T12:00:00.000Z"); expect(first.cleanUntil).toBe("2026-05-12");
     expect(first.windows.find((w) => w.day === 7)!.confounded).toBeUndefined(); expect(first.windows.filter((w) => w.confounded === "overlapping_change").map((w) => w.day)).toEqual([14, 28]);
     expect(first.basisDay).toBe(7); expect(["directional_improvement", "stronger_improvement"]).toContain(first.verdict);
     expect(first.caveats.join(" ")).toContain("the page changed again on May 12"); expect(first.caveats.join(" ")).not.toMatch(/[—–]/);});
   it("confounds the read outright when the second change landed before any window closed", () => {
-    const [first] = twoChanges("2026-05-03T00:00:00.000Z"); expect(first.verdict).toBe("confounded");
+    const [first] = twoChanges("2026-05-03T12:00:00.000Z"); expect(first.verdict).toBe("confounded");
     expect(first.headline).toContain("the page changed again on May 3"); expect(first.rankingSignal).toBe(0);});
   it("leaves the LATER change confounded, because the earlier one is still in flight under it", () => {
-    const second = twoChanges("2026-05-12T00:00:00.000Z")[1]; expect([second.verdict, second.cleanUntil]).toEqual(["confounded", null]);
+    const second = twoChanges("2026-05-12T12:00:00.000Z")[1]; expect([second.verdict, second.cleanUntil]).toEqual(["confounded", null]);
     expect(second.headline).toContain("other change");});
   it("reads a bundle applied together as ONE treatment, never one read per component", () => {
     const reads = readLedger([ledgerRow({ componentsApplied: [{ kind: "title", label: "title" }, { kind: "opening_answer", label: "opening_answer" }, { kind: "internal_link_add", label: "Link" }] })], LATE, "2026-07-01");
@@ -77,7 +75,7 @@ describe("overlap honesty: a later change closes the earlier one's clean window"
 /** A reading that RAN is a reading the operator has already been shown. Moving the clock under it (a stamp that lands after the ship date, a second press that moves the ship date) may never un-decide it, and the promised dates on Today move with the stamp, never with the press. */
 describe("a settled reading survives the clock moving under it", () => {
   const SETTLED = new Date("2026-06-10T00:00:00Z"), WATERMARK = "2026-06-05";
-  const stamped = ledgerRow({ implementedAt: "2026-05-20T00:00:00.000Z",
+  const stamped = ledgerRow({ implementedAt: "2026-05-20T12:00:00.000Z",
     windows: [{ day: 28, ran: true, checkOn: "2026-05-29", adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 }],});
   it("keeps a decided row decided, and still lets the live schedule govern every window that has NOT run", () => {
     const read = readLedger([stamped], SETTLED, WATERMARK)[0]; expect(read.basisDay).toBe(28);
@@ -87,18 +85,18 @@ describe("the dates Beacon promises count from the stamp", () => {
   const NOW_S = new Date("2026-05-25T00:00:00Z");
   it("moves the promised read onto the stamp and onto the day Google actually started the clock, and never onto a second press", () => {
     const promised = (over: Partial<LedgerRecordLike>) => readLedger([ledgerRow({ windows: [], ...over })], NOW_S, "2026-05-24")[0].promisedRead;
-    expect([promised({ implementedAt: "2026-05-20T00:00:00.000Z" }), promised({ implementedAt: "2026-05-20T00:00:00.000Z", shippedAt: "2026-05-24T00:00:00.000Z" })], "the stamp, never the ship date, and a re-press moves nothing").toEqual(["2026-05-27", "2026-05-27"]);
+    expect([promised({ implementedAt: "2026-05-20T12:00:00.000Z" }), promised({ implementedAt: "2026-05-20T12:00:00.000Z", shippedAt: "2026-05-24T12:00:00.000Z" })], "the stamp, never the ship date, and a re-press moves nothing").toEqual(["2026-05-27", "2026-05-27"]);
     // AND ONTO THE DAY GOOGLE ACTUALLY STARTED THE CLOCK (2026-09-03). A crawl two days after the change moves the promised date by exactly two days. The promise is display only: the same row read with and without the crawl carries identical windows, basis, verdict and number, because what a reading is decided on is the stamp clock and never this.
-    const crawled = { implementedAt: "2026-05-01T00:00:00.000Z", lastCrawlAt: "2026-05-03T09:00:00.000Z" };
+    const crawled = { implementedAt: "2026-05-01T12:00:00.000Z", lastCrawlAt: "2026-05-03T09:00:00.000Z" };
     expect([promised(crawled), promised({ implementedAt: crawled.implementedAt })]).toEqual(["2026-05-31", "2026-05-29"]);
-    // AND THE CRAWL DAY RULE IS WRITTEN TWICE (measure-lifecycle and this kernel), so the two are held EQUAL here: whichever copy drifts, this fails.
+    // AND THE CRAWL DAY RULE IS ONE RULE (measure-lifecycle's crawlClock, read by this kernel), held EQUAL here from both doors.
     for (const [at, waiting] of [[null, false], ["2026-04-28T09:00:00.000Z", true], ["2026-05-03T09:00:00.000Z", false]] as const)
       expect([crawlClock({ ...crawled, lastCrawlAt: at } as unknown as ShippedChangeRecord).awaiting, promised({ ...crawled, lastCrawlAt: at }) == null], `last crawl ${at}`).toEqual([waiting, waiting]);
     const [plain, withCrawl] = [{}, { lastCrawlAt: crawled.lastCrawlAt }].map((o) => readLedger([ledgerRow({ implementedAt: crawled.implementedAt, ...o })], LATE, "2026-07-01")[0]);
     expect([withCrawl.windows, withCrawl.basisDay, withCrawl.verdict, withCrawl.lift, withCrawl.rankingSignal]).toEqual([plain.windows, plain.basisDay, plain.verdict, plain.lift, plain.rankingSignal]);});});
 /** Product Truth: 7, 14 and 28 always; 56 ONLY when the 28-day read was confounded, insufficient or unclear, or the change was a dangerous one. A clean 28 closes it. */
 describe("the conditional day-56 read", () => {
-  const STAMP = "2026-05-01T00:00:00.000Z";
+  const STAMP = "2026-05-01T12:00:00.000Z";
   const pw = (day: ProofWindowDay, ran: boolean) => proofWindow(STAMP, day, { ran });
   const shipped = (over: Partial<ShippedChangeRecord> = {}) => shippedRecord(STAMP, over);
   const AFTER_56 = new Date("2026-07-10T00:00:00Z"), FINAL = "2026-07-05";
@@ -162,7 +160,7 @@ describe("metric selection and vocabulary", () => {
    });
 /** A FINISHED READING NEVER MOVES AGAIN. /results re-measures the whole ledger every fifteen minutes against fresh Google data and a fresh comparison set, so a change reported at +1,040 clicks was re-read at +1,428  the same afternoon. Once the window has closed with every day behind it finalized, the tuple is frozen. */
 describe("a settled reading is held still", () => {
-  const STAMP = "2026-04-01T00:00:00.000Z";
+  const STAMP = "2026-04-01T12:00:00.000Z";
   const pinWin = (day: ProofWindowDay, lift: number) => proofWindow(STAMP, day, { treatedDelta: lift, adjustedLift: lift, controlsUsed: 4, treatedPostImpressions: 9000 });
   const record = (over: Partial<ShippedChangeRecord> = {}) => shippedRecord(STAMP, { id: "shp_pin", actionType: "content", confidence: "high",
     baseline: { clicks: 900, impressions: 9000, ctr: 0.1, position: 6, windowDays: 28 }, windows: [pinWin(7, 300), pinWin(14, 700), pinWin(28, 1040)],
@@ -181,7 +179,7 @@ describe("a settled reading is held still", () => {
     expect(served.lift).toBe(1040); expect(served.headline).toContain("1040 clicks");
     expect(served.headline).not.toContain("1428"); });
   it("still lets a later change on the same page take shared credit, with the numbers untouched", () => {
-    const first = record(), second = record({ id: "shp_2", implementedAt: "2026-04-05T00:00:00.000Z", shippedAt: "2026-04-05T00:00:00.000Z" }); const live = readLedger([first, second], AFTER, FINAL)[0]!;
+    const first = record(), second = record({ id: "shp_2", implementedAt: "2026-04-05T12:00:00.000Z", shippedAt: "2026-04-05T12:00:00.000Z" }); const live = readLedger([first, second], AFTER, FINAL)[0]!;
     const pin = pinFor(first, readLedger([first], AFTER, FINAL)[0]!, FINAL, AFTER)!; const served = applyPinnedRead(live, pin);
     expect([live.verdict, served.verdict, served.lift, served.rankingSignal]).toEqual(["confounded", "confounded", 1040, 0]); expect(served.confidenceReasons.join(" ")).toMatch(/changed again afterwards/);
   }); });
@@ -213,8 +211,8 @@ describe("one comparison policy, one durable result", () => {
     expect(drift.headline).toContain("Measured against the site's own movement, because too few untouched pages matched this one. That is a weaker comparison than matched pages, and a rise the whole site shared shows up here as no change.");
     expect([drift.confidence, drift.confidenceReasons[0]]).toEqual(["low", "Read on the 28-day window against the site's own movement, which is weaker than a comparison with matched pages."]); });
   it("teaches ranking the frozen reading, and records a recompute that disagrees beside it", () => {
-    const pin = { verdict: "directional_improvement", metric: "clicks", lift: 1040, impressionsLift: 0, basisDay: 28, confidence: "high", controlsUsed: 4, pinnedAt: "2026-06-01T00:00:00.000Z", finalizedThrough: "2026-05-20" } as const;
-    const row = { ...ledgerRow(), implementedAt: "2026-05-01T00:00:00Z", after: "Applied copy", controlsReceipt: [{}, {}, {}, {}] };
-    const verified = { status: "verified" as const, checkedAt: "2026-05-02T00:00:00Z", checkerContract: SHIPMENT_PROOF.contract, proof: SHIPMENT_PROOF.of(row, "Inspected page"), components: [{ kind: "content", state: "verified" as const, note: null }] };
+    const pin = { verdict: "directional_improvement", metric: "clicks", lift: 1040, impressionsLift: 0, basisDay: 28, confidence: "high", controlsUsed: 4, pinnedAt: "2026-06-01T12:00:00.000Z", finalizedThrough: "2026-05-20" } as const;
+    const row = { ...ledgerRow(), implementedAt: "2026-05-01T12:00:00Z", after: "Applied copy", controlsReceipt: [{}, {}, {}, {}] };
+    const verified = { status: "verified" as const, checkedAt: "2026-05-02T12:00:00Z", checkerContract: SHIPMENT_PROOF.contract, proof: SHIPMENT_PROOF.of(row, "Inspected page"), components: [{ kind: "content", state: "verified" as const, note: null }] };
     const learned = readRecordsForLearning([{ ...row, verification: verified, pinnedRead: pin }], LATE)[0]; expect([learned.lift, learned.confidence, learningVerdictOf(learned)]).toEqual([1040, "high", "won"]);
     const corrected = withCorrection(pin, { ...learned, lift: 1428 }, LATE)!; expect([corrected.lift, corrected.corrections?.length]).toEqual([1040, 1]); }); });

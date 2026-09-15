@@ -25,7 +25,8 @@ vi.mock("@/domains/decision/llm/winner-memory", () => ({ harvestWinners: async (
 import { settleDueMeasurements } from "@/domains/measurement/proof-gsc/auto-measure-on-use";
 import { measureRecord, recordShippedChange } from "@/domains/measurement/proof-gsc/measure-pass";
 import { recordShipment } from "@/domains/measurement/proof-gsc/record-shipment";
-import { isDueForMeasure } from "@/domains/measurement/proof-gsc/measure-lifecycle";
+import { addDays } from "@/domains/measurement/outcome-windows";
+import { isDueForMeasure, outcomeStateOf } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import { loadShippedChangesForTenant, pagesUnderMeasurementFromShipments, recordVerification, upsertShippedChange, type ShipmentVerification, type ShippedChangeRecord } from "@/domains/measurement/proof-gsc/shipped-change-store";
 import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
 import { learningFromShipments, treatmentLearning } from "@/domains/measurement/treatment-learning";
@@ -43,7 +44,7 @@ const ship = (over: Record<string, unknown> = {}) => recordShippedChange({
   after: "Nowruz Traditions and the Haft-Seen Table", targetQueries: ["nowruz traditions"], controlPages: ["https://x.test/a", "https://x.test/b"], ...over });
 const legacyRow = (): Row => ({
   tenant_id: T, id: "/cities::2026-06-20", page: "https://www.fixture-outdoors.example/cities", path: "/cities", action_type: "meta", before_text: "old", after_text: "new",
-  shipped_at: "2026-06-20T00:00:00.000Z", baseline: { clicks: 5, impressions: 400, ctr: 0.0125, position: 12, windowDays: 28 }, target_queries: [], control_pages: [], windows: [],
+  shipped_at: "2026-06-20T12:00:00.000Z", baseline: { clicks: 5, impressions: 400, ctr: 0.0125, position: 12, windowDays: 28 }, target_queries: [], control_pages: [], windows: [],
   verdict: "measuring", confidence: "low", measured_at: null, notes: null, verified_live: false, live_source_url: null, recrawl_requested_at: null, created_at: "2026-06-20T00:00:00.000Z", updated_at: "2026-06-20T00:00:00.000Z",});
 const withSiteHistory = (clicks = 9, matched: Array<[string, unknown]> = []) => gsc.window.mockImplementation(async (a: { siteTotal?: { key: string } }) => new Map<string, unknown>([[PAGE, { clicks, impressions: 1200, ctr: clicks / 1200, position: 14 }], ...matched, ...(a.siteTotal ? [[a.siteTotal.key, { clicks: 900, impressions: 120000, ctr: 0.0075, position: 14 }] as [string, unknown]] : [])]));
 const verification = (status: ShipmentVerification["status"]): ShipmentVerification => ({ status, checkedAt: "2026-08-02T00:00:00.000Z", components: [{ kind: "title", state: "verified", note: null }] });
@@ -63,15 +64,12 @@ describe("the canonical Shipment", () => {
     expect(invalidations.n, "a lone upsert still tells the surface").toBe(2); });
   it("records ONE shipment with the stamp, the components and both starting numbers", async () => {
     await upsertShippedChange(await ship()); expect(db.state.rows).toHaveLength(1); const [stored] = await loadShippedChangesForTenant(T);
-    expect(stored.proposalId).toBe(`${T}::/nowruz-guide::existing_edit::bundle`);
-    expect(stored.proposalVersion).toBe("v-abc123"); expect(stored.basis).toBe("basis_today::d6");
-    expect(stored.bundleHypothesis).toMatch(/line Google shows/); expect(stored.implementedAt).toBe(NOW.toISOString());
+    expect([stored.proposalId, stored.proposalVersion, stored.basis, stored.implementedAt]).toEqual([`${T}::/nowruz-guide::existing_edit::bundle`, "v-abc123", "basis_today::d6", NOW.toISOString()]); expect(stored.bundleHypothesis).toMatch(/line Google shows/);
     expect(stored.preChangeContentHash).toBe("hash-before"); expect(stored.componentsApplied).toEqual(COMPONENTS); expect(stored.shipmentBaseline?.search?.clicks).toBe(9);
     expect(stored.shipmentBaseline?.ai).toEqual({ day: "2026-07-30", checked: 2, analyzed: 2, mentioning: 1 });
     expect(stored.verification).toBeNull(); db.state.rows = []; db.state.file = []; // nobody has checked it, and that null makes it due; and their own account of it is a NOTE, never an answer: it rides along and the live check is still owed
     await upsertShippedChange(await ship({ shipment: origin({ operatorNote: "I pasted it into my site myself." }) as never }));
-    const [noted] = await loadShippedChangesForTenant(T);
-    expect([noted.operatorNote, noted.verification]).toEqual(["I pasted it into my site myself.", null]); });
+    const [noted] = await loadShippedChangesForTenant(T); expect([noted.operatorNote, noted.verification]).toEqual(["I pasted it into my site myself.", null]); });
   it("counts the AI starting number over the WHOLE day, and writes down how many of it were read closely", async () => {
     const DAY = "2026-07-30";
     const day = (analysed: number) => Array.from({ length: 140 }, (_, i) => ({ slot: 0, status: "observed", day: DAY, analysis: i < analysed ? { ownedBrandMention: { mentioned: i < analysed * 0.6 } } : null, analysisHash: i < analysed ? "x" : null, answerHash: "x" }));
@@ -101,21 +99,38 @@ describe("the canonical Shipment", () => {
     const closesOn = async (over: Partial<ShippedChangeRecord>) => (await measure({ ...stored, ...over })).windows.find((w) => w.day === 7)?.checkOn;
     expect([await closesOn({}), await closesOn({ lastCrawlAt: "2026-07-03T09:00:00.000Z" })]).toEqual(["2026-06-27", "2026-07-10"]);
     db.state.rows = [{ ...legacyRow(), recrawl_requested_at: "2026-06-22T00:00:00.000Z" }, { ...legacyRow(), id: "/fresh::2026-06-20", path: "/fresh", recrawl_requested_at: "2026-09-03T10:00:00.000Z" }];
-    const [old, fresh] = (await loadShippedChangesForTenant(T)).sort((a, b) => a.path.localeCompare(b.path));
-    expect([old!.lastCrawlAt, fresh!.lastCrawlAt]).toEqual([null, "2026-09-03T10:00:00.000Z"]);
+    const [old, fresh] = (await loadShippedChangesForTenant(T)).sort((a, b) => a.path.localeCompare(b.path)); expect([old!.lastCrawlAt, fresh!.lastCrawlAt]).toEqual([null, "2026-09-03T10:00:00.000Z"]);
     expect(await closesOn({ lastCrawlAt: old!.lastCrawlAt }), "the June row counts from its ship date exactly as it always did").toBe("2026-06-27");});});
 describe("recording what the live check found", () => {
   it("carries a day-56 reading through a recompute that could not ask for it again, and never re-buys it", async () => {
-    const held = { ...(await ship()), verdict: "inconclusive" as const, windows: [ranWindow(56, 400)] as never };
+    const held = { ...(await ship()), verification: verification("verified"), verdict: "inconclusive" as const, windows: [ranWindow(56, 400)] as never };
     const measured = await measureRecord(T, held, new Date("2026-10-01T00:00:00.000Z"), "2026-09-05", new Set());
     expect(measured.windows.map((w) => w.day)).toEqual([7, 14, 28, 56]); expect(measured.windows.find((w) => w.day === 56)?.adjustedLift).toBe(400);
-    expect(gsc.window.mock.calls.some((c) => (c[0] as { end?: string }).end === "2026-09-25")).toBe(false);
-    expect(measured.verdict).toBe("won");});
+    expect([gsc.window.mock.calls.some((c) => (c[0] as { end?: string }).end === "2026-09-25"), measured.verdict]).toEqual([false, "won"]);});
+  it("writes the win word only at day 28: an early lean stores its numbers and stays measuring, and a stored early win decodes as measuring for every consumer", async () => {
+    gsc.window.mockImplementation(async (a: { start: string }) => new Map<string, unknown>([[PAGE, { clicks: a.start === "2026-07-31" ? 40 : 9, impressions: 1200, ctr: 0.01, position: a.start === "2026-07-31" ? 8 : 12 }], ["https://x.test/a", { clicks: 20, impressions: 4000, ctr: 0.005, position: 11 }], ["https://x.test/b", { clicks: 30, impressions: 5000, ctr: 0.006, position: 9 }]]));
+    const held = { ...(await ship()), verification: verification("verified") }, at = (day: string) => new Date(`${day}T12:00:00Z`), read = (r: ShippedChangeRecord, day: string, ledger?: ShippedChangeRecord[]) => measureRecord(T, r, at(day), addDays(day, -1), new Set(), ledger);
+    const early = await read(held, "2026-08-20"), mature = await read(held, "2026-09-05");
+    expect([early.windows.filter((w) => w.ran).map((w) => w.day), early.windows.find((w) => w.day === 14)!.adjustedLift > 0, early.verdict, mature.windows.find((w) => w.day === 28)!.ran, mature.verdict]).toEqual([[7, 14], true, "measuring", true, "won"]);
+    db.state.rows = [{ ...legacyRow(), verdict: "won", windows: [ranWindow(14, 400)] }, { ...legacyRow(), id: "/mature::2026-06-20", verdict: "won", windows: [ranWindow(28, 400)] }];
+    expect((await loadShippedChangesForTenant(T)).map((r) => [r.id, r.verdict, outcomeStateOf(r, NOW)]).sort(), "the read seam refuses the win word until day 28, so retirement, harvest and contamination all see a row still measuring").toEqual([["/cities::2026-06-20", "measuring", "measuring"], ["/mature::2026-06-20", "won", "win"]]);
+    // EIGHT LINKS ON ONE PAGE: one page level reading, stored on every row, and none of them wins on its own; the kernel names the credit as shared.
+    const eight = Array.from({ length: 8 }, (_, i) => ({ ...held, id: `shp_link_${i}`, actionType: "internal_link_add" })), reads = await Promise.all(eight.map((r) => read(r, "2026-09-05", eight))), { readLedger } = await import("@/domains/measurement/proof-gsc/kernel");
+    expect([[...new Set(reads.map((r) => r.verdict))], new Set(reads.map((r) => JSON.stringify(r.windows))).size, readLedger(reads, at("2026-09-05"), "2026-09-04")[0].verdict, (await read(eight[0]!, "2026-09-05")).verdict]).toEqual([["inconclusive"], 1, "confounded", "won"]);});
   it("writes the verdict without touching the stamp, and fails closed on a shipment that is not this account's", async () => {
     const record = await ship(); await upsertShippedChange(record); expect(await recordVerification("acct-b", record.id, verification("verified"))).toBe(false);
     expect(await recordVerification(T, "shp_nothing", verification("not_found"))).toBe(false);
     expect((await loadShippedChangesForTenant(T))[0].verification).toBeNull(); expect(await recordVerification(T, record.id, verification("verified"))).toBe(true);
-    expect([(await loadShippedChangesForTenant(T)).length, ...[(await loadShippedChangesForTenant(T))[0]].map((s) => [s.verification?.status, s.implementedAt, s.shipmentBaseline?.search?.clicks, s.after])], "A FAILED CHECK CANNOT ERASE, DUPLICATE OR ROLL BACK AN APPLIED CHANGE: two refusals and one write later the shipment is there exactly once, with the stamp, the starting numbers and the applied copy it was recorded with").toEqual([1, ["verified", NOW.toISOString(), 9, record.after]]);});});
+    expect([(await loadShippedChangesForTenant(T)).length, ...[(await loadShippedChangesForTenant(T))[0]].map((s) => [s.verification?.status, s.implementedAt, s.shipmentBaseline?.search?.clicks, s.after, s.verifiedLive])], "A FAILED CHECK CANNOT ERASE, DUPLICATE OR ROLL BACK AN APPLIED CHANGE: two refusals and one write later the shipment is there exactly once, with the stamp, the starting numbers and the applied copy it was recorded with").toEqual([1, ["verified", NOW.toISOString(), 9, record.after, true]]);
+    await recordVerification(T, record.id, { ...verification("differs"), checks: 2, reason: "published_differently" }); const kept = (await loadShippedChangesForTenant(T))[0];
+    expect([kept.verifiedLive, kept.verification?.status, kept.verification?.checks, kept.verification?.rechecks], "A CONFIRMED READ IS KEPT: the differing recheck is filed beside it, the bound still counts it, and measurement never halts on it").toEqual([true, "verified", 2, [{ status: "differs", checkedAt: "2026-08-02T00:00:00.000Z", reason: "published_differently" }]]);
+    await upsertShippedChange({ ...(await ship({ path: "/never" })), id: "shp_never", verification: verification("blocked") }); await recordVerification(T, "shp_never", verification("not_found"));
+    expect((await loadShippedChangesForTenant(T)).find((r) => r.id === "shp_never")!.verifiedLive, "verified_live means what it says: false on every read that did not confirm").toBe(false);
+    // THE OPERATOR'S OWN CONFIRMATION STANDS: the manual form wrote true with no read behind it, a not_found recheck files itself and leaves the flag, and a partial confirmation then a differing recheck keep it while the recheck day follows the LATEST read (a kept past day re-queued the row for ever).
+    await upsertShippedChange({ ...(await ship({ path: "/manual" })), id: "shp_manual", verifiedLive: true }); await recordVerification(T, "shp_manual", verification("not_found"));
+    const manual = () => loadShippedChangesForTenant(T).then((rows) => rows.find((r) => r.id === "shp_manual")!); expect([(await manual()).verifiedLive, (await manual()).verification?.status]).toEqual([true, "not_found"]);
+    await recordVerification(T, "shp_manual", { ...verification("partially_verified"), recheckAfter: "2026-08-01", checks: 1 }); await recordVerification(T, "shp_manual", { ...verification("differs"), recheckAfter: "2026-08-05", checks: 2 });
+    expect([(await manual()).verifiedLive, (await manual()).verification?.status, (await manual()).verification?.recheckAfter, (await manual()).verification?.rechecks?.length]).toEqual([true, "partially_verified", "2026-08-05", 1]);});});
 describe("when the Shipment columns are not there yet", () => {
   const MISSING_COLUMN = { code: "PGRST204", message: "Could not find the 'implemented_at' column of 'shipped_change_proof' in the schema cache" };
   it("refuses a Shipment it cannot store durably, but still files a pre-Shipment row nothing reads from the table", async () => {
@@ -136,6 +151,10 @@ describe("measurement waits for the change to be found on the page", () => {
     expect(await due(verification("verified"))).toBe(true); expect(await due(verification("partially_verified"))).toBe(true);
     expect(await due(null)).toBe(false);            // never checked: there is nothing honest to measure yet
     expect(await due(verification("not_found"))).toBe(false); expect(await due(verification("blocked"))).toBe(false); expect(await due(verification("differs"))).toBe(false);
+    const read = async (over: Partial<ShippedChangeRecord>) => (await measureRecord(T, { ...(await ship()), ...over }, new Date("2026-09-05T12:00:00Z"), "2026-09-04", new Set())).windows;
+    expect(await Promise.all([{ verification: null }, { verification: verification("blocked") }, { verification: verification("differs") }, { verification: verification("not_found") }, { verifiedLive: true }, { operatorVerdictOverride: "inconclusive" as const }, { verification: verification("partially_verified") }].map(async (o) => (await read(o)).some((w) => w.ran))),
+      "THE SAME GATE ON THE READING ITSELF: nothing is measured over a claim; the operator's explicit confirmation counts").toEqual([false, false, false, false, true, true, true]);
+    expect([Object.keys((await read({ verification: verification("verified") }))[0]!.byPage ?? {}), (await read({ verification: verification("partially_verified") }))[0]!.byPage], "a bundle on two pages reads both, keyed by page; a partly verified one reads only the confirmed piece's page").toEqual([[PAGE, `${PAGE}/other`], undefined]);
     const state = async (over: Partial<ShippedChangeRecord>) => isDueForMeasure({ ...(await ship()), verification: verification("verified"), updatedAt: "2026-08-19T00:00:00.000Z", ...over }, FINAL, LATER);
     expect([await state({ measurementState: "insufficient_comparison" }), await state({ measurementState: "measurement_unavailable" }), await state({ measurementState: "insufficient_comparison", updatedAt: "2026-08-20T01:00:00.000Z" }), await state({ measurementState: "insufficient_comparison", lastCrawlAt: "2026-07-01T00:00:00.000Z" })]).toEqual([true, true, false, false]);});
   it("keeps measuring a record written before there were Shipments, which has no answer to wait for", async () => {
@@ -188,7 +207,7 @@ describe("the recording seam", () => {
     withSiteHistory();
     expect((await recordShipment(facts())).measurement).toBe("measuring"); expect(db.state.rows).toHaveLength(1); // the implementation landed anyway, stamp and all
     expect([(await stored()).measurementState, (await stored()).implementedAt]).toEqual(["measuring", NOW.toISOString()]);
-    const measured = await measureRecord(T, await stored(), new Date("2026-10-01T00:00:00.000Z"), "2026-09-05", new Set()); const { readLedger } = await import("@/domains/measurement/proof-gsc/kernel");
+    const measured = await measureRecord(T, { ...(await stored()), verification: verification("verified") }, new Date("2026-10-01T00:00:00.000Z"), "2026-09-05", new Set()); const { readLedger } = await import("@/domains/measurement/proof-gsc/kernel");
     expect(measured.windows.find((w) => w.day === 28)?.comparedToSite).toBe(true);
     expect(readLedger([measured], new Date("2026-10-01T00:00:00.000Z"), "2026-09-05")[0].headline).toContain("Measured against the site's own movement, because too few untouched pages matched this one. That is a weaker comparison than matched pages, and a rise the whole site shared shows up here as no change.");
     await upsertShippedChange(measured, T); expect((await stored()).windows.find((w) => w.day === 28)?.comparedToSite, "the basis survives the store, so a reader downstream can tell a site reading from a matched one").toBe(true);
@@ -202,7 +221,7 @@ describe("the recording seam", () => {
     expect((await stored()).shipmentBaseline).toBeNull(); // nothing on file is not zero: no starting point rather than a row of zeros
     const noHistory = await measureRecord(T, await stored(), new Date("2026-08-30T12:00:00Z"), "2026-08-30", new Set()); expect([noHistory.windows.some((w) => w.ran), noHistory.measuredAt]).toEqual([false, null]);
     withSiteHistory();
-    const revive = async (state: string, final: string | null = "2026-09-05", controls: string[] = []) => (await measureRecord(T, { ...(await ship({ controlPages: controls })), measurementState: state as never }, new Date("2026-10-01T00:00:00.000Z"), final, new Set())).measurementState;
+    const revive = async (state: string, final: string | null = "2026-09-05", controls: string[] = []) => (await measureRecord(T, { ...(await ship({ controlPages: controls })), verification: verification("verified"), measurementState: state as never }, new Date("2026-10-01T00:00:00.000Z"), final, new Set())).measurementState;
     expect([await revive("insufficient_comparison"), await revive("measurement_unavailable"), await revive("verification_needed"), await revive("measuring"), await revive("insufficient_comparison", null)]).toEqual(["measuring", "measuring", "verification_needed", "measuring", "insufficient_comparison"]);
     gsc.window.mockResolvedValue(new Map([[PAGE, { clicks: 9, impressions: 1200, ctr: 0.0075, position: 14 }]])); // three comparison pages stored, none of them carrying search data, and no site history either
     expect(await revive("insufficient_comparison", "2026-09-05", ["https://x.test/a", "https://x.test/b", "https://x.test/c"]), "stored is not usable: with no basis at all nothing is promoted over a reading that says so").toBe("insufficient_comparison");

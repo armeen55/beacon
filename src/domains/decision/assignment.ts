@@ -1,10 +1,10 @@
 import "server-only";
 import { FURNITURE_LABEL, topicTokens } from "@/domains/evidence/relevance-gate";
 import { EDITOR_SHARED, type EditorField, type SourcePacket } from "./drafted-copy";
-import { editorialStandard } from "./proof";
+import { editorialStandard } from "./proof"; import { COPY_RULES } from "./copy-sanitize";
 import type { ChangeProposal } from "./contracts";
 type Assignment = NonNullable<ChangeProposal["assignment"]>;
-const WIDTH: Readonly<Record<string, { px: number; chars: number }>> = { title: { px: 600, chars: 60 }, meta: { px: 920, chars: 155 }, h1: { px: 920, chars: 70 } };
+const WIDTH: Readonly<Record<string, { px: number; chars: number }>> = { title: { px: 600, chars: 60 }, meta: { px: 920, chars: COPY_RULES.descriptionChars }, h1: { px: 920, chars: 70 } };
 export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; heading?: string | null } | null, field: EditorField, owed: string | null = null): Assignment | null => {
   const props = packet.gap?.propositions ?? [];
   const gap = props.length > 0 ? props.join("; ") : (packet.diagnosedProblem?.trim() ?? "");
@@ -29,6 +29,7 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     : kind === "stale_fact" ? "correction"
     : "missing_answer";
   const ownWords = new Set(topicTokens([packet.bodyText, packet.headings.join(" "), packet.title ?? "", packet.h1 ?? ""].join(" ")));
+  const additive = standard === "missing_answer" && !rewrite && !WIDTH[field], overlaps = (t: string, said: string): boolean => { const w = topicTokens(t), has = new Set(topicTokens(said)); return w.length > 0 && w.filter((x) => has.has(x)).length * 2 >= w.length; };
   const supported = (t: string): boolean => {
     if (backed(t)) return true;
     if (standard !== "summary" && standard !== "restructuring" && standard !== "repositioning") return false;
@@ -44,7 +45,10 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     keep: (packet.comparison?.keep ?? []).slice(0, 4),
     ...(rewrite?.replaces?.trim() ? { replaces: rewrite.replaces.trim() } : {}),
     pageContext: ctx,
-    forbidden: props.filter((t) => !supported(t)),
+    // WRITE FIRST, CHECK BEHIND (operator ruling, Stage 3): on additive work a proposition nothing checked carries is UNBACKED, stated where the page states it with one caveat line; FORBIDDEN is reserved for a wording a source on file refutes. A correction and a replacement keep the old rule: unsupported is forbidden.
+    // AND A PROPOSITION THAT OVERLAPS A REFUTED WORDING STAYS IN BOTH LISTS: dropped from unbacked it fell out of both and could be stated bare.
+    forbidden: additive ? [...new Set([...(packet.refuted ?? []).filter((r) => props.some((t) => overlaps(t, r))), ...props.filter((t) => !supported(t) && (packet.refuted ?? []).some((r) => overlaps(t, r)))])] : props.filter((t) => !supported(t)),
+    ...(additive ? { unbacked: props.filter((t) => !supported(t)) } : {}),
     rivals, briefing, ...(owed ? { owed } : {}),
   };
   const deliver = props.filter(supported);
@@ -138,7 +142,8 @@ const assignmentLines = (a: Assignment): string[] => [
   `SUPPORTING FACTS you may state and must cite: ${(a.facts ?? (a.supportingFacts ?? []).map((id) => ({ id, says: "" }))).map((f) => (f.says ? `${f.id} says ${f.says}` : f.id)).join("; ") || "none"}`,
   `PAGE CONTEXT, for tone, placement, what to preserve and what not to repeat${worksFromThePage(a) ? ", and it is the material this edit works from" : ", usable where necessary for reader context and supported background, never proof of a new unsupported claim"}: ${a.pageContext.join(", ") || "none"}`,
   ...((a.sells ?? []).length > 0 ? [`WHAT THIS PAGE SELLS AND ASKS FOR, which your copy must leave standing and may lead a reader towards but never replaces: ${a.sells!.join("; ")}`] : []),
-  ...(a.forbidden.length > 0 ? [`NAMED BY THE DIAGNOSIS AND CARRIED BY NOTHING CHECKED, so it is a subject to cover from what IS on file and never a statement of your own: ${a.forbidden.join("; ")}`] : []),
+  ...(a.forbidden.length > 0 ? [a.unbacked ? `CONTRADICTED BY A SOURCE ON FILE, so no wording of it may be stated: ${a.forbidden.join("; ")}` : `NAMED BY THE DIAGNOSIS AND CARRIED BY NOTHING CHECKED, so it is a subject to cover from what IS on file and never a statement of your own: ${a.forbidden.join("; ")}`] : []),
+  ...((a.unbacked ?? []).length > 0 ? [`NAMED BY THE DIAGNOSIS AND CARRIED BY NOTHING CHECKED: state it only where this page already states it, citing the page-copy id that carries it, and add one line saying that sources differ or that it is unverified: ${a.unbacked!.join("; ")}`] : []),
   ...(a.rivals.length > 0 ? [`THE PAGES THAT ALREADY WIN THIS SEARCH (${a.rivals.join(", ")}), read as source-bound research candidates about the supplied passages, never whole-page absence or facts you may state: ${[...new Set((a.observations ?? []).map((o) => `"${o.quote}" (${o.publisher}, ${LABELLED_CLASS[o.publisherClass] ?? o.publisherClass})`))].join("; ") || "read but naming no research candidate"}`] : []),
   ...(a.briefing.length > 0 ? [`WHAT THE RESULTS PAGE ITSELF ANSWERS TODAY (${a.briefing.join(", ")}), which no claim may ever cite`] : []),
   ...((a.keep ?? []).length > 0 ? [`WHAT THIS PAGE ALREADY ANSWERS AND MUST KEEP, in its own words: ${a.keep!.map((k) => `"${k}"`).join(" ")}`] : []),

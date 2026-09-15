@@ -20,7 +20,7 @@ import "server-only";
  */
 
 import { reportingDay } from "@/lib/reporting-day";
-import { addDays } from "./kernel";
+import { addDays, dayOfStamp } from "../outcome-windows";
 import { outcomeStateOf } from "./measure-lifecycle";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 
@@ -43,8 +43,7 @@ export const pathOf = (u: string): string =>
 type AnchoredChange = { path: string; shippedAt: string; implementedAt?: string | null };
 
 function spanOf(c: AnchoredChange): { start: string; end: string } {
-  const stamp = c.implementedAt ?? c.shippedAt;
-  const start = stamp.length > 10 ? stamp.slice(0, 10) : stamp;
+  const stamp = c.implementedAt ?? c.shippedAt, start = dayOfStamp(stamp) ?? stamp.slice(0, 10); // the ONE anchor day every clock counts from
   return { start, end: addDays(start, CONTAMINATED_DAYS) };
 }
 

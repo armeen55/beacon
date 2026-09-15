@@ -12,9 +12,8 @@ import { createHash } from "node:crypto";
 
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { readAiObservations, type AiObservationRecord } from "@/domains/evidence/ai-visibility/ai-observations";
-import { reportingDay } from "@/lib/reporting-day";
 import { cameBack, countLinks, dayOfInstant, namedShare, ownedRootOf, r3, readRows, type LinkCounts, type ReadOpts } from "./ai-outcomes";
-import { addDays, daysBetween, mergeRanges, overlaps, readPartitioned } from "./outcome-windows";
+import { addDays, daysBetween, dayOfStamp, mergeRanges, readPartitioned } from "./outcome-windows";
 import { AI_OUTCOME_LINES } from "./shipment-ai-lines";
 // Same lazy rule on this side of the pair.
 const boundaryOf: typeof AI_OUTCOME_LINES.boundaryOf = (...a) => AI_OUTCOME_LINES.boundaryOf(...a);
@@ -177,15 +176,6 @@ const scopeFingerprint = (s: NonNullable<ShipmentForOutcome["aiScope"]>): string
     [...(s.observationIds ?? [])].sort(), s.stage, objectiveOfStage(s.stage),
   ])).digest("hex").slice(0, 16);
 
-/** A stored stamp as a reporting day: a full instant resolves through the operator's zone, and a value already stored as a bare day label
- *  is already a day and is never shifted. null = not a moment I can read. */
-const dayOfStamp = (raw: string | null): string | null => {
-  const s = (raw ?? "").trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const at = Date.parse(s);
-  return Number.isFinite(at) ? reportingDay(at) : null;
-};
-
 /** The two ends of ONE shipment's read: the 28 days ahead of the stamp, where the fallback before-number is found, and the 28 days after
  *  it, bounded by today. Null when the change carries no stamp to measure from. */
 function shipmentWindow(shipment: ShipmentForOutcome, nowDay: string): { stamp: string; from: string; to: string } | null {
@@ -225,7 +215,7 @@ export async function aiOutcomesForShipments(tenantId: string, shipments: readon
     if (w == null) return null;
     const objective = objectiveOf(s), scope = scopes[i];
     if (scope == null) return unscopableOutcome(w, objective);
-    if (failed.some((f) => needed[i]!.some((r) => overlaps(f, r)))) return unreadableOutcome(w, objective);
+    if (failed.some((f) => needed[i]!.some((r) => f.from <= r.to && r.from <= f.to))) return unreadableOutcome(w, objective);
     // THE BASELINE IS FROZEN OR THERE IS NONE (operator pin). A change that declared an AI objective and has no starting numbers on file
     // is UNMEASURABLE on AI: the implementation is recorded either way, and a before side rebuilt from today's answers would be whatever
     // today happens to say.

@@ -38,7 +38,6 @@ const topQueryOf = (p: OwnedPageEvidence): string => {
   const q = [...(p.search?.topQueries ?? [])].filter((q) => q.impressions >= MIN_IMPRESSIONS).sort((a, b) => b.impressions - a.impressions)[0];
   return q ? q.query : labelOf(p); };
 const clicksOf = (p: OwnedPageEvidence): number => p.search?.clicks90d ?? 0;
-const flat = (s: string): string => s.trim().toLowerCase().replace(/\s+/g, " ");
 /** THE WORDS A PAGE HAS EARNED THE RIGHT TO BE ASKED ABOUT: its title, heading and section headings. The canonical outline arrives with site furniture already stripped at the snapshot assembler; what stays out here is this file's own rules: paragraphs in a heading tag and the page's own FAQ questions, because a question a page ASKS is not one it covers. */
 const earnedWords = (p: OwnedPageEvidence, weak: ReadonlySet<string>): Set<string> =>
   new Set(topicTokens([p.content?.title, p.content?.h1, ...(p.content?.outline ?? []).filter((h) =>

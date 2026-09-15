@@ -46,6 +46,8 @@ export type ProofWindowResult = {
   treatedImpressionsDelta?: number;
   controlImpressionsDelta?: number;
   adjustedImpressionsLift?: number;
+  /** THE SAME READING PER PAGE, keyed by page, on a change whose pieces landed on more than one page. The fields above are the bundle's; nothing here credits a component. */
+  byPage?: Record<string, Omit<ProofWindowResult, "byPage">>;
 };
 
 /** The baseline snapshot stored on a record (display + kernel input). */

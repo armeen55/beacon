@@ -31,8 +31,7 @@ describe("only the evidenced applied unit may teach", () => {
     expect(await harvestWinners(T)).toEqual({ harvested: 1, families: 1 });
     expect(await harvestWinners(T)).toEqual({ harvested: 0, families: 1 });
     expect(io.write).toHaveBeenCalledTimes(1);
-    const prompt = await buildWinnerFewShots(T, "content"); expect(prompt).toContain(COPY); expect(prompt).not.toContain(r.after!); expect(io.load.mock.calls.every(([t]) => t === T)).toBe(true);
-  });
+    const prompt = await buildWinnerFewShots(T, "content"); expect(prompt).toContain(COPY); expect(prompt).not.toContain(r.after!); expect(io.load.mock.calls.every(([t]) => t === T)).toBe(true); });
   it("blocked, partial, old, mismatched and pre-implementation receipts preserve observations but teach nothing", async () => {
     const r = await delivered(), v = r.verification!;
     const bad = [ { ...v, status: "blocked" }, { ...v, status: "partially_verified", components: [...v.components, { kind: "title", state: "not_verified", note: null }] },
@@ -40,32 +39,26 @@ describe("only the evidenced applied unit may teach", () => {
     const changes = [{ appliedAfter: "Unverified changed copy" }, { before: "Another predecessor" }, { page: "https://example.test/other" }, { where: "A different section" }, { redirectTo: "/different-destination" }, { anchorAfter: "Different anchor" }];
     const rows = [...bad.map((verification) => ({ ...r, verification })), ...changes.map((change) => ({ ...r, componentsApplied: [{ ...r.componentsApplied![0]!, ...change }] }))];
     for (const row of rows) { const read = readLedger([row], new Date(NOW), "2026-07-15")[0]!; expect([lesson(row), treatmentLearning([row])[0]!.sampleSize]).toEqual(["measuring", 0]); expect(read.lift).toBe(160);
-      expect(buildResultsBrain([{ read, implementedAt: row.implementedAt, verification: row.verification, baseline: null, learning: row }], new Date(NOW)).thoughts[0]!.verifiedSample).toBe(0); }
-  });
+      expect(buildResultsBrain([{ read, implementedAt: row.implementedAt, verification: row.verification, baseline: null, learning: row }], new Date(NOW)).thoughts[0]!.verifiedSample).toBe(0); } });
   it("comparison provenance and pins cannot manufacture permission; valid measured zeros remain samples", async () => {
     const r = await delivered(); expect(lesson({ ...r, controlsReceipt: null })).toBe("measuring");
     const pin = { verdict: "directional_improvement", metric: "clicks", lift: 1600, impressionsLift: 0, basisDay: 28, confidence: "high", controlsUsed: 4, pinnedAt: AT, finalizedThrough: "2026-06-01" } as const;
     expect(lesson({ ...r, pinnedRead: pin })).toBe("measuring"); expect(lesson({ ...r, verification: { ...r.verification!, status: "blocked" }, pinnedRead: pin })).toBe("measuring");
-    const zero = { ...r, windows: r.windows.map((w) => ({ ...w, adjustedLift: 0 })) }; expect([treatmentLearning([zero])[0]!.sampleSize, treatmentLearning([zero])[0]!.netEffect]).toEqual([1, 0]);
-  });
+    const zero = { ...r, windows: r.windows.map((w) => ({ ...w, adjustedLift: 0 })) }; expect([treatmentLearning([zero])[0]!.sampleSize, treatmentLearning([zero])[0]!.netEffect]).toEqual([1, 0]); });
   it("cached wins are requalified against the whole ledger, including later overlapping shipments", async () => {
     const r = await delivered(); io.ledger.set(T, [r]); await harvestWinners(T); expect(await buildWinnerFewShots(T, "content")).toContain(COPY);
     const later = await delivered({ id: "later", implementedAt: "2026-05-10T12:00:00Z", shippedAt: "2026-05-10T12:00:00Z" }); io.ledger.set(T, [r, later]);
     expect(await buildWinnerFewShots(T, "content")).toBe(""); expect(await harvestWinners(T)).toEqual({ harvested: 0, families: 0 }); expect(treatmentLearning([r, later])[0]!.sampleSize).toBe(0);
     const clean = { ...r, windows: [{ ...r.windows[0]!, day: 14 as const }] }, afterClean = await delivered({ id: "after-clean", implementedAt: "2026-05-20T12:00:00Z" });
-    expect(treatmentLearning([clean, afterClean])[0]!.sampleSize).toBe(1);
-  });
+    expect(treatmentLearning([clean, afterClean])[0]!.sampleSize).toBe(1); });
   it("old cached examples and another tenant never teach; an unreadable cache is not overwritten", async () => {
     const r = await delivered(); io.ledger.set(T, [r]); await harvestWinners(T); const banked = io.memory;
     expect(await buildWinnerFewShots("other-tenant", "content")).toBe(""); io.memory = banked.map((w) => ({ ...(w as object), shipmentId: undefined })); expect(await buildWinnerFewShots(T, "content")).toBe("");
-    io.memory = banked; io.fail = true; io.write.mockClear(); expect(await buildWinnerFewShots(T, "content")).toBe(""); await harvestWinners(T); expect(io.write).not.toHaveBeenCalled(); expect(io.memory).toBe(banked);
-  });
+    io.memory = banked; io.fail = true; io.write.mockClear(); expect(await buildWinnerFewShots(T, "content")).toBe(""); await harvestWinners(T); expect(io.write).not.toHaveBeenCalled(); expect(io.memory).toBe(banked); });
   it("historical delivery requalification uses the existing read bound, banks the new receipt and buys no SERP", async () => {
     const r = await delivered(), old = { ...r, verification: { ...r.verification!, checkerContract: undefined, proof: null, checks: 1 } };
     const rows: ShippedChangeRecord[] = [old], readSerp = vi.fn(async () => []), loadShipments = async () => rows;
     const record = async (_t: string, _id: string, verification: ShipmentVerification) => { rows[0] = { ...r, verification }; return true; };
     expect(await verifyDueShipments(T, { ...deps, loadShipments, record, readSerp })).toBe(1); expect(readSerp).not.toHaveBeenCalled(); expect(lesson(rows[0]!)).toBe("won");
     expect(await shipmentsAwaitingVerification(T, 15, { ...deps, loadShipments })).toEqual([]);
-    rows[0] = { ...old, verification: { ...old.verification, checks: 3 } }; expect(await shipmentsAwaitingVerification(T, 15, { ...deps, loadShipments })).toEqual([]);
-  });
-});
+    rows[0] = { ...old, verification: { ...old.verification, checks: 3 } }; expect(await shipmentsAwaitingVerification(T, 15, { ...deps, loadShipments })).toEqual([]); }); });

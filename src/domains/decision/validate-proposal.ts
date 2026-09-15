@@ -121,9 +121,9 @@ function schemaFailures(p: ChangeProposal, change: Extract<RecommendedChange, { 
   if (change.before != null && (SCHEMA.read(change.before).unread || schemaVisible(change.before).types.size === 0)) failures.push("The existing block shown for replacement is not readable Schema.org JSON-LD. Identify the exact existing markup before replacing it; visible page text is not a schema block.");
   const limitations = warnings.filter((w) => !w.startsWith("schema_critical:")).map((w) => w.replace(/^schema_\w+:\s*/, ""));
   const published = opts.pageBodyText ?? "";
-  const carried = flatten(published);
+  const carried = COPY_RULES.flat(published);
   const pairs = SCHEMA.pairs(graph), pairedWords = new Set(pairs.flatMap((pair) => [pair.question, pair.answer]));
-  const missing = visible.find((v) => !pairedWords.has(v) && !carried.includes(flatten(v)));
+  const missing = visible.find((v) => !pairedWords.has(v) && !carried.includes(COPY_RULES.flat(v)));
   if (missing) failures.push(`The page does not visibly carry "${missing.slice(0, 70)}", and structured data may only mark up words that are already on the page.`);
   const capture = opts.pageCapture;
   const current = capture?.version === "current" && !!capture.contentHash && isCurrent("owned_page", capture.fetchedAt, (opts.now ?? new Date()).getTime())
@@ -131,10 +131,10 @@ function schemaFailures(p: ChangeProposal, change: Extract<RecommendedChange, { 
   const held = current ? (capture.faqs ?? []).filter((pair) => pair.answerComplete === true && ["html_details", "html_section"].includes(pair.source)) : [];
   let unknown: string | undefined, mismatched = false;
   for (const pair of pairs) {
-    const own = held.filter((visible) => flatten(visible.question) === flatten(pair.question));
-    if (own.some((visible) => flatten(visible.answer) === flatten(pair.answer))) continue;
-    const incomplete = current && capture.faqs?.some((visible) => flatten(visible.question) === flatten(pair.question) && visible.answerComplete !== true);
-    if (!own.length || incomplete || new Set(own.map((visible) => flatten(visible.answer))).size !== 1) { unknown ??= pair.question; continue; }
+    const own = held.filter((visible) => COPY_RULES.flat(visible.question) === COPY_RULES.flat(pair.question));
+    if (own.some((visible) => COPY_RULES.flat(visible.answer) === COPY_RULES.flat(pair.answer))) continue;
+    const incomplete = current && capture.faqs?.some((visible) => COPY_RULES.flat(visible.question) === COPY_RULES.flat(pair.question) && visible.answerComplete !== true);
+    if (!own.length || incomplete || new Set(own.map((visible) => COPY_RULES.flat(visible.answer))).size !== 1) { unknown ??= pair.question; continue; }
     mismatched = true;
     failures.push(`This structured data attaches the wrong answer to "${pair.question}". The current complete HTML pair carries a different answer.`);
   }
@@ -142,7 +142,7 @@ function schemaFailures(p: ChangeProposal, change: Extract<RecommendedChange, { 
   const already = change.before == null ? [...types].find((t) => live.has(t)) : null;
   if (already) failures.push(`The page already carries a ${already} block, so this must replace it, not add a second one.`);
   if (types.has("FAQPage")) {
-    const said = [p.opportunityType, p.whyItMatters, change.where ?? "", ...p.limitations, ...(p.claims ?? []).filter((claim) => !visible.some((value) => flatten(value) === flatten(claim.text))).map((c) => c.text), ...(p.operatorSteps ?? [])].join(" ");
+    const said = [p.opportunityType, p.whyItMatters, change.where ?? "", ...p.limitations, ...(p.claims ?? []).filter((claim) => !visible.some((value) => COPY_RULES.flat(value) === COPY_RULES.flat(claim.text))).map((c) => c.text), ...(p.operatorSteps ?? [])].join(" ");
     if (RICH_CLAIM.test(said)) failures.push("This sells an FAQ block as a richer search listing, but Google stopped showing FAQ rich results on May 7, 2026, so that is not a promise this change can make.");
     limitations.push(FAQ_SCHEMA_LIMIT);
   }
@@ -216,7 +216,6 @@ const MISLABELLED: ReadonlyArray<{ kind: BundleComponentKind; re: RegExp; what: 
 ];
 
 /** Held wording, flattened, so "Barrel Sizes" and "barrel  sizes" are one thing on both sides. */
-const flatten = (s: string): string => s.toLowerCase().replace(/\s+/g, " ").trim();
 
 function componentFailures(components: readonly BundleComponent[], heldHeadings: readonly string[] = []): string[] {
   const out: string[] = [];
@@ -225,10 +224,10 @@ function componentFailures(components: readonly BundleComponent[], heldHeadings:
     const what = c.label.trim().toLowerCase() || c.kind.replace(/_/g, " ");
     if (c.evidenceKeys.length === 0) { out.push(`Nothing on the receipt stands behind the ${what}, so it stays held rather than offered.`); continue; }
     if (c.kind === "full_rewrite") {
-      const draft = flatten(c.after);
-      const named = flatten((c.preserves?.losses ?? []).map((l) => l.what).join(" | "));
+      const draft = COPY_RULES.flat(c.after);
+      const named = COPY_RULES.flat((c.preserves?.losses ?? []).map((l) => l.what).join(" | "));
       for (const heading of heldHeadings) {
-        const held = flatten(heading);
+        const held = COPY_RULES.flat(heading);
         if (!held || draft.includes(held) || named.includes(held)) continue;
         out.push(`The rebuild drops "${heading.trim()}" and never says why, so it stays held rather than offered.`);
       }
@@ -279,14 +278,11 @@ export function convertSectionToSchema(p: ChangeProposal): ChangeProposal | null
   return JSON.stringify(normalized) === JSON.stringify(p) ? null : normalized;
 }
 
-/** Refuse edits that empty or gut the current value. */
-function isDestructiveEdit(before: string | null, after: string): boolean {
-  const b = (before ?? "").trim();
-  const a = after.trim();
+/** Refuse edits that empty or gut the current value. THE RATIO IS ASKED OF SECTION-SCALE REPLACEMENTS ONLY (Stage 3, 2026-09-14): a factual correction, and any replacement of a single sentence or a label:value line, is a point edit whose honest form is often shorter ("Meaning: Light." for "Meaning:Bright, radiant, or glowing."), and the length band and the preservation door hold what it may not drop. */
+function isDestructiveEdit(before: string | null, after: string, pointEdit: boolean): boolean {
+  const b = (before ?? "").trim(), a = after.trim();
   if (!a) return true; // nothing left
-  if (!b) return false; // no prior value to destroy
-  if (b.length >= 30 && a.length < b.length * 0.34) return true;
-  return false;
+  return !!b && !pointEdit && b.length >= 30 && a.length < b.length * 0.34;
 }
 
 /** The same page words and dated capture reach drafting, replay and operator approval. */
@@ -344,9 +340,7 @@ export function validateProposal(
     if (COPY_RULES.workflow.test(t)) safetyFlags.push("Contains writing instructions or page narration instead of publishable copy.");
   }
   if (change.kind === "existing_edit" && !schema && /<\/?[a-z][a-z0-9-]*(?:\s[^>]*)?>/i.test(change.after)) safetyFlags.push("Contains raw HTML markup, and operator copy is pasted as text.");
-  if (change.kind === "existing_edit" && isDestructiveEdit(change.before, change.after)) {
-    safetyFlags.push("Rewrite deletes or guts the current value (destructive edit).");
-  }
+  if (change.kind === "existing_edit" && isDestructiveEdit(change.before, change.after, proposal.changeFamily === "factual_correction" || COPY_RULES.originalUnits(change.before ?? "").length <= 1)) safetyFlags.push("Rewrite deletes or guts the current value (destructive edit).");
 
   const entail = change.kind === "existing_edit" && !schema
     ? checkFactualEntailment({

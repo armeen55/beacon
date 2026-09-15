@@ -29,6 +29,7 @@ import { matchedControlsFor, recordShippedChange } from "./measure-pass";
 import type { ControlReceipt } from "./contamination";
 import { loadShippedChangesForTenant, upsertShippedChange, type ShippedChangeRecord } from "./shipped-change-store";
 import type { ShipmentObjective } from "../shipment-ai-outcome";
+import { dayOfStamp } from "../outcome-windows";
 import type { MeasurementState } from "./types";
 
 /** What one applied piece carries: its kind, its label, and the EXACT copy the live check compares
@@ -91,7 +92,7 @@ async function comparisonFor(
 ): Promise<{ controlPages: string[]; controlsReceipt: ControlReceipt[] | null; measurement: MeasurementState }> {
   // NULL is a read that FAILED, which is a different sentence from a site that genuinely has too few
   // pages: telling a connected operator to connect Search Console asks for what they already did.
-  const matched = await matchedControlsFor(tenantId, treatedPage, stamp.slice(0, 10), now, batch).catch(() => null);
+  const matched = await matchedControlsFor(tenantId, treatedPage, dayOfStamp(stamp) ?? stamp.slice(0, 10), now, batch).catch(() => null);
   if (matched == null) return { controlPages: [], controlsReceipt: null, measurement: "measurement_unavailable" };
   const held = { controlPages: matched.controls, controlsReceipt: matched.receipts };
   // No finalized Search data at all means there is nothing to read this page against, whatever the

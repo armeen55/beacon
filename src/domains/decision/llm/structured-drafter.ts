@@ -672,7 +672,7 @@ type AtomicEditStructuredInput = {
 /** THE OPENING NAMES THE ACTUAL JOB (Codex, 2026-08-23). This system prompt opened "You improve ONE on-page field (a page title or meta description)" for EVERY field, so a model asked for a 40-to-90-word answer block was simultaneously told it was writing a title: two assignments in one prompt, and the live reviewer read the confusion as thin restatement. The head clause now names the field being written; every homework rule after it is shared and unchanged. */
 const ATOMIC_HEAD: Record<string, string> = {
   title: "You improve ONE page title to better match the search intent and earn the click. Keep it under 60 characters: COUNT them. ",
-  meta: "You improve ONE meta description: accurately name the subject and its specific answer or attributes. Write a concise, complete line without padding to a minimum length; never go past 155 characters. ",
+  meta: "You improve ONE meta description: accurately name the subject and its specific answer or attributes. Write a concise, complete line without padding to a minimum length; never go past " + COPY_RULES.descriptionChars + " characters. ",
   h1: "You improve ONE page heading (the H1) so it names exactly what the page delivers in the searcher's own words. Keep it under 90 characters. ",
   answer_block: "You write ONE answer block that will be pasted into the page's body to answer the tracked question outright, transforming the page's stored evidence into the required shape rather than restating the page. ",
   default: "You improve ONE on-page field to better match the search intent and earn the click. ",

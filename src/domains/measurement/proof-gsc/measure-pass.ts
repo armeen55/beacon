@@ -20,8 +20,10 @@ import { loadShippedChangesForTenant } from "./shipped-change-store";
 import { readWindowForPages, readLastFinalizedDate } from "./gsc-window";
 import { BASELINE_WINDOW_DAYS, PROOF_WINDOW_DAYS, type GscWindowMetrics, type MeasurementState, type ProofWindowDay, type ProofWindowResult } from "./types";
 import type { ShippedChangeRecord } from "./shipped-change-store";
-import { addDays, evaluateWindows, MIN_CONTROLS, readLedger } from "./kernel";
-import { crawlClock, day56Followup, FOLLOW_UP_WINDOW_DAY } from "./measure-lifecycle";
+import { addDays, dayOfStamp } from "../outcome-windows";
+import { evaluateWindows, isMature, MIN_CONTROLS, readLedger } from "./kernel";
+import { crawlClock, day56Followup, FOLLOW_UP_WINDOW_DAY, verifiedForMeasurement } from "./measure-lifecycle";
+import { SHIPMENT_PROOF } from "./shipment-proof";
 
 /** WHAT THE PLAN REPAIR DID, said once on the row and never twice. Three stored rows predate the declaration and carry no primary window at
  *  all, so no checkpoint of theirs can ever close, and four more carry no yardstick. The ordinary pass stamps what a row recorded today gets. */
@@ -33,8 +35,6 @@ const SITE_SERIES = "site::every-other-page";
 
 /** GSC's reporting zone is Pacific and so is the operator's; a ship date defaults to that day through the ONE definition of a reporting day, never a second copy of the zone. */
 export const defaultPacificShipDate = (now: Date = new Date()): string => reportingDay(now);
-const dateOnly = (iso: string): string => (iso.length > 10 ? iso.slice(0, 10) : iso);
-const toPath = (u: string): string => u.replace(/^https?:\/\/[^/]+/, "").replace(/\/$/, "") || "/";
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 const round4 = (n: number): number => Math.round(n * 10000) / 10000;
@@ -58,11 +58,8 @@ function computeWindowLift(args: {
   preWindowDays?: number;
 }): ProofWindowResult {
   const { treatedPre, treatedPost, controls } = args;
-  if (!args.ran) {
-    return { day: args.day, checkOn: args.checkOn, ran: false, treatedDelta: 0, controlDelta: 0, adjustedLift: 0, treatedCtrDelta: 0, controlCtrDelta: 0,
-      adjustedCtrLift: 0, treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0, controlsUsed: 0, treatedPostImpressions: 0,
-      treatedImpressionsDelta: 0, controlImpressionsDelta: 0, adjustedImpressionsLift: 0 };
-  }
+  if (!args.ran) return { day: args.day, checkOn: args.checkOn, ran: false, treatedDelta: 0, controlDelta: 0, adjustedLift: 0, treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0,
+    treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0, controlsUsed: 0, treatedPostImpressions: 0, treatedImpressionsDelta: 0, controlImpressionsDelta: 0, adjustedImpressionsLift: 0 };
   const preDays = args.preWindowDays ?? args.day;
   const scale = preDays > 0 ? args.day / preDays : 1;
   const scaledPre = (m: GscWindowMetrics) => m.clicks * scale;
@@ -102,13 +99,37 @@ function siteDrift(treatedPre: GscWindowMetrics, pre?: GscWindowMetrics, post?: 
   return [{ pre: share(pre), post: share(post) }];
 }
 
-/** Map the kernel's live directional read to the stored verdict vocabulary. */
+/** Map the kernel's live directional read to the stored verdict vocabulary, AT MATURITY ONLY (Product Truth: only the day 28 read may be
+ *  called a win). A day 7 or day 14 read stores its numbers and the word "measuring"; at day 28 or the day 56 follow up an improvement
+ *  becomes "won", a decline "lost", no clear movement "inconclusive", too little data "insufficient_data", and a read the page shares
+ *  with other changes "inconclusive": no independent win is ever written for it. */
 const STORED_VERDICT: Record<string, ShippedChangeRecord["verdict"]> = { directional_improvement: "won", stronger_improvement: "won",
-  directional_decline: "lost", no_clear_movement: "inconclusive", insufficient_evidence: "insufficient_data" };
+  directional_decline: "lost", no_clear_movement: "inconclusive", insufficient_evidence: "insufficient_data", confounded: "inconclusive" };
 
-function storedVerdictFor(record: ShippedChangeRecord, now: Date, lastFinal: string | null): { verdict: ShippedChangeRecord["verdict"]; confidence: ShippedChangeRecord["confidence"] } {
-  const read = readLedger([record], now, lastFinal)[0];
-  return { verdict: STORED_VERDICT[read.verdict] ?? "measuring", confidence: read.confidence };
+/** THE STORED VERDICT IS READ OVER THE PAGE'S WHOLE LEDGER, never over the one record: eight link shipments on one page each claimed the
+ *  page's whole movement because each was read alone. Every other shipment on the same page rides into the kernel, whose overlap rule
+ *  confounds same-window changes, so what is stored is the page level reading and each row says its credit is shared. */
+function storedVerdictFor(record: ShippedChangeRecord, ledger: ReadonlyArray<ShippedChangeRecord>, now: Date, lastFinal: string | null): { verdict: ShippedChangeRecord["verdict"]; confidence: ShippedChangeRecord["confidence"] } {
+  const samePage = ledger.filter((r) => r.id !== record.id && contaminationPathOf(r.path) === contaminationPathOf(record.path));
+  const read = readLedger([record, ...samePage], now, lastFinal)[0];
+  return { verdict: isMature(read.basisDay) ? STORED_VERDICT[read.verdict] ?? "measuring" : "measuring", confidence: read.confidence };
+}
+
+/** THE PAGES THIS CHANGE LANDED ON, distinct, the root page standing in for a piece that names none. A bundle whose pieces land on two
+ *  pages used to credit the root twice and never measure the second. A partly verified bundle measures only the pages its confirmed pieces
+ *  are on. PURE. */
+function treatedPagesOf(r: ShippedChangeRecord): string[] {
+  const answers = r.verification?.status === "partially_verified" ? r.verification.components : null;
+  const pages = SHIPMENT_PROOF.components(r).filter((_, i) => answers == null || answers[i]?.state === "verified").map((c) => c.page || r.page);
+  return [...new Set(pages.length > 0 ? pages : [r.page])];
+}
+
+/** The treated pages read as ONE treatment: clicks and impressions summed, rate and rank weighted by impressions. Absent everywhere is absent. PURE. */
+function bundleMetrics(pages: readonly string[], read: Map<string, GscWindowMetrics> | null): GscWindowMetrics | null {
+  const held = pages.map((p) => read?.get(p)).filter((m): m is GscWindowMetrics => m != null);
+  if (held.length === 0) return null;
+  const clicks = held.reduce((s, m) => s + m.clicks, 0), impressions = held.reduce((s, m) => s + m.impressions, 0);
+  return { clicks, impressions, ctr: impressions > 0 ? clicks / impressions : 0, position: impressions > 0 ? held.reduce((s, m) => s + m.position * m.impressions, 0) / impressions : 0 };
 }
 
 class SearchReadUnavailable extends Error {}
@@ -127,34 +148,44 @@ export async function measureRecord(
    *  ways, so one change read against three different comparison sets. Build it with
    *  `contaminationFor` (contamination.ts) and nothing else; the compiler now asks every caller. */
   excludeControlPaths: ReadonlySet<string>,
+  /** THE PAGE'S OTHER SHIPMENTS, so the stored verdict is read over the whole page and same page overlap confounds it. */
+  ledger: ReadonlyArray<ShippedChangeRecord> = [],
 ): Promise<ShippedChangeRecord> {
+  // NOTHING IS MEASURED OVER A CHANGE THE LIVE PAGE HAS NOT CONFIRMED: no window runs, no verdict is written, and Results says the live
+  // page still has to be read. The gate used to sit only on the scheduled pass while the press and every Results rebuild measured anyway.
+  if (!verifiedForMeasurement(record)) {
+    return { ...record, windows: [], verdict: "measuring", confidence: "low", measuredAt: null, updatedAt: now.toISOString() };
+  }
   // DAY ZERO IS THE DAY GOOGLE READ THE CHANGE, not the day it was pressed, wherever an inspection has said so; the ship clock otherwise.
-  const clock = crawlClock(record), shipDate = dateOnly(clock.anchor);
+  const clock = crawlClock(record), shipDate = clock.anchor;
   const lastFinal = lastFinalizedDate !== undefined ? lastFinalizedDate : await readLastFinalizedDate(tenantId);
   // ONE normalizer governs the whole policy: the exclusion set is keyed by contamination's pathOf,
   // so the consumption side must ask with the same spelling or a query-carrying URL slips the filter.
   const controlPages = record.controlPages.filter((c) => !excludeControlPaths.has(contaminationPathOf(c)));
-  const pages = [record.page, ...controlPages];
+  const treated = treatedPagesOf(record), pages = [...treated, ...controlPages];
 
   const preStart = addDays(shipDate, -BASELINE_WINDOW_DAYS);
   // THE SITE'S OWN MOVEMENT RIDES THE SAME SNAPSHOTS the pages are read from, so it costs no extra read:
   // whole families ship at once, matched pages run out, and this is what stands behind the change then.
-  const siteTotal = { key: SITE_SERIES, exclude: record.page };
+  const siteTotal = { key: SITE_SERIES, exclude: treated };
   const pre = metricsOf(await readWindowForPages({ tenantId, pages, start: preStart, end: shipDate, siteTotal }));
+  const treatedPre = bundleMetrics(treated, pre);
 
   const readWindow = async (day: ProofWindowDay, ran: boolean): Promise<ProofWindowResult> => {
     const post = ran ? metricsOf(await readWindowForPages({ tenantId, pages, start: shipDate, end: addDays(shipDate, day), siteTotal })) : null;
-    const observed = ran && pre.has(record.page) && post?.has(record.page) === true;
-    const treatedPre = pre.get(record.page) ?? NULL_METRICS;
-    const treatedPost = post?.get(record.page) ?? NULL_METRICS;
+    const treatedPost = bundleMetrics(treated, post), observed = ran && treatedPre != null && treatedPost != null;
     const matched = controlPages
       .map((c) => ({ pre: pre.get(c) ?? NULL_METRICS, post: post?.get(c) ?? NULL_METRICS }))
       .filter((c) => c.pre.impressions > 0 && (!ran || c.post.impressions > 0));
-    const drift = matched.length >= MIN_CONTROLS ? null : siteDrift(treatedPre, pre.get(SITE_SERIES), post?.get(SITE_SERIES));
-    return computeWindowLift({
-      day, checkOn: addDays(shipDate, day), ran: observed, treatedPre, treatedPost, controls: drift ?? matched,
+    const drift = matched.length >= MIN_CONTROLS ? null : siteDrift(treatedPre ?? NULL_METRICS, pre.get(SITE_SERIES), post?.get(SITE_SERIES));
+    const lift = (pre: GscWindowMetrics, post: GscWindowMetrics, ran: boolean) => computeWindowLift({
+      day, checkOn: addDays(shipDate, day), ran, treatedPre: pre, treatedPost: post, controls: drift ?? matched,
       comparedToSite: drift != null, preWindowDays: BASELINE_WINDOW_DAYS,
     });
+    const whole = lift(treatedPre ?? NULL_METRICS, treatedPost ?? NULL_METRICS, observed);
+    // EVERY PAGE THE CHANGE LANDED ON IS READ, and stored keyed by page beside the bundle level read; the verdict is the bundle's and no page's movement is credited to one component.
+    if (treated.length < 2) return whole;
+    return { ...whole, byPage: Object.fromEntries(treated.map((p) => [p, lift(pre.get(p) ?? NULL_METRICS, post?.get(p) ?? NULL_METRICS, observed && pre.has(p) && post?.has(p) === true)])) };
   };
 
   const windowStates = evaluateWindows(shipDate, now, lastFinal);
@@ -171,12 +202,12 @@ export async function measureRecord(
   if (kept56) windows.push(kept56);
   // USABLE, NEVER MERELY STORED: three comparison pages that hold no search data are no comparison, and a row promoted on the strength of them would carry "measuring" over a reading that says it cannot be separated from the rest of the site.
   const usable = controlPages.filter((c) => (pre.get(c)?.impressions ?? 0) > 0).length;
-  const canCompare = lastFinal != null && (usable >= MIN_CONTROLS || driftable(pre.get(record.page), pre.get(SITE_SERIES)));
+  const canCompare = lastFinal != null && (usable >= MIN_CONTROLS || driftable(treatedPre ?? undefined, pre.get(SITE_SERIES)));
   const repaired = (record.primaryWindowDays == null || record.judgedMetric == null) && !(record.notes ?? "").includes(BACKFILL_NOTE);
 
   const measured: ShippedChangeRecord = {
     ...record,
-    baseline: record.baseline.impressions > 0 || (pre.get(record.page)?.impressions ?? 0) <= 0 ? record.baseline : { ...pre.get(record.page)!, windowDays: BASELINE_WINDOW_DAYS }, // A ZERO STARTING POINT IS REPLACED BY THE HISTORY IT NEVER READ (operator, 2026-09-02): 57 rows froze zeros because their page key had no scheme; the page's own pre-window is the starting point every later window is compared against
+    baseline: record.baseline.impressions > 0 || (treatedPre?.impressions ?? 0) <= 0 ? record.baseline : { ...treatedPre!, windowDays: BASELINE_WINDOW_DAYS }, // A ZERO STARTING POINT IS REPLACED BY THE HISTORY IT NEVER READ (operator, 2026-09-02): 57 rows froze zeros because their page key had no scheme; the page's own pre-window is the starting point every later window is compared against
     windows,
     // A ROW NOTHING COULD BE COMPARED AGAINST IS ASKED AGAIN ON EVERY PASS, and revives the moment a basis
     // exists: 29 rows stamped at record time stopped being measured at all because whole families shipped
@@ -195,7 +226,7 @@ export async function measureRecord(
     updatedAt: now.toISOString(),
   };
   const settle = (): void => {
-    const { verdict, confidence } = storedVerdictFor(measured, now, lastFinal);
+    const { verdict, confidence } = storedVerdictFor(measured, ledger, now, lastFinal);
     // Operator "exclude from learning" pins the stored verdict to inconclusive.
     measured.verdict = record.operatorVerdictOverride === "inconclusive" ? "inconclusive" : verdict;
     measured.confidence = confidence;
@@ -212,71 +243,45 @@ export async function measureRecord(
 }
 
 /** Pull the human context for a shipped change from the cached page context: canonical page, path and the page's top target queries.
- *  Before/after text and the headline action come from the operator's own entry (Slice 7 removed the superseded brief lookup that used to
- *  guess them). Best-effort; every field degrades to null/[]. */
-export async function captureChangeMeta(
-  tenantId: string,
-  pageUrl: string,
-): Promise<{ canonPage: string; path: string; before: string | null; after: string | null; targetQueries: string[]; headlineAction: string | null; contentHash: string | null }> {
+ *  Before/after text and the headline action come from the operator's own entry. Best-effort; every field degrades to null/[]. */
+export async function captureChangeMeta(tenantId: string, pageUrl: string): Promise<{ canonPage: string; path: string; before: string | null; after: string | null; targetQueries: string[]; headlineAction: string | null; contentHash: string | null }> {
   let canonPage = canonicalizeCitationUrl(pageUrl) ?? pageUrl;
-  const path = toPath(canonPage);
+  const path = contaminationPathOf(canonPage);
   let targetQueries: string[] = [];
-  // The page's HELD content as of the last crawl. Never fetched here: a Shipment records what Beacon already had on file the moment the
-  // operator marked the change done, so a later crawl can say whether the page actually moved.
-  let contentHash: string | null = null;
+  let contentHash: string | null = null; // the page's HELD content as of the last crawl, never fetched here, so a later crawl can say whether the page moved
   try {
     const ctx = await loadPageSurgeonContext(tenantId);
     if (!ctx.gscByUrl.has(canonPage) && !ctx.snapshotByCanon.has(canonPage)) {
-      const match = [...ctx.gscByUrl.keys(), ...ctx.snapshotByCanon.keys()].find((k) => toPath(k) === path) ?? null;
+      const match = [...ctx.gscByUrl.keys(), ...ctx.snapshotByCanon.keys()].find((k) => contaminationPathOf(k) === path) ?? null;
       if (match) canonPage = match;
     }
     const packet = assemblePacketForUrl(ctx, canonPage);
     targetQueries = (packet.gsc?.topQueries ?? []).slice(0, 5).map((q) => q.query);
     contentHash = ctx.snapshotByCanon.get(canonPage)?.content_hash ?? null;
-  } catch {
-    /* best-effort */
-  }
+  } catch { /* best-effort */ }
   return { canonPage, path, before: null, after: null, targetQueries, headlineAction: null, contentHash };
 }
 
-/** How many rows the probe below reads to find WHICH day the answers on file end on. It never counts anything: the day it names is then
- *  read whole. */
+/** How many rows the probe below reads to find WHICH day the answers on file end on; the day it names is then read whole. */
 const AI_BASELINE_ROWS = 60;
 
 /** The AI half of the Shipment baseline, from answers ALREADY on file: the latest reporting day's FIRST reading of each tracked question,
- *  how many of those were read closely enough to say whether this account was named (`analyzed`), and how many named it. Zero provider
- *  calls, zero cost. Null when nothing is on file, which is a different claim from zero mentions and is stored as such. `analyzed` IS THE
- *  DENOMINATOR the later comparison divides by, and it is stored here so both sides of a shipped change are the same measure. Counting
- *  mentions over every answer that came back made an answer nobody had read yet an implicit miss, while the after side divided by the
- *  answers actually read: a change was then judged by comparing one rate against a different one. */
+ *  how many were read closely enough to say whether this account was named (`analyzed`, THE DENOMINATOR the later comparison divides by,
+ *  stored so both sides are the same measure), and how many named it. Zero provider calls. Null when nothing is on file, a different claim
+ *  from zero mentions. A change that declared an AI claim freezes its OWN searches, sources and instrument (aiBaselineFor); a change with
+ *  no AI claim keeps the account-wide day. Slot 0 is asked for in the QUERY, and then the WHOLE day is read, never the newest 60 rows. */
 async function latestAiPresence(tenantId: string, aiScope: ShippedChangeRecord["aiScope"]): Promise<NonNullable<ShippedChangeRecord["shipmentBaseline"]>["ai"]> {
   try {
-    // A CHANGE THAT DECLARED AN AI CLAIM FREEZES ITS OWN SEARCHES, sources and instrument included. The
-    // account-wide day was the only starting number on file, so a shipment compared an account-wide before
-    // against a scope-filtered after: a subtraction of two different measures. A change with no AI claim is
-    // judged on clicks and keeps the account-wide day it has always carried.
     if (aiScope != null) return await aiBaselineFor(tenantId, aiScope);
-    // Slot 0 is asked for in the QUERY, not filtered afterwards: the extra volatility samples would otherwise eat the row cap and leave the
-    // baseline reading a fraction of the day.
-    const probe = (await readAiObservationViews(tenantId, { limit: AI_BASELINE_ROWS, slot: 0 }))
-      .filter((r) => r.slot === 0 && r.status === "observed");
+    const probe = (await readAiObservationViews(tenantId, { limit: AI_BASELINE_ROWS, slot: 0 })).filter((r) => r.slot === 0 && r.status === "observed");
     const day = probe.map((r) => r.day).sort().pop();
     if (!day) return null;
-    // THEN THE WHOLE DAY, named as a day so the reader hands back all of it. A 140 answer day counted off the newest 60 rows froze a
-    // baseline over a fraction of the day and compared every later reading against it, so the "before" side of a shipped change was a
-    // sample and the "after" side was a day.
-    const onDay = (await readAiObservationViews(tenantId, { day, slot: 0 }))
-      .filter((r) => r.slot === 0 && r.status === "observed" && r.day === day);
-    // Read closely = the WHOLE answer was read and carries an owned-brand verdict. A reading still missing pieces is real work, not a
-    // finished check, so it never enters the baseline denominator.
-    const verdictOf = (r: { analysis: Record<string, unknown> | null }) =>
-      (r.analysis as { ownedBrandMention?: { mentioned?: unknown } | null } | null)?.ownedBrandMention ?? null;
+    const onDay = (await readAiObservationViews(tenantId, { day, slot: 0 })).filter((r) => r.slot === 0 && r.status === "observed" && r.day === day);
+    // Read closely = the WHOLE answer was read and carries an owned-brand verdict; a reading still missing pieces never enters the denominator.
+    const verdictOf = (r: { analysis: Record<string, unknown> | null }) => (r.analysis as { ownedBrandMention?: { mentioned?: unknown } | null } | null)?.ownedBrandMention ?? null;
     const analyzed = onDay.filter((r) => isAnalysisSettled(r) && verdictOf(r) != null);
-    return { day, checked: onDay.length, analyzed: analyzed.length,
-      mentioning: analyzed.filter((r) => verdictOf(r)?.mentioned === true).length };
-  } catch {
-    return null;
-  }
+    return { day, checked: onDay.length, analyzed: analyzed.length, mentioning: analyzed.filter((r) => verdictOf(r)?.mentioned === true).length };
+  } catch { return null; }
 }
 
 /** ONE Shipment per (proposal, exact version applied). A retry computes the same id and upserts itself, so a double press can never leave
@@ -293,16 +298,13 @@ type ShipmentOrigin = {
   basis: string | null;
   caseId: string | null;
   bundleHypothesis: string;
-  /** The components the operator says they applied, each with the exact copy it carried and the risk the proposal graded it at. A subset =
-   *  a partial bundle, and the copy is what the live check compares the page against. */
+  /** The components the operator says they applied, each with the exact copy the live check compares against. A subset = a partial bundle. */
   componentsApplied: NonNullable<ShippedChangeRecord["componentsApplied"]>;
   implementedAt: string;
   preChangeContentHash: string | null;
-  /** TRUE = nothing on file describes this page as it stood before the change, so the live check compares FORWARD only
-   *  and no before-state is ever claimed. Set by the repair door, which records a change that was already live. */
+  /** TRUE = no before-state on file (the repair door records a change already live), so the live check compares FORWARD only. */
   preChangeHashUnavailable?: boolean;
-  /** What they say they actually put on the page, in their own words. A NOTE beside the reading, never a substitute for it: no note has
-   *  ever made a change verified and none ever will. */
+  /** What they say they put on the page, in their own words: a NOTE beside the reading, never a substitute for it. */
   operatorNote?: string | null;
   /** THE EXACT AI SCOPE the proposal targeted, carried typed. Absent on changes with no AI claim. */
   aiScope?: ShippedChangeRecord["aiScope"];
@@ -310,9 +312,7 @@ type ShipmentOrigin = {
   treatmentStamp?: ShippedChangeRecord["treatmentStamp"];
 };
 
-/** The pages this account already has an edit queued or freshly landed on. A page about to move is
- *  not a still page, so it cannot anchor a difference. Never throws: an unreadable queue narrows
- *  the answer to what the ledger alone knows. */
+/** The pages this account already has an edit queued or freshly landed on: a page about to move cannot anchor a difference. Never throws. */
 export async function openChangePaths(tenantId: string): Promise<string[]> {
   const store = await loadChangeProposals(tenantId).catch(() => null);
   if (store == null) return [];
@@ -320,13 +320,10 @@ export async function openChangePaths(tenantId: string): Promise<string[]> {
     .map((p) => p.pagePath ?? "").filter((p) => p.length > 0);
 }
 
-/** How many demand-ranked pages the matcher considers before picking three. Wider than the three it
- *  needs, so the matched page is chosen rather than whichever page happened to be biggest. */
+/** How many demand-ranked pages the matcher considers before picking three, so the matched page wins rather than the biggest one. */
 const CONTROL_CANDIDATE_POOL = 40;
 
-/** The jobs ALREADY on file for these pages, and no others. The transport refuses every call, so a
- *  page whose job was read before answers for free and a page whose job was never read answers null,
- *  which costs nothing and blocks nothing. */
+/** The jobs ALREADY on file for these pages, and no others: the transport refuses every call, so a never-read page answers null at no cost. */
 async function cachedPageJobs(tenantId: string, ctx: Awaited<ReturnType<typeof loadPageSurgeonContext>>, urls: string[]) {
   return loadPageJobs(tenantId, urls.map((url) => {
     const snap = ctx.snapshotByCanon.get(url);
@@ -346,22 +343,17 @@ export async function matchedControlsFor(
   const [ledger, ctx, open] = await Promise.all([batch?.ledger ?? loadShippedChangesForTenant(tenantId).catch(() => null),
     loadPageSurgeonContext(tenantId).catch(() => null), batch?.open ?? openChangePaths(tenantId)]);
   if (ledger == null || ctx == null) return null;
-  const pool = topPagesByDemand(ctx, CONTROL_CANDIDATE_POOL)
-    .map((u) => canonicalizeCitationUrl(u) ?? u)
-    .filter((u) => u && u !== treatedPage);
-  const excluded = contaminationFor(ledger, open, now, { path: toPath(treatedPage), shippedAt: shipDate });
-  // The SAME pre-change window the diff in diff reads, so "traffic beside it" and "the baseline holds
-  // data" are the numbers the measurement itself will use, not a 90-day average standing in for them.
-  const baselineRead = await readWindowForPages({
-    tenantId, pages: [treatedPage, ...pool], start: addDays(shipDate, -BASELINE_WINDOW_DAYS), end: shipDate,
-  });
+  const pool = topPagesByDemand(ctx, CONTROL_CANDIDATE_POOL).map((u) => canonicalizeCitationUrl(u) ?? u).filter((u) => u && u !== treatedPage);
+  const excluded = contaminationFor(ledger, open, now, { path: contaminationPathOf(treatedPage), shippedAt: shipDate });
+  // The SAME pre-change window the diff in diff reads, so "traffic beside it" and "the baseline holds data" are the measurement's own numbers.
+  const baselineRead = await readWindowForPages({ tenantId, pages: [treatedPage, ...pool], start: addDays(shipDate, -BASELINE_WINDOW_DAYS), end: shipDate });
   if (baselineRead.status === "unavailable") return null;
   const baseline = baselineRead.data;
   const jobs = await cachedPageJobs(tenantId, ctx, [treatedPage, ...pool]);
   const typeOf = (u: string): string | null => jobs.get(canonicalUrlKey(u))?.pageType ?? null;
   return selectMatchedControls({
-    treated: { path: toPath(treatedPage), pageType: typeOf(treatedPage), baselineImpressions: baseline.get(treatedPage)?.impressions ?? 0 },
-    candidates: pool.map((url) => ({ url, path: toPath(url), pageType: typeOf(url),
+    treated: { path: contaminationPathOf(treatedPage), pageType: typeOf(treatedPage), baselineImpressions: baseline.get(treatedPage)?.impressions ?? 0 },
+    candidates: pool.map((url) => ({ url, path: contaminationPathOf(url), pageType: typeOf(url),
       baselineImpressions: baseline.get(url)?.impressions ?? 0, hasBaseline: (baseline.get(url)?.impressions ?? 0) > 0 })),
     excluded,
   });
@@ -379,23 +371,11 @@ export async function selectControlPages(tenantId: string, treatedPage: string):
  *  starting numbers cover search AND AI. Every read here is of data already bought. */
 export async function recordShippedChange(args: {
   /** THE BATCH'S ONE READ OF THE OPEN CHANGES (operator, 2026-09-01); absent, the store is read for this record alone. */
-  openPaths?: readonly string[];
-  ledger?: readonly ShippedChangeRecord[];
-  tenantId: string;
-  page: string;
-  path: string;
-  actionType: string;
-  before: string | null;
-  after: string | null;
-  targetQueries: string[];
-  controlPages: string[];
+  openPaths?: readonly string[]; ledger?: readonly ShippedChangeRecord[];
+  tenantId: string; page: string; path: string; actionType: string; before: string | null; after: string | null; targetQueries: string[]; controlPages: string[];
   /** WHY each comparison page qualified, in checkable facts. Absent on a door that chose its own. */
   controlsReceipt?: ControlReceipt[] | null;
-  shippedAt?: string;
-  notes?: string | null;
-  verifiedLive?: boolean;
-  liveSourceUrl?: string | null;
-  shipment?: ShipmentOrigin;
+  shippedAt?: string; notes?: string | null; verifiedLive?: boolean; liveSourceUrl?: string | null; shipment?: ShipmentOrigin;
   /** Whether this one can be fairly compared, decided by the recording seam BEFORE the write. A shortage
    *  is recorded here, never used to refuse the write: an implementation fact is a fact. */
   measurementState?: MeasurementState | null;
@@ -404,85 +384,49 @@ export async function recordShippedChange(args: {
   judgedMetric?: ShipmentObjective | null;
   now?: Date;
 }): Promise<ShippedChangeRecord> {
-  // NO FLOOR ON THE WRITE. A shipment used to be refused outright below MIN_CONTROLS, so a true
-  // implementation went unrecorded because Beacon could not measure it: two different facts, and the
-  // one about the operator's work is never contingent on the one about the data. The shortage travels
-  // as `measurementState` and Results says it plainly instead.
+  // NO FLOOR ON THE WRITE: the fact about the operator's work is never contingent on the fact about the data. A shortage travels as `measurementState`.
   const now = args.now ?? new Date();
   const shippedAt = args.shippedAt ?? defaultPacificShipDate(now);
-  const shipDate = dateOnly(shippedAt);
+  const shipDate = dayOfStamp(shippedAt) ?? shippedAt.slice(0, 10); // the operator's reporting day, never the UTC label: the frozen baseline and a manual row's id both anchor on it
   const preStart = addDays(shipDate, -BASELINE_WINDOW_DAYS);
   const pre = await readWindowForPages({ tenantId: args.tenantId, pages: [args.page], start: preStart, end: shipDate });
-  // NOTHING ON FILE IS NOT ZERO. A page Search Console holds no row for gets NO frozen starting point
-  // rather than a row of zeros, which would read on screen as "it had no traffic before" and become the
-  // number every later window is compared against.
+  // NOTHING ON FILE IS NOT ZERO: a page Search Console holds no row for gets NO frozen starting point rather than a row of zeros.
   const held = pre.status === "available" ? pre.data.get(args.page) ?? null : null;
   const base = held ?? NULL_METRICS;
   const ship = args.shipment ?? null;
   const searchBaseline = { ...base, windowDays: BASELINE_WINDOW_DAYS };
   const draft: ShippedChangeRecord = {
     id: ship ? shipmentIdFor(ship.proposalId, ship.proposalVersion) : `${args.path}::${shipDate}`,
-    page: args.page,
-    path: args.path,
-    actionType: args.actionType,
-    before: args.before,
-    after: args.after,
-    shippedAt,
-    baseline: searchBaseline,
-    targetQueries: args.targetQueries,
-    controlPages: args.controlPages,
-    controlsReceipt: args.controlsReceipt ?? null,
-    // WHAT THIS SHIPMENT IS JUDGED ON, declared at record time. A change is a bet on ONE metric over ONE
-    // window; leaving these null let every later reading pick its own yardstick.
+    page: args.page, path: args.path, actionType: args.actionType, before: args.before, after: args.after, shippedAt, baseline: searchBaseline,
+    targetQueries: args.targetQueries, controlPages: args.controlPages, controlsReceipt: args.controlsReceipt ?? null,
+    // WHAT THIS SHIPMENT IS JUDGED ON, declared at record time: a bet on ONE metric over ONE window, never left for a later reading to pick.
     judgedMetric: args.judgedMetric ?? "clicks", primaryWindowDays: 28,
-    windows: [],
-    verdict: "measuring",
-    confidence: "low",
-    measuredAt: null,
-    notes: args.notes ?? null,
-    verifiedLive: args.verifiedLive ?? false,
+    windows: [], verdict: "measuring", confidence: "low", measuredAt: null, notes: args.notes ?? null, verifiedLive: args.verifiedLive ?? false,
     liveSourceUrl: args.liveSourceUrl ?? null, lastCrawlAt: null, // nothing has asked Google when it last read this page
-    operatorVerdictOverride: null,
-    proposalId: ship?.proposalId ?? null,
-    proposalVersion: ship?.proposalVersion ?? null,
-    basis: ship?.basis ?? null,
-    caseId: ship?.caseId ?? null,
-    bundleHypothesis: ship?.bundleHypothesis ?? null,
-    componentsApplied: ship?.componentsApplied ?? null,
-    implementedAt: ship?.implementedAt ?? null,
-    preChangeContentHash: ship?.preChangeContentHash ?? null,
-    preChangeHashUnavailable: ship?.preChangeHashUnavailable === true,
+    operatorVerdictOverride: null, proposalId: ship?.proposalId ?? null, proposalVersion: ship?.proposalVersion ?? null, basis: ship?.basis ?? null,
+    caseId: ship?.caseId ?? null, bundleHypothesis: ship?.bundleHypothesis ?? null, componentsApplied: ship?.componentsApplied ?? null,
+    implementedAt: ship?.implementedAt ?? null, preChangeContentHash: ship?.preChangeContentHash ?? null, preChangeHashUnavailable: ship?.preChangeHashUnavailable === true,
     measurementState: pre.status === "unavailable" ? "measurement_unavailable" : args.measurementState ?? null,
-    // Written once, here, and never touched again: the store refuses a second write.
-    // THE TWO HALVES FREEZE INDEPENDENTLY. This captured the AI starting numbers only when Google already had
-    // something to say about the page, so a new or quiet page with a perfectly good AI baseline lost it, and
-    // that page is exactly the one an AEO change exists for (reviewer, 2026-08-19). A change that declared an
-    // AI scope freezes its AI side whether or not the search side exists, and either half may be null.
+    // Written once, here, and never touched again: the store keeps what is on file. THE TWO HALVES FREEZE INDEPENDENTLY: a change that
+    // declared an AI scope freezes its AI side whether or not the search side exists (a quiet page is exactly the one an AEO change is for).
     shipmentBaseline: await (async () => {
       if (!ship) return null;
       const ai = ship.aiScope ? await latestAiPresence(args.tenantId, ship.aiScope) : held ? await latestAiPresence(args.tenantId, null) : null;
       if (!held && ai == null) return null; // nothing to freeze on either side is no baseline, not an empty one
       return { search: held ? searchBaseline : null, ai, capturedAt: now.toISOString() };
     })(),
-    // NULL, ALWAYS, and null IS the due marker the verification runtime reads. Marking a change done starts the check; nothing the operator
-    // can press or type ends it, so this is never written at mark time.
-    verification: null,
-    operatorNote: ship?.operatorNote ?? null,
-    aiScope: ship?.aiScope ?? null, treatmentStamp: ship?.treatmentStamp ?? null,
-    // Nothing is frozen at ship time: the first window has not even opened.
-    pinnedRead: null,
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
+    verification: null, // NULL, ALWAYS, and null IS the due marker the verification runtime reads: nothing the operator can press or type ends the check
+    operatorNote: ship?.operatorNote ?? null, aiScope: ship?.aiScope ?? null, treatmentStamp: ship?.treatmentStamp ?? null,
+    pinnedRead: null, createdAt: now.toISOString(), updatedAt: now.toISOString(), // nothing is frozen at ship time: the first window has not opened
   };
-  // The one policy, asked here exactly as every other door asks it: the pages that cannot stand
-  // behind THIS change over ITS window, and nothing wider.
+  // The one policy, asked here exactly as every other door asks it: the pages that cannot stand behind THIS change over ITS window.
   const [ledger, open] = await Promise.all([
     args.ledger ?? loadShippedChangesForTenant(args.tenantId).catch(() => [] as ShippedChangeRecord[]), // a batch hands its one ledger read through
     args.openPaths ?? openChangePaths(args.tenantId), // and its one read of the open changes
   ]);
   if (pre.status === "unavailable") return draft;
   try {
-    return await measureRecord(args.tenantId, draft, now, undefined, new Set(contaminationFor(ledger, open, now, draft).keys()));
+    return await measureRecord(args.tenantId, draft, now, undefined, new Set(contaminationFor(ledger, open, now, draft).keys()), ledger);
   } catch (error) {
     if (!(error instanceof SearchReadUnavailable)) throw error;
     return { ...draft, measurementState: "measurement_unavailable" };

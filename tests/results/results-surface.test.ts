@@ -19,7 +19,8 @@ const input = (over: Partial<KernelInput> = {}): KernelInput => ({
 import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
 const APPLIED = "Complete applied copy.";
 const verified = (r: Parameters<typeof SHIPMENT_PROOF.of>[0]): ShipmentVerification => ({ status: "verified", checkedAt: "2026-05-03T09:00:00Z", checkerContract: SHIPMENT_PROOF.contract, proof: SHIPMENT_PROOF.of(r, "Inspected page"), components: [{ kind: r.actionType ?? "content", state: "verified", note: null }] });
-const VERIFICATION = verified({ page: "https://site.com/nowruz", actionType: "section_add", implementedAt: `${SHIPPED}T12:00:00Z`, after: APPLIED });
+const VERIFICATION = verified({ page: "https://site.com/nowruz", actionType: "section_add", implementedAt: `${SHIPPED}T12:00:00Z`, after: APPLIED
+  });
 const shipment = (over: Partial<ShipmentPresentation> = {}): ShipmentPresentation => ((s: ShipmentPresentation): ShipmentPresentation => ({ ...s, verification: s.verification === VERIFICATION ? verified({ page: s.read.page, actionType: s.read.actionType, implementedAt: s.implementedAt, after: APPLIED }) : s.verification, learning: s.learning ?? { page: s.read.page, before: null, actionType: s.read.actionType, after: APPLIED, implementedAt: s.implementedAt, verification: s.verification === VERIFICATION ? verified({ page: s.read.page, actionType: s.read.actionType, implementedAt: s.implementedAt, after: APPLIED }) : s.verification, operatorVerdictOverride: null, pinnedRead: null, treatmentStamp: null, componentsApplied: null, baseline: s.baseline == null ? undefined : { ...s.baseline, ctr: 0, position: 0 }, controlsReceipt: [{ path: "/c1", reasons: [] }, { path: "/c2", reasons: [] }, { path: "/c3", reasons: [] }], windows: s.read.basisDay == null || s.read.metric !== "clicks" ? [] : [{ day: s.read.basisDay, checkOn: "", ran: true, adjustedLift: s.read.lift, controlsUsed: 3, comparedToSite: s.read.comparison === "site", treatedDelta: (s.read.unadjusted?.clicksAfter ?? 0) - (s.read.unadjusted?.clicksBefore ?? 0), controlDelta: (s.read.unadjusted?.clicksAfter ?? 0) - (s.read.unadjusted?.clicksBefore ?? 0) - s.read.lift, treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0, treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0 }] } }))({
   read: evaluateChange(input(), WINDOWS, []), implementedAt: `${SHIPPED}T12:00:00Z`, verification: VERIFICATION,
   baseline: { clicks: 200, impressions: 9100, windowDays: 28, capturedAt: `${SHIPPED}T12:00:00Z` }, basisMove: { clicks: 61, impressions: 900 }, ...over,});
@@ -257,7 +258,8 @@ describe("the Brain: what Beacon believes is derived from verified facts, and hi
     let allow!: (value: { access: { kind: string } }) => void, deny!: (error: Error) => void, finish!: (value: unknown) => void;
     const access = new Promise<{ access: { kind: string } }>((r, j) => { allow = r; deny = j; }), release = new Promise((r) => { finish = r; }), tenantId = `account-${mode}`;
     const snapshot = vi.fn(async () => mode === "saved" ? { computedAt: NOW.toISOString(), shipments: [shipment()] } : null), after = vi.fn(), measure = vi.fn(), changes = vi.fn(() => release), reads = vi.fn(() => [shipment().read]);
-    const persisted = vi.fn(async () => { if (mode === "outage") throw new Error("ledger unavailable"); return mode === "empty" ? [] : [{ ...shipment().learning, id: "c1", page: "https://site.com/nowruz", path: "/nowruz", shippedAt: SHIPPED, windows: [] }]; });
+    const persisted = vi.fn(async () => { if (mode === "outage") throw new Error("ledger unavailable"); return mode === "empty" ? [] : [{ ...shipment().learning, id: "c1", page: "https://site.com/nowruz", path: "/nowruz", shippedAt: SHIPPED, windows: [] }];
+  });
     vi.doMock("next/server", () => ({ after })); vi.doMock("@/lib/tenant-context", () => ({ currentTenantId: async () => tenantId }));
     vi.doMock("@/domains/account", () => ({ requireReadyAccount: () => access })); vi.doMock("@/app/(shell)/surface-release", () => ({ readCustomerSurface: changes }));
     vi.doMock("@/app/(shell)/results/results-surface-store", () => ({ readResultsSurface: snapshot, isResultsSurfaceStale: () => true }));
@@ -275,9 +277,7 @@ describe("the Brain: what Beacon believes is derived from verified facts, and hi
       expect(snapshot).toHaveBeenCalledTimes(1); expect(after).toHaveBeenCalledTimes(1); expect(measure).toHaveBeenCalledTimes(["saved", "cold"].includes(mode) ? 1 : 0);
       finish({ changes: { summary: { ready: 3 } } }); let rest = ""; for (;;) { const chunk = await reader.read(); if (chunk.done) break; rest += new TextDecoder().decode(chunk.value); }
       if (["saved", "cold"].includes(mode)) expect(rest).toContain("3 finished changes");
-    } finally { finish(null); await reader.cancel(); }
-  });
-});
+    } finally { finish(null); await reader.cancel(); } }); });
 describe("raw movement, a provisional reading and mature learning stay apart", () => {
   const gained = { w: { adjustedClicksLift: 40, treatedDelta: 20 }, peers: -20 }, heldStill = { w: { adjustedClicksLift: 40, treatedDelta: 0 }, peers: -40 };
   const rowFor = (f: { w: Partial<KernelInput["windows"][number]>; peers: number }) => { const read = evaluateChange(input({ windows: [win(7, f.w), win(14, f.w), win(28, f.w)] }), WINDOWS, []);
@@ -285,8 +285,7 @@ describe("raw movement, a provisional reading and mature learning stay apart", (
   it.each(["tenant-one", "tenant-two"])("tells a page that took more clicks apart from a page that outlasted a falling comparison, in the same words for both [%s]", () => {
     expect(rowFor(gained).unadjustedNote, "BOTH FACTS, AND WHICH ONE HAPPENED: the raw movement and the adjusted comparison sit together, and the sentence names the page's own gain rather than leaving one word to cover two different things").toContain("This page took more clicks than before and the pages compared against it took fewer, so both are true of it.");
     expect(rowFor(heldStill).unadjustedNote, "and the reading that is ahead only because the comparison fell says exactly that, on a row whose headline number is identical to the one above").toContain("Finishing ahead here is the comparison falling further, not traffic this page gained.");
-    expect([rowFor(gained).happened, rowFor(heldStill).happened], "the adjusted sentence is unchanged and says the same thing about both, which is why the raw line has to exist").toEqual([rowFor(gained).happened, rowFor(gained).happened]);
-  });
+    expect([rowFor(gained).happened, rowFor(heldStill).happened], "the adjusted sentence is unchanged and says the same thing about both, which is why the raw line has to exist").toEqual([rowFor(gained).happened, rowFor(gained).happened]); });
   it.each(["tenant-one", "tenant-two"])("says what the account's own readings changed in the next decision, in the funding door's own rule, and never that an early reading is already at work [%s]", () => {
     const one = shipment(), pair = [shipment(), shipment({ read: { ...shipment().read, id: "c2" } })];
     const three = [...pair, shipment({ read: { ...shipment().read, id: "c3" } })], down = three.map((p) => shipment({ read: { ...p.read, lift: -30 }, learning: { ...p.learning!, windows: p.learning!.windows.map((w) => ({ ...w, adjustedLift: -30 })) } }));
@@ -294,17 +293,14 @@ describe("raw movement, a provisional reading and mature learning stay apart", (
     expect(teaches([one]), "UNDER THE VOTE THE QUEUE IS UNCHANGED, and the page says so instead of implying every reading is already aiming the next recommendation").toBe("1 closed reading of this exact kind of change here, and the next one is funded exactly as before: 3 closed readings that are down between them is what moves the order.");
     expect(teaches(three), "a record that is not down buys nothing at all, because the traffic riding on a change decides the queue and never the kind of change").toContain("and a record that is not down buys no place in the queue");
     expect(teaches(down), "and a record that IS down names the funding change it makes, with its own numbers").toContain("down between them, so the next one is funded below the rest until one finishes ahead.");
-    expect([buildResultsBrain([], NOW).thoughts.length, buildResultsBrain([shipment({ verification: null })], NOW).thoughts[0]!.teaches], "an account with nothing verified says nothing has changed rather than printing a zero").toEqual([0, "Nothing here has changed what gets funded next yet."]);
-  });
+    expect([buildResultsBrain([], NOW).thoughts.length, buildResultsBrain([shipment({ verification: null })], NOW).thoughts[0]!.teaches], "an account with nothing verified says nothing has changed rather than printing a zero").toEqual([0, "Nothing here has changed what gets funded next yet."]); });
   it.each(["tenant-one", "tenant-two"])("prints the operator's own wording beside the prepared wording, and never a stored label that is really a writer's brief [%s]", () => {
     const applied = first({ applied: [{ kind: "meta", prepared: "Best Persian restaurants in Berkeley.", operator: "Persian restaurants in Berkeley, picked by readers." }] });
     expect(applied.appliedLines, "BOTH VERSIONS ARE ON THE RECORD AND BOTH REACH THE SCREEN: the live check read the page for the operator's words, and nothing said whose words the reading was about").toEqual(["The search description: your wording is on the page, \"Persian restaurants in Berkeley, picked by readers.\", and the prepared wording was \"Best Persian restaurants in Berkeley.\". The live check read the page for yours."]);
     expect(first().appliedLines, "a record the operator did not reword says nothing at all").toEqual([]);
     const brief = first({ applied: [{ kind: "Write a real description on /iran-animals/caspian-horse: 5 pages share one templated line", prepared: null, operator: "A Caspian horse stands under 12 hands." }] });
     expect(brief.appliedLines[0], "AND THE PIECE IS NAMED BY ITS KIND, NEVER BY ITS STORED LABEL: four live records carry the writer's brief there, address and all, and a brief printed as a name is an instruction served to a customer").toBe("This change: your wording is on the page, \"A Caspian horse stands under 12 hands.\". The live check read the page for yours.");
-    expect(brief.appliedLines[0]).not.toContain("/iran-animals/caspian-horse");
-  });
-});
+    expect(brief.appliedLines[0]).not.toContain("/iran-animals/caspian-horse"); }); });
 describe("what was applied and what the reading learned are two separate sentences", () => {
   const CHECKED = "2026-05-03T09:00:00Z";
   for (const s of [{ t: "acct-tide", page: "https://tide.example/tide-pools", path: "/tide-pools" },
@@ -312,27 +308,15 @@ describe("what was applied and what the reading learned are two separate sentenc
     const at = (ship: Partial<ShipmentPresentation> = {}) => first({ read: evaluateChange(input({ page: s.page, path: s.path }), WINDOWS, []), ...ship });
     const check = (status: ShipmentVerification["status"], reason: ShipmentVerification["reason"] = null): ShipmentVerification => ({ status, checkedAt: CHECKED, components: [], reason });
     it(`${s.t}: the execution sentence says what was applied, when, whose wording is on the page and what the live check found`, () => {
-      expect([at({ verification: check("verified") }).execution,
-        at({ verification: check("verified"), applied: [{ kind: "title", prepared: "The prepared line", operator: "The line that is really there" }] }).execution,
-        at({ verification: check("blocked", "rendered_content_gap") }).execution,
-        at({ verification: check("not_found") }).execution,
-        at({ verification: check("not_found", "not_published_yet") }).execution,
-        at({ implementedAt: null, verification: null }).execution],
+      expect([at({ verification: check("verified") }).execution, at({ verification: check("verified"), applied: [{ kind: "title", prepared: "The prepared line", operator: "The line that is really there" }] }).execution,
+        at({ verification: check("blocked", "rendered_content_gap") }).execution, at({ verification: check("not_found") }).execution, at({ verification: check("not_found", "not_published_yet") }).execution, at({ implementedAt: null, verification: null }).execution],
       "a page that builds itself in the browser says it could not be read and never that the change is missing, and a row that predates the live check promises no check").toEqual([
-        "Applied on May 1. Confirmed on the page on May 3.",
-        "Applied on May 1, in your own wording. Confirmed on the page on May 3.",
-        "Applied on May 1. Built in the browser, so it could not be read.",
-        "Applied on May 1. Not found on the page.",
-        "Applied on May 1. Not on the live page yet.",
-        "Marked done before the day it was applied was recorded. It has not been read on the live page yet."]);
-      expect(at({ verification: check("verified") }).execution.toLowerCase(), "and it says not one word about the reading: that is the other sentence's job").not.toMatch(/click|read \d|ahead|behind|days/);
-    });
+        "Applied on May 1. Confirmed on the page on May 3.", "Applied on May 1, in your own wording. Confirmed on the page on May 3.", "Applied on May 1. Built in the browser, so it could not be read.",
+        "Applied on May 1. Not found on the page.", "Applied on May 1. Not on the live page yet.", "Marked done before the day it was applied was recorded. It has not been read on the live page yet."]);
+      expect(at({ verification: check("verified") }).execution.toLowerCase(), "and it says not one word about the reading: that is the other sentence's job").not.toMatch(/click|read \d|ahead|behind|days/); });
     it(`${s.t}: the learning sentences say what the reading found and what it changed about what gets funded next`, () => {
-      const row = at();
-      expect([row.happened, row.funded], "the reading and what it taught funding are said apart from the execution above, and the funding sentence is the one the belief at the top of this page uses").toEqual([
+      const row = at(); expect([row.happened, row.funded], "the reading and what it taught funding are said apart from the execution above, and the funding sentence is the one the belief at the top of this page uses").toEqual([
         "Ran 28 days. 40 clicks ahead of pages that were not changed, which this page's own clicks cannot prove: about 28 percent is the least a change here can show, and this one is 20 percent.",
         "1 closed reading of this exact kind of change here, and the next one is funded exactly as before: 3 closed readings that are down between them is what moves the order."]);
-      expect(at({ implementedAt: null, verification: null }).funded, "and a row that never trained anything says the account has changed nothing about funding yet").toBe("Nothing here has changed what gets funded next yet.");
-    });
-  }
-});
+      expect(at({ implementedAt: null, verification: null }).funded, "and a row that never trained anything says the account has changed nothing about funding yet").toBe("Nothing here has changed what gets funded next yet."); });
+  } });

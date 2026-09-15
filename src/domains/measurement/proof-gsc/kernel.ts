@@ -1,23 +1,20 @@
 /**
- * Measurement kernel (CORE 100K replacement). PURE + one thin loader.
- *
- * This is the small, honest replacement for the sprawling proof-gsc engine. It does exactly nine things and nothing more: (1) load a shipped change and its page identity;
- * (2) evaluate the checkpoints, counted from the stamp; (3) compare before vs after (GSC clicks, CTR, position, impressions for visibility, GA4 where trustworthy); (4) account
- * for Google's reporting lag and missing data; (5) detect overlapping changes on one page; (6) produce a directional read, a bundle read for overlaps, and an explicit confounded
- * or insufficient state when separation is impossible; (7) never claim clean causality; (8) feed a small outcome signal back into ranking; (9) render what an operator needs.
- *
- * Confidence is derived from transparent conditions ONLY: window maturity, data availability, sample size, baseline stability, overlap/confounding, and source
- * freshness. No permutation-null, FDR, calibration self-tests, or forecast machinery.
- *
- * Beacon voice on every operator-facing string: first person, concrete numbers,
- * honest about misses, no em or en dashes.
+ * Measurement kernel. PURE. It evaluates the checkpoints counted from the stamp's reporting day, compares before against after (clicks,
+ * CTR, position, impressions; GA4 where trustworthy), reads Google's lag as pending rather than stalled, detects overlapping changes on one
+ * page, and produces a directional read, a bundle read for overlaps, or an explicit confounded or insufficient state. It never claims
+ * clean causality, never splits page movement between components, and feeds only a settled mature read back into ranking.
+ * Confidence comes from transparent conditions only: window maturity, data, sample size, overlap. No permutation nulls, FDR or forecast machinery.
+ * Beacon voice on every operator-facing string: no first person, concrete numbers, honest about misses, no em or en dashes.
  */
 
 import "server-only";
 
 import { reportingDay } from "@/lib/reporting-day";
 import { detectableLift } from "../detectable-lift";
-import { buildHeadline, learningShape, metricFor, monthDay, overlapClosures } from "./read-honesty";
+import { addDays, dayOfStamp, daysBetween } from "../outcome-windows";
+import { crawlClock, FOLLOW_UP_WINDOW_DAY } from "./measure-lifecycle";
+import { dayLabel } from "@/lib/presenter";
+import { buildHeadline, learningShape, metricFor, overlapClosures } from "./read-honesty";
 import { applyPinnedRead } from "./pinned-read";
 import { learningEligibility, MIN_CONTROLS } from "./types";
 import type { SHIPMENT_PROOF } from "./shipment-proof";
@@ -134,8 +131,7 @@ export type KernelRead = {
   promisedRead: string | null;
   /** THE DAY THE CHANGE WAS MADE, when Google has not read the page since, and null on every other row. Google starts the clock, not the
    *  press: a crawl stamp older than the change means the copy Google is still serving is the old one, so no window may run and no reading
-   *  date may be promised. measure-lifecycle's `crawlClock` is the authority and cannot be imported here (it imports this file), so the same
-   *  two term comparison is written once below and held equal to it by a test. */
+   *  date may be promised. measure-lifecycle's `crawlClock` is the one rule, read here. */
   awaitingCrawl: string | null;
   /** WHAT THIS PAGE'S OWN CLICKS CAN SHOW, read off the clicks it had BEFORE the change and never off what
    *  happened after. `floor` is the smallest change a read could tell apart from ordinary movement on this
@@ -195,27 +191,6 @@ const CONFIDENCE_PHRASES = [" A clear, well supported move.", " Still observatio
 const NO_FAIR_COMPARISON = "The change is recorded. Its effect cannot be separated from the rest of the site yet.";
 
 const WINDOW_DAYS: Array<7 | 14 | 28> = [7, 14, 28];
-/** The conditional fourth checkpoint. It exists on a read ONLY when the record carries a
- *  day-56 measurement, and measure-lifecycle is the one place that decides it is owed. */
-const FOLLOW_UP_DAY = 56;
-
-// ── Date helpers (pure, UTC) ─────────────────────────────────────────────────
-
-const pad = (n: number): string => (n < 10 ? `0${n}` : `${n}`);
-
-/** Add days to a YYYY-MM-DD (or ISO) date, returning YYYY-MM-DD. Pure (UTC). */
-export function addDays(dateStr: string, days: number): string {
-  const base = dateStr.length > 10 ? dateStr.slice(0, 10) : dateStr;
-  const [y, m, d] = base.split("-").map((s) => parseInt(s, 10));
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + days);
-  return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
-}
-
-function daysBetween(fromIso: string, toIso: string): number {
-  const a = Date.parse(fromIso.length > 10 ? fromIso : `${fromIso}T00:00:00Z`), b = Date.parse(toIso.length > 10 ? toIso : `${toIso}T00:00:00Z`);
-  return Number.isFinite(a) && Number.isFinite(b) ? Math.floor((b - a) / 86_400_000) : 0;
-}
 
 // ── Point 2 + 4: window evaluation with reporting lag ────────────────────────
 
@@ -227,7 +202,7 @@ function daysBetween(fromIso: string, toIso: string): number {
  * only evaluated when the caller says this change earned one. Pure.
  */
 export function evaluateWindows(shippedAt: string, now: Date, latestGscDate: string | null, includeFollowUp = false): KernelWindowRead[] {
-  const nowIso = reportingDay(now), days: CheckpointDay[] = includeFollowUp ? [...WINDOW_DAYS, FOLLOW_UP_DAY] : [...WINDOW_DAYS];
+  const nowIso = reportingDay(now), days: CheckpointDay[] = includeFollowUp ? [...WINDOW_DAYS, FOLLOW_UP_WINDOW_DAY] : [...WINDOW_DAYS];
   return days.map((day) => {
     const closesOn = addDays(shippedAt, day);
     // Once the calendar window has closed, the only question left is whether Google's data has caught up to it.
@@ -251,22 +226,21 @@ function settleRanWindows(input: KernelInput, live: ReadonlyArray<KernelWindowRe
     return ran ? { ...w, closesOn: ran.checkOn?.slice(0, 10) ?? w.closesOn, state: "closed" as WindowState } : { ...w };});
 }
 
-/** The stamp every checkpoint counts from: when the operator marked the change done,
- *  falling back to the ship date on a row written before there was a stamp. Pure. */
+/** The stamp every checkpoint counts from: when the operator marked the change done, falling back to the ship date on a row written
+ *  before there was a stamp, AS THE OPERATOR'S REPORTING DAY (Pacific, the zone Search Console reports in), the one day the AI outcome,
+ *  the comparison policy and the lifecycle all count from. Pure. */
 function anchorOf(input: Pick<KernelInput, "implementedAt" | "shippedAt">): string {
   const stamp = input.implementedAt ?? input.shippedAt;
-  return stamp.length > 10 ? stamp.slice(0, 10) : stamp;
+  return dayOfStamp(stamp) ?? stamp.slice(0, 10);
 }
 
-/** WHEN THIS ROW MAY SAY ITS FIRST RESULT LANDS. Google starts the clock, not the press, so a crawl at or after the change is day zero and
- *  every promised date counts from it; a crawl BEFORE the change means the copy Google serves is still the old one and no date is offered.
- *  Same rule as measure-lifecycle's crawl clock, held equal by tests/results/kernel.test.ts. Pure, and display only: nothing below reads it. */
+/** WHEN THIS ROW MAY SAY ITS FIRST RESULT LANDS. Google starts the clock, not the press: the crawl clock (measure-lifecycle, the one rule)
+ *  makes a crawl at or after the change day zero, and a crawl BEFORE it offers no date. Pure, and display only: nothing below reads it. */
 function promiseRead(input: KernelInput, now?: Date): string | null {
-  const stamp = anchorOf(input), crawl = (input.lastCrawlAt ?? "").slice(0, 10);
-  if (crawl !== "" && crawl < stamp) return null;
-  const start = crawl !== "" ? crawl : stamp, nowYmd = now ? reportingDay(now) : null;
+  const clock = crawlClock(input), nowYmd = now ? reportingDay(now) : null;
+  if (clock.awaiting) return null;
   for (const day of WINDOW_DAYS) {
-    const on = addDays(start, day);
+    const on = addDays(clock.anchor, day);
     if (!input.windows.some((w) => w.day === day && w.ran) && (nowYmd == null || on > nowYmd)) return on;
   }
   return null;
@@ -297,7 +271,7 @@ const directionalVerdict = (lift: number, floor: number, controls: number): Kern
  */
 function flipSentence(input: KernelInput, metric: KernelMetric, basisDay: CheckpointDay | null, verdict: KernelVerdict): string {
   const w28 = input.windows.find((w) => w.day === 28 && w.ran);
-  if (basisDay !== FOLLOW_UP_DAY || verdict === "confounded" || !w28) return "";
+  if (basisDay !== FOLLOW_UP_WINDOW_DAY || verdict === "confounded" || !w28) return "";
   const word = (v: KernelVerdict): string => (v === "directional_decline" ? "a loss" : v === "no_clear_movement" ? "no clear change" : "a win");
   const was = word(directionalVerdict(liftOnMetric(w28, metric), floorFor(metric, input.baselineClicks, 28), w28.controlsUsed));
   return was === word(verdict) ? "" : ` The 28 day read looked like ${was}; the full 56 day read shows ${word(verdict)}, and the longer window wins.`;
@@ -337,9 +311,8 @@ export function evaluateChange(input: KernelInput, windows: KernelWindowRead[], 
   // WHAT THIS PAGE COULD EVER SHOW ON ITS OWN, off the clicks it had before the change. A small page's two windows
   // swing further by themselves than a real edit moves them, so a reading under this floor is a number the page
   // cannot carry however clean the comparison was. Held over the full 28 day read until a window has closed.
-  // AND WHETHER GOOGLE HAS READ THE CHANGE AT ALL. See the field's own note: a crawl older than the change is a page still serving its old copy.
-  const stampDay = anchorOf(input), crawlDay = (input.lastCrawlAt ?? "").slice(0, 10);
-  const awaitingCrawl = crawlDay !== "" && crawlDay < stampDay ? stampDay : null, promisedRead = promiseRead(input, now);
+  // AND WHETHER GOOGLE HAS READ THE CHANGE AT ALL: a crawl older than the change is a page still serving its old copy.
+  const awaitingCrawl = crawlClock(input).awaiting ? anchorOf(input) : null, promisedRead = promiseRead(input, now);
   const ownDays = basisDay ?? BASELINE_WINDOW_DAYS, ownClicks = (input.baselineClicks / BASELINE_WINDOW_DAYS) * ownDays;
   const ownFloor = detectableLift(input.baselineClicks / BASELINE_WINDOW_DAYS, ownDays);
   const ownProofOf = (move: number): KernelRead["ownProof"] => {
@@ -429,11 +402,11 @@ export function evaluateChange(input: KernelInput, windows: KernelWindowRead[], 
   // was changed again keeps its verdict and carries the honest cut-off line instead.
   const isDirectional = verdict === "directional_improvement" || verdict === "stronger_improvement" || verdict === "directional_decline";
   if (isDirectional && basisConfounded) {
-    caveats.push(`This page changed again on ${monthDay(cleanUntil!)}, so everything after that day belongs to both changes and this reading stops there.`); verdict = "confounded";
+    caveats.push(`This page changed again on ${dayLabel(cleanUntil!)}, so everything after that day belongs to both changes and this reading stops there.`); verdict = "confounded";
   } else if (isDirectional && cleanUntil == null && overlappingIds.length > 0) {
     caveats.push(`This page took ${overlappingIds.length} other change${overlappingIds.length === 1 ? "" : "s"} in the same window, so this movement cannot be pinned on one change alone.`); verdict = "confounded";
   } else if (cleanUntil != null && marked.some((w) => w.confounded != null)) {
-    caveats.push(`This is the ${basisDay}-day read, which closed before the page changed again on ${monthDay(cleanUntil)}. The days after that do not count against this change.`);
+    caveats.push(`This is the ${basisDay}-day read, which closed before the page changed again on ${dayLabel(cleanUntil)}. The days after that do not count against this change.`);
   }
 
   // AND WHAT THE PAGE'S OWN CLICKS COULD EVER SHOW, said before any movement is sold as a result. Under the floor
@@ -464,7 +437,7 @@ export function evaluateChange(input: KernelInput, windows: KernelWindowRead[], 
 
   // Confidence from transparent conditions only (point: window maturity, data
   // availability, sample size, baseline stability, overlap).
-  const mature = basisDay === 28 || basisDay === FOLLOW_UP_DAY;
+  const mature = basisDay === 28 || basisDay === FOLLOW_UP_WINDOW_DAY;
   const confidence: KernelConfidence = verdict === "confounded" || verdict === "no_clear_movement" ? "low"
     : controls >= CONTROLS_FOR_STRONG && input.baselineImpressions >= IMPRESSIONS_FOR_STRONG && mature ? "high"
       : controls >= MIN_CONTROLS && input.baselineImpressions >= 800 ? "medium" : "low";
@@ -532,10 +505,10 @@ export type LedgerRecordLike = {
 /** Map a historical record to the kernel's normalized input. Pure. Reads only
  *  the small set of fields the kernel needs; everything else on the record is
  *  ignored (preserved in the store, untouched). */
-export function toKernelInput(r: LedgerRecordLike): KernelInput {
+function toKernelInput(r: LedgerRecordLike): KernelInput {
   const windows = (r.windows ?? [])
     .filter((w): w is NonNullable<typeof w> =>
-      w != null && (w.day === 7 || w.day === 14 || w.day === 28 || w.day === FOLLOW_UP_DAY))
+      w != null && (w.day === 7 || w.day === 14 || w.day === 28 || w.day === FOLLOW_UP_WINDOW_DAY))
     .map((w) => ({
       day: w.day as CheckpointDay, ran: w.ran === true, checkOn: w.checkOn ?? null, adjustedClicksLift: w.adjustedLift ?? 0,
       adjustedCtrLift: w.adjustedCtrLift ?? 0, adjustedPosLift: w.adjustedPosLift ?? 0, adjustedImpressionsLift: w.adjustedImpressionsLift ?? 0,
@@ -566,7 +539,7 @@ export function readLedger(records: ReadonlyArray<LedgerRecordLike>, now: Date, 
   return inputs.map((input) => {
     const o = overlaps.get(input.id) ?? { ids: [], cleanUntil: null };
     // The fourth checkpoint exists only on a record that actually earned a day-56 read.
-    const followUp = input.windows.some((w) => w.day === FOLLOW_UP_DAY);
+    const followUp = input.windows.some((w) => w.day === FOLLOW_UP_WINDOW_DAY);
     const windows = evaluateWindows(anchorOf(input), now, latestGscDate, followUp);
     return evaluateChange(input, windows, o.ids, o.cleanUntil, now);
   });
@@ -579,7 +552,7 @@ type ResultBand = "won" | "promising" | "learned" | "measuring";
 /** A read is MATURE once its basis is the 28-day window, or the day-56 follow up that
  *  only an unsettled or dangerous change earns. Pure. */
 export function isMature(basisDay: CheckpointDay | null): boolean {
-  return basisDay === 28 || basisDay === FOLLOW_UP_DAY;
+  return basisDay === 28 || basisDay === FOLLOW_UP_WINDOW_DAY;
 }
 
 /** Which Results band a read belongs to. Pure. "won" = a MATURE improvement; "promising" = an earlier
@@ -604,7 +577,7 @@ export function bandOf(read: Pick<KernelRead, "verdict" | "basisDay">): ResultBa
  * measurement was actually taken. Pure.
  */
 function windowsFromRanFlags(input: KernelInput): KernelWindowRead[] {
-  const days: CheckpointDay[] = input.windows.some((w) => w.day === FOLLOW_UP_DAY) ? [...WINDOW_DAYS, FOLLOW_UP_DAY] : [...WINDOW_DAYS];
+  const days: CheckpointDay[] = input.windows.some((w) => w.day === FOLLOW_UP_WINDOW_DAY) ? [...WINDOW_DAYS, FOLLOW_UP_WINDOW_DAY] : [...WINDOW_DAYS];
   return settleRanWindows(input, days.map((day) => ({ day, closesOn: addDays(anchorOf(input), day), state: "waiting" as WindowState })));
 }
 

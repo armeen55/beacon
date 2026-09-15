@@ -89,6 +89,8 @@ type MeasureDueContext = {
   /** THE ONE POLICY. Given the record being measured, the pages that cannot stand behind it over ITS window. This pass used to hand
    *  measureRecord nothing at all, so a scheduled reading was taken against pages the operator was in the middle of changing. */
   excludeControls: (record: ShippedChangeRecord) => ReadonlySet<string>;
+  /** The whole ledger, so a stored verdict is read over the page and never over the one row. */
+  ledger: ReadonlyArray<ShippedChangeRecord>;
   persist: (measured: ShippedChangeRecord) => Promise<{ ok: boolean }>;
   onMeasured?: (before: ShippedChangeRecord, after: ShippedChangeRecord) => void;
   onError?: (record: ShippedChangeRecord, error: unknown) => void;
@@ -98,7 +100,7 @@ async function measureDueRecords(tenantId: string, due: ReadonlyArray<ShippedCha
   let measured = 0, failed = 0;
   for (const record of due) {
     try {
-      const next = await measureRecord(tenantId, record, ctx.now, ctx.lastFinal, ctx.excludeControls(record));
+      const next = await measureRecord(tenantId, record, ctx.now, ctx.lastFinal, ctx.excludeControls(record), ctx.ledger);
       if (!(await ctx.persist(next)).ok) { failed += 1; continue; }
       measured += 1; ctx.onMeasured?.(record, next);
     } catch (e) { failed += 1; ctx.onError?.(record, e); }
@@ -138,11 +140,12 @@ export async function autoMeasureDuePass(
     now,
     lastFinal,
     excludeControls: (record) => new Set(contaminationFor(records, open, now, record).keys()),
+    ledger: records,
     persist: async (next) => { await upsertShippedChange(next, tenantId, { invalidate: false }); return { ok: true }; }, // the loop invalidates once, below
     onMeasured: (record, next) => {
       const changed = next.verdict !== record.verdict;
       if (changed) result.changed += 1;
-      if (next.verdict === "won" || next.verdict === "lost") result.settled += 1;
+      if (next.verdict === "won" || next.verdict === "lost") result.settled += 1; // written only at day 28 (storedVerdictFor), so a settle here is a mature one
       // A ROW THAT CAME BACK: it was parked with nothing to compare it against, and this reading found a basis for it. The only way into
       // "measuring" from another state is that promotion, so the move itself is the count.
       if (next.measurementState === "measuring" && record.measurementState !== "measuring") result.revived += 1;
