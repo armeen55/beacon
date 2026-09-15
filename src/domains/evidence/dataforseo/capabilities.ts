@@ -216,7 +216,8 @@ export async function providerCall<K extends CapabilityKey>(
   // SAME BOUNDARY AS THE MODEL DOOR (lib/spend-scope): `capped` is what every caller reads as "not buying now", so a paused day leaves the work owed, never failed.
   if (await spendingClosed(ids.tenantId)) return { state: "capped", cacheKey: null, detail: "Research is paused for this account, so nothing was bought. This is owed, not failed." };
   const peek = (deps as { creditPeek?: typeof CREDIT_BREAKER.peek }).creditPeek ?? CREDIT_BREAKER.peek; // AND NO PAID POST WHILE THE MODEL DOOR IS HELD (2026-09-14): research bought with no credit to reason on it is money spent on a queue nobody can read. The free GET collects never pass here.
-  if (await peek(ids.tenantId).catch(() => "clear" as const) === "held") return { state: "capped", cacheKey: null, detail: "The OpenAI balance for this account is empty, so no paid research is bought until a call goes through. This is owed, not failed." };
+  if (await peek(ids.tenantId).catch(() => "clear" as const) === "held") return { state: "capped", cacheKey: null, detail: CREDIT_BREAKER.sentence("openai") };
+  if (await peek(ids.tenantId, {}, "dataforseo").catch(() => "clear" as const) === "held") return { state: "capped", cacheKey: null, detail: CREDIT_BREAKER.sentence("dataforseo") }; // AND NO POST WHILE THE SEARCH PROVIDER ITSELF IS DRY (2026-09-15): every search answered 402 for an hour, each refusal was refunded and counted, and no surface said the balance was empty
   const entry = REGISTRY[capability];
   let resolution: EngineModelResolution | null = null, modelRequested: string | null = null;
   if (entry.engine) { // ONE resolution: the method routes the call AND the model rides the request

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { isDataForSeoConfigured, monthlyCapUsd, runDataForSeoTransport } from "./client";
 import { resolveDeps } from "./default-deps";
 import { classifyPaidResponse, classifyTaskStatus } from "./status-contract";
+import { CREDIT_BREAKER } from "@/lib/cost/credit-breaker";
 import type { CachedCallResult, FunnelBoundaryDeps, ProviderEnvelope } from "./funnel-boundary";
 
 /**
@@ -151,8 +152,11 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     return { state: "error", cacheKey, disposition: "none", detail: `I could not save the pre-call receipt (${short(err)}); I made no provider call and will try again.` };
   }
 
+  if (!(await CREDIT_BREAKER.claimProbe(r.tenantId, {}, "dataforseo").catch(() => true))) { await d.adjustProviderSpend(r.tenantId, PLATFORM, -r.estCostUsd).catch(() => {}); if (!(await holdBlocked(d, cacheKey, now, "HTTP 402"))) return { state: "error", cacheKey, disposition: "none", detail: CREDIT_BREAKER.sentence("dataforseo") }; return blockedResult(cacheKey, "HTTP 402"); } // THE STOP ON FILE REFUSES BEFORE THE NETWORK, and one probe per cooldown is the only call that may try to clear it (2026-09-15)
   const transport = await runDataForSeoTransport({ url: `${API_BASE}/${r.postPath}`, payload, estCostUsd: r.estCostUsd, env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence" });
+  if (transport.ok) await CREDIT_BREAKER.clear(r.tenantId, {}, "dataforseo").catch(() => {});
   if (!transport.ok) {
+    if (transport.status === 402) await CREDIT_BREAKER.trip(r.tenantId, {}, "dataforseo").catch(() => {}); // the balance is empty: hold every search for this account until one goes through
     // Only HTTP 401/402/404 are documented pre-execution rejections (charged
     // nothing): refund, then HOLD the row. Releasing it is what silently re-runs a
     // refused paid request, and a raw 404 must never read as a dead task. A throw,

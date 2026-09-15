@@ -49,14 +49,16 @@ import { log } from "@/lib/logger";
 const PROBE_COOLDOWN_MS = 15 * 60 * 1000;
 /** The one row that holds the stop: a date no monthly read ever reaches, so it can never move a spend number. */
 const STATE_DATE = "1970-01-01";
-const PLATFORM = "openai";
+/** THE PROVIDERS THAT CAN RUN DRY, each with its own stop row (operator audit, 2026-09-15): DataForSEO answered every search with HTTP 402 for an hour while the OpenAI door was open, and nothing on any surface said so; the refusal was refunded per call and the run's blocker named only the model door. */
+export type CreditProvider = "openai" | "dataforseo";
+const PROVIDER_NAME: Record<CreditProvider, string> = { openai: "OpenAI", dataforseo: "DataForSEO" };
 const LEDGER = "llm_budget_ledger";
 
 type CreditBreakerState = { trippedAt: string | null; probeAt: string | null };
 
 type CreditBreakerDeps = {
-  read: (tenantId: string) => Promise<CreditBreakerState | null>;
-  write: (tenantId: string, state: CreditBreakerState | null) => Promise<boolean>;
+  read: (tenantId: string, provider?: CreditProvider) => Promise<CreditBreakerState | null>;
+  write: (tenantId: string, state: CreditBreakerState | null, provider?: CreditProvider) => Promise<boolean>;
   now: () => Date;
 };
 
@@ -78,11 +80,11 @@ function underVitest(): boolean {
 
 /** The stop on file, or null. Never throws; an unreadable ledger reads as no stop, because the global cost breaker
  *  beside this one already fails closed on exactly that condition and two holds on one outage help nobody. */
-async function readState(tenantId: string): Promise<CreditBreakerState | null> {
+async function readState(tenantId: string, provider: CreditProvider = "openai"): Promise<CreditBreakerState | null> {
   if (underVitest() || !isSupabaseConfigured()) return null;
   try {
     const { data, error } = await getSupabaseAdmin().from(LEDGER).select("metadata")
-      .eq("tenant_id", tenantId).eq("date_utc", STATE_DATE).eq("platform", PLATFORM).maybeSingle();
+      .eq("tenant_id", tenantId).eq("date_utc", STATE_DATE).eq("platform", provider).maybeSingle();
     if (error || !data) return null;
     const s = (data.metadata as { creditBreaker?: CreditBreakerState | null } | null)?.creditBreaker;
     return s?.trippedAt ? { trippedAt: String(s.trippedAt), probeAt: s.probeAt ? String(s.probeAt) : null } : null;
@@ -92,11 +94,11 @@ async function readState(tenantId: string): Promise<CreditBreakerState | null> {
 }
 
 /** Persist (or clear) the stop. Returns whether it durably landed; the caller decides what a lost write means. */
-async function writeState(tenantId: string, state: CreditBreakerState | null): Promise<boolean> {
+async function writeState(tenantId: string, state: CreditBreakerState | null, provider: CreditProvider = "openai"): Promise<boolean> {
   if (underVitest() || !isSupabaseConfigured()) return true;
   try {
     const { error } = await getSupabaseAdmin().from(LEDGER).upsert({
-      tenant_id: tenantId, date_utc: STATE_DATE, platform: PLATFORM, spent_usd: 0, call_count: 0,
+      tenant_id: tenantId, date_utc: STATE_DATE, platform: provider, spent_usd: 0, call_count: 0,
       metadata: { creditBreaker: state }, updated_at: new Date().toISOString(),
     }, { onConflict: "tenant_id,date_utc,platform" });
     return !error;
@@ -114,10 +116,10 @@ const stopOnFile = new Set<string>();
 /** WHAT THIS ACCOUNT'S STOP MEANS RIGHT NOW. PURE: it reads, it decides, and it writes NOTHING, so asking the
  *  question can never spend the answer. `held` = refuse without calling. `probe_due` = the cooldown has elapsed and
  *  the next REAL request may try to clear it. `clear` = no stop on file, which is what almost every pass sees. */
-async function creditBreakerPeek(tenantId: string, deps: Partial<CreditBreakerDeps> = {}): Promise<"clear" | "held" | "probe_due"> {
+async function creditBreakerPeek(tenantId: string, deps: Partial<CreditBreakerDeps> = {}, provider: CreditProvider = "openai"): Promise<"clear" | "held" | "probe_due"> {
   const d = { ...defaultDeps, ...deps };
-  const state = await d.read(tenantId).catch(() => null);
-  if (state?.trippedAt) stopOnFile.add(tenantId); else stopOnFile.delete(tenantId);
+  const state = await d.read(tenantId, provider).catch(() => null);
+  if (state?.trippedAt) stopOnFile.add(`${provider}:${tenantId}`); else stopOnFile.delete(`${provider}:${tenantId}`);
   const verdict = decideCreditBreaker(state, d.now());
   return verdict.active ? "held" : verdict.probe ? "probe_due" : "clear";
 }
@@ -127,30 +129,30 @@ async function creditBreakerPeek(tenantId: string, deps: Partial<CreditBreakerDe
  *  may reach the provider. A stamp that could not be written returns false and keeps the hold, because an
  *  unrecordable probe is an unbounded retry loop wearing a probe's clothes. The read and the stamp are not one
  *  atomic act across lambdas (see the module note), so the honest bound stays roughly one probe per process. */
-async function claimCreditProbe(tenantId: string, deps: Partial<CreditBreakerDeps> = {}): Promise<boolean> {
+async function claimCreditProbe(tenantId: string, deps: Partial<CreditBreakerDeps> = {}, provider: CreditProvider = "openai"): Promise<boolean> {
   const d = { ...defaultDeps, ...deps };
-  const state = await d.read(tenantId).catch(() => null);
+  const state = await d.read(tenantId, provider).catch(() => null);
   const verdict = decideCreditBreaker(state, d.now());
   if (verdict.active) return false;
   if (!verdict.probe) return true;
-  return await d.write(tenantId, { trippedAt: state?.trippedAt ?? null, probeAt: d.now().toISOString() }).catch(() => false);
+  return await d.write(tenantId, { trippedAt: state?.trippedAt ?? null, probeAt: d.now().toISOString() }, provider).catch(() => false);
 }
 
 /** The provider said the balance is empty. Hold every OpenAI-dependent call for this account until one goes through. */
-async function tripCreditBreaker(tenantId: string, deps: Partial<CreditBreakerDeps> = {}): Promise<void> {
+async function tripCreditBreaker(tenantId: string, deps: Partial<CreditBreakerDeps> = {}, provider: CreditProvider = "openai"): Promise<void> {
   const d = { ...defaultDeps, ...deps };
-  stopOnFile.add(tenantId);
-  const landed = await d.write(tenantId, { trippedAt: d.now().toISOString(), probeAt: null }).catch(() => false);
-  log.warn(`[credit-breaker] the OpenAI balance for this account is empty, so I am holding every call that needs it${landed ? "" : " (the hold could not be written down, so it lasts only as long as this process)"}`, { tenantId });
+  stopOnFile.add(`${provider}:${tenantId}`);
+  const landed = await d.write(tenantId, { trippedAt: d.now().toISOString(), probeAt: null }, provider).catch(() => false);
+  log.warn(`[credit-breaker] the ${PROVIDER_NAME[provider]} balance for this account is empty, so every call that needs it is held${landed ? "" : " (the hold could not be written down, so it lasts only as long as this process)"}`, { tenantId });
 }
 
 /** A call went through, so the balance is not empty. Clears the stop, and costs nothing when there was none. */
-async function clearCreditBreaker(tenantId: string, deps: Partial<CreditBreakerDeps> = {}): Promise<void> {
-  if (!stopOnFile.delete(tenantId) && deps.write === undefined) return;
+async function clearCreditBreaker(tenantId: string, deps: Partial<CreditBreakerDeps> = {}, provider: CreditProvider = "openai"): Promise<void> {
+  if (!stopOnFile.delete(`${provider}:${tenantId}`) && deps.write === undefined) return;
   const d = { ...defaultDeps, ...deps };
-  await d.write(tenantId, null).catch(() => false);
+  await d.write(tenantId, null, provider).catch(() => false);
 }
 
 /** THE CREDIT STOP AS ONE SURFACE. Two readers and two writers, kept together so the asking and the spending of a
  *  probe can never drift apart again: `peek` answers, `claimProbe` spends, `trip` holds, `clear` releases. */
-export const CREDIT_BREAKER = { peek: creditBreakerPeek, claimProbe: claimCreditProbe, trip: tripCreditBreaker, clear: clearCreditBreaker } as const;
+export const CREDIT_BREAKER = { peek: creditBreakerPeek, claimProbe: claimCreditProbe, trip: tripCreditBreaker, clear: clearCreditBreaker, sentence: (provider: CreditProvider): string => `The ${PROVIDER_NAME[provider]} balance for this account is empty, so no ${provider === "openai" ? "paid research is bought" : "search is bought"} until a call goes through. This is owed, not failed.` } as const;
