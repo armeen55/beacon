@@ -18,7 +18,6 @@ import {
   seedProposals, seedResearchState, seedRun, seedSearchHistory, reasoningReply, table, today, HUB_PAGE, JUDGE, T, SITE, WRITER,
   type FixtureSerp, type FixtureWinner, type Row, type RunRow,
 } from "./world";
-
 const HUB = "/famous-iranians", QUERY = "famous iranians";
 const serpFor = (q: string): FixtureSerp[] => fixture<FixtureSerp[]>("serps.json").filter((s) => s.query === q);
 const REASONING = { page_job: { topics: ["names", "notable people", "history"], job: "Name the people this page covers and say why each is remembered.", audience: "readers looking a person up", promise: "a named list with one line each", missing: "a direct opening answer", sells: ["guides", "lists"] } };
