@@ -90,9 +90,7 @@ const CLAIM_SYSTEM = 'You read one web page and list the statements on it that a
   + 'Return ONLY {"statements":[{"subject","current","locator"}]}: `subject` is what the statement is about as the page writes it; '
   + '`current` is the page\'s own wording, quoted exactly; `locator` is where it sits (the heading or section it is under). '
   + 'Only statements of FACT about the world. Never marketing copy, navigation, or anything about the page itself, and never the site\'s own products, prices, ratings, reviews, shipping or customer notes. At most 40.';
-/** THE SITE'S OWN COMMERCE IS NOT A FACT ABOUT THE WORLD (operator audit, 2026-09-15): "Fesenjoon Fesenjan T-Shirt Price$23.99", "Iran Lion Sun Persian Hoodie Rating 5.0 out five stars based 1 review" and "postal issues some along way" (a customer review) were inventoried as claims and each bought a search and a reading. A product name, a price, a star rating, a review, a shipping note or a shop invitation has no outside source and is dropped before the inventory is written. */
-const STOREFRONT_PATH = /(^|[/-])(shop|store|cart|checkout|product-page|products?|collections?)([/-]|$)/i;
-const COMMERCE_CLAIM = /\$\s?\d|\d\s?(?:USD|EUR|GBP)\b|\bprice[sd]?\b|\brating\b|\bout of (?:five|5) stars?\b|\b\d(?:\.\d)? stars?\b|\breviews?\b|\bt-?shirts?\b|\bhoodies?\b|\bsweatshirts?\b|\bmugs?\b|\bview details\b|\badd to cart\b|\bcheckout\b|\bshop\b|\bour (?:collection|store|products?)\b|\bdiscover our\b|\bfree shipping\b|\bordered\b|\bdeliver(?:y|ed)\b|\bpostal\b|\brefund\b|\bcustomer\b/i;
+/** THE SITE'S OWN COMMERCE IS NOT A FACT ABOUT THE WORLD (operator audit, 2026-09-15): "Fesenjoon Fesenjan T-Shirt Price$23.99", "Iran Lion Sun Persian Hoodie Rating 5.0 out five stars based 1 review" and "postal issues some along way" (a customer review) were inventoried as claims and each bought a search and a reading. A product name, a price, a star rating, a review, a shipping note or a shop invitation has no outside source and is dropped before the inventory is written; a product page is not read for facts at all. */ const STOREFRONT_PATH = /(^|[/-])(shop|store|cart|checkout|product-page|products?|collections?)([/-]|$)/i, COMMERCE_CLAIM = /\$\s?\d|\d\s?(?:USD|EUR|GBP)\b|\bprice[sd]?\b|\brating\b|\bout of (?:five|5) stars?\b|\b\d(?:\.\d)? stars?\b|\breviews?\b|\bt-?shirts?\b|\bhoodies?\b|\bsweatshirts?\b|\bmugs?\b|\bview details\b|\badd to cart\b|\bcheckout\b|\bshop\b|\bour (?:collection|store|products?)\b|\bdiscover our\b|\bfree shipping\b|\bordered\b|\bdeliver(?:y|ed)\b|\bpostal\b|\brefund\b|\bcustomer\b/i;
 
 const JUDGE_SYSTEM = 'You compare ONE statement a web page makes against PASSAGES QUOTED FROM SOURCES THAT WERE ACTUALLY FETCHED. '
   + 'Return ONLY {"verdict","proposed","literal","usage","confidence","supporting","note"}. '
@@ -243,8 +241,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
       .map((c) => ({ ...c, statementKey: claimIdentity(c.subject, c.current, c.locator), prop: propOf(c, c.locator) }))
       // One row per identity AND one per proposition: reformulations of one fact are researched once.
       .filter((c, i, all) => all.findIndex((x) => x.statementKey === c.statementKey) === i) .filter((c, i, all) => all.findIndex((x) => x.prop === c.prop) === i)
-      .filter((c) => !knownIds.has(c.statementKey) && !knownProps.has(c.prop))
-      .filter((c) => !COMMERCE_CLAIM.test(`${c.subject} ${c.current}`));
+      .filter((c) => !knownIds.has(c.statementKey) && !knownProps.has(c.prop) && !COMMERCE_CLAIM.test(`${c.subject} ${c.current}`));
     if (cov.coveredChars === 0) {
       // THE PAGE MOVED ON: whatever objects to wording this version no longer carries becomes history now rather than a second live instruction beside its own replacement.
       await supersedeStaleFacts(tenantId, page.path, hash!, stands)
@@ -464,8 +461,7 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
   let held = d.held;
   for (const page of d.pages) {
     if (d.target && page.path !== d.target.page) continue;
-    if (STOREFRONT_PATH.test(page.path)) continue; // A PRODUCT PAGE HAS NO FACTS TO CHECK (operator audit, 2026-09-15): /product-page/faravahar-shirt inventoried eleven prices and a return policy as claims about the world
-    if (attempts >= ATTEMPTS_PER_PASS || Date.now() >= d.deadlineAt) break;
+    if (STOREFRONT_PATH.test(page.path) || attempts >= ATTEMPTS_PER_PASS || Date.now() >= d.deadlineAt) { if (STOREFRONT_PATH.test(page.path)) continue; break; } // a product page has no facts to check (/product-page/faravahar-shirt inventoried eleven prices and a return policy)
     const body = await page.loadBody().catch(() => "");
     if (!body.trim() && !page.prospective) continue;
     opened += 1;
