@@ -251,6 +251,7 @@ type DueWorkDeps = {
   winnerRows?: (tenantId: string, basis: string) => Promise<WinnerFile>;
   readyStock?: (tenantId: string) => Promise<number | null>;
   creditHeld?: (tenantId: string) => Promise<boolean>;
+  searchHeld?: (tenantId: string) => Promise<boolean>;
 };
 
 /** THE LOW-STOCK ALARM MINIMUM, and the one place it is written down. AN ALARM, NEVER A TARGET (operator,
@@ -323,9 +324,10 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   ]);
   // THE STOCK, AND WHETHER TOPPING IT UP CAN ACHIEVE ANYTHING RIGHT NOW. Both are $0 reads of durable state. The
   // credit stop is asked with the PURE reader, so asking can never spend the probe the transport is owed.
-  const [ready, creditHeld] = await Promise.all([
+  const [ready, creditHeld, searchHeld] = await Promise.all([
     settled((deps.readyStock ?? readyStock)(tenantId), null as number | null),
     settled((deps.creditHeld ?? (async (t: string) => (await import("@/domains/decision/llm/gateway")).creditBreakerHeld(t)))(tenantId), false),
+    settled((deps.searchHeld ?? (async (t: string) => (await (await import("@/lib/cost/credit-breaker")).CREDIT_BREAKER.peek(t, {}, "dataforseo")) === "held"))(tenantId), false),
   ]);
 
   const progress = run.value?.progress ?? {};
@@ -398,7 +400,7 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   // fetch from one provider and then asks a SECOND one to read them. With the credit stop on, the first two are
   // still bought in full and the unit dies at the judge, so the account pays for evidence nothing can weigh.
   // Live on 2026-08-27: the balance emptied mid-run and the remaining passes bought searches to no purpose.
-  if (facts.value && (facts.value.owed > 0 || !facts.value.everChecked) && !creditHeld.value) due.push("check_page_facts");
+  if (facts.value && (facts.value.owed > 0 || !facts.value.everChecked) && !creditHeld.value && !searchHeld.value) due.push("check_page_facts"); // AND NOT WHILE THE SEARCH PROVIDER IS DRY EITHER (2026-09-15): with DataForSEO answering 402 the fact phase went on inventorying claims at a model call each, 244 in an hour, none of which could be researched
   if (notesMoved) due.push("decide_and_prepare");
   // TWO SEPARATE DEBTS UNDER ONE NAME, and the first one gates the second: a change I have never checked on
   // the live page cannot be measured at all (isDueForMeasure refuses it), and a change whose window has
