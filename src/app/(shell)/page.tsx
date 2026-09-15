@@ -225,25 +225,21 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const hour = Number(nowPacific.toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "America/Los_Angeles" }));
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   // THE TOP EDIT is the top of the SAME ranked queue Changes pages, so "do this first" here and "1" there are one change.
-  // TODAY LEADS WITH SOMETHING THE OPERATOR CAN DO (Codex, 2026-08-23). Taking the first row meant an opportunity
-  // still being researched led the page while finished work sat below it, so the product opened on its own
-  // homework. Ready leads; then a draft awaiting review; research only when there is genuinely nothing else.
-  const top = today.nextOpportunities.find((o) => o.lane === "ready")
-    ?? today.nextOpportunities.find((o) => o.lane === "review") ?? today.nextOpportunities[0] ?? null;
-  // WHAT THE TOP ITEM IS, BEFORE ANYTHING IS OFFERED ABOUT IT. Today leads with finished work whenever there is
-  // any, and otherwise with the draft or the opportunity next in line: both are named for what they are, neither
-  // gets the pasteable line or the "make this change" press, and neither is ever called finished.
-  const lane = top?.lane ?? "ready";
-  const edit = lane === "ready" ? today.topEdit ?? null : null;
+  // ONLY FINISHED WORK REACHES THIS SLOT (Product Truth, 2026-08-27): the view hands over ready rows alone, so a draft
+  // "still being checked" or an opportunity still being researched never leads the page and never wears a card.
+  const top = today.nextOpportunities[0] ?? null;
+  const edit = today.topEdit ?? null;
   // A PLAN IS STILL READ RATHER THAN PASTED: a merge carries several moves, so it opens instead of copying.
-  // Nothing unfinished reaches here at all now, so there is no "read this first" state left to render.
   const plan = !!edit && !edit.paste && !edit.after;
   // THE OTHER CHANGES ARE THE OTHER FINISHED ONES, counted from the ready lane alone: Today never counts a
   // draft or internal research as the operator's work (operator, 2026-08-21).
-  const others = Math.max(0, (today.readyTotal ?? 0) - (lane === "ready" && edit ? 1 : 0));
-  // THE NEXT TWO IN LINE, AS A SHORT LIST (Product Truth: at most three next changes). They were computed on every
-  // release and rendered nowhere, so the page said "see the other 11" and never named one of them.
+  const others = Math.max(0, (today.readyTotal ?? 0) - (edit ? 1 : 0));
+  // THE NEXT TWO IN LINE, AS A SHORT LIST (Product Truth: at most three next changes), every one of them finished.
   const upNext = top ? today.nextOpportunities.filter((o) => o.changeId !== top.changeId).slice(0, 2) : [];
+  // WHAT IS STILL BEING WRITTEN, CHECKED OR RESEARCHED, one sentence with the database's counts, the same sentence Changes prints.
+  const written = today.preparing?.written ?? 0, researching = today.preparing?.researching ?? 0;
+  const preparingLine = written > 0 || researching > 0 ? `${[written > 0 ? `${written.toLocaleString("en-US")} ${written === 1 ? "change is" : "changes are"} being written and checked` : null,
+    researching > 0 ? `${researching.toLocaleString("en-US")} ${researching === 1 ? "opportunity is" : "opportunities are"} being researched` : null].filter(Boolean).join(", and ")}. They move up here on their own.` : null;
   const winLine = lastWinLine(ledgerRows, nowMs);
   const week = weekStrip(ledgerRows, nowMs);
 
@@ -257,9 +253,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           first thing read was reasoning for a thing nobody had been told to do yet. Order now: what to change, what is there now,
           what to put there with the press that takes it, then the one number that says why, then the way in. */}
       {top ? (
-        <div className={`rounded-2xl border bg-surface-raised p-5 ${lane === "ready" ? "border-accent-primary/50" : "border-border"}`} data-top-edit="true">
-          <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground" data-top-lane={lane}>
-            {lane === "ready" ? "Do this first" : lane === "review" ? "Still being checked" : "A future opportunity"}{/* OWNERSHIP SAID TRUTHFULLY (operator, 2026-08-29): a review-lane row is held by an unfinished internal step, so Today may not tell the operator a draft waits on THEM; "your decision" is reserved for genuine operator decisions */}
+        <div className="rounded-2xl border border-accent-primary/50 bg-surface-raised p-5" data-top-edit="true">
+          <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground" data-top-lane="ready">
+            1. Do this first{/* NUMBERED ONE, so the Up next list underneath counts on from it: an unnumbered top card over a list starting at 2 read as a missing row. */}
           </p>
           <p className="mt-1 text-[15px] font-semibold leading-relaxed text-foreground">{edit?.action ?? top.recommendation}</p>
           {edit && edit.after ? (
@@ -291,7 +287,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <Link href={`/changes/${encodeURIComponent(top.changeId)}`}
               className="inline-flex rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white">
-              {lane === "research" ? "See what is missing" : lane === "review" ? "See where it stands" : plan ? "Open the steps" : "Make this change"}
+              {plan ? "Open the steps" : "Make this change"}
             </Link>
             <Link href="/changes" className="text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
               {others > 0 ? `See the other ${others.toLocaleString("en-US")} finished ${others === 1 ? "change" : "changes"}` : "Open Changes"}
@@ -305,7 +301,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
                   <li key={o.changeId}>
                     <span className="tabular-nums text-muted-foreground">{i + 2}. </span>
                     <Link href={`/changes/${encodeURIComponent(o.changeId)}`} className="font-medium text-foreground underline underline-offset-2 hover:text-accent-primary">{o.recommendation}</Link>
-                    <span className="text-muted-foreground">{o.lane === "ready" ? " Finished, ready to make." : o.lane === "review" ? " Written, still being checked." : " Still being researched."}</span>
+                    <span className="text-muted-foreground"> Finished, ready to make.</span>
                   </li>
                 ))}
               </ol>
@@ -313,11 +309,11 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           ) : null}
         </div>
       ) : (
-        /* ZERO FINISHED CHANGES IS AN HONEST DAY, SAID PLAINLY. The header above already carries how many opportunities
-           are still being developed, so this states the fact and points at the screen that lists what has been written. */
-        <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-5 text-[13px] leading-relaxed text-muted-foreground" data-no-finished-change="true">
-          No finished change is ready today. <Link href="/changes" className="underline underline-offset-2">Open Changes</Link> to see everything that has been written for your pages.
-        </p>
+        /* ZERO FINISHED CHANGES IS AN HONEST DAY, SAID PLAINLY, with the one status line that says what is still moving and no card. */
+        <div className="rounded-2xl border border-dashed border-border bg-surface-raised p-5 text-[13px] leading-relaxed text-muted-foreground" data-no-finished-change="true">
+          <p>No finished change is ready today. The next one lands here the moment the exact work is written.</p>
+          {preparingLine ? <p className="mt-1 tabular-nums" data-lane-preparing="true">{preparingLine}</p> : null}
+        </div>
       )}
       {/* THE HEARTBEAT: what the last research pass did and when, off its own stored row, so "is this thing alive" is answered on the first screen without a support question. ONE CADENCE SENTENCE, the same on every surface (audit 3.9): three different descriptions of when research runs were shown to the customer. */}
       {composite.researchLiveness || !composite.researchPaused ? (

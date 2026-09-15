@@ -147,6 +147,7 @@ type AiInput = {
   checks: { done?: number; total?: number; answered?: number; unavailable?: number; unsupported?: number }; // today's planned round
   /** IS THE RESEARCH ALIVE, in the run's own words: what the last pass produced and when, or how long it has been and what to press. Null only when that could not be read, and then nothing is claimed either way. */
   liveness?: string | null;
+  blocker?: string | null; // the step the last research drive would not start, in its own words, so the coverage line can name an empty balance
   /** THE OPERATOR'S OWN OFF SWITCH, read at load. A page that says checks are planned for today over an account whose collection is switched off is a plain untruth, and "unreadable" is a third state that claims neither. */
   collecting?: "paused" | "running" | "unreadable" | null;
   /** The newest day that holds readings and every reading on it: the searches the assistants ran and the pages they credited live only on this shape, so both subviews name that one day out loud. */
@@ -246,7 +247,7 @@ export function aiView(input: AiInput) {
       const [asked, checked, named, credited] = [add("asked"), add("analyzed"), add("mentioning"), add("citedOwned")], r0 = rate(named, checked);
       return { id: e, cells: [{ text: engineName(e) },
         { text: r0 == null ? "not checked yet" : pct(r0), sub: r0 == null ? undefined : `${num(named)} of ${num(checked)} checked`, sort: r0 ?? -1, tone: r0 != null && r0 > 0 ? "own" as const : undefined },
-        { text: num(credited), sub: `${credited === 1 ? "answer" : "answers"} crediting a page of yours`, sort: credited },
+        { text: credited > 0 ? num(credited) : "none", sub: credited > 0 ? `${credited === 1 ? "answer" : "answers"} crediting a page of yours` : "credited a page of yours", sort: credited }, // a word, never a bare zero
         // asked counts distinct prompts PER DAY, so a sum across days is asks, never questions.
         { text: num(checked), sub: `asked ${num(asked)} times over ${num(span)} days`, sort: checked }] };
     }),
@@ -294,11 +295,11 @@ export function aiView(input: AiInput) {
         { text: r0 == null ? "not checked" : pct(r0), sub: r0 == null ? `${num(p.answered)} on file` : `${num(p.mentioning)} of ${num(p.analyzed)} checked`, sort: r0 ?? -1 },
         { text: r0 == null || rPrior == null ? "no window before" : `${r0 > rPrior ? "+" : ""}${Math.round((r0 - rPrior) * 100)} points`, sort: r0 != null && rPrior != null ? r0 - rPrior : -99,
           tone: r0 == null || rPrior == null ? "flat" : r0 > rPrior + 0.02 ? "up" : r0 < rPrior - 0.02 ? "down" : "flat" },
-        { text: cite.reported === 0 ? "never reported" : `${num(cite.owned)} of ${num(cite.reported)}`, sort: cite.reported > 0 ? cite.owned / cite.reported : -1,
+        { text: cite.reported === 0 ? "never reported" : `${cite.owned > 0 ? num(cite.owned) : "none"} of ${num(cite.reported)}`, sort: cite.reported > 0 ? cite.owned / cite.reported : -1,
           sub: cite.top ? `${cite.top} is credited most` : undefined, tone: cite.owned > 0 ? "own" : undefined },
         { text: p.positions.length > 0 ? (p.positions.reduce((a, x) => a + x, 0) / p.positions.length).toFixed(1) : "not reported", sort: p.positions.length > 0 ? p.positions.reduce((a, x) => a + x, 0) / p.positions.length : 999 },
         { text: rival ? rival[0] : "none named", sub: rival ? `named in ${num(rival[1])} ${rival[1] === 1 ? "answer" : "answers"}` : undefined, sort: rival ? rival[1] : 0 },
-        { text: num(searches), sort: searches },
+        { text: searches > 0 ? num(searches) : "none", sort: searches },
         { text: p.last ? monthDayLabel(p.last) ?? p.last : "never", sort: p.last ? Number(p.last.replace(/-/g, "")) : 0 },
       ] };
     }),
@@ -368,7 +369,7 @@ export function aiView(input: AiInput) {
     note: (input.ownedPageRollup ?? []).length === 0 ? null : `Every page of yours an assistant reported reading or crediting over the last ${num(span)} days. "Read, passed over" is the page that was good enough to open and not good enough to quote: the clearest change to make.`,
     rows: (input.ownedPageRollup ?? []).map((r) => ({ id: r.url, cells: [ { text: shortUrl(r.url), tone: "own" as const }, { text: num(r.cited), sort: r.cited }, { text: num(r.retrieved), sort: r.retrieved }, { text: num(r.retrievedNotCited), sort: r.retrievedNotCited }, { text: num(r.engines.length), sort: r.engines.length }, { text: num(r.prompts), sort: r.prompts }, { text: num(r.days), sort: r.days }, ] })),
   });
-  const parts = [...(typeof input.checks.answered === "number" ? [`${num(input.checks.answered)} came back with an answer`] : []), ...(input.checks.unavailable ? [`${num(input.checks.unavailable)} came back with nothing`] : []), ...(input.checks.unsupported ? [`${num(input.checks.unsupported)} cannot be asked at all today`] : [])];
+  const parts = [...(typeof input.checks.answered === "number" && input.checks.answered > 0 ? [`${num(input.checks.answered)} came back with an answer`] : []), ...(input.checks.unavailable ? [`${num(input.checks.unavailable)} came back with nothing`] : []), ...(input.checks.unsupported ? [`${num(input.checks.unsupported)} cannot be asked at all today`] : [])];
   const read = days.filter((d) => d.observed > 0);
   const gaps = days.filter((d) => d.observed === 0 && read[0] && d.day >= read[0].day).map((d) => monthDayLabel(d.day) ?? d.day);
   // THE PERIOD, WHAT COVERED IT, AND EVERY HOLE IN IT, dated and counted: the stretch, how many questions and assistants stand behind it, the days that came back with nothing, the newest day when it holds less than the one before it, the answers nobody has read closely, and the answers that never named their pages. A rate with no window and no missingness beside it is the oldest lie in this business.
@@ -386,7 +387,8 @@ export function aiView(input: AiInput) {
     ? `Collection is paused, so no day after ${last ?? "the last one read"} is added. Turn it back on in Settings to keep this moving.`
     : input.collecting === "unreadable" ? "Whether collection is on could not be read just now, so nothing is claimed either way. The switch is in Settings."
       : `${typeof input.checks.done === "number" && typeof input.checks.total === "number" && input.checks.total > 0
-        ? `${num(input.checks.done)} of the ${num(input.checks.total)} answer checks planned for today are settled${parts.length > 0 ? `: ${parts.join(", ")}. ` : ". "}` : ""}${input.liveness ? `${input.liveness} ` : ""}Open Changes for the move these answers point at.`;
+        ? `${input.checks.done > 0 ? `${num(input.checks.done)} of the ${num(input.checks.total)} answer checks planned for today are settled` /* NO BARE ZERO, AND THE REASON BESIDE IT: a day that settled nothing names the empty balance when the run's own blocker does. */
+          : `None of the ${num(input.checks.total)} answer checks planned for today has settled yet${/OpenAI balance/i.test(input.blocker ?? "") ? ", and paid research is paused until the balance is topped up" : ""}`}${parts.length > 0 ? `: ${parts.join(", ")}. ` : ". "}` : ""}${input.liveness ? `${input.liveness} ` : ""}Open Changes for the move these answers point at.`;
   return {
     empty: null, tiles, chart, boundaries, prompts, citations, searches, ownedPages, promptIdeas, retrieval, byEngine, detail: detailOf(input),
     engines: enginesSeen.map((e) => ({ id: e, label: engineName(e) })),

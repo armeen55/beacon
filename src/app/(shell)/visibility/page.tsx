@@ -207,7 +207,7 @@ async function AiBody({ tenantId, params }: { tenantId: string; params: Params }
     segments, rangeDays: range, engine, sub, landscape, intel, day: observedDays.length > 0 ? latestDay : null,
     checks: { done: run?.counters.aiChecksDone, total: run?.counters.aiChecksIntended, answered: run?.counters.aiChecksAnswered,
       unavailable: run?.counters.aiChecksUnavailable, unsupported: run?.counters.aiChecksUnsupported },
-    liveness: run?.liveness?.line ?? null, collecting,
+    liveness: run?.liveness?.line ?? null, blocker: run?.blocker ?? null, collecting,
     dayRows: dayRows?.map(answerRow) ?? null, window: windowRows?.map(answerRow) ?? null, sources, fanouts, ownedPageRollup, trackedKeys,
     focus: prompt ? { promptId: prompt, rows: focusRows.map(answerRow) } : null,
   });

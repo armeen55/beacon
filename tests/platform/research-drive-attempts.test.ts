@@ -9,12 +9,10 @@ vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: (
 vi.mock("@/lib/persistence/supabase", async (actual) => ({ ...(await actual<Record<string, unknown>>()),
   getSupabaseAdmin: () => ({ from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { research_paused: false }, error: null }) }) }) }) }) }));
 vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async () => {}, readCustomerSurface: async () => null, isCustomerSurfaceStale: () => false, refreshCustomerSurface: async () => ({}) }));
-
 import * as RR from "@/domains/runtime/research-run";
 import { runResearchCycle, type ResearchCycleSteps } from "@/domains/runtime/ops/on-visit-refresh";
 import type { DueWork } from "@/domains/runtime/ops/due-work";
 import { setAccountRepositoryForTests, type AccountRepository } from "@/domains/account/tenants/store";
-
 let NOW = 1_700_000_000_000;
 const iso = (ms = NOW) => new Date(ms).toISOString();
 const SITES = [{ t: "acct-reef", url: "/tide-pool-guide", topic: "tide pool safety" }, { t: "acct-loom", url: "/blackwork-stitches", topic: "ordre des points" }] as const;
@@ -51,7 +49,6 @@ const BENIGN: ResearchCycleSteps = { dueWork: async () => DUE, evidenceVersion: 
 beforeEach(() => { NOW = 1_700_000_000_000; RR.setResearchRunRepoForTests(null);
   const byId = async (id: string) => ({ id, slug: id, provisional_name: "", domain: "own.example", status: "active" as const, signup_date: "", tos_accepted_at: null, daily_budget_usd: 0, growth_goal: null, created_at: "", updated_at: "" });
   setAccountRepositoryForTests({ getAccountById: byId, getAccountBySlug: byId } satisfies AccountRepository); });
-
 type Owed = NonNullable<RR.ResearchRunProgress["evidenceOwed"]>[number];
 
 /** ONE DRIVE. `seeded` is what the run row carries when the drive begins, `walked` is what the walk hands back, and

@@ -10,15 +10,14 @@ import { pageLabel } from "./changes/types";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
 import { countTrackedQuestions, researchPermission, researchRunStatus } from "@/domains/runtime";
 import { checkBudget } from "@/domains/decision";
-import type { BundleComponent, ChangeProposal } from "@/domains/decision";
+import { openHold, type BundleComponent, type ChangeProposal } from "@/domains/decision";
 
 /** One ranked "do this next" change Today reads. FOUR FIELDS, because four are rendered: the effort, the upside,
  *  the ranking sentence and the evidence tier rode this shape for months and no screen ever read one of them. */
 type TodayOpportunity = { changeId: string; pageLabel: string; recommendation: string; problem?: string;
-  /** WHICH LANE THIS ITEM CAME OUT OF, so Today can say what it is before anybody presses it. `ready` is
-   *  finished work; `review` is a draft owing a look and `research` an opportunity with nothing written yet,
-   *  and neither of those may ever be printed as a finished change. */
-  lane: "ready" | "review" | "research" };
+  /** ONLY FINISHED WORK REACHES TODAY (Product Truth, 2026-08-27): the top card and Up next draw from the ready lane alone, so
+   *  the lane is stated once and can be nothing else. */
+  lane: "ready" };
 
 /** The minimal Today read model the Today page renders: the header sentence plus the ranked next opportunities. Owned here now that the
  *  changes-domain today-view was retired. */
@@ -38,6 +37,9 @@ type TodayView = {
   /** THE SIZE OF THE READY QUEUE, uncapped, beside the capped `nextOpportunities` preview. ONE queue, ONE number: the command used to count
    *  the preview and say "4 more" under a header that said 12. */
   readyTotal?: number;
+  /** WHAT IS STILL BEING WRITTEN, CHECKED OR RESEARCHED, counted in the database, for the one status line Today prints under an
+   *  empty top slot. The written count leaves out the rows Changes shows as the operator's own decision. */
+  preparing?: { written: number; researching: number };
 };
 
 export type TodayComposite = {
@@ -75,8 +77,8 @@ function recommendationOf(p: ChangeProposal): string {
 
 /** PURE: map a ranked proposal to Today's opportunity shape. The PROBLEM rides along, because three directives
  *  with no statement of what any of them is for is a chore list, not a recommendation. */
-const proposalToOpportunity = (p: ChangeProposal, lane: TodayOpportunity["lane"]): TodayOpportunity => ({ changeId: p.id, pageLabel: p.pageLabel,
-  recommendation: recommendationOf(p), lane, ...(p.whyItMatters ? { problem: p.whyItMatters } : {}) });
+const proposalToOpportunity = (p: ChangeProposal): TodayOpportunity => ({ changeId: p.id, pageLabel: p.pageLabel,
+  recommendation: recommendationOf(p), lane: "ready", ...(p.whyItMatters ? { problem: p.whyItMatters } : {}) });
 
 /** PURE: the top ranked change said as an action plus the two lines. Null when it carries nothing to put there.
  *  EVERY CHANGE THAT REACHES HERE IS FINISHED: the completeness boundary keeps unfinished work out of the queue
@@ -95,7 +97,7 @@ function topEditOf(p: ChangeProposal): TodayView["topEdit"] {
   }
   return {
     // THE PAGE, SAID THE WAY A PERSON SAYS IT (audit 3.9): the headline printed the raw path, and Changes already reads the same path through pageLabel.
-    action: `Change the ${field} on ${p.pagePath ? pageLabel(p.pagePath) : p.pageLabel}`,
+    action: c.field === "schema" ? `${c.before ? "Replace the structured data on" : "Add structured data to"} ${p.pagePath ? pageLabel(p.pagePath) : p.pageLabel}` : `Change the ${field} on ${p.pagePath ? pageLabel(p.pagePath) : p.pageLabel}`, // markup is added or replaced, the verb the Changes card already uses
     lead: "Change to: ",
     before: (c.before ?? "").trim() || null,
     after,
@@ -136,30 +138,16 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
   // THE COUNT IS THE COUNT, NEVER THE PAGE. `view.ready` is one page of the ranking now, so counting it would under-report the queue Today
   // is drawing from; `summary` carries the total counted in the database.
   const readyTotal = view.summary?.ready ?? view.ready.length;
-  // ONLY WHAT IS READY IS OFFERED. Today used to draw its preview and its "Do this first" edit off ready AND review together, so on a day
-  // with nothing finished the top of the homepage handed over a card the queue itself holds back, with a Copy press on it.
-  // AT MOST THREE NEXT ITEMS: THE TOP OF THE ONE RANKING, each wearing its lane. Lane-priority concatenation
-  // used to rebuild the retired hierarchy right at the top of the homepage, so a three impression finished
-  // description sat above the account's biggest researched opportunity. The ORDER is the ranking's own (rows
-  // the ranked head does not name keep lane order behind it, which is also the whole answer on a stored blob
-  // that predates `proposals`); the LABEL is what says whether there is something to paste, and no research
-  // row can print as finished work.
-  type Lane = "ready" | "review" | "research";
-  const lanes: Array<[{ id: string }, Lane]> = [
-    ...view.ready.map((p): [{ id: string }, Lane] => [p, "ready"]),
-    ...view.toDo.map((p): [{ id: string }, Lane] => [p, "review"]),
-    ...(view.research ?? []).map((p): [{ id: string }, Lane] => [p, "research"])];
+  // ONLY WHAT IS READY IS OFFERED (Product Truth, 2026-08-27). Today used to draw its preview off ready, review AND research
+  // together, so a day with nothing finished opened on a draft labelled "Still being checked" with a Copy press on it. The
+  // preview is the top of the ready lane in the ranking's own order, at most three, and everything else is one count.
   const rank = new Map((view.proposals ?? []).map((p, i) => [p.id, i]));
-  lanes.sort((a, b) => (rank.get(a[0].id) ?? Infinity) - (rank.get(b[0].id) ?? Infinity));
-  // TODAY NEVER LEADS WITH RESEARCH WHILE ANY FINISHED CHANGE EXISTS (operator, 2026-08-22): the top slot is
-  // the highest-ranked READY change whenever one is on file; the rest of the preview keeps the global order.
-  const lead = lanes.find(([, l]) => l === "ready");
-  const ordered = lead ? [lead, ...lanes.filter((x) => x !== lead)] : lanes;
-  const ready = ordered.slice(0, TODAY_PREVIEW_LIMIT)
-    .map(([p, lane]) => proposalToOpportunity(p as Parameters<typeof proposalToOpportunity>[0], lane));
+  const ready = [...view.ready].sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity)).slice(0, TODAY_PREVIEW_LIMIT).map(proposalToOpportunity);
+  const decisions = (view.toDo ?? []).filter((p) => { const h = openHold(p); return h.safetyHold && !h.faulted; }).length;
+  const preparing = { written: Math.max(0, (view.summary?.todo ?? view.toDo.length) - decisions), researching: view.summary?.research ?? (view.research ?? []).length };
   const topEdit = view.ready[0] ? topEditOf(view.ready[0]!) : undefined;
   const waiting = producer.waitingUntil && Number.isFinite(Date.parse(producer.waitingUntil)) ? producer.waitingUntil : null;
-  const rest = { ...(waiting ? { waitingUntil: waiting } : {}), readyTotal };
+  const rest = { ...(waiting ? { waitingUntil: waiting } : {}), readyTotal, preparing };
   // ONE SENTENCE, AND EVERY CHANGE IT COUNTS IS FINISHED WORK: the READY lane alone, which is the only lane
   // whose words are written, checked and pasteable today. THE OPENING IS NOT A STATUS ESSAY (operator,
   // 2026-08-21): the draft and research counts left this sentence entirely, because Changes labels those

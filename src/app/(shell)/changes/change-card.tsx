@@ -186,7 +186,8 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   // A DRAFT IS SHOWN WITH THE REASON IT IS HELD, IN THE WORDS ALREADY STORED ON IT, and the reason decides what
   // may be pressed: editorial judgement is the operator's to answer, a fact about the work is nobody's.
   const verdict = openHold(proposal);
-  const hold = review ? verdict : null;
+  // THE ONE HOLD A CARD MAY WEAR IS THE OPERATOR'S OWN CALL (Product Truth, 2026-08-27): a move, a merge or a removal with every other check passed. A row held by a review, a source read or a redraft is Beacon's obligation and never renders as a card at all, so no gate sentence is ever printed at a customer.
+  const hold = review && verdict.safetyHold && !verdict.faulted ? verdict : null;
   // THE CAVEATS, THROUGH THE ONE FILTER THE DETAIL READS. The card used to print the row's RAW limitations under
   // "Evidence and limits" while the detail printed the hold's filtered ones, so one row said two different things
   // on two screens and a caveat written for a draft whose words are gone rode the finished card.
@@ -324,14 +325,9 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
         {waiting && !ready ? <p className="text-[13px] leading-relaxed text-muted-foreground" data-waiting-on="true">{waiting}</p> : null}
         {hold ? (
           <div className="space-y-1 rounded-md border border-border bg-surface-inset px-3 py-2" data-held-reason="true">
-            {/* THE ONE LANE THAT RENDERS A CARD IN REVIEW IS THE SAFETY LANE, so this heading frames the operator's own call and never Beacon's internal QA ("A draft, not finished work" is banned customer language under the 2026-08-27 contract: unfinished work never wears a card at all). WHAT THE BLOCK SAID WAS WRONG ABOUT ITS OWN LANE (measured, 2026-09-05): the lane admits a row only while it carries NO fault and every hard reason it holds is the safety confirmation, so "copying it takes an imperfect starting point, not proven work" was printed over copy that had passed every check, on the one card whose only open question is whether to move a page. It now says what passed and what to do next, with the pieces counted. THE CAVEATS ARE NOT REPEATED HERE (2026-09-06): they are the one filtered list above, so a card carries one set of caveats and not two. */}
+            {/* THE CONSEQUENCE IN PLAIN WORDS, never a gate sentence: what this changes for the page and what to do next, with the pieces counted. THE CAVEATS ARE NOT REPEATED HERE (2026-09-06): they are the one filtered list above. */}
             <p className="text-[12px] font-semibold text-foreground">What you are deciding:</p>
-            <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground">
-              {hold.why.map((w, i) => <li key={i}>{w}</li>)}
-            </ul>
-            <p className="text-[12px] leading-relaxed text-muted-foreground">{hold.faulted
-              ? "Copying it takes an unfinished starting point, not proven work."
-              : `Every other check passed on ${parts === 1 ? "this change" : `all ${parts} pieces`}. Open it, confirm the move, then make the change.`}</p>
+            <p className="text-[12px] leading-relaxed text-muted-foreground">{hold.why.join(" ")} Every other check passed on {parts === 1 ? "this change" : `all ${parts} pieces`}. Open it, confirm the move, then make the change.</p>
           </div>
         ) : null}
         {reading ? (

@@ -1,11 +1,12 @@
 "use client";
 
-/** changes-list-client - COMPLETE WORK FIRST, AND ONLY COMPLETE WORK CALLED WORK (operator, 2026-08-21). The
- *  screen opens on READY NOW (finished, pasteable changes, best first), then NEEDS YOUR REVIEW (complete
- *  drafts held for one judgement), then the research still in progress, collapsed and compact, because internal
- *  research is never the operator's assignment. One persisted global rank still orders every lane
- *  internally; the lanes decide the controls and where a row renders. One compact line points at measurement,
- *  which Results owns. Publishing is MANUAL: the only mutating controls are "Mark done" and "Skip". */
+/** changes-list-client - COMPLETE WORK FIRST, AND ONLY COMPLETE WORK CALLED WORK (operator, 2026-08-21; Product Truth
+ *  2026-08-27). The screen opens on READY NOW (finished, pasteable changes, best first), then NEEDS YOUR DECISION (complete
+ *  work whose only open question is a move, a merge or a removal the operator alone may authorize). Everything still being
+ *  written, checked or researched is ONE status line with the release's counts: unfinished work never wears a card, because
+ *  internal research is never the operator's assignment. One persisted global rank still orders every lane internally; the
+ *  lanes decide the controls and where a row renders. One compact line points at measurement, which Results owns.
+ *  Publishing is MANUAL: the only mutating controls are "Mark done" and "Skip". */
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
@@ -19,22 +20,6 @@ import { CHANGES_PAGE_SIZE } from "./changes/types";
 type Lane = "ready" | "todo" | "research";
 /** How long a skip stays takeable-back before the store is told. Nothing is written until it ends. */
 const UNDO_MS = 10_000;
-
-/** The plain-language kind of work a preparing row is, for the collapsed lane's tally: what a customer calls it, never a producer slug.
- *  WHAT it is comes from the field; WHAT IS HAPPENING TO IT comes from the row's own typed obligation and nothing else (2026-09-04).
- *  "being written and checked" was printed over every unfinished row of a field, so a change waiting on a source read, one waiting on
- *  the internal reviewer and one genuinely being written all said the same thing, and the lane could not be told apart from a stall. */
-const preparingKind = (p: ChangeProposal): string => {
-  const c = p.recommendedChange, field = c.kind === "existing_edit" ? c.field : null;
-  const what = c.kind === "new_page" ? "new pages"
-    : p.id.endsWith("::internal_link") ? "links between your own pages"
-    : field === "meta" ? "page descriptions"
-    : field === "section" || field === "answer_block" ? "sections and answers"
-    : field === "title" || field === "h1" ? "titles and headings" : "changes";
-  const owed = p.obligation?.kind;
-  return `${what} ${owed === "evidence" ? "waiting on a source read" : owed === "review" ? "waiting on the final review"
-    : owed === "draft" || owed === "sections" || owed === "redraft" ? "being written" : owed === "terminal" ? "settled until the evidence changes" : "waiting for the next pass"}`;
-};
 
 export function ChangesListClient({ view }: { view: ChangesView }) {
   // WHAT WAS DECIDED ABOUT THE SEARCH A CHANGE ANSWERS, off the ONE case file Visibility reads, matched on
@@ -81,14 +66,11 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   // A row carrying BOTH a genuine safety decision AND a Beacon fault belongs to Beacon first: the operator is
   // never asked to authorize work Beacon itself knows is defective (approved contract, 2026-08-27).
   const decisionRows = useMemo(() => rows.filter((p) => { if (laneOf(p) !== "todo") return false; const h = openHold(p); return h.safetyHold && !h.faulted; }), [rows, laneOf]);
-  const preparingRows = useMemo(() => rows.filter((p) => { if (laneOf(p) === "research") return true; if (laneOf(p) !== "todo") return false; const h = openHold(p); return !(h.safetyHold && !h.faulted); }), [rows, laneOf]);
-  /* THE WATERFALL IS VISIBLE OR IT DID NOT HAPPEN (operator, 2026-09-11, "I don't see any of this progress on the customer end"): thirty-one finished drafts sat behind a count-only drawer while the operator read the same twelve Ready cards all day. A row whose copy is WRITTEN is not internal research any more; it renders as a real card in review mode, its own verdict and caveats on it, so the operator watches the stream being checked instead of taking a number on faith. Rows still being researched keep the tally, exactly as Product Truth orders. */
-  const lanes = useMemo(() => { /* a research row's note is never a draft, whatever its length: the typed lane and researchOnly decide, not the prose (the comedians fixture leaked a results-page note into this section with a Copy button on it) */
-    const writtenOf = (p: ChangeProposal): boolean => { if (laneOf(p) !== "todo" || p.researchOnly === true) return false; const c = p.recommendedChange; if (c.kind === "new_page") return ((p as { newPageDraft?: { pieces?: unknown[] } }).newPageDraft?.pieces?.length ?? 0) > 0; return c.kind === "existing_edit" && c.after.trim().length > 60 && !/not been written yet/i.test(c.after); };
-    return { written: preparingRows.filter(writtenOf), researching: preparingRows.filter((p) => !writtenOf(p)) }; }, [preparingRows, laneOf]);
-  const writtenRows = lanes.written, researchingRows = lanes.researching;
-  // THE WORKING-ON COUNT IS THE DATABASE'S, NEVER THE RENDERED PAGE'S (operator, 2026-08-30): past one page, counting rendered rows silently under-reported the work in progress with no control to reach the rest.
-  const workingTotal = Math.max(researchingRows.length, (view.summary.todo ?? 0) + (view.summary.research ?? 0) - decisionRows.length - writtenRows.length);
+  // EVERYTHING ELSE IS ONE STATUS LINE, COUNTED FROM THE RELEASE (Product Truth, 2026-08-27): a row whose copy is written but held
+  // by a review, a source read or a redraft is Beacon's own obligation, and thirty-one of them rendered as cards under
+  // "Written and being checked" printed gate sentences at a customer who could do nothing about them. The database counts
+  // the lanes; the decision cards on screen come off the written count because they render above.
+  const writtenCount = Math.max(0, (view.summary.todo ?? 0) - decisionRows.length), researchingCount = view.summary.research ?? 0;
   // THE HEADLINE COUNT IS FINISHED WORK AND NOTHING ELSE (2026-08-15), and it must be true of every row under
   // the Ready heading: the whole-lane total from the database, minus what this session finished or skipped.
   const openTotal = Math.max(0, readyRows.filter((p) => !finished.includes(p.id)).length
@@ -206,42 +188,14 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         </section>
       ) : null}
 
-      {/* WRITTEN AND BEING CHECKED: the finished drafts, as real cards the operator can read now. Skip on these is the real dismissal: it rendered a button that did nothing (audit 3.9). */}
-      {writtenRows.length > 0 ? (
-        <section className="space-y-2" data-lane-written="true">
-          <h2 className="text-[14px] font-semibold tabular-nums text-foreground">
-            Written and being checked: {writtenRows.length.toLocaleString("en-US")}
-            <span className="ml-2 font-normal text-muted-foreground">Each card shows its draft and what still holds it. They move up to Ready on their own.</span>
-          </h2>
-          <ul className="list-none space-y-3">
-            {writtenRows.map((p, i) => (
-              <ChangeCard key={p.id} proposal={p} rank={readyRows.length + i + 1} ready={false} review caseLine={null} onAside={putAside} onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say} />
-            ))}
-          </ul>
-        </section>
-      ) : null}
-      {/* STILL BEING RESEARCHED: internal work, collapsed and compact. Each row is one sentence about the work
-          in progress; the full evidence stays on the row's own detail page, one click away. */}
-      {researchingRows.length > 0 ? (
-        <details className="rounded-2xl border border-border bg-surface-raised" data-lane-preparing="true">
-          <summary className="cursor-pointer px-4 py-3 text-[14px] font-semibold tabular-nums text-foreground">
-            {workingTotal.toLocaleString("en-US")} more {workingTotal === 1 ? "opportunity is" : "opportunities are"} being researched
-            <span className="ml-2 font-normal text-muted-foreground">Writing, checking and evidence still in progress. Nothing here is yours to do yet.</span>
-          </summary>
-          {/* ONE TALLY PER KIND OF WORK, never the inventory (Product Truth; operator, 2026-08-31): printing every
-              unfinished row made the operator the product's progress clerk. What a person opening this line needs is
-              the shape of what is coming, in plain words, one line per kind. */}
-          <ul className="list-none space-y-1 px-4 pb-3">
-            {[...researchingRows.reduce((m, p) => { const k = preparingKind(p); m.set(k, (m.get(k) ?? 0) + 1); return m; }, new Map<string, number>())]
-              .sort((a, b) => b[1] - a[1])
-              .map(([kind, n]) => (
-                <li key={kind} className="flex items-baseline gap-x-2 border-t border-border/60 py-2 text-[13px] tabular-nums" data-preparing-kind="true">
-                  <span className="font-medium text-foreground">{n.toLocaleString("en-US")}</span>
-                  <span className="text-muted-foreground">{kind}</span>
-                </li>
-              ))}
-          </ul>
-        </details>
+      {/* STILL BEING WRITTEN, CHECKED OR RESEARCHED: one sentence with the counts, never a card and never a tally of internal
+          states. The detail page of a held row stays reachable by its address (Today links there); this list never renders it. */}
+      {writtenCount > 0 || researchingCount > 0 ? (
+        <p className="text-[13px] leading-relaxed tabular-nums text-muted-foreground" data-lane-preparing="true">
+          {[writtenCount > 0 ? `${writtenCount.toLocaleString("en-US")} ${writtenCount === 1 ? "change is" : "changes are"} being written and checked` : null,
+            researchingCount > 0 ? `${researchingCount.toLocaleString("en-US")} ${researchingCount === 1 ? "opportunity is" : "opportunities are"} being researched` : null]
+            .filter(Boolean).join(", and ")}. They move up here on their own.
+        </p>
       ) : null}
 
       {/* The one load-more lives under Ready above: finished work pages alone, and internal work never
