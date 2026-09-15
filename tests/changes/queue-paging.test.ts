@@ -86,10 +86,10 @@ describe("Today and Changes answer one question once", () => {
     expect((await loadChangesView()).readyZeroHint, "a release carrying finished work carries no hint").toBeNull();
     for (const r of db.rows) if (r.tenant_id === T) r.terminal_disposition = "dismissed"; // every finished change skipped between two rebuilds: the live lane answers empty against the release's own null hint
     const view = await loadChangesView();
-    expect([view.ready.length, view.summary.ready, view.readyZeroHint?.startsWith("No finished change is ready right now")], "the lane is empty, the count follows it, and the sentence is re-derived from the live lane rather than read off a release that still had rows (journey review, 2026-09-06)").toEqual([0, 0, true]); });
+    expect([view.ready.length, view.summary.ready, view.readyZeroHint?.startsWith("No finished change is ready")], "the lane is empty, the count follows it, and the sentence is re-derived from the live lane rather than read off a release that still had rows (journey review, 2026-09-06)").toEqual([0, 0, true]); });
   it("withholds a count it could not read, and never counts a lane higher than it can hand over", async () => {
     ledgerFails.value = true;
-    const view = await buildChangesViewUncached(T, "rel-8"), today = buildTodayViewFromChanges(view); expect([view.countsUnavailable, view.summary.measuring, today.countsUnavailable, today.measuringCount]).toEqual([true, 0, true, undefined]);
+    const view = await buildChangesViewUncached(T, "rel-8"), today = buildTodayViewFromChanges(view); expect([view.countsUnavailable, view.summary.measuring]).toEqual([true, 0]);
     expect(today.headerSentence).not.toMatch(/measuring/i); // no clause I cannot stand behind
     const { ChangesListClient } = await import("@/app/(shell)/changes-list-client");
     expect(renderToStaticMarkup(createElement(ChangesListClient, { view }))) .toContain("What is measuring could not be read just now");

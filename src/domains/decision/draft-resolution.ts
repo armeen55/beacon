@@ -12,11 +12,11 @@ import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gat
 import { canonicalUrlKey, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { comparisonTopics, jobComparison } from "@/domains/evidence/comparison";
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
-import type { ChangeProposal } from "./contracts";
+import type { ChangeProposal } from "./contracts"; import { COPY_RULES } from "./copy-sanitize";
 import type { DraftResolution, EvidenceRequirement } from "./producers/contract";
 
 const GAIN_LINES = new Set<string>();
-const GAIN_TEXT = { SAME_WORDS: "every line of it is already on this page, so it hands the reader the same words twice under a new heading: add what the page does not carry, or nothing is owed here",
+const GAIN_TEXT = { SAME_WORDS: `${COPY_RULES.refusal.repeats}, so it hands the reader the same words twice under a new heading: add what the page does not carry, or nothing is owed here`,
   ADDS_NOTHING: "every claim stands only on this page's own words, so a reader already on the page learns nothing: add a checked fact (a fact- id) or relate this page to another the account owns (an owned-page id)",
   REPEATS_BELOW: "it repeats what stays on the page below it, so a reader gets the same thing twice",
   TOO_THIN: "this rearranges the page into one more paragraph: a synthesis owes a direct answer and then the items, meanings or comparison the reader came for, each on its own line",

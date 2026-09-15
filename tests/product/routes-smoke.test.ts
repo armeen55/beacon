@@ -30,7 +30,7 @@ describe("Today renders, and tells the truth about its own queue", () => {
     vi.resetModules(); const ago = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString(), row = (id: string, status: string | null) => { const r = { id, path: `/${id}`, page: `https://fixture.example/${id}`, actionType: "section_add", after: "The complete section gives readers the supported explanation, its scope, and the distinctions needed to understand the subject without sending them elsewhere", shippedAt: ago(3), implementedAt: ago(3), verdict: "measuring", verification: null, windows: [], baseline: { impressions: 0, clicks: 0 } }; return { ...r, verification: status ? { status, checkedAt: ago(2), checkerContract: SHIPMENT_PROOF.contract, proof: SHIPMENT_PROOF.of(r, "Inspected page"), components: [{ kind: "section_add", state: "verified", note: null }] } : null }; };
     vi.doMock("@/domains/measurement", async (o) => ({ ...(await o<Record<string, unknown>>()), loadProofLedgerCached: async () => [row("a", "verified"), row("b", null), row("c", "not_found")] }));
     vi.doMock("@/app/(shell)/today-gate-data", () => ({ loadTodayV2GateData: async () => ({ unreadable: false, isDemoMode: false, firstReading: { isFirstReading: false, context: null } }) }));
-    vi.doMock("@/app/(shell)/today-view-data", async (o) => ({ ...(await o<Record<string, unknown>>()), loadTodayView: async () => ({ hasChanges: true, today: { headerSentence: "", nextOpportunities: [], readyTotal: 0, toDoTotal: 0 } }) }));
+    vi.doMock("@/app/(shell)/today-view-data", async (o) => ({ ...(await o<Record<string, unknown>>()), loadTodayView: async () => ({ hasChanges: true, today: { headerSentence: "", nextOpportunities: [], readyTotal: 0 } }) }));
     const { default: Page } = await import("@/app/(shell)/page") as { default: (a?: unknown) => Promise<ReactElement> };
     const html = await new Response(await renderToReadableStream(await Page({ searchParams: Promise.resolve({}) }), { onError: () => {} })).text();
     expect(html).toContain("1 confirmed live and measuring, 2 waiting on a live check"); // one live check landed, two changes are still owed one
@@ -49,14 +49,9 @@ describe("Today renders, and tells the truth about its own queue", () => {
     const empty = { ready: [], toDo: [], measuringCountCanonical: 0, proposals: [] } as unknown as import("@/app/(shell)/changes-data").ChangesView;
     const live = { ...readyView(3, 0), toDo: [readyView(1, 0).ready[0]!], summary: { ready: 3, todo: 1 } } as unknown as import("@/app/(shell)/changes-data").ChangesView; // PRODUCTION, 2026-08-15: three ready and one in review, and this sentence said "You have 4 finished changes ready to make". FINISHED COUNTS FINISHED. The review card is counted in its own clause, is never previewed, and is never the edit Today leads with: a card the queue holds back cannot be the thing to do first.
     const mixed = buildTodayViewFromChanges(live), reviewOnly = buildTodayViewFromChanges({ ...live, ready: [], summary: { ready: 0, todo: 1 } } as never);
-    expect([mixed.headerSentence, mixed.readyTotal, mixed.toDoTotal, mixed.nextOpportunities.length, reviewOnly.headerSentence, reviewOnly.topEdit])
-      .toEqual(["You have 3 finished changes ready to make, best first.", 3, 1, 3,
-        "No finished change is ready today. The next one lands here the moment the exact work is written.", undefined]);
-    expect([view.headerSentence, view.nextOpportunities.length, buildTodayViewFromChanges(readyView(1, 0)).headerSentence,
-      buildTodayViewFromChanges(empty, { outcome: "actionable_but_no_trusted_draft" }).headerSentence, buildTodayViewFromChanges(empty).headerSentence,
-      buildTodayViewFromChanges({ ...empty, summary: { ...empty.summary, research: 7 } }).headerSentence])
-      .toEqual(["You have 12 finished changes ready to make, best first.", 3, "You have 1 finished change ready to make, best first.", NO_WORK, NO_WORK,
-        NO_WORK]);
+    expect([mixed.headerSentence, mixed.readyTotal, mixed.nextOpportunities.length, reviewOnly.headerSentence, reviewOnly.topEdit]).toEqual(["You have 3 finished changes ready to make, best first.", 3, 3, NO_WORK, undefined]);
+    expect([view.headerSentence, view.nextOpportunities.length, buildTodayViewFromChanges(readyView(1, 0)).headerSentence, buildTodayViewFromChanges(empty).headerSentence, buildTodayViewFromChanges({ ...empty, summary: { ...empty.summary, research: 7 } }).headerSentence])
+      .toEqual(["You have 12 finished changes ready to make, best first.", 3, "You have 1 finished change ready to make, best first.", NO_WORK, NO_WORK]);
     const rv = readyView(1, 0), research = { ...rv.ready[0]!, id: "t::/r::existing_edit::researching", researchOnly: true }; // TODAY NEVER LEADS WITH RESEARCH WHILE ANY FINISHED CHANGE EXISTS (operator, 2026-08-22): a research row outranking the one ready change globally still cedes the top slot to the finished work.
     const led = buildTodayViewFromChanges({ ...rv, research: [research], proposals: [research, rv.ready[0]!],
       summary: { ready: 1, todo: 0, research: 1 } } as never);

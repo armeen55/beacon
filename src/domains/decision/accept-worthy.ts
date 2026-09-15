@@ -1,4 +1,4 @@
-import type { ChangeProposal } from "./contracts";
+import type { ChangeProposal } from "./contracts"; import { COPY_RULES } from "./copy-sanitize";
 import { topicTokens } from "@/domains/evidence/relevance-gate";
 
 const QUALIFIER = /\b(international(?:ly)?|excluding|from|up to|per|depending)\b/i;
@@ -26,7 +26,7 @@ const emptyMeta = (copy: string, heading: string): string[] => {
   const tokens = (t: string) => t.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
   const known = new Set(tokens(`${heading} a an the is are about and of for with description details information`));
   return !copy.trim() || /\b(?:no (?:added |useful |additional )?description|description (?:not available|unavailable|missing)|nothing to describe)\b/i.test(copy)
-    || (known.size > 0 && tokens(copy).every((w) => known.has(w))) ? ["The description is empty or repeats the heading without describing the subject."] : [];
+    || (known.size > 0 && tokens(copy).every((w) => known.has(w))) ? [`${COPY_RULES.refusal.emptyMeta} without describing the subject.`] : [];
 };
 /* THE PACKET REGIME IS DELETED (audit, 2026-09-14): its rubric, policy, holds and grouping debt were pinned off on 2026-09-10 and shipped dead. What remains is what stored rows and live doors still read: the hold sentences stored rows carry as limitations, the grouping question the runtime still names, and the meta and figure rules. */
 export const AEO_BAR = { copyRefusals: COPY_REFUSALS, groupingQuestion: "Which groups of this page’s subject does the source distinguish, and what qualifies for each?", hasGrouping, emptyMeta, holds, writerLimitations,

@@ -18,11 +18,11 @@ import { splitLedgerLifecycle } from "@/domains/decision";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
-import { CopyButton } from "./changes/change-controls";
-import { pageLabel } from "./changes/types";
+import { CopyButton, PublicationCopy } from "./changes/change-controls";
+import { pageLabel, RESEARCH_CADENCE } from "./changes/types";
 
-/** Today `/` - WORK, NOT A STATUS REPORT (2026-08-11). The operator has made zero changes because this screen narrated what Beacon was
- *  doing instead of handing him one edit. It is now exactly five things: the greeting with how many edits are open, THE TOP EDIT ITSELF
+/** Today `/` - WORK, NOT A STATUS REPORT (2026-08-11). The operator has made zero changes because this screen narrated internal
+ *  work instead of handing him one edit. It is now exactly five things: the greeting with how many edits are open, THE TOP EDIT ITSELF
  *  with the number behind it and one link that opens it, the clicks scoreboard, the last change that provably won, and the one refresh
  *  control. Everything about passes, readings, topics collected and evidence held is gone from here; Changes owns what is not yet an edit. */
 export default async function TodayPage({
@@ -179,7 +179,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   if (gateRaced.timedOut) return <HonestDelay />;
   const gate = gateRaced.data;
 
-  if (gate.unreadable) return <HonestDelay message="Couldn’t read your account just now. Your data is safe, and Beacon is retrying automatically." />;
+  if (gate.unreadable) return <HonestDelay message="Couldn’t read your account just now. Your data is safe, and the read is retried on its own." />;
   if (gate.isDemoMode) {
     return (
       <div className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5">
@@ -201,7 +201,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     if (viewRaced.timedOut) return <HonestDelay />;
     composite = viewRaced.data;
   } catch {
-    return <HonestDelay message="Couldn’t load Today just now. Your data is safe, and Beacon is retrying automatically." />;
+    return <HonestDelay message="Couldn’t load Today just now. Your data is safe, and the read is retried on its own." />;
   }
   // WAITING FOR A FIRST READING IS ONLY TRUE WHILE THERE IS NOTHING TO SHOW. An account whose research had already ranked changes was told to sit and wait beside work it could have done, because the waiting screen was decided before the release was ever read.
   if (gate.firstReading.isFirstReading && !composite.hasChanges) {
@@ -239,8 +239,11 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // Nothing unfinished reaches here at all now, so there is no "read this first" state left to render.
   const plan = !!edit && !edit.paste && !edit.after;
   // THE OTHER CHANGES ARE THE OTHER FINISHED ONES, counted from the ready lane alone: Today never counts a
-  // draft or Beacon's own research as the operator's work (operator, 2026-08-21).
+  // draft or internal research as the operator's work (operator, 2026-08-21).
   const others = Math.max(0, (today.readyTotal ?? 0) - (lane === "ready" && edit ? 1 : 0));
+  // THE NEXT TWO IN LINE, AS A SHORT LIST (Product Truth: at most three next changes). They were computed on every
+  // release and rendered nowhere, so the page said "see the other 11" and never named one of them.
+  const upNext = top ? today.nextOpportunities.filter((o) => o.changeId !== top.changeId).slice(0, 2) : [];
   const winLine = lastWinLine(ledgerRows, nowMs);
   const week = weekStrip(ledgerRows, nowMs);
 
@@ -256,7 +259,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       {top ? (
         <div className={`rounded-2xl border bg-surface-raised p-5 ${lane === "ready" ? "border-accent-primary/50" : "border-border"}`} data-top-edit="true">
           <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground" data-top-lane={lane}>
-            {lane === "ready" ? "Do this first" : lane === "review" ? "Beacon is still checking this one" : "A future opportunity"}{/* OWNERSHIP SAID TRUTHFULLY (operator, 2026-08-29): a review-lane row is held by BEACON'S own unfinished step, so Today may not tell the operator a draft waits on THEM; "your decision" is reserved for genuine operator decisions */}
+            {lane === "ready" ? "Do this first" : lane === "review" ? "Still being checked" : "A future opportunity"}{/* OWNERSHIP SAID TRUTHFULLY (operator, 2026-08-29): a review-lane row is held by an unfinished internal step, so Today may not tell the operator a draft waits on THEM; "your decision" is reserved for genuine operator decisions */}
           </p>
           <p className="mt-1 text-[15px] font-semibold leading-relaxed text-foreground">{edit?.action ?? top.recommendation}</p>
           {edit && edit.after ? (
@@ -267,10 +270,11 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
                 </p>
               ) : null}
               <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
-                <p className="min-w-0 flex-1 whitespace-pre-line text-[14px] font-semibold leading-relaxed text-foreground">
-                  <span className="font-normal text-muted-foreground">{edit.lead}</span>{edit.after}
-                </p>
-                {edit.paste ? <CopyButton text={edit.after} label="Copy" /> : null}
+                <div className="min-w-0 flex-1 text-[14px] font-semibold leading-relaxed text-foreground">
+                  <span className="font-normal text-muted-foreground">{edit.lead}</span><PublicationCopy text={edit.after} units={edit.units} link={edit.link ?? null} />
+                </div>
+                {/* THE SAME PAYLOAD CHANGES HANDS OVER: units and the link ride with the press, so Today never copies a flatter version of the same change. */}
+                {edit.paste ? <CopyButton text={edit.after} units={edit.units} link={edit.link ?? null} label="Copy" /> : null}
               </div>
               {edit.where ? (
                 <p className="text-[12px] leading-relaxed text-muted-foreground" data-top-edit-where="true">Where it goes: {edit.where}</p>
@@ -293,6 +297,20 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
               {others > 0 ? `See the other ${others.toLocaleString("en-US")} finished ${others === 1 ? "change" : "changes"}` : "Open Changes"}
             </Link>
           </div>
+          {upNext.length > 0 ? (
+            <div className="mt-4 border-t border-border pt-3" data-up-next="true">
+              <p className="text-[12px] font-semibold text-muted-foreground">Up next</p>
+              <ol className="mt-1 space-y-1 text-[13px] leading-relaxed">
+                {upNext.map((o, i) => (
+                  <li key={o.changeId}>
+                    <span className="tabular-nums text-muted-foreground">{i + 2}. </span>
+                    <Link href={`/changes/${encodeURIComponent(o.changeId)}`} className="font-medium text-foreground underline underline-offset-2 hover:text-accent-primary">{o.recommendation}</Link>
+                    <span className="text-muted-foreground">{o.lane === "ready" ? " Finished, ready to make." : o.lane === "review" ? " Written, still being checked." : " Still being researched."}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
         </div>
       ) : (
         /* ZERO FINISHED CHANGES IS AN HONEST DAY, SAID PLAINLY. The header above already carries how many opportunities
@@ -301,9 +319,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           No finished change is ready today. <Link href="/changes" className="underline underline-offset-2">Open Changes</Link> to see everything that has been written for your pages.
         </p>
       )}
-      {/* THE HEARTBEAT: what the last research pass did and when, off its own stored row, so "is this thing alive" is answered on the first screen without a support question. */}
-      {composite.researchLiveness ? (
-        <p className="text-[12px] leading-relaxed text-muted-foreground" data-research-liveness="true">{composite.researchLiveness}</p>
+      {/* THE HEARTBEAT: what the last research pass did and when, off its own stored row, so "is this thing alive" is answered on the first screen without a support question. ONE CADENCE SENTENCE, the same on every surface (audit 3.9): three different descriptions of when research runs were shown to the customer. */}
+      {composite.researchLiveness || !composite.researchPaused ? (
+        <p className="text-[12px] leading-relaxed text-muted-foreground" data-research-liveness="true">{[composite.researchLiveness, composite.researchPaused ? null : RESEARCH_CADENCE].filter(Boolean).join(" ")}</p>
       ) : null}
       {/* A SPENT MODEL BUDGET IS A FACT ABOUT THIS ACCOUNT, said in one line rather than left to look like a quiet day. SAID NO WIDER THAN IT IS PROVEN (operator, 2026-08-29): the gate this asks answers for the monthly model budget alone, so the line may not claim that search, stored evidence, cached answers or any deterministic work has stopped, because none of that is what was checked. It also states CAPABILITY, never outcome: work that costs nothing CAN continue, where "still lands here" promised an arrival that a gate, a staleness rule or a supersede can still refuse. */}
       {composite.modelBudgetSpent ? (

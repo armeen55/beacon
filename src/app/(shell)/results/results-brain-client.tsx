@@ -10,7 +10,7 @@ type Thought = BrainModel["thoughts"][number];
  *  verified reads exist. Selecting a thought opens the evidence beside it (under it on a narrow screen). Native SVG, no chart library,
  *  reduced motion honoured, and every state is said in words beside its shape so colour is never the only encoding. */
 
-/** HOW SURE BEACON MAY BE ABOUT A WHOLE KIND OF WORK, which is a different question from what one row is: a row wears the rung it stands on (results-lines STATE_LABEL) and this counts the 28 day readings behind a bet, so neither borrows the other's word. */
+/** HOW SURE A WHOLE KIND OF WORK MAY BE CALLED, which is a different question from what one row is: a row wears the rung it stands on (results-lines STATE_LABEL) and this counts the 28 day readings behind a bet, so neither borrows the other's word. */
 const CONF_WORD: Record<Thought["confidence"], string> = { none: "No verified 28 day read yet", early: "Early verified record", pattern: "Consistent verified record", mixed: "Split verified record" };
 const confWord = (t: Thought): string => (t.confidence === "pattern" ? `${CONF_WORD.pattern}, ${t.ahead >= t.behind ? "ahead" : "behind"}` : CONF_WORD[t.confidence]);
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2";
@@ -43,9 +43,9 @@ export function ResultsBrain({ model, checkedAgo }: { model: BrainModel; checked
   const current = thoughts.find((t) => t.key === selected) ?? null;
   const conf = model.belief.confidence, losing = model.thoughts.some((t) => t.confidence === "pattern" && t.behind > t.ahead); // A CONSISTENT RECORD OF LOSSES WORE THE WINNING COLOUR: green, "Consistent verified record", over four readings that all finished behind and a step saying to stop shipping it.
   return (
-    <section aria-label="What Beacon believes" data-results-brain="true">
+    <section aria-label="Current reading" data-results-brain="true">
       <div className="mb-5" data-brain-belief={conf}>
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Beacon&apos;s current belief</p>
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Current reading</p>
         <h2 className="mt-1 text-[22px] font-semibold leading-snug tracking-tight text-foreground" style={{ textWrap: "balance" }}>{model.belief.headline}</h2>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${losing ? "border-rose-300 bg-rose-50 text-rose-800" : conf === "pattern" ? "border-emerald-300 bg-emerald-50 text-emerald-800" : conf === "mixed" ? "border-amber-300 bg-amber-50 text-amber-800" : conf === "early" ? "border-sky-300 bg-sky-50 text-sky-800" : "border-border bg-surface-inset text-muted-foreground"}`} data-brain-confidence={conf}>{losing ? `${CONF_WORD.pattern}, behind` : CONF_WORD[conf]}</span>
@@ -53,7 +53,7 @@ export function ResultsBrain({ model, checkedAgo }: { model: BrainModel; checked
         </div>
         {model.belief.lines.length > 0 ? (
           <div className="mt-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Why Beacon believes this</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">What stands behind it</p>
             <ul className="mt-1 space-y-1">{model.belief.lines.map((l) => <li key={l} className="text-[13px] leading-relaxed text-foreground/85">{l}</li>)}</ul>
           </div>
         ) : null}
@@ -108,12 +108,14 @@ export function ResultsBrain({ model, checkedAgo }: { model: BrainModel; checked
                 <p className="mt-1 text-[13px] font-medium leading-relaxed text-foreground">{current.belief}</p>
                 <p className="mt-1 text-[11px] text-muted-foreground">{confWord(current)}</p>
               </div>
+              {/* NO BARE ZERO (audit 3.9): "Verified 28 day reads 0" and "Historical: 0 ahead, 0 behind" were printed as numbers; a count of nothing is said as a sentence, and only counts above zero are listed. */}
               <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-[12px] tabular-nums">
                 {([["Marked done", current.shipped], ["Confirmed live", current.liveVerified], ["Read at 14 days, early", current.early], ["Verified 28 day reads", current.verifiedSample], ["Historical reads", current.historical],
-                  ["Ahead", current.ahead], ["Behind", current.behind], ["Inconclusive", current.inconclusive], ["Still reading", current.inFlight], ["Recorded, waiting for live verification", current.waitingVerification + current.recorded], ["Shared with other changes", current.overlapping]] as const)
-                  .filter(([k, v]) => v > 0 || k === "Marked done" || k === "Verified 28 day reads").map(([k, v]) => (<div key={k} className="contents"><dt className="text-muted-foreground">{k}</dt><dd className="text-right text-foreground">{v}</dd></div>))}
+                  ["Ahead", current.ahead], ["Behind", current.behind], ["Inconclusive", current.inconclusive], ["Still reading", current.inFlight], ["Recorded, waiting for the live check", current.waitingVerification + current.recorded], ["Shared with other changes", current.overlapping]] as const)
+                  .filter(([, v]) => v > 0).map(([k, v]) => (<div key={k} className="contents"><dt className="text-muted-foreground">{k}</dt><dd className="text-right text-foreground">{v}</dd></div>))}
               </dl>
-              {current.historical > 0 ? <p className="mt-2 text-[11px] text-muted-foreground">Historical: {current.historicalAhead} ahead, {current.historicalBehind} behind, {current.historicalUnclear} unclear. Context only.</p> : null}
+              {current.verifiedSample === 0 ? <p className="mt-2 text-[11px] text-muted-foreground">No verified 28 day read has closed for this kind of work yet.</p> : null}
+              {current.historical > 0 ? <p className="mt-2 text-[11px] text-muted-foreground">Historical, context only: {[[current.historicalAhead, "ahead"], [current.historicalBehind, "behind"], [current.historicalUnclear, "unclear"]].filter(([n]) => (n as number) > 0).map(([n, w]) => `${n} ${w}`).join(", ")}.</p> : null}
               {current.agreement ? <p className="mt-1 text-[11px] text-muted-foreground">{current.agreement}</p> : null}<p className="mt-1 text-[11px] text-muted-foreground" data-brain-teaches="true">{current.teaches}</p>{/* WHETHER THIS IS ALREADY AIMING THE NEXT RECOMMENDATION, said on the thought itself: a reader cannot tell a belief that is only on the screen from one the queue is already using. */}
               {current.pageFamilies.length > 0 ? <p className="mt-1 text-[11px] text-muted-foreground">Where: {current.pageFamilies.slice(0, 4).join(", ")}{current.pageFamilies.length > 4 ? ` and ${current.pageFamilies.length - 4} more` : ""}.{current.causes.length > 0 ? ` Raised against: ${current.causes.join("; ")}.` : ""}</p> : null}
               <div className="mt-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Strongest example</p>
@@ -122,7 +124,7 @@ export function ResultsBrain({ model, checkedAgo }: { model: BrainModel; checked
               {current.counterexample ? (<div className="mt-2"><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Counterexample</p>
                 <p className="text-[12px] text-foreground/85"><a href={`#change-${current.counterexample.id}`} className={`font-medium text-accent-primary underline underline-offset-2 ${FOCUS}`}>{current.counterexample.label}</a> {current.counterexample.line}</p></div>) : null}
               {current.limits.length > 0 ? (<div className="mt-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Limits</p><ul className="mt-1 space-y-1">{current.limits.map((l) => <li key={l} className="text-[12px] text-foreground/80">{l}</li>)}</ul></div>) : null}
-              <div className="mt-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">What would change Beacon&apos;s mind</p><p className="mt-1 text-[12px] text-foreground/85">{current.changeMind}</p></div>
+              <div className="mt-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">What would change it</p><p className="mt-1 text-[12px] text-foreground/85">{current.changeMind}</p></div>
               <div className="mt-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Watching</p><p className="mt-1 text-[12px] text-foreground/85">{current.watching}</p></div>
             </>
           ) : <p className="text-[13px] text-muted-foreground">Select a kind of work to see the evidence behind it.</p>}
@@ -130,7 +132,7 @@ export function ResultsBrain({ model, checkedAgo }: { model: BrainModel; checked
 
         <div className="grid gap-4 sm:grid-cols-2 lg:col-start-1 lg:row-start-2">
           {model.changed ? (<div><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">What changed recently</p><p className="mt-1 text-[13px] text-foreground/85">{model.changed}</p></div>) : null}
-          {model.watching.length > 0 ? (<div><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">What Beacon is watching</p><ul className="mt-1 space-y-1">{model.watching.map((w) => <li key={w} className="text-[13px] text-foreground/85">{w}</li>)}</ul></div>) : null}
+          {model.watching.length > 0 ? (<div><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">What is being watched</p><ul className="mt-1 space-y-1">{model.watching.map((w) => <li key={w} className="text-[13px] text-foreground/85">{w}</li>)}</ul></div>) : null}
         </div>
       </div>
     </section>

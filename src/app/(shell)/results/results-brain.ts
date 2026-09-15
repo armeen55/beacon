@@ -30,7 +30,7 @@ const RUNG: ReadonlyArray<readonly [key: "recorded" | "liveConfirmed" | "early" 
 /** One kind of work, as a thought in the field. Every count names its own unit in the words the surface prints. */
 type Thought = {
   key: string; family: string | null; name: string;
-  /** How sure Beacon may be: nothing verified yet, an early signal, a consistent pattern, or a record that points both ways. */
+  /** How sure the reading is: nothing verified yet, an early signal, a consistent pattern, or a record that points both ways. */
   confidence: "none" | "early" | "pattern" | "mixed";
   /** What the field draws: the verified sample sizes the node, the historical ring, and whether confirmed readings are in flight. */
   verifiedSample: number; historical: number; inFlight: number;
@@ -150,11 +150,11 @@ export function buildResultsBrain(shipments: ReadonlyArray<ShipmentPresentation>
   const confidence: Thought["confidence"] = patterns.length > 0 ? "pattern" : mixed.length > 0 && early.length === 0 ? "mixed" : early.length > 0 ? "early" : "none";
   const openOn = (day: number | null): string | null => shipments.flatMap((p) => p.read.windows.filter((w) => w.state !== "closed" && (day == null || w.day === day)).map((w) => w.closesOn)).filter((d): d is string => d != null).sort()[0] ?? null;
   const soonest = openOn(null), matureOn = openOn(28); // the soonest open read of any length, and the soonest open 28 day one, which is the only read that may call a win and therefore the only date a decision lands on
-  const headline = patterns.length > 0 ? `Beacon has a consistent verified record, not yet proof: ${patterns.map((t) => `${t.name.toLowerCase()} ${t.ahead >= t.behind ? "ahead" : "behind"}`).join(", ")}.` // AND THE DIRECTION IS IN THE HEADLINE: four readings that all finished BEHIND printed the same sentence as four that finished ahead, under a green chip, over a step telling the operator to stop shipping it
-    : early.length > 0 ? `Beacon has an early verified signal for ${early.map((t) => t.name.toLowerCase()).join(", ")}, not yet a pattern.`
-    : counts.shipped === 0 ? "Nothing has been marked done yet, so Beacon has no result to believe." // AN EARLY READING IS A STATE OF ITS OWN AT THE TOP OF THE PAGE TOO: changes read at 14 days sat under "cannot claim a pattern yet", true, and silent about both the reading that exists and the day the first decision on it lands
+  const headline = patterns.length > 0 ? `A consistent verified record, not yet proof: ${patterns.map((t) => `${t.name.toLowerCase()} ${t.ahead >= t.behind ? "ahead" : "behind"}`).join(", ")}.` // AND THE DIRECTION IS IN THE HEADLINE: four readings that all finished BEHIND printed the same sentence as four that finished ahead, under a green chip, over a step telling the operator to stop shipping it
+    : early.length > 0 ? `An early verified signal for ${early.map((t) => t.name.toLowerCase()).join(", ")}, not yet a pattern.`
+    : counts.shipped === 0 ? "Nothing has been marked done yet, so there is no result to read. Mark the first change done on Changes and its read starts that day." // AN EARLY READING IS A STATE OF ITS OWN AT THE TOP OF THE PAGE TOO: changes read at 14 days sat under "cannot claim a pattern yet", true, and silent about both the reading that exists and the day the first decision on it lands
     : counts.early > 0 ? `${plural(counts.early, "live-confirmed change")} ${counts.early === 1 ? "has" : "have"} an early reading at 14 days and no 28 day decision yet: the first one ${landsLabel(matureOn, now) ?? "starts with the next change marked done"}.`
-    : "Beacon cannot claim a live-verified pattern yet.";
+    : "No live-verified pattern yet. The first 28 day read decides it.";
   // WHAT MOVED, RAW, BESIDE WHAT THE COMPARISON DID (operator, 2026-09-05): "ahead" is one word for two facts, a page that took more clicks than before and a page that held still while the pages beside it fell, and only the first is traffic anybody gained. Counted over the readings that have closed and carry both figures; a reading missing either is in neither count and the sentence says how many were countable.
   const raw = shipments.filter((p) => !isRetired(p) && rawMoveOf(p) != null && (rowState(p) === "verified_mature" || rowState(p) === "verified_early")).map((p) => rawMoveOf(p)!), gained = raw.filter((m) => m.own > 0).length, onlyPeers = raw.filter((m) => m.own <= 0 && m.peers != null && m.peers < 0).length;
   // THE LADDER IS THE ARGUMENT: one sentence per rung that holds anything, then the line that says they add back, so a reader can check the page against itself.
@@ -165,7 +165,7 @@ export function buildResultsBrain(shipments: ReadonlyArray<ShipmentPresentation>
   // WHAT CHANGED RECENTLY IS A DIFFERENCE BETWEEN TWO BELIEFS, not a count of rows: the same model is asked what it believed two weeks ago,
   // with every read that closed since then still open, and each thought whose confidence moved is named. The closes are the second sentence.
   const cutoff = now.getTime() - 14 * 86_400_000, closedSince = (p: ShipmentPresentation): boolean => isMature(p.read.basisDay as 28 | null) && [...p.read.windows].some((w) => w.state === "closed" && w.closesOn != null && Date.parse(w.closesOn) > cutoff);
-  // A RETIRED RECOMMENDATION IS HISTORY, NOT NEWS: a read that closed under advice Beacon has since taken back is not part of
+  // A RETIRED RECOMMENDATION IS HISTORY, NOT NEWS: a read that closed under advice since taken back is not part of
   // "what finished in the last two weeks", and it may not be the thing the operator is sent to go and publish.
   const recent = shipments.filter((p) => closedSince(p) && !isRetired(p)), earlier = shipments.map((p) => closedSince(p) ? { ...p, read: { ...p.read, basisDay: null, verdict: "waiting" as const, lift: 0 } } : p);
   const then = new Map([...bets].map(([key, g]) => [key, thoughtOf(g.bet, earlier.filter((p) => betOf(p).key === key), new Date(cutoff), []).confidence] as const));
@@ -177,14 +177,14 @@ export function buildResultsBrain(shipments: ReadonlyArray<ShipmentPresentation>
   const differs = shipments.filter((p) => p.implementedAt != null && p.verification?.status === "differs" && !isRetired(p)), unread = shipments.filter((p) => p.verification?.status === "blocked" && p.verification.recheckAfter != null).length, lands = soonest ? landsLabel(soonest, now) ?? "lands soon" : null;
   const watching = [...(counts.liveConfirmed > 0 ? [`${plural(counts.liveConfirmed, "change")} confirmed on the live page, whose reads decide the first verified pattern.`] : []),
     ...(lands ? [`The next read ${lands}.`] : []),
-    ...(differs.length > 0 ? [`${plural(differs.length, "marked-done change")} ${differs.length === 1 ? "does" : "do"} not yet show on the live page as approved: check ${differs.length === 1 ? "it is" : "they are"} published, and Beacon re-reads ${differs.length === 1 ? "it" : "them"}.`] : []),
-    ...(unread > 0 ? [`${plural(unread, "page")} could not be read on the last check; Beacon retries ${unread === 1 ? "it" : "them"}.`] : []),
+    ...(differs.length > 0 ? [`${plural(differs.length, "marked-done change")} ${differs.length === 1 ? "does" : "do"} not yet show on the live page as approved: check ${differs.length === 1 ? "it is" : "they are"} published; ${differs.length === 1 ? "it is" : "they are"} read again after that.`] : []),
+    ...(unread > 0 ? [`${plural(unread, "page")} could not be read on the last check and ${unread === 1 ? "is" : "are"} retried on the next pass.`] : []),
     ...(unconfirmed > 0 ? [`${plural(unconfirmed, "change")} recorded and not yet confirmed live: their numbers are context only.`] : [])];
   // ALWAYS A NEXT STEP, AND AN IMPERATIVE, OFF ACTIONABLE STATE (truth review, 2026-09-01): a kind of work that keeps finishing behind is read before more of it ships; then
   // the finished changes the release serves on Changes; then a page whose live copy differs; otherwise the wait, which names the date it ends on, or the reason it has not, and never runs the two into one broken sentence.
   const nextStep = hurting ? { text: `${hurting.name} have finished behind in ${hurting.behind} of ${plural(hurting.verifiedSample, "verified read")}. Open that kind of work above, read the example under it, and hold off repeating it until one finishes ahead.`, href: null }
     : actionable.ready != null && actionable.ready > 0 ? { text: `Make the ${plural(actionable.ready, "finished change")} waiting on Changes; each one starts its read the day you mark it done.`, href: "/changes" }
-    : differs.length > 0 ? { text: `Check that ${differs.length === 1 ? "the marked-done change on" : `the ${differs.length} marked-done changes on`} ${[...new Set(differs.map((p) => p.read.path || p.read.page))].slice(0, 2).join(" and ")} ${differs.length === 1 ? "is" : "are"} published as approved; Beacon re-reads ${differs.length === 1 ? "it" : "them"} after that.`, href: `#change-${differs[0]!.read.id}` }
+    : differs.length > 0 ? { text: `Check that ${differs.length === 1 ? "the marked-done change on" : `the ${differs.length} marked-done changes on`} ${[...new Set(differs.map((p) => p.read.path || p.read.page))].slice(0, 2).join(" and ")} ${differs.length === 1 ? "is" : "are"} published as approved; ${differs.length === 1 ? "it is" : "they are"} read again after that.`, href: `#change-${differs[0]!.read.id}` }
     : lands ? { text: `The next read ${lands}${lands.startsWith("lands") ? ", so nothing is needed until then" : ", and it lands as soon as those numbers do"}. Mark the next change done on Changes and its read starts that day.`, href: "/changes" }
       : { text: "Mark the next change done on Changes; its read starts from that day.", href: "/changes" };
   return { belief: { headline, lines, confidence }, changed, watching, thoughts, counts, funnel, nextStep };

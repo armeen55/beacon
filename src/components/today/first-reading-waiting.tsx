@@ -1,5 +1,5 @@
 /**
- * first-reading-waiting — Gap F.1 (2026-05-07).
+ * first-reading-waiting, Gap F.1 (2026-05-07).
  *
  * The "Your first reading is being prepared" surface that /today
  * renders when a freshly launched tenant has prompts but no
@@ -7,7 +7,7 @@
  *
  * Pivot framing (2026-06-14, audit #22): Beacon leads with your site's
  * own search demand + content, and tracks AI-answer visibility as one
- * additional signal — so the copy no longer positions the whole product
+ * additional signal, so the copy no longer positions the whole product
  * as an "AI visibility" reading. Claims here stay generic ("your first
  * reading") because this fresh-tenant screen can't assume which
  * connectors (GSC/GA4) are wired yet.
@@ -22,6 +22,7 @@
 
 import Link from "next/link";
 import type { FirstReadingContext } from "@/domains/account/onboarding/first-reading-state";
+import { RESEARCH_CADENCE } from "@/app/(shell)/changes/types";
 
 export function FirstReadingWaiting({
   context,
@@ -41,9 +42,8 @@ export function FirstReadingWaiting({
           </h1>
           <p className="text-[14px] text-muted-foreground">
             Your site is being read, and AI assistants are being checked on how
-            they answer your questions. This runs once a day on its own, so you can close this
-            and come back. Connecting Google Search Console is optional and
-            makes the reading sharper.
+            they answer your questions. {RESEARCH_CADENCE} Close this and come back.
+            Connecting Google Search Console is optional and makes the reading sharper.
           </p>
           <Link
             href="/settings/connectors"
@@ -84,7 +84,7 @@ export function FirstReadingWaiting({
             className="rounded-md border border-foreground/15 p-4 text-[13px] space-y-3"
             data-today-derived-profile="true"
           >
-            <p className="font-medium">What Beacon learned from your site</p>
+            <p className="font-medium">What was read from your site</p>
             <dl className="grid grid-cols-[minmax(90px,auto)_1fr] gap-x-3 gap-y-1 text-[13px]">
               {context.derived.industry ? (
                 <>
@@ -127,10 +127,9 @@ export function FirstReadingWaiting({
           <p className="font-medium">What happens next</p>
           <ol className="list-decimal pl-5 text-muted-foreground space-y-1">
             <li>
-              The research runs itself: once a day your pages are read, AI
-              assistants are checked on your questions, and this dashboard fills
-              with your search demand and who you get compared to. Nothing here
-              waits on you being signed in.
+              {RESEARCH_CADENCE} Your pages are read, AI assistants are checked on
+              your questions, and this dashboard fills with your search demand and
+              who you get compared to. Nothing here waits on you being signed in.
             </li>
             <li>
               <Link

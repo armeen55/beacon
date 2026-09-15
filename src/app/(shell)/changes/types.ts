@@ -10,6 +10,9 @@ import type { ChangeProposal } from "@/domains/decision";
  *  (operator, 2026-08-30): with production unlimited, 25 hid internal lanes past the first page behind a
  *  headline that counted only rendered rows; 100 keeps every near-term queue whole on first render. */
 export const CHANGES_PAGE_SIZE = 100;
+/** THE ONE CADENCE SENTENCE, the same on Today, Changes and Results (audit 3.9, 2026-09-14): three different
+ *  descriptions of when research runs were shown to the customer (once a day, during signed-in visits, no schedule). */
+export const RESEARCH_CADENCE = "Research runs on its own every day; a visit only resumes it.";
 
 /** A PAGE ADDRESS, READ THE WAY A PERSON SAYS IT. Every change surface printed the raw slug as its headline
  *  ("/famous-iranian-comedians"), which is a file name, not a page. The last segment becomes the name, the

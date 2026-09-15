@@ -23,12 +23,10 @@ import { loadWithDeadline } from "@/lib/load-with-deadline";
 // dead entries for routes hidden from the sidebar 2026-04-17 /
 // 2026-04-22 (/pages, /local, and the competitor map).
 //
-// 2026-06-14 - these palette labels MUST match the actual g+<key>
-// handler in `command-palette.tsx`. Keep this in lockstep with the
-// handler + the help dialog.
-//
-// Phase 4D (2026-07-21) - the /ask and /prompts shortcuts (G A / G P) were
-// dropped with their surfaces; only the five live nav routes carry a hint.
+// THE ONE COPY OF THE CHORD MAP (2026-09-15): the sidebar prints it and the
+// palette's g-chord handler derives its routes from the items built off it,
+// so a shortcut cannot be shown on one surface and dead on another. Only the
+// five live nav routes carry a hint.
 const NAV_SHORTCUTS: Record<string, string> = {
   "/": "G T",
   // FP4 (2026-07-03): URLs now match nav labels, so the letters follow the
@@ -78,8 +76,8 @@ export default async function ShellLayout({
         Skip to content
       </a>
       <div className="flex h-screen overflow-hidden">
-        <AppSidebar />
-        <MobileSidebar />
+        <AppSidebar shortcuts={NAV_SHORTCUTS} />
+        <MobileSidebar shortcuts={NAV_SHORTCUTS} />
         <div className="flex flex-1 flex-col overflow-hidden">
           <AppHeader rightSlot={<Suspense fallback={null}><CockpitBar /></Suspense>} />
           <main

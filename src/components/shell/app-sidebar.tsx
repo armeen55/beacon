@@ -14,26 +14,10 @@ import {
 } from "@/components/ui/sheet";
 import { useShell } from "./shell-provider";
 
-// T-CustomerNav (2026-05-08) — aligned with `navigationGroups` in
-// `src/lib/navigation.ts`. Dead entries for /pages /competitors
-// /local removed; they were never displayed (loop iterates
-// navigationGroups, not this map) but the map shape was the audit's
-// source for "competitor in customer surface" smell. Keep this in
-// lockstep with the navigation registry.
-// FP4 (2026-07-03): keys follow the ROUTE NAMES now that URLs match nav labels.
-// G C = Changes (/changes), G E = Results (/results). Keep in lockstep with the
-// g-chord handler in command-palette.tsx + NAV_SHORTCUTS in (shell)/layout.tsx.
-// Phase 4D (2026-07-21): only the five live nav routes carry a hint; the /ask
-// (G A) and /prompts (G P) shortcuts were dropped with their surfaces.
-const NAV_SHORTCUTS: Record<string, string> = {
-  "/": "G T",
-  "/changes": "G C",
-  "/results": "G E",
-  "/settings/connectors": "G K",
-  "/settings": "G S",
-};
+/** The chord hint per route, handed down from the layout's one map (href to "G X"). */
+type Shortcuts = Record<string, string>;
 
-function SidebarContent() {
+function SidebarContent({ shortcuts }: { shortcuts: Shortcuts }) {
   const pathname = usePathname();
   // 2026-08-12: the operator-only nav group has been empty since the 2026-06-23 IA consolidation folded
   // every operator route into the customer nav, and appending it rendered an empty row of navigation
@@ -51,13 +35,13 @@ function SidebarContent() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-12 items-center border-b border-sidebar-border px-4">
-        {/* Emergency P0 v3 (2026-05-12) — prefetch={false} on every
+        {/* Emergency P0 v3 (2026-05-12): prefetch={false} on every
             shell nav Link. Beacon's top-level routes (/, /recommendations,
             /changes, /prompts, /settings) are all data-heavy server
             routes that each call expensive loaders (the persisted
             recommendation queue loader etc). Default Next prefetch on
             visibility hydrates ALL of them
-            on first paint of the shell — one click = N background server
+            on first paint of the shell: one click = N background server
             renders = Vercel function + Supabase pool exhaustion. Detail
             Links were already prefetch={false}; this closes the
             top-level-nav half of the storm. */}
@@ -88,7 +72,7 @@ function SidebarContent() {
               <div className="flex flex-col gap-0.5">
                 {group.items.map((item) => {
                   const isActive = item.href === activeHref;
-                  const shortcut = NAV_SHORTCUTS[item.href];
+                  const shortcut = shortcuts[item.href];
                   return (
                     <Link
                       key={item.href}
@@ -145,15 +129,15 @@ function SidebarContent() {
   );
 }
 
-export function AppSidebar() {
+export function AppSidebar({ shortcuts }: { shortcuts: Shortcuts }) {
   return (
     <aside className="hidden w-[216px] shrink-0 border-r border-sidebar-border bg-sidebar md:block">
-      <SidebarContent />
+      <SidebarContent shortcuts={shortcuts} />
     </aside>
   );
 }
 
-export function MobileSidebar() {
+export function MobileSidebar({ shortcuts }: { shortcuts: Shortcuts }) {
   const { sidebarOpen, setSidebarOpen } = useShell();
 
   return (
@@ -162,7 +146,7 @@ export function MobileSidebar() {
         <SheetHeader className="sr-only">
           <SheetTitle>Navigation</SheetTitle>
         </SheetHeader>
-        <SidebarContent />
+        <SidebarContent shortcuts={shortcuts} />
       </SheetContent>
     </Sheet>
   );

@@ -54,5 +54,5 @@ function Pill({
   )
 }
 
-export { Pill, pillVariants }
+export { Pill }
 export type { PillIntent }

@@ -69,9 +69,6 @@ export type ChangesView = {
   surfaceBuilding?: boolean;
   /** Atomic customer release id shared with Today. */
   surfaceVersion?: string | null;
-  /** EVERY PAGE THAT HAS A CARD IN THE QUEUE, as a path, taken from the whole ranking before it was cut to one screen. The feed reads it
-   *  so a page whose fix is sitting in the queue can never also be listed as a page I have no change for. */
-  queuedPages?: string[];
   /** Where each lane's NEXT page resumes: the last RANK on this screen, never its row count. A change put aside since the ranking was
    *  stamped leaves a hole, and counting rows through it repeats one change. */
   queueCursor?: { all: number; ready?: number };
@@ -96,7 +93,7 @@ export function sanitizeSurfaceComputedAt(iso: string | null | undefined): strin
 function setAsideHint(open = 0): string {
   return open > 0
     ? `No finished change is ready right now. ${open} ${open === 1 ? "opportunity is" : "opportunities are"} open below, with what is written for each and what is still missing.`
-    : "No finished change is ready right now. The next one is ranked here the moment Beacon has written the exact work.";
+    : "No finished change is ready yet. The next one lands here when the exact work is written.";
 }
 
 /** A STORED release is a photograph, and the bar may have moved since it was taken. Every row is put through the SAME one verdict the
@@ -335,8 +332,6 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
   return {
     stampRows,
     proposals: queue.ranked.slice(0, CHANGES_PAGE_SIZE),
-    // BEFORE THE SLICE, because the contradiction this kills lives on page nineteen as much as page one.
-    queuedPages: [...new Set(queue.ranked.map((p) => (p.pagePath ?? p.pageUrl ?? "").replace(/^https?:\/\/[^/]+/, "")).filter((s) => s.length > 0))],
     ready: queue.ready.slice(0, CHANGES_PAGE_SIZE),
     toDo: queue.toDo.slice(0, CHANGES_PAGE_SIZE),
     // RESEARCH IS NEVER CUT TO ONE PAGE: it rides the release blob whole, already in hand, so a page-size cut here only ever dropped a reachless opportunity behind an honest count. The feed decides how many render open, never how many exist.

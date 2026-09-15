@@ -86,7 +86,7 @@ describe("a partial batch failure is visible per change and retryable without du
     const mark = (await import("@/app/(shell)/changes/actions")).markManyImplementedAction;
     const first = await mark({ proposalIds: [good.id, held.id, unfinished.id] });
     expect([first.done, first.already, first.failed.map((f) => f.id), first.results.map((r) => r.outcome), led.records.length], "one recorded, two refused, each refusal carrying the id of the change it belongs to").toEqual([1, 0, [held.id, unfinished.id], ["recorded", "failed", "failed"], 1]);
-    expect(first.failed.map((f) => f.error), "and each one says what is wrong with THAT change, in its own words").toEqual(["This change is still being reviewed.", expect.stringContaining("has not finished this one yet")]);
+    expect(first.failed.map((f) => f.error), "and each one says what is wrong with THAT change, in its own words").toEqual(["This change is still being reviewed.", expect.stringContaining("is not finished yet")]);
     const retry = await mark({ proposalIds: [good.id, held.id, unfinished.id] });
     expect([retry.done, retry.already, retry.failed.length, led.records.length], "pressing the whole batch again records nothing twice: the one that landed answers as already measuring and the two refusals are unchanged").toEqual([0, 1, 2, 1]); });});
 describe("nothing is marked done that no record stands behind", () => {
@@ -187,7 +187,7 @@ describe("one press is one record, and every ending of a press is named", () => 
       expect([noReading.retryable, noWrite.retryable], "a reading that could not start and a write that threw are bad moments, not verdicts").toEqual([true, true]);
       expect([review.retryable ?? null, unfinished.retryable ?? null], "being held for review and being unfinished are verdicts, so they are never sent again").toEqual([null, null]);
       expect([led.records.length, led.flip.mock.calls.length], "and none of the four wrote a record or flipped the change").toEqual([0, 0]);
-      expect([review.error, unfinished.error], "each refusal names its own reason").toEqual([expect.stringContaining("still being reviewed"), expect.stringContaining("has not finished this one yet")]); });
+      expect([review.error, unfinished.error], "each refusal names its own reason").toEqual([expect.stringContaining("still being reviewed"), expect.stringContaining("is not finished yet")]); });
 
     it(`${s.t}: a bad moment on the first press is kept on this device, and only a verdict ends it`, async () => {
       const { MARK_PRESS } = await import("@/app/(shell)/changes/change-controls");

@@ -5,7 +5,7 @@
  *  file is only what can be DONE about it. Publishing stays MANUAL: nothing here writes to the operator's site.
  *  Every surface that hands over copy or records work renders these same controls, so a press means one thing. */
 
-import { createElement, useEffect, useMemo, useState, useTransition } from "react";
+import { createElement, useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 import type { BundleComponent } from "@/domains/decision";
 import { confirmDangerousChangeAction, dismissProposalAction, markProposalImplementedAction, reviewDraftAction } from "./actions";
 
@@ -101,22 +101,46 @@ function useMarkQueueFlush(): string | null {
  *  ONE COPY CONTROL FOR THE WHOLE PRODUCT: Today's top edit and the change detail render this same button, so
  *  a pasteable line is never handed over without the press that takes it. `onToast` is the LIST's echo and is
  *  absent everywhere else, because a server-rendered page cannot hand a function to a client component. */
-export function PublicationCopy({ text, units }: { text: string; units?: BundleComponent["units"] }) {
+/** THE WORDS OF A LINK CHANGE: the address the underlined words point at. The card says "make the underlined words a link",
+ *  so the words are underlined on screen and carried as a real anchor on the clipboard. */
+type CopyLink = { href: string; anchor: string; /** The page the copy lands on: the clipboard's anchor is written absolute off its host, so a pasted link resolves anywhere. */ pageUrl?: string | null } | null;
+/** The anchor words, marked inside one line of copy: `mark` wraps them, and a line that does not carry them is returned whole. */
+const withAnchor = <T,>(line: string, link: CopyLink, plain: (s: string) => T, mark: (s: string) => T): T[] => {
+  const at = link?.anchor ? line.indexOf(link.anchor) : -1;
+  return at < 0 || !link ? [plain(line)] : [plain(line.slice(0, at)), mark(link.anchor), plain(line.slice(at + link.anchor.length))];
+};
+export function PublicationCopy({ text, units, link = null }: { text: string; units?: BundleComponent["units"]; link?: CopyLink }) {
+  const line = (s: string) => withAnchor<ReactNode>(s, link, (t) => t, (t) => <span key="a" className="underline decoration-accent-primary underline-offset-2">{t}</span>);
   return <div className="space-y-2 whitespace-pre-wrap break-words">{units ? units.map((u, i) =>
-    u.kind === "paragraph" ? <p key={i}>{u.text}</p> : u.kind === "heading" ? createElement(`h${u.level}`, { key: i, className: "font-semibold" }, u.text)
-      : createElement(u.kind === "ordered_list" ? "ol" : "ul", { key: i, className: `pl-6 ${u.kind === "ordered_list" ? "list-decimal" : "list-disc"}` }, u.items.map((item, j) => <li key={j}>{item}</li>))) : <p>{text}</p>}</div>;
+    u.kind === "paragraph" ? <p key={i}>{line(u.text)}</p> : u.kind === "heading" ? createElement(`h${u.level}`, { key: i, className: "font-semibold" }, u.text)
+      : createElement(u.kind === "ordered_list" ? "ol" : "ul", { key: i, className: `pl-6 ${u.kind === "ordered_list" ? "list-decimal" : "list-disc"}` }, u.items.map((item, j) => <li key={j}>{line(item)}</li>))) : <p>{line(text)}</p>}</div>;
 }
 
-export function CopyButton({ text, units, label, onToast }: { text: string; units?: BundleComponent["units"]; label: string; onToast?: (t: string) => void }) {
+/** ONE PAYLOAD FOR EVERY COPY PRESS, on Today and on Changes alike (audit 3.9, 2026-09-14): the rich half is real HTML
+ *  (h2 to h6, p, ol, ul, li, and an anchor for a link change), and the plain half is plain words: a heading on its own
+ *  line, list items numbered or bulleted, never a # or - marker, because the plain half is what lands in an editor
+ *  that takes no HTML, and a page had "## Heading" pasted into it as visible text. */
+export function clipboardPayload(text: string, units?: BundleComponent["units"], link: CopyLink = null): { html: string; plain: string } {
+  const escape = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+  const absolute = (l: NonNullable<CopyLink>): string => { if (/^[a-z][a-z0-9+.-]*:/i.test(l.href)) return l.href; try { const host = l.pageUrl ? new URL(l.pageUrl).host : ""; return host ? `https://${host}${l.href.startsWith("/") ? "" : "/"}${l.href}` : l.href; } catch { return l.href; } }; // a site-relative address pasted into a CMS field is not a link anywhere but this app (review, 2026-09-15)
+  const rich = (s: string) => withAnchor(s, link, escape, (t) => `<a href="${escape(absolute(link!))}">${escape(t)}</a>`).join("");
+  const all: NonNullable<BundleComponent["units"]> = units ?? text.split(/\n+/).filter((s) => s.trim()).map((s) => ({ kind: "paragraph" as const, text: s }));
+  const html = all.map((u) => u.kind === "paragraph" ? `<p>${rich(u.text)}</p>` : u.kind === "heading" ? `<h${u.level}>${escape(u.text)}</h${u.level}>`
+    : `<${u.kind === "ordered_list" ? "ol" : "ul"}>${u.items.map((item) => `<li>${rich(item)}</li>`).join("")}</${u.kind === "ordered_list" ? "ol" : "ul"}>`).join("");
+  const plain = all.map((u) => u.kind === "paragraph" || u.kind === "heading" ? u.text
+    : u.items.map((item, i) => `${u.kind === "ordered_list" ? `${i + 1}.` : "•"} ${item}`).join("\n")).join("\n\n");
+  return { html, plain };
+}
+
+export function CopyButton({ text, units, link = null, label, onToast }: { text: string; units?: BundleComponent["units"]; link?: CopyLink; label: string; onToast?: (t: string) => void }) {
   const [said, setSaid] = useState<string | null>(null);
   const say = (s: string, ms: number) => { setSaid(s); setTimeout(() => setSaid(null), ms); };
   const copy = async () => {
     if (!navigator.clipboard) throw new Error("Clipboard unavailable");
-    if (!units || typeof ClipboardItem === "undefined" || !navigator.clipboard.write) { await navigator.clipboard.writeText(text); return units ? "Copied Markdown · preserve headings/lists when pasting" : "Copied"; }
-    const escape = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
-    const html = units.map((u) => u.kind === "paragraph" ? `<p>${escape(u.text)}</p>` : u.kind === "heading" ? `<h${u.level}>${escape(u.text)}</h${u.level}>`
-      : `<${u.kind === "ordered_list" ? "ol" : "ul"}>${u.items.map((item) => `<li>${escape(item)}</li>`).join("")}</${u.kind === "ordered_list" ? "ol" : "ul"}>`).join("");
-    await navigator.clipboard.write([new ClipboardItem({ "text/plain": new Blob([text], { type: "text/plain" }), "text/html": new Blob([html], { type: "text/html" }) })]); return "Copied with headings/lists · check your editor preserves them";
+    const { html, plain } = clipboardPayload(text, units, link);
+    if (typeof ClipboardItem === "undefined" || !navigator.clipboard.write) { await navigator.clipboard.writeText(plain); return "Copied"; }
+    await navigator.clipboard.write([new ClipboardItem({ "text/plain": new Blob([plain], { type: "text/plain" }), "text/html": new Blob([html], { type: "text/html" }) })]);
+    return units?.some((u) => u.kind !== "paragraph") ? "Copied with its headings and lists" : "Copied";
   };
   return (
     <button type="button" data-copy-after="true"

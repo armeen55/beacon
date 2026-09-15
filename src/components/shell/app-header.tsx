@@ -14,12 +14,10 @@ export function AppHeader({ rightSlot }: { rightSlot?: React.ReactNode }) {
   // FP4 (2026-07-03) - titles come from the ONE route registry in
   // navigation.ts (longest-prefix match), so no page can render its raw URL
   // slug or a bare "Detail" as its name (the audit's "research / Detail"
-  // breadcrumb). Detail pages push their real subject (the prompt text, the
-  // change's page) into `headerTitle` via <HeaderTitle/>; the registry's
-  // plain fallback covers everything else.
-  const { toggleSidebar, sidebarOpen, headerTitle } = useShell();
+  // breadcrumb). Nothing overrides the registry: the per-page override had no caller.
+  const { toggleSidebar, sidebarOpen } = useShell();
   const crumb = routeCrumbFor(pathname);
-  const title = headerTitle ?? crumb.title;
+  const title = crumb.title;
   const parent = crumb.parent;
 
   return (

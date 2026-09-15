@@ -6,10 +6,11 @@ import "server-only";
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadChangesView, sanitizeSurfaceComputedAt, type ChangesView } from "./changes-data";
+import { pageLabel } from "./changes/types";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
 import { countTrackedQuestions, researchPermission, researchRunStatus } from "@/domains/runtime";
 import { checkBudget } from "@/domains/decision";
-import type { ChangeProposal, ProducerOutcome } from "@/domains/decision";
+import type { BundleComponent, ChangeProposal } from "@/domains/decision";
 
 /** One ranked "do this next" change Today reads. FOUR FIELDS, because four are rendered: the effort, the upside,
  *  the ranking sentence and the evidence tier rode this shape for months and no screen ever read one of them. */
@@ -28,32 +29,15 @@ type TodayView = {
    *  first thing read was reasoning for a thing nobody had been told to do yet. The action comes first now, then
    *  the words on the page and the words to put there; the reason follows. Absent when the top change carries no
    *  line at all, and `paste` is false for a plan that is read rather than pasted. */
-  topEdit?: { action: string; lead: string; before: string | null; after: string; paste: boolean; where?: string };
-  /** The kernel's OWN verdict for pages it judged and declined to change, keyed the same way. Today quotes it instead of a generic "still
-   *  checking", so a page it resolved to watch reads as a decision, not silence. */
-  declineNotes?: { page: string; note: string }[];
-  /** The earliest date a page I could not read may be tried again. Today says the date, because a wait is not activity. */
+  topEdit?: { action: string; lead: string; before: string | null; after: string; paste: boolean; where?: string;
+    /** The structure and the link the Changes card carries, so Today's Copy hands over the same payload. */
+    units?: BundleComponent["units"]; link?: { href: string; anchor: string } };
+  /** The earliest date a page that could not be read may be tried again. Today says the date, because a wait is not activity. Carried on the
+   *  release so a rebuild off a stale one keeps the sentence; nothing else the production pass concluded is stored, because no screen read it. */
   waitingUntil?: string;
-  /** Proven losses this pass is still identifying a cause for, so researching names a number. */
-  investigating?: number;
-  /** Ideas the store refused because the page already carries a change I am measuring: a held draft is not a failed draft, and a page
-   *  holding one must not look forgotten. */
-  heldForMeasurement?: number;
   /** THE SIZE OF THE READY QUEUE, uncapped, beside the capped `nextOpportunities` preview. ONE queue, ONE number: the command used to count
    *  the preview and say "4 more" under a header that said 12. */
   readyTotal?: number;
-  /** THE RESEARCH LANE'S OWN TOTAL, the same number Changes prints over its own cards. */
-  researchTotal?: number;
-  /** THE NEEDS REVIEW LANE'S OWN TOTAL, counted in the database. Today has to carry it or the command cannot tell a genuinely quiet day from a
-   *  day with twenty ideas waiting on the operator, and it said "nothing needs a decision" over both. */
-  toDoTotal?: number;
-  /** The canonical measuring count THIS release was built with, the same number Changes carries, so one navigation cannot show two answers
-   *  to one question. ABSENT when the ledger could not be read. */
-  measuringCount?: number;
-  /** TRUE when that ledger could not be read: the count is withheld, never printed as a zero. */
-  countsUnavailable?: boolean;
-  /** What the production pass behind this release concluded, kept so a rebuild can hand it back. */
-  producerOutcome?: ProducerOutcome;
 };
 
 export type TodayComposite = {
@@ -61,7 +45,7 @@ export type TodayComposite = {
   hasChanges: boolean;
   surfaceVersion?: string;
   surfaceComputedAt?: string;
-  /** TRUE when I am tracking zero questions, which is the one state that stops my research outright. Today shows the fix instead of a
+  /** TRUE when zero questions are tracked, which is the one state that stops research outright. Today shows the fix instead of a
    *  silent empty page. */
   needsTrackedQuestions?: boolean;
   /** Where that fix lives. */
@@ -77,16 +61,16 @@ export type TodayComposite = {
   researchLiveness?: string;
 };
 
-/** A plain first-person directive for one proposal (the "do this next" line). */
+/** One imperative line for one proposal (the "do this next" line). */
 function recommendationOf(p: ChangeProposal): string {
   const c = p.recommendedChange;
   // Slice 7: a bundled change already states its objective in one plain sentence.
   if (p.bundle) return p.bundle.objective;
-  // A producer that wrote a real headline (a sentence, not a slug) owns this line.
-  if (p.opportunityType.includes(" ") && p.opportunityType.length > 20) return p.opportunityType;
+  // A producer that wrote a real headline (a sentence, no slug or address in it) owns this line, the same rule Changes reads.
+  if (p.opportunityType.includes(" ") && p.opportunityType.length > 20 && !/(^|\s)\//.test(p.opportunityType)) return p.opportunityType;
   if (c.kind === "new_page") return `Build a new page that answers "${p.primaryQuery}"`;
   const field = c.field === "meta" ? "meta description" : c.field.replace(/_/g, " ");
-  return `Update the ${field} on ${p.pageLabel} to sharpen it for "${p.primaryQuery}"`;
+  return `Update the ${field} on ${pageLabel(p.pagePath) || p.pageLabel} to sharpen it for "${p.primaryQuery}"`;
 }
 
 /** PURE: map a ranked proposal to Today's opportunity shape. The PROBLEM rides along, because three directives
@@ -110,11 +94,14 @@ function topEditOf(p: ChangeProposal): TodayView["topEdit"] {
     return { action: recommendationOf(p), lead: "", before: null, after: "", paste: false };
   }
   return {
-    action: `Change the ${field} on ${p.pagePath ?? p.pageLabel}`,
+    // THE PAGE, SAID THE WAY A PERSON SAYS IT (audit 3.9): the headline printed the raw path, and Changes already reads the same path through pageLabel.
+    action: `Change the ${field} on ${p.pagePath ? pageLabel(p.pagePath) : p.pageLabel}`,
     lead: "Change to: ",
     before: (c.before ?? "").trim() || null,
     after,
     paste: true,
+    ...(c.units ? { units: c.units } : {}),
+    ...(c.linkTo ? { link: { href: c.linkTo, anchor: c.anchorText ?? "" } } : {}),
     // WHERE IT GOES rides the one card the operator is steered to first: the Changes card has always carried it, and the Today card, the single card most operators act from, omitted it, so body copy arrived with no place to put it (blind customer review, 2026-08-25).
     ...((c.where ?? "").trim() ? { where: c.where!.trim() } : {}),
   };
@@ -135,32 +122,9 @@ const unrunStep = (v: Awaited<ReturnType<typeof researchRunStatus>> | null): str
 };
 const TODAY_PREVIEW_LIMIT = 3;
 
-/** What THIS release's production pass actually concluded, so an empty queue can say which empty it is. Optional: a release built without
- *  it says nothing new. */
-type TodayProducerSignal = {
-  outcome?: ProducerOutcome;
-  /** How many proven gaps this pass is still investigating (research_needed). */
-  investigating?: number;
-  declineNotes?: { page: string; note: string }[];
-  /** The earliest retry date from the SAME canonical coverage pass; absent when nothing is waiting. */
-  waitingUntil?: string | null;
-  /** Drafts the store refused because the page already carries a change under measurement. */
-  heldForMeasurement?: number;
-};
-
-/** THE PRODUCER SIGNAL THIS RELEASE WAS BUILT WITH, read back off the release itself. A basis shift rebuilds Today from the surviving
- *  proposals, and that rebuild used to be handed NOTHING: the retry date, the investigation count, the held-back ideas and the kernel's own
- *  verdicts all vanished the moment the bar moved, the exact visit where the operator most needs telling. Copied off the blob, never
- *  re-derived. */
-function carriedProducerSignal(view: TodayView): TodayProducerSignal {
-  return {
-    ...(view.producerOutcome ? { outcome: view.producerOutcome } : {}),
-    ...(view.declineNotes?.length ? { declineNotes: view.declineNotes } : {}),
-    ...(view.waitingUntil ? { waitingUntil: view.waitingUntil } : {}),
-    ...(typeof view.investigating === "number" ? { investigating: view.investigating } : {}),
-    ...(typeof view.heldForMeasurement === "number" ? { heldForMeasurement: view.heldForMeasurement } : {}),
-  };
-}
+/** What THIS release's production pass concluded that Today prints: the earliest retry date from the canonical coverage pass, absent when
+ *  nothing is waiting. Read back off the release itself on a rebuild, so the retry sentence survives a basis shift. */
+type TodayProducerSignal = { waitingUntil?: string | null };
 
 /** A retry date in the operator's words: the day, never a timestamp and never a countdown. */
 const retryDay = (iso: string): string =>
@@ -194,26 +158,8 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
   const ready = ordered.slice(0, TODAY_PREVIEW_LIMIT)
     .map(([p, lane]) => proposalToOpportunity(p as Parameters<typeof proposalToOpportunity>[0], lane));
   const topEdit = view.ready[0] ? topEditOf(view.ready[0]!) : undefined;
-  // A LEDGER I COULD NOT READ IS NOT AN EMPTY ONE: no measuring clause is claimed and no count is handed on.
-  const unread = view.countsUnavailable === true;
-  const measuring = unread ? 0 : view.measuringCountCanonical;
-  // Carried verbatim from the pass that judged those pages; omitted when empty so a release stays as small as what it actually knows.
-  const declineNotes = producer.declineNotes?.length ? { declineNotes: producer.declineNotes } : {};
   const waiting = producer.waitingUntil && Number.isFinite(Date.parse(producer.waitingUntil)) ? producer.waitingUntil : null;
-  const held = producer.heldForMeasurement ?? 0;
-  const researching = view.summary?.research ?? (view.research ?? []).length;
-  const inReview = view.summary?.todo ?? view.toDo.length;
-  const rest = {
-    ...declineNotes,
-    ...(waiting ? { waitingUntil: waiting } : {}),
-    ...((producer.investigating ?? 0) > 0 ? { investigating: producer.investigating } : {}),
-    ...(held > 0 ? { heldForMeasurement: held } : {}),
-    ...(producer.outcome ? { producerOutcome: producer.outcome } : {}),
-    readyTotal,
-    toDoTotal: inReview,
-    researchTotal: researching,
-    ...(unread ? { countsUnavailable: true } : { measuringCount: measuring }),
-  };
+  const rest = { ...(waiting ? { waitingUntil: waiting } : {}), readyTotal };
   // ONE SENTENCE, AND EVERY CHANGE IT COUNTS IS FINISHED WORK: the READY lane alone, which is the only lane
   // whose words are written, checked and pasteable today. THE OPENING IS NOT A STATUS ESSAY (operator,
   // 2026-08-21): the draft and research counts left this sentence entirely, because Changes labels those
@@ -267,9 +213,9 @@ async function loadTodayViewWithSwr(tenantId: string): Promise<TodayComposite> {
   ]);
   const research = { ...(permission === "paused" ? { researchPaused: true } : {}), ...(budgetSpent ? { modelBudgetSpent: true } : {}),
     ...(runStatus?.liveness?.line && (permission === "running" || runStatus.state !== "queued") ? { researchLiveness: `${runStatus.liveness.line}${unrunStep(runStatus)}` } : {}) };
-  // WHAT I SAY WHEN I COULD NOT LOOK. "Nothing needs a decision today" is the one sentence an outage must never produce: it is a claim
+  // WHAT IS SAID WHEN NOTHING COULD BE READ. "Nothing needs a decision today" is the one sentence an outage must never produce: it is a claim
   // about their business they cannot tell apart from the truth.
-  const unreadable = "Your changes could not be read just now, so the day is not being called clear. Beacon is checking again automatically.";
+  const unreadable = "Your changes could not be read just now, so the day is not being called clear. The next check runs on its own.";
   const paused = trackedCount === 0
     ? { needsTrackedQuestions: true, trackedQuestionsHref: "/settings/config#tracked-ai-prompts" }
     : {};
@@ -283,14 +229,14 @@ async function loadTodayViewWithSwr(tenantId: string): Promise<TodayComposite> {
     const view = await loadChangesView().catch(() => null);
     return {
       ...customer.today,
-      today: view ? buildTodayViewFromChanges(view, carriedProducerSignal(customer.today.today)) : customer.today.today,
+      today: view ? buildTodayViewFromChanges(view, { waitingUntil: customer.today.today.waitingUntil }) : customer.today.today,
       ...paused,
       ...research,
       surfaceVersion: view?.surfaceVersion ?? customer.releaseId,
       surfaceComputedAt: sanitizeSurfaceComputedAt(customer.computedAt) ?? undefined,
     };
   }
-  // No release on file yet: build one page of Today off the Changes read, and say nothing I cannot show.
+  // No release on file yet: build one page of Today off the Changes read, and say nothing that cannot be shown.
   scheduleReleaseRebuild();
   const view = await loadChangesView().catch(() => null);
   if (!view || (view.releaseUnreadable && view.proposals.length === 0)) {

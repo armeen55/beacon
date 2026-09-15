@@ -126,24 +126,23 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     const idea = { ...bundled(NOW, "t::idea"), status: "needs_review", researchOnly: true, bundle: undefined, opportunityType: "Find out what took the clicks from /famous-iranian-comedians",
       operatorSteps: [missing, "The exact change lands on this card once that read is on file"], recommendedChange: { kind: "existing_edit", field: "section", before: null, after: missing },
       research: { missing, next: "The exact change lands on this card once that read is on file" } } as unknown as ChangeProposal;
-    const view = { ...emptyView(0), proposals: [draft, idea], ready: [], toDo: [draft], research: [idea], summary: { ...emptyView(0).summary, todo: 1, research: 1 } }; const html = await renderChanges(view), today = buildTodayViewFromChanges(view); expect(html).toContain("Beacon is working on 2 more opportunities");
-    expect(html).toMatch(/waiting on a source read|waiting on Beacon's own reviewer|being written|waiting for the next pass/); // the lane speaks in kinds of work now, one tally line per kind, never a per-row narration
+    const view = { ...emptyView(0), proposals: [draft, idea], ready: [], toDo: [draft], research: [idea], summary: { ...emptyView(0).summary, todo: 1, research: 1 } }; const html = await renderChanges(view), today = buildTodayViewFromChanges(view); expect(html).toContain("2 more opportunities are being researched");
+    expect(html).toMatch(/waiting on a source read|waiting on the final review|being written|waiting for the next pass/); // the lane speaks in kinds of work now, one tally line per kind, never a per-row narration
     for (const never of ["Copy draft", "Why it is held", "Needs your review", "Beacon must improve", EXACT]) expect(html).not.toContain(never);
     expect(html).not.toMatch(/Proven|Mark done|Still missing/);
-    expect([today.readyTotal, today.toDoTotal, today.researchTotal, today.nextOpportunities.map((o) => o.lane), today.topEdit, today.headerSentence])
-      .toEqual([0, 1, 1, ["review", "research"], undefined, "No finished change is ready today. The next one lands here the moment the exact work is written."]);
+    expect([today.readyTotal, today.nextOpportunities.map((o) => o.lane), today.topEdit, today.headerSentence]).toEqual([0, ["review", "research"], undefined, "No finished change is ready today. The next one lands here the moment the exact work is written."]);
     expect(html.match(/data-change-card="true"/g) ?? []).toHaveLength(0); }); // no unfinished work wears a card
   it("shows all 12 preparing opportunities as compact rows with detail links, never as essays and never as Ready", async () => {
     const ideas = Array.from({ length: 12 }, (_, i) => ({ ...bundled(NOW, `t::idea-${i}`), status: "needs_review", researchOnly: true, bundle: undefined,
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `Internal essay for idea ${i}` } })) as ChangeProposal[];
     const view = { ...emptyView(0), proposals: ideas, ready: [], toDo: [], research: ideas, summary: { ...emptyView(0).summary, research: 12 } }; const html = await renderChanges(view);
-    expect([html.match(/data-preparing-kind="true"/g)?.length, html.match(/data-research-detail="true"/g)?.length ?? 0, html.includes("Beacon is working on 12 more opportunities"),
-      html.includes("Internal essay for idea"), html.includes("Ready now: 0 finished changes"), html.includes("What the evidence says")]) .toEqual([1, 0, true, false, true, false]); }); // TWELVE identical drafts are ONE tally line with the count, no per-row inventory and no detail links (Product Truth; operator, 2026-08-31): the operator is nobody's progress clerk, and no internal essay ever leaks
+    expect([html.match(/data-preparing-kind="true"/g)?.length, html.match(/data-research-detail="true"/g)?.length ?? 0, html.includes("12 more opportunities are being researched"),
+      html.includes("Internal essay for idea"), html.includes("Ready now: 0"), html.includes("What the evidence says")]) .toEqual([1, 0, true, false, false, false]); }); // TWELVE identical drafts are ONE tally line with the count, no per-row inventory and no detail links (Product Truth; operator, 2026-08-31): the operator is nobody's progress clerk, and no internal essay ever leaks
   it("says what Beacon is doing on a preparing row in the family's own plain words, off that row's own typed obligation", async () => {
     const idea = (id: string, obligation?: unknown) => ({ ...bundled(NOW, id), status: "needs_review", researchOnly: true, bundle: undefined, ...(obligation ? { obligation } : {}),
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "internal brief text" } }) as unknown as ChangeProposal;
     const rows = [idea("t::/a::existing_edit::ownership", { kind: "evidence", need: { kind: "factual_source", query: "q", reasonCode: "no_fact" } }), idea("t::/b::existing_edit::missing_description", { kind: "review" }), idea("t::/c::existing_edit::gap", { kind: "redraft", attempt: 1, instruction: "say the number" }), idea("t::idea-typed")]; const view = { ...emptyView(0), proposals: rows, ready: [], toDo: [], research: rows, summary: { ...emptyView(0).summary, research: 4 } }; const html = await renderChanges(view);
-    expect(["waiting on a source read", "waiting on Beacon's own reviewer", "being written", "waiting for the next pass"].map((s) => html.replace(/&#x27;/g, "'").includes(`sections and answers ${s}`)).concat(/* the customer reads the sentence, not the escaped entity */html.includes("internal brief text"), html.match(/data-preparing-kind="true"/g)!.length === 4), "the lane names each KIND of work in plain words off the row's TYPED obligation, one tally line per state, and never leaks a word of the internal draft").toEqual([true, true, true, true, false, true]); }); // per-family narration went with the per-row lane (operator, 2026-08-31): four research section drafts are four tally lines only because four different things are happening to them
+    expect(["waiting on a source read", "waiting on the final review", "being written", "waiting for the next pass"].map((s) => html.replace(/&#x27;/g, "'").includes(`sections and answers ${s}`)).concat(/* the customer reads the sentence, not the escaped entity */html.includes("internal brief text"), html.match(/data-preparing-kind="true"/g)!.length === 4), "the lane names each KIND of work in plain words off the row's TYPED obligation, one tally line per state, and never leaks a word of the internal draft").toEqual([true, true, true, true, false, true]); }); // per-family narration went with the per-row lane (operator, 2026-08-31): four research section drafts are four tally lines only because four different things are happening to them
   it("takes a yes on judgement alone and refuses one on a fact about the work", async () => {
     const { reviewDraftAction } = await import("@/app/(shell)/changes/actions"), { confirmedVersion, loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");
     const link = async (p: ChangeProposal) => { vi.mocked(resolveCurrentBasis).mockResolvedValue(NOW); vi.mocked(loadChangeProposal).mockResolvedValue(p); }; const soft = { ...bundled(NOW, "t::draft"), status: "needs_review" } as ChangeProposal;
@@ -156,9 +155,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     const stored = { schemaVersion: 2, releaseId: "t:1", computedAt: new Date().toISOString(), tenantId: "t",
       changes: { ...emptyView(0), proposals: [bundled("basis_old::d2", "t::old")], ready: [bundled("basis_old::d2", "t::old")],
         summary: { todo: 0, ready: 1, measuring: 0, results: 0 } } as ChangesView,
-      today: { hasChanges: true, today: { headerSentence: "stale", nextOpportunities: [], waitingUntil: "2026-08-04T18:00:00.000Z",
-        investigating: 2, heldForMeasurement: 3, producerOutcome: "investigating",
-        declineNotes: [{ page: "/famous-iranian-comedians", note: "Its click-through is healthy, so I am watching it." }] } } };
+      today: { hasChanges: true, today: { headerSentence: "stale", nextOpportunities: [], waitingUntil: "2026-08-04T18:00:00.000Z" } } };
     vi.resetModules();
     vi.doMock("@/lib/persistence/json-store", () => ({ readStore: async () => [stored], writeStore: async () => {}, claimScope: async () => true, releaseScope: async () => undefined }));
     vi.doMock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
@@ -167,8 +164,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
       countTrackedQuestions: async () => 30 }));
     const { loadTodayView } = await import("@/app/(shell)/today-view-data");
     const { today } = await loadTodayView(); // it really was rebuilt from what survived the bar
-    expect([today.headerSentence === "stale", today.headerSentence.includes("August 4")]).toEqual([false, true]); expect([today.waitingUntil, today.investigating, today.heldForMeasurement]).toEqual(["2026-08-04T18:00:00.000Z", 2, 3]);
-    expect(today.declineNotes).toEqual(stored.today.today.declineNotes);
+    expect([today.headerSentence === "stale", today.headerSentence.includes("August 4"), today.waitingUntil]).toEqual([false, true, "2026-08-04T18:00:00.000Z"]);
     vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/runtime"); vi.resetModules(); });
   it("keeps a stored release whole and judges every row in it by the checks themselves, never by the generation its basis was stamped in", async () => {
     const { withCurrentBasisOnly } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data");

@@ -50,4 +50,4 @@ function Card({
   )
 }
 
-export { Card, cardVariants }
+export { Card }

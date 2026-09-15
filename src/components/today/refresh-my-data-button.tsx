@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { RESEARCH_CADENCE } from "@/app/(shell)/changes/types";
 import {
   refreshAllConnectedDataNow,
   type RefreshAllConnectedResult,
@@ -124,7 +125,7 @@ export function RefreshMyDataButton({
       </button>
       <p className="text-[11px] text-muted-foreground">
         {(connectedCount == null ? "Updates your data now, free" : connectedCount > 0 ? "Pulls your latest numbers now, free" : "Refreshes your stored data now, free")
-          + (researchPaused ? ". Nothing else runs while research is paused." : ". The daily round runs on its own either way.")}
+          + (researchPaused ? ". Nothing else runs while research is paused." : `. ${RESEARCH_CADENCE}`)}
       </p>
       <div aria-live="polite" className="w-full">
         {pulling ? (

@@ -13,7 +13,7 @@ const ReviewReceiptSchema = z.object({ editor: EditorAcceptanceSchema.optional()
 type ReviewReceipt = Omit<z.infer<typeof ReviewReceiptSchema>, "claims"> & { claims: readonly { i: number; by: readonly string[]; entailed: boolean }[] };
 export const PublicationUnitsSchema = z.array(z.union([
   z.object({ kind: z.literal("paragraph"), text: z.string().min(1) }),
-  z.object({ kind: z.literal("heading"), level: z.number().int().min(2).max(6), text: z.string().min(1) }),
+  z.object({ kind: z.literal("heading"), level: z.number().int().min(1).max(6), text: z.string().min(1) }),
   z.object({ kind: z.literal("ordered_list"), items: z.array(z.string().min(1)).min(1) }),
   z.object({ kind: z.literal("unordered_list"), items: z.array(z.string().min(1)).min(1) }),
 ])).min(1);

@@ -29,7 +29,7 @@ export async function loadTodayV2GateData(): Promise<TodayV2GateData> {
   // "Demo mode" (→ the connect-prompt) ONLY when the tenant has NO CSV import
   // AND no real data source connected. A GSC- (or GA4/Clarity-) connected
   // tenant is operating on its own live data, so it sees its real command
-  // center — never the connect-prompt — even before its first CSV import or
+  // center and never the connect-prompt, even before its first CSV import or
   // first reading. Mirrors the shell's hasRealConnector gate
   // (layout.tsx) so the two never disagree. (2026-06-15 fix: GSC-connected
   // tenants were wrongly shown "Connect your data sources".)
@@ -47,7 +47,7 @@ export async function loadTodayV2GateData(): Promise<TodayV2GateData> {
   // Phase 1 (2026-05-12): the gate used to call `loadCachedFreshCanonical`
   // (60d obs pull) just to inspect observationCount > 0 and active prompt
   // count. Now we read a narrow 7d obs window + tracked_prompts directly
-  // from the tenant repo — both ~indexed, tenant-scoped, small reads.
+  // from the tenant repo: both ~indexed, tenant-scoped, small reads.
   //
   // Inference rules are unchanged:
   //   - any observation in the last 7d → definitely not first reading
@@ -84,7 +84,7 @@ export async function loadTodayV2GateData(): Promise<TodayV2GateData> {
   if (observationCount > 0 || activePromptCount === 0) {
     return { isDemoMode, firstReading: { isFirstReading: false } };
   }
-  // Cold-tenant path — need the tenant record to decide. Mirror the
+  // Cold-tenant path: need the tenant record to decide. Mirror the
   // resolveFirstReadingState fallback (returns false on any error).
   try {
     const { currentTenant } = await import("@/lib/tenant-context");

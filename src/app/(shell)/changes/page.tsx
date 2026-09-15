@@ -7,6 +7,7 @@ import { requireReadyAccount } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
 import { PageHeader } from "@/components/data/page-header";
 import { loadChangesView, type ChangesView } from "../changes-data";
+import { RESEARCH_CADENCE } from "./types";
 import { ChangesListClient } from "../changes-list-client";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { checkedAgoLabel } from "@/components/data/receipt-line";
@@ -22,7 +23,7 @@ import { researchPermission } from "@/domains/runtime";
 const MAIN_LIST_DEADLINE_MS = 5_000;
 
 /** THE PAUSE, SAID WHERE THE EMPTY QUEUE IS READ, never only as a drawer label at the bottom. "The next one is
- *  ranked here the moment Beacon has written the exact work" implies work in progress; while research is off
+ *  lands here when the exact work is written" implies work in progress; while research is off
  *  nothing will be written, so the reader gets that fact at the top with the control that turns it back on. Today's
  *  own sentence and link, so the two surfaces cannot drift. */
 const PausedLine = ({ paused }: { paused: boolean }) => (!paused ? null : (
@@ -38,7 +39,7 @@ function QueueSlot({ view, researchPaused = false }: { view: ChangesView; resear
     if (view.surfaceBuilding) {
       return (
         <div className="space-y-2 rounded-2xl border border-border bg-surface-raised p-6">
-          <HonestDelay message={"Your ranked changes are being put together for the first time. Beacon is checking again automatically."} />
+          <HonestDelay message={"Your ranked changes are being put together for the first time. This page checks again on its own."} />
           <div className="h-9 animate-pulse rounded-lg bg-surface-inset/50" />
           <div className="h-9 animate-pulse rounded-lg bg-surface-inset/50" />
         </div>
@@ -82,13 +83,13 @@ function QueueSlot({ view, researchPaused = false }: { view: ChangesView; resear
 export async function ChangesSection() {
   const raced = await loadWithDeadline(loadChangesView(), MAIN_LIST_DEADLINE_MS).catch(() => null);
   if (raced == null) {
-    return <HonestDelay message="Couldn’t load your saved changes just now. Beacon is retrying automatically." />;
+    return <HonestDelay message="Couldn’t load your saved changes just now. The read is retried on its own." />;
   }
   if (raced.timedOut) return <HonestDelay />;
   const view = raced.data;
   // A RELEASE I COULD NOT READ IS NOT AN EMPTY QUEUE AND NOT A FIRST-EVER LOAD.
   if (view.proposals.length === 0 && view.releaseUnreadable) {
-    return <HonestDelay message="Your saved changes could not be read just now, so no empty list is shown. Beacon is checking again automatically." />;
+    return <HonestDelay message="Your saved changes could not be read just now, so no empty list is shown. The read is retried on its own." />;
   }
   // ONE cheap read beside the release: the account's real pause switch, so no sentence here promises work
   // while research is off. The measurement ledger and the watched pages left this screen entirely (operator,
@@ -125,7 +126,7 @@ export default async function WorklistPage() {
           operator to go and write the edit, so it says what the queue now guarantees. Unfinished work is counted, never ranked. */}
       <PageHeader
         title="Changes"
-        description="Finished changes first, each with the exact work to make. Drafts waiting on you and the research Beacon is still finishing are labeled below them. Make a change, mark it done, and the page is measured."
+        description={`Finished changes first, each with the exact work to make. Drafts waiting on you and the research still in progress are labeled below them. Make a change, mark it done, and the page is measured. ${RESEARCH_CADENCE}`}
       />
       <Suspense fallback={<ChangesListFallback />}>
         <ChangesSection />

@@ -225,7 +225,7 @@ export async function markProposalImplementedAction(args: {
     }
     // AN UNFINISHED DELIVERABLE IS NOT WORK SOMEBODY CAN HAVE DONE. The ONE completeness boundary decides, so the typed research fact, an instruction where the copy should be, a blank left to fill and a page whose sections were never written are all refused by the same rule the queue and the card ask. A stale tab or a hand-made request cannot start a 28 day reading of work Beacon never wrote, and a generic instruction can never reach measurement because it can never be recorded here.
     const gaps = deliverableGaps(stored);
-    if (gaps.length > 0) return { success: false, error: `Beacon has not finished this one yet, so there is nothing to record as done: ${gaps[0]}. It lands in your list as a change once the exact work is written.` };
+    if (gaps.length > 0) return { success: false, error: `This one is not finished yet, so there is nothing to record as done: ${gaps[0]}. It lands in your list as a change once the exact work is written.` };
     // AND A CHANGE THAT LEAVES ITS OWN DIAGNOSED CAUSE UNSETTLED IS NOT WORK EITHER. The queue holds it for review and says nothing there can be marked done; this is where that promise is kept, so a tab open since before the hold cannot start a 28 day reading of a split nobody settled.
     const unfit = unsettledCause(stored); // the first defect of the ONE verdict, typed faults included (journey review, 2026-09-06: the second arm restated the first)
     if (unfit) return { success: false, error: unfit }; // the SAME one servability verdict the list lanes by and the detail renders: a read-time hold minted between saves refuses the press too, so a 28 day reading can never start on copy Beacon's own gate refuses. Review rows fall to the lane refusal below, which is their honest answer.
@@ -310,7 +310,7 @@ export async function markManyImplementedAction(args: { proposalIds: string[] })
   // Shipment writes took 262 milliseconds. Auth once, tenant once, basis once, proposals once, ledger once;
   // per row only what is genuinely per-row: its gates, its Shipment, its narrow status flip. Verification is
   // NOT scheduled here at all: the operator is still publishing when a batch lands, and the canonical due-work
-  // sweep (verifyDueShipments) reads the page on its own bounded cadence. Research re-arming rides after().
+  // sweep (verifyDueShipments) reads the page on its own bounded cadence. Research is never re-armed by a press.
   const tenantId = await currentTenantId();
   const basis = await resolveCurrentBasis(tenantId).catch(() => null);
   const [stored, ledger] = await Promise.all([
@@ -332,7 +332,7 @@ export async function markManyImplementedAction(args: { proposalIds: string[] })
       if (!rescued && row.status !== "implemented_pending_verification" && actionableProposalFailures(row, { tenantId, currentBasis: basis }).length > 0)
         return { id, outcome: "failed", error: "This change was skipped, so it is not being recorded." };
       const gaps = deliverableGaps(row);
-      if (gaps.length > 0) return { id, outcome: "failed", error: `Beacon has not finished this one yet: ${gaps[0]}` };
+      if (gaps.length > 0) return { id, outcome: "failed", error: `This one is not finished yet: ${gaps[0]}` };
       const unfit = unsettledCause(row);
       if (unfit) return { id, outcome: "failed", error: unfit };
       if (row.status !== "ready" && row.status !== "implemented_pending_verification") return { id, outcome: "failed", error: "This change is still being reviewed." };
@@ -356,10 +356,9 @@ export async function markManyImplementedAction(args: { proposalIds: string[] })
   for (let i = 0; i < ids.length; i += 4) results.push(...await Promise.all(ids.slice(i, i + 4).map(recordOne)));
   const done = results.filter((r) => r.outcome === "recorded").length, already = results.filter((r) => r.outcome === "already").length;
   const failed = results.filter((r): r is { id: string; outcome: "failed"; error: string } => r.outcome === "failed").map((r) => ({ id: r.id, error: r.error }));
-  // ONE surface refresh for the whole batch, then acknowledge. Research re-arms AFTER the response so the
-  // operator is never waiting on the cycle it triggers; verification is owed to the due sweep, not this press.
+  // ONE surface refresh for the whole batch, then acknowledge. A press records shipments and nothing else: research
+  // runs on its own schedule (audit, 2026-09-14), and verification is owed to the due sweep, not this press.
   if (done > 0 || already > 0) { await (await import("@/app/(shell)/results/results-surface-store")).invalidateResultsSurface().catch(() => {}); await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout"); } // ONE invalidation of each saved surface for the whole batch
-  if (done > 0) after(async () => { const { ensureResearchRunOnVisit } = await import("@/domains/runtime"); ensureResearchRunOnVisit(tenantId, true); });
   const parts = [done > 0 ? `${done} recorded` : null, already > 0 ? `${already} already being measured` : null,
     failed.length > 0 ? `${failed.length} could not be recorded` : null].filter(Boolean);
   log.info("markManyImplemented: batch done", { count: ids.length, done, already, failed: failed.length, durationMs: Date.now() - t0 });

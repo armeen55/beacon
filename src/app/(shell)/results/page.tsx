@@ -13,6 +13,7 @@ import { RecomputeLedgerButton, RecordAnyPageForm } from "./proof-ledger-client"
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { readCustomerSurface } from "../surface-release";
+import { RESEARCH_CADENCE } from "../changes/types";
 
 /** Results renders saved measurement truth; the optional Changes count streams separately. */
 export const dynamic = "force-dynamic";
@@ -71,11 +72,11 @@ export default async function ProofPage({ searchParams }: { searchParams?: Promi
 
       {shipments.length > 0 ? (
         <details className="my-6 rounded-xl border border-border-subtle bg-surface-raised px-3 py-2.5">
-          <summary className="cursor-pointer text-[13px] font-medium text-muted-foreground hover:text-foreground">Record a change Beacon did not track</summary>
+          <summary className="cursor-pointer text-[13px] font-medium text-muted-foreground hover:text-foreground">Record a change made outside this queue</summary>
           <div className="mt-3"><RecordAnyPageForm initialPage={initialPage} /></div>
         </details>
       ) : null}
-      <p className="text-[12px] text-muted-foreground">How often AI assistants name you is on <Link href="/visibility" className="font-medium text-accent-primary underline underline-offset-2">Visibility</Link>.</p>
+      <p className="text-[12px] text-muted-foreground">{RESEARCH_CADENCE} How often AI assistants name you is on <Link href="/visibility" className="font-medium text-accent-primary underline underline-offset-2">Visibility</Link>.</p>
     </div>
   );
 }

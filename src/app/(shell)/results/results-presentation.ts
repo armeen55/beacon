@@ -205,7 +205,7 @@ function chipOf(p: ShipmentPresentation): { text: string; amber: boolean } | nul
   if (!v) return { text: stateWord(p), amber: false };
   if (v.status === "verified" && v.reason == null) return null;
   // A RECHECK STILL SCHEDULED MEANS THE VERDICT IS NOT IN (operator, 2026-08-29): work is marked done in the editor and the site publishes later, so an early read seeing the old page is the publish lag, not their wording winning. Only a FINAL differs says whose words the page kept.
-  if (v.recheckAfter != null) return { text: "Waiting for your publish. Beacon checks the page again soon.", amber: false };
+  if (v.recheckAfter != null) return { text: "Waiting for your publish. The page is checked again soon.", amber: false };
   if (v.status === "partially_verified") return { text: "Part of it is live", amber: false };
   return { text: WHY_UNCONFIRMED[v.reason ?? ""] ?? "Not confirmed on the live page", amber: false };
 }

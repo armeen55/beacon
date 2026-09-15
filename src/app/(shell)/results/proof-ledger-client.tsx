@@ -21,14 +21,14 @@ const CHANGE_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "new_page", label: "New page" },
   { value: "edit_title", label: "Title" },
   { value: "edit_meta", label: "Meta description" },
-  { value: "change_h1", label: "Page headline (H1)" },
+  { value: "change_h1", label: "Main heading" },
   { value: "intro_answer_block", label: "Answer block (top of page)" },
   { value: "section_add", label: "New section / depth" },
   { value: "faq", label: "Visible Q&A" },
-  { value: "schema", label: "Structured data (schema)" },
+  { value: "schema", label: "Structured data" },
   { value: "add_internal_link", label: "Internal links" },
-  { value: "keep_current", label: "Keep current (monitor only)" },
-  { value: "monitor", label: "Monitor only" },
+  { value: "keep_current", label: "Keep the page as it is and watch it" },
+  { value: "monitor", label: "Watch only" },
   { value: "change", label: "Other change" },
 ];
 
@@ -104,7 +104,7 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
 
   return (
     <div className="rounded-lg border border-border/60 bg-surface-inset/30 p-4">
-      <div className="text-[13px] font-semibold text-foreground">Record an edit made outside Beacon</div>
+      <div className="text-[13px] font-semibold text-foreground">Record an edit made outside this queue</div>
       <p className="mt-0.5 text-[12px] text-muted-foreground">
         Changed a page yourself, in whatever tool your site runs on? Paste the page address plus the before and after copy
         under Add details. The page&apos;s standing is recorded today and checked after 1, 2, and 4 weeks against similar

@@ -10,7 +10,7 @@ import { defaultExpectedCtrAt, type TenantCtrCurve } from "@/domains/evidence/fo
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import { substantiveGapOf, type CauseFinding } from "@/domains/decision/diagnosis";
 import type { CanonicalDemandUnit } from "@/domains/evidence/demand-units";
-import { loadChangeProposals } from "../proposal-store";
+import { loadChangeProposals, withdrawChangeProposal } from "../proposal-store";
 import { mutationFootprint } from "../mutation-footprint";
 import { RECEIPT } from "../diagnose";
 import { demandOf, placementCandidatesOf, winnersAgreeOn } from "../drafted-copy";
@@ -18,6 +18,7 @@ import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/page
 import { selectPageVersion } from "@/domains/evidence/pages/page-version";
 // THE SHARED PRIMITIVES live in page-fit now: two producers answer "which page of this account is this search
 // FOR" and one copy of that answer is the whole point of the split.
+import { SCHEMA } from "@/domains/evidence/pages/schema-validator"; import { COPY_RULES } from "../copy-sanitize";
 import { count, labelOf, mint, pathOf, plain,
   STOREFRONT, subjectWords, type Draft, type Understanding } from "./page-fit";
 
@@ -273,6 +274,27 @@ function unansweredCards(snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[],
       cause: { cause: "incomplete_coverage", action: "opening_answer", evidenceKeys: [RECEIPT.gsc], competingExplanations: [], notConsidered: [], explanation: spread ? `Google shows ${path} to ${seen} in 90 days for "${q}" and this page's own words answer it in pieces rather than in one place.` : unknown ? `Google shows ${path} to ${seen} in 90 days for "${q}" and this page's own words are not all on file yet.` : `Google shows ${path} to ${seen} in 90 days for "${q}" and the page's own stored words never answer it.`,
         falsifier: spread ? `If one passage of this page turns out to answer "${q}" on its own, there is nothing to bring together here.` : `If this page's stored copy turns out to answer "${q}" once the whole page is read, there is no missing answer here.` } }); } }
   return out.sort((a, b) => (b.demand ?? 0) - (a.demand ?? 0) || a.page.url.localeCompare(b.page.url)); } // ONE SEARCH BELONGS TO THE PAGE THAT EARNS IT (reviewer, 2026-09-02): where the ladder names no survivor, the dedupe behind this producer kept whichever page the snapshot listed first, so row order decided which of two pages answered a shared search; the strongest demand for it goes first and takes the card
+/** 5. THE FAQ BLOCK THE PAGE'S OWN QUESTIONS EARN (audit, 2026-09-14: the schema family existed in the type and no producer minted it). A page whose current capture carries complete visible question and answer pairs, and either no FAQPage block or one whose pairs differ from the visible ones, gets ONE finished block derived from those pairs, replacing the existing block under its own identity. A page with no visible pairs gets nothing: no FAQ is invented for a quota. $0: every word is the page's own. */
+function schemaCards(tenantId: string, pages: OwnedPageEvidence[], bodies: ReadonlyMap<string, OwnedPageBody>, now: Date): ChangeProposal[] {
+  const out: ChangeProposal[] = [], same = (a: string, b: string): boolean => COPY_RULES.flat(a) === COPY_RULES.flat(b);
+  for (const p of pages) {
+    const body = bodies.get(canonicalUrlKey(p.url)), pairs = body?.version === "current" ? (body.faqs ?? []).filter((f) => f.answerComplete === true) : []; if (!body || pairs.length === 0) continue;
+    const graphs = (body.sourceCapture?.jsonLd ?? []).map((raw) => ({ raw, graph: SCHEMA.read(raw) })), existing = graphs.find((g) => g.graph.nodes.some((n) => SCHEMA.types(n).includes("FAQPage")));
+    if (!existing && (p.content?.schemaTypes ?? []).includes("FAQPage")) continue; // a block the capture did not keep cannot be named as the one replaced
+    const held = existing ? SCHEMA.pairs(existing.graph) : []; if (existing && held.length === pairs.length && pairs.every((v) => held.some((h) => same(h.question, v.question) && same(h.answer, v.answer)))) continue;
+    const node = existing?.graph.nodes.find((n) => SCHEMA.types(n).includes("FAQPage")), id = typeof node?.["@id"] === "string" ? node["@id"] : null, identity = id ? `the block with @id ${id}` : "the FAQPage block";
+    const after = JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage", ...(id ? { "@id": id } : {}), mainEntity: pairs.map((f) => ({ "@type": "Question", name: f.question, acceptedAnswer: { "@type": "Answer", text: f.answer } })) }, null, 2);
+    const facts = pairs.map((f, i) => ({ id: `page-copy-${i + 1}`, fact: `${f.question}\n${f.answer}` })), path = pathOf(p.url), n = count(pairs.length, "question");
+    const card = mint(tenantId, { page: p, slug: "faq_schema", field: "schema", query: topQueryOf(p), before: existing?.raw ?? null, after, minutes: 3, confidence: "high", refs: pairs.length,
+      headline: existing ? `A FAQPage block that matches the ${n} this page visibly answers` : `A FAQPage block for the ${n} this page visibly answers`,
+      why: existing ? `${path} carries a FAQPage block whose pairs differ from the ${n} on the page, so the markup describes answers the page does not show.` : `${path} answers ${n} on the page and carries no FAQPage block, so nothing tells a search engine which questions it answers.`,
+      steps: [`Open the site editor on ${path}`, existing ? `In the page head, replace ${identity} with the block above` : "In the page head, add the block above", "Mark it done here and the markup gets read again"],
+      hints: pairs.map((f) => `${path} visibly answers "${f.question}"`), limitation: "This markup describes the page's published questions and answers, and it does not change how Google displays the page. No ranking or citation gain is promised." }, now);
+    out.push({ ...card, researchOnly: false, research: undefined, recommendedChange: { ...card.recommendedChange, kind: "existing_edit", field: "schema", before: existing?.raw ?? null, after, where: `In the page head${existing ? `, replacing ${identity}` : ""}.` },
+      claims: pairs.map((f, i) => ({ text: f.answer, supportedBy: [facts[i]!.id] })), supportFacts: facts });
+  }
+  return out;
+}
 /** Every extra card this account's stored evidence already supports, at `needs_review`, deduplicated against the queue it holds. Never throws: a source that will not read narrows the answer instead of failing the pass. */
 export async function extraQueueCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date;
   /** THE PASS'S AEO DIAGNOSIS PURSE. Absent means an UNFUNDED caller, so nothing is bought and every case stays owed. */
@@ -290,7 +312,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   const expectedCtrAt = input.curve?.expectedCtrAt ?? defaultExpectedCtrAt;
   // WHICH SOURCE EACH FAMILY IS JUDGED ON. The two answer producers read stored AI answers and nothing else, so an answer read that failed must not let the sweep retire their cards as ones nobody re-emitted.
   const answersRead = snapshot.sources.some((s) => s.source === "native_ai" && s.status === "fresh");
-  const DEFECTS = ["missing_description", "duplicate_heading", "thin_page", "missing_answer"];
+  const DEFECTS = ["missing_description", "duplicate_heading", "thin_page", "missing_answer", "faq_schema"];
   const pages = snapshot.ownedPages.filter((p) => !!p.content);
   // NOTHING TO READ IS NOT A FINISHED PASS. These producers rewrite their families in full and the sweep behind them retires only what a FINISHED producer no longer stands behind, so a pass that read nothing says so.
   if (pages.length === 0) return { cards: [], complete: false, families: [], held: [], needsOwnPage: [] };
@@ -321,20 +343,24 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   const universe = await import("@/domains/evidence/readers/gsc-query-universe")
     .then((m) => m.loadGscQueryUniverse(tenantId, now)).catch(() => null);
   const cases = await aiCaseCards(bank, snapshot, pages, weak, earned, children, u, tenantId, input.units ?? [], windowObs, now, input.persist !== false, meter, universe?.keys ?? null, written); // the words already on file for each page reach BOTH body producers, so one question a live change answers is refused a second card in one voice and not two
-  const drafts = [...cases.drafts,
+  const schema = schemaCards(tenantId, pages, bodies, now); const drafts = [...cases.drafts,
     ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt), ...unansweredCards(snapshot, pages, expectedCtrAt, { bodies, misses, facts, written, basis: input.basis ?? null, tenantId })]; // LAST, so an AI case about the same question keeps it: one question is one card
   const out: ChangeProposal[] = [];
   // ONE QUESTION, ONE CARD: the answer an engine wrote and the follow-up search it ran to write it are one question, so only the strongest reading of it is filed.
   const answered = new Set<string>();
-  for (const d of drafts) {
-    const asks = d.asked ? [canonicalQueryKey(d.query), canonicalQueryKey(d.asked)].filter(Boolean) : [];
+  for (const d of [...drafts, ...schema]) {
+    const asks = "asked" in d && d.asked ? [canonicalQueryKey(d.query), canonicalQueryKey(d.asked)].filter(Boolean) : [];
     if (asks.some((k) => answered.has(k))) continue;
-    const card = mint(tenantId, d, now), prints = [...mutationFootprint(card)];
+    const card = "page" in d ? mint(tenantId, d, now) : d, prints = [...mutationFootprint(card)];
     if (prints.some((k) => taken.has(k)) && !mine.has(card.id)) continue;
     for (const k of prints) taken.add(k);
     for (const k of asks) answered.add(k);
     out.push(card);
   }
+  // A MARKUP CARD OUTLIVES ITS QUESTIONS UNLESS SOMEBODY TAKES IT BACK (review, 2026-09-15): the sweep behind this producer exempts every written card, and a schema card is always written, so a page whose pairs vanished or whose block now matches kept offering the operator a block the page no longer earns. The row is withdrawn here, only when the page's current words were actually read and mint nothing.
+  if (input.persist !== false) for (const r of rows) {
+    if (!r.id.endsWith("::existing_edit::faq_schema") || out.some((c) => c.id === r.id) || bodies.get(canonicalUrlKey(r.pageUrl))?.version !== "current") continue;
+    await withdrawChangeProposal(r, "the page no longer shows the questions this markup described").catch(() => false); }
   // EACH FAMILY ANSWERS FOR ITS OWN SOURCE. A family whose evidence did not answer is left off this list, so the sweep behind this producer leaves its cards alone instead of retiring work nobody was able to re-read.
   // `engine_followup` stays in the sweep with NO producer behind it on purpose: it is the one family this pass
   // still owns and deliberately never emits, so the sweep withdraws every follow-up-search card already on file.

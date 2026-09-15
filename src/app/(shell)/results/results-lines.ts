@@ -111,7 +111,7 @@ const finishedReading = (p: ShipmentPresentation): boolean => (judgedOnAi(p) ? (
  *  starts learning from and says early wherever it appears, and the 28 day one alone may call a win; both wore "early signal" over the other. */
 type ResultState = "recorded" | "waiting_verification" | "live_verified" | "reading" | "historical_ahead" | "historical_behind"
   | "historical_unclear" | "verified_early" | "verified_mature" | "confounded" | "inconclusive" | "not_measurable";
-const STATE_LABEL: Record<ResultState, string> = { recorded: "Recorded", waiting_verification: "Waiting for live verification",
+const STATE_LABEL: Record<ResultState, string> = { recorded: "Waiting for the live check", waiting_verification: "Waiting for the live check",
   live_verified: "Live verified", reading: "Reading", historical_ahead: "Historical read ahead", historical_behind: "Historical read behind",
   historical_unclear: "Historical unclear", verified_early: "Early reading at 14 days", verified_mature: "Verified at 28 days",
   confounded: "Shared with a later change", inconclusive: "Inconclusive", not_measurable: "Not measurable" };
@@ -201,7 +201,7 @@ function liftLabel(metric: KernelRead["metric"], lift: number): string {
 
 /** WHY A READING IS NOT A CONFIRMATION, one phrase per typed cause the verifier now names (measurement/verify-shipment). SEVEN causes printed "its exact words were never stored", true of exactly one of them: a robots refusal, a site that did not answer, a page that builds itself in the browser and a spent recheck all told the operator their copy was missing. Beacon owns the reads it could not take and says it retries; the operator owns only a publish that has not happened and wording that went live differently, and that row quotes their own page back to them. */
 const WHY_UNCONFIRMED: Record<string, string> = {
-  not_published_yet: "Not on the live page yet", published_differently: "Measured on your own wording, not Beacon's", page_unreachable: "Your site did not answer; Beacon tries again", address_mismatch: "No page at that address", stale_reading: "The copy on file predates this change",
+  not_published_yet: "Not on the live page yet", published_differently: "Measured on your own wording, not the drafted words", page_unreachable: "Your site did not answer; it is read again on the next pass", address_mismatch: "No page at that address", stale_reading: "The copy on file predates this change",
   rendered_content_gap: "Built in the browser, so it could not be read", applied_wording_missing: "Its exact words were never stored", google_not_updated: "Live on your page; Google has not caught up", unmeasurable: "Your robots rules ask for this page not to be read",
 };
 
@@ -410,6 +410,8 @@ function nextStepLine(p: ShipmentPresentation, now: Date = new Date()): string {
       : "Nothing can be read on this one. Try the next change on this page and measure that.";
   }
   if (r.metric === "unclassified") return "Nothing to wait for on this one.";
+  // AN UNVERIFIED SHIPMENT WITH NOTHING READ IS WAITING ON THE LIVE CHECK, and says so with the step (audit 3.9): "Recorded" named no state and no next move.
+  if (rowState(p) === "recorded") return "Keep the change published as approved; the live page is read on the next pass and the 28 day read starts from what is found.";
   if (p.implementedAt != null && p.verification?.status === "blocked" && p.verification.recheckAfter == null) return `Nothing can be read on this one. ${WHY_UNCONFIRMED[p.verification.reason ?? ""] ?? "The live page could not confirm it"}. Make the next change on this page and measure that.`;
   if (r.verdict === "confounded") return "Two changes share these days. Make the next change on this page on its own, then measure it.";
   const d = r.learning.outcomeDirection;

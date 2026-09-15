@@ -164,7 +164,7 @@ function shapeMismatch(objective: string, mechanism: string): Producer {
       components: [{
         kind: "section_rewrite", label: `Rewrite the leading section: ${drafted.heading}`,
         before: null, after: `${drafted.heading}\n\n${drafted.body}`,
-        evidenceKeys: ctx.finding.evidenceKeys, risk: "review",
+        evidenceKeys: ctx.finding.evidenceKeys, risk: "review", ...(heading ? { target: { mode: "replace", anchorKind: "heading", anchor: heading.trim() } } : {}), // A REWRITE REPLACES THE SECTION UNDER ITS OWN HEADING (audit, 2026-09-14): the writer's target said "after" and no rewrite could ever verify as one
         ...owed(ctx.primary, objective, mechanism,
           heading ? `the section "${heading.trim()}", the first one on the page` : "the first section on the page"),
       }],

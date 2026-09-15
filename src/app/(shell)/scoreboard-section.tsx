@@ -11,7 +11,6 @@ import { loadShippedChanges } from "@/domains/measurement";
 import { buildScoreboard, buildMoneyLine, type Scoreboard } from "@/domains/measurement";
 import { loadRevenueByDayForTenant } from "@/domains/measurement";
 import { visibilitySeries } from "@/domains/measurement";
-import { currentTenantSlug } from "@/lib/tenant-context";
 import { ScoreboardChartTabs } from "./scoreboard-chart-tabs";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
@@ -170,18 +169,16 @@ export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
       Promise.all([
         loadDailyTotalsForTenant(tenantId, 84),
         loadShippedChanges().catch(() => []),
-        currentTenantSlug().catch(() => ""),
         // Item 3 - honest dollars from revenue_facts; fail-soft -> the line self-hides.
         loadRevenueByDayForTenant(tenantId).catch(() => []),
       ] as const),
     );
     if (raced.timedOut) return <HonestDelay />;
-    const [daily, ledger, slug, revenueDays] = raced.data;
+    const [daily, ledger, revenueDays] = raced.data;
     // YOUR OWN CITATIONS PER DAY, off the ONE canonical AI truth every surface reads (measurement/ai-outcomes
     // over ai_observations). This band read the deleted Profound-era table while Visibility read canonical
     // rows, so the two surfaces could tell two different AEO stories (operator, 2026-08-19). Days whose
     // engines never reported their sources are OMITTED, never drawn as zero. Deadline-bounded; fail-soft.
-    void slug;
     const segments = await valueWithDeadline(visibilitySeries(tenantId, 30).catch(() => []), [] as Awaited<ReturnType<typeof visibilitySeries>>);
     const citations = { daily: segments.flatMap((seg) => seg.days.filter((d) => d.citationSample > 0)
       .map((d) => ({ date: d.day, clicks: d.ownedCiting }))) };

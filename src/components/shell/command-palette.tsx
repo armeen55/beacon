@@ -22,11 +22,11 @@ type Mode = "palette" | "help" | null;
 const GROUP_ORDER = ["Navigate", "Changes you shipped"];
 
 /**
- * #347 — subsequence ("fuzzy") match score. Returns null when `query`'s
+ * #347: subsequence ("fuzzy") match score. Returns null when `query`'s
  * characters do not appear in order within `text`; otherwise a score
  * where lower is a tighter match (contiguous + early matches win). This
  * replaces the naive `.includes` so e.g. "recs" / "rcm" still surface
- * "Recommendations". Pure, self-contained — no persistence/recents.
+ * "Recommendations". Pure, self-contained: no persistence/recents.
  */
 function fuzzyScore(text: string, query: string): number | null {
   const t = text.toLowerCase();
@@ -69,12 +69,15 @@ export function CommandPalette({ items: staticItems }: { items: PaletteItem[] })
   const [mode, setMode] = useState<Mode>(null);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
-  // #522 — surface the 500ms "g" chord on screen so the user knows it
+  // #522: surface the 500ms "g" chord on screen so the user knows it
   // registered before pressing the second key.
   const [gArmed, setGArmed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const pathname = usePathname();
+  const chordRoutes = useMemo<Record<string, string>>(() => Object.fromEntries(staticItems.flatMap((i) => {
+    const key = i.shortcut?.match(/^G (\w)$/i)?.[1]?.toLowerCase(); return key ? [[key, i.href]] : [];
+  })), [staticItems]);
 
   useEffect(() => {
     let gPending = false;
@@ -101,7 +104,7 @@ export function CommandPalette({ items: staticItems }: { items: PaletteItem[] })
         return;
       }
 
-      // #537 — Escape is owned by handlePaletteKeyDown while the palette
+      // #537: Escape is owned by handlePaletteKeyDown while the palette
       // is open; the window handler no longer also closes on Escape, so
       // there's a single owner (this listener only manages the OPEN
       // hotkeys: ⌘K, ?, and the g-chord).
@@ -126,31 +129,12 @@ export function CommandPalette({ items: staticItems }: { items: PaletteItem[] })
 
       if (gPending) {
         disarmG();
-        // T-CustomerNav (2026-05-08) — keyboard shortcuts only target
-        // customer-surface routes. Pre-T-CustomerNav `g+p` (→ /pages)
-        // and `g+m` (→ /competitors) routed to URLs that have been
-        // hidden from the sidebar since 2026-04-22 (Phase 3.5F
-        // "Surface Trust"); the shortcuts were dead wiring exposing
-        // hidden surfaces via CMD+K.
-        //
-        // FP4 (2026-07-03) - route-name unification: URLs now match the nav
-        // labels, so the chord letters follow the names. g+c = Changes
-        // (/changes), g+e = Results (/results).
-        //
-        // Phase 4D (2026-07-21) - g+a (Ask) and g+p (AI questions) were dropped
-        // with their surfaces; the chord map now targets only the five live nav
-        // routes. Keep this in lockstep with the help dialog's Navigation group
-        // and `NAV_SHORTCUTS` in `src/app/(shell)/layout.tsx` + `app-sidebar.tsx`.
-        const routes: Record<string, string> = {
-          t: "/",
-          c: "/changes",
-          e: "/results",
-          k: "/settings/connectors",
-          s: "/settings",
-        };
-        if (routes[e.key]) {
+        // THE CHORD ROUTES ARE THE ITEMS' OWN SHORTCUTS ("G C" arms c), off the layout's one map, so a hint the
+        // sidebar prints is always a chord this handler answers. Only customer-surface routes carry one.
+        const route = chordRoutes[e.key];
+        if (route) {
           e.preventDefault();
-          router.push(routes[e.key]);
+          router.push(route);
         }
       }
     }
@@ -160,7 +144,7 @@ export function CommandPalette({ items: staticItems }: { items: PaletteItem[] })
       window.removeEventListener("keydown", handler);
       clearTimeout(gTimeout);
     };
-  }, [router, pathname, mode]);
+  }, [router, pathname, mode, chordRoutes]);
 
   useEffect(() => {
     if (mode === "palette") {
@@ -168,7 +152,7 @@ export function CommandPalette({ items: staticItems }: { items: PaletteItem[] })
     }
   }, [mode]);
 
-  // #347 — fuzzy-rank when searching: keep items whose label OR meta
+  // #347: fuzzy-rank when searching: keep items whose label OR meta
   // subsequence-matches the query, then sort by best score so the
   // tightest matches lead.
   const filtered = query
@@ -193,7 +177,7 @@ export function CommandPalette({ items: staticItems }: { items: PaletteItem[] })
 
   const maxPerGroup = query ? 25 : 6;
   const groups: { label: string; items: PaletteItem[] }[] = [];
-  // #505 — track whether any group was truncated so we can tell the user
+  // #505: track whether any group was truncated so we can tell the user
   // the list isn't complete instead of implying it is.
   let truncated = false;
   for (const g of GROUP_ORDER) {
@@ -261,7 +245,7 @@ export function CommandPalette({ items: staticItems }: { items: PaletteItem[] })
                 onKeyDown={handlePaletteKeyDown}
                 placeholder="Jump to a page or section..."
                 aria-label="Jump to a page or section"
-                // #519 — combobox/listbox wiring: announce the active
+                // #519: combobox/listbox wiring: announce the active
                 // option as the user arrows through results.
                 role="combobox"
                 aria-expanded
@@ -279,7 +263,7 @@ export function CommandPalette({ items: staticItems }: { items: PaletteItem[] })
             </div>
 
             <div className="max-h-[320px] overflow-y-auto py-1.5">
-              {/* #519 — the results are a real listbox; each item is an
+              {/* #519: the results are a real listbox; each item is an
                   option with aria-selected, and the input points its
                   aria-activedescendant at the selected option's id. */}
               <ul id="command-palette-listbox" role="listbox" aria-label="Results">
@@ -332,14 +316,14 @@ export function CommandPalette({ items: staticItems }: { items: PaletteItem[] })
                   No results for &ldquo;{query}&rdquo;
                 </p>
               )}
-              {/* #505 — when a group was capped at maxPerGroup, the list
+              {/* #505: when a group was capped at maxPerGroup, the list
                   isn't complete; say so rather than imply it is. */}
               {truncated && flatItems.length > 0 && (
                 <p
                   className="px-4 py-2 text-center text-[11px] text-muted-foreground/70"
                   data-palette-truncated="true"
                 >
-                  Showing the first {maxPerGroup} per group — refine your search
+                  Showing the first {maxPerGroup} per group. Refine your search
                   to narrow these down.
                 </p>
               )}
@@ -394,7 +378,7 @@ export function CommandPalette({ items: staticItems }: { items: PaletteItem[] })
         </div>
       )}
 
-      {/* #522 — visible feedback that the "g" chord is armed, so the user
+      {/* #522: visible feedback that the "g" chord is armed, so the user
           knows it registered before pressing the second key. Clears on
           the 500ms timeout or the second key (both reset gArmed). */}
       {gArmed && (

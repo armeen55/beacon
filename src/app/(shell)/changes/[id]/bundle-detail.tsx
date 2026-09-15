@@ -183,13 +183,11 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
       <section className="space-y-2 rounded-2xl border border-border bg-surface-raised p-5">
         <Heading>How it gets measured</Heading>
         <p className="text-[13px] leading-relaxed text-muted-foreground">{bundle.measurementPlan}</p>
-        <p className="text-[13px] text-muted-foreground">Watching: {bundle.metric}</p>
       </section>
 
       <section className="space-y-3 rounded-2xl border border-border bg-surface-raised p-5">
         {held ? <p className="text-[13px] leading-relaxed text-foreground">{held}{waitingOn(proposal) ?? ""}</p> : <MarkImplemented
           proposalId={proposal.id}
-          label={isNew ? "Mark done" : "Mark done"}
           newPage={isNew}
           components={bundle.components.map((c, i) => ({ id: componentIdOf(c, i), kind: c.kind, label: c.label,
             // Era-tolerant, exactly as the server matches: a piece recorded before its copy joined its name still shows as recorded.
@@ -301,6 +299,8 @@ function ComponentCard({
   // operator confirms it, and every line is held on the change itself, never worked out afterwards.
   const moves = dangerousComponents([component]).length > 0;
   const to = component.redirectTo;
+  // A LINK PIECE LEAVES WITH ITS ADDRESS: the anchor words are underlined here and go onto the clipboard as a real link.
+  const link = !moves && to && component.anchorAfter ? { href: to, anchor: component.anchorAfter } : null;
   const consequences = moves ? [
     to ? `Anyone who opens the old address lands on ${to}.` : "This page stops answering at its own address.",
     ...(component.preserves?.keeps.length ? [`What survives the change: ${component.preserves.keeps.join(", ")}.`] : []),
@@ -339,9 +339,9 @@ function ComponentCard({
           {/* A SOURCED CORRECTION IS DETERMINISTIC BANK WORK: its exact replacement stays copyable while the
               bundle waits on review. Copying is reading; the record still goes through the same doors. */}
           {!moves && component.after.trim() && (!held || component.kind === "factual_correction")
-            ? <CopyButton text={component.after} units={component.units} label="Copy" /> : null}
+            ? <CopyButton text={component.after} units={component.units} link={link} label="Copy" /> : null}
         </div>
-        <div className="rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2 text-[13px] leading-relaxed text-foreground"><PublicationCopy text={component.after} units={component.units} /></div>
+        <div className="rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2 text-[13px] leading-relaxed text-foreground"><PublicationCopy text={component.after} units={component.units} link={link} /></div>
       </div>
       {consequences.length > 0 ? (
         <div className="space-y-1 rounded-lg border border-status-warning/40 bg-status-warning/5 px-3 py-2" data-destructive-detail="true">
@@ -384,6 +384,7 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
   const c = proposal.recommendedChange;
   const after = (c.kind === "new_page" ? c.proposedTitle : c.after ?? "").trim();
   const before = c.kind === "new_page" ? null : (c.before ?? "").trim() || null;
+  const units = c.kind === "existing_edit" ? c.units : undefined, link = c.kind === "existing_edit" && c.linkTo ? { href: c.linkTo, anchor: c.anchorText ?? "" } : null;
   const steps = (proposal.operatorSteps ?? []).map((s) => s.replace(/^\d+[.)]\s*/, "").trim()).filter(Boolean);
   // A DIRECT LINK STILL REACHES A ROW THE QUEUE NO LONGER RANKS, so the detail page asks the SAME completeness boundary: an unfinished deliverable is read, never pasted and never recorded as done here either. A
   // card carrying no steps at all (an ownership decision asks the operator for nothing) leads with its own line, or the page would print an empty list where the finding should be.
@@ -420,8 +421,8 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
         <div className="space-y-1">
           {before ? <p className="text-[13px] text-muted-foreground">Now: <span className="line-through">{before}</span></p> : null}
           <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
-            <div className="min-w-0 flex-1 text-[15px] leading-relaxed text-foreground"><PublicationCopy text={after} units={c.kind === "existing_edit" ? c.units : undefined} /></div>
-            {research || held ? null : <CopyButton text={after} units={c.kind === "existing_edit" ? c.units : undefined} label="Copy" />}
+            <div className="min-w-0 flex-1 text-[15px] leading-relaxed text-foreground"><PublicationCopy text={after} units={units} link={link} /></div>
+            {research || held ? null : <CopyButton text={after} units={units} link={link} label="Copy" />}
           </div>
           {/* WHERE IT GOES, ON THE PAGE THAT SHOWS THE COPY. Copy that lands somewhere new carries its placement
               and this page printed the words without it, so the operator read finished copy and still had to guess. */}

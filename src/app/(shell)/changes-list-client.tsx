@@ -2,8 +2,8 @@
 
 /** changes-list-client - COMPLETE WORK FIRST, AND ONLY COMPLETE WORK CALLED WORK (operator, 2026-08-21). The
  *  screen opens on READY NOW (finished, pasteable changes, best first), then NEEDS YOUR REVIEW (complete
- *  drafts held for one judgement), then BEACON IS PREPARING, collapsed and compact, because internal research
- *  is Beacon's work and never the operator's assignment. One persisted global rank still orders every lane
+ *  drafts held for one judgement), then the research still in progress, collapsed and compact, because internal
+ *  research is never the operator's assignment. One persisted global rank still orders every lane
  *  internally; the lanes decide the controls and where a row renders. One compact line points at measurement,
  *  which Results owns. Publishing is MANUAL: the only mutating controls are "Mark done" and "Skip". */
 
@@ -23,7 +23,7 @@ const UNDO_MS = 10_000;
 /** The plain-language kind of work a preparing row is, for the collapsed lane's tally: what a customer calls it, never a producer slug.
  *  WHAT it is comes from the field; WHAT IS HAPPENING TO IT comes from the row's own typed obligation and nothing else (2026-09-04).
  *  "being written and checked" was printed over every unfinished row of a field, so a change waiting on a source read, one waiting on
- *  Beacon's own reviewer and one genuinely being written all said the same thing, and the lane could not be told apart from a stall. */
+ *  the internal reviewer and one genuinely being written all said the same thing, and the lane could not be told apart from a stall. */
 const preparingKind = (p: ChangeProposal): string => {
   const c = p.recommendedChange, field = c.kind === "existing_edit" ? c.field : null;
   const what = c.kind === "new_page" ? "new pages"
@@ -32,7 +32,7 @@ const preparingKind = (p: ChangeProposal): string => {
     : field === "section" || field === "answer_block" ? "sections and answers"
     : field === "title" || field === "h1" ? "titles and headings" : "changes";
   const owed = p.obligation?.kind;
-  return `${what} ${owed === "evidence" ? "waiting on a source read" : owed === "review" ? "waiting on Beacon's own reviewer"
+  return `${what} ${owed === "evidence" ? "waiting on a source read" : owed === "review" ? "waiting on the final review"
     : owed === "draft" || owed === "sections" || owed === "redraft" ? "being written" : owed === "terminal" ? "settled until the evidence changes" : "waiting for the next pass"}`;
 };
 
@@ -141,9 +141,10 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
 
       {/* READY NOW: complete, executable work only, best first. The count counts exactly what sits here. */}
       <section className="space-y-3" data-lane-ready="true">
-        <p className="text-[14px] font-semibold tabular-nums text-foreground" data-open-count="true">
+        {/* NO BARE ZERO AS A HEADING (audit 3.9): "Ready now: 0 finished changes" printed as a heading over an empty lane; the empty lane says what happens next instead. */}
+        {openTotal > 0 ? <p className="text-[14px] font-semibold tabular-nums text-foreground" data-open-count="true">
           Ready now: {openTotal.toLocaleString("en-US")} finished {openTotal === 1 ? "change" : "changes"}
-        </p>
+        </p> : null}
         {readyRows.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-5 text-[13px] leading-relaxed text-muted-foreground">
             {view.readyZeroHint}{/* THE LANE'S OWN SENTENCE COMES OFF THE VIEW: a second copy here said it in different words, and two screens wording one fact two ways is the drift the one map exists to end. */}
@@ -205,7 +206,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         </section>
       ) : null}
 
-      {/* WRITTEN AND BEING CHECKED: the finished drafts, as real cards the operator can read now. */}
+      {/* WRITTEN AND BEING CHECKED: the finished drafts, as real cards the operator can read now. Skip on these is the real dismissal: it rendered a button that did nothing (audit 3.9). */}
       {writtenRows.length > 0 ? (
         <section className="space-y-2" data-lane-written="true">
           <h2 className="text-[14px] font-semibold tabular-nums text-foreground">
@@ -214,21 +215,21 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
           </h2>
           <ul className="list-none space-y-3">
             {writtenRows.map((p, i) => (
-              <ChangeCard key={p.id} proposal={p} rank={readyRows.length + i + 1} ready={false} review caseLine={null} onAside={() => {}} onDone={() => {}} onToast={say} />
+              <ChangeCard key={p.id} proposal={p} rank={readyRows.length + i + 1} ready={false} review caseLine={null} onAside={putAside} onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say} />
             ))}
           </ul>
         </section>
       ) : null}
-      {/* BEACON IS PREPARING: internal work, collapsed and compact. Each row is one sentence about what
-          Beacon is doing; the full evidence stays on the row's own detail page, one click away. */}
+      {/* STILL BEING RESEARCHED: internal work, collapsed and compact. Each row is one sentence about the work
+          in progress; the full evidence stays on the row's own detail page, one click away. */}
       {researchingRows.length > 0 ? (
         <details className="rounded-2xl border border-border bg-surface-raised" data-lane-preparing="true">
           <summary className="cursor-pointer px-4 py-3 text-[14px] font-semibold tabular-nums text-foreground">
-            Beacon is working on {workingTotal.toLocaleString("en-US")} more {workingTotal === 1 ? "opportunity" : "opportunities"}
+            {workingTotal.toLocaleString("en-US")} more {workingTotal === 1 ? "opportunity is" : "opportunities are"} being researched
             <span className="ml-2 font-normal text-muted-foreground">Writing, checking and evidence still in progress. Nothing here is yours to do yet.</span>
           </summary>
           {/* ONE TALLY PER KIND OF WORK, never the inventory (Product Truth; operator, 2026-08-31): printing every
-              unfinished row made the operator Beacon's own progress clerk. What a person opening this line needs is
+              unfinished row made the operator the product's progress clerk. What a person opening this line needs is
               the shape of what is coming, in plain words, one line per kind. */}
           <ul className="list-none space-y-1 px-4 pb-3">
             {[...researchingRows.reduce((m, p) => { const k = preparingKind(p); m.set(k, (m.get(k) ?? 0) + 1); return m; }, new Map<string, number>())]

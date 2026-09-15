@@ -11,7 +11,7 @@ import type { ChangeProposal } from "@/domains/decision/contracts";
 import type { CauseFinding } from "@/domains/decision/diagnosis"; import type { Obligation } from "../obligation";
 import { pageUnderstanding, sectionFit } from "./page-job";
 /** `headline` IS the card's action line: it names the page, the thing to do and the number behind it, so the queue reads as work without being opened. Never "update the section to sharpen it", which says nothing. */
-export type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1" | "section" | "answer_block"; headline: string; /** For an internal link: the destination path, typed rather than left inside the instruction prose. */ linkTo?: string;
+export type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1" | "section" | "answer_block" | "schema"; headline: string; /** For an internal link: the destination path, typed rather than left inside the instruction prose. */ linkTo?: string;
   query: string; before: string | null; after: string; why: string; steps: string[]; hints: string[];
   minutes: number; confidence: ChangeProposal["confidence"]; limitation: string;
   /** HOW MANY STORED ROWS ARE BEHIND THIS CARD, which used to be the hint count: three on every card this file writes, on three stored answers or thirty. `impact` is the clicks this page is measurably leaving behind. */

@@ -62,18 +62,21 @@ function targetWordOf(p: ChangeProposal): string {
   if (c.kind === "existing_edit" && c.linkTo) return "link"; /* THE CHIP NAMES WHAT THE EDIT IS (operator, 2026-09-10): a one-sentence carrier for an internal link wore "Add section" because its field is section, and the operator had to guess; the link is the change, the sentence is its vehicle */
   return TARGET_WORD[c.field] ?? fieldWord(c.field);
 }
-/** Add, Replace or Create: what the operator DOES, decided by whether canonical `before` carries the old words. */
+/** ADD, REPLACE, DELETE OR LINK (operator, 2026-09-10): the four verbs a card may open with, decided by the canonical fields
+ *  alone. A piece that removes a section or forwards an address is a DELETE and was wearing "Replace"; a field with no old
+ *  words is an ADD and was wearing "Set", a fifth verb nobody asked for. */
+const DELETE_KIND: Record<string, string> = { section_remove: "Delete section", internal_link_remove: "Delete link", redirect: "Delete address, forward it", noindex: "Delete from search" };
 function actionWordOf(p: ChangeProposal): string {
   const c = p.recommendedChange;
   if (c.kind === "new_page") return "Create";
-  return c.before ? "Replace" : c.field === "section" || c.field === "answer_block" ? "Add" : "Set";
+  return c.before ? "Replace" : "Add";
 }
 function categoryOf(p: ChangeProposal, isNew: boolean, parts: number): string {
   if (isNew) return "Create page";
   // A multi-piece bundle is named by its SIZE first: the live queue held a three-edit bundle across two
   // pages wearing the chip "Title" because its id ended ::title-family. The family regex names one edit only.
   if (parts > 1) return `${parts} edits together`;
-  const named = CATEGORY.find(([re]) => re.test(p.id))?.[1];
+  const named = CATEGORY.find(([re]) => re.test(p.id))?.[1] ?? DELETE_KIND[p.bundle?.components[0]?.kind ?? ""];
   if (named) return named;
   return `${actionWordOf(p)} ${targetWordOf(p)}`;
 }
@@ -194,6 +197,9 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   // WHAT THIS ONE IS WAITING ON BEFORE ANYBODY CAN DO IT, off the row's own typed next step: a card ranked above a smaller one that is ready reads as an order somebody could work straight through, so the dependency is printed where the card is and not folded into the ranking receipt behind an expander. A plain sentence, never a label: "Waiting on: this one waits on your confirmation" says the same thing twice.
   const waiting = ((w: string) => (w ? `${w[0]!.toUpperCase()}${w.slice(1)}.` : null))((proposal.rankingReceipt?.factors ?? []).find((f) => f.name === "readiness")?.input?.trim() ?? "");
   const placement = proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.where ?? null : null;
+  // THE STRUCTURE AND THE LINK RIDE WITH THE COPY: the same units the card renders are what the clipboard carries, and a link change carries its address so the anchor words leave as a real link.
+  const units = proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.units : undefined;
+  const link = proposal.recommendedChange.kind === "existing_edit" && proposal.recommendedChange.linkTo ? { href: proposal.recommendedChange.linkTo, anchor: proposal.recommendedChange.anchorText ?? "", pageUrl: proposal.pageUrl } : null;
   // WHAT STANDS BEHIND FINISHED WORK, SAID ON THE CARD THAT OFFERS IT (measured, 2026-09-05: all six Ready rows carry a paid reading bound to their exact copy, not one of them said so, and the only sentence the hold had for them was "nothing has read them for sense yet", which their own record disproves). Read off the row itself: the reading is claimed only while `semanticReview` names THESE exact words, and sources are counted by PUBLISHER and never by fact id, which is the same count the proportional evidence bar uses. A row with no outside publisher stands on words this account already publishes, its own page's or the page a link points at, and says that instead of a bare zero.
   const reading = ready && !merge && reviewFits(proposal, proposal.semanticReview?.of); // a row accepted on a legacy-keyed reading still says what stands behind it (audit, 2026-09-14)
   const sources = reading ? citedPublishers(proposal).size : 0;
@@ -270,11 +276,11 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
             <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
               {/* LINE BREAKS ARE PART OF THE DELIVERABLE: a list-shaped answer renders one item per line. */}
               <div className="min-w-0 flex-1 text-[14px] leading-relaxed text-foreground">
-                <p className="text-muted-foreground">{isNew ? `Page ${field}:` : "Change to:"}</p><PublicationCopy text={after} units={proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.units : undefined} />
+                <p className="text-muted-foreground">{isNew ? `Page ${field}:` : "Change to:"}</p><PublicationCopy text={after} units={units} link={link} />
               </div>
               {/* THE BUTTON NAMES THE REAL OBJECT: "Copy new section" on a title, and "Copy draft" anywhere,
                   both made the operator re-read the card to learn what they were holding. */}
-              <CopyButton text={after} units={proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.units : undefined} onToast={onToast}
+              <CopyButton text={after} units={units} link={link} onToast={onToast}
                 label={`Copy ${targetWordOf(proposal)} · ${effortLabel(proposal.estimatedEffortMinutes)}`} />
             </div>
             {before ? (
@@ -437,10 +443,11 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
           {/* THE RECORD AND THE OPERATOR'S OWN WORDING, on the card itself (operator, 2026-09-06: Copy, edit as
               applied, Mark done and Skip are the four controls a finished card offers without being opened). A new
               page owes its live address and a piece that moves a page owes a confirmation, and this control asks
-              for each where it applies rather than refusing the press afterwards. A bundle past the inline limit
-              lists its pieces on the change's own page, so the picker stays there and this records the whole change. */}
+              for each where it applies rather than refusing the press afterwards. EVERY BUNDLE OF TWO OR MORE PIECES GETS
+              THE PICKER (audit 3.9): a bundle past the inline limit got a bare Mark done, so one press recorded every piece
+              as applied when the operator had pasted one. */}
           {review ? null : <MarkImplemented proposalId={proposal.id} newPage={isNew} onRecorded={recordDone}
-            components={parts <= INLINE_PIECES || held.length > 0 ? piecesOf(bundle) : undefined} />}
+            components={parts > 1 || held.length > 0 ? piecesOf(bundle) : undefined} />}
           <button type="button" data-set-aside="true" onClick={() => onAside(proposal.id)}
             className="text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
             Skip

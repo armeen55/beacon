@@ -20,14 +20,6 @@ import type { TodayComposite } from "./today-view-data";
 
 const STORE = "customer-surface";
 const CUSTOMER_SURFACE_FRESH_MS = 15 * 60 * 1000;
-/** How many judged-but-declined pages one release carries a verdict for. */
-const DECLINE_NOTE_LIMIT = 20;
-/** THE one page-key rule, so a page written two ways is still one page on both sides of a lookup: host prefix
- *  and one trailing slash removed, percent-encoding decoded (Search Console reports encoded paths where the
- *  account's own records hold the readable form), lowercased, and no length cap. */
-const normalizedFixKey = (u: string): string => {
-  const path = u.replace(/^https?:\/\/[^/]+/i, "").replace(/\/$/, "") || "/";
-  try { return decodeURIComponent(path).toLowerCase(); } catch { return path.toLowerCase(); } };
 
 /** One decaying page as the release carries it: the two 28-day windows, six numbers, nothing derived. */
 type ReleaseDecayRow = {
@@ -219,20 +211,8 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
     // lives in the rows the same transaction stamps. A build that cannot say its order publishes nothing.
     const { stampRows, ...changes } = built;
     if (!stampRows) throw new Error("the build handed over no ranking, so nothing was published and the previous release keeps serving");
-    // The verdicts for pages this pass JUDGED and declined to change, carried into the
-    // release so Today can quote the decision for the page it blames instead of a
-    // generic "still checking". Biggest measured gap first, bounded: Today quotes at
-    // most one, and a release is a blob, not a log.
-    const declineNotes = (produced?.candidates ?? [])
-      .filter((c) => c.action !== "act_existing_page" && !!c.pageUrl)
-      .sort((a, b) => b.recoverableClicks - a.recoverableClicks)
-      .slice(0, DECLINE_NOTE_LIMIT)
-      .map((c) => ({ page: normalizedFixKey(c.pageUrl as string), note: c.reason }));
-    const today = await buildTodayCompositeFromChanges(changes, {
-      outcome: produced?.outcome, investigating: produced?.investigating, waitingUntil: produced?.waitingUntil,
-      // A draft the store refused because that page already carries a change I am measuring. The
-      // store has always answered this; carrying it here is what lets Today say so out loud.
-      heldForMeasurement: produced?.heldForMeasurement, declineNotes });
+    // The one thing the production pass concluded that Today prints: the earliest retry date for a page that could not be read.
+    const today = await buildTodayCompositeFromChanges(changes, { waitingUntil: produced?.waitingUntil });
     // THE COMPACT VISIBILITY PROJECTION, published while the reads are already warm here, so the Google tab
     // costs one blob read at render time instead of the split-window aggregates that kept timing out.
     // Fail-soft: a failed read stamps nothing, never stale-and-wrong, and the tab falls back to a live read.
