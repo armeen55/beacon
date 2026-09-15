@@ -386,6 +386,8 @@ function dedupeAppearances(appearances: ResearchWinningAppearance[]): ResearchWi
 
 /** A focused comparison needs its five ranked pages, even when two share a publisher. The same fifteen-page budget is interleaved across three cases; each case keeps two deeper substitute candidates. */
 export const PRIORITY_WINNERS_PER_QUERY = 5, PRIORITY_STANDBYS_PER_QUERY = 2;
+/** HOW DEEP AN ORGANIC ROW MAY SIT AND STILL BE A WINNER: the twenty rows every look buys (SERP_DEPTH in dataforseo/capabilities), not ten (Stage 2, 2026-09-14): ranks 11 to 20 were paid for and could never be read. */
+const WINNER_RANK_CUTOFF = 20;
 /** HOW MANY NEVER-RANKED SEARCHES ONE PASS RESERVES FOR, and therefore the only searches a receipt may promise pages of. */
 const OWED_SEARCHES_PER_PASS = 3;
 
@@ -404,7 +406,7 @@ function organicRankFor(c: WinningCandidate, key: string): number | null {
 const isOwnPage = (url: string, ownDomain: string | null): boolean => { const d = rootDomain(url), own = rootDomain(ownDomain ?? ""); return !!own && (d === own || d.endsWith(`.${own}`)); };
 
 /** Aggregate winning pages from a flat appearance stream, each appearance carrying its ACTUAL source (query or real prompt id + text, engine, rank). AI
- *  surfaces weight double; organic top-10 single; the account's own domain is excluded. A page's engines/prompts derive from ITS OWN appearances only.
+ *  surfaces weight double; organic rows within WINNER_RANK_CUTOFF single; the account's own domain is excluded. A page's engines/prompts derive from ITS OWN appearances only.
  *  Ranking is CASE-SCOPED, not global: a purely global weight order returned ten winners of which not one came from the query under investigation. Every FOCUSED CASE (one entry of `priorityQueries`, the exact search that case is stuck on) banks its own top DISTINCT PUBLISHERS in real organic rank order, INDEPENDENTLY of the global weight order, so an unrelated case's AI-cited pages can never crowd a case's required pages out. The global fill continues with the capacity left after every focused case is served, so this buys no extra page work.
  *  RESERVES COME BACK INTERLEAVED, one round per case, and that is the half that was actually starving anybody: the reserves were correct and then the reader spent a SHARED attempt and paid-read budget through them case by case, so with three cases and six paid reads the first two took all six and the third was handed nothing. In rounds, every case gets its first winner before any gets its second. Standbys are returned LAST, marked. Pure. */
 export function rankWinningPages(
@@ -424,7 +426,7 @@ export function rankWinningPages(
     const d = rootDomain(url).toLowerCase();
     if (!d) continue;
     if (isOwnPage(url, ownDomain)) continue;
-    if (a.kind === "serp_organic" && (a.rank == null || a.rank > 10)) continue;
+    if (a.kind === "serp_organic" && (a.rank == null || a.rank > WINNER_RANK_CUTOFF)) continue;
     const weight = a.kind === "serp_organic" ? 1 : 2;
     const prev = byUrl.get(url) ?? { url, domain: d, weight: 0, appearances: [] };
     prev.weight += weight;
@@ -473,7 +475,7 @@ export function owedWinnerReads<T>(serps: readonly T[], banked: readonly string[
     if (s?.status !== "done" || s.identityMismatch || typeof s.query !== "string" || !canonicalQueryKey(s.query)) continue;
     const key = canonicalQueryKey(normalizeKeyword(s.query)), seen = paid.get(key), parsed = typeof s.observedAt === "string" ? Date.parse(s.observedAt) : NaN, at = Number.isFinite(parsed) ? parsed : -Infinity;
     if (seen && seen.at > at) continue;
-    const keys = (s.organic ?? []).filter((o) => typeof o?.rank === "number" && o.rank <= 10).sort((a, b) => a.rank! - b.rank!).map((o) => canonicalUrlKey(o?.url ?? ""))
+    const keys = (s.organic ?? []).filter((o) => typeof o?.rank === "number" && o.rank <= WINNER_RANK_CUTOFF).sort((a, b) => a.rank! - b.rank!).map((o) => canonicalUrlKey(o?.url ?? ""))
       .filter((k) => !!k && !isOwnPage(k, ownDomain) && !isNoiseDomain(k));
     const distinct = [...new Set(keys)]; paid.set(key, { q: s.query, at, keys: distinct, held: distinct.length > 0 && distinct.slice(0, PRIORITY_WINNERS_PER_QUERY).every((k) => onFile.has(k)), row });
   }

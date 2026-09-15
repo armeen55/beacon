@@ -85,6 +85,13 @@ describe("the two-attempt stop, when one reading is owed by two rows", () => {
     expect(stampedWork, "and each row's stamp names its OWN work, so the receipt never reports an attempt made under a funding identity that is not this row's")
       .toEqual(["w1", "w1", "w1", "w1", "w1"]);
   });
+  it.each(SITES)("$t: two rows citing one KNOWN finding under two work identities are one purchase a drive, and the second row is served by the first row's purchase", async (s) => {
+    const finding = { tenantId: s.t, page: s.url, statementKey: "sk-1" }, need = (suffix: string, work: string, rank: number): Owed => ({ key: `${s.url}::${suffix}`, kind: "factual_source", query: s.topic, url: s.url, rank,
+      reasonCode: "acquire_factual_source", reason: "owed", workKey: work, missingTopic: s.topic, finding });
+    const two = await oneDrive(s, [need("a", "w1", 1), need("b", "w2", 2)], [need("a", "w1", 1), need("b", "w2", 2)]);
+    expect([two.asked, (two.progress.acquisitions ?? []).map((a) => [a.key, a.detail.startsWith("served by the purchase this drive already made"), a.sharedWith ?? []])], "the reading's identity is the finding under the basis and never the funding row, so the second row reads the first row's answer for free and both receipts name each other")
+      .toEqual([1, [[`${s.url}::a`, false, [`${s.url}::b`]], [`${s.url}::b`, true, [`${s.url}::a`]]]]);
+  });
 });
 
 /** THE BLOCK'S DOOR IS SKIPPED FOR AN OWED TURN ON THE PROMISE THAT EVERY ANSWER SENDS THE LOOP BACK, so a `failed`

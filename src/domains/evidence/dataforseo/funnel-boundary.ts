@@ -138,12 +138,6 @@ export type ParsedByCapability = {
   llm_claude: ParsedAiAnswer;
   llm_perplexity: ParsedAiAnswer;
   llm_scraper_chatgpt: ParsedAiAnswer;
-  /** AI KEYWORD DATA: how often a keyword shows up inside AI questioning, the provider's own AI search volume.
-   *  A DIFFERENT unit from Google volume and never blended with it; an unsent figure stays null, never zero.
-   *  (docs: ai_optimization/ai_keyword_data/keywords_search_volume/live, verified 2026-08-19) */
-  /** LLM MENTIONS: the provider's stored record of real LLM answers that named a target domain or keyword,
-   *  each with its question, sources and fan-outs. Read-only market evidence beside Beacon's own observations,
-   *  never a substitute for them. (docs: ai_optimization/llm_mentions/search/live, verified 2026-08-19) */
 };
 
 /** TYPED capability inputs: the ONLY shapes a caller may hand the boundary. Every field is a real provider field for that endpoint (web_search flags are

@@ -415,6 +415,7 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
   /** Concatenated grounded text for the numeric-fidelity firewall. */
   grounded: string;
   observationGrounded?: string; // Diagnostic refs have their own observed-data ledger, never authority for publishable facts.
+  /** THE ASSIGNMENT'S OWN LINES, the one part of the prompt beyond the grounded text whose numbers a body or atomic edit may carry (review, 2026-09-14): rival, serp and comparison text never ground a figure. */ assignmentGrounded?: string;
   /** A phrase CODE resolved and the writer was told to carry verbatim, so markup the writer wrapped around it can be taken off before the firewalls read the copy. */ unmarkPhrase?: string;
   projectedCostUsd?: number;
   maxTokens?: number;
@@ -462,7 +463,8 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   const complete = req.complete ?? (apiKey ? defaultComplete(apiKey, promptId) : null);
   const schema = SCHEMA_BY_KIND[req.kind] as z.ZodTypeAny;
   const nowYear = (req.now ?? new Date()).getFullYear();
-  const ledger = ["atomic_edit", "body_edit"].includes(req.kind) ? buildGroundedNumbers(req.grounded) : buildRequestLedger(req.grounded, nowYear);
+  // THE ASSIGNMENT'S OWN NUMBERS AND THE YEAR ARE GROUNDED (audit, 2026-09-14; narrowed on review): a figure in the assignment lines, and the current or previous year, were refused as invented because the writer's ledger read only the fact text. The ledger is the claim-support text plus the assignment lines and nothing else in the prompt: a rival, serp or comparison figure asserted in copy under a page-copy id is still invented.
+  const ledger = ["atomic_edit", "body_edit"].includes(req.kind) ? allowNumbers(buildGroundedNumbers(`${req.grounded}\n${req.assignmentGrounded ?? ""}`), [String(nowYear - 1), String(nowYear)]) : buildRequestLedger(req.grounded, nowYear);
   const cache = resolveCacheImpl(req.cacheImpl);
   let cacheKey: string | null = null;
   try { if (cache) cacheKey = llmCallCacheKey({ tenantId, promptId, promptVersion, kind: req.kind, system: req.system, user: req.user + "\n" + JSON.stringify([req.grounded, req.observationGrounded ?? null, req.maxTokens ?? 6000]), model: MODEL, schema: z.toJSONSchema(schema) }); }
@@ -473,10 +475,8 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     catch { return unpaidFailure("cache_read_unavailable"); }
     if (hit) {
       if (hit.key !== cacheKey || hit.tenantId !== tenantId) return unpaidFailure("cache_identity_mismatch");
-      const checked = validateDraftValue(req, schema, hit.value, ledger, nowYear);
-      if ("errors" in checked) return unpaidFailure(checked.errors[0]!, checked.errors, "schema_invalid");
-
-      return { status: "drafted", kind: req.kind, value: checked.data as z.infer<(typeof SCHEMA_BY_KIND)[K]>, costUsd: 0, retried: false, attempts: 0, cached: true, ...(hit.repeatFlag ? { repeatFlag: hit.repeatFlag } : {}), ...(req.fewShotProvenance ? { fewShot: req.fewShotProvenance } : {}) };
+      const checked = validateDraftValue(req, schema, hit.value, ledger, nowYear); // A HIT THAT FAILS TODAY'S RULES IS A MISS (audit, 2026-09-14): it was returned as schema_invalid at $0 forever; it now falls through to ONE re-buy whose answer overwrites the entry
+      if (!("errors" in checked)) return { status: "drafted", kind: req.kind, value: checked.data as z.infer<(typeof SCHEMA_BY_KIND)[K]>, costUsd: 0, retried: false, attempts: 0, cached: true, ...(hit.repeatFlag ? { repeatFlag: hit.repeatFlag } : {}), ...(req.fewShotProvenance ? { fewShot: req.fewShotProvenance } : {}) };
     }
   }
   if (!complete) return { status: "off" };
@@ -680,14 +680,13 @@ const ATOMIC_HEAD: Record<string, string> = {
 const ATOMIC_EDIT_SYSTEM = COPY_RULES.publisher + " " +
   'Return ONLY a JSON object: "field" (the field being edited), "before" (the exact current value, or null), "after" (the improved value), ' +
   '"rationale" (one sentence), "evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout, and at least one ref must NOT be ga4 or clarity: those two say what people did once they arrived, never what anyone searched for), ' +
-  '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
-  '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
+  '"confidence" ("high"|"medium"|"low"). ' +
   "Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes. " +
   'ALSO SHOW YOUR HOMEWORK, or the edit is refused: "placementAnchor" (the EXACT existing heading or sentence from the stored page copy below that this edit replaces, lands on, or lands after, copied character for character), "naturalHeading" (a descriptive heading or a question a reader genuinely asks, or null for an inline insertion or a replacement that keeps its existing heading), ' +
   '"claims" (array of {"text","supportedBy"}, one per material statement the copy makes, where supportedBy lists the exact grounding ids given to you that carry it), "implementationMinutes" (how long this takes an operator). TWO DIFFERENT VOCABULARIES, AND MIXING THEM THROWS THE EDIT AWAY: an evidenceRefs "source" is one of the KINDS listed above (gsc, owned_snapshot, fanout and the rest), while the "supportedBy" on a claim holds only the exact grounding IDS printed below (page-copy-1, card-2, demand-3). Never put a source kind in supportedBy. Every id in supportedBy must be one handed to you. State no figure the grounding does not already show. '
   + 'Keep references concise. Each claim.text states one material assertion actually made in after; grounding IDs belong ONLY in supportedBy, not in claim.text or after. Put instructions, reasoning and omissions in their metadata fields, never in after. Research observations and draft context cannot support factual claims.';
 
-const BODY_EDIT_SYSTEM = COPY_RULES.publisher + " Use the strict schema: units are paragraphs, reader-facing headings or complete ordered/unordered lists in publication order. naturalHeading is only the outer heading for an addition; internal headings are heading units. Code supplies the exact predecessor and assembles units without removing content. Claims cover every material assertion with the supplied claim-support IDs, never research observations or proposed companion copy. Sources must identify real supporting readings. Evidence references explain the grounded decision; GSC/DataForSEO/owned evidence is primary, GA4/Clarity is only a modifier. Put reasoning, instructions and uncertainty in rationale, operatorSteps and risks, never publication units. For a replacement, preservation accounts for each changed, corrected, moved or removed unit using the canonical disposition, its reason and supporting IDs or actual destination. State no invented figures, rankings, sources or business facts. Complete the reader task without padding, sentence quotas or keyword lists.";
+const BODY_EDIT_SYSTEM = COPY_RULES.publisher + " Use the strict schema: units are paragraphs, reader-facing headings or complete ordered/unordered lists in publication order. naturalHeading is only the outer heading for an addition; internal headings are heading units. Code supplies the exact predecessor and assembles units without removing content. Claims cover every material assertion with the supplied claim-support IDs, never research observations or proposed companion copy. Sources are optional; when given, each names a real url the packet showed. Evidence references explain the grounded decision; GSC/DataForSEO/owned evidence is primary, GA4/Clarity is only a modifier. Put reasoning, instructions and uncertainty in rationale, never publication units. For a replacement, preservation accounts for each changed, corrected, moved or removed unit using the canonical disposition, its reason and supporting IDs or actual destination. State no invented figures, rankings, sources or business facts. Complete the reader task without padding, sentence quotas or keyword lists.";
 
 /** One body-copy contract; replacement scope takes precedence over additive delivery hints. */
 const BODY_COPY_CLAUSE = " after contains only final publishable copy; assignment instructions, evidence commentary and omissions stay in metadata. Lead with the supported answer or distinction. Complete the diagnosed task with the necessary explanation, meanings, examples, qualifications or ordered steps; depth follows the task, not a sentence quota. Use winning-page observations for useful structure and depth, never as factual claim support or wording to copy. Each factual assertion must stand on the exact claim-support evidence IDs supplied. Respect the assignment's reuse and preservation scope; do not merely describe or repeat the page.";
@@ -756,7 +755,7 @@ export async function draftAtomicEditStructured(
     ...(input.unmarkPhrase ? { unmarkPhrase: input.unmarkPhrase } : {}),
     system: (body ? BODY_EDIT_SYSTEM : (ATOMIC_HEAD[input.field] ?? ATOMIC_HEAD.default!) + ATOMIC_EDIT_SYSTEM) + (input.field === "answer_block" ? (body ? BODY_COPY_CLAUSE.replace(/\bafter\b/g, "the assembled publication") : BODY_COPY_CLAUSE) + BODY_DELIVERY[(replaces ?? input.replaces) != null ? "replacement" : input.answerShape === "inline" ? "inline" : input.answerShape === "adaptive" ? "adaptive" : "section"] + (body ? " The predecessor is code-owned; do not echo it. Return final publication units rather than a flat after field." : "") : input.field === "meta" ? META_SUBJECT_CLAUSE : input.field === "title" || input.field === "h1" ? TITLE_SHAPE_CLAUSE : "") + fewShots,
     user,
-    grounded,
+    grounded, assignmentGrounded: evidenceHints.join("\n"),
     ...(input.packet ? { observationGrounded: [...Object.values(input.packet.evidence), ...(input.packet.demand.unanswered ?? [])].join("\n") } : {}),
     projectedCostUsd: 0.02,
     complete: opts.complete,

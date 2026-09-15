@@ -1,11 +1,4 @@
-/**
- * serp-provider — `rootDomain`, the URL-normalization helper shared across the
- * evidence readers and the research funnel. The old per-reader SERP snapshot
- * vocabulary left with its reader in Slice 6; the funnel's normalize layer owns
- * SERP parsing now.
- */
-
-// A PURE URL HELPER, NEVER SERVER-ONLY: serp-shape reads it, diagnosis reads serp-shape, and the readiness verdict reads diagnosis inside the browser bundle.
+// serp-provider: `rootDomain`, the URL helper the evidence readers and the research funnel share. A PURE URL HELPER, NEVER SERVER-ONLY: serp-shape reads it, diagnosis reads serp-shape, and the readiness verdict reads diagnosis inside the browser bundle.
 export function rootDomain(url: string): string {
   try {
     return new URL(url.startsWith("http") ? url : `https://${url}`).hostname

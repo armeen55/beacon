@@ -1,11 +1,10 @@
 /** Query-backed source observations are research candidates, not proof that a whole owned page lacks their subject. */
 import { createHash } from "node:crypto";
-import { load } from "cheerio";
 import { classifyDomain, type CompetitorKind } from "./competitors/classify";
 import { canonicalQueryKey, FURNITURE_LABEL, topicTokens } from "./relevance-gate";
 import { publisherHost } from "./serp-shape";
 import { jobWinners, canonicalUrlKey } from "./snapshot";
-import type { FunnelResearchEvidence } from "./funnel/research-evidence";
+import { sectionsFrom, type FunnelResearchEvidence } from "./funnel/research-evidence";
 
 type Research = Pick<FunnelResearchEvidence, "serpEvidence" | "winningPages">;
 
@@ -22,7 +21,8 @@ type ComparedWinner = {
 export type JobComparison = { queries: string[]; focus?: string[]; owned?: { url: string; held: string; heldWhole: boolean; bodyKey: string }; winners: ComparedWinner[]; keep: string[]; verdict: "names" | "nothing" | "unread" };
 
 const COVERAGE = 2 / 3, SAME_LEMMA = 6;
-const READING_CHARS = 4_000;
+/** THE READING'S ROOM (Stage 2, 2026-09-14): winners share 12,000 characters, each capped at 4,000 and FLOORED at 2,000 before the owned page takes its 4,800, and the owned share shrinks to keep the whole under 16,800 (the writer holds the owned page whole as page.body regardless). Five winners: 2,400 each and 4,800 owned; eight: 2,000 each and 800 owned. */
+const READING_CHARS = 4_000, WINNER_FLOOR = 2_000, WINNERS_SHARE = 12_000, OWNED_SHARE = 4_800;
 const heldFor = (body: string, ask: ReadonlySet<string>, limit: number, focus: ReadonlySet<string>, sections: readonly { heading: string | null; text: string }[] = []): { held: string; whole: boolean } => {
   if (body.length <= limit) return { held: body, whole: true };
   const score = (t: string, bag: ReadonlySet<string>): number => [...new Set(topicTokens(t))].filter((w) => bag.has(w)).length;
@@ -55,22 +55,9 @@ const covers = (bag: Set<string>, label: string): boolean => { const ask = topic
 const tidy = (s: string): string => s.replace(/\s+/g, " ").trim();
 const cut = (s: string, n: number): string => (s.length <= n ? s : `${s.slice(0, n - 3).trimEnd()}...`);
 const keyOf = (s: string): string => createHash("sha256").update(s).digest("hex").slice(0, 16);
-const sectionsOf = (body: string, heads: readonly string[], capture?: { version: number; mainHtml: string; complete: boolean }): { heading: string; text: string }[] => {
-  if (capture?.version === 1 && capture.mainHtml.length <= 100_000) {
-    const source = load(capture.mainHtml), children = source.root().contents().toArray(), locations: { heading: string; level: number; at: number; from: number }[] = []; let text = "";
-    const walk = (node: typeof children[number]): void => { if (node.type === "text") { text += node.data; return; } if (!("children" in node)) return;
-      const h = "name" in node && /^h[1-6]$/.test(node.name) ? { heading: source(node).text().trim(), level: Number(node.name[1]), at: text.length, from: 0 } : null;
-      if (h) locations.push(h); for (const child of node.children) walk(child); if (h) h.from = text.length; };
-    children.forEach(walk);
-    if (tidy(text) === tidy(body)) {
-      const depth = Math.min(...locations.filter((h) => h.level > 1).map((h) => h.level)), roots = locations.filter((h) => h.level <= depth);
-      return roots.map((h, i) => ({ heading: h.heading, text: text.slice(h.from, roots[i + 1]?.at ?? text.length).trim() }));
-    }
-  }
-  let offset = 0; const labels = new Set(heads.map((h) => tidy(h).toLowerCase()));
-  const locations = body.split("\n").flatMap((line) => { const at = offset; offset += line.length + 1; return labels.has(tidy(line).toLowerCase()) ? [{ heading: line.trim(), at, from: at + line.length }] : []; });
-  return locations.map((h, i) => ({ heading: h.heading, text: body.slice(h.from, locations[i + 1]?.at ?? body.length).trim() }));
-};
+/** The page's heading-scoped sections off the ONE shared sectioner, with the words under each heading; the opening before the first heading rides with no heading. */
+const sectionsOf = (body: string, heads: readonly string[], capture?: { version: number; mainHtml: string; complete: boolean }): { heading: string | null; text: string }[] =>
+  sectionsFrom(body, { h2: heads }, capture).filter((x) => x.text).map(({ heading, text }) => ({ heading, text }));
 
 const classOf = (research: Research, host: string, ownedHost: string): CompetitorKind => {
   const serps = (research.serpEvidence ?? []); let serpAppearances = 0; const queries = new Set<string>(); let aiCitations = 0;
@@ -83,18 +70,20 @@ const classOf = (research: Research, host: string, ownedHost: string): Competito
 export function jobComparison(research: Research, queries: readonly string[], owned: { url: string; text: string; headings: readonly string[]; passages?: readonly string[]; complete?: boolean; sourceCapture?: { version: number; mainHtml: string; complete: boolean } }, max = MAX_WINNERS, channel: "seo" | "aeo" = "seo", focus: readonly string[] = []): JobComparison {
   const asked = [...new Set(queries.flatMap((q) => topicTokens(q)))], askBag = new Set(asked);
   const focusBag = new Set((focus.length ? focus : queries).flatMap((t) => topicTokens(t))), ownSections = sectionsOf(owned.text, owned.headings, owned.sourceCapture);
-  const shownOwned = heldFor(owned.text, askBag, 4_800, focusBag, ownSections.length ? ownSections : (owned.passages ?? []).map((text) => ({ heading: null, text })));
   const ownBag = said(`${owned.text} ${owned.headings.join(" ")}`), ownedHost = publisherHost(owned.url);
   const passages = (owned.passages ?? []).map(tidy).filter(Boolean);
   // Keep passages answering an individual phrasing; additional phrasings never raise its proof burden.
   const answers = (p: string): boolean => { const bag = said(p); return queries.some((q) => { const ask = topicTokens(q); return ask.length > 0 && ask.filter((w) => carries(bag, w)).length >= Math.max(2, Math.ceil(ask.length * COVERAGE)); }); };
   const keep = passages.filter(answers).slice(0, MAX_KEEP).map((p) => cut(p, KEEP_CHARS));
   const bank = { ...research, winningPages: [...(research.winningPages ?? []), ...(research.serpEvidence ?? []).filter((s) => queries.some((q) => canonicalQueryKey(q) === canonicalQueryKey(s.query))).flatMap((s) => s.organic.filter((o) => canonicalUrlKey(o.url) !== canonicalUrlKey(owned.url)).map((o) => ({ url: o.url, domain: o.domain, engines: [], examplePrompts: [], appearances: [], extract: null })))] };
-  const winners: ComparedWinner[] = [], read = jobWinners(bank, queries, channel).filter((w) => canonicalUrlKey(w.url) !== canonicalUrlKey(owned.url)).slice(0, max), seen = new Set<string>(), note = (into: ComparisonObservation[], publisher: string, o: ComparisonObservation): void => { const k = `${publisher}\n${o.quote.trim().toLowerCase()}`; if (seen.has(k)) return; seen.add(k); into.push(o); };
+  const winners: ComparedWinner[] = [], read = jobWinners(bank, queries, channel).filter((w) => canonicalUrlKey(w.url) !== canonicalUrlKey(owned.url)).slice(0, max), seen = new Set<string>(),
+    winnerRoom = Math.max(WINNER_FLOOR, Math.min(READING_CHARS, Math.floor(WINNERS_SHARE / Math.max(1, read.length)))), shownOwned = heldFor(owned.text, askBag, Math.max(0, Math.min(OWNED_SHARE, WINNERS_SHARE + OWNED_SHARE - read.length * winnerRoom)), focusBag, ownSections.length ? ownSections : (owned.passages ?? []).map((text) => ({ heading: null, text }))), note = (into: ComparisonObservation[], publisher: string, o: ComparisonObservation): void => { const k = `${publisher}\n${o.quote.trim().toLowerCase()}`; if (seen.has(k)) return; seen.add(k); into.push(o); };
   for (const w of read) {
     if (!w.extract) { winners.push({ url: w.url, publisher: publisherHost(w.url), publisherClass: classOf(research, publisherHost(w.url), ownedHost), querySupport: w.querySupport, shape: { words: 0, lists: null, tables: null, questions: null }, namesRead: false, read: false, truncated: false, held: "", heldWhole: false, bodyKey: keyOf(""), observations: [] }); continue; }
     const e = w.extract!, host = publisherHost(w.url), reading = typeof e.mainText === "string", body = reading ? e.mainText!.trim() : "", heads = reading ? [...(e.headings ?? []), ...(e.h3s ?? [])].map(tidy) : [], obs: ComparisonObservation[] = [], thin = e.truncated !== true && (e.wordCount ?? 0) < MIN_READ_WORDS;
-    for (const s of body.split(/(?<=[.!?])\s+/).map(tidy)) {
+    // A ROW HOLDING A PREFIX CARRIES ITS DEEP SECTIONS BESIDE IT (review, 2026-09-14), so a sentence past the prefix is read for an answer too.
+    const deep = e.truncated === true ? (e.sections ?? []).map((c) => tidy(c.text)).filter((t) => t && !body.includes(t)) : [];
+    for (const s of [body, ...deep].join(" ").split(/(?<=[.!?])\s+/).map(tidy)) {
       if (obs.length >= 2 || s.length < 40 || s.length > 600) continue;
       const t = topicTokens(s); if (t.filter((x) => askBag.has(x)).length < 2) continue;
       const novel = [...new Set(t.filter((x) => !askBag.has(x) && !carries(ownBag, x)))]; if (novel.length < 2) continue;
@@ -113,7 +102,7 @@ export function jobComparison(research: Research, queries: readonly string[], ow
       note(obs, host, { kind: "shape", text: `${host} was captured with ${e.faqCount} question entries; no question heading was identified in the supplied owned heading list.`, quote: cut(tidy(asks[0]!), QUOTE_CHARS) });
     }
     const sections = e.sections?.length ? e.sections : sectionsOf(body, heads);
-    const shown = heldFor(body, askBag, Math.min(READING_CHARS, Math.floor(12_000 / Math.max(1, read.length))), new Set(focus.flatMap((t) => topicTokens(t))), sections);
+    const shown = heldFor(body, askBag, winnerRoom, new Set(focus.flatMap((t) => topicTokens(t))), sections);
     winners.push({ url: w.url, publisher: host, publisherClass: classOf(research, host, ownedHost), querySupport: w.querySupport,
       shape: { words: e.wordCount, lists: e.hasList ?? null, tables: e.hasTable ?? null, questions: e.faqCount ?? null }, namesRead: e.entityNames != null,
       read: reading, truncated: e.truncated === true, held: shown.held, heldWhole: shown.whole, bodyKey: keyOf(tidy(body)), observations: obs.slice(0, MAX_OBSERVATIONS) });

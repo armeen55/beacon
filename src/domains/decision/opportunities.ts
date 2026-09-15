@@ -398,10 +398,3 @@ export function candidatesToEvidenceInputs(
     })
     .filter((i): i is EvidenceInput => i != null);
 }
-
-/**
- * Diagnose, then map: the ONE call a caller makes when it only wants the work. `compileCandidates` is the call to make when the honest answer matters too.
- */
-export function snapshotToEvidenceInputs(snapshot: EvidenceSnapshot, opts: CompileOptions = {}): EvidenceInput[] {
-  return candidatesToEvidenceInputs(snapshot, compileCandidates(snapshot, opts));
-}

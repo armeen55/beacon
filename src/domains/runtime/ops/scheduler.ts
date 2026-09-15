@@ -18,8 +18,8 @@ import { driveClaimed, RESEARCH_CYCLE_DEADLINE_MS, type ResearchCycleSteps } fro
 import { defaultSteps } from "./research-steps";
 
 /** The dispatch's OWN wall-clock budget, well inside the hosted function lifetime (800 seconds on Pro with Fluid compute since 2026-09-10), so the HTTP request always returns a receipt instead of being killed mid-account. Each account additionally
- *  gets at most the ordinary RESEARCH_CYCLE_DEADLINE_MS. The budget is also the whole bound on how many accounts one dispatch touches: with the minimum slice below, 240 seconds can reach at most
- *  eight of them. */
+ *  gets at most the ordinary RESEARCH_CYCLE_DEADLINE_MS. The budget is also the whole bound on how many accounts one dispatch touches: with the minimum slice below, 740 seconds can reach at most
+ *  twenty-four of them. */
 const SCHEDULER_BUDGET_MS = RESEARCH_RUN_LEASE_SECONDS * 1000 - 60_000; // derived from the one window source (operator raise, 2026-09-10): a minute inside the 800-second function lifetime, exactly the margin 240 kept inside 300
 
 /** The least time an account is worth STARTING on. Under half a minute there is no room for a renewed lease and a real bounded unit, so claiming would only park a live lease in front of the
@@ -110,11 +110,6 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
   };
   /** A PAUSED ACCOUNT IS STILL A CUSTOMER: the claim never reaches it, so its surfaces froze at the last
    *  unpaused pass. Bounded per tick, zero spend, no lease taken, failures local to one account. */
-  /** ALREADY-BOUGHT TASKS FINISH FOR FREE, PAUSED OR NOT: the pause stranded posted tasks until they expired
-   *  provider-side. Bounded per tick, GET-only through collectCapability, nothing posted, nothing reserved;
-   *  the republish below rebuilds from what landed. */
-  // ONE COLLECTOR, TWO DOORS (falsifier, 2026-09-02): the tick's own copy was the only one, so with hosting paused the tick never ran and 51 already-paid tasks stayed pending for days. It lives beside the other phase bodies now (research-steps' `collectBought`) and the visit cycle runs the same one before it funds any drafting.
-  const collectBoughtTasks = async (): Promise<void> => { await defaultSteps.collectBought(Math.max(0, endsAt - nowFn().getTime())); };
   const PAUSED_REPUBLISH_PER_TICK = 3;
   const republishPaused = async (): Promise<void> => {
     try {
@@ -183,7 +178,7 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
     failed += 1;
     if (outcome !== "lost_lease" && await handBack(run)) released += 1;
   }
-  await collectBoughtTasks(); // first the evidence already paid for, so the republish below can use it
+  await defaultSteps.collectBought(Math.max(0, endsAt - nowFn().getTime())); // ALREADY-BOUGHT TASKS FINISH FOR FREE, PAUSED OR NOT (GET only, nothing posted), on EVERY tick (review, 2026-09-14): a drive that was held on its walk lane or exhausted for the day never reached its own collector, so the tasks it had already paid for sat unread until the day turned
   await republishPaused(); // the accounts the claim can never see, and the only work they are owed
   if (claimed === 0) log.info("[research-run] the daily dispatch found nothing owed right now", {});
   else {

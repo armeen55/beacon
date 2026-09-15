@@ -265,7 +265,7 @@ async function analyzeMany(input: { tenantId: string; brand: string; targets: re
  *  equals what the buckets add up to: `settled` (a reading is on file), one of the four named non-readings (provider_refused, schema_invalid, incomplete, attempts_exhausted), `persist_failed` (a verdict was produced
  *  and the write was lost twice), `stalled_before_spend` (the pass stopped before buying anything at all) or `left_owed` (it stopped after it had). `unaccounted` appears only when that arithmetic disagrees with
  *  itself, which is a bug, is logged as one, and still leaves the receipt adding up. */
-type AnalysisPassReceipt = { attempted: number; settled: number; refused: number; read: number; outcomes: Record<string, number> };
+type AnalysisPassReceipt = { attempted: number; settled: number; refused: number; read: number; outcomes: Record<string, number>; billed?: number };
 const READ_NOTHING: AnalysisPassReceipt = { attempted: 0, settled: 0, refused: 0, read: 0, outcomes: {} };
 
 /** Read back the day's new answers, bounded and RESUMABLE. `read` is how many readings were PERSISTED, never how many were attempted. $0 when nothing is
@@ -492,5 +492,5 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
   // AND A PASS THAT NEVER GOT AS FAR AS PAYING IS THE SAME DEAD DAY. It used to log nothing at all, so a throttle, my own deadline, a spent cap and an empty balance each left a row reading "505 taken on, 0 read" with no line anywhere saying why.
   else if (settledHere === 0) log.error("[daily-observations] a whole reading pass ended before a single verdict landed, so every one of those answers is still owed", { tenantId, day: reading, billed, answers: targets.length, outcomes });
   else log.info("[daily-observations] read back AI answers you had already paid for", { tenantId, day: reading, read: written, refused: refusedHere, owed: targets.length - settledHere });
-  return { attempted: targets.length, settled: settledHere, refused: refusedHere, read: written, outcomes };
+  return { attempted: targets.length, settled: settledHere, refused: refusedHere, read: written, outcomes, billed }; // `billed` beside the counts, so the drive can hold a lane that paid and stored nothing
 }

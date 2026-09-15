@@ -13,7 +13,7 @@ import type { AnswerUsage, ObservedCitation, ParsedAiAnswer } from "@/domains/ev
  * cited sources, brands, the reported web-search state), the money receipt and the cache identity of the raw envelope, so later analysis re-reads what
  * was paid for once. IDENTITY is (tenant, prompt, prompt version, engine, reporting day, sample slot): a retry of the same intent reuses that identity
  * and upserts the SAME row, while a deliberate second sample of the same pair on the same day is a different SLOT and therefore a different row, and
- * nothing else may mint an id here. prompt_answer_observations is a DECLARED PROJECTION of this record, derived by the same writer at the same moment.
+ * nothing else may mint an id here.
  */
 
 /** THE frozen seam with Runtime's planner: exactly the pairs that are due, nothing implied. `day` is the

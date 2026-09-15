@@ -75,9 +75,7 @@ function draftOf(p: FunnelPair, ids: ObsIds, text: string, at: string, status: A
   };
 }
 
-/** THE full-fidelity landing: the whole answer, the whole retrieval journey, the money receipt and the cache identity of the raw envelope land as ONE
- * canonical row, and the historical prompt_answer_observations row is DERIVED from that same record in the same breath. Two writes, one truth: nothing
- * composes a history row independently any more, so the two can never disagree. */
+/** THE full-fidelity landing: the whole answer, the whole retrieval journey, the money receipt and the cache identity of the raw envelope land as ONE canonical row. */
 async function landAnswer(p: FunnelPair, r: Interp, parsed: ParsedAiAnswer, promptText: string, ids: ObsIds, nowIso: string, d: ResolvedDeps): Promise<void> {
   // THE MONEY IS THE PLACEMENT'S. A posted ask is finished by a FREE collect, so the cost on the final row is what the placement paid PLUS whatever this landing itself cost; the collect's own zero never erases it.
   const rec = buildAiObservation(draftOf(p, ids, promptText, nowIso, "observed", { completedAt: nowIso, cacheKey: r.cacheKey ?? p.cacheKey, costUsd: round(r.costUsd + (p.postCostUsd ?? 0)), parsed }));

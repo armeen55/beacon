@@ -10,12 +10,11 @@ import "server-only";
  *  grounding all see the real page without learning a second path. Fail-soft per page: a read that does not
  *  land leaves the blank snapshot and the honest `uncertain` certainty standing. */
 
-import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { syncPageSnapshots } from "@/lib/persistence/dual-write";
 import { providerCall, parseCapability } from "@/domains/evidence/dataforseo/capabilities";
-import { interp } from "@/domains/evidence/funnel/shared";
+import { interp, sha16 as hash } from "@/domains/evidence/funnel/shared";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { pageIdFor } from "@/domains/evidence/scanning/in-process-scan";
 import type { PageSnapshot } from "./types";
@@ -25,8 +24,6 @@ const RENDERED_READS_PER_PASS = 60; // the meter is effectively gone (operator, 
 /** How far back demand counts when ordering the blind spots. */
 const DEMAND_DAYS = 90;
 const SNAPSHOT_SCAN = 2000; // newest snapshot rows scanned to find the latest-per-page blind reads. 400 was a hidden meter: with 233 pages crawling nightly, a page last crawled weeks ago fell outside the window and its blind capture could never earn its render (live: the kabob stubs, 2026-08-30)
-
-const hash = (s: string): string => createHash("sha256").update(s).digest("hex").slice(0, 16);
 
 /** Under this many raw words, a capture is IMPLAUSIBLY thin: a CMS body the raw fetch half-missed reads the
  *  same as a genuine stub, and only a rendered look can tell them apart. One render settles it either way:

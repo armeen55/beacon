@@ -2,7 +2,7 @@ import "server-only";
 
 /** evidence/pages/fact-check-run - ONE CLAIM, RESEARCHED PROPERLY, PER RENEWED LEASE. The first live runs proved four ways a unit can look like research without being it (Codex, 2026-08-18): a query built from the SUBJECT alone researched "Ahvaz definition" for a heat-record claim; sources found but unreadable were banked as checked, permanently clearing work nobody did; a truncated 12,000-character sample was called the whole page; and two encyclopedia pages counted as agreement because they ranked first. WHAT IT IS NOW. The persisted inventory is the cursor and coverage is persisted with it, so a page is only complete when every stored section was inventoried AND every claim is current. Acquisition searches the WHOLE PROPOSITION, never the subject alone. Every failure is TYPED and leaves the claim owed; only a readable world may settle one. `confirmed` requires a quote inside a fetched authoritative passage. */
 
-import { createHash } from "node:crypto"; import { FURNITURE_LABEL } from "@/domains/evidence/relevance-gate";
+import { createHash } from "node:crypto"; import { FURNITURE_LABEL } from "@/domains/evidence/relevance-gate"; import { sha16 } from "@/domains/evidence/funnel/shared";
 import { log } from "@/lib/logger";
 import { recordFactChecks, recordOwedClaims, reopenObsoleteChecks, supersedeStaleFacts, statementKeyOf,
   MISSING_ANSWER_RULES_VERSION, rulesVersionFor, unauthorizedReason, type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
@@ -16,11 +16,11 @@ const CANDIDATES = 6, FETCH_PER_CLAIM = 2;
 /** A call is only started when this much of the deadline remains, so its result can always be persisted. */
 const RESERVE_MS = 8_000;
 /** One extraction reads this much of the stored body. NEVER the definition of the page: coverage is persisted and a page is complete only when every stored section was inventoried (Codex, 2026-08-18). A SECTION SMALL ENOUGH THAT ONE EXTRACTION CAN READ IT WHOLE: at 12,000 a dense list page handed the reader its entire body at once and the forty-statement schema cap silently decided what was inventoried (194 name entries went in and 33 came out, with the page then marked complete). Smaller sections cost one cheap extraction each and are resumable by the coverage cursor, so a long page is READ rather than sampled. */
-export const EXTRACT_CHUNK = 3_000;
+const EXTRACT_CHUNK = 3_000;
 /** The most statements one extraction may return (`FactClaimExtractionSchema`). Read here so the cursor can tell a chunk that was READ from one that merely filled up. */
 const CLAIM_CAP = 40;
 /** CLAIM ATTEMPTS one pass may make, GLOBAL across every page it touches, counting successes, failures and waits alike (the old per-page nesting advertised four and allowed twelve, Codex 2026-08-18). A RUNAWAY STOP ONLY (operator, 2026-08-30, "i dont want any limits"): the deadline, the lease and the money doors are the bounds; at four, 283 owed claims took weeks while all three sat idle. */
-export const ATTEMPTS_PER_PASS = 200;
+const ATTEMPTS_PER_PASS = 200;
 /** About ONE CLAIM, not the account: set aside, carry on. `judge_refused` joined 2026-08-30: a judgement that fails validation fails on THIS claim's content (live: one stubborn claim ended three passes running while 18 others had just judged clean); `judge_capped` and `judge_unavailable` stay account-wide stops. */ const PER_CLAIM = new Set(["fetch_refused", "fetch_unavailable", "search_refused", "search_unavailable", "search_waiting", "source_quality_unresolved", "judge_refused"]);
 
 const SCHOLARLY = /(^|\.)(iranicaonline\.org|dsal\.uchicago\.edu|jstor\.org|academia\.edu|brill\.com|oup\.com|cambridge\.org|nih\.gov|who\.int)$|\.(edu|gov|ac\.[a-z]{2})$/i;
@@ -45,16 +45,15 @@ function sourceClassOf(domain: string): SourceKind {
   return "publisher"; // unknown, ordinary: worth reading, never enough on its own
 }
 /** How much of a proposed replacement its sources must carry before it may replace published words. */ const SUPPORTED_SHARE = 0.6;
-const FILLER = new Set(["that", "this", "with", "from", "have", "which", "meaning", "means", "name", "also", "used", "word", "these", "their", "them", "when", "such", "into", "than", "then", "they", "were", "been", "being", "there", "where", "what", "would", "about"]);
 /** TWO INDEPENDENT ones may carry a confirmation between them; one carries `likely` and no more. */
 const CREDIBLE = new Set<SourceKind>(["news"]);
 /** Never read at all: user-generated, video and baby-name mills. */
 const REJECTED = new Set<SourceKind>(["community", "babyname"]);
 
-export const pageHashOf = (body: string): string => createHash("sha256").update(body).digest("hex").slice(0, 16);
-
-const STOP = new Set(["the", "and", "for", "with", "that", "this", "from", "its", "are", "was", "were", "has",
-  "have", "had", "holds", "hold", "held", "also", "ever", "been", "not", "which", "their", "there", "into", "over"]);
+export const pageHashOf = sha16;
+/** ONE stop list for the source query, the proposition fingerprint and the supported-share count (Stage 2, 2026-09-14): closed-class words plus the shape words a claim is dressed in, none of them a subject. */
+const STOP = new Set(["the", "and", "for", "with", "that", "this", "from", "its", "are", "was", "were", "has", "have", "had", "holds", "hold", "held", "also", "ever", "been", "not", "which", "their", "there", "into", "over",
+  "meaning", "means", "name", "used", "word", "these", "them", "when", "such", "than", "then", "they", "being", "where", "what", "would", "about"]);
 
 /** THE SEARCH IS THE PROPOSITION. The subject alone researched "Ahvaz, Iran definition reference" for the claim that Ahvaz holds Asia's 54 degree heat record (Codex, 2026-08-18): the claim type may shape the query, but it may never erase the date, number, relationship or assertion being verified. AND FOR A ROW WITH NO CURRENT WORDING THE SEARCH CARRIES THE PAGE'S OWN SUBJECT (reviewer, 2026-09-02): such a row's subject is the bare question, so "are there cobras in iran" searched the world at large and came back with Iran's army aviation, and the judge was then handed passages about AH-1 Cobra attack helicopters for a page about a snake. `about` is the page's title and h1 and leads the query; a correction has its own wording to search and never takes it. */
 /** WHAT KIND OF SOURCE WOULD SETTLE THIS, one small hint per type. The claim itself is preserved whole below. */
@@ -418,7 +417,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // AND A REPLACEMENT HAS TO BE FOUND IN THE QUOTE THE ROW WILL BANK, NOT MERELY SOMEWHERE ON THE PAGE: the full fetched text used to authorize here, and live it confirmed "Mountain Rampart" off a sentence one past the verified quote, so the customer receipt showed a quote that never carried the published words. The page may help LOCATE evidence; only the BANKED quotes authorize, which is why the share and the door below read what each source is about to store rather than what the judge first offered. A correction (current wording exists) needs every content word of its short gloss carried by those quotes and may not simply restate one of them as the page's line; a missing-information statement keeps the older share, now against quotes.
   const bankedSays = new Map(bankedSources.map((b) => [b.url, b.says] as const));
   const read = norm(supporters.map((p) => bankedSays.get(p.url) ?? "").join(" "));
-  const words = (v.proposed ?? "").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4 && !FILLER.has(w));
+  const words = (v.proposed ?? "").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4 && !STOP.has(w));
   const share = words.length === 0 ? 1 : words.filter((w) => read.includes(w)).length / words.length;
   // A CORRECTION IS JUDGED HERE BY THE RULE THE CARD DOOR WILL APPLY, so nothing is banked `confirmed` that the door then refuses for ever: such a row reopens, is re-researched, and is refused again. Below confirmed it stays an honest finding and never reopens. Missing information keeps its own share against the quotes.
   const blocked = unauthorizedReason({ subject: claim.subject, current: claim.current, proposed: v.proposed ?? null, verdict: v.verdict, // THE VERDICT RIDES INTO THE ONE RULE, so a row with no current wording is banked confirmed only where the judge answered the question about this page's own subject, which is the same test the card door asks

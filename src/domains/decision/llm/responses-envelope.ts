@@ -127,7 +127,7 @@ export function strictJsonSchemaFor(
 
 // ── provider value normalization ─────────────────────────────────────────────
 
-type ZodDefLike = { type?: string; innerType?: z.ZodTypeAny; shape?: Record<string, z.ZodTypeAny>; element?: z.ZodTypeAny };
+type ZodDefLike = { type?: string; innerType?: z.ZodTypeAny; out?: z.ZodTypeAny; shape?: Record<string, z.ZodTypeAny>; element?: z.ZodTypeAny };
 
 function defOf(schema: z.ZodTypeAny): ZodDefLike {
   // Zod 4 exposes the internal def under `.def` (with `._def` as a fallback).
@@ -152,6 +152,8 @@ function unwrap(schema: z.ZodTypeAny): { core: z.ZodTypeAny; optional: boolean; 
       cur = d.innerType as z.ZodTypeAny;
     } else if ((t === "default" || t === "prefault" || t === "catch" || t === "readonly") && d.innerType) {
       cur = d.innerType;
+    } else if (t === "pipe" && d.out) {
+      cur = d.out; // a z.preprocess wrapper (sources rows): the shape the caller parses is the pipe's output side
     } else {
       break;
     }

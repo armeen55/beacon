@@ -6,13 +6,13 @@ vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
   recordSpend: async (usd: number) => { BILLED.usd.push(usd); },}));
 import { callStructuredLLM, draftAtomicEditStructured, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import type { CacheImpl, LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
+import { normalizeStructuredValue } from "@/domains/decision/llm/responses-envelope"; import { SCHEMA_BY_KIND } from "@/domains/decision/llm/schemas"; import { COPY_RULES } from "@/domains/decision/copy-sanitize"; import type { SourcePacket } from "@/domains/decision/drafted-copy";
 const VALID_ATOMIC_EDIT = { // A schema-valid AtomicEditDraft value (the simplest kind, no source-verify / word-count / superlative machinery in the way of the transport assertions).
   field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen", rationale: "The current title is one word and misses the customs searchers ask about.",
-  evidenceRefs: [{ source: "gsc", detail: "strong impressions for nowruz traditions with a low click rate" }], confidence: "high", risks: ["keep the title concise"],
-  operatorSteps: ["Replace the page title field with the new value"], proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" },};
+  evidenceRefs: [{ source: "gsc", detail: "strong impressions for nowruz traditions with a low click rate" }], confidence: "high" };
 const REQ = {
   kind: "atomic_edit" as const, tenantId: "tenant-fixture",
-  system: "You improve one on-page field. Return the field, before, after, rationale, evidenceRefs, confidence, risks, operatorSteps, proofPlan.",
+  system: "You improve one on-page field. Return the field, before, after, rationale, evidenceRefs, confidence.",
   user: "Page: Nowruz. Field to edit: title. Current title: Nowruz.",
   grounded: "nowruz traditions persian new year customs haft-seen",};
 /** A `complete` double that replays a queue and counts how many times it ran. */
@@ -21,9 +21,16 @@ function seam(responses: Array<{ value: unknown } | { error: string; retryable: 
   return { complete, calls: () => calls };}
 describe("structured-drafter strict transport", () => {
   it("normalizes publishable punctuation without changing literal anchors, replaced text or addresses", async () => {
-    const exact = { ...VALID_ATOMIC_EDIT, before: "Nowruz—Customs", after: "Nowruz—Persian New Year Customs", placementAnchor: "Stored—heading", operatorSteps: ["Open https://docs.example/a—b"] }, out = await callStructuredLLM({ ...REQ, complete: seam([{ value: exact }]).complete });
-    expect(out.status === "drafted" && [out.value.before, out.value.after, out.value.placementAnchor, out.value.operatorSteps]).toEqual([exact.before, "Nowruz - Persian New Year Customs", exact.placementAnchor, exact.operatorSteps]);
+    const exact = { ...VALID_ATOMIC_EDIT, before: "Nowruz—Customs", after: "Nowruz—Persian New Year Customs", placementAnchor: "Stored—heading", rationale: "Kept to 58 characters, https://docs.example/a—b" }, out = await callStructuredLLM({ ...REQ, complete: seam([{ value: exact }]).complete });
+    expect(out.status === "drafted" && [out.value.before, out.value.after, out.value.placementAnchor, out.value.rationale], "rationale is the writer's reasoning, never scanned as copy: its 58 is not an invented figure").toEqual([exact.before, "Nowruz - Persian New Year Customs", exact.placementAnchor, exact.rationale]);
     for (const [after, count, status] of [["Nowruz Customs: 14 Traditions", 3157, "validation_failed"], ["Nowruz Customs: 3157 Traditions", 3157, "validation_failed"], [VALID_ATOMIC_EDIT.after, 3157, "drafted"], [VALID_ATOMIC_EDIT.after, 9999, "validation_failed"]] as const) { const value = { ...VALID_ATOMIC_EDIT, after, evidenceRefs: [{ source: "gsc", detail: `${count} impressions` }] }, judged = await callStructuredLLM({ ...REQ, observationGrounded: "GSC recorded 3157 impressions", complete: seam([{ value }]).complete }); expect(judged.status, "observed traffic may support a diagnostic ref, never a factual count in paste copy, and a fabricated diagnostic count is refused too").toBe(status); } });
+  it("grounds a number the assignment lines show and the current year, and still refuses one a rival line shows or one from nowhere", async () => { // audit 2026-09-14: a figure in the assignment was refused as invented; review 2026-09-14: a rival's figure never grounds copy
+    const drive = (after: string) => callStructuredLLM({ ...REQ, user: `${REQ.user}\nrival-1: the winning page lists 21 haft-seen items.`, assignmentGrounded: "name the 13 haft-seen items", now: new Date("2026-09-14T00:00:00Z"), complete: seam([{ value: { ...VALID_ATOMIC_EDIT, after } }]).complete });
+    for (const [after, status] of [["Nowruz Traditions: 13 Haft-Seen Customs", "drafted"], ["Nowruz Traditions for 2026 and 2025", "drafted"], ["Nowruz Traditions: 21 Customs", "validation_failed"]] as const) expect((await drive(after)).status, after).toBe(status); });
+  it("re-buys once a cached answer that fails today's rules, and overwrites the entry with the new answer", async () => { // audit 2026-09-14: a stale hit was schema_invalid at $0 forever
+    const written: unknown[] = [], stale = { ...VALID_ATOMIC_EDIT, after: "Nowruz Traditions: 21 Customs" } as unknown as LlmCallCacheEntry["value"], fresh = seam([{ value: VALID_ATOMIC_EDIT }]);
+    const out = await callStructuredLLM({ ...REQ, complete: fresh.complete, cacheImpl: { read: async (tenantId, key) => ({ value: stale, tenantId, key } as LlmCallCacheEntry), write: async (_t, e) => { written.push(e.value); }, recentTexts: async () => [] } });
+    expect([out.status, out.status === "drafted" && out.cached, fresh.calls(), (written[0] as { after: string } | undefined)?.after]).toEqual(["drafted", undefined, 1, VALID_ATOMIC_EDIT.after]); });
   it("refuses a draft argued from analytics alone, and takes the same draft once it also cites a search", async () => {
     const refs = (r: unknown[]) => ({ value: { ...VALID_ATOMIC_EDIT, evidenceRefs: r } }); const clarity = [{ source: "clarity", detail: "people stop scrolling about halfway down the page" }];
     const bad = await callStructuredLLM({ ...REQ, complete: seam([refs(clarity), refs(clarity)]).complete }); // both attempts, still nothing about a search
@@ -40,8 +47,8 @@ describe("structured-drafter strict transport", () => {
     const holes = await drive("Kashan knot counts run higher than the [insert rug name], which sits between 100 and 150.");
     expect([holes.status, holes.status === "validation_failed" && holes.reason.includes("placeholder")], "an unfilled hole is not markup around the right words, and is refused exactly as before").toEqual(["validation_failed", true]);
     const edit = await callStructuredLLM({ kind: "atomic_edit" as const, tenantId: "t", system: "s", user: "u", grounded: "Zanjan Rug knot density", unmarkPhrase: "Zanjan Rug", // AND A LINK IS DRAFTED THROUGH THE ATOMIC EDITOR, not the older link kind, which is why the first repair fired on nothing: only the caller knows which words are the anchor, so it says so, and every field is cleaned rather than one.
-      complete: seam([{ value: { ...VALID_ATOMIC_EDIT, after: "Kashan pile is denser than the [Zanjan Rug] weave.", operatorSteps: ["Link the words **Zanjan Rug** in that sentence"] } }]).complete });
-    expect([edit.status, edit.status === "drafted" && (edit.value as { after: string }).after, edit.status === "drafted" && (edit.value as { operatorSteps: string[] }).operatorSteps[0]], "the anchor the caller resolved is unwrapped in the copy AND in the steps, because the firewall reads both").toEqual(["drafted", "Kashan pile is denser than the Zanjan Rug weave.", "Link the words Zanjan Rug in that sentence"]);
+      complete: seam([{ value: { ...VALID_ATOMIC_EDIT, after: "Kashan pile is denser than the [Zanjan Rug] weave.", placementAnchor: "Link the words **Zanjan Rug** in that sentence" } }]).complete });
+    expect([edit.status, edit.status === "drafted" && (edit.value as { after: string }).after, edit.status === "drafted" && (edit.value as { placementAnchor: string }).placementAnchor], "the anchor the caller resolved is unwrapped in the copy AND in the anchor, because the firewall reads both").toEqual(["drafted", "Kashan pile is denser than the Zanjan Rug weave.", "Link the words Zanjan Rug in that sentence"]);
     const banked = { ...VALID_ATOMIC_EDIT, after: "Kashan pile is denser than the [Zanjan Rug] weave." } as unknown as LlmCallCacheEntry["value"]; // A HIT RETURNS BEFORE THE FIREWALLS, so a draft banked under an older prompt version would serve the brackets the fresh path takes off: what the customer reads may not depend on which door the answer came through.
     const served = await callStructuredLLM({ kind: "atomic_edit" as const, tenantId: "t", system: "s", user: "u", grounded: "Zanjan Rug", unmarkPhrase: "Zanjan Rug", complete: seam([{ error: "should-never-run", retryable: false }]).complete,
       cacheImpl: { read: async (tenantId, key) => ({ value: banked, tenantId, key } as LlmCallCacheEntry), write: async () => {}, recentTexts: async () => [] } });
@@ -75,7 +82,7 @@ describe("a description names the subject, never the page's own furniture", () =
   it("tells the retry which text was rejected, and never asks a kind for a field its own schema lacks", async () => {
     let second = ""; // LIVE on the fact judge: a Wikipedia reference marker like "[ 1 ]" inside a quoted passage trips the
     const capture: CompleteFn = async (r) => { second = r.system;
-      return { value: { ...VALID_ATOMIC_EDIT, rationale: "The title misses what searchers ask [ 1 ] about." } }; };
+      return { value: { ...VALID_ATOMIC_EDIT, after: "Nowruz Traditions: what searchers ask [ 1 ] about" } }; }; // in `after`: rationale is reasoning the operator never pastes, so it is not scanned
     await callStructuredLLM({ ...REQ, complete: capture });
     expect(second, "the retry is shown the exact offending text").toContain("[ 1 ]");
     expect(second).toContain("evidenceRefs"); // atomic_edit DOES carry evidenceRefs, so the instruction still belongs on this kind.
@@ -106,4 +113,17 @@ describe("structured body delivery", () => {
     expect(out.status).toBe("drafted"); if (out.status !== "drafted") throw new Error(JSON.stringify(out));
     expect([out.value.before, out.value.preservation, out.value.claims.length]).toEqual([before, preservation, 25]);
     expect(out.value.after).toBe(`### When should you leave?\n\n${before}\n\n1. Check the return route before entering.\n\n- ${fact}`); expect(withoutCta(out.value.after, "section")).toBe(out.value.after); });
+  /** THE PAGE IS SENT ONCE (audit, 2026-09-14): page.body, page-copy-N and comparison.owned.held carried the same page three times and the assignment rode twice, so a body call was 50,000 plus characters. */
+  it("sends a 10,000 character page to the writer once, with the page-copy ids as the citable index", async () => {
+    const passages = Array.from({ length: 40 }, (_, i) => `Passage ${i + 1} of the flood guide explains one part of the return route in plain words for the reader who needs it. `.repeat(3).trim()), bodyText = passages.join("\n\n"); expect(bodyText.length).toBeGreaterThan(10_000);
+    const evidence = COPY_RULES.pageEvidence(passages, "", 12_000).evidence, packet: SourcePacket = { targetUrl: "https://example.org/flood", title: "Flood guide", h1: "Flood guide", metaDescription: null, bodyText, headings: [], evidence: { ...evidence, "fact-1": "Leave before incoming water covers the return route." }, trackedQuestion: "when to leave", ownedPaths: [], bannedTerms: [], demand: { preserve: [], vocabulary: [] } };
+    let user = ""; const complete: CompleteFn = async (ask) => { user = ask.user; return { error: "captured", retryable: false }; }; await draftAtomicEditStructured({ field: "answer_block", query: "when to leave", pageLabel: "Flood guide", currentValue: null, outline: [], evidenceHints: ["THE ASSIGNMENT: add the leaving rule"], packet, tenantId: "packet-fixture" }, { complete, bypassCache: true });
+    const body = (JSON.parse(user.slice(user.indexOf("{", user.indexOf("SHARED EVIDENCE PACKET")), user.lastIndexOf("}") + 1)) as { page: { body: string }; evidence: { id: string }[] });
+    const ids = Object.values(evidence); expect([user.length < 2.2 * bodyText.length, ids.length + body.page.body.split("\n").length, ids.some((t) => body.page.body.includes(t)), (user.match(/THE ASSIGNMENT/g) ?? []).length], `prompt ${user.length} chars for a ${bodyText.length} char page`).toEqual([true, passages.length, false, 1]); }); // the ids carry what the budget covered, page.body carries only the rest
+  /** A SOURCES ROW PARSES (audit, 2026-09-14): the strict provider schema makes every optional source field required-and-nullable, and the normalizer never descended the z.preprocess wrapper around `sources`, so a body draft naming ONE real reading failed strict decode on its nulls and lost the paid attempt. */
+  it("accepts a body answer whose one sources row carries provider nulls, and drops a blank row", async () => {
+    const units = [{ kind: "paragraph", text: "Leave before incoming water covers the return route." }], row = { url: "https://example.org/tides", title: "Tide tables", domain: "example.org", retrievedAt: "2026-09-14", claim: "Leave before incoming water covers the return route.", authority: "weak", verified: false, verifiedAt: null, supportingExcerpt: null, finalUrl: null, contentHash: null, fetchBlocked: null };
+    const wire = { ...VALID_ATOMIC_EDIT, field: "answer_block", units, preservation: [], claims: [{ text: units[0]!.text, supportedBy: ["fact-1"] }], sources: [row, { ...row, url: "" }] };
+    const value = normalizeStructuredValue(wire, SCHEMA_BY_KIND.body_edit) as { sources: unknown[] }; expect(value.sources[0]).toEqual({ url: row.url, title: row.title, domain: row.domain, retrievedAt: row.retrievedAt, claim: row.claim, authority: "weak", verified: false }); const out = await callStructuredLLM({ kind: "body_edit", tenantId: "t", system: "s", user: "u", grounded: "Leave before incoming water covers the return route. 2026-09-14", complete: seam([{ value }]).complete, bypassCache: true });
+    expect([out.status, out.status === "drafted" && (out.value as { sources: unknown[] }).sources.length], "one real reading survives, the blank row is the empty list").toEqual(["drafted", 1]); });
 });

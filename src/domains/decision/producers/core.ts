@@ -283,7 +283,7 @@ const rankingLoss: Producer = async (ctx) => {
 /**
  * THE REGISTRY. Total over every cause the ladder can name: a producer, or the honest reason there is nothing to produce. A reason here is not an apology, it is the fact that this cause's fix is not copy.
  */
-export const CORE_PRODUCERS: Record<CauseKey, Producer | { reason: string }> = {
+export const CORE_PRODUCERS: Record<Exclude<CauseKey, "ctr_snippet">, Producer | { reason: string }> = { // the wording cause never reaches this table: produce-bundle writes the title path directly, so no entry sits here to look like a rule
   weak_opening: weakOpening,
   incomplete_coverage: incompleteCoverage,
   competitor_content_gap: competitorContentGap,
@@ -291,9 +291,6 @@ export const CORE_PRODUCERS: Record<CauseKey, Producer | { reason: string }> = {
     "Make this page's leading section do the job the pages winning this search all do.",
     "The results have settled on one kind of page and this one is a different kind, so the leading section is where that distance is closed or not at all."),
   intent_shift: intentRewrite,
-  // The wording of the line Google displays is the ONE cause this kernel has always been able to write, and
-  // it keeps its own path in produce-bundle unchanged: routing it through here would be a second title path.
-  ctr_snippet: { reason: "The title path owns this cause and writes it directly." },
   // Settling which of two pages owns a search is a merge, a redirect and a de-index, not a paste. It is built beside this file rather than inside it, and wired in at integration.
   cannibalization: produceConsolidation,
   // WHERE A READER GOES NEXT is owned by the ranked link lane (producers/extra.ts linkCards): a link is minted off the stored link graph with both pages understood and a two-word subject floor, never off token overlap, so the bundle path writes none here (operator, 2026-09-01).

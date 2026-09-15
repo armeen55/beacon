@@ -90,7 +90,10 @@ describe("a page's own statements against their sources", () => {
     checks.rows = many(40);
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(cards).toHaveLength(40); expect(new Set(cards.map((c) => c.id)).size, "each correction owns its own row").toBe(40); expect(new Set(cards.map((c) => [...mutationFootprint(c)].join("|"))).size).toBe(40); expect(footprintsOverlap(cards[0]!, cards[1]!)).toBe(false);
-    expect(cards.every((c) => c.bundle === undefined)).toBe(true); expect(cards.every((c) => !/batch/i.test(c.opportunityType))).toBe(true); });
+    expect(cards.every((c) => c.bundle === undefined)).toBe(true); expect(cards.every((c) => !/batch/i.test(c.opportunityType))).toBe(true);
+    /* ONE IMPACT UNIT (audit, 2026-09-14): a correction's impactScore is the page's 28-day clicks in this entry's share of the page's demand, never impressions divided by 100. */
+    const sized = { ...snapshot, ownedPages: [{ url: PAGE, search: { impressions90d: 900, clicks90d: 90, topQueries: [{ query: "name0 meaning", impressions: 300, clicks: 30, position: 5 }] } }] } as unknown as EvidenceSnapshot; checks.rows = many(1);
+    expect((await factualDefectCards({ tenantId: "t", snapshot: sized, now: NOW })).cards[0]?.impactScore, "90 clicks in 90 days, a third of the page's demand on this entry, over 28 days").toBe(Math.round(90 * (300 / 900) * 28 / 90)); });
   it("gives every correction its exact current wording, its replacement, its place and its source", async () => {
     checks.rows = [check({ alsoAt: ["the FAQ answer on this page"] })];
     const [card] = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards;

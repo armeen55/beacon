@@ -408,7 +408,7 @@ describe("the section the winner carries, read where it starts", () => {
     const judged = reasoningAsked.filter((a) => a.kind === "fact_claim_judgement");
     const ask = judged[0]?.ask ?? "", intros = ask.split(INTRO_LINE).length - 1;
     expect([state.parsed, judged.length, ask.includes(SAYS), ask.includes(`${SUBJECT} ${SAYS}`), intros > 0 && intros < 20],
-      "the winner the requirement named is the one page read; the judge is asked once; its passage opens on the heading the requirement named with the words under it, carrying only the tail of the introduction the search's words are densest in, where the old window carried that introduction and never the section").toEqual([[RIVAL], 1, true, true, true]);
+      "the winner the requirement named is the one page read; the judge is asked once; its passage opens on the heading the requirement named with the words under it, carrying only the tail of the introduction the search's words are densest in; the free crawl already on file carries the section, so no paid parse is bought").toEqual([[], 1, true, true, true]);
     expect(acquisitions(run).filter((a) => a.kind === "factual_source").map((a) => a.outcome), "and the reading lands as usable evidence on the first attempt").toEqual(["unlocked"]);
   });
 

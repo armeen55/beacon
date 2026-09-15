@@ -29,10 +29,11 @@ describe("what one read of a winning page carries", () => {
       const legacy = pageExtractFromRecord({ title: s.h2, h1: s.h2, wordCount: 900, headings: [s.h2], faqCount: 0, openingSample: s.body });
       expect([legacy.mainText, legacy.truncated, legacy.heldChars, legacy.totalChars, legacy.openingSample === s.body, legacy.entityNames],
         "a row from before the reading says nothing was captured, which is not the claim that the page carries nothing, and a row that banked no entity list hands back no list rather than an empty one").toEqual([null, null, null, null, true, undefined]);
-      const long = `${s.body} `.repeat(400), x = pageExtractFrom(extractPageSnapshot(htmlOf(s, long), s.url, "p1", s.t));
-      expect([x.truncated, x.heldChars, (x.totalChars ?? 0) > MAIN_TEXT_CEILING, (x.mainText ?? "").length],
-        "the cut is recorded with both counts, so everything past it is unknown rather than absent").toEqual([true, MAIN_TEXT_CEILING, true, MAIN_TEXT_CEILING]);
-      expect(mainOf(x.mainText, x.totalChars ?? 0).totalChars, "re-holding a capture at the same ceiling never understates the page it came from").toBe(x.totalChars);
+      const long = `${s.body} `.repeat(400), x = pageExtractFrom(extractPageSnapshot(htmlOf(s, long), s.url, "p1", s.t)), row = mainOf(x.mainText, x.totalChars ?? 0);
+      expect([x.truncated, x.heldChars === x.totalChars, (x.totalChars ?? 0) > MAIN_TEXT_CEILING, x.sections?.map((c) => c.heading), x.sections?.every((c) => c.text.includes(s.body))],
+        "the free crawl is read WHOLE with a section under every heading, so a deep section in a long page can reach the comparison").toEqual([false, true, true, [s.h2, s.h3], true]);
+      expect([row.truncated, row.heldChars, row.totalChars], "re-holding it at the row's ceiling records the cut with both counts and never understates the page").toEqual([true, MAIN_TEXT_CEILING, x.totalChars]);
+      expect(pageExtractFrom(extractPageSnapshot(htmlOf(s), s.url, "p1", s.t)).sections, "sections carry the words under each heading, the heading itself never inside them").toEqual([{ heading: s.h2, text: "" }, { heading: s.h2, text: s.body }, { heading: s.h3, text: s.body }].filter((c) => c.text));
     });
 
     it(`${s.t}: cached provider sections retain their words and move exact-query job identity, never inventing unreported fields`, () => {

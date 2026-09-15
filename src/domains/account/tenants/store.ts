@@ -88,11 +88,6 @@ export async function getTenant(id: string, opts?: { strict?: boolean }): Promis
   return repository.getAccountById(id, opts?.strict === true);
 }
 
-async function getTenantBySlug(slug: string): Promise<Account | null> {
-  if (!slug) return null;
-  return repository.getAccountBySlug(slug);
-}
-
 export async function getTenantOrThrow(id: string): Promise<Account> {
   const tenant = await getTenant(id);
   if (!tenant) {

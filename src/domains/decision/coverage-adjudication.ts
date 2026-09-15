@@ -459,6 +459,7 @@ async function ladder(
   // settled above and enough winners READ to say what the page has to cover, the verdict is made now and the
   // card owns the guess in its own words. A subject you DO have a page for still waits for the comparison.
   if (contenders.length === 0) return inv.currentReadableWinners < MIN_WRITABLE_WINNERS ? owesComparison(inv, ids)
+    : opts.positivelyAuthorized === false ? park(inv, ids, `${sized(inv)} and no page of yours comes up for it, but nothing you have approved ties your business to it: no tracked question asks it, and none of your named offerings or topics covers it.`, "Add it to your topics or track a question about it, and this becomes a page worth building.") // THE NO-CONTENDER PATH ASKS THE SAME YES (audit, 2026-09-14): it skipped the authorization the comparison path demands, which is how an off-subject page was offered
     : decide(inv, "create_new", { evidenceKeys: ids,
       explanation: `${sized(inv)}, the sites that win it settle on ${SHAPE[inv.pageType] ?? "one kind of page"}, and ${inv.currentReadableWinners} of them were read, so here is the page to build. You own no page that comes up for this at all, so there is nothing of yours a search by search comparison could protect.`,
       alternativesRuledOut: [{ alternative: "Improve a page you already have", reason: "No page of yours comes up for this subject, so there is nothing here to strengthen." }] });

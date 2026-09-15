@@ -335,6 +335,8 @@ export function validateProposal(
   const schema = change.kind === "existing_edit" && change.field === "schema" ? schemaFailures(proposal, change, opts) : null;
 
   const safetyFlags: string[] = [];
+  // THE WRITER'S RATIONALE REACHES THE CARD AS whyItMatters (review, 2026-09-14): the schema no longer scans it as prose, so the operator-facing door reads it here for a dash or a stub.
+  if (looksLikePlaceholder(proposal.whyItMatters)) safetyFlags.push("Contains a placeholder / template stub."); if (DASH_RE.test(proposal.whyItMatters)) safetyFlags.push("Contains an em or en dash (banned in operator copy).");
   for (const t of texts) {
     if (looksLikePlaceholder(t)) safetyFlags.push("Contains a placeholder / template stub.");
     if (DASH_RE.test(t)) safetyFlags.push("Contains an em or en dash (banned in operator copy).");

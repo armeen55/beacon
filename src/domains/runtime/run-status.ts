@@ -126,7 +126,7 @@ function livenessOf(run: ResearchRun | null, nowMs: number, state: ResearchRunSt
     : { state: "interrupted", line: `Research stopped partway ${at}. ${RESTART_STEP}` };
 }
 
-/** Human step index for a phase; `done` maps to all 8 steps done. */
+/** Human step index for a phase; `done` maps to all nine steps done. */
 function stepsDoneForPhase(phase: ResearchPhase): number {
   if (phase === "done") return RESEARCH_RUN_STEPS_TOTAL;
   const i = STEP_ORDER.indexOf(phase);

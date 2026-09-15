@@ -1,10 +1,6 @@
-/**
- * research-evidence (integrity closure, Agent B) - the funnel's snapshot-facing evidence contract. PURE
- * types (no I/O, no server-only) so both the pure EvidenceSnapshot kernel and the server-only funnel
- * projector share one shape: retained keyword metrics WITH intent, exact AI observations with tri-state
- * citations, per-query SERP evidence, winning pages with TRUE per-page provenance, and the receipt.
- */
-
+/** research-evidence: the funnel's snapshot-facing evidence contract. PURE (no I/O, no server-only), so the pure EvidenceSnapshot kernel and the
+ *  server-only funnel projector share one shape: keyword metrics with intent, AI observations with tri-state citations, per-query SERP evidence,
+ *  winning pages with per-page provenance, the receipt, and the one sectioner every reader of a page's structure shares. */
 import type { ParsedPageIntersection } from "../page-intersection";
 import { visibleFaqs, type PageSnapshot } from "../pages/types"; import { load } from "cheerio";
 
@@ -219,11 +215,11 @@ export type ResearchPageExtract = {
 };
 
 const OPENING_SAMPLE_CHARS = 600;
-/** HOW MUCH OF A WINNER'S OWN WORDS ONE COMPARISON READS. 12,000 characters is about 2,000 words: it holds the
- *  whole body of every winning page this account has ever read except an encyclopedia roster, it leaves room for
- *  three winners and the owned page inside one reading, and a page longer than it is marked cut rather than
- *  silently shortened. Stated once here and applied wherever an extract is built or re-held. */
-const MAIN_TEXT_CEILING = 12_000;
+/** HOW MUCH OF A WINNER'S OWN WORDS ONE RESEARCH ROW CARRIES. 12,000 characters is about 2,000 words: it leaves room for
+ *  three winners and the owned page inside one reading. The CACHED extract holds the whole reading up to the crawler's own
+ *  ceiling (Stage 2, 2026-09-14): a page cut here was a prefix nobody could read past, and a deep section in a long page
+ *  never reached the comparison. Stated once here and applied wherever a reading is re-held for the row. */
+const MAIN_TEXT_CEILING = 12_000, CRAWL_TEXT_CEILING = 100_000;
 /** THE MAIN TEXT AS THIS READ HOLDS IT, with what was kept and what there was. `seen` carries a total an earlier
  *  read already measured, so re-holding a provider's longer capture at the comparison ceiling never understates
  *  the page. Whitespace-normalized, because a body arrives from a crawl as one run and from a provider as blocks. */
@@ -231,6 +227,40 @@ export const mainOf = (text: string | null | undefined, seen = 0, ceiling = MAIN
   const whole = (text ?? "").replace(/\s+/g, " ").trim(), held = whole.slice(0, ceiling), total = Math.max(seen, whole.length);
   return { mainText: held || null, truncated: total > held.length, heldChars: held.length, totalChars: total };
 };
+const tidy = (t: string): string => t.replace(/\s+/g, " ").trim();
+/** THE PAGE AS HEADING-SCOPED SECTIONS IN DOCUMENT ORDER, the ONE reading of structure every door shares (Stage 2, 2026-09-14): the owned-page reader
+ *  cut 1,000-character positional chunks with no heading, the comparison kept a private sectioner, and the free crawl of a winner yielded no sections at
+ *  all. Where the capture is coherent with the body text, every h1 to h6 opens a section and the blocks under it ride as its text, one block a line and
+ *  the heading itself never in it; otherwise the level-grouped labels are located in the flat text in order and cut it. The words before the first heading
+ *  are the opening, heading null at level 0. PURE. */
+export function sectionsFrom(body: string, heads: { h1?: string | null; h2?: readonly string[] | null; h3?: readonly string[] | null }, capture?: { version: number; mainHtml: string } | null): { heading: string | null; level: number; text: string }[] {
+  const flat = tidy(body), source = capture?.version === 1 && typeof capture.mainHtml === "string" && capture.mainHtml.length <= CRAWL_TEXT_CEILING ? load(capture.mainHtml) : null;
+  if (source && tidy(source.root().text()) === flat) {
+    const out: { heading: string | null; level: number; blocks: string[] }[] = [{ heading: null, level: 0, blocks: [] }]; let pending = "";
+    const flush = (): void => { const t = tidy(pending); if (t) out[out.length - 1]!.blocks.push(t); pending = ""; };
+    const walk = (node: ReturnType<ReturnType<typeof load>["root"]>["0"]["children"][number]): void => {
+      if (node.type === "text") { pending += node.data; return; }
+      if (!("name" in node) || !("children" in node)) return;
+      if (/^h[1-6]$/.test(node.name)) { flush(); out.push({ heading: tidy(source(node).text()) || null, level: Number(node.name[1]), blocks: [] }); return; }
+      if (/^(?:p|ol|ul|dl|table|pre|blockquote|figure|details)$/.test(node.name)) { flush(); pending = source(node).text(); flush(); return; }
+      for (const child of node.children) walk(child);
+    };
+    for (const child of source.root()[0]!.children) walk(child); flush();
+    return out.map((s) => ({ heading: s.heading, level: s.level, text: s.blocks.join("\n") }));
+  }
+  // EVERY OCCURRENCE OF EVERY LABEL, taken in position order and only at a boundary: the start, after a line break or sentence end, or right behind the heading before it (an h2 followed by its first h3). A table of contents naming the heading mid-line is not the heading, and a label inside a sentence is not one either.
+  const raw = body.trim(), hits: { heading: string; level: number; at: number }[] = [], found: typeof hits = []; let end = 0;
+  for (const [label, level] of [[heads.h1, 1] as const, ...(heads.h2 ?? []).map((h) => [h, 2] as const), ...(heads.h3 ?? []).map((h) => [h, 3] as const)]) {
+    const l = tidy(label ?? ""); if (l.length >= 3) for (let at = raw.indexOf(l); at >= 0; at = raw.indexOf(l, at + 1)) hits.push({ heading: l, level, at });
+  }
+  for (const h of hits.sort((a, b) => a.at - b.at || b.heading.length - a.heading.length)) {
+    // Right behind the heading before it counts only one level DOWN (review, 2026-09-14): a sentence opening with the heading's own words is the section's text, never a second empty heading.
+    if (h.at < end || (h.at > 0 && !(h.at === end && h.level > (found[found.length - 1]?.level ?? 0)) && !/[.!?:;\n]\s*$/.test(raw.slice(Math.max(0, h.at - 3), h.at)))) continue;
+    found.push(h); end = h.at + h.heading.length + 1;
+  }
+  return [{ heading: null, level: 0, text: raw.slice(0, found[0]?.at ?? raw.length).trim() }, ...found.map((h, i) => ({ heading: h.heading, level: h.level, text: raw.slice(h.at + h.heading.length, found[i + 1]?.at ?? raw.length).trim() }))];
+}
+
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 const strings = (v: unknown, max: number): string[] =>
   (Array.isArray(v) ? v : []).filter((x): x is string => typeof x === "string" && !!x.trim()).slice(0, max);
@@ -248,6 +278,7 @@ type ExtractableSnapshot = {
 export function pageExtractFrom(snap: ExtractableSnapshot): ResearchPageExtract {
   const capture = snap.content_capture, source = capture?.version === 1 && typeof capture.mainHtml === "string" && typeof snap.body_text === "string" ? load(capture.mainHtml) : null, coherent = source && source.root().text().replace(/\s+/g, " ").trim() === (snap.body_text ?? "").replace(/\s+/g, " ").trim();
   const observed = (selector: string): boolean | undefined => coherent ? source!(selector).length > 0 ? true : capture!.complete === true ? false : undefined : undefined;
+  const sections = sectionsFrom(snap.body_text ?? "", { h1: snap.h1, h2: snap.h2_list, h3: snap.h3_list }, capture).filter((x) => x.text).map(({ heading, text }) => ({ heading, text }));
   return {
     title: snap.title, h1: snap.h1, wordCount: snap.word_count,
     headings: strings(snap.h2_list, 20), faqCount: visibleFaqs(snap.faqs).length,
@@ -259,9 +290,8 @@ export function pageExtractFrom(snap: ExtractableSnapshot): ResearchPageExtract 
     internalLinkCount: snap.internal_link_count ?? 0,
     externalLinkCount: snap.external_link_count ?? 0,
     fetchedAt: str(snap.fetched_at),
-    // THE READING ITSELF: the crawler already strips nav, header, footer and aside before it counts a word, so the
-    // main content is on the snapshot and was being thrown away here every time a winner was read.
-    ...mainOf(snap.body_text), h3s: strings(snap.h3_list, 20), ...(Array.isArray(snap.schema_types) ? { schemaTypes: strings(snap.schema_types, 12) } : {}),
+    // THE READING ITSELF, WHOLE: the crawler already strips nav, header, footer and aside, so the main content is on the snapshot up to its own ceiling; a capture the crawler itself cut is the one truncation.
+    ...mainOf(snap.body_text, 0, CRAWL_TEXT_CEILING), ...(capture?.complete === false ? { truncated: true } : {}), ...(sections.length ? { sections } : {}), h3s: strings(snap.h3_list, 20), ...(Array.isArray(snap.schema_types) ? { schemaTypes: strings(snap.schema_types, 12) } : {}),
   };
 }
 

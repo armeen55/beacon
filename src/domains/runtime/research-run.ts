@@ -61,6 +61,8 @@ export type ResearchRunProgress = {
   /** THE DAY THIS RUN COULD NOT BUY A CASE'S COMPETING DOMAINS because the spending ceiling was reached, and which cases those were. Day-scoped like the extra-sample grant, so it clears by rollover and the case receipt
    *  says "capped" about the pass that was actually capped, not about every pass since. */
   capped?: { day: string; caseIds: string[] };
+  /** PAID WORK THAT PRODUCED NOTHING TODAY, per lane (audit 3.7, 2026-09-14): the reporting day and, for each lane that spent money and settled nothing, the input it ran on (the settled-check count for the read-back, the evidence version for the walk and the fact check). The drive funds that lane again only on a new day or a moved input, and says so on the blocker line. Day-scoped and inherited like the markers above. */
+  zeroOutput?: { day: string; lanes: Partial<Record<"readback" | "walk" | "fact_check", string>> };
   /** THE OBSERVATION LANE'S OWN TYPED STATE, which is neither done nor failed: `reading_backlog` says the buying stopped because answers already paid for are waiting to be read and carries the count that proves it,
    *  `reading_unreadable` says how far behind the reading is could not be counted at all, which is unknown and never a truthful zero. Without a word for either, a blocked lane reached the drive as an empty window, read
    *  as a finished day beside a count that still owed 140, and the drive spent twelve rounds on it before pausing the whole run. IT CLEARS: absent means the lane was measured and is not blocked, so a drained backlog
@@ -135,7 +137,7 @@ export type ResearchRun = {
   completed_at: string | null;
 };
 
-/** Lease length for one claimed cycle. Renewed at DATABASE time BEFORE every bounded phase (renew_research_lease) so no phase inside the 210s cycle deadline can knowingly outlive its lease. */
+/** Lease length for one claimed cycle. Renewed at DATABASE time BEFORE every bounded phase (renew_research_lease) so no phase inside the cycle deadline (a hundred seconds inside this lease) can knowingly outlive its lease. */
 export const RESEARCH_RUN_LEASE_SECONDS = 800; // THE LEASE MUST OUTLAST THE TURN IT PROTECTS (Codex, 2026-08-23), and THE LEASE IS THE ONE WINDOW SOURCE (operator, 2026-09-10, "unlock all caps"): the hosted function now runs the 800 seconds Vercel Pro with Fluid compute allows, the cron caller's timeout moves to 800 with it, and the dispatch budget, the cycle deadline, the walk's box and the fact units' box all derive from this number so no deadline can outlive the function again. Measured need: 36 to 48 s of every drive is preparation and a written job costs 17 to 31 s, so a 200-second slice reached four to six jobs of 16 to 33 funded; the 800-second window is the measured fix (dl-approval.md, held since 2026-09-07 and approved today).
 
 // The operator-facing projection lives in run-status (the record and the way it READS are two jobs). Re-exported here so every existing caller keeps its one import.
@@ -328,6 +330,7 @@ function carriedDayState(priors: readonly ResearchRunProgress[], day: string): R
     if (out.extraSamples == null && p.extraSamples?.day === day) out.extraSamples = p.extraSamples;
     if (out.capped == null && p.capped?.day === day) out.capped = p.capped;
     if (out.observationRetries == null && p.observationRetries?.day === day) out.observationRetries = p.observationRetries;
+    if (out.zeroOutput == null && p.zeroOutput?.day === day) out.zeroOutput = p.zeroOutput;
     if (out.synthesisAttempted !== true && p.synthesisAttempted === true) out.synthesisAttempted = true;
     // THE DAY'S TOP-UP MEMORY TRAVELS WITH THE DAY, not with the run. Without this every extra same-day pass started from an empty attempted list, re-funded the same two failing pages and could never reach the third (Codex, 2026-08-22).
     if (out.replenish == null && p.replenish?.day === day) { const { outcomes: _earlierReceipts, ...dayMemory } = p.replenish; out.replenish = dayMemory; } if (out.evidenceOwed == null && p.evidenceOwed != null) out.evidenceOwed = p.evidenceOwed; /* THE DAY'S MEMORY TRAVELS, THE PASS'S RECEIPTS DO NOT (R2 residual 6, 2026-09-05): a $0 pass inherited the previous pass's receipts and, making no provider call of its own, kept them, so a run row carried one pass's ledger beside another pass's receipts and three consecutive live rows reported outcomes none of them produced. Jobs, waiting, closed and awakened are the DAY's answer and are inherited exactly as before; `outcomes` is one PASS's answer and is written only by the pass that earned it. */ /* the NEWEST prior's list wins even when it is empty: skipping an emptied list carried an older one and re-bought readings a later pass had resolved (reviewer, 2026-09-02) */ // THE OWED READINGS AND THEIR BOUGHT-TODAY STAMPS TRAVEL WITH THE DAY TOO (live 2026-09-02): a new same-day pass opened with an empty list and bought the eight readings the previous pass had already bought
@@ -348,7 +351,7 @@ async function inheritDayState(run: ResearchRun, owner: string, priors: readonly
 /** Inherit the day's state, but ONLY for a row that cannot already know it: a resumed run carrying any of it IS the day's memory and pays for no read. */
 async function withDayState(run: ResearchRun, owner: string): Promise<ResearchRun> {
   const p = run.progress ?? {};
-  if (p.decided != null || p.extraSamples != null || p.capped != null || p.synthesisAttempted != null || p.observationRetries != null) return run;
+  if (p.decided != null || p.extraSamples != null || p.capped != null || p.synthesisAttempted != null || p.observationRetries != null || p.zeroOutput != null) return run;
   const priors = await repo.sameDay({ tenantId: run.tenant_id, day: run.cycle_key.slice(-10), limit: DAILY_PASS_RUNAWAY_CEILING })
     .catch(() => [] as DayRow[]);
   return inheritDayState(run, owner, priors);
@@ -409,7 +412,9 @@ export async function startExtraPass(tenantId: string, ownerToken: string, day: 
 /** Advance the claimed run to a new phase (owner-guarded). True when our lease still held and the row was updated; false when the lease was lost (a concurrent instance recovered our expired lease), so abort. */
 export async function advancePhase(tenantId: string, runId: string, ownerToken: string, patch: AdvancePatch): Promise<boolean> {
   requireTenant(tenantId);
-  try { return await repo.advance({ tenantId, id: runId, owner: ownerToken, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS, patch }); }
+  try { let progress = patch.progress; /* THE MARKERS THE DRIVE DOES NOT OWN SURVIVE ITS WHOLE-OBJECT WRITE (audit 3.7, 2026-09-14): observationRetries and extraSamples land through patch_research_run_progress while a phase runs, and advance_research_run replaces progress whole, so the fresh row's copy is merged over the caller's object before the write and a pair the provider refused twice stays refused instead of being re-bought every round. */
+    if (progress) { const fresh = await repo.latest(tenantId).catch(() => null); if (fresh?.id === runId) for (const k of ["observationRetries", "extraSamples"] as const) if (fresh.progress?.[k] != null) progress = { ...progress, [k]: fresh.progress[k] }; }
+    return await repo.advance({ tenantId, id: runId, owner: ownerToken, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS, patch: { ...patch, progress } }); }
   catch (error) {
     log.warn("[research-run] advancePhase failed", { tenantId, error: error instanceof Error ? error.message : String(error) });
     return false;

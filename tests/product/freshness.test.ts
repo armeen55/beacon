@@ -1,22 +1,10 @@
 /** PRODUCT - the acquisition policy: WHAT COUNTS AS CURRENT, and WHAT A RUN MAY SPEND. One freshness matrix replaces the single seven-day constant, so a search a frozen case is stuck on is re-bought after a DAY while an unfocused one keeps the week, a page of the account's own is re-read the moment something changed it underneath me, and the recurring-domains capability parses exactly what the provider documents. Plus the raised monthly ceilings. No network, no Supabase, no spend. */
-import { describe, it, expect } from "vitest";
-import { emptyBusinessProfile, type Account, type BusinessProfile } from "@/domains/account";
-import type { CachedCallResult, CapabilityKey, ParsedSerp, ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary";
-import { parseCapability, providerCall } from "@/domains/evidence/dataforseo/capabilities";
-import { writePublicPageExtract } from "@/domains/evidence/dataforseo/funnel-boundary";
-import { labsKeywordsForSiteLive } from "../fixtures/dataforseo-envelopes";
-import { DEFAULT_MONTHLY_CAP_USD, monthlyCapUsd } from "@/domains/evidence/dataforseo/client";
-import { DEFAULT_GLOBAL_MONTHLY_CAP_USD, decideBreaker } from "@/lib/cost/cost-breaker";
-import { serpAnalysisUnit } from "@/domains/evidence/funnel/observe";
-import { winningPagesUnit } from "@/domains/evidence/funnel/winning-pages";
-import { emptyFunnelState, type FunnelState } from "@/domains/evidence/funnel/state";
-import { freshnessMsFor, isCurrent } from "@/domains/evidence/freshness";
-import type { FunnelDeps } from "@/domains/evidence/funnel/shared";
-import { canonicalUrlKey } from "@/domains/evidence/snapshot";
-const BASIS = "basis_aaa", NOW = 1_700_000_000_000, DAY = 86_400_000;
-const cur = () => ({ basis: BASIS });
-const at = (ms: number) => new Date(ms).toISOString();
-const parse = ((_c: unknown, env: unknown) => env) as unknown as FunnelDeps["parse"];
+import { describe, it, expect } from "vitest"; import { emptyBusinessProfile, type Account, type BusinessProfile } from "@/domains/account";
+import { writePublicPageExtract, type CachedCallResult, type CapabilityKey, type ParsedSerp, type ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary"; import { parseCapability, providerCall } from "@/domains/evidence/dataforseo/capabilities";
+import { labsKeywordsForSiteLive } from "../fixtures/dataforseo-envelopes"; import { DEFAULT_MONTHLY_CAP_USD, monthlyCapUsd } from "@/domains/evidence/dataforseo/client"; import { DEFAULT_GLOBAL_MONTHLY_CAP_USD, decideBreaker } from "@/lib/cost/cost-breaker";
+import { serpAnalysisUnit } from "@/domains/evidence/funnel/observe"; import { winningPagesUnit } from "@/domains/evidence/funnel/winning-pages"; import { emptyFunnelState, type FunnelState } from "@/domains/evidence/funnel/state";
+import { freshnessMsFor, isCurrent } from "@/domains/evidence/freshness"; import type { FunnelDeps } from "@/domains/evidence/funnel/shared"; import { canonicalUrlKey } from "@/domains/evidence/snapshot";
+const BASIS = "basis_aaa", NOW = 1_700_000_000_000, DAY = 86_400_000, cur = () => ({ basis: BASIS }), at = (ms: number) => new Date(ms).toISOString(), parse = ((_c: unknown, env: unknown) => env) as unknown as FunnelDeps["parse"];
 const serp = (organic: ParsedSerp["organic"]): ParsedSerp => ({ organic, aiOverview: null, paaQuestions: [], relatedSearches: [] });
 const ok = (parsed: unknown, cacheKey = "ck"): CachedCallResult => ({ state: "ok", envelope: parsed as never, costUsd: 0.01, cacheKey, modelServed: null });
 function memStore(seed: FunnelState) {
@@ -87,25 +75,17 @@ describe("the recurring winning domains capability (dataforseo_labs/google/serp_
   /** The DOCUMENTED response shape, verified against docs.dataforseo.com on 2026-07-31: result[0] carries se_type, seed_keywords, location_code, language_code, total_count, items_count and items; each item carries its metrics as FLAT fields, never a nested metrics object. */
   const envelope: ProviderEnvelope = { status_code: 20000, cost: 0.0105, tasks: [{ status_code: 20000, result: [{
     se_type: "google", seed_keywords: ["phone"], location_code: 2840, language_code: "en", total_count: 86, items_count: 3,
-    items: [
-      { se_type: "google", domain: "apple.com", avg_position: 3, median_position: 2, rating: 812, etv: 41.2, keywords_count: 9, visibility: 0.41, relevant_serp_items: 9, keywords_positions: { phone: [1, 3] } },
+    items: [{ se_type: "google", domain: "apple.com", avg_position: 3, median_position: 2, rating: 812, etv: 41.2, keywords_count: 9, visibility: 0.41, relevant_serp_items: 9, keywords_positions: { phone: [1, 3] } },
       { se_type: "google", domain: "samsung.com", avg_position: 7, median_position: 6, rating: 410, etv: 12.0, keywords_count: 4, visibility: 0.12, relevant_serp_items: 4, keywords_positions: { phone: [7] } },
-      { se_type: "google", domain: "", avg_position: 1, rating: 900, keywords_count: 1 },
-      { se_type: "google", domain: "gsmarena.com", rating: null, keywords_count: null },
-    ] }] }] } as ProviderEnvelope;
+      { se_type: "google", domain: "", avg_position: 1, rating: 900, keywords_count: 1 }, { se_type: "google", domain: "gsmarena.com", rating: null, keywords_count: null }] }] }] } as ProviderEnvelope;
   it("keeps the domain, its average position and how much of the set it comes up for, and never invents a metric it was not sent", () => {
-    expect(parseCapability("labs_serp_competitors", envelope)).toEqual([
-      { domain: "apple.com", avgPosition: 3, rating: 812, keywordsCount: 9 },
-      { domain: "samsung.com", avgPosition: 7, rating: 410, keywordsCount: 4 },
-      { domain: "gsmarena.com", avgPosition: null, rating: null, keywordsCount: null }, // absent is null, never a fake zero
-    ]); // a row with no domain is not a competitor and is dropped
+    expect(parseCapability("labs_serp_competitors", envelope)).toEqual([{ domain: "apple.com", avgPosition: 3, rating: 812, keywordsCount: 9 }, { domain: "samsung.com", avgPosition: 7, rating: 410, keywordsCount: 4 },
+      { domain: "gsmarena.com", avgPosition: null, rating: null, keywordsCount: null }]); // absent is null, never a fake zero; a row with no domain is not a competitor and is dropped
     expect(parseCapability("labs_serp_competitors", { status_code: 20000, tasks: [{ result: [] }] } as ProviderEnvelope)).toEqual([]); // an empty answer reads empty, never a throw
   });});
 describe("the monthly ceilings", () => {
   it("holds a real research month at $250 an account and $500 across everything", () => {
-    expect([DEFAULT_MONTHLY_CAP_USD, monthlyCapUsd({} as never)]).toEqual([250, 250]);
-    expect(monthlyCapUsd({ DATAFORSEO_MONTHLY_CAP_USD: "-1" } as never)).toBe(250); // never unlimited
-    expect(DEFAULT_GLOBAL_MONTHLY_CAP_USD).toBe(500);
+    expect([DEFAULT_MONTHLY_CAP_USD, monthlyCapUsd({} as never), monthlyCapUsd({ DATAFORSEO_MONTHLY_CAP_USD: "-1" } as never), DEFAULT_GLOBAL_MONTHLY_CAP_USD]).toEqual([250, 250, 250, 500]); // never unlimited
     expect(decideBreaker({ spentUsd: 60, capUsd: DEFAULT_MONTHLY_CAP_USD, projectedUsd: 0.05 }).tripped).toBe(false); // $60 of research this month keeps going
     expect(decideBreaker({ spentUsd: 260, capUsd: DEFAULT_MONTHLY_CAP_USD, projectedUsd: 0.05 }).tripped).toBe(true); // $260 is past the account's ceiling and stops
     expect(decideBreaker({ spentUsd: null, capUsd: DEFAULT_GLOBAL_MONTHLY_CAP_USD, projectedUsd: 0.05 }).tripped).toBe(true); // a spend I cannot confirm still fails closed

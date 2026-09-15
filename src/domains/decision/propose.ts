@@ -64,16 +64,15 @@ function assemble(args: {
   change: RecommendedChange;
   whyItMatters: string;
   confidence: ChangeProposal["confidence"];
-  draftRisks: string[];
   evidenceRefCount: number;
   now: Date;
   validation: ProposalValidation;
 }): ChangeProposal {
-  const { input, change, whyItMatters, confidence, draftRisks, evidenceRefCount, now, validation } = args;
+  const { input, change, whyItMatters, confidence, evidenceRefCount, now, validation } = args;
   const family = proposalFamily(input);
 
-  // Limitations = the draft's own risks + any validator caution.
-  const limitations: string[] = [...draftRisks];
+  // Limitations = the validator's cautions (the writer is no longer asked for risks; code owns caveats).
+  const limitations: string[] = [];
   if (validation.corrections.length) limitations.push(...validation.corrections);
   if (validation.verdict === "needs_review") {
     limitations.push(...validation.reasons);
@@ -165,7 +164,6 @@ export async function proposeExistingPageChange(
     change,
     whyItMatters: value.rationale,
     confidence: value.confidence,
-    draftRisks: value.risks ?? [],
     // The COUNT IS THE EVIDENCE, never the drafter's own claim about it: a drafter that said "evidenceRefs: 1" used to set this while its receipt held nothing.
     evidenceRefCount: diagnosis!.evidenceKeys.length,
     now,
@@ -202,7 +200,6 @@ export async function proposeExistingPageChange(
     change,
     whyItMatters: value.rationale,
     confidence: value.confidence,
-    draftRisks: value.risks ?? [],
     evidenceRefCount: diagnosis!.evidenceKeys.length,
     now,
     validation,

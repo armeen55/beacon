@@ -20,7 +20,7 @@ import type { ChangeProposal } from "@/domains/decision/contracts";
 import { winnersRead, type CauseFinding } from "@/domains/decision/diagnosis";
 
 /** Lost clicks per month before a unit is worth a card, and how many cards one pass mints. */
-const MIN_LOST_PER_MONTH = 20, MAX_CARDS = Number.MAX_SAFE_INTEGER; // the count meter is DELETED (operator, 2026-08-30): every unit above the loss floor gets its card
+const MIN_LOST_PER_MONTH = 20; // no count meter (operator, 2026-08-30): every unit above the loss floor gets its card
 /** Positions slipped before the decline is a ranking loss, the CTR fall that names the snippet, and how many sections one page may be asked for in one pass. */
 const POSITION_SLIP = 2, CTR_FALL = 0.4, MAX_BODY_CARDS = 2;
 
@@ -50,7 +50,7 @@ function decompose(h: NonNullable<Awaited<ReturnType<typeof loadCanonicalDemandU
     line: `Google changed which of this site's pages it shows for these searches, so no single page's two-window history exists to compare: the page split is decided before any cause is claimed.` };
   const shareShift = h.pageShareEarly != null && h.pageShareRecent != null ? h.pageShareEarly - h.pageShareRecent : null;
   const dPos = h.pageEarlyPosition != null && h.pageRecentPosition != null ? h.pageRecentPosition - h.pageEarlyPosition : null;
-  const ctrEarly = h.earlyImpressions > 0 ? (h.earlyClicksPerDay * 30) / (h.earlyImpressions / Math.max(1, 13)) : null;
+  const ctrEarly = h.earlyImpressions > 0 ? (h.earlyClicksPerDay * 30) / (h.earlyImpressions / 13) : null;
   const ctrNow = h.recentImpressions > 0 ? (h.recentClicksPerDay * 30) / (h.recentImpressions / 3) : null;
   if (dPos != null && dPos >= POSITION_SLIP) return { cause: "ranking_loss", field: "section",
     line: `The page itself slid from position ${h.pageEarlyPosition!.toFixed(1)} to ${h.pageRecentPosition!.toFixed(1)} on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line.` };
@@ -111,7 +111,7 @@ export async function demandRecoveryCards(input: { tenantId: string; snapshot: E
         const page = pathOf(at).toLowerCase(), key = canonicalQueryKey(u.label), seat = `${page}::${key}`, held = per.get(page) ?? { taken: false, bodies: 0, title: false }, title = decompose(u.history!, u.serp != null).field === "title";
         if (seats.has(seat) || (title ? held.title : held.bodies >= MAX_BODY_CARDS)) continue; // one mutation, one card: a second audience whose search names the same words is the same section, and the page's line is written once
         seats.set(seat, `${tenantId}::${page}::existing_edit::demand_recovery${held.taken ? `@${key}` : ""}`); per.set(page, { taken: true, bodies: held.bodies + (title ? 0 : 1), title: held.title || title }); } }
-    for (const u of lost.slice(0, MAX_CARDS)) {
+    for (const u of lost) {
       const h = u.history!;
       const home = h.currentTopPage ?? h.priorTopPage;
       if (!home || !owned.has(canonicalUrlKey(home))) continue;

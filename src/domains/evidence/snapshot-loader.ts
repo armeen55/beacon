@@ -1,18 +1,6 @@
-/**
- * snapshot-loader (2026-07-22): the I/O edge for the EvidenceSnapshot kernel.
- * It REUSES the existing cached connector readers (it does not re-read or
- * re-shape connectors) to assemble the six loaded-source payloads, then hands
- * them to the PURE `buildEvidenceSnapshot`. Every source is wrapped fail-soft:
- * a throw becomes `status: "failed"` with an empty payload and an empty read
- * becomes `status: "empty"`, and the source slot is ALWAYS present so its
- * absence is honest and visible on every surface.
- *
- * The AI evidence comes from the CANONICAL record (ai_observations) and from
- * nowhere else: not from the funnel's transient working window, and not from
- * the legacy prompt_answer_observations projection, both of which held less
- * than the account had actually paid for.
- */
-
+/** snapshot-loader: the I/O edge for the EvidenceSnapshot kernel. It REUSES the cached connector readers to assemble the loaded-source payloads and
+ *  hands them to the PURE `buildEvidenceSnapshot`. Every source is fail-soft: a throw becomes `status: "failed"` with an empty payload, an empty read
+ *  becomes `status: "empty"`, and the slot is ALWAYS present so absence is visible. The AI evidence comes from the CANONICAL record (ai_observations). */
 import "server-only";
 import { selectPageVersion } from "./pages/page-version";
 import { visibleFaqs } from "./pages/types";
@@ -172,8 +160,7 @@ async function readEvidenceSnapshot(
   }));
 
   // ── Wix / crawl content (owned pages for this tenant) ──
-  const wixPayload = snapshots.rows
-    .filter((s) => s.tenant_id === tenantId)
+  const wixPayload = snapshots.rows // already tenant-scoped by the repository
     .map((s): { url: string; bodyCaptured: boolean } & OwnedPageContent => ({
       url: s.url,
       title: s.title,

@@ -1,9 +1,8 @@
 import { AEO_BAR } from "../accept-worthy";
 import { EditorAcceptanceSchema, PublicationUnitsSchema } from "../contracts";
 /** llm/schemas (2026-06-25, P4, structured drafts), Zod schemas for every product-critical LLM artifact. No loose blob text is ever the final product artifact: a draft is only trusted once it parses against one of
- *  these schemas. Every draft carries `evidenceRefs` (≥1, what grounds it), `confidence`, `risks`, and `operatorSteps`; content drafts also carry a `proofPlan` so the Move ships with its measurement attached. These
- *  schemas are the validation contract for `structured-drafter.ts` (validate → retry-once → fail-closed) and the typed shape the PreparedMovePack (P3) carries forward. PURE, types + validators only, no I/O.
- *  Tenant-agnostic. */
+ *  these schemas. Every draft carries `evidenceRefs` (≥1, what grounds it) and `confidence`; operator steps, the measurement target and the caveats are CODE-OWNED (drafted-copy builds them), so the writer is never
+ *  asked for them (audit, 2026-09-14). PURE, types + validators only, no I/O. Tenant-agnostic. */
 
 import { z } from "zod";
 import { BusinessProfileInferenceSchema, BusinessProfilePatchSchema, PromptCandidatesSchema } from "./onboarding-schemas";
@@ -56,23 +55,8 @@ const SourceRefSchema = z.object({
   fetchBlocked: z.boolean().optional(),
 });
 
-/** One concrete, operator-facing step to execute the Move. */
-const OperatorStepSchema = z.string().min(3).max(280);
-
-/** Proof plan attached to a content Move, metrics + windows + control basis. */
-const ProofPlanSchema = z.object({
-  metrics: z.array(z.string().min(1)).min(1).max(8),
-  windowsDays: z.array(z.number().int().positive()).min(1).default([7, 14, 28]),
-  controls: z.string().min(1).max(300),
-});
-
 /** Fields EVERY structured draft must carry, the trust floor. evidenceRefs is REQUIRED and non-empty: a draft with no grounding is rejected by validation. */
-const base = {
-  evidenceRefs: z.array(EvidenceRefSchema).min(1),
-  confidence: ConfidenceSchema,
-  risks: z.array(z.string().min(1)).max(8).default([]),
-  operatorSteps: z.array(OperatorStepSchema).min(1).max(12),
-};
+const base = { evidenceRefs: z.array(EvidenceRefSchema).min(1), confidence: ConfidenceSchema };
 
 // ── the draft schemas (the Sprint 2 minimum set) ────────────────────────────
 
@@ -84,7 +68,6 @@ const AtomicEditDraftSchema = z.object({
   rationale: z.string().min(1).max(400),
   /** W5 (J-69): same additive sources list, only meaningful when the edit introduces a NEW factual claim the "before" value didn't already carry (see draft-quality.ts's SPECIFIC_FACT signal); a pure rephrase is never gated. */
   sources: z.preprocess((v) => Array.isArray(v) ? v.filter((x) => x != null && typeof (x as { url?: unknown }).url === "string" && ((x as { url: string }).url).trim() !== "") : v, z.array(SourceRefSchema).default([])), /* WRITE FIRST, CHECK BEHIND (operator receipts, 2026-09-11): a draft with nothing to cite emits sources: [{url: ""}] and the min(1) fields failed the WHOLE page as schema_invalid; an all-blank source row IS the empty list this field already defaults to, so it is dropped, and a row naming a real url still answers to every field. */
-  proofPlan: ProofPlanSchema,
   /** THE EDITOR CONTRACT (decision/drafted-copy): the homework a finished edit shows, additive with defaults so every draft stored before it still deserializes. `claims` is what the copy asserts and the grounding ids that carry it; the deliverable check, never this schema, decides whether an empty one is finished. */
   placementAnchor: z.string().max(400).default(""),
   /** SELECTION, NOT INVENTION: for an internal link the writer is handed the exact editable spots that exist on the stored page and must name one by id. Free-text placement is how a link came to be offered after "Explore More". Empty for every other kind, and TRUNCATED rather than refused (live, 2026-08-31): the 8-character cap failed the WHOLE schema whenever a non-link draft stuffed prose here, killing real section candidates over a field code ignores for their kind; a link with a mangled id is still refused downstream, by the id check that owns that rule, and no transform rides here because the strict transport cannot represent one in JSON Schema. */
@@ -219,10 +202,7 @@ const FactClaimExtractionSchema = z.object({ statements: z.array(z.object({ subj
 const FactClaimJudgementSchema = z.object({
   verdict: z.enum(["page_correct", "page_wrong", "page_imprecise", "undecidable"]), confidence: z.enum(["confirmed", "likely", "disputed", "unsupported"]),
   proposed: z.string().max(600), literal: z.string().max(400), usage: z.string().max(400), note: z.string().max(400),
-  supporting: z.array(z.object({ url: z.string().max(400), quote: z.string().max(600), groups: z.array(z.string().min(1).max(120)).max(8),
-    supported: z.boolean(), supportSpan: z.string().max(600), subjectSpan: z.string().max(120),
-    subjectFrom: z.enum(["quote", "title"]), relationSpan: z.string().max(120),
-    meaningSpans: z.array(z.string().max(120)).max(8) })).max(6), // one quote per source: independent publishers never carry the identical sentence
+  supporting: z.array(z.object({ url: z.string().max(400), quote: z.string().max(600), groups: z.array(z.string().min(1).max(120)).max(8) })).max(6), // one quote per source: independent publishers never carry the identical sentence; fact-check-run derives the support spans itself
   subjects: z.array(z.object({ url: z.string().max(400), sameEntity: z.boolean(),
     language: z.string().max(60), script: z.string().max(120).nullable(), why: z.string().max(300) })).max(6) });
 
@@ -263,23 +243,16 @@ export const SCHEMA_BY_KIND = {
 // (judge, strategist, critic, SERP hypothesis). The gateway dispatches on SCHEMA_BY_KIND above (validate -> retry once -> fail closed); the extra entries below are the contract each hand-rolled parser must keep
 // producing.
 
-/** Every CUSTOMER-FACING PROSE string in a parsed draft, flattened - fed to the content firewalls (numeric-fidelity / placeholder / em-dash / superlative) at the ONE call site that runs them, generation time in
- *  structured-drafter.ts's `callStructuredLLM` (there is no second, later re-scan - this helper's scope IS the firewall's scope, so a key skipped here is skipped everywhere). Three kinds of field are deliberately
- *  EXCLUDED because they are not prose an operator ever pastes onto their site: - `sources`: machine-emitted citation METADATA (retrievedAt, url, finalUrl, contentHash, domain, claim) - re-stamped by
- *  source-authority.ts and verified against the real fetched page by the drafter's source- verification step. Scanning it made the firewall reject a whole draft for the digits of a citation's own retrievedAt date
- *  ("2026-07-11" -> "07,11") that the product's own prompt told the model to emit. - `proofPlan`: the MEASUREMENT METHODOLOGY the product's own prompt asks the model to write ("measure clicks over a 7/14/28-day window,
- *  target a stated lift") - an aspirational target/method description, not a factual claim about the world that needs grounding. Pilot loop 6 (2026-07-11) found BOTH live attempt-1s dying on the model's own
- *  `proofPlan.metrics` text ("target 100%") - a false reject of a field the product itself instructed the model to fill in, not an invented customer-facing fact. - `operatorSteps` / `risks`: procedural implementation
- *  instructions and internal caution notes addressed TO the operator ("Add this answer block directly under the H1", "keep claims neutral") - never copy the operator publishes verbatim. `evidenceRefs.detail` stays
- *  SCANNED on purpose (unchanged): it is the model's own description of REAL grounding data (a GSC/GA4/Clarity/DataForSEO/ ... signal Beacon already retrieved) - an invented number there means the model fabricated its
- *  OWN evidence, exactly the case this firewall exists to catch, not methodology the product asked it to write. The grounded-number ledger is unchanged, so a fabricated number IN PROSE - including one that also happens
- *  to appear inside the now-excluded proofPlan/ operatorSteps/risks text - still fails: those fields are never added to the ledger, so they can never launder an invented prose number as "grounded". */
+/** Every CUSTOMER-FACING PROSE string in a parsed draft, flattened, fed to the content firewalls at the ONE call site that runs them (structured-drafter.ts callStructuredLLM). Excluded because no operator ever
+ *  pastes them: `sources` (citation metadata re-stamped and verified by code; scanning it rejected drafts over a retrievedAt date), `rationale` (the writer's reasoning about the edit, never published copy; "kept to
+ *  58 characters" is not an invented figure), identifiers echoed from an allowlist, and the stored text the edit replaces. `evidenceRefs.detail` stays SCANNED: an invented number there means the model fabricated its
+ *  OWN evidence. The grounded-number ledger never includes an excluded field, so a prose number can never be laundered through one. */
 export function draftProseStringValues(value: unknown): string[] {
   // Non-prose methodology/procedural keys, skipped at every object level (see the doc comment above for the one-line reason each is excluded). `ownedUrls` and `evidenceKeys` are IDENTIFIERS echoed back from an
   // allowlist, not prose the model wrote. Scanning them meant a real customer address containing the word "best" tripped the superlative firewall and killed the verdict on every pass, forever, at two paid calls a
   // time. A page address cannot make a claim. A case synthesis carries ids, addresses and the operator's own search phrases, all echoed from a supplied list: a page whose address says "best" makes no claim, so it can
   // never kill the reading. Its `reason` stays scanned.
-  const NON_PROSE_KEYS = new Set(["preservation", "sources", "proofPlan", "operatorSteps", "risks", "ownedUrls", "evidenceKeys", "keepId", "absorbIds", "fromId", "caseId", "url", "parentId", "childId", "moveQueries", "observationId", "before", "beforeText", "placementAnchor", "supportedBy", "placementId"]);
+  const NON_PROSE_KEYS = new Set(["preservation", "sources", "rationale", "ownedUrls", "evidenceKeys", "keepId", "absorbIds", "fromId", "caseId", "url", "parentId", "childId", "moveQueries", "observationId", "before", "beforeText", "placementAnchor", "supportedBy", "placementId"]);
   const out: string[] = [];
   const walk = (v: unknown): void => {
     if (typeof v === "string") out.push(v);

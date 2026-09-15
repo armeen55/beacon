@@ -392,7 +392,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       { kind: "existing_edit", field: "title", before: before ?? null, after: draft.value.after });
     if (components.length === 0) return { status: "none", reason: "No title for this page passed its own checks, so nothing is handed over rather than filler." };
   } else {
-      const slot = CORE_PRODUCERS[finding.cause];
+    const slot = CORE_PRODUCERS[finding.cause as Exclude<typeof finding.cause, "ctr_snippet">];
     if (typeof slot !== "function") return { status: "none", reason: finding.cause === "no_problem" ? diagnosis.explanation : finding.explanation };
     if (opts.held?.newPageDraft?.brief.kind === "full_rewrite" && (opts.held.tenantId !== tenantId || opts.held.basis !== opts.basis || canonicalUrlKey(opts.held.pageUrl ?? "") !== canonicalUrlKey(page.url))) return { status: "none", reason: "The rewrite bank does not belong to this tenant, basis and page; no work was bought." }; const checked = held ? await readFactChecks(tenantId, pathOf(page.url)).catch(() => [] as FactCheck[]) : [];
     const compared = snapshot.research ? jobComparison(snapshot.research, [primary], { url: page.url, text: `${content.title ?? ""} ${(held?.passages ?? []).join(" ")}`, headings: content.outline ?? [], passages: held?.passages ?? [], complete: held?.completeness === "complete" && held.version === "current" }) : null;

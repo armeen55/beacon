@@ -185,7 +185,7 @@ describe("reading the answers back", () => {
     const deps = { readObservations: async () => [fresh, stale, done], readPrompts: async () => null, identity: BRAND,
       analyzeBatch: async (i: { targets: readonly { row: { id: string } }[] }) => { groups.push(i.targets.length); return readsAll(i); },
       persist: async (_t: string, id: string, _a: Record<string, unknown>, hash: string) => void saved.push([id, hash]) };
-    expect(await runAnswerAnalyses(T, DAY, deps)).toEqual({ attempted: 2, settled: 2, refused: 0, read: 2, outcomes: { settled: 2 } }); // and the pass says what it did AND accounts for every answer it took on, so a run receipt shows the yield with its explanation rather than a number nobody can check
+    expect(await runAnswerAnalyses(T, DAY, deps)).toEqual({ attempted: 2, settled: 2, refused: 0, read: 2, outcomes: { settled: 2 }, billed: 1 }); // and the pass says what it did AND accounts for every answer it took on, so a run receipt shows the yield with its explanation rather than a number nobody can check
     expect([groups, saved]).toEqual([[2], [["a", "h1"], ["b", "h2-new"]]]); // TWO answers, ONE call: this is the whole point
     groups.length = 0; // the same pass again, with the analyses now on file: zero calls, zero cents
     const settled = [row("a", "h1", "h1", true), row("b", "h2-new", "h2-new", true), done]; expect([(await runAnswerAnalyses(T, DAY, { ...deps, readObservations: async () => settled })).read, groups]).toEqual([0, []]);});

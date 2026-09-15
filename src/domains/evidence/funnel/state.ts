@@ -190,8 +190,7 @@ export type FunnelState = {
      *  one clears it. Absent = nothing has been harvested under this basis yet, which is a real debt, not zero. */
     consumedAnalyses?: string;
   };
-  /** The CURRENT working set only: pairs whose prompt or engine left the intended
-   *  set are pruned. True history lives in prompt_answer_observations. */
+  /** The CURRENT working set only: pairs whose prompt or engine left the intended set are pruned. True history lives in ai_observations. */
   prompts: { pairs: FunnelPair[]; intendedPairs: number };
   /** The CURRENT chosen keyword set only; obsolete queries are pruned. */
   serps: { queries: FunnelSerp[]; analyzed: number };

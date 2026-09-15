@@ -214,14 +214,14 @@ export function topicPositivelyAuthorized(snapshot: EvidenceSnapshot, investigat
   if (confirmed.some((t) => anchoredTopicMatch(t, subject, weak).relevant)) return true;
   const askedKeys = new Set([investigation.label, ...investigation.queries].map((q) => canonicalQueryKey(q)).filter(Boolean));
   /* DEMAND ALONE IS NOT A SUBJECT (operator, 2026-09-12: "why would Iranopedia have a French language page... other people's websites should always be on their topics"). A site's pages earn stray searches all the time, and earning them authorized building for them: the language-difficulty page's own traffic invited an "Is French Hard to Learn?" page onto an Iran encyclopedia. Demand or an anchored keyword now also has to share a subject word with what the site says it IS, read off its own titles and H1s; a topic the operator confirmed in the profile stays authorized on that confirmation alone, universally and with nothing tenant-named. */
-  const siteBag = new Set(snapshot.ownedPages.flatMap((p) => topicTokens(`${p.content?.title ?? ""} ${p.content?.h1 ?? ""}`)));
-  const onSubject = [investigation.label, ...investigation.queries].some((t) => topicTokens(t).some((w) => siteBag.has(w)));
-  if (siteBag.size >= 8 && !onSubject) return false; /* a snapshot whose pages carry almost no titles cannot say what the site is, so it abstains rather than vetoing everything */
+  const bag = (t: string): string[] => topicTokens(t).filter((w) => !weak.has(w)), siteBag = new Set([...snapshot.ownedPages.flatMap((p) => bag(`${p.content?.title ?? ""} ${p.content?.h1 ?? ""}`)), ...confirmed.flatMap(bag)]);
+  const shared = new Set([investigation.label, ...investigation.queries].flatMap(bag).filter((w) => siteBag.has(w))); /* TWO SUBJECT WORDS, NOT ONE (audit, 2026-09-14): one shared token let any title carrying "learn", "hard" or "language" authorize "is french hard to learn"; the site-wide anchor every page wears counts for nothing */
+  if (siteBag.size >= 8 && shared.size < 2) return false; /* a snapshot whose pages carry almost no titles cannot say what the site is, so it abstains rather than vetoing everything */
   if (snapshot.ownedPages.some((p) => (p.search?.topQueries ?? []).some((q) =>
     q.impressions > 0 && askedKeys.has(canonicalQueryKey(q.query))))) return true;
   // A keyword bought THROUGH the operator's own anchors carries its authorization; the machine-suggested
-  // routes are exactly the drift this gate exists for. Absence of a route is not a route.
-  const ANCHORED = new Set(["site", "ranked", "gsc", "profile", "prompt", "related", "suggestion", "ideas"]);
+  // routes (related, suggestion, ideas) are exactly the drift this gate exists for and authorize nothing. Absence of a route is not a route.
+  const ANCHORED = new Set(["site", "ranked", "gsc", "profile", "prompt"]);
   return snapshot.research.retainedKeywords.some((k) =>
     k.discoveredVia != null && ANCHORED.has(k.discoveredVia) && askedKeys.has(canonicalQueryKey(k.query)));
 }

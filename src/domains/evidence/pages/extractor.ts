@@ -13,9 +13,7 @@ import {
   serviceRegexFrom,
 } from "@/domains/account";
 
-function hash(input: string): string {
-  return createHash("sha256").update(input).digest("hex").slice(0, 16);
-}
+const hash = (input: string): string => createHash("sha256").update(input).digest("hex").slice(0, 16);
 function stableJson(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;

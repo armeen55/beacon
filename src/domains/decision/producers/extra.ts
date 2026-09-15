@@ -3,8 +3,6 @@ import "server-only";
 import { getRepository } from "@/lib/persistence/repositories";
 import { log } from "@/lib/logger";
 import { canonicalQueryKey, domainOf, topicTokens } from "@/domains/evidence/relevance-gate";
-import { citesOwnSite } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
-import { buildFanoutEvidence } from "@/domains/evidence/ai-visibility/fanout-evidence";
 import { canonicalPairOf, readAiObservations } from "@/domains/evidence/ai-visibility/ai-observations";
 import { pageHashOf } from "@/domains/evidence/pages/fact-check-run"; import { authorizedCorrections, readFactChecks, type FactCheck } from "@/domains/evidence/pages/fact-checks";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence, type OwnedQuerySignal } from "@/domains/evidence/snapshot";
@@ -12,7 +10,7 @@ import { defaultExpectedCtrAt, type TenantCtrCurve } from "@/domains/evidence/fo
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import { substantiveGapOf, type CauseFinding } from "@/domains/decision/diagnosis";
 import type { CanonicalDemandUnit } from "@/domains/evidence/demand-units";
-import { actionFamilyOf, loadChangeProposals } from "../proposal-store";
+import { loadChangeProposals } from "../proposal-store";
 import { mutationFootprint } from "../mutation-footprint";
 import { RECEIPT } from "../diagnose";
 import { demandOf, placementCandidatesOf, winnersAgreeOn } from "../drafted-copy";
@@ -20,16 +18,18 @@ import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/page
 import { selectPageVersion } from "@/domains/evidence/pages/page-version";
 // THE SHARED PRIMITIVES live in page-fit now: two producers answer "which page of this account is this search
 // FOR" and one copy of that answer is the whole point of the split.
-import { count, labelOf, mint, pageWords, pathOf, plain,
+import { count, labelOf, mint, pathOf, plain,
   STOREFRONT, subjectWords, type Draft, type Understanding } from "./page-fit";
 
 // WHAT ONLY THIS FILE USES STAYS IN THIS FILE. The split exists so two producers share ONE answer to "which
 // page is this search for"; everything else moving with it would have made page-fit a drawer and widened the
 // public surface for nothing.
-/** A page shown HEAVY_IMPRESSIONS often is a page to write, not a stub to fill. MIN_EARNED_OVERLAP is the words of a page's own tie to a search, past the site wide ones, before it may be asked to answer it, and past MAX_HEADING_WORDS a heading is a paragraph wrapped in a heading tag, saying nothing about what it answers. */
-const HEAVY_IMPRESSIONS = 5_000, MIN_EARNED_OVERLAP = 2, MAX_HEADING_WORDS = 12;
-/** A page worth linking to sits inside striking distance and is genuinely being seen. TOP_PAGES_PER_CLASS pages per defect get a card, one page at a time; no word-count line exists any more, because a content gap is diagnosed, never counted. */
-const NEAR_MISS_MIN = 4, NEAR_MISS_MAX = 15, MIN_IMPRESSIONS = 30, TOP_PAGES_PER_CLASS = Number.MAX_SAFE_INTEGER; // the count meter is DELETED (operator, 2026-08-30, "i dont want any limits"): every page with the defect gets its card; the evidence floors stay the only quality gates
+/** Past MAX_HEADING_WORDS a heading is a paragraph wrapped in a heading tag, saying nothing about what it answers. */
+const MAX_HEADING_WORDS = 12;
+/** A page worth linking to sits inside striking distance and is genuinely being seen. No count meter (operator, 2026-08-30, "i dont want any limits"): every page with the defect gets its card; the evidence floors stay the only quality gates. */
+const NEAR_MISS_MIN = 4, NEAR_MISS_MAX = 15, MIN_IMPRESSIONS = 30, TO_28_DAYS = 28 / 90; // ONE IMPACT UNIT (audit, 2026-09-14): the ranker prints impactScore as clicks over 28 days, and these cards carried the 90-day figure, so a meta card outranked a section by construction
+/** Every verdict of the gap reader that is WORK on this page: an absence, an answer in pieces, a capture to read, and the observation kinds (what a winner carries that this page does not, in the shape it carries it). */
+const MINTED_KINDS = new Set(["missing_answer", "scattered_answer", "unknown_capture", "incomplete_answer", "missing_comparison", "missing_procedure", "missing_evidence", "false_page_promise"]);
 /** Results led by places that sell. A page losing to these loses on having nothing to buy on it. */
 const SHOP_DOMAIN = /(^|\.)(amazon|etsy|ebay|aliexpress|walmart|redbubble|teepublic|zazzle|temu|wayfair|shop)\./i;
 const STORE_FIRST = /(^|\.)(amazon|etsy)\./i;
@@ -51,12 +51,11 @@ import { aeoMeter, aiCaseCards, type AeoMeter } from "./ai-cases";
 /** What this producer did, whether it FINISHED, and what it refused to guess at: completeness is stated per family, so a dead source holds only its own out of the sweep, and `held` puts refusals on the receipt. */
 type ExtraQueueRun = { cards: ChangeProposal[]; complete: boolean; families: string[]; held: { pageUrl: string; reason: string }[]; aeoHold?: ReadonlySet<string>; aeoSpend?: { funded: number; attempted: number; givenBack: number; left: number }; needsOwnPage: { query: string; refusedPages?: string[] }[] };
 import { linkFit, pageUnderstanding } from "./page-job";
-import { journeyLabel } from "@/domains/evidence/ai-visibility/answer-journeys";
 /** What this producer did, whether it FINISHED, and what it refused to guess at. `complete` is true only when the queue on file was read AND every source these producers judge on answered: "none this pass" and "I could not look" are the same length and opposite facts, and the sweep behind this producer withdraws every card in a family it believes was rewritten in full. `families` names the ones that DID finish, so a dead source holds only its own out of that sweep. `held` puts refusals on the receipt. */
 function recoverableClicks(p: OwnedPageEvidence, expectedCtrAt: (position: number) => number): number | null {
   const q = [...(p.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0];
   if (!q || q.position == null || q.impressions < MIN_IMPRESSIONS) return null;
-  const n = Math.round((expectedCtrAt(q.position) - Math.min(1, q.clicks / Math.max(1, q.impressions))) * q.impressions);
+  const n = Math.round((expectedCtrAt(q.position) - Math.min(1, q.clicks / Math.max(1, q.impressions))) * q.impressions * TO_28_DAYS);
   return n > 0 ? n : null;
 }
 /** ONE card, in the ONE shape the store files and every surface renders. */
@@ -109,7 +108,7 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
     for (const target of targets) {
     const to = pathOf(target.page.url), position = target.query.position!.toFixed(1);
     // THE LINK'S OWN WORTH: the clicks the destination is leaving behind at the position it holds for this search, and that search's audience. Never the source page's whole audience.
-    const gain = Math.round((expectedCtrAt(target.query.position!) - Math.min(1, target.query.clicks / Math.max(1, target.query.impressions))) * target.query.impressions);
+    const gain = Math.round((expectedCtrAt(target.query.position!) - Math.min(1, target.query.clicks / Math.max(1, target.query.impressions))) * target.query.impressions * TO_28_DAYS);
     const held = inbound.get(to.toLowerCase()) ?? 0, support = held === 0 ? `No page of this site links to ${to} at all today`
       : `Only ${count(held, "page")} of this site ${held === 1 ? "links" : "link"} to ${to} today`;
     out.push({
@@ -129,7 +128,7 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
 }
 /** THE FINDING A SWEEP CARD ALREADY MADE, SAID IN THE LADDER'S OWN WORDS (operator, 2026-09-04). Thirty-two live descriptions were minted off a named defect in the page's own line and carried no cause at all: the detail page printed "No cause is named for it yet" over a finding the card's own headline states, and the wording gate went on holding every replacement "until a diagnosis names what is wrong with the current description" while that diagnosis sat unsaid in the same object. NO NEW VOCABULARY, because none is needed: a description missing or repeated across siblings IS the line Google displays for the page, a page missing what every winner covers IS incomplete coverage, and a page nothing links to IS where a reader gets sent next. `evidenceKeys` name the readings the card was actually made from. */
 const structural = (cause: CauseFinding["cause"], action: CauseFinding["action"], evidenceKeys: string[], explanation: string, falsifier: string): CauseFinding => ({ cause, action, evidenceKeys, competingExplanations: [], notConsidered: [], explanation, falsifier });
-/** 3. THE THREE DEFECTS WORTH A SWEEP, ONE CARD PER PAGE. A card that fixes one page and then says "repeat on nine more" cannot be done in one sitting, marked done, or measured, so each of the busiest TOP_PAGES_PER_CLASS pages per defect gets its own card and figures and the class total rides along as context. */
+/** 3. THE THREE DEFECTS WORTH A SWEEP, ONE CARD PER PAGE. A card that fixes one page and then says "repeat on nine more" cannot be done in one sitting, marked done, or measured, so each page with the defect gets its own card and figures and the class total rides along as context. */
 function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, expectedCtrAt: (position: number) => number): Draft[] {
   const impressions = (p: OwnedPageEvidence): number => p.search?.impressions90d ?? 0; /** A ZERO SUPPRESSES THE CLAUSE THAT RANKS IT (rendered app, 2026-09-05). A live description read "20 pages carry the same templated description ... and /california-persian-cities/berkeley is the busiest of them at 0 impressions in 90 days", which calls a page the busiest and then prints the figure that says it is not. A superlative is a claim about a figure, so where the figure is zero the claim is dropped and the sentence that survives is the one the evidence carries. */ const ranked = (p: OwnedPageEvidence): string => impressions(p) > 0 ? `, and ${pathOf(p.url)} is the busiest of them at ${count(impressions(p), "impression")} in 90 days` : "";
   const rank = (list: OwnedPageEvidence[]): OwnedPageEvidence[] => [...list].sort((a, b) => impressions(b) - impressions(a) || pathOf(a.url).localeCompare(pathOf(b.url)));
@@ -146,7 +145,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   };
   const out: Draft[] = [];
   const noMeta = rank(pages.filter((p) => !p.content?.metaDescription?.trim()));
-  for (const p of noMeta.slice(0, TOP_PAGES_PER_CLASS)) out.push({
+  for (const p of noMeta) out.push({
     page: p, slug: "missing_description", field: "meta", query: topQueryOf(p),
     headline: "A search description of this page's own, where Google is writing one for it today", before: null,
     after: "Write a description of about 150 characters that names this page's subject and the one answer it gives, and ends on a fact about the page rather than an instruction to read it.",
@@ -184,7 +183,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   const byH1 = new Map<string, OwnedPageEvidence[]>();
   for (const p of pages) { const h = (p.content?.h1 ?? "").trim().toLowerCase(); if (h) byH1.set(h, [...(byH1.get(h) ?? []), p]); }
   const dupes = [...byH1.values()].filter((g) => g.length > 1);
-  for (const p of rank(dupes.flat()).slice(0, TOP_PAGES_PER_CLASS)) {
+  for (const p of rank(dupes.flat())) {
     const heading = plain(p.content?.h1), sharers = (byH1.get((p.content?.h1 ?? "").trim().toLowerCase())?.length ?? 1) - 1;
     out.push({
       page: p, slug: "duplicate_heading", field: "h1", query: topQueryOf(p),
@@ -216,7 +215,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   const gapsOf = (p: OwnedPageEvidence): string[] => winnersAgreeOn(snapshot, p);
   const expandable = rank(pages.filter((p) => (p.content?.wordCount ?? 0) > 0 && impressions(p) > 0 && winnersOnFile(p)))
     .map((p) => ({ p, gaps: gapsOf(p) })).filter((x) => x.gaps.length > 0);
-  for (const { p, gaps } of expandable.slice(0, TOP_PAGES_PER_CLASS)) {
+  for (const { p, gaps } of expandable) {
     const stores = winnersAreStores(p);
     const shopStep = "Add a product block or shop link above the fold; the pages winning this search are stores.";
     const named = gaps.slice(0, 4);
@@ -238,7 +237,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   // judging blindness, and skipping it silently hid the site's biggest pages. It gets a research card that
   // names the rendered read as the next step, and no body-dependent change can stand on it until that lands.
   const unread = rank(pages.filter((p) => (p.content?.wordCount ?? 0) === 0 && impressions(p) > 0));
-  for (const p of unread.slice(0, TOP_PAGES_PER_CLASS)) {
+  for (const p of unread) {
     out.push({
       page: p, slug: "thin_page", field: "section", query: topQueryOf(p),
       headline: `A rendered read of a page shown ${count(impressions(p), "time")} whose words a raw fetch cannot see`,
@@ -260,16 +259,16 @@ function unansweredCards(snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[],
     const rows = p.search?.topQueries ?? []; if (read.misses.get(canonicalUrlKey(p.url)) === "read_failed") continue; // I COULD NOT LOOK IS NOT THIS PAGE DOES NOT ANSWER (reviewer, 2026-09-02): a chunk of the body read that refused typed its pages `read_failed`, the producer asked for no reasons at all, and a page with words on file read as bodyless, which mints the very card this reading exists to refuse. Nothing on file (`no_capture`) still mints, carrying the page's own capture as the step it owes. The impressions floor moved to the gap reader, where it is asked of the SEARCH rather than of the page
     const demand = demandOf(p, read.bodies.get(canonicalUrlKey(p.url)) ?? null, read.facts.get(path) ?? [], read.basis, read.tenantId, snapshot, null, read.written.get(path.toLowerCase()) ?? []), ordinary = substantiveGapOf({}, demand), body = read.bodies.get(canonicalUrlKey(p.url));
     const first = ordinary; /* THE WALK'S OWN READING, NOT A THINNER ONE (reviewer, 2026-09-02): built with no body and no checked fact, this mint claimed an absence off a title and three headings and the walk settled the same card terminal seconds later, because the stored body answered it. Same page, same words, same facts, same split ruling, so a card is minted on the reading it is later judged by. AND ONE PAGE IS A CONTAINER OF ATOMIC OPPORTUNITIES (Product Truth, one page is never one opportunity; campaign, 2026-09-05): this producer took the largest unanswered search and stopped there, so while that one change stood unimplemented every smaller unanswered search on the same page was invisible. Up to TWO a pass, each named by its own search and each writing its own section. THE FIRST KEEPS THE ID IT ALWAYS HAD, so no row on file changes identity, and the one behind it carries its own canonical search key after "@", the way a link card carries its destination; the family is the part before the "@", so every door downstream reads them as one family and the sweep owns them both. */ for (const [nth, gap] of ((): (typeof first | null)[] => { const chain: (typeof first | null)[] = [first]; const keys: string[] = first?.query ? [canonicalQueryKey(first.query)] : []; for (let i = 0; i < 3 && keys.length === i + 1; i += 1) { const g = substantiveGapOf({}, demand, keys.join(",")); chain.push(g); if (g?.query) keys.push(canonicalQueryKey(g.query)); } return chain; })().entries()) /* up to FOUR a pass now (operator, 2026-09-11, unlimited changes): two left every third and fourth unanswered search on a big page invisible while the first two sat unimplemented; each variant still wears its own canonical search key and its own section */ {
-    /* THREE OF THE FIVE VERDICTS ARE WORK, AND THEY ARE NOT THE SAME WORK (operator, 2026-09-05). The gap reader classifies the page's own demand against its complete passages, and this producer used to mint only on `missing_answer`, so a search the page answers IN PIECES was invisible and a page whose words are not all on file was minted as an absence. A scattered answer is brought together and never added to; an incomplete capture is read before anything is claimed about it. A page that answers in one passage still mints nothing. */ if ((gap?.kind !== "missing_answer" && gap?.kind !== "scattered_answer" && gap?.kind !== "unknown_capture") || !gap.query || gap.impressions == null) continue; // a split this page does not own, a page whose own passage already answers this, and a search that names nothing all land here as nothing
-    const spread = gap.kind === "scattered_answer", unknown = gap.kind === "unknown_capture", q = gap.query, seen = count(gap.impressions, "search", "searches"), row = rows.find((r) => canonicalQueryKey(r.query) === canonicalQueryKey(q));
+    /* THREE OF THE FIVE VERDICTS ARE WORK, AND THEY ARE NOT THE SAME WORK (operator, 2026-09-05). The gap reader classifies the page's own demand against its complete passages, and this producer used to mint only on `missing_answer`, so a search the page answers IN PIECES was invisible and a page whose words are not all on file was minted as an absence. A scattered answer is brought together and never added to; an incomplete capture is read before anything is claimed about it. A page that answers in one passage still mints nothing. */ if (!gap?.query || gap.impressions == null || !(MINTED_KINDS.has(gap.kind) || (gap.kind === "no_substantive_gap" && gap.owed?.kind === "evidence"))) continue; // a split this page does not own, a page whose own passage already answers this, and a search that names nothing all land here as nothing. THE OBSERVATION KINDS ARE MINTED AND AN OWED READING IS BOUGHT (audit, 2026-09-14): incomplete_answer and the typed shapes were dropped here, so the "see what wins and write a better version" door existed in the diagnosis and reached no row; a search whose winners nobody has read now rides its evidence obligation instead of being discarded
+    const spread = gap.kind === "scattered_answer", unknown = gap.kind === "unknown_capture", owes = gap.kind === "no_substantive_gap", observed = gap.kind === "incomplete_answer" || gap.kind === "false_page_promise", q = gap.query, seen = count(gap.impressions, "search", "searches"), row = rows.find((r) => canonicalQueryKey(r.query) === canonicalQueryKey(q));
     const held = rows.map((r) => r.position).filter((n): n is number => n != null), at = row?.position ?? (held.length > 0 ? Math.min(...held) : 10); // A ROW WITH NO POSITION IS NOT A CARD WORTH NOTHING (reviewer, 2026-09-02): a null impact ranked Tehran's 8,531-impression question last and the plan funded it at zero, so the best receipt position this page holds stands in, and position 10 where it holds none
-    const impact = Math.max(0, Math.round((expectedCtrAt(at) - Math.min(1, (row?.clicks ?? 0) / Math.max(1, row?.impressions ?? 1))) * gap.impressions)); // the same curve, the same arithmetic and the same unit as every other card here, run on the whole demand behind the missing answer rather than on one of the ways it is asked
+    const impact = Math.max(0, Math.round((expectedCtrAt(at) - Math.min(1, (row?.clicks ?? 0) / Math.max(1, row?.impressions ?? 1))) * gap.impressions * TO_28_DAYS)); // the same curve, the same arithmetic and the same unit as every other card here, run on the whole demand behind the missing answer rather than on one of the ways it is asked
     const joined = body ? [body.title, body.h1, ...body.headings, ...body.passages].filter(Boolean).join("\n") : "", checked = authorizedCorrections(read.facts.get(path) ?? [], { pageContentHash: body ? pageHashOf(joined) : null, evidenceBasis: read.basis, ...(body ? { body: joined } : {}) }, read.tenantId);
     out.push({ page: p, factIdentity: JSON.stringify(checked.map((f) => [f.statementKey, f.sourceReadAt ?? f.checkedAt]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))), slug: nth === 0 ? "missing_answer" : `missing_answer@${canonicalQueryKey(q)}`, field: spread ? "section" : "answer_block", query: q, asked: q, treatment: spread ? "rewrite_existing_section" : "add_answer_section", obligation: gap.owed ?? { kind: "draft" },
-      headline: spread ? `One place a reader can lift this page's answer to "${q}", worth ${seen} in 90 days` : unknown ? `A full read of this page before "${q}" is called unanswered, worth ${seen} in 90 days` : `An answer to "${q}" for the ${seen} in 90 days this page does not answer`,
-      before: null, after: spread ? `One passage on ${path} that states this page's own answer to "${q}" outright, in one place a reader can lift.` : `One section on ${path} that answers "${q}" for a reader who asked exactly that, in this page's own voice.`, why: gap.why ?? `${seen} in 90 days put ${path} in front of people asking "${q}", and nothing in this page's own words answers it.`,
+      headline: spread ? `One place a reader can lift this page's answer to "${q}", worth ${seen} in 90 days` : unknown ? `A full read of this page before "${q}" is called unanswered, worth ${seen} in 90 days` : owes ? `A read of what wins "${q}" before this page writes for the ${seen} in 90 days behind it` : observed ? `A better version of what wins "${q}" for the ${seen} in 90 days this page does not carry` : `An answer to "${q}" for the ${seen} in 90 days this page does not answer`,
+      before: null, after: spread ? `One passage on ${path} that states this page's own answer to "${q}" outright, in one place a reader can lift.` : observed && gap.propositions[0] ? `One section on ${path} about ${gap.propositions[0]}, which a page winning "${q}" carries and this page does not, written better than the winner carries it.` : `One section on ${path} that answers "${q}" for a reader who asked exactly that, in this page's own voice.`, why: gap.why ?? `${seen} in 90 days put ${path} in front of people asking "${q}", and nothing in this page's own words answers it.`,
       steps: [`Open your site editor on ${path}`, spread ? "Put the passage above where a reader asking this would look first" : "Add the section above where a reader asking this would look for it", "Come back here and mark it done, and measurement starts"],
-      hints: [`"${q}" is worth ${seen} in 90 days on ${path}`, spread ? `This page's own words answer "${q}" across several places and in none of them outright` : unknown ? `Not all of this page's own words are on file, so nothing here claims "${q}" is absent` : `Nothing in this page's stored title, headings or copy answers "${q}"`],
+      hints: [`"${q}" is worth ${seen} in 90 days on ${path}`, spread ? `This page's own words answer "${q}" across several places and in none of them outright` : unknown ? `Not all of this page's own words are on file, so nothing here claims "${q}" is absent` : observed || owes ? gap.why ?? `A page winning "${q}" carries what this one does not: ${gap.propositions[0] ?? q}` : `Nothing in this page's stored title, headings or copy answers "${q}"`], // the winner's own observation, quoted, is the evidence hint for an observation kind
       minutes: 30, confidence: "medium", refs: 2, impact, demand: gap.impressions, limitation: gap.why ?? "The absence is read off this page's own stored words as last captured.", // THE AUDIENCE IS THE SEARCH'S OWN, never the page's whole 90 days: a question worth 310 searches on a page shown 68,000 times inherited all 68,000 and outranked work that could really win them
       next: "The page's own words are read first, then a source for the answer, and the exact copy lands here once one is on file.",
       cause: { cause: "incomplete_coverage", action: "opening_answer", evidenceKeys: [RECEIPT.gsc], competingExplanations: [], notConsidered: [], explanation: spread ? `Google shows ${path} to ${seen} in 90 days for "${q}" and this page's own words answer it in pieces rather than in one place.` : unknown ? `Google shows ${path} to ${seen} in 90 days for "${q}" and this page's own words are not all on file yet.` : `Google shows ${path} to ${seen} in 90 days for "${q}" and the page's own stored words never answer it.`,

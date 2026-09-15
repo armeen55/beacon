@@ -1,14 +1,9 @@
 import "server-only";
 import { syncPageSnapshots } from "@/lib/persistence/dual-write";
 
-/**
- * funnel/shared (integrity closure, Agent B) - the injected deps + boundary
- * plumbing every executor reuses. The registry owns provider paths, costs and
- * models now, so this file carries NO endpoint/cost/model maps: executors name a
- * CAPABILITY and hand the boundary a public input, then parse the returned typed
- * envelope. State reads/writes are basis-scoped with optimistic row_version.
- */
-
+/** funnel/shared: the injected deps and boundary plumbing every executor reuses. The registry owns provider paths, costs and models, so this file
+ *  carries no endpoint, cost or model map: executors name a CAPABILITY, hand the boundary a public input and parse the typed envelope back. State
+ *  reads and writes are basis-scoped with optimistic row_version. */
 import { createHash } from "node:crypto";
 
 import type { Account, BusinessProfile } from "@/domains/account";

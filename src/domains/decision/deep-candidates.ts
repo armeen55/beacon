@@ -30,8 +30,6 @@ type DeepCandidate = {
   unit: Unit;
   /** What this door proves, in `unit`. Never borrowed from another door. */
   strength: number;
-  /** Monthly searches on file for this page's own search, or 0 when none is. A tiebreak only. */
-  volume: number;
   /** The first-person sentence this page's line on the run receipt carries, naming the door it entered by. */
   entry: string;
   /** This door's own case, so the producer never proves one door's page with another door's evidence. */
@@ -66,7 +64,7 @@ export function selectDeepCandidates(input: {
 
   // DOOR 1: THE BIGGEST PROVEN CLICK GAP. Unchanged, and still the strongest kind of proof there is, because it is the only one carrying a number of clicks I can show you.
   const ctr = strongest(candidates.filter((c) => c.action === "act_existing_page" && !!c.pageUrl));
-  if (ctr?.pageUrl) doors.push({ pageUrl: ctr.pageUrl, door: "ctr_gap", unit: "clicks", strength: clicksOf(ctr), volume: 0, evidence: NO_IDENTITY,
+  if (ctr?.pageUrl) doors.push({ pageUrl: ctr.pageUrl, door: "ctr_gap", unit: "clicks", strength: clicksOf(ctr), evidence: NO_IDENTITY,
     entry: `${LEAD} it is the biggest proven gap on file: about ${num(clicksOf(ctr))} clicks short of what its own positions usually earn.` });
 
   // DOOR 2: THE PAGE A VERDICT NAMES. My comparison of a whole subject already concluded that the answer is the page you have rather than a page you do not, and that conclusion never reached the deep producer.
@@ -77,7 +75,7 @@ export function selectDeepCandidates(input: {
   if (owner?.pageUrl && coverage) {
     const winners = Math.max(0, coverage.investigation.currentReadableWinners);
     const clicks = clicksOf(owner);
-    doors.push({ pageUrl: owner.pageUrl, door: "coverage_verdict", volume: 0,
+    doors.push({ pageUrl: owner.pageUrl, door: "coverage_verdict",
       evidence: { ...NO_IDENTITY, query: coverage.investigation.label },
       unit: clicks > 0 ? "clicks" : "winners", strength: clicks > 0 ? clicks : winners,
       entry: `${LEAD} the comparison of "${coverage.investigation.label}" names this as the page of yours to improve, off the ${num(winners)} winning ${winners === 1 ? "page" : "pages"} read.` });
@@ -88,7 +86,7 @@ export function selectDeepCandidates(input: {
   const splitPayload = split?.cause.payload;
   if (split?.pageUrl) {
     const competing = splitPayload && splitPayload.cause === "cannibalization" ? splitPayload.competingPaths : [];
-    doors.push({ pageUrl: split.pageUrl, door: "cannibalization", unit: "clicks", strength: clicksOf(split), volume: 0,
+    doors.push({ pageUrl: split.pageUrl, door: "cannibalization", unit: "clicks", strength: clicksOf(split),
       evidence: { ...NO_IDENTITY, query: split.query!, competingUrls: [...competing] },
       // NO CAUSAL NUMBER ON A SPLIT: `clicksOf` is a MODELLED gap between this page's click rate and what its positions usually earn, a fact about CTR and not about the split, and not one word of it is demonstrated lift from the wording this card proposes. Printed as "about 176 clicks short" beside a title change it reads as a promise the evidence never made. The split's own reason is the split.
       entry: `${LEAD} ${num(competing.length || 2)} of your own pages come up for "${split.query}" and this one is the strongest of them, so Google is choosing between them every time somebody searches it.` });
@@ -102,7 +100,7 @@ export function selectDeepCandidates(input: {
   // THE SPAN THE FALL WAS MEASURED OVER TRAVELS WITH IT. Stamping a null window here made the producer refuse
   // every page this door picked ("one 90 day total is on file with nothing earlier"), so door 5 burned a slot
   // on every pass and produced nothing. The candidate carries the window now, because the windows were read.
-  if (falling?.pageUrl) doors.push({ pageUrl: falling.pageUrl, door: "recent_decline", unit: "clicks", strength: clicksOf(falling), volume: 0,
+  if (falling?.pageUrl) doors.push({ pageUrl: falling.pageUrl, door: "recent_decline", unit: "clicks", strength: clicksOf(falling),
     evidence: { ...NO_IDENTITY, query: falling.query ?? null, window: falling.declineWindow ?? null },
     // WHAT IT LOST, not what a curve says it should earn: this door is opened by a fall, so its sentence is the fall.
     entry: `${LEAD} it has fallen the furthest of the pages on file, about ${num(clicksOf(falling))} fewer clicks than the four weeks before.` });
@@ -111,7 +109,7 @@ export function selectDeepCandidates(input: {
   const picked: DeepCandidate[] = [];
   const seen = new Set<string>();
   for (const d of [...doors].sort((a, b) => UNIT_RANK[a.unit] - UNIT_RANK[b.unit] || b.strength - a.strength
-    || b.volume - a.volume || DOOR_RANK[a.door] - DOOR_RANK[b.door] || a.pageUrl.localeCompare(b.pageUrl))) {
+    || DOOR_RANK[a.door] - DOOR_RANK[b.door] || a.pageUrl.localeCompare(b.pageUrl))) {
     const key = canonicalUrlKey(d.pageUrl);
     if (seen.has(key)) continue;
     seen.add(key);

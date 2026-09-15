@@ -64,11 +64,12 @@ describe("the call cache is per-account, keyed by account", () => { // ── st
     const parts = { tenantId: "a", promptId: "p", promptVersion: 1, kind: "atomic_edit", system: "s", user: "u", model: "m1", schema: { minLength: 1 } };
     expect(new Set([llmCallCacheKey(parts), llmCallCacheKey({ ...parts, tenantId: "b" }), llmCallCacheKey({ ...parts, model: "m2" }), llmCallCacheKey({ ...parts, schema: { minLength: 2 } })]).size).toBe(4); expect(llmCallCacheKey(parts)).toBe(llmCallCacheKey({ ...parts })); }); });
 describe("callStructuredLLM keeps accounts isolated end to end", () => { // ── callStructuredLLM: end-to-end account isolation ──────────────────────────
-  it.each([{}, { ...VALID, after: "[INSERT TITLE]" }, { ...VALID, after: "Nowruz Traditions: 999 Persian New Year Customs" }, { ...VALID, evidenceRefs: [{ source: "clarity", detail: "clicks" }] }])("revalidates banked outputs without deleting or repurchasing invalid work: %j", async (value) => {
+  it.each([{}, { ...VALID, after: "[INSERT TITLE]" }, { ...VALID, after: "Nowruz Traditions: 999 Persian New Year Customs" }, { ...VALID, evidenceRefs: [{ source: "clarity", detail: "clicks" }] }])("re-buys ONCE a banked output that fails today's rules and overwrites it, never deleting it on a refusal: %j", async (value) => { // audit 2026-09-14: a failing hit was schema_invalid at $0 forever
     const cache = partitionedCache(); await callStructuredLLM({ ...REQ, tenantId: "revalidation", complete: seam([{ value: VALID }]).complete, cacheImpl: cache.impl });
-    const entry = cache.store.get("revalidation")![0]!; entry.value = value; const complete = vi.fn();
-    const out = await callStructuredLLM({ ...REQ, tenantId: "revalidation", complete, cacheImpl: cache.impl });
-    expect([out.status, out.status === "validation_failed" && out.costUsd, out.status === "validation_failed" && out.attempts, complete.mock.calls.length]).toEqual(["validation_failed", 0, 0, 0]); expect(cache.store.get("revalidation")![0]).toBe(entry); });
+    const entry = cache.store.get("revalidation")![0]!; entry.value = value; const refused = vi.fn(async () => ({ error: "refusal", retryable: false }));
+    const held = await callStructuredLLM({ ...REQ, tenantId: "revalidation", complete: refused, cacheImpl: cache.impl }); expect([held.status, refused.mock.calls.length, cache.store.get("revalidation")![0]], "one re-buy, and a refused re-buy leaves the banked row where it was").toEqual(["validation_failed", 1, entry]);
+    const fresh = "Haft-Seen Table Guide: Setting Up the Nowruz Spread", bought = vi.fn(async () => ({ value: { ...VALID, after: fresh } })), out = await callStructuredLLM({ ...REQ, tenantId: "revalidation", complete: bought, cacheImpl: cache.impl });
+    expect([out.status, out.status === "drafted" && out.cached, bought.mock.calls.length, (cache.store.get("revalidation")![0]!.value as { after: string }).after], "a good answer overwrites the entry").toEqual(["drafted", undefined, 1, fresh]); });
   it("reuses validated work with billing credentials off, and refuses a wrong owner without calling a provider", async () => {
     const cache = partitionedCache(); await callStructuredLLM({ ...REQ, tenantId: "off-reuse", complete: seam([{ value: VALID }]).complete, cacheImpl: cache.impl });
     const entry = cache.store.get("off-reuse")![0]!; entry.repeatFlag = "style-caveat"; vi.stubEnv("OPENAI_API_KEY", "");
@@ -78,9 +79,9 @@ describe("callStructuredLLM keeps accounts isolated end to end", () => { // ─�
   it("refuses unavailable history rather than buying with silently reduced context", async () => {
     const complete = vi.fn(), cache = partitionedCache().impl; cache.recentTexts = async () => { throw new Error("outage"); };
     const out = await callStructuredLLM({ ...REQ, tenantId: "history-outage", complete, cacheImpl: cache }); expect(out.status === "validation_failed" && out.reason).toBe("cache_history_unavailable"); expect(complete).not.toHaveBeenCalled(); });
-  it("refuses an old flat body cache without deleting it or paying for a retry", async () => {
-    const complete = vi.fn(), cache = partitionedCache().impl; cache.read = async (tenantId, key) => ({ tenantId, key, kind: "body_edit", promptId: "draft.body_edit", promptVersion: 2, createdAt: "2026-09-12", lastUsedAt: "2026-09-12", primaryText: null, value: { ...VALID, field: "answer_block" } });
-    const out = await callStructuredLLM({ ...REQ, kind: "body_edit", tenantId: "flat-bank", complete, cacheImpl: cache }); expect(out.status === "validation_failed" && out.failure).toBe("schema_invalid"); expect(complete).not.toHaveBeenCalled(); });
+  it("treats an old flat body cache as a miss and buys the strict shape once", async () => {
+    const complete = vi.fn(async () => ({ error: "refusal", retryable: false })), cache = partitionedCache().impl; cache.read = async (tenantId, key) => ({ tenantId, key, kind: "body_edit", promptId: "draft.body_edit", promptVersion: 2, createdAt: "2026-09-12", lastUsedAt: "2026-09-12", primaryText: null, value: { ...VALID, field: "answer_block" } });
+    const out = await callStructuredLLM({ ...REQ, kind: "body_edit", tenantId: "flat-bank", complete, cacheImpl: cache }); expect([out.status, complete.mock.calls.length]).toEqual(["validation_failed", 1]); });
   it("account B gets a MISS on account A's byte-identical prompt; A still hits at $0", async () => {
     const cache = partitionedCache();
     const a1 = seam([{ value: VALID, provenance: RECEIPT }]); const outA = await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: a1.complete, cacheImpl: cache.impl }); // Account A generates + caches (pays).

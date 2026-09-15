@@ -10,6 +10,7 @@ import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { selectPageVersion } from "./page-version";
 import { selectedSnapshots } from "@/lib/persistence/repositories/snapshot-reader";
 import { visibleFaqs, type PageSnapshot } from "./types";
+import { sectionsFrom } from "@/domains/evidence/funnel/research-evidence";
 
 /** What my own page says, in its own words, with an honest account of how much of it I have. `fetchedAt`
  *  rides along so the caller judges staleness itself: a 46-day-old body is evidence with a date on it. */
@@ -20,8 +21,9 @@ export type OwnedPageBody = {
   metaDescription: string | null;
   /** Document-order headings when structure is captured; legacy rows retain their stored level groups. */
   headings: string[];
-  /** Ordered body passages EXACTLY as the store holds them, each one the crawler's own entry. */
+  /** Ordered body passages, one heading's text each, split into parts at the passage bound; `passageMeta[i]` names passage i's stable id (heading path plus part ordinal) and heading. */
   passages: string[];
+  passageMeta?: { id: string; heading: string | null }[];
   /** The opening passages joined, for callers that only ever wanted an opener. */
   openingSample: string | null;
   /** EVERY stored word of the page, for word-containment checks only, never for prompting. Empty when the crawl kept no body_text. */
@@ -64,21 +66,25 @@ const COLUMNS = "id, url, title, h1, meta_description, fetched_at, word_count, h
 
 type Row = Partial<Record<keyof PageSnapshot, unknown>> & Pick<Partial<PageSnapshot>, "url" | "fetched_at">;
 
-/** Captured blocks retain their real boundaries. Legacy flat text has only word-safe chunks, never
- * inferred paragraphs; a single long word stays whole and the reader's page budget still decides scope. */
-function passagesFromFullText(full: string, source?: ReturnType<typeof load>): string[] {
-  if (source) {
-    const children = source.root().contents(), out: string[] = []; let pending = "";
-    const flush = () => { const text = pending.replace(/\s+/g, " ").trim(); if (text) out.push(text); pending = ""; };
-    const walk = (node: typeof children[number]): void => {
-      if (node.type === "text") { pending += node.data; return; }
-      if (!("name" in node) || !("children" in node)) return;
-      if (/^(?:h[1-6]|p|ol|ul|dl|table|pre|blockquote|figure|details)$/.test(node.name)) { flush(); pending = source(node).text(); flush(); return; }
-      for (const child of node.children) walk(child);
-    };
-    children.each((_, node) => walk(node)); flush(); return out;
+/** ONE PASSAGE IS ONE HEADING'S TEXT, never a positional chunk (Stage 2, 2026-09-14): the writer cited page-copy-4 and the passage was about other people,
+ *  because a 1,000-character cut of flat text carried no heading and no identity. Sections come off the one shared sectioner; a section past the bound is
+ *  split at block, then sentence boundaries into parts of the SAME heading. The id is the heading path plus the part ordinal, so it survives a recrawl that
+ *  did not change the page and moves only where the page moved. Document order is stable for the same reason. */
+function passagesOf(full: string, row: Row, capture: PageSnapshot["content_capture"] | undefined): { id: string; heading: string | null; text: string }[] {
+  const slug = (t: string): string => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "").slice(0, 40) || "section";
+  const parts = (text: string): string[] => { const out: string[] = []; let held = "";
+    for (const unit of text.split("\n").flatMap((b) => (b.length > MAX_PASSAGE_CHARS ? b.split(/(?<=[.!?])\s+/) : [b]))) { if (!unit) continue;
+      if (held && held.length + 1 + unit.length > MAX_PASSAGE_CHARS) { out.push(held); held = unit; } else held = held ? `${held} ${unit}` : unit; }
+    if (held) out.push(held); return out; };
+  const path: string[] = [], seen = new Map<string, number>(), out: { id: string; heading: string | null; text: string }[] = [];
+  for (const s of sectionsFrom(full, { h1: cap(row.h1, MAX_ITEM_CHARS), h2: items(row.h2_list, MAX_HEADINGS, MAX_ITEM_CHARS), h3: items(row.h3_list, MAX_HEADINGS, MAX_ITEM_CHARS) }, capture)) {
+    if (s.level > 0) { path.splice(s.level - 1); path[s.level - 1] = slug(s.heading ?? ""); }
+    const key = s.level === 0 ? "opening" : path.filter(Boolean).join("/"), n = (seen.get(key) ?? 0) + 1; seen.set(key, n);
+    // THE HEADING RIDES AS PART 0 OF ITS OWN SECTION (review, 2026-09-14): the join of the passages reproduces the page including its headings, so a banked page quotation that spans a heading, a rewrite target named by its heading and a shipped section's heading line are all found where the page says them.
+    if (s.level > 0 && s.heading) out.push({ id: `${key}${n > 1 ? `~${n}` : ""}#0`, heading: s.heading, text: s.heading });
+    for (const [i, text] of parts(s.text).entries()) out.push({ id: `${key}${n > 1 ? `~${n}` : ""}#${i + 1}`, heading: s.heading, text });
   }
-  return (full.slice(0, CRAWL_BODY_TEXT_CHARS).match(new RegExp(`[\\s\\S]{1,${MAX_PASSAGE_CHARS}}(?=\\s|$)|\\S{${MAX_PASSAGE_CHARS + 1},}`, "g")) ?? []).map((text) => text.trim()).filter(Boolean).slice(0, MAX_PASSAGES);
+  return out.slice(0, MAX_PASSAGES);
 }
 const cap = (value: unknown, chars: number): string | null => { const s = typeof value === "string" ? value.trim() : ""; return s ? s.slice(0, chars) : null; };
 const items = (value: unknown, max: number, chars: number): string[] => (Array.isArray(value) ? value : []).map((x) => cap(x, chars)).filter((x): x is string => !!x).slice(0, max);
@@ -122,9 +128,7 @@ function bodyOf(row: Row): OwnedPageBody {
   // Column presence chooses the representation; nonempty captured content establishes its scope below.
   const held = typeof row.body_text === "string";
   const full = held ? (row.body_text as string).trim() : "";
-  const stored = held
-    ? passagesFromFullText(full, source)
-    : items(row.body_paragraph_sample, MAX_PASSAGES, MAX_PASSAGE_CHARS);
+  const units = held ? passagesOf(full, row, source ? sourceCapture : undefined) : items(row.body_paragraph_sample, MAX_PASSAGES, MAX_PASSAGE_CHARS).map((text, i) => ({ id: `sample#${i + 1}`, heading: null, text })), stored = units.map((u) => u.text);
   const cardTexts = items(row.card_texts, CRAWL_CARDS, MAX_ITEM_CHARS);
   const entityNames = items(row.schema_entity_names, MAX_ENTITIES, MAX_ITEM_CHARS);
   const internalLinks = (Array.isArray(row.internal_links) ? row.internal_links : []).slice(0, MAX_LINKS)
@@ -158,7 +162,7 @@ function bodyOf(row: Row): OwnedPageBody {
       : "";
   return {
     url: typeof row.url === "string" ? row.url : "",
-    title, h1, metaDescription: cap(row.meta_description, MAX_META_CHARS), headings, passages,
+    title, h1, metaDescription: cap(row.meta_description, MAX_META_CHARS), headings, passages, passageMeta: units.slice(0, passages.length).map(({ id, heading }) => ({ id, heading })),
     openingSample: passages.length === 0 ? null
       : cap(passages.slice(0, MAX_OPENING_PARAGRAPHS).join(" ").replace(/\s+/g, " "), MAX_OPENING_CHARS),
     vocabulary: full, cardTexts, faqs, entityNames, internalLinks, ...(sourceCapture ? { sourceCapture } : {}),

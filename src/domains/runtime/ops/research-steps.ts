@@ -2,10 +2,7 @@ import "server-only"; import { AEO_BAR } from "@/domains/decision/accept-worthy"
 
 
 import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/on-use-refresh";
-import {
-  keywordDiscoveryUnit, promptObservationUnit, serpAnalysisUnit, winningPagesUnit,
-  type FunnelUnitOutcome,
-} from "@/domains/evidence";
+import { keywordDiscoveryUnit, promptObservationUnit, serpAnalysisUnit, winningPagesUnit, type FunnelUnitOutcome } from "@/domains/evidence";
 import { loadFunnelState, saveFunnelState, type FunnelState } from "@/domains/evidence/funnel/state";
 import { pageExtractFromRecord, type ResearchCase } from "@/domains/evidence/funnel/research-evidence";
 import { applySynthesis } from "@/domains/evidence/case-identity";
@@ -87,7 +84,7 @@ export type ResearchCycleSteps = {
   /** Read back the day's NEW answers (bounded, $0 when nothing changed). Returns THE PASS'S OWN RECEIPT, not a bare number: how many answers it took on, how many ended with a durable verdict, how many of those were a non-reading, and
    *  how many real readings landed, so a run row can say what a pass actually did instead of showing a count nobody can check against the debt. Derived work: it never pauses the run. `budgetMs` is what is LEFT of the drive's own
    *  deadline, and the reading obeys it before every wave and every single: a bound counted in answers is not a bound on the wall clock the hosting platform actually enforces. */
-  analyzeAnswers: (tenantId: string, reportingDay: string, budgetMs: number) => Promise<{ attempted: number; settled: number; refused: number; read: number; outcomes: Record<string, number> }>;
+  analyzeAnswers: (tenantId: string, reportingDay: string, budgetMs: number) => Promise<{ attempted: number; settled: number; refused: number; read: number; outcomes: Record<string, number>; /** Calls that genuinely returned and were paid for; absent from a seam that does not meter. */ billed?: number }>;
   /** WHAT THE OPERATOR SAID THEY SHIPPED, checked on the live page (verify_and_measure). Bounded to three pages per pass and free: every one is a read of a page the account owns, on the same polite-fetch
    *  path as every other owned read, never a provider. Returns how many verifications landed. Derived work: a check I could not make never pauses the run. */
   verifyShipments: (tenantId: string, now: Date) => Promise<number>;
@@ -124,7 +121,6 @@ export type ResearchCycleSteps = {
     outcomes?: { declared?: readonly string[]; readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[];
       /** WHICH OF THE TWO DEADLINE ANSWERS THIS WALK GAVE: `boxed` = the caller stopped waiting and the walk carried on, so these receipts are a snapshot of work still running; `stopped` = the walk itself would not start funded work it could no longer pay for, so nothing is running and that work is the next drive's first; `ran` = it reached the end of what it funded. */ ended?: "boxed" | "stopped" | "ran"; receipts?: unknown[]; preparedMs?: number; ledger?: { before: number; after: number; delta: number; metered: number; unexplained?: number; reconciled: boolean } } } | null>;
 };
-/** The page meter is DELETED (operator, 2026-08-30): the pass takes the WHOLE ranked inventory and walks it under its own global claim allowance and deadline, so no owed page ever waits on rotation. Bodies load lazily per page, so an unreached page costs nothing. */
 
 /** What this run still allows the ONE advisory reading. `mark` is the runner's own receipt: the reading is bounded per RUN, never per unit iteration. */
 type CaseReconcilePlan = { planKeys: string[]; maySynthesize: boolean; mark: () => void; /** The drive's working context, so reconciliation reads the account the walk before it already read. */ shared?: Map<string, unknown> };
@@ -345,8 +341,9 @@ export const defaultSteps: ResearchCycleSteps = {
         }
         const out = await factCheckPass(tenantId, budgetMs, undefined, prop?.url ?? need.url ?? null, undefined, prop && need.rivalUrl?.trim() ? { subject: prop.subject, url: need.rivalUrl.trim(), anchor: need.missingTopic?.trim() || prop.subject } : undefined, prop?.subject, need.topic ? { ...need.topic, basis } : undefined, need.finding);
         const settled = prop && current ? await propositionState(tenantId, prop.url, prop.subject, current, need.finding).catch(() => null) : null;
-        if (settled) return { acquired: settled.researched, unlocked: settled.usable, detail: `fact check of ${prop!.url}: ${out.status}, ${out.banked} banked; the answer to "${prop!.subject}" is ${settled.why}` };
-        return { acquired: out.status !== "failed" && out.banked > 0, detail: `fact check of ${need.url ?? "the owed page"}: ${out.status}, ${out.banked} banked` };
+        const said = `${out.status}${out.failure ? ` (${out.failure})` : ""}, ${out.banked} banked`; // the failure rides in the detail, so a credit hold is read by the drive as nothing asked rather than an attempt spent
+        if (settled) return { acquired: settled.researched, unlocked: settled.usable, detail: `fact check of ${prop!.url}: ${said}; the answer to "${prop!.subject}" is ${settled.why}` };
+        return { acquired: out.status !== "failed" && out.banked > 0, detail: `fact check of ${need.url ?? "the owed page"}: ${said}` };
       }
       case "semantic_review": {
         if (!need.proposalId) return { acquired: false, detail: "a review requirement names no change, so there is nothing to read" }; // ONE ROW, BY ITS OWN ID: reading the whole account's queue to find one change is an egress bill for a lookup
@@ -444,6 +441,7 @@ async function propositionState(tenantId: string, pageUrl: string, proposition: 
 async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => Promise<boolean>) | undefined, firstPage: string | null, shared?: Map<string, unknown>, rival?: { subject: string; url: string; anchor?: string }, proposition?: string, topic?: NonNullable<EvidenceRequirement["topic"]> & { basis: string }, finding?: EvidenceRequirement["finding"]): Promise<{ status: "advanced" | "done" | "failed"; banked: number; bankedPages: string[]; pagesComplete: number; failure?: string; reason?: string }> {
     const deadlineAt = Date.now() + Math.max(0, budgetMs);
     try {
+      if (await import("@/domains/decision/llm/gateway").then((m) => m.creditBreakerHeld(tenantId)).catch(() => true)) return { status: "failed", banked: 0, bankedPages: [], pagesComplete: 0, failure: "credit_held", reason: "the model provider's credit is spent, so no claim was judged this pass; it resumes when a call goes through" }; /* THE LANE IS SKIPPED, NOT LOOPED (audit 3.7, 2026-09-14): a held door answers every judge call at $0 as a refusal, the pass read that as one claim's own fault, set it aside and walked up to 200 claims through cached sources burning the drive's clock on a judge that cannot answer */
       const [{ runFactCheckPass, claimIdentity }, facts, { loadEvidenceSnapshot }, { loadOwnedPageBodies }] = await Promise.all([
         import("@/domains/evidence/pages/fact-check-run"), import("@/domains/evidence/pages/fact-checks"),
         import("@/domains/evidence/snapshot-loader"), import("@/domains/evidence/pages/owned-context"),
@@ -475,7 +473,7 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
           grounded: input.grounded, projectedCostUsd: input.projectedCostUsd, maxTokens: input.maxTokens,
           timeoutMs: Math.max(5_000, Math.min(60_000, left)), now: new Date() }).catch(() => null);
         if (r?.status === "drafted") return { value: r.value as Record<string, unknown> };
-        return { hold: r?.status === "blocked_budget" ? "capped" as const : r?.status === "validation_failed" ? "refused" as const : "unavailable" as const };
+        return { hold: r?.status === "blocked_budget" || (r?.status === "validation_failed" && r.failure === "credit_exhausted") ? "capped" as const : r?.status === "validation_failed" ? "refused" as const : "unavailable" as const }; // a door that trips mid-pass is an account-wide stop, never this claim's refusal
       };
       const { providerCall, parseCapability, collectCapability } = await import("@/domains/evidence/dataforseo/capabilities"), { readPublicPageExtract } = await import("@/domains/evidence/dataforseo/page-extract-cache");
       // A POSTED TASK IS COLLECTED, NEVER LEFT PENDING, and a provider hold keeps its NAME: capped, waiting and transport failure are different debts and the unit types each one (Codex, 2026-08-18).

@@ -251,6 +251,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
       const qd = new Map<string, number>();
       for (const q of page.search?.topQueries ?? []) for (const w of q.query.toLowerCase().split(/\s+/)) if (w.length > 2) qd.set(w, (qd.get(w) ?? 0) + q.impressions);
       const subjectDemand = (t: string): number => Math.max(0, ...t.toLowerCase().split(/\s+/).filter((w) => w.length > 2).map((w) => qd.get(w) ?? 0));
+      const subjectClicks28 = (t: string): number => { const imps = page.search?.impressions90d ?? 0; return imps > 0 ? Math.round((page.search?.clicks90d ?? 0) * Math.min(1, subjectDemand(t) / imps) * (28 / 90)) : 0; }; // ONE IMPACT UNIT (audit, 2026-09-14): impressions divided by 100 was a number in no unit; the page's 28-day clicks, in this entry's share of its demand, is what a correction protects
       const corrections = authorizedCorrections(rows, { pageContentHash: pageHashes.get(key) ?? null, body: pageTexts.get(key) }, tenantId).filter((c) => c.current.trim() !== "")
         .sort((a, b) => subjectDemand(b.subject) - subjectDemand(a.subject) || correctionSeverity(b) - correctionSeverity(a) || a.subject.localeCompare(b.subject));
       const held = rows.filter((r) => !corrections.includes(r) && r.verdict !== "page_correct");
@@ -354,7 +355,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
           diagnosisCause: "factual_error",
           evidence: { query: `${path} factual accuracy`, hints: support.map((s) => s.fact), evidenceRefCount: support.length },
           // The measured demand for THIS entry FUNDS the card (impactScore); the display figure stays the page's own impressions because the card's sentence names the page, and overriding it made the sentence lie (live, 2026-08-30).
-          impactScore: subjectDemand(c.subject) > 0 ? subjectDemand(c.subject) / 100 : null, upsidePerMonth: null, demandImpressions90d: page.search?.impressions90d ?? null,
+          impactScore: subjectClicks28(c.subject) > 0 ? subjectClicks28(c.subject) : null, upsidePerMonth: null, demandImpressions90d: page.search?.impressions90d ?? null,
           publish: "manual", createdAt: now.toISOString(),
         });
       }
