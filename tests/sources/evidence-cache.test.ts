@@ -174,7 +174,7 @@ describe("fail-closed persistence - never report success, never re-buy, on an un
     expect([(await runResolvedCall(resolved(), g.deps)).state, g.calls.fetch.length]).toEqual(["ok", 1]); });
   it("a records read that throws never becomes a cache miss: collect errors and calls nothing", async () => {
     const { deps, calls } = makeDeps({ cacheRead: async () => { throw new Error("db down"); } }); const res = await collectResolvedTask("k", PATHS, deps);
-    expect([res.state === "error" && res.disposition, calls.fetch.length, res.state === "error" && res.detail.includes("could not read my own records")]).toEqual(["none", 0, true]); });
+    expect([res.state === "error" && res.disposition, calls.fetch.length, res.state === "error" && res.detail.includes("records could not be read")]).toEqual(["none", 0, true]); });
   it("a collected result that will not save is retried free and stays free to collect again", async () => {
     const g = makeDeps({ cacheRead: row() }); let tries = 0;
     g.deps.cacheWrite = async (_k: string, p: Record<string, unknown>) => { g.calls.writes.push(p); if (p.status === "ready") { tries++; throw new Error("db down"); } };

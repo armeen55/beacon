@@ -428,7 +428,7 @@ describe("structured data answers to its own gate", () => {
     const pageCapture = { url: original.pageUrl!, version: "current", contentHash: "fixture-only", fetchedAt: "2026-09-13T00:00:00Z", faqs: pairs.map((pair) => ({ ...pair, source: "html_section", answerComplete: true })) };
     const moved = convertSectionToSchema(original)!;
     expect([(await judge(original, { pageCapture })).verdict, (await judge(moved, { pageCapture })).verdict, moved.recommendedChange]).toEqual(["rejected", "ready", { ...original.recommendedChange, where: "In this page's own custom code, in the page head. This is JSON-LD, not visible page text." }]);
-    expect([moved.whyItMatters.includes("eligible"), moved.whyItMatters.startsWith("2 question and answer associations"), moved.operatorSteps?.some((step) => step.includes("new answer paragraph")), moved.faults, convertSectionToSchema(moved)]).toEqual([false, true, false, original.faults, null]);
+    expect([moved.whyItMatters.includes("eligible"), moved.whyItMatters.startsWith("2 questions and their answers from this page"), moved.operatorSteps?.some((step) => step.includes("new answer paragraph")), moved.faults, convertSectionToSchema(moved)]).toEqual([false, true, false, original.faults, null]);
     expect([openHold(moved).defects.length > 0, (await judge(moved, { pageCapture: null })).need?.reasonCode]).toEqual([true, "schema_visible_pair_unconfirmed"]);
     await saveChangeProposal(original); await saveChangeProposal(moved); const saved = (await loadChangeProposal(T, original.id))!;
     expect([saved.status, saved.faults, openHold(saved).defects.length > 0]).toEqual(["needs_review", original.faults, true]);

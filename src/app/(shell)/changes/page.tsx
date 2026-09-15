@@ -126,7 +126,7 @@ export default async function WorklistPage() {
           operator to go and write the edit, so it says what the queue now guarantees. Unfinished work is counted, never ranked. */}
       <PageHeader
         title="Changes"
-        description={`Finished changes first, each with the exact work to make. Drafts waiting on you and the research still in progress are labeled below them. Make a change, mark it done, and the page is measured. ${RESEARCH_CADENCE}`}
+        description={`Only finished changes are listed, each with the exact work to make, best first. What is still being written or researched is counted under them and moves up on its own. Make a change, mark it done, and the page is measured. ${RESEARCH_CADENCE}`}
       />
       <Suspense fallback={<ChangesListFallback />}>
         <ChangesSection />

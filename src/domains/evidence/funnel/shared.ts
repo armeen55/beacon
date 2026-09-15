@@ -148,7 +148,7 @@ export class StateConflictError extends Error {
     this.name = "StateConflictError";
   }
 }
-export const CONFLICT_DETAIL = "My research notes changed while I was saving. I will pick this up again on the next pass.";
+export const CONFLICT_DETAIL = "The research notes changed while they were being saved. This is picked up again on the next pass.";
 
 export type SaveCtx = { rowVersion: number };
 

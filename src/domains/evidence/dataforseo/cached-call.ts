@@ -104,7 +104,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
       languageCode: r.languageCode, device: r.device, modelRequested: r.modelRequested, claimSeconds: CLAIM_LEASE_SECONDS,
     });
   } catch (err) {
-    return { state: "error", cacheKey, disposition: "none", detail: `I could not reserve this fetch (${short(err)}); I will try it again on the next pass.` };
+    return { state: "error", cacheKey, disposition: "none", detail: `This fetch could not be reserved (${short(err)}). It is tried again on the next pass.` };
   }
 
   if (claim.outcome === "ready") return { state: "hit", envelope: (claim.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: claim.modelServed };
@@ -117,11 +117,11 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
       const liveRow = await d.cacheRead(cacheKey);
       const refused = blockedReason(liveRow);
       if (refused) return blockedResult(cacheKey, refused);
-      if (liveRow?.quarantined_at) return { state: "error", cacheKey, disposition: "quarantined", detail: "I may have paid for this answer once and could not confirm or keep it, and there is no free list for this kind of request. I set it aside for good rather than buy it twice." };
+      if (liveRow?.quarantined_at) return { state: "error", cacheKey, disposition: "quarantined", detail: "This answer may have been paid for once without being confirmed or kept, and there is no free list for this kind of request. It is set aside for good rather than bought twice." };
     } catch {
-      return { state: "error", cacheKey, disposition: "none", detail: "I could not read my own records; I will not call the provider until I can." };
+      return { state: "error", cacheKey, disposition: "none", detail: "The fetch records could not be read, so the provider is not called until they can be." };
     }
-    return { state: "waiting", cacheKey, providerTaskId: claim.providerTaskId, costUsd: 0, detail: "Another run is already fetching this; I will pick up its result." };
+    return { state: "waiting", cacheKey, providerTaskId: claim.providerTaskId, costUsd: 0, detail: "Another run is already fetching this. Its result is picked up when it lands." };
   }
 
   // A claim must never pair a LIVE task id with permission to post: collect the
@@ -136,7 +136,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     reserved = await d.reserveProviderSpend(r.tenantId, PLATFORM, r.estCostUsd, monthlyCapUsd(d.env), r.purpose);
   } catch (err) {
     await releaseClaim(d, cacheKey, now, "reserve_error");
-    return { state: "error", cacheKey, disposition: "none", detail: `I could not set aside budget for this (${short(err)}); I made no provider call and will try again.` };
+    return { state: "error", cacheKey, disposition: "none", detail: `Budget for this could not be set aside (${short(err)}). No provider call was made, and it is tried again.` };
   }
   if (!reserved) { await releaseClaim(d, cacheKey, now, "capped"); return { state: "capped", cacheKey, detail: `the spending cap refused this call for ${PLATFORM}: the daily or monthly ceiling is reached` }; }
   // ONE pre-call receipt for BOTH modes, persisted BEFORE the network, so an
@@ -149,7 +149,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     // (nothing is bought yet); reconcile down and release for a clean re-claim.
     await d.adjustProviderSpend(r.tenantId, PLATFORM, -r.estCostUsd).catch(() => {});
     await releaseClaim(d, cacheKey, now, "precall_receipt_failed");
-    return { state: "error", cacheKey, disposition: "none", detail: `I could not save the pre-call receipt (${short(err)}); I made no provider call and will try again.` };
+    return { state: "error", cacheKey, disposition: "none", detail: `The pre-call receipt could not be saved (${short(err)}). No provider call was made, and it is tried again.` };
   }
 
   if (!(await CREDIT_BREAKER.claimProbe(r.tenantId, {}, "dataforseo").catch(() => true))) { await d.adjustProviderSpend(r.tenantId, PLATFORM, -r.estCostUsd).catch(() => {}); if (!(await holdBlocked(d, cacheKey, now, "HTTP 402"))) return { state: "error", cacheKey, disposition: "none", detail: CREDIT_BREAKER.sentence("dataforseo") }; return blockedResult(cacheKey, "HTTP 402"); } // THE STOP ON FILE REFUSES BEFORE THE NETWORK, and one probe per cooldown is the only call that may try to clear it (2026-09-15)
@@ -163,10 +163,10 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     // 5xx, or any other status may have run and billed: hold and keep the money.
     if (transport.status === 401 || transport.status === 402 || transport.status === 404) {
       await d.adjustProviderSpend(r.tenantId, PLATFORM, -r.estCostUsd).catch(() => {});
-      if (!(await holdBlocked(d, cacheKey, now, `HTTP ${transport.status}`))) return { state: "error", cacheKey, disposition: "none", detail: "The provider refused this request and I could not record the refusal; I am holding it briefly and will note it properly on the next pass." };
+      if (!(await holdBlocked(d, cacheKey, now, `HTTP ${transport.status}`))) return { state: "error", cacheKey, disposition: "none", detail: "The provider refused this request and the refusal could not be recorded. It is held briefly and noted properly on the next pass." };
       return blockedResult(cacheKey, `HTTP ${transport.status}`);
     }
-    return holdUncertain(d, r.mode, cacheKey, now, "I could not confirm whether the provider took and charged this request, so I paused it.");
+    return holdUncertain(d, r.mode, cacheKey, now, "Whether the provider took and charged this request could not be confirmed, so it is paused.");
   }
 
   const body = transport.body;
@@ -186,10 +186,10 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     } catch {
       // The task WAS accepted and charged but its id did not persist: hold it
       // and keep the reservation (the task exists; overcount, never undercount).
-      return holdUncertain(d, r.mode, cacheKey, now, "The provider took this task but I could not save its receipt, so I paused it.");
+      return holdUncertain(d, r.mode, cacheKey, now, "The provider took this task but its receipt could not be saved, so it is paused.");
     }
     // costUsd = the provider-reported actual for THIS accepted POST, contributed once.
-    return { state: "waiting", cacheKey, providerTaskId: posted.taskId, costUsd: actual, modelRequested: r.modelRequested, detail: "I posted this task to the provider; I will collect it with a free follow-up." };
+    return { state: "waiting", cacheKey, providerTaskId: posted.taskId, costUsd: actual, modelRequested: r.modelRequested, detail: "The task is posted to the provider and collected with a free follow-up." };
   }
 
   const live = readLiveResult(body);
@@ -225,9 +225,9 @@ export async function collectResolvedTask(
   try { row = await d.cacheRead(cacheKey); } catch {
     // Fail closed: a records outage must never read as "no row", which is exactly
     // how a paid attempt gets bought a second time.
-    return { state: "error", cacheKey, disposition: "none", detail: "I could not read my own records; I will not call the provider until I can." };
+    return { state: "error", cacheKey, disposition: "none", detail: "The fetch records could not be read, so the provider is not called until they can be." };
   }
-  if (!row) return { state: "error", cacheKey, disposition: "none", detail: "I have no record of a provider task here, so I will start this one fresh." };
+  if (!row) return { state: "error", cacheKey, disposition: "none", detail: "No provider task is on record here, so this one starts fresh." };
   if (row.status === "ready" && row.payload != null && Date.parse(row.expires_at) > now.getTime()) return { state: "hit", envelope: (row.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: row.model_served };
   // A BLOCKED hold created no task and was already refunded, so there is nothing to
   // list and nothing to collect: say so and spend zero calls, however many visits.
@@ -239,35 +239,35 @@ export async function collectResolvedTask(
     // INDEFINITE hold, with NO timed release: tasks_ready measures its window from
     // task COMPLETION, so elapsed wall-clock time proves nothing about whether the
     // attempt is still alive. Resolving the row any other way is an operator action.
-    if (!taskId) return { state: "error", cacheKey, disposition: "quarantined", detail: "I paused this one because I could not confirm what the provider did with it. I am holding it and will keep checking the provider's free finished-task list; I will not pay for it twice." };
+    if (!taskId) return { state: "error", cacheKey, disposition: "quarantined", detail: "This one is paused because what the provider did with it could not be confirmed. It is held and checked against the provider's free finished-task list, and never paid for twice." };
   }
-  if (!taskId) return { state: "waiting", cacheKey, providerTaskId: null, costUsd: 0, detail: "Another run is already fetching this; I will pick up its result." };
+  if (!taskId) return { state: "waiting", cacheKey, providerTaskId: null, costUsd: 0, detail: "Another run is already fetching this. Its result is picked up when it lands." };
   const getPath = paths.getPath(row.endpoint, taskId);
-  if (!getPath) return { state: "error", cacheKey, disposition: "none", detail: "I do not know how to collect this task, so I will start it fresh." };
+  if (!getPath) return { state: "error", cacheKey, disposition: "none", detail: "There is no way to collect this task, so it starts fresh." };
 
   const transport = await runDataForSeoTransport({ url: `${API_BASE}/${getPath}`, payload: [], estCostUsd: 0, env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence-collect", method: "GET" });
   if (!transport.ok) {
     // A raw HTTP 404 is NOT proof of a missing task (only in-body 40401/40403
     // is): fail closed, keep the identity, pause visibly, authorize nothing.
-    if (transport.status === 404) return { state: "error", cacheKey, disposition: "blocked", detail: "The provider answered 404 when I tried to collect this. I kept the task on file and will not buy it again; I will keep checking it for free." };
+    if (transport.status === 404) return { state: "error", cacheKey, disposition: "blocked", detail: "The provider answered 404 on collection. The task stays on file, is never bought again, and is checked for free." };
     // Any other transport failure on a FREE GET is a costless retry next visit;
     // the message rides along so it is never a silent eternal wait.
-    return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: `I could not reach the provider to collect this (${transport.message}); I will try again for free.` };
+    return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: `The provider could not be reached to collect this (${transport.message}). It is tried again for free.` };
   }
   // Strict in-body classification onto the frozen dispositions; no strings read.
   const task = firstTask(transport.body);
   const code = typeof task?.status_code === "number" ? task.status_code : null;
   const cls = classifyTaskStatus(code);
-  if (cls === "waiting") return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: `The provider is still working on this (code ${code ?? "unknown"}); I will collect it for free on the next pass.` };
+  if (cls === "waiting") return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: `The provider is still working on this (code ${code ?? "unknown"}). It is collected for free on the next pass.` };
   if (cls === "missing") {
     await clearDeadTask(d, cacheKey, now, `missing_${code ?? "unknown"}`); // proven gone: clear the dead identity so a clean re-claim reposts ONCE
-    return { state: "error", cacheKey, disposition: "repost_once", detail: `The provider no longer has this task (code ${code ?? "unknown"}); I will start it fresh once.` };
+    return { state: "error", cacheKey, disposition: "repost_once", detail: `The provider no longer has this task (code ${code ?? "unknown"}). It starts fresh once.` };
   }
   // Account/contract problem, NOT a dead task: keep the id and pause.
-  if (cls === "blocked") return { state: "error", cacheKey, disposition: "blocked", detail: `The provider turned this request down (code ${code ?? "unknown"}); I am pausing here until the account is sorted out. The task is still on file, so nothing gets paid for twice.` };
-  if (cls === "transient") return { state: "error", cacheKey, disposition: "retry_free", detail: `The provider hit a temporary problem on this task (code ${code ?? "unknown"}); I kept it and will collect it again for free shortly.` };
+  if (cls === "blocked") return { state: "error", cacheKey, disposition: "blocked", detail: `The provider turned this request down (code ${code ?? "unknown"}). It is paused until the account is sorted out. The task is still on file, so nothing gets paid for twice.` };
+  if (cls === "transient") return { state: "error", cacheKey, disposition: "retry_free", detail: `The provider hit a temporary problem on this task (code ${code ?? "unknown"}). It is kept and collected again for free shortly.` };
   const live = readLiveResult(transport.body);
-  if (!live.valid) return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: "The provider marked this ready but sent no result yet; I will collect it again for free." };
+  if (!live.valid) return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: "The provider marked this ready but sent no result yet. It is collected again for free." };
   // FRESHNESS truth: the ready payload expires on the REGISTRY ttl, so a due
   // re-observation re-buys; the 30-day retention covers only UNcollected tasks.
   const saved = await writeRetried(d, cacheKey, {
@@ -276,7 +276,7 @@ export async function collectResolvedTask(
     fetch_claimed_until: null, posted_attempt_at: null, content_hash: sha256(stableStringify(live.payload)).slice(0, 40),
   });
   // No quarantine here: the task id stays on the row, so re-collecting costs $0.
-  if (!saved) return { state: "error", cacheKey, disposition: "none", detail: "I collected the result but could not save it, so I will collect it again for free rather than lose it." };
+  if (!saved) return { state: "error", cacheKey, disposition: "none", detail: "The result was collected but could not be saved, so it is collected again for free rather than lost." };
   return { state: "ok", envelope: (live.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: live.modelServed };
 }
 
@@ -290,7 +290,7 @@ async function holdUncertain(d: CachedCallDeps, mode: "live" | "task", cacheKey:
     : "There is no free list for this kind of request, so its answer may be gone for good. I set it aside rather than buy it twice.";
   return held
     ? { state: "error", cacheKey, disposition: "quarantined", detail: `${lead} ${way}` }
-    : { state: "error", cacheKey, disposition: "none", detail: `${lead} I could not record that pause either, so I am holding it for a few minutes before I look again.` };
+    : { state: "error", cacheKey, disposition: "none", detail: `${lead} That pause could not be recorded either, so it is held for a few minutes before the next look.` };
 }
 
 /** THE one application point for the paid-response policy (a Standard POST the provider did not
@@ -307,7 +307,7 @@ async function applyPaidRejection(d: CachedCallDeps, r: ResolvedCall, body: unkn
     // The ONLY automatic retry after a paid rejection: an exactly documented temporary
     // provider failure that reported no charge. Nothing was created.
     await releaseClaim(d, r.cacheKey, now, `provider_temporary:${code ?? "unknown"}`);
-    return { state: "error", cacheKey: r.cacheKey, disposition: "none", detail: `The provider hit a temporary problem on its side (${shown}) and charged nothing, so I asked for the reservation back and will try this again on the next pass.` };
+    return { state: "error", cacheKey: r.cacheKey, disposition: "none", detail: `The provider hit a temporary problem on its side (${shown}) and charged nothing, so the reservation is returned and this is tried again on the next pass.` };
   }
   if (action === "daily_limit_release") {
     // A ceiling that RESETS is never a durable hold: release the row so the very
@@ -315,7 +315,7 @@ async function applyPaidRejection(d: CachedCallDeps, r: ResolvedCall, body: unkn
     await releaseClaim(d, r.cacheKey, now, "daily_cost_limit");
     return { state: "error", cacheKey: r.cacheKey, disposition: "daily_limit", detail: DAILY_LIMIT_DETAIL };
   }
-  if (!(await holdBlocked(d, r.cacheKey, now, shown))) return { state: "error", cacheKey: r.cacheKey, disposition: "none", detail: "The provider refused this request and I could not record the refusal; I am holding it briefly and will note it properly on the next pass." };
+  if (!(await holdBlocked(d, r.cacheKey, now, shown))) return { state: "error", cacheKey: r.cacheKey, disposition: "none", detail: "The provider refused this request and the refusal could not be recorded. It is held briefly and noted properly on the next pass." };
   return blockedResult(r.cacheKey, shown);
 }
 
@@ -331,7 +331,7 @@ function blockedReason(row: { error_detail?: string | null } | null | undefined)
   return typeof detail === "string" && detail.startsWith("blocked:") ? detail.slice(8, 120) : null;
 }
 function blockedResult(cacheKey: string, reason: string): CachedCallResult {
-  return { state: "error", cacheKey, disposition: "blocked", detail: `The provider would not run this request (${reason}) and reported no charge, so I asked for that reservation back. Nothing retries this on its own; it stays set aside for review.` };
+  return { state: "error", cacheKey, disposition: "blocked", detail: `The provider would not run this request (${reason}) and reported no charge, so that reservation is returned. Nothing retries this on its own; it stays set aside for review.` };
 }
 
 /** The FREE cache write, retried twice more in the same invocation, for the two places where

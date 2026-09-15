@@ -222,7 +222,7 @@ export async function providerCall<K extends CapabilityKey>(
   let resolution: EngineModelResolution | null = null, modelRequested: string | null = null;
   if (entry.engine) { // ONE resolution: the method routes the call AND the model rides the request
     resolution = await resolveEngineModel(entry.engine, deps);
-    if (!resolution) return { state: "not_configured", cacheKey: null, detail: `I could not find a usable ${entry.engine} model to ask right now. I will try again on the next pass.` };
+    if (!resolution) return { state: "not_configured", cacheKey: null, detail: `No usable ${entry.engine} model is available to ask right now. It is tried again on the next pass.` };
     // The resolution is the ONLY source of the model: no caller override exists.
     modelRequested = resolution.model;
   }

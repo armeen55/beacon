@@ -265,7 +265,7 @@ export function convertSectionToSchema(p: ChangeProposal): ChangeProposal | null
   const where = "In this page's own custom code, in the page head. This is JSON-LD, not visible page text.";
   const normalized: ChangeProposal = { ...p,
     opportunityType: `${action} ${faq ? "FAQ" : [...types].sort().join(", ")} structured data`,
-    whyItMatters: faq ? `${SCHEMA.pairs(graph).length} question and answer associations are represented in this block. ${FAQ_SCHEMA_LIMIT}`
+    whyItMatters: faq ? `${((n) => `${n} question${n === 1 ? "" : "s"} and ${n === 1 ? "its answer" : "their answers"}`)(SCHEMA.pairs(graph).length)} from this page, in the form Google reads. ${FAQ_SCHEMA_LIMIT}`
       : "This block describes the page's content in machine-readable form. It does not rewrite the page or promise ranking or citation gains.",
     recommendedChange: { ...c, field: "schema", after, where },
     operatorSteps: [c.before == null
