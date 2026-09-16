@@ -78,7 +78,7 @@ function recommendationOf(p: ChangeProposal): string {
 
 /** PURE: map a ranked proposal to Today's opportunity shape. The PROBLEM rides along, because three directives
  *  with no statement of what any of them is for is a chore list, not a recommendation. */
-const proposalToOpportunity = (p: ChangeProposal): TodayOpportunity => ({ changeId: p.id, pageLabel: p.pageLabel,
+const proposalToOpportunity = (p: ChangeProposal): TodayOpportunity => ({ changeId: p.id, pageLabel: (p.pagePath ? pageLabel(p.pagePath) : "") || p.pageLabel, /* the short page name the Changes card uses, never the full title ("On Ahvaz, Iran - History, Population, Attractions, Fun Facts", walk of 2026-09-16) */
   recommendation: recommendationOf(p), lane: "ready", ...(p.whyItMatters ? { problem: p.whyItMatters } : {}) });
 
 /** PURE: the top ranked change said as an action plus the two lines. Null when it carries nothing to put there.
