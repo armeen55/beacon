@@ -99,7 +99,7 @@ function topEditOf(p: ChangeProposal): TodayView["topEdit"] {
   return {
     // THE PAGE, SAID THE WAY A PERSON SAYS IT (audit 3.9): the headline printed the raw path, and Changes already reads the same path through pageLabel.
     action: c.linkTo ? `Add a link on ${p.pagePath ? pageLabel(p.pagePath) : p.pageLabel}` : c.field === "schema" ? `${c.before ? "Replace the structured data on" : "Add structured data to"} ${p.pagePath ? pageLabel(p.pagePath) : p.pageLabel}` : c.before == null && (c.field === "section" || c.field === "answer_block") ? `Add a paragraph to ${p.pagePath ? pageLabel(p.pagePath) : p.pageLabel}` : `Change the ${field} on ${p.pagePath ? pageLabel(p.pagePath) : p.pageLabel}`, // the verb the Changes card uses: a link is added, a paragraph is added, markup is added or replaced (operator walk, 2026-09-16: "Change the section on Samanid empire flag" for an added link)
-    lead: "Change to: ",
+    lead: c.before == null ? "Add: " : "Change to: ", /* an addition adds; "Change to:" over a sentence that replaces nothing read as a replacement (walk of 2026-09-16) */
     ...(c.field === "schema" ? { markup: "This is code for the page head, not visible text. It tells Google which questions this page answers, in Google's own format." } : {}),
     before: (c.before ?? "").trim() || null,
     after,

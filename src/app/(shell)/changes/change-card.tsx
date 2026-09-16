@@ -279,7 +279,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
             <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
               {/* LINE BREAKS ARE PART OF THE DELIVERABLE: a list-shaped answer renders one item per line. */}
               <div className="min-w-0 flex-1 text-[14px] leading-relaxed text-foreground">
-                <p className="text-muted-foreground">{isNew ? `Page ${field}:` : "Change to:"}</p><PublicationCopy text={after} units={units} link={link} />
+                <p className="text-muted-foreground">{isNew ? `Page ${field}:` : before == null ? "Add:" : "Change to:"}</p><PublicationCopy text={after} units={units} link={link} />{/* an addition adds; "Change to:" over copy that replaces nothing read as a replacement (walk of 2026-09-16) */}
               </div>
               {/* THE BUTTON NAMES THE REAL OBJECT: "Copy new section" on a title, and "Copy draft" anywhere,
                   both made the operator re-read the card to learn what they were holding. */}

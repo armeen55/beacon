@@ -84,7 +84,9 @@ export function proofOf(p: ChangeProposal): ProofReceipt {
   // once a cause HAS been named, in either of the two ways one can be: an AI stage is a finding, so a card
   // saying assistants read this page and quoted somebody else may not also say nothing explains it.
   const named = explained ?? p.aiImpact?.stage ?? null;
-  const order = p.rankingReceipt?.directional && !named
+  const markup = p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "schema";
+  const order = markup ? "Structured data claims no traffic of its own, so it is ordered after every change that does." /* the audience above is the page's, never the markup's (walk of 2026-09-16) */
+    : p.rankingReceipt?.directional && !named
     ? "No cause is named for it yet, so this is the order to work in, not a promise about size." : null;
   const ranksHere = [demand, explained ?? order].filter(Boolean).join(" ") || null;
 
