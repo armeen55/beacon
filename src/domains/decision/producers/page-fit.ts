@@ -46,7 +46,7 @@ export const pathOf = (url: string): string => {
   if (url.startsWith("/")) return url.split(/[?#]/)[0]!.replace(/\/+$/, "") || "/";
   try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return url; } };
 /** Words carried in from an engine, a publisher or a title, made safe to paste: no dash Beacon never writes,  no bracket that reads as a blank somebody forgot to fill in. */
-export const plain = (s: string | null | undefined): string => (s ?? "").replace(/[–—]/g, ", ").replace(/[[\]{}]/g, " ").replace(/\s+/g, " ").trim();
+export const plain = (s: string | null | undefined): string => (s ?? "").replace(/(\d)\s*[–—]\s*(\d)/g, "$1 to $2").replace(/[–—]/g, ", ").replace(/[[\]{}]/g, " ").replace(/\s+/g, " ").trim(); /* a dash between two numbers is a range ("750 to 1258"), never a comma ("750, 1258"), walk of 2026-09-16 */
 export const labelOf = (p: OwnedPageEvidence): string => plain(p.content?.h1 ?? p.content?.title ?? pathOf(p.url)) || pathOf(p.url);
 const clicksOf = (p: OwnedPageEvidence): number => p.search?.clicks90d ?? 0;
 /** MIN_EARNED_OVERLAP is the words of a page's own tie to a search, past the site wide ones, before it may be asked to answer it. */
