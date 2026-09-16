@@ -301,7 +301,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
                   <li key={o.changeId}>
                     <span className="tabular-nums text-muted-foreground">{i + 2}. </span>
                     <Link href={`/changes/${encodeURIComponent(o.changeId)}`} className="font-medium text-foreground underline underline-offset-2 hover:text-accent-primary">{o.recommendation}</Link>
-                    <span className="text-muted-foreground"> Finished, ready to make.</span>
+                    <span className="text-muted-foreground"> {o.pageLabel ? `On ${o.pageLabel}. ` : ""}Finished, ready to make.</span>{/* WHICH PAGE (operator walk, 2026-09-16): two rows read "FAQ structured data for the 3 questions this page answers" with no page named */}
                   </li>
                 ))}
               </ol>

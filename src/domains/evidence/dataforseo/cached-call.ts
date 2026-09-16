@@ -331,7 +331,8 @@ function blockedReason(row: { error_detail?: string | null } | null | undefined)
   return typeof detail === "string" && detail.startsWith("blocked:") ? detail.slice(8, 120) : null;
 }
 function blockedResult(cacheKey: string, reason: string): CachedCallResult {
-  return { state: "error", cacheKey, disposition: "blocked", detail: `The provider would not run this request (${reason}) and reported no charge, so that reservation is returned. Nothing retries this on its own; it stays set aside for review.` };
+  if (reason === "HTTP 402") return { state: "error", cacheKey, disposition: "blocked", detail: CREDIT_BREAKER.sentence("dataforseo") }; // an empty balance is said in the operator's words, never as a status code (operator walk, 2026-09-16)
+  return { state: "error", cacheKey, disposition: "blocked", detail: `The search provider would not run this request (${reason}) and charged nothing. It stays set aside until the account is looked at.` };
 }
 
 /** The FREE cache write, retried twice more in the same invocation, for the two places where

@@ -211,8 +211,9 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   // possible 0, and a one minute paste tied with an hour of new-page work under "start with whichever suits
   // your day". They get a floor to be discounted FROM, small enough that the smallest opportunity this queue
   // will carry (MIN_RECOVERABLE_CLICKS at the undiagnosed share) still outranks every one of them.
-  const base = shown?.value ?? ORDERING_FLOOR;
-  add("visibility", shown?.input
+  const markup = p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "schema"; /* STRUCTURED DATA CLAIMS NO VIEWS OF ITS OWN (operator walk, 2026-09-16): five FAQ blocks whose own caveat says "no ranking or citation gain is promised" sat at the top of the queue on the page's audience alone, above the one answer and the two links that can earn a click; markup is ordered like a card with no figure, below every change that claims one */
+  const base = markup ? ORDERING_FLOOR : shown?.value ?? ORDERING_FLOOR;
+  add("visibility", markup ? "structured data claims no traffic or citation gain of its own, so it is ordered below every change that does" : shown?.input
     ?? (claimsAudience ? "no proven figure for what this wins back, so this sits below anything that has one"
       : "an accuracy fix with no traffic or citation gain claimed for it, so it is ordered below work that has one"),
     base, MAX.visibility);

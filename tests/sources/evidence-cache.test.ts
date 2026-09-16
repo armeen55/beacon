@@ -83,7 +83,7 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
     for (const status of [401, 402, 404]) {
       const g = makeDeps({ fetchImpl: httpFail(status) }); const res = await runResolvedCall(resolved(), g.deps);
       expect([res.state === "error" && res.disposition, g.calls.adjust, blockedHold(g.calls.writes), released(g.calls.writes)]).toEqual(["blocked", [-0.01], true, false]);
-      expect(res.state === "error" && res.detail).toContain(String(status)); // a raw 404 NEVER reads as a dead task
+      expect(res.state === "error" && res.detail).toContain(status === 402 ? "balance for this account is empty" : String(status)); // a raw 404 NEVER reads as a dead task; an empty balance is said in the operator's words
     }
     const five = makeDeps({ fetchImpl: httpFail(500) }), r2 = await runResolvedCall(resolved(), five.deps); expect([r2.state === "error" && r2.disposition, five.calls.adjust.length, quarantined(five.calls.writes), released(five.calls.writes)]).toEqual(["quarantined", 0, true, false]); // may have run and billed: hold the money
   });

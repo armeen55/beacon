@@ -116,6 +116,8 @@ export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string;
   // MAX, never a sum: an old-rule release counted rows it also listed, so adding inflates.
   const setAside = Math.max(view.demotedStaleBasis, view.proposals.length - standing.length);
   return { ...view, proposals: standing, ready, toDo, research, aiCases: view.aiCases ?? { state: "unavailable" },
+    // THE STAMPED LANES FOLLOW THE RE-SORT (operator walk, 2026-09-16 00:00Z): the client reads a row's lane off `laneById` and fails closed to "todo" for a row the stamp does not know, so a remembered release re-sorted here painted "Ready now: 8 finished changes" over an empty box and a "Show 8 more" button, with every finished card hidden.
+    laneById: Object.fromEntries([...ready.map((p) => [p.id, "ready" as const]), ...toDo.map((p) => [p.id, "todo" as const]), ...research.map((p) => [p.id, "research" as const])]),
     summary: { ...view.summary, ready: ready.length, todo: toDo.length, research: research.length },
     demotedStaleBasis: setAside, basisUnreadable: currentBasis == null,
     readyZeroHint: ready.length === 0 ? setAsideHint(toDo.length + research.length) : view.readyZeroHint };
@@ -262,6 +264,8 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
     if (isCustomerSurfaceStale(customer.computedAt, Date.now())) scheduleReleaseRebuild("background-refresh");
     return withCurrentBasisOnly({
       ...customer.changes,
+      // THE RELEASE'S OWN LANES ARE ITS STAMPS (operator walk, 2026-09-16 00:00Z): the saved release carries `ready`, `toDo` and `research` but no `laneById`, the live join is the only writer of stamps, and the client fails closed to "todo" for an unstamped row, so whenever the join ran out of budget the screen painted "Ready now: 8 finished changes" over an empty box. The lanes the release published are the server's own servability verdict and stamp the rows they hold.
+      laneById: customer.changes.laneById ?? Object.fromEntries([...(customer.changes.ready ?? []).map((p) => [p.id, "ready" as const]), ...(customer.changes.toDo ?? []).map((p) => [p.id, "todo" as const]), ...(customer.changes.research ?? []).map((p) => [p.id, "research" as const])]),
       surfaceComputedAt: sanitizeSurfaceComputedAt(customer.computedAt),
       surfaceBuilding: false,
       surfaceVersion: customer.releaseId,

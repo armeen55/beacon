@@ -109,7 +109,7 @@ describe("a card says why this opportunity and why these words, and never trades
   it("search-backed: names the search and BOTH windows, states the diagnosed defect, promises no traffic", () => {
     const r = proofOf(P({ demandImpressions90d: 30423, impactScore: 76, primaryQuery: "iran flag", rankingReceipt: rank(false),
       causeFinding: { ...FINDING, explanation: "Two of your own pages come up for this search" } }));
-    expect(r.ranksHere).toBe('This page had 30,423 impressions for "iran flag" over 90 days and is short about 76 clicks in the last 28. Two of your own pages come up for this search.');
+    expect(r.ranksHere).toBe('This page was shown 30,423 times for "iran flag" in 90 days and is short about 76 clicks in the last 28 days. Two of your own pages come up for this search.');
     for (const n of NEVER) expect(r.ranksHere!, n).not.toContain(n); });
 
   it("AEO: names the question and the exact citation stage, and never invents a gap nobody measured", () => {
@@ -321,7 +321,7 @@ describe("a finished change is read, decided and pasted without being opened", (
     const html = await one(finished(s)), at = (t: string) => html.indexOf(t);
     for (const said of ["Replace answer", s.copy, "Copy answer", s.now, `Where it goes: ${s.where}`, "Why this ranks here:", "Keep in mind", s.caveat, "Applied different wording?", "Mark done", "Skip"]) expect(at(said), said).toBeGreaterThan(-1);
     expect([at("Replace answer") < at(s.copy), at(s.copy) < at(s.now), at(s.now) < at("Why this ranks here:"), at("Why this ranks here:") < at("Keep in mind"), at("Keep in mind") < at("Applied different wording?"), at("Applied different wording?") < at("Skip")], "the six parts in the operator's own order").toEqual([true, true, true, true, true, true]);
-    expect(at("12,000 impressions"), "why it is worth trying carries the number that was measured").toBeGreaterThan(-1);
+    expect(at("shown 12,000 times"), "why it is worth trying carries the number that was measured").toBeGreaterThan(-1);
     for (const shut of ["Why this opportunity", "How to make this change", "Why these words", "Shore survey"]) expect(html, shut).not.toContain(shut); }); // supporting evidence stays expandable and closed
   it.each(SITES)("$t: a caveat written for a draft whose words are gone is not rendered, the same caveat over copy that still carries them is, and the verdict's own advisory rides beside them", async (s) => {
     const gone = await one(finished(s, { limitations: [s.caveat, STALE] }));

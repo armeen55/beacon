@@ -134,6 +134,8 @@ function beforeAfter(p: ChangeProposal): { field: string; before: string | null;
 
 /** The paragraph, split so the boilerplate is gone and the caveat stands alone. Sentence-level, so a reason
  *  that carries neither comes back exactly as it was written. */
+/** DOES THE RECEIPT ALREADY SAY THIS SENTENCE: four fifths of its content words are already in the receipt, in any order. */
+const saysAgain = (sentence: string, said: string): boolean => { const words = sentence.toLowerCase().match(/[a-z][a-z0-9'-]{3,}/g) ?? [], has = new Set(said.toLowerCase().match(/[a-z][a-z0-9'-]{3,}/g) ?? []); return words.length >= 6 && words.filter((w) => has.has(w)).length * 5 >= words.length * 4; };
 function splitReason(text: string): { body: string; caveat: string | null } {
   const parts = text.split(/\.\s+/).map((s) => (s.trim().endsWith(".") ? s.trim() : `${s.trim()}.`))
     .filter((s) => s.length > 1 && s !== TITLE_FOOTNOTE);
@@ -194,7 +196,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   const caveats = cardCaveats(proposal, [...verdict.caveats, ...proof.limits.filter((l) => !proposal.limitations.includes(l)),
     ...(caveat ? [caveat] : []), ...(YEAR_QUERY.test(proposal.primaryQuery) ? [YEAR_NOTE] : [])]);
   // WHY IT IS WORTH TRYING: what was measured, and the row's own reason where it says something the measurement did not.
-  const worth = [proof.ranksHere, body && !(proof.ranksHere ?? "").includes(body) ? body : null].filter(Boolean).join(" ");
+  const worth = [proof.ranksHere, ...(body ? body.split(/(?<=[.!?])\s+/).filter((sentence) => !saysAgain(sentence, proof.ranksHere ?? "")) : [])].filter(Boolean).join(" "); /* a sentence the receipt already says in other words is not said twice (operator walk, 2026-09-16: "Only 1 page of this site links to ... today" printed back to back) */
   // WHAT THIS ONE IS WAITING ON BEFORE ANYBODY CAN DO IT, off the row's own typed next step: a card ranked above a smaller one that is ready reads as an order somebody could work straight through, so the dependency is printed where the card is and not folded into the ranking receipt behind an expander. A plain sentence, never a label: "Waiting on: this one waits on your confirmation" says the same thing twice.
   const waiting = ((w: string) => (w ? `${w[0]!.toUpperCase()}${w.slice(1)}.` : null))((proposal.rankingReceipt?.factors ?? []).find((f) => f.name === "readiness")?.input?.trim() ?? "");
   const placement = proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.where ?? null : null;
