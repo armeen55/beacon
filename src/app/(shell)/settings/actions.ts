@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { setResearchPaused } from "@/domains/runtime";
+import { setDailyBudget, setResearchPaused } from "@/domains/runtime";
 import { isAccountOwner } from "@/lib/auth/can-publish";
 import { currentTenantId } from "@/lib/tenant-context";
 import { log } from "@/lib/logger";
@@ -27,6 +27,20 @@ export async function setResearchPausedNow(paused: boolean): Promise<{ ok: boole
     return { ok: true };
   } catch (e) {
     log.error("Action failed", { action: "setResearchPausedNow", paused, error: (e instanceof Error ? e.message : String(e)).slice(0, 500) });
+    return { ok: false };
+  }
+}
+
+/** The daily research budget, in whole dollars, 0 to 50. Owner-gated like the pause switch; a write that did not read back reports itself. */
+export async function setDailyBudgetNow(usd: number): Promise<{ ok: boolean }> {
+  try {
+    if (!(await isAccountOwner())) return { ok: false };
+    const whole = Math.round(Number(usd)); if (!Number.isFinite(whole) || whole < 0 || whole > 50) return { ok: false };
+    if (!(await setDailyBudget(await currentTenantId(), whole))) return { ok: false };
+    revalidatePath("/settings"); revalidatePath("/");
+    return { ok: true };
+  } catch (e) {
+    log.error("Action failed", { action: "setDailyBudgetNow", usd, error: (e instanceof Error ? e.message : String(e)).slice(0, 500) });
     return { ok: false };
   }
 }

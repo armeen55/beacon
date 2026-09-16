@@ -66,7 +66,7 @@ function recentUpkeepSentence(row: RefreshRunRow): string | null {
   }
   if (row.rows_persisted != null && row.rows_persisted > 0) {
     const rows = row.rows_persisted.toLocaleString("en-US");
-    return `Pulled fresh ${label} data: ${rows} row${row.rows_persisted === 1 ? "" : "s"}${dataThrough ? ` through ${dataThrough}` : ""}.`;
+    return `Pulled fresh ${label} data${dataThrough ? ` through ${dataThrough}` : ""}, ${rows} new ${row.rows_persisted === 1 ? "record" : "records"}.`; /* "382 rows" was a lab word on a customer surface (walk of 2026-09-16) */
   }
   return `Checked ${label}. Nothing new${dataThrough ? ` since ${dataThrough}` : ""}.`;
 }

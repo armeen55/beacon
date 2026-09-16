@@ -574,7 +574,7 @@ export function ConnectorsClient({
       <p className="text-[12px] text-muted-foreground leading-relaxed">
         Once a source is connected it is read in the background and turned
         into exact changes to make. Your live site is never touched. You
-        apply each change in your CMS and mark it implemented, then the page
+        apply each change in your site editor and press Mark done, then the page
         is measured.
       </p>
 

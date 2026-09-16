@@ -3,7 +3,7 @@ const REG = vi.hoisted(() => ({ onFile: [] as unknown[], next: [] as unknown[], 
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => ({ ownedPages: [], research: { cases: [] } }) }));
 vi.mock("@/domains/evidence/topic-investigation", () => ({ reconcileResearchCases: () => REG.next, buildTopicInvestigations: () => { REG.readings += 1; return []; } }));
 vi.mock("@/domains/evidence/funnel/state", async (actual) => ({ ...(await actual<Record<string, unknown>>()), loadFunnelState: async () => ({ state: { cases: REG.onFile }, rowVersion: 3 }), saveFunnelState: async () => { REG.saves += 1; return 4; } }));
-const DB = vi.hoisted(() => ({ paused: new Set<string>(), missing: new Set<string>(), ignoresWrites: new Set<string>(), readThrows: false,
+const DB = vi.hoisted(() => ({ paused: new Set<string>(), budget: new Map<string, number>(), missing: new Set<string>(), ignoresWrites: new Set<string>(), readThrows: false,
   fleet: [] as string[], served: [] as string[][], fleetError: null as { message: string } | null }));
 vi.mock("@/lib/persistence/supabase", async (actual) => ({ ...(await actual<Record<string, unknown>>()),
   getSupabaseAdmin: () => ({ from: (table: string) => {
@@ -16,10 +16,10 @@ vi.mock("@/lib/persistence/supabase", async (actual) => ({ ...(await actual<Reco
           range: async (from: number, to: number) => { if (DB.fleetError) return { data: null, error: DB.fleetError, count: null };
             const page = DB.fleet.slice(from, to + 1); DB.served.push(page); return { data: page.map((id) => ({ id })), error: null, count: DB.fleet.length }; } };
         return chain; },
-      update: (patch: { research_paused: boolean }) => ({ eq: (_c: string, id: string) => ({ select: async () => {
+      update: (patch: { research_paused?: boolean; daily_budget_usd?: number }) => ({ eq: (_c: string, id: string) => ({ select: async () => {
         if (DB.missing.has(id)) return { data: [], error: null };
-        if (!DB.ignoresWrites.has(id)) { if (patch.research_paused) DB.paused.add(id); else DB.paused.delete(id); }
-        return { data: [{ id }], error: null }; } }) }),
+        if (!DB.ignoresWrites.has(id)) { if (patch.research_paused != null) { if (patch.research_paused) DB.paused.add(id); else DB.paused.delete(id); } if (patch.daily_budget_usd != null) DB.budget.set(id, patch.daily_budget_usd); }
+        return { data: [{ id, daily_budget_usd: DB.budget.get(id) ?? 50 }], error: null }; } }) }),
     }; } }) }));
 const CRAWL = vi.hoisted(() => ({ state: null as null | "in_progress" | "complete" | "unreachable", starts: 0, forced: false, batches: 0, racer: null as null | (() => void),
   pick: null as null | ((t: string, limit: number, now?: Date) => Promise<string[]>), inventory: [] as string[], decay: [] as { page: string; clicksNow: number; clicksPrior: number }[] }));
@@ -37,7 +37,7 @@ vi.mock("@/domains/runtime", async (actual) => ({ ...(await actual<Record<string
 const H = vi.hoisted(() => ({ surf: [] as string[], rebuilt: [] as string[] })), SURF = H.surf, REBUILT = H.rebuilt; vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async (t: string) => void H.surf.push(t), readCustomerSurface: async () => null, isCustomerSurfaceStale: () => false, refreshCustomerSurface: async (t: string) => (H.rebuilt.push(t), {}) })); // REBUILT names every account whose release this tick actually rebuilt, which is the one thing the dispatch's own clock decides
 import * as RR from "@/domains/runtime/research-run";
 import { runResearchCycle, ensureResearchRunOnVisit, RESEARCH_CYCLE_DEADLINE_MS, type ResearchCycleSteps } from "@/domains/runtime/ops/on-visit-refresh";
-import { dueWork, researchPermission, setResearchPaused, visitMayOpenResearch, isDocumentArrival, type DueWork } from "@/domains/runtime/ops/due-work";
+import { dueWork, researchPermission, setDailyBudget, setResearchPaused, visitMayOpenResearch, isDocumentArrival, type DueWork } from "@/domains/runtime/ops/due-work";
 import { runDueAccounts, type SchedulerReceipt } from "@/domains/runtime/ops/scheduler"; import { defaultSteps } from "@/domains/runtime/ops/research-steps";
 import { POST } from "@/app/api/cron/scheduler/route"; import { NextRequest } from "next/server";
 import { caseResearchReceipt } from "@/domains/evidence/case-receipt"; import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
@@ -1009,6 +1009,7 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     DB.missing.delete(T); DB.ignoresWrites.add(T);  // A ROW THAT MATCHED IS NOT A VALUE THAT STUCK. Without the readback this reported success over a column that still holds the old answer.
     expect(await setResearchPaused(T, true)).toBe(false); expect(await researchPermission(T)).toBe("running");
     DB.ignoresWrites.clear(); expect(await setResearchPaused(T, true)).toBe(true); expect(await researchPermission(T)).toBe("paused");
+    expect([await setDailyBudget(T, 4), DB.budget.get(T), await setDailyBudget(T, 51), await setDailyBudget(T, -1), await setDailyBudget(T, Number.NaN)], "the daily budget lands and reads back as asked, and nothing outside 0 to 50 dollars is written").toEqual([true, 4, false, false, false]); DB.ignoresWrites.add(T); expect(await setDailyBudget(T, 9), "a row that matched but kept its old value is not claimed").toBe(false); DB.ignoresWrites.clear();
     await run({ dueWork: async () => SOMETHING_DUE, ...NO_PHASE }); // the VISIT door reads the same row
     expect([await dispatch(NO_PHASE), rows.length]).toEqual([R(), 0]); });
   /** AN UNREADABLE OFF SWITCH IS NOT AN ON SWITCH. The read fail-softed to "not paused", so the one gate standing between an outage and a day of bought answers treated every unreachable database, every revoked permission and every deleted account row as the operator's permission to spend. Only an explicit, readable false opens this door now; the state that could not be read opens nothing and says why. */

@@ -94,6 +94,15 @@ export async function researchPermission(tenantId: string): Promise<ResearchPerm
  * update that matched nothing answers 204 with no error at all, so a bare "no error" reported success over a database that never heard of this account and the
  * switch flipped on screen for the rest of the day. Once more by READING THE SWITCH BACK, because a row that matched is not yet a value that stuck. Row and
  * readback, or nothing. */
+/** THE OPERATOR'S DAILY BUDGET, WRITTEN AND READ BACK (2026-09-16): the one number the daily cap (lib/cost/daily-cap) enforces at every paid door had no control on any surface, so the cap could only be changed by hand in the database. Whole dollars from 0 (paid work off for the day) to 50; a value that did not read back as asked is not claimed. */
+export async function setDailyBudget(tenantId: string, usd: number): Promise<boolean> {
+  if (!tenantId?.trim() || !Number.isFinite(usd) || usd < 0 || usd > 50) return false;
+  try {
+    const { data, error } = await getSupabaseAdmin().from("tenants").update({ daily_budget_usd: usd }).eq("id", tenantId).select("daily_budget_usd");
+    if (error != null || !Array.isArray(data) || data.length === 0) { log.warn("[due-work] the daily budget did not land, so nothing changed", { tenantId, usd, error: error?.message ?? "no row" }); return false; }
+    return Number((data[0] as { daily_budget_usd: unknown }).daily_budget_usd) === usd;
+  } catch (error) { log.warn("[due-work] the daily budget could not be written", { tenantId, error: error instanceof Error ? error.message : String(error) }); return false; }
+}
 export async function setResearchPaused(tenantId: string, paused: boolean): Promise<boolean> {
   if (!tenantId?.trim()) return false;
   try {

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/data/page-header";
 import { requireReadyAccount } from "@/domains/account";
 import { researchPermission } from "@/domains/runtime";
+import { getTenant } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
 import { SETTINGS_SECTIONS } from "./settings-sections";
 import { ResearchPause } from "./research-pause";
@@ -25,6 +26,7 @@ export default async function SettingsPage() {
   // The switch answers in three states. A state that could not be read says exactly that on screen and
   // offers no toggle, because a guess here is a claim about whether money is being spent.
   const permission = await researchPermission(tenantId).catch(() => "unreadable" as const);
+  const budgetUsd = await getTenant(tenantId).then((t) => (t ? t.daily_budget_usd : null)).catch(() => null);
   return (
     <div className="max-w-2xl">
       <PageHeader
@@ -46,7 +48,7 @@ export default async function SettingsPage() {
           </li>
         ))}
       </ul>
-      <ResearchPause permission={permission} />
+      <ResearchPause permission={permission} budgetUsd={budgetUsd} />
     </div>
   );
 }

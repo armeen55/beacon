@@ -50,7 +50,7 @@ const PROBE_COOLDOWN_MS = 15 * 60 * 1000;
 /** The one row that holds the stop: a date no monthly read ever reaches, so it can never move a spend number. */
 const STATE_DATE = "1970-01-01";
 /** THE PROVIDERS THAT CAN RUN DRY, each with its own stop row (operator audit, 2026-09-15): DataForSEO answered every search with HTTP 402 for an hour while the OpenAI door was open, and nothing on any surface said so; the refusal was refunded per call and the run's blocker named only the model door. */
-export type CreditProvider = "openai" | "dataforseo";
+type CreditProvider = "openai" | "dataforseo";
 const PROVIDER_NAME: Record<CreditProvider, string> = { openai: "OpenAI", dataforseo: "DataForSEO" };
 /** The ledger platform each stop row is filed under: the table's platform check admits only its own spend platforms, so the search stop lives on the search platform's row at the stop date. */
 const STATE_PLATFORM: Record<CreditProvider, string> = { openai: "openai", dataforseo: "dataforseo-serp" };
