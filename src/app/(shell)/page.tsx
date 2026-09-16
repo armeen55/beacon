@@ -258,6 +258,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
             1. Do this first{/* NUMBERED ONE, so the Up next list underneath counts on from it: an unnumbered top card over a list starting at 2 read as a missing row. */}
           </p>
           <p className="mt-1 text-[15px] font-semibold leading-relaxed text-foreground">{edit?.action ?? top.recommendation}</p>
+          {edit?.markup ? <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground" data-top-edit-markup="true">{edit.markup}</p> : null}
           {edit && edit.after ? (
             <div className="mt-2 space-y-1" data-top-edit-lines="true">
               {edit.before ? (

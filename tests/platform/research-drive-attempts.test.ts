@@ -143,7 +143,6 @@ describe("what rounds eight to ten do hold", () => {
     expect([rows.at(-1)!.progress?.state?.blocker, rows.at(-1)!.status], "the row says which work was not started, what it needed, what the drive had, and that the next pass runs it first")
       .toEqual(["Preparing more finished changes needs 110 seconds and this drive had 100 left, so nothing was started for it. The next pass runs it first.", "paused"]);
   });
-
   it.each(SITES)("$t: one reading owed by two rows under ONE work identity is bought once and spent after two attempts, and the latest sentence lands on both rows", async (s) => {
     const need = (suffix: string, rank: number): Owed => ({ key: `${s.url}::${suffix}`, kind: "factual_source", query: s.topic, url: s.url, rank,
       reasonCode: "acquire_factual_source", reason: "owed", workKey: "w1", missingTopic: s.topic });
@@ -155,7 +154,6 @@ describe("what rounds eight to ten do hold", () => {
       .toEqual([1, 1, 0, [2, 2], ["the source search returned nothing", "the source search returned nothing"]]);
   });
 });
-
 /** REACH IS ASKED OF THE ROW'S KEY AND OF NOTHING ELSE. The producer mints one need per key, so this shape cannot be
  *  minted today; pinned as a fact, so a producer that ever owes two kinds on one key is caught by this arm. */
 describe("how far down the order the last walk reached", () => {

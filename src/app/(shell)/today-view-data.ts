@@ -30,7 +30,8 @@ type TodayView = {
    *  line at all, and `paste` is false for a plan that is read rather than pasted. */
   topEdit?: { action: string; lead: string; before: string | null; after: string; paste: boolean; where?: string;
     /** The structure and the link the Changes card carries, so Today's Copy hands over the same payload. */
-    units?: BundleComponent["units"]; link?: { href: string; anchor: string } };
+    units?: BundleComponent["units"]; link?: { href: string; anchor: string };
+    /** One plain sentence above a block of code, so the first thing on the screen is never JSON (operator walk, 2026-09-16). */ markup?: string };
   /** The earliest date a page that could not be read may be tried again. Today says the date, because a wait is not activity. Carried on the
    *  release so a rebuild off a stale one keeps the sentence; nothing else the production pass concluded is stored, because no screen read it. */
   waitingUntil?: string;
@@ -99,6 +100,7 @@ function topEditOf(p: ChangeProposal): TodayView["topEdit"] {
     // THE PAGE, SAID THE WAY A PERSON SAYS IT (audit 3.9): the headline printed the raw path, and Changes already reads the same path through pageLabel.
     action: c.linkTo ? `Add a link on ${p.pagePath ? pageLabel(p.pagePath) : p.pageLabel}` : c.field === "schema" ? `${c.before ? "Replace the structured data on" : "Add structured data to"} ${p.pagePath ? pageLabel(p.pagePath) : p.pageLabel}` : c.before == null && (c.field === "section" || c.field === "answer_block") ? `Add a paragraph to ${p.pagePath ? pageLabel(p.pagePath) : p.pageLabel}` : `Change the ${field} on ${p.pagePath ? pageLabel(p.pagePath) : p.pageLabel}`, // the verb the Changes card uses: a link is added, a paragraph is added, markup is added or replaced (operator walk, 2026-09-16: "Change the section on Samanid empire flag" for an added link)
     lead: "Change to: ",
+    ...(c.field === "schema" ? { markup: "This is code for the page head, not visible text. It tells Google which questions this page answers, in Google's own format." } : {}),
     before: (c.before ?? "").trim() || null,
     after,
     paste: true,
