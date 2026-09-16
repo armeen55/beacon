@@ -113,7 +113,7 @@ function livenessOf(run: ResearchRun | null, nowMs: number, state: ResearchRunSt
   // ONE number, the closest one to the work an account pays for: a reading beats a collection, a collection beats a refresh, and money beats nothing at all.
   // AN ARRIVED ANSWER WAS ORDERED EARLIER: "collected 12 new answers" beside "research is paused" read as new
   // paid work on a paused account (operator, 2026-08-21). Arrival of an already requested answer is what it is.
-  const did = answers > 0 ? `Read ${answers} new ${answers === 1 ? "answer" : "answers"} closely`
+  const did = answers > 0 ? `Checked ${answers} new AI ${answers === 1 ? "answer" : "answers"} for mentions of this site` /* what the reading is FOR, not how hard it looked ("Read 35 new answers closely" told the operator nothing, walk of 2026-09-16) */
     : collected > 0 ? `${collected} previously requested AI ${collected === 1 ? "answer" : "answers"} arrived`
     : sources > 0 ? `Refreshed ${sources} connected ${sources === 1 ? "source" : "sources"}`
     : spent > 0 ? "Ran fresh research" : null; // WHAT happened, never its invoice: provider cost is internal metering, not customer value (terminal contract, 2026-08-25)

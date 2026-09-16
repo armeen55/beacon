@@ -29,7 +29,7 @@ describe("Today says what the last drive left undone", () => {
   it.each(SITES)("names the step that has not run, after how many of the day's steps, and what happens next, on $t", async (s) => {
     RUN.row = run({ current_phase: s.phase });
     const line = (await loadTodayView()).researchLiveness ?? "";
-    expect(line, "the heartbeat still says what the drive did, the paused day says which step it never reached, and the step it could not pay for is said in the drive's own words with its own seconds instead of a made-up next step").toBe(`Read 10 new answers closely today at 10:33 AM. Research continues from ${s.label} on the next pass. Publishing what this day found needs 40 seconds and this drive had 32 left, so nothing was started for it. The next pass runs it first.`);
+    expect(line, "the heartbeat still says what the drive did, the paused day says which step it never reached, and the step it could not pay for is said in the drive's own words with its own seconds instead of a made-up next step").toBe(`Checked 10 new AI answers for mentions of this site today at 10:33 AM. Research continues from ${s.label} on the next pass. Publishing what this day found needs 40 seconds and this drive had 32 left, so nothing was started for it. The next pass runs it first.`);
     });
   it.each(SITES)("tells the drive giving up on a running walk apart from a step it never started, on $t", async (s) => {
     const boxed = { replenish: { day: "2026-09-05", jobs: {}, outcomes: { readySaved: 0, evidenceBanked: 0, refused: 0, blocked: 1, unreached: 1, stuck: [], ended: "boxed" as const } } };

@@ -160,7 +160,7 @@ export function buildResultsBrain(shipments: ReadonlyArray<ShipmentPresentation>
   // THE LADDER IS THE ARGUMENT: one sentence per rung that holds anything, then the line that says they add back, so a reader can check the page against itself.
   const lines = [...rungs.filter(([, n]) => n > 0).map(([, n, said]) => `${plural(n, "change")} ${said}.`),
     ...(counts.shipped > 0 ? [`That is every one of the ${plural(counts.shipped, "change")} marked done, each counted once.`] : []),
-    ...(raw.length > 0 ? [`Of ${plural(raw.length, "closed reading")} with both figures on file, ${gained === 0 ? "none is a page that took more clicks than before" : `${num(gained)} ${gained === 1 ? "is a page that took" : "are pages that took"} more clicks than before`}${onlyPeers > 0 ? `, and ${num(onlyPeers)} finished ahead only because the pages compared against ${onlyPeers === 1 ? "it" : "them"} fell` : ""}.`] : []),
+    ...(raw.length > 0 ? [`Of ${plural(raw.length, "finished reading")}, ${gained === 0 ? "none earned more clicks than before" : `${num(gained)} ${gained === 1 ? "page earned" : "pages earned"} more clicks than before`}${onlyPeers > 0 ? `, and ${num(onlyPeers)} only ${onlyPeers === 1 ? "looks" : "look"} ahead because the pages ${onlyPeers === 1 ? "it was" : "they were"} compared with fell` : ""}.`] : []),
     ...(mixed.length > 0 ? [`${mixed.map((t) => t.name).join(", ")} point both ways, so no pattern is claimed there.`] : [])];
   // WHAT CHANGED RECENTLY IS A DIFFERENCE BETWEEN TWO BELIEFS, not a count of rows: the same model is asked what it believed two weeks ago,
   // with every read that closed since then still open, and each thought whose confidence moved is named. The closes are the second sentence.
