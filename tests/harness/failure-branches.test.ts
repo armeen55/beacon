@@ -62,7 +62,6 @@ beforeEach(async () => {
     meta: "Explore the most famous Iranians and Persians in history.", h2: ["Famous Iranian Poets", "Famous Iranian Athletes"],
     body: ["Iran has produced writers, athletes and performers whose work travelled far beyond its borders.", "The poets section lists three poets with a short line on each.", "The athletes section lists wrestlers who won world titles.", "Each entry gives a name, a period and one sentence about why the person is remembered."].join("\n") }]);
 });
-
 describe("an answer already on file against a real paid request", () => {
   it("the search bought once is served from what is on file afterwards, and the second row pays nothing for it", async () => {
     seedResearchState(basis, { serps: [], winningPages: [] });

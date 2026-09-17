@@ -79,12 +79,13 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
       if (want === "none") expect(g.calls.writes.some((w) => w.status === "error" && w.posted_attempt_at === null)).toBe(true); // the release also clears the anti-repost receipt
       if (want !== "quarantined") expect(res.state === "error" && res.detail).toContain(String(code));
     } });
-  it("a raw HTTP 401/402/404 is refunded and held DURABLY, never released back into a silent retry; a 5xx stays uncertain", async () => {
-    for (const status of [401, 402, 404]) {
+  it("a raw HTTP 401/404 is refunded and held DURABLY, never released back into a silent retry; a 402 is about the account, so it is refunded, released and answered as the credit stop; a 5xx stays uncertain", async () => {
+    for (const status of [401, 404]) {
       const g = makeDeps({ fetchImpl: httpFail(status) }); const res = await runResolvedCall(resolved(), g.deps);
       expect([res.state === "error" && res.disposition, g.calls.adjust, blockedHold(g.calls.writes), released(g.calls.writes)]).toEqual(["blocked", [-0.01], true, false]);
-      expect(res.state === "error" && res.detail).toContain(status === 402 ? "balance for this account is empty" : String(status)); // a raw 404 NEVER reads as a dead task; an empty balance is said in the operator's words
+      expect(res.state === "error" && res.detail).toContain(String(status)); // a raw 404 NEVER reads as a dead task
     }
+    const empty = makeDeps({ fetchImpl: httpFail(402) }), paid = await runResolvedCall(resolved(), empty.deps); expect([paid.state, empty.calls.adjust, blockedHold(empty.calls.writes), released(empty.calls.writes), paid.state === "capped" && paid.detail.includes("balance for this account is empty")], "an empty balance holds the account and frees the row: 243 owed searches were dead for ever behind a per-request hold (2026-09-17)").toEqual(["capped", [-0.01], false, true, true]);
     const five = makeDeps({ fetchImpl: httpFail(500) }), r2 = await runResolvedCall(resolved(), five.deps); expect([r2.state === "error" && r2.disposition, five.calls.adjust.length, quarantined(five.calls.writes), released(five.calls.writes)]).toEqual(["quarantined", 0, true, false]); // may have run and billed: hold the money
   });
   it("a BLOCKED row answers blocked on every later visit: zero fetches, zero reservations, no listing, never quarantined", async () => {

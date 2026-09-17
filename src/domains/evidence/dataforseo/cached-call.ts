@@ -156,12 +156,12 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
   const transport = await runDataForSeoTransport({ url: `${API_BASE}/${r.postPath}`, payload, estCostUsd: r.estCostUsd, env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence" });
   if (transport.ok) await CREDIT_BREAKER.clear(r.tenantId, {}, "dataforseo").catch(() => {});
   if (!transport.ok) {
-    if (transport.status === 402) await CREDIT_BREAKER.trip(r.tenantId, {}, "dataforseo").catch(() => {}); // the balance is empty: hold every search for this account until one goes through
+    if (transport.status === 402) { await CREDIT_BREAKER.trip(r.tenantId, {}, "dataforseo").catch(() => {}); await d.adjustProviderSpend(r.tenantId, PLATFORM, -r.estCostUsd).catch(() => {}); await releaseClaim(d, cacheKey, now, "credit_held"); return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") }; } /* AN EMPTY BALANCE IS ABOUT THE ACCOUNT, NEVER ABOUT THIS REQUEST (2026-09-17): a 402 used to hold the row for ever as a per-request refusal, and 243 searches the queue owed were dead the day the balance was topped up; the stop holds the account, the row is released for the next funded attempt */
     // Only HTTP 401/402/404 are documented pre-execution rejections (charged
     // nothing): refund, then HOLD the row. Releasing it is what silently re-runs a
     // refused paid request, and a raw 404 must never read as a dead task. A throw,
     // 5xx, or any other status may have run and billed: hold and keep the money.
-    if (transport.status === 401 || transport.status === 402 || transport.status === 404) {
+    if (transport.status === 401 || transport.status === 404) {
       await d.adjustProviderSpend(r.tenantId, PLATFORM, -r.estCostUsd).catch(() => {});
       if (!(await holdBlocked(d, cacheKey, now, `HTTP ${transport.status}`))) return { state: "error", cacheKey, disposition: "none", detail: "The provider refused this request and the refusal could not be recorded. It is held briefly and noted properly on the next pass." };
       return blockedResult(cacheKey, `HTTP ${transport.status}`);
