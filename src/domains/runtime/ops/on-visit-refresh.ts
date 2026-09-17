@@ -1,7 +1,6 @@
 import "server-only";
 
 import { after } from "next/server";
-
 import { getTenant } from "@/domains/account"; import { getTenantSpentTodayUsd } from "@/lib/cost/budget-ledger-supabase";
 import type { FunnelUnitOutcome } from "@/domains/evidence";
 import { log } from "@/lib/logger";
@@ -30,6 +29,7 @@ import {
 /** Canonical leased executor for scheduler and visit recovery. Provider attempts are persisted before side effects; unfinished work resumes on the same tenant-scoped run. */
 /** ONE cycle's wall-clock budget, for both doors; the scheduler spends its own total budget in units of this. */
 export const RESEARCH_CYCLE_DEADLINE_MS = RESEARCH_RUN_LEASE_SECONDS * 1000 - 100_000; // THE DEADLINE DERIVES FROM THE LEASE (operator window raise, 2026-09-10): a hundred seconds inside it, so every phase, the publish reserve behind it and the lease renewals all fit the hosted 800-second ceiling with the same margins the 260-in-280-in-300 shape carried.
+const VISIT_CYCLE_DEADLINE_MS = 300_000 - 100_000; /** THE VISIT DOOR RUNS INSIDE THE APP SHELL'S OWN LAMBDA, whose ceiling is 300 seconds (`maxDuration` in app/(shell)/layout.tsx), not the scheduler's 800. The window raise handed both doors the same 700-second deadline, so a person arriving at Today opened a drive that planned for 700 seconds, was killed by the host at 300 with no receipt written (production 21:29Z, 2026-09-17: "Task timed out after 300 seconds" on GET /), and left its lease standing so the next scheduled tick found the run held and did nothing. The same hundred-second margin inside the shell's ceiling: the page's own render comes first, then the drive, then room for whatever it started to be filed. */
 /** The least time left on a turn that is worth starting a bounded reading slice on. Under a minute and a half there is no room for one wave of readings and the writes behind it, so the turn goes straight to its phase and the reading is owed to the next one: a slice started with no time is a slice that spends money and stores nothing. */
 const ANALYSIS_SLICE_MIN_MS = 90_000;
 /** THE PHASES THAT CAN HOLD A RUN FOR HOURS, and the reason a turn may not simply walk back into one. The daily dispatch resumes this account's ONE unfinished run every tick, so a run parked in the results-page or winning-pages phase was handed the whole turn again, and again: on 7 August one held the day for ten and a half hours while the 140 answers bought that morning went unread, because the only door that opens a reading pass is the one the claim never reaches while a run is open. A turn that RESUMES into one of these now reads a bounded slice of the answers already paid for FIRST, then carries on with the phase on what is left of the deadline. Once per drive, only when a reading is genuinely owed, and it buys nothing: it reads answers already on file. */
@@ -473,7 +473,7 @@ const VISIT_EXTRA_PASSES_PER_DAY = 24; // THE DAY'S PASSES ARE THE RUNAWAY CEILI
 /** THE VISIT DOOR: claim, resume, or start the account's Research Run and drive it. A DAY IS NOT A UNIT OF WORK: a refused claim asks the one free question that matters (due-work, from persisted state alone) and opens another pass only when something is genuinely due. FAIL CLOSED both ways: an unreadable state opens nothing, an empty one opens nothing at $0, and a pass that opens with nothing due closes immediately. */
 export async function runResearchCycle(tenantId: string, options: ResearchCycleOptions = {}): Promise<void> {
   const nowFn = options.now ?? (() => new Date());
-  const deadlineMs = options.deadlineMs ?? RESEARCH_CYCLE_DEADLINE_MS;
+  const deadlineMs = options.deadlineMs ?? VISIT_CYCLE_DEADLINE_MS; // this executor is the visit door's; the scheduler drives the claimed run with its own, larger window
   const steps: ResearchCycleSteps = { ...defaultSteps, ...options.steps };
   const deadline = nowFn().getTime() + deadlineMs;
 

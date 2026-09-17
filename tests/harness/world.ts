@@ -7,19 +7,15 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { reportingDay } from "@/lib/reporting-day";
-
 export type Row = Record<string, unknown>;
 export const T = "acct-fixture";
 export const SITE = "example-site.test";
-
 const FIX = join(process.cwd(), "tests", "fixtures", "harness");
 export const fixture = <V>(name: string): V => JSON.parse(readFileSync(join(FIX, name), "utf8")) as V;
-
 /** ONE reading of one search as the funnel banks it. */
 export type FixtureSerp = { query: string; status: string; source: string; cacheKey?: string; observedAt?: string; organic?: unknown[] };
 /** ONE winning page as the funnel banks it: an extract carrying words is a reading, an extract with none is a row banked before the reading existed. */
 export type FixtureWinner = { url: string; domain: string; appearances?: { query?: string }[]; extract?: { mainText?: string | null; truncated?: boolean | null } | null; readOutcome?: { state?: string; retryAfter?: string } | null };
-
 /** THE CLOCK THE DRIVES SHARE. Every step reads it, so advancing it here is what "a later drive" means. It starts at the process's own now because several
  *  steps bound themselves on the wall clock directly, and a drive whose `now` sat hours behind that reads its own time box as already spent. */
 export const clock = { ms: Date.now() };
@@ -28,16 +24,13 @@ export const advance = (ms: number): number => (clock.ms += ms);
 /** The reporting day the shared clock stands in, which is the day every run key and every day memory is keyed on. The harness used to key its seeded runs on
  *  the UTC date, so from five in the afternoon Pacific every drive closed its pass as "a day that has ended" and nothing under test ever ran. */
 export const today = (): string => reportingDay(clock.ms);
-
 /** WHAT LEFT THIS PROCESS AND WHAT IT COST. `requests` is every scripted transport call in order; `paidUsd` is what the money path actually reserved,
  *  so a cache hit and a real request are told apart by the meter and by the attempt, never by a claim. */
 export const meter = { requests: [] as { kind: "search" | "reasoning" | "page"; url: string; at: number }[], paidUsd: 0, reserved: [] as number[], /** Every answer served from the store without a request, by the endpoint it belongs to. */ hits: [] as string[], /** The status this script answered each search request with. */ answered: [] as string[] };
 export const requestsOf = (kind: "search" | "reasoning" | "page"): number => meter.requests.filter((r) => r.kind === kind).length;
-
 /** The tables the real steps read and write. A table nobody seeds answers as an honest empty one. */
 export const tables = new Map<string, Row[]>();
 export const table = (name: string): Row[] => { if (!tables.has(name)) tables.set(name, []); return tables.get(name)!; };
-
 /** PURE. PostgREST's json-path projection, which several readers here depend on: `alias:state->a->b` and `alias:state->>a`. Returning the column instead
  *  of the path is how a fake tells a reader "nothing on file" for a row that holds plenty. */
 function jsonPath(row: Row, path: string): unknown {
@@ -46,7 +39,6 @@ function jsonPath(row: Row, path: string): unknown {
   for (const seg of rest) { if (v == null || typeof v !== "object") return null; v = (v as Row)[seg.trim()]; }
   return v ?? null;
 }
-
 /** The projection one SELECT asked for, applied. `*` and an empty list hand back the whole row. */
 function project(row: Row, cols: string): Row {
   const want = cols.trim();
@@ -60,7 +52,6 @@ function project(row: Row, cols: string): Row {
   }
   return out;
 }
-
 /** The in-memory Postgres the real stores run over: filters, ordering, paging, insert, update, upsert, delete, plus `maybeSingle` and the json-path
  *  projection above. It is deliberately one engine over `tables`, so a write one step makes is the row the next step reads. */
 export function client(): Record<string, unknown> {
@@ -116,7 +107,6 @@ export function client(): Record<string, unknown> {
   };
   return { from, rpc: (fn: string, args: Record<string, unknown>) => rpcCall(fn, args) };
 }
-
 /** The identity an upsert lands on, per table: the same unique index the migration declares. */
 function sameRow(name: string, stored: Row, sent: Row): boolean {
   if (name === "evidence_cache") return stored.cache_key === sent.cache_key;
@@ -125,7 +115,6 @@ function sameRow(name: string, stored: Row, sent: Row): boolean {
   if (name === "page_source_facts") return stored.tenant_id === sent.tenant_id && stored.page_key === sent.page_key && stored.statement_key === sent.statement_key;
   return stored.id === sent.id;
 }
-
 /** EVERY RPC THE DRIVE REACHES, and the ones it does not are named loudly rather than answered with a quiet null. */
 const rpcSeen: string[] = [];
 /** Every line the runtime logged this arm, so a branch that answers only in a log can still be asserted. */
@@ -164,10 +153,8 @@ function rpcCall(fn: string, args: Record<string, unknown>): Record<string, unkn
   };
   return q;
 }
-
 /** The one ceiling the harness enforces, so "the spending cap refused this call" is a branch a test can ask for rather than wait for. */
 export const money = { cap: 5 };
-
 /** claim_evidence_fetch, modelled on its migration: a fresh ready row is served as `ready` at $0, a live pending claim answers `pending`, anything else
  *  hands the caller the claim and a row to write into. THE CACHE HIT AND THE PAID REQUEST ARE DECIDED HERE, which is why the meter can be trusted. */
 function claimEvidence(args: Record<string, unknown>): Row {

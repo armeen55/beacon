@@ -117,7 +117,7 @@ const BENIGN: ResearchCycleSteps = {
 const healthySteps = (log: string[]): Partial<ResearchCycleSteps> => ({
   refreshSources: async () => (log.push("refresh"), { attempted: 2, succeeded: ["google_gsc", "google_ga4"], failures: [] }), backfillChunk: async () => (log.push("backfill"), { kind: "advanced", daysPulled: 30 }),
   crawlPages: async () => (log.push("crawl"), 0), publishSurface: async () => void log.push("publish"), surfaceStale: async () => false }); const run = (steps: Partial<ResearchCycleSteps>, deadlineMs?: number) =>
-  runResearchCycle(T, { now: () => new Date(NOW), steps: { ...BENIGN, ...steps }, ...(deadlineMs === undefined ? {} : { deadlineMs }) });
+  runResearchCycle(T, { now: () => new Date(NOW), steps: { ...BENIGN, ...steps }, deadlineMs: deadlineMs ?? RESEARCH_CYCLE_DEADLINE_MS }); // the drive under the scheduler's window; the visit door's own smaller window is pinned below
 beforeEach(() => { vi.unstubAllEnvs(); NOW = 1_700_000_000_000; RR.setResearchRunRepoForTests(null); ACCOUNT_STATUS.clear(); PAUSED.clear(); DB.missing.clear(); DB.ignoresWrites.clear(); DB.readThrows = false; DB.fleet = []; DB.served = []; DB.fleetError = null; REBUILT.length = 0; installAccountRepo(); });  // ACCOUNT_STATUS is cleared so every tenant defaults to active.
 describe("research-run claim: one open run per account across all dates", () => { it("resumes the account's one unfinished run first: yesterday's paused run is reclaimed by the same id with phase and cursor untouched, a later-day visit reuses it, and no second row is ever created", async () => {
     const rows = freshRepo(); const cursor = { phase: "gsc_backfill_chunk", attemptKey: "k" }; rows.push(mk({ id: "seed", status: "paused", current_phase: "gsc_backfill_chunk", phase_cursor: cursor, cycle_key: ckey(T, NOW - DAY), started_at: iso(NOW - DAY) }));
@@ -651,9 +651,13 @@ describe("research-run conflict-free research closure", () => {
     expect([rows[0]!.status, rows[0]!.progress.observationRetries, rows[0]!.progress.extraSamples], "the drive re-reads the row before each advance and carries the markers it does not own, so a pair the provider refused twice stays refused").toEqual(["completed", retries, { day: retries.day, granted: 1 }]); });
   describe("collection is banked before analysis, and the lease decides who analyses", () => {
     const FULL_DAY = { done: 140, total: 140, answers: 140, unavailable: 0, unsupported: 0 };
+    it("hands a VISIT a turn that fits the app shell's 300-second lambda, never the scheduler's window: a 700-second plan was killed by the host at 300 with no receipt and its lease held the next tick (production 2026-09-17)", async () => {
+      withRun({ current_phase: "prompt_observations" }); const budgets: number[] = [];
+      await runResearchCycle(T, { now: () => new Date(NOW), steps: { ...BENIGN, dayStanding: async () => FULL_DAY, analyzeAnswers: async (_t, _d, budgetMs) => (budgets.push(budgetMs), NOW += budgetMs + 10_000, NO_READING) } }); // no deadline named: the visit door's own default
+      expect(budgets).toEqual([200_000]); });
     it("advances the phase and records the day BEFORE it reads one answer, so a reading that outruns the turn leaves the analyses OWED and the next pass resumes them without re-buying an observation", async () => {
       const rows = withRun({ current_phase: "prompt_observations" }); const budgets: number[] = [];
-      const steps: Partial<ResearchCycleSteps> = { dayStanding: async () => FULL_DAY, analyzeAnswers: async (_t, _d, budgetMs) => (budgets.push(budgetMs), NOW += RESEARCH_CYCLE_DEADLINE_MS + 10_000, NO_READING) }; // the hosting ceiling hits INSIDE the reading, whatever that ceiling is set to
+      const steps: Partial<ResearchCycleSteps> = { dayStanding: async () => FULL_DAY, analyzeAnswers: async (_t, _d, budgetMs) => (budgets.push(budgetMs), NOW += budgetMs + 10_000, NO_READING) }; // the hosting ceiling hits INSIDE the reading, whatever that ceiling is set to
       await run(steps);
       expect([rows[0]!.current_phase, rows[0]!.status, rows[0]!.progress.state?.checksDone, rows[0]!.progress.funnel?.answersAnalyzed]).toEqual(["serp_analysis", "paused", 140, undefined]); // the phase MOVED and the day's collection is on the row; not one analysis is claimed by it
       expect(budgets).toEqual([RESEARCH_CYCLE_DEADLINE_MS]); // the reading was handed what was left of the turn, never a count of answers standing in for a clock
