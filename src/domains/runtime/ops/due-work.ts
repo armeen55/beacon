@@ -381,7 +381,7 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   // evidenced work standing unwritten. The floor still decides URGENCY everywhere else; what ends the day is a
   // SETTLED MANIFEST, which is what `stockClosed` reads. Unreadable stock still holds, because an unread count is
   // not a proven one.
-  if (ready.value != null && !stockClosed && !creditHeld.value) due.push("replenish_ready");
+  if (ready.value != null && !stockClosed && !creditHeld.value && !searchHeld.value) due.push("replenish_ready"); /* NO PAID WRITING WHILE SEARCH IS DRY (2026-09-17): two days with DataForSEO answering 402 spent $7.38 of model calls on nineteen drafts, and the one that reached Ready copied a typo; a writer with no results page and no winner in hand has nothing to beat, so the $0 producers keep the queue alive and the model waits for the search door */
   if (sources.value > 0) due.push("refresh_sources");
   // THE WEBSITE IS A SOURCE TOO, and reading it is the one piece of evidence nobody else supplies. An account
   // whose inventory still holds pages I have never opened is owed a batch, whatever else is quiet today.
