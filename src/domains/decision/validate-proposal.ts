@@ -264,8 +264,8 @@ export function convertSectionToSchema(p: ChangeProposal): ChangeProposal | null
   const kept = c.field === "schema" ? p.limitations : p.limitations.filter((l) => !RICH_CLAIM.test(l));
   const where = "In this page's own custom code, in the page head. This is JSON-LD, not visible page text.";
   const normalized: ChangeProposal = { ...p,
-    opportunityType: `${action} ${faq ? "FAQ" : [...types].sort().join(", ")} structured data`,
-    whyItMatters: faq ? `${((n) => `${n} question${n === 1 ? "" : "s"} and ${n === 1 ? "its answer" : "their answers"}`)(SCHEMA.pairs(graph).length)} from this page, in the form Google reads. ${FAQ_SCHEMA_LIMIT}`
+    opportunityType: /structured data/i.test(p.opportunityType) ? p.opportunityType : `${action} ${faq ? "FAQ" : [...types].sort().join(", ")} structured data`, /* THE PRODUCER'S OWN WORDS STAND WHEN THEY ALREADY SAY IT (2026-09-17): this repair rewrote the headline and the reason on every pass and the producer wrote them back on the next, two versions a pass on five rows for two days (469 versions); a repair is for rows minted before the words existed */
+    whyItMatters: /structured data/i.test(p.whyItMatters ?? "") ? p.whyItMatters : faq ? `${((n) => `${n} question${n === 1 ? "" : "s"} and ${n === 1 ? "its answer" : "their answers"}`)(SCHEMA.pairs(graph).length)} from this page, in the form Google reads. ${FAQ_SCHEMA_LIMIT}`
       : "This block describes the page's content in machine-readable form. It does not rewrite the page or promise ranking or citation gains.",
     recommendedChange: { ...c, field: "schema", after, where },
     operatorSteps: [c.before == null
