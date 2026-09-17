@@ -152,7 +152,7 @@ export async function checkBudget(
   // unreadable ledger.
   // NON-FACT MODEL WORK MAY NOT SPEND THE FACT RESERVE, and the call about to be made counts against the
   // ceiling it asks to cross: twenty-nine answer analyses ran before fact_check ever got a turn.
-  const daily = await dailyCapReason(tenantId, now, shareFor("model", opts.purpose ?? "bulk"), projected);
+  const daily = await dailyCapReason(tenantId, now, shareFor("model", opts.purpose ?? "bulk"), projected, opts.purpose ?? "bulk");
   if (daily) return { allowed: false, reason: daily };
   return { allowed: true, remaining: state.capUsd - effectiveSpend };
 }

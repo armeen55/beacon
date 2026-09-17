@@ -66,7 +66,6 @@ describe("an answer already on file against a real paid request", () => {
   it("the search bought once is served from what is on file afterwards, and the second row pays nothing for it", async () => {
     seedResearchState(basis, { serps: [], winningPages: [] });
     const state = { posts: 0 }; script.search = healthySearch(state);
-
     await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need()] });
     const posts = state.posts, asked = requestsOf("search"), hits = meter.hits.length;
     expect([posts > 0, meter.paidUsd > 0, hits], "the first drive genuinely bought the reading, and nothing was served from the store").toEqual([true, true, 0]);

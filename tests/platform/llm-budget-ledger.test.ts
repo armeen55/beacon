@@ -34,13 +34,13 @@ describe("one canonical day for money and research", () => {
   it("holds the fact reserve on BOTH doors and counts the call about to be made", async () => {
     const { shareFor, SEARCH_SHARE, FACT_RESERVE_SHARE, dailyCapReason } = await import("@/lib/cost/daily-cap"); expect(shareFor("search", "bulk")).toBeCloseTo(SEARCH_SHARE - FACT_RESERVE_SHARE, 10);
     expect(shareFor("model", "bulk")).toBeCloseTo(1 - FACT_RESERVE_SHARE, 10); // non-fact OpenAI is held back too
-    expect([shareFor("search", "fact_check"), shareFor("model", "fact_check")]).toEqual([1, 1]);
+    expect([shareFor("search", "fact_check"), shareFor("model", "fact_check")]).toEqual([0.5, 0.5]); // facts take at most half the day (2026-09-17)
     db.spentToday = 0.769; // THE COUNTEREXAMPLE: $0.769 spent of a $1 day. A $0.21 bulk buy would land at $0.979 and eat the reserve.
     expect(await dailyCapReason("t", new Date(), shareFor("search", "bulk"), 0.21)).toContain("budget");
     expect(await dailyCapReason("t", new Date(), shareFor("search", "bulk"), 0)).toBeNull(); // what the old check saw
-    expect(await dailyCapReason("t", new Date(), shareFor("search", "fact_check"), 0.21)).toBeNull(); // the reserve is still there
+    expect(await dailyCapReason("t", new Date(), shareFor("search", "fact_check"), 0.21, "fact_check")).toContain("budget"); db.spentToday = 0.29; expect(await dailyCapReason("t", new Date(), shareFor("search", "fact_check"), 0.21, "fact_check")).toBeNull(); db.spentToday = 0.769; // facts stop at half the day; under it they run
     db.spentToday = 0.93; // non-fact model work stops at 0.92, leaving the fact reserve intact
-    expect(await dailyCapReason("t", new Date(), shareFor("model", "bulk"), 0.01)).toContain("budget"); expect(await dailyCapReason("t", new Date(), shareFor("model", "fact_check"), 0.02)).toBeNull();
+    expect(await dailyCapReason("t", new Date(), shareFor("model", "bulk"), 0.01)).toContain("budget"); expect(await dailyCapReason("t", new Date(), shareFor("model", "fact_check"), 0.02, "fact_check")).toBeNull(); // and inside the reserve bulk left, a fact unit still runs
     db.spentToday = 0;});});
 describe("migration history is immutable", () => {
   it("the applied 2026-08-18 migration keeps its committed bytes and later moves live in their own files", async () => {

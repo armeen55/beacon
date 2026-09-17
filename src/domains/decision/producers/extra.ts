@@ -144,7 +144,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     return shops.some((d) => STORE_FIRST.test(d)) || shops.length >= 2;
   };
   const out: Draft[] = [];
-  const noMeta = rank(pages.filter((p) => !p.content?.metaDescription?.trim()));
+  const noMeta = rank(pages.filter((p) => !p.content?.metaDescription?.trim() && (p.content?.wordCount ?? 0) >= READABLE_WORDS)); /* A PAGE WITH NO READABLE WORDS CANNOT BE DESCRIBED (2026-09-17): /persian-kabobs/joojeh-kabob holds seven words of chrome ("top of page < Back Joojeh Kabob Previous Next"), and the writer was paid twice to describe it, producing "the page names Joojeh Kabob, with no added description"; it joins the unread pages below until a rendered read lands */
   for (const p of noMeta) out.push({
     page: p, slug: "missing_description", field: "meta", query: topQueryOf(p),
     headline: "A search description of this page's own, where Google is writing one for it today", before: null,
@@ -236,7 +236,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   // with a normal response and no readable words, so what it carries is UNKNOWN: judging it thin would be
   // judging blindness, and skipping it silently hid the site's biggest pages. It gets a research card that
   // names the rendered read as the next step, and no body-dependent change can stand on it until that lands.
-  const unread = rank(pages.filter((p) => (p.content?.wordCount ?? 0) === 0 && impressions(p) > 0));
+  const unread = rank(pages.filter((p) => (p.content?.wordCount ?? 0) < READABLE_WORDS && impressions(p) > 0));
   for (const p of unread) {
     out.push({
       page: p, slug: "thin_page", field: "section", query: topQueryOf(p),
@@ -254,6 +254,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   return out;
 }
 /** 4. THE SEARCH THIS PAGE ALREADY EARNS AND NEVER ANSWERS (operator, 2026-09-02). The largest opportunities on a live account are questions Google already sends a page and the page does not answer: 29,965 impressions on a flag page that never says "before", 3,502 asking which animal is Iran's national one. No cause payload names one, so no producer minted a body card for them and they never entered the paid plan at all. THE GAP READER DECIDES, NOT THIS FILE: the page's own demand is built by the one shared reading and typed by `substantiveGapOf`, so the search this card is minted on is the same search the writer is later refused or hired for, and the shape gate, the absent-word gate, the vocabulary refusal and the ownership ruling are asked once, in one place. NOTHING IS BOUGHT HERE: the card lands as research carrying the step that reading typed, which is the page's own capture while its words are not all on file, a source while nothing checked answers the search, and a draft once one does. */
+/** Fewer readable words than this is page chrome, not a page: a raw fetch of a script-built page returns its furniture and nothing else. */ const READABLE_WORDS = 40;
 function unansweredCards(snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], expectedCtrAt: (position: number) => number, read: { bodies: ReadonlyMap<string, OwnedPageBody>; misses: ReadonlyMap<string, "no_capture" | "read_failed">; facts: ReadonlyMap<string, FactCheck[]>; /** THE COPY THE CHANGES ALREADY ON FILE FOR EACH PAGE WOULD PUBLISH, keyed by the page's own path in lower case, so a question one of them already answers is not offered again. */ written: ReadonlyMap<string, { query: string; copy: string }[]>; basis: string | null; tenantId: string }): Draft[] {
   const out: Draft[] = []; for (const p of pages) { const path = pathOf(p.url); if (path === "/" || STOREFRONT.test(path)) continue; // an essay never goes on the home page or a shop rail, the same rule every other body card here obeys
     const rows = p.search?.topQueries ?? []; if (read.misses.get(canonicalUrlKey(p.url)) === "read_failed") continue; // I COULD NOT LOOK IS NOT THIS PAGE DOES NOT ANSWER (reviewer, 2026-09-02): a chunk of the body read that refused typed its pages `read_failed`, the producer asked for no reasons at all, and a page with words on file read as bodyless, which mints the very card this reading exists to refuse. Nothing on file (`no_capture`) still mints, carrying the page's own capture as the step it owes. The impressions floor moved to the gap reader, where it is asked of the SEARCH rather than of the page

@@ -251,6 +251,8 @@ type PlannerDeps = {
   settle?: (tenantId: string, observationId: string, status: "unavailable" | "unsupported") => Promise<void>;
   /** The engines this account can be read on. Absent = every engine the provider registry can ask today. */
   engines?: readonly ObservationEngine[];
+  /** The account's daily budget in USD, or null when it cannot be read. Test seam; the default reads the account. */
+  dailyBudgetUsd?: (tenantId: string) => Promise<number | null>;
   unsupportedPairs?: readonly string[];
   /** How many already-paid answers are on file that nothing has read yet. The test seam for the backlog gate below. */
   unreadBacklog?: (tenantId: string) => Promise<number>;
@@ -384,10 +386,10 @@ function planFrom(day: string, s: DayState, opts: PlannerDeps): DayChecks & { du
  * gets a different answer everywhere it is consumed. READ ONLY: nothing here writes, so a surface may ask it
  * on every render.
  */
+/** THE OBSERVATION LANE TAKES AT MOST THIS SHARE OF THE DAY (2026-09-17): reading 35 tracked questions on four engines and judging every answer costs about $2.60 a day, which on a $4 day left the writers about a dollar and a half; the panel is read oldest-first, so a smaller day reads every question over more days rather than starving the changes a customer can make. A budget that cannot be read bounds nothing, and the day's settled readings count against the same room. */ export const observationRoom = (dailyBudgetUsd: number | null): number => dailyBudgetUsd == null ? Number.MAX_SAFE_INTEGER : Math.max(0, Math.floor((0.3 * dailyBudgetUsd) / 0.025 + 1e-9)); const roomLeft = (plan: { done: number }, room: number): number => room === Number.MAX_SAFE_INTEGER ? room : room - plan.done, roomFor = async (tenantId: string, opts: PlannerDeps): Promise<number> => observationRoom(await (opts.dailyBudgetUsd ?? (async (t: string) => (await import("@/domains/account")).getTenant(t).then((a) => a?.daily_budget_usd ?? null).catch(() => null)))(tenantId).catch(() => null));
 export async function dailyChecks(tenantId: string, reportingDay: string, opts: PlannerDeps = {}): Promise<(DayChecks & { due: DueObservation[] }) | null> {
-  const state = await readDayState(tenantId, reportingDay, opts);
-  if (state == null) return null;
-  const plan = planFrom(reportingDay, state, opts);
+  const state = await readDayState(tenantId, reportingDay, opts); if (state == null) return null;
+  const plan = ((p, room) => ({ ...p, due: p.due.slice(0, Math.max(0, roomLeft(p, room))) }))(planFrom(reportingDay, state, opts), await roomFor(tenantId, opts));
   // AND WHETHER THE LANE IS BLOCKED ON READING RATHER THAN ON MONEY. The buying gate below refuses a whole day over an unread backlog; a day with nothing due is not blocked by anything, so it is never counted for. A
   // count that could not be taken is NULL, never zero: the backlog is then unknown, and unknown may not authorize a purchase. Under the bound the field is ABSENT, which is what clears a lane that has drained.
   if (plan.due.length === 0) return plan;
@@ -408,11 +410,9 @@ export async function dueObservations(tenantId: string, reportingDay: string, op
   const behind = await (opts.unreadBacklog ?? unreadAnswerCount)(tenantId).catch(() => null);
   if (behind == null) { log.warn("[daily-observations] how many paid answers are still unread could not be read, so nothing is bought against a guess", { tenantId }); return []; } // an EMPTY plan, never a failed day: the lane files as unreadable through dailyChecks and the rest of the day runs
   if (behind > UNREAD_BACKLOG_MAX) { log.info("[daily-observations] buying paused: paid answers are waiting to be read", { tenantId, unread: behind }); return []; }
-  const state = await readDayState(tenantId, reportingDay, opts);
-  if (state == null) return null;
-  const { due } = planFrom(reportingDay, state, opts);
-  await spendFailureBudget(tenantId, reportingDay, state, opts);
-  return due;
+  const state = await readDayState(tenantId, reportingDay, opts); if (state == null) return null;
+  const plan = planFrom(reportingDay, state, opts), due = plan.due.slice(0, Math.max(0, roomLeft(plan, await roomFor(tenantId, opts))));
+  await spendFailureBudget(tenantId, reportingDay, state, opts); return due;
 }
 
 /** How many rows one pass may settle. Bounded: a whole day of refusals settles over a few passes rather

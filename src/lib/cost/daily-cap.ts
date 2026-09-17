@@ -22,7 +22,7 @@ const DEFAULT_DAILY_CAP_USD = 5;
  *  `share` is the fraction of the day's budget THIS DOOR may consume: the search-buy door passes
  *  SEARCH_SHARE so bulk evidence can never spend the whole day and starve the drafting that turns the
  *  evidence into work. On 17 August 105 observation calls consumed the full dollar before one draft ran. */
-export async function dailyCapReason(tenantId: string, now: Date = new Date(), share = 1, projectedUsd = 0): Promise<string | null> {
+export async function dailyCapReason(tenantId: string, now: Date = new Date(), share = 1, projectedUsd = 0, purpose: "fact_check" | "bulk" = "bulk"): Promise<string | null> {
   if (!isSupabaseConfigured()) return null;
   // AN UNREADABLE BUDGET IS NOT THE DEFAULT BUDGET. A failed tenant read fell back to the standard allowance, so
   // an account whose operator had set the day's budget to zero, which this file's own contract calls turning paid
@@ -36,7 +36,10 @@ export async function dailyCapReason(tenantId: string, now: Date = new Date(), s
   // THE CALL ABOUT TO BE MADE COUNTS. Comparing only money already spent admitted the reservation that crossed
   // the line: at 0.769 spent, a 0.21 buy passed a 0.77 ceiling and took the reserve with it (Codex,
   // 2026-08-18). The door asks whether the day can afford THIS call, not whether it could afford the last one.
-  return today + Math.max(0, projectedUsd) > cap
+  const whole = (account.daily_budget_usd ?? DEFAULT_DAILY_CAP_USD), asked = today + Math.max(0, projectedUsd);
+  // FACT CHECKING GETS ITS OWN HALF AND THE RESERVE, NEVER THE WRITERS' HALF (2026-09-17): it may spend while the day is under half spent, and again inside the slice bulk work may not touch once bulk has reached its ceiling, so a day of fact checks can never leave the changes a customer makes unfunded, and a day of drafting still leaves one fact unit its turn.
+  const inReserve = purpose === "fact_check" && today >= whole * (1 - FACT_RESERVE_SHARE) - 1e-9 && asked <= whole;
+  return asked > cap && !inReserve
     ? `Today's budget for this kind of work is spent (${today.toFixed(2)} of ${cap.toFixed(2)} USD). Paid work resumes tomorrow.` : null;
 }
 
@@ -49,5 +52,6 @@ export const SEARCH_SHARE = 0.85;
 export const FACT_RESERVE_SHARE = 0.08;
 /** PURE: the share of the day one call may draw, by the door it knocks on and what it is FOR. Fact checking
  *  may draw the whole cap; bulk search keeps its 0.85 ceiling and bulk model work the rest, each less the reserve. */
+const FACT_SHARE = 0.5; /* FACT CHECKING TAKES AT MOST HALF THE DAY, plus the reserve (2026-09-17): on the two funded days the fact phase inventoried 244 claims at a model call each and could have drawn the whole cap before a single writer ran */
 export const shareFor = (door: "search" | "model", purpose: "fact_check" | "bulk"): number =>
-  purpose === "fact_check" ? 1 : (door === "search" ? SEARCH_SHARE : 1) - FACT_RESERVE_SHARE;
+  purpose === "fact_check" ? FACT_SHARE : (door === "search" ? SEARCH_SHARE : 1) - FACT_RESERVE_SHARE;
