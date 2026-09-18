@@ -106,7 +106,7 @@ export function googleView(input: GoogleInput) {
         { text: num(r.impressionsNow), sort: r.impressionsNow }, change(r.impressionsNow, r.impressionsPrior),
         { text: ctr == null ? "not yet" : pct(ctr), sort: ctr ?? -1 },
         { text: r.positionNow > 0 ? r.positionNow.toFixed(1) : "not ranked", sub: r.positionNow > 0 && r.positionPrior > 0 ? `was ${r.positionPrior.toFixed(1)}` : undefined, sort: r.positionNow > 0 ? r.positionNow : 999 },
-        { text: top ? top.query : "no search named yet", sub: top ? `${num(top.clicks)} ${top.clicks === 1 ? "click" : "clicks"} at ${top.position.toFixed(1)}` : undefined },
+        { text: top ? top.query : "no search named yet", sub: top ? `${top.clicks === 0 ? "no clicks" : `${num(top.clicks)} ${top.clicks === 1 ? "click" : "clicks"}`} at position ${top.position.toFixed(1)}` : undefined },
       ] };}),});
   // THE SEARCHES THEMSELVES, off the same 90 reported days the page rows carry. One row is one search on one page: that is the grain Google reports, and merging them would invent a position nobody measured.
   const seenQueries = [...input.pages.entries()].flatMap(([page, sig]) => sig.topQueries.map((q) => ({ page, ...q })));

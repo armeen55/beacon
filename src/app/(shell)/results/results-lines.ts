@@ -328,10 +328,10 @@ const fundingFor = (map: ReadonlyMap<string, { readings: number; netLift: number
 function fundingLine(record: Funding): string {
   const which = record?.of === "family" ? "this whole family of changes" : "this exact kind of change";
   const learned = record?.readings ?? 0, net = record?.netLift ?? 0, closed = `${num(learned)} closed reading${learned === 1 ? "" : "s"}`;
-  if (learned === 0) return "Nothing here has changed what gets funded next yet.";
-  if (learned < MIN_FINISHED_READINGS) return `${closed} of ${which} here, and the next one is funded exactly as before: ${MIN_FINISHED_READINGS} closed readings that are down between them is what moves the order.`;
-  if (net < 0) return `${closed} of ${which} here are ${num(-net)} click${net === -1 ? "" : "s"} down between them, so the next one is funded below the rest until one finishes ahead.`;
-  return `${closed} of ${which} here ${net === 0 ? "are level between them" : `are ${num(net)} click${net === 1 ? "" : "s"} up between them`}, and a record that is not down buys no place in the queue: what gets funded next is decided on the traffic riding on each change.`;
+  if (learned === 0) return "Nothing here has changed what gets recommended next yet.";
+  if (learned < MIN_FINISHED_READINGS) return `${closed} of ${which} here, and the next one is recommended exactly as before: the order moves once ${MIN_FINISHED_READINGS} closed readings are down between them.`;
+  if (net < 0) return `${closed} of ${which} here are ${num(-net)} click${net === -1 ? "" : "s"} down between them, so the next one is placed below the rest until one finishes ahead.`;
+  return `${closed} of ${which} here ${net === 0 ? "are level between them" : `are ${num(net)} click${net === 1 ? "" : "s"} up between them`}, and a record that is not down earns no place in the queue: what gets recommended next is decided on the traffic riding on each change.`;
 }
 
 /** WHAT THE OPERATOR ACTUALLY DID, AND WHAT THE LIVE PAGE SAID ABOUT IT (2026-09-05). One paragraph carried this and the reading together, so "the page moved up after it" sat in the same breath as "never confirmed on the live page" and nothing on the row told what happened to the PAGE apart from what the reading TAUGHT. This sentence answers only the first: what was applied, when, whose wording is on the page, what the live check found, and whether the page has moved again since. The typed cause the verifier names is what speaks, so a page that builds itself in the browser says it could not be read and never says the words were missing. */
