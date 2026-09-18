@@ -51,7 +51,7 @@ export const labelOf = (p: OwnedPageEvidence): string => plain(p.content?.h1 ?? 
 const clicksOf = (p: OwnedPageEvidence): number => p.search?.clicks90d ?? 0;
 /** MIN_EARNED_OVERLAP is the words of a page's own tie to a search, past the site wide ones, before it may be asked to answer it. */
 const MIN_EARNED_OVERLAP = 2;
-export const count = (n: number, one: string, many = `${one}s`): string => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
+export const count = (n: number, one: string, many = `${one}s`): string => n === 0 ? `no ${many}` : `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`; // never a bare zero on a customer surface: "shown 197 times for no clicks", not "for 0 clicks" (Today, 2026-09-18)
 /** The words a page can be judged on without paying for a body read: its title, its heading and its outline. THE ACCOUNT'S OWN UBIQUITOUS VOCABULARY COMES OUT OF BOTH SIDES: a word this site prints on nearly every page is a word every page shares, and left in here it let a question tie to a page on the site's whole subject. */
 export const pageWords = (p: OwnedPageEvidence, weak: ReadonlySet<string>): Set<string> => new Set(topicTokens([p.content?.title, p.content?.h1, ...(p.content?.outline ?? []), pathOf(p.url).replace(/[-/]/g, " ")].filter(Boolean).join(" ")).filter((t) => !weak.has(t)));
 /** The words of a question that carry its subject: a site wide word this account puts on everything proves no  connection at all, so it never makes a page look like the answer to anything. */
