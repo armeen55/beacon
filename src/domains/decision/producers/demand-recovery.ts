@@ -33,6 +33,8 @@ type DemandRecoveryRun = { cards: ChangeProposal[]; complete: boolean;
   /** The largest losses this pass measured, card or not: the collapse explanation, on the receipt. */
   losses: { unit: string; lostPerMonth: number; priorPage: string | null; currentPage: string | null; swapped: boolean }[] };
 
+const monthOf = (d: string | null): string => d ? new Date(`${d}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" }) : "the earlier window";
+const pageLabelOf = (snapshot: EvidenceSnapshot, url: string): string => { const p = snapshot.ownedPages.find((o) => canonicalUrlKey(o.url) === canonicalUrlKey(url)); return (p?.content?.h1 ?? p?.content?.title ?? "").replace(/\s+/g, " ").trim() || pathOf(url); };
 type Decomposed = { cause: "ranking_loss" | "ctr_snippet" | null; field: "section" | "title"; line: string };
 
 /** WHY the audience left. A slid position is its own evidence and owes content. A held position with a
@@ -53,7 +55,7 @@ function decompose(h: NonNullable<Awaited<ReturnType<typeof loadCanonicalDemandU
   const ctrEarly = h.earlyImpressions > 0 ? (h.earlyClicksPerDay * 30) / (h.earlyImpressions / 13) : null;
   const ctrNow = h.recentImpressions > 0 ? (h.recentClicksPerDay * 30) / (h.recentImpressions / 3) : null;
   if (dPos != null && dPos >= POSITION_SLIP) return { cause: "ranking_loss", field: "section",
-    line: `The page itself slid from position ${h.pageEarlyPosition!.toFixed(1)} to ${h.pageRecentPosition!.toFixed(1)} on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line.` };
+    line: `The page itself slid from position ${h.pageEarlyPosition!.toFixed(1)} to ${h.pageRecentPosition!.toFixed(1)} for this audience's searches, so something better took its ground: the fix is stronger content, not a sharper line.` };
   if (dPos == null && h.earlyPosition != null && h.recentPosition != null && h.recentPosition - h.earlyPosition >= POSITION_SLIP)
     return { cause: null, field: "section",
       line: `The blended position across this site's pages slid, but the page now shown lacks its own two-window history, so the slide cannot be pinned on any one page: nothing is treated on an average across pages.` };
@@ -118,14 +120,14 @@ export async function demandRecoveryCards(input: { tenantId: string; snapshot: E
       const path = pathOf(home); const id = seats.get(`${path.toLowerCase()}::${canonicalQueryKey(u.label)}`); if (!id) continue; // the page's seats are decided above, in one order, so no ordering of the source rows can flip which audience holds which row
       const d = decompose(h, u.serp != null);
       const phrasings = u.vocabulary.slice(0, 6).map((v) => `"${v}"`).join(", ");
-      const windowLine = `${historyWindow.earlyFrom} to ${historyWindow.earlyTo}`;
-      const story = `Searches for ${u.label} earned this site about ${n(h.earlyClicksPerDay * 30)} clicks a month over ${windowLine} and earn about ${n(h.recentClicksPerDay * 30)} now: ${n(h.lostClicksPerMonth)} clicks a month were LOST.`;
+      const windowLine = `${monthOf(historyWindow.earlyFrom)} to ${monthOf(historyWindow.earlyTo)}`, label = pageLabelOf(snapshot, home); /* THE CARD READS AS A PERSON WOULD SAY IT (operator voice; production 2026-09-18): "37 clicks a month were LOST", "about 0 supported as recoverable today" and a raw slug were the headline the moment the history read came back */
+      const story = `Searches for ${u.label} brought this site about ${n(h.earlyClicksPerDay * 30)} clicks a month from ${windowLine} and bring about ${n(h.recentClicksPerDay * 30)} now, down ${n(h.lostClicksPerMonth)} a month.`;
       const moved = h.pageSwapped ? ` Google moved the audience: ${pathOf(h.priorTopPage!)} earned it then, ${pathOf(h.currentTopPage ?? home)} is shown now.` : "";
-      const recoverable = Math.max(0, Math.round(u.recoverableClicks));
+      const recoverable = Math.max(0, Math.round(u.recoverableClicks)), backNow = recoverable > 0 ? `, about ${n(recoverable)} of them within reach now` : "";
       const hints = [story.trim() + moved, d.line,
         d.cause != null
-          ? `At today's own demand and positions, about ${n(recoverable)} clicks over 28 days of that are supported as recoverable under the diagnosed cause; the rest depends on winning back ground and is not promised.`
-          : `About ${n(recoverable)} clicks over 28 days is the measured shortfall against this account's own click curve at today's positions. None of it is claimed as recoverable until the cause is diagnosed.`,
+          ? recoverable > 0 ? `At today's own demand and positions, about ${n(recoverable)} clicks over 28 days of that are within reach under the diagnosed cause; the rest depends on winning back ground and is not promised.` : "At today's own demand and positions none of that is within reach yet; every click of it depends on winning back ground first."
+          : recoverable > 0 ? `About ${n(recoverable)} clicks over 28 days is the measured shortfall against this account's own click curve at today's positions. None of it is claimed as recoverable until the cause is diagnosed.` : "Against this account's own click curve at today's positions there is no measured shortfall yet, so nothing is claimed as recoverable until the cause is diagnosed.",
         `People search this as: ${phrasings}`,
         ...(u.volume?.searchVolume ? [`"${u.label}" carries ${n(u.volume.searchVolume)} searches a month${u.volume.intent ? ` (${u.volume.intent})` : ""}`] : []),
         ...(u.serp ? [`The pages winning it now: ${u.serp.winners.slice(0, 3).map((w) => w.domain).join(", ")}`] : []),
@@ -139,14 +141,14 @@ export async function demandRecoveryCards(input: { tenantId: string; snapshot: E
       };
       cards.push({
         id, tenantId, kind: "existing_edit", winnersOnFile: winnersRead(snapshot.research, u.label),
-        pagePath: path, pageUrl: home, pageLabel: path, primaryQuery: u.label,
+        pagePath: path, pageUrl: home, pageLabel: label, primaryQuery: u.label,
         // THE HEADLINE NEVER SELLS THE HISTORICAL LOSS AS WIN-BACK (operator, 2026-08-17): the lost figure is
         // labeled lost, and the only number offered as recoverable is the current window's own shortfall.
         opportunityType: d.cause === "ranking_loss"
-          ? `Rebuild the ground "${u.label}" lost on ${path}: this page's own position ${h.pageEarlyPosition!.toFixed(1)} to ${h.pageRecentPosition!.toFixed(1)}, ${n(h.lostClicksPerMonth)} clicks a month LOST, about ${n(recoverable)} supported as recoverable today`
+          ? `Win back "${u.label}" on ${label}: the page slipped from position ${h.pageEarlyPosition!.toFixed(1)} to ${h.pageRecentPosition!.toFixed(1)} and is down ${n(h.lostClicksPerMonth)} clicks a month${backNow}`
           : d.cause === "ctr_snippet"
-            ? `Rewrite the line searchers read for "${u.label}" on ${path}: position held while the click rate collapsed, ${n(h.lostClicksPerMonth)} clicks a month LOST, about ${n(recoverable)} supported as recoverable today`
-            : `Explain the "${u.label}" decline on ${path}: ${n(h.lostClicksPerMonth)} clicks a month LOST and the cause is not yet separable`,
+            ? `Rewrite the line searchers read for "${u.label}" on ${label}: the position held while clicks fell ${n(h.lostClicksPerMonth)} a month${backNow}`
+            : `Explain the "${u.label}" decline on ${label}: down ${n(h.lostClicksPerMonth)} clicks a month and the cause is not yet separable`,
         changeFamily: d.field, status: "needs_review",
         // THE ASSIGNMENT LIVES IN THE TYPED BRIEF, NEVER IN THE COPY FIELD (incident recovery, 2026-09-04): `after` means the exact words to paste, and an instruction sitting there is indistinguishable from finished work to anything that reads the words alone.
         recommendedChange: { kind: "existing_edit", field: d.field, before: null, after: "The exact wording has not been written yet." },

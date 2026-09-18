@@ -50,7 +50,6 @@ beforeEach(() => { NOW = 1_700_000_000_000; RR.setResearchRunRepoForTests(null);
   const byId = async (id: string) => ({ id, slug: id, provisional_name: "", domain: "own.example", status: "active" as const, signup_date: "", tos_accepted_at: null, daily_budget_usd: 0, growth_goal: null, created_at: "", updated_at: "" });
   setAccountRepositoryForTests({ getAccountById: byId, getAccountBySlug: byId } satisfies AccountRepository); });
 type Owed = NonNullable<RR.ResearchRunProgress["evidenceOwed"]>[number];
-
 /** ONE DRIVE. `seeded` is what the run row carries when the drive begins, `walked` is what the walk hands back, and
  *  `detail` is the sentence every purchase on it comes back with. The whole persisted progress is handed back beside
  *  the debt, because the ledger, the receipts and the row's own stamp are all read off the one drive that wrote them. */
@@ -63,7 +62,6 @@ const oneDrive = async (s: typeof SITES[number], seeded: readonly Owed[], walked
     acquireEvidence: async () => (asked += 1, { acquired: false, detail }),
     replenishReady: async () => ({ ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {}, evidenceOwed: [...walked] as never }) } });
   const progress = rows.at(-1)!.progress ?? {}; return { asked, owed: progress.evidenceOwed ?? [], progress }; };
-
 /** THE LEDGER IS KEYED BY THE READING AND THE WORK IDENTITY TOGETHER. Keyed by the reading alone, with `spentOn` asked
  *  of the NEED's own identity, one reading owed by two rows under two identities reset its count on every drive. */
 describe("the two-attempt stop, when one reading is owed by two rows", () => {
@@ -90,7 +88,6 @@ describe("the two-attempt stop, when one reading is owed by two rows", () => {
       .toEqual([1, [[`${s.url}::a`, false, [`${s.url}::b`]], [`${s.url}::b`, true, [`${s.url}::a`]]]]);
   });
 });
-
 /** THE BLOCK'S DOOR IS SKIPPED FOR AN OWED TURN ON THE PROMISE THAT EVERY ANSWER SENDS THE LOOP BACK, so a `failed`
  *  answer owes the walk exactly as a `waiting` one does, and the room the door asks for is the block's own. */
 /** ONE DRIVE THROUGH A PHASE WHOSE OWN STEP ANSWERS `unit`, and the ONE fixture every door arm below is measured on:
@@ -171,7 +168,6 @@ describe("how far down the order the last walk reached", () => {
     expect(bought, "the walk's receipt was earned for the row at rank 5 and the reading bought across the gap is the one at rank 90, because reach is read off the key alone").toEqual(["serp:5", "factual_source:90"]);
   });
 });
-
 /** THE STAMP IS WRITTEN BEFORE THE WALK AND NEVER AFTER IT. `stamp(left)` runs inside the pre-walk purchase loop and
  *  `stamp(...)` runs again on the walk's own list BEFORE the loop behind it buys anything, so every attempt the
  *  post-walk loop makes lives in the drive's memory and dies with it. A reading the head of the order defers on every
@@ -188,7 +184,6 @@ describe("a reading bought after the walk", () => {
       .toEqual([[1, 1, 0, 0, 0], [1, 2, 2, 2, 2]]);
   });
 });
-
 /** ONE ENTRY PER SERVED NEED. A purchase that failed writes an attempt for the buying row AND for every row that owes
  *  the same reading, each under its own identity. A row the drive never reached still spends, which is right while the
  *  reading is genuinely one reading; this pins that it is never charged more than the reading was attempted. */
@@ -203,7 +198,6 @@ describe("the rows a failed purchase also served", () => {
       .toEqual([[1, 1, 0, 0], [1, 2, 2, 2]]);
   });
 });
-
 /** THE FALLBACK IS THE ROW'S OWN PRIOR STAMP, keyed on `key::kind::query` and never on the work, so a row whose
  *  funding identity MOVED reads back an attempt made under the identity it no longer wears. */
 describe("the stamp a row keeps when its funding identity moves", () => {
