@@ -132,7 +132,7 @@ describe("Visibility is a workspace, and every number on it names what it was co
     expect(v.searches!.rows.map((r) => r.cells[0]!.text)).not.toContain("Where to buy a haft seen set?"); // a capital letter and a question mark are the SAME question
     expect(v.searches!.rows.map((r) => r.cells[0]!.text)).toContain("haft seen set delivery"); expect(v.searches!.note).toContain("A tracked question is never listed here as a search the assistant thought of.");
     const q = v.prompts!.rows[0]!; expect(q.href).toBe("?view=ai&prompt=p1");
-    expect(q.cells.map((c) => c.text)).toEqual(["where to buy a haft seen set", "1", "100%", "0 points", "1 of 1", "2.0", "Rival Bazaar", "14", "Aug 2"]);
+    expect(q.cells.map((c) => c.text)).toEqual(["where to buy a haft seen set", "1", "100%", "no change", "1 of 1", "2.0", "Rival Bazaar", "14", "Aug 2"]);
     expect(q.cells[2]!.sub).toBe("1 of 1 checked"); expect(v.prompts!.note).toContain("except the two columns that name Aug 2");
     expect(v.prompts!.columns.map((c) => c.label)).toContain("Credited a page of yours, Aug 2"); // a one day column never borrows the table's window
     const own = v.citations!.rows.find((r) => r.id === "own.example")!; expect([own.cells[1]!.text, own.cells[0]!.tone]).toEqual(["Your own site", "own"]);

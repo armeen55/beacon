@@ -246,7 +246,7 @@ export function aiView(input: AiInput) {
       const add = (k: "asked" | "analyzed" | "mentioning" | "citedOwned") => seen.reduce((a, x) => a + x[k], 0);
       const [asked, checked, named, credited] = [add("asked"), add("analyzed"), add("mentioning"), add("citedOwned")], r0 = rate(named, checked);
       return { id: e, cells: [{ text: engineName(e) },
-        { text: r0 == null ? "not checked yet" : pct(r0), sub: r0 == null ? undefined : `${num(named)} of ${num(checked)} checked`, sort: r0 ?? -1, tone: r0 != null && r0 > 0 ? "own" as const : undefined },
+        { text: r0 == null ? "not checked yet" : pct(r0), sub: r0 == null ? undefined : `${named === 0 ? "none" : num(named)} of ${num(checked)} checked`, sort: r0 ?? -1, tone: r0 != null && r0 > 0 ? "own" as const : undefined },
         { text: credited > 0 ? num(credited) : "none", sub: credited > 0 ? `${credited === 1 ? "answer" : "answers"} crediting a page of yours` : "credited a page of yours", sort: credited }, // a word, never a bare zero
         // asked counts distinct prompts PER DAY, so a sum across days is asks, never questions.
         { text: num(checked), sub: `asked ${num(asked)} times over ${num(span)} days`, sort: checked }] };
@@ -292,8 +292,8 @@ export function aiView(input: AiInput) {
       return { id, href: `?view=ai&prompt=${encodeURIComponent(id)}`, cells: [
         { text: p.text, sub: `${num(p.answered)} ${p.answered === 1 ? "answer" : "answers"} in hand` },
         { text: p.engines.size > 0 ? num(p.engines.size) : "none answered", sort: p.engines.size },
-        { text: r0 == null ? "not checked" : pct(r0), sub: r0 == null ? `${num(p.answered)} on file` : `${num(p.mentioning)} of ${num(p.analyzed)} checked`, sort: r0 ?? -1 },
-        { text: r0 == null || rPrior == null ? "no window before" : `${r0 > rPrior ? "+" : ""}${Math.round((r0 - rPrior) * 100)} points`, sort: r0 != null && rPrior != null ? r0 - rPrior : -99,
+        { text: r0 == null ? "not checked" : pct(r0), sub: r0 == null ? `${num(p.answered)} on file` : `${p.mentioning === 0 ? "none" : num(p.mentioning)} of ${num(p.analyzed)} checked`, sort: r0 ?? -1 },
+        { text: r0 == null || rPrior == null ? "no window before" : Math.round((r0 - rPrior) * 100) === 0 ? "no change" : `${r0 > rPrior ? "+" : ""}${Math.round((r0 - rPrior) * 100)} points`, sort: r0 != null && rPrior != null ? r0 - rPrior : -99,
           tone: r0 == null || rPrior == null ? "flat" : r0 > rPrior + 0.02 ? "up" : r0 < rPrior - 0.02 ? "down" : "flat" },
         { text: cite.reported === 0 ? "never reported" : `${cite.owned > 0 ? num(cite.owned) : "none"} of ${num(cite.reported)}`, sort: cite.reported > 0 ? cite.owned / cite.reported : -1,
           sub: cite.top ? `${cite.top} is credited most` : undefined, tone: cite.owned > 0 ? "own" : undefined },
