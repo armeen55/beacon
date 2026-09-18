@@ -82,6 +82,8 @@ describe("a page's own statements against their sources", () => {
     expect(store.why.join(" "), "the support shortfall names itself").toContain("no source's own passage has been shown to support this exact claim");
     checks.rows = [check({ current: "", proposed: "Iran has AH-1 Cobra attack helicopters.", verdict: "undecidable" })]; store.rows = [{ id: live }]; store.withdrew = []; store.why = []; // A ROW WITH NO CURRENT WORDING NAMES NO WITHDRAWAL: it mints no card of its own, and it carries the standing Afsaneh card's own 48-character slug, so a refusal read off it would take that card down for a claim it was never about
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW }); expect([store.withdrew, store.why], "it contributes null exactly as it did before a missing answer could be refused, so the correction's card is kept").toEqual([[], []]);
+    checks.rows = [check({ current: "Afsaneh (Persian Fallow Deer)", proposed: null })]; store.rows = [{ id: live }]; store.withdrew = []; store.why = []; // A CONFIRMED ROW WHOSE PROPOSAL IS ONLY THE SUBJECT'S NAME reads as proposing nothing, and the card minted on it before that rule is withdrawn saying so, never kept under a warning for ever (Caspian Red Deer, ten days of "no named reason", 2026-09-17)
+    await factualDefectCards({ tenantId: "t", snapshot, now: NOW }); expect([store.withdrew, store.why.join(" ")]).toEqual([[live], expect.stringContaining("proposes no wording beyond the subject's own name")]);
     store.withdrew = []; store.bodyFails = true;
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(store.withdrew).toEqual([]); });

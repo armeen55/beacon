@@ -6,7 +6,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { publicationDraft } from "../helpers/publication-draft";
 vi.mock("@/lib/persistence/supabase", async () => { const w = await import("./world"); const c = w.client(); return { getSupabaseAdmin: () => c, isSupabaseConfigured: () => true }; });
 vi.mock("@/lib/logger", async () => { const w = await import("./world"); return { log: { debug: () => {}, info: (m: string, x?: unknown) => w.logs.push(`${m} ${JSON.stringify(x ?? {})}`), warn: (m: string, x?: unknown) => w.logs.push(`${m} ${JSON.stringify(x ?? {})}`), error: (m: string, x?: unknown) => w.logs.push(`${m} ${JSON.stringify(x ?? {})}`) } }; });
-
 import * as RR from "@/domains/runtime/research-run";
 import { runResearchCycle } from "@/domains/runtime/ops/on-visit-refresh";
 import { defaultSteps } from "@/domains/runtime/ops/research-steps";
@@ -23,7 +22,6 @@ const serpFor = (q: string): FixtureSerp[] => fixture<FixtureSerp[]>("serps.json
 const REASONING = { page_job: { topics: ["names", "notable people", "history"], job: "Name the people this page covers and say why each is remembered.", audience: "readers looking a person up", promise: "a named list with one line each", missing: "a direct opening answer", sells: ["guides", "lists"] } };
 const pageScript = (url: string) => (url.endsWith("/robots.txt") ? { html: "User-agent: *\nAllow: /", contentType: "text/plain" }
   : { html: `<html><head><title>What this page covers</title></head><body><h1>Who is listed here</h1><h2>Poets</h2><p>${"Each entry names a person and says in one line why they are remembered. ".repeat(20)}</p></body></html>` });
-
 /** The provider answering well: a post, then a finished collect. */
 const healthySearch = (state: { posts: number }) => (path: string, _payload?: unknown) => {
   if (path.endsWith("task_post")) { state.posts += 1; return { body: { status_code: 20000, tasks: [{ id: "task-1", status_code: 20100, status_message: "Task Created.", cost: 0.0006 }] } }; }
@@ -43,7 +41,6 @@ const owedOn = (r: RunRow): { key: string; tried?: { count: number; work: string
 const winnersOf = (): FixtureWinner[] => ((table("research_state")[0]?.state as { winningPages?: FixtureWinner[] })?.winningPages ?? []);
 const need = (over: Row = {}): Row => ({ key: `${HUB}::body::${QUERY}`, kind: "serp", query: QUERY, rank: 1, reasonCode: "no_winner_to_read",
   reason: "no results page for this search is on file", workKey: `${HUB}::body::${QUERY}::wc5::e1`, unlocks: { proposalId: `${T}::${HUB}::existing_edit::demand_recovery`, step: "draft" }, ...over });
-
 let basis = "";
 beforeEach(async () => {
   reset(); installFetch();
