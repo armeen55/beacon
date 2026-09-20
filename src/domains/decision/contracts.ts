@@ -249,7 +249,7 @@ export type ChangeProposal = {
   /** Operator-facing opportunity label. */
   opportunityType: string;
   /** Coarse change family (meta|title|h1|answer|new_page|...) for identity/UI. */
-  changeFamily: string;
+  changeFamily: string; /** Stable body identity chosen at mint: query-derived work owns its topic through drafting; an exact correction owns one point. */ mutationScope?: "topic" | "point";
   status: ProposalStatus;
   /** The exact, cold-generated change. */
   recommendedChange: RecommendedChange;
@@ -399,7 +399,7 @@ const NewPagePieceSchema: z.ZodType<NewPagePiece> = z.object({ assignment: Assig
 const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   id: z.string().min(1), tenantId: z.string().min(1), kind: z.enum(["existing_edit", "new_page"]),
   pagePath: z.string().nullable(), pageUrl: z.string().nullable(), pageLabel: z.string(),
-  primaryQuery: z.string(), opportunityType: z.string(), changeFamily: z.string(),
+  primaryQuery: z.string(), opportunityType: z.string(), changeFamily: z.string(), mutationScope: z.enum(["topic", "point"]).optional(),
   status: z.enum(["needs_review", "ready", "implemented_pending_verification"]),
   recommendedChange: RecommendedChangeSchema, whyItMatters: z.string(), operatorSteps: z.array(z.string().min(1)).optional(),
   estimatedEffortMinutes: z.number(), riskLevel: z.enum(["low", "medium", "high"]), confidence: z.enum(["high", "medium", "low"]),

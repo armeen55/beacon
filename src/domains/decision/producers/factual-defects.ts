@@ -326,7 +326,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
           id: `${tenantId}::${path.toLowerCase()}::existing_edit::fact-${slugOf(c.subject) || i + 1}`, tenantId, kind: "existing_edit",
           pagePath: path, pageUrl: page.url, pageLabel: path, primaryQuery: `${path} factual accuracy`,
           opportunityType: act,
-          changeFamily: "factual_correction", status: "needs_review",
+          changeFamily: "factual_correction", mutationScope: "point", status: "needs_review",
           recommendedChange: { kind: "existing_edit", field: "section", before, after, where },
           preservation: [{ text: before, disposition: "corrected" as const, by: support.map((s) => s.id), why: kept }], // THE LINE THIS REPLACES IS CORRECTED, NOT DROPPED, said in the one typed ledger every replacement answers to: a correction used to leave the preservation boundary entirely, which made "factual correction" a licence to delete whatever else stood in the line (Codex, 2026-08-28)
           claims: [{ text: claimText, supportedBy: support.map((s) => s.id) }],

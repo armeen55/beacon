@@ -73,15 +73,15 @@ function placeToken(text: string | null | undefined): string {
  *  page can hold several of a slot) which one, and every other file reads it. EVERY KEY CARRIES PAGE IDENTITY: a
  *  change with no page at all is a defect in whatever minted it, so it throws rather than quietly keying `::title`,
  *  which is how 101 stored rows came to share names across pages. */
-type Keyed = { pagePath?: string | null; pageUrl?: string | null; changeFamily?: string; primaryQuery?: string | null; kind?: string; id?: string;
+type Keyed = { pagePath?: string | null; pageUrl?: string | null; changeFamily?: string; mutationScope?: "topic" | "point"; primaryQuery?: string | null; kind?: string; id?: string;
   recommendedChange?: { kind: string; field?: string; before?: string | null; where?: string | null; linkTo?: string | null } | null };
 const SLOT_BY_FIELD: Readonly<Record<string, string>> = { title: "title", meta: "meta", h1: "h1", schema: "schema", section: "body", answer_block: "body" };
-export function mutationKeyOf(p: Keyed): string {
+export function mutationKeyOf(p: Keyed, atomic = false): string {
   if (p.kind === "new_page" || p.recommendedChange?.kind === "new_page") return `new_page::${canonicalQueryKey(p.primaryQuery ?? "")}`;
   const page = pageToken(p.pagePath ?? p.pageUrl);
   if (!page) throw new Error("this change names no page, so nothing can say what it writes: every mutation carries the page it lands on");
   const c = p.recommendedChange; if (!c) return page; // a paid job declared before its card exists keys the page alone, and `take` falls back to it
-  if (p.changeFamily === "factual_correction") return `${page}::corrections`; // every correction on one page is ONE reading, priced and bought together, exactly as it grouped before
+  if (p.changeFamily === "factual_correction" && !atomic) return `${page}::corrections`; // every correction on one page is ONE reading, priced and bought together, exactly as it grouped before
   const dest = (c.linkTo ?? "").trim().toLowerCase() || ((p.id ?? "").endsWith("::internal_link") ? canonicalQueryKey(p.primaryQuery ?? "") : "");
   if (dest) return `${page}::link::${dest}`;
   const slot = SLOT_BY_FIELD[c.field ?? ""] ?? "body";
@@ -89,8 +89,9 @@ export function mutationKeyOf(p: Keyed): string {
   // A CHANGE THAT REPLACES A NAMED STRING AT A NAMED PLACE IS A POINT EDIT, not a claim on the whole topic: forty
   // sourced corrections on one page are forty independently applicable mutations at forty places, and keyed on the
   // topic they would be ONE, with thirty-nine of the operator's best work vanishing into the fortieth.
-  const before = (c.before ?? "").trim(), where = (c.where ?? "").trim();
-  return before && where ? `${page}::point::${placeToken(`${where}|${before}`)}` : `${page}::body::${canonicalQueryKey(p.primaryQuery ?? "")}`;
+  const before = (c.before ?? "").trim(), where = (c.where ?? "").trim(), legacyTopic = /::(?:missing_answer|thin_page|ai_answer_gap|demand_recovery)(?:@|$)/.test(p.id ?? ""), scope = p.mutationScope ?? (legacyTopic || !before || !where ? "topic" : "point");
+  if (scope === "point" && (!before || !where)) throw new Error("a point-scoped change must name both the exact existing words and where they stand");
+  return scope === "point" ? `${page}::point::${placeToken(`${where}|${before}`)}` : `${page}::body::${canonicalQueryKey(p.primaryQuery ?? "")}`;
 }
 /** The one mutation a bundle PIECE writes, through the same page, slot and discriminator rule. */
 function componentToken(c: BundleComponent, p: ChangeProposal): string {
@@ -115,7 +116,7 @@ export function mutationFootprint(p: ChangeProposal): ReadonlySet<string> {
   if (p.kind === "new_page" || p.recommendedChange.kind === "new_page") return new Set([`new_page::${canonicalQueryKey(p.primaryQuery ?? "")}`]);
   const parts = p.bundle?.components ?? [];
   if (parts.length > 0) return new Set(parts.map((c) => componentToken(c, p)));
-  return new Set([mutationKeyOf({ ...p, changeFamily: undefined })]); // the ONE rule; the correction batching above is the paid plan's grouping and never what a row WRITES
+  return new Set([mutationKeyOf(p, true)]); // correction batching is a paid-plan identity only. Query-derived work keeps its admitted topic identity while its brief matures into exact placed copy; explicit factual/bespoke corrections own exact points.
 }
 
 /** Does ONE token cover another: itself, or the whole-page token standing over everything on its page. */

@@ -114,7 +114,7 @@ export async function demandRecoveryCards(input: { tenantId: string; snapshot: E
       for (const u of [...lost].sort((a, b) => b.recoverableClicks - a.recoverableClicks || a.label.localeCompare(b.label))) { const at = u.history!.currentTopPage ?? u.history!.priorTopPage; if (!at || !owned.has(canonicalUrlKey(at))) continue;
         const page = pathOf(at).toLowerCase(), key = canonicalQueryKey(u.label), seat = `${page}::${key}`, held = per.get(page) ?? { bodies: 0, title: false }, field = decompose(u.history!, u.serp != null).field, title = field === "title";
         if (seats.has(seat) || (title ? held.title : held.bodies >= MAX_BODY_CARDS)) continue; // one mutation, one card: a second audience whose search names the same words is the same section, and the page's line is written once
-        const base = `${tenantId}::${page}::existing_edit::demand_recovery`, mutationKey = mutationKeyOf({ pagePath: page, primaryQuery: u.label, recommendedChange: { kind: "existing_edit", field } }), id = proposalSeats.seatFor(base, mutationKey, bindings);
+        const base = `${tenantId}::${page}::existing_edit::demand_recovery`, mutationKey = mutationKeyOf({ pagePath: page, primaryQuery: u.label, mutationScope: "topic", recommendedChange: { kind: "existing_edit", field } }), id = proposalSeats.seatFor(base, mutationKey, bindings);
         seats.set(seat, id); bindings.push({ id, mutationKey }); per.set(page, { bodies: held.bodies + (title ? 0 : 1), title: held.title || title }); } }
     for (const u of lost) {
       const h = u.history!;
@@ -152,7 +152,7 @@ export async function demandRecoveryCards(input: { tenantId: string; snapshot: E
           : d.cause === "ctr_snippet"
             ? `Rewrite the line searchers read for "${u.label}" on ${label}: the position held while clicks fell ${n(h.lostClicksPerMonth)} a month${backNow}`
             : `Explain the "${u.label}" decline on ${label}: down ${n(h.lostClicksPerMonth)} clicks a month and the cause is not yet separable`,
-        changeFamily: d.field, status: "needs_review",
+        changeFamily: d.field, mutationScope: "topic", status: "needs_review",
         // THE ASSIGNMENT LIVES IN THE TYPED BRIEF, NEVER IN THE COPY FIELD (incident recovery, 2026-09-04): `after` means the exact words to paste, and an instruction sitting there is indistinguishable from finished work to anything that reads the words alone.
         recommendedChange: { kind: "existing_edit", field: d.field, before: null, after: "The exact wording has not been written yet." },
         researchOnly: true, research: {

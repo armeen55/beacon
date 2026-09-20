@@ -102,7 +102,7 @@ export function mint(tenantId: string, d: Draft, now: Date): ChangeProposal {
   const path = pathOf(d.page.url);
   return {
     id: `${tenantId}::${path.toLowerCase()}::existing_edit::${d.slug}`, tenantId, kind: "existing_edit",
-    pagePath: path, pageUrl: d.page.url, pageLabel: labelOf(d.page), primaryQuery: d.query,
+    pagePath: path, pageUrl: d.page.url, pageLabel: labelOf(d.page), primaryQuery: d.query, ...((d.field === "section" || d.field === "answer_block") && !d.linkTo ? { mutationScope: "topic" as const } : {}),
     opportunityType: d.headline, changeFamily: d.field, status: "needs_review",
     // AN ASSIGNMENT IS NOT COPY, AND `after` IS THE COPY FIELD (incident recovery, 2026-09-04). Every card here is a
     // brief, and its instruction sat in the one field that means "the exact words to paste": a stored brief was

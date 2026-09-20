@@ -88,7 +88,7 @@ type CardBase = { tenantId: string; now: Date; basis: string | null; pageUrl: st
 const shell = (b: CardBase, family: string, impactScore: number | null): Omit<ChangeProposal, "opportunityType" | "recommendedChange" | "whyItMatters" | "operatorSteps" | "estimatedEffortMinutes" | "confidence" | "limitations" | "evidence"> => ({
   id: `${b.tenantId}::${pathOf(b.pageUrl).toLowerCase()}::existing_edit::${family}`, tenantId: b.tenantId,
   kind: "existing_edit", pagePath: pathOf(b.pageUrl), pageUrl: b.pageUrl.startsWith("http") ? b.pageUrl : `https://${b.pageUrl}`,
-  pageLabel: b.pageLabel, primaryQuery: b.query, changeFamily: family, status: "needs_review", riskLevel: "low",
+  pageLabel: b.pageLabel, primaryQuery: b.query, changeFamily: family, mutationScope: "topic", status: "needs_review", riskLevel: "low",
   // BOTH CARDS THIS SHELL MINTS ARE READS. Ownership and researching are the only callers, and neither carries copy.
   researchOnly: true,
   impactScore, upsidePerMonth: null, demandImpressions90d: b.demandImpressions90d, publish: "manual",
