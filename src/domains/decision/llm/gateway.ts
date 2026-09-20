@@ -66,9 +66,10 @@ type CreditBreakerImpl = {
 };
 
 const CREDIT_EXHAUSTED = "credit_balance_exhausted";
+const OPENAI_ACCOUNT_HOLDS = new Set([CREDIT_EXHAUSTED, "organization_spend_limit_exceeded", "project_spend_limit_exceeded", "organization_usage_limit_exceeded", "billing_gate_unknown", "invalid_api_key"]);
 const CODE_SHAPE = /^[a-z0-9_.-]{1,64}$/i;
 const CREDIT_STOP_REASON =
-  "OpenAI credit is exhausted, so every call that needs it is paused. One recovery probe runs every 15 minutes; work resumes after credit is available. Add credit to end the hold now.";
+  "OpenAI account access is unavailable (credit, a project or organization limit, or credentials), so every call that needs it is paused. One recovery probe runs every 15 minutes; work resumes only after OpenAI accepts it.";
 
 type GatewayIdentity = {
   promptId: PromptId;
@@ -164,7 +165,7 @@ export function llmFailureOf(outcome: StructuredCallOutcome): LlmFailure {
     case "invalid_response": return "schema_invalid";
     // A 402 and OpenAI's own insufficient_quota are an empty balance; every other status returned no usable body and no
     // receipt, so it is transient however permanent its cause: nothing settles on a call that bought nothing.
-    case "http_error": return outcome.code === CREDIT_EXHAUSTED || outcome.status === 402 ? "credit_exhausted" : "transient";
+    case "http_error": return OPENAI_ACCOUNT_HOLDS.has(outcome.code ?? "") || outcome.status === 402 ? "credit_exhausted" : "transient";
     case "error": return outcome.timedOut ? "client_timeout" : "transient";
     default: return "schema_invalid";
   }
@@ -219,11 +220,12 @@ async function providerErrorCode(response: Response): Promise<string | undefined
   let body: unknown;
   try { body = await response.json(); } catch { return undefined; }
   const err = (body as { error?: { code?: unknown; type?: unknown } } | null)?.error;
-  const named = [err?.code, err?.type].find((v): v is string => typeof v === "string" && CODE_SHAPE.test(v.trim()));
-  const code = named?.trim().toLowerCase();
-  if (code === "insufficient_quota") return CREDIT_EXHAUSTED;
-  if (!code && response.status === 429) return "rate_limit_exceeded";
-  return code;
+  const exact = typeof err?.code === "string" && CODE_SHAPE.test(err.code.trim()) ? err.code.trim().toLowerCase() : undefined;
+  if (exact) return exact === "insufficient_quota" ? "billing_gate_unknown" : exact;
+  const broad = typeof err?.type === "string" && CODE_SHAPE.test(err.type.trim()) ? err.type.trim().toLowerCase() : undefined;
+  if (broad === "insufficient_quota") return "billing_gate_unknown";
+  if (response.status === 401) return "invalid_api_key";
+  return broad ?? (response.status === 429 ? "rate_limit_exceeded" : undefined);
 }
 
 /** Retry-After in ms: seconds or an HTTP date, floored at zero and capped at an hour so a bad header can never
@@ -383,12 +385,6 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   const timeoutMs = effectiveTimeoutMs(args.model, args.timeoutMs);
   const fetchImpl = args.fetchImpl ?? fetch;
 
-  // 8. THE PROBE IS CLAIMED HERE, past every gate that could still refuse. During a cooldown nothing reaches this line (step 2 already returned), so a held account makes zero network calls; when a probe is due, exactly this request receives it. A stamp that will not write keeps the hold.
-  if (stop === "probe_due" && !(await credit.claimProbe(tenantId).catch(() => false))) {
-    if (zeroCostCanStillBeProven) await reservations.release(attemptId, true).catch(() => false);
-    log.warn(`[llm-gateway] ${id.promptId} v${id.promptVersion} blocked_credit (the recovery attempt could not be recorded)`, { action: id.action, tenantId });
-    return { httpAttempts: 0, kind: "blocked_credit", reason: CREDIT_STOP_REASON };
-  }
   // The Responses create endpoint does not promise idempotent POST replay. If a
   // prior transmission became ambiguous, repeating the same bytes could buy the
   // same answer twice. Only an attempt that is still durably `reserved` may
@@ -408,6 +404,13 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
       : "this paid operation already started and remains unresolved";
     await reportGatewayFailure(id, "blocked_budget", reason);
     return { httpAttempts: 0, kind: "blocked_budget", reason };
+  }
+  // Claim only after the final transactional transmission gate. A cap/day/retirement/lease refusal did not reach
+  // OpenAI and therefore must not consume the account's one recovery probe.
+  if (stop === "probe_due" && !(await credit.claimProbe(tenantId).catch(() => false))) {
+    if (zeroCostCanStillBeProven) await reservations.release(attemptId, true).catch(() => false);
+    log.warn(`[llm-gateway] ${id.promptId} v${id.promptVersion} blocked_credit (the recovery attempt could not be recorded)`, { action: id.action, tenantId });
+    return { httpAttempts: 0, kind: "blocked_credit", reason: CREDIT_STOP_REASON };
   }
   let response: Response;
   try {
@@ -435,14 +438,14 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
     // remains ambiguous because the request may have reached generation before
     // the provider failed. If the release receipt itself cannot land, fall back
     // to the conservative hold.
-    const refusedBeforeGeneration = zeroCostCanStillBeProven && (response.status === 402 || response.status === 429);
+    const refusedBeforeGeneration = zeroCostCanStillBeProven && [401, 402, 403, 429].includes(response.status);
     const accounted = refusedBeforeGeneration
       ? await reservations.release(attemptId, true).catch(() => false)
       : false;
     if (!accounted) await ambiguous();
     const retryMs = retryAfterMs(response.headers?.get?.("retry-after"));
     await reportGatewayFailure(id, `openai_http_${response.status}`, code);
-    if (code === CREDIT_EXHAUSTED) await credit.trip(tenantId).catch(() => {});
+    if (OPENAI_ACCOUNT_HOLDS.has(code ?? "")) await credit.trip(tenantId).catch(() => {});
     return { httpAttempts: 1, kind: "http_error", status: response.status, ...(code ? { code } : {}), ...(retryMs === undefined ? {} : { retryAfterMs: retryMs }) };
   }
   // The provider answered, so the balance is not empty: lift any stop on file before the envelope is even read.

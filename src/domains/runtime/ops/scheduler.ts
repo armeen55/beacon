@@ -84,6 +84,7 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
   attempted = 1;
   const deadline = nowFn().getTime() + Math.min(RESEARCH_CYCLE_DEADLINE_MS, Math.max(MIN_ACCOUNT_SLICE_MS, left - PUBLISH_RESERVE_MS));
   const outcome = await runWithTenant(run.tenant_id, async () => {
+    await (await import("@/domains/evidence/dataforseo/client")).DATAFORSEO_READINESS.recover(run.tenant_id).catch(() => "unreadable" as const);
     const work = await steps.dueWork(run.tenant_id, nowFn()).catch(() => null);
     return driveClaimed(run, ownerToken, work, nowFn, deadline, steps);
   }).catch((error) => {

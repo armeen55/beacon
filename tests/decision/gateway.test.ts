@@ -163,10 +163,10 @@ describe("openAIStructuredResponse: what a failed call says, and what it stops",
       .toEqual({ httpAttempts: 1, kind: "http_error", status: 429, code: "rate_limit_exceeded", retryAfterMs: 2_000 }); // ONE request left the process, and the receipt says so
     expect(await call({ creditBreakerImpl: c.impl, fetchImpl: fakeFetch({ nothing: true }, { ok: false, status: 500 }).impl })).toEqual({ httpAttempts: 1, kind: "http_error", status: 500 });
     expect(c.seen).toEqual([]); // an ordinary throttle is not an empty account
-    const dead = await call({ creditBreakerImpl: c.impl, fetchImpl: fakeFetch(body({ type: "insufficient_quota", code: "insufficient_quota" }), { ok: false, status: 429 }).impl });
-    expect([dead, c.seen]).toEqual([{ httpAttempts: 1, kind: "http_error", status: 429, code: "credit_balance_exhausted" }, ["trip"]]);
+    const dead = await call({ creditBreakerImpl: c.impl, fetchImpl: fakeFetch(body({ type: "insufficient_quota", code: "project_spend_limit_exceeded" }), { ok: false, status: 429 }).impl });
+    expect([dead, c.seen]).toEqual([{ httpAttempts: 1, kind: "http_error", status: 429, code: "project_spend_limit_exceeded" }, ["trip"]]);
     const stopped = credit("held"), held = fakeFetch(completedEnvelope("{}")), refused = await call({ creditBreakerImpl: stopped.impl, fetchImpl: held.impl });
-    expect([refused.kind, held.capture.calls, stopped.seen, refused.kind === "blocked_credit" && refused.reason.includes("credit is exhausted")]).toEqual(["blocked_credit", 0, [], true]); // every caller inherits the stop, and a HELD account claims no probe and reaches no network
+    expect([refused.kind, held.capture.calls, stopped.seen, refused.kind === "blocked_credit" && refused.reason.includes("account access is unavailable")]).toEqual(["blocked_credit", 0, [], true]); // every caller inherits the stop, and a HELD account claims no probe and reaches no network
     const back = credit(), through = fakeFetch(completedEnvelope(JSON.stringify({ title: "T", score: null }))).impl; expect([(await call({ creditBreakerImpl: back.impl, fetchImpl: through })).kind, back.seen]).toEqual(["ok", ["clear"]]); });
   /** A REQUEST THAT NEVER LEFT IS NOT A PROVIDER CALL (Codex, 2026-08-23). The count used to be made by the  caller one line BEFORE this door, so research being paused, an empty balance, a refused budget or a schema  this transport cannot convert were all reported to the operator as charged calls. The only honest place to  count is either side of the fetch, so the outcome carries it and every pre-network refusal carries zero. */
   it("reports zero requests for every refusal decided before the network, and one once the request is on the wire", async () => {
@@ -175,7 +175,7 @@ describe("openAIStructuredResponse: what a failed call says, and what it stops",
     const noTenant = await call({ creditBreakerImpl: credit().impl, fetchImpl: never.impl, tenantId: "" });
     const life = lifecycle(), probeLost = await call({ creditBreakerImpl: { ...credit("probe_due").impl, claimProbe: async () => false }, fetchImpl: never.impl, reservationImpl: life.impl });
     expect([held.httpAttempts, noTenant.httpAttempts, probeLost.httpAttempts, never.capture.calls]).toEqual([0, 0, 0, 0]);
-    expect([held.kind, noTenant.kind, probeLost.kind, life.seen]).toEqual(["blocked_credit", "invalid_response", "blocked_credit", ["reserve", "release:true"]]);
+    expect([held.kind, noTenant.kind, probeLost.kind, life.seen]).toEqual(["blocked_credit", "invalid_response", "blocked_credit", ["reserve", "claim", "release:true"]]); // the final spend gate is claimed first, then released with proof when the provider probe cannot be recorded
     const wire = fakeFetch(completedEnvelope(JSON.stringify({ title: "T", score: null })));
     const through = await call({ creditBreakerImpl: credit().impl, fetchImpl: wire.impl });
     expect([through.httpAttempts, wire.capture.calls]).toEqual([1, 1]); // counted once, by the only line that can know

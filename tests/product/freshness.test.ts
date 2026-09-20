@@ -1,7 +1,7 @@
 /** PRODUCT - the acquisition policy: WHAT COUNTS AS CURRENT, and WHAT A RUN MAY SPEND. One freshness matrix replaces the single seven-day constant, so a search a frozen case is stuck on is re-bought after a DAY while an unfocused one keeps the week, a page of the account's own is re-read the moment something changed it underneath me, and the recurring-domains capability parses exactly what the provider documents. Plus the raised monthly ceilings. No network, no Supabase, no spend. */
 import { describe, it, expect } from "vitest"; import { emptyBusinessProfile, type Account, type BusinessProfile } from "@/domains/account";
 import { writePublicPageExtract, type CachedCallResult, type CapabilityKey, type ParsedSerp, type ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary"; import { parseCapability, providerCall } from "@/domains/evidence/dataforseo/capabilities";
-import { labsKeywordsForSiteLive } from "../fixtures/dataforseo-envelopes"; import { DEFAULT_MONTHLY_CAP_USD, monthlyCapUsd } from "@/domains/evidence/dataforseo/client"; import { DEFAULT_GLOBAL_MONTHLY_CAP_USD, decideBreaker } from "@/lib/cost/cost-breaker";
+import { labsKeywordsForSiteLive } from "../fixtures/dataforseo-envelopes"; import { monthlyCapUsd } from "@/domains/evidence/dataforseo/client"; import { DEFAULT_GLOBAL_MONTHLY_CAP_USD, decideBreaker } from "@/lib/cost/cost-breaker";
 import { serpAnalysisUnit } from "@/domains/evidence/funnel/observe"; import { winningPagesUnit } from "@/domains/evidence/funnel/winning-pages"; import { emptyFunnelState, type FunnelState } from "@/domains/evidence/funnel/state";
 import { freshnessMsFor, isCurrent } from "@/domains/evidence/freshness"; import type { FunnelDeps } from "@/domains/evidence/funnel/shared"; import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 const BASIS = "basis_aaa", NOW = 1_700_000_000_000, DAY = 86_400_000, cur = () => ({ basis: BASIS }), at = (ms: number) => new Date(ms).toISOString(), parse = ((_c: unknown, env: unknown) => env) as unknown as FunnelDeps["parse"];
@@ -85,8 +85,8 @@ describe("the recurring winning domains capability (dataforseo_labs/google/serp_
   });});
 describe("the monthly ceilings", () => {
   it("holds a real research month at $250 an account and $500 across everything", () => {
-    expect([DEFAULT_MONTHLY_CAP_USD, monthlyCapUsd({} as never), monthlyCapUsd({ DATAFORSEO_MONTHLY_CAP_USD: "-1" } as never), DEFAULT_GLOBAL_MONTHLY_CAP_USD]).toEqual([250, 250, 250, 500]); // never unlimited
-    expect(decideBreaker({ spentUsd: 60, capUsd: DEFAULT_MONTHLY_CAP_USD, projectedUsd: 0.05 }).tripped).toBe(false); // $60 of research this month keeps going
-    expect(decideBreaker({ spentUsd: 260, capUsd: DEFAULT_MONTHLY_CAP_USD, projectedUsd: 0.05 }).tripped).toBe(true); // $260 is past the account's ceiling and stops
+    expect([monthlyCapUsd({} as never), monthlyCapUsd({ DATAFORSEO_MONTHLY_CAP_USD: "-1" } as never), DEFAULT_GLOBAL_MONTHLY_CAP_USD]).toEqual([250, 250, 500]); // never unlimited
+    expect(decideBreaker({ spentUsd: 60, capUsd: monthlyCapUsd({} as never), projectedUsd: 0.05 }).tripped).toBe(false); // $60 of research this month keeps going
+    expect(decideBreaker({ spentUsd: 260, capUsd: monthlyCapUsd({} as never), projectedUsd: 0.05 }).tripped).toBe(true); // $260 is past the account's ceiling and stops
     expect(decideBreaker({ spentUsd: null, capUsd: DEFAULT_GLOBAL_MONTHLY_CAP_USD, projectedUsd: 0.05 }).tripped).toBe(true); // a spend I cannot confirm still fails closed
   });});

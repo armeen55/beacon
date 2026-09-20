@@ -126,7 +126,6 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     await releaseClaim(d, cacheKey, now, "precall_receipt_failed");
     return { state: "error", cacheKey, disposition: "none", detail: `The pre-call receipt could not be saved (${short(err)}). No provider call was made, and it is tried again.` };
   }
-  if (!(await CREDIT_BREAKER.claimProbe(r.tenantId, {}, "dataforseo").catch(() => false))) { await d.spend.release(attemptId).catch(() => false); await releaseClaim(d, cacheKey, now, "credit_held"); return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") }; } // THE STOP ON FILE REFUSES BEFORE THE NETWORK and RELEASES the claim (reviewer, 2026-09-15: a blocked hold is for ever, a credit stop is until a call goes through); one probe per cooldown is the only call that may try to clear it
   const transmission = reservation.state === "reserved"
     ? await d.spend.claimTransmission(attemptId).catch(() => "unavailable" as const)
     : "already_started" as const;
@@ -135,13 +134,13 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     return { state: "capped", cacheKey, detail: transmission === "work_retired" ? "The operator retired this exact work before the provider call. No provider call was made." : transmission === "run_inactive" ? "The research run no longer owns its lease. No provider call was made." : transmission === "stale_day" ? "The reporting day changed before the provider call. No provider call was made, and a fresh reservation is used next time." : "The spending door closed before this request reached the provider. No provider call was made." };
   }
   if (transmission !== "claimed") return holdUncertain(d, r.mode, cacheKey, now, attemptId, "This paid request already started and remains unresolved, so it was not sent again.");
+  if (!(await CREDIT_BREAKER.claimProbe(r.tenantId, {}, "dataforseo").catch(() => false))) { if (await d.spend.release(attemptId, true).catch(() => false)) await releaseClaim(d, cacheKey, now, "credit_held"); else await holdUncertain(d, r.mode, cacheKey, now, attemptId, "The recovery probe was not sent, but its reservation could not be released safely."); return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") }; } // Claim only after every local transmission gate: a cap/run refusal must never consume the one recovery probe.
   const transport = await runDataForSeoTransport({ url: `${API_BASE}/${r.postPath}`, payload, env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence" });
   if (!transport.ok) {
     const cost = readProviderCost(transport.body);
-    if (transport.status === 402 && cost === 0) { await CREDIT_BREAKER.trip(r.tenantId, {}, "dataforseo").catch(() => {}); if (await d.spend.release(attemptId, true).catch(() => false)) await releaseClaim(d, cacheKey, now, "credit_held"); else await holdUncertain(d, r.mode, cacheKey, now, attemptId, "The provider reported no charge, but the reservation could not be released safely."); return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") }; }
+    if (transport.status === 402 && cost === 0 && isPaymentRefusal(transport.body)) { await CREDIT_BREAKER.trip(r.tenantId, {}, "dataforseo").catch(() => {}); if (await d.spend.release(attemptId, true).catch(() => false)) await releaseClaim(d, cacheKey, now, "credit_held"); else await holdUncertain(d, r.mode, cacheKey, now, attemptId, "The provider reported no charge, but the reservation could not be released safely."); return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") }; }
     if (cost === 0) return applyPaidRejection(d, r, transport.body, cost, now, attemptId, `The provider refused this request over HTTP ${transport.status ?? "unknown"} and reported no charge.`);
     const held = await holdUncertain(d, r.mode, cacheKey, now, attemptId, "Whether the provider took and charged this request could not be confirmed, so it is paused.");
-    if (transport.status === 402) { await CREDIT_BREAKER.trip(r.tenantId, {}, "dataforseo").catch(() => {}); return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") }; }
     return held;
   }
   const body = transport.body;
@@ -276,7 +275,7 @@ export async function collectResolvedTask(
   await d.cacheWrite(cacheKey, { updated_at: now.toISOString(), poll_attempts: pollAttempts,
     next_poll_at: new Date(now.getTime() + Math.min(MAX_TASK_POLL_MS, FIRST_TASK_POLL_MS * 2 ** Math.min(pollAttempts - 1, 12))).toISOString() }).catch(() => {});
   if (!transport.ok) {
-    if (transport.status === 402) return blockedResult(cacheKey, "HTTP 402");
+    if (transport.status === 402) { const code = firstTask(transport.body)?.status_code ?? topStatus(transport.body); return code === 40200 || code === 40210 ? { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") } : code === 40203 ? { state: "error", cacheKey, disposition: "daily_limit", detail: DAILY_LIMIT_DETAIL } : blockedResult(cacheKey, `code ${code ?? "unknown"}`); }
     if (transport.status != null && [401, 403, 404].includes(transport.status)) return { state: "error", cacheKey, disposition: "blocked", detail: `The provider answered ${transport.status} on collection. The task stays on file, is never bought again, and is checked for free after the account is corrected.` };
     if (deadlineDue) return terminalUnavailable(d, cacheKey, now, "transport_after_72h");
     return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: `The provider could not be reached to collect this (${transport.message}). It is tried again for free.` };
@@ -358,7 +357,6 @@ function blockedReason(row: { error_detail?: string | null } | null | undefined)
 }
 function blockedResult(cacheKey: string, reason: string): CachedCallResult {
   if (reason === "repost_limit") return unavailableResult(cacheKey);
-  if (reason === "HTTP 402") return { state: "error", cacheKey, disposition: "blocked", detail: CREDIT_BREAKER.sentence("dataforseo") }; // an empty balance is said in the operator's words, never as a status code (operator walk, 2026-09-16)
   return { state: "error", cacheKey, disposition: "blocked", detail: `The search provider would not run this request (${reason}) and charged nothing. It stays set aside until the account is looked at.` };
 }
 const unavailableResult = (cacheKey: string): CachedCallResult => ({ state: "error", cacheKey, disposition: "quarantined", detail: "This evidence request stayed unavailable after its one safe recovery. It is set aside, and the rest of the work continues." });

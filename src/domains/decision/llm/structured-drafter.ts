@@ -359,9 +359,10 @@ function runContentFirewalls(
   return { ok: true };
 }
 
-/** Retryable HTTP statuses: throttling (429) + server faults (5xx). */
+/** Only server faults retry immediately. A 429 carries Retry-After and stays owed to a later pass; sleeping or
+ * instantly retrying inside one hosted request either wastes its deadline or hits the same provider window again. */
 function httpStatusRetryable(status: number): boolean {
-  return status === 429 || status >= 500;
+  return status >= 500;
 }
 
 /** WHAT ONE ATTEMPT ACTUALLY COST: the provider's own usage receipt, or ZERO. An attempt that came back with no receipt (a 429, a socket that died, a stop before the network) bought nothing, so nothing is recorded against any cap. This used to substitute an ESTIMATE, which is how a throttled minute became money on the books: a projection may RESERVE spend before a call, but only a receipt may record it, or a refill lands on an account Beacon has already blocked over purchases it never made. RECONCILIATION, PLAINLY: rows written BEFORE this fix overstate. The 660 calls and $0.832 recorded on 4 August 2026 mix real receipts with estimates for calls that returned nothing. History is not rewritten here; it is simply not trustworthy below the receipt line before this change. / */
