@@ -16,7 +16,8 @@
 import type { BundleComponent } from "../contracts";
 import { technicalComponents } from "../technical-findings";
 import { pageContains } from "@/domains/evidence/pages/page-version";
-import { topicTokens } from "@/domains/evidence/relevance-gate";
+import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
+import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import type { CauseKey, Produced, Producer, ProducerCtx } from "./contract";
 import { produceConsolidation, produceSourceExpansion } from "./extended";
 
@@ -44,6 +45,43 @@ const hintsOf = (ctx: ProducerCtx): string[] => [
   ...(ctx.body?.openingSample ? [`The page opens: ${ctx.body.openingSample}`] : []),
   ...(ctx.body?.cardTexts ?? []).slice(0, 4),
 ];
+const structuralNeed = (ctx: ProducerCtx, question: string, deliveryMode: "inline" | "headed" | "replacement") => ({ question, requiredAtomKeys: [`${ctx.finding.cause}:${question}`], polarity: "supports" as const, voice: "publisher" as const, deliveryMode });
+const publisherKey = (publisher: string): string => publisher.trim().toLowerCase().replace(/^www\./, "");
+
+/** A LIST OR TABLE IS A TREATMENT, NOT DECORATION. The evidence reader has already selected at most five complete,
+ * distinct publishers; this door checks the persisted brief again so a legacy or malformed record cannot
+ * turn one rival's formatting preference, an unread page, or a generic prose task into structural work. */
+const consensusStructure = async (ctx: ProducerCtx): Promise<Produced | null> => {
+  const brief = ctx.pattern?.brief, delta = brief?.deltas.find((d) => d.dimension === "list" && d.action === "add_structured_list");
+  if (!brief) return null;
+  const sources = brief.sources.filter((s) => s.scope === "complete"), distinct = new Set(sources.map((s) => publisherKey(s.publisher)));
+  const threshold = sources.length >= 3 && sources.length <= 5 && distinct.size === sources.length ? Math.floor(sources.length / 2) + 1 : null;
+  if (canonicalQueryKey(brief.query) !== canonicalQueryKey(ctx.primary) || brief.owned?.scope !== "complete" || threshold == null) return null;
+  const tableSupporters = new Set(sources.filter((s) => s.table === true).map((s) => publisherKey(s.publisher)));
+  const listSupporters = new Set(sources.filter((s) => s.list === true && delta?.sources.includes(s.sourceId)).map((s) => publisherKey(s.publisher)));
+  const structure = ctx.pattern?.archetype === "comparison" && brief.owned.table === false && tableSupporters.size >= threshold ? "table"
+    : ctx.pattern?.archetype === "list" && brief.owned.list === false && delta?.confidence === "validated_observation" && listSupporters.size >= threshold ? "list" : null;
+  if (!structure) return null;
+  const supporters = structure === "table" ? tableSupporters : listSupporters;
+  const payload = ctx.finding.payload, gaps = payload?.cause === "competitor_content_gap" && threshold != null ? payload.gaps.filter((gap) => new Set(gap.publishers.map(publisherKey)).size >= threshold) : [];
+  if (gaps.length === 0) return null; // the shape is useful only after this page's exact missing reader task is named
+  const gap = [...gaps].sort((a, b) => b.publishers.length - a.publishers.length || a.gap.localeCompare(b.gap))[0]!;
+  const drafted = await ctx.draft.section({ query: ctx.primary, pageLabel: ctx.page.h1 ?? ctx.page.title ?? ctx.page.url, heading: null,
+    brief: `The results page proves this is a ${structure} task, and ${supporters.size} of ${sources.length} complete distinct publishers use a real ${structure} while this complete page has none. Answer this exact missing task as one useful ${structure}: ${gap.gap}. Return one canonical ${structure} publication unit, not prose that imitates one. Every ${structure === "table" ? "cell" : "item"} must be supported by the claim evidence attached to it.`,
+    outline: ctx.page.outline, evidenceHints: hintsOf(ctx), informationNeed: structuralNeed(ctx, gap.gap, "headed"), standard: "restructuring" });
+  if (!drafted?.heading.trim() || !drafted.units?.length) return refuse(`The winning pages prove this answer belongs in a ${structure}, but no grounded structured ${structure} passed its own checks, so an imitation is not handed over in its place.`);
+  const items = drafted.units.flatMap((unit) => unit.kind === "ordered_list" || unit.kind === "unordered_list" ? unit.items : []);
+  const uniqueItems = [...new Map(items.map((item) => [item.trim().toLowerCase(), item.trim()])).values()].filter(Boolean);
+  const tables = drafted.units.filter((unit): unit is Extract<NonNullable<BundleComponent["units"]>[number], { kind: "table" }> => unit.kind === "table");
+  const tableFacts = tables.length === 1 && tables[0]!.rows.length >= 2 && tables[0]!.rows.every((row) => row.length === tables[0]!.columns.length)
+    ? [...new Map(tables[0]!.rows.flat().map((cell) => [cell.trim().toLowerCase(), cell.trim()])).values()].filter(Boolean) : [];
+  if (structure === "list" && uniqueItems.length < 2 || structure === "table" && tableFacts.length < 2) return refuse(`The winning pages prove this answer belongs in a ${structure}, but the draft did not contain one real, internally consistent ${structure}, so it is not handed over as structured work.`);
+  const where = afterLast(ctx.page.outline);
+  return { components: [{ kind: "table_or_list_add", label: `Add a ${structure}: ${drafted.heading}`, before: null, after: `${drafted.heading}\n\n${drafted.body}`, units: drafted.units,
+    evidenceKeys: ctx.finding.evidenceKeys, risk: "review",
+    ...owed(ctx.primary, `Answer ${gap.gap} in the ${structure} format this search consistently rewards.`,
+      `${supporters.size} of ${sources.length} complete distinct publishers use a ${structure} for this task, while this complete page has none.`, where) }], refusal: null };
+};
 
 // ── weak_opening: the first thing a reader sees never says what the search is about ──
 
@@ -58,6 +96,7 @@ const weakOpening: Producer = async (ctx) => {
     currentValue: ctx.body?.openingSample ?? null,
     outline: ctx.page.outline,
     evidenceHints: hintsOf(ctx),
+    informationNeed: structuralNeed(ctx, ctx.primary, "inline"), standard: "restructuring",
   });
   if (!after) return refuse("No opening for this page passed its own checks, so nothing is handed over rather than filler.");
   return {
@@ -96,7 +135,7 @@ const incompleteCoverage: Producer = async (ctx) => {
     });
     if (!drafted) continue;
     components.push({
-      kind: "section_add", label: `Add a section: ${drafted.heading}`, before: null,
+      kind: "section_add", label: `Section: ${drafted.heading}`, before: null,
       after: `${drafted.heading}\n\n${drafted.body}`,
       evidenceKeys: ctx.finding.evidenceKeys, risk: "safe",
       ...owed(ctx.primary, `Cover ${heading}, which every page beating this one covers and this one leaves out.`,
@@ -115,6 +154,8 @@ const competitorContentGap: Producer = async (ctx) => {
   const payload = ctx.finding.payload;
   const gaps = payload?.cause === "competitor_content_gap" ? payload.gaps : [];
   if (gaps.length === 0) return refuse("The pages that win this search do something this one does not, and it could not be read closely enough to write.");
+  const structured = await consensusStructure(ctx);
+  if (structured) return structured;
   // STRONGEST FIRST, and the same order every time: the gap the most winners share, then the plain text, so the same reading always produces the same two sections. A gap the held page PROVABLY already
   // carries is dropped before drafting: the accusation was written against a sample.
   const ranked = [...gaps].filter((g) => pageContains(ctx.body, g.gap) !== "yes")
@@ -132,7 +173,7 @@ const competitorContentGap: Producer = async (ctx) => {
     });
     if (!drafted) continue;
     components.push({
-      kind: "section_add", label: `Add a section: ${drafted.heading}`, before: null,
+      kind: "section_add", label: `Section: ${drafted.heading}`, before: null,
       after: `${drafted.heading}\n\n${drafted.body}`,
       evidenceKeys: ctx.finding.evidenceKeys, risk: "safe",
       ...owed(ctx.primary, `Do the one thing ${seen} of the pages beating this one do and it does not.`,
@@ -150,7 +191,9 @@ const competitorContentGap: Producer = async (ctx) => {
 
 function shapeMismatch(objective: string, mechanism: string): Producer {
   return async (ctx) => {
+    if (!ctx.body || ctx.body.completeness !== "complete" || ctx.body.version !== "current") return refuse("The page is built for a different job, but its complete current body is not on file, so no section is removed or reorganized from a partial read.");
     const heading = ctx.page.outline.find((h) => h.trim().length > 0) ?? null;
+    if (!heading) return refuse("The page is built for a different job, but no exact section boundary is on file, so a reorganization cannot name what it changes.");
     const drafted = await ctx.draft.section({
       query: ctx.primary,
       pageLabel: ctx.page.h1 ?? ctx.page.title ?? ctx.page.url,
@@ -158,20 +201,45 @@ function shapeMismatch(objective: string, mechanism: string): Producer {
       brief: `${ctx.finding.explanation} Rewrite this page's leading section so it does the job people searching "${ctx.primary}" actually came for.`,
       outline: ctx.page.outline,
       evidenceHints: hintsOf(ctx),
+      informationNeed: structuralNeed(ctx, ctx.primary, "replacement"), standard: "restructuring",
     });
-    if (!drafted) return refuse("No replacement for this page's leading section passed its own checks, so nothing is handed over rather than filler.");
+    if (!drafted?.units?.length) return refuse("No structured replacement for this page's leading section passed its own checks, so nothing is handed over rather than filler.");
+    const normalized = ctx.body.headings.map((text) => ({ text: text.trim(), key: canonicalQueryKey(text) })).filter((x) => x.key);
+    const furniture = new Set([...(ctx.templateHeadings ?? [])].map(canonicalQueryKey)), duplicate = normalized.find((item, index) => !furniture.has(item.key) && normalized.findIndex((other) => other.key === item.key) !== index);
+    const removal: BundleComponent | null = duplicate ? { kind: "section_remove", label: `Remove the duplicate section: ${duplicate.text}`, before: duplicate.text,
+      after: `Remove the later complete section headed "${duplicate.text}" and keep the first section with that heading.`, evidenceKeys: ctx.finding.evidenceKeys, risk: "review",
+      ...owed(ctx.primary, `Remove the second copy of "${duplicate.text}" before reorganizing the page.`, "The complete current outline contains the same section heading twice; keeping both repeats one part of the page instead of serving the newly settled task.", `the later of the two sections headed "${duplicate.text}"`) } : null;
     return {
       components: [{
-        kind: "section_rewrite", label: `Rewrite the leading section: ${drafted.heading}`,
-        before: null, after: `${drafted.heading}\n\n${drafted.body}`,
-        evidenceKeys: ctx.finding.evidenceKeys, risk: "review", ...(heading ? { target: { mode: "replace", anchorKind: "heading", anchor: heading.trim() } } : {}), // A REWRITE REPLACES THE SECTION UNDER ITS OWN HEADING (audit, 2026-09-14): the writer's target said "after" and no rewrite could ever verify as one
+        kind: "restructure", label: `Restructure the leading section: ${drafted.heading}`,
+        before: heading, after: `${drafted.heading}\n\n${drafted.body}`, units: drafted.units,
+        evidenceKeys: ctx.finding.evidenceKeys, risk: "review", target: { mode: "replace", anchorKind: "heading", anchor: heading.trim() },
         ...owed(ctx.primary, objective, mechanism,
-          heading ? `the section "${heading.trim()}", the first one on the page` : "the first section on the page"),
-      }],
+          `the section "${heading.trim()}", the first one on the page`),
+      }, ...(removal ? [removal] : [])],
       refusal: null,
+      ...(removal ? { operatorSteps: [`Replace the content under the first heading "${heading.trim()}" with the supplied structured copy.`, removal.after] } : {}),
     };
   };
 }
+
+const GENERIC_ANCHOR = new Set(["click here", "read more", "learn more", "here", "more"].map(canonicalQueryKey));
+const internalLinkRepair: Producer = async (ctx) => {
+  const payload = ctx.finding.payload;
+  if (payload?.cause !== "internal_link_weakness" || !ctx.body || ctx.body.completeness !== "complete" || ctx.body.version !== "current") return refuse("The complete current link block is not on file, so no anchor or navigation placement is guessed from a partial page.");
+  const owned = new Map(ctx.ownedPages.map((page) => [canonicalUrlKey(page.url), page]));
+  const weak = ctx.body.internalLinks.flatMap((link) => { let key: string; try { key = canonicalUrlKey(new URL(link.href, ctx.page.url).toString()); } catch { return []; } const target = owned.get(key), anchor = link.anchorText.trim(); return target && GENERIC_ANCHOR.has(canonicalQueryKey(anchor)) ? [{ link, target, anchor }] : []; });
+  if (weak.length === 1) { const { link, target, anchor } = weak[0]!, replacement = (target.h1 ?? target.title ?? "").trim(); if (replacement && canonicalQueryKey(replacement) !== canonicalQueryKey(anchor)) return { components: [{ kind: "anchor_text", label: `Name the destination: ${replacement}`, before: anchor, after: replacement, anchorAfter: replacement, evidenceKeys: ctx.finding.evidenceKeys, risk: "safe", ...owed(ctx.primary, `Replace the generic link words with the exact name of the page they already open.`, `The complete page contains one generic anchor whose destination is an owned page named "${replacement}".`, `the existing link to ${new URL(link.href, ctx.page.url).pathname}`) }], refusal: null }; }
+  if (weak.length > 1) return refuse("More than one generic owned-page link is on the page, so no anchor is changed without choosing between distinct destinations.");
+  const furniture = [...(ctx.templateHeadings ?? [])].filter((heading) => ctx.body!.headings.some((held) => canonicalQueryKey(held) === canonicalQueryKey(heading))).sort();
+  const linked = new Set(ctx.body.internalLinks.flatMap((link) => { try { return [canonicalUrlKey(new URL(link.href, ctx.page.url).toString())]; } catch { return []; } }));
+  const destinations = ctx.ownedPages.filter((page) => !linked.has(canonicalUrlKey(page.url)) && [page.h1, page.title].some((text) => canonicalQueryKey(text ?? "") === canonicalQueryKey(ctx.primary)));
+  if (furniture.length !== 1 || destinations.length !== 1) return refuse("No single stored navigation block and single exact-query owned destination are both proven, so no menu or hub placement is invented.");
+  const heading = furniture[0]!, target = destinations[0]!, label = (target.h1 ?? target.title)!.trim(), path = new URL(target.url, ctx.page.url).pathname;
+  return { components: [{ kind: "navigation", label: `Add ${label} to ${heading}`, before: null, after: `[${label}](${path})`,
+    evidenceKeys: ctx.finding.evidenceKeys, risk: "safe", ...owed(ctx.primary, `Put the exact owned page for "${ctx.primary}" in the site's existing ${heading} navigation block.`, `The complete current page carries the same navigation heading used across the site, and exactly one unlinked owned page has the exact searched title.`, `inside the existing navigation block "${heading}"`) }], refusal: null,
+    operatorSteps: [`Add one navigation item labelled "${label}" that points to ${path} inside "${heading}".`] };
+};
 
 // ── technical_indexability: what is wrong with how the page is SERVED ── NOT COPY, AND NOT A GUESS. Every component here is one fault on one address with the exact fix, read off
 // the inventory and the capture by decision/technical-findings and carried on the finding itself, so this
@@ -293,8 +361,8 @@ export const CORE_PRODUCERS: Record<Exclude<CauseKey, "ctr_snippet">, Producer |
   intent_shift: intentRewrite,
   // Settling which of two pages owns a search is a merge, a redirect and a de-index, not a paste. It is built beside this file rather than inside it, and wired in at integration.
   cannibalization: produceConsolidation,
-  // WHERE A READER GOES NEXT is owned by the ranked link lane (producers/extra.ts linkCards): a link is minted off the stored link graph with both pages understood and a two-word subject floor, never off token overlap, so the bundle path writes none here (operator, 2026-09-01).
-  internal_link_weakness: { reason: "The ranked link lane owns this cause and mints each link on its own evidence." },
+  // The ranked link lane still owns new contextual links. This bounded path only repairs one proven generic anchor or places one exact-query page in one proven site-wide navigation block.
+  internal_link_weakness: internalLinkRepair,
   // Both AI causes are about what an engine did with a page it already read. Nothing on the page is proven wrong by either, so a rewrite here would be a guess dressed as a fix.
   retrieved_not_cited: produceSourceExpansion,
   ai_citation_gap: produceSourceExpansion,

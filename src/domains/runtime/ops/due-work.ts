@@ -422,7 +422,7 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   // an unread-answer probe that THREW was swallowed into "nothing is due" and the scheduler reported a healthy idle over a day it could not judge. An
   // individually EMPTY signal is untouched by this: zero stale sources is an honest zero, not an outage.
   // ...AND THE FACT DEBT IS ONE OF THEM. It was read, judged and then left out of this line, so a fact-check store that THREW reported a readable day with check_page_facts quietly missing from it: exactly the swallowed outage this rule exists to stop, on the one debt nothing else can infer (Codex, 2026-08-22). The stock and the credit stop join it for the same reason.
-  const readable = run.ok && checks.value != null && sources.ok && basis.ok && version.ok && surface.ok && debt.ok && pages.ok && unread.ok && analyses.ok && consumed.ok && facts.ok && ready.ok && creditHeld.ok && winners.ok;
+  const readable = run.ok && checks.value != null && sources.ok && basis.ok && basis.value != null && version.ok && surface.ok && debt.ok && pages.ok && unread.ok && analyses.ok && consumed.ok && facts.ok && ready.ok && creditHeld.ok && winners.ok;
   if (!readable) log.debug("[due-work] durable state unreadable; the caller decides which way that falls", { tenantId });
   return {
     due: readable ? due : [], readable,

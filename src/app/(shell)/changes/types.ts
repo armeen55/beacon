@@ -3,7 +3,9 @@
  * were deleted with the legacy proof-timeline subsystem (terminal closure, 2026-08-26): the modern Results
  * surface owns that value, and git history is the archive.
  */
-import type { ChangeProposal } from "@/domains/decision";
+// Client-safe contract seam. This module is imported by interactive controls, so the full Decision facade
+// would pull server persistence, scheduling and provider modules into the browser bundle.
+import type { BundleComponent, ChangeProposal } from "@/domains/decision";
 /** HOW MUCH OF THE RANKED QUEUE ONE SCREEN CARRIES. The queue itself is unlimited; a list of a
  *  hundred and twelve changes is not a decision surface, so the page opens with this many and says
  *  exactly how many are behind it. Shared by the server slice and the client's "Show more". Raised 25 to 100
@@ -13,6 +15,73 @@ export const CHANGES_PAGE_SIZE = 100;
 /** THE ONE CADENCE SENTENCE, the same on Today, Changes and Results (audit 3.9, 2026-09-14): three different
  *  descriptions of when research runs were shown to the customer (once a day, during signed-in visits, no schedule). */
 export const RESEARCH_CADENCE = "Research runs on its own every day; a visit only resumes it.";
+
+/** One acknowledgement for list, detail and batch paths. It names only the measurement state the Shipment
+ * actually stored and computes the healthy-path date from the implementation stamp. */
+function measurementAcknowledgement(state: string | null | undefined, at: Date = new Date()): string {
+  if (state === "insufficient_comparison") return "Recorded. Too few pages on your site can be fairly compared against this one yet, so the reading starts as soon as enough of them have search data.";
+  if (state === "measurement_unavailable") return "Recorded. Your search data could not be read just now, so the reading starts as soon as it can be.";
+  if (state === "verification_needed") return "Recorded. The page is checked next, and the reading starts from what is found there.";
+  const lands = new Date(at.getTime() + 10 * 86_400_000).toLocaleDateString("en-US", { month: "long", day: "numeric" });
+  return `Recorded, and the page is being watched. The first reading lands on Results around ${lands}; search data takes a few days to catch up with the live site.`;
+}
+
+const DANGEROUS_KINDS = new Set<BundleComponent["kind"]>(["canonical", "redirect", "noindex", "consolidation"]);
+const HIGH_STAKES_CLAIM = /\b(law|legal|lawyer|attorney|court|statute|regulation|licen[cs]|liabilit|medical|medicine|doctor|clinical|diagnos|dosage|drug|symptom|treatment|patient|financial|finance|tax|taxes|loan|mortgage|interest rate|investment|insurance|refund|warrant)/i;
+/** Browser-safe projection of the canonical Decision danger rule. Unknown future kinds still fail closed through
+ * their risk grade; the four structural kinds and high-stakes corrections cannot be downgraded by a stale row. */
+function isDangerousComponent(c: BundleComponent): boolean {
+  return c.risk === "dangerous" || DANGEROUS_KINDS.has(c.kind)
+    || (c.kind === "factual_correction" && HIGH_STAKES_CLAIM.test(`${c.before ?? ""} ${c.after}`));
+}
+
+/** The manual proving phase serves only bounded edits to an existing page. One predicate guards every
+ * presentation and action door, including old stored rows created before the phase narrowed. */
+function isManualEditProofWork(p: ChangeProposal): boolean {
+  if (p.kind === "new_page" || p.recommendedChange.kind === "new_page" || p.changeFamily === "full_rewrite") return false;
+  if (p.recommendedChange.target?.mode === "whole_body") return false;
+  return !(p.bundle?.components ?? []).some((c) => c.kind === "new_page" || c.kind === "full_rewrite" || c.target?.mode === "whole_body");
+}
+
+/** Bulk recording carries no per-piece selection or destructive confirmation. It is therefore valid only
+ * for one nondestructive existing-page deliverable; every bundle is recorded from its own detail. */
+function isBulkRecordable(p: ChangeProposal): boolean {
+  if (!isManualEditProofWork(p) || p.kind !== "existing_edit" || p.recommendedChange.kind !== "existing_edit") return false;
+  const components = p.bundle?.components ?? [];
+  return components.length <= 1 && !components.some(isDangerousComponent);
+}
+
+/** Publication copy is allowlisted. Structural steps and any future/unknown kind fail closed as instructions. */
+function isPasteableComponent(c: BundleComponent): boolean {
+  if (!c.after.trim() || isDangerousComponent(c)) return false;
+  switch (c.kind) {
+    case "title": case "meta": case "h1": case "opening_answer": case "section":
+    case "paragraph_correction": case "section_add": case "section_rewrite": case "full_rewrite":
+    case "factual_correction": case "source_update": case "entity_expansion": case "table_or_list_add": case "schema":
+      return true;
+    case "internal_link_add": return !!c.units || (!!c.anchorAfter && !!c.redirectTo);
+    case "source_pack": case "restructure": return !!c.units;
+    default: return false;
+  }
+}
+type LinkedComponent = { id: string; dependsOn?: readonly string[] };
+/** A derived component and every component it names are one undirected group. Starting at either side reaches
+ * the whole group, including a future chain of derivations, so the browser and the server cannot disagree. */
+function linkedComponentIds(components: readonly LinkedComponent[], seed: string): Set<string> {
+  const linked = new Set([seed]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const component of components) {
+      const group = [component.id, ...(component.dependsOn ?? [])];
+      if (!group.some((id) => linked.has(id))) continue;
+      for (const id of group) if (!linked.has(id)) { linked.add(id); grew = true; }
+    }
+  }
+  return linked;
+}
+const operatorUiPolicy = { isManualEditProofWork, isBulkRecordable, isPasteableComponent, linkedComponentIds, measurementAcknowledgement };
+export default operatorUiPolicy;
 
 /** A PAGE ADDRESS, READ THE WAY A PERSON SAYS IT. Every change surface printed the raw slug as its headline
  *  ("/famous-iranian-comedians"), which is a file name, not a page. The last segment becomes the name, the

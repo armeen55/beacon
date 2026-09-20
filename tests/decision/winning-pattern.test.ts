@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
 const projection = vi.hoisted(() => ({ cost: 0 }));
-vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async ({ projectedCostUsd }: { projectedCostUsd: number }) => { projection.cost = projectedCostUsd; return { allowed: true, remaining: 10 }; }, recordSpend: async () => {} }));
 import { extractPageFacts, readWinningPattern } from "@/domains/decision/winning-pattern";
 import type { WinningPatternRead } from "@/domains/decision/llm/schemas";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
@@ -9,10 +8,10 @@ import { pageExtractFrom } from "@/domains/evidence/funnel/research-evidence";
 const CARE = "Caring for a Persian rug";
 const MADE = "How a Persian rug is made from wool and silk in the villages of Iran";
 const page = (domain: string, headings: string[], over: Record<string, unknown> = {}) => ({
-  url: `https://${domain}/persian-rugs`, domain,
+  url: `https://${domain}/persian-rugs`, domain, appearances: [{ kind: "serp_organic", query: "persian rug care", promptText: null, rank: 1, observedAt: "2026-07-20T00:00:00.000Z" }],
   extract: { title: "Persian rugs explained", h1: "Persian rugs explained", wordCount: 1400, headings,
     faqCount: 3, openingSample: "A Persian rug is a hand knotted floor covering woven in Iran by families who have done it for generations.",
-    entityNames: ["Tabriz", "Kashan"], schemaTypes: ["Article"], mainText: "Rug makers use wool and silk. Gentle washing protects the fibres; Tabriz workshops use local designs.", truncated: false, hasList: true, hasTable: false, ...over },});
+    entityNames: ["Tabriz", "Kashan"], metaDescription: "Learn the craft and care of Persian rugs.", schemaTypes: ["Article"], internalLinkCount: 7, externalLinkCount: 2, fetchedAt: "2026-07-20T00:00:00.000Z", mainText: "Rug makers use wool and silk. Gentle washing protects the fibres; Tabriz workshops use local designs.", truncated: false, hasList: true, hasTable: false, ...over },});
 const WINNERS = [
   page("guide.example", ["What a Persian rug is", MADE, CARE]),
   page("museum.example", ["What a Persian rug is", MADE, "Where they come from"]),
@@ -24,7 +23,7 @@ const ownedFacts = () => extractPageFacts([OWNED])[0]!;
 const reading = (over: Partial<WinningPatternRead> = {}): WinningPatternRead => ({
   archetype: "informational_guide",
   commonHeadings: [{ heading: "how one is made, step by step", seenOn: [0, 1, 2] }, { heading: CARE, seenOn: [0, 2, 3] }],
-  commonEntities: [{ entity: "Tabriz", seenOn: [0, 1] }],
+  commonEntities: [{ entity: "Tabriz", seenOn: [0, 1, 2] }],
   questionsAnswered: ["What is a Persian rug?"],
   openingPattern: "Each of them answers the question plainly in its first sentence before it explains anything else.",
   ownedGaps: [{ gap: "your page never explains how one is made", seenOn: [0, 1, 2] }],
@@ -38,10 +37,31 @@ describe("the held content reaches the funded reader", () => {
     let shown = "";
     await readWinningPattern(held, ownedFacts(), "fixture", { complete: async ({ user }) => { shown = user; return { httpAttempts: 1, value: reading({ commonHeadings: [], commonEntities: [], ownedGaps: [], uniqueNotCommon: [] }) }; } });
     expect(held.map((f) => [f.hasSchema, f.scope])).toEqual([[true, "complete"], [false, "partial"], [null, "unknown"]]);
-    expect(shown).toContain(held[0]!.mainText!); expect(shown).toContain('"scope":"partial"'); expect(shown).toContain('"schemaTypes":["FAQPage"]');
+    expect(shown, "one complete publisher plus two incomplete reads is unknown and never spends on a fake comparison").toBe("");
     const capture = (mainHtml: string, complete: boolean) => ({ version: 1 as const, mainHtml, complete, jsonLd: [] }), blocks = "<ul><li>Wool</li></ul><table><tr><td>Silk</td></tr></table>";
     for (const [sourceCapture, vocabulary, cards, expected] of [[capture(blocks, true), "WoolSilk", [], [true, true]], [capture(blocks, false), "WoolSilk", [], [true, true]], [capture("<p>Wool</p>", true), "Wool", [], [false, false]], [capture("<p>Wool</p>", false), "Wool", [], [null, null]], [capture(blocks, true), "Different capture", [], [null, null]], [undefined, "Wool", [], [null, null]], [undefined, "Wool", ["Wool"], [null, null]]] as const) { const f = extractPageFacts([{ url: "https://mysite.example/rugs", body: { title: "Rugs", h1: "Rugs", headings: [], passages: [vocabulary], vocabulary, completeness: sourceCapture?.complete === false ? "partial" : "complete", cardTexts: cards, entityNames: [], sourceCapture } as never }])[0]!; const rival = extractPageFacts([{ url: "https://rival.example/rugs", extract: pageExtractFrom({ title: "Rugs", h1: "Rugs", word_count: 0, body_text: vocabulary, content_capture: sourceCapture, card_texts: [...cards], table_count: 999 }) }])[0]!; expect([[f.hasList, f.hasTable], [rival.hasList, rival.hasTable]], JSON.stringify(sourceCapture)).toEqual([expected, expected]); let input = ""; await readWinningPattern(facts(), f, "fixture", { cacheImpl: memoryCache(), complete: async ({ user }) => { input = user; return { httpAttempts: 1, value: reading({ ownedGaps: [] }) }; } }); expect(input).toContain(`"hasList":${expected[0]},"hasTable":${expected[1]}`); }
     expect(await readWinningPattern(facts(), { ...ownedFacts(), scope: "partial" }, "fixture", { complete: seam(reading()).complete })).toBeNull();
+  });
+});
+describe("structural consensus is evidence, not a formatting preference", () => {
+  const listReading = () => reading({ archetype: "list", commonHeadings: [], commonEntities: [], ownedGaps: [{ gap: "name the rug-care steps", seenOn: [0, 1] }], openingPattern: "" });
+  const listDelta = (pattern: Awaited<ReturnType<typeof readWinningPattern>>) => pattern?.brief?.deltas.find((d) => d.dimension === "list");
+  it("records a list delta only for a settled list task, a strict distinct-publisher majority, and explicit complete-page absence", async () => {
+    const winners = extractPageFacts([page("a.example", [CARE], { hasList: true }), page("b.example", [CARE], { hasList: true }), page("c.example", [CARE], { hasList: false })]);
+    const good = await readWinningPattern(winners, ownedFacts(), "fixture", { complete: seam(listReading()).complete, label: "persian rug care", pageType: "list" });
+    expect(listDelta(good)).toEqual(expect.objectContaining({ action: "add_structured_list", confidence: "validated_observation", sources: expect.arrayContaining([winners[0]!.sourceId, winners[1]!.sourceId]) }));
+    const unsuitable = await readWinningPattern(winners, ownedFacts(), "fixture", { complete: seam(reading({ commonHeadings: [], commonEntities: [], ownedGaps: [], openingPattern: "" })).complete, label: "persian rug care", pageType: "informational_guide" });
+    expect(listDelta(unsuitable), "a prose-guide task does not inherit list work merely because rivals happen to use lists").toBeUndefined();
+    const unknownOwned = await readWinningPattern(winners, { ...ownedFacts(), scope: "partial", hasList: false }, "fixture", { complete: seam(listReading()).complete, label: "persian rug care", pageType: "list" });
+    expect(unknownOwned, "a partial owned page cannot prove the list absent and therefore cannot carry owned gaps at all").toBeNull();
+  });
+  it("gives one publisher one vote and lets no partial capture vote", async () => {
+    const duplicate = extractPageFacts([page("a.example", [CARE], { hasList: true }), page("www.a.example", [CARE], { hasList: true }), page("b.example", [CARE], { hasList: false }), page("c.example", [CARE], { hasList: false })]);
+    const once = await readWinningPattern(duplicate, ownedFacts(), "fixture", { complete: seam(listReading()).complete, label: "persian rug care", pageType: "list" });
+    expect([once?.winners, listDelta(once)], "two addresses from one publisher remain one vote").toEqual([3, undefined]);
+    const partial = extractPageFacts([page("a.example", [CARE], { hasList: true }), page("b.example", [CARE], { hasList: false }), page("c.example", [CARE], { hasList: false }), page("d.example", [CARE], { hasList: true, truncated: true }), page("e.example", [CARE], { hasList: true, truncated: true })]);
+    const known = await readWinningPattern(partial, ownedFacts(), "fixture", { complete: seam(listReading()).complete, label: "persian rug care", pageType: "list" });
+    expect([known?.winners, listDelta(known)], "partial captures never enter the denominator or the supporters").toEqual([3, undefined]);
   });
 });
 describe("a ranked page with a different intent teaches nothing", () => {
@@ -64,7 +84,7 @@ describe("a ranked page with a different intent teaches nothing", () => {
 });
 describe("the one reading a case may buy", () => {
   it("comes off the pass's attempt budget, and an empty budget reads nothing", async () => { // AND IT IS PAID FOR OUT OF THE PASS'S OWN POOL. This was the one charged Decision call the attempt budget never saw, so a pass that reached a verdict spent one more call than its own receipt could account for. Spent BEFORE the call, and an exhausted pool buys nothing at all.
-    const pool = { left: 1 }, s = seam(reading()); const first = await readWinningPattern(facts(), { ...ownedFacts(), mainText: "Gentle washing protects rug fibres. ".repeat(1400) }, "t_fixture", { complete: s.complete, attempts: pool });
+    const pool = { left: 1 }, s = seam(reading()); const first = await readWinningPattern(facts(), { ...ownedFacts(), mainText: "Gentle washing protects rug fibres. ".repeat(1400) }, "t_fixture", { complete: async (a) => (projection.cost = a.spend.estimatedUsd, s.complete(a)), attempts: pool });
     expect(projection.cost).toBeGreaterThan(0.02);
     const second = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, attempts: pool, cacheImpl: memoryCache() });
     expect([first?.winners, Math.max(0, pool.left), second, s.calls()]).toEqual([4, 0, null, 1]); });
@@ -85,7 +105,7 @@ describe("the one reading a case may buy", () => {
       { commonHeadings: [{ heading: "shipping and returns", seenOn: [0, 1] }] },         // on no page it cited
       { commonEntities: [{ entity: "Isfahan", seenOn: [0] }] },];
     for (const one of bad) expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading(one)).complete }), JSON.stringify(one)).toBeNull();
-    const good = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete }); expect([good?.ownedGaps[0]?.seenOn, good?.commonHeadings[1]?.heading]).toEqual([[0, 1, 2], CARE]); }); // And an honest reading survives all of it, so every refusal above is about the defect and nothing else.
+    const good = await readWinningPattern(extractPageFacts([...WINNERS, page("archive.example", [MADE, CARE])]), ownedFacts(), "t_fixture", { complete: seam(reading()).complete, label: "persian rug care" }); const b = good?.brief, first = b?.sources[0], delta = b?.deltas.find((d) => d.dimension === "owned_delta"), question = b?.deltas.find((d) => d.dimension === "questions"), opening = b?.deltas.find((d) => d.dimension === "opening"); expect([good?.publishers.length, b?.query, first && [first.url, first.passage, first.title, first.meta, first.h1, first.opening, first.sections.length, first.entities?.[0], first.list, first.table, first.schema?.[0], first.links.internal, first.links.external, first.citations[0]?.query, first.freshness], delta && [delta.action, delta.sources.length, delta.confidence], b?.owed]).toEqual([5, "persian rug care", ["https://guide.example/persian-rugs", "A Persian rug is a hand knotted floor covering woven in Iran by families who have done it for generations.", "Persian rugs explained", "Learn the craft and care of Persian rugs.", "Persian rugs explained", "A Persian rug is a hand knotted floor covering woven in Iran by families who have done it for generations.", 3, "Tabriz", true, false, "Article", 7, 2, "persian rug care", "2026-07-20T00:00:00.000Z"], ["resolve_reader_delta", 3, "bounded_reader"], expect.arrayContaining(["title", "meta", "h1", "list", "table", "schema", "links"])]); expect([question?.sources.length, opening?.sources.length, delta?.sources.every((id) => b?.sources.some((source) => source.sourceId === id && !!source.url && !!source.publisher && !!source.passage))]).toEqual([3, 5, true]); }); // And an honest reading survives all of it, so every refusal above is about the defect and nothing else.
   it("never re-votes a shape the results already settled, and writes no gap about a page it was never shown", async () => {
     expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete, pageType: "list" })).toBeNull(); // The reading says informational_guide; the results counted a list, and the deterministic count wins.
     const agreed = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete, pageType: "informational_guide" }); expect([agreed?.archetype, agreed?.winners]).toEqual(["informational_guide", 4]);
@@ -97,4 +117,27 @@ describe("the one reading a case may buy", () => {
     const twoSites = [WINNERS[0]!, page("guide.example", ["What a Persian rug is"]), WINNERS[1]!, page("museum.example", [CARE])]; // Four pages from two sites are two sites' house style, and this file never calls that a pattern.
     expect(await readWinningPattern(extractPageFacts(twoSites), ownedFacts(), "t_fixture", { complete: s.complete })).toBeNull();
     expect(s.calls()).toBe(0); // and not one cent was spent reaching either answer
+  });
+  it("accepts a strict majority only after three distinct complete publishers are readable", async () => {
+    const three = extractPageFacts([WINNERS[0]!, WINNERS[2]!, WINNERS[1]!]), majority = reading({ commonHeadings: [{ heading: CARE, seenOn: [0, 1] }], commonEntities: [], ownedGaps: [], uniqueNotCommon: [] }), accepted = await readWinningPattern(three, ownedFacts(), "t_fixture", { complete: seam(majority).complete });
+    expect([accepted?.winners, accepted?.commonHeadings[0]?.seenOn]).toEqual([3, [0, 1]]);
+    expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(majority).complete }), "two of four publishers is not a strict majority and is never called common").toBeNull();
+  });
+  it("does not let unread evidence occupy a publisher or comparison seat", async () => {
+    const unread = { ...page("a.example", [CARE]), extract: null };
+    const partial = page("b.example", [CARE], { truncated: true });
+    const completeA = page("a.example", [CARE]);
+    const completeC = page("c.example", [CARE]);
+    const completeD = page("d.example", [CARE]);
+    const reader = seam(reading({ commonHeadings: [{ heading: CARE, seenOn: [0, 1] }], commonEntities: [], ownedGaps: [], uniqueNotCommon: [] }));
+
+    const result = await readWinningPattern(
+      extractPageFacts([unread, partial, completeA, completeC, completeD]),
+      ownedFacts(),
+      "t_fixture",
+      { complete: reader.complete },
+    );
+
+    expect(reader.calls()).toBe(1);
+    expect(result?.publishers).toEqual(["a.example", "c.example", "d.example"]);
   }); });

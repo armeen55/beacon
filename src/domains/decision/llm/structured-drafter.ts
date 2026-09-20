@@ -1,10 +1,9 @@
 import "server-only";
 import { z } from "zod";
-import { checkBudget, recordSpend, reserveOnboardingSpend, reconcileOnboardingSpend } from "./adjudicator-budget";
 import { log } from "@/lib/logger";
 import { buildWinnerFewShots, buildWinnerFewShotsWithPattern } from "./winner-memory";
 import type { DraftPatternId } from "./draft-pattern";
-import { openAIStructuredResponse, estimateCost, llmFailureOf, type LlmFailure, type LlmProvenance } from "./gateway";
+import { openAIStructuredResponse, estimateCost, llmFailureOf, type LlmFailure, type LlmProvenance, type StructuredCallArgs } from "./gateway";
 import { PROMPT_REGISTRY, type PromptId } from "./prompt-registry";
 import { llmCallCacheKey, resolveCacheImpl, type CacheImpl } from "./call-cache"; import { DRAFT_BUDGET } from "../draft-budget";
 import { looksTemplated, REPEAT_FLAG, REPEAT_HISTORY_SIZE, VARIATION_INSTRUCTION } from "./de-templating";
@@ -36,6 +35,8 @@ import {
   type StructuredDraftKind,
   type AtomicEditDraft,
 } from "./schemas";
+
+type SpendReservationContext = StructuredCallArgs["spend"];
 
 
 const MODEL = "gpt-5.4-mini"; // gpt-5-mini failed the claim-coverage contract on four funded passes (2026-08-17): forty refusals, zero survivors. The gates stay; the writer gets stronger.
@@ -76,6 +77,8 @@ export type CompleteFn = (args: {
   kind: StructuredDraftKind;
   /** The owning account, threaded to the gateway for spend + provenance. */
   tenantId: string;
+  /** Stable identity and caps for the gateway's one atomic spend lifecycle. */
+  spend: SpendReservationContext;
   /** `failure` is the TYPED name of what went wrong and `error` the same thing as text, for logs; an injected transport naming no type reads as a body I could not use. */
   /** REQUESTS THAT ACTUALLY LEFT THE PROCESS for this one completion, counted at the gateway's own fetch line
    *  and never here (Codex, 2026-08-23). Absent means ZERO: a transport that cannot say it reached the network
@@ -89,8 +92,8 @@ function fewShotProvenanceFrom(
   if (!hint) return undefined;
   const styleWord = hint.pattern.replace(/_/g, "-");
   const sentence = hint.winningPage
-    ? `I wrote this the way your last winners were written: ${styleWord}, like the block that won on ${hint.winningPage}.`
-    : `I wrote this the way your last winners were written: ${styleWord}, the structure that has won most often on ${pageFamily} pages here.`;
+    ? `This uses the pattern from your last winners: ${styleWord}, like the block that won on ${hint.winningPage}.`
+    : `This uses the pattern from your last winners: ${styleWord}, the structure that has won most often on ${pageFamily} pages here.`;
   return { pattern: hint.pattern, winningPage: hint.winningPage, sentence };
 }
 
@@ -368,8 +371,7 @@ function attemptCostUsd(costUsd: number | null | undefined): number {
 }
 
 function defaultComplete(apiKey: string, promptId: PromptId): CompleteFn {
-  return async ({ system, user, maxTokens, timeoutMs, kind, tenantId }) => {
-    // The strict Responses gateway owns transport (fallbacks, error ledger, reasoning timeout floor, json_schema). Budget stays HERE in caller mode.
+  return async ({ system, user, maxTokens, timeoutMs, kind, tenantId, spend }) => {
     const outcome = await openAIStructuredResponse({
       promptId,
       promptVersion: PROMPT_REGISTRY[promptId],
@@ -383,7 +385,7 @@ function defaultComplete(apiKey: string, promptId: PromptId): CompleteFn {
       maxOutputTokens: maxTokens,
       timeoutMs,
       tenantId,
-      budget: { mode: "caller", note: "checkBudget + recordSpend live in callStructuredLLM" },
+      spend,
     });
     // WHOSE FAILURE IT WAS IS DECIDED ONCE, AT THE DOOR THAT SAW IT, and travels as a TYPE; the `error` text below is for a log line only. When a caller had to recognise a throttle by matching `openai_429` exactly, the same throttle wearing the code OpenAI actually sends read as a bad shape, and answers nobody was billed for settled as refused.
     const failure = llmFailureOf(outcome), httpAttempts = outcome.httpAttempts;
@@ -408,6 +410,8 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
   promptId?: PromptId;
   /** The owning account. REQUIRED and validated non-empty FIRST (before cache, budget, or the call), and threaded into the cache key, cache storage, the budget check/record, and the completion fn. No global fallback. */
   tenantId: string;
+  /** Exact paid proposal generation this call serves. The database checks its retirement tombstone at transmission. */
+  proposalWorkKey?: string;
   /** System prompt, describe the JSON shape + the grounding/safety rules. */
   system: string;
   /** User prompt, the grounded inputs. */
@@ -466,8 +470,8 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   // THE ASSIGNMENT'S OWN NUMBERS AND THE YEAR ARE GROUNDED (audit, 2026-09-14; narrowed on review): a figure in the assignment lines, and the current or previous year, were refused as invented because the writer's ledger read only the fact text. The ledger is the claim-support text plus the assignment lines and nothing else in the prompt: a rival, serp or comparison figure asserted in copy under a page-copy id is still invented.
   const ledger = ["atomic_edit", "body_edit"].includes(req.kind) ? allowNumbers(buildGroundedNumbers(`${req.grounded}\n${req.assignmentGrounded ?? ""}`), [String(nowYear - 1), String(nowYear)]) : buildRequestLedger(req.grounded, nowYear);
   const cache = resolveCacheImpl(req.cacheImpl);
-  let cacheKey: string | null = null;
-  try { if (cache) cacheKey = llmCallCacheKey({ tenantId, promptId, promptVersion, kind: req.kind, system: req.system, user: req.user + "\n" + JSON.stringify([req.grounded, req.observationGrounded ?? null, req.maxTokens ?? 6000]), model: MODEL, schema: z.toJSONSchema(schema) }); }
+  let cacheKey: string;
+  try { cacheKey = llmCallCacheKey({ tenantId, promptId, promptVersion, kind: req.kind, system: req.system, user: req.user + "\n" + JSON.stringify([req.grounded, req.observationGrounded ?? null, req.maxTokens ?? 6000]), model: MODEL, schema: z.toJSONSchema(schema) }); }
   catch { return unpaidFailure("cache_identity_unavailable"); }
   if (cache && cacheKey && req.bypassCache !== true) {
     let hit;
@@ -483,12 +487,9 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
 
   const projectedCostUsd = Math.max(req.projectedCostUsd ?? 0.02, estimateCost(MODEL, Math.ceil((req.system.length + req.user.length + JSON.stringify(z.toJSONSchema(schema)).length) / 3), req.maxTokens ?? 6000));
   const isOnboarding = req.budgetPlatform === "onboarding-openai";
-  // B82: fail CLOSED on unknown budget; onboarding reserves per real attempt (D10) instead of this pre-loop check.
-  if (!isOnboarding) {
-    // The kind names what the call is FOR: fact checking draws on its own reserve, everything else on bulk.
-    const budget = await checkBudget({ tenantId, projectedCostUsd, purpose: req.kind.startsWith("fact_claim_") ? "fact_check" : "bulk" }).catch(() => ({ allowed: false as const, reason: "budget check unavailable; failing closed" }));
-    if (budget.allowed === false) return { status: "blocked_budget", reason: (budget as { reason?: string }).reason ?? "cap reached" };
-  }
+  const spend: SpendReservationContext = { logicalKey: `draft:${cacheKey}`, proposalWorkKey: req.proposalWorkKey?.trim() || null, estimatedUsd: projectedCostUsd,
+    platform: isOnboarding ? "onboarding-openai" : "adjudicator-openai", purpose: isOnboarding ? "onboarding" : req.kind.startsWith("fact_claim_") ? "fact_check" : "bulk",
+    ...(isOnboarding ? { lifetimeCapUsd: 2 } : { monthlyCapUsd: 250 }) };
 
   const maxTokens = req.maxTokens ?? 6000;
   const timeoutMs = req.timeoutMs ?? 60_000;
@@ -537,25 +538,15 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
 
     if (req.stopBy != null && Date.now() >= req.stopBy || req.attempts && req.attempts.left < 1) { errors.push("caller_resource_boundary"); failure = "transient"; break; }
     if (req.attempts) req.attempts.left -= 1; // Reserve EACH request, including retries, not one reservation for the whole editor operation.
-    // Onboarding reserves dollars separately; a refused reservation starts no request.
-    if (isOnboarding) {
-      const rv = await reserveOnboardingSpend(projectedCostUsd, { tenantId });
-      if (rv.allowed === false) { if (req.attempts) req.attempts.left += 1; return { status: "blocked_budget", reason: rv.reason }; }
-    }
-
     // THE ATTEMPT IS COUNTED BY WHOEVER TOUCHED THE WIRE. Incrementing here counted every pre-network refusal
     // (research paused, credit held, breaker, budget, an unconvertible schema) as a charged provider call, and
     // the operator read those as money spent (Codex, 2026-08-23, from a live receipt). The gateway stamps the
     // one transport fact on its outcome; this adds it, and a seam that reports nothing adds nothing.
-    const out: Awaited<ReturnType<CompleteFn>> = await Promise.resolve().then(() => complete({ system, user: req.user, maxTokens, timeoutMs, kind: req.kind, tenantId })).catch(() => ({ error: "completion did not return an outcome", failure: "transient", retryable: false }));
+    const out: Awaited<ReturnType<CompleteFn>> = await Promise.resolve().then(() => complete({ system, user: req.user, maxTokens, timeoutMs, kind: req.kind, tenantId, spend })).catch(() => ({ error: "completion did not return an outcome", failure: "transient", retryable: false }));
     if (req.attempts && (out.httpAttempts ?? 0) === 0 && attemptCostUsd("error" in out ? out.costUsd : out.provenance?.costUsd) === 0) req.attempts.left += 1;
     networkAttempts += Math.max(0, Math.round((out as { httpAttempts?: number }).httpAttempts ?? 0));
 
     const attemptCost = attemptCostUsd("error" in out ? out.costUsd : out.provenance?.costUsd); totalCost += attemptCost;
-    // Onboarding SETTLES its reservation against the real cost EVERY time, including zero, which refunds in full the reservation an attempt that bought nothing had already parked. Everyone else records only a receipt: a call that returned no usage records no spend (onboarding still reconciles to zero, touching the row and its capless call counter: money stays purchases-only).
-    if (isOnboarding) await reconcileOnboardingSpend(projectedCostUsd, attemptCost, { tenantId }).catch(() => {});
-    else if (attemptCost > 0) await recordSpend(attemptCost, { tenantId }).catch(() => {});
-
     if ("error" in out) {
       errors.push(`llm_${out.error}`);
       failure = out.failure ?? "schema_invalid";
@@ -707,6 +698,7 @@ export async function draftAtomicEditStructured(
     bypassCache?: boolean;
     authoritativeSourceDomains?: readonly string[];
     sourceFetch?: SourceTextFetcher;
+    proposalWorkKey?: string;
   } = {},
 ): Promise<StructuredDraftResult<AtomicEditDraft>> {
   const body = input.field === "answer_block", replaces = body ? input.replaces ?? input.currentValue : null;
@@ -758,6 +750,7 @@ export async function draftAtomicEditStructured(
     grounded, assignmentGrounded: evidenceHints.join("\n"),
     ...(input.packet ? { observationGrounded: [...Object.values(input.packet.evidence), ...(input.packet.demand.unanswered ?? [])].join("\n") } : {}),
     projectedCostUsd: 0.02,
+    ...(opts.proposalWorkKey ? { proposalWorkKey: opts.proposalWorkKey } : {}),
     complete: opts.complete,
     now: opts.now,
     bypassCache: opts.bypassCache,
@@ -796,7 +789,7 @@ function unmarkAnchor<T>(data: T, phrase?: string): T {
  * source supplied below; candidate suggestions cannot authenticate themselves. Topics retain source identity. */
 export async function readComparison(comparison: JobComparison, owned: { url: string; passages: readonly string[] },
   /** Receipts and cache refunds belong to the owning job's existing allowance. */
-  opts: { tenantId: string; now?: Date; complete?: CompleteFn; attempts?: { left: number; record?: (r: unknown) => void } }): Promise<JobComparison> {
+  opts: { tenantId: string; now?: Date; proposalWorkKey?: string; complete?: CompleteFn; attempts?: { left: number; record?: (r: unknown) => void } }): Promise<JobComparison> {
   const winners = comparison.winners.filter((w) => w.held.trim().length > 0);
   if (winners.length === 0 || !winners.some((w) => w.observations.length > 0)) return comparison; // no candidates, no call, no cost
   const source = new Map(winners.map((w) => [w.url, sanitizeNullableEvidence(w.held) ?? ""]));
@@ -807,7 +800,8 @@ export async function readComparison(comparison: JobComparison, owned: { url: st
       source.get(w.url)!, ...sanitizeEvidenceTexts([`CANDIDATE SUGGESTIONS (not quotation authority) FOR ${w.url}: ${JSON.stringify(w.observations)}`])]),
     "Return the JSON now."].join("\n");
   const r = await callStructuredLLM({ kind: "competitor_comparison", tenantId: opts.tenantId, system, user, grounded: user,
-    projectedCostUsd: 0.01, maxTokens: 1200, timeoutMs: 60_000, now: opts.now, complete: opts.complete }).catch(() => null);
+    projectedCostUsd: 0.01, maxTokens: 1200, timeoutMs: 60_000, now: opts.now,
+    proposalWorkKey: opts.proposalWorkKey, complete: opts.complete }).catch(() => null);
   opts.attempts?.record?.(r); // THE MONEY LANDS WHERE THE RESULT COMES BACK, whatever it says: a call that refused, blocked or threw was still made, and the page's meter is the only place the reading's cost can be read.
   DRAFT_BUDGET.refundIfNoCallMade(opts.attempts, r); // A CACHED ANSWER COST NOTHING, SO IT COUNTS AS NOTHING, on the one rule beside the meter that every paid door now reads.
   if (!r || r.status !== "drafted") return comparison;

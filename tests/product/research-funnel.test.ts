@@ -114,15 +114,13 @@ describe("research funnel - basis-scoped discovery + isolation", () => {
     expect(out.status).toBe("advanced"); expect(store.peek("tp", BASIS)!.prompts.pairs.filter((p) => p.status === "pending").length).toBe(3); }); // NOT done: three readings are still owed
   it("keeps a retry_free task posted on the SAME key; a blocked collect keeps it too and stops the paid batch dead", async () => { for (const disposition of ["retry_free", "blocked"] as const) { const store = seedWith([postedPair()]); let posts = 0; const d = mk(store, { collectTask: async () => err(disposition), callProvider: async () => { posts += 1; return waiting("ck-new"); } });
       const r1 = await unit(d), r2 = await unit(d); // a second terminal never escalates
-      const p = store.peek("tp", BASIS)!.prompts.pairs.find((x) => x.engine === "chatgpt")!; expect(p).toMatchObject({ status: "posted", cacheKey: "ck-old" }); expect(p.reposts).toBeUndefined(); // same identity, one-repost budget untouched
+      const p = store.peek("tp", BASIS)!.prompts.pairs.find((x) => x.engine === "chatgpt")!; expect(p).toMatchObject({ status: "posted", cacheKey: "ck-old" });
       expect([r1.status, r2.status]).toEqual(["failed", "failed"]); expect(r2.detail).toBeTruthy(); // an honest bounded pause
       expect(posts).toBe(disposition === "blocked" ? 0 : 3); // blocked stops every remaining provider call; retry_free lets the rest of the set run
-    } }); it("an expired task reposts the pair clean exactly ONCE, then explicit unsupported coverage, never a stuck run", async () => { const store = seedWith([postedPair()]); let posts = 0;
-    const d = mk(store, { collectTask: async () => err("repost_once"), callProvider: async () => { posts += 1; return waiting("ck-new"); } }); const chat = () => store.peek("tp", BASIS)!.prompts.pairs.find((p) => p.engine === "chatgpt")!;
-    const r1 = await unit(d); expect(r1.status).toBe("waiting"); expect(chat()).toMatchObject({ status: "posted", cacheKey: "ck-new", reposts: 1 }); expect(chat().requestedAt).toBeTruthy(); // ONE clean repost, stamped with ITS OWN moment
-    const r2 = await unit(d); expect(chat()).toMatchObject({ status: "unsupported", requestedAt: undefined }); expect(r2.status).toBe("waiting"); // unavailable coverage named; the run is not stuck
-    expect(posts).toBe(7); // 4 first-pass posts + the OTHER three pairs' single recovery; the dead key never reposts again
-    const r3 = await unit(d); expect(posts).toBe(7); expect([r3.status, r3.detail]).toEqual(["done", "I could not get an answer to any of today's 4 prompt checks; the provider had nothing to give on every one. Tomorrow's round asks them again."]); }); // every repost spent, zero further spend, and a day proven unavailable CLOSES instead of repeating forever
+    } }); it("obeys the cache boundary's one repost grant and stops on its durable second-dead refusal", async () => { const store = seedWith([postedPair()]); let posts = 0, collects = 0;
+    const d = mk(store, { collectTask: async () => err(++collects === 1 ? "repost_once" : "blocked"), callProvider: async () => { posts += 1; return waiting("ck-new"); } }); const chat = () => store.peek("tp", BASIS)!.prompts.pairs.find((p) => p.engine === "chatgpt")!;
+    const r1 = await unit(d); expect(r1.status).toBe("waiting"); expect(chat()).toMatchObject({ status: "posted", cacheKey: "ck-new" }); expect(chat().requestedAt).toBeTruthy();
+    const r2 = await unit(d); expect([r2.status, posts, chat().status]).toEqual(["failed", 4, "posted"]); });
   it("pauses honestly when a pass processes nothing or coverage is unavailable, never a fake done", async () => { const store = memStore(); let t = 0; // the deadline passes immediately after it is set: zero pairs run
     const stalled = await promptObservationUnit(mk(store, { now: () => (t += 100_000), callProvider: async () => waiting("ck") }), one())("tp", cur(), 1_000); const unavailable = await unit(mk(store, { callProvider: async () => ({ state: "not_configured", cacheKey: null, detail: "not configured" }) })); expect([stalled.status, unavailable.status, !!stalled.detail, !!unavailable.detail]).toEqual(["failed", "failed", true, true]); });
   it("a blocked POST stops the batch on the FIRST refusal, leaves every row exactly as it was, and pauses the run for review", async () => { const store = memStore(); let calls = 0; const pairs = () => store.peek("tp", BASIS)!.prompts.pairs; const d = mk(store, { callProvider: async () => { calls += 1; return err("blocked", "ck-blocked"); } });
@@ -139,7 +137,7 @@ describe("research funnel - basis-scoped discovery + isolation", () => {
   it("a quarantined POST is plain unavailable coverage: the CANONICAL row goes terminal too, and the day completes on it", async () => { const store = memStore(); let calls = 0; const rows: AiObservationRecord[] = [];
     const out = await unit(mk(store, { recordObservation: async (r: AiObservationRecord) => void rows.push(r), callProvider: async () => { calls += 1; return err("quarantined", "ck-q"); } })); // Aug 4: two quarantined pairs went `unsupported` in memory and `failed` on the stored row, so the planner saw them owed on every window and 138 of 140 repeated for nine hours
     expect([out.status, calls]).toEqual(["done", 4]); // one ambiguous key never deadlocks the phase: every pair got its turn and the phase is finished
-    expect([rows.every((r) => r.status === "unavailable"), out.detail]).toEqual([true, "I could not get an answer to any of today's 4 prompt checks; the provider had nothing to give on every one. Tomorrow's round asks them again."]); // terminal on the row a planner reads, never "failed", and NEVER "the rest are in" over a day where nothing came back
+    expect([rows.every((r) => r.status === "unavailable"), out.detail]).toEqual([true, "None of today's 4 prompt checks returned an answer; the provider had nothing to give for any of them. Tomorrow's round asks them again."]); // terminal on the row a planner reads, never "failed", and NEVER "the rest are in" over a day where nothing came back
     let first = true; // and a day that DID get answers names both halves rather than claiming a rest that does not exist
     const out2 = await unit(mk(memStore(), { callProvider: async () => (first ? ((first = false), ok(aiAnswer({ citations: [] }))) : err("quarantined", "ck-q")) }));
     expect([out2.status, out2.detail]).toEqual(["done", "1 of today's 4 prompt checks came back; the other 3 were unavailable from the provider this round. Tomorrow's round asks those again."]);
@@ -200,13 +198,13 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
     expect(store.peek("ts", BASIS)!.serps.queries.every((s) => s.status === "pending")).toBe(true); }); // owed, so tomorrow's pass buys them with a fresh limit
   it("spends NOTHING when every trusted starting point is unreadable, and keeps the research already saved", async () => { const store = memStore(retainedState(["a query"])); let calls = 0;
     const out = await serpAnalysisUnit({ ...store.deps, ...serpBase, loadProfile: async () => { throw new Error("records down"); }, loadPageQueries: async () => null, callProvider: async () => { calls += 1; return waiting("ck"); } })("ts", cur(), 60_000);
-    expect([out.status, calls, out.detail]).toEqual(["failed", 0, "I could not read any of your trusted starting points this pass, so I spent nothing. I will try again on your next visit."]); // a failed read is never "you have nothing"
+    expect([out.status, calls, out.detail]).toEqual(["failed", 0, "No trusted starting point could be read this pass, so nothing was spent. The next visit will try again."]); // a failed read is never "you have nothing"
     expect(store.peek("ts", BASIS)!.discovery.retained).toHaveLength(1); }); // prior saved research untouched
-  it("recovers an expired search exactly once, then reports it unavailable instead of sticking failed", async () => { const seed = retainedState(["a query"]); seed.serps.queries = [{ query: "a query", cacheKey: "ck-old", status: "posted" }]; const store = memStore(seed); let posts = 0;
-    const deps: FunnelDeps = { ...store.deps, ...serpBase, collectTask: async () => err("repost_once"), callProvider: async (cap: CapabilityKey) => { if (cap === "serp_organic") posts += 1; return waiting("ck-new"); } };
+  it("recovers an expired search exactly once, then obeys the cache boundary's durable refusal", async () => { const seed = retainedState(["a query"]); seed.serps.queries = [{ query: "a query", cacheKey: "ck-old", status: "posted" }]; const store = memStore(seed); let posts = 0, collects = 0;
+    const deps: FunnelDeps = { ...store.deps, ...serpBase, collectTask: async () => err(++collects === 1 ? "repost_once" : "blocked"), callProvider: async (cap: CapabilityKey) => { if (cap === "serp_organic") posts += 1; return waiting("ck-new"); } };
     const r1 = await serpAnalysisUnit(deps)("ts", cur(), 60_000); expect(r1.status).toBe("waiting"); expect(posts).toBe(1); // exactly ONE clean repost
-    expect(store.peek("ts", BASIS)!.serps.queries[0]).toMatchObject({ status: "posted", cacheKey: "ck-new", reposts: 1 }); const r2 = await serpAnalysisUnit(deps)("ts", cur(), 60_000);
-    expect(posts).toBe(1); expect(store.peek("ts", BASIS)!.serps.queries[0]!.status).toBe("failed"); // the repost budget is spent: zero further spend
+    expect(store.peek("ts", BASIS)!.serps.queries[0]).toMatchObject({ status: "posted", cacheKey: "ck-new" }); const r2 = await serpAnalysisUnit(deps)("ts", cur(), 60_000);
+    expect(posts).toBe(1); expect(store.peek("ts", BASIS)!.serps.queries[0]!.status).toBe("posted");
     expect(r2.status).toBe("failed"); expect(r2.detail).toBeTruthy(); // explicit unavailable coverage, never silence
   });
   it("a blocked refusal outranks the done arithmetic and stops the batch; a quarantined one only names the gap", async () => {
@@ -368,7 +366,7 @@ expect([paid, ["no.com", "h8.com", "h9.com"].map((h) => [row(h).extract, row(h).
   it("a page I could not SAVE is not a page I read: the phase pauses in my own words and that URL still earns a date, so a broken write cannot refetch it every visit", async () => { const prior = { url: U, state: "temporarily_unavailable" as const, attemptedAt: at(NOW - 2 * DAY), retryAfter: at(NOW - DAY) };
     const r = await run(seeded([prior]), NOW, page, U, "to", { writeOwnedPage: async () => { throw new Error("the row was rejected"); } });
     expect([r.out.status, r.out.cursor, r.tried, r.held.map((o) => [o.url, o.state, o.retryAfter])]).toEqual(["failed", null, [ABS], [[U, "temporarily_unavailable", at(NOW + DAY)]]]); // never a robots denial, never "your page did not answer", and never a clean slate
-    expect(r.out.detail).toBe("I read your page but I could not save what it says, so I am not counting it as read yet. I will read it again on your next visit.");
+    expect(r.out.detail).toBe("The page was read, but its contents could not be saved, so it is not counted as read yet. The next visit will read it again.");
     const amb = seeded([]), bodies = new Map<string, { fetchedAt: string }>(); // the row DID land and the write's own answer was lost
     const one = await run(amb, NOW, page, U, "to", { writeOwnedPage: async (snap) => { bodies.set(canonicalUrlKey(snap.url), { fetchedAt: at(NOW) }); throw new Error("timed out"); } }, bodies);
     const two = await run(amb, NOW + DAY + 1000, page, U, "to", {}, bodies); // a day later, past the hold, so it is READ-BEFORE-FETCH doing the work and not the date
@@ -546,8 +544,8 @@ describe("research funnel - the journey behind a keyword", () => {
     const store = memStore(seeded()); await run(store); const before = [...rowsOf(store).entries()].map(([k, v]) => [k, v.origins]);
     const blind = await run(store, null); spy.mockRestore(); // this time the read itself throws
     expect([...rowsOf(store).entries()].map(([k, v]) => [k, v.origins])).toEqual(before); // not one keyword, journey or case join lost to a database blip
-    expect(said.some((l) => l.includes("I could not read your stored answers this pass, so I added nothing new from them."))).toBe(true);
-    expect(blind.detail).toContain("Everything I already found is still here"); }); // a blind lane is never reported as a silent clean pass
+    expect(said.some((l) => l.includes("Stored answers could not be read this pass, so nothing new was added from them."))).toBe(true);
+    expect(blind.detail).toContain("Everything already found remains saved"); }); // a blind lane is never reported as a silent clean pass
   it("carries a journey across passes: a rediscovered keyword keeps last pass's arrivals and adds this pass's", async () => {
     const first = memStore(seeded()); await run(first); expect(rowsOf(first).get(FAN)!.origins!.map((o) => o.promptId)).toEqual(["p1"]);
     const second = memStore(first.peek("tj", BASIS)!); // the same follow-up out of a different answer, while the first answer is still asked and no longer offers it
@@ -595,7 +593,7 @@ describe("evidence - the per-case research receipt", () => {
     expect(r.keywords).toEqual([{ query: "saffron price", discoveredVia: "paa", metricsHeld: true, searchVolume: 500, difficulty: 12, intent: "commercial", ownedRankingUrl: "https://own.com/s", ownedPosition: 4, supports: "existing_page", origins: null, moreOrigins: null }]); // only this case's keywords, each with how I found it, its recorded journey, and what acting on it would mean
     expect(r.calls.map((c) => [c.kind, c.identity, c.served, c.subject]).sort()).toEqual([["ai_answer", "ck-ans", "unknown", "saffron price (gemini, gemini-2.5-flash)"], ["competitor_domains", "ck-comp", "cache", "2 keywords, 1 domains"], ["page_comparison", "ck-pi", "unknown", "https://a.com/x vs https://b.com/y"], ["search_results", null, "unknown", "saffron price"]].sort()); // the answer names the receipt that bought it and the model that served it; the ONE call that recorded HOW it was served says so and the rest say unknown instead of guessing
     expect(r.spend).toEqual({ spentUsd: 0.05, cachedCalls: 1 }); // THIS run's money, never a lifetime total
-    expect(r.notBought.map((n) => n.reason)).toEqual(["capped", "fresh"]); expect(r.notBought[0]!.detail).toContain("spending ceiling"); expect(r.notBought[1]!.detail).toContain("all 1 of this case's searches");
+    expect(r.notBought.map((n) => n.reason)).toEqual(["capped", "fresh"]); expect(r.notBought[0]!.detail).toContain("spending ceiling"); expect(r.notBought[1]!.detail).toContain("All 1 searches for this case");
     expect(caseResearchReceipt(snapshot, "inv_nobody")).toBeNull(); }); // a case I do not hold gets no receipt, never an empty one that reads as researched
   it("answers for a TWO-HOP chain, so nothing a merge absorbed twice falls out of the receipt", async () => {
     const DEEP = "inv_older", s = seeded(); // A absorbed B, and B had already absorbed C

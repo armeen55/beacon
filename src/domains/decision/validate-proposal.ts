@@ -29,6 +29,7 @@ const REJECT_STATUSES: ReadonlySet<DraftQualityStatus> = new Set<DraftQualitySta
 ]);
 
 const DASH_RE = /[–—]/; // en-dash, em-dash
+const ASSISTANT_VOICE_RE = /\b(?:I|we)\s+(?:reviewed|read|checked|found|decided|ranked|put|wrote|looked|hold|recommend|suggest|will|can|need|should)\b|\bmy\s+(?:analysis|review|reading|recommendation|work|deepest)\b/i;
 /** A receipt cannot both hold and lack the page words. */
 const HOLDS_PAGE = /\bI (?:read|hold) this page's (?:stored words|own words|full body text)\b/i;
 const MISSING_PAGE = /\bI do not hold this page's (?:full body text|own words|own opening words|own sections)\b/i;
@@ -232,7 +233,8 @@ function componentFailures(components: readonly BundleComponent[], heldHeadings:
         out.push(`The rebuild drops "${heading.trim()}" and never says why, so it stays held rather than offered.`);
       }
     }
-    if (needsSourcePack(c) && !c.sourcePack) out.push(`The ${what} changes a fact and carries no sources to check it against, so it stays held rather than offered.`);
+    if (needsSourcePack(c) && !c.sourcePack) out.push(`The ${what} changes a fact and carries no checked sources, so it stays held rather than offered.`);
+    if (c.sourcePack && c.sourcePack.resolved !== true) out.push(`The ${what} still owes source checking, so it stays held until those claims and sources are resolved.`);
     for (const m of MISLABELLED) {
       if (c.kind !== m.kind && m.re.test(c.after)) {
         out.push(`The ${what} ${m.what}, and it is filed as an ordinary edit instead of that change, so it stays held rather than offered.`);
@@ -331,14 +333,18 @@ export function validateProposal(
   const schema = change.kind === "existing_edit" && change.field === "schema" ? schemaFailures(proposal, change, opts) : null;
 
   const safetyFlags: string[] = [];
-  // THE WRITER'S RATIONALE REACHES THE CARD AS whyItMatters (review, 2026-09-14): the schema no longer scans it as prose, so the operator-facing door reads it here for a dash or a stub.
-  if (looksLikePlaceholder(proposal.whyItMatters)) safetyFlags.push("Contains a placeholder / template stub."); if (DASH_RE.test(proposal.whyItMatters)) safetyFlags.push("Contains an em or en dash (banned in operator copy).");
-  for (const t of texts) {
+  // The rationale is customer-facing copy and later becomes the shipment hypothesis, so it passes the same
+  // anti-instruction and identity-leak checks as paste copy even though factual entailment applies only to the edit.
+  for (const t of [proposal.whyItMatters, ...texts]) {
     if (looksLikePlaceholder(t)) safetyFlags.push("Contains a placeholder / template stub.");
     if (DASH_RE.test(t)) safetyFlags.push("Contains an em or en dash (banned in operator copy).");
     if (containsUuid(t)) safetyFlags.push("Leaks a raw id into operator copy.");
     if (COPY_RULES.workflow.test(t)) safetyFlags.push("Contains writing instructions or page narration instead of publishable copy.");
   }
+  const presentation = [proposal.opportunityType, proposal.whyItMatters, ...(proposal.bundle ? [proposal.bundle.objective,
+    ...proposal.bundle.components.flatMap((c) => [c.label, c.objective, c.mechanism])] : [])].filter((t): t is string => !!t?.trim());
+  if (presentation.some((t) => ASSISTANT_VOICE_RE.test(t))) safetyFlags.push("Contains assistant self-talk instead of a customer-facing explanation.");
+  if (presentation.some((t) => COPY_RULES.workflow.test(t))) safetyFlags.push("Contains prompt or drafting instructions in customer-facing explanation.");
   if (change.kind === "existing_edit" && !schema && /<\/?[a-z][a-z0-9-]*(?:\s[^>]*)?>/i.test(change.after)) safetyFlags.push("Contains raw HTML markup, and operator copy is pasted as text.");
   if (change.kind === "existing_edit" && isDestructiveEdit(change.before, change.after, proposal.changeFamily === "factual_correction" || COPY_RULES.originalUnits(change.before ?? "").length <= 1)) safetyFlags.push("Rewrite deletes or guts the current value (destructive edit).");
 

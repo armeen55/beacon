@@ -38,16 +38,16 @@ export const effortMinutesFor = (kind: BundleComponentKind): number => EFFORT_MI
  *  A LINK DOOR STOOD HERE AND NOTHING COULD EVER KNOCK ON IT (reviewer, 2026-09-06): `internal_link_weakness` mints no producer at all (producers/core.ts), so the wire in produce-bundle.ts had no caller anywhere in src and still carried an attempt, a refund and a pin for a call nobody could make. The ranked link lane owns that cause and drafts each link through the atomic editor. */
 export type ProducerDraft = {
   /** A SECTION IS WRITTEN BY THE ONE CANONICAL EDITOR NOW (2026-08-30), so what comes back is copy that has already declared its claims, named the evidence id behind each one and been ruled on claim by claim; the caller keeps that authorization beside the piece. The old `sources` and `containsNumber` are gone with the second drafter that produced them: a self-declared source label is not provenance and nothing ever read it. */
-  section: (input: { query: string; pageLabel: string; heading: string | null; brief: string; outline: string[]; evidenceHints: string[]; assignment?: ChangeProposal["assignment"] }) => Promise<{ heading: string; body: string } | null>;
+  section: (input: { query: string; pageLabel: string; heading: string | null; brief: string; outline: string[]; evidenceHints: string[]; assignment?: ChangeProposal["assignment"]; informationNeed?: NonNullable<ChangeProposal["assignment"]>["informationNeed"]; standard?: "restructuring" | "repositioning" }) => Promise<{ heading: string; body: string; units?: BundleComponent["units"] } | null>;
   /** The page's first lines, written through the atomic-edit drafter under its `answer_block` field. OPTIONAL
    *  so a caller that cannot buy one is a refusal rather than a compile error. */
-  openingAnswer?: (input: { query: string; pageLabel: string; currentValue: string | null; outline: string[]; evidenceHints: string[]; assignment?: ChangeProposal["assignment"] }) => Promise<string | null>;
+  openingAnswer?: (input: { query: string; pageLabel: string; currentValue: string | null; outline: string[]; evidenceHints: string[]; assignment?: ChangeProposal["assignment"]; informationNeed?: NonNullable<ChangeProposal["assignment"]>["informationNeed"]; standard?: "restructuring" | "repositioning" }) => Promise<string | null>;
   /** Compose exact banked pieces without changing their words or lending their approvals to the whole page. */
   compose?: (pieces: readonly { slot?: number; heading: string | null; body: string; assignment?: ChangeProposal["assignment"] }[]) => (Pick<BundleComponent, "after" | "units"> & { pieces: NonNullable<ChangeProposal["newPageDraft"]>["pieces"] }) | null; restore?: (piece: NonNullable<ChangeProposal["newPageDraft"]>["pieces"][number]) => Promise<NonNullable<ChangeProposal["newPageDraft"]>["pieces"][number] | null>;
   /** THE EDITOR, ASKED FOR ONE FIELD ON ONE NAMED PAGE OF THIS ACCOUNT. A change that tells sibling pages apart
    *  writes on every one of their addresses, so each is drafted against ITS OWN stored body and read back by the
    *  same deterministic checks and the same judge. OPTIONAL, so a caller that cannot wire it refuses. */
-  pageField?: (input: { field: "title" | "h1" | "answer_block"; body: OwnedPageBody; query: string; brief: string; delivery?: "opening";
+  pageField?: (input: { field: "title" | "h1" | "answer_block"; body: OwnedPageBody; query: string; brief: string; delivery?: "opening"; informationNeed?: NonNullable<ChangeProposal["assignment"]>["informationNeed"]; standard?: "restructuring" | "repositioning";
     evidenceHints: string[]; minutes: number }) => Promise<{ before: string | null; after: string; units?: BundleComponent["units"]; target?: BundleComponent["target"]; anchor: string; heading: string | null; minutes: number } | null>;
 };
 
@@ -61,6 +61,9 @@ export type CauseKey = CauseFinding["cause"];
  *  member of this union: its switch is exhaustive, so adding a kind without an acquisition handler fails typecheck. */
 /** `semantic_review` is the one member that buys no new reading: it is the paid evaluator reading copy that is ALREADY final against the sources already banked beside it. It exists because a review that was owed was filed as a `factual_source` acquisition, so the runtime went and bought facts while the reading nobody had taken stayed untaken. */
 export type EvidenceRequirement = { kind: "serp" | "page_source" | "competitor_page" | "factual_source" | "semantic_review"; query: string; url?: string; reasonCode: string; finding?: NonNullable<ChangeProposal["supportFacts"]>[number]["finding"];
+  /** The customer deliverable this reading can unlock. Fresh debt is always stamped; optional only so run rows
+   * written before the proof boundary can be classified once at Runtime admission. */
+  delivery?: "existing_page_edit" | "whole_page";
   /** THE MISSING INFORMATION ITSELF, for a factual_source born from a rival comparison: the topic or question the owned page cannot answer today, phrased as the proposition to research. Acquisition researches THIS, never the page's existing claims, and only a checked fact banked for this topic satisfies the requirement; an unrelated stored fact does not. */
   missingTopic?: string;
   /** A prospective page's factual scope, never an observed owned-page address. */

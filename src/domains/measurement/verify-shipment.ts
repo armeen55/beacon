@@ -17,6 +17,7 @@ import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { syncPageSnapshots } from "@/lib/persistence/dual-write";
 import { log } from "@/lib/logger";
 import { reportingDay } from "@/lib/reporting-day";
+import { runWithProposalWorkKey } from "@/lib/cost/spend-reservations";
 import { SHIPMENT_PROOF } from "./proof-gsc/shipment-proof";
 import {
   loadShippedChangesForTenant, recordVerification,
@@ -30,6 +31,7 @@ type Reason = NonNullable<ShipmentVerification["reason"]>;
 /** Verification consumes the applied component record, including its saved publication units. */
 type VerifiableShipment = {
   id: string; url: string;
+  proposalId?: string | null; proposalVersion?: string | null;
   components: Array<Pick<ReturnType<typeof SHIPMENT_PROOF.components>[number], "kind" | "after"> & Partial<Omit<ReturnType<typeof SHIPMENT_PROOF.components>[number], "kind" | "after">>>;
   claim?: Parameters<typeof SHIPMENT_PROOF.of>[0];
   requalification?: boolean;
@@ -83,19 +85,19 @@ const noExpectation = (c: VerifiableShipment["components"][number]): string | nu
   if (structured && (c.kind === "full_rewrite" || c.target?.mode === "whole_body") && (c.kind !== "full_rewrite" || !c.before?.trim() || c.target?.mode !== "whole_body")) return "A complete body replacement needs the full-rewrite kind, its complete original body and explicit whole-body scope; an atomic field or section cannot certify that replacement.";
   const { kind, after = "", anchorAfter } = c;
   if (structured && (!c.units?.length || !c.target)) return "The applied record carries part of its publication structure without the rest: saved units need an explicit target and a target needs its units, and another page read cannot recover the missing half.";
-  if (["schema", "schema_add", "schema_replace"].includes(kind)) { const claim = SCHEMA.read(after); return claim.unread || !claim.roots.length ? "The record does not contain JSON-LD this checker can certify. A type name, malformed JSON or unsupported context cannot confirm the applied values. Keep the exact applied block for review; another page read cannot resolve this record." : null; }
+  if (["schema", "schema_add", "schema_replace"].includes(kind)) { const claim = SCHEMA.read(after), prior = SCHEMA.read(c.before ?? ""); return !after.trim() && !prior.unread && prior.roots.length > 0 ? null : claim.unread || !claim.roots.length ? "The record does not contain JSON-LD this checker can certify. A type name, malformed JSON or unsupported context cannot confirm the applied values. Keep the exact applied block for review; another page read cannot resolve this record." : null; }
   return COPY_FREE_KINDS.has(kind) || (norm(after) && !TEMPLATE_SLOT.test(after) && (kind !== "anchor_text" || !!norm(anchorAfter ?? "") || !!norm(labelIn(after)))) ? null : `${!norm(after) ? "The exact wording that was applied here was never recorded, so no reading of the page can confirm it." : TEMPLATE_SLOT.test(after) ? "What was recorded here is still the template wording, with its NUMBER, YEAR or SOURCE never filled in, so no live page could be carrying it." : "What was recorded here reads as a note about the change and not as the words that were applied, so no reading of the page can confirm it."} Nothing more is read for it. Record the words that are on the page and the next check reads them.`;
 };
 // THE PAGES AS THE STORE ALREADY HOLDS THEM, through the ONE canonical body reader: it picks the capture that IS the page (a newer blank never erases a confirmed body), so a javascript page answers from the rendered read already bought for it, and a closed reading learns its page moved. No second crawler, no spend.
 const heldBodies = (urls: string[], tenantId: string): Promise<Map<string, OwnedPageBody>> => loadOwnedPageBodies(tenantId, urls);
 
 /** Visible body structure, metadata and live markup remain distinct evidence. */
-type LiveRead = { snap: PageSnapshot; text: string; opening: string; unrepresented: string; blocks: Array<{ tag: string; text: string; items?: string[]; links: Array<{ href: string; text: string }> }>; schema: ReturnType<typeof SCHEMA.read>; markupBlind: boolean; finalUrl: string | null; requestedUrl: string; addressMatches: boolean; sitemap: string | null; blind: boolean };
+type LiveRead = { snap: PageSnapshot; text: string; opening: string; unrepresented: string; blocks: Array<{ tag: string; text: string; items?: string[]; columns?: string[]; rows?: string[][]; links: Array<{ href: string; text: string }> }>; schema: ReturnType<typeof SCHEMA.read>; markupBlind: boolean; finalUrl: string | null; requestedUrl: string; addressMatches: boolean; sitemap: string | null; blind: boolean };
 
 function publishedTextOf(mainHtml: string): Pick<LiveRead, "text" | "opening" | "blocks" | "unrepresented"> {
   const $ = load(mainHtml), text = copyText($("body").text()), opening = copyText($("body").clone().find("h1").first().remove().end().text()); // the main text after the headline, which a flat opening answer must start
-  const blocks = $("h1,h2,h3,h4,h5,h6,p,ol,ul").filter((_, el) => !$(el).parents("ol,ul").length).toArray().map((el) => ({ tag: el.tagName, text: copyText($(el).text()), links: $(el).find("a[href]").toArray().map((a) => ({ href: $(a).attr("href")!, text: copyText($(a).text()) })), ...(["ol", "ul"].includes(el.tagName) ? { items: $(el).children("li").toArray().map((li) => copyText($(li).text())) } : {}) }));
-  return { text, opening, blocks, unrepresented: copyText($("body").clone().find("h1,h2,h3,h4,h5,h6,p,ol,ul").remove().end().text()) };
+  const blocks = $("h1,h2,h3,h4,h5,h6,p,ol,ul,table").filter((_, el) => !$(el).parents("ol,ul,table").length).toArray().map((el) => { const tableRows = el.tagName === "table" ? $(el).find("tr").toArray() : [], cells = (row: typeof tableRows[number]) => $(row).children("th,td").toArray().map((cell) => copyText($(cell).text())), hasHeader = tableRows[0] ? $(tableRows[0]).children("th").length > 0 : false; return { tag: el.tagName, text: copyText($(el).text()), links: $(el).find("a[href]").toArray().map((a) => ({ href: $(a).attr("href")!, text: copyText($(a).text()) })), ...(["ol", "ul"].includes(el.tagName) ? { items: $(el).children("li").toArray().map((li) => copyText($(li).text())) } : {}), ...(el.tagName === "table" ? { columns: hasHeader ? cells(tableRows[0]!) : [], rows: tableRows.slice(hasHeader ? 1 : 0).map(cells) } : {}) }; });
+  return { text, opening, blocks, unrepresented: copyText($("body").clone().find("h1,h2,h3,h4,h5,h6,p,ol,ul,table").remove().end().text()) };
 }
 
 /** A RECORD WITH NO SAVED STRUCTURE IS READ FOR ITS WORDS (2026-09-14): every body shipment before the units cutover and every wording the operator applied by hand carries flat copy only, and contract 5 had made all of them unverifiable for ever. Markdown heading and list markers are stripped from the expected copy, every block of it must be on the page's main content, and a held rendered capture answers from its stored passages; a page that could not be read completely is unknown, never a difference. */
@@ -112,7 +114,8 @@ function wordingMatch(component: VerifiableShipment["components"][number], live:
 function publicationMatch(component: VerifiableShipment["components"][number], live: LiveRead): ReturnType<typeof judged> {
   const units = component.units!, target = component.target!;
   const matches = (u: typeof units[number], b: LiveRead["blocks"][number]) => u.kind === "heading" ? b.tag === `h${u.level}` && b.text === copyText(u.text) : u.kind === "paragraph" ? b.tag === "p" && b.text === copyText(u.text)
-    : b.tag === (u.kind === "ordered_list" ? "ol" : "ul") && JSON.stringify(b.items) === JSON.stringify(u.items.map(copyText));
+    : u.kind === "table" ? b.tag === "table" && JSON.stringify([b.columns, b.rows]) === JSON.stringify([u.columns.map(copyText), u.rows.map((row) => row.map(copyText))])
+      : b.tag === (u.kind === "ordered_list" ? "ol" : "ul") && JSON.stringify(b.items) === JSON.stringify(u.items.map(copyText));
   const starts = live.blocks.flatMap((b, i) => units.every((u, j) => live.blocks[i + j] && matches(u, live.blocks[i + j]!)) ? [i] : []);
   const heading = (b: LiveRead["blocks"][number]) => /^h[1-6]$/.test(b.tag), blocks = live.blocks;
   if (target.mode === "whole_body") { if (live.unrepresented) return judged("unverifiable", "This body contains visible material outside the saved publication-unit vocabulary, so a complete replacement cannot be certified from these blocks alone.", "rendered_content_gap"); const body = blocks.filter((b) => b.tag !== "h1"); return body.length === units.length && units.every((u, i) => matches(u, body[i]!)) ? judged("verified", "The complete replacement body is live in its saved structure; the page headline is outside this change.") : judged("not_verified", "The visible main-content body does not equal the complete saved replacement in its recorded structure.", "not_published_yet"); }
@@ -221,10 +224,10 @@ function classify(stored: VerifiableShipment["components"][number], live: LiveRe
         : linkHit ? judged("not_verified", "That link is still on the page.", "not_published_yet") : judged("verified", "That link is gone.");
     // Verify the recorded values in their own entities, not globally pooled types/names or truncated answers.
     case "schema_add": case "schema_replace": case "schema": {
-      const want = SCHEMA.read(proposed), seen = live.schema;
+      const want = SCHEMA.read(proposed), seen = live.schema, carries = (claim: ReturnType<typeof SCHEMA.read>) => !claim.unread && claim.roots.length > 0 && claim.roots.every((w) => seen.nodes.some((n) => SCHEMA.contains(w, n, seen.nodes)));
       if (seen.unread) return judged("unverifiable", "The live JSON-LD contains malformed data, unsupported context or conflicting entity values, so this exact block cannot be confirmed.", "unmeasurable");
+      if (!proposed.trim()) { const old = SCHEMA.read(component.before ?? ""); if (old.unread || !old.roots.length) return judged("unverifiable", "The schema removal has no complete prior block to check against.", "applied_wording_missing"); if (!seen.nodes.length && live.markupBlind) return judged("unverifiable", "The page's live structured data could not be read; a saved text capture cannot prove that the old block is gone.", "rendered_content_gap"); return carries(old) ? judged("not_verified", "The structured-data block this change removes is still on your page.", "not_published_yet") : judged("verified", "The removed structured-data block is no longer on the live page."); }
       if (!seen.nodes.length) return live.markupBlind ? judged("unverifiable", "The page's live structured data could not be read; a saved text capture cannot answer for its markup.", "rendered_content_gap") : judged("not_verified", "No structured data is on your page at all.", "not_published_yet");
-      const carries = (claim: ReturnType<typeof SCHEMA.read>) => !claim.unread && claim.roots.length > 0 && claim.roots.every((w) => seen.nodes.some((n) => SCHEMA.contains(w, n, seen.nodes)));
       const here = carries(want), old = SCHEMA.read(component.before ?? ""), oldHere = carries(old);
       if (here && oldHere && old.roots.some((w) => seen.nodes.some((n) => SCHEMA.contains(w, n, seen.nodes) && !want.roots.some((next) => SCHEMA.contains(next, n, seen.nodes))))) return judged("changed_differently", "Both the old and replacement structured data remain on the page.", "published_differently");
       if (here) return judged("verified", "Every recorded structured-data property matches the live block, including its full answer text and entity values.");
@@ -328,7 +331,7 @@ const componentsOf = SHIPMENT_PROOF.components;
 /** One Shipment row, as verification reads it. A row that already holds an answer is here on the day that
  *  answer promised, carrying the reads it has had so the bound is counted from them and never from zero. */
 const toVerifiable = (r: ShippedChangeRecord): VerifiableShipment =>
-  ({ id: r.id, url: r.page, claim: r, requalification: r.verification?.status === "verified" && !SHIPMENT_PROOF.of(r), components: componentsOf(r), targetQueries: r.targetQueries ?? [], implementedAt: r.implementedAt ?? null, ...(r.verification != null ? { priorChecks: r.verification.checks ?? 1 } : {}) });
+  ({ id: r.id, url: r.page, proposalId: r.proposalId, proposalVersion: r.proposalVersion, claim: r, requalification: r.verification?.status === "verified" && !SHIPMENT_PROOF.of(r), components: componentsOf(r), targetQueries: r.targetQueries ?? [], implementedAt: r.implementedAt ?? null, ...(r.verification != null ? { priorChecks: r.verification.checks ?? 1 } : {}) });
 
 /** The most live reads one shipment ever gets, and the ONE place that number is written (seventh round: the repair pass beside this one carried its own literal 3 for want of an export slot, so two files could drift apart on the bound that decides whether a customer's page is ever read again). */
 export const MAX_CHECKS = 3;
@@ -377,7 +380,8 @@ export async function verifyDueShipments(tenantId: string, deps: VerifyDeps = {}
   for (const shipment of due) {
     const address = canonicalUrlKey(shipment.url);
     if (unsavable.has(address) || read.size >= MAX_VERIFICATIONS_PER_PASS && !read.has(address)) continue;
-    const verification = await verifyShipment(tenantId, shipment, { serpReads, ...deps, ...(shipment.requalification ? { readSerp: async () => null } : {}), fetchPage: fetchOnce, writeOwnedPage: writeOnce }).catch(() => null);
+    const workKey = `shipment-verification:${shipment.proposalId ?? shipment.id}:${shipment.proposalVersion ?? shipment.id}`;
+    const verification = await runWithProposalWorkKey(workKey, () => verifyShipment(tenantId, shipment, { serpReads, ...deps, ...(shipment.requalification ? { readSerp: async () => null } : {}), fetchPage: fetchOnce, writeOwnedPage: writeOnce })).catch(() => null);
     if (!verification) continue;
     const saved = await (deps.record ?? recordVerification)(tenantId, shipment.id, verification).catch(() => false);
     if (saved) written += 1; else unsavable.add(address);

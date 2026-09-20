@@ -94,19 +94,19 @@ export function caseResearchReceipt(snapshot: EvidenceSnapshot, caseId: string, 
 
   // ── why nothing further was bought, from what is actually persisted ──
   const notBought: CaseResearchReceipt["notBought"] = [];
-  if (comparisons.some((c) => c.unavailable === "capped")) notBought.push({ reason: "capped", detail: "I stopped before comparing the winning pages because this account's spending ceiling was reached. My next daily round finishes it." });
+  if (comparisons.some((c) => c.unavailable === "capped")) notBought.push({ reason: "capped", detail: "Winning-page comparison stopped when this account's spending ceiling was reached. The next daily round resumes it." });
   // The run's OWN day-scoped marker for the domain look it could not buy for this case (runtime passes
   // today's list off the run row). It is the same claim the comparison above already makes, said about
   // the other purchase, and it dies with the day rather than outliving the ceiling that caused it.
-  if (cappedToday.some((id) => mine.has(id))) notBought.push({ reason: "capped", detail: "I stopped before checking who keeps winning this topic's searches because this account's spending ceiling was reached. My next daily round picks it up." });
+  if (cappedToday.some((id) => mine.has(id))) notBought.push({ reason: "capped", detail: "The recurring-winner check stopped when this account's spending ceiling was reached. The next daily round resumes it." });
   const parked = comparisons.find((c) => c.unavailable === "waiting" || c.unavailable === "blocked" || c.unavailable === "quarantined");
-  if (parked) notBought.push({ reason: "parked", detail: `I am waiting on the page by page comparison I started on ${day(parked.observedAt)}, so I did not order it again.` });
+  if (parked) notBought.push({ reason: "parked", detail: `The page-by-page comparison started on ${day(parked.observedAt)} is still pending, so it was not ordered again.` });
   const held = research.winningPages.filter((w) => w.appearances.some((a) => !!a.query && owns.has(canonicalQueryKey(a.query))))
     .map((w) => w.readOutcome).filter((o) => !!o && Date.parse(`${o.retryAfter.slice(0, 10)}T00:00:00.000Z`) > now);
   const dueIn = Math.ceil((Date.parse(`${(held[0]?.retryAfter ?? "").slice(0, 10)}T00:00:00.000Z`) - now) / 86_400_000);
-  if (held.length > 0) notBought.push({ reason: "parked", detail: `${held.length} of the winning pages here did not answer me, so I try them again ${dueIn <= 1 ? "tomorrow" : dueIn <= 6 ? "later this week" : dueIn <= 13 ? "next week" : "in a couple of weeks"}. Nothing here is waiting on you.` });
+  if (held.length > 0) notBought.push({ reason: "parked", detail: `${held.length} of the winning pages could not be read, so the next attempt is ${dueIn <= 1 ? "tomorrow" : dueIn <= 6 ? "later this week" : dueIn <= 13 ? "next week" : "in a couple of weeks"}. Nothing here is waiting on you.` });
   if (serps.length > 0 && serps.every((s) => isCurrent("serp_cold", s.observedAt, now)) && competitors.every((c) => isCurrent("serp_cold", c.observedAt, now))) {
-    notBought.push({ reason: "fresh", detail: `I checked all ${serps.length} of this case's searches within the last week, so I bought nothing for it again this pass.` });
+    notBought.push({ reason: "fresh", detail: `All ${serps.length} searches for this case were checked within the last week, so no duplicate results were bought this pass.` });
   }
 
   return {

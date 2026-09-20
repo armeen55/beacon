@@ -6,6 +6,8 @@ const env = vi.hoisted(() => ({ /** Queued answers per RPC name; the last one re
   /** THE LAST ROW THE STORE WAS HANDED FOR EACH ID: what persistence actually keeps. */ saved: new Map<string, ChangeProposal>(), store: new Map<string, unknown>(), withdrawn: [] as string[],
   /** The 28-day AI window as the producer's read sees it: rows, or the read failing outright. */ aiWindow: [] as unknown[] | "fail",
   /** The durable disposition table, shared across simulated cold instances. */ dispositions: new Map<string, Record<string, unknown>>(), upserts: 0,}));
+  /** Authorization reads fail closed independently: neither outage may buy work. */
+const proposalReads = vi.hoisted(() => ({ current: true, terminal: true }));
 /** A Supabase admin whose every builder method chains; the disposition writer implements its migration's documented semantics, so the durability tests exercise the contract. */
 vi.mock("@/lib/persistence/supabase", () => {
   const chain = (answer: RpcAnswer): unknown => new Proxy({} as Record<string, unknown>, { get: (_t, prop) => {
@@ -43,7 +45,9 @@ vi.mock("@/domains/evidence/snapshot-loader", async (orig) => { const actual = (
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => { const actual = (await orig()) as typeof import("@/domains/evidence/pages/owned-context");
   return { ...actual, loadOwnedPageBodies: async (...args: Parameters<typeof actual.loadOwnedPageBodies>) => env.schemaBody === undefined ? actual.loadOwnedPageBodies(...args) : new Map(env.schemaBody ? [["fixture.example/a", env.schemaBody]] : []) }; });
 vi.mock("@/domains/decision/proposal-store", async (orig) => { const actual = (await orig()) as typeof import("@/domains/decision/proposal-store");
-  return { ...actual, loadChangeProposals: async () => new Map(env.store as Map<string, ChangeProposal>), withdrawnProposalIds: async () => new Set<string>(),
+  return { ...actual, loadChangeProposals: async () => { if (!proposalReads.current) throw new Error("current queue unavailable"); return new Map(env.store as Map<string, ChangeProposal>); },
+    terminalWorkKeys: async () => { if (!proposalReads.terminal) throw new Error("terminal history unavailable"); return new Set<string>(); }, withdrawnProposalIds: async () => new Set<string>(),
+    terminalProposalHistory: async () => { if (!proposalReads.terminal) throw new Error("terminal history unavailable"); return { fingerprints: new Set<string>(), legacyMutationKeys: new Set<string>() }; },
     withdrawChangeProposal: async (p: ChangeProposal) => { env.withdrawn.push(p.id); return true; },
     publishCustomerRelease: async () => { env.wrote.push("publishCustomerRelease"); return true; },
     saveChangeProposal: async (p: ChangeProposal) => { env.wrote.push(`saveChangeProposal:${p.id}`); env.saved.set(p.id, p); if (env.schemaBody !== undefined) { env.store.set(p.id, p); return "saved" as const; } return "unchanged" as const; } }; });
@@ -78,9 +82,15 @@ const openCard = (suffix: string): ChangeProposal => ({
   whyItMatters: "The page never answers the question it ranks for.", estimatedEffortMinutes: 10, riskLevel: "low", confidence: "medium", limitations: [], impactScore: 20, upsidePerMonth: 5,
   publish: "manual", createdAt: "2026-08-10T00:00:00.000Z", });
 beforeEach(() => { env.rpc = {}; env.calls = []; env.snapshot = null; env.schemaBody = undefined; env.store = new Map(); env.withdrawn = [];
-  env.aiWindow = []; env.dispositions = new Map(); env.upserts = 0; });
+  env.aiWindow = []; env.dispositions = new Map(); env.upserts = 0; proposalReads.current = true; proposalReads.terminal = true; });
 describe("a search read that did not answer", () => {
-  it("replays schema capture debt into corrected Ready copy with no paid writer and no counted attempt", async () => {
+  it.each(["current", "terminal"] as const)("spends zero when the %s proposal ledger cannot be read", async (which) => {
+    env.snapshot = snapshotWith("fresh"); proposalReads[which] = false;
+    const complete = vi.fn(async () => { throw new Error("no provider is allowed"); });
+    const out = await produceProposalsForTenant(TENANT, { complete, maxDrafts: 20 });
+    expect([out.outcome, out.paid.funded.length, out.paid.attemptUnitsSpent, complete.mock.calls.length, env.wrote.length]).toEqual(["evidence_unreadable", 0, 0, 0, 0]);
+  });
+  it("keeps a legacy schema-only card held even after the visible answer is read, because schema and page copy must ship together", async () => {
     const markup = JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: { "@type": "Question", name: "When do seals rest?", acceptedAnswer: { "@type": "Answer", text: "Seals rest at low tide." } } });
     const p = { ...openCard("schema"), pagePath: "/a", pageUrl: "https://fixture.example/a", researchOnly: false, status: "ready" as const, whyItMatters: "Marking them up is how those answers become eligible to be shown directly and quoted as a source.", operatorSteps: ["Paste the copy below onto the page as a new answer paragraph."], recommendedChange: { kind: "existing_edit" as const, field: "schema" as const, before: null, after: markup } };
     const complete = vi.fn(async () => { throw new Error("no provider is allowed"); });
@@ -91,11 +101,12 @@ describe("a search read that did not answer", () => {
     env.schemaBody = { url: p.pageUrl, version: "current", contentHash: "current-hash", fetchedAt: "2026-09-13T00:00:00Z", title: "Seals", h1: "Seals", metaDescription: null, headings: [], passages: ["Seals rest at high tide."], vocabulary: "Seals rest at high tide.", faqs: [{ question: "When do seals rest?", answer: "Seals rest at high tide.", source: "html_details", answerComplete: true }] };
     await produceProposalsForTenant(TENANT, { maxDrafts: 0, complete });
     const landed = env.store.get(p.id) as ChangeProposal;
-    expect([landed.status, landed.obligation, landed.previousCopy?.after, landed.previousCopy?.attempts, complete.mock.calls.length]).toEqual(["ready", undefined, markup, 0, 0]);
-    expect((landed.recommendedChange as { after: string }).after).toContain("Seals rest at high tide.");
-    expect([landed.whyItMatters.includes("eligible"), landed.operatorSteps?.some((step) => step.includes("new answer paragraph")), landed.operatorSteps?.some((step) => step.includes("updated too"))]).toEqual([false, false, true]);
-    env.wrote = []; await produceProposalsForTenant(TENANT, { maxDrafts: 0, complete });
-    expect([env.wrote.includes(`saveChangeProposal:${p.id}`), complete.mock.calls.length]).toEqual([false, 0]);
+    expect([landed.status, landed.obligation?.kind, landed.obligation?.kind === "evidence" && landed.obligation.need.reasonCode,
+      (landed.recommendedChange as { after: string }).after, complete.mock.calls.length])
+      .toEqual(["needs_review", "evidence", "schema_visible_pair_unconfirmed", markup, 0]);
+    expect(landed.operatorSteps?.some((step) => step.includes("updated too"))).toBe(true);
+    const stable = JSON.stringify(landed); await produceProposalsForTenant(TENANT, { maxDrafts: 0, complete });
+    expect([JSON.stringify(env.store.get(p.id)), complete.mock.calls.length]).toEqual([stable, 0]);
   });
   it("throws instead of handing back an account with no search data, and marks a read cut short after some rows INCOMPLETE while keeping what landed", async () => {
     env.rpc = { gsc_page_signals_v1: [{ error: TIMEOUT }] };
@@ -237,8 +248,9 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     const out = await produceProposalsForTenant(TENANT, { zeroSpend: true }); expect(out.outcome).not.toBe("persistence_failed");
     expect(env.upserts).toBeGreaterThan(0); // the quiet pass filed
     expect(env.dispositions.get(`${TENANT}|prompt:pB`)?.state).toBe("unreported"); });
-  /** REAL RENDERED CARDS, INSPECTED FIELD BY FIELD (operator, 2026-08-28). A banned-word check over an empty set passes vacuously, so this asserts the cards EXIST first, then reads every customer-visible field of a tracked card and a fan-out card: an undiagnosed case may say what happened and what is being checked, and may not tell the operator to touch the website. */
-  it("renders undiagnosed tracked and fan-out cards that prescribe nothing", async () => {
+  /** An undiagnosed observation belongs in Visibility's filed explanation, not in Changes. A card that says
+   * "nothing to do yet" is activity masquerading as an operator action and competes with real work. */
+  it("keeps undiagnosed tracked and fan-out observations out of the actionable Changes queue", async () => {
     env.aiWindow = []; vi.resetModules();
     vi.doMock("@/domains/decision/producers/page-job", async (orig) => { const real = await orig() as Record<string, unknown>;
       return { ...real, pageUnderstanding: async () => ({ of: async () => ({ job: { subjects: ["shiraz"], answers: [] }, reason: "read" }),
@@ -246,11 +258,8 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     const m = await import("@/domains/decision/producers/extra");
     const run = await m.extraQueueCards({ tenantId: TENANT, snapshot: aiSnapshot() as never, now: new Date("2026-08-20T09:00:00Z"), reads: { left: 0 } });
     const aeo = run.cards.filter((c) => c.id.endsWith("::ai_answer_gap"));
-    expect(aeo.length, "the cards must exist or this test proves nothing").toBeGreaterThan(0);
-    for (const c of aeo) {
-      const fields = [c.opportunityType, c.whyItMatters, c.recommendedChange.kind === "existing_edit" ? c.recommendedChange.after : "", ...(c.evidence.hints ?? []), ...(c.operatorSteps ?? []), c.causeFinding?.explanation ?? "", c.research?.next ?? "", ...(c.causeFinding?.competingExplanations ?? []).map((x) => x.reason)].join(" ").toLowerCase();
-      for (const banned of ["make it reachable", "align the title", "link to ", "add an answer block", "add a section", "opening to win", "lift whole", "liftable", "has to be one the assistants reach", "make the page they reach"]) expect(fields, `an undiagnosed card may not say "${banned}"`).not.toContain(banned);
-      expect([c.treatment ?? null, (c.operatorSteps ?? []).join(" ")], "it names no treatment and its only step is that nothing is owed yet").toEqual([null, expect.stringContaining("Nothing to do yet")]); }
+    expect(aeo).toEqual([]);
+    expect(run.families).toEqual(expect.arrayContaining(["ai_answer_gap", "engine_followup"]));
     expect(run.aeoSpend, "an unfunded pass bought nothing").toMatchObject({ funded: 0, attempted: 0 });
     vi.doUnmock("@/domains/decision/producers/page-job"); });
   /** AN UNFUNDED PASS BUYS NO READING, NAMES NO TREATMENT AND HIRES NOBODY. This fixture's page has never been read, so every case lands held: what it proves is that the pass spends nothing and claims nothing when it cannot diagnose. The rendered-copy promise is proved where cards exist, on the live replay. */

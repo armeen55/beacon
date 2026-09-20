@@ -164,7 +164,7 @@ async function reviewFactualCards(cards: readonly ChangeProposal[], wiring: { te
     before: c.recommendedChange.kind === "existing_edit" ? c.recommendedChange.before : null,
     after: c.recommendedChange.kind === "existing_edit" ? c.recommendedChange.after : "",
     evidenceKeys: ["fact-1"], risk: "review",
-    sourcePack: { sourceRequirements: (c.supportFacts ?? []).map((f) => f.fact), factRequirements: [] },
+    sourcePack: { sourceRequirements: (c.supportFacts ?? []).map((f) => f.fact), factRequirements: [], resolved: true },
     ...(c.recommendedChange.kind === "existing_edit" && c.recommendedChange.where ? { where: c.recommendedChange.where } : {}) }));
   if (parts.length === 0) return [...cards];
   const unfit = new Map<number, string>();
@@ -254,9 +254,6 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
       const subjectClicks28 = (t: string): number => { const imps = page.search?.impressions90d ?? 0; return imps > 0 ? Math.round((page.search?.clicks90d ?? 0) * Math.min(1, subjectDemand(t) / imps) * (28 / 90)) : 0; }; // ONE IMPACT UNIT (audit, 2026-09-14): impressions divided by 100 was a number in no unit; the page's 28-day clicks, in this entry's share of its demand, is what a correction protects
       const corrections = authorizedCorrections(rows, { pageContentHash: pageHashes.get(key) ?? null, body: pageTexts.get(key) }, tenantId).filter((c) => c.current.trim() !== "")
         .sort((a, b) => subjectDemand(b.subject) - subjectDemand(a.subject) || correctionSeverity(b) - correctionSeverity(a) || a.subject.localeCompare(b.subject));
-      const held = rows.filter((r) => !corrections.includes(r) && r.verdict !== "page_correct");
-      const disputed = held.filter((r) => r.confidence === "disputed" || r.confidence === "likely");
-      const unsupported = held.filter((r) => r.confidence === "unsupported");
       if (corrections.length === 0) continue; // nothing authorized: the findings live in the checks, not in a card
       // ONE CORRECTION IS ONE CHANGE (operator, 2026-08-26). Forty sourced corrections used to be ONE row carrying
       // forty components, capped at MAX_COMPONENTS with the rest held "behind this batch". That row was swept on

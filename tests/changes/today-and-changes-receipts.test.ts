@@ -16,7 +16,6 @@ vi.mock("@/lib/tenant-context", async () => ({ ...(await vi.importActual<typeof 
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
   loadProposalQueue: vi.fn(), loadChangeProposal: vi.fn(), resolveCurrentBasis: vi.fn() }));
 const ID = "t::/nowruz-guide::existing_edit::bundle"; // ── Changes: the receipts reach the operator ─────────────────────────────────
-/** Relative to now: a hard-coded reading date is a test that fails on a calendar day nobody chose. */
 const SEEN = new Date(Date.now() - 5 * 86_400_000).toISOString();
 const FINDING: CauseFinding = {
   cause: "cannibalization", action: "consolidate", evidenceKeys: ["k1"],
@@ -43,12 +42,11 @@ const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
     alternatives: [{ option: "Rewrite the title", reason: "it cannot fix two of your pages competing" }], risks: [],
     components: [{ kind: "title", label: "Page title", risk: "safe", before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table", evidenceKeys: ["k1"],
       where: "the page title itself", objective: "Say what this page answers.", mechanism: "The line a searcher reads is what wins the click.",
-      sourcePack: { sourceRequirements: ["The date needs a source a reader can check."], factRequirements: ["Nowruz falls on the spring equinox."] } },
+      sourcePack: { sourceRequirements: ["The date needs a source a reader can check."], factRequirements: ["Nowruz falls on the spring equinox."], resolved: true } },
       { kind: "canonical", label: "Canonical tag", risk: "dangerous", before: null, after: "Point /haft-seen at this page.", evidenceKeys: ["k1"] }],
     receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "1,200 impressions and 9 clicks for that search.", observedAt: SEEN }],
       missing: [], freshestObservedAt: SEEN } }, ...over,
 } as ChangeProposal);
-/** The same change with only its one safe piece: nothing to pick between, and no hold to claim. */
 const SHAPE = "the stored results page for this search, whose top titles share this shape";
 const atomic = (): ChangeProposal => proposal({ status: "ready", riskLevel: "low", modeledOn: SHAPE,
   causeFinding: { ...FINDING, cause: "ctr_snippet", action: "title", explanation: "The line Google shows misses the words people search for.", competingExplanations: [{ cause: "cannibalization", reason: "only one page of yours comes up for this search" }] }, diagnosisCause: "ctr_snippet",
@@ -66,15 +64,13 @@ async function renderDetail(p: ChangeProposal): Promise<string> {
   vi.mocked(resolveCurrentBasis).mockResolvedValue(p.basis ?? null);
   const { default: Page } = await import("@/app/(shell)/changes/[id]/page");
   return renderToStaticMarkup(await Page({ params: Promise.resolve({ id: encodeURIComponent(p.id) }) }) as ReactElement);}
-/** THE TWO ANSWERS, AND THE WALL BETWEEN THEM. "Backed by 3 checks" was the whole argument on five of seven live  finished cards: a count that reads the same whether it stands on a 90-day search record or one look at the page.  Search demand may never be offered as proof of WORDING, and a source proving a fact may never be offered as proof  of TRAFFIC. Every clause is composed from a typed field, so an absent field prints nothing at all. */
-/** THE BATCH'S ANSWER LANDS ON THE CARDS IT ANSWERED FOR (proof 13's operator half), and a card that cannot be done today says what it is waiting on. */
 describe("what a card says after a batch press, and what it says when it cannot be done today", () => {
   const card = async (p: ChangeProposal, over: Record<string, unknown> = {}) => {
     const { ChangeCard } = await import("@/app/(shell)/changes/change-card");
     return renderToStaticMarkup(createElement(ChangeCard, { proposal: p, rank: 1, ready: p.status === "ready", onAside: () => {}, onDone: () => {}, onToast: () => {}, ...over } as never));};
   it("flips a card the batch recorded to its own done line, and gives a card the batch refused that card's own reason with the press still on it", async () => {
     const recorded = await card(atomic(), { recorded: true });
-    expect([recorded.includes("Done. Measuring from"), recorded.includes("Mark done"), recorded.includes("Copy")], "a card recorded by the batch below the list never keeps offering the work as still owed").toEqual([true, false, false]);
+    expect([recorded.includes("Recorded. Open Results"), recorded.includes("Mark done"), recorded.includes("Copy")], "a card recorded by the batch below the list never keeps offering the work as still owed").toEqual([true, false, false]);
     const refused = await card(atomic(), { problem: "This change is still being reviewed." });
     expect([refused.includes("Not recorded: This change is still being reviewed. Press Mark done on this one to try it again."), refused.includes("Mark done")], "and a refused one names its own reason and stays pressable").toEqual([true, true]);});
   it("never leads a change detail with a brief that carries a raw address, and never falls back on a shrug either", async () => {
@@ -96,6 +92,17 @@ describe("what a card says after a batch press, and what it says when it cannot 
     expect([addition.includes("Nothing is deleted"), addition.includes("Delete that old line")]).toEqual([true, false]);
     for (const before of [null, '{"@type":"FAQPage"}']) { const schema = await card({ ...base, recommendedChange: { kind: "existing_edit", field: "schema", before, after: '{"@context":"https://schema.org","@type":"FAQPage"}', where: "HEAD of this page" } }, {});
       expect([schema.includes(before ? "replace it with the complete block" : "add the complete JSON-LD block"), schema.includes("Do not paste it into visible page text"), schema.includes("new answer paragraph"), schema.includes("unrelated markup")]).toEqual([true, true, false, true]); } });
+  it("renders structural steps as neutral instructions and copies only allowlisted publication content", async () => { const b = proposal().bundle!, row = proposal({ status: "ready", riskLevel: "low", bundle: { ...b, components: [b.components[0]!, { kind: "navigation", label: "Add to the sitemap", before: null, after: "Add this address to the XML sitemap.", evidenceKeys: ["k1"], risk: "review" }] } });
+    const html = await card(row); expect([html.includes('data-component-mode="instruction"'), html.includes("Instruction, do not paste"), html.match(/data-copy-after="true"/g)?.length]).toEqual([true, true, 1]); });
+  it("preserves derived-schema identities through both adapters and treats either side as the same linked selection", async () => {
+    const { componentIdOf } = await import("@/domains/decision"), policy = (await import("@/app/(shell)/changes/types")).default, base = atomic(), source = base.bundle!.components[0]!, dependency = componentIdOf(source, 0), hash = "a".repeat(64);
+    const schema = { kind: "schema" as const, label: "FAQ structured data", before: null, after: '{"@context":"https://schema.org","@type":"FAQPage"}', evidenceKeys: ["k1"], risk: "safe" as const,
+      derivation: { rule: "visible_faq_pairs_v1" as const, operation: "add" as const, source: { pageKey: "/nowruz-guide", contentHash: hash, schemaHash: hash, visibleFaqHash: hash, captureRevision: hash }, dependsOn: [{ componentId: dependency, revision: hash }], projectedVisibleFaqHash: hash } };
+    const row = { ...base, bundle: { ...base.bundle!, components: [source, schema] } } as ChangeProposal, schemaId = componentIdOf(schema, 1), linked = [{ id: dependency }, { id: schemaId, dependsOn: [dependency] }];
+    expect([[...policy.linkedComponentIds(linked, dependency)], [...policy.linkedComponentIds(linked, schemaId)]]).toEqual([[dependency, schemaId], [schemaId, dependency]]);
+    const cardHtml = await card(row), { BundleDetail } = await import("@/app/(shell)/changes/[id]/bundle-detail"), detailHtml = renderToStaticMarkup(createElement(BundleDetail, { proposal: row, bundle: row.bundle!, recorded: new Set<string>() }));
+    for (const html of [cardHtml, detailHtml]) expect([html.match(/data-linked-component="true"/g)?.length, html.includes("ticking either selects or clears both")]).toEqual([2, true]);
+  });
   it("prints what a change is waiting on where the change is, and prints nothing of the sort on work that is ready to make", async () => {
     const waiting = (input: string) => proposal({ status: "needs_review", riskLevel: "low", rankingReceipt: { ...proposal().rankingReceipt!, factors: [...proposal().rankingReceipt!.factors, { name: "readiness", input, contribution: 0, max: 0 }] } });
     const held = await card(waiting("a source reading is owed before these words can be written"), { review: true });
@@ -180,13 +187,13 @@ describe("a card says why this opportunity and why these words, and never trades
       laneById: Object.fromEntries(rows.map((p, i) => [p.id, i % 2 === 0 ? "ready" as const : "research" as const])),
       summary: { todo: 0, ready: 40, research: 2, implemented: 0, measuring: 0, results: 0 } };
     const html = await renderList(view);
-    const seq = [...html.matchAll(/tabular-nums text-muted-foreground"[^>]*>(\d+)</g)].map((m) => m[1]);
+    const seq = [...html.matchAll(/data-change-rank="(\d+)"/g)].map((m) => m[1]);
     expect(seq, "finished cards count themselves").toEqual(["1", "2", "3"]);
     expect(html).toContain("Show 37 more finished changes"); // all 37 behind the page fit one press now that the page holds 100
     expect(html, "internal work never shares the finished lane's pagination").not.toMatch(/Show \d+ more of/);
     const many = Array.from({ length: 500 }, (_, i) => mk(i + 1, "ready"));
     const big = await renderList({ ...viewOf(many), summary: { todo: 0, ready: 500, research: 0, implemented: 0, measuring: 0, results: 0 } });
-    const bigSeq = [...big.matchAll(/tabular-nums text-muted-foreground"[^>]*>(\d+)</g)].map((m) => Number(m[1]));
+    const bigSeq = [...big.matchAll(/data-change-rank="(\d+)"/g)].map((m) => Number(m[1]));
     expect(bigSeq.length).toBe(500); expect(bigSeq[0]).toBe(1); expect(bigSeq[499]).toBe(500);
     expect(big).not.toContain("Show "); });
 
@@ -219,8 +226,8 @@ describe("a card says why this opportunity and why these words, and never trades
 describe("a ranked card explains itself without being opened", () => {
   beforeEach(() => vi.clearAllMocks());
   it("renders saved heading and list roles without turning paragraphs into bullets", async () => {
-    const { PublicationCopy } = await import("@/app/(shell)/changes/change-controls"), units = [{ kind: "heading" as const, level: 2, text: "Which items belong?" }, { kind: "paragraph" as const, text: "The items represent wishes for the year." }, { kind: "ordered_list" as const, items: ["Wash the cloth.", "Arrange the items."] }];
-    const html = renderToStaticMarkup(createElement(PublicationCopy, { text: "unused flattened copy", units })); expect(html).toContain('<h2 class="font-semibold">Which items belong?</h2>'); expect(html).toContain("<p>The items represent wishes for the year.</p>"); expect(html).toContain("<li>Wash the cloth.</li><li>Arrange the items.</li>"); expect(html).toContain("<ol"); expect(html).not.toContain("unused flattened copy"); });
+    const { PublicationCopy } = await import("@/app/(shell)/changes/change-controls"), units = [{ kind: "heading" as const, level: 2, text: "Which items belong?" }, { kind: "paragraph" as const, text: "The items represent wishes for the year." }, { kind: "ordered_list" as const, items: ["Wash the cloth.", "Arrange the items."] }, { kind: "table" as const, columns: ["Item", "Meaning"], rows: [["Sabzeh", "Renewal"]] }];
+    const html = renderToStaticMarkup(createElement(PublicationCopy, { text: "unused flattened copy", units })); expect(html).toContain('<h2 class="font-semibold">Which items belong?</h2>'); expect(html).toContain("<p>The items represent wishes for the year.</p>"); expect(html).toContain("<li>Wash the cloth.</li><li>Arrange the items.</li>"); expect(html).toContain("<th"); expect(html).toContain(">Sabzeh</td>"); expect(html).not.toContain("unused flattened copy"); });
   it("the clipboard carries real HTML and plain words: no # or - markers, and a link change leaves as an anchor", async () => { // audit 3.9: the plain half was Markdown and the fallback said "Copied Markdown"
     const { clipboardPayload } = await import("@/app/(shell)/changes/change-controls"), units = [{ kind: "heading" as const, level: 2, text: "Which items belong?" }, { kind: "paragraph" as const, text: "See the full haft-seen list for each one." }, { kind: "unordered_list" as const, items: ["Wash the cloth.", "Arrange the items."] }];
     const { html, plain } = clipboardPayload("ignored", units, { href: "/haft-seen", anchor: "full haft-seen list", pageUrl: "https://www.own.test/nowruz" });
@@ -230,6 +237,7 @@ describe("a ranked card explains itself without being opened", () => {
     const shape = (over: Partial<ChangeProposal>) => ({ ...atomic(), bundle: undefined, ...over } as ChangeProposal);
     const title = await renderList(viewOf([shape({})]));
     for (const said of ["Replace title", "Copy title", "Nowruz", "Nowruz Traditions and the Haft-Seen Table", "Only the title tag changes. The heading and page text stay as they are."]) expect(title, said).toContain(said);
+    for (const filter of ["All edit types", "Titles"]) expect(title).toContain(filter);
     const section = await renderList(viewOf([shape({ recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "The ranking is top heavy. Tehran holds 8,693,700 people.", where: "As the final paragraph of the lead, directly above the H2." } })]));
     for (const said of ["Add section", "Copy section", "Where it goes: As the final paragraph of the lead", "This adds new copy. Nothing on the page is deleted."]) expect(section, said).toContain(said);
     expect(section).not.toContain("There is no");
@@ -248,6 +256,14 @@ describe("a ranked card explains itself without being opened", () => {
     const passage = await renderList(viewOf([shape({ recommendedChange: { kind: "existing_edit", field: "section", before: "Tehran is by far the biggest city.", after: "Cities like Yazd and Kerman are globally known.", where: "The paragraph immediately below the table." } })]));
     for (const said of ["Replace section", "Only this passage changes. Everything around it stays."]) expect(passage, said).toContain(said); });
 
+  it("cannot submit a bulk selection hidden by the current view", async () => { const row = atomic(), { ChangesListClient } = await import("@/app/(shell)/changes-list-client");
+    const html = renderToStaticMarkup(createElement(ChangesListClient, { view: viewOf([row]), initialPicked: [row.id, "hidden"] }));
+    expect([html.includes("2 selected · 1 hidden by this view"), /data-bulk-done="true"[^>]*disabled/.test(html), html.includes("Clear hidden")]).toEqual([true, true, true]); });
+
+  it("states that facets cover loaded work instead of implying an unseen page was filtered", async () => { const row = atomic(), view = viewOf([row]);
+    view.summary.ready = 3; const html = await renderList(view);
+    expect([html.includes('data-loaded-filter-scope="true"'), html.includes("Filters cover the 1 finished changes loaded here. Load the remaining 2 below to include them."), html.includes("Show 2 more finished changes")]).toEqual([true, true, true]); });
+
   it("a change that moves or hides a page carries its two-step hold on the card", async () => {
     const html = await renderList(viewOf([proposal({ modeledOn: SHAPE })]));
     for (const s of ["Canonical tag", "changes where the page lives or whether people can find it",
@@ -265,17 +281,24 @@ describe("a change detail hands over the whole investigation and the controls to
     for (const slug of ["cannibalization", "ctr_snippet", "technical_indexability"]) expect(html, slug).not.toContain(slug); }); // Not one raw slug reaches the screen.
   it("the piece to paste says where it goes, why it works, and which sources are still owed", async () => {
     const html = await renderDetail(proposal());
-    for (const s of ["Where it goes", "the page title itself", "What it does", "Why it works", "wins the click", "Sources to add before this goes out",
-      "The date needs a source a reader can check.", "Check these lines against the source you pick", "Nowruz falls on the spring equinox."]) expect(html).toContain(s); });
+    for (const s of ["Where it goes", "the page title itself", "What it does", "Why it works", "wins the click", "Sources checked",
+      "The date needs a source a reader can check.", "Claims checked against those sources", "Nowruz falls on the spring equinox."]) expect(html).toContain(s); });
+  it("turns a stored source address into an inspectable link without making the evidence sentence itself the destination", async () => {
+    const row = proposal(), receipt = row.bundle!.receipt; row.bundle = { ...row.bundle!, receipt: { ...receipt, items: receipt.items.map((item) => ({ ...item, fact: `${item.fact} Read https://standards.example/nowruz.` })) } };
+    const html = await renderDetail(row); expect([html.includes('href="https://standards.example/nowruz"'), html.includes("Open source ↗"), html.includes("1,200 impressions and 9 clicks")]).toEqual([true, true, true]); });
   it("the operator can say which pieces they applied, what they actually wrote, or put the change away", async () => {
     const twin = (label: string) => ({ ...proposal().bundle!.components[0]!, kind: "internal_links" as const, label }); // READY IS THE ONLY LANE THAT CARRIES CONTROLS, so the picker is exercised on the shape that really has one. TWO PIECES OF THE SAME KIND ARE STILL TWO PIECES: a shared React key collapsed them into one row, so an operator could not say they applied one section and skipped the other. PIN (B): the control asks what they wrote; it never offers to skip the check.
     const html = await renderDetail(proposal({ status: "ready", riskLevel: "medium", modeledOn: SHAPE, bundle: { ...proposal().bundle!, components: [twin("The opening section"), twin("The sizing section")] } }));
     for (const s of ["Which pieces did you apply?", "The opening section", "The sizing section", "Only the pieces you tick get measured",
       "Applied different wording? Paste the exact words that are on the page. Both are kept, and the page is read for yours.", "Skip"]) expect(html, s).toContain(s);
     expect(html).not.toContain("do not check the page");
-    expect(html.match(/type="checkbox" checked=""/g)?.length).toBe(2); // Every piece starts ticked: applying all of them is the normal case.
+    expect(html).not.toContain('type="checkbox" checked=""'); // Measurement starts only after the operator deliberately ticks what reached the site.
     expect(await renderDetail(atomic())).not.toContain("Which pieces did you apply?"); // one edit, nothing to pick
     const review = await renderDetail(proposal()); expect([review.includes("Which pieces did you apply?"), review.includes("still being reviewed")]).toEqual([false, true]); }); // AND A CARD STILL IN REVIEW HANDS OVER NOTHING TO PRESS, however complete its pieces are and whatever a direct link says: the lane is the rule, on this page exactly as in the list and in the mutation behind it.
+  it("offers no Copy control for prepared factual wording while the change is held", async () => { const b = proposal().bundle!, held = proposal({ bundle: { ...b, components: [{ ...b.components[0]!, kind: "factual_correction", label: "Correction", risk: "review" }] } });
+    const html = await renderDetail(held); expect([html.includes("Prepared wording, not ready to paste"), html.includes('data-copy-after="true"')]).toEqual([true, false]); });
+  it("turns a stored whole-page direct link into a non-actionable proving-phase receipt", async () => { const b = proposal().bundle!, whole = proposal({ status: "ready", changeFamily: "full_rewrite", bundle: { ...b, components: [{ kind: "full_rewrite", label: "Rebuild the page", before: "Old page", after: "Complete replacement", evidenceKeys: ["k1"], risk: "review", target: { mode: "whole_body", anchorKind: null, anchor: null } }] } });
+    const html = await renderDetail(whole); expect([html.includes("Kept for the later whole-page phase"), html.includes("Complete replacement"), html.includes('data-copy-after="true"'), html.includes("Mark done")]).toEqual([true, false, false, false]); });
   it("a change that moves a page shows what moves, what survives, where it forwards, and how to undo it", async () => { // A MERGE IS THE ONE CHANGE THAT CANNOT BE TAKEN BACK BY RETYPING A SENTENCE. Everything it does to the page has to be on the screen before the operator confirms it, and confirming it has to be a real act.
     const b = proposal().bundle!;
     const html = await renderDetail(proposal({ bundle: { ...b, risks: ["The old address stops answering the moment you publish this."],
@@ -292,7 +315,6 @@ describe("a change detail hands over the whole investigation and the controls to
     expect(await renderDetail(proposal({ causeFinding: undefined, rankingReceipt: undefined }))).not.toContain("How this was worked out");
     expect(await renderDetail(proposal({ causeFinding: undefined }))).toContain("How this was worked out"); // a ranking receipt is reasoning too
   }); });
-/** Operator contract: action, complete copy, target/original, worth, caveat, Copy/edit-as-applied/Mark done/Skip; expandable evidence, no stale boilerplate. Two unrelated synthetic accounts enforce generic behavior. */
 describe("a finished change is read, decided and pasted without being opened", () => {
   const SITES = [
     { t: "tenant-one", path: "/tide-pools", label: "Tide pools", q: "tide pool safety", now: "Tide pools are fun for the whole family.",

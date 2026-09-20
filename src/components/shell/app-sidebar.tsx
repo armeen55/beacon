@@ -80,7 +80,7 @@ function SidebarContent({ shortcuts }: { shortcuts: Shortcuts }) {
                       prefetch={false}
                       aria-current={isActive ? "page" : undefined}
                       className={cn(
-                        "group flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium transition-colors duration-100",
+                        "group flex min-h-11 items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium transition-colors duration-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary",
                         isActive
                           ? "bg-accent-primary-muted text-foreground font-semibold border-l-2 border-accent-primary"
                           : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
@@ -117,7 +117,7 @@ function SidebarContent({ shortcuts }: { shortcuts: Shortcuts }) {
         <form method="post" action="/auth/signout">
           <button
             type="submit"
-            className="group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-[13px] font-medium text-sidebar-foreground transition-colors duration-100 hover:bg-sidebar-accent hover:text-foreground"
+            className="group flex min-h-11 w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-[13px] font-medium text-sidebar-foreground transition-colors duration-100 hover:bg-sidebar-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
             data-sidebar-action="sign-out"
           >
             <LogOut className="h-4 w-4 shrink-0 text-sidebar-foreground/70" />

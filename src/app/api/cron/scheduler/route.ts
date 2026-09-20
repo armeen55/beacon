@@ -5,9 +5,10 @@ import { runDueAccounts } from "@/domains/runtime";
 // Never statically rendered and never cached: every call claims live database work.
 export const dynamic = "force-dynamic";
 
-// The full serverless lifetime. The dispatch spends a 240-second budget of its own inside this, so the request returns a receipt rather than being killed
-// part-way through an account it holds the lease on.
-export const maxDuration = 800; // the generally available Pro + Fluid maximum, raised with the whole window on the operator's instruction of 2026-09-10; the caller's pg_net timeout moves to 800000 in the same hour
+// This machine door is intentionally smaller than the reusable research lease. The lease protects recovery
+// across instances; it is not permission for every scheduled tick to occupy the largest Vercel function window.
+// The dispatcher keeps 60 seconds for its receipt and the release write inside this 300-second ceiling.
+export const maxDuration = 300;
 
 /**
  * /api/cron/scheduler (2026-08-03) - the ONE machine door that makes daily AI tracking daily. A single global Supabase pg_cron job POSTs here through pg_net,

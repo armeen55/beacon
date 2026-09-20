@@ -12,7 +12,7 @@
 import { topicTokens } from "@/domains/evidence/relevance-gate";
 import { authorizedCorrections, readFactChecks } from "@/domains/evidence/pages/fact-checks";
 import { classifyResult } from "@/domains/evidence/serp-shape"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
-import type { BundleComponent, ChangeProposal } from "../contracts"; import { COPY_RULES } from "../copy-sanitize"; import { createHash } from "node:crypto"; import { canonicalUrlKey } from "@/domains/evidence/relevance-gate";
+import type { ChangeProposal } from "../contracts"; import { COPY_RULES } from "../copy-sanitize"; import { createHash } from "node:crypto"; import { canonicalUrlKey } from "@/domains/evidence/relevance-gate";
 import type { CauseFinding } from "../diagnosis"; import { RECEIPT } from "../diagnose";
 import { effortMinutesFor } from "./contract"; import type { Produced, Producer, ProducerCtx } from "./contract";
 import { produceDifferentiation } from "./differentiate";
@@ -57,8 +57,6 @@ function bagsOf(finding: CauseFinding): Bag[] {
   return out;
 }
 
-const numberAt = (b: Bag, k: string): number | null =>
-  (typeof b[k] === "number" && Number.isFinite(b[k]) ? (b[k] as number) : null);
 const textAt = (b: Bag, k: string): string | null => {
   const v = b[k];
   return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
@@ -145,6 +143,13 @@ export const produceSourceExpansion: Producer = async (ctx) => {
   // 2. WHAT KIND OF SOURCE, read off the pages actually being cited for this search rather than invented.
   const publishers = [...new Set((ctx.pattern?.publishers ?? []).map((p) => p.trim()).filter((p) => p.length > 0))].slice(0, 3);
   if (publishers.length === 0 || !ctx.pattern) return refuse("The pages being cited for this search have not been read, so what kind of source would stand up here is unknown. They need reading first.");
+  // Resolve the claim-level sources before buying copy. A source recommendation with an unnamed source is
+  // evidence work, not operator work, and must not consume a drafting call or reach Ready as homework.
+  const pagePath = (() => { try { return new URL(ctx.page.url.startsWith("http") ? ctx.page.url : `https://${ctx.page.url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return ctx.page.url; } })();
+  const verified = authorizedCorrections(await readFactChecks(ctx.tenantId, pagePath).catch(() => []), undefined, ctx.tenantId).filter((f) => f.sources.length > 0);
+  const backing = (c: string): string | null => { const tokens = new Set(topicTokens(c)), fact = verified.find((f) => c.toLowerCase().includes(f.subject.toLowerCase()) || topicTokens(f.subject).filter((t) => tokens.has(t)).length >= 2) ?? null, source = fact?.sources[0]; return source ? `${c} stands on a verified source already on file: ${source.url} says "${source.says}". Cite that page.` : null; };
+  const sourceRequirements = claims.map(backing);
+  if (sourceRequirements.some((line) => line == null)) return refuse(`The page-level claim still owes a verified source before copy is written. The fact pass must resolve ${claims.filter((_, i) => sourceRequirements[i] == null).map(sentence).join("; ")}.`);
   // 4. WHERE IT BELONGS.
   const place = ctx.page.outline[0] ? `the section headed "${ctx.page.outline[0]}"` : "the part of this page that answers the search";
   // 3. THE EXACT LINE, bought through the same firewall, budget and cache as every other draft, and grounded in what belongs on a page: the winners' reading and this page's own words. Never my own figures.
@@ -156,23 +161,9 @@ export const produceSourceExpansion: Producer = async (ctx) => {
       ? `${seen.engine} answered "${seen.promptText}" naming other sites and never this page, and every page it named covers ${claims.join(", ")} while this one does not. Cover that here in one short section, in this page's own terms, and name where each statement comes from.`
       : `${seen.engine} read this page while answering "${seen.promptText}" and cited other sites. Restate what this page already says, in one short section, so every statement in it names the source a reader can check: ${claims.join(" ")}`,
     outline: ctx.page.outline,
-    evidenceHints: [...claims, ...(ctx.pattern.commonHeadings ?? []).map((h) => h.heading), ...(ctx.pattern.questionsAnswered ?? [])],
+    evidenceHints: [...claims, ...(ctx.pattern.commonHeadings ?? []).map((h) => h.heading), ...(ctx.pattern.brief?.deltas ?? []).filter((delta) => delta.dimension === "questions" && delta.sources.length > 0).map((delta) => delta.need)],
   });
   if (!drafted) return refuse("No sourced line for this page passed its own checks, so nothing is handed over rather than filler.");
-  // THE VERIFIED FACTS ON FILE FOR THIS PAGE. A checked claim carries the exact source and what it says, read
-  // by the fact pass under the current rules, so a requirement can name THAT source. "You pick the exact
-  // page" was operator homework wearing a recommendation's clothes, and it is gone: a claim either stands on
-  // a verified source by url, or the requirement names the acquisition the fact pass still owes.
-  const pagePath = (() => { try { return new URL(ctx.page.url.startsWith("http") ? ctx.page.url : `https://${ctx.page.url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return ctx.page.url; } })();
-  const verified = authorizedCorrections(await readFactChecks(ctx.tenantId, pagePath).catch(() => []), undefined, ctx.tenantId)
-    .filter((f) => f.sources.length > 0); // THROUGH THE ONE DOOR, NOT A FOURTH READING OF THE BANK (reviewer, 2026-09-02): state, read source and rules version were the whole test here, so the reopened cobra row, which keeps its army-aviation source and quote, could still be handed to a writer as the source a claim about cobras in Iran stands on. What may be published and what may be cited are the same question.
-  const backing = (c: string): string => {
-    const tokens = new Set(topicTokens(c));
-    const fact = verified.find((f) => c.toLowerCase().includes(f.subject.toLowerCase()) || topicTokens(f.subject).filter((t) => tokens.has(t)).length >= 2) ?? null;
-    return fact?.sources[0]
-      ? `${c} stands on a verified source already on file: ${fact.sources[0].url} says "${fact.sources[0].says}". Cite that page.`
-      : `${c} has no verified source on file yet, so the fact pass acquires one of the kind the pages cited for "${ctx.primary}" point at (${publishers.join(", ")}) before this line ships. Nothing here asks anybody to pick a source.`;
-  };
   return {
     components: [{
       kind: expansion ? "entity_expansion" : "source_update",
@@ -191,7 +182,7 @@ export const produceSourceExpansion: Producer = async (ctx) => {
         : `${seen.engine} answered "${seen.promptText}" naming other sites and never this page, so the fix is to carry what those answers are built on rather than to reword what is already here.`,
       // ONLY PAGE CLAIMS, never a figure of mine. Each requirement either names the verified source on file,
       // by url and what it says, or names the acquisition the fact pass owes. Held for review either way.
-      sourcePack: { sourceRequirements: claims.map(backing), factRequirements: claims.map(sentence), },
+      sourcePack: { sourceRequirements: sourceRequirements as string[], factRequirements: claims.map(sentence), resolved: true },
       measurementPlan: `How often "${seen.promptText}" names this page, and clicks for "${ctx.primary}", read at 7, 14 and 28 days after you publish it.`,
     }],
     refusal: null,
@@ -315,7 +306,7 @@ export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes:
   if (!ctx.draft.compose) return refuse("The drafting path cannot retain the exact publication structure and source receipts of a complete replacement, so no rewrite is bought.");
   const pattern = ctx.pattern;
   const headings = [...new Set((pattern?.commonHeadings ?? []).map((h) => h.heading.trim()).filter((h) => h.length > 0))];
-  const questions = [...new Set((pattern?.questionsAnswered ?? []).map((q) => q.trim()).filter((q) => q.length > 0))];
+  const questions = [...new Set((pattern?.brief?.deltas ?? []).filter((delta) => delta.dimension === "questions" && delta.sources.length > 0).map((delta) => delta.need.trim()).filter((q) => q.length > 0))];
   if (!pattern || (headings.length === 0 && questions.length === 0)) return refuse("The pages that win this subject have not been read side by side, so what this page has to become is unknown. They need reading first, and then the brief gets written.");
   const shape = ARCHETYPE[pattern.archetype] ?? "a page that answers this search directly, in a shape the pages winning it have not settled so it is yours to pick";
   const covers = headings.length > 0 ? headings : questions;
@@ -326,7 +317,7 @@ export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes:
   const identity = createHash("sha256").update(JSON.stringify([ctx.tenantId, canonicalUrlKey(ctx.page.url), ctx.primary, before, ctx.page, ctx.body.headings, ctx.body.entityNames, ctx.body.internalLinks, ...(ctx.body.sourceCapture ? [["original_main_content", ctx.body.sourceCapture.version, ctx.body.sourceCapture.complete, ctx.body.sourceCapture.mainHtml]] : []), pattern.fingerprint, planned, [...structural].sort(), ctx.draftContext ?? null])).digest("hex");
   const taskFor = (slot: number): NonNullable<ChangeProposal["assignment"]> => {
     const subject = slot === 0 ? ctx.primary : planned[slot - 1]!;
-    return { page: ctx.body!.url, basis: identity, standard: "restructuring", gapKind: "full_rewrite_piece", propositions: [subject], intent: [ctx.primary],
+    const deliveryMode = slot === 0 ? "inline" as const : "headed" as const; return { page: ctx.body!.url, basis: identity, standard: "restructuring", gapKind: "full_rewrite_piece", propositions: [subject], intent: [ctx.primary], informationNeed: { question: subject, requiredAtomKeys: [`${identity}::${slot}`], polarity: "supports", voice: "publisher", deliveryMode }, deliveryMode,
       diagnosedGap: `This page is being rebuilt as ${shape}. Complete ${slot === 0 ? "the opening" : `the section about ${subject}`}; ${wrongs.join("; ")}.`,
       treatment: slot === 0 ? "answer_block" : "section", shape: slot === 0 ? "direct_answer" : "section", anchor: ctx.body!.h1 ?? ctx.body!.title,
       mustLeadWith: `the supported answer or distinction about ${subject}, with enough subject and scope to stand on its own`, opening: "Teach the subject directly in the owning publisher's voice.",

@@ -115,7 +115,7 @@ function answerIdentity(o: CanonicalPairObservation): Omit<KeywordOrigin, "route
 }
 
 /** A read I could not make is not an account with no answers, and it may never be reported as one. */
-const AI_READ_FAILED = "I could not read your stored answers this pass, so I added nothing new from them. Everything I already found is still here and I will read them again on your next visit.";
+const AI_READ_FAILED = "Stored answers could not be read this pass, so nothing new was added from them. Everything already found remains saved, and the next visit will try the read again.";
 
 /** The routes that come OUT of a stored answer. A kept row whose whole journey is answers to questions this
  *  account no longer asks is dropped on any pass that actually read the canonical set; a row that also
@@ -358,7 +358,7 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
         // set of its own has not failed, and must never say it has.
         if (raw.length === 0 && carried.length === 0) {
           await save(d, tenantId, basis, state, ctx);
-          return { status: "failed", cursor: { stage: "labs" }, progress: discProgress(state), detail: softDetail ?? "I found no keywords from the research provider yet." };
+          return { status: "failed", cursor: { stage: "labs" }, progress: discProgress(state), detail: softDetail ?? "The research provider has not returned any keywords yet." };
         }
         if (capped.length === 0) {
           await save(d, tenantId, basis, state, ctx);
@@ -385,14 +385,14 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
           if (r.kind === "failed") {
             // Enrichment failed terminally: pause honestly, keep the retained set intact.
             await save(d, tenantId, basis, state, ctx);
-            return { status: "failed", cursor: { stage: "overview" }, progress: discProgress(state), detail: r.detail ?? "I could not add search volume this run. I will try again on the next pass." };
+            return { status: "failed", cursor: { stage: "overview" }, progress: discProgress(state), detail: r.detail ?? "Search volume could not be added this run. The next pass will try again." };
           }
           if (r.kind === "evidence") {
             const parsed = d.parse("labs_keyword_overview", r.payload as never) as ParsedKeywordItem[] | null;
             for (const e of keywordsFromParsed(parsed ?? [], "profile")) priced.set(e.keyword, e);
           } else if (r.soft === "not_configured") {
             // Missing credentials: keep the retained keywords, labeled as unenriched.
-            softDetail = "I kept your researched keywords but could not add search volume this run. I will enrich them on the next pass.";
+            softDetail = "Researched keywords remain saved, but search volume could not be added this run. The next pass will enrich them.";
             break;
           }
         }
@@ -435,7 +435,7 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
           await save(d, tenantId, basis, state, ctx);
           return { status: r.kind === "waiting" ? "waiting" : "failed", progress: discProgress(state),
             cursor: { stage: "competitors", ...(raw.state === "capped" ? { cappedCase: caseId } : {}) },
-            detail: r.detail ?? pauseDetail(r.disposition, "I could not check who keeps winning these searches this pass. I will try again on your next visit.") };
+            detail: r.detail ?? pauseDetail(r.disposition, "The pages that keep winning these searches could not be checked this pass. The next visit will try again.") };
         }
         if (r.kind !== "evidence") continue;
         const parsed = d.parse("labs_serp_competitors", r.payload as never) as ParsedByCapability["labs_serp_competitors"] | null;

@@ -16,7 +16,7 @@ import type { ResearchPageExtract } from "../funnel/research-evidence";
  *     request is in it. PAID-ATTEMPT identity is account-scoped (tenantId + unitKey). A hit reserves and records $0.
  *   - Money order is reserve -> network -> reconcile, atomic in Postgres.
  *   - "waiting" is durable and resumable; never an error, never completion.
- *   - Standard task posts carry the deterministic cacheKey as the provider `tag`, and a pre-post attempt
+ *   - Standard task posts carry the unique spend attempt id as the provider `tag`, and a pre-post attempt
  *     receipt is persisted so an uncertain post outcome is never silently reposted.
  */
 
@@ -206,7 +206,7 @@ export type EngineModelResolution = { model: string; method: "standard" | "live"
  *                  automatic retries it; on a FREE collect the task id is kept and re-checked for free.
  *                  The funnel surfaces it as explicit unavailable coverage.
  *    quarantined - an uncertain POST or an accepted task whose id could not be persisted: ZERO automatic
- *                  reposts ever; recovery ONLY via the FREE tasks_ready listing matched by tag=cacheKey.
+ *                  reposts ever; recovery ONLY via the stored task id or FREE tasks_ready listing matched by attempt tag.
  *    none        - a plain recoverable failure (claim/reserve/persist): retry the whole call later.
  *    daily_limit - the account's own daily spend ceiling refused the call at zero charge. It stops the
  *                  batch for the day like a refusal, but holds nothing and clears itself. */

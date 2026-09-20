@@ -4,7 +4,6 @@
 import { describe, it, expect, vi } from "vitest";
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } }));
 const cap = vi.hoisted(() => ({ allowed: true }));
-vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => (cap.allowed ? { allowed: true, remaining: 10 } : { allowed: false, reason: "the day's cap is reached" }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) }));
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => null, basisTag: () => "basis_rv3" }));
 const gap = vi.hoisted(() => ({ answer: null as unknown, body: null as unknown })); // the provider answer and the stored page the diagnosis door reads, supplied at the gateway seam so the producer itself is the real one
@@ -70,7 +69,7 @@ describe("a call that never left the process", () => {
     cap.allowed = false;
     try {
       const { key, budget, allowance } = funded(s), before = allowance.left;
-      await readWinningPattern(winners(s), null, s.t, { complete: (async () => ({ value: {}, httpAttempts: 1 })) as never, now: NOW, label: s.q, attempts: allowance });
+      await readWinningPattern(winners(s), null, s.t, { complete: (async () => cap.allowed ? { value: {}, httpAttempts: 1 } : { error: "blocked_budget", failure: "budget", retryable: false, httpAttempts: 0 }) as never, now: NOW, label: s.q, attempts: allowance });
       expect([budget.meterOf(key)?.providerCalls ?? 0, before - allowance.left], "the meter records no provider call, so the allowance may not record one either").toEqual([0, 0]);
     } finally { cap.allowed = true; }
   });

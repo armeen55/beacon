@@ -269,12 +269,13 @@ export function readProvenanceFields(json: unknown): {
   const j = (json && typeof json === "object" ? json : {}) as Record<string, unknown>;
   const usage = (j.usage && typeof j.usage === "object" ? j.usage : {}) as Record<string, unknown>;
   const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const tokens = (v: unknown): number | null => (typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null);
   return {
     responseId: typeof j.id === "string" ? j.id : null,
     servedModel: typeof j.model === "string" ? j.model : null,
     status: typeof j.status === "string" ? j.status : null,
     createdAt: num(j.created_at),
-    inputTokens: num(usage.input_tokens),
-    outputTokens: num(usage.output_tokens),
+    inputTokens: tokens(usage.input_tokens),
+    outputTokens: tokens(usage.output_tokens),
   };
 }

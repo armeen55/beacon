@@ -40,13 +40,6 @@ type GscReadiness = {
   lastSyncedAt: string | null;
 };
 
-function isUndefinedTableError(error: unknown): boolean {
-  // PostgREST surfaces `code: "42P01"` on undefined_table — covers the deploy window when code is live but the migration hasn't applied yet.
-  if (error == null || typeof error !== "object") return false;
-  const e = error as { code?: unknown };
-  return typeof e.code === "string" && e.code === "42P01";
-}
-
 /** Whole days (floored, never negative) between an ISO date and `now`. */
 function daysSince(isoDate: string, now: Date): number {
   // Anchor the data date at Pacific-noon-ish UTC so a same-day comparison is 0 rather than off-by-one from timezone. (GSC dates are Pacific.)

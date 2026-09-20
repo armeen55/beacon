@@ -223,8 +223,8 @@ describe("pressing Pause closes the doors on the very next paid call", () => {
       expect(fetchSpy).not.toHaveBeenCalled(); // zero network, so zero ledger movement by construction
     }, { paused: () => paused });});});
 /** ALREADY-BOUGHT TASKS MUST ACTUALLY FINISH WHILE PAUSED (reviewer, 2026-08-21): the free collect existed as a function nothing called, and paid-for evidence expired provider side. */
-describe("a paused tick collects what was already paid for, free, then republishes", () => {
-  it("enumerates pending receipts, collects each with a free GET, posts nothing, and rebuilds after", async () => {
+describe("an idle tick collects only provider receipts whose durable wake is due", () => {
+  it("bounds free collection and performs no account-wide rebuild scan when no run is admitted", async () => {
     vi.resetModules();
     const events: string[] = [];
     vi.doMock("@/domains/evidence/dataforseo/default-deps", () => ({
@@ -232,16 +232,9 @@ describe("a paused tick collects what was already paid for, free, then republish
     vi.doMock("@/domains/evidence/dataforseo/capabilities", () => ({
       collectCapability: async (key: string) => { events.push(`collect:${key}`); return { state: "hit", envelope: {}, costUsd: 0, cacheKey: key }; },}));
     vi.doMock("@/domains/runtime/research-run", () => ({ claimDueRuns: async () => [], RESEARCH_RUN_LEASE_SECONDS: 800, finishRun: async () => true, newOwnerToken: () => "o1", startExtraPass: async () => null }));
-    vi.doMock("@/app/(shell)/surface-release", () => ({
-      readCustomerSurface: async () => ({ computedAt: "2020-01-01T00:00:00.000Z" }), isCustomerSurfaceStale: () => true,
-      refreshCustomerSurface: async (t: string) => { events.push(`rebuild:${t}`); return {}; },}));
-    vi.doMock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({
-      from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ order: () => ({ limit: async () => ({ data: [{ id: "tenant-fx" }], error: null }) }) }) }) }) }),
-    }) }));
-    const { runDueAccounts } = await import("@/domains/runtime/ops/scheduler"); // The stranded probe is somebody else's contract; this pin holds the dispatch to the paused tail.
-    await runDueAccounts({ now: () => new Date("2026-08-21T12:00:00Z"), steps: { strandedToday: async () => [] } as never }); // The order IS the contract: what was already bought lands first, then the republish reads it.
-    expect(events).toEqual(["enumerate:40", "collect:dfs2_owed", "rebuild:tenant-fx"]);
+    const { runDueAccounts } = await import("@/domains/runtime/ops/scheduler");
+    await runDueAccounts({ now: () => new Date("2026-08-21T12:00:00Z"), steps: { strandedToday: async () => [] } as never });
+    expect(events).toEqual(["enumerate:8", "collect:dfs2_owed"]);
     expect(fetchSpy).not.toHaveBeenCalled(); // GET went through the collector fake; nothing posted, nothing paid
     vi.doUnmock("@/domains/evidence/dataforseo/default-deps"); vi.doUnmock("@/domains/evidence/dataforseo/capabilities");
-    vi.doUnmock("@/domains/runtime/research-run"); vi.doUnmock("@/app/(shell)/surface-release");
-    vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();});});
+    vi.doUnmock("@/domains/runtime/research-run"); vi.resetModules();});});

@@ -18,6 +18,8 @@ import { canonicalQueryKey } from "@/domains/evidence/relevance-gate"; import { 
 import type { TenantCtrCurve } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import { winnersRead, type CauseFinding } from "@/domains/decision/diagnosis";
+import { mutationKeyOf } from "@/domains/decision/mutation-footprint";
+import proposalSeats from "@/domains/decision/proposal-seats";
 
 /** Lost clicks per month before a unit is worth a card, and how many cards one pass mints. */
 const MIN_LOST_PER_MONTH = 20; // no count meter (operator, 2026-08-30): every unit above the loss floor gets its card
@@ -106,13 +108,14 @@ export async function demandRecoveryCards(input: { tenantId: string; snapshot: E
     const lost = units.filter((u) => (u.history?.lostClicksPerMonth ?? 0) >= MIN_LOST_PER_MONTH);
     const losses = lost.slice(0, 20).map((u) => ({ unit: u.label, lostPerMonth: u.history!.lostClicksPerMonth,
       priorPage: u.history!.priorTopPage, currentPage: u.history!.currentTopPage, swapped: u.history!.pageSwapped }));
-    const cards: ChangeProposal[] = [];
-    /* ONE PAGE IS A CONTAINER OF ATOMIC OPPORTUNITIES (Product Truth, one page is never one opportunity; campaign, 2026-09-05). Every card here was named after its PAGE alone, so two audiences losing clicks on one page wore ONE row id: the dedupe behind this producer kept the larger and dropped the rest, and while that loss stood unimplemented every smaller one on the page was invisible. The page's largest recoverable loss KEEPS THE ID IT ALWAYS HAD, which is the row already on file, and each one behind it carries its own canonical search key after "@", the way a link card carries its destination. Two sections a page a pass, because a third writes a slot the store already holds; the line searchers read is ONE mutation however many audiences ask for it, so a page is asked for one of those and no more. */
-    const seats = new Map<string, string>(); { const per = new Map<string, { taken: boolean; bodies: number; title: boolean }>();
+    const cards: ChangeProposal[] = [], durableSeats = await proposalSeats.loadProposalSeats(tenantId, lost.flatMap((u) => { const home = u.history!.currentTopPage ?? u.history!.priorTopPage; return home ? [pathOf(home)] : []; }));
+    /* ONE PAGE IS A CONTAINER OF ATOMIC OPPORTUNITIES (Product Truth, one page is never one opportunity; campaign, 2026-09-05). Every card here was named after its PAGE alone, so two audiences losing clicks on one page wore ONE row id: the dedupe behind this producer kept the larger and dropped the rest. The unsuffixed id remains with the mutation it first named even after retirement; another query gets its own canonical search key after "@". Two sections a page a pass, because a third writes a slot the store already holds; the line searchers read is ONE mutation however many audiences ask for it, so a page is asked for one of those and no more. */
+    const seats = new Map<string, string>(); { const bindings = [...durableSeats], per = new Map<string, { bodies: number; title: boolean }>();
       for (const u of [...lost].sort((a, b) => b.recoverableClicks - a.recoverableClicks || a.label.localeCompare(b.label))) { const at = u.history!.currentTopPage ?? u.history!.priorTopPage; if (!at || !owned.has(canonicalUrlKey(at))) continue;
-        const page = pathOf(at).toLowerCase(), key = canonicalQueryKey(u.label), seat = `${page}::${key}`, held = per.get(page) ?? { taken: false, bodies: 0, title: false }, title = decompose(u.history!, u.serp != null).field === "title";
+        const page = pathOf(at).toLowerCase(), key = canonicalQueryKey(u.label), seat = `${page}::${key}`, held = per.get(page) ?? { bodies: 0, title: false }, field = decompose(u.history!, u.serp != null).field, title = field === "title";
         if (seats.has(seat) || (title ? held.title : held.bodies >= MAX_BODY_CARDS)) continue; // one mutation, one card: a second audience whose search names the same words is the same section, and the page's line is written once
-        seats.set(seat, `${tenantId}::${page}::existing_edit::demand_recovery${held.taken ? `@${key}` : ""}`); per.set(page, { taken: true, bodies: held.bodies + (title ? 0 : 1), title: held.title || title }); } }
+        const base = `${tenantId}::${page}::existing_edit::demand_recovery`, mutationKey = mutationKeyOf({ pagePath: page, primaryQuery: u.label, recommendedChange: { kind: "existing_edit", field } }), id = proposalSeats.seatFor(base, mutationKey, bindings);
+        seats.set(seat, id); bindings.push({ id, mutationKey }); per.set(page, { bodies: held.bodies + (title ? 0 : 1), title: held.title || title }); } }
     for (const u of lost) {
       const h = u.history!;
       const home = h.currentTopPage ?? h.priorTopPage;

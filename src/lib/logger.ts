@@ -7,6 +7,12 @@ const LEVEL_ORDER: Record<LogLevel, number> = {
   error: 3,
 };
 
+function threshold(): LogLevel {
+  const configured = process.env.BEACON_LOG_LEVEL;
+  if (configured === "debug" || configured === "info" || configured === "warn" || configured === "error") return configured;
+  return process.env.NODE_ENV === "production" ? "warn" : "debug";
+}
+
 function safeStringify(context: unknown): string | undefined {
   if (context === undefined) return undefined;
   try {
@@ -17,6 +23,7 @@ function safeStringify(context: unknown): string | undefined {
 }
 
 function emit(level: LogLevel, msg: string, context?: Record<string, unknown>) {
+  if (LEVEL_ORDER[level] < LEVEL_ORDER[threshold()]) return;
   const entry: Record<string, unknown> = {
     level,
     ts: new Date().toISOString(),

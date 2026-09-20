@@ -16,42 +16,28 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
   const rivals = ids.filter((id) => id.startsWith("rival-"));
   const briefing = ids.filter((id) => id.startsWith("serp-"));
   const kind = packet.gap?.kind ?? "no_substantive_gap";
-  const backed = (t: string): boolean => {
-    const w = topicTokens(t);
-    return w.length === 0 || facts.some((id) => {
-      const said = new Set(topicTokens(packet.evidence[id] ?? ""));
-      return w.filter((x) => said.has(x)).length * 2 >= w.length;
-    });
-  };
   const standard: ReturnType<typeof editorialStandard> = WIDTH[field] ? "summary"
     : kind === "false_page_promise" ? "repositioning"
     : packet.treatment === "structural_synthesis" || kind === "scattered_answer" || kind === "weak_extractability" ? "restructuring"
     : kind === "stale_fact" ? "correction"
     : "missing_answer";
-  const ownWords = new Set(topicTokens([packet.bodyText, packet.headings.join(" "), packet.title ?? "", packet.h1 ?? ""].join(" ")));
-  const additive = standard === "missing_answer" && !rewrite && !WIDTH[field], overlaps = (t: string, said: string): boolean => { const w = topicTokens(t), has = new Set(topicTokens(said)); return w.length > 0 && w.filter((x) => has.has(x)).length * 2 >= w.length; };
-  const supported = (t: string): boolean => {
-    if (backed(t)) return true;
-    if (standard !== "summary" && standard !== "restructuring" && standard !== "repositioning") return false;
-    const w = topicTokens(t);
-    return w.length > 0 && w.filter((x) => ownWords.has(x)).length * 2 >= w.length;
-  };
+  const need = packet.informationNeed, atoms = packet.answerAtoms ?? [], complete = !!need && need.requiredAtomKeys.length > 0 && need.requiredAtomKeys.every((key) => { const found = atoms.filter((a) => a.key === key); return found.length > 0 && found.every((a) => a.polarity === need.polarity && a.voice === need.voice); });
+  if (!WIDTH[field] && !complete) return null;
+  const bound = (WIDTH[field] ? facts : [...new Set(atoms.filter((a) => need!.requiredAtomKeys.includes(a.key)).map((a) => a.evidenceId))]).slice(0, 8);
   const base = { page: packet.targetUrl, standard, gapKind: kind,
+    ...(need ? { informationNeed: { ...need, requiredAtomKeys: [...need.requiredAtomKeys] }, deliveryMode: need.deliveryMode } : {}),
     ...((packet.reading?.sells ?? []).length > 0 ? { sells: [...packet.reading!.sells] } : {}),
     propositions: props, diagnosedGap: gap,
     intent: [...new Set([...(packet.comparison?.queries ?? []), packet.trackedQuestion ?? "", ...(packet.demand.unanswered ?? [])])].filter((x): x is string => !!x).slice(0, 6),
-    facts: facts.map((id, i) => ({ id, says: (packet.checkedSentences ?? [])[i] ?? "" })),
+    facts: bound.map((id) => ({ id, says: (packet.checkedSentences ?? [])[facts.indexOf(id)] ?? "" })),
     observations: (packet.comparison?.winners ?? []).flatMap((w) => w.observations.slice(0, 2).map((o) => ({ publisher: w.publisher, publisherClass: w.publisherClass, kind: o.kind, text: o.text, quote: o.quote }))).slice(0, 12),
     keep: (packet.comparison?.keep ?? []).slice(0, 4),
     ...(rewrite?.replaces?.trim() ? { replaces: rewrite.replaces.trim() } : {}),
     pageContext: ctx,
-    // WRITE FIRST, CHECK BEHIND (operator ruling, Stage 3): on additive work a proposition nothing checked carries is UNBACKED, stated where the page states it with one caveat line; FORBIDDEN is reserved for a wording a source on file refutes. A correction and a replacement keep the old rule: unsupported is forbidden.
-    // AND A PROPOSITION THAT OVERLAPS A REFUTED WORDING STAYS IN BOTH LISTS: dropped from unbacked it fell out of both and could be stated bare.
-    forbidden: additive ? [...new Set([...(packet.refuted ?? []).filter((r) => props.some((t) => overlaps(t, r))), ...props.filter((t) => !supported(t) && (packet.refuted ?? []).some((r) => overlaps(t, r)))])] : props.filter((t) => !supported(t)),
-    ...(additive ? { unbacked: props.filter((t) => !supported(t)) } : {}),
+    forbidden: [],
     rivals, briefing, ...(owed ? { owed } : {}),
   };
-  const deliver = props.filter(supported);
+  const deliver = props;
   const w = WIDTH[field];
   const seen = packet.serpLead ? `, leading with "${packet.serpLead}" where that reads naturally, because the titles a searcher already sees for this search name the subject that way: it is vocabulary and intent, never a template your sentence must copy, and an entity-first opening that answers the search is welcome` : "";
   // A SUMMARY IS NOT A SECTION (Google's snippet guidance; operator, 2026-09-02). The body envelope was attached to every kind, so a description was told to place new copy after an existing heading and the reviewer marked it against a placement it can never have.
@@ -70,15 +56,7 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
   const lead = (packet.checkedSentences ?? []).map((t) => t.trim()).filter(Boolean);
   const passages = ids.filter((id) => /^page-copy-/.test(id)).map((id) => packet.evidence[id] ?? "");
   const qStems = new Set(topicTokens(packet.trackedQuestion ?? ""));
-  const backedProps = props.filter(backed);
   const sentences = passages.flatMap((t) => t.split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim())).filter(Boolean);
-  const carriedByOne = (t: string): boolean => {
-    const d = topicTokens(t).filter((w) => !qStems.has(w));
-    return d.length > 0 && sentences.some((x) => {
-      const said = new Set(topicTokens(x));
-      return !EDITOR_SHARED.ASKS_OR_DENIES.test(x) && d.every((w) => said.has(w));
-    });
-  };
   const wanted = new Set([...qStems, ...props.flatMap((t) => topicTokens(t))]);
   const heads = packet.headings.map((h) => h.replace(/\s+/g, " ").trim()).filter(Boolean).sort((a, b) => b.length - a.length);
   const railLed = (x: string): boolean => EDITOR_SHARED.FURNITURE_RUN.test(x) || x.split(/\s+/).slice(0, 12).some((_, i, w) => FURNITURE_LABEL.test(w.slice(0, i + 1).join(" ")));
@@ -88,12 +66,8 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     .map((x) => ({ x, n: topicTokens(x).filter((w) => wanted.has(w)).length }))
     .filter((y) => y.n > 0).sort((a, b) => b.n - a.n)[0] ?? null;
   const heading = [packet.h1, packet.title, ...packet.headings].find(EDITOR_SHARED.placeable) ?? null;
-  const shape = rewrite ? "exact_replacement" as const
-
-    : backedProps.length > 0 && (kind === "missing_answer" || kind === "incomplete_answer") && backedProps.every(carriedByOne) ? "no_change" as const
-    : undefined;
-  const anchor = shape === "no_change" ? null
-    : shape === "exact_replacement" ? rewrite?.heading ?? heading
+  const shape = rewrite || need?.deliveryMode === "replacement" ? "exact_replacement" as const : need?.deliveryMode === "inline" ? "inline_addition" as const : "section" as const;
+  const anchor = shape === "exact_replacement" ? rewrite?.heading ?? heading
     : relevant?.x ?? heading;
   const defining = /^(?:what|who)\s+(?:is|are|was|were)\b|\b(?:meanings?|definitions?)\b/i.test(props[0] ?? "");
   const entity = (props[0] ?? "").replace(/^(?:what|who)\s+(?:is|are|was|were)\s+(?:an?|the)?\s*/i, "").replace(/\s*\b(?:meanings?|definitions?)\b\s*$/i, "").replace(/\s*\([^)]*\)\s*$/, "").replace(/\?+$/, "").trim();
@@ -109,12 +83,11 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     ...base,
     ...(shape ? { shape } : {}),
     anchor,
-    opening: shape == null ? `${opening}. Never open with a bare "Yes" or "No": that is a reply to a question, and this copy is a sentence standing on the page.` : opening,
+    opening,
     treatment: shape === "exact_replacement" ? (kind === "scattered_answer" ? "restructure" as const : "replacement" as const) : "answer_block" as const,
-    format: shape === "no_change" ? EDITOR_SHARED.NO_CHANGE_SAYS
-      : shape === "exact_replacement" ? `complete copy standing exactly where the replaced words stand: keep what the passage says that is true, add the improvement the completion test below names, cite a supporting fact for any statement the page does not already carry, and write no heading`
+    format: shape === "exact_replacement" ? `complete copy standing exactly where the replaced words stand: keep what the passage says that is true, add the improvement the completion test below names, cite a supporting fact for any statement the page does not already carry, and write no heading`
       : shape === "section" ? "a descriptive heading, then the smallest complete treatment this gap takes, and no introduction, conclusion or summary of the page"
-      : "choose a contextual insertion only when the adjacent passage already supplies the question, subject and scope; otherwise write a standalone section with a descriptive or genuinely reader-facing question heading. Deliver the supported explanation, distinctions, examples, qualifications or steps the diagnosed task needs, without a sentence quota or padding",
+      : "a contextual insertion after the named passage, without an outer heading, introduction, conclusion or summary of the page",
     mustLeadWith: (lead.length > 0 ? `the direct answer to the diagnosed reader task, supported by these checked statements: ${lead.join("; ")}. Synthesize the answer in your own words and distribute the supporting detail through the treatment; do not squeeze every checked fact into its first sentence.`
       : "the answer itself, in sentences of your own. Nothing checked is on file behind this gap, so the only ground you have is what this page's own passages already establish about the subject: draw the answer out of them rather than restating any one of them, state no figure or claim past them, and say what is still owed in your limitations.") + " No line may restate another line.",
     mayReuse: standard === "restructuring" || standard === "repositioning" ? "every passage, entry and figure this page already publishes: assembling what they say into one place a reader can lift IS the job of this edit, in the page's own words"

@@ -30,6 +30,22 @@ const MAX_PAID_CALLS = 600; /* 60 under the two-drives-a-day era; raised for the
 const DAY_ATTEMPTS = 4; /* 2 under the two-drives-a-day era; under the ten-minute constant cycle (operator, 2026-09-11, most changes ever by morning) two charged failures parked every corrective loop by breakfast while 130 drives idled. Four matches the lifetime redraft cap; charged failures still rank behind untried work, and the dollar ledgers stay the brake. */
 
 type Keyable = Parameters<typeof mutationKeyOf>[0];
+type DeliveryScope = "existing_page_edits" | "all_changes";
+type DeliveryShape = "existing_page_edit" | "whole_page";
+type DeliveryRecord = Partial<Pick<ChangeProposal, "kind" | "changeFamily" | "bundle" | "recommendedChange">>;
+/** ONE DELIVERY-SHAPE ANSWER. Funding, evidence debt and Runtime admission all ask this same predicate, so a
+ * whole-page opportunity cannot be held out of drafting and then smuggle its research bill through another door. */
+const deliveryOf = (c: DeliveryRecord): DeliveryShape => c.kind === "new_page" || c.recommendedChange?.kind === "new_page" || c.changeFamily === "full_rewrite"
+  || (c.recommendedChange?.kind === "existing_edit" && c.recommendedChange.target?.mode === "whole_body")
+  || (c.bundle?.components ?? []).some((part) => part.kind === "new_page" || part.kind === "full_rewrite" || part.target?.mode === "whole_body") ? "whole_page" : "existing_page_edit";
+const scopeAllows = (scope: DeliveryScope, delivery: DeliveryShape): boolean => scope === "all_changes" || delivery === "existing_page_edit";
+/** Old run rows predate the delivery stamp. Fail closed for the legacy identities that can be proved to be
+ * creation/full-page work, while ordinary legacy edit debt remains recoverable. */
+const requirementDelivery = (need: { delivery?: DeliveryShape; key?: string; workKey?: string; proposalId?: string; unlocks?: { proposalId: string } | null; topic?: { key: string } | null }): DeliveryShape => {
+  if (need.delivery) return need.delivery;
+  const ids = [need.key, need.workKey, need.proposalId, need.unlocks?.proposalId, need.topic?.key].filter((v): v is string => !!v).map((v) => v.toLowerCase());
+  return ids.some((v) => v.startsWith("topic:") || v.includes("::new_page::") || v.includes("::full_rewrite::")) ? "whole_page" : "existing_page_edit";
+};
 /** Funding uses the canonical mutation identity, with page fallback before a card exists. */
 const keyOf = (p: Keyable): string => { try { return mutationKeyOf(p); } catch { return `unknown-page::${(p.id ?? p.primaryQuery ?? "").trim().toLowerCase() || "none"}`; } }; // its OWN name, so two page-less jobs never share one slot // a job with no page at all can never be drawn against and must not take the pass down with it
 /** WHAT ONE DAY ALREADY DID TO ONE PIECE OF WORK, under that work's OWN identity (`workKey`: the mutation, the writer contract, the basis, the evidence bound to the row, the obligation it carries and the rules it is judged under). It replaces the four day lists that keyed on the bare mutation and family: `attempted`, `tried`, `spent` and `settled` all answered "the same page again" for work whose evidence, obligation or rules had moved, so a corrected job could not run again until tomorrow (live, an answer block whose fact banked mid day, 2026-09-03). `calls` counts the ATTEMPTS that took real provider calls and finished nothing, never the requests themselves; `last` is the outcome that attempt filed; `settled` means there is nothing left to do for this exact work under this exact evidence. A workKey nobody remembers is new work by construction. */
@@ -49,6 +65,9 @@ const BUNDLE_CALLS_TOTAL = 12;
 
 /** ONE PAID JOB, PRICED BEFORE IT RUNS. `impact` is in ONE unit across every family: the clicks this account could plausibly win back, so a bundle, a new page and a description are comparable at all. `calls` is the whole allowance, already multiplied out. */
 type PaidJob = { key: string; family: string; impact: number; calls: number; treatment?: string;
+  /** The operator is proving copy-and-paste edits before whole-page production is allowed. This is a typed
+   *  eligibility fact, not a family-name guess: research may still discover and rank either shape, while the
+   *  one paid manifest can refuse creation work without hiding the opportunity. */ delivery?: "existing_page_edit" | "whole_page";
   /** THE IDENTITY OF THIS WORK, declared here with the job and read by everything downstream, so nothing recomputes a second one that cannot match the first (Codex, 2026-08-23). */ workKey?: string;
   /** WHY THIS JOB CANNOT BE DONE THIS PASS, in the caller's own words, decided from what was already on file
    *  BEFORE any funding (Codex, 2026-08-23). A page already under measurement, work the operator took back, a
@@ -63,11 +82,20 @@ type DeclinedJob = { key: string; family: string; calls: number; reason: string 
 
 /** Expected value orders funding; attempts, calls and deadline bound it, never Ready inventory. */
 function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean; quiet?: boolean | string;
+  /** Fail-closed proving mode. Nothing outside the paid manifest needs to fork: discovery, evidence and the
+   *  visible queue continue to cover the full opportunity set, but a whole page cannot draw an allowance. */
+  deliveryScope?: DeliveryScope;
   /** Settled work stays closed; charged failures yield to untried work. */
   memory?: Readonly<Record<string, JobMemory>>;
   /** Unreached work breaks ties within expected value, without overriding attempt limits. */
   waiting?: readonly string[] }) {
   const ceiling = Math.max(0, input.calls ?? MAX_PAID_CALLS);
+  // Eligibility is decided BEFORE page/family collapse. Otherwise a high-value whole-page job can win the
+  // shared page slot and the proving-phase hold then suppresses an independently valid title, section, schema,
+  // link or correction on that same page. Held creation work remains on the declined receipt, but it cannot
+  // donate its family, price, delivery shape or work identity to an eligible manual edit.
+  const scopeHeld = input.jobs.filter((j) => !scopeAllows(input.deliveryScope ?? "all_changes", j.delivery ?? "existing_page_edit"));
+  const eligible = scopeHeld.length ? input.jobs.filter((j) => scopeAllows(input.deliveryScope ?? "all_changes", j.delivery ?? "existing_page_edit")) : input.jobs;
   // ONE ENTRY PER PAGE, AND THE PAGE GETS THE TREATMENT WITH THE HIGHEST EXPECTED SITE IMPACT (Codex, 2026-08-23).
   // Two corrections carved into this line. Dearest-wins buried strong cheap work behind bundles; value-per-call then
   // optimised the API bill instead of the site. And BOTH versions handed the winner the loser's impact score, so a
@@ -75,7 +103,7 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   // ITS OWN price; the losers stay recorded as fallbacks, never as extra funded work and never as donors.
   const finishes = (j: PaidJob): number => (j.family === "correction_review" ? 1 : 0);
   const byKey = new Map<string, PaidJob>();
-  for (const j of input.jobs) { const at = byKey.get(j.key);
+  for (const j of eligible) { const at = byKey.get(j.key);
     if (!at) byKey.set(j.key, { ...j });
     else { // A LIVE JOB ALWAYS BEATS A BLOCKED ONE on the same page, whatever the scores say: a page is only blocked
       // when EVERY family that wants it is blocked, or a stale field draft would silence a live editor card.
@@ -126,7 +154,7 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   // AND BEING UNREACHED IS A TIE-BREAK TOO (measured, 2026-09-05): standing above worth it lifted sixteen summary lines worth 0.59 clicks and less over a sourced answer to 1,361 searches, and the demotion that guarded against that lifting hand became a ratchet nothing released. Worth orders everything; the queue position breaks ties.
   const ranked = [...byKey.values()].sort((a, b) =>
     Number(started(a)) - Number(started(b)) || b.impact - a.impact || Number(waited(b)) - Number(waited(a)) || finishes(b) - finishes(a) || a.calls - b.calls || a.key.localeCompare(b.key));
-  const funded = new Map<string, number>(), declined: DeclinedJob[] = [];
+  const funded = new Map<string, number>(), declined: DeclinedJob[] = scopeHeld.map((j) => ({ key: j.key, family: j.family, calls: Math.max(1, Math.round(j.calls)), reason: "whole-page writing is outside the current manual-edit proving phase; the opportunity stays visible and ranked, but this pass cannot buy or generate it" }));
   // MONEY IS SPENT, NEVER COMMITTED, AND A COMMITMENT IS NOT ELIGIBILITY (measured on production receipts, 2026-09-04, and again 2026-09-05). Reserving each job's first round here declined thirty-four ranked candidates against money the pass never spent: one drive committed the whole sixty-call ceiling to twenty-nine rows, reached two of them, and refused the rest for a purse that ended the drive untouched. The reservation is deleted whole. What bounds a pass is `unspent`, the real ceiling, reserved in `draw` below at the moment each call is made: a job the money never reaches files `cost_blocked` in its own words rather than being refused before anything ran, and it is owed again at its own rank.
   let slots = Math.max(0, input.candidates), unspent = ceiling;
   for (const j of ranked) {
@@ -220,4 +248,4 @@ const HARD_REFUSAL = /not on the stored page|is not the one this page carries|pa
 /** AN ATTEMPT PAYS FOR A CALL THAT ACTUALLY LEFT THE PROCESS, AND THIS IS THE ONE PLACE THAT SAYS SO (campaign, 2026-09-06). Every paid door takes its attempt BEFORE its call, because a call that failed, refused or threw was still bought, and every one of them hands it back here when nothing left the process: `noCallMade` above is the same predicate the meter reads to keep those answers off the dollars, so the money a page spent and the attempts it has left are one fact in one file. Letting a cache hit spend an attempt once let twelve long-refused cached drafts starve the cards a pass existed for (Codex, 2026-08-23); the day's cap doing the same charged a page whose fact reserve was out for bulk calls it never made (reviewer, 2026-09-06). The meter is not asked for: a door with no allowance simply has nothing to give back. */
 const refundIfNoCallMade = (a: { left: number } | undefined, answer: unknown): void => { if (a && noCallMade(answer)) a.left += 1; };
 export const DRAFT_BUDGET = { MAX_PAID_CALLS, DELIVERABLE_CALLS: PER_DELIVERABLE_CALLS, RETRIES: EDITOR_RETRIES, POLICY, HARD_REFUSAL,
-  BUNDLE_CALLS: BUNDLE_CALLS_TOTAL, evidenceUnlock, memoryDecline, plan, keyOf, refundIfNoCallMade, noCallMade } as const;
+  BUNDLE_CALLS: BUNDLE_CALLS_TOTAL, evidenceUnlock, memoryDecline, plan, keyOf, deliveryOf, requirementDelivery, scopeAllows, refundIfNoCallMade, noCallMade } as const;

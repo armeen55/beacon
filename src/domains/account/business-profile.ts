@@ -109,11 +109,6 @@ export function emptyBusinessProfile(accountId: string, now = ""): BusinessProfi
   };
 }
 
-/** True when no confirmed or inferred business truth exists yet. */
-function isProfileEmpty(profile: BusinessProfile): boolean {
-  return profile.name.value.trim() === "" && profile.businessType.value === null;
-}
-
 const strArr = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 

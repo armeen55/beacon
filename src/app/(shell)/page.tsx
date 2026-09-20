@@ -18,7 +18,7 @@ import { splitLedgerLifecycle } from "@/domains/decision";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
-import { CopyButton, PublicationCopy } from "./changes/change-controls";
+import { CopyButton, MarkImplemented, PublicationCopy } from "./changes/change-controls";
 import { pageLabel, RESEARCH_CADENCE } from "./changes/types";
 
 /** Today `/` - WORK, NOT A STATUS REPORT (2026-08-11). The operator has made zero changes because this screen narrated internal
@@ -224,9 +224,6 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const dayLine = nowPacific.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "America/Los_Angeles" });
   const hour = Number(nowPacific.toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "America/Los_Angeles" }));
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-  // THE TOP EDIT is the top of the SAME ranked queue Changes pages, so "do this first" here and "1" there are one change.
-  // ONLY FINISHED WORK REACHES THIS SLOT (Product Truth, 2026-08-27): the view hands over ready rows alone, so a draft
-  // "still being checked" or an opportunity still being researched never leads the page and never wears a card.
   const top = today.nextOpportunities[0] ?? null;
   const edit = today.topEdit ?? null;
   // A PLAN IS STILL READ RATHER THAN PASTED: a merge carries several moves, so it opens instead of copying.
@@ -249,9 +246,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         <RefreshMyDataButton connectedCount={connectedSourceCount} researchPaused={composite.researchPaused === true} />
       </PageHeader>
 
-      {/* THE EDIT ITSELF, above everything, AND THE ACTION LEADS. The card used to open on the paragraph arguing the change, so the
-          first thing read was reasoning for a thing nobody had been told to do yet. Order now: what to change, what is there now,
-          what to put there with the press that takes it, then the one number that says why, then the way in. */}
+      {/* The action and exact work lead; reasoning follows. */}
       {top ? (
         <div className="rounded-2xl border border-accent-primary/50 bg-surface-raised p-5" data-top-edit="true">
           <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground" data-top-lane="ready">
@@ -259,6 +254,8 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           </p>
           <p className="mt-1 text-[15px] font-semibold leading-relaxed text-foreground">{edit?.action ?? top.recommendation}</p>
           {edit?.markup ? <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground" data-top-edit-markup="true">{edit.markup}</p> : null}
+          {edit ? <p className="mt-1 text-[12px] capitalize text-muted-foreground">{edit.confidence} confidence · {edit.risk} risk</p> : null}
+          {edit?.pageUrl ? <a href={edit.pageUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-11 items-center text-[13px] font-semibold text-accent-primary underline underline-offset-2">Open live page ↗</a> : null}
           {edit && edit.after ? (
             <div className="mt-2 space-y-1" data-top-edit-lines="true">
               {edit.before ? (
@@ -278,7 +275,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
               ) : null}
             </div>
           ) : edit ? (
-            <p className="mt-1 text-[13px] text-muted-foreground">A plan, not a paste. Open it and read the steps before touching anything.</p>
+            <p className="mt-1 text-[13px] text-muted-foreground">{edit.pieceCount
+              ? `${edit.pieceCount} coordinated ${edit.pieceCount === 1 ? "piece" : "pieces"}, not one line to paste. Open it and work through every piece.`
+              : "A plan, not a paste. Open it and read the steps before touching anything."}</p>
           ) : (
             <p className="mt-1 text-[13px] text-muted-foreground">{top.pageLabel}</p>
           )}
@@ -287,13 +286,14 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           ) : null}
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <Link href={`/changes/${encodeURIComponent(top.changeId)}`}
-              className="inline-flex rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white">
-              {plan ? "Open the steps" : "Make this change"}
+              className="inline-flex min-h-11 items-center rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white">
+              {plan ? "Review all pieces" : "Open full instructions"}
             </Link>
             <Link href="/changes" className="text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
               {others > 0 ? `See the other ${others.toLocaleString("en-US")} finished ${others === 1 ? "change" : "changes"}` : "Open Changes"}
             </Link>
           </div>
+          {edit?.paste ? <div className="mt-3 border-t border-border pt-3"><MarkImplemented proposalId={top.changeId} /></div> : null}
           {upNext.length > 0 ? (
             <div className="mt-4 border-t border-border pt-3" data-up-next="true">
               <p className="text-[12px] font-semibold text-muted-foreground">Up next</p>
@@ -317,11 +317,11 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           {preparingLine ? <p className="mt-1 tabular-nums" data-lane-preparing="true">{preparingLine}</p> : null}
         </div>
       )}
-      {/* THE HEARTBEAT: what the last research pass did and when, off its own stored row, so "is this thing alive" is answered on the first screen without a support question. ONE CADENCE SENTENCE, the same on every surface (audit 3.9): three different descriptions of when research runs were shown to the customer. */}
+      {/* One saved heartbeat and one shared cadence sentence answer whether research is alive. */}
       {composite.researchLiveness || !composite.researchPaused ? (
         <p className="text-[12px] leading-relaxed text-muted-foreground" data-research-liveness="true">{[composite.researchLiveness, composite.researchPaused ? null : RESEARCH_CADENCE].filter(Boolean).join(" ")}</p>
       ) : null}
-      {/* A SPENT MODEL BUDGET IS A FACT ABOUT THIS ACCOUNT, said in one line rather than left to look like a quiet day. SAID NO WIDER THAN IT IS PROVEN (operator, 2026-08-29): the gate this asks answers for the monthly model budget alone, so the line may not claim that search, stored evidence, cached answers or any deterministic work has stopped, because none of that is what was checked. It also states CAPABILITY, never outcome: work that costs nothing CAN continue, where "still lands here" promised an arrival that a gate, a staleness rule or a supersede can still refuse. */}
+      {/* The budget warning names only the paid capability the budget gate actually proves is stopped. */}
       {composite.modelBudgetSpent ? (
         <p className="text-[13px] leading-relaxed text-muted-foreground" data-model-budget-spent="true">
           New AI writing and factual reviews are paused because this month&rsquo;s model budget is spent. Stored and no cost work can continue.
@@ -343,7 +343,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       {/* THREE BLOCKS: the edits made this week, the wins banked all time, then the way to every one of them.
           Hover a count to see the pages behind it. No clicks are summed here: the scoreboard above owns that number. */}
       {week ? (
-        <div className="grid grid-cols-3 gap-2" data-week-strip="true">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3" data-week-strip="true">
           {[week.made, week.wins].map((block) => (
             <div key={block.label} title={block.pages} className="rounded-2xl border border-border bg-surface-raised px-4 py-3">
               <p className="text-[15px] font-semibold leading-snug tabular-nums tracking-tight text-foreground">{block.value}</p>

@@ -33,8 +33,8 @@ describe("what the matrix actually buys", () => {
   const deps = { env: { DATAFORSEO_AUTH_B64: "abc" } as unknown as NodeJS.ProcessEnv, now: () => new Date(NOW),
     fetchImpl: (async () => new Response(JSON.stringify(labsKeywordsForSiteLive), { status: 200 })) as unknown as typeof fetch,
     claimEvidenceFetch: async () => ({ outcome: "claimed", payload: null, providerTaskId: null, modelServed: null, readyAt: null, costUsd: 0 }),
-    reserveProviderSpend: async () => true, adjustProviderSpend: async () => true, breaker: async () => ({ tripped: false }), cacheRead: async () => null,
-    cacheWrite: async (_k: string, patch: Record<string, unknown>) => void written.push(patch), cacheUpsert: async (_k: string, r: Record<string, unknown>) => void written.push(r) };
+    spend: { reserve: async (i: { estimatedUsd: number }) => ({ outcome: "reserved", attemptId: "a", attemptOrdinal: 1, state: "reserved", reportingDay: "2026-07-25", estimatedUsd: i.estimatedUsd, actualUsd: null, providerTaskId: null }), read: async () => null, claimTransmission: async () => "claimed", markAmbiguous: async () => true, release: async () => true, reconcile: async () => true }, breaker: async () => ({ tripped: false }), cacheRead: async () => null,
+    cacheWrite: async (_k: string, patch: Record<string, unknown>) => void written.push(patch), cacheUpsert: async (_k: string, r: Record<string, unknown>) => void written.push(r), authorizeRepost: async () => true };
   const lived = () => Date.parse(String(written.filter((w) => w.status === "ready").at(-1)!.expires_at)) - NOW;
   it("keeps a priced keyword row and a banked body for exactly as long as the matrix calls them current", async () => {
     for (const cap of ["labs_keyword_overview", "labs_keyword_ideas"] as const) {

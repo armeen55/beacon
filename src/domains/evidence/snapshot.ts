@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { anchoredTopicMatch, canonicalUrlKey, canonicalQueryKey, domainOf, isNoiseDomain, templateHeadings, topicTokens, weakAnchorTokens } from "./relevance-gate";
 export { canonicalUrlKey } from "./relevance-gate";
 import type { FunnelResearchEvidence } from "./funnel/research-evidence";
+import { COMPETITIVE_PATTERN } from "./competitive-pattern";
 
 // ── source identity + freshness ──────────────────────────────────────────────
 
@@ -245,10 +246,10 @@ export function weakAnchorsOf(ownedPages: OwnedPageEvidence[], research: FunnelR
 /** Deterministic freshness row for a source, derived from its LoadedSource. */
 function freshnessOf(source: EvidenceSourceKind, loaded: LoadedSource<unknown>, rowsSeen: number): SourceFreshness {
   const defaultNote: Record<SourceStatus, string> = {
-    fresh: `I have current ${source.toUpperCase()} data (${rowsSeen} rows).`,
-    stale: `My ${source.toUpperCase()} data is older than its window; still using it, flagged.`,
-    empty: `I connected to ${source.toUpperCase()} but there is nothing recorded yet.`,
-    failed: `I could not read ${source.toUpperCase()} this run.`,
+    fresh: `Current ${source.toUpperCase()} data is available (${rowsSeen} rows).`,
+    stale: `${source.toUpperCase()} data is older than its window and remains in use with a stale label.`,
+    empty: `${source.toUpperCase()} is connected, but nothing is recorded yet.`,
+    failed: `${source.toUpperCase()} data could not be read this run.`,
     dormant: `${source.toUpperCase()} is not connected, so research runs without it for now.`,
   };
   return {
@@ -606,7 +607,7 @@ export function jobEvidenceHash(snapshot: Pick<EvidenceSnapshot, "ownedPages" | 
     .map((s) => [...(grouped ? [canonicalQueryKey(s.query)] : []), [...s.organic].sort((a, b) => a.rank - b.rank || a.url.localeCompare(b.url)).map((o) => [o.rank, o.url, ...(grouped ? [o.title ?? null] : [])]),
       [...s.aiOverview].map((c) => c.url).sort(), [...s.aiMode].map((c) => c.url).sort()])
     .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-  const winners = jobWinners(snapshot.research, primaryQuery)
+  const winners = jobWinners(snapshot.research, primaryQuery).slice(0, 5) // The comparison, pattern reader and drafting packet each read at most the first five ranked/cited publishers. A sixth later capture is new account evidence, but it is not an input to this job and must not re-identify finished copy that never saw it.
     .map((w) => [canonicalUrlKey(w.url), materialExtract(w.extract), ...(grouped ? [[...new Set((w.appearances ?? []).filter((a) => queries.includes(canonicalQueryKey(a.query ?? a.promptText ?? ""))).map((a) => JSON.stringify([a.kind, canonicalQueryKey(a.query ?? a.promptText ?? ""), a.rank, a.engine, a.promptId, a.promptVersion ?? null, a.modelServed, a.observationMode ?? null, a.kind === "ai_answer" ? a.reportingDay ?? a.observedAt.slice(0, 10) : null])))].sort()] : [])])
     .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
   return createHash("sha256").update(JSON.stringify({ pages, ...(grouped ? { queries } : {}), serp, winners })).digest("hex").slice(0, 16);
@@ -630,5 +631,5 @@ export function jobWinners(research: Pick<EvidenceSnapshot["research"], "serpEvi
     .map((w) => ({ ...w, querySupport: support(w) }))
     .filter((w) => w.querySupport.rank != null || w.querySupport.citationObservations > 0 || (w.appearances ?? []).some((a) => keys.has(canonicalQueryKey(a.query ?? a.promptText ?? ""))))
     .sort((a, b) => (channel === "aeo" ? b.querySupport.citationObservations - a.querySupport.citationObservations : 0) || (a.querySupport.rank ?? Infinity) - (b.querySupport.rank ?? Infinity) || b.querySupport.citationObservations - a.querySupport.citationObservations || Number(!!b.extract?.mainText) - Number(!!a.extract?.mainText) || canonicalUrlKey(a.url).localeCompare(canonicalUrlKey(b.url)))
-    .filter((w, i, rows) => rows.findIndex((x) => canonicalUrlKey(x.url) === canonicalUrlKey(w.url)) === i);
+    .filter((w, i, rows) => rows.findIndex((x) => COMPETITIVE_PATTERN.publisherIdentity(x.url) === COMPETITIVE_PATTERN.publisherIdentity(w.url)) === i);
 }

@@ -7,11 +7,13 @@ vi.mock("@/lib/persistence/supabase", () => ({
     select: (c: string) => { pg.queries += 1; pg.cols.push(c); return q; }, eq: () => q, contains: () => q, order: () => q, limit: () => q,
     insert: async (row: Record<string, unknown>) => { pg.inserted.push({ table, ...row }); return { error: null }; },
     then: (res: (v: unknown) => void) => res(pg.queued.shift() ?? { data: [], error: null }) }; return q; } }),}));
-/** The spend gate, allowed, so the read-back path below is exercised end to end without a ledger, and WHAT IT WAS ASKED TO RECORD: `recordSpend` is the one writer of the durable llm_budget_ledger row. */
-const ledger = vi.hoisted(() => ({ spent: [] as number[] }));
-vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
-  checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async (usd: number) => void ledger.spent.push(usd),
-  reserveOnboardingSpend: async () => ({ ok: true }), reconcileOnboardingSpend: async () => {},}));
+/** Hermetic atomic money door: the read-back path must reserve before transport and only the usage receipt reconciles spend. */
+const ledger = vi.hoisted(() => ({ spent: [] as number[], attempt: 0 }));
+vi.mock("@/lib/cost/spend-reservations", () => ({ default: {
+  reserve: async (x: { estimatedUsd: number }) => ({ outcome: "reserved", attemptId: `analysis-${ledger.attempt += 1}`, attemptOrdinal: 1, state: "reserved", reportingDay: DAY, estimatedUsd: x.estimatedUsd, actualUsd: null, providerTaskId: null }),
+  claimTransmission: async () => "claimed", markAmbiguous: async () => true, release: async () => true,
+  reconcile: async (_id: string, usd: number) => (ledger.spent.push(usd), true),
+} }));
 /** WHAT THE PROVIDER REGISTRY CAN ASK TODAY. The planner derives its engine set from the registry through this one predicate, so turning a capability off here is the only way to prove the derivation is live. */
 const registry = vi.hoisted(() => ({ off: new Set<string>() }));
 vi.mock("@/domains/evidence/dataforseo/funnel-boundary", async (orig) => ({

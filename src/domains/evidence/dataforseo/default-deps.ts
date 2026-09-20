@@ -2,8 +2,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { assertPaidCallAllowed } from "@/lib/cost/cost-breaker";
-import { dailyCapReason, shareFor } from "@/lib/cost/daily-cap";
-import { log } from "@/lib/logger";
+import spend from "@/lib/cost/spend-reservations";
 import type { CachedCallDeps } from "./cached-call";
 import type { FunnelBoundaryDeps } from "./funnel-boundary";
 
@@ -32,6 +31,7 @@ function buildDefaultDeps(env: NodeJS.ProcessEnv): CachedCallDeps {
     env,
     now: () => new Date(),
     fetchImpl: fetch,
+    spend,
     claimEvidenceFetch: async (p) => {
       const { data, error } = await rpc("claim_evidence_fetch", {
         p_cache_key: p.cacheKey, p_endpoint: p.endpoint, p_endpoint_version: p.endpointVersion,
@@ -48,21 +48,8 @@ function buildDefaultDeps(env: NodeJS.ProcessEnv): CachedCallDeps {
         modelServed: (row?.model_served as string) ?? null,
         readyAt: (row?.ready_at as string) ?? null,
         costUsd: Number(row?.cost_usd ?? 0),
+        fetchGeneration: Number(row?.fetch_generation ?? 1),
       };
-    },
-    reserveProviderSpend: async (tenantId, platform, amount, monthlyCap, purpose) => {
-      // THE OPERATOR'S DAILY CAP GATES SEARCH BUYS TOO: one day-total across every platform on the ledger,
-      // asked before the monthly reservation, failing closed when today's spend cannot be read. Bulk buying
-      // stops short of the fact-check reserve, so the day's one fact unit is reachable at the real cap.
-      const daily = await dailyCapReason(tenantId, new Date(), shareFor("search", purpose), amount, purpose).catch(() => "Today's spend could not be read, so no more is spent today.");
-      if (daily != null && amount > 0) { log.info("[dataforseo] the daily budget refused this call", { tenantId, platform, daily }); return false; }
-      const { data, error } = await rpc("reserve_provider_spend", { p_tenant_id: tenantId, p_platform: platform, p_amount: amount, p_monthly_cap: monthlyCap });
-      if (error) throw new Error(error.message);
-      return data === true;
-    },
-    adjustProviderSpend: async (tenantId, platform, delta) => {
-      const { data, error } = await rpc("adjust_provider_spend", { p_tenant_id: tenantId, p_platform: platform, p_delta: delta });
-      return error ? false : data === true;
     },
     cacheRead: async (cacheKey) => {
       // FAIL CLOSED: a records outage must never look like a cache miss. Swallowing
@@ -86,6 +73,10 @@ function buildDefaultDeps(env: NodeJS.ProcessEnv): CachedCallDeps {
       const { error } = await getSupabaseAdmin().from("evidence_cache").upsert({ cache_key: cacheKey, ...row, updated_at: new Date().toISOString() }, { onConflict: "cache_key" });
       if (error) throw new Error(`evidence_cache upsert failed: ${error.message}`);
     },
+    authorizeRepost: async (cacheKey, detail) => {
+      const { data, error } = await rpc("authorize_evidence_task_repost", { p_cache_key: cacheKey, p_detail: detail });
+      return error == null && data === true;
+    },
     breaker: async (e, now, projected) => {
       if (underVitest()) return { tripped: false };
       return assertPaidCallAllowed({ projectedCostUsd: projected }, { env: e, now: () => now });
@@ -93,17 +84,14 @@ function buildDefaultDeps(env: NodeJS.ProcessEnv): CachedCallDeps {
   };
 }
 
-/** THE TASKS ALREADY PAID FOR AND NEVER RETRIEVED, oldest first: finishing them is a FREE task_get. Bounded
- *  by the caller, fail-soft ("cannot list" is never "nothing owed"), fleet-level because evidence_cache is
- *  content addressed with no tenant column. */
+/** Already-paid tasks whose durable backoff has elapsed, oldest wake first. */
 export async function pendingProviderTaskKeys(limit: number): Promise<string[]> {
   try {
-    const { data, error } = await getSupabaseAdmin().from("evidence_cache").select("cache_key")
-      .eq("status", "pending").not("provider_task_id", "is", null)
-      .gt("expires_at", new Date().toISOString())
-      .order("posted_at", { ascending: true }).limit(Math.max(1, limit));
+    const now = new Date().toISOString(), { data, error } = await getSupabaseAdmin().from("evidence_cache").select("cache_key")
+      .eq("status", "pending").not("provider_task_id", "is", null).gt("expires_at", now).lte("next_poll_at", now)
+      .order("next_poll_at", { ascending: true }).limit(Math.max(1, limit));
     if (error != null) return [];
-    return ((data ?? []) as Array<{ cache_key: string }>).map((r) => String(r.cache_key));
+    return (data ?? []).map((r) => String(r.cache_key));
   } catch {
     return [];
   }

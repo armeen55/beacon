@@ -81,7 +81,7 @@ const MAX_OWNED_READS = 10;
 /** What the one owned read did: the memory to persist, and the pause when a body I had in hand could not be made durable. */
 type OwnedRead = { held: OwnedPageReadOutcome[]; pause: string | null };
 /** A page response is NOT a durable success until its snapshot write lands. This is my own persistence failing, so it is never a robots denial and never "your page did not answer": those are the page's answer, this one is mine. */
-const OWNED_WRITE_PAUSE = "I read your page but I could not save what it says, so I am not counting it as read yet. I will read it again on your next visit.";
+const OWNED_WRITE_PAUSE = "The page was read, but its contents could not be saved, so it is not counted as read yet. The next visit will read it again.";
 
 /** THE read of ONE page of the account's OWN, at most once per run, under the caller's live lease, and NEVER through a paid provider: the publisher here is the customer. Decision NAMES the URL and reads the result, so
  *  nothing about a page render ever reaches the customer's website. A success persists the canonical page snapshot and CLEARS the failure memory for that URL; a failure is remembered on the SAME retry policy a winning
@@ -155,7 +155,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
       const ownDomain = account?.domain ? rootDomain(account.domain) : null;
       const toDay = reportingDay(d.now()), fromDay = new Date(Date.parse(`${toDay}T12:00:00Z`) - 27 * 86_400_000).toISOString().slice(0, 10);
       const observations = await d.loadCanonicalObservations(tenantId, { fromDay, toDay }).catch(() => null);
-      if (observations === null) return { status: "failed", cursor, progress: {}, detail: "I could not read your stored AI evidence, so I spent nothing and kept your saved research." };
+      if (observations === null) return { status: "failed", cursor, progress: {}, detail: "Stored AI evidence could not be read, so nothing was spent and saved research was preserved." };
       const raw = collectAppearances(state, nowIso, observations);
       const resolved = await Promise.resolve().then(() => resolve(raw, undefined, deadline)).catch(() => raw); // a resolver failure (sync OR async) degrades to raw appearances; the unit deadline bounds it
       const prior = new Map(state.winningPages.map((w) => [canonicalUrlKey(w.url), w])); // the row I already hold for each page: the reading it carries, and what stopped me last time

@@ -14,7 +14,7 @@ vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => ({ ...(await ori
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadOwnedPageBodies: async () => { throw new Error("no body store in this fixture"); } }));
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: env.tenant, domain: `${env.tenant}.example`, growth_goal: null }), basisTag: () => "basis_rv3" }));
 
-import { supabaseFake, type Row } from "../helpers/supabase-fake";
+import { proposalStoreRpc, supabaseFake, type Row } from "../helpers/supabase-fake";
 import { loadChangeProposals } from "@/domains/decision/proposal-store";
 import { nextObligation } from "@/domains/decision/obligation";
 import { preferFinished } from "@/domains/decision/completeness";
@@ -23,7 +23,7 @@ import { demandRecoveryCards } from "@/domains/decision/producers/demand-recover
 
 Object.assign(db.client, supabaseFake({ rows: (t) => { if (!db.tables.has(t)) db.tables.set(t, []); return db.tables.get(t) as Row[]; },
   insertDefaults: () => ({ created_at: "2026-09-01T00:00:00.000Z" }) }));
-(db.client as { rpc: unknown }).rpc = async () => ({ data: "saved", error: null });
+(db.client as { rpc: unknown }).rpc = proposalStoreRpc(() => { if (!db.tables.has("change_proposals")) db.tables.set("change_proposals", []); return db.tables.get("change_proposals") as Row[]; });
 
 const NOW = new Date("2026-09-06T13:00:00.000Z");
 const SITES = [

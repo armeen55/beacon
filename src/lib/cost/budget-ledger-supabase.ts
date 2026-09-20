@@ -10,25 +10,12 @@ import "server-only";
  *
  * Contract
  * --------
- *   1. Validates BEFORE any Supabase round-trip: empty tenantId, unknown
- *      platform, or a negative cost outside the reserve-rollback path are
- *      dropped with a warn and no write is attempted.
- *   2. Never throws to the caller. A rejected write, a Supabase error and an
- *      unexpected exception all warn and return false, so a ledger glitch can
- *      never block a paid call; a caller that must fail closed reads the false.
- *   3. Reads answer null on a failed read. getTenantLifetimeSpendUsd fails
+ *   1. This module is read-only. `reserve_spend` and `reconcile_spend` are the
+ *      sole write authority, so no caller can charge after the fact or bypass
+ *      the reservation lock.
+ *   2. Reads answer null on a failed read. getTenantLifetimeSpendUsd fails
  *      CLOSED on that null (unknown spend is not allowance); the monthly read
  *      hands its caller back to the file ledger with the per-run ceiling behind it.
- *
- * UPSERT semantics
- * ----------------
- * Postgres-side `INSERT ... ON CONFLICT DO UPDATE SET col = col + n` is the
- * natural shape for an atomic increment and supabase-js does not expose it, so
- * this is SELECT-then-INSERT-or-UPDATE. THE RACE IS HANDLED, NOT ASSUMED AWAY:
- * a duplicate key means a parallel writer created the day row in between, and
- * the loser folds its spend into that row rather than dropping it, because
- * dropped spend under-counts a cap that is supposed to fail closed. Moving the
- * increment into a Postgres function stays local to this module.
  */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
@@ -53,27 +40,6 @@ const VALID_PLATFORMS: ReadonlySet<string> = new Set<LedgerPlatform>([
   "other",
 ]);
 
-type RecordSpendDualWriteInput = {
-  /** Resolved tenant id (e.g. `tenant-ritz-founder`). Must be nonempty. */
-  tenantId: string;
-  /** Platform enum matching the migration's CHECK constraint. */
-  platform: LedgerPlatform;
-  /** Cost of THIS call/chunk in USD. Must be finite; nonnegative unless
-   *  `allowNegative` is set (the reserve-then-reconcile rollback/refund path). */
-  costUsd: number;
-  /** Slice 5 (D10): permit a NEGATIVE costUsd (reservation rollback / reconcile
-   *  refund); the row is clamped at zero. Omitted = the nonnegative-only path. */
-  allowNegative?: boolean;
-  /** Optional. Number of prompts polled in this call. Default 0. */
-  promptCount?: number;
-  /** Optional. Number of chunks completed in this call. Default 0. */
-  chunkCount?: number;
-  /** Optional. observation_run_id of this run, stamped to last_run_id. */
-  runId?: string | null;
-  /** Optional. Stamped to the row's `metadata` jsonb (last-writer-wins). */
-  metadata?: Record<string, unknown>;
-};
-
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
 /** THE LEDGER DAY IS THE REPORTING DAY. It was a UTC slice while research ran on Pacific, so the two rolled
@@ -83,74 +49,6 @@ type RecordSpendDualWriteInput = {
 export const ledgerDay = (now: Date = new Date()): string => reportingDay(now);
 
 // ─── Public API ──────────────────────────────────────────────────────────
-
-/**
- * THE durable spend write every cap depends on: getTenantSpentTodayUsd reads
- * this same table. Returns true only when the row durably persisted, and false
- * when validation or the database rejected it, which is what lets the
- * reserve-then-reconcile path in adjudicator-budget.ts refuse to spend.
- */
-export async function recordSpendSupabase(
-  input: RecordSpendDualWriteInput,
-): Promise<boolean> {
-  // ── Validation (fail loud BEFORE any Supabase round-trip) ──
-  if (typeof input.tenantId !== "string" || input.tenantId.trim() === "") {
-    console.warn(
-      `[budget-ledger] write rejected: empty tenantId platform=${input.platform}`,
-    );
-    return false;
-  }
-  if (!VALID_PLATFORMS.has(input.platform)) {
-    console.warn(
-      `[budget-ledger] write rejected: invalid platform "${input.platform}"`,
-    );
-    return false;
-  }
-  // Negative costs are rejected UNLESS `allowNegative` is set (the D10 rollback /
-  // reconcile refund path); the row is clamped at zero on write below either way.
-  if (!Number.isFinite(input.costUsd) || (input.costUsd < 0 && input.allowNegative !== true)) {
-    console.warn(
-      `[budget-ledger] write rejected: invalid costUsd=${input.costUsd} tenantId=${input.tenantId}`,
-    );
-    return false;
-  }
-  const promptCount = input.promptCount ?? 0;
-  const chunkCount = input.chunkCount ?? 0;
-  if (!Number.isInteger(promptCount) || promptCount < 0) {
-    console.warn(
-      `[budget-ledger] write rejected: invalid promptCount=${promptCount}`,
-    );
-    return false;
-  }
-  if (!Number.isInteger(chunkCount) || chunkCount < 0) {
-    console.warn(
-      `[budget-ledger] write rejected: invalid chunkCount=${chunkCount}`,
-    );
-    return false;
-  }
-
-  try {
-    // ONE ATOMIC INCREMENT, NOT A READ AND A WRITE. Every charge used to SELECT today's row, add the cost in
-    // JavaScript and UPDATE the absolute total back, so two concurrent charges both read the same total and one
-    // of them simply disappeared: the fail-closed cap was then reading a number smaller than what was spent.
-    // The database adds the delta under an advisory lock for this (tenant, platform), which is the same shape
-    // the provider ledger has always used, so nothing depends on what this process last read.
-    const { data, error } = await getSupabaseAdmin().rpc("increment_llm_spend", {
-      p_tenant_id: input.tenantId, p_platform: input.platform, p_delta: input.costUsd,
-      p_prompts: promptCount, p_chunks: chunkCount, p_run_id: input.runId ?? null,
-      p_metadata: (input.metadata ?? null) as never,
-    });
-    if (error) {
-      console.warn(`[budget-ledger] increment failed (non-fatal) tenantId=${input.tenantId} platform=${input.platform}: ${error.message}`);
-      return false;
-    }
-    return data === true;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.warn(`[budget-ledger] write threw (non-fatal): ${msg}`);
-    return false;
-  }
-}
 
 /**
  * Slice 5 (2026-07-24) - LIFETIME spend for a tenant on ONE platform, summed

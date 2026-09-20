@@ -10,10 +10,10 @@ import {
 } from "@/lib/perf-trace";
 import { loadProofLedgerPersisted } from "@/domains/measurement";
 import { findProofForChange, proofResultHref } from "@/domains/measurement";
-import { actionableProposalFailures, componentIdOf, loadChangeProposal, resolveCurrentBasis, sameComponentId, validateProposal } from "@/domains/decision";
+import { actionableProposalFailures, componentIdOf, loadChangeProposal, resolveCurrentBasis, sameComponentId } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
-import { pageLabel } from "../types";
+import operatorUiPolicy, { pageLabel } from "../types";
 import { BundleDetail, SimpleDetail } from "./bundle-detail";
 
 // Force dynamic render so every request runs the fresh-repo-read pattern below. Matches /changes.
@@ -26,8 +26,10 @@ export const dynamic = "force-dynamic";
  */
 export default async function ChangeDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const trace = createPerfTrace("loader:/changes/[id]", {
     traceId: await readPerfTraceIdFromHeaders(),
@@ -35,22 +37,19 @@ export default async function ChangeDetailPage({
   });
   try {
     const { id: rawId } = await params;
+    const requestedReturn = (await searchParams)?.returnTo;
+    const returnTo = typeof requestedReturn === "string" && /^\/changes(?:\?|$)/.test(requestedReturn) ? requestedReturn : "/changes";
     // Next hands the path segment URL-encoded; proposal ids carry "::" and "/".
     const id = decodeURIComponent(rawId);
     const tenantId = await currentTenantId();
     const { access } = await requireReadyAccount(tenantId);
     if (access.kind === "suspended") redirect("/");
 
-    // ONE bounded row read serves both answers: the id names the row and the CURRENT basis proves it is
-    // live work, so no cached release resurrects set-aside copy and no unlimited queue is poured out to
-    // find one row whose address is already in hand. No bundle falls through to the redirect below.
-    // THE SAME ONE VERDICT THE LIST ASKS. A link is not a side entrance: a receipt that stopped resolving, a
-    // merge sitting in ready and readings that went cold are refused here exactly as they are refused there.
+    // One bounded row read and the current basis keep a direct link aligned with the ranked queue.
     const [proposal, basis] = await Promise.all([loadChangeProposal(tenantId, id), resolveCurrentBasis(tenantId)]);
-    const found = proposal && actionableProposalFailures(proposal, { tenantId, currentBasis: basis }).length === 0
-      && (proposal.kind !== "new_page" || validateProposal(proposal).verdict !== "rejected") ? proposal : null;
-    // WHAT IS ALREADY ON FILE, so the picker opens on the pieces nobody has recorded yet. Fail-soft: an unreadable ledger offers
-    // everything, which the server subtracts from anyway, so no press can record one piece twice.
+    const inProof = proposal != null && operatorUiPolicy.isManualEditProofWork(proposal);
+    const found = proposal && inProof && actionableProposalFailures(proposal, { tenantId, currentBasis: basis }).length === 0 ? proposal : null;
+    // Already-recorded components are disabled in the picker; the server remains idempotent if this read fails.
     if (found?.bundle) {
       const ledger = (await loadProofLedgerPersisted(tenantId).catch(() => [])).filter((r) => r.proposalId === found.id), change = found.recommendedChange;
       const recorded = new Set(found.bundle.components.flatMap((c, i) => {
@@ -58,18 +57,19 @@ export default async function ChangeDetailPage({
           anchorAfter: link ? (c.anchorAfter ?? (change.kind === "existing_edit" ? change.anchorText : null))?.trim() || null : null, redirectTo: c.redirectTo ?? (link && change.kind === "existing_edit" ? change.linkTo : null) ?? null };
         return ledger.some((r) => (r.componentsApplied ?? []).some((applied) => applied.id && sameComponentId(applied.id, componentIdOf(c, i), [{ ...applied, before: applied.before === undefined && r.componentsApplied?.length === 1 ? r.before : applied.before, page: applied.page ?? r.page }, current]))) ? [componentIdOf(c, i)] : [];
       }));
-      return <BundleDetail proposal={found} bundle={found.bundle} recorded={recorded} />;
+      return <BundleDetail proposal={found} bundle={found.bundle} recorded={recorded} returnTo={returnTo} />;
     }
     // LIVE WORK WITH NOTHING TO UNPACK still gets its own page: once the queue became mostly suggestion and
     // sweep cards, the old redirect-to-the-list here bounced every "See the change" press straight back.
-    if (found) return <SimpleDetail proposal={found} />;
+    if (found) return <SimpleDetail proposal={found} returnTo={returnTo} />;
+    if (proposal && !inProof) return <OutsideProofDetail />;
     const stored = proposal ?? (await loadChangeProposal(tenantId, id, { retired: "include" }).catch(() => null));
     // A CHANGE ALREADY RECORDED IS NOT A MISSING PAGE. Pressing Mark done and reopening this address fell all
     // the way through to the changelog lookup and rendered the framework's unstyled 404, which is the worst
     // possible answer to "did my action work". It now says what was done, when, and when the reading lands.
     if (stored?.status === "implemented_pending_verification") {
       const row = (await loadProofLedgerPersisted(tenantId).catch(() => [])).find((r) => r.proposalId === stored.id);
-      return <DoneDetail proposal={stored} markedAt={row?.implementedAt ?? row?.shippedAt ?? null} />;
+      return <DoneDetail proposal={stored} markedAt={row?.implementedAt ?? row?.shippedAt ?? null} measurementState={row?.measurementState ?? null} />;
     }
     if (stored != null) return <SetAsideDetail unreadable={basis == null} />;
 
@@ -97,6 +97,14 @@ export default async function ChangeDetailPage({
   }
 }
 
+function OutsideProofDetail() {
+  return <div className="max-w-3xl"><section className="space-y-2 rounded-2xl border border-border bg-surface-raised p-5" data-outside-manual-proof="true">
+    <h2 className="text-[14px] font-semibold text-foreground">Kept for the later whole-page phase</h2>
+    <p className="text-[13px] leading-relaxed text-muted-foreground">The current proof is existing-page manual edits only. This whole-page opportunity stays on file, but it cannot be copied, confirmed, skipped, or marked done from Today or Changes.</p>
+    <Link href="/changes" className="inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2">Back to existing-page edits</Link>
+  </section></div>;
+}
+
 /** The honest end of a stale direct link: no exact copy, no before and after, and
  *  no way to record work I no longer stand behind. One decision, one way back. */
 function SetAsideDetail({ unreadable }: { unreadable: boolean }) {
@@ -119,7 +127,7 @@ function SetAsideDetail({ unreadable }: { unreadable: boolean }) {
 
 /** WHAT WAS DONE AND WHEN THE ANSWER COMES, for a change already recorded. No copy to paste, no control to press
  *  again, and no invented outcome: the reading is the ledger's job and Results is where it lands. */
-function DoneDetail({ proposal, markedAt }: { proposal: ChangeProposal; markedAt: string | null }) {
+function DoneDetail({ proposal, markedAt, measurementState }: { proposal: ChangeProposal; markedAt: string | null; measurementState: string | null }) {
   const c = proposal.recommendedChange;
   const before = c.kind === "existing_edit" ? c.before : null;
   const after = c.kind === "new_page" ? c.proposedTitle : c.after;
@@ -144,7 +152,7 @@ function DoneDetail({ proposal, markedAt }: { proposal: ChangeProposal; markedAt
           </p>
         ) : null}
         <p className="text-[13px] leading-relaxed text-muted-foreground">
-          {day ? `Marked done ${day}. ` : "Marked done. "}Measuring for 28 days; the first reading lands at 7 days.
+          {day ? `Marked done ${day}. ` : "Marked done. "}{operatorUiPolicy.measurementAcknowledgement(measurementState, markedAt ? new Date(markedAt) : new Date())}
         </p>
         <Link href="/results" className="inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2">
           See what every change earned

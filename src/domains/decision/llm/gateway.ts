@@ -1,15 +1,13 @@
 import "server-only";
-
-/** llm/gateway (Slice 3, 2026-07-23) - THE single OpenAI egress, now a STRICT Structured-Outputs transport over the canonical Responses API. `openAIStructuredResponse` is the one door every internal-reasoning call uses. It converts the caller's Zod schema to a strict JSON Schema, POSTs to `POST /v1/responses` with `text.format.{type:"json_schema", strict:true}`, and returns a typed outcome (ok / blocked_budget / blocked_credit / refusal / incomplete / invalid_response / http_error / error). The caller still Zod-validates the returned `value` against its ORIGINAL schema - the gateway only guarantees the value parsed as JSON and had its provider-nulls normalized away. ONE policy in one place, in this ORDER (unchanged intent from R16): 1. perfCountExternal - every reach to the LLM transport is tallied so a page GET can be proven to fire ZERO LLM calls. 2. CREDIT STOP (account level), FAIL-FAST. When the provider has said this account's balance is empty, the door itself refuses with `blocked_credit` before any network, so no lane has to carry that logic of its own. 3. GLOBAL COST BREAKER (outer guard), FAIL-CLOSED, before any per-platform read. A trip refuses the call outright; it never loosens the inner cap. 4. MONTHLY CAP (per-platform), FAIL-CLOSED. `budget: { mode: "gateway_check" }` consults the dual-write ledger BEFORE the call; `{ mode: "caller", note }` is a greppable, explicit exemption for call sites that gate spend themselves and record via `recordGatewaySpend` post-parse. 5. SCHEMA CONVERSION - an unsupported schema fails closed as invalid_response BEFORE any network call (strictness is never weakened to force it through). 6. REASONING TIMEOUT FLOOR - reasoning models are floored to >= 90s (the gpt-5-mini lesson: a sub-90s ceiling made every call silently fall back). 7. REASONING EFFORT - reasoning models get `reasoning.effort: "low"`. 8. LOUD FALLBACK - every non-ok outcome logs an unmissable warn line and (outside tests) lands in the error ledger via `recordAppError`. VITEST HERMETICS: under vitest, budget/breaker checks default to "allowed" and spend/error-ledger writes no-op UNLESS an impl is injected. Tests inject `fetchImpl` (zero network), and pin the cap by injecting `budgetImpl` / `costBreakerImpl`; nothing touches the operator's real `.data/` ledgers. Pinned by tests/decision/gateway.test.ts (this file is the ONLY file that may reference api.openai.com). */
-
 import { log } from "@/lib/logger";
+import { createHash } from "node:crypto";
 import { recordAppError } from "@/lib/obs/error-ledger";
 import { perfCountExternal } from "@/lib/obs/perf-log";
 import { z } from "zod";
 import { spendingClosed } from "@/lib/spend-scope";
-import { checkBudget } from "./adjudicator-budget";
-import { assertPaidCallAllowed } from "@/lib/cost/cost-breaker";
+import { assertPaidCallAllowed, globalMonthlyCapUsd } from "@/lib/cost/cost-breaker";
 import { CREDIT_BREAKER } from "@/lib/cost/credit-breaker";
+import spendReservations from "@/lib/cost/spend-reservations";
 import type { PromptId } from "./prompt-registry";
 import {
   classifyResponsesEnvelope,
@@ -19,35 +17,19 @@ import {
 } from "./responses-envelope";
 
 export { strictJsonSchemaFor, normalizeStructuredValue };
-/** THE account-level credit stop, read here and re-exported so every lane asks the same question of the same
- *  durable row: is this account held because the provider says its balance is empty. See lib/cost/credit-breaker.ts
- *  for the trip, the 15 minute probe, and the clear. */
-/** IS THIS ACCOUNT HELD FOR CREDIT RIGHT NOW. The read orchestration uses, and it is PURE: a due probe reads as NOT
- *  held (the work may proceed) and is spent by the transport itself, on a real request, never by a precheck. */
 export const creditBreakerHeld = async (tenantId: string): Promise<boolean> => (await CREDIT_BREAKER.peek(tenantId)) === "held";
-
-/** The canonical structured-generation endpoint (verified against OpenAI docs 2026-07-23). */
 const OPENAI_RESPONSES_API = "https://api.openai.com/v1/responses";
-
-/** Reasoning models must never run with a sub-90s ceiling (the gpt-5-mini lesson). */
 const REASONING_TIMEOUT_FLOOR_MS = 90_000;
-
-/**
- * gpt-5 / o-series are REASONING models: they spend `reasoning` tokens before emitting output, so at low effort a small completion can still take 40-90s.
- * They accept the `reasoning.effort` request param; older models reject it.
- */
 export function isReasoningModel(model: string): boolean {
   return /^(gpt-5|o\d)/i.test(model);
 }
 
-/** Per-million-token rates (USD). Verified against OpenAI pricing 2026-04-23. */
 const COST_PER_MILLION = {
   "gpt-5-mini": { input: 0.25, output: 2.0 },
   "gpt-5-nano": { input: 0.05, output: 0.4 },
   "gpt-5.4-mini": { input: 0.75, output: 4.5 },
 } as const;
 
-/** Usage-based cost estimate (re-exported by providers/openai.ts). */
 export function estimateCost(model: string, inputTokens: number, outputTokens: number): number {
   const rates =
     (COST_PER_MILLION as Record<string, { input: number; output: number }>)[model] ??
@@ -56,48 +38,38 @@ export function estimateCost(model: string, inputTokens: number, outputTokens: n
   return Math.round(cost * 1_000_000) / 1_000_000;
 }
 
-/**
- * How this call is protected by the monthly cap:
- *  - "gateway_check": the gateway consults the fail-closed dual-write ledger
- *    BEFORE the call (blocked / unreadable -> no call). The caller records the
- *    actual spend post-parse via `recordGatewaySpend`.
- *  - "caller": the call site's own pinned orchestration checks AND records. The
- *    note documents where.
- */
-type LlmBudgetPosture =
-  | { mode: "gateway_check"; projectedCostUsd: number; now?: Date }
-  | { mode: "caller"; note: string };
-
-type BudgetImpl = {
-  check: (projectedCostUsd: number, now?: Date) => Promise<{ allowed: boolean; reason?: string }>;
-  record: (costUsd: number, now?: Date) => Promise<void>;
+type SpendReservationContext = {
+  platform: "adjudicator-openai" | "onboarding-openai";
+  purpose: "bulk" | "fact_check" | "onboarding";
+  logicalKey: string;
+  proposalWorkKey?: string | null;
+  estimatedUsd: number;
+  monthlyCapUsd?: number | null;
+  lifetimeCapUsd?: number | null;
 };
 
-/**
- * The GLOBAL cost breaker consulted BEFORE the per-platform budget check. Returns tripped=true to block. Tests inject this; production defaults to the
- * real cross-lane breaker (hermetically no-op under vitest unless injected).
- */
+type ReservationImpl = Pick<typeof spendReservations, "reserve" | "claimTransmission" | "markAmbiguous" | "release" | "reconcile">;
+async function reconcileRetried(write: () => Promise<boolean>): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt += 1) { try { if (await write()) return true; } catch { /* retry the idempotent RPC */ } }
+  return false;
+}
+
 export type CostBreakerImpl = {
   check: (projectedCostUsd: number) => Promise<{ tripped: boolean; reason?: string }>;
 };
 
-/** The durable account-level credit stop as a seam. Production wires the ledger-backed breaker; tests inject. */
 type CreditBreakerImpl = {
-  /** PURE. Reports the stop; never stamps a probe, so any number of callers may ask. */ peek: (tenantId: string) => Promise<"clear" | "held" | "probe_due">;
-  /** STAMPS. Called ONLY from here, immediately before network egress, so the one probe a cooldown grants is spent on a real provider request or on nothing. */ claimProbe: (tenantId: string) => Promise<boolean>;
+  peek: (tenantId: string) => Promise<"clear" | "held" | "probe_due">;
+  claimProbe: (tenantId: string) => Promise<boolean>;
   trip: (tenantId: string) => Promise<void>;
   clear: (tenantId: string) => Promise<void>;
 };
 
-/** OpenAI's own name for an empty balance is `insufficient_quota`; this is what Beacon calls it everywhere after. */
 const CREDIT_EXHAUSTED = "credit_balance_exhausted";
-/** A code is a machine identifier. Anything shaped otherwise is provider prose and is dropped, never carried. */
 const CODE_SHAPE = /^[a-z0-9_.-]{1,64}$/i;
-/** What the operator is told while the stop holds: what happened, what I am doing about it, what ends it. */
 const CREDIT_STOP_REASON =
-  "My OpenAI account is out of credit, so I am holding every call that needs it. I try one call every 15 minutes and pick straight back up the moment one goes through. Add credit to that account to end the hold now.";
+  "OpenAI credit is exhausted, so every call that needs it is paused. One recovery probe runs every 15 minutes; work resumes after credit is available. Add credit to end the hold now.";
 
-/** Everything the transport needs to name and account for the failure. */
 type GatewayIdentity = {
   promptId: PromptId;
   promptVersion: number;
@@ -105,8 +77,6 @@ type GatewayIdentity = {
   tenantId: string;
 };
 
-/** Provider provenance for the returned artifact (retryCount is the CALLER's).
- *  Carries the owning account so every ledger row and audit trail is attributable. */
 export type LlmProvenance = {
   tenantId: string;
   responseId: string | null;
@@ -117,39 +87,31 @@ export type LlmProvenance = {
   inputTokens: number | null;
   outputTokens: number | null;
   costUsd: number | null;
+  accountedCostUsd?: number | null;
+  costBasis?: "usage_estimate" | "reservation_estimate";
   retryCount: number;
 };
 
 export type StructuredCallArgs = {
-  /** Registered prompt identity (prompt-registry.ts) - versioned + fixture-pinned. */
   promptId: PromptId;
   promptVersion: number;
-  /** The calling action for the error ledger (e.g. "page-surgeon-judge"). */
   action: string;
   apiKey: string;
   model: string;
-  /** System instructions (Responses `instructions`). */
   instructions: string;
-  /** User content (Responses `input`). */
   input: string;
-  /** Stable schema name per kind (Responses `text.format.name`). */
   schemaName: string;
-  /** Converted internally via `strictJsonSchemaFor`; caller re-validates against it. */
   zodSchema: z.ZodTypeAny;
   maxOutputTokens: number;
-  /** Requested ceiling; floored to REASONING_TIMEOUT_FLOOR_MS for reasoning models. */
   timeoutMs: number;
-  budget: LlmBudgetPosture;
   fetchImpl?: typeof fetch;
   /** The owning account. REQUIRED (validated non-empty before any check) so spend,
    *  provenance, and error-ledger rows are always attributable to one account. */
   tenantId: string;
-  /** Test seam for the cap; hermetic under vitest otherwise. */
-  budgetImpl?: BudgetImpl;
-  /** Test seam for the global cost breaker; hermetic under vitest otherwise. */
   costBreakerImpl?: CostBreakerImpl;
-  /** Test seam for the account-level credit stop; hermetic under vitest otherwise. */
   creditBreakerImpl?: CreditBreakerImpl;
+  spend: SpendReservationContext;
+  reservationImpl?: ReservationImpl;
 };
 
 /** THE ONE HONEST TRANSPORT FACT, on every outcome: how many requests actually LEFT this process for the
@@ -225,10 +187,9 @@ export function effectiveTimeoutMs(model: string, requestedMs: number): number {
  * both cases. It never LOOSENS the per-platform cap; a trip refuses outright. Hermetic under vitest unless a costBreakerImpl is injected.
  */
 async function checkGatewayCostBreaker(
-  posture: LlmBudgetPosture,
+  projected: number,
   impl: CostBreakerImpl | undefined,
 ): Promise<{ allowed: true } | { allowed: false; reason: string }> {
-  const projected = posture.mode === "gateway_check" ? posture.projectedCostUsd : 0;
   if (impl) {
     const r = await impl
       .check(projected)
@@ -241,28 +202,6 @@ async function checkGatewayCostBreaker(
     return v.tripped ? { allowed: false, reason: v.reason } : { allowed: true };
   } catch {
     return { allowed: false, reason: "global spend breaker unavailable, failing closed" };
-  }
-}
-
-async function checkGatewayBudget(
-  posture: LlmBudgetPosture,
-  budgetImpl: BudgetImpl | undefined,
-  tenantId: string,
-): Promise<{ allowed: true } | { allowed: false; reason: string }> {
-  if (posture.mode === "caller") return { allowed: true };
-  if (budgetImpl) {
-    const r = await budgetImpl
-      .check(posture.projectedCostUsd, posture.now)
-      .catch(() => ({ allowed: false as const, reason: "budget check unavailable, failing closed" }));
-    return r.allowed ? { allowed: true } : { allowed: false, reason: r.reason ?? "cap reached" };
-  }
-  // Hermetic under vitest: never read the operator's real ledger from a test run; tests that pin the cap inject budgetImpl.
-  if (underVitest()) return { allowed: true };
-  try {
-    const b = await checkBudget({ tenantId, projectedCostUsd: posture.projectedCostUsd, now: posture.now });
-    return b.allowed ? { allowed: true } : { allowed: false, reason: b.reason };
-  } catch {
-    return { allowed: false, reason: "budget check unavailable, failing closed" };
   }
 }
 
@@ -313,6 +252,35 @@ async function reportGatewayFailure(id: GatewayIdentity, reason: string, detail?
   });
 }
 
+async function interpretEnvelope(
+  json: unknown,
+  provenance: LlmProvenance,
+  schema: z.ZodTypeAny,
+  id: GatewayIdentity,
+  httpAttempts: 0 | 1,
+): Promise<StructuredCallOutcome> {
+  const classified = classifyResponsesEnvelope(json);
+  if (classified.kind === "refusal") {
+    await reportGatewayFailure(id, "refusal");
+    return { httpAttempts, kind: "refusal", provenance };
+  }
+  if (classified.kind === "incomplete") {
+    await reportGatewayFailure(id, "incomplete", classified.reason);
+    return { httpAttempts, kind: "incomplete", reason: classified.reason, provenance };
+  }
+  if (classified.kind === "invalid") {
+    await reportGatewayFailure(id, `invalid_response_${classified.reason}`);
+    return { httpAttempts, kind: "invalid_response", reason: classified.reason, provenance };
+  }
+  let parsed: unknown;
+  try { parsed = JSON.parse(classified.text); }
+  catch {
+    await reportGatewayFailure(id, "invalid_response_structured_parse");
+    return { httpAttempts, kind: "invalid_response", reason: "structured output was not valid JSON", provenance };
+  }
+  return { httpAttempts, kind: "ok", value: normalizeStructuredValue(parsed, schema), provenance };
+}
+
 /**
  * THE OpenAI structured-generation transport over the Responses API. Enforces the guard order in the module doc, converts the Zod schema to a strict JSON Schema, and returns a typed outcome. Never throws.
  */
@@ -351,17 +319,12 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   }
 
   // 3. Global breaker (outer guard): refuse before the per-platform cap is read.
-  const breaker = await checkGatewayCostBreaker(args.budget, args.costBreakerImpl);
+  const projectedCostUsd = Math.max(0.02, args.spend.estimatedUsd,
+    estimateCost(args.model, Buffer.byteLength(args.instructions + args.input), args.maxOutputTokens));
+  const breaker = await checkGatewayCostBreaker(projectedCostUsd, args.costBreakerImpl);
   if (!breaker.allowed) {
     await reportGatewayFailure(id, "blocked_budget", breaker.reason);
     return { httpAttempts: 0, kind: "blocked_budget", reason: breaker.reason };
-  }
-
-  // 4. Per-platform monthly cap, fail-closed (scoped to the explicit account).
-  const budget = await checkGatewayBudget(args.budget, args.budgetImpl, tenantId);
-  if (!budget.allowed) {
-    await reportGatewayFailure(id, "blocked_budget", budget.reason);
-    return { httpAttempts: 0, kind: "blocked_budget", reason: budget.reason };
   }
 
   // 5. Schema conversion - fail closed BEFORE any network call on an unsupported schema.
@@ -381,24 +344,82 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   // 7. Reasoning effort default (only for reasoning models; older models reject it).
   if (reasoning) requestBody.reasoning = { effort: "low" };
 
+  // ONE durable spend lifecycle. The byte count is a conservative input-token ceiling; caller projections may
+  // raise it, never lower it. The exact request identity resumes only its own unresolved operation for this day.
+  const computedEstimate = Math.max(projectedCostUsd, estimateCost(args.model, Buffer.byteLength(JSON.stringify(requestBody)), args.maxOutputTokens));
+  const context = args.spend;
+  const reservations = args.reservationImpl ?? spendReservations;
+  const requestFingerprint = createHash("sha256").update(`${OPENAI_RESPONSES_API}\n${JSON.stringify(requestBody)}`).digest("hex");
+  let reservation;
+  try { reservation = await reservations.reserve({ tenantId, ...context, requestFingerprint,
+    recoveryKind: "none", estimatedUsd: Math.max(context.estimatedUsd, computedEstimate),
+    globalMonthlyCapUsd: globalMonthlyCapUsd() }); }
+  catch { reservation = null; }
+  if (!reservation?.attemptId || !["reserved", "resumed", "replayed"].includes(reservation.outcome)) {
+    const reason = reservation?.outcome ?? "spend reservation unavailable, failing closed";
+    await reportGatewayFailure(id, "blocked_budget", reason);
+    return { httpAttempts: 0, kind: "blocked_budget", reason };
+  }
+  const attemptId = reservation.attemptId;
+  const ambiguous = () => reservations.markAmbiguous(attemptId).catch(() => false);
+  // A provider refusal can prove zero cost only for an attempt that had never
+  // crossed the transport boundary before this invocation. A resumed
+  // transmitted/ambiguous attempt may already have been charged; a new 402/429
+  // says nothing about that earlier transmission and must not erase its hold.
+  const zeroCostCanStillBeProven = reservation.state === "reserved";
+  if (reservation.outcome === "replayed") {
+    const json = reservation.resultPayload;
+    const fields = readProvenanceFields(json);
+    if (json == null) return { httpAttempts: 0, kind: "error", reason: "stored_provider_result_incomplete", timedOut: false };
+    const provenance: LlmProvenance = { tenantId, responseId: fields.responseId, requestedModel: args.model,
+      servedModel: fields.servedModel, status: fields.status, createdAt: fields.createdAt,
+      inputTokens: fields.inputTokens, outputTokens: fields.outputTokens,
+      costUsd: 0, accountedCostUsd: reservation.accountedUsd ?? null,
+      costBasis: reservation.accountingBasis === "reservation_estimate" ? "reservation_estimate" : "usage_estimate", retryCount: 0 };
+    return interpretEnvelope(json, provenance, args.zodSchema, id, 0);
+  }
+
   // 6. Reasoning timeout floor.
   const timeoutMs = effectiveTimeoutMs(args.model, args.timeoutMs);
   const fetchImpl = args.fetchImpl ?? fetch;
 
   // 8. THE PROBE IS CLAIMED HERE, past every gate that could still refuse. During a cooldown nothing reaches this line (step 2 already returned), so a held account makes zero network calls; when a probe is due, exactly this request receives it. A stamp that will not write keeps the hold.
   if (stop === "probe_due" && !(await credit.claimProbe(tenantId).catch(() => false))) {
+    if (zeroCostCanStillBeProven) await reservations.release(attemptId, true).catch(() => false);
     log.warn(`[llm-gateway] ${id.promptId} v${id.promptVersion} blocked_credit (the recovery attempt could not be recorded)`, { action: id.action, tenantId });
     return { httpAttempts: 0, kind: "blocked_credit", reason: CREDIT_STOP_REASON };
+  }
+  // The Responses create endpoint does not promise idempotent POST replay. If a
+  // prior transmission became ambiguous, repeating the same bytes could buy the
+  // same answer twice. Only an attempt that is still durably `reserved` may
+  // cross the wire; transmitted/ambiguous work remains held for reconciliation.
+  const transmission = reservation.state === "reserved"
+    ? await reservations.claimTransmission(attemptId)
+    : "already_started" as const;
+  if (transmission !== "claimed") {
+    const reason = transmission === "cap_refused"
+      ? "the spending door closed before this request reached the provider"
+      : transmission === "stale_day"
+        ? "the reporting day changed before this request reached the provider"
+      : transmission === "work_retired"
+        ? "the operator retired this exact work before the request reached the provider"
+      : transmission === "run_inactive"
+        ? "the research run no longer owns its lease, so no provider request was made"
+      : "this paid operation already started and remains unresolved";
+    await reportGatewayFailure(id, "blocked_budget", reason);
+    return { httpAttempts: 0, kind: "blocked_budget", reason };
   }
   let response: Response;
   try {
     response = await fetchImpl(OPENAI_RESPONSES_API, {
       method: "POST",
-      headers: { Authorization: `Bearer ${args.apiKey}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${args.apiKey}`, "Content-Type": "application/json",
+        "Idempotency-Key": attemptId, "X-Client-Request-Id": attemptId },
       body: JSON.stringify(requestBody),
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (e) {
+    await ambiguous();
     const { reason, timedOut } = threwOnTheWire(e, "fetch_failed");
     await reportGatewayFailure(id, timedOut ? "client_timeout" : "network_failed", reason);
     return { httpAttempts: 1, kind: "error", reason, timedOut };
@@ -408,6 +429,17 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
     // A FAILED CALL IS NOT A PURCHASE AND IT IS NOT A MYSTERY EITHER: the status alone made an empty balance and a
     // busy minute the same event to every caller, so the drafter retried the one that can never succeed. No usage came back, so no cost is claimed anywhere on this path.
     const code = await providerErrorCode(response);
+    // A quota/rate response is the provider refusing BEFORE generation, so the
+    // reservation returns to the day. Keeping it ambiguous permanently bound
+    // this exact draft identity even after credit was restored. A server error
+    // remains ambiguous because the request may have reached generation before
+    // the provider failed. If the release receipt itself cannot land, fall back
+    // to the conservative hold.
+    const refusedBeforeGeneration = zeroCostCanStillBeProven && (response.status === 402 || response.status === 429);
+    const accounted = refusedBeforeGeneration
+      ? await reservations.release(attemptId, true).catch(() => false)
+      : false;
+    if (!accounted) await ambiguous();
     const retryMs = retryAfterMs(response.headers?.get?.("retry-after"));
     await reportGatewayFailure(id, `openai_http_${response.status}`, code);
     if (code === CREDIT_EXHAUSTED) await credit.trip(tenantId).catch(() => {});
@@ -422,12 +454,15 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   } catch (e) {
     // AN ENVELOPE THAT STOPPED ARRIVING IS NOT A SHAPE I COULD NOT USE, and it was read as one, so a deadline or a socket reset mid body came back as schema_invalid and was stamped on somebody's answer as a permanent refusal. NOTHING THROWN HERE MAY SETTLE ANYTHING: no usage receipt was ever readable, and that covers a complete body that is not JSON too.
     const { reason, timedOut } = threwOnTheWire(e, "body_read_failed");
+    await ambiguous();
     await reportGatewayFailure(id, timedOut ? "client_timeout" : "body_read_failed", reason);
     return { httpAttempts: 1, kind: "error", reason, timedOut };
   }
 
   const fields = readProvenanceFields(json);
-  const usagePresent = fields.inputTokens !== null || fields.outputTokens !== null;
+  const usagePresent = fields.inputTokens !== null && fields.outputTokens !== null;
+  const accountedCost = usagePresent ? estimateCost(args.model, fields.inputTokens ?? 0, fields.outputTokens ?? 0) : reservation.estimatedUsd;
+  const costBasis = usagePresent ? "usage_estimate" as const : "reservation_estimate" as const;
   const provenance: LlmProvenance = {
     tenantId,
     responseId: fields.responseId,
@@ -437,36 +472,16 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
     createdAt: fields.createdAt,
     inputTokens: fields.inputTokens,
     outputTokens: fields.outputTokens,
-    costUsd: usagePresent ? estimateCost(args.model, fields.inputTokens ?? 0, fields.outputTokens ?? 0) : null,
+    costUsd: accountedCost,
+    costBasis,
     retryCount: 0,
   };
-
-  const classified = classifyResponsesEnvelope(json);
-  if (classified.kind === "refusal") {
-    await reportGatewayFailure(id, "refusal");
-    return { httpAttempts: 1, kind: "refusal", provenance };
-  }
-  if (classified.kind === "incomplete") {
-    await reportGatewayFailure(id, "incomplete", classified.reason);
-    return { httpAttempts: 1, kind: "incomplete", reason: classified.reason, provenance };
-  }
-  if (classified.kind === "invalid") {
-    // POST-network: the envelope supplied real usage, so its cost is genuine spend. Return the provenance so the ledger counts it (it was under-counting before).
-    await reportGatewayFailure(id, `invalid_response_${classified.reason}`);
-    return { httpAttempts: 1, kind: "invalid_response", reason: classified.reason, provenance };
+  if (!(await reconcileRetried(() => reservations.reconcile(attemptId, accountedCost,
+    provenance.responseId, costBasis, json)))) {
+    await ambiguous();
+    await reportGatewayFailure(id, "spend_reconciliation_failed");
+    return { httpAttempts: 1, kind: "error", reason: "spend_reconciliation_failed", timedOut: false };
   }
 
-  // 8. Structured text present. With strict:true a JSON.parse failure signals a
-  //    provider malfunction; never substring-hunt for JSON in prose.
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(classified.text);
-  } catch {
-    // Also POST-network: keep the provenance so the real cost is not discarded.
-    await reportGatewayFailure(id, "invalid_response_structured_parse");
-    return { httpAttempts: 1, kind: "invalid_response", reason: "structured output was not valid JSON", provenance };
-  }
-
-  const value = normalizeStructuredValue(parsed, args.zodSchema);
-  return { httpAttempts: 1, kind: "ok", value, provenance };
+  return interpretEnvelope(json, provenance, args.zodSchema, id, 1);
 }

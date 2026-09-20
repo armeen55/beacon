@@ -15,32 +15,18 @@ import "server-only";
  *     protection when Supabase is unreachable. Routed per account via the
  *     explicit tenantId; the pre-closure shared global blob is inert and
  *     never read.
- * `checkBudget` blocks on max(file, durable) FOR THE SAME ACCOUNT; `recordSpend` writes both. Fail-soft: a durable read error falls back to the account's file spend.
+ * `checkBudget` projects max(file, durable) FOR THE SAME ACCOUNT for status surfaces. Paid calls themselves use the atomic reservation RPC.
  */
 
-import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { readStore } from "@/lib/persistence/json-store";
 import { isSupabaseConfigured } from "@/lib/persistence/supabase";
-import {
-  getTenantLifetimeSpendUsd,
-  getTenantSpentThisMonthUsd,
-  recordSpendSupabase,
-} from "@/lib/cost/budget-ledger-supabase";
+import { getTenantSpentThisMonthUsd } from "@/lib/cost/budget-ledger-supabase";
 import { dailyCapReason, shareFor } from "@/lib/cost/daily-cap";
-import { log } from "@/lib/logger";
 
 const STORE_NAME = "llm-budget";
 // Operator-authorized recurring account ceiling. readState treats the code default as a floor, so a
 // state written under the former $55 default is lifted without rewriting the spend ledger.
 const DEFAULT_CAP_USD = 250; // raised 55 -> 75 with operator approval on 2026-08-29, then 75 -> 250 with the operator's "unlock all caps" instruction of 2026-09-10, matching the search platform's ceiling; the per-day brake on the account row stays the working limit
-
-/** Platform tag for pre-activation onboarding spend in the durable ledger. */
-const ONBOARDING_PLATFORM = "onboarding-openai" as const;
-
-/**
- * Slice 5 (Product Truth $2 pre-activation cap): before onboarding completes, Beacon may spend at most this much, TOTAL, for one account. It is a LIFETIME
- * cap (summed across every date), separate from the active account's recurring monthly cap, and it is enforced against the durable ledger only.
- */
-const ONBOARDING_LIFETIME_CAP_USD = 2;
 
 /** Platform tag for adjudicator/LLM-narrative spend in the durable ledger. */
 const ADJUDICATOR_PLATFORM = "adjudicator-openai" as const;
@@ -108,10 +94,6 @@ async function readState(now: Date, tenantId: string): Promise<AdjudicatorBudget
   return { ...existing, capUsd };
 }
 
-async function writeState(state: AdjudicatorBudgetState, tenantId: string): Promise<void> {
-  await writeStore<AdjudicatorBudgetState>(STORE_NAME, [state], { tenantId });
-}
-
 type BudgetCheckResult =
   | { allowed: true; remaining: number }
   | { allowed: false; reason: string };
@@ -155,91 +137,4 @@ export async function checkBudget(
   const daily = await dailyCapReason(tenantId, now, shareFor("model", opts.purpose ?? "bulk"), projected, opts.purpose ?? "bulk");
   if (daily) return { allowed: false, reason: daily };
   return { allowed: true, remaining: state.capUsd - effectiveSpend };
-}
-
-export async function recordSpend(costUsd: number, opts: { tenantId: string; now?: Date }): Promise<void> {
-  const tenantId = requireTenant(opts.tenantId, "recordSpend");
-  const now = opts.now ?? new Date();
-  const state = await readState(now, tenantId);
-  state.spendUsd = round6(state.spendUsd + costUsd);
-  state.calls += 1;
-  state.updatedAt = now.toISOString();
-  await writeState(state, tenantId);
-
-  // Mirror the spend into the durable per-account Supabase ledger so the cap survives Vercel's ephemeral disk. Never throws; a durable miss only loses
-  // cross-run accounting, it never blocks the paid call that already happened.
-  if (isSupabaseConfigured() && Number.isFinite(costUsd) && costUsd >= 0) {
-    try {
-      await recordSpendSupabase({
-        tenantId,
-        platform: ADJUDICATOR_PLATFORM,
-        costUsd,
-      });
-    } catch (e) {
-      log.warn?.("adjudicator durable spend write failed (non-fatal)", {
-        error: e instanceof Error ? e.message : String(e),
-      });
-    }
-  }
-}
-
-function round6(n: number): number {
-  return Math.round(n * 1_000_000) / 1_000_000;
-}
-
-// ── onboarding lifetime budget: reserve-then-reconcile (Slice 5 D10) ─────────
-
-type OnboardingReservation =
-  | { allowed: true; reservedUsd: number }
-  | { allowed: false; reason: string };
-
-/**
- * The pre-activation onboarding budget guard, as a DURABLE RESERVATION against the $2 lifetime cap. It WRITES first (reserves the projected cost), THEN re-reads the
- * lifetime sum: that write-before-read order is the concurrency mechanism, so a later reader sees every in-flight reservation and two near-cap calls can never
- * both pass. Fail-closed: no durable ledger or an unpersistable reservation REFUSES with no call; a post-reserve sum over the cap (or unreadable) refuses and rolls
- * the reservation back (a rollback miss keeps it: overcount, never undercount). On allow, the caller MUST reconcileOnboardingSpend to settle. Never throws.
- */
-export async function reserveOnboardingSpend(
-  projectedCostUsd: number,
-  opts: { tenantId: string },
-): Promise<OnboardingReservation> {
-  const tenantId = requireTenant(opts.tenantId, "reserveOnboardingSpend");
-  const projected = Number.isFinite(projectedCostUsd) && projectedCostUsd > 0 ? projectedCostUsd : 0;
-  if (!isSupabaseConfigured()) return { allowed: false, reason: "durable ledger unavailable; refusing pre-activation spend" };
-  const reserved = await recordSpendSupabase({ tenantId, platform: ONBOARDING_PLATFORM, costUsd: projected }).catch(() => false);
-  if (!reserved) return { allowed: false, reason: "onboarding reservation write failed; refusing" };
-
-  const spent = await getTenantLifetimeSpendUsd(tenantId, ONBOARDING_PLATFORM).catch(() => null);
-  if (spent == null || spent > ONBOARDING_LIFETIME_CAP_USD) {
-    // Over cap (or unreadable): undo this reservation. A rollback miss is fine - it only overcounts, which fails closed on the next call.
-    await recordSpendSupabase({ tenantId, platform: ONBOARDING_PLATFORM, costUsd: -projected, allowNegative: true }).catch(() => false);
-    return {
-      allowed: false,
-      reason: spent == null
-        ? "onboarding spend unreadable after reserve; refusing"
-        : `Pre-activation onboarding budget reached (${spent.toFixed(4)} / ${ONBOARDING_LIFETIME_CAP_USD} USD).`,
-    };
-  }
-  return { allowed: true, reservedUsd: projected };
-}
-
-/**
- * Settle a prior reservation to the REAL cost by writing the signed delta (actual - reserved) into the durable ledger. A negative delta (cheaper than projected)
- * is a guarded refund; recordSpendSupabase clamps the row at zero. A reconcile-write miss KEEPS the conservative reservation (overcount, never undercount) and logs.
- * Never throws; the paid call already happened.
- */
-export async function reconcileOnboardingSpend(
-  reservedUsd: number,
-  actualCostUsd: number,
-  opts: { tenantId: string },
-): Promise<void> {
-  const tenantId = requireTenant(opts.tenantId, "reconcileOnboardingSpend");
-  const reserved = Number.isFinite(reservedUsd) && reservedUsd > 0 ? reservedUsd : 0;
-  const actual = Number.isFinite(actualCostUsd) && actualCostUsd > 0 ? actualCostUsd : 0;
-  const delta = round6(actual - reserved);
-  if (delta === 0 || !isSupabaseConfigured()) return;
-  const ok = await recordSpendSupabase({ tenantId, platform: ONBOARDING_PLATFORM, costUsd: delta, allowNegative: true }).catch(() => false);
-  if (!ok) {
-    log.warn?.("onboarding reconcile write failed (non-fatal; reservation kept)", { tenantId });
-  }
 }

@@ -18,10 +18,10 @@ const METRICS = [{ key: "clicks", label: "Clicks" }, { key: "impressions", label
 /** One row of choices as links, so the choice lives in the address bar and a screen can be sent to somebody. */
 function Choices({ options }: { options: Array<{ href: string; label: string; active: boolean }> }) {
   return (
-    <div className="inline-flex items-center rounded-full bg-surface-inset/60 p-0.5 ring-1 ring-border/40">
+    <div className="flex max-w-full items-center overflow-x-auto rounded-full bg-surface-inset/60 p-0.5 ring-1 ring-border/40" data-scrollable-choices="true">
       {options.map((o) => (
         <Link key={o.label} href={o.href} scroll={false} aria-current={o.active ? "true" : undefined}
-          className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${o.active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+          className={`inline-flex min-h-11 shrink-0 items-center rounded-full px-3 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary ${o.active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
           {o.label}
         </Link>
       ))}
@@ -51,10 +51,10 @@ export function GoogleWorkspace({ view, range, metric }: {
         </div>}>
         <p className="text-[12px] leading-relaxed text-muted-foreground">{view.coverage}</p>
       </Panel>
-      <Panel title="Every page, and which way it is moving">
+      <Panel title="Most active pages in this view">
         {view.pages ? <DataTable columns={view.pages.columns} rows={view.pages.rows} empty={view.pages.empty} note={view.pages.note} tall /> : null}
       </Panel>
-      <Panel title="Every search Google named">
+      <Panel title="Strongest searches in this view">
         {view.queries ? <DataTable columns={view.queries.columns} rows={view.queries.rows} empty={view.queries.empty} note={view.queries.note} tall /> : null}
       </Panel>
     </div>

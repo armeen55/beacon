@@ -143,7 +143,7 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
     const target = byKey.get(href);
     if (!dead(target)) continue;
     add(p.url, "broken_internal_link",
-      `Change the link on ${at(p.url)} that points at ${at(target!.url)} so it points at a page that answers, or take that link off the page.`,
+      `Remove every link on ${at(p.url)} whose destination is ${at(target!.url)}.`,
       `${at(p.url)} links to ${at(target!.url)}, and that address answers ${answers(target!)}.`,
       null, target!.url);
   }

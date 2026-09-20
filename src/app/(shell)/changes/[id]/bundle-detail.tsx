@@ -1,12 +1,9 @@
-/** bundle-detail - THE TWO-LAYER CHANGE DETAIL: layer 1 decides (the recommendation, the exact edits, why it
- *  is the smartest move, what was checked); layer 2 proves, behind one expander. Nothing here reads the
- *  database: the route hands it the row it already resolved. */
 import Link from "next/link";
 import { causeLabel, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, openHold, sameComponentId, unsettledCause } from "@/domains/decision";
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { ConfirmDangerous, CopyButton, PublicationCopy, MarkImplemented, SetAsideChange } from "../change-controls";
-import { cardCaveats, pageLabel } from "../types";
+import operatorUiPolicy, { cardCaveats, pageLabel } from "../types";
 
 function Heading({ children }: { children: React.ReactNode }) {
   return <h2 className="text-[14px] font-semibold text-foreground">{children}</h2>;
@@ -31,13 +28,9 @@ function seenLabel(observedAt: string | null): string {
   return day ? ` (checked ${day})` : "";
 }
 
-/** One shape for asking whether this page has already said this. The reading date a receipt line carries is not
- *  part of the sentence, so "163 clicks lost in 4 weeks" and "163 clicks lost in 4 weeks (checked August 9)"  are one fact, said once. */
 const normFact = (s: string): string =>
   s.trim().toLowerCase().replace(/\s*\(checked [^)]*\)\s*$/, "").replace(/\s+/g, " ").replace(/[.,;:]+$/, "");
 
-/** WHAT THIS PAGE HAS NOT SAID YET, in the order the page says it. Blank strings never become a bullet: a
- *  receipt line that came through empty printed a bare dot with nothing beside it. */
 function fresh(seen: Set<string>, items: (string | undefined | null)[]): string[] {
   const out: string[] = [];
   for (const raw of items) {
@@ -62,37 +55,46 @@ function Bullets({ items }: { items: (string | undefined | null)[] }) {
     </ul>
   );
 }
+type EvidenceLine = { text: string; readings: string[]; sources?: BundleEvidenceItem["sources"] };
+function EvidenceText({ text }: { text: string }) {
+  const pieces = text.split(/(https?:\/\/[^\s<>"']+)/g);
+  return <>{pieces.map((piece, i) => {
+    if (!piece.startsWith("http://") && !piece.startsWith("https://")) return piece;
+    const href = piece.replace(/[),.;:]+$/, ""), tail = piece.slice(href.length);
+    return <span key={`${href}-${i}`}><a href={href} target="_blank" rel="noreferrer" className="break-all font-semibold text-accent-primary underline underline-offset-2">Open source ↗</a>{tail}</span>;
+  })}</>;
+}
+function EvidenceLines({ items }: { items: EvidenceLine[] }) {
+  if (items.length === 0) return null;
+  return <ul className="list-disc space-y-2 pl-4 text-[13px] leading-relaxed text-muted-foreground">{items.map((item, i) => <li key={i}><EvidenceText text={item.text} />{item.readings.map((id, j) => <span key={id}> <Link href={`/visibility?view=ai&reading=${encodeURIComponent(id)}`} className="inline-flex min-h-11 items-center font-semibold text-accent-primary underline underline-offset-2">Open exact AI reading{item.readings.length > 1 ? ` ${j + 1}` : ""}</Link></span>)}{item.sources?.length ? <ul className="mt-1 space-y-1 border-l border-border pl-3">{item.sources.map((source) => <li key={`${source.channel}:${source.url}`}><a href={source.url} target="_blank" rel="noreferrer" className="font-semibold text-accent-primary underline underline-offset-2">{source.publisher} ↗</a><span> · {source.channel === "aeo" ? `${source.recurrence ?? 0} cited answer${source.recurrence === 1 ? "" : "s"}` : `Google rank ${source.rank ?? "not recorded"}`}</span>{source.passage ? <p className="mt-0.5 text-[12px] text-muted-foreground">What was read: “{source.passage}”</p> : null}</li>)}</ul> : null}</li>)}</ul>;
+}
 
-/** Layer 1 decides, layer 2 proves; a new-page bundle rides the same two layers with insert-only pieces. */
-export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeProposal; bundle: ChangeBundle; recorded: Set<string> }) {
+export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes" }: { proposal: ChangeProposal; bundle: ChangeBundle; recorded: Set<string>; returnTo?: string }) {
   const facts = new Map(bundle.receipt.items.map((i) => [i.key, i]));
   const chips = [...bundle.scope.queries, ...bundle.scope.prompts];
   const isNew = proposal.kind === "new_page";
-  // THE HOLD TRAVELS TO THE DETAIL PAGE. The queue says nothing in the review lane is ready to paste or can be marked done, and a direct link used to hand the operator a Copy button and a Mark done on exactly the card it had just held. One boundary, read on both screens: the LANE first (only `ready` may be pasted), then the unsettled cause.
-  // THE ONE SERVABILITY VERDICT, THE SAME ONE THE LIST LANES BY. This read status and unsettledCause and skipped
-  // openHold, so a stored ready row the queue itself demotes (a typed fault, a blocking hold) rendered here with a
-  // Copy press and a Mark done on a direct link while the list refused to offer it: the list and the detail
-  // disagreed about the same row. One rule everywhere: the lane first, then the hold's own blocking reason (the
-  // safety hold excepted, because this page hosts the two-step confirmation it asks for), then the unsettled cause.
+  // A direct link obeys the same servability verdict as the queue: only ready work can be copied or recorded.
   const held = proposal.status !== "ready" ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet."
     : unsettledCause(proposal); // the first defect of the one verdict, typed faults included (journey review, 2026-09-06): `blocking` restated by a second name
-  // AND A HELD CHANGE THAT MOVES OR HIDES A PAGE HAS SOMEWHERE TO GO. Everything the operator needs to decide is already on this page: the pieces, the addresses, where a forward lands, what survives it, the copy, the risks and the evidence behind each one. The confirmation belongs beside them, never on a page of its own. Offered ONLY on finished work whose own cause is settled: review work held because a quality gate refused it is not up for a yes, and confirming it would promote copy nobody stands behind.
+  // A settled page move can be confirmed beside its consequences; defective copy cannot be promoted here.
   const confirmable = proposal.status === "needs_review" && dangerousComponents(bundle.components).length > 0 && deliverableGaps(proposal).length === 0 && unsettledCause(proposal) == null ? confirmedVersion(proposal) : null;
-  // ONE SENTENCE, ONCE ON THE PAGE. The same fact reached the screen three times over ("What this is based on", "Why this is the smartest move", "What was checked"), which reads as padding rather than proof.
-  // Claimed in render order, first occurrence wins, and a section left with nothing to say does not print its heading.
+  // First occurrence wins so evidence is not repeated across the decision and investigation layers.
   const seen = new Set<string>();
   fresh(seen, [bundle.objective, proposal.whyItMatters]); // the head of the page says these first, so nothing repeats them
-  const cited = bundle.components.map((c) => fresh(seen, c.evidenceKeys.map((k) => facts.get(k)?.fact)));
+  const cited = bundle.components.map((c) => c.evidenceKeys.flatMap((key) => {
+    const item = facts.get(key); if (!item) return [];
+    return fresh(seen, [item.fact]).map((text) => ({ text, readings: item.kind === "ai_observation" ? [...(item.observationIds ?? []), ...(item.observationId ? [item.observationId] : [])] : [], sources: item.sources }));
+  }));
   const reasons = fresh(seen, bundle.confidenceReasons);
   const checked = EVIDENCE_ORDER
     // THE DATE IS NOT THE FACT. A receipt line that came through with nothing written on it still carried its reading date, so it printed a bullet saying "(checked Aug 10)" and nothing else.
-    .map((kind) => ({ kind, items: fresh(seen, bundle.receipt.items
-      .filter((i) => i.kind === kind && i.fact.trim().length > 0).map((i) => `${i.fact}${seenLabel(i.observedAt)}`)) }))
+    .map((kind) => ({ kind, items: bundle.receipt.items.filter((i) => i.kind === kind && i.fact.trim().length > 0)
+      .flatMap((item) => fresh(seen, [`${item.fact}${seenLabel(item.observedAt)}`]).map((text) => ({ text, readings: item.kind === "ai_observation" ? [...(item.observationIds ?? []), ...(item.observationId ? [item.observationId] : [])] : [], sources: item.sources }))) }))
     .filter((g) => g.items.length > 0);
   const missing = fresh(seen, cardCaveats(proposal, bundle.receipt.missing)); // the SAME filter the card reads, so a bundle's caveats cannot differ by screen
   return (
     <div className="max-w-3xl space-y-5">
-      <Link href="/changes" className="inline-flex text-[13px] text-muted-foreground hover:text-foreground">
+      <Link href={returnTo} className="inline-flex min-h-11 items-center text-[13px] text-muted-foreground hover:text-foreground">
         Back to Changes
       </Link>
 
@@ -102,7 +104,12 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
         <p className="text-[13px] text-muted-foreground">
           {isNew ? "A new page for" : "On this page"}: {proposal.pageLabel}
         </p>
+        {proposal.pageUrl ? <a href={proposal.pageUrl} target="_blank" rel="noreferrer"
+          className="inline-flex min-h-11 items-center text-[12px] font-semibold text-accent-primary underline underline-offset-2">Open live page ↗</a> : null}
         <p className="text-[13px] leading-relaxed text-muted-foreground">{proposal.whyItMatters}</p>
+        {proposal.whyRankedAboveNext ? <p className="text-[12px] leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">Why this is above the next change:</span> {proposal.whyRankedAboveNext}</p> : null}
+        <p className="text-[12px] capitalize text-muted-foreground">About {proposal.estimatedEffortMinutes} min · {proposal.confidence} confidence · {proposal.riskLevel} risk</p>
+        {bundle.risks.length > 0 ? <div className="space-y-1 border-t border-border pt-3"><Heading>Risks to read before copying</Heading><Bullets items={bundle.risks} /></div> : null}
       </section>
 
       <section className="space-y-3">
@@ -115,24 +122,32 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
         {bundle.components.length > 10 && bundle.components.every((c) => c.kind === "factual_correction")
           ? Array.from({ length: Math.ceil(bundle.components.length / 10) }, (_, b) => (
             <details key={b} open={b === 0} className="rounded-2xl border border-border bg-surface-inset/40 p-2" data-correction-batch={b + 1}>
-              <summary className="cursor-pointer px-2 py-1 text-[13px] font-semibold text-foreground">
+              <summary className="flex min-h-11 cursor-pointer items-center px-2 py-1 text-[13px] font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary">
                 Batch {b + 1} of {Math.ceil(bundle.components.length / 10)}: corrections {b * 10 + 1} to {Math.min((b + 1) * 10, bundle.components.length)}
               </summary>
               <div className="mt-2 space-y-3">
                 {bundle.components.slice(b * 10, (b + 1) * 10).map((c, i) => (
-                  <ComponentCard key={i} component={c} cited={cited[b * 10 + i] ?? []} isNew={isNew} held={held != null} />
+                  <ComponentCard key={i} component={c} cited={cited[b * 10 + i] ?? []} isNew={isNew} held={held != null} position={b * 10 + i + 1} total={bundle.components.length} />
                 ))}
               </div>
             </details>
           ))
           : bundle.components.map((c, i) => (
-            <ComponentCard key={i} component={c} cited={cited[i] ?? []} isNew={isNew} held={held != null} />
+            <ComponentCard key={i} component={c} cited={cited[i] ?? []} isNew={isNew} held={held != null} position={i + 1} total={bundle.components.length} />
           ))}
       </section>
 
+      {!isNew && bundle.plan ? (
+        <section className="grid gap-4 rounded-2xl border border-border bg-surface-raised p-5 sm:grid-cols-3" data-change-plan="true">
+          <div><Heading>Change or add</Heading><Bullets items={bundle.plan.entries.map((e) => `${e.disposition === "add" ? "Add" : "Change"}: ${e.label}`)} /></div>
+          <div><Heading>Keep</Heading><Bullets items={bundle.plan.keeps.length ? bundle.plan.keeps : ["No preserved section is named in this plan."]} /></div>
+          <div><Heading>Remove</Heading><Bullets items={bundle.plan.removes.length ? bundle.plan.removes.map((r) => `${r.what}: ${r.why}`) : ["No removal is named in this plan."]} /></div>
+        </section>
+      ) : null}
+
       {reasons.length > 0 || chips.length > 0 ? (
       <section className="space-y-2 rounded-2xl border border-border bg-surface-raised p-5">
-        <Heading>Why this is the smartest move</Heading>
+        <Heading>Why this move was selected</Heading>
         <Bullets items={reasons} />
         {chips.length > 0 ? (
           <div className="flex flex-wrap gap-1.5 pt-1">
@@ -152,7 +167,7 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
         {checked.map((g) => (
           <div key={g.kind} className="space-y-1">
             <p className="text-[12px] font-semibold text-foreground">{EVIDENCE_GROUP[g.kind]}</p>
-            <Bullets items={g.items} />
+            <EvidenceLines items={g.items} />
           </div>
         ))}
         {missing.length > 0 ? (
@@ -173,13 +188,6 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
 
       <Investigation proposal={proposal} seen={seen} />
 
-      {bundle.risks.length > 0 ? (
-        <section className="space-y-2 rounded-2xl border border-border bg-surface-raised p-5">
-          <Heading>Risks</Heading>
-          <Bullets items={bundle.risks} />
-        </section>
-      ) : null}
-
       <section className="space-y-2 rounded-2xl border border-border bg-surface-raised p-5">
         <Heading>How it gets measured</Heading>
         <p className="text-[13px] leading-relaxed text-muted-foreground">{bundle.measurementPlan}</p>
@@ -190,6 +198,7 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
           proposalId={proposal.id}
           newPage={isNew}
           components={bundle.components.map((c, i) => ({ id: componentIdOf(c, i), kind: c.kind, label: c.label,
+            ...(c.derivation ? { dependsOn: c.derivation.dependsOn.map((dependency) => dependency.componentId) } : {}),
             // Era-tolerant, exactly as the server matches: a piece recorded before its copy joined its name still shows as recorded.
             moves: dangerousComponents([c]).length > 0, recorded: [...recorded].some((r) => sameComponentId(r, componentIdOf(c, i))) }))}
         />}
@@ -226,7 +235,7 @@ function Investigation({ proposal, seen }: { proposal: ChangeProposal; seen: Set
   if (!finding && !receipt) return null;
   return (
     <details className="rounded-2xl border border-border bg-surface-raised p-5" data-investigation="true">
-      <summary className="cursor-pointer text-[14px] font-semibold text-foreground">
+      <summary className="flex min-h-11 cursor-pointer items-center text-[14px] font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary">
         How this was worked out
       </summary>
       <div className="mt-4 space-y-4">
@@ -284,13 +293,17 @@ function ComponentCard({
   cited,
   isNew,
   held,
+  position,
+  total,
 }: {
   component: BundleComponent;
   /** The facts this piece stands on that the page has NOT already printed, resolved by the caller. */
-  cited: string[];
+  cited: EvidenceLine[];
   isNew: boolean;
   /** TRUE while the whole change is held for review, which takes the Copy control with it. */
   held: boolean;
+  position: number;
+  total: number;
 }) {
   // Where it lands, what it achieves, why it works and the sources still owed all ride the row and render here.
   const plan: [string, string | undefined][] = [["Where it goes", component.where], ["What it does", component.objective], ["Why it works", component.mechanism]];
@@ -299,8 +312,8 @@ function ComponentCard({
   // operator confirms it, and every line is held on the change itself, never worked out afterwards.
   const moves = dangerousComponents([component]).length > 0;
   const to = component.redirectTo;
-  // A LINK PIECE LEAVES WITH ITS ADDRESS: the anchor words are underlined here and go onto the clipboard as a real link.
-  const link = !moves && to && component.anchorAfter ? { href: to, anchor: component.anchorAfter } : null;
+  const copyable = operatorUiPolicy.isPasteableComponent(component);
+  const link = copyable && to && component.anchorAfter ? { href: to, anchor: component.anchorAfter } : null;
   const consequences = moves ? [
     to ? `Anyone who opens the old address lands on ${to}.` : "This page stops answering at its own address.",
     ...(component.preserves?.keeps.length ? [`What survives the change: ${component.preserves.keeps.join(", ")}.`] : []),
@@ -311,13 +324,17 @@ function ComponentCard({
   return (
     <div className="space-y-2 rounded-2xl border border-border bg-surface-raised p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <p className="text-[13px] font-semibold text-foreground">{component.label}</p>
+        <p className="text-[13px] font-semibold text-foreground"><span className="tabular-nums text-accent-primary">{position} of {total}. </span>{component.label}</p>
         {component.risk === "review" ? (
           <span className="rounded bg-status-warning/10 px-1.5 py-0.5 text-[11px] text-status-warning">
             Worth a quick fact check
           </span>
         ) : null}
       </div>
+      {component.page ? <p className="text-[12px] text-muted-foreground">Page: {component.page}</p> : null}
+      {component.derivation ? <p className="rounded-lg border border-accent-primary/30 bg-accent-primary/5 px-3 py-2 text-[12px] leading-relaxed text-foreground" data-schema-sync="true">
+        This schema is generated from the visible FAQ wording in this same change. Apply the visible copy and this matching block together.
+      </p> : null}
       {isNew ? null : component.before ? (
         <div className="space-y-1">
           <p className="text-[12px] text-muted-foreground">On the page now</p>
@@ -326,22 +343,19 @@ function ComponentCard({
           </p>
         </div>
       ) : (
-        // A piece that RETIRES or FORWARDS a page is not a page that happens to have nothing there today.
         <p className="text-[12px] italic text-muted-foreground">
-          {moves ? "This one does not add anything to the page. Read what it does below before you confirm it." : "This page has none today."}
+          {moves ? "This one does not add anything to the page. Read what it does below before you confirm it." : "Current copy was not captured for this component, so no claim is made about what the page has today."}
         </p>
       )}
       {/* THE COPY CONTROL BELONGS WHERE THE COPY IS. The exact words were handed over here with no way to take
           them, so the one screen that holds the whole change was the one screen you had to retype it from. */}
       <div className="space-y-1">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[12px] text-muted-foreground">Use this</p>
-          {/* A SOURCED CORRECTION IS DETERMINISTIC BANK WORK: its exact replacement stays copyable while the
-              bundle waits on review. Copying is reading; the record still goes through the same doors. */}
-          {!moves && component.after.trim() && (!held || component.kind === "factual_correction")
-            ? <CopyButton text={component.after} units={component.units} link={link} label="Copy" /> : null}
+          <p className="text-[12px] text-muted-foreground">{copyable ? held ? "Prepared wording, not ready to paste" : "Paste this" : "Instruction, do not paste"}</p>
+          {copyable && !held
+            ? <CopyButton text={component.after} units={component.units} link={link} label={`Copy ${component.label.toLowerCase()}`} /> : null}
         </div>
-        <div className="rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2 text-[13px] leading-relaxed text-foreground"><PublicationCopy text={component.after} units={component.units} link={link} /></div>
+        <div className={`rounded-lg border px-3 py-2 text-[13px] leading-relaxed text-foreground ${copyable && !held ? "border-accent-primary/40 bg-accent-primary/5" : "border-border bg-surface-inset/50"}`}><PublicationCopy text={component.after} units={component.units} link={link} /></div>
       </div>
       {consequences.length > 0 ? (
         <div className="space-y-1 rounded-lg border border-status-warning/40 bg-status-warning/5 px-3 py-2" data-destructive-detail="true">
@@ -356,11 +370,11 @@ function ComponentCard({
       ) : null}
       {pack && (pack.sourceRequirements.length > 0 || pack.factRequirements.length > 0) ? (
         <div className="space-y-1 rounded-lg bg-surface-inset px-3 py-2">
-          <p className="text-[12px] font-semibold text-foreground">Sources to add before this goes out</p>
+          <p className="text-[12px] font-semibold text-foreground">{pack.resolved ? "Sources checked" : "Source checking still owed"}</p>
           {pack.sourceRequirements.length > 0 ? <Bullets items={pack.sourceRequirements} /> : null}
           {pack.factRequirements.length > 0 ? (
             <>
-              <p className="text-[12px] text-muted-foreground">Check these lines against the source you pick</p>
+              <p className="text-[12px] text-muted-foreground">{pack.resolved ? "Claims checked against those sources" : "Claims that still need a checked source"}</p>
               <Bullets items={pack.factRequirements} />
             </>
           ) : null}
@@ -369,7 +383,7 @@ function ComponentCard({
       {cited.length > 0 ? (
         <div className="space-y-1">
           <p className="text-[12px] font-semibold text-foreground">What this is based on</p>
-          <Bullets items={cited} />
+          <EvidenceLines items={cited} />
         </div>
       ) : null}
     </div>
@@ -380,7 +394,7 @@ function ComponentCard({
  *  page. Before this, a live bundleless row REDIRECTED back to /changes, and once the queue became mostly
  *  suggestion and sweep cards, every "See the change" press bounced. Steps render as steps, a pasteable line
  *  keeps its Copy press, and Mark done and Skip work here exactly as they do on the list. */
-export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
+export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: ChangeProposal; returnTo?: string }) {
   const c = proposal.recommendedChange;
   const after = (c.kind === "new_page" ? c.proposedTitle : c.after ?? "").trim();
   const before = c.kind === "new_page" ? null : (c.before ?? "").trim() || null;
@@ -401,7 +415,8 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
   const brief = (proposal.opportunityType || "").trim().replace(/_/g, " "), edit = proposal.recommendedChange, caveats = cardCaveats(proposal, hold1.caveats), tried = proposal.previousCopy; // THE HOLD ANSWERS BOTH HALVES (measured, 2026-09-05): filtering the row's raw limitations against the hold's reasons alone still served "its copy carries no record of what it stands on" on /california-persian-cities/fremont, the one sentence that verdict had just DISPROVED from the row's own claims and support facts. What a person should keep in mind is now the same function's answer, so no gate sentence reaches a customer as their own caveat and the typed fault and the obligation still say what is owed.
   const action = (/(^|\s)\//.test(brief) ? "" : brief) || (edit.kind === "new_page" ? `Build a new page that answers "${proposal.primaryQuery}"` : `Update the ${({ title: "page title", meta: "meta description", h1: "page headline", answer_block: "answer at the top of the page", section: "section", schema: "structured data" } as Record<string, string>)[edit.field] ?? "page"} to sharpen it for "${proposal.primaryQuery}"`); // never the bland shrug: the operator reads the page name and then what is being done to it
   return (
-    <div className="space-y-5" data-simple-detail="true">
+    <div className="max-w-3xl space-y-5" data-simple-detail="true">
+      <Link href={returnTo} className="inline-flex text-[13px] text-muted-foreground hover:text-foreground">Back to Changes</Link>
       {/* THE HEADLINE IS THE PAGE AND THE WORK, NEVER THE ARGUMENT. This h1 used to be the whole
           whyItMatters paragraph, printed again word for word as the body two blocks down. */}
       <div className="space-y-1">
@@ -409,7 +424,10 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
           {proposal.pagePath ? pageLabel(proposal.pagePath) : (proposal.pageLabel || "This page")}: {action}
         </h2>
         <p className="text-[12px] text-muted-foreground">{proposal.pagePath ?? proposal.pageLabel}</p>
+        {proposal.pageUrl ? <a href={proposal.pageUrl} target="_blank" rel="noreferrer" className="inline-flex text-[12px] font-semibold text-accent-primary underline underline-offset-2">Open live page ↗</a> : null}
+        <p className="text-[12px] capitalize text-muted-foreground">About {proposal.estimatedEffortMinutes} min · {proposal.confidence} confidence · {proposal.riskLevel} risk</p>
       </div>
+      {caveats.length > 0 ? <div className="space-y-1"><Heading>Keep in mind before copying</Heading><Bullets items={caveats} /></div> : null}
       {research || (steps.length > 0 && !after) ? (
         <div className="space-y-1">
           <Heading>What is settled, and what is still owed:</Heading>
@@ -435,12 +453,6 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
         <p className="text-[12px] leading-relaxed text-muted-foreground" data-previous-copy="true">
           One earlier version of this change was retired{(tried.attempts ?? 0) >= 1 ? ` on attempt ${tried.attempts}` : ""}. Why: {tried.retiredBecause.replace(/\.?$/, ".")} Its words: &ldquo;{tried.after.slice(0, 220)}&rdquo;
         </p>
-      ) : null}
-      {caveats.length > 0 ? (
-        <div className="space-y-1">
-          <Heading>Keep in mind</Heading>
-          <Bullets items={caveats} />
-        </div>
       ) : null}
       {checks.length > 0 ? (
         <div className="space-y-1">

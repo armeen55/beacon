@@ -38,14 +38,15 @@ export function DataTable({ columns, rows, empty, note, tall }: {
   return (
     <div className="space-y-2">
       {note ? <p className="text-[12px] leading-relaxed text-muted-foreground">{note}</p> : null}
-      <div className={`overflow-auto rounded-xl border border-border ${tall ? "max-h-[640px]" : "max-h-[420px]"}`}>
+      <div role="region" aria-label={`${columns[0]?.label ?? "Data"} table, scroll for more columns`} tabIndex={0}
+        className={`overflow-auto rounded-xl border border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary ${tall ? "max-h-[640px]" : "max-h-[420px]"}`}>
         <table className="w-full min-w-[720px] border-collapse text-left text-[12px] tabular-nums">
           <thead className="sticky top-0 z-10 bg-surface-inset">
             <tr>
               {columns.map((c, i) => (
                 <th key={c.key} scope="col" className={`whitespace-nowrap border-b border-border px-2.5 py-2 font-semibold text-foreground/70 ${c.numeric ? "text-right" : "text-left"}`}>
                   <button type="button" onClick={() => { if (by === i) setAsc(!asc); else { setBy(i); setAsc(false); } }}
-                    aria-label={`Sort by ${c.label}`} className="inline-flex items-center gap-1 hover:text-foreground">
+                    aria-label={`Sort by ${c.label}`} className="inline-flex min-h-11 items-center gap-1 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary">
                     {c.label}<span aria-hidden className={by === i ? "opacity-80" : "opacity-25"}>{by === i && asc ? "↑" : "↓"}</span>
                   </button>
                 </th>

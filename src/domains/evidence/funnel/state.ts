@@ -89,8 +89,6 @@ export type FunnelPair = {
   day?: string;
   cacheKey: string | null;
   status: "pending" | "posted" | "done" | "unsupported";
-  /** Terminal-collect recoveries: ONE clean repost, then unsupported. */
-  reposts?: number;
   /** THE MONEY THAT MOVED WHEN THIS ASK WAS PLACED. The free collect that finishes a posted task carries
    *  zero, and that zero used to overwrite the placement receipt on the canonical row, so a paid day read
    *  as free. It ACCUMULATES across a reposted identity, carries with the posted pair, and clears on landing. */
@@ -137,8 +135,6 @@ export type FunnelSerp = {
   identityMismatch?: { asked: string; served: string };
   /** When this look actually landed; a look older than FRESH_MS is due again. */
   observedAt?: string;
-  /** Terminal-collect recoveries: ONE clean repost, then unavailable coverage. */
-  reposts?: number;
   /** `snippet` is the words Google shows under the result, already bounded by the parser. Absent on a row stored before the words were kept, which is never the claim that the result showed none. */
   organic?: { rank: number; url: string; domain: string; title: string | null; snippet?: string | null }[];
   aiOverview?: { url: string; domain: string; title: string | null }[];

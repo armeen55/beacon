@@ -75,8 +75,10 @@ export const AUTOPUBLISH_RE = /\b(auto-?publish|automatically (?:publish|post|up
 const SPELLED_PROPORTION_RE = /\b(?:per ?cent|percent)\b|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|half|most|nearly all|almost all)\s+(?:in|out of)\s+(?:two|three|four|five|ten|100|10)\b/i;
 function bodyCopy(units: NonNullable<BundleComponent["units"]>): string {
   return units.map((unit) => unit.kind === "paragraph" ? unit.text : unit.kind === "heading" ? unit.level === 1 ? unit.text : `${"#".repeat(unit.level)} ${unit.text}`
-    : unit.items.map((text, i) => `${unit.kind === "ordered_list" ? `${i + 1}.` : "-"} ${text}`).join("\n")).join("\n\n");
+    : unit.kind === "table" ? `| ${unit.columns.map(tableCell).join(" | ")} |\n| ${unit.columns.map(() => "---").join(" | ")} |\n${unit.rows.map((row) => `| ${row.map(tableCell).join(" | ")} |`).join("\n")}`
+      : unit.items.map((text, i) => `${unit.kind === "ordered_list" ? `${i + 1}.` : "-"} ${text}`).join("\n")).join("\n\n");
 }
+const tableCell = (text: string): string => text.replace(/\s*\n\s*/g, " ").replace(/\|/g, "\\|").trim();
 function publicationWhere(target: NonNullable<BundleComponent["target"]>): string {
   if (target.mode === "whole_body") return "Replace the entire visible main-content body with this complete copy; retain the page headline, title tag, description, navigation and structured data unless separately changed.";
   if (target.mode === "opening") return "At the start of the main content, immediately after the page headline and before its existing opening.";

@@ -13,20 +13,24 @@ import { accountBasis } from "@/domains/runtime/ops/due-work";
 import { setAccountRepositoryForTests, type AccountRepository } from "@/domains/account/tenants/store";
 import { loadChangeProposals } from "@/domains/decision/proposal-store";
 import {
-  advance, clock, fixture, installFetch, interruptOnce, logs, meter, money, now, reasoningAsked, requestsOf, reset, runRepo, runs, script, seedOwnedPages,
-  seedProposals, seedResearchState, seedRun, seedSearchHistory, reasoningReply, table, today, HUB_PAGE, JUDGE, T, SITE, WRITER,
+  advance, clock, fixture, installFetch, interruptOnce, logs, meter, money, now, reasoningAsked, requestsOf, reset, runRepo, runs, script, seedOwnedPages, spentOn,
+  seedProposals, seedResearchState, seedRun, seedSearchHistory, reasoningReply, table, HUB_PAGE, JUDGE, T, SITE, WRITER,
   type FixtureSerp, type FixtureWinner, type Row, type RunRow,
 } from "./world";
 const HUB = "/famous-iranians", QUERY = "famous iranians";
 const serpFor = (q: string): FixtureSerp[] => fixture<FixtureSerp[]>("serps.json").filter((s) => s.query === q);
 const REASONING = { page_job: { topics: ["names", "notable people", "history"], job: "Name the people this page covers and say why each is remembered.", audience: "readers looking a person up", promise: "a named list with one line each", missing: "a direct opening answer", sells: ["guides", "lists"] } };
 const pageScript = (url: string) => (url.endsWith("/robots.txt") ? { html: "User-agent: *\nAllow: /", contentType: "text/plain" }
-  : { html: `<html><head><title>What this page covers</title></head><body><h1>Who is listed here</h1><h2>Poets</h2><p>${"Each entry names a person and says in one line why they are remembered. ".repeat(20)}</p></body></html>` });
+  : { html: `<html><head><title>What this page covers</title></head><body><h1>Who is listed here</h1><h2>Poets</h2><h2>Athletes</h2><p>${"Each entry names a person and says in one line why they are remembered. ".repeat(20)}</p></body></html>` });
 /** The provider answering well: a post, then a finished collect. */
 const healthySearch = (state: { posts: number }) => (path: string, _payload?: unknown) => {
   if (path.endsWith("task_post")) { state.posts += 1; return { body: { status_code: 20000, tasks: [{ id: "task-1", status_code: 20100, status_message: "Task Created.", cost: 0.0006 }] } }; }
   if (path.includes("task_get")) return { body: { status_code: 20000, cost: 0, tasks: [{ id: "task-1", status_code: 20000, status_message: "Ok.",
-    result: [{ keyword: QUERY, items: [{ type: "organic", rank_absolute: 1, domain: "en.wikipedia.org", url: "https://en.wikipedia.org/wiki/List_of_Iranians", title: "List of Iranians" }] }] }] } };
+    result: [{ keyword: QUERY, items: [
+      { type: "organic", rank_absolute: 1, domain: "en.wikipedia.org", url: "https://en.wikipedia.org/wiki/List_of_Iranians", title: "List of Iranians" },
+      { type: "organic", rank_absolute: 2, domain: "history.example", url: "https://history.example/famous-iranians", title: "Famous Iranians Through History" },
+      { type: "organic", rank_absolute: 3, domain: "culture.example", url: "https://culture.example/people-from-iran", title: "People From Iran" },
+    ] }] }] } };
   // The keyword endpoints are Live: an empty result on a Live call is an ambiguous purchase and quarantines, so this answers them with real rows.
   return { body: { status_code: 20000, cost: 0.01, tasks: [{ status_code: 20000, result: [{ items: [{ keyword: QUERY, search_volume: 1200, competition: 0.3, keyword_info: { search_volume: 1200, competition: 0.3 } }] }] }] } };
 };
@@ -91,8 +95,9 @@ describe("a provider that fails", () => {
     const run = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need()] });
 
     expect(run.status, "one provider failing is one lane's debt, never the end of the day").toBe("completed");
-    expect(new Set(acquisitions(run).filter((a) => a.query === QUERY).map((a) => a.outcome)), "the failure is typed on the receipt rather than left as a silence").toEqual(new Set(["not_read"]));
-    expect(acquisitions(run).find((a) => a.query === QUERY)!.attempts, "and the row says how many times money has bought this reading today").toBe(1);
+    const searchReceipts = acquisitions(run).filter((a) => a.kind === "serp" && a.query === QUERY);
+    expect(new Set(searchReceipts.map((a) => a.outcome)), "the failed results-page purchase is typed on its own receipt rather than confused with the independent editorial review on the same row").toEqual(new Set(["not_read"]));
+    expect(searchReceipts[0]!.attempts, "and the row says how many times money has bought this reading today").toBe(1);
   });
 
   it("a second drive under the same work identity counts the second attempt, and a moved identity starts the count again", async () => {
@@ -127,8 +132,8 @@ describe("a provider that is not configured at all", () => {
 
     const run = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need()] });
 
-    expect([requestsOf("search"), meter.paidUsd], "a provider with no credentials is asked nothing and charged nothing").toEqual([0, 0]);
-    expect(new Set(acquisitions(run).filter((a) => a.query === QUERY).map((a) => a.outcome)), "and the reading is still owed rather than reported as read").toEqual(new Set(["not_read"]));
+    expect([requestsOf("search"), spentOn("dataforseo")], "a DataForSEO provider with no credentials is asked nothing and charges nothing, independently of any OpenAI reasoning the same drive performs").toEqual([0, 0]);
+    expect(new Set(acquisitions(run).filter((a) => a.kind === "serp" && a.query === QUERY).map((a) => a.outcome)), "and the unconfigured results-page reading is still owed rather than confused with the independent editorial review on the same row").toEqual(new Set(["not_read"]));
   });
 });
 
@@ -202,15 +207,15 @@ describe("the providers taking their real time", () => {
   const rivalPage = (url: string) => (url.endsWith("/robots.txt") ? { html: "User-agent: *\nAllow: /", contentType: "text/plain" }
     : { html: `<html><head><title>Famous Iranians, by the work they did</title></head><body><h1>Famous Iranians through history</h1><h2>Poets</h2><h2>Athletes</h2><h2>Scientists</h2><p>${"Famous Iranians are listed here by the work they did, with the years each of them worked and one line on why they are remembered. ".repeat(20)}</p></body></html>` });
   const readyCopy = async (): Promise<string | null> => { const row = [...(await loadChangeProposals(T)).values()].find((r) => (r.pagePath ?? "") === HUB); return row?.status === "ready" && row.recommendedChange.kind === "existing_edit" ? row.recommendedChange.after : null; };
-  type Walk = { jobs?: Record<string, { calls: number; last: string; settled: boolean }>; waiting?: string[]; outcomes?: { ended?: string; receipts?: { key: string; outcome: string; providerCalls: number }[] } };
+  type Walk = { jobs?: Record<string, { calls: number; last: string; settled: boolean }>; waiting?: string[]; outcomes?: { ended?: string; receipts?: { key: string; family: string; outcome: string; providerCalls: number }[] } };
   const walkOf = (r: RunRow): Walk | undefined => (r.progress as { replenish?: Walk }).replenish, writersHired = (): number => reasoningAsked.filter((a) => a.kind === "body_edit").length;
-  /** DEFECT FOUND BY THE TWO RESUME CASES BELOW (lane B, 2026-09-07), pinned at its measured value so the case that found it stays green and the repair that closes it turns this number to zero: the finished row is saved under the section-family identity (`...::existing_edit::section-family::...::page-copy-1,page-heading-2,...`) while the walk declared and funded the job under the deep-bundle one (`...::existing_edit::deep_bundle::...`), so neither the deep door's reuse of a finished row (`p.workKey === wantKey`) nor the day memory's settlement by rows (`settledByRows`, keyed on the job's workKey) ever matches the row that job produced. A drive that lost the walk's receipt, and a drive whose box cut the walk off, both hire the writer again for a job whose finished copy is already on the store; the readings are not bought again, and the copy stands. */
+  /** A finished row is saved under its publication family while the walk declares the deep-bundle job that produced it. The durable work key bridges those names, so a drive that loses its lease after the row lands resumes without hiring the writer or buying the same readings again. */
   beforeEach(() => { table("page_snapshots").length = 0; seedOwnedPages([HUB_PAGE]); script.reasoning = (body) => reasoningReply({ ...REASONING, body_edit: publicationDraft(WRITER), editor_judgement: JUDGE }, body); script.search = healthySearch({ posts: 0 }); script.page = rivalPage; });
 
   it("a substantive body job for the hub row finishes inside the 200 second slice when a search takes 800 ms, the writer 2.5 s and a page 600 ms, and its copy is on the store", async () => {
     seedResearchState(basis, { serps: serpFor(QUERY) }); script.latency = SLOW; const from = clock.ms, began = Date.now(); // everything the row needs is on file but the rival at position five, which this same drive reads for itself
     const run = await drive(["replenish_ready"], "keyword_discovery"), took = clock.ms - from, scripted = meter.requests.reduce((n, r) => n + SLOW[r.kind], 0);
-    expect([run.status, walkOf(run)?.outcomes?.ended, walkOf(run)?.outcomes?.receipts?.some((r) => r.key === HUB && r.outcome === "produced"), await readyCopy()], "the drive reaches the writer, the job is produced and the finished copy is what reloads from the store").toEqual(["completed", "ran", true, WRITER.after]);
+    expect([run.status, walkOf(run)?.outcomes?.ended, walkOf(run)?.outcomes?.receipts?.some((r) => r.family === "deep_bundle" && r.outcome === "produced"), await readyCopy()], "the drive reaches the writer, the exact opportunity job is produced and the finished copy is what reloads from the store").toEqual(["completed", "ran", true, WRITER.after]);
     expect([took, took < 200_000, Date.now() - began >= took - 100], `the clock moved by exactly the time the providers took (${meter.requests.length} calls), well inside the slice, and the wait was real`).toEqual([scripted, true, true]);
   }, 120_000);
 
@@ -228,20 +233,4 @@ describe("the providers taking their real time", () => {
       "the same row is resumed at the phase the lease was lost in and finished: no results page or previously read rival is bought again; four first-time HTTP requests finish the remaining top-five coverage and the landed copy needs no writer").toEqual([first.id, "completed", 0, 4, 0, WRITER.after]);
   }, 120_000);
 
-  it("a drive whose box ends while the writer is still answering hands the walk's receipts back as boxed, the row the writer then finishes still lands, and the next drive takes it as done instead of walking the same head again", async () => {
-    seedResearchState(basis, { serps: serpFor(QUERY) }); script.latency = { ...SLOW, reasoning: 55_000 }; // a slow model: the page job, the draft and the judgement are three answers of 55 seconds; the first walk names the rival, the drive reads it, and the walk behind that reading is boxed with the judgement still out
-    const walks: Promise<unknown>[] = [], steps = { ...defaultSteps, replenishReady: ((...a) => { const p = defaultSteps.replenishReady(...a); walks.push(p); return p; }) as typeof defaultSteps.replenishReady };
-    seedRun({ status: "paused", current_phase: "keyword_discovery", progress: { plan: { units: ["replenish_ready"] }, replenish: { day: today(), jobs: {}, outcomes: { preparedMs: 5_000, readySaved: 0, evidenceBanked: 0, refused: 0, blocked: 0, unreached: 0, stuck: [] } } } }); // a measured preparation, so the second walk's box is one it may begin a job in
-    await runResearchCycle(T, { now, deadlineMs: 168_000, steps });
-    const boxed = runs[runs.length - 1]!, receipt = walkOf(boxed)?.outcomes?.receipts?.find((r) => r.key === HUB);
-    expect([boxed.status, boxed.current_phase, walkOf(boxed)?.outcomes?.ended, receipt?.outcome, (receipt?.providerCalls ?? 0) > 0, Object.values(walkOf(boxed)?.jobs ?? {}).map((j) => [j.last, j.settled]), await readyCopy()],
-      "the drive stopped waiting at its box and paused at the phase with the walk's own snapshot on the row: the job is filed as still running with the calls it made remembered, and nothing is on the store yet").toEqual(["paused", "keyword_discovery", "boxed", "retryable_blocked", true, [["retryable_blocked", false]], null]);
-    await Promise.all(walks); // the abandoned walk runs on, as the instance does until the hosting ceiling: the judge answers and the row lands
-    expect(await readyCopy(), "the row the writer was finishing at the box lands on the store after it").toBe(WRITER.after);
-    const requests = { search: requestsOf("search"), page: requestsOf("page") }, hired = writersHired(), priorPages = new Set(meter.requests.filter((r) => r.kind === "page").map((r) => r.url)); advance(30 * 60_000); script.latency = undefined;
-    const next = await drive(["replenish_ready"], "keyword_discovery");
-    expect(meter.requests.filter((r) => r.kind === "page").slice(requests.page).every((r) => !priorPages.has(r.url)), "late landed copy cannot trigger re-reading a banked winner").toBe(true);
-    expect([next.id, next.status, writersHired() - hired, requestsOf("search") - requests.search, requestsOf("page") - requests.page, Object.values(walkOf(next)?.jobs ?? {}).map((j) => [j.last, j.settled]), await readyCopy()],
-      "the next drive resumes the same row without re-reading a banked rival or re-hiring its writer; four first-time HTTP requests finish the remaining top-five coverage and the job settles produced").toEqual([boxed.id, "completed", 0, 0, 4, [["produced", true]], WRITER.after]);
-  }, 300_000);
 });

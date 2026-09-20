@@ -18,10 +18,10 @@ const SUBS = [{ key: "prompts", label: "Questions" }, { key: "citations", label:
 
 function Choices({ options }: { options: Array<{ href: string; label: string; active: boolean }> }) {
   return (
-    <div className="inline-flex items-center rounded-full bg-surface-inset/60 p-0.5 ring-1 ring-border/40">
+    <div className="flex max-w-full items-center overflow-x-auto rounded-full bg-surface-inset/60 p-0.5 ring-1 ring-border/40" data-scrollable-choices="true">
       {options.map((o) => (
         <Link key={o.label} href={o.href} scroll={false} aria-current={o.active ? "true" : undefined}
-          className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${o.active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+          className={`inline-flex min-h-11 shrink-0 items-center rounded-full px-3 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary ${o.active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
           {o.label}
         </Link>
       ))}
@@ -76,11 +76,11 @@ export function AiWorkspace({ view, range, engine, sub, reading, fanout }: {
 
       {/* READ AND PASSED OVER: the one number that says a page of yours was good enough to open and not good enough to quote. It is the whole reason the next change exists, so it gets its own block and a way to act on it. */}
       {view.retrieval ? (
-        <Panel title="Read but not credited"
-          actions={<Link href="/changes" className="text-[12px] font-semibold text-accent-primary underline underline-offset-2">Take this to Changes</Link>}>
+        <Panel title="Read but not credited">
           <p className="text-[28px] font-semibold tabular-nums leading-none tracking-tight text-foreground">{view.retrieval.value}</p>
           <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{view.retrieval.basis}</p>
           <p className="mt-1.5 text-[13px] leading-relaxed text-foreground">{view.retrieval.next}</p>
+          <p className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground">A finished change appears in Changes only after this evidence is tied to exact work. No generic action is linked from here.</p>
         </Panel>
       ) : null}
 
@@ -155,8 +155,7 @@ export function AiWorkspace({ view, range, engine, sub, reading, fanout }: {
 
       {view.intel ? (
         <Panel title="What the answers themselves keep saying"
-          note={`Read off the ${view.intel.answers} answers finished checking. This is the assistants' own reading, and it is where the next change to make comes from.`}
-          actions={<Link href="/changes" className="text-[12px] font-semibold text-accent-primary underline underline-offset-2">Take this to Changes</Link>}>
+          note={`Read off the ${view.intel.answers} answers finished checking. A finished change appears in Changes only when one of these patterns is tied to exact work and its own evidence.`}>
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
             <Ranked title="Names they keep putting in front of customers" items={view.intel.competitors} empty="No name comes up often enough to call it a pattern." />
             <Ranked title="Shapes of page they keep asking for" items={view.intel.formats} empty="The answers have not asked for a particular kind of page." />

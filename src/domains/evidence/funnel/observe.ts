@@ -82,7 +82,7 @@ async function landAnswer(p: FunnelPair, r: Interp, parsed: ParsedAiAnswer, prom
   // AN IDENTITY POSTED BEFORE the pair carried its own cost still holds the paid placement on the pending row this upserts over: when the landing computed nothing, keep what is on file rather than zeroing a receipt.
   if (rec.cost_usd === 0) rec.cost_usd = await d.readObservationCost(ids.tenantId, rec.id).catch(() => 0);
   p.status = "done"; p.cacheKey = r.cacheKey ?? p.cacheKey; p.observedAt = nowIso; p.promptText = promptText;
-  p.reposts = undefined; p.requestedAt = undefined; p.postCostUsd = undefined; // a landed answer closes the incident: fresh budget next time
+  p.requestedAt = undefined; p.postCostUsd = undefined; // a landed answer closes the incident: fresh budget next time
   p.modelServed = parsed.modelServed ?? r.modelServed; p.webSearchReported = parsed.webSearchReported;
   p.citationsObserved = parsed.citations !== null;
   p.citations = parsed.citations ? parsed.citations.map((c) => ({ url: c.url, domain: c.domain, title: c.title })) : null;
@@ -103,10 +103,10 @@ function pairsFromDue(due: DueObservation[], persisted: FunnelPair[]): FunnelPai
     const ip: FunnelPair = { promptId: x.promptId, engine: x.engine, mode: canonicalMode(x.engine), slot: x.slot, day: x.day,
       promptVersion: x.version, promptText: x.text, cacheKey: null, status: "pending" };
     const kept = byKey.get(pairKey(ip));
-    if (kept?.status === "posted" && kept.cacheKey) return { ...ip, status: "posted", cacheKey: kept.cacheKey, reposts: kept.reposts, requestedAt: kept.requestedAt, modelRequested: kept.modelRequested, postCostUsd: kept.postCostUsd };
+    if (kept?.status === "posted" && kept.cacheKey) return { ...ip, status: "posted", cacheKey: kept.cacheKey, requestedAt: kept.requestedAt, modelRequested: kept.modelRequested, postCostUsd: kept.postCostUsd };
     // A pair PROVEN unavailable on this very day keeps that answer: the repost budget is per incident, and
     // an incident is one day. Without it every visit re-posted a dead identity at full price all day long.
-    if (kept?.status === "unsupported") return { ...ip, status: "unsupported", cacheKey: kept.cacheKey, observedAt: kept.observedAt, reposts: kept.reposts };
+    if (kept?.status === "unsupported") return { ...ip, status: "unsupported", cacheKey: kept.cacheKey, observedAt: kept.observedAt };
     return ip;
   });
 }
@@ -135,10 +135,10 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
     for (const x of due.filter((y) => !OBSERVABLE.has(y.engine))) {
       await d.recordObservation(buildAiObservation({ tenantId, site: obs.site, runId, promptId: x.promptId, promptVersion: x.version, promptText: x.text,
         engine: x.engine, mode: canonicalMode(x.engine), slot: x.slot, day: x.day, requestedAt: nowIso(), capability: "unavailable", status: "unsupported",
-        failureReason: `I cannot ask ${x.engine} for you yet, so I spent nothing on it.` }), tenantId);
+        failureReason: `${x.engine} cannot be checked yet, so nothing was spent on it.` }), tenantId);
     }
     const askable = due.filter((x) => x.promptId && x.text && x.day && OBSERVABLE.has(x.engine)).slice(0, 400);
-    if (askable.length === 0) return { status: "failed", cursor, progress: pairProgress(state), detail: "None of the questions that came due can be checked on an engine I can reach yet, so I spent nothing. I will pick them up as soon as one is available." };
+    if (askable.length === 0) return { status: "failed", cursor, progress: pairProgress(state), detail: "None of the questions due can be checked on an available engine yet, so nothing was spent. They remain due for the next available engine." };
     const planned = pairsFromDue(askable, state.prompts.pairs), plannedKeys = new Set(planned.map(pairKey));
     // A task posted on an EARLIER day is collected FREE and lands on ITS OWN day: the money already moved, so abandoning it would be waste. It is never
     // re-posted, because a missed day is gone. A pre-repair posted pair carries no day; its money is already spent, so it is collected ONCE onto the day it
@@ -162,7 +162,7 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
       //    reads as owed, so a PLANNED pair already terminal in state IS that divergence and this is the one write that closes it. Free: no provider call, no
       //    repost, no spend, and it settles the class rather than the instance.
       for (const p of planned.filter((x) => x.status === "unsupported").slice(0, 40)) {
-        await note(p, "unavailable", "I set this check aside earlier today so I would not run it twice, and I could not confirm what the provider did with it.",
+        await note(p, "unavailable", "This check was set aside earlier today to prevent a duplicate run, and the provider outcome could not be confirmed.",
           { cacheKey: p.cacheKey, completedAt: p.observedAt ?? nowIso() });
       }
 
@@ -174,26 +174,26 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
         if (r.kind === "evidence") {
           const parsed = d.parse(capabilityFor(p), r.payload as never) as ParsedAiAnswer | null; // unreadable evidence is a bounded failure, never a fake answer
           if (parsed) await landAnswer(p, r, parsed, textOf.get(p.promptId) ?? p.promptText ?? "", obs, nowIso(), d);
-          else { await note(p, "unavailable", "The provider answered with something I could not read.", { cacheKey: r.cacheKey }); fail("I collected an answer I could not read. I will retry it on the next pass."); }
+          else { await note(p, "unavailable", "The provider returned an unreadable answer.", { cacheKey: r.cacheKey }); fail("A collected answer could not be read. The next pass will retry it."); }
         } else if (r.kind === "failed") {
           // The DISPOSITION decides: blocked = held refusal (row untouched, batch stops, run pauses); repost_once = ONE. A cleared requestedAt is the
           // point of the recovery ones: whatever lands later stamps its OWN moment. AND THE CANONICAL ROW SAYS WHAT THE DISPOSITION DECIDED, because a
           // pair set aside for good went `unsupported` in memory and `failed` on the stored row: the planner read it as owed on every window, so on
           // 4 August two of them repeated 138 of 140 every half hour for nine hours and the day never crawled, never synthesized and never published.
-          const dead = r.disposition === "quarantined" || (r.disposition === "repost_once" && (p.reposts ?? 0) >= 1);
+          const dead = r.disposition === "quarantined";
           await note(p, dead ? "unavailable" : "failed", r.detail ?? null, { cacheKey: r.cacheKey, ...(dead ? { completedAt: nowIso() } : {}) });
           if (r.disposition === "daily_limit") { limitDetail = r.detail ?? null; break; }
           if (r.disposition === "blocked") { blockedDetail = blockedNote(r); break; }
-          if (r.disposition === "repost_once") { p.cacheKey = null; p.requestedAt = undefined; if (dead) { p.status = "unsupported"; p.observedAt = nowIso(); } else { p.status = "pending"; p.reposts = 1; } }
+          if (r.disposition === "repost_once") { p.cacheKey = null; p.requestedAt = undefined; p.status = "pending"; }
           else if (r.disposition === "quarantined") { p.status = "unsupported"; p.observedAt = nowIso(); p.requestedAt = undefined; }
-          else fail(r.detail ?? pauseDetail(r.disposition, "A prompt check did not come back. I will collect it on the next pass."));
+          else fail(r.detail ?? pauseDetail(r.disposition, "A prompt check did not come back. The next pass will collect it."));
         }
       }
 
       // 2) post the pending readings, IN THE PLANNER'S OWN ORDER (core first, oldest missing first), bounded.
       //    A carried in-flight pair from another day is collected above and never re-posted here.
       const todo = pairs.filter((p) => p.status === "pending" && plannedKeys.has(pairKey(p)));
-      let processed = 0, perp = 0, progressed = false;
+      let perp = 0, progressed = false;
       // THE WAVE, NOT THE QUEUE. Every reading was asked one at a time, and an assistant that searches before it
       // answers takes over a minute, so a pass spent its whole deadline on three readings and a day of a hundred
       // and forty needed dozens of passes across dozens of half-hourly ticks to finish work worth a few minutes.
@@ -217,17 +217,16 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
         else if (r.kind === "evidence") {
           const parsed = d.parse(capabilityFor(p), r.payload as never) as ParsedAiAnswer | null;
           if (parsed) { await landAnswer(p, r, parsed, text, obs, nowIso(), d); progressed = true; }
-          else { await note(p, "unavailable", "The provider answered with something I could not read.", { cacheKey: r.cacheKey }); fail("I got an answer I could not read. I will retry it on the next pass."); }
+          else { await note(p, "unavailable", "The provider returned an unreadable answer.", { cacheKey: r.cacheKey }); fail("An answer could not be read. The next pass will retry it."); }
         } else if (r.kind === "failed") {
           const held = r.disposition === "quarantined"; // same ladder as the collect above, and the same terminal row: quarantined = EXPLICIT unavailable coverage
           await note(p, held ? "unavailable" : "failed", r.detail ?? null, { cacheKey: r.cacheKey, ...(held ? { completedAt: nowIso() } : {}) });
           if (r.disposition === "daily_limit") { limitDetail = r.detail ?? null; return; }
           if (r.disposition === "blocked") { blockedDetail = blockedNote(r); return; }
           if (r.disposition === "quarantined") { p.status = "unsupported"; p.cacheKey = r.cacheKey; p.observedAt = nowIso(); p.requestedAt = undefined; fail(r.detail); }
-          else fail(r.detail ?? pauseDetail(r.disposition, "A prompt check did not run. I will retry it on the next pass."));
+          else fail(r.detail ?? pauseDetail(r.disposition, "A prompt check did not run. The next pass will retry it."));
         }
         else if (r.soft === "not_configured") softUnavailable = true; // genuine unavailable coverage
-        processed += 1;
       };
       // A REFUSAL STOPS EVERYTHING, so the first reading is asked ALONE. A provider that is blocked, out of credit
       // or past its daily ceiling says so on that one call, and nothing else has been sent or stored: the batch
@@ -254,15 +253,15 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
       // terminalized the last two identities could never close and the phase repeated on itself forever.
       if (planned.length > 0 && done + unsupported >= planned.length) { status = "done";
         if (unsupported > 0) failedDetail = done === 0 // "the rest are in" over a day where NOTHING came back is a claim about answers that do not exist
-          ? `I could not get an answer to any of today's ${planned.length} prompt checks; the provider had nothing to give on every one. Tomorrow's round asks them again.`
+          ? `None of today's ${planned.length} prompt checks returned an answer; the provider had nothing to give for any of them. Tomorrow's round asks them again.`
           : `${done} of today's ${planned.length} prompt checks came back; the other ${unsupported} were unavailable from the provider this round. Tomorrow's round asks those again.`; }
       else if (failedDetail) status = "failed";
       else if (anyPosted) status = "waiting";
       else if (progressed) status = "advanced";
-      else if (softUnavailable) { status = "failed"; failedDetail = "I could not reach the AI engines to check your prompts. I will try again on the next pass."; }
-      else if (planned.some((p) => p.status === "pending")) { status = "failed"; failedDetail = "Some prompt checks did not run this pass. I will pick them up on the next pass."; }
-      else if (done === 0) { status = "failed"; failedDetail = "I did not get any new prompt answers this round. I will pick the rest up on the next pass."; }
-      else { status = "failed"; failedDetail = `${planned.length - done - unsupported} prompt checks are still outstanding. I will finish them on the next pass.`; }
+      else if (softUnavailable) { status = "failed"; failedDetail = "The AI engines could not be reached to check these prompts. The next pass will try again."; }
+      else if (planned.some((p) => p.status === "pending")) { status = "failed"; failedDetail = "Some prompt checks did not run this pass. The next pass will pick them up."; }
+      else if (done === 0) { status = "failed"; failedDetail = "No new prompt answers returned this round. The next pass will pick up the rest."; }
+      else { status = "failed"; failedDetail = `${planned.length - done - unsupported} prompt checks are still outstanding. The next pass will finish them.`; }
       return { status, cursor: { runId }, progress: pairProgress(state), ...(failedDetail ? { detail: failedDetail } : {}) };
     } catch (e) {
       if (e instanceof StateConflictError) return { status: "failed", code: "state_conflict", cursor: { runId }, progress: pairProgress(state), detail: CONFLICT_DETAIL };
@@ -289,14 +288,14 @@ function applySerp(s: FunnelSerp, parsed: ParsedSerp, nowIso: string, payload: u
   const echo = echoedKeyword(payload), served = echo ? normalizeKeyword(echo) : null;
   if (served && served !== normalizeKeyword(s.query)) {
     log.warn("[research-funnel] serp identity mismatch", { tenantId, asked: s.query, served });
-    s.status = "failed"; s.observedAt = nowIso; s.reposts = undefined; s.identityMismatch = { asked: s.query, served };
+    s.status = "failed"; s.observedAt = nowIso; s.identityMismatch = { asked: s.query, served };
     return;
   }
   s.identityMismatch = undefined; // a clean landing closes an earlier mismatch on this row
   s.status = "done"; s.observedAt = nowIso; s.aiOverview = refs(parsed); s.related = parsed.relatedSearches.slice(0, 20);
   // EVERY ROW THIS LOOK PAID FOR IS KEPT, AND WHAT EACH ONE SAYS WITH IT. The request buys SERP_DEPTH results and the provider bills per ten, so slicing at ten threw away half of every purchase and every owned position past
   // nine; keeping ranks and urls alone threw away the words the results actually show, which is the only part a diagnosis can read a missing proposition out of. Every string arrives bounded from the parser.
-  s.reposts = undefined; s.organic = parsed.organic.slice(0, SERP_ROWS_BOUGHT).map((o) => ({ rank: o.rank, url: o.url, domain: o.domain, title: o.title, snippet: o.snippet })); // a landed look closes the incident
+  s.organic = parsed.organic.slice(0, SERP_ROWS_BOUGHT).map((o) => ({ rank: o.rank, url: o.url, domain: o.domain, title: o.title, snippet: o.snippet })); // a landed look closes the incident
   s.paa = parsed.paaQuestions.map((q) => ({ question: q.question, answeringDomain: q.answeringDomain, answer: q.answer }));
   // AND THE REST OF WHAT THE PAGE ALREADY CARRIED: its block list, its answer box with the answer in it, and the overview's own words. EACH IS WRITTEN ONLY WHERE THE PAYLOAD ACTUALLY SPOKE, so a response with no block
   // list leaves both unknown rather than claiming this page has no answer box. AN OUTSTANDING ASYNCHRONOUS STUB IS NOT AN OBSERVED ABSENCE either: `aiOverview: []` said both, so a search whose overview had simply not
@@ -310,7 +309,7 @@ const serpProgress = (s: FunnelState): FunnelCounters => ({ serpsAnalyzed: s.ser
 /** HOW MANY RESULTS PAGES ONE CYCLE MAY READ, with the cost math stated once so it is checkable against the files that hold each number. It was 40 agenda slots and 40 posts a pass, so an account with twenty two pages losing clicks waited a week before I had even LOOKED at the searches those pages live on.
  *  THE REAL CEILING IS 104, NOT 120. SERP_AGENDA_CAP is the cap the portfolios fill INTO, and the last one stops short of it on purpose: normalize.ts fills researched keywords to 80% of the cap (96 at 120) and then allows exploration a flat +8, so a full portfolio can name at most 104 searches. 120 is headroom, never a number this unit reaches.
  *  RESERVED COST AT THAT CEILING (reservations sit ABOVE the charge; reconcile drops every one to actual): 104 organic results pages x $0.0021 = $0.2184, plus 5 AI Mode looks x $0.0100 = $0.0500, so one cycle's whole exact-SERP allowance reserves $0.2684, against $0.1340 for the old 40 slots. Both per-call prices are serp_organic / serp_ai_mode estCostUsd in dataforseo/capabilities.ts.
- *  THE TWO CEILINGS THAT ACTUALLY REFUSE A CALL are elsewhere and neither moved: the per-account, per-platform MONTHLY cap (DEFAULT_MONTHLY_CAP_USD = $250 in dataforseo/client.ts, checked by reserve_provider_spend before every call, answering `capped`), and the PROVIDER's own daily cost limit (error 40203, arriving as the `daily_limit` disposition that stops the batch below). This constant is a work bound, not a money bound. CACHE DISCIPLINE IS UNCHANGED and is what makes the raise nearly free in practice: a query still inside its freshness window is never re-posted (serp_hot daily for a search the frozen plan is stuck on, serp_cold weekly for the rest), so a settled agenda replays at $0 and only genuinely due queries reach a provider. Every per-call reservation, disposition and repost rule below is untouched: this raises a bound, it removes none. */
+ *  THE TWO CEILINGS THAT ACTUALLY REFUSE A CALL are elsewhere and neither moved: the per-account, per-platform MONTHLY cap (DEFAULT_MONTHLY_CAP_USD = $250 in dataforseo/client.ts, checked atomically by reserve_spend before every call, answering `capped`), and the PROVIDER's own daily cost limit (error 40203, arriving as the `daily_limit` disposition that stops the batch below). This constant is a work bound, not a money bound. CACHE DISCIPLINE IS UNCHANGED and is what makes the raise nearly free in practice: a query still inside its freshness window is never re-posted (serp_hot daily for a search the frozen plan is stuck on, serp_cold weekly for the rest), so a settled agenda replays at $0 and only genuinely due queries reach a provider. Every per-call reservation, disposition and repost rule below is untouched: this raises a bound, it removes none. */
 const SERP_AGENDA_CAP = 120, SERP_POSTS_PER_PASS = 120, SERP_ROWS_KEPT = 160;
 /** HOW MANY ORGANIC ROWS ONE LOOK KEEPS, which is every row the request bought: capabilities.ts asks for SERP_DEPTH (20) and DataForSEO bills per ten results, so half of every results page was paid for and dropped. */
 const SERP_ROWS_BOUGHT = 20;
@@ -333,16 +332,16 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
     const toDay = reportingDay(d.now()), fromDay = new Date(Date.parse(`${toDay}T12:00:00Z`) - 27 * 86_400_000).toISOString().slice(0, 10);
     let observations;
     try { observations = await d.loadCanonicalObservations(tenantId, { fromDay, toDay }); }
-    catch { return { status: "failed", cursor, progress: serpProgress(state), detail: "I could not read your stored AI evidence, so I spent nothing and kept your saved research." }; }
+    catch { return { status: "failed", cursor, progress: serpProgress(state), detail: "Stored AI evidence could not be read, so nothing was spent and saved research was preserved." }; }
     for (const p of observations) { const row = byPrompt.get(p.promptId) ?? { text: "", fanOutQueries: [] }; if (!row.text) row.text = p.promptText; row.fanOutQueries.push(...(p.fanOutQueries ?? [])); byPrompt.set(p.promptId, row); }
     const prompts = [...byPrompt.entries()].map(([promptId, p]) => ({ ...p, promptId })).filter((p) => p.text || p.fanOutQueries.length > 0);
     const pageQueries = await d.loadPageQueries(tenantId).catch(() => null);
     // FAIL BEFORE SPEND: no readable business basics, no readable page queries and no tracked questions means I have
     // NO trusted starting point, so I buy nothing this pass and leave the research already saved exactly as it is.
-    if (profile === null && pageQueries === null && prompts.length === 0) return { status: "failed", cursor, progress: serpProgress(state), detail: "I could not read any of your trusted starting points this pass, so I spent nothing. I will try again on your next visit." };
+    if (profile === null && pageQueries === null && prompts.length === 0) return { status: "failed", cursor, progress: serpProgress(state), detail: "No trusted starting point could be read this pass, so nothing was spent. The next visit will try again." };
     const agenda = selectSerpAgenda({ retained, themes, prompts, pageQueries: pageQueries ?? [], priorityQueries }, SERP_AGENDA_CAP);
     const chosen = agenda.queries; // an empty researched set no longer blocks the phase: my own page queries are checked verbatim, researched or not
-    if (chosen.length === 0) return { status: "failed", cursor, progress: serpProgress(state), detail: "I have no researched keywords to check in search yet." };
+    if (chosen.length === 0) return { status: "failed", cursor, progress: serpProgress(state), detail: "No researched keywords are ready to check in search yet." };
     // Internal progress truth only: what I could not defend and what the provider would refuse. Never customer copy.
     if (agenda.uncoveredThemes.length > 0 || agenda.skipped.length > 0) log.info("[research-funnel] serp agenda gaps", { tenantId, uncoveredThemes: agenda.uncoveredThemes, skipped: agenda.skipped });
     const byQ = new Map(state.serps.queries.map((s) => [s.query, s])), top5 = new Set(chosen.slice(0, 5));
@@ -360,7 +359,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
     for (const s of serps) {
       if ((s.status !== "done" && s.status !== "failed") || !s.observedAt) continue;
       if (isCurrent(hot.has(canonicalQueryKey(s.query)) ? "serp_hot" : "serp_cold", s.observedAt, d.now())) continue;
-      s.status = "pending"; s.cacheKey = null; s.reposts = undefined; s.identityMismatch = undefined;
+      s.status = "pending"; s.cacheKey = null; s.identityMismatch = undefined;
       s.aiMode = undefined; s.aiModeCacheKey = null; s.aiModeReposted = undefined; s.aiModeFailed = undefined;
     }
 
@@ -376,9 +375,8 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
             if (r.disposition === "daily_limit") limitDetail = r.detail ?? null;
             else if (r.disposition === "blocked") blockedDetail = blockedNote(r);
             else if (r.disposition === "quarantined") { s.status = "failed"; s.observedAt = nowIso(); failedDetail = r.detail ?? failedDetail; }
-            else if (r.disposition !== "repost_once") failedDetail = r.detail ?? pauseDetail(r.disposition, "A search did not finish. I will retry it on the next pass.");
-            else if ((s.reposts ?? 0) >= 1) { s.status = "failed"; s.observedAt = nowIso(); failedDetail = "A search could not be completed after a second try. I will try it fresh next week."; }
-            else { s.status = "pending"; s.cacheKey = null; s.reposts = 1; }
+            else if (r.disposition !== "repost_once") failedDetail = r.detail ?? pauseDetail(r.disposition, "A search did not finish. The next pass will retry it.");
+            else { s.status = "pending"; s.cacheKey = null; }
           }
         }
         if (!blockedDetail && !limitDetail && top5.has(s.query) && s.aiModeCacheKey && !s.aiMode && !s.aiModeFailed) {
@@ -389,9 +387,8 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
             if (r.disposition === "daily_limit") limitDetail = r.detail ?? null;
             else if (r.disposition === "blocked") blockedDetail = blockedNote(r);
             else if (r.disposition === "quarantined") s.aiModeFailed = true;
-            else if (r.disposition !== "repost_once") failedDetail = r.detail ?? pauseDetail(r.disposition, "An AI Mode look did not finish. I will retry it on the next pass.");
-            else if (s.aiModeReposted) s.aiModeFailed = true;
-            else { s.aiModeCacheKey = null; s.aiModeReposted = true; }
+            else if (r.disposition !== "repost_once") failedDetail = r.detail ?? pauseDetail(r.disposition, "An AI Mode look did not finish. The next pass will retry it.");
+            else s.aiModeCacheKey = null;
           }
         }
       }
@@ -411,7 +408,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
             if (r.disposition === "daily_limit") limitDetail = r.detail ?? null;
             else if (r.disposition === "blocked") blockedDetail = blockedNote(r);
             else if (r.disposition === "quarantined") { s.status = "failed"; s.observedAt = nowIso(); }
-            else failedDetail = pauseDetail(r.disposition, r.detail ?? "A search did not run. I will retry it on the next pass.");
+            else failedDetail = pauseDetail(r.disposition, r.detail ?? "A search did not run. The next pass will retry it.");
           }
           processed += 1;
         }
@@ -424,8 +421,8 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
             if (r.disposition === "daily_limit") limitDetail = r.detail ?? null;
             else if (r.disposition === "blocked") blockedDetail = blockedNote(r);
             else if (r.disposition === "quarantined") s.aiModeFailed = true;
-            else if (r.disposition === "repost_once" || r.disposition === "none") { if (s.aiModeReposted) s.aiModeFailed = true; else s.aiModeReposted = true; }
-            else failedDetail = pauseDetail(r.disposition, "I could not start an AI Mode look this pass. I will try again on the next pass.");
+            else if (r.disposition === "none") { if (s.aiModeReposted) s.aiModeFailed = true; else s.aiModeReposted = true; }
+            else failedDetail = pauseDetail(r.disposition, "An AI Mode look could not start this pass. The next pass will try again.");
           }
         }
       }
@@ -452,7 +449,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
         else if (mismatched === 0 && aiModeMissing > 0) failedDetail = `${aiModeMissing} AI Mode looks were unavailable from the provider; the search results themselves are in.`; }
       else if (anyPending) status = "waiting";
       else status = "failed";
-      const detail = status === "failed" ? (failedDetail ?? "Some searches did not finish. I will retry them on the next pass.") : failedDetail;
+      const detail = status === "failed" ? (failedDetail ?? "Some searches did not finish. The next pass will retry them.") : failedDetail;
       return { status, cursor, progress: serpProgress(state), ...(detail ? { detail } : {}) };
     } catch (e) {
       if (e instanceof StateConflictError) return { status: "failed", code: "state_conflict", cursor, progress: serpProgress(state), detail: CONFLICT_DETAIL };

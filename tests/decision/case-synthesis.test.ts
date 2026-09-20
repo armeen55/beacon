@@ -33,8 +33,8 @@ describe("what the semantic reading may change about my case registry", () => {
       { keepId: RUGS.id, absorbIds: [REPAIR.id], reason: "Both of these are about persian rugs." }] }));
     expect(live(out).map((c) => c.id).sort()).toEqual(ALL.map((c) => c.id).sort()); // every case still its own, and nothing became an alias
     expect(out.refused).toEqual([
-      `I did not join ${LEADER.id} and ${NEWS.id}: they share no search and no site, so I hold nothing that says they are one subject.`,
-      `I did not join ${RUGS.id} and ${REPAIR.id}: they share no search and no site, so I hold nothing that says they are one subject.`]);
+      `${LEADER.id} and ${NEWS.id} were not joined: they share no search and no site, so nothing on file shows they are one subject.`,
+      `${RUGS.id} and ${REPAIR.id} were not joined: they share no search and no site, so nothing on file shows they are one subject.`]);
     expect(held(out, LEADER.id)!.anchors).toEqual(LEADER.anchors); }); // and the refused merge left the anchors alone too
   it("merges two ways of naming ONE subject into one canonical id plus a durable alias, and never a third id", () => {
     const out = apply(reading({ merges: [{ keepId: NAMES.id, absorbIds: [MALE.id], reason: "The searches on both are people looking for names to give a child." }] })); const kept = live(out).find((c) => c.id === MALE.id || c.id === NAMES.id)!;
@@ -48,7 +48,7 @@ describe("what the semantic reading may change about my case registry", () => {
     const merged = apply(reading({ merges: [{ keepId: NAMES.id, absorbIds: [MALE.id], reason: "One subject." }] })).cases; const alias = merged.find((c) => c.aliasOf)!.id, canonical = merged.find((c) => c.aliasOf)!.aliasOf!;
     const out = apply(reading({ merges: [{ keepId: TERMS.id, absorbIds: [alias], reason: "These belong together." },
       { keepId: "inv_ghost", absorbIds: [RUGS.id], reason: "And so do these." }] }), merged);
-    expect(out.refused).toEqual([`I did not join ${TERMS.id} and ${alias}: ${alias} names a case that was already absorbed into another one.`, `I did not join inv_ghost and ${RUGS.id}: inv_ghost is not a case I hold.`]);
+    expect(out.refused).toEqual([`${TERMS.id} and ${alias} were not joined: ${alias} names a case that was already absorbed into another one.`, `inv_ghost and ${RUGS.id} were not joined: inv_ghost is not a case on file.`]);
     expect([out.cases, out.cases.filter((c) => c.id === canonical).length]).toEqual([merged, 1]); }); // nothing moved, and one row per id either way
   it("files which page answers which case, so one page can answer two cases and one case can hold two pages", () => {
     const out = apply(reading({ merges: [{ keepId: NAMES.id, absorbIds: [MALE.id], reason: "One subject: names people give a child." }],
@@ -66,7 +66,7 @@ describe("what the semantic reading may change about my case registry", () => {
     const byId = (rows: typeof out.cases) => [...rows].sort((a, b) => a.id.localeCompare(b.id));
     const after = apply(reading(), out.cases); // disjoint owned sets: the split survives its own next reconcile and mints nothing
     expect([byId(after.cases), after.refused]).toEqual([byId(out.cases), []]); const emptied = apply(reading({ splits: [{ fromId: RUGS.id, moveQueries: RUGS.anchors, reason: "Every one of these is its own thing." }] }));
-    expect([emptied.refused, live(emptied).length]).toEqual([[`I did not split ${RUGS.id}: that moves every search out of it, which renames a case rather than splitting one.`], ALL.length]); });
+    expect([emptied.refused, live(emptied).length]).toEqual([[`${RUGS.id} was not split: that moves every search out of it, which renames a case rather than splitting one.`], ALL.length]); });
   it("can never hand back two rows claiming one case id, whatever it was folded from", () => {
     const rows = caseRows([{ id: "inv_one", anchors: ["x"], aliases: ["inv_two"], from: [0] }, { id: "inv_two", anchors: ["y"], aliases: [], from: [1] }], [MALE]); // A Map keyed on id would have hidden this: two rows answering for one case means every join downstream reads whichever one it happened to see first.
     expect([rows.map((c) => c.id), rows.map((c) => c.aliasOf ?? "")]).toEqual([["inv_one", "inv_two", MALE.id], ["", "inv_one", ""]]); });

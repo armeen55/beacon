@@ -41,7 +41,7 @@ export default async function ProofPage({ searchParams }: { searchParams?: Promi
         <h1 className="text-2xl font-semibold tracking-tight">Results</h1>
         {shipments.length > 0 ? (
           <div className="flex flex-wrap items-center gap-3">
-            <a href="/results/export" className="text-[11px] font-medium text-accent-primary underline underline-offset-2">Download spreadsheet</a>
+            <a href="/results/export" className="inline-flex min-h-11 items-center text-[11px] font-medium text-accent-primary underline underline-offset-2">Download spreadsheet</a>
             <RecomputeLedgerButton disabled={!anyClosed} disabledReason={anyClosed ? undefined : "No read has closed yet. Google reports a few days behind."} />
           </div>
         ) : null}
@@ -63,7 +63,7 @@ export default async function ProofPage({ searchParams }: { searchParams?: Promi
           </Suspense>
           {/* THE MEMORY, SECOND. Every change marked done, in its own words, with the same filters and rows as before; nobody needs it to understand the belief above. */}
           <details className="mt-8 rounded-xl border border-border-subtle bg-surface-raised px-3 py-2.5" data-results-all-changes="true">
-            <summary className="cursor-pointer text-[13px] font-medium text-foreground">All changes ({shipments.length})</summary>
+            <summary className="flex min-h-11 cursor-pointer items-center text-[13px] font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary">All changes ({shipments.length})</summary>
             <p className="mb-2 mt-1 text-[12px] text-muted-foreground">Google numbers are estimated lifts against pages that were not changed; a change judged on AI answers is compared against this account&apos;s own unaffected questions. Historical rows were marked done before live checks began{firstLive ? ` on ${firstLive}` : ""} and are context only.</p>
             <ResultsRows view={view} />
           </details>
@@ -72,7 +72,7 @@ export default async function ProofPage({ searchParams }: { searchParams?: Promi
 
       {shipments.length > 0 ? (
         <details className="my-6 rounded-xl border border-border-subtle bg-surface-raised px-3 py-2.5">
-          <summary className="cursor-pointer text-[13px] font-medium text-muted-foreground hover:text-foreground">Record a change made outside this queue</summary>
+          <summary className="flex min-h-11 cursor-pointer items-center text-[13px] font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary">Record a change made outside this queue</summary>
           <div className="mt-3"><RecordAnyPageForm initialPage={initialPage} /></div>
         </details>
       ) : null}

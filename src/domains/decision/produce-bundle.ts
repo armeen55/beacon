@@ -1,6 +1,4 @@
-/** Select, build a scoped receipt, diagnose, then draft. Each door uses its own evidence; all input lists are sorted. */
-
-import "server-only";
+/** Select, build a scoped receipt, diagnose, then draft. Each door uses its own evidence; all input lists are sorted. */ import "server-only";
 
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot"; import { canonicalUrlKey } from "@/domains/evidence/snapshot"; import { jobComparison, type JobComparison } from "@/domains/evidence/comparison";
 import { draftAtomicEditStructured } from "@/domains/decision/llm/structured-drafter"; import { DRAFT_BUDGET } from "./draft-budget"; import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
@@ -17,7 +15,8 @@ import type { ProposeOptions } from "./propose"; import { receiptIntegrityFailur
 import { anchoredTopicMatch, canonicalQueryKey, isNoiseDomain, templateHeadings, topicTokens, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import { demandUnitsOf } from "@/domains/evidence/demand-units"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { answerIntelFacts, answerIntelOf } from "@/domains/evidence/answer-intel";
 import { readFactChecks, type FactCheck } from "@/domains/evidence/pages/fact-checks";
-import { biggerSearchesLine } from "./suggested-edits"; import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split"; import { actionFamilyOf } from "./proposal-store"; import { demandOf, draftFieldForPage } from "./drafted-copy";
+import { biggerSearchesLine } from "./suggested-edits"; import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split"; import proposalIdentity from "./proposal-identity"; import { demandOf, draftFieldForPage } from "./drafted-copy";
+import withDerivedFaqSchema from "./derived-schema"; const { actionFamilyOf } = proposalIdentity;
 
 /** `considered` rides a REFUSAL so the levers a producer weighed reach the research card that replaces it: a card saying only what is missing reads as a shrug beside one that also says what was ruled out. */
 type BundleOutcome = { status: "bundled"; proposal: ChangeProposal } | { status: "none"; reason: string; considered?: { option: string; reason: string }[];
@@ -79,22 +78,12 @@ const classSentence = (r: Receipt): string => `Built from ${receiptComposition(r
 const queriesOf = (page: OwnedPageEvidence): OwnedQuerySignal[] => [...(page.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions || b.clicks - a.clicks || byText(a.query, b.query)).slice(0, 5);
 
 /** `ahead` is WHO IS ABOVE THIS PAGE for its own search, each carrying its words WHEN they are on file: a fall is explained by what moved past it, so an unread page there is a named hole rather than a shrug. */
-type Receipt = ChangeBundle["receipt"] & { prompts: string[]; hasResearch: boolean; contextOnlyKeys: string[]; supportKeys: string[]; links: { anchor: string; to: string }[]; readiness: EvidenceReadiness; diagnosis: ActionDiagnosis; bodyText?: string | null; ahead: NonNullable<ProducerCtx["ahead"]> };
-
-/** A pattern is claimable only across MULTIPLE pages that come up for this exact search, as a count I can show. */
-function winnerPattern(read: Research["winningPages"], c: NonNullable<OwnedPageEvidence["content"]>, primary: string): string | null {
-  if (read.length < 2) return null;
-  const words = [...read.map((w) => w.extract!.wordCount)].sort((a, b) => a - b); const median = words[Math.floor(words.length / 2)]!;
-  const faq = read.filter((w) => (w.extract!.faqCount ?? 0) > 0).length; const bits: string[] = []; // a read that does not report question entries counts towards nothing here: the sentence below says how many winners DO answer that way, and an unknown is not one of them
-  if (faq >= 2) bits.push(`${faq} of them were reported with question and answer entries${c.hasFaq ? "; visible answered pairs were also captured here" : "; no visible answered pairs were identified in this page's capture"}`);
-  if (median >= Math.round(c.wordCount * 1.5)) bits.push(`the middle one runs ${median.toLocaleString()} words against this page's ${c.wordCount.toLocaleString()}`);
-  return bits.length === 0 ? null : `Of the ${read.length} pages read that come up for "${primary}", ${bits.join(", and ")}.`;
-}
+type Receipt = ChangeBundle["receipt"] & { prompts: string[]; hasResearch: boolean; contextOnlyKeys: string[]; supportKeys: string[]; links: { anchor: string; to: string }[]; readiness: EvidenceReadiness; diagnosis: ActionDiagnosis; bodyText?: string | null; ahead: NonNullable<ProducerCtx["ahead"]>; aiImpact?: ChangeProposal["aiImpact"]; aiScope?: ChangeProposal["aiScope"] };
 
 function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queries: OwnedQuerySignal[], primary: string, weak: ReadonlySet<string>, body: OwnedBody | null, mine: DecidedTopic | null, technical: readonly TechnicalFinding[], bodies: ReadonlyMap<string, OwnedPageBody>): Receipt {
   const items: BundleEvidenceItem[] = []; const contextOnly: string[] = []; const missing: string[] = []; const prompts: string[] = [];
   // WHICH STORED ANSWERS: a line off ONE answer keeps the singular id it always wore; a line SEVERAL answers stand behind carries all of theirs, and neither is ever flattened into the other.
-  const add = (key: string, kind: BundleEvidenceItem["kind"], fact: string, observedAt: string | null, from?: Pick<BundleEvidenceItem, "observationId" | "observationIds">): void => { items.push({ key, kind, fact, observedAt, ...(from?.observationId ? { observationId: from.observationId } : {}), ...(from?.observationIds?.length ? { observationIds: from.observationIds } : {}) }); };
+  const add = (key: string, kind: BundleEvidenceItem["kind"], fact: string, observedAt: string | null, from?: Pick<BundleEvidenceItem, "observationId" | "observationIds" | "sources">): void => { items.push({ key, kind, fact, observedAt, ...(from?.observationId ? { observationId: from.observationId } : {}), ...(from?.observationIds?.length ? { observationIds: from.observationIds } : {}), ...(from?.sources?.length ? { sources: from.sources } : {}) }); };
   const research = snapshot.research;
   const isPrimary = (q: string): boolean => norm(q) === norm(primary) || canonicalQueryKey(q) === canonicalQueryKey(primary);
   const s = page.search!; const c = page.content!;
@@ -148,18 +137,31 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   const intel = answerIntelOf(observations); const said = answerIntelFacts(intel); for (const f of said.facts) add(f.key, "ai_observation", f.fact, f.observedAt, f);
   if (said.withheld) missing.push(said.withheld); // a dropped signal is still evidence I had, and withholding it in silence reads exactly like never having gathered it
   const supportKeys = intel.omissions.slice(0, 2).flatMap((s, i) => (s.prompts > 1 ? [`missing${i + 1}`] : []));
+  let aiImpact: ChangeProposal["aiImpact"], aiScope: ChangeProposal["aiScope"];
+  if (mine?.investigation.demandBasis === "ai" && observations.length > 0) {
+    const ownHost = parseUrl(page.url)?.host.replace(/^www\./, "") ?? "", sameSite = (url: string): boolean => (parseUrl(url)?.host.replace(/^www\./, "") ?? "") === ownHost;
+    const reported = observations.filter((o) => o.citations != null), retrievedNotCited = observations.filter((o) => (o.retrievedResults ?? []).some((r) => sameSite(r.url)) && !(o.citations ?? []).some((r) => sameSite(r.url))).length;
+    const rivals = new Set(reported.flatMap((o) => o.citations ?? []).filter((c) => !sameSite(c.url)).map((c) => c.domain));
+    const stage = retrievedNotCited > 0 ? "owned_retrieved_not_cited" : intel.brand.mentioned > 0 && rivals.size > 0 ? "owned_mentioned_not_cited"
+      : reported.length === 0 ? "citations_unreported" : observations.some((o) => o.retrievedResults != null) ? "rivals_cited_own_not_retrieved" : "own_not_in_reported_sources";
+    const engines = [...new Set(observations.map((o) => o.engine))].sort(), promptIds = [...new Set(observations.map((o) => o.promptId))].sort();
+    aiImpact = { answers: observations.length, mentionRate: intel.brand.mentioned / observations.length, citedRivals: rivals.size, audienceWeight: page.search?.impressions90d ?? null, days: new Set(observations.map((o) => o.reportingDay)).size, engines: engines.length, prompts: promptIds.length, reportedAnswers: reported.length, retrievedNotCited, stage };
+    aiScope = { caseKey: mine.investigation.key, promptIds, promptVersions: [...new Set(observations.map((o) => o.promptVersion))].sort((a, b) => a - b), engines, models: [...new Set(observations.map((o) => o.modelServed).filter((m): m is string => !!m))].sort(), modes: [...new Set(observations.map((o) => o.observationMode))].sort(), fanouts: [...new Set(observations.flatMap((o) => o.fanOutQueries ?? []))].sort(), observationIds: observations.map((o) => o.observationId).sort(), stage };
+  }
 
   // A winner belongs to THIS search only: on that results page, or in an answer that joined this case above. A fan-out that never carried this search carries no winner either.
   const memberPrompts = new Set(observations.map((o) => norm(o.promptText))), memberQueries = new Set(ofCase.queries.map(canonicalQueryKey));
   const memberUrls = new Set([...observations.flatMap((o) => (o.citations ?? []).map((cit) => cit.url)),
     ...serps.flatMap((e) => [...e.organic.map((x) => x.url), ...e.aiOverview.map((cit) => cit.url), ...e.aiMode.map((cit) => cit.url)])].map(canonicalUrlKey));
   const belongs = [...(research?.winningPages ?? [])].filter((w) => winnerBelongs(w, memberQueries, memberPrompts, memberUrls)).sort((a, b) => byText(a.url, b.url));
-  const read = belongs.filter((w) => !!w.extract), winners = belongs.slice(0, 2);
+  const channel = mine?.investigation.demandBasis === "ai" ? "aeo" : "seo";
+  const sourceOf = (w: typeof belongs[number]): NonNullable<BundleEvidenceItem["sources"]>[number] => { const seo = w.appearances.filter((a) => a.kind === "serp_organic"), aeo = w.appearances.filter((a) => a.kind !== "serp_organic"), use = channel === "aeo" && aeo.length > 0 ? aeo : seo.length > 0 ? seo : aeo, rank = use.filter((a) => a.kind === "serp_organic" && a.rank != null).map((a) => a.rank!); return { url: w.url, publisher: w.domain, ...(w.extract?.openingSample ? { passage: w.extract.openingSample.slice(0, 400) } : {}), channel: use.some((a) => a.kind !== "serp_organic") ? "aeo" : "seo", ...(rank.length ? { rank: Math.min(...rank) } : use.length ? { recurrence: use.length } : {}) }; };
+  const ordered = [...belongs].sort((a, b) => { const ax = sourceOf(a), bx = sourceOf(b); return channel === "aeo" ? (bx.recurrence ?? 0) - (ax.recurrence ?? 0) || byText(a.url, b.url) : (ax.rank ?? Number.MAX_SAFE_INTEGER) - (bx.rank ?? Number.MAX_SAFE_INTEGER) || byText(a.url, b.url); });
+  const read = ordered.filter((w) => !!w.extract), winners = ordered.slice(0, 5);
   if (winners.length === 0) missing.push(`The pages that come up for "${primary}" have not been read yet.`);
   winners.forEach((w, i) => add(`win${i + 1}`, "winning_page",
     `${w.domain} ${w.appearances.some((a) => a.kind !== "serp_organic") ? "is one of the pages AI keeps citing here" : `comes up on the results page for "${primary}"`}${w.extract ? `, and it runs ${w.extract.wordCount.toLocaleString()} words under ${w.extract.headings.length} headings` : ""}.`,
-    [...w.appearances].sort((a, b) => byText(b.observedAt, a.observedAt))[0]?.observedAt ?? null));
-  const winners2 = winnerPattern(read, c, primary); if (winners2) add("winpattern", "winning_page", winners2, null);
+    [...w.appearances].sort((a, b) => byText(b.observedAt, a.observedAt))[0]?.observedAt ?? null, { sources: [sourceOf(w)] }));
   // WHO IS ABOVE THIS PAGE ON THAT RESULTS PAGE, in rank order, each joined to its own read where one exists. A
   // page with no read carries nulls rather than being dropped, because the hole IS the finding a fall needs.
   const extracts = new Map(read.map((w) => [canonicalUrlKey(w.url), w.extract!] as const));
@@ -169,14 +171,15 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
     .map((o) => { const x = extracts.get(canonicalUrlKey(o.url)), no: Receipt["ahead"][number]["unreadable"] = isNoiseDomain(o.url) ? "never_read" : finalNo.has(canonicalUrlKey(o.url)) ? "publisher_refused" : undefined; return { url: o.url, domain: o.domain, rank: o.rank, wordCount: x?.wordCount ?? null, headings: [...(x?.headings ?? [])], openingSample: x?.openingSample ?? null, ...(no ? { unreadable: no } : {}) }; });
 
   const links = [...snapshot.internalLinkOpportunities].filter((l) => l.fromUrl === page.url && onTopic(l.anchor)).sort((a, b) => byText(a.toUrl, b.toUrl)).slice(0, 3);
-
   if (mine) {
     const inv = mine.investigation; const p = mine.decision.pattern ?? null;
     if (p) {
-      add(RECEIPT.winners, "winning_page", `The ${p.winners} pages that win "${primary}" side by side, and they agree on ${p.commonHeadings.length} ${p.commonHeadings.length === 1 ? "section" : "sections"} to cover and ${p.commonEntities.length} ${p.commonEntities.length === 1 ? "thing" : "things"} to name.`, null);
-      for (const t of [...p.commonHeadings.map((x) => x.heading), ...p.questionsAnswered].map((s) => s.trim()).filter(Boolean)) add(RECEIPT.cover(t), "winning_page", `Every one of the pages that win "${primary}" covers ${t}.`, null);
-      const gap = p.ownedGaps[0]; if (gap) add(RECEIPT.winnersGap, "winning_page", `${gap.seenOn.length} of them do something this page does not: ${gap.gap}`, null);
-      const opening = (p.openingPattern ?? "").trim(); if (opening) add(RECEIPT.winnersOpening, "winning_page", `They all open the same way: ${opening}`, null);
+      const briefSources = p.brief?.sources ?? [], sourceIndex = new Map(briefSources.map((source, index) => [source.sourceId, index] as const)), provenance = (indexes: readonly number[]) => indexes.flatMap((index) => { const s = briefSources[index]; if (!s) return []; const aeo = s.citations.filter((a) => a.kind !== "serp_organic"), seo = s.citations.filter((a) => a.kind === "serp_organic"), use = channel === "aeo" && aeo.length > 0 ? aeo : seo.length > 0 ? seo : aeo, rank = use.filter((a) => a.kind === "serp_organic" && a.rank != null).map((a) => a.rank!); return [{ url: s.url, publisher: s.publisher, ...(s.passage ? { passage: s.passage } : {}), channel: use.some((a) => a.kind !== "serp_organic") ? "aeo" as const : "seo" as const, ...(rank.length ? { rank: Math.min(...rank) } : use.length ? { recurrence: use.length } : {}) }]; }), provenanceIds = (ids: readonly string[]) => provenance(ids.flatMap((id) => sourceIndex.has(id) ? [sourceIndex.get(id)!] : [])), deltaSources = (dimension: string, need: string) => p.brief?.deltas.find((delta) => delta.dimension === dimension && delta.need === need)?.sources ?? [];
+      add(RECEIPT.winners, "winning_page", `${p.winners} distinct publishers that win "${primary}" were read side by side. A shared pattern means a strict majority of that same set: ${p.commonHeadings.length} ${p.commonHeadings.length === 1 ? "section qualifies" : "sections qualify"} and ${p.commonEntities.length} ${p.commonEntities.length === 1 ? "named thing qualifies" : "named things qualify"}.`, null, { sources: provenance(briefSources.map((_s, index) => index)) });
+      for (const h of p.commonHeadings) { const t = h.heading.trim(); if (t) add(RECEIPT.cover(t), "winning_page", `${h.seenOn.length} of the ${p.winners} distinct publishers cover ${t}, meeting the shared-pattern bar.`, null, { sources: provenance(h.seenOn) }); }
+      for (const q of p.questionsAnswered.map((s) => s.trim()).filter(Boolean)) { const sources = provenanceIds(deltaSources("questions", q)); if (sources.length > 0) add(RECEIPT.cover(q), "winning_page", `The bounded winner reading reports this recurring question: ${q}.`, null, { sources }); }
+      const gap = p.ownedGaps[0]; if (gap) { const sources = provenanceIds(deltaSources("owned_delta", gap.gap)); if (sources.length > 0) add(RECEIPT.winnersGap, "winning_page", `${gap.seenOn.length} of the ${p.winners} distinct publishers do something this page does not: ${gap.gap}`, null, { sources }); }
+      const opening = (p.openingPattern ?? "").trim(); if (opening) { const sources = provenanceIds(deltaSources("opening", opening)); if (sources.length > 0) add(RECEIPT.winnersOpening, "winning_page", `The bounded winner reading reports this recurring opening pattern: ${opening}`, null, { sources }); }
     }
     if (inv.pageType !== "mixed" && inv.pageType !== "unknown") add(RECEIPT.shape, "serp", `The pages that come up for "${primary}" have settled on one kind of page, counted off ${inv.distinctResultDomains} different sites.`, null);
     const want = inv.demand.intent ? WANTS[norm(inv.demand.intent)] : undefined; if (want) add(RECEIPT.intent, "keyword", `The people searching "${primary}" ${want}.`, null);
@@ -186,11 +189,10 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   technical.forEach((f, i) => add(technicalKey(i), "page_extract", f.evidence, null));
 
   if (!bodyText) missing.push("This page's full body text is not on file, so every draft was checked against its title and section headings only.");
-
   const readiness: EvidenceReadiness = { gsc: (s.topQueries ?? []).some((q) => isPrimary(q.query)), ownedCopy: !!(c.title || c.metaDescription),
     serp: serps.length > 0, winners: read.length, body: !!bodyText };
   const dates = items.map((it) => it.observedAt).filter((d): d is string => !!d).sort(byText);
-  return { items, missing, readiness, diagnosis, bodyText, ahead, freshestObservedAt: dates.length ? dates[dates.length - 1]! : null, prompts: [...new Set(prompts)].sort(byText),
+  return { items, missing, readiness, diagnosis, bodyText, ahead, freshestObservedAt: dates.length ? dates[dates.length - 1]! : null, prompts: [...new Set(prompts)].sort(byText), ...(aiImpact ? { aiImpact, aiScope } : {}),
     hasResearch: items.some((it) => it.kind === "keyword" || it.kind === "serp" || it.kind === "ai_observation" || it.kind === "winning_page"),
     contextOnlyKeys: contextOnly, supportKeys, links: links.map((l) => ({ anchor: l.anchor, to: pathOf(l.toUrl) })) };
 }
@@ -200,6 +202,8 @@ const gateShape = (tenantId: string, query: string, change: RecommendedChange): 
   evidence: { query, hints: [], evidenceRefCount: 0 }, impactScore: null, upsidePerMonth: null, publish: "manual", createdAt: "" });
 
 type ProduceBundleOptions = ProposeOptions & {
+  /** Manual proving mode may produce bounded edits but never a whole-body replacement. */
+  deliveryScope?: "existing_page_edits" | "all_changes";
   /** THE ACCOUNT'S OWN CLICK CURVE, the same one the diagnosis measured with. Absent = the industry table, which is right only for a caller running outside a pass. */ curve?: { expectedCtrAt: (position: number) => number };
   /** The ONE topic the coverage pass decided: the settled kind of page, what searchers want, and what the winners share. Absent, those causes are not considered. */ coverage?: DecidedTopic | null;
   /** The pages already carrying a change under measurement, so a page still being read is left alone. */ measuringPagePaths?: readonly (string | null)[];
@@ -267,17 +271,17 @@ function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date,
   // THE OTHER PAGES OF THIS ACCOUNT, under the one id a claim may cite: what a page cannot say about itself is what a sibling page carries, and it is the one route to information gain that costs nothing to read.
   const facts = [...siblings.values()].filter((b) => held == null || canonicalUrlKey(b.url) !== canonicalUrlKey(held.url)).flatMap((b) => (b.passages ?? []).slice(0, 2).map((text) => ({ fact: `${pathOf(b.url)}: ${text}`, sources: [{ url: b.url, kind: "owner" }] }))).slice(0, 6).map((fact, i) => ({ id: `owned-page-${i + 1}`, ...fact }));
   const address = (heading: string | null, after: string, assignment?: ChangeProposal["assignment"]): string => assignment ? JSON.stringify([heading, after, COPY_RULES.recordKey(assignment)]) : heading == null ? after : `${heading}\n\n${after}`;
-  const write = async (field: "answer_block", query: string, brief: string, evidenceHints: string[], delivery?: "opening", assignment?: ChangeProposal["assignment"]): Promise<AuthorizedPiece | null> =>
-    { if (!held || pending) return null; const piece = await draftFieldForPage({ field, body: held, query, brief, evidenceHints, delivery, assignment, ownedPaths, minutes: 15, banked: facts, checked, basis: opts.basis ?? null, comparison: compared }, editor); pending = !!piece && !COPY_RULES.accepted(piece.editor); return piece; }; // Written copy awaiting review is banked before this producer stops further writing.
+  const write = async (field: "answer_block", query: string, brief: string, evidenceHints: string[], delivery?: "opening", assignment?: ChangeProposal["assignment"], informationNeed?: NonNullable<ChangeProposal["assignment"]>["informationNeed"], standard?: "restructuring" | "repositioning"): Promise<AuthorizedPiece | null> =>
+    { if (!held || pending) return null; const piece = await draftFieldForPage({ field, body: held, query, brief, evidenceHints, delivery, assignment, informationNeed, standard, ownedPaths, minutes: 15, banked: facts, checked, basis: opts.basis ?? null, comparison: compared }, editor); pending = !!piece && !COPY_RULES.accepted(piece.editor); return piece; }; // Written copy awaiting review is banked before this producer stops further writing.
   return {
     // THE EDITOR ITSELF, for a page this card does not sit on: same deterministic checks, same judge, that page's own words.
-    pageField: async (i) => { if (pending) return null; const piece = await draftFieldForPage({ ...i, ownedPaths }, editor); pending = !!piece && !COPY_RULES.accepted(piece.editor); return piece; },
+    pageField: async (i) => { if (pending) return null; const piece = await draftFieldForPage({ ...i, ownedPaths }, editor); if (piece) authed.set(piece.after, piece); pending = !!piece && !COPY_RULES.accepted(piece.editor); return piece; },
     restore: async (piece) => { const accepted = COPY_RULES.accepted(piece.editor); if (!held || !piece.units?.length || piece.after !== COPY_RULES.bodyCopy(piece.units) || !piece.claims.length || piece.claims.some(claim => claim.supportedBy.some(id => piece.supportFacts.filter(fact => fact.id === id).length !== 1)) || accepted && (piece.reviewOf !== COPY_RULES.pieceKey(piece) || piece.review.length !== piece.claims.length || piece.claims.some((claim, i) => !COPY_RULES.ruling(claim, piece.review, i))) || !accepted && (piece.editor != null || piece.reviewOf != null || piece.review.length > 0)) return null; const reviewed = accepted || pending ? piece : await draftFieldForPage({ field: "answer_block", body: held, query: piece.assignment?.intent[0] ?? "", brief: piece.assignment?.diagnosedGap ?? "", evidenceHints: [], saved: piece, delivery: piece.slot === 0 ? "opening" : undefined, assignment: piece.assignment, ownedPaths, minutes: 15, checked, basis: opts.basis ?? null, comparison: compared }, editor); if (!reviewed) return null; const restored = { ...reviewed, slot: piece.slot }; pending ||= !COPY_RULES.accepted(restored.editor); authed.set(address(restored.heading, restored.after, restored.assignment), { ...restored, before: restored.before ?? null, anchor: restored.target?.anchor ?? restored.heading ?? "", minutes: 15 }); return restored; },
     compose: (pieces) => { const copies = pieces.map((p) => authed.get(address(p.heading, p.body, p.assignment))); if (copies.length === 0 || copies.some((c) => !c?.units)) return null; const units = copies.flatMap((copy, i) => COPY_RULES.publication(copy!, pieces[i]!.heading).units!), after = COPY_RULES.bodyCopy(units), target = { mode: "whole_body" as const, anchorKind: null, anchor: null }, component: BundleComponent = { kind: "full_rewrite", label: "Rebuild this page", before: held?.passages.join("\n\n") ?? null, after, units, target, evidenceKeys: [], risk: "review" }, merged = assembleCopy([component], copies.map((copy) => ({ index: 0, copy: copy! }))); authed.set(after, { ...copies[0]!, heading: null, after, units, target, claims: merged.claims.map((claim) => ({ text: claim.text, supportedBy: claim.supportedBy })), supportFacts: merged.supportFacts, review: merged.review.map((r) => ({ ...r, by: [...r.by] })), gain: merged.gain ? { ...merged.gain, targetHash: undefined } : undefined, preservation: merged.preservation, draftNotes: merged.draftNotes, assignment: undefined, editor: undefined, reviewOf: undefined }); return { after, units, pieces: copies.map((copy, i) => { const { before, heading, after, units, target, assignment, editor, reviewOf, claims, supportFacts, review, gain, preservation, draftNotes } = copy!; return { slot: pieces[i]!.slot, before, heading, after, units, target, assignment, editor, reviewOf, claims, supportFacts, review, gain, preservation, draftNotes }; }) }; },
-    section: async (i) => { const r = await write("answer_block", i.query, `${i.brief}${i.heading ? ` Write it under the heading "${i.heading}".` : ""}`, i.evidenceHints, undefined, i.assignment);
-      if (!r) return null; const heading = (r.heading ?? i.heading ?? "").trim(); authed.set(address(heading, r.after, r.assignment), { ...r, heading }); return { heading, body: r.after }; },
-    openingAnswer: async (i) => { const r = await write("answer_block", i.query, `Rewrite the first lines of this page so they answer "${i.query}" outright. It currently opens: "${(i.currentValue ?? "nothing on file").slice(0, 400)}".`, i.evidenceHints, "opening", i.assignment);
-      if (r) authed.set(address(null, r.after, r.assignment), r); return r?.after ?? null; },
+    section: async (i) => { const r = await write("answer_block", i.query, `${i.brief}${i.heading ? ` Write it under the heading "${i.heading}".` : ""}`, i.evidenceHints, undefined, i.assignment, i.informationNeed, i.standard);
+      if (!r) return null; const heading = (r.heading ?? i.heading ?? "").trim(), copy = { ...r, heading }; authed.set(address(heading, r.after, r.assignment), copy); authed.set(`${heading}\n\n${r.after}`, copy); return { heading, body: r.after, units: r.units }; },
+    openingAnswer: async (i) => { const r = await write("answer_block", i.query, `Rewrite the first lines of this page so they answer "${i.query}" outright. It currently opens: "${(i.currentValue ?? "nothing on file").slice(0, 400)}".`, i.evidenceHints, "opening", i.assignment, i.informationNeed, i.standard);
+      if (r) { authed.set(address(null, r.after, r.assignment), r); authed.set(r.after, r); } return r?.after ?? null; },
   };
 }
 
@@ -313,7 +317,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       headings: b.headings ?? c?.outline ?? [], passages: b.passages ?? [], openingSample: b.openingSample, vocabulary: b.vocabulary ?? "", cardTexts: b.cardTexts ?? [],
       faqs: b.faqs ?? [], entityNames: b.entityNames ?? [], internalLinks: b.internalLinks ?? [], fetchedAt: b.fetchedAt,
       completeness: b.completeness ?? "sample_only", contentHash: b.contentHash ?? null, heldNote: b.heldNote ?? "A sample of this page is on file, not the whole page.",
-      version: b.version, newestAt: b.newestAt };
+      version: b.version, newestAt: b.newestAt, ...(b.sourceCapture ? { sourceCapture: b.sourceCapture } : {}) };
   const held = heldOf(page.url, content, body ?? undefined);
   const heldBodies = new Map(snapshot.ownedPages.flatMap((p) => {
     const one = heldOf(p.url, p.content, opts.bodyByUrl?.get(canonicalUrlKey(p.url)));
@@ -342,8 +346,9 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     .map((p) => ({ url: p.url, title: p.content?.title ?? null, h1: p.content?.h1 ?? null }))
     .sort((a, b) => byText(pathOf(a.url), pathOf(b.url))).slice(0, MAX_INVENTORY);
   const checked = held ? await readFactChecks(tenantId, pathOf(page.url)).catch(() => [] as FactCheck[]) : []; // A CHECKED READING IS EVIDENCE THE CANON READS (Stage 3, 2026-09-14): a section citing fact-1 for a name only that reading carries was refused by the name check as invented, so the readings this page is authorized to state ride the evidence text exactly as they ride the writer's packet
+  const sourcedQuestions = (pattern?.brief?.deltas ?? []).filter((delta) => delta.dimension === "questions" && delta.sources.length > 0).map((delta) => delta.need);
   const producerEvidenceText = wording ? evidenceText : [evidenceText, ...(held ? demandOf(page, held, checked, opts.basis ?? null, tenantId).facts.map((f) => f.fact) : []), ...(pattern?.commonHeadings ?? []).map((h) => h.heading),
-    ...(pattern?.commonEntities ?? []).map((e) => e.entity), ...(pattern?.questionsAnswered ?? []), ...(body?.entityNames ?? []),
+    ...(pattern?.commonEntities ?? []).map((e) => e.entity), ...sourcedQuestions, ...(body?.entityNames ?? []),
     ...(body?.cardTexts ?? []), ...(body?.internalLinks ?? []).map((l) => `${l.anchorText} ${l.href}`),
     ...[...heldBodies.values()].flatMap((b) => [...b.headings, ...b.entityNames]), // every page of yours I actually hold, in its own words: a section moved off one of them is named, never invented
     // A page of this account, by its own address and title, is read and never invented.
@@ -360,6 +365,10 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   const heldHeadings = (held?.headings ?? content.outline).map((h) => h.trim()).filter((h) => h.length > 0);
 
   const keep = (c: BundleComponent, change: RecommendedChange): void => {
+    if (opts.deliveryScope === "existing_page_edits" && (c.kind === "full_rewrite" || c.target?.mode === "whole_body")) {
+      alternatives.push({ option: c.label, reason: "A whole-page replacement is outside the current manual-edit proving phase, so the bounded edit remains visible without generating the full page." });
+      return;
+    }
     // EVERY CLAIM TRACES TO SOMETHING ON SCREEN: a component citing nothing is dropped whole, and an answer whose sources I could not see is CONTEXT, never support.
     const own = c.evidenceKeys.filter((k) => receiptKeys.has(k) && !receipt.contextOnlyKeys.includes(k)); const drop = (reason: string): void => { alternatives.push({ option: c.label, reason }); };
     if (own.length === 0) return drop("There was nothing to show behind that one, so it was left out rather than asked to be taken on trust.");
@@ -396,7 +405,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     const slot = CORE_PRODUCERS[finding.cause as Exclude<typeof finding.cause, "ctr_snippet">];
     if (typeof slot !== "function") return { status: "none", reason: finding.cause === "no_problem" ? diagnosis.explanation : finding.explanation };
     if (opts.held?.newPageDraft?.brief.kind === "full_rewrite" && (opts.held.tenantId !== tenantId || opts.held.basis !== opts.basis || canonicalUrlKey(opts.held.pageUrl ?? "") !== canonicalUrlKey(page.url))) return { status: "none", reason: "The rewrite bank does not belong to this tenant, basis and page; no work was bought." };
-    const compared = snapshot.research ? jobComparison(snapshot.research, [primary], { url: page.url, text: `${content.title ?? ""} ${(held?.passages ?? []).join(" ")}`, headings: content.outline ?? [], passages: held?.passages ?? [], complete: held?.completeness === "complete" && held.version === "current" }) : null;
+    const compared = snapshot.research ? jobComparison(snapshot.research, [primary], { url: page.url, text: `${content.title ?? ""} ${(held?.passages ?? []).join(" ")}`, headings: content.outline ?? [], passages: held?.passages ?? [], complete: held?.completeness === "complete" && held.version === "current" }, undefined, receipt.aiScope ? "aeo" : "seo") : null;
     const drafters = producerDrafts(tenantId, opts, now, snapshot.ownedPages.map((p) => pathOf(p.url)), held, heldBodies, authed, checked, compared);
     const ctx: ProducerCtx = { finding, primary, tenantId,
       page: { url: page.url, title: content.title, h1: content.h1, outline: content.outline, internalLinkCount: content.internalLinks.length },
@@ -408,7 +417,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       keep(c, { kind: "existing_edit", field, before: c.before, after: c.after });
     }
     // SMALLER COMPONENTS FIRST, A REBUILD LAST, and NEVER on a split: it is earned by a SECOND cause that FIRED.
-    if (components.length === 0 && finding.cause !== "cannibalization") {
+    if (components.length === 0 && finding.cause !== "cannibalization" && opts.deliveryScope !== "existing_page_edits") {
       const rebuild = produced.draftBank || ctx.draftBank ? produced : await produceFullRewriteRecommendation(ctx, causes);
       if (rebuild.requirement || rebuild.draftBank) produced = rebuild;
       for (const c of rebuild.components) keep(c, { kind: "existing_edit", field: fieldForComponent(c.kind), before: c.before, after: c.after });
@@ -440,26 +449,26 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     // THE GOAL FOLLOWS THE CAUSE THAT WAS SERVED, NOT THE DOOR THAT KNOCKED: a page can enter on a fall and be diagnosed with a split, and the objective then promised to win back lost clicks over components that settle which page owns the search, so one card argued two different changes.
     objective: lead ? `Close the gap on the one search "${primary}", which earns this page about ${Math.round(lead.recoverable).toLocaleString()} fewer clicks than pages at position ${Math.round(lead.position)} usually get.`
       : doorGoal(finding.cause === "cannibalization" ? "cannibalization" : door!.door, primary),
-    metric: `Clicks from search for "${primary}" over the next 28 days.`,
+    metric: receipt.aiScope ? `Whether assistants retrieve, name and cite this site for "${primary}" after the change.` : `Clicks from search for "${primary}" over the next 28 days.`,
     scope: { queries: queries.map((q) => q.query), prompts: receipt.prompts },
     components, plan, ...(dispositions ? { dispositions } : {}),
     receipt: { items: receipt.items, missing: receipt.missing, freshestObservedAt: receipt.freshestObservedAt },
     alternatives,
-    risks: [`Changing ${wording ? "a title moves where the page ranks" : "what a page says moves where it ranks"} while search engines re-read it, so give this the full 28 days before you judge it.`,
+    risks: [receipt.aiScope ? "Assistants can change their answers between readings, so judge this across the same questions and engines rather than one response." : `Changing ${wording ? "a title moves where the page ranks" : "what a page says moves where it ranks"} while search engines re-read it, so give this the full 28 days before you judge it.`,
       receipt.bodyText ? "These are this page's stored words, not today's live page, so read each line once against the page before you paste it." : "This page's full body text is not on file, so read each line once before you paste it."],
     confidenceReasons,
-    measurementPlan: "Once you make the change, record it on Results with the page address, and clicks, views and average position for these searches get read at 7, 14 and 28 days, compared against pages you did not change.",
+    measurementPlan: receipt.aiScope ? "Once you make the change, record it on Results. Beacon re-runs this exact question and fan-out scope across the same assistants and compares retrieval, mentions and citations to the stored answers that justified the edit." : "Once you make the change, record it on Results with the page address, and clicks, views and average position for these searches get read at 7, 14 and 28 days, compared against pages you did not change.",
   };
   const writtenPieces = components.flatMap((c, index) => {
     const copy = authed.get(c.after); return copy ? [{ index, copy }] : [];
   });
-  for (const { index, copy } of writtenPieces) Object.assign(components[index]!, COPY_RULES.publication(components[index]!.target?.mode === "replace" ? { ...copy, target: components[index]!.target } : copy, /^section(?:_add)?$/.test(components[index]!.kind) ? copy.heading : null)); /* a rewrite keeps the producer's replace target and publishes its body under the anchor heading, which stays on the page */ // AN ADDED SECTION CARRIES ITS HEADING (Stage 3, 2026-09-14): only `section` kept it, so a `section_add` labelled "Add a section: Scientists" published paste copy with no heading in it
+  for (const { index, copy } of writtenPieces) Object.assign(components[index]!, COPY_RULES.publication(components[index]!.target?.mode === "replace" ? { ...copy, target: components[index]!.target } : copy, /^(?:section(?:_add)?|table_or_list_add)$/.test(components[index]!.kind) ? copy.heading : null)); /* a rewrite keeps the producer's replace target and publishes its body under the anchor heading, which stays on the page */ // AN ADDED SECTION CARRIES ITS HEADING (Stage 3, 2026-09-14): only `section` kept it, so a `section_add` labelled "Add a section: Scientists" published paste copy with no heading in it
   const { claims, review, supportFacts, preservation, gain, editor, draftNotes } = assembleCopy(components, writtenPieces);
   const primaryComponent = components[0]!; // THE FAMILY THIS CHANGE BELONGS TO, worn by the id AND the stamp. The id ended in the literal word "bundle" and the family read "single", so a snippet rewrite and a body rebuild on one page fought over one id and every shipped bundle reached the proof ledger unclassifiable. Both read the store's own derivation now.
   const recommendedChange: RecommendedChange = { kind: "existing_edit", field: fieldForComponent(primaryComponent.kind), before: primaryComponent.before, after: primaryComponent.after, units: primaryComponent.units, target: primaryComponent.target, where: primaryComponent.where };
   const family = actionFamilyOf({ kind: "existing_edit", bundle, recommendedChange });
   const proposal: ChangeProposal = {
-      id: `${tenantId}::${pathOf(page.url)}::existing_edit::${family}`,
+      id: `${tenantId}::${pathOf(page.url)}::existing_edit::${family}@${canonicalQueryKey(primary)}`,
       tenantId, kind: "existing_edit", changeFamily: family, publish: "manual",
       pagePath: pathOf(page.url), pageUrl: page.url.startsWith("http") ? page.url : `https://${page.url}`,
       pageLabel: content.h1 ?? content.title ?? page.url, primaryQuery: primary,
@@ -476,10 +485,10 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       // A SIZE ONLY WHERE ONE IS PROVEN: an unproven door ranks as a direction, never as zero clicks.
       impactScore: pick.gap >= MIN_RECOVERABLE_CLICKS ? Math.round(pick.gap) : null, upsidePerMonth: null, bundle, createdAt: now.toISOString(),
       ...(claims.length > 0 ? { claims, supportFacts } : {}),
-      ...(gain ? { informationGain: gain } : {}), ...(preservation.length > 0 ? { preservation } : {}),
+      ...(gain ? { informationGain: gain } : {}), ...(preservation.length > 0 ? { preservation } : {}), ...(receipt.aiImpact ? { aiImpact: receipt.aiImpact, aiScope: receipt.aiScope } : {}),
   };
   // THE READING IS STAMPED ON THE FINISHED ROW, never on a draft: copyKey folds the copy, every piece, every claim with the piece it answers for, and the words behind every id, and excludes the reading itself, so the identity comes from the completed proposal without a cycle.
-  const row: ChangeProposal = review.length > 0 ? { ...proposal, semanticReview: { editor, of: copyKey(proposal), version: REVIEW_CONTRACT, claims: review } } : proposal;
+  const complete = withDerivedFaqSchema(proposal, held); const row: ChangeProposal = review.length > 0 ? { ...complete, semanticReview: { editor, of: copyKey(complete), version: REVIEW_CONTRACT, claims: review } } : complete;
   // THE WHOLE ROW, GATED: the per-component gate reads a synthetic proposal carrying no cause and no notes, so a claim that resolves to nothing reached the operator through the gap between a piece and the whole change.
   const failed = receiptIntegrityFailures(row);
   if (failed.length > 0) return draftBank ? { status: "bundled", proposal: { ...row, status: "needs_review", researchOnly: true, faults: failed } } : { status: "none", reason: `Not everything this change claims can be shown, so it is held back. Research this page again and the finding comes back here.` };

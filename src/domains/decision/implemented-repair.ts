@@ -7,11 +7,12 @@
 
 import "server-only";
 
+import { createHash } from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 import { deserializeChangeProposal, serializeChangeProposal } from "./contracts";
 import { deliverableGaps } from "./completeness";
-import { PROPOSAL_TABLE } from "./proposal-store";
+const PROPOSAL_TABLE = "change_proposals";
 
 /** THE ONE SENTENCE, plain and dated, ending in the one thing the operator can actually do. The marker keeps a second pass from stacking it. */
 const LOST_RECORD = /lost its record|was never finished/;
@@ -27,6 +28,10 @@ const notFinished = (at: unknown, gap: string): string => `A change marked done 
 const settledReceipt = (verdict: string): string =>
   `The reading finished and the result is on Results: ${verdict === "won" ? "this change won" : verdict === "lost" ? "this change lost" : "no clear winner"}.`;
 
+/** A repair is a new generation, not permission to resume the generation that Mark implemented retired. */
+const repairWorkKey = (id: string, version: number, previous: string | undefined, reason: string): string =>
+  `implemented-repair:${createHash("sha256").update(JSON.stringify([id, version, previous ?? null, reason])).digest("hex").slice(0, 32)}`;
+
 /** Revert every change this account holds as done that the ledger holds no record for, and hand back the sentences stored. `shipped` is every proposal id the ledger
  *  genuinely has a record for, and THE CALLER READS THE LEDGER: a ledger it could not read must never be passed here as an empty set, because a list nobody could read
  *  is not proof a change has no record. `finished` maps proposal ids to the settled verdict their reading reached (won, lost, or
@@ -36,37 +41,41 @@ export async function reconcileImplementedWithoutShipment(tenantId: string, ship
   const said: string[] = [];
   try {
     const sb = getSupabaseAdmin();
-    const { data, error } = await sb.from(PROPOSAL_TABLE).select("id, status, payload, updated_at")
+    const { data, error } = await sb.from(PROPOSAL_TABLE).select("id, status, payload, proposal_version, updated_at")
       .eq("tenant_id", tenantId).eq("status", "implemented_pending_verification").is("terminal_disposition", null).limit(limit);
     if (error || !data) {
       log.error("[implemented-repair] the done rows could not be read, so nothing was reverted", { tenantId, error: error?.message ?? "no rows" });
       return said;
     }
-    for (const row of data as Array<{ id: string; payload: unknown; updated_at?: unknown }>) {
+    for (const row of data as Array<{ id: string; payload: unknown; proposal_version: number; updated_at?: unknown }>) {
       const proposal = deserializeChangeProposal(JSON.stringify(row.payload));
       const gap = proposal ? deliverableGaps(proposal)[0] : undefined; // an unfinished deliverable outranks the ledger: a stamp on copy nobody wrote is not a shipment, and a reading of it measures nothing
       if (gap == null && shipped.has(row.id)) {
         const verdict = finished?.get(row.id);
         if (!verdict) continue;
         // Compare-and-set on the exact state read above, so a concurrent write is never overwritten: a row that moved settles on the next release instead.
-        const { data: done, error: sErr } = await sb.from(PROPOSAL_TABLE)
-          .update({ terminal_disposition: "settled", withdrawn_reason: settledReceipt(verdict), updated_at: new Date().toISOString() })
-          .eq("tenant_id", tenantId).eq("id", row.id).eq("status", "implemented_pending_verification").is("terminal_disposition", null).select("id");
-        if (sErr || !done || done.length === 0) log.error("[implemented-repair] a finished reading could not retire its row", { tenantId, id: row.id, error: sErr?.message ?? "no row" });
+        const { data: done, error: sErr } = await sb.rpc("repair_implemented_change_proposal", {
+          p_tenant_id: tenantId, p_id: row.id, p_expected_version: row.proposal_version,
+          p_expected_payload: row.payload, p_action: "settle", p_payload: row.payload,
+          p_reason: settledReceipt(verdict),
+        });
+        if (sErr || done !== "settled") log.error("[implemented-repair] a finished reading could not retire its row", { tenantId, id: row.id, error: sErr?.message ?? String(done ?? "no row") });
         else log.info("[implemented-repair] a finished reading retired its row", { tenantId, id: row.id, verdict });
         continue;
       }
       if (!proposal) continue;
       const sentence = gap != null ? notFinished(row.updated_at, gap) : lostItsRecord(row.updated_at);
       const payload = JSON.parse(serializeChangeProposal({ ...proposal, status: "needs_review",
+        workKey: repairWorkKey(row.id, row.proposal_version, proposal.workKey, sentence),
         limitations: [sentence, ...proposal.limitations.filter((l) => !LOST_RECORD.test(l))] })) as unknown;
       // The stage it is LEAVING is part of the WHERE, so a press that landed a moment ago is never overwritten by this pass. The ranking stamp clears with it: a
       // reverted row has to earn its position in the queue again.
-      const { data: hit, error: wErr } = await sb.from(PROPOSAL_TABLE)
-        .update({ status: "needs_review", payload, queue_lane: null, queue_rank: null, updated_at: new Date().toISOString() })
-        .eq("tenant_id", tenantId).eq("id", row.id).eq("status", "implemented_pending_verification").select("id");
-      if (wErr || !hit || hit.length === 0) {
-        log.error("[implemented-repair] a change marked done with no record could not be reverted", { tenantId, id: row.id, error: wErr?.message ?? "no row" });
+      const { data: hit, error: wErr } = await sb.rpc("repair_implemented_change_proposal", {
+        p_tenant_id: tenantId, p_id: row.id, p_expected_version: row.proposal_version,
+        p_expected_payload: row.payload, p_action: "reopen", p_payload: payload, p_reason: sentence,
+      });
+      if (wErr || hit !== "reopened") {
+        log.error("[implemented-repair] a change marked done with no record could not be reverted", { tenantId, id: row.id, error: wErr?.message ?? String(hit ?? "no row") });
         continue;
       }
       log.warn("[implemented-repair] a change marked done went back to the queue", { tenantId, id: row.id, why: gap ?? "no record" });

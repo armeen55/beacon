@@ -31,6 +31,10 @@ export const requestsOf = (kind: "search" | "reasoning" | "page"): number => met
 /** The tables the real steps read and write. A table nobody seeds answers as an honest empty one. */
 export const tables = new Map<string, Row[]>();
 export const table = (name: string): Row[] => { if (!tables.has(name)) tables.set(name, []); return tables.get(name)!; };
+/** Spend is account-wide in production, but every receipt keeps its platform. Tests asking whether DataForSEO charged must never accidentally count an OpenAI editor call. */
+export const spentOn = (platform: string): number => table("spend_reservations")
+  .filter((r) => r.platform === platform && !["released", "failed"].includes(String(r.state)))
+  .reduce((sum, r) => sum + Number(r.state === "reconciled" ? r.actual_usd ?? r.estimated_usd ?? 0 : r.estimated_usd ?? 0), 0);
 /** PURE. PostgREST's json-path projection, which several readers here depend on: `alias:state->a->b` and `alias:state->>a`. Returning the column instead
  *  of the path is how a fake tells a reader "nothing on file" for a row that holds plenty. */
 function jsonPath(row: Row, path: string): unknown {
@@ -125,20 +129,69 @@ function rpcCall(fn: string, args: Record<string, unknown>): Record<string, unkn
   let first = 0, max = Number.MAX_SAFE_INTEGER;
   const answer = (): { data: unknown; error: { message: string; code?: string } | null } => {
     if (fn === "claim_evidence_fetch") return { data: [claimEvidence(args)], error: null };
-    if (fn === "reserve_provider_spend") {
-      const amount = Number(args.p_amount ?? 0);
-      if (meter.paidUsd + amount > money.cap) return { data: false, error: null };
-      meter.paidUsd = Math.round((meter.paidUsd + amount) * 1e6) / 1e6; meter.reserved.push(amount); return { data: true, error: null };
+    if (fn === "reserve_spend") {
+      const amount = Number(args.p_estimated_usd ?? 0), rows = table("spend_reservations");
+      const prior = rows.find((r) => r.platform === args.p_platform && r.logical_key === args.p_logical_key
+        && ["reserved", "transmitted", "ambiguous"].includes(String(r.state)));
+      if (prior) return { data: [{ outcome: "resumed", attempt_id: prior.attempt_id, attempt_ordinal: prior.attempt_ordinal,
+        reservation_state: prior.state, reporting_day: today(), estimated_usd: prior.estimated_usd,
+        accounted_usd: prior.accounted_usd ?? null, provider_task_id: prior.provider_task_id ?? null,
+        accounting_basis: prior.accounting_basis ?? null, result_payload: prior.result_payload ?? null }], error: null };
+      if (meter.paidUsd + amount > money.cap) return { data: [{ outcome: "refused_daily", attempt_id: null,
+        reporting_day: today(), estimated_usd: amount }], error: null };
+      const ordinal = rows.filter((r) => r.logical_key === args.p_logical_key && r.reporting_day === today()).length + 1;
+      const row = { attempt_id: `spend-${rows.length + 1}`, tenant_id: args.p_tenant_id, reporting_day: today(),
+        platform: args.p_platform, purpose: args.p_purpose, logical_key: args.p_logical_key,
+        request_fingerprint: args.p_request_fingerprint, proposal_work_key: args.p_proposal_work_key ?? null,
+        research_run_id: args.p_research_run_id ?? null, research_run_owner: args.p_research_run_owner ?? null,
+        attempt_ordinal: ordinal, state: "reserved", estimated_usd: amount, accounted_usd: null,
+        accounting_basis: null, result_payload: null, provider_task_id: null };
+      rows.push(row); meter.paidUsd += amount; meter.reserved.push(amount);
+      return { data: [{ outcome: "reserved", attempt_id: row.attempt_id, attempt_ordinal: ordinal,
+        reservation_state: "reserved", reporting_day: today(), estimated_usd: amount, accounted_usd: null,
+        provider_task_id: null, accounting_basis: null, result_payload: null }], error: null };
     }
-    if (fn === "adjust_provider_spend") { meter.paidUsd = Math.round((meter.paidUsd + Number(args.p_delta ?? 0)) * 1e6) / 1e6; return { data: true, error: null }; }
+    if (["claim_spend_transmission", "mark_spend_ambiguous", "release_spend", "reconcile_spend"].includes(fn)) {
+      const row = table("spend_reservations").find((r) => r.attempt_id === args.p_attempt_id);
+      if (!row) return { data: fn === "claim_spend_transmission" ? "unavailable" : false, error: null };
+      if (fn === "claim_spend_transmission") { if (row.state !== "reserved") return { data: "already_started", error: null }; row.state = "transmitted"; return { data: "claimed", error: null }; }
+      if (fn === "mark_spend_ambiguous") { row.state = "ambiguous"; row.provider_task_id = args.p_provider_task_id ?? row.provider_task_id; row.result_payload = args.p_result_payload ?? null; return { data: true, error: null }; }
+      if (fn === "release_spend") { meter.paidUsd -= Number(row.estimated_usd); row.state = "released"; return { data: true, error: null }; }
+      meter.paidUsd += Number(args.p_accounted_usd) - Number(row.estimated_usd); row.state = "reconciled";
+      row.accounted_usd = args.p_accounted_usd; row.accounting_basis = args.p_accounting_basis ?? "provider_reported";
+      row.provider_task_id = args.p_provider_task_id ?? null; row.result_payload = args.p_result_payload ?? null;
+      return { data: true, error: null };
+    }
     if (fn === "patch_research_run_progress") return { data: null, error: null };
     if (fn === "supersede_change_proposal") {
       const row = args.p_row as Row, rows = table("change_proposals");
-      const before = rows.find((r) => r.id === args.p_predecessor_id && r.tenant_id === args.p_tenant_id);
-      if (before) Object.assign(before, { terminal_disposition: "superseded", superseded_by: row.id });
+      const expected = args.p_predecessors as Array<{ id: string }>;
+      for (const x of expected) { const before = rows.find((r) => r.id === x.id && r.tenant_id === args.p_tenant_id); if (before) Object.assign(before, { terminal_disposition: "superseded", superseded_by: row.id }); }
       const at = rows.findIndex((r) => r.id === row.id);
       if (at >= 0) rows[at] = { ...rows[at], ...row }; else rows.push({ ...row });
       return { data: "saved", error: null };
+    }
+    if (fn === "save_change_proposal_cas") {
+      const row = args.p_row as Row, rows = table("change_proposals");
+      const at = rows.findIndex((r) => r.id === row.id && r.tenant_id === args.p_tenant_id);
+      if (at >= 0) rows[at] = { ...rows[at], ...row }; else rows.push({ created_at: now().toISOString(), ...row });
+      return { data: "saved", error: null };
+    }
+    if (fn === "refresh_change_proposal_ranking_receipt") {
+      const row = table("change_proposals").find((r) => r.id === args.p_id && r.tenant_id === args.p_tenant_id);
+      if (row) row.ranking_receipt = args.p_ranking_receipt ?? null;
+      return { data: row != null, error: null };
+    }
+    if (fn === "retire_change_proposal") {
+      const row = table("change_proposals").find((r) => r.id === args.p_id && r.tenant_id === args.p_tenant_id);
+      if (row) Object.assign(row, { terminal_disposition: args.p_disposition, superseded_by: args.p_superseded_by ?? null,
+        withdrawn_reason: args.p_reason ?? null });
+      return { data: row != null, error: null };
+    }
+    if (fn === "transition_change_proposal_implemented") {
+      const row = table("change_proposals").find((r) => r.id === args.p_proposal_id && r.tenant_id === args.p_tenant_id);
+      if (row) Object.assign(row, { status: "implemented_pending_verification", payload: args.p_payload });
+      return { data: row ? "implemented" : "stale", error: null };
     }
     if (fn === "publish_customer_release") return { data: true, error: null };
     const rows = tables.has(fn) ? table(fn) : null;
@@ -162,11 +215,12 @@ function claimEvidence(args: Record<string, unknown>): Row {
   const rows = table("evidence_cache");
   const row = rows.find((r) => r.cache_key === key);
   const nowIso = new Date(clock.ms).toISOString();
-  if (row && row.status === "ready" && String(row.expires_at ?? "") > nowIso) { meter.hits.push(String(row.endpoint ?? "")); return { outcome: "ready", payload: row.payload, provider_task_id: row.provider_task_id ?? null, model_served: row.model_served ?? null, ready_at: row.ready_at ?? null, cost_usd: Number(row.cost_usd ?? 0) }; }
-  if (row && row.status === "pending" && String(row.claim_expires_at ?? "") > nowIso) return { outcome: "pending", payload: null, provider_task_id: row.provider_task_id ?? null, model_served: null, ready_at: null, cost_usd: 0 };
-  const claimed: Row = { ...(row ?? {}), cache_key: key, endpoint: String(args.p_endpoint ?? ""), status: "pending", claim_expires_at: new Date(clock.ms + Number(args.p_claim_seconds ?? 120) * 1000).toISOString(), expires_at: new Date(clock.ms + 7 * 86_400_000).toISOString() };
+  if (row && row.status === "ready" && String(row.expires_at ?? "") > nowIso) { meter.hits.push(String(row.endpoint ?? "")); return { outcome: "ready", payload: row.payload, provider_task_id: row.provider_task_id ?? null, model_served: row.model_served ?? null, ready_at: row.ready_at ?? null, cost_usd: Number(row.cost_usd ?? 0), fetch_generation: Number(row.fetch_generation ?? 1) }; }
+  if (row && row.status === "pending" && String(row.claim_expires_at ?? "") > nowIso) return { outcome: "pending", payload: null, provider_task_id: row.provider_task_id ?? null, model_served: null, ready_at: null, cost_usd: 0, fetch_generation: Number(row.fetch_generation ?? 1) };
+  const generation = row?.status === "ready" ? Number(row.fetch_generation ?? 1) + 1 : Number(row?.fetch_generation ?? 1);
+  const claimed: Row = { ...(row ?? {}), cache_key: key, endpoint: String(args.p_endpoint ?? ""), status: "pending", fetch_generation: generation, claim_expires_at: new Date(clock.ms + Number(args.p_claim_seconds ?? 120) * 1000).toISOString(), expires_at: new Date(clock.ms + 7 * 86_400_000).toISOString() };
   if (row) Object.assign(row, claimed); else rows.push(claimed);
-  return { outcome: "claimed", payload: null, provider_task_id: (claimed.provider_task_id as string) ?? null, model_served: null, ready_at: null, cost_usd: 0 };
+  return { outcome: "claimed", payload: null, provider_task_id: (claimed.provider_task_id as string) ?? null, model_served: null, ready_at: null, cost_usd: 0, fetch_generation: generation };
 }
 
 /** THE SCRIPTED TRANSPORT. One function stands in for global fetch, so the search provider, the reasoning gateway and a winner page are all answered from
@@ -271,6 +325,13 @@ export function runRepo(): unknown {
     async finish({ id, owner, outcome, errorInfo, spendUsd }: { id: string; owner: string; outcome: "paused" | "completed"; errorInfo?: unknown; spendUsd?: number | null }) {
       const r = runs.find((x) => x.id === id); if (!r || !live(r, owner)) return false;
       Object.assign(r, { status: outcome, lease_owner: null, lease_expires_at: null, last_error: outcome === "completed" ? null : (errorInfo as RunRow["last_error"]) ?? null, ...(typeof spendUsd === "number" ? { spend_usd: spendUsd } : {}), ...(outcome === "completed" ? { current_phase: "done", completed_at: iso() } : {}) }); return true;
+    },
+    async patchProgress({ tenantId, id, patch, increment }: { tenantId: string; id: string; patch: Record<string, unknown>; increment?: { key: string; day: string } }) {
+      const r = runs.find((x) => x.id === id && x.tenant_id === tenantId); if (!r) return null;
+      const progress = { ...(r.progress ?? {}), ...patch };
+      if (increment) { const prior = progress[increment.key] as { day?: string; count?: number } | undefined;
+        progress[increment.key] = { day: increment.day, count: prior?.day === increment.day ? (prior.count ?? 0) + 1 : 1 }; }
+      r.progress = progress; r.updated_at = iso(); return { ...progress };
     },
     async latest() { return runs.length ? { ...runs[runs.length - 1]! } : null; },
     async sameDay({ day, limit }: { day: string; limit: number }) { return runs.filter((x) => x.cycle_key.endsWith(day)).slice(0, limit).map((x) => ({ id: x.id, progress: x.progress ?? {} })); },

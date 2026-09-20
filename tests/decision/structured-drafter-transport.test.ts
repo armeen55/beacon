@@ -1,9 +1,5 @@
 /** structured-drafter strict-gateway transport: the seam returns parsed VALUES (no prose recovery), a refusal fails closed with no artifact, retry is bounded and paid for, and a cache hit costs $0. */
 import { describe, it, expect, vi } from "vitest";
-const BILLED = vi.hoisted(() => ({ usd: [] as number[] })); // Budget is not this file's subject (see llm-budget-isolation.test.ts): keep the transport hermetic with an always-allowed budget seam that RECORDS what it was told to bill.
-vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
-  checkBudget: async () => ({ allowed: true, remaining: 10 }),
-  recordSpend: async (usd: number) => { BILLED.usd.push(usd); },}));
 import { callStructuredLLM, draftAtomicEditStructured, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import type { CacheImpl, LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
 import { normalizeStructuredValue } from "@/domains/decision/llm/responses-envelope"; import { SCHEMA_BY_KIND } from "@/domains/decision/llm/schemas"; import { COPY_RULES } from "@/domains/decision/copy-sanitize"; import type { SourcePacket } from "@/domains/decision/drafted-copy";
@@ -57,10 +53,8 @@ describe("structured-drafter strict transport", () => {
   it("drafts a VALUE, retries a recoverable answer once and no more, and never pays twice for one answer", async () => {
     const one = seam([{ value: VALID_ATOMIC_EDIT }]); // a parsed value, no text parsing, on one call
     const first = await callStructuredLLM({ ...REQ, complete: one.complete }); expect(first.status === "drafted" && [(first.value as { after: string }).after.includes("Nowruz Traditions"), one.calls()]).toEqual([true, 1]);
-    BILLED.usd.length = 0; // A CALL THAT BOUGHT NOTHING IS BILLED NOTHING. Two attempts died with no usage receipt; the drafter used to substitute an ESTIMATE and record it against the cap, so a throttled minute read back as real money and could later block a working account on spend that never happened.
-    const boom = await callStructuredLLM({ ...REQ, complete: seam([{ error: "network boom", retryable: true }]).complete }); expect([boom.status === "validation_failed" && boom.costUsd, BILLED.usd]).toEqual([0, []]); const thrown = vi.fn(async () => { throw new Error("a completion failed before returning its receipt"); }), allowance = { left: 1 }; const missing = await callStructuredLLM({ ...REQ, attempts: allowance, complete: thrown }); expect([thrown.mock.calls.length, allowance.left, missing.status, missing.status === "validation_failed" && missing.failure, missing.status === "validation_failed" && missing.errors, BILLED.usd]).toEqual([1, 1, "validation_failed", "transient", ["llm_completion did not return an outcome"], []]);
-    BILLED.usd.length = 0; // and a real receipt is billed exactly once, exactly as it was issued
-    const paid = await callStructuredLLM({ ...REQ, complete: seam([{ error: "incomplete", retryable: false, costUsd: 0.0042 }]).complete }); expect([paid.status === "validation_failed" && paid.costUsd, BILLED.usd]).toEqual([0.0042, [0.0042]]);
+    const boom = await callStructuredLLM({ ...REQ, complete: seam([{ error: "network boom", retryable: true }]).complete }); expect(boom.status === "validation_failed" && boom.costUsd).toBe(0); const thrown = vi.fn(async () => { throw new Error("a completion failed before returning its receipt"); }), allowance = { left: 1 }; const missing = await callStructuredLLM({ ...REQ, attempts: allowance, complete: thrown }); expect([thrown.mock.calls.length, allowance.left, missing.status, missing.status === "validation_failed" && missing.failure, missing.status === "validation_failed" && missing.errors]).toEqual([1, 1, "validation_failed", "transient", ["llm_completion did not return an outcome"]]);
+    const paid = await callStructuredLLM({ ...REQ, complete: seam([{ error: "incomplete", retryable: false, costUsd: 0.0042 }]).complete }); expect(paid.status === "validation_failed" && paid.costUsd).toBe(0.0042);
     const again = seam([{ value: {} }, { value: VALID_ATOMIC_EDIT }]); // a rejection CAN recover
     const out = await callStructuredLLM({ ...REQ, complete: again.complete }); expect(out.status === "drafted" && [out.retried, again.calls()]).toEqual([true, 2]);
     const refused = await callStructuredLLM({ ...REQ, complete: seam([{ error: "refusal", retryable: false, costUsd: 0.0123 }]).complete });

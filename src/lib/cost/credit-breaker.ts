@@ -32,7 +32,7 @@ import "server-only";
  *
  * WHAT THIS IS NOT, SAID PLAINLY RATHER THAN IMPLIED. (1) The probe is a read then a write, and those two steps are
  * not one atomic act across lambdas: there is no conditional-claim function for this row (the ledger has an atomic
- * `reserve_provider_spend`, but it reserves money, it does not claim a probe), and adding one is a migration this is
+ * `reserve_spend`, but it reserves money, it does not claim a probe), and adding one is a migration this is
  * not worth. So the honest bound is roughly ONE probe per process that saw the same cooldown expire, not exactly one
  * globally: a handful of extra calls every 15 minutes against an account already known to be empty, which is the
  * storm this stops shrunk by three orders of magnitude, not a race left unmentioned. (2) The stop is keyed by TENANT
@@ -99,11 +99,10 @@ async function readState(tenantId: string, provider: CreditProvider = "openai"):
 async function writeState(tenantId: string, state: CreditBreakerState | null, provider: CreditProvider = "openai"): Promise<boolean> {
   if (underVitest() || !isSupabaseConfigured()) return true;
   try {
-    const { error } = await getSupabaseAdmin().from(LEDGER).upsert({
-      tenant_id: tenantId, date_utc: STATE_DATE, platform: STATE_PLATFORM[provider], spent_usd: 0, call_count: 0,
-      metadata: { creditBreaker: state }, updated_at: new Date().toISOString(),
-    }, { onConflict: "tenant_id,date_utc,platform" });
-    return !error;
+    const { data, error } = await getSupabaseAdmin().rpc("set_credit_breaker_state", {
+      p_tenant_id: tenantId, p_platform: STATE_PLATFORM[provider], p_state: state,
+    });
+    return error == null && data === true;
   } catch {
     return false;
   }

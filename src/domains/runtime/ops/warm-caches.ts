@@ -1,4 +1,5 @@
 import "server-only";
+import { createHash } from "node:crypto";
 
 /**
 /** warm-caches - the surface-release warm build: settle the competition, rebuild the shared demand-graph snapshot, publish the Today + Changes release, so the post-refresh repaint is instant and complete instead of a ~6s cold build under the operator's eyes. Composition only over existing loaders. MONEY: $0 reads except the capped, evidence-cached competitor inspection. FAILURE: a build failure PROPAGATES (publish_surface may set surfacePublished only after a real publish); fail-soft callers own their .catch. */
@@ -8,7 +9,6 @@ import { z } from "zod";
 import { competitorLandscape, type CompetitorKind } from "@/domains/evidence";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { loadBusinessProfile } from "@/domains/account";
-import { recordSpend } from "@/domains/decision/llm/adjudicator-budget";
 import { openAIStructuredResponse } from "@/domains/decision/llm/gateway";
 import { PROMPT_REGISTRY } from "@/domains/decision/llm/prompt-registry";
 
@@ -24,15 +24,17 @@ const OVERLAP_PROMPT = "competitor.overlap_adjudication" as const;
 async function askOverlap(tenantId: string, input: { domain: string; pages: string[]; site: string | null; ownedPages: string[] }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
+  const evidenceIdentity = createHash("sha256").update(JSON.stringify({ site: input.site, ownedPages: input.ownedPages,
+    domain: input.domain, pages: input.pages })).digest("hex").slice(0, 24);
   const out = await openAIStructuredResponse({
     promptId: OVERLAP_PROMPT, promptVersion: PROMPT_REGISTRY[OVERLAP_PROMPT], action: "competitor-overlap",
     apiKey, model: OVERLAP_MODEL, tenantId, schemaName: "competitor_overlap", zodSchema: OVERLAP,
     instructions: "Decide one thing about one website: does it sell a comparable product or service to the same customers as the business described. Judge only from the page evidence given to you. A publication, encyclopedia, forum, directory, marketplace or public body is not_a_business however often it ranks. Answer same_business only when the offering and the audience plainly both overlap. Give one short plain reason. Invent nothing.",
     input: `The business: ${input.site ?? "unknown"}\nIts own pages:\n${input.ownedPages.join("\n")}\n\nThe domain to judge: ${input.domain}\nPages I have already read there:\n${input.pages.join("\n")}`,
-    maxOutputTokens: 400, timeoutMs: 90_000, budget: { mode: "gateway_check", projectedCostUsd: 0.01 },
+    maxOutputTokens: 400, timeoutMs: 90_000,
+    spend: { platform: "adjudicator-openai", purpose: "bulk", logicalKey: `competitor-overlap:${input.domain}:${evidenceIdentity}`, estimatedUsd: 0.01, monthlyCapUsd: 250 },
   }).catch(() => null);
   if (out?.kind !== "ok") return null;
-  if (out.provenance.costUsd) await recordSpend(out.provenance.costUsd, { tenantId }).catch(() => {});
   const parsed = OVERLAP.safeParse(out.value);
   return parsed.success ? { ...parsed.data, model: out.provenance.servedModel ?? OVERLAP_MODEL } : null;
 }

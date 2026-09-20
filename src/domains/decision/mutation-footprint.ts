@@ -11,6 +11,7 @@
  *  a title, and none of them is a schema block. Two rows overlap when what they WRITE overlaps, never merely
  *  because they land on the same page. */
 import type { BundleComponent, BundleComponentKind, ChangeProposal } from "@/domains/decision/contracts";
+import { createHash } from "node:crypto";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import type { TreatmentSignature } from "@/domains/measurement/proof-gsc/types";
 
@@ -36,17 +37,17 @@ const SLOT_BY_KIND: Record<BundleComponentKind, string> = {
   source_pack: "body", factual_correction: "body", source_update: "body",
   table_or_list_add: "table", anchor_text: "anchor",
   internal_links: "link", internal_link_add: "link", internal_link_remove: "link",
-  schema: "schema", navigation: "navigation",
+  schema: "schema", canonical: "canonical", noindex: "noindex", navigation: "navigation",
   // WHAT TAKES THE WHOLE PAGE takes everything on it. A page being forwarded away, hidden from search, merged
   // into another or rebuilt from the first line down cannot sit beside an instruction to retitle it: the old
   // page-wide rule covered that pair by accident, and dropping it without this would have the queue ask the
   // operator to polish a page it also says to delete.
-  canonical: "*", redirect: "*", noindex: "*", consolidation: "*", full_rewrite: "*",
+  redirect: "*", consolidation: "*", full_rewrite: "*",
   new_page: "new_page",
 };
 /** Slots a page has exactly ONE of, so the page and the slot name the whole mutation. Every other slot needs a
  *  discriminator, because a page has as many table rows, anchor labels and links as it has places to put them. */
-const SINGLETON_SLOT: ReadonlySet<string> = new Set(["title", "meta", "h1", "schema", "navigation", "*"]);
+const SINGLETON_SLOT: ReadonlySet<string> = new Set(["title", "meta", "h1", "schema", "canonical", "noindex", "navigation", "*"]);
 
 /** ONE spelling of a page, because the old rule read raw `pagePath` while everything around it normalized
  *  differently, and two spellings of one page silently stopped colliding. Origin off, trailing slash off, lowercase. */
@@ -62,8 +63,7 @@ function pageToken(raw: string | null | undefined): string {
 function placeToken(text: string | null | undefined): string {
   const flat = (text ?? "").toLowerCase().replace(/\s+/g, " ").trim();
   if (!flat) return "-";
-  let h = 0x811c9dc5; for (let i = 0; i < flat.length; i += 1) { h ^= flat.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
-  return h.toString(36);
+  return createHash("sha256").update(flat).digest("hex").slice(0, 20);
 }
 
 /** THE ONE NAME FOR ONE MUTATION, and the only definition of it (operator, 2026-09-02). Three spellings of this
@@ -144,5 +144,6 @@ export function footprintCovers(a: ChangeProposal, b: ChangeProposal): boolean {
  *  bundle that merely reorders its pieces keeps its key. The index is a BACKSTOP against exact duplicates only:
  *  genuine overlap is decided by the two predicates above against the decoded rows, never by comparing this text. */
 export function footprintKey(p: ChangeProposal): string {
-  return [...mutationFootprint(p)].sort().join("|").slice(0, 180);
+  const canonical = [...mutationFootprint(p)].sort().join("|");
+  return `v2:${canonical.slice(0, 108)}#${createHash("sha256").update(canonical).digest("hex")}`;
 }

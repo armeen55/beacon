@@ -1,12 +1,18 @@
 /** PRODUCT - THE DETERMINISTIC REPLAY HARNESS. Fixture provider ENVELOPES are driven through the REAL registry parsers, the REAL funnel executors, the REAL snapshot assembler and the REAL decision pass, with only the persistence and drafting seams faked. Nothing here mocks a parser, reads a source string, pins operator copy, or opens a socket: the last test proves the whole path made ZERO network calls. /*/
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
-const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>(), refuseSave: new Set<string>() }));
+vi.mock("@/lib/cost/spend-reservations", async () => { const h = await import("../helpers/atomic-spend"); return { default: h.atomicSpend, runWithProposalWorkKey: h.runWithProposalWorkKey, runWithResearchRun: h.runWithResearchRun, researchRunSpendUsd: h.researchRunSpendUsd }; });
+const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>(), refuseSave: new Set<string>(), withdrawn: new Set<string>() }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadOwnedPageBodies: async (_t: string, urls: string[]) => new Map(urls.map((u) => [u, { url: u, title: "Kite Festival", metaDescription: null, passages: [u.includes("lantern") ? "When the lanterns go up and how the release works on the night, so first time visitors know what to expect." : "What happens on the day at a kite festival and what families bring, so first time visitors know what to expect."], headings: [], openingSample: "What happens at a kite festival.", cardTexts: [], entityNames: [], internalLinks: [], fetchedAt: "2026-07-20T09:00:00.000Z" }])) }));
-vi.mock("@/domains/decision/proposal-store", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision/proposal-store")>("@/domains/decision/proposal-store")),
-  loadChangeProposals: async () => env.store,
-  saveChangeProposal: async (p: ChangeProposal) => { env.saved.push(p); if ([...env.refuseSave].some((k) => p.id.includes(k))) return "failed" as const; env.store.set(p.id, p); return "saved" as const; } })); // THE STORE MAY SAY NO, and a pass has to notice: a page named here is written, refused by the store, and never reaches the queue.
+vi.mock("@/domains/decision/proposal-store", () => ({
+  loadChangeProposals: async () => new Map(env.store),
+  saveChangeProposal: async (p: ChangeProposal, _transition?: symbol, keep?: (row: ChangeProposal) => void) => { env.saved.push(p); if ([...env.refuseSave].some((k) => p.id.includes(k))) return "failed" as const; const prior = env.store.get(p.id), same = prior != null && JSON.stringify(prior) === JSON.stringify(p); env.store.set(p.id, p); env.withdrawn.delete(p.id); keep?.(p); return same ? "unchanged" as const : "saved" as const; },
+  withdrawChangeProposal: async (p: ChangeProposal) => { if (p.status === "implemented_pending_verification") return false; if ([...env.refuseSave].some((k) => p.id.includes(k))) return false; env.store.delete(p.id); env.withdrawn.add(p.id); return true; },
+  withdrawnProposalIds: async () => new Set(env.withdrawn),
+  terminalWorkKeys: async () => new Set<string>(),
+  terminalProposalHistory: async () => ({ fingerprints: new Set<string>(), legacyMutationKeys: new Set<string>() }),
+})); // ONE complete in-memory persistence contract: load, save, withdrawal and withdrawal history all share the same state, so no mocked write can fall through to real Supabase.
 vi.mock("@/domains/decision/produce-bundle", () => ({ produceBundleForSnapshot: async () => ({ status: "none", reason: "the deep bundle has its own suite" }) }));
 vi.mock("@/domains/account", async (orig) => ({ ...(await orig() as object), loadBusinessProfile: async () => null, getTenant: async () => ({ id: "replay-tenant", domain: "atlaspedia.example", growth_goal: null }), basisTag: () => "basis_replay" }));
 import type { Account } from "@/domains/account";
@@ -135,8 +141,8 @@ describe("the replay drives the REAL funnel executors, not a mock of them", () =
     const { evidence } = await replayFunnel();
     expect(evidence.serpEvidence.slice(0, 2).map((s) => s.query)).toEqual([GAP_QUERY, WINNER_QUERY]); // the declining page's own query is bought first
   });});
-const EDIT = { field: "title", before: "Kite Festival", after: "Kite Festival Traditions: What Happens From Dawn to Lanterns", confidence: "high", // ── the replay through the REAL decision pass ────────────────────────────────
-  rationale: "The stored title is two words and misses the traditions searchers ask about.", risks: ["keep the title readable"],
+const EDIT = { field: "title", before: "Kite Festival", after: "Kite Festival Traditions: What Families Bring", confidence: "high", // ── the replay through the REAL decision pass ────────────────────────────────
+  rationale: "The new title names the traditions search and the family preparations this page actually covers.", risks: ["keep the title readable"],
   evidenceRefs: [{ source: "gsc", detail: "many views for kite festival traditions with a low click rate" }],
   operatorSteps: ["Replace the page title field with the new value"], proofPlan: { metrics: ["clicks", "position"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" } };
 const META_EDIT = { ...EDIT, field: "meta", before: null, placementAnchor: "Kite Festival",
@@ -145,6 +151,7 @@ const META_EDIT = { ...EDIT, field: "meta", before: null, placementAnchor: "Kite
 const META2 = { ...META_EDIT, placementAnchor: "Lantern Release",
   claims: [{ text: "The page tells when the lanterns go up and how the release works", supportedBy: ["page-heading-1", "page-heading-2"] }],
   after: "A plain guide to when the lanterns go up and how the release works, so first time visitors know what to expect on the night." };
+const TITLE2 = { ...EDIT, before: "Lantern Release", after: "Lantern Release Walkthrough: When and How It Works", rationale: "The new title names the walkthrough search and the timing and process this page actually covers." };
 /** The writer AND its final editor, both deterministic and both answering the EXACT ask: the field the prompt names, and a ruling per claim parsed off the judgement's own prompt. Every gate between the ask and the store is the production gate. */
 const drafter = (): { complete: CompleteFn; calls: () => number; asked: () => string[] } => { let n = 0; const asked: string[] = [];
   const complete: CompleteFn = async (a) => { n += 1; asked.push(`${a.kind}: ${a.user.slice(0, 240)}`);
@@ -152,7 +159,7 @@ const drafter = (): { complete: CompleteFn; calls: () => number; asked: () => st
       improvesPage: true, wouldHandToCustomer: true, notes: "It says what the page covers in one plain line.", resolution: "none",
       claims: [...a.user.matchAll(/^- claim (\d+): "(?:[^"]+)" <- (.+)$/gm)].map((m) => ({ i: Number(m[1]), by: m[2]!.split(", ").filter(Boolean), entailed: true })) } as never };
     if (a.kind === "atomic_edit" && a.user.includes("Field to edit: meta")) return { value: (a.user.includes("Page: Lantern Release") ? META2 : META_EDIT) as never };
-    return { value: EDIT as never }; };
+    return { value: (a.user.includes("Page: Lantern Release") ? TITLE2 : EDIT) as never }; };
   return { complete, calls: () => n, asked: () => asked }; };
 describe("the replayed evidence reaches the REAL decision kernel", () => {
   it("assembles one snapshot, names the pages that compete with each other, and dates every body it holds", async () => {
@@ -171,13 +178,13 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     const unlooked = fx.replaySnapshot({ gsc: [fx.gscCtrGap()], research: { ...evidence, serpEvidence: [] }, wix: [fx.ownedBody(GAP_URL, "Kite Festival")] });
     const blind = await readCoverage(unlooked, TENANT, { basis: BASIS, maxQueries: 3, now: NOW });
     expect([blind.decided, blind.needs.map((n) => n.requirement)]).toEqual([null, ["exact_serp", "exact_serp"]]); // strip the looks and the same pass names the searches that would move it, instead of guessing
-    env.snap = snapshot; env.saved = []; env.store = new Map();
+    env.snap = snapshot; env.saved = []; env.store = new Map(); env.withdrawn = new Set();
     const seam = drafter(); const res = await produceProposalsForTenant(TENANT, { complete: seam.complete, now: NOW, bypassCache: true }); const gap = res.candidates.find((c) => c.pageUrl === `https://${GAP_URL}`)!;
     expect([gap.action, gap.query, gap.gap, gap.recoverableClicks]).toEqual(["act_existing_page", GAP_QUERY, "ctr_deficit", 93]);
     expect(gap.readiness).toEqual({ gsc: true, ownedCopy: true, serp: true, winners: 1, body: false }); // the replayed results page and the ONE readable winner are what make this judgeable
     expect(res.candidates.find((c) => c.pageUrl === `https://${WINNER_URL}`)?.action).toBe("watch"); // a page already beating the clicks its positions earn is watched, never worked
-    const landed = res.proposals.find((p) => p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "meta")!;
-    expect([res.outcome, seam.calls(), landed.status, res.noDraft]).toEqual(["proposals_persisted", 3, "ready", 1]); // title draft, description draft, ONE evaluator reading; the refused title is the noDraft
+    const landed = res.proposals.find((p) => p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "title")!;
+    expect([res.outcome, seam.calls(), landed?.status, res.noDraft], JSON.stringify({ receipts: res.paid.receipts, candidates: res.candidates, proposals: res.proposals })).toEqual(["proposals_persisted", 1, "ready", 0]); // one diagnosed title lever, one grounded draft, no unrelated field fallback
     expect(res.proposals.filter((p) => p !== landed).every((p) => p.status === "needs_review")).toBe(true); // and nothing else claims Ready
   });
   it("made ZERO network calls for the whole replay", () => { expect(net).toEqual([]); });
@@ -185,30 +192,37 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
   const SECOND_URL = `${SITE}/lantern-release-guide`, SECOND_QUERY = "lantern release walkthrough";
   const twoGapWorld = (evidence: FunnelResearchEvidence): ReturnType<typeof fx.replaySnapshot> => {
     const s2 = parsed("serp_organic", fx.serpOrganic({ keyword: SECOND_QUERY, ownedUrl: SECOND_URL, ownedTitle: "Lantern Release" }));
+    const rival2 = "https://lanterns.example/release-walkthrough";
+    const rivalBody2 = parsed("onpage_content_parsing", fx.competitorPageBody({ title: "Lantern Release Walkthrough", h1: "When and how a lantern release works",
+      headings: ["When the lanterns go up", "How the release works"], paragraphs: ["A lantern release begins after dark when the event marshal opens the launch area.", "Participants light, hold and release lanterns in a marked sequence while the crew monitors wind and fire safety.", "A clear walkthrough explains timing, release steps and what first-time visitors should expect."] }));
     return fx.replaySnapshot({
       gsc: [fx.gscCtrGap(), fx.gscPage(SECOND_URL, { impressions: 5000, clicks: 130, position: 4.2 }, [{ query: SECOND_QUERY, impressions: 4800, clicks: 120, position: 4.2 }]), fx.gscStableWinner()],
       wix: [fx.ownedBody(GAP_URL, "Kite Festival"), fx.ownedBody(SECOND_URL, "Lantern Release", { outline: ["When the lanterns go up", "How the release works"] })],
       research: { ...evidence, serpEvidence: [...evidence.serpEvidence,
-        { query: SECOND_QUERY, observedAt: fx.OBSERVED_AT, organic: s2.organic.map((o) => ({ rank: o.rank, domain: o.domain, url: o.url, title: o.title ?? null })), aiOverview: [], aiMode: [], paa: [], related: [] }] } });};
+        { query: SECOND_QUERY, observedAt: fx.OBSERVED_AT, organic: s2.organic.map((o, i) => i === 0 ? { rank: o.rank, domain: "lanterns.example", url: rival2, title: "Lantern Release Walkthrough" } : o.domain === SITE ? { rank: o.rank, domain: o.domain, url: o.url, title: o.title ?? null } : { rank: o.rank, domain: o.domain, url: o.url, title: `Lantern Release Walkthrough ${i + 1}` }), aiOverview: [], aiMode: [], paa: [], related: [] }],
+        winningPages: [...evidence.winningPages, fx.winningPage(rival2, SECOND_QUERY, rivalBody2)] } });};
   const drive = async (evidence: FunnelResearchEvidence, refuse: string[], seedFrom?: Map<string, ChangeProposal>) => {
-    env.snap = twoGapWorld(evidence); env.saved = []; env.store = new Map(seedFrom ?? []); env.refuseSave = new Set(refuse);
+    env.snap = twoGapWorld(evidence); env.saved = []; env.store = new Map(seedFrom ?? []); env.refuseSave = new Set(refuse); env.withdrawn = new Set();
     const seam = drafter();
     const res = await produceProposalsForTenant(TENANT, { complete: seam.complete, now: NOW, bypassCache: true, produce: true });
     return { res, calls: seam.calls(), asked: seam.asked(), store: env.store,
       landed: [...env.store.values()].filter((p) => p.status === "ready" && p.researchOnly !== true) }; };
-  it("lands every fundable change through the store in one pass: a landing never closes the manifest, and a failed save stops nothing", async () => {
+  it("lands every fundable change through the store in one pass, but a failed save closes the paid manifest", async () => {
     const { evidence } = await replayFunnel();
     const ok = await drive(evidence, []); // THE LANDINGS, on the real chain: the store answered saved, the rows on file are customer-actionable Ready, and the FIRST landing did not close the second purchase. Until 2026-08-30 a readyTarget of 1 made the second receipt read "the queue's shortfall was already filled": that sentence is deleted from the codebase.
-    const row = ok.landed.find((p) => p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "meta")!;
-    expect([ok.landed.length >= 2, row.status, row.researchOnly ?? false]).toEqual([true, "ready", false]);
+    const first = ok.landed.find((p) => p.pageUrl === `https://${GAP_URL}` && p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "title")!;
+    const second = ok.landed.find((p) => p.pageUrl === `https://${SECOND_URL}` && p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "title")!;
+    expect(second, JSON.stringify(ok.res.candidates)).toBeDefined();
+    expect([[first.status, first.researchOnly ?? false, first.recommendedChange.kind === "existing_edit" && first.recommendedChange.after], [second.status, second.researchOnly ?? false, second.recommendedChange.kind === "existing_edit" && second.recommendedChange.after]])
+      .toEqual([["ready", false, EDIT.after], ["ready", false, TITLE2.after]]);
     expect(ok.res.paid.receipts.find((r) => r.key === "/kite-festival-guide" || r.key.startsWith("/kite-festival-guide::"))).toMatchObject({ outcome: "produced", persistence: "saved" }); // the money keys by mutation now, and the page-generic job collapses into it rather than buying a duplicate beside it
-    expect(row.semanticReview!.claims.map((c) => [c.i, c.entailed, [...c.by].sort()])).toEqual(row.claims!.map((c, i) => [i, true, [...c.supportedBy].sort()])); // THE EDITOR'S READING RIDES THE ROW IT AUTHORIZED: one entailed ruling per claim, each on the claim's own evidence.
     expect(ok.res.paid.receipts.find((r) => r.key === "/lantern-release-guide" || r.key.startsWith("/lantern-release-guide::"))?.outcome).toBe("produced");
     expect(ok.asked.some((a) => a.includes(SECOND_QUERY))).toBe(true); // the first landing left the walk running
-    const lost = await drive(evidence, [TENANT]); // THE NEGATIVE SIBLING: the same drive with every save refused settles NOTHING, and still walks the whole manifest.
+    const lost = await drive(evidence, [TENANT]); // THE NEGATIVE SIBLING: the first durable-write failure settles nothing and trips the pass-local paid-work breaker.
     expect([lost.landed, lost.res.paid.receipts.some((r) => r.outcome === "produced")]).toEqual([[], false]);
-    expect(lost.res.paid.receipts.some((r) => r.outcome === "retryable_blocked" || r.outcome === "review_saved" || r.outcome === "deterministic_refusal")).toBe(true);
-    expect(lost.asked.some((a) => a.includes(SECOND_QUERY))).toBe(true); // the failed save shortened nothing
+    expect(lost.res.outcome).toBe("persistence_failed");
+    expect(lost.res.paid.receipts.some((r) => r.outcome === "not_reached" && (r.why ?? "").includes("proposal store rejected"))).toBe(true);
+    expect(lost.asked.some((a) => a.includes(SECOND_QUERY))).toBe(false); // persistence cannot keep the result, so the second purchase never starts
   });
   it("a Ready inventory of 14, 40, 100 or 500 changes nothing: the pass still buys every real opportunity it holds", async () => {
     const { evidence } = await replayFunnel();

@@ -4,7 +4,7 @@ type Err = { code?: string; message: string } | null;
 type Op = "select" | "update" | "upsert";
 export type SupabaseFakeOptions = { rows: (table: string) => Row[]; error?: (table: string, op: Op) => Err;
   same?: (stored: Row, sent: Row) => boolean; clash?: (sent: Row, rows: Row[]) => Err;
-  insertDefaults?: () => Row; landsNothing?: () => boolean;
+  insertDefaults?: () => Row; landsNothing?: () => boolean; proposalRpc?: boolean;
   /** Every SELECT this fake runs, so a test can prove a reader asked for a BOUNDED page and never the lot. */
   onSelect?: (table: string, read: { max: number; head: boolean; cols: string; inBytes: number }) => void };
 export function supabaseFake(o: SupabaseFakeOptions) {
@@ -47,6 +47,7 @@ export function supabaseFake(o: SupabaseFakeOptions) {
       order: (c: string, x?: { ascending?: boolean }) => { orders.push([c, x?.ascending !== false]); return q; },
       limit: (n: number) => { max = n; return q; }, range: (a: number, z: number) => { first = a; max = z - a + 1; return q; },
       eq: (c: string, v: unknown) => where((r) => (r[c] ?? null) === v), is: (c: string, v: unknown) => where((r) => (r[c] ?? null) === v),
+      not: (c: string, op: string, v: unknown) => op === "is" ? where((r) => (r[c] ?? null) !== v) : q,
       in: (c: string, vs: readonly unknown[]) => {
         inBytes += new URLSearchParams({ [c]: `in.(${vs.map((v) => JSON.stringify(v)).join(",")})` }).toString().length;
         return where((r) => vs.includes(r[c])); },
@@ -63,4 +64,34 @@ export function supabaseFake(o: SupabaseFakeOptions) {
         return due ? where((r) => r.blocked_until == null || Date.parse(String(r.blocked_until)) <= Date.parse(due[1]!)) : m ? where((r) => String(r[m[1]!] ?? "") < m[2]! || (String(r[m[1]!] ?? "") === m[2]! && String(r.id) < m[3]!)) : q; },
       then: (resolve: (v: unknown) => void) => resolve(run()),};
     return q;};
-  return { from };}
+  return o.proposalRpc ? { from, rpc: proposalStoreRpc(() => o.rows("change_proposals")) } : { from };}
+
+/** The narrow proposal-store RPC boundary, for tests whose subject is the Decision contract rather than SQL.
+ * It deliberately mutates the same row array as `supabaseFake`, so a successful RPC is observable on the next
+ * real store read instead of returning "saved" while persisting nothing. */
+export function proposalStoreRpc(rows: () => Row[]) {
+  return async (name: string, args: Record<string, unknown>): Promise<{ data: unknown; error: null }> => {
+    const table = rows();
+    if (name === "save_change_proposal_cas") {
+      const row = args.p_row as Row, at = table.findIndex((r) => r.tenant_id === args.p_tenant_id && r.id === row.id);
+      if (at >= 0) table[at] = { ...table[at], ...row }; else table.push({ created_at: "2026-09-01T00:00:00.000Z", ...row });
+      return { data: "saved", error: null };
+    }
+    if (name === "supersede_change_proposal") {
+      const predecessors = (args.p_predecessors as Array<{ id: string }> | undefined) ?? [];
+      for (const predecessor of predecessors) { const held = table.find((r) => r.tenant_id === args.p_tenant_id && r.id === predecessor.id); if (held) { held.terminal_disposition = "superseded"; held.superseded_by = (args.p_row as Row).id; } }
+      const row = args.p_row as Row, at = table.findIndex((r) => r.tenant_id === args.p_tenant_id && r.id === row.id);
+      if (at >= 0) table[at] = { ...table[at], ...row }; else table.push({ created_at: "2026-09-01T00:00:00.000Z", ...row });
+      return { data: "saved", error: null };
+    }
+    if (name === "refresh_change_proposal_ranking_receipt") {
+      const held = table.find((r) => r.tenant_id === args.p_tenant_id && r.id === args.p_id); if (held) held.ranking_receipt = args.p_ranking_receipt ?? null;
+      return { data: held != null, error: null };
+    }
+    if (name === "retire_change_proposal") {
+      const held = table.find((r) => r.tenant_id === args.p_tenant_id && r.id === args.p_id); if (held) { held.terminal_disposition = args.p_disposition; held.withdrawn_reason = args.p_reason; }
+      return { data: held != null, error: null };
+    }
+    return { data: false, error: null };
+  };
+}

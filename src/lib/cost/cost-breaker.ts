@@ -40,6 +40,7 @@ import "server-only";
 
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
+import { ledgerDay } from "@/lib/cost/budget-ledger-supabase";
 
 /** The safe default ceiling when the env is unset / NaN / non-positive. Raised from $100 to $500 on
  *  operator authority (2026-07-31), in step with the per-account DataForSEO ceiling: this is the OUTER
@@ -52,7 +53,7 @@ export const DEFAULT_GLOBAL_MONTHLY_CAP_USD = 500;
  * env value resolves to the SAFE default - an unset ceiling never means
  * "unlimited". Pure.
  */
-function globalMonthlyCapUsd(env: NodeJS.ProcessEnv = process.env): number {
+export function globalMonthlyCapUsd(env: NodeJS.ProcessEnv = process.env): number {
   const raw = Number(env.BEACON_GLOBAL_MONTHLY_CAP_USD);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_GLOBAL_MONTHLY_CAP_USD;
 }
@@ -83,7 +84,7 @@ export function decideBreaker(args: {
   if (args.spentUsd === null) {
     return {
       tripped: true,
-      reason: `I could not confirm my total spend this month, so I held the paid call to stay under my $${capUsd} ceiling.`,
+      reason: `Total spend this month could not be confirmed, so the paid call was held to stay under the $${capUsd} ceiling.`,
       spentUsd: null,
       capUsd,
       projectedUsd,
@@ -93,7 +94,7 @@ export function decideBreaker(args: {
   if (spentUsd >= capUsd || spentUsd + projectedUsd > capUsd) {
     return {
       tripped: true,
-      reason: `I have spent $${round2(spentUsd)} this month across all research, which is at my $${capUsd} ceiling, so I held this paid call.`,
+      reason: `$${round2(spentUsd)} has been spent this month across all research, reaching the $${capUsd} ceiling, so this paid call was held.`,
       spentUsd,
       capUsd,
       projectedUsd,
@@ -126,7 +127,7 @@ async function readGlobalMonthSpendSupabase(now: Date): Promise<number | null> {
   if (!isSupabaseConfigured()) return null;
   try {
     const supabase = getSupabaseAdmin();
-    const monthStart = `${now.toISOString().slice(0, 7)}-01`; // YYYY-MM-01
+    const monthStart = `${ledgerDay(now).slice(0, 7)}-01`; // Pacific reporting month, matching reserve_spend
     // tenant-isolation-exempt: N43 is a GLOBAL cost ceiling by design - it must
     // sum spend across EVERY tenant + platform, not one tenant, so this read is
     // deliberately tenant-blind. It aggregates to a single scalar total; no
@@ -177,4 +178,3 @@ export async function assertPaidCallAllowed(
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
-

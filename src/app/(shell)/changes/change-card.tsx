@@ -1,27 +1,16 @@
 "use client";
 
-/** change-card - ONE ranked change, said in full before anybody opens it: the page it is on, THE EXACT WORDS
- *  THERE NOW, THE EXACT WORDS TO PUT THERE, what it is worth in the operator's own numbers, and one control per
- *  decision. Everything that has to be read rather than done (the whole reason, the steps, the checks) opens in
- *  place, so the list stays a list. "See the change" is still the deep link to the whole investigation, and a
- *  dangerous change carries its hold here as it does everywhere. Publishing stays MANUAL. */
-
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Pill, type PillIntent } from "@/components/ui/pill";
-// A client bundle cannot import the server-only kernel facade, so the ONE pure rule for what is dangerous and
-// the ONE stable name for a piece come from the contract module itself rather than a copy of them living here.
 import { componentIdOf, dangerousComponents } from "@/domains/decision/contracts";
 import { proofOf, reviewFits } from "@/domains/decision/proof";
 import { citedPublishers, confirmedVersion, openHold } from "@/domains/decision/completeness";
 import type { ChangeBundle, ChangeProposal } from "@/domains/decision";
-import { cardCaveats, pageLabel } from "./types";
+import operatorUiPolicy, { cardCaveats, pageLabel } from "./types";
 import { CopyButton, PublicationCopy, MarkImplemented, ReviewAnswer } from "./change-controls";
 
-/** The producer's own boilerplate. It said the same sentence on all 37 title cards, so it is dropped outright
- *  rather than reprinted anywhere: a sentence true of every row is a fact about the producer, not a reason. */
 const TITLE_FOOTNOTE = "This line says the search in the words people actually run it in.";
-/** The one caveat that has to stand on its own line: this reading may not be your visitors' reading. */
 const CAVEAT_MARK = "different slice of Google";
 
 const RISK: Record<ChangeProposal["riskLevel"], { intent: PillIntent; label: string }> = {
@@ -29,32 +18,18 @@ const RISK: Record<ChangeProposal["riskLevel"], { intent: PillIntent; label: str
   high: { intent: "attention", label: "High risk" },
 };
 
-/** Today, in the operator's words, for the sentence a just-finished card prints. */
-const DAY_NOW = (): string => new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
 const fieldWord = (f: string): string => (f === "meta" ? "meta description" : f.replace(/_/g, " ")); // THE OFFICIAL TERM, EVERYWHERE (operator ruling, 2026-08-29): every SEO description is called "meta description"; bare "description" is reserved for visible content
 
-/** Effort in the operator's own units: sixty minutes is an hour, and "about 60 min" read like a rounding error. */
 const effortLabel = (m: number): string => m < 60 ? `${m} min` : ((h) => `${h} ${h === 1 ? "hour" : "hours"}`)(Math.round((m / 60) * 10) / 10);
-/** WHAT THE READ AHEAD CAN AND CANNOT SETTLE, said at the press rather than a month later. The page's own floor is a Search
- *  Console figure this card never carries, so the half that is true of every page is stated here and Results prints the number. */
-const MEASURING_PLAN = "Clicks are read after 28 days. A change too small for this page's own traffic to show is read across the batch.";
 
-/** A CONSOLIDATION IS NOT A PASTEABLE LINE: it merges or retires live pages, so it carries ordered steps and a
- *  confirmation instead of a copy box. A search naming a year dies every January, so it is worth redoing then. */
 const isConsolidation = (p: ChangeProposal): boolean => String(p.kind) === "consolidation" || p.changeFamily === "consolidation";
 const YEAR_QUERY = /\b20\d{2}\s*$/;
 const YEAR_NOTE = "Year searches reset every January; this edit is worth redoing each year.";
 
-/** THE ONLY CHIPS THAT ARE NOT VERB PLUS OBJECT: the shapes that are not edits at all. Every single edit is
- *  named by what the operator DOES to what ("Replace title", "Add section"); a family word like "AI answer
- *  gap" told them the diagnosis and hid the action (operator, 2026-08-27). */
 const CATEGORY: [RegExp, string][] = [
   [/::consolidation$/, "Page merge"], [/::ownership$/, "Ownership decision"], [/::researching$/, "Research"],
 ];
-const INLINE_PIECES = 4; /** How many steps a card shows in full before the list becomes the detail page's job: a two or three step treatment is read here, a forty-item correction bundle is not. */
-/** THE OBJECT THIS CHANGE TOUCHES, in the customer's own words, read off the canonical field and never off
- *  prose. "One edit" told the operator nothing, and "Copy new section" appeared on things that were not
- *  sections; at ten to thirty applied changes a day, guessing the object is the product's real cost. */
+const INLINE_PIECES = 4;
 const TARGET_WORD: Record<string, string> = { title: "title", meta: "meta description", h1: "heading", section: "section", answer_block: "answer", internal_link: "link" };
 function targetWordOf(p: ChangeProposal): string {
   const c = p.recommendedChange;
@@ -62,9 +37,6 @@ function targetWordOf(p: ChangeProposal): string {
   if (c.kind === "existing_edit" && c.linkTo) return "link"; /* THE CHIP NAMES WHAT THE EDIT IS (operator, 2026-09-10): a one-sentence carrier for an internal link wore "Add section" because its field is section, and the operator had to guess; the link is the change, the sentence is its vehicle */
   return TARGET_WORD[c.field] ?? fieldWord(c.field);
 }
-/** ADD, REPLACE, DELETE OR LINK (operator, 2026-09-10): the four verbs a card may open with, decided by the canonical fields
- *  alone. A piece that removes a section or forwards an address is a DELETE and was wearing "Replace"; a field with no old
- *  words is an ADD and was wearing "Set", a fifth verb nobody asked for. */
 const DELETE_KIND: Record<string, string> = { section_remove: "Delete section", internal_link_remove: "Delete link", redirect: "Delete address, forward it", noindex: "Delete from search" };
 function actionWordOf(p: ChangeProposal): string {
   const c = p.recommendedChange;
@@ -73,19 +45,13 @@ function actionWordOf(p: ChangeProposal): string {
 }
 function categoryOf(p: ChangeProposal, isNew: boolean, parts: number): string {
   if (isNew) return "Create page";
-  // A multi-piece bundle is named by its SIZE first: the live queue held a three-edit bundle across two
-  // pages wearing the chip "Title" because its id ended ::title-family. The family regex names one edit only.
+  // Multi-piece bundles lead with their size; a family label describes only one piece.
   if (parts > 1) return `${parts} edits together`;
   const named = CATEGORY.find(([re]) => re.test(p.id))?.[1] ?? DELETE_KIND[p.bundle?.components[0]?.kind ?? ""];
   if (named) return named;
   return `${actionWordOf(p)} ${targetWordOf(p)}`;
 }
 
-/** The exact primary action in one line: a bundle's objective, the producer's own headline when it wrote a real one
- *  (a sentence, no slug in it), or the field an atomic edit rewrites. A HEADLINE THAT CARRIES AN ADDRESS IS THE
- *  WRITER'S BRIEF, NOT THE CUSTOMER'S SENTENCE (rendered app, 2026-09-05): two ready cards led with "Write a real
- *  description on /california-persian-cities/berkeley: 20 pages share one templated line", a file name printed at
- *  the operator, repeating word for word the reason already printed under it. */
 function primaryAction(p: ChangeProposal): string {
   if (p.bundle) return p.bundle.objective;
   if (p.opportunityType.includes(" ") && p.opportunityType.length > 20 && !/(^|\s)\//.test(p.opportunityType)) return p.opportunityType;
@@ -147,25 +113,22 @@ function splitReason(text: string): { body: string; caveat: string | null } {
 /** The pieces of a bundle, named the way the server names them, so a tick here is the tick it asks for again. */
 const piecesOf = (b: ChangeBundle | undefined) => (b?.components ?? []).map((c, i) => ({
   id: componentIdOf(c, i), kind: c.kind, label: c.label,
+  ...(c.derivation ? { dependsOn: c.derivation.dependsOn.map((dependency) => dependency.componentId) } : {}),
   ...(dangerousComponents([c]).length > 0 ? { moves: true } : {}),
 }));
 
-export function ChangeCard({ proposal, rank, ready = false, review = false, caseLine = null, onAside, onDone, onToast, picked, onPick, recorded = false, problem = null }: {
+export function ChangeCard({ proposal, rank, ready = false, review = false, caseLine = null, onAside, onDone, onToast, picked, onPick, recorded = false, recordedNote, problem = null, returnTo = "/changes" }: {
   proposal: ChangeProposal; rank: number; ready?: boolean;
-  /** RECORDED BY THE BATCH BELOW THE LIST, so a card the operator never pressed still says what happened to it: the open count dropped on the batch's answer while every card it recorded kept offering Copy and Mark done, which reads as work still owed. `problem` is this row's OWN reason when the batch could not record it, printed on the row rather than as one first error under twenty cards that leaves the operator guessing which card it belongs to. */
-  recorded?: boolean; problem?: string | null;
-  /** BULK SELECTION, offered only where the list offers it (the Ready lane): ticking claims nothing by itself, and the one batch press below the list is what records. Absent means no checkbox renders at all. */
+  recorded?: boolean; recordedNote?: string; problem?: string | null;
   picked?: boolean; onPick?: (id: string) => void;
-  /** WAITING ON A HUMAN LOOK. The card renders the whole argument and the words it has, and NOTHING that would record the work as made: no copy box, no Mark done, either on the collapsed row or inside the expander. A control is a claim that the work is finished, and this stage is the stage where it is not. */
+  returnTo?: string;
   review?: boolean;
-  /** What Decision concluded about the search this change answers, in its own words, read off the ONE case file Visibility reads. Null when the change answers no tracked search, or when that file could not be read: neither of those is a verdict, and neither is printed as one. */
   caseLine?: string | null;
   onAside: (id: string) => void; onDone: (id: string) => void; onToast: (text: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  // MARKED DONE FLIPS THE CARD WHERE IT SITS: the row stays put, says what happens next, and comes off the open
-  // count on the spot. It leaves the list on the next load, which is the release's job, never this render's.
   const [done, setDone] = useState(false);
+  const [doneNote, setDoneNote] = useState<string | null>(null);
   const bundle = proposal.bundle;
   const isNew = proposal.kind === "new_page";
   const parts = bundle?.components.length ?? 1;
@@ -173,57 +136,41 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   const { body, caveat } = useMemo(() => splitReason(proposal.whyItMatters), [proposal.whyItMatters]);
   const proof = useMemo(() => proofOf(proposal), [proposal]);
   const { field, before, after } = beforeAfter(proposal);
-  // ONE NUMBER PER STEP, AND NO BLANK ROWS. Producers write steps both ways ("1. Open the editor" and "Open the editor"), so a step carrying its own number printed "1. 1. Open the editor" beside the span below, and a step that came through empty printed a bare "1." with nothing after it.
   const steps = (proposal.operatorSteps ?? []).map((s) => (s ?? "").replace(/^\s*\d+[.)]\s*/, "").trim()).filter(Boolean);
-  // THE PAGE, SAID THE WAY A PERSON SAYS IT. The headline was the raw slug ("/famous-iranian-comedians"), which
-  // is a file name; the address itself stays underneath, where an address belongs.
   const path = proposal.pagePath ?? proposal.pageLabel;
-  // Only a real address goes through the slug reader: a new-page proposal carries a TITLE in pageLabel,
-  // and de-slugging a title truncates it at its first slash and eats its punctuation.
   const pageTitle = proposal.pagePath ? pageLabel(proposal.pagePath) : (proposal.pageLabel || "This page");
   const secondary = path === pageTitle ? null : path;
-  // A MERGE IS READ, NEVER PASTED: it moves several pages at once, so it carries ordered steps instead of a copy box. EVERYTHING ELSE IS A PASTE, because nothing instruction-shaped reaches this list any more: the completeness boundary keeps a card that tells the operator to go and write the work out of the queue entirely, so the "Read this twice, then:" framing and the research branch it carried are gone with it.
   const merge = isConsolidation(proposal);
-  const recordDone = () => { setDone(true); onDone(proposal.id); };
-  // A DRAFT IS SHOWN WITH THE REASON IT IS HELD, IN THE WORDS ALREADY STORED ON IT, and the reason decides what
-  // may be pressed: editorial judgement is the operator's to answer, a fact about the work is nobody's.
+  const recordDone = (note: string | null) => { setDoneNote(note); setDone(true); onDone(proposal.id); };
   const verdict = openHold(proposal);
-  // THE ONE HOLD A CARD MAY WEAR IS THE OPERATOR'S OWN CALL (Product Truth, 2026-08-27): a move, a merge or a removal with every other check passed. A row held by a review, a source read or a redraft is Beacon's obligation and never renders as a card at all, so no gate sentence is ever printed at a customer.
   const hold = review && verdict.safetyHold && !verdict.faulted ? verdict : null;
-  // THE CAVEATS, THROUGH THE ONE FILTER THE DETAIL READS. The card used to print the row's RAW limitations under
-  // "Evidence and limits" while the detail printed the hold's filtered ones, so one row said two different things
-  // on two screens and a caveat written for a draft whose words are gone rode the finished card.
   const caveats = cardCaveats(proposal, [...verdict.caveats, ...proof.limits.filter((l) => !proposal.limitations.includes(l)),
     ...(caveat ? [caveat] : []), ...(YEAR_QUERY.test(proposal.primaryQuery) ? [YEAR_NOTE] : [])]);
-  // WHY IT IS WORTH TRYING: what was measured, and the row's own reason where it says something the measurement did not.
   const worth = [proof.ranksHere, ...(body ? body.split(/(?<=[.!?])\s+/).filter((sentence) => !saysAgain(sentence, proof.ranksHere ?? "")) : [])].filter(Boolean).join(" "); /* a sentence the receipt already says in other words is not said twice (operator walk, 2026-09-16: "Only 1 page of this site links to ... today" printed back to back) */
-  // WHAT THIS ONE IS WAITING ON BEFORE ANYBODY CAN DO IT, off the row's own typed next step: a card ranked above a smaller one that is ready reads as an order somebody could work straight through, so the dependency is printed where the card is and not folded into the ranking receipt behind an expander. A plain sentence, never a label: "Waiting on: this one waits on your confirmation" says the same thing twice.
   const waiting = ((w: string) => (w ? `${w[0]!.toUpperCase()}${w.slice(1)}.` : null))((proposal.rankingReceipt?.factors ?? []).find((f) => f.name === "readiness")?.input?.trim() ?? "");
   const placement = proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.where ?? null : null;
-  // THE STRUCTURE AND THE LINK RIDE WITH THE COPY: the same units the card renders are what the clipboard carries, and a link change carries its address so the anchor words leave as a real link.
   const units = proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.units : undefined;
   const link = proposal.recommendedChange.kind === "existing_edit" && proposal.recommendedChange.linkTo ? { href: proposal.recommendedChange.linkTo, anchor: proposal.recommendedChange.anchorText ?? "", pageUrl: proposal.pageUrl } : null;
-  // WHAT STANDS BEHIND FINISHED WORK, SAID ON THE CARD THAT OFFERS IT (measured, 2026-09-05: all six Ready rows carry a paid reading bound to their exact copy, not one of them said so, and the only sentence the hold had for them was "nothing has read them for sense yet", which their own record disproves). Read off the row itself: the reading is claimed only while `semanticReview` names THESE exact words, and sources are counted by PUBLISHER and never by fact id, which is the same count the proportional evidence bar uses. A row with no outside publisher stands on words this account already publishes, its own page's or the page a link points at, and says that instead of a bare zero.
   const reading = ready && !merge && reviewFits(proposal, proposal.semanticReview?.of); // a row accepted on a legacy-keyed reading still says what stands behind it (audit, 2026-09-14)
   const sources = reading ? citedPublishers(proposal).size : 0;
 
   if (done || recorded) return (
     <li className="rounded-2xl border border-accent-primary/50 bg-surface-raised p-4" data-change-card="done">
       <p className="text-[14px] font-semibold text-foreground">{pageTitle}</p>
-      <p className="mt-1 text-[13px] text-muted-foreground" data-card-done="true">Done. Measuring from {DAY_NOW()}. {MEASURING_PLAN}</p>
+      <p className="mt-1 text-[13px] text-muted-foreground" data-card-done="true">{doneNote ?? recordedNote ?? "Recorded. Open Results for its current verification and measurement state."}</p>
     </li>
   );
 
   return (
-    <li className={`rounded-2xl border bg-surface-raised ${ready ? "border-accent-primary/50" : "border-border"}`}
+    <li className={`group overflow-hidden rounded-2xl border bg-surface-raised shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${ready ? "border-accent-primary/50" : "border-border"}`}
       data-change-card="true">
       {problem ? <p className="px-4 pt-3 text-[12px] leading-relaxed text-red-500" data-bulk-problem="true">Not recorded: {problem} Press Mark done on this one to try it again.</p> : null}
       {/* THE WHOLE COLLAPSED HEAD IS THE CONTROL, so it is reachable by tab and opens on Enter or Space. */}
       <div className="flex w-full items-start">
-      {onPick ? <input type="checkbox" data-pick-done="true" checked={picked ?? false} onChange={() => onPick(proposal.id)} aria-label={`Select ${pageTitle} for the batch`} className="ml-4 mt-5 h-4 w-4 shrink-0 accent-accent-primary" /> : null}
+      {onPick ? <label className="ml-1 mt-1 flex min-h-11 min-w-11 shrink-0 items-center justify-center"><input type="checkbox" data-pick-done="true" checked={picked ?? false} onChange={() => onPick(proposal.id)} aria-label={`Select ${pageTitle} for the batch`} className="h-5 w-5 accent-accent-primary" /></label> : null}
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
         className="flex w-full items-start gap-3 p-4 text-left">
-        <span className="mt-0.5 text-[12px] tabular-nums text-muted-foreground" title={proposal.whyRankedAboveNext ?? undefined}>{rank}</span>
+        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-accent-primary/10 text-[12px] font-bold text-accent-primary ring-1 ring-accent-primary/20" title={proposal.whyRankedAboveNext ?? undefined}><span className="tabular-nums" data-change-rank={rank}>{rank}</span></span>
         <span className="flex-1 space-y-1">
           <span className="flex flex-wrap items-center gap-2">
             <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${isNew || parts > 1 ? "bg-accent-primary/15 text-accent-primary" : "bg-surface-inset text-muted-foreground"}`}>
@@ -234,11 +181,17 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
           {secondary ? <span className="block truncate text-[12px] text-muted-foreground">{secondary}</span> : null}
           <span className="block text-[14px] font-semibold leading-relaxed text-foreground">{primaryAction(proposal)}</span>
         </span>
-        <span aria-hidden className="mt-1 text-[12px] text-muted-foreground">{open ? "Hide" : "Details"}</span>
+        <span aria-hidden className="mt-1 rounded-full border border-border px-2 py-1 text-[11px] font-semibold text-muted-foreground transition group-hover:border-accent-primary/40 group-hover:text-foreground">{open ? "Hide details" : "How and why"}</span>
       </button>
       </div>
 
       <div className="space-y-3 px-4 pb-4">
+        {proposal.pageUrl ? (
+          <a href={proposal.pageUrl} target="_blank" rel="noreferrer" data-open-live-page="true"
+            className="inline-flex items-center gap-1 text-[12px] font-semibold text-accent-primary underline underline-offset-2">
+            Open live page <span aria-hidden>↗</span>
+          </a>
+        ) : null}
         {/* THE FIX ITSELF, on the card. The line to put there is the loud one; the line that is there now is
             the quiet one, because nobody is being asked to write the old one again. A merge has no line to
             paste at all, so it shows its ordered steps instead and never offers a copy button. */}
@@ -257,14 +210,24 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
              change in placement prose: an operator who does not open it does the wrong amount of work. A short
              treatment shows every step here, each with its own wording and its own location. */
           <ol className="space-y-2" data-bundle-steps="true">
-            {(bundle?.components ?? []).map((c, i) => (
-              <li key={i} className="rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
-                <p className="text-[12px] font-semibold text-foreground"><span className="tabular-nums">{i + 1}. </span>{c.label}</p>
+            {(bundle?.components ?? []).map((c, i) => {
+              const copyable = operatorUiPolicy.isPasteableComponent(c), componentLink = copyable && c.redirectTo && c.anchorAfter
+                ? { href: c.redirectTo, anchor: c.anchorAfter, pageUrl: proposal.pageUrl } : null;
+              return (
+              <li key={i} data-component-mode={copyable ? "copy" : "instruction"} className={`rounded-lg border px-3 py-2 ${copyable ? "border-accent-primary/40 bg-accent-primary/5" : "border-border bg-surface-inset/50"}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[12px] font-semibold text-foreground"><span className="tabular-nums">{i + 1}. </span>{c.label}</p>
+                  {copyable ? <CopyButton text={c.after} units={c.units} link={componentLink} onToast={onToast} label={`Copy ${(c.label ?? c.kind).toLowerCase()}`} /> : null}
+                </div>
                 {c.before ? <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">Now: <span className="line-through">{c.before}</span></p> : null}
-                <PublicationCopy text={c.after} units={c.units} />
+                {!copyable ? <p className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Instruction, do not paste</p> : null}
+                <PublicationCopy text={c.after} units={c.units} link={componentLink} />
+                {c.page && c.page !== proposal.pageUrl && c.page !== proposal.pagePath ? <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">Page: {c.page}</p> : null}
                 {c.where ? <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">Where it goes: {c.where}</p> : null}
+                {c.derivation ? <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">Apply this schema with the visible FAQ copy in this same change; the block matches those exact answers.</p> : null}
               </li>
-            ))}
+              );
+            })}
           </ol>
         ) : parts > 1 ? (
           /* A BUNDLE'S DELIVERABLE IS ITS PIECES, so the collapsed card never offers the umbrella sentence as
@@ -312,6 +275,11 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
             <span className="font-semibold">Why this ranks here:</span> {worth}
           </p>
         ) : null}
+        {proposal.whyRankedAboveNext ? (
+          <p className="text-[12px] leading-relaxed text-muted-foreground" data-why-ranked="true">
+            <span className="font-semibold text-foreground">Why it is above the next change:</span> {proposal.whyRankedAboveNext}
+          </p>
+        ) : null}
 
         {/* THE CAVEAT, ON THE CARD THAT OFFERS THE WORK. It sat behind the expander as "Evidence and limits",
             which is where a caveat goes to be missed by the person pasting the words. */}
@@ -342,7 +310,9 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
             change, where, the final work, and why it ranks; the argument, the checks and the risks live in one
             place instead of three toggles reprinting the same paragraph. */}
         <p className="flex flex-wrap items-center gap-1.5" data-change-facts="true">
-          {merge && proposal.estimatedEffortMinutes > 0 ? <Pill>about {effortLabel(proposal.estimatedEffortMinutes)}</Pill> : null}
+          <Pill>about {effortLabel(proposal.estimatedEffortMinutes)}</Pill>
+          <Pill intent={proposal.confidence === "high" ? "live" : proposal.confidence === "medium" ? "neutral" : "waiting"}>{proposal.confidence[0]!.toUpperCase() + proposal.confidence.slice(1)} confidence</Pill>
+          <Pill>{proof.opportunity.length + proof.wording.length} evidence {proof.opportunity.length + proof.wording.length === 1 ? "line" : "lines"}</Pill>
           <Pill intent={RISK[proposal.riskLevel].intent}>{RISK[proposal.riskLevel].label}</Pill>
         </p>
 
@@ -359,7 +329,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
               <div className="space-y-1" data-operator-steps="true">
                 <p className="text-[12px] font-semibold text-foreground">How to make this change</p>
                 <ol className="list-none space-y-0.5 text-[12px] leading-relaxed text-muted-foreground">
-                  {steps.slice(0, 3).map((s, i) => <li key={i}><span className="tabular-nums font-semibold">{i + 1}. </span>{s}</li>)}
+                  {steps.map((s, i) => <li key={i}><span className="tabular-nums font-semibold">{i + 1}. </span>{s}</li>)}
                 </ol>
               </div>
             ) : null}
@@ -422,9 +392,6 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
             {caseLine ? (
               <p className="text-[12px] leading-relaxed text-muted-foreground" data-ai-case="true">{caseLine}</p>
             ) : null}
-            {proposal.whyRankedAboveNext ? (
-              <p className="text-[12px] leading-relaxed text-muted-foreground" data-why-ranked="true">{proposal.whyRankedAboveNext}</p>
-            ) : null}
             {/* A CARD STILL WAITING ON A LOOK ANSWERS THAT LOOK HERE. What can be RECORDED lives on the card
                 itself, because a control is not supporting evidence and nobody should open an argument to press it. */}
             {hold ? (
@@ -434,8 +401,8 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
         ) : null}
 
         <div className="flex flex-wrap items-center gap-3 pt-1">
-          <Link href={`/changes/${encodeURIComponent(proposal.id)}`}
-            className="inline-flex rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white">
+          <Link href={`/changes/${encodeURIComponent(proposal.id)}?returnTo=${encodeURIComponent(returnTo)}`}
+            className="inline-flex min-h-11 items-center rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2">
             See the change
           </Link>
           {/* THE RECORD AND THE OPERATOR'S OWN WORDING, on the card itself (operator, 2026-09-06: Copy, edit as
@@ -444,10 +411,10 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
               for each where it applies rather than refusing the press afterwards. EVERY BUNDLE OF TWO OR MORE PIECES GETS
               THE PICKER (audit 3.9): a bundle past the inline limit got a bare Mark done, so one press recorded every piece
               as applied when the operator had pasted one. */}
-          {review ? null : <MarkImplemented proposalId={proposal.id} newPage={isNew} onRecorded={recordDone}
+          {review ? null : parts > INLINE_PIECES ? <span className="text-[12px] text-muted-foreground">Open the change to record only the pieces you actually applied.</span> : <MarkImplemented proposalId={proposal.id} newPage={isNew} onRecorded={recordDone}
             components={parts > 1 || held.length > 0 ? piecesOf(bundle) : undefined} />}
           <button type="button" data-set-aside="true" onClick={() => onAside(proposal.id)}
-            className="text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
+            className="inline-flex min-h-11 items-center text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
             Skip
           </button>
         </div>

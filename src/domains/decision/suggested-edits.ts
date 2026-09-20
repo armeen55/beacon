@@ -8,13 +8,15 @@
  * MIN_IMPRESSIONS views in 90 days, the merge has to fit inside a title Google will show whole, and the words this page earns clicks on are never dropped to make it fit.
  *
  * A SEARCH THAT ASKS FOR A FACT IS NOT A TITLE PROBLEM. "<city> population" on a city guide is a missing line,
- * not a missing headline, so it earns an answer line at the top of the page with the figure left for the operator to paste. No figure is ever invented here.
+ * not a missing headline. Until a current figure, date and source are on file it is evidence owed, never a
+ * fill-in-the-blank edit handed to the operator. No figure is ever invented here.
  *
  * PURE: no model call, no store, no clock of its own, no I/O. */
 
 import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
 import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import { canonicalUrlKey, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
+import { COMPETITIVE_PATTERN } from "@/domains/evidence/competitive-pattern";
 import { answerIntelOf } from "@/domains/evidence/answer-intel";
 import { observationJoinsCase } from "./membership";
 import { effortForFamily, type ChangeProposal } from "./contracts";
@@ -182,18 +184,20 @@ function modeledOnWinners(snapshot: EvidenceSnapshot, query: string, ownUrl: str
   const row = (snapshot.research?.serpEvidence ?? []).find((s) => canonicalQueryKey(s.query) === key);
   if (!row) return null;
   const own = canonicalUrlKey(ownUrl);
-  const titles = [...row.organic].sort((a, b) => a.rank - b.rank)
-    .filter((o) => canonicalUrlKey(o.url) !== own).map((o) => (o.title ?? "").trim()).filter(Boolean).slice(0, 5);
-  if (titles.length < 3) return null;
+  const matrix = COMPETITIVE_PATTERN.matrix([...row.organic].sort((a, b) => a.rank - b.rank)
+    .filter((o) => canonicalUrlKey(o.url) !== own), (o) => o.url || o.domain, (o) => !!o.title?.trim());
+  if (matrix.threshold == null) return null;
+  const titles = matrix.readable.map((o) => o.title!.trim());
   const first = topicTokens(query)[0];
   // THE ONE SHAPE THIS MERGE CAN HONESTLY CLAIM is the one it already writes: the search at the front of the
   // line. A leading count is the other pattern they agree on, and no count for this page is on file, so it is
   // named as a note for the operator and never written into the copy.
-  const front = first ? titles.filter((t) => topicTokens(t).slice(0, 4).includes(first)).length : 0;
-  if (front < 2) return null;
-  const counted = titles.filter((t) => /^\D{0,3}\d/.test(t.trim())).length;
-  return { label: "Modeled on the current top 5", counted, note: counted >= 2
-    ? `${counted} of the ${titles.length} pages Google ranks for this search open with a count. If this page has a countable list, put its real number at the front.` : null };
+  const frontOn = first ? titles.flatMap((t, i) => topicTokens(t).slice(0, 4).includes(first) ? [i] : []) : [];
+  if (matrix.support(frontOn).state !== "common") return null;
+  const countOn = titles.flatMap((t, i) => /^\D{0,3}\d/.test(t) ? [i] : []), countSupport = matrix.support(countOn);
+  const counted = countSupport.state === "common" ? countSupport.publishers : 0;
+  return { label: "Modeled on current ranking publishers", counted, note: counted > 0
+    ? `${counted} of the ${matrix.denominator} distinct publishers Google ranks for this search open with a count. If this page has a countable list, put its real number at the front.` : null };
 }
 
 /** THE AI SIDE OF THE SAME SEARCH, only where this account ALREADY HOLDS it: the answers that joined this
@@ -300,28 +304,21 @@ export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly 
     const caution = earns
       ? `This page already earns ${num(page.search!.clicks90d)} clicks in 90 days; the merge keeps its current words for that reason.`
       : null;
+    const oweEvidence = (message: string): void => {
+      for (const key of [c.pageUrl!, c.pageUrl!.trim().toLowerCase(), path.toLowerCase()]) opts.needs?.set(key, message);
+    };
     // A TRANSLATION ASK IS A MISSING WORD, NOT A MISSING HEADLINE. The word itself is the answer, and inventing
-    // one is the one thing this kernel may never do, so the card is one line with the word left to be pasted.
+    // one is the one thing this kernel may never do, so no edit exists until evidence supplies the word.
     const lang = query.match(TRANSLATION)?.[1];
     if (lang) {
       const asked = cased(query), langWord = cased(lang);
       const subjectAsked = topicTokens(query).filter((t) => !topicTokens(lang).includes(t));
       if (subjectAsked.length === 0 || UNSAFE.test(asked)) continue;
-      // THE WORD, AND HOW TO SAY IT. A reader who came for the word wants to use it out loud, and an
-      // assistant lifts a line that reads as a definition. "Hyena in Farsi is called NAME" is neither.
+      // A blank for the operator is not an edit. Keep the demand alive as a
+      // typed evidence obligation; a copy-paste answer is minted only after the
+      // translation and pronunciation are verified and can ride as support.
       const subjectSaid = query.replace(TRANSLATION, "").replace(/\s+/g, " ").trim().toLowerCase();
-      if (file({
-        id: `${tenantId}::${path.toLowerCase()}::existing_edit::answer_block`,
-        field: "answer_block", before: null, after: `NAME (SOUND) is the ${langWord} word for ${subjectSaid}.`,
-        label: `Answer "${query}" with the word itself`,
-        why: `People searching "${query}" want the word itself, and this page never says it in a line a reader or an assistant can lift, so the answer goes near the top.${creditLine(snapshot, query)}`,
-        steps: [`Open your site editor on ${path}`,
-          `Paste the line above directly under the page heading, with the ${langWord} word in place of NAME and how it is said out loud in place of SOUND`,
-          "Come back here and mark it done, and measurement starts"],
-        limitations: [`No ${langWord} word for ${subjectSaid} is on file here, so you supply the word and how it sounds rather than publishing NAME and SOUND.`,
-          ...(caution ? [caution] : [])],
-        confidence: "low", effort: effortForFamily("answer"), impact: c.recoverableClicks, modeled: null,
-      }, page, c.pageUrl ?? "", path, query, c)) return out;
+      oweEvidence(`${path} needs a verified ${langWord} translation and pronunciation for ${subjectSaid} before Beacon can write a copy-paste answer.`);
       continue;
     }
     const factWord = (query.match(FACT)?.[1] ?? "").toLowerCase();
@@ -332,24 +329,10 @@ export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly 
       && absent(query, content.title ?? content.h1 ?? "").length * 2 >= topicTokens(query).length;
     if (subsetShape) {
       const named = cased(subject);
-      const article = /^[aeiou]/.test(factWord) ? "an" : "a";
-      // A FIGURE WITH NO DATE AND NO SOURCE IS A CLAIM NOBODY CAN CHECK, and an assistant will not lift it.
-      const line = `${named} has ${article} ${factWord} of NUMBER as of YEAR (SOURCE).`;
-      const core = (content.title ?? "").split(/\s*\|\s*/)[0]!.trim();
-      const tail = `${core}: ${cased(factWord)}`;
-      const id = `${tenantId}::${path.toLowerCase()}::existing_edit::answer_block`;
-      if (file({
-        id, field: "answer_block", before: null, after: line,
-        label: `Answer "${query}" in one line at the top of the page`,
-        why: `${noRepeat(why(c.reason))} "${query}" asks this page for one figure and the page never answers it in a line a reader or an assistant can lift, so the answer goes at the top and the word goes on the title.${creditLine(snapshot, query)}`,
-        steps: [`Open your site editor on ${path}`,
-          "Paste the line above directly under the page heading, with the current figure in place of NUMBER, the year it comes from in place of YEAR, and the source it comes from in place of SOURCE",
-          ...(core && tail.length <= TITLE_MAX ? [`Change the title to "${tail}" so the search sees the answer is here`] : []),
-          "Come back here and mark it done, and measurement starts"],
-        limitations: [`No ${factWord} figure for ${named} is on file here, so you supply the figure, the year it is from, and the source that publishes it rather than publishing NUMBER, YEAR and SOURCE.`,
-          ...(caution ? [caution] : [])],
-        confidence: "low", effort: effortForFamily("answer"), impact: c.recoverableClicks, modeled: null,
-      }, page, c.pageUrl ?? "", path, query, c)) return out;
+      // A template with a missing number, date, and source is operator research,
+      // not publication copy. Preserve it as evidence owed and let the grounded
+      // drafting path write the answer after those atoms exist.
+      oweEvidence(`${path} needs a current sourced ${factWord} for ${named}, including its as-of date, before Beacon can write a copy-paste answer.`);
       continue;
     }
     // THE MERGE. Title first, heading second: the store files a title and an h1 under one identity for one page.

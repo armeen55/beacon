@@ -122,7 +122,7 @@ export function answerIntelFacts(intel: AnswerIntel): { facts: AnswerFact[]; wit
   // THE NUMBER IS WHAT THE NUMBER COUNTS. `prompts` is DISTINCT QUESTIONS I TRACK, so calling it a count of
   // answers said something I never measured: four engines answering one question is four answers, not four questions.
   const many = (s: AnswerSignal, plural: string, one: string): string =>
-    s.prompts > 1 ? `The answers to ${s.prompts} of the questions I track ${plural}` : `One answer I hold here ${one}`;
+    s.prompts > 1 ? `The stored answers to ${s.prompts} tracked questions ${plural}` : `One stored answer ${one}`;
   // AN ENGINE'S ADVERB IS NOT A READING I TOOK TODAY. These lines quote free wording, and one answer saying
   // "what it costs currently" turns a dated receipt line into a claim about right now that I cannot stand
   // behind on any day but the day it landed: the one validator refuses the WHOLE change for it, permanently
@@ -136,7 +136,7 @@ export function answerIntelFacts(intel: AnswerIntel): { facts: AnswerFact[]; wit
   intel.contentTypes.slice(0, 2).forEach((s, i) => push(`format${i + 1}`, `${many(s, "ask for", "asks for")} ${s.text}.`, s));
   intel.omissions.slice(0, 2).forEach((s, i) => push(`missing${i + 1}`, `${many(s, "leave", "leaves")} this unanswered: ${s.text}`, s));
   // A SHAPE IS A PATTERN OR IT IS NOTHING: one answer's own headings are that answer's, never what answers agree on.
-  intel.sections.filter((s) => s.prompts > 1).slice(0, 1).forEach((s) => push("covered1", `The answers to ${s.prompts} of the questions I track cover "${s.text}".`, s));
+  intel.sections.filter((s) => s.prompts > 1).slice(0, 1).forEach((s) => push("covered1", `The stored answers to ${s.prompts} tracked questions cover "${s.text}".`, s));
   // AN ABSENCE IS EVERY ANSWER'S. "Not one of them names you" is read off the whole inspected set at once, so
   // the honest support for it is that whole set and not the empty list it used to carry: the claim is about
   // every one of those answers, and a receipt that names none of them cannot be checked against any of them.
@@ -146,9 +146,9 @@ export function answerIntelFacts(intel: AnswerIntel): { facts: AnswerFact[]; wit
     out.push({ key: "brandnamed", ...identity(named ? intel.brand.observationIds : intel.observationIds),
       observedAt: intel.brand.observedAt ?? intel.latestObservedAt,
       fact: named
-        ? `Your own site is named in ${intel.brand.mentioned} of the ${intel.answers} answers I hold here${intel.brand.position != null ? `, ${intel.brand.position === 1 ? "first" : `in ${intel.brand.position} place`} in the answer` : ""}.`
-        : `Not one of the ${intel.answers} answers I hold here names your own site.` });
+        ? `Your site is named in ${intel.brand.mentioned} of ${intel.answers} stored answers${intel.brand.position != null ? `, ${intel.brand.position === 1 ? "first" : `in ${intel.brand.position} place`} in the answer` : ""}.`
+        : `None of the ${intel.answers} stored answers names your site.` });
   }
   return { facts: out, withheld: withheld === 0 ? null
-    : `I withheld ${withheld} time-sensitive statement${withheld === 1 ? "" : "s"} from these answers because I cannot confirm ${withheld === 1 ? "it is" : "they are"} still current.` };
+    : `${withheld} time-sensitive statement${withheld === 1 ? " was" : "s were"} left out because current accuracy could not be confirmed.` };
 }

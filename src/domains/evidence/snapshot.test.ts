@@ -131,7 +131,7 @@ describe("buildTopicInvestigations - the research packet", () => {
     const tides = byLabel("tide"); const paddle = byLabel("kayak paddle"); expect(paddle.queries).toEqual(expect.arrayContaining(["harbor kayak paddle", "kayak paddle harbor"])); // one shared specific intent, one investigation
     expect(tides.key).not.toBe(byLabel("kayak gear").key); expect(tides.fanOuts.map((f) => f.query)).toEqual(["harbor tide table"]); // a tracked prompt is never its own fan-out
     expect(tides.fanOuts[0]).toMatchObject({ parentPromptId: "p1", parentPromptText: "how do harbor tides work", engine: "chatgpt" });
-    expect(tides.demandBasis).toBe("ai"); expect(tides.demand.monthlySearchVolume).toBeNull(); expect(tides.missingEvidence.some((m) => m.includes("monthly search volume"))).toBe(true); // AI demand never implies Google demand
+    expect(tides.demandBasis).toBe("ai"); expect(tides.demand.monthlySearchVolume).toBeNull(); expect(tides.missingEvidence.some((m) => m.toLowerCase().includes("monthly search volume"))).toBe(true); // AI demand never implies Google demand
     expect(paddle.demandBasis).toBe("search"); expect(paddle.demand.trackedPrompts).toBe(0); expect(paddle.missingEvidence.some((m) => m.includes("AI engine"))).toBe(true); // and search demand never claims AI recurrence
   });
   it("reads what wins conservatively, and never counts a stale, thin or unread winner as present-day evidence", () => {
@@ -144,9 +144,9 @@ describe("buildTopicInvestigations - the research packet", () => {
     expect(paddle.currentReadableWinners).toBe(3); expect(paddle.missingEvidence.every((m) => m.includes("AI engine"))).toBe(true);
     const only = (over: Parameters<typeof build>[0]) => build(over).find((i) => i.label.includes("kayak paddle"))!.missingEvidence.filter((m) => m.includes("win"));
     expect(only({ winningPages: [win("https://a.example/g", "harbor kayak paddle", body(NOW)), win("https://b.example/g", "harbor kayak paddle", body(NOW))] }))
-      .toEqual(["I can name 2 of the 3 sites that win here, so I cannot compare them against your own pages yet."]); // two addresses: the comparison is what is owed
+      .toEqual(["2 of the 3 winning sites are identified, so comparison against your pages is not ready yet."]); // two addresses: the comparison is what is owed
     expect(only({ winningPages: ["a", "b", "c"].map((h, i) => win(`https://${h}.example/g`, "harbor kayak paddle", body(i === 0 ? NOW : OLD))) }))
-      .toEqual(["I have read 1 of the 3 winning pages I would need before writing a page of your own."]); // three addresses, one body: only the WRITING is blocked
+      .toEqual(["1 of the 3 winning pages needed before writing a page of your own have been read."]); // three addresses, one body: only the WRITING is blocked
     const keys = (v: unknown): string[] => Array.isArray(v) ? v.flatMap(keys) : v && typeof v === "object" ? Object.entries(v).flatMap(([k, x]) => [k, ...keys(x)]) : [];
     expect(keys(ALL).filter((k) => /action|proposal|draft|recommend|status|queue|publish|outline|meta/i.test(k))).toEqual([]); });
   it("never welds unrelated subjects: one owner per anchor, so a stale row and a shared-anchor chain both stay bounded", () => {

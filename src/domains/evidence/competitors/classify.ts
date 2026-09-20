@@ -93,8 +93,8 @@ export function classifyDomain(domain: string, signals: DomainSignals): Classifi
   const evidence = { serpAppearances: serps, aiCitations: cites, competingQueries: queries };
   const row = (kind: CompetitorKind, why: string): ClassifiedDomain => ({ domain: d, kind, why, evidence });
 
-  if (signals.isOwned) return row("owned", `I saw this ${serps + cites} ${plural(serps + cites, "time", "times")} in your own evidence, and it is your own site, so I never count it against you.`);
-  if (PUBLIC_TLD.test(d)) return row("government_educational", `A government or school publishes this, and I saw it ${serps} ${plural(serps, "time", "times")} in your results. You cannot take customers from it, so treat it as a source to cite rather than a rival.`);
+  if (signals.isOwned) return row("owned", `This appeared ${serps + cites} ${plural(serps + cites, "time", "times")} in your evidence and belongs to your site, so it is never counted against you.`);
+  if (PUBLIC_TLD.test(d)) return row("government_educational", `A government or school publishes this, and it appeared ${serps} ${plural(serps, "time", "times")} in your results. You cannot take customers from it, so treat it as a source to cite rather than a rival.`);
   if (inSet(d, SOCIAL_HOSTS)) return row("social_community", `This is a social platform, and it showed up ${serps} ${plural(serps, "time", "times")} in your results. It is a place to be present on, not a site to outrank.`);
   if (inSet(d, MARKETPLACE_HOSTS)) return row("marketplace_directory", `This is a marketplace or directory, and it showed up ${serps} ${plural(serps, "time", "times")} in your results. Get listed on it rather than trying to beat it.`);
   // A KNOWN PUBLICATION IS NEVER A RIVAL, however often it ranks. Which non-rival it is depends on what it is doing here: quoted and not ranking is a source,
@@ -110,7 +110,7 @@ export function classifyDomain(domain: string, signals: DomainSignals): Classifi
   const competes = queries >= RECURS, quoted = cites >= RECURS, sells = signals.overlap === "same_business";
   const both = competes && quoted ? ` It is also quoted as a source ${cites} ${plural(cites, "time", "times")}, so it plays both parts here.` : "";
   if (competes && sells) {
-    return row("commercial_competitor", `I read its pages: it offers what you offer to the same customers, and it wins ${queries} of the searches you care about.${both} Read what it does on those pages and answer it better.`);
+    return row("commercial_competitor", `Its inspected pages offer what you offer to the same customers, and it wins ${queries} of the searches you care about.${both} Read what it does on those pages and answer it better.`);
   }
   if (quoted) {
     const settled = row("citation_authority", `Engines quote it ${cites} ${plural(cites, "time", "times")} as a source and it ${queries === 0 ? "never ranks against you" : `ranks for ${queries} of your searches without selling what you sell`}. Aim to be quoted beside it, not to outrank it.`);
@@ -121,7 +121,7 @@ export function classifyDomain(domain: string, signals: DomainSignals): Classifi
   }
   if (competes) {
     // NOMINATED, NOT DECIDED. Two of your searches is the floor that makes this domain worth the look, and the look is exactly what has not happened yet.
-    return { ...row("irrelevant_unknown", `It ranks for ${queries} of the searches you care about, so I am reading its pages to see whether it actually sells what you sell. Until I have, I will not call it a competitor.`), ambiguous: true };
+    return { ...row("irrelevant_unknown", `It ranks for ${queries} of the searches you care about. Its pages still need to be inspected before it can be called a competitor.`), ambiguous: true };
   }
-  return row("irrelevant_unknown", `I have only seen this domain ${serps + cites} ${plural(serps + cites, "time", "times")}, which is not enough to say what it is to you. I will keep watching it.`);
+  return row("irrelevant_unknown", `This domain has appeared only ${serps + cites} ${plural(serps + cites, "time", "times")}, which is not enough to classify its role yet. It remains under observation.`);
 }

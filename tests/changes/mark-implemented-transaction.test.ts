@@ -1,6 +1,6 @@
 /** THE MARK-IMPLEMENTED TRANSACTION. There is no bare status flip on the decision facade: the record is written FIRST and the change is flipped SECOND, carrying that record's own id, so a crash between the two leaves a record the next press heals where the reverse would leave a change marked done that nothing on earth is measuring. A piece is named by its exact copy too, so a redraft is genuinely new work while pressing the SAME version twice stays one record. AN UNFINISHED DELIVERABLE IS NOT WORK SOMEBODY CAN HAVE DONE. The server asks the ONE completeness boundary, never the prose, so no stale tab opens a 28 day reading on work nobody wrote. THE BOUNDARY IS THE TYPED FACT: a producer that writes a brief instead of copy stamps it as it mints the card, and a blank nobody filled in is still a blank, whoever wrote it. THE ONE DOOR, standing in for the real one: it always writes and always answers with the row's id, it is idempotent on (proposal, version), and the row is durable the moment it lands, which is exactly what a retry after a crash finds. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ChangeProposal } from "@/domains/decision";
+import { componentIdOf, type ChangeProposal } from "@/domains/decision";
 type Rec = { id: string; proposalId: string; proposalVersion: string; componentsApplied: Array<{ id: string; kind?: string; after?: string; before?: string | null; page?: string; where?: string | null; anchorAfter?: string; redirectTo?: string; appliedAfter?: string }>; path: string; page: string; implementedAt: string | null; operatorNote?: string | null; verification?: string | null; treatmentStamp: { signature: Record<string, string | null>; overlapAtShip: number } | null };
 const led = vi.hoisted(() => ({ verified: [] as string[], records: [] as Rec[], breakWrite: false, noRecordId: false, flip: vi.fn(async (..._a: unknown[]) => true) }));
 const stored = vi.hoisted(() => ({ proposal: null as unknown, byId: null as Map<string, unknown> | null, disposition: null as string | null, tenant: "t" }));
@@ -40,6 +40,9 @@ const change = (after = AFTER): ChangeProposal => ({
 /** ONE LINK CHANGE, as the editor hands one over: the destination and the exact words typed on the change itself, and a link piece inside the bundle that types neither of them. The live check reads a link on both its address and its words, so both have to reach the record. */
 const linkChange = (): ChangeProposal => { const p = change("One sentence pointing readers to the haft seen page.") as ChangeProposal & { recommendedChange: unknown };
   p.recommendedChange = { kind: "existing_edit", field: "section", before: null, after: "One sentence pointing readers to the haft seen page.", where: 'In the body copy, with "the haft seen explained" linked to /haft-seen', linkTo: "/haft-seen", anchorText: "the haft seen explained" }; (p.bundle as { components: unknown[] }).components = [{ kind: "internal_link_add", label: "Link to the haft seen page", risk: "safe", before: null, after: "One sentence pointing readers to the haft seen page.", evidenceKeys: ["k1"] }]; return p; };
+const schemaChange = (): ChangeProposal => { const p = change("Add a visible answer and matching FAQ markup."), section = { ...p.bundle!.components[0]!, label: "Visible FAQ answer" }, dependency = componentIdOf(section, 0), hash = "a".repeat(64);
+  p.bundle = { ...p.bundle!, components: [section, { kind: "schema", label: "FAQ structured data", risk: "safe", before: null, after: '{"@context":"https://schema.org","@type":"FAQPage"}', evidenceKeys: ["k1"], derivation: { rule: "visible_faq_pairs_v1", operation: "add", source: { pageKey: "/famous-iranian-comedians", contentHash: hash, schemaHash: hash, visibleFaqHash: hash, captureRevision: hash }, dependsOn: [{ componentId: dependency, revision: hash }], projectedVisibleFaqHash: hash } }] };
+  return p; };
 const press = async (p: ChangeProposal) => { stored.proposal = p;
   return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id }); };
 beforeEach(() => { led.records = []; led.breakWrite = false; led.noRecordId = false; stored.disposition = null; stored.byId = null; stored.tenant = "t"; surf.rebuilds = 0; led.flip.mockReset(); led.flip.mockResolvedValue(true); }); // the rebuild count is reset with every other fixture, so no assertion about it depends on the test before it
@@ -75,7 +78,9 @@ describe("an applied change keeps the suggestion and the version applied side by
     const other = { ...change("A second change, recorded by the batch"), id: "t::/other::existing_edit::bundle" } as ChangeProposal;
     stored.byId = new Map([[other.id, other]]);
     const batch = await (await import("@/app/(shell)/changes/actions")).markManyImplementedAction({ proposalIds: [other.id] });
-    expect([batch.done, facts().operatorNote ?? null, facts().componentsApplied.map((c) => c.appliedAfter)], "and a batch carries no shared wording at all: one line cannot be the version applied to twenty different changes, so the batch records the prepared wording and nothing else").toEqual([1, null, [undefined]]); });});
+    expect([batch.done, facts().operatorNote ?? null, facts().componentsApplied.map((c) => c.appliedAfter)], "and a batch carries no shared wording at all: one line cannot be the version applied to twenty different changes, so the batch records the prepared wording and nothing else").toEqual([1, null, [undefined]]);
+    const many = stored.proposal as ChangeProposal; stored.byId = new Map([[many.id, many]]); const forged = await (await import("@/app/(shell)/changes/actions")).markManyImplementedAction({ proposalIds: [many.id] });
+    expect([forged.done, forged.failed[0]?.error, led.records.length], "a forged bulk request cannot flatten a multi-piece bundle into one recorded press").toEqual([0, "This change has several pieces or needs confirmation, so record it from its own change page.", 2]); });});
 /** A BATCH ANSWERS FOR EVERY CHANGE IN IT, one by one. Proof 13 of the loop plan. */
 describe("a partial batch failure is visible per change and retryable without duplicating what landed", () => {
   it("records the good ones once, names each refusal against its own change, and a retry of the whole batch adds no second record", async () => {
@@ -90,6 +95,11 @@ describe("a partial batch failure is visible per change and retryable without du
     const retry = await mark({ proposalIds: [good.id, held.id, unfinished.id] });
     expect([retry.done, retry.already, retry.failed.length, led.records.length], "pressing the whole batch again records nothing twice: the one that landed answers as already measuring and the two refusals are unchanged").toEqual([0, 1, 2, 1]); });});
 describe("nothing is marked done that no record stands behind", () => {
+  it("refuses forged partial schema groups and records the visible copy with its derived schema as one press", async () => { const linked = schemaChange(), ids = linked.bundle!.components.map(componentIdOf); stored.proposal = linked;
+    const mark = (componentIds: string[]) => import("@/app/(shell)/changes/actions").then(({ markProposalImplementedAction }) => markProposalImplementedAction({ proposalId: linked.id, componentIds }));
+    const copyOnly = await mark([ids[0]!]), schemaOnly = await mark([ids[1]!]);
+    expect([copyOnly.success, schemaOnly.success, copyOnly.error, schemaOnly.error, led.records.length]).toEqual([false, false, expect.stringContaining("one linked change"), expect.stringContaining("one linked change"), 0]);
+    const both = await mark(ids); expect([both.success, led.records.length, led.records[0]!.componentsApplied.map((component) => component.kind)]).toEqual([true, 1, ["title", "schema"]]); });
   it("schedules the exact shipment it just wrote, on the full press and on a partial bundle alike", async () => {
     led.verified = [];
     const whole = linkChange();
@@ -115,9 +125,9 @@ describe("nothing is marked done that no record stands behind", () => {
     const errand = await press({ ...change(), researchOnly: true, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Write a description of about 150 characters that names this page's subject." } } as ChangeProposal);
     expect([research.success, errand.success, led.records.length, led.flip.mock.calls.length, research.error, errand.error]).toEqual([false, false, 0, 0, expect.stringContaining("nothing has been written for it yet"), expect.stringContaining("nothing has been written for it yet")]);
     expect([(await press({ ...change(), limitations: ["Nothing here is ready to paste: this card is research, not an edit."] } as ChangeProposal)).success, led.records.length]).toEqual([true, 1]); }); // that sentence on finished copy stops nothing
-  it("the press outvotes a reconciliation withdrawal, and never a dismissal", async () => {
-    stored.disposition = "withdrawn"; // THE LIVE RACE (2026-08-29): Noor's row was withdrawn by the producer seconds before the press loaded it, and "could not be found" recorded NOTHING the operator did. A reconciliation-withdrawn row is still theirs to finish; a DISMISSAL was the operator's own decision, asked BEFORE any shipment is written so a stale tab can neither undo it nor orphan a record (Mahsa's orphan was a shipment written before a doomed flip).
-    const res = await press(change()); expect([res.success, led.records.length, led.flip.mock.calls.length]).toEqual([true, 1, 1]);
+  it("never lets a stale press revive terminal work or write an orphan shipment", async () => {
+    stored.disposition = "withdrawn";
+    const res = await press(change()); expect([res.success, led.records.length, led.flip.mock.calls.length]).toEqual([false, 0, 0]);
     stored.disposition = "dismissed"; led.records = []; led.flip.mockReset();
     const no = await press(change("Different words for the dismissed row")); expect([no.success, led.records.length, led.flip.mock.calls.length], "no shipment and no flip on a dismissed row").toEqual([false, 0, 0]); });
   /** A PRESS HELD ON THE DEVICE IS SENT AGAIN ONLY WHERE SENDING IT AGAIN COULD WORK. The browser queue used to drop every answered failure, so "press it again in a moment" threw away a press the operator had already made; a verdict must still settle the entry or the device argues with the server for ever. */

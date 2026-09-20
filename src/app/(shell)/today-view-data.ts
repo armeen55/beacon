@@ -6,7 +6,7 @@ import "server-only";
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadChangesView, sanitizeSurfaceComputedAt, type ChangesView } from "./changes-data";
-import { pageLabel } from "./changes/types";
+import operatorUiPolicy, { pageLabel } from "./changes/types";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
 import { countTrackedQuestions, researchPermission, researchRunStatus } from "@/domains/runtime";
 import { checkBudget } from "@/domains/decision";
@@ -24,11 +24,9 @@ type TodayOpportunity = { changeId: string; pageLabel: string; recommendation: s
 type TodayView = {
   headerSentence: string;
   nextOpportunities: TodayOpportunity[];
-  /** THE EXACT EDIT AT THE TOP OF THE QUEUE. Today used to lead with the paragraph arguing the change, so the
-   *  first thing read was reasoning for a thing nobody had been told to do yet. The action comes first now, then
-   *  the words on the page and the words to put there; the reason follows. Absent when the top change carries no
-   *  line at all, and `paste` is false for a plan that is read rather than pasted. */
+  /** The exact top atomic edit; bundles and plans are opened rather than flattened into one clipboard action. */
   topEdit?: { action: string; lead: string; before: string | null; after: string; paste: boolean; where?: string;
+    pageUrl?: string; pieceCount?: number; confidence: ChangeProposal["confidence"]; risk: ChangeProposal["riskLevel"];
     /** The structure and the link the Changes card carries, so Today's Copy hands over the same payload. */
     units?: BundleComponent["units"]; link?: { href: string; anchor: string };
     /** One plain sentence above a block of code, so the first thing on the screen is never JSON (operator walk, 2026-09-16). */ markup?: string };
@@ -89,12 +87,15 @@ function topEditOf(p: ChangeProposal): TodayView["topEdit"] {
   const c = p.recommendedChange;
   const after = (c.kind === "new_page" ? c.proposedTitle : c.after ?? "").trim();
   if (!after) return undefined;
+  const context = { ...(p.pageUrl ? { pageUrl: p.pageUrl } : {}), confidence: p.confidence, risk: p.riskLevel };
+  if (p.bundle) return { action: recommendationOf(p), lead: "", before: null, after: "", paste: false,
+    pieceCount: p.bundle.components.length, ...context };
   if (c.kind === "new_page") {
-    return { action: `Build a new page that answers "${p.primaryQuery}"`, lead: "Page title: ", before: null, after, paste: true };
+    return { action: `Build a new page that answers "${p.primaryQuery}"`, lead: "", before: null, after: "", paste: false, ...context };
   }
   const field = c.field === "meta" ? "meta description" : c.field.replace(/_/g, " ");
   if (String(p.kind) === "consolidation" || p.changeFamily === "consolidation") {
-    return { action: recommendationOf(p), lead: "", before: null, after: "", paste: false };
+    return { action: recommendationOf(p), lead: "", before: null, after: "", paste: false, ...context };
   }
   return {
     // THE PAGE, SAID THE WAY A PERSON SAYS IT (audit 3.9): the headline printed the raw path, and Changes already reads the same path through pageLabel.
@@ -104,6 +105,7 @@ function topEditOf(p: ChangeProposal): TodayView["topEdit"] {
     before: (c.before ?? "").trim() || null,
     after,
     paste: true,
+    ...context,
     ...(c.units ? { units: c.units } : {}),
     ...(c.linkTo ? { link: { href: c.linkTo, anchor: c.anchorText ?? "" } } : {}),
     // WHERE IT GOES rides the one card the operator is steered to first: the Changes card has always carried it, and the Today card, the single card most operators act from, omitted it, so body copy arrived with no place to put it (blind customer review, 2026-08-25).
@@ -139,15 +141,17 @@ const retryDay = (iso: string): string =>
 export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProducerSignal = {}): TodayView {
   // THE COUNT IS THE COUNT, NEVER THE PAGE. `view.ready` is one page of the ranking now, so counting it would under-report the queue Today
   // is drawing from; `summary` carries the total counted in the database.
-  const readyTotal = view.summary?.ready ?? view.ready.length;
+  const proofReady = view.ready.filter(operatorUiPolicy.isManualEditProofWork);
+  const readyTotal = Math.max(0, (view.summary?.ready ?? view.ready.length) - (view.ready.length - proofReady.length));
   // ONLY WHAT IS READY IS OFFERED (Product Truth, 2026-08-27). Today used to draw its preview off ready, review AND research
   // together, so a day with nothing finished opened on a draft labelled "Still being checked" with a Copy press on it. The
   // preview is the top of the ready lane in the ranking's own order, at most three, and everything else is one count.
   const rank = new Map((view.proposals ?? []).map((p, i) => [p.id, i]));
-  const ready = [...view.ready].sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity)).slice(0, TODAY_PREVIEW_LIMIT).map(proposalToOpportunity);
+  const orderedReady = [...proofReady].sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));
+  const ready = orderedReady.slice(0, TODAY_PREVIEW_LIMIT).map(proposalToOpportunity);
   const decisions = (view.toDo ?? []).filter((p) => { const h = openHold(p); return h.safetyHold && !h.faulted; }).length;
   const preparing = { written: Math.max(0, (view.summary?.todo ?? view.toDo.length) - decisions), researching: view.summary?.research ?? (view.research ?? []).length };
-  const topEdit = view.ready[0] ? topEditOf(view.ready[0]!) : undefined;
+  const topEdit = orderedReady[0] ? topEditOf(orderedReady[0]) : undefined;
   const waiting = producer.waitingUntil && Number.isFinite(Date.parse(producer.waitingUntil)) ? producer.waitingUntil : null;
   const rest = { ...(waiting ? { waitingUntil: waiting } : {}), readyTotal, preparing };
   // ONE SENTENCE, AND EVERY CHANGE IT COUNTS IS FINISHED WORK: the READY lane alone, which is the only lane

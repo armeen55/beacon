@@ -54,7 +54,7 @@ describe("every material search the assistants ran terminates somewhere a person
     expect(a.caseKey).not.toBe(other.caseKey);});});
 /** THE CARD SAYS WHAT HAPPENED; ONLY THE DIAGNOSIS SAYS WHAT THE PAGE LACKS (operator, 2026-08-28). caseCopy derives stage-honest headlines; gateOf turns a diagnosis into the one treatment it supports and names NO treatment without one; diagnoseGap binds the exact packet, funds every uncached attempt from the pass's own purse, and refuses a claim the packet cannot carry. */
 describe("stage copy is honest and the diagnosis owns the treatment", () => {
-  const { caseCopy, intentOf, readableSubject, gateOf } = AI_CASE_COPY;
+  const { caseCopy, intentOf, readableSubject, gateOf, causePayload } = AI_CASE_COPY;
   const standing = (over: Partial<Parameters<typeof caseCopy>[0]> = {}): Parameters<typeof caseCopy>[0] => ({ quoted: '"What animals live in Iran?"', path: "/iran-animals", intent: intentOf("What animals live in Iran?"), stage: "owned_retrieved_not_cited", domain: "rival.example", diagnosed: false, ...over });
   it("no case card carries a content strategy, a reading overclaim, or a raw fan-out as the thing to answer", () => {
     const rugs = caseCopy(standing({ quoted: '"What are Persian rugs known for?"', path: "/persian-rugs" }));
@@ -72,7 +72,10 @@ describe("stage copy is honest and the diagnosis owns the treatment", () => {
     expect((scattered as { work: string }).work).toContain("call to action"); // the CTA stays protected in the brief
     expect(gateOf(dx({ kind: "missing_information", treatment: "add_answer_section", evidenceIds: ["ans-1"], missing: "the date rule" }))).toMatchObject({ emit: true, hire: false, next: expect.stringContaining("acquires an authoritative source") }); // MISSING INFORMATION NEVER HIRES UNSOURCED: the writer would have to STATE the proposition, and nothing binds that exact statement to the facts that support it. ONCE AN AUTHORIZED FACT IS BANKED the binding exists, and acquisition-first stops being acquisition-forever (live, 2026-08-30: the wildlife case sat actionable 18 days with the next step written only as prose).
     expect(gateOf(dx({ kind: "missing_information", treatment: "add_answer_section", evidenceIds: ["ans-1"], missing: "the date rule" }), true)).toMatchObject({ emit: true, hire: true, treatment: "add_answer_section", work: expect.stringContaining("citing it claim by claim") });
-    expect(gateOf(null)).toMatchObject({ emit: true, hire: false, treatment: null, work: expect.stringContaining("no copy is ordered") }); }); });
+    expect(gateOf(null)).toMatchObject({ emit: true, hire: false, treatment: null, work: expect.stringContaining("no copy is ordered") });
+    const proof = dx({ kind: "scattered_answer", treatment: "rewrite_existing_section", ownedIds: ["own-2", "own-4"], packet: "exact-packet", contentHash: "revision-7", completeness: "complete" });
+    expect(causePayload("retrieved_not_cited", "chatgpt", "what is on the table", proof)).toMatchObject({ ownedIds: ["own-2", "own-4"], packet: "exact-packet", contentHash: "revision-7", completeness: "complete" });
+  }); });
 /** THE READER'S ANSWER IS CHECKED, ITS PACKET IS THE IDENTITY, AND EVERY UNCACHED ATTEMPT IS FUNDED. */
 describe("the gap reader is exact, fail-closed and metered", () => {
   const { diagnoseGap, aeoMeter } = AI_CASE_COPY;

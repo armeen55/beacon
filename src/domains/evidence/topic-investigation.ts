@@ -31,6 +31,7 @@ import {
   type Freshness, type PageTypeVote, type SerpPageType, type SerpRef, type SerpRow, type WinnerRef,
 } from "./serp-shape";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot } from "./snapshot";
+import { COMPETITIVE_PATTERN } from "./competitive-pattern";
 
 // ── the contract ─────────────────────────────────────────────────────────────
 
@@ -123,7 +124,7 @@ export type TopicInvestigation = {
 // ── documented thresholds ────────────────────────────────────────────────────
 
 /** Three distinct publishers, wherever agreement is claimed (see missingEvidence below). */
-const MIN_WINNERS = 3;
+const MIN_WINNERS = COMPETITIVE_PATTERN.minimum;
 /** Two exact looks are the same subject when they return the same pages: this
  *  many shared results, and that share of the smaller result set. */
 const OVERLAP_MIN_URLS = 2;
@@ -395,19 +396,19 @@ function assemble(idx: number[], g: Grouped, snapshot: EvidenceSnapshot, key: st
 
   // ── what is missing, said plainly and only when it is actually missing ──
   const missingEvidence: string[] = [];
-  if (exactSerps.length === 0) missingEvidence.push("I have not looked at Google's results for this yet.");
-  else if (serpFreshness === "undated") missingEvidence.push("I have these results but not the date I read them, so I am not treating them as current.");
-  else if (serpFreshness === "stale") missingEvidence.push("My last look at these results is over a week old.");
-  if (!searchDemand) missingEvidence.push("I have no monthly search volume for this yet, so I cannot say what Google demand looks like.");
-  if (!aiDemand) missingEvidence.push("No AI engine I track has been asked this yet, so I cannot say it recurs in AI answers.");
-  if (serpCoherence === "mixed") missingEvidence.push("These results answer more than one meaning of the phrase, so I am not calling it one topic.");
-  if (serpCoherence === "unknown") missingEvidence.push("I have too few results here to tell whether they agree on one subject.");
+  if (exactSerps.length === 0) missingEvidence.push("Google's results for this have not been checked yet.");
+  else if (serpFreshness === "undated") missingEvidence.push("These results have no observation date, so they are not treated as current.");
+  else if (serpFreshness === "stale") missingEvidence.push("The latest stored results are over a week old.");
+  if (!searchDemand) missingEvidence.push("Monthly search volume is not available yet, so Google demand cannot be stated.");
+  if (!aiDemand) missingEvidence.push("No tracked AI engine has been asked this yet, so recurrence in AI answers cannot be stated.");
+  if (serpCoherence === "mixed") missingEvidence.push("These results answer more than one meaning of the phrase, so they are not treated as one topic.");
+  if (serpCoherence === "unknown") missingEvidence.push("Too few results are available to tell whether they agree on one subject.");
   // THE COMPARISON IS BOUGHT ON ADDRESSES; A PAGE IS WRITTEN FROM WORDS. Saying I needed readable
   // bodies "before I can compare" contradicted the address-based comparison that actually ships.
-  if (rankedPublishers < MIN_WINNERS) missingEvidence.push(`I can name ${rankedPublishers} of the ${MIN_WINNERS} sites that win here, so I cannot compare them against your own pages yet.`);
-  else if (currentReadableWinners < MIN_WINNERS) missingEvidence.push(`I have read ${currentReadableWinners} of the ${MIN_WINNERS} winning pages I would need before writing a page of your own.`);
+  if (rankedPublishers < MIN_WINNERS) missingEvidence.push(`${rankedPublishers} of the ${MIN_WINNERS} winning sites are identified, so comparison against your pages is not ready yet.`);
+  else if (currentReadableWinners < MIN_WINNERS) missingEvidence.push(`${currentReadableWinners} of the ${MIN_WINNERS} winning pages needed before writing a page of your own have been read.`);
   const lineageIntact = keywords.every((k) => !!k.discoveredVia || k.gscImpressions != null || (k.origins?.length ?? 0) > 0) && fanOuts.every((f) => !!f.parentPromptText);
-  if (!lineageIntact) missingEvidence.push("I cannot trace every keyword here back to how I found it.");
+  if (!lineageIntact) missingEvidence.push("Not every keyword can be traced back to how it was found.");
   if (pageType === "mixed") missingEvidence.push("The pages that win here do not agree on one shape.");
 
   // ── the ONE next purchase, and when buying more stops paying ──
@@ -421,14 +422,14 @@ function assemble(idx: number[], g: Grouped, snapshot: EvidenceSnapshot, key: st
   const dueIn = (iso: string): number => Math.ceil((Date.parse(`${iso.slice(0, 10)}T00:00:00.000Z`) - builtAt) / 86_400_000);
   const heldUntil = unread.map((w) => w.readOutcome?.retryAfter).filter((r): r is string => !!r && dueIn(r) > 0).sort()[0] ?? null;
   const readable = unread.find((w) => !w.readOutcome || dueIn(w.readOutcome.retryAfter) <= 0) ?? null;
-  if (heldUntil && !readable) missingEvidence.push(`${unread.length === 1 ? "A winning page here did not answer me" : `${unread.length} of the winning pages here did not answer me`}, so I try again ${dueIn(heldUntil) <= 1 ? "tomorrow" : dueIn(heldUntil) <= 6 ? "later this week" : dueIn(heldUntil) <= 13 ? "next week" : "in a couple of weeks"}. Nothing here is waiting on you.`);
+  if (heldUntil && !readable) missingEvidence.push(`${unread.length === 1 ? "A winning page could not be read" : `${unread.length} winning pages could not be read`}, so the next attempt is ${dueIn(heldUntil) <= 1 ? "tomorrow" : dueIn(heldUntil) <= 6 ? "later this week" : dueIn(heldUntil) <= 13 ? "next week" : "in a couple of weeks"}. Nothing here is waiting on you.`);
   const nextAcquisition: TopicInvestigation["nextAcquisition"] =
     readable && currentReadableWinners < MIN_WINNERS
-      ? { kind: "read_winner", subject: readable.url, why: `I have read ${currentReadableWinners} of the ${MIN_WINNERS} winning pages here, so reading this one is what moves this forward.` }
+      ? { kind: "read_winner", subject: readable.url, why: `${currentReadableWinners} of the ${MIN_WINNERS} winning pages have been read, so reading this one moves the comparison forward.` }
       : exactSerps.length === 0
-        ? { kind: "buy_serp", subject: labelOf(label), why: "I have never looked at Google's results for this, so buying that one results page is what changes the answer." }
+        ? { kind: "buy_serp", subject: labelOf(label), why: "Google's results have not been checked, so one results page is the next evidence that can change the answer." }
         : !searchDemand
-          ? { kind: "buy_volume", subject: keywords[0]?.query ?? labelOf(label), why: "I hold no monthly search volume here, so pricing this phrase is what tells me whether it is worth your time." }
+          ? { kind: "buy_volume", subject: keywords[0]?.query ?? labelOf(label), why: "Monthly search volume is missing, so pricing this phrase shows whether it is worth your time." }
           : null;
   // Nothing left to buy, but things still missing, means further research here has stopped paying.
   const diminishing = nextAcquisition === null && missingEvidence.length > 0;

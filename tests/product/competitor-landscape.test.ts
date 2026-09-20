@@ -29,8 +29,8 @@ describe("what a domain that keeps showing up actually is", () => {
     expect(row.why).not.toMatch(/SERP|experiment|control|baseline|treatment/i); });
   it("calls a rival a rival only once its own pages say so, a source a source for being cited, and lets neither outrank a fact", () => {
     expect(classifyDomain("rival.example", sig({ competingQueries: 3 }))).toMatchObject({ kind: "irrelevant_unknown", ambiguous: true }); // RECURRENCE NOMINATES, IT DOES NOT DECIDE. Ranking for three of your searches used to be the whole proof, so any stranger who recurred was handed over as somebody to go and beat. Now the inspection of its pages is what makes it a competitor, and without one the row says so out loud.
-    expect(classifyDomain("rival.example", sig({ competingQueries: 3 })).why).toContain("I am reading its pages to see whether it actually sells what you sell");
-    expect(classifyDomain("rival.example", sig({ competingQueries: 3, overlap: "same_business" })).why).toContain("it offers what you offer to the same customers, and it wins 3");
+    expect(classifyDomain("rival.example", sig({ competingQueries: 3 })).why).toContain("Its pages still need to be inspected before it can be called a competitor");
+    expect(classifyDomain("rival.example", sig({ competingQueries: 3, overlap: "same_business" })).why).toContain("Its inspected pages offer what you offer to the same customers, and it wins 3");
     expect(classifyDomain("rival.example", sig({ competingQueries: 3, overlap: "not_a_business" })).kind).toBe("publisher");
     expect(classifyDomain("standards.example", sig({ aiCitations: 7 })).why).toContain("Engines quote it 7 times as a source and it never ranks against you");
     expect(classifyDomain("data.cambridge.gov.uk", sig({ competingQueries: 8 })).kind).toBe("government_educational"); expect(classifyDomain("old.reddit.com", sig({ competingQueries: 8 })).kind).toBe("social_community"); }); // No amount of ranking turns a city hall or a forum into a business you can take customers from.
@@ -64,7 +64,7 @@ describe("the competitor landscape", () => {
   it("settles a nominated domain once against its own pages, caches that verdict, and never buys a second reading of unchanged evidence", async () => {
     let asked = 0; const ask = async () => (asked += 1, { verdict: "same_business" as const, reason: "It sells rain barrels to homeowners, exactly as you do.", model: "gpt-5-mini" });
     const settled = await competitorLandscape(snap(INSPECTED(), ANALYSIS), [], ask); expect(settled[0]).toMatchObject({ domain: "rival.example", kind: "commercial_competitor" });
-    expect(settled[0]!.why).toContain("it offers what you offer to the same customers"); const again = await competitorLandscape(snap(INSPECTED(), ANALYSIS), [], ask);
+    expect(settled[0]!.why).toContain("Its inspected pages offer what you offer to the same customers"); const again = await competitorLandscape(snap(INSPECTED(), ANALYSIS), [], ask);
     expect([asked, again[0]!.kind]).toEqual([1, "commercial_competitor"]); // the same evidence asks nobody a second time
     const row = (STORE.rows.get("competitor-overlap:t") ?? [])[0] as Record<string, unknown>;
     expect(row).toMatchObject({ domain: "rival.example", verdict: "same_business", decidedBy: "gpt-5-mini", evidenceIds: ["https://rival.example/a"], reason: "It sells rain barrels to homeowners, exactly as you do." });
@@ -85,7 +85,7 @@ describe("the competitor landscape", () => {
     await competitorLandscape(snap(INSPECTED(), ANALYSIS), rules.filter((r) => r.domain !== "rival.example"), async () => (asked += 1, null)); expect(asked).toBe(1);
     const rows = await competitorLandscape(snap(LANDSCAPE(), ANALYSIS), rules); expect(rows.find((r) => r.domain === "rival.example")).toBeUndefined();
     expect(rows.find((r) => r.domain === "weak.example")).toMatchObject({ kind: "commercial_competitor", why: expect.stringContaining("You pinned this") });
-    expect(rows.find((r) => r.domain === "source.example")).toMatchObject({ kind: "publisher", why: "You set this, so I hold it as a publisher." });
+    expect(rows.find((r) => r.domain === "source.example")).toMatchObject({ kind: "publisher", why: "You classified this as a publisher." });
     expect(rows.find((r) => r.domain === "hunch.example")?.evidence.serpAppearances).toBe(0); }); // a pin that silently vanishes is a lie
 });
 describe("the corrections box", () => {
@@ -94,8 +94,8 @@ describe("the corrections box", () => {
     expect(overrides).toEqual([{ domain: "fixer.example", action: "pin" }, { domain: "spam.example", action: "exclude" }, { domain: "big.example", action: "correct", kind: "publisher" }]); });
   it("says exactly what it could not read, and keeps the lines it could", () => {
     const { overrides, errors } = parseCompetitorOverrides("beat everyone\npin over there\nbig.example is a wombat\nexclude keep.example"); expect(overrides).toEqual([{ domain: "keep.example", action: "exclude" }]);
-    expect(errors[0]).toBe('I could not read "beat everyone". Write one instruction per line: "pin example.com", "exclude example.com", or "example.com is a publisher".');
-    expect(errors[1]).toContain('"over there" is not a domain I can use'); expect(errors[2]).toContain('I do not have a group called "wombat"'); });});
+    expect(errors[0]).toBe('"beat everyone" could not be read. Write one instruction per line: "pin example.com", "exclude example.com", or "example.com is a publisher".');
+    expect(errors[1]).toContain('"over there" is not a usable domain'); expect(errors[2]).toContain('There is no group called "wombat"'); });});
 describe("a correction survives a save and a reload", () => {
   let row: Record<string, unknown> | null = null;
   beforeEach(() => { row = null; __resetBusinessProfileCacheForTests();
@@ -122,12 +122,12 @@ function COMPLETE(): EvidenceSnapshot {
 describe("the one thing worth buying next", () => {
   it("names the exact results page when that is the only thing missing", () => {
     const inv = buildTopicInvestigations(snap(ASKED()))[0]!; expect(inv.exactSerps).toEqual([]);
-    expect(inv.nextAcquisition).toEqual({ kind: "buy_serp", subject: QUERY, why: "I have never looked at Google's results for this, so buying that one results page is what changes the answer." }); expect(inv.diminishing).toBe(false); });
+    expect(inv.nextAcquisition).toEqual({ kind: "buy_serp", subject: QUERY, why: "Google's results have not been checked, so one results page is the next evidence that can change the answer." }); expect(inv.diminishing).toBe(false); });
   it("offers nothing while a winning page is held, says the wait in plain words, and treats a promised day that has arrived as due", () => {
     const heldTo = (retryAfter: string) => ({ ...ASKED(), serpEvidence: [{ query: QUERY, observedAt: FRESH, aiOverview: [], aiMode: [], paa: [], related: [], organic: [{ rank: 1, domain: "rival.example", url: "https://rival.example/a", title: "Best rain barrel" }] }],
       winningPages: [page("rival.example", [won("rival.example", QUERY, 1)], { readOutcome: { state: "temporarily_unavailable", attemptedAt: FRESH, retryAfter } })] });
     const inv = buildTopicInvestigations(snap(heldTo("2026-08-09T00:00:00.000Z"), { keywordDemand: DEMAND }))[0]!; expect([inv.nextAcquisition, inv.diminishing]).toEqual([null, true]);
-    expect(inv.missingEvidence).toContain("A winning page here did not answer me, so I try again in a couple of weeks. Nothing here is waiting on you.");
+    expect(inv.missingEvidence).toContain("A winning page could not be read, so the next attempt is in a couple of weeks. Nothing here is waiting on you.");
     const due = buildTopicInvestigations(snap(heldTo(BUILT), { keywordDemand: DEMAND }))[0]!; expect([due.missingEvidence.some((m) => /try again/.test(m)), due.nextAcquisition?.kind]).toEqual([false, "read_winner"]); }); // a day that has arrived is due now, never a wait
   it("stops asking for money when nothing at all is missing", () => {
     const inv = buildTopicInvestigations(COMPLETE())[0]!; expect(inv.missingEvidence).toEqual([]); expect(inv.nextAcquisition).toBeNull(); expect(inv.diminishing).toBe(false); });});

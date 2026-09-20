@@ -8,6 +8,7 @@ import { rankProposals } from "./rank-proposals";
 import { actionableProposalFailures, validateProposal } from "./validate-proposal";
 import { openHold } from "./completeness";
 import { footprintsOverlap, mutationFootprint } from "./mutation-footprint";
+import { DRAFT_BUDGET } from "./draft-budget";
 import type { ChangeProposal } from "./contracts";
 
 /** The DECISION generation this kernel proposes under. It rides on the basis stamp, so every proposal manufactured under an earlier generation's rules is unsupported history the moment those rules change: it can never render Ready, it is demoted in presentation only, and no row is rewritten or deleted. Bump ONLY when the rules that decide WHAT earns a proposal change. 1 = every owned page over 20 impressions got a title and a description. 2 = a proposal exists only where exact query rows proved a recoverable gap. 3 = a proven gap is an INVESTIGATION until the live results page for that exact search is held; confidence follows evidence completeness, not the draft. 4 = holding that results page is not reading it. A change exists only where the page was DIAGNOSED off what those results actually say, so every proposal picked by whether the search words appeared in the stored title is history. 5 = no new page is proposed at all. Turning a competitor's example prompt into a page shipped duplicates of pages the account already owned, so generation is deleted until the evidence can prove a distinct page should exist. 6 = a new page is proposed again, and ONLY where the page by page comparison proved the winning pages share searches no page of this account reaches. Every page brief drafted under any earlier rule is history. 7 = what earns a change is picked against the account's own trusted curve, a proven fall reaches its own rung instead of falling through to more copy, a measured page earns nothing, and a split is settled off the words BOTH pages carry. 8 = a merge may move nothing. Winning ONE search never makes a page the home for a whole other page, so a redirect is earned only where the survivor already carries every section the loser carries; anything else is told apart instead. */
@@ -130,13 +131,18 @@ export type RankedProposalQueue = {
 export async function loadProposalQueue(
   tenantId: string,
   /** `now` is a SEAM, not a setting: the age of a change's own readings is judged against it, so a caller with a fixed clock reads the same queue every time it asks. Production passes nothing and gets the real moment, exactly as before. */
-  deps: { currentBasis?: string | null; now?: Date } = {},
+  deps: { currentBasis?: string | null; now?: Date; deliveryScope?: Parameters<typeof DRAFT_BUDGET.scopeAllows>[0] } = {},
 ): Promise<RankedProposalQueue> {
   const now = deps.now ?? new Date();
   const currentBasis =
     deps.currentBasis !== undefined ? deps.currentBasis : await resolveCurrentBasis(tenantId);
   const byId = await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>());
-  const live = [...byId.values()].filter((p) => p.status !== "implemented_pending_verification");
+  // THE PROVING SCOPE IS AN ADMISSION BOUNDARY, NOT A DISPLAY FILTER. Apply it before overlap, ranking,
+  // lane partitioning or counts so private whole-page history cannot suppress, outrank or paginate a bounded edit.
+  // `all_changes` remains an explicit future phase; no row is deleted or rewritten by either answer.
+  const deliveryScope = deps.deliveryScope ?? "all_changes";
+  const scoped = [...byId.values()].filter((p) => DRAFT_BUDGET.scopeAllows(deliveryScope, DRAFT_BUDGET.deliveryOf(p)));
+  const live = scoped.filter((p) => p.status !== "implemented_pending_verification");
   // Your queue is CURRENT WORK ONLY. A proposal enters it only when I can show it was drafted under the basis this account holds right now. An older basis, no basis at all, and a current basis I could not read all SET THE ROW ASIDE. Unreadable fails closed: being unable to read the basis is not proof anything is current, it is proof I cannot tell, so I show you nothing rather than guess. A set-aside row keeps its words, its status and its history: no stored row is rewritten or deleted, it just stops presenting as work waiting on you, and it is counted below so I can say so. A NEW PAGE PASSES THE SAME BAR TWICE. Under generation 6 a page brief may be work again, but only one built to today's evidence contract: the earned verdict it came from, an outline, and every piece tracing to a receipt item. A brief carrying none of that is an older idea however current its basis looks, and reviving the ones that turned a rival's example question into an article is the worst thing this queue could do, so it is refused here and still COUNTED below. AND EVERY DEEP CHANGE PASSES ITS OWN RECEIPT AT READ TIME. A stored bundle whose claims stopped resolving kept rendering exactly as written until something re-selected its page, so the screen is the safety net: a row that cannot show its work is withheld here whatever the producer pass has had a chance to do.
   const standing = live.filter((p) => actionableProposalFailures(p, { tenantId, currentBasis, now }).length === 0
     && (p.kind !== "new_page" || validateProposal(p).verdict !== "rejected"));
@@ -177,7 +183,7 @@ export async function loadProposalQueue(
   const basisUnreadable = currentBasis == null;
   // A page whose change the operator already applied IS a page under measurement, for as long as the measurement runs. Ranking a second change onto it would make the first one unreadable, so the ranker
   // discounts it hard and says so on the card. The applied rows are already in hand here, so this costs no read and reaches past no kernel boundary.
-  const ranked = rankProposals(current, { measuringPagePaths: pagesUnderMeasurement(byId.values()),
+  const ranked = rankProposals(current, { measuringPagePaths: pagesUnderMeasurement(scoped),
     familyHistory: await familyHistoryFor(tenantId) });
   // READY has to mean ready: the validator passed it (status "ready"), it owes nobody a source, AND its lever treats the cause its own evidence named. That last one is the screen's half of the same boundary the producer now applies: a row stamped ready by an older pass, or by a producer that never asked, cannot serve as paste-ready work just because it is already on file. Every other current-basis row is a to-do. THE THREE LANES, off the ONE hold: nothing written yet is research, exact copy with anything at all still standing is a draft to review, and a row stamped ready whose holds are all answered is ready. `blocking` is asked here as well as at the mutation, so a row promoted by an older pass, or one whose banked placement can no longer be checked, is demoted in presentation instead of being served as paste-ready work.
   const ready: ChangeProposal[] = [], toDo: ChangeProposal[] = [], research: ChangeProposal[] = [];
@@ -192,7 +198,7 @@ export async function loadProposalQueue(
     ready,
     toDo,
     research,
-    implementedPendingVerification: [...byId.values()].filter((p) => p.status === "implemented_pending_verification").length,
+    implementedPendingVerification: scoped.filter((p) => p.status === "implemented_pending_verification").length,
     demotedStaleBasis,
     basisUnreadable,
   };

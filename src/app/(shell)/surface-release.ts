@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import "server-only";
 
-import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { readStore } from "@/lib/persistence/json-store";
 import { currentTenantId, runWithTenant } from "@/lib/tenant-context";
 import { runSingleFlight } from "@/lib/single-flight";
 import { log } from "@/lib/logger";
@@ -48,6 +48,8 @@ export type CustomerSurface = {
    *  stops moving under the operator while they are reading it. Absent on releases published before this. */
   material?: string;
   tenantId: string;
+  /** Complete ranked membership committed from this JSON by the release RPC. Optional only for historical releases. */
+  manifest?: ReadonlyArray<{ id: string; lane: "ready" | "todo" | "research" }>;
   changes: ChangesView;
   today: TodayComposite;
   /** THE COMPACT SAVED VISIBILITY PROJECTION (Product Truth, operator 2026-08-21). The default Google tab
@@ -68,7 +70,16 @@ export async function readCustomerSurface(tenantId: string): Promise<CustomerSur
 }
 
 async function writeCustomerSurface(surface: CustomerSurface): Promise<void> {
-  await writeStore<CustomerSurface>(STORE, [surface], { tenantId: surface.tenantId });
+  if (process.env.DATA_SOURCE === "file" && process.env.VERCEL !== "1") return;
+  const { getSupabaseAdmin } = await import("@/lib/persistence/supabase");
+  const { data, error } = await getSupabaseAdmin().rpc("set_customer_surface_freshness", {
+    p_tenant_id: surface.tenantId,
+    p_expected_release: surface.releaseId,
+    p_computed_at: new Date(surface.computedAt).toISOString(),
+  });
+  if (error) throw new Error(`the customer release freshness could not be saved: ${error.message}`);
+  if (data !== true) throw new Error("the customer release changed before its freshness could be saved");
+  await readStore<CustomerSurface>(STORE, [], { tenantId: surface.tenantId, forceRefresh: true });
 }
 
 /** Soft invalidation: keep the complete prior release visible while the next
@@ -78,11 +89,7 @@ async function invalidateCustomerSurface(tenantId?: string): Promise<void> {
   if (!id) return;
   const existing = await readCustomerSurface(id).catch(() => null);
   if (!existing) return;
-  await writeStore<CustomerSurface>(
-    STORE,
-    [{ ...existing, computedAt: new Date(0).toISOString() }],
-    { tenantId: id },
-  ).catch(() => {});
+  await writeCustomerSurface({ ...existing, computedAt: new Date(0).toISOString() }).catch(() => {});
 }
 
 /**
@@ -172,7 +179,7 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
     // EVERY PAID DOOR CLOSED ON THE STACK, not just the two budgets: the model gateway and the provider call
     // each ask the ambient scope before a client is built, so a path this option never reached still refuses.
     const produced = await runWithoutSpendingIf(paused, () => produceProposalsForTenant(tenantId,
-      paused ? { maxDrafts: 0, zeroSpend: true } : opts.maxDrafts === 0 ? { maxDrafts: 0, zeroSpend: true } : opts.maxDrafts === undefined ? {} : { maxDrafts: opts.maxDrafts })); // maxDrafts 0 means REPUBLISH STORED TRUTH: without zeroSpend the "free" rebuild could still buy sixty page readings
+      paused ? { maxDrafts: 0, zeroSpend: true, deliveryScope: "existing_page_edits" } : opts.maxDrafts === 0 ? { maxDrafts: 0, zeroSpend: true, deliveryScope: "existing_page_edits" } : opts.maxDrafts === undefined ? { deliveryScope: "existing_page_edits" } : { maxDrafts: opts.maxDrafts, deliveryScope: "existing_page_edits" })); // maxDrafts 0 means REPUBLISH STORED TRUTH: without zeroSpend the "free" rebuild could still buy sixty page readings. The production surface is also the operator's manual-edit proving phase: whole-page opportunities remain visible, but this entrance cannot fund them.
     if (produced?.outcome === "persistence_failed") {
       throw new Error("This pass produced changes but could not save a single one, so your last release was kept instead of stamping a new time on work that cannot be loaded back.");
     }
@@ -238,6 +245,7 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
       computedAt,
       material: materialOf(stampRows, changes, today),
       tenantId,
+      manifest: stampRows,
       changes,
       today: { ...today, surfaceVersion: releaseId, surfaceComputedAt: computedAt },
       ...visibility,
@@ -259,7 +267,7 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
       // about a queue being re-derived on every page load. The ranking stamp, the release id and every
       // proposal row are left exactly as they are; only the instant this was last confirmed moves.
       const confirmed: CustomerSurface = { ...previous, computedAt, today: { ...previous.today, surfaceComputedAt: computedAt } };
-      await writeCustomerSurface(confirmed).catch(() => undefined);
+      await writeCustomerSurface(confirmed);
       log.info("[surface-release] nothing this release would say has changed, so the ranking and the blob are left as they are", { tenantId, release: previous.releaseId });
       return confirmed;
     }
@@ -267,9 +275,10 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
     const { slugForTenantId } = await import("@/lib/tenant-context");
     const slug = await slugForTenantId(tenantId);
     await publishCustomerRelease({ tenantId, expectedPrior: previous?.releaseId ?? null, release: releaseId,
-      rows: stampRows, scopeKey: `customer-surface::tenant:${slug}`, storeName: "customer-surface", content: surface });
-    // The local file mirror is a cache behind the committed row, refreshed best-effort and never load-bearing.
-    await writeCustomerSurface(surface).catch(() => undefined);
+      scopeKey: `customer-surface::tenant:${slug}`, storeName: "customer-surface", content: surface });
+    // Replace any warm pre-publication copy with the row the transaction just committed. Local file-mode reads
+    // remain supported by readStore, but no generic blob writer can mutate this release.
+    await readStore<CustomerSurface>(STORE, [], { tenantId, forceRefresh: true }).catch(() => undefined);
     return surface;
     } finally {
       // Released with this build's own token: a rebuild that outlived its TTL comes back to somebody else's

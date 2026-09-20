@@ -1,4 +1,3 @@
-/** A change I set aside stays set aside (truth convergence). The ranked queue is the ONLY source a direct link may render exact copy from, a stored release that predates my current evidence bar may not present its rows as work, and an empty queue reads as a decision on Changes and on Today alike. Every test name states the promise it pins. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server"; import type { ReactElement } from "react";
 import type { ChangeProposal } from "@/domains/decision";
@@ -19,6 +18,7 @@ vi.mock("@/app/(shell)/changes-data", async () => ({ ...(await vi.importActual<t
   loadChangesView: vi.fn() }));
 vi.mock("@/lib/auth/can-publish", () => ({ canPublishForCurrentTenant: async () => true }));
 const shipped = vi.hoisted(() => ({ records: [] as unknown[], held: [] as any[] }));
+const surfaceCalls = vi.hoisted(() => ({ n: 0 }));
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
   loadShippedChanges: async () => shipped.held, captureChangeMeta: async () => null, loadProofLedgerPersisted: async () => shipped.held,
   recordShipment: async (r: unknown) => { const f = r as { proposalId: string; proposalVersion: string };
@@ -71,11 +71,10 @@ describe("a direct link renders only what the ranked list would, and always land
     ]) {
       const html = await link({ ...bundled(NOW), bundle } as ChangeProposal); expect([html.includes(EXACT), html.includes("Mark done")], JSON.stringify(bundle.components[0])).toEqual([false, false]);}
     const dated = await link({ ...bundled(NOW), bundle: { ...b, receipt: { items: [{ ...b.receipt.items[0]!, observedAt: cold }], missing: [], freshestObservedAt: cold } } } as ChangeProposal); expect([dated.includes(EXACT), dated.includes("Mark done")], "REPLACES the cold-evidence refusal: the exact work is handed over and the date its readings carry is a caveat on the card").toEqual([true, true]); });
-  /** P1-2. The picker pre-ticked EVERY piece with no memory of what is already recorded, so the obvious next press offered to record a component I am already measuring. It now opens on what is genuinely still theirs to do. */
   it("opens the picker on the pieces nobody has recorded yet", async () => {
     const b = bundled(NOW).bundle!;
     shipped.held = [{ proposalId: ID, page: "/famous-iranian-comedians", componentsApplied: [{ id: "0:title", ...b.components[0] }] }];
-    const html = await link({ ...bundled(NOW), bundle: { ...b, components: [b.components[0]!, { ...b.components[0]!, kind: "meta", label: "Description", after: "Twelve comedians span stand-up, television and film, with their best-known performances." }] } } as ChangeProposal); const boxes = [...html.matchAll(/<input type="checkbox"[^>]*>/g)].map((m) => m[0]); shipped.held = []; expect([boxes.length, boxes[0]!.includes("checked"), boxes[1]!.includes("checked")]).toEqual([2, false, true]); });
+    const html = await link({ ...bundled(NOW), bundle: { ...b, components: [b.components[0]!, { ...b.components[0]!, kind: "meta", label: "Description", after: "Twelve comedians span stand-up, television and film, with their best-known performances." }] } } as ChangeProposal); const boxes = [...html.matchAll(/<input type="checkbox"[^>]*>/g)].map((m) => m[0]); shipped.held = []; expect([boxes.length, boxes[0]!.includes("disabled"), boxes.some((x) => x.includes("checked")), html.includes("already recorded")]).toEqual([2, true, false, true]); });
   /** FRESHNESS IS PER COMPONENT, because a receipt is mixed by design. One AI answer taken this morning used to keep a whole change alive beside a page reading and a results check nobody had taken in months. And an atomic change carried no receipt at all, so it could never go stale: it ages on the day it was drafted. The gated rebuild used to be handed NOTHING, so a basis shift silently erased the retry date, the pages under investigation, the ideas held back and the kernel's own verdicts. THE APPROVAL BOUNDARY IS THE SERVER'S, NOT THE SCREEN'S. Editorial judgement is the operator's to answer; an unsupported claim, a blank, a wrong page or a placement nobody can check is a fact about the work, and no yes waves one through. THE COMPACT SENTENCE IS TYPED BY THE KIND OF WORK, never the internal brief said back: an ownership row says Beacon is reading the competing pages, and an unfamiliar family falls back to one plain sentence. EVERY GENUINE OPPORTUNITY IS REACHABLE, COMPACTLY: the preparing lane is collapsed by default, one plain sentence per row, its own detail link, and NEVER the internal research essay (operator, 2026-08-21). ONE STORY ACROSS BOTH SURFACES (operator, 2026-08-15): a gate decides the LANE, never whether genuine work is seen; the same counts appear on Today and Changes, and no row is in two lanes. Connecting Google is worth doing and it is not the price of entry: an account with approved questions and research of its own must not be told to connect before it may see anything at all. AND THE PROMOTION ITSELF NEVER RUNS AS A READ AND A SAVE: the action hands the store the exact version that was confirmed, and the store writes only while the row still IS that version (pinned in proposal-canon). */
   it("expires no change for the age of its readings, and refuses the one whose piece cites evidence the receipt never carried", () => {
     const cold = new Date(Date.now() - 40 * 86_400_000).toISOString(), ctx = { tenantId: "t", currentBasis: NOW }, b = bundled(NOW).bundle!, item = b.receipt.items[0]!;
@@ -104,7 +103,9 @@ describe("a direct link renders only what the ranked list would, and always land
     await link(merge); const html = await renderDetail(), stale = await confirm({ proposalId: merge.id, version: "a version nobody is looking at" });
     await link(safe); const wrong = await confirm({ proposalId: safe.id, version: confirmedVersion(safe) });
     await link(merge); const ok = await confirm({ proposalId: merge.id, version: confirmedVersion(merge) }), sent = vi.mocked(promote).mock.calls.at(-1);
-    expect([html.includes("Confirm this version"), html.includes("Mark done"), stale.success, stale.error?.includes("rewritten since"), wrong.success, wrong.error?.includes("does not move or hide a page"), ok.success, vi.mocked(promote).mock.calls.length, sent?.[1], sent?.[2] === confirmedVersion(merge)]).toEqual([true, false, false, true, false, true, true, 1, merge.id, true]); }); });
+    expect([html.includes("Confirm this version"), html.includes("Mark done"), stale.success, stale.error?.includes("rewritten since"), wrong.success, wrong.error?.includes("does not move or hide a page"), ok.success, vi.mocked(promote).mock.calls.length, sent?.[1], sent?.[2] === confirmedVersion(merge)]).toEqual([true, false, false, true, false, true, true, 1, merge.id, true]); });
+  it("refuses a hand-made Mark done request for whole-page work during the manual-edit proof", async () => { shipped.records = []; const b = bundled(NOW).bundle!, whole = { ...bundled(NOW), changeFamily: "full_rewrite", bundle: { ...b, components: [{ ...b.components[0]!, kind: "full_rewrite", target: { mode: "whole_body", anchorKind: null, anchor: null } }] } } as ChangeProposal;
+    await link(whole); const result = await (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: whole.id }); expect([result.success, result.error?.includes("outside the current manual-edit proof"), shipped.records.length]).toEqual([false, true, 0]); }); });
 describe("an account that skipped the connectors still reaches its own Today", () => {
   it("calls an account a demo only when it truly holds nothing, never merely because it connected nothing", async () => {
     const gate = async (repo: () => unknown) => {
@@ -188,7 +189,6 @@ describe("bulk Mark Done is one batch, durable before acknowledged", () => {
     changeFamily: "meta", status: "ready", basis: NOW, modeledOn: 'the results page for "q": 3 ranked titles read, 2 of them leading with "q", and this line leads with it too',
     recommendedChange: { kind: "existing_edit", field: "meta", before: "Old.", after: "A finished, specific description of the page, written from its own stored words." },
     whyItMatters: "w", estimatedEffortMinutes: 3, riskLevel: "low", confidence: "high", limitations: [], evidence: { query: "q", hints: [], evidenceRefCount: 1 }, impactScore: 5, upsidePerMonth: null, publish: "manual", createdAt: SEEN, ...over } as unknown as ChangeProposal);
-  const surfaceCalls = vi.hoisted(() => ({ n: 0 }));
   const wire = async (rows: Map<string, ChangeProposal>, ledger: unknown[]) => {
     vi.resetModules(); surfaceCalls.n = 0; shipped.records = []; shipped.held = ledger as never;
     const transition = vi.fn(async () => true);

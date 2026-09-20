@@ -132,7 +132,7 @@ describe("the answer is kept whole", () => {
   it("names an engine it cannot ask as unsupported, and spends nothing finding out", async () => {
     const w = world(); const out = await run(w.deps, [...duePlan(), { promptId: "q1", version: 1, text: QUESTIONS[0]!.text, engine: "grok" as DueObservation["engine"], slot: 0, day: DAY }]);
     const unsupported = observations().filter((r) => r.status === "unsupported"); expect([unsupported.length, unsupported[0]!.engine, unsupported[0]!.cost_usd, unsupported[0]!.cache_key]).toEqual([1, "grok", 0, null]);
-    expect(unsupported[0]!.failure_reason).toBe("I cannot ask grok for you yet, so I spent nothing on it.");
+    expect(unsupported[0]!.failure_reason).toBe("grok cannot be checked yet, so nothing was spent on it.");
     expect([w.paid(), out.status]).toEqual([12, "done"]); // the gap is named and the twelve engines I can reach still finish
   });});
 describe("tenant isolation and the derived history row", () => {

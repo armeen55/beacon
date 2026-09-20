@@ -18,7 +18,6 @@ import { canonicalizeCitationUrl } from "@/domains/evidence/ai-visibility/canoni
 import { readLastFinalizedDate } from "@/domains/measurement/proof-gsc/gsc-window";
 import { log } from "@/lib/logger";
 import { readThroughDaily } from "@/domains/evidence/readers/daily-read-cache";
-import { densifyDailyClicks } from "@/domains/evidence/gsc/densify-daily-series";
 
 type GscQuerySignal = {
   query: string;

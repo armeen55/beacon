@@ -106,8 +106,8 @@ export async function competitorLandscape(
       isOwned,
     });
     // THE OPERATOR'S WORD IS NEVER AMBIGUOUS. A row they pinned or corrected is settled, so nothing downstream may spend a model call second-guessing them.
-    if (pinned.has(domain)) rows.push({ ...row, kind: "commercial_competitor", ambiguous: false, why: "You pinned this, so I treat it as a competitor whatever my own reading says." });
-    else if (corrected.has(domain)) rows.push({ ...row, kind: corrected.get(domain)!, ambiguous: false, why: `You set this, so I hold it as ${KIND_WORDS[corrected.get(domain)!]}.` });
+    if (pinned.has(domain)) rows.push({ ...row, kind: "commercial_competitor", ambiguous: false, why: "You pinned this as a competitor, so that classification overrides automated evidence." });
+    else if (corrected.has(domain)) rows.push({ ...row, kind: corrected.get(domain)!, ambiguous: false, why: `You classified this as ${KIND_WORDS[corrected.get(domain)!]}.` });
     else rows.push(row);
   }
   return rows.sort((a, b) => b.evidence.competingQueries - a.evidence.competingQueries || b.evidence.serpAppearances - a.evidence.serpAppearances ||
@@ -227,7 +227,7 @@ export function parseCompetitorOverrides(text: string): { overrides: CompetitorO
     const act = /^(pin|exclude)\s+(.+)$/i.exec(line);
     if (act) {
       const domain = asDomain(act[2]!);
-      if (!domain) errors.push(`"${act[2]!.trim()}" is not a domain I can use. Write it the way it appears in your results, like example.com.`);
+      if (!domain) errors.push(`"${act[2]!.trim()}" is not a usable domain. Write it the way it appears in your results, like example.com.`);
       else overrides.push({ domain, action: act[1]!.toLowerCase() as "pin" | "exclude" });
       continue;
     }
@@ -235,12 +235,12 @@ export function parseCompetitorOverrides(text: string): { overrides: CompetitorO
     if (set) {
       const domain = asDomain(set[1]!);
       const kind = KIND_BY_WORD[set[2]!.trim().toLowerCase().split(/\s+/)[0]!];
-      if (!domain) errors.push(`"${set[1]!.trim()}" is not a domain I can use. Write it the way it appears in your results, like example.com.`);
-      else if (!kind) errors.push(`I do not have a group called "${set[2]!.trim()}". Use one of these words: ${KIND_LIST}.`);
+      if (!domain) errors.push(`"${set[1]!.trim()}" is not a usable domain. Write it the way it appears in your results, like example.com.`);
+      else if (!kind) errors.push(`There is no group called "${set[2]!.trim()}". Use one of these words: ${KIND_LIST}.`);
       else overrides.push({ domain, action: "correct", kind });
       continue;
     }
-    errors.push(`I could not read "${line}". ${SHAPE}`);
+    errors.push(`"${line}" could not be read. ${SHAPE}`);
   }
   return { overrides, errors };
 }

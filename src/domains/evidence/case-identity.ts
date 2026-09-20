@@ -242,7 +242,7 @@ export function applySynthesis(
   const anchorsOf = new Map(live.map((c) => [c.id, c.anchors]));
   /** Ids that ARE on file but are no longer a case of their own: naming one is not a no-op worth hiding. */
   const absorbed = new Set(cases.filter((c) => c.aliasOf && c.aliasOf !== c.id).map((c) => c.id));
-  const gone = (id: string): string => `${id} ${absorbed.has(id) ? "names a case that was already absorbed into another one" : "is not a case I hold"}`;
+  const gone = (id: string): string => `${id} ${absorbed.has(id) ? "names a case that was already absorbed into another one" : "is not a case on file"}`;
   const shares = (a: string, b: string): boolean =>
     (anchorsOf.get(a) ?? []).some((x) => (anchorsOf.get(b) ?? []).includes(x))
     || (domains.get(a) ?? []).some((d) => (domains.get(b) ?? []).includes(d));
@@ -256,10 +256,10 @@ export function applySynthesis(
       // A MERGE NAMING AN ID THAT IS ALREADY AN ALIAS USED TO APPLY AS SILENCE: nothing happened and nothing
       // said so, so the log claimed a reading had been applied in full when half of it named absorbed cases.
       const missing = [m.keepId, id].filter((x) => !anchorsOf.has(x));
-      if (missing.length > 0) { refused.push(`I did not join ${m.keepId} and ${id}: ${missing.map(gone).join(", and ")}.`); continue; }
+      if (missing.length > 0) { refused.push(`${m.keepId} and ${id} were not joined: ${missing.map(gone).join(", and ")}.`); continue; }
       if (root(id) === root(m.keepId)) continue; // already one case in this same pass: a real no-op
       if (!shares(m.keepId, id)) {
-        refused.push(`I did not join ${m.keepId} and ${id}: they share no search and no site, so I hold nothing that says they are one subject.`);
+        refused.push(`${m.keepId} and ${id} were not joined: they share no search and no site, so nothing on file shows they are one subject.`);
         continue;
       }
       group.set(root(id), root(m.keepId));
@@ -274,13 +274,13 @@ export function applySynthesis(
     const keys = new Set(s.moveQueries.map((q) => canonicalQueryKey(q)).filter(Boolean));
     const out = anchors.filter((a) => keys.has(a));
     const why =
-      anchors.length === 0 ? `${s.fromId} is not a case I hold`
-        : joined.has(s.fromId) ? `I joined ${s.fromId} to another case in this same pass`
-          : moved.has(s.fromId) ? `I already split ${s.fromId} once in this pass`
+      anchors.length === 0 ? `${s.fromId} is not a case on file`
+        : joined.has(s.fromId) ? `${s.fromId} was joined to another case in this same pass`
+          : moved.has(s.fromId) ? `${s.fromId} was already split once in this pass`
             : out.length === 0 ? "none of those searches belong to it"
               : out.length === anchors.length ? "that moves every search out of it, which renames a case rather than splitting one"
                 : null;
-    if (why) { refused.push(`I did not split ${s.fromId}: ${why}.`); continue; }
+    if (why) { refused.push(`${s.fromId} was not split: ${why}.`); continue; }
     moved.set(s.fromId, out);
   }
 
@@ -319,7 +319,7 @@ export function applySynthesis(
   const canon = (id: string): string => byId.get(id)?.aliasOf ?? (byId.has(id) ? id : "");
   for (const l of plan.pageLinks) {
     const at = byId.get(canon(l.caseId));
-    if (!at) { refused.push(`I did not file ${l.url} under ${l.caseId}: I no longer hold that case.`); continue; }
+    if (!at) { refused.push(`${l.url} was not filed under ${l.caseId}: that case is no longer on file.`); continue; }
     at.pages = [...(at.pages ?? []).filter((p) => p.url !== l.url), { url: l.url, relation: l.relation }]
       .sort((a, b) => a.url.localeCompare(b.url)).slice(0, MAX_PAGES);
   }
@@ -330,11 +330,11 @@ export function applySynthesis(
       for (let up: string | undefined = at; up && !seen.has(up); up = byId.get(up)?.parentId) { seen.add(up); if (up === child?.id) return true; }
       return false;
     };
-    const why = !child || !parent ? "I no longer hold both of those cases"
+    const why = !child || !parent ? "both cases are no longer on file"
       : parent === child.id ? "a case cannot sit under itself"
         : child.parentId && child.parentId !== parent ? `${child.id} already sits under ${child.parentId}`
           : loop(parent) ? "that would put the two of them under each other" : null;
-    if (why) { refused.push(`I did not file ${p.childId} under ${p.parentId}: ${why}.`); continue; }
+    if (why) { refused.push(`${p.childId} was not filed under ${p.parentId}: ${why}.`); continue; }
     child!.parentId = parent;
   }
   return { cases: rows, refused };

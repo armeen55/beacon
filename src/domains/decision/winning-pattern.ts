@@ -9,7 +9,8 @@ import { pageExtractFrom } from "@/domains/evidence/funnel/research-evidence";
 
 import { log } from "@/lib/logger";
 import { canonicalQueryKey, RELATIONAL, topicTokens } from "@/domains/evidence/relevance-gate";
-import { publisherHost, type SerpPageType } from "@/domains/evidence/serp-shape";
+import type { SerpPageType } from "@/domains/evidence/serp-shape";
+import { COMPETITIVE_PATTERN } from "@/domains/evidence/competitive-pattern";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { callStructuredLLM, type StructuredDraftRequest } from "./llm/structured-drafter"; import { DRAFT_BUDGET } from "./draft-budget";
@@ -17,37 +18,40 @@ import type { WinningPatternRead } from "./llm/schemas";
 
 /** Persisted winner fields remain optional: legacy omission is not an observation of absence. */
 type HeldExtract = {
-  title?: string | null; h1?: string | null; wordCount?: number | null; headings?: readonly string[] | null;
-  faqCount?: number | null; openingSample?: string | null; entityNames?: readonly string[] | null;
+  title?: string | null; metaDescription?: string | null; h1?: string | null; headings?: readonly string[] | null;
+  openingSample?: string | null; entityNames?: readonly string[] | null;
   cardTexts?: readonly string[] | null; hasList?: boolean | null; hasTable?: boolean | null;
-  schemaTypes?: readonly string[] | null;
+  schemaTypes?: readonly string[] | null; internalLinkCount?: number | null; externalLinkCount?: number | null;
   mainText?: string | null; truncated?: boolean | null;
   heldChars?: number | null; totalChars?: number | null;
   fetchedAt?: string | null; contentHash?: string | null;
 };
 
 /** One page as this file needs it: where it lives, and whatever was read of it. */
-type ReadPage = { url: string; domain?: string | null; extract?: HeldExtract | null; body?: OwnedPageBody };
+type ReadPage = { url: string; domain?: string | null; extract?: HeldExtract | null; body?: OwnedPageBody;
+  appearances?: readonly { kind: string; query: string | null; promptText: string | null; rank: number | null; observedAt: string }[] };
 
 /** ONE page's bounded facts, every one of them observed. Internal on purpose: a caller reads these off
  *  `extractPageFacts` and hands them straight to the reading below, and never has to name the shape. */
 type PageFacts = {
+  url: string;
   domain: string;
   sourceId: string;
+  title: string | null; metaDescription: string | null; h1: string | null;
   /** The distinguishing words of what the page calls itself, never the title's own sentence. */
   titleTokens: string[];
   headings: string[];
   /** The headings that are shaped like a question, which is what a searcher actually asked. */
   questionHeadings: string[];
-  entities: string[];
-  wordCount: number | null;
-  faqCount: number | null;
+  entities: string[] | null;
   hasList: boolean | null;
   hasTable: boolean | null;
   /** True when the read found structured data on the page, false when it looked and found none,
    *  null when that read never captured it at all. Three different facts, kept apart. */
   hasSchema: boolean | null;
   schemaTypes: string[] | null;
+  internalLinkCount: number | null; externalLinkCount: number | null;
+  appearances: Array<{ kind: string; query: string | null; rank: number | null; observedAt: string }>;
   opening: string | null;
   mainText: string | null;
   scope: "complete" | "partial" | "unknown";
@@ -64,12 +68,12 @@ export type WinningPattern = WinningPatternRead & {
   publishers: string[];
   /** The exact facts behind it, so a stored reading names the pages it was taken on. */
   fingerprint: string;
+  /** Lossless observed dimensions plus only the deltas this reader actually established. */
+  brief?: ReturnType<typeof competitiveBrief>;
 };
 
-/** Three publishers, the same bar every claim of agreement in this product answers to. */
-const MIN_PATTERN_PUBLISHERS = 3;
 /** Bounded so one busy results page can never grow the prompt without limit. */
-const MAX_WINNERS = 6;
+const MAX_WINNERS = 5;
 const MAX_ENTITIES = 10;
 const MAX_TOKENS = 12;
 const OPENING_CHARS = 240;
@@ -82,9 +86,15 @@ const QUOTE_RUN_WORDS = 8;
 const PATTERN_COST_USD = 0.02;
 
 const norm = (s: string): string => s.trim().replace(/\s+/g, " ").toLowerCase();
+const sourceUrl = (raw: string): string => { try { const url = new URL(raw); url.hash = ""; return url.toString(); } catch { return raw.trim(); } };
 const words = (s: string): string[] => norm(s).replace(/[^a-z0-9 ]+/g, " ").split(" ").filter(Boolean);
 const QUESTION = /^(what|which|who|whose|where|when|why|how|is|are|do|does|did|can|should|will)\b/i;
 const isQuestion = (h: string): boolean => QUESTION.test(h) || h.trim().endsWith("?");
+const questionIntent = (text: string): string => {
+  const held = norm(text);
+  if (/^what\b.*\b(?:is|are)\b|\bwhat (?:is|are)\b|\bmeaning\b|\bdefine\b/.test(held)) return "definition";
+  return held.match(/^(what|how|why|where|when|who|whose|which|can|should|is|are|do|does|did|will)\b/)?.[1] ?? "other";
+};
 
 /** Pure capture projection; semantic interpretation belongs to the funded reader below. */
 export function extractPageFacts(pages: readonly ReadPage[]): PageFacts[] {
@@ -94,6 +104,7 @@ export function extractPageFacts(pages: readonly ReadPage[]): PageFacts[] {
     const mainText = body?.passages.join(" ");
     const x: HeldExtract | null = body ? {
       title: body.title,
+      metaDescription: body.metaDescription,
       h1: body.h1,
       headings: body.headings,
       openingSample: body.openingSample,
@@ -107,22 +118,25 @@ export function extractPageFacts(pages: readonly ReadPage[]): PageFacts[] {
       contentHash: body.contentHash,
       fetchedAt: body.fetchedAt,
       schemaTypes: p.extract?.schemaTypes,
+      internalLinkCount: body.internalLinks?.length ?? null, externalLinkCount: null,
     } : p.extract ?? null;
     const headings = (x?.headings ?? []).map((h) => h.trim().replace(/\s+/g, " ")).filter(Boolean);
     return {
-      domain: (p.domain ?? "").trim() || publisherHost(p.url),
+      url: sourceUrl(p.url),
+      domain: COMPETITIVE_PATTERN.publisherIdentity((p.domain ?? "").trim() || p.url),
       sourceId: createHash("sha256").update(canonicalUrlKey(p.url)).digest("hex").slice(0, 16),
+      title: x?.title?.trim() || null, metaDescription: x?.metaDescription?.trim() || null, h1: x?.h1?.trim() || null,
       titleTokens: topicTokens([x?.title, x?.h1].filter(Boolean).join(" ")).slice(0, MAX_TOKENS),
       headings,
       questionHeadings: headings.filter(isQuestion),
-      entities: (x?.entityNames ?? []).map((e) => e.trim()).filter(Boolean).slice(0, MAX_ENTITIES),
-      wordCount: typeof x?.wordCount === "number" ? x.wordCount : null,
-      faqCount: typeof x?.faqCount === "number" ? x.faqCount : null,
+      entities: x?.entityNames == null ? null : x.entityNames.map((e) => e.trim()).filter(Boolean).slice(0, MAX_ENTITIES),
       // Captured structure proves presence; absence needs complete coherent HTML. Card samples are not structural observations.
       hasList: x?.hasList ?? null,
       hasTable: x?.hasTable ?? null,
       hasSchema: x?.schemaTypes == null ? null : x.schemaTypes.length > 0,
       schemaTypes: x?.schemaTypes == null ? null : [...x.schemaTypes],
+      internalLinkCount: x?.internalLinkCount ?? null, externalLinkCount: x?.externalLinkCount ?? null,
+      appearances: (p.appearances ?? []).slice(0, 10).map((a) => ({ kind: a.kind, query: a.query ?? a.promptText, rank: a.rank, observedAt: a.observedAt })),
       opening: (x?.openingSample ?? "").trim().slice(0, OPENING_CHARS) || null,
       mainText: typeof x?.mainText === "string" ? x.mainText : null,
       scope: typeof x?.mainText !== "string" || x.truncated == null ? "unknown" : x.truncated ? "partial" : "complete",
@@ -130,6 +144,47 @@ export function extractPageFacts(pages: readonly ReadPage[]): PageFacts[] {
       fetchedAt: x?.fetchedAt ?? null, contentHash: x?.contentHash ?? null,
     };
   });
+}
+
+const boundedPassage = (f: PageFacts, query: string): string | undefined => { const q = new Set(topicTokens(query)), candidates = [f.opening, ...(f.mainText ?? "").split(/\n+|(?<=[.!?])\s+/)].map((x) => (x ?? "").trim().replace(/\s+/g, " ")).filter(Boolean), best = candidates.map((text, order) => ({ text, order, hits: topicTokens(text).filter((word) => q.has(word)).length })).sort((a, b) => b.hits - a.hits || a.order - b.order)[0]?.text; return best ? best.slice(0, 400) : undefined; };
+const briefPage = (f: PageFacts, query: string) => ({ sourceId: f.sourceId, url: f.url, publisher: f.domain, ...(boundedPassage(f, query) ? { passage: boundedPassage(f, query) } : {}), title: f.title, meta: f.metaDescription, h1: f.h1, opening: f.opening,
+  sections: f.headings, entities: f.entities, list: f.hasList, table: f.hasTable, schema: f.schemaTypes, links: { internal: f.internalLinkCount, external: f.externalLinkCount },
+  citations: f.appearances, freshness: f.fetchedAt, scope: f.scope });
+function competitiveBrief(query: string, pages: readonly PageFacts[], owned: PageFacts | null, read: WinningPatternRead, settledShape: SerpPageType | null) {
+  const sources = pages.map((page) => briefPage(page, query)), refs = (seen: readonly number[]) => seen.map((i) => pages[i]?.sourceId).filter((x): x is string => !!x);
+  // STRUCTURE IS COUNTED, NEVER READ OUT OF MODEL PROSE. A list is an actionable delta only when the
+  // exact results page already settled on a list task, a strict majority of three to five COMPLETE,
+  // distinct publishers visibly use one, and the complete owned page visibly does not. Unknown is not no.
+  const matrix = COMPETITIVE_PATTERN.matrix(pages, (p) => p.domain, (p) => p.scope === "complete", MAX_WINNERS);
+  const listIndexes = matrix.readable.flatMap((p, i) => p.hasList === true ? [i] : []), listSupport = matrix.support(listIndexes);
+  const structural = settledShape === "list" && owned?.scope === "complete" && owned.hasList === false && listSupport.state === "common"
+    ? [{ dimension: "list", need: "Present the answer as a scannable list", action: "add_structured_list", sources: refs(listIndexes), confidence: "validated_observation" }]
+    : [];
+  // A RECURRING QUESTION NEEDS ITS OWN PUBLISHERS. The reader historically returned only prose here, so the
+  // receipt could say a question recurred without naming which pages showed it. Match the reader's abstraction
+  // back to held question headings and keep it only when a strict majority of the same distinct-publisher set
+  // supports it. A paraphrase may be conservatively omitted; an unsupported one may never become an assignment.
+  const questionDeltas = read.questionsAnswered.flatMap((question) => {
+    const asked = new Set(topicTokens(question));
+    const intent = questionIntent(question);
+    const seenOn = pages.flatMap((page, index) => page.questionHeadings.some((heading) => {
+      const held = new Set(topicTokens(heading)), overlap = [...asked].filter((word) => held.has(word)).length;
+      return questionIntent(heading) === intent && overlap >= Math.max(1, Math.min(2, asked.size, held.size));
+    }) ? [index] : []);
+    return matrix.support(seenOn).state === "common"
+      ? [{ dimension: "questions", need: question, action: "answer_recurring_question", sources: refs(seenOn), confidence: "validated_observation" }]
+      : [];
+  });
+  const openingSeenOn = pages.flatMap((page, index) => page.opening ? [index] : []);
+  const opening = read.openingPattern && matrix.support(openingSeenOn).state === "common"
+    ? [{ dimension: "opening", need: read.openingPattern, action: "rewrite_opening", sources: refs(openingSeenOn), confidence: "bounded_reader" }]
+    : [];
+  const deltas = [...read.commonHeadings.map((x) => ({ dimension: "sections", need: x.heading, action: "add_or_rework_section", sources: refs(x.seenOn), confidence: "validated_observation" })),
+    ...read.commonEntities.map((x) => ({ dimension: "entities", need: x.entity, action: "support_in_copy", sources: refs(x.seenOn), confidence: "validated_observation" })),
+    ...questionDeltas, ...opening,
+    ...read.ownedGaps.map((x) => ({ dimension: "owned_delta", need: x.gap, action: "resolve_reader_delta", sources: refs(x.seenOn), confidence: "bounded_reader" })), ...structural];
+  const compared = new Set(deltas.map((d) => d.dimension)); const dimensions = ["title", "meta", "h1", "opening", "sections", "entities", "list", "table", "schema", "links"];
+  return { query, sources, owned: owned ? briefPage(owned, query) : null, deltas, owed: dimensions.filter((d) => !compared.has(d)) };
 }
 
 /** A page I can learn anything from: I hold its sections, or at least what it calls itself. */
@@ -155,7 +210,7 @@ const SYSTEM = [
 /** The facts, written the same way every time so the same pages ask the same question. */
 function factLines(pages: readonly PageFacts[], owned: PageFacts | null): string[] {
   // Native readers already bound their captures. Do not silently re-sample their bodies here.
-  const one = ({ domain: _domain, fetchedAt: _fetchedAt, ...content }: PageFacts, name: string): string => `${name}\n${JSON.stringify(content)}`;
+  const one = ({ domain: _domain, fetchedAt: _fetchedAt, appearances: _appearances, ...content }: PageFacts, name: string): string => `${name}\n${JSON.stringify(content)}`;
   return [
     ...pages.map((f, i) => one(f, `PAGE ${i}`)),
     owned ? one(owned, "MY OWN PAGE") : "MY OWN PAGE\n    No qualified owned capture was supplied to this reading. Owned coverage is not established here.",
@@ -207,18 +262,14 @@ export async function readWinningPattern(
   /** THE PASS'S OWN HARD ATTEMPT BUDGET, decremented BEFORE the call below like every other charged call in the pass. This read used to be the one paid Decision call the pool never saw, so "one budget pays every attempt" was untrue by exactly this call every pass that reached a verdict. Absent = a reading standing on its own, which spends against the money caps alone. */
   & { pageType?: SerpPageType | null; attempts?: { left: number; record?: (r: unknown) => void }; /** Told when a reading came back twice and Beacon's own checks kept none of it either time: the caller files a settled refusal, not a transport failure. */ refused?: () => void; /** Why the previous reading was thrown away, carried into one retry that has its own cache entry: the cache served the same refused reading at $0 on every walk. */ lesson?: string } = {},
 ): Promise<WinningPattern | null> {
-  // ONLY PAGES I ACTUALLY READ, and only one vote per publisher: three pages from one site are one site's house style, and nothing downstream of this file may ever call that a pattern.
-  const pages: PageFacts[] = [];
-  const seen = new Set<string>();
   // Lexical relation matching is only a shortlist; held body evidence participates too.
   const relates = topicTokens(opts.label ?? "").filter((w) => RELATIONAL.test(w));
-  const sameIntent = (f: PageFacts): boolean => { if (relates.length === 0) return true; const said = new Set(topicTokens([...f.headings, ...f.questionHeadings, f.titleTokens.join(" "), f.opening ?? "", f.entities.join(" "), f.mainText ?? ""].join(" "))); return relates.every((w) => said.has(w)); };
-  for (const f of winners) {
-    if (!readable(f) || !sameIntent(f) || seen.has(f.domain) || pages.length >= MAX_WINNERS) continue;
-    seen.add(f.domain);
-    pages.push(f);
-  }
-  if (pages.length < MIN_PATTERN_PUBLISHERS) return null; // no agreement is buyable here: no call, no cent
+  const sameIntent = (f: PageFacts): boolean => { if (relates.length === 0) return true; const said = new Set(topicTokens([...f.headings, ...f.questionHeadings, f.titleTokens.join(" "), f.opening ?? "", (f.entities ?? []).join(" "), f.mainText ?? ""].join(" "))); return relates.every((w) => said.has(w)); };
+  // ONE matrix selects the same five distinct publishers and the same majority denominator used by
+  // deterministic comparison. Partial/unknown reads are unknown, never a silent vote against a pattern.
+  const matrix = COMPETITIVE_PATTERN.matrix(winners.filter(sameIntent), (f) => f.domain, (f) => readable(f) && f.scope === "complete", MAX_WINNERS);
+  const pages = matrix.readable;
+  if (matrix.threshold == null) return null; // fewer than three complete publisher reads: no agreement is buyable, no call, no cent
 
   // A SETTLED SHAPE IS PART OF THE ASK, so it rides the fingerprint too: the same pages under a shape that has since changed are a different question and must not be answered out of the old reading's cache.
   const settled = opts.pageType && opts.pageType !== "mixed" && opts.pageType !== "unknown" ? opts.pageType : null;
@@ -262,10 +313,12 @@ export async function readWinningPattern(
   const headTokens = pages.map((f) => topicTokens(f.headings.join(" ")));
   const labelTokens: ReadonlySet<string> = new Set(topicTokens(opts.label ?? ""));
   const sections = pages.map((f, i) => new Set([...headTokens[i]!, ...f.titleTokens]));
-  const names = pages.map((f, i) => new Set([...headTokens[i]!, ...topicTokens(f.entities.join(" ")), ...topicTokens(f.mainText ?? "")]));
+  const names = pages.map((f, i) => new Set([...headTokens[i]!, ...topicTokens((f.entities ?? []).join(" ")), ...topicTokens(f.mainText ?? "")]));
   const invented = stray !== undefined ? undefined
     : v.commonHeadings.find((h) => !holdsOnEvery(h.heading, h.seenOn, sections, labelTokens))?.heading
       ?? v.commonEntities.find((e) => !holdsOnEvery(e.entity, e.seenOn, names, labelTokens))?.entity;
+  const belowCommonBar = [...v.commonHeadings, ...v.commonEntities, ...v.ownedGaps]
+    .find((claim) => matrix.support(claim.seenOn).state !== "common");
   // A GAP IS MEASURED AGAINST A PAGE, NOT IMAGINED FOR ONE. With no page of my own supplied the model was still ordered to produce ownedGaps, so it invented what my page does not do and that invention rendered
   // to the operator as a claim about a page it had never seen. AN INTERNAL SLUG IS NOT A WORD AN OPERATOR READS. The settled shape rides the prompt so the model
   // repeats it in `archetype`, which is mapped before display; any prose field carrying a raw slug is a reading that leaked machinery, and it is thrown away whole.
@@ -274,11 +327,11 @@ export async function readWinningPattern(
   const blindGaps = owned?.scope !== "complete" && v.ownedGaps.length > 0;
   // THE SHAPE WAS SETTLED IN CODE ONE GATE EARLIER, and the deterministic count wins every time.
   const wrongShape = settled != null && v.archetype !== settled;
-  if (stray !== undefined || copied || quoted || invented || blindGaps || wrongShape || slugged) {
+  if (stray !== undefined || copied || quoted || invented || belowCommonBar || blindGaps || wrongShape || slugged) {
     // ONE of these throws the WHOLE reading away. Keeping the half that checks out would file a real case under a pattern half of which was invented or copied, and no diagnosis is worth that. ONE UNCACHED RETRY CARRIES THE REASON (live 2026-09-02): the cache served the same refused reading at $0 on every walk, so the topic could never be read again.
-    const why = [stray !== undefined ? `cited a page number that was not supplied (${String(stray)})` : "", copied ? `copied a heading word for word ("${copied.slice(0, 80)}")` : "", quoted ? `quoted a page's own line ("${quoted.slice(0, 80)}")` : "", invented ? `named something no page carries ("${invented.slice(0, 80)}")` : "", blindGaps ? "listed gaps for a page it was never shown" : "", wrongShape ? `re-voted the settled shape (${settled})` : "", slugged ? "leaked an internal slug" : ""].filter(Boolean).join("; ");
+    const why = [stray !== undefined ? `cited a page number that was not supplied (${String(stray)})` : "", copied ? `copied a heading word for word ("${copied.slice(0, 80)}")` : "", quoted ? `quoted a page's own line ("${quoted.slice(0, 80)}")` : "", invented ? `named something no page carries ("${invented.slice(0, 80)}")` : "", belowCommonBar ? `called something common below the ${matrix.threshold} of ${matrix.denominator} distinct-publisher bar` : "", blindGaps ? "listed gaps for a page it was never shown" : "", wrongShape ? `re-voted the settled shape (${settled})` : "", slugged ? "leaked an internal slug" : ""].filter(Boolean).join("; ");
     log.warn("[winning-pattern] the reading copied a page, named something no page carries, or overruled a settled shape, so none of it was kept", { tenantId, why, retry: !opts.lesson });
     if (!opts.lesson) return readWinningPattern(winners, owned, tenantId, { ...opts, lesson: why }); opts.refused?.(); return null;
   }
-  return { ...v, winners: pages.length, publishers: pages.map((f) => f.domain), fingerprint };
+  return { ...v, winners: pages.length, publishers: pages.map((f) => f.domain), fingerprint, brief: competitiveBrief((opts.label ?? "").trim(), pages, owned, v, settled) };
 }

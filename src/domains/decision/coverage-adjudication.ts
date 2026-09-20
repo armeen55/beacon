@@ -25,6 +25,7 @@ import { dayLabel } from "@/lib/presenter";
 import { isNoiseDomain } from "@/domains/evidence/relevance-gate";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { publisherHost } from "@/domains/evidence/serp-shape";
+import { COMPETITIVE_PATTERN } from "@/domains/evidence/competitive-pattern";
 import type { TechnicalFinding, TechnicalKind } from "./technical-findings";
 import { comparePageCoverage, type PageCoverageReading, type PageIntersectionAsk, type ParsedPageIntersection } from "@/domains/evidence/page-intersection";
 import type { TopicInvestigation } from "@/domains/evidence/topic-investigation";
@@ -83,11 +84,9 @@ export function earnedNewPage(d: CoverageDecision | null | undefined): boolean {
 /** Three publishers, wherever agreement is claimed: to buy the comparison I need three I can
  *  ADDRESS, and to write a page decision/new-page needs three I have READ. Two pages are two
  *  opinions, and nothing downstream of this file ever calls that a pattern. */
-const MIN_ADJUDICATION_WINNERS = 3;
-/** Two READ winning pages is what it takes to say what a page here has to cover. Three is the bar for calling
- *  anything a pattern across publishers; writing a brief only needs two of them agreeing plus the shape the
- *  whole results page already voted for, and holding out for a third left 27,100-search subjects unbuilt. */
-const MIN_WRITABLE_WINNERS = 2;
+const MIN_ADJUDICATION_WINNERS = COMPETITIVE_PATTERN.minimum;
+/** The same distinct-publisher floor governs both deciding and writing; two pages never become "common" at a later door. */
+const MIN_WRITABLE_WINNERS = COMPETITIVE_PATTERN.minimum;
 
 /** The bought comparison itself, or the honest reason it is not in hand (Evidence owns both
  *  that reason and the publisher-counted reading; this file only picks the verdict). */
@@ -241,7 +240,7 @@ function evidenceOf(inv: TopicInvestigation, candidates: readonly OwnedCandidate
   // plainly, which is the only form of it an operator can act on without copying anybody.
   if (p) {
     out.push({ id: "pattern", fact: `The ${p.winners} pages that win here were read side by side, and they settle on ${SHAPE[p.archetype] ?? "one kind of page"}.` });
-    if (p.openingPattern) out.push({ id: "opening", fact: `Those pages open the same way: ${p.openingPattern}` });
+    if (p.openingPattern && p.brief?.deltas.some((delta) => delta.dimension === "opening" && delta.need === p.openingPattern && delta.sources.length > 0)) out.push({ id: "opening", fact: `Those pages open the same way: ${p.openingPattern}` });
     p.commonHeadings.slice(0, 4).forEach((h, i) => out.push({ id: `common${i + 1}`, fact: `${h.seenOn.length} of the ${p.winners} cover ${h.heading}.` }));
     p.ownedGaps.slice(0, 4).forEach((g, i) => out.push({ id: `gap${i + 1}`, fact: `Your own page does not do what ${g.seenOn.length} of them do: ${g.gap}` }));
     p.disagreements.slice(0, 2).forEach((d, i) => out.push({ id: `split${i + 1}`, fact: `The winning pages do not agree here, so nothing settles it for them: ${d}` }));

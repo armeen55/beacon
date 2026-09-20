@@ -10,7 +10,7 @@
 import type { FunnelResearchEvidence, WinnerReadOutcome } from "./funnel/research-evidence";
 import { canonicalUrlKey, jobWinners, type EvidenceSnapshot } from "./snapshot";
 import { freshnessMsFor } from "./freshness";
-import { rootDomain } from "@/domains/evidence/readers/serp-provider";
+import { COMPETITIVE_PATTERN } from "./competitive-pattern";
 import { canonicalQueryKey, topicTokens } from "./relevance-gate";
 
 /** What the pages that win an exact result page ARE, as one canonical union. */
@@ -114,18 +114,11 @@ const MAX_ROWS = 10;
 const MAX_APPEARANCES = 8;
 
 const norm = (s: string): string => s.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
-/** Registrable suffixes that carry a country label, so bbc.co.uk keeps three parts. */
-const MULTI_SUFFIX = /\.(co|com|net|org|gov|edu|ac|or|ne)\.[a-z]{2}$/;
 /** ONE publisher is one vote: en.wikipedia.org and simple.wikipedia.org are the same source wearing two
  *  hostnames, and counting them twice fakes the agreement this whole file rests on. THE one host helper,
- *  built on the shared rootDomain, used for result rows, winner rows, the winning-page reserve and every
+ *  used for result rows, winner rows, the winning-page reserve and every
  *  publisher-agreement count alike. */
-export const publisherHost = (url: string): string => {
-  const h = rootDomain(url).toLowerCase();
-  const labels = h.split(".");
-  const keep = MULTI_SUFFIX.test(h) ? 3 : 2;
-  return labels.length > keep ? labels.slice(-keep).join(".") : h;
-};
+export const publisherHost = COMPETITIVE_PATTERN.publisherIdentity;
 /** The publisher behind one result row, falling back to the domain the provider named. */
 const publisherOf = (row: { url: string; domain: string }): string => publisherHost(row.url) || publisherHost(row.domain);
 const inter = <T,>(a: Set<T>, b: Set<T>): number => [...a].filter((t) => b.has(t)).length;

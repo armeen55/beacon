@@ -7,9 +7,9 @@ import { saveChangeProposal, loadChangeProposals } from "@/domains/decision/prop
 import { nextObligation } from "@/domains/decision/obligation";
 import { preferFinished } from "@/domains/decision/completeness";
 import type { ChangeProposal } from "@/domains/decision/contracts";
-import { supabaseFake, type Row } from "../helpers/supabase-fake";
+import { proposalStoreRpc, supabaseFake, type Row } from "../helpers/supabase-fake";
 Object.assign(db.client, supabaseFake({ rows: () => db.state.rows as Row[], insertDefaults: () => ({ created_at: "2026-09-01T00:00:00.000Z" }) }));
-(db.client as { rpc: unknown }).rpc = async () => ({ data: "saved", error: null });
+(db.client as { rpc: unknown }).rpc = proposalStoreRpc(() => db.state.rows);
 
 const SITES = [
   { t: "acct-reef", page: "/tide-pool-guide", q: "tide pool safety", topic: "tide pool etiquette" },

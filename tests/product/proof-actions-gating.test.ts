@@ -213,16 +213,15 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
   ])("%s is refused before anything is written", async (_name, arrange) => {
     arrange();
     expect((await markProposalImplementedAction({ ...PRESS })).success).toBe(false); expect([mocks.recordShipment.mock.calls.length, mocks.transitionProposalToImplemented.mock.calls.length]).toEqual([0, 0]);});});
-describe("a new page owes me the address it is live at", () => {
+describe("whole-page work stays outside the manual-edit proof", () => {
   const SECTIONS = ["When it runs", "Where to watch", "What to bring"], OPENS = "The kite festival runs the first weekend of April.";
   const newPage = () => proposal({ kind: "new_page", informationGain: { adds: "the page answers a question no owned page covers", by: ["fact-1"], pageWhole: true }, pagePath: null, pageUrl: null, pageLabel: "Kite festival guide", recommendedChange: { kind: "new_page", proposedTitle: "Kite festival guide", metaDescription: "Everything the kite festival guide covers.", openingAnswer: OPENS, outline: SECTIONS, faqQuestions: [], schemaTypes: [] },
     bundle: { ...proposal().bundle, components: SECTIONS.map((h) => ({ kind: "section_add", label: h, after: `${h}: ${OPENS}`, risk: "safe", evidenceKeys: ["k1"] })) } });
-  it("refuses with no address and with someone else's site, then records and verifies the one I can read", async () => {
+  it("refuses every form before recording, even when the operator supplies a plausible live address", async () => {
     mocks.loadChangeProposal.mockResolvedValue(newPage()); const none = await markProposalImplementedAction({ ...PRESS });
     const away = await markProposalImplementedAction({ ...PRESS, liveUrl: "https://elsewhere.example/kite" });
-    expect([none.success, none.error, away.success, away.error]).toEqual([false, "Add the address the new page is live at, on x.test, so it can be read.", false, "That address is on elsewhere.example, not on x.test. Only pages on your own site are recorded and read."]);
-    expect(mocks.recordShipment).not.toHaveBeenCalled(); // nothing is written until I hold an address I can check
-    expect((await markProposalImplementedAction({ ...PRESS, liveUrl: "https://www.x.test/kite-festival-guide" })).success).toBe(true);
-    expect(mocks.recordShipment.mock.calls[0]![0]).toMatchObject({ page: "https://www.x.test/kite-festival-guide", path: "/kite-festival-guide" }); // verification reads THAT page
-    expect(mocks.transitionProposalToImplemented).toHaveBeenCalledWith("tenant-test", PROPOSAL_ID, "shp_1", "https://www.x.test/kite-festival-guide");
+    const owned = await markProposalImplementedAction({ ...PRESS, liveUrl: "https://www.x.test/kite-festival-guide" });
+    const held = "Whole-page work is outside the current manual-edit proof, so it cannot be recorded here.";
+    expect([none.success, none.error, away.success, away.error, owned.success, owned.error]).toEqual([false, held, false, held, false, held]);
+    expect([mocks.recordShipment.mock.calls.length, mocks.transitionProposalToImplemented.mock.calls.length]).toEqual([0, 0]);
   });});

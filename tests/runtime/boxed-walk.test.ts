@@ -29,6 +29,7 @@ const harness = async (s: (typeof SITES)[number]) => {
     asked: [] as Ask[], handed: null as null | (() => unknown) };
   vi.doMock("@/lib/cost/budget-ledger-supabase", () => ({ getTenantSpentThisMonthUsd: async () => 0 }));
   vi.doMock("@/domains/decision/llm/gateway", () => ({ creditBreakerHeld: async () => false }));
+  vi.doMock("@/domains/runtime/ops/due-work", async () => ({ ...(await vi.importActual<typeof import("@/domains/runtime/ops/due-work")>("@/domains/runtime/ops/due-work")), accountBasis: async () => "basis_test" }));
   vi.doMock("@/domains/decision", async () => ({
     resolveCurrentBasis: async () => "b", stockOf: (rows: unknown[]) => rows.length,
     /** THE REAL RULE, never a stub: this is the behaviour under test. */

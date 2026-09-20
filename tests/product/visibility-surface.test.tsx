@@ -158,6 +158,9 @@ describe("Visibility is a workspace, and every number on it names what it was co
     const markup = renderToStaticMarkup(<AiWorkspace view={ai()} range={7} engine={null} sub="searches" reading={null} fanout={f} />);
     for (const s of ["One search, and every answer that ran it", "Back to all searches", "What to do about it",
       FANOUT_LINKAGE_CAVEAT, DISPOSITION.line, "prompt=p1&amp;reading=obs_7"]) expect(markup, s).toContain(s);});
+  it("keeps dense choices and wide evidence tables keyboard-scrollable on a narrow screen", () => {
+    const markup = renderToStaticMarkup(<AiWorkspace view={ai()} range={7} engine={null} sub="searches" reading={null} fanout={fanout()} />);
+    expect([markup.includes('data-scrollable-choices="true"'), markup.includes('role="region"'), markup.includes("table, scroll for more columns"), markup.includes('tabindex="0"')]).toEqual([true, true, true, true]); });
   it("opens one run into the whole of itself, and never prints an unreported silence as a factual none", () => {
     const all = answerDetail(ROW, new Map(LANDSCAPE.map((l) => [l.domain, l.kind]))).join("\n");
     for (const s of [LONG_ANSWER, '"haft seen set delivery"', "https://own.example/haft-seen (your page)", "It named these instead of or beside you: Rival Bazaar, Persian Goods.",

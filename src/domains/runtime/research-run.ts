@@ -37,6 +37,8 @@ type ResearchRunStatus = "running" | "paused" | "completed";
 
 /** Evidence-based counters only, never a fabricated number. `refreshedProviders` is the set of providers that actually synced this cycle (unioned across retries); `sourcesRefreshed` is that set's size. */
 export type ResearchRunProgress = {
+  /** Indexed scheduler admission mirrored into the run receipt. Null `at` means the account is settled for this Pacific day. */
+  dispatch?: { at: string | null; reason: string; plan: DuePhase[]; attempts: number };
   /** Earliest yielded provider wait; retained through later phases and recovered after interruption. */ providerWait?: { phase: ResearchPhase; cursor: Record<string, unknown> };
   refreshedProviders?: string[];
   /** THE ONE SENTENCE A CONNECTOR THAT WOULD NOT SYNC OWES THE OPERATOR, on the same receipt as the count of the ones that did, because the surfaces already read this object. It was recorded on the run's private `state.blocker`, which nothing in the product reads, so an honesty claim reached nobody. Null when every connected source synced, so a debt that cleared leaves no stale claim behind. */
@@ -93,7 +95,7 @@ export type ResearchRunProgress = {
   /** EVERY READING THIS PASS BOUGHT AND WHAT IT WAS BOUGHT TO UNLOCK (operator, 2026-09-05): ten funded jobs ended a live pass owing readings the same day had already paid for, and the only trace of the money was a log line.
    *  `key` is the row that owes it and `workKey` the funding identity behind that row; `outcome` is typed (`unlocked` the obligation can now be met, `read_not_usable` the reading landed and does not meet it yet with the reason in `detail`, `not_read` nothing landed); `sharedWith` names every other row this ONE purchase answered for. Pass-scoped like the receipts beside it. */
   acquisitions?: readonly { key: string; workKey: string; kind: string; query: string; reasonCode: string; outcome: "unlocked" | "read_not_usable" | "not_read" | "deferred"; detail: string; /** WHICH ATTEMPT OF THIS READING THIS WAS, counting every attempt that did not land under one work identity on one day whatever it came back with, so the receipt says how many times the money has bought this reading. */ attempts?: number; /* `deferred` is a reading this drive DECIDED not to buy and says why: no money left the process for it, and it is owed at its own rank on the next drive. A reading that is simply absent from this list is a silence, which is the thing the typed outcomes exist to end. */ sharedWith?: readonly string[]; /** The row and the ladder rung this purchase was bought to unlock, straight off the typed need. */ unlocks?: { beforeMicros?: true; proposalId: string; step: string } }[];
-  evidenceOwed?: readonly { key: string; kind: "serp" | "page_source" | "competitor_page" | "factual_source" | "semantic_review"; query: string; url?: string; reasonCode: string; reason: string; workKey: string; /** The missing proposition a factual_source researches, and the rival that identified it (briefing provenance only): declared here so a field-by-field rebuild can never silently drop the topic and degrade the acquisition to a plain re-check. */ missingTopic?: string; finding?: import("@/domains/decision/producers/contract").EvidenceRequirement["finding"]; topic?: import("@/domains/decision/producers/contract").EvidenceRequirement["topic"]; rivalUrl?: string; /** The exact change a `semantic_review` reads, so the runtime loads one row instead of the whole queue. */ proposalId?: string; /** THE ROW'S OWN STAMPED RANK, carried by the fill so the consumer buys in global opportunity order rather than store order; absent on a need whose row carries no rank yet, which sorts last. */ rank?: number; /** The reporting day this reading was last bought while the work still refused: not bought again that day, so the drive's slots go to needs a purchase can still answer. */ boughtOn?: string; /** THE REPORTING DAY THE PROVIDER WAS POSTED FOR THIS READING AND ANSWERED NOTHING YET. A results page is charged at the post and collected with a free follow-up, so the drive that collects it spends nothing on it and its own purchase allowance is untouched. Stamped BESIDE `boughtOn` and never instead of it, because `boughtOn` claims the reading landed and a posted one has not: a need carrying only this stamp is still owed, still bought at its own rank, and still counts its attempts. */ postedOn?: string; /** THE ATTEMPT THAT DID NOT LAND: the reporting day it ran on, the work identity it ran for, how many attempts under that identity have not landed today whatever each of them came back with, and the LATEST answer, so the row still says what happened. A purchase that fails stamps nothing, so two readings were bought six and nine times on one day; a reading is owed again when the day turns or when the work it serves wears a new identity, which is what a fresh capture or a newly banked source moves. */ tried?: { on: string; work: string; count: number; why: string }; /** WHAT THIS PURCHASE UNLOCKS, as the owed-list door typed it (decision/producers/contract): the exact row the money is for and the rung that row is blocked at once the reading lands. Absent on a need filed before the list carried it, and absent is never an excuse to guess. */ unlocks?: { beforeMicros?: true; proposalId: string; step: string } }[];
+  evidenceOwed?: readonly { key: string; kind: "serp" | "page_source" | "competitor_page" | "factual_source" | "semantic_review"; query: string; url?: string; reasonCode: string; reason: string; workKey: string; /** Fresh debt names the deliverable it unlocks. Optional only for legacy rows, which Runtime classifies from their durable identity before acquisition. */ delivery?: "existing_page_edit" | "whole_page"; /** The missing proposition a factual_source researches, and the rival that identified it (briefing provenance only): declared here so a field-by-field rebuild can never silently drop the topic and degrade the acquisition to a plain re-check. */ missingTopic?: string; finding?: import("@/domains/decision/producers/contract").EvidenceRequirement["finding"]; topic?: import("@/domains/decision/producers/contract").EvidenceRequirement["topic"]; rivalUrl?: string; /** The exact change a `semantic_review` reads, so the runtime loads one row instead of the whole queue. */ proposalId?: string; /** THE ROW'S OWN STAMPED RANK, carried by the fill so the consumer buys in global opportunity order rather than store order; absent on a need whose row carries no rank yet, which sorts last. */ rank?: number; /** The reporting day this reading was last bought while the work still refused: not bought again that day, so the drive's slots go to needs a purchase can still answer. */ boughtOn?: string; /** THE REPORTING DAY THE PROVIDER WAS POSTED FOR THIS READING AND ANSWERED NOTHING YET. A results page is charged at post and collected with a free follow-up, so the drive that collects it spends nothing on it and its own purchase allowance is untouched. Stamped BESIDE `boughtOn` and never instead of it, because `boughtOn` claims the reading landed and a posted one has not: a need carrying only this stamp is still owed, still bought at its own rank, and still counts its attempts. */ postedOn?: string; /** THE ATTEMPT THAT DID NOT LAND: the reporting day it ran on, the work identity it ran for, how many attempts under that identity have not landed today whatever each of them came back with, and the LATEST answer, so the row still says what happened. A purchase that fails stamps nothing, so two readings were bought six and nine times on one day; a reading is owed again when the day turns or when the work it serves wears a new identity, which is what a fresh capture or a newly banked source moves. */ tried?: { on: string; work: string; count: number; why: string }; /** WHAT THIS PURCHASE UNLOCKS, as the owed-list door typed it (decision/producers/contract): the exact row the money is for and the rung that row is blocked at once the reading lands. Absent on a need filed before the list carried it, and absent is never an excuse to guess. */ unlocks?: { beforeMicros?: true; proposalId: string; step: string } }[];
   replenish?: { day: string; /** THE DAY'S ONE ATTEMPT LEDGER, keyed on the row's own `workKey`: what each job's attempts cost, how the last one ended, and whether anything is left to do for it under this exact evidence. It replaced four page-keyed lists and the manifest fingerprint that reset them, every one of which asked "the same page again" of work whose evidence, obligation or rules had moved. */ jobs: Record<string, { calls: number; last: string; settled: boolean }>; closed?: "candidates_exhausted"; /** The account and evidence version an exhaustion was earned under: fresh evidence reopens the day, because a manifest settled against yesterday's readings says nothing about today's. */ closedUnder?: string; /** THE WORK A FACT BANKED LATER IN THE SAME DRIVE WOKE UP, and has not been walked yet: the exact next unit. Persisted before the walk, so a drive that runs out of time resumes at this point instead of losing the dependency until tomorrow, and a day may never close while it holds anything. */ awakened?: string[];
     /** THE WORK THE LAST WALK FUNDED AND NEVER BEGAN, by `workKey`. A drive stops where its clock stops, and the tail of one manifest is the head of the next: these are picked up first by the next walk of this drive and, because the day's memory travels with the day, by the next pass too. It is a queue position, never a verdict, so nothing here settles, declines or writes off anything. */ waiting?: string[];
     /** What became of the funded work on the last drive, so a cycle that funded five and settled one can be READ rather than guessed at. */
@@ -135,10 +137,14 @@ export type ResearchRun = {
   started_at: string;
   updated_at: string;
   completed_at: string | null;
+  next_dispatch_at: string | null;
+  dispatch_reason: string | null;
+  dispatch_plan: DuePhase[] | null;
+  dispatch_attempts: number;
 };
 
 /** Lease length for one claimed cycle. Renewed at DATABASE time BEFORE every bounded phase (renew_research_lease) so no phase inside the cycle deadline (a hundred seconds inside this lease) can knowingly outlive its lease. */
-export const RESEARCH_RUN_LEASE_SECONDS = 800; // THE LEASE MUST OUTLAST THE TURN IT PROTECTS (Codex, 2026-08-23), and THE LEASE IS THE ONE WINDOW SOURCE (operator, 2026-09-10, "unlock all caps"): the hosted function now runs the 800 seconds Vercel Pro with Fluid compute allows, the cron caller's timeout moves to 800 with it, and the dispatch budget, the cycle deadline, the walk's box and the fact units' box all derive from this number so no deadline can outlive the function again. Measured need: 36 to 48 s of every drive is preparation and a written job costs 17 to 31 s, so a 200-second slice reached four to six jobs of 16 to 33 funded; the 800-second window is the measured fix (dl-approval.md, held since 2026-09-07 and approved today).
+export const RESEARCH_RUN_LEASE_SECONDS = 800; // Crash-safety boundary only: deliberately longer than the 300-second route and 240-second scheduled budget so a killed invocation cannot overlap its replacement. Runtime deadlines, not this lease, bound compute.
 
 // The operator-facing projection lives in run-status (the record and the way it READS are two jobs). Re-exported here so every existing caller keeps its one import.
 export { nextPhase, projectStatusView, type ResearchRunStatusView } from "./run-status";
@@ -200,8 +206,11 @@ export type ResearchRunRepo = {
   /** Guarded terminal update at DATABASE time (releases the lease). 'completed' clears last_error; 'paused' records it. `spendUsd` STAMPS THE ROW'S OWN ACCUMULATOR at the close, from what this run actually tracked;
    *  absent leaves whatever is on the row. Returns whether a row matched. */
   finish(input: { tenantId: string; id: string; owner: string; outcome: Exclude<ResearchRunStatus, "running">; errorInfo?: ResearchRunError | null; spendUsd?: number | null }): Promise<boolean>;
+  patchProgress(input: { tenantId: string; id: string; patch: Record<string, unknown>; increment?: { key: string; day: string } }): Promise<ResearchRunProgress | null>;
   /** Latest run for the tenant by started_at desc, or null. */
   latest(tenantId: string): Promise<ResearchRun | null>;
+  /** Exact run read for recovery receipts. Optional only for injected legacy test repositories. */
+  read?(input: { tenantId: string; id: string }): Promise<ResearchRun | null>;
   /** This account's rows for ONE reporting day, newest first, lean (id + progress): how many passes have already opened today, and what day-scoped state a new one inherits. */
   sameDay(input: { tenantId: string; day: string; limit: number }): Promise<Array<{ id: string; progress: ResearchRunProgress }>>;
 };
@@ -216,6 +225,10 @@ function mapRow(r: Record<string, unknown>): ResearchRun {
     lease_owner: (r.lease_owner as string | null) ?? null, lease_expires_at: (r.lease_expires_at as string | null) ?? null,
     started_at: String(r.started_at), updated_at: String(r.updated_at ?? r.started_at),
     completed_at: (r.completed_at as string | null) ?? null,
+    next_dispatch_at: (r.next_dispatch_at as string | null) ?? null,
+    dispatch_reason: (r.dispatch_reason as string | null) ?? null,
+    dispatch_plan: Array.isArray(r.dispatch_plan) ? r.dispatch_plan as DuePhase[] : null,
+    dispatch_attempts: Number(r.dispatch_attempts ?? 0),
   };
 }
 
@@ -232,14 +245,11 @@ async function rpcBool(fn: string, args: Record<string, unknown>): Promise<boole
 export async function patchRunProgress(
   tenantId: string, runId: string, patch: Record<string, unknown>, increment?: { key: string; day: string },
 ): Promise<ResearchRunProgress | null> {
-  const { data, error } = await getSupabaseAdmin().rpc("patch_research_run_progress", { p_tenant_id: tenantId,
-    p_run_id: runId, p_patch: patch, p_increment_key: increment?.key ?? null, p_increment_day: increment?.day ?? null });
-  if (error != null) {
+  try { return await repo.patchProgress({ tenantId, id: runId, patch, increment }); } catch (error) {
     log.error("[research-run] the progress patch did not land, so nothing was recorded", { tenantId, runId,
-      code: (error as { code?: string }).code ?? null, error: error.message ?? String(error) });
-    throw new Error(error.message ?? String(error));
+      code: (error as { code?: string }).code ?? null, error: error instanceof Error ? error.message : String(error) });
+    throw error instanceof Error ? error : new Error(String(error));
   }
-  return (data as ResearchRunProgress | null) ?? null;
 }
 
 const supabaseRepo: ResearchRunRepo = {
@@ -280,18 +290,25 @@ const supabaseRepo: ResearchRunRepo = {
     return rpcBool("renew_research_lease", { p_tenant_id: tenantId, p_run_id: id, p_owner: owner, p_cursor: cursor ?? null, p_lease_seconds: leaseSeconds });
   },
   async finish({ tenantId, id, owner, outcome, errorInfo, spendUsd }) {
-    // THE DECLARED ACCUMULATOR, FINALLY WRITTEN. spend_usd has been on this table since the first migration and no code ever set it, so every run row has
-    // claimed $0.00 forever while the real number sat in progress. It is stamped here, under the lease we still hold and BEFORE the finish releases it, and a
-    // write that could not land never costs the account its completion: the money is already ledgered elsewhere, this row is the receipt.
-    if (typeof spendUsd === "number" && Number.isFinite(spendUsd) && spendUsd >= 0) {
-      const { error } = await getSupabaseAdmin().from("research_runs").update({ spend_usd: spendUsd }).eq("tenant_id", tenantId).eq("id", id).eq("lease_owner", owner);
-      if (error != null) log.warn("[research-run] the pass closed but its spend could not be stamped on the row", { tenantId, runId: id, error: error.message ?? String(error) });
-    }
-    return rpcBool("finish_research_run", { p_tenant_id: tenantId, p_run_id: id, p_owner: owner, p_outcome: outcome, p_error: errorInfo ?? null });
+    return rpcBool("finish_research_run", { p_tenant_id: tenantId, p_run_id: id, p_owner: owner,
+      p_outcome: outcome, p_error: errorInfo ?? null,
+      p_spend_usd: typeof spendUsd === "number" && Number.isFinite(spendUsd) && spendUsd >= 0 ? spendUsd : null });
+  },
+  async patchProgress({ tenantId, id, patch, increment }) {
+    const { data, error } = await getSupabaseAdmin().rpc("patch_research_run_progress", { p_tenant_id: tenantId,
+      p_run_id: id, p_patch: patch, p_increment_key: increment?.key ?? null, p_increment_day: increment?.day ?? null });
+    if (error != null) throw Object.assign(new Error(error.message ?? String(error)), { code: (error as { code?: string }).code });
+    return (data as ResearchRunProgress | null) ?? null;
   },
   async latest(tenantId) {
     const { data, error } = await getSupabaseAdmin().from("research_runs").select("*")
       .eq("tenant_id", tenantId).order("started_at", { ascending: false }).limit(1).maybeSingle();
+    if (error != null) throw new Error(error.message ?? String(error));
+    return data ? mapRow(data as Record<string, unknown>) : null;
+  },
+  async read({ tenantId, id }) {
+    const { data, error } = await getSupabaseAdmin().from("research_runs").select("*")
+      .eq("tenant_id", tenantId).eq("id", id).maybeSingle();
     if (error != null) throw new Error(error.message ?? String(error));
     return data ? mapRow(data as Record<string, unknown>) : null;
   },
@@ -338,22 +355,23 @@ function carriedDayState(priors: readonly ResearchRunProgress[], day: string): R
   return out;
 }
 
-/** Persist the inherited state onto the row we just took, under the lease we took with it. The row's OWN progress always wins, and a carry that could not be written leaves the row exactly as the database made it. */
+/** Persist the inherited state onto the row we just took, under the lease we took with it. A failed carry is a
+ * hard stop: continuing from an empty row would forget today's paid receipts and buy the same work again. */
 async function inheritDayState(run: ResearchRun, owner: string, priors: readonly DayRow[]): Promise<ResearchRun> {
   const carried = carriedDayState(priors.filter((p) => p.id !== run.id).map((p) => p.progress), run.cycle_key.slice(-10));
   if (Object.keys(carried).length === 0) return run;
   const progress: ResearchRunProgress = { ...carried, ...(run.progress ?? {}) };
   const saved = await repo.advance({ tenantId: run.tenant_id, id: run.id, owner, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS,
     patch: { phase: run.current_phase, cursor: run.phase_cursor, progress } }).catch(() => false);
-  return saved ? { ...run, progress } : run;
+  if (!saved) throw new Error("same-day research state could not be carried under the live lease");
+  return { ...run, progress };
 }
 
 /** Inherit the day's state, but ONLY for a row that cannot already know it: a resumed run carrying any of it IS the day's memory and pays for no read. */
 async function withDayState(run: ResearchRun, owner: string): Promise<ResearchRun> {
   const p = run.progress ?? {};
   if (p.decided != null || p.extraSamples != null || p.capped != null || p.synthesisAttempted != null || p.observationRetries != null || p.zeroOutput != null) return run;
-  const priors = await repo.sameDay({ tenantId: run.tenant_id, day: run.cycle_key.slice(-10), limit: DAILY_PASS_RUNAWAY_CEILING })
-    .catch(() => [] as DayRow[]);
+  const priors = await repo.sameDay({ tenantId: run.tenant_id, day: run.cycle_key.slice(-10), limit: DAILY_PASS_RUNAWAY_CEILING });
   return inheritDayState(run, owner, priors);
 }
 
@@ -444,6 +462,15 @@ export async function finishRun(
     log.warn("[research-run] finishRun failed", { tenantId, error: error instanceof Error ? error.message : String(error) });
     return false;
   }
+}
+
+/** Exact durable state after a failed drive. Never substitutes another run. */
+export async function loadResearchRun(tenantId: string, runId: string): Promise<ResearchRun | null> {
+  requireTenant(tenantId);
+  try {
+    if (repo.read) return await repo.read({ tenantId, id: runId });
+    const latest = await repo.latest(tenantId); return latest?.id === runId ? latest : null;
+  } catch { return null; }
 }
 
 

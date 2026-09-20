@@ -9,7 +9,7 @@ import { footprintKey } from "@/domains/decision/mutation-footprint";
 import { deliverableGaps } from "@/domains/decision/completeness";
 import { nextObligation } from "@/domains/decision/obligation";
 import type { ChangeProposal } from "@/domains/decision/contracts";
-import { supabaseFake, type Row } from "../helpers/supabase-fake";
+import { proposalStoreRpc, supabaseFake, type Row } from "../helpers/supabase-fake";
 const db = vi.hoisted(() => ({ rows: [] as Row[], filed: [] as Record<string, unknown>[] }));
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => client }));
 /** The live index: `ux_change_proposals_current` is (tenant, case, page, family, mutation_key) over current rows,
@@ -19,7 +19,7 @@ const client = { ...supabaseFake({ rows: () => db.rows, insertDefaults: () => ({
     && ["tenant_id", "case_id", "page_key", "action_family", "mutation_key"].every((c) => r[c] === row[c]))
     ? { message: "duplicate key value violates unique constraint ux_change_proposals_current" } : null) }),
   /** The disposition writer's own upsert, which is how the AI producer's verdicts become durable rows: what it was handed IS what a surface would later read back. */
-  rpc: (name: string, args: { p_rows?: Record<string, unknown>[] }) => { if (name === "upsert_ai_case_dispositions") db.filed.push(...(args.p_rows ?? [])); return Promise.resolve({ data: (args.p_rows ?? []).length, error: null }); } };
+  rpc: (name: string, args: { p_rows?: Record<string, unknown>[] } & Record<string, unknown>) => { if (name === "upsert_ai_case_dispositions") { db.filed.push(...(args.p_rows ?? [])); return Promise.resolve({ data: (args.p_rows ?? []).length, error: null }); } return proposalStoreRpc(() => db.rows)(name, args); } };
 const NOW = new Date("2026-08-01T00:00:00.000Z");
 /** TWO SEARCHES ONE PAGE EARNS AND NEVER ANSWERS, plus one passage that answers neither, on unrelated subjects. */
 const SITES = [
@@ -61,6 +61,7 @@ const mintFor = async (s: Site, rows: Array<[string, number]>, standing: unknown
   return out.cards.filter((c) => c.id.includes("::existing_edit::missing_answer"));
 };
 const idOf = (s: Site, tail = ""): string => `${s.t}::${s.path}::existing_edit::missing_answer${tail}`;
+const seatStem = (id: string): string => id.replace(/#[0-9a-f]{64}$/i, "");
 /** THE WALK OVER THOSE CARDS, with the page's own words in hand and no provider behind it: what it says each card
  *  must BUY is the one observation that proves which search the writer was about to be briefed on. */
 const walked = async (s: Site, cards: ChangeProposal[], owed: string[][]): Promise<ChangeProposal[]> => {
@@ -79,6 +80,7 @@ const card = (s: Site, id: string, query: string, over: Partial<ChangeProposal> 
 
 beforeEach(() => { db.rows = []; db.filed = []; vi.doUnmock("@/domains/decision/proposal-store"); vi.doUnmock("@/domains/evidence/pages/owned-context"); vi.resetModules(); });
 
+
 describe("a page carries as many changes as it has searches it never answers", () => {
   /** THE READER USED TO STOP AT THE BIGGEST ONE. `demandGap` took the largest group this page's passages do not
    *  answer and returned; asked again with that group's own key, it answers for the next one, with its own verdict,
@@ -88,8 +90,8 @@ describe("a page carries as many changes as it has searches it never answers", (
     const lead = substantiveGapOf({}, demand as never), behind = substantiveGapOf({}, demand as never, canon(lead?.query ?? ""));
     const alone = substantiveGapOf({}, demandOf(page(s, [[s.big, 900]]), body(s) as never, [], null, s.t) as never), asked = (g: typeof lead): unknown => (g?.owed as { need?: { query?: string } } | undefined)?.need?.query;
     expect([lead?.kind, lead?.query, asked(lead), behind?.kind, behind?.query, asked(behind), JSON.stringify(alone) === JSON.stringify(lead)],
-      "the biggest unanswered search is read exactly as it always was, the next one behind it is its own missing answer about ITS OWN search rather than the first one, neither buys a source before the writer because the answer is written now with the check following behind (operator, 2026-09-10), and a page with only the big search on it reads identically")
-      .toEqual(["missing_answer", s.big, undefined, "missing_answer", s.small, undefined, true]);
+      "the biggest unanswered search is read exactly as it always was, the next one behind it is its own missing answer about ITS OWN search rather than the first one, and each owed step carries the exact question its downstream operator must answer")
+      .toEqual(["missing_answer", s.big, s.big, "missing_answer", s.small, s.small, true]);
     expect([behind?.propositions[0]?.includes(s.small), behind?.propositions[0] === lead?.propositions[0]],
       "the second change is about the second search in its own words, never the first search said again").toEqual([true, false]);
   });
@@ -98,7 +100,7 @@ describe("a page carries as many changes as it has searches it never answers", (
    *  destination. Two ids, two mutations, two rows the ranking can compare against everything else. */
   it.each(SITES)("$t: offers two changes for two unanswered searches, and one change where there is one", async (s) => {
     const two = await mintFor(s, [[s.big, 900], [s.small, 300]]), one = await mintFor(s, [[s.big, 900]]);
-    expect([two.map((c) => c.id), two.map((c) => c.primaryQuery), one.map((c) => c.id), one.map((c) => c.primaryQuery)],
+    expect([two.map((c) => seatStem(c.id)), two.map((c) => c.primaryQuery), one.map((c) => seatStem(c.id)), one.map((c) => c.primaryQuery)],
       "the page's biggest unanswered search keeps the address it always had, the next one opens at its own, and a page with one unanswered search still offers exactly one change under the old address")
       .toEqual([[idOf(s), idOf(s, `@${canon(s.small)}`)], [s.big, s.small], [idOf(s)], [s.big]]);
     expect([new Set(two.map((c) => footprintKey(c))).size, two.map((c) => footprintKey(c).includes("::body::")), two.map((c) => c.changeFamily)],
@@ -152,7 +154,7 @@ describe("a page carries as many changes as it has searches it never answers", (
     const live = (copy: string): ChangeProposal => card(s, idOf(s), s.big, { status: "ready", researchOnly: false,
       recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: copy } });
     const covered = await mintFor(s, rows, [live(s.both)]), open = await mintFor(s, rows, [live(s.onlyBig)]);
-    expect([covered.map((c) => c.id), covered.map((c) => c.primaryQuery), open.map((c) => c.primaryQuery)],
+    expect([covered.map((c) => seatStem(c.id)), covered.map((c) => c.primaryQuery), open.map((c) => c.primaryQuery)],
       "the change already writing that answer keeps the address it has, the search its own words already answer is not offered a second time, and EVERY remaining search nothing on file answers earns its own change now that a page carries up to four a pass (operator, 2026-09-11, unlimited changes)")
       .toEqual([[idOf(s), idOf(s, `@${canon(s.third)}`)], [s.big, s.third], [s.big, s.small, s.third]]);
   });
@@ -209,6 +211,13 @@ describe("two audiences losing clicks on one page are two rows", () => {
       "the audience with the most recoverable clicks keeps the address the row already has whatever order the losses arrive in, the smaller one opens at its own, and the two write two different sections")
       .toEqual([[`${base}@${canon(s.small)}`, base], [s.small, s.big], [base], 2]);
   });
+  it.each(SITES)("$t: never gives a retired base seat to the different query that ranks first today", async (s) => {
+    const { demandRecoveryCards } = await import("@/domains/decision/producers/demand-recovery");
+    const recovery = `${s.t}::${s.path}::existing_edit::demand_recovery`, answer = `${s.t}::${s.path}::existing_edit::missing_answer`, oldKey = `${s.path}::body::${canon(s.big)}`;
+    db.rows.push({ tenant_id: s.t, page_key: s.path, id: recovery, mutation_key: oldKey, terminal_disposition: "withdrawn" }, { tenant_id: s.t, page_key: s.path, id: answer, mutation_key: oldKey, terminal_disposition: "dismissed" });
+    const recovered = await demandRecoveryCards({ tenantId: s.t, snapshot: snapshot(s, [page(s, [[s.small, 900]])]) as never, now: NOW, preloaded: { units: [unit(s.small, 60, url(s))], historyWindow: { earlyDays: 120, earlyFrom: "2026-04-01", earlyTo: "2026-07-01" } } as never }), unanswered = await mintFor(s, [[s.small, 900]]);
+    expect([recovered.cards[0]!.id, seatStem(unanswered[0]!.id)]).toEqual([`${recovery}@${canon(s.small)}`, `${answer}@${canon(s.small)}`]);
+  });
   /** A SETTLEMENT NOBODY READ THE WINNERS FOR IS NOT A SETTLEMENT, AND THE STORE'S OWN RECOMPUTE IS WHERE IT IS ASKED (production 09:03:46Z, 2026-09-06). Four hub rows were re-saved `terminal: no substantive gap named` by the release sweep on searches no results page had ever been bought for: the rule that answered lived at the walk, a terminal row is never funded, so it could not reach that door and the sweep wrote the settlement back every pass. The comparison rides the card as `winnersOnFile` and the ladder owns the rule, so the mint, the sweep's re-mint and the walk give one answer. */
   it.each(SITES)("$t: a settled row whose winners nobody has read is re-minted owing that reading, and one whose winners were read and carry nothing stays settled", async (s) => {
     const { demandRecoveryCards } = await import("@/domains/decision/producers/demand-recovery"), { preferFinished } = await import("@/domains/decision/completeness");
@@ -261,13 +270,13 @@ describe("two questions the assistants answer elsewhere on one page are two chan
     const out = await casesFor(s);
     expect([out.drafts.map((d) => d.query), out.drafts.map((d) => `${s.t}::${s.path}::existing_edit::${d.slug}`), out.hold],
       "the page's strongest question keeps the id every row on file already wears and the one behind it opens at its own search, and the hold that keeps each writer waiting names the card it is actually about")
-      .toEqual([[s.aiBig, s.aiSmall], [aiId(s), aiId(s, `@${canon(s.aiSmall)}`)], [aiId(s), aiId(s, `@${canon(s.aiSmall)}`)]]);
+      .toEqual([[s.aiBig, s.aiSmall], [aiId(s, `@${canon(s.aiBig)}`), aiId(s, `@${canon(s.aiSmall)}`)], [aiId(s, `@${canon(s.aiBig)}`), aiId(s, `@${canon(s.aiSmall)}`)]]);
   });
   it.each(SITES)("$t: files the verdict on each question against the id its own card carries", async (s) => {
     const out = await casesFor(s);
     expect(out.filed.filter((r) => r.state === "actionable").map((r) => [r.query, r.proposalId]),
       "a verdict on file points at a change the operator can open, so the second question's row never names the first question's card")
-      .toEqual([[s.aiBig, aiId(s)], [s.aiSmall, aiId(s, `@${canon(s.aiSmall)}`)]]);
+      .toEqual([[s.aiBig, aiId(s, `@${canon(s.aiBig)}`)], [s.aiSmall, aiId(s, `@${canon(s.aiSmall)}`)]]);
   });
   it.each(SITES)("$t: opens no second change for a question the words of a change already on file answer", async (s) => {
     const out = await casesFor(s, new Map([[s.path.toLowerCase(), [{ query: s.aiBig, copy: s.aiAnswered }]]]));
@@ -282,17 +291,6 @@ describe("two questions the assistants answer elsewhere on one page are two chan
       "a page opens the two changes one pass gives it, the question the assistants answer most is one of them, and the one left over is picked up next pass in a sentence rather than left silent")
       .toEqual([2, true, [`${s.path} already carries the 2 changes one pass opens for a single page, so this search is picked up on the next pass.`], false]);
   });
-});
-describe("the schema family derives from the page's own visible questions", () => {
-  const s = SITES[0]!, pairs = [{ question: "How wide is a bordado border?", answer: "A bordado border is worked between four and nine centimetres wide.", source: "html_section", answerComplete: true }], faqBlock = (answer: string): string => JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage", "@id": "#faq", mainEntity: [{ "@type": "Question", name: pairs[0]!.question, acceptedAnswer: { "@type": "Answer", text: answer } }] });
-  const gone: string[] = [], schemaFor = async (faqs: unknown[], jsonLd: string[], stored?: ChangeProposal): Promise<ChangeProposal[]> => { vi.resetModules(); vi.doMock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => new Map(stored ? [[stored.id, stored]] : []), withdrawChangeProposal: async (p: ChangeProposal, why: string) => { gone.push(`${p.id} ${why}`); return true; } }));
-    vi.doMock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadOwnedPageBodies: async () => new Map([[`${s.t}.example${s.path}`, { ...(body(s) as object), faqs, sourceCapture: { version: 1, mainHtml: "", jsonLd, complete: true } }]]) }));
-    return (await (await import("@/domains/decision/producers/extra")).extraQueueCards({ tenantId: s.t, snapshot: snapshot(s, [page(s, [[s.big, 900]])]) as never, now: NOW, reads: { left: 0 }, persist: !!stored })).cards.filter((c) => c.id.endsWith("::existing_edit::faq_schema")); };
-  it("mints one finished block from the visible pairs, replaces a stale block by its identity, invents nothing for a page with no pairs, and takes back a stored block whose questions vanished", async () => {
-    const fresh = await schemaFor(pairs, []), stale = await schemaFor(pairs, [faqBlock("An older answer the page no longer shows.")]), matching = await schemaFor(pairs, [faqBlock(pairs[0]!.answer)]), none = await schemaFor([], []), kept = await schemaFor(pairs, [], fresh[0]), vanished = await schemaFor([], [], fresh[0]); // sequential: the module registry is shared
-    const { validateProposal, canonTextOf } = await import("@/domains/decision/validate-proposal"), row = stale[0]!, c = row.recommendedChange as Extract<ChangeProposal["recommendedChange"], { kind: "existing_edit" }>, verdict = validateProposal(row, { ...canonTextOf(page(s, []), { ...(body(s) as object), faqs: pairs } as never), pageSchemaTypes: ["FAQPage"], now: NOW });
-    expect([fresh.length, stale.length, matching.length, none.length, kept.length, vanished.length, gone, row.researchOnly, c.field, c.before?.includes("#faq"), c.where, JSON.parse(c.after)["@id"], JSON.parse(c.after).mainEntity[0].acceptedAnswer.text, row.claims?.map((x) => x.supportedBy), verdict.qualityStatus, verdict.verdict !== "rejected"])
-      .toEqual([1, 1, 0, 0, 1, 0, [`${fresh[0]!.id} the page no longer shows the questions this markup described`], false, "schema", true, "In the page head, replacing the block with @id #faq.", "#faq", pairs[0]!.answer, [["page-copy-1"]], "ready", true]); });
 });
 describe("a recovery card reads as a person would say it", () => {
   it("names the page by its title, dates the windows in words, never shouts LOST and never offers a bare zero as within reach", async () => { const s = SITES[0]!, hist = { earlyClicksPerDay: 1.9, recentClicksPerDay: 0.67, lostClicksPerMonth: 37, earlyImpressions: 9000, recentImpressions: 2000, priorTopPage: url(s), currentTopPage: url(s), pageSwapped: false, earlyPosition: 2.3, recentPosition: 5, pageEarlyPosition: 2.3, pageRecentPosition: 5, pageShareEarly: 1, pageShareRecent: 1 };

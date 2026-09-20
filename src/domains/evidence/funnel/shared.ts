@@ -138,7 +138,7 @@ export function basisFromCursor(cursor: Record<string, unknown> | null): string 
   return cursor && typeof cursor.basis === "string" ? cursor.basis.trim() : "";
 }
 
-export const NO_BASIS_DETAIL = "I need your confirmed business details before I can research. Open Settings, Business info and save them.";
+export const NO_BASIS_DETAIL = "Confirmed business details are required before research can start. Open Settings, Business info and save them.";
 
 /** Raised by save() when the stored row moved underneath us; each executor
  *  catches it and fails closed (a genuine pause, never a corrupt overwrite). */
@@ -183,10 +183,10 @@ export function interp(r: CachedCallResult): Interp {
  *  what I will do next. Callers never parse provider detail strings. */
 export function pauseDetail(disposition: FailureDisposition | undefined, fallback: string): string {
   switch (disposition) {
-    case "retry_free": return "A research request did not come back this time. I kept it and I will collect it for free on the next pass.";
-    case "blocked": return "One research request was turned down. I set it aside so I do not repeat it, and I will try the rest.";
-    case "quarantined": return "I set one request aside so I do not run it twice. I will keep checking whether it can finish.";
-    case "repost_once": return "One research request timed out. I will run it once more on your next visit.";
+    case "retry_free": return "A research request did not come back this time. It was kept and will be collected for free on the next pass.";
+    case "blocked": return "One research request was turned down. It was set aside to prevent a duplicate, and the rest can continue.";
+    case "quarantined": return "One request was set aside to prevent a duplicate. Later passes will keep checking whether it can finish.";
+    case "repost_once": return "One research request timed out. The next visit will run it once more.";
     default: return fallback;
   }
 }

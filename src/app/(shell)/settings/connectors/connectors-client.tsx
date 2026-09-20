@@ -674,7 +674,7 @@ export function ConnectorsClient({
                 handleConnectorSyncNow(syncGscNow, setGscSyncPending, setGscSyncResult)
               }
               disabled={gscSyncPending || isPending}
-              className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+              className="min-h-11 rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
             >
               {gscSyncPending ? "Syncing…" : "Pull your Search Console data"}
             </button>
@@ -686,7 +686,7 @@ export function ConnectorsClient({
               type="button"
               onClick={() => handleReplaceGoogle("gsc")}
               disabled={isPending}
-              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+              className="min-h-11 rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
               title="Pick a different Google account for Search Console. The current connection is kept until the new account grants access."
             >
               Replace Google account
@@ -695,7 +695,7 @@ export function ConnectorsClient({
               type="button"
               onClick={handleDisconnect}
               disabled={isPending}
-              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+              className="min-h-11 rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
               title="Disconnects Google Search Console. Historical data stays cached; no new data refreshes until you reconnect."
             >
               {isPending ? "Disconnecting…" : "Disconnect Google"}
@@ -766,7 +766,7 @@ export function ConnectorsClient({
               type="button"
               onClick={handleConnect}
               disabled={isPending}
-              className="shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+              className="min-h-11 shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
             >
               {isPending ? "Connecting…" : "Connect Google Search Console"}
             </button>
@@ -862,7 +862,7 @@ export function ConnectorsClient({
                   handleConnectorSyncNow(syncGa4Now, setGa4SyncPending, setGa4SyncResult)
                 }
                 disabled={ga4SyncPending || isPending}
-                className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+              className="min-h-11 rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
               >
                 {ga4SyncPending ? "Syncing…" : "Pull your data now"}
               </button>
@@ -874,7 +874,7 @@ export function ConnectorsClient({
               type="button"
               onClick={() => handleReplaceGoogle("ga4")}
               disabled={isPending}
-              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+              className="min-h-11 rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
               title="Pick a different Google account for Analytics. The current connection is kept until the new account grants access."
             >
               Replace Google account
@@ -883,7 +883,7 @@ export function ConnectorsClient({
               type="button"
               onClick={handleDisconnectGa4}
               disabled={isPending}
-              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+              className="min-h-11 rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
               title="Soft disconnect: historical data stays cached but no new data refreshes until you reconnect."
             >
               {isPending ? "Disconnecting…" : "Disconnect"}
@@ -904,7 +904,7 @@ export function ConnectorsClient({
                 type="button"
                 onClick={() => void handleLoadGa4Properties()}
                 disabled={ga4PropertiesLoading || isPending}
-                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
+              className="min-h-11 rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
               >
                 {ga4PropertiesLoading
                   ? "Loading properties…"
@@ -981,7 +981,7 @@ export function ConnectorsClient({
               type="button"
               onClick={handleConnectGa4}
               disabled={isPending}
-              className="shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+              className="min-h-11 shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
             >
               {isPending ? "Connecting…" : "Connect Google Analytics"}
             </button>
@@ -1046,7 +1046,7 @@ export function ConnectorsClient({
                 handleConnectorSyncNow(syncClarityNow, setClaritySyncPending, setClaritySyncResult)
               }
               disabled={claritySyncPending || isPending}
-              className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+              className="min-h-11 rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
             >
               {claritySyncPending ? "Syncing…" : "Pull your data now"}
             </button>
@@ -1054,7 +1054,7 @@ export function ConnectorsClient({
               type="button"
               onClick={() => handleSimpleDisconnect(disconnectClarity, setClarity)}
               disabled={isPending}
-              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+              className="min-h-11 rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
             >
               Disconnect
             </button>
@@ -1103,7 +1103,7 @@ export function ConnectorsClient({
                 }
                 disabled={isPending || !clarityTokenInput.trim()}
                 aria-describedby="clarity-connect-hint"
-                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
+              className="min-h-11 rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
               >
                 Connect Clarity
               </button>

@@ -321,7 +321,7 @@ export async function resolveEngineModel(engine: LlmEngine, deps: FunnelBoundary
   if (row && row.status === "ready" && row.payload != null && Date.parse(row.expires_at) > now.getTime()) {
     envelope = row.payload as ProviderEnvelope;
   } else {
-    const t = await runDataForSeoTransport({ url: `${DFS_API_BASE}/${path}`, payload: [], estCostUsd: 0, env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence-models", method: "GET" });
+    const t = await runDataForSeoTransport({ url: `${DFS_API_BASE}/${path}`, payload: [], env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence-models", method: "GET" });
     if (t.ok && (t.body as { status_code?: number } | null)?.status_code === 20000) {
       envelope = t.body as ProviderEnvelope;
       await d.cacheUpsert(cacheKey, {

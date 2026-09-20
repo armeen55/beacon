@@ -2,32 +2,36 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("server-only", () => ({}));
 const STORE = "customer-surface";
-const durable = vi.hoisted(() => ({ rows: null as unknown[] | null, fail: false as boolean | string, keys: [] as string[] }));
+const durable = vi.hoisted(() => ({ rows: null as unknown[] | null, fail: false as boolean | string, keys: [] as string[], tables: [] as string[] }));
 vi.mock("@/lib/tenant-context", async (orig) => ({ ...(await orig() as object), slugForTenantId: async (id: string) => id })); // Path resolution asks for a tenant's slug; that is not what this test is about, so it answers deterministically.
 vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => ({
-    from: () => ({ select: () => ({ eq: (_c: string, key: string) => ({ maybeSingle: async () => {
-      if (!String(key).startsWith(STORE)) return { data: null, error: null }; // ONLY the store under test answers here; every other key a path resolution touches reads as "no row", so this fixture cannot accidentally reshape where the store resolves to.
-      durable.keys.push(String(key));
-      if (durable.fail) return durable.fail === true ? { data: null, error: { message: "read timed out", code: "57014" } }
+    from: (table: string) => ({ select: () => ({ eq: (_c: string, key: string) => {
+      durable.tables.push(table); const query = { order: () => query, limit: () => query, maybeSingle: async () => {
+        if (!String(key).startsWith(STORE)) return { data: null, error: null }; // ONLY the store under test answers here; every other key a path resolution touches reads as "no row", so this fixture cannot accidentally reshape where the store resolves to.
+        durable.keys.push(String(key)); if (durable.fail) return durable.fail === true ? { data: null, error: { message: "read timed out", code: "57014" } }
         : durable.fail === "throw" ? Promise.reject(new Error("client init failed"))
           : { data: null, error: { message: "schema cache stale", code: durable.fail } };
-      return { data: durable.rows == null ? null : { content: durable.rows }, error: null };
-    } }) }) }),}),}));
+        return { data: durable.rows == null ? null : { content: durable.rows }, error: null }; } }; return query;
+    } }) }),}),}));
 /** How many times the DURABLE BLOB for this key was asked for, ignoring any other read a path resolution makes. */
 const blobReads = (tenant: string): number => durable.keys.filter((k) => k.includes(tenant)).length;
-import { readStore } from "@/lib/persistence/json-store";
+import { readStore, writeStore } from "@/lib/persistence/json-store";
 
 let clock = 1_000_000;
-beforeEach(() => { clock = 1_000_000; vi.useFakeTimers(); vi.setSystemTime(clock); durable.rows = null; durable.fail = false; durable.keys = []; });
+beforeEach(() => { clock = 1_000_000; vi.useFakeTimers(); vi.setSystemTime(clock); durable.rows = null; durable.fail = false; durable.keys = []; durable.tables = []; });
 afterEach(() => { vi.useRealTimers(); });
 const age = (ms: number) => { clock += ms; vi.setSystemTime(clock); };
 
 describe("a mirrored store refreshes, and a failed refresh keeps the last known good", () => {
+  it("cannot bypass the atomic release publisher through the generic writer", async () => {
+    await expect(writeStore(STORE, [{ release: "unranked" }], { tenantId: "t-one" })).rejects.toThrow("publishCustomerRelease");
+  });
   it("holds row A through an outage, retries in a bounded way, and takes row B when the durable read returns", async () => {
     const A = [{ release: "A" }], B = [{ release: "B" }];
     durable.rows = A;
     expect(await readStore(STORE, [], { tenantId: "t-one" }), "the saved release is read and cached").toEqual(A);
+    expect([durable.tables.includes("customer_surface_releases"), durable.tables.includes("json_store_blobs")]).toEqual([true, false]);
     const first = blobReads("t-one");
     expect(first, "the durable blob was asked for once").toBe(1);
 

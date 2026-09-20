@@ -57,6 +57,7 @@ export async function produceDifferentiation(ctx: ProducerCtx, named: readonly s
     for (const field of ["title", "h1", "answer_block"] as const) {
       const done = await ctx.draft.pageField({
         field, body, delivery: field === "answer_block" ? "opening" : undefined, query: subject, minutes: effortMinutesFor(field === "answer_block" ? "opening_answer" : field),
+        ...(field === "answer_block" ? { informationNeed: { question: subject, requiredAtomKeys: [`cannibalization:${path}:${subject}`], polarity: "supports" as const, voice: "publisher" as const, deliveryMode: "inline" as const }, standard: "repositioning" as const } : {}),
         // THE PROVEN OWNER OF THE SEARCH IS NEVER STEERED OFF IT. Told to write every page "narrower than" the
         // shared search, the drafter took "Girl Names" out of the title of the page whose own strongest search is
         // "persian girl names": the card would have cost the operator the very clicks it was measured on. The

@@ -9,13 +9,15 @@ import {
 } from "@/domains/runtime";
 import { SHOWN_FIELDS, isProfileConfirmed } from "@/domains/runtime/onboarding-store";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
+import spend from "@/lib/cost/spend-reservations";
 import { CONNECTOR_REGISTRY } from "@/lib/connectors/registry";
 import { historyNote } from "@/app/(shell)/settings/config/tracked-prompts-section";
-import { reserveOnboardingSpend, reconcileOnboardingSpend } from "@/domains/decision/llm/adjudicator-budget";
 import { getTenantLifetimeSpendUsd } from "@/lib/cost/budget-ledger-supabase";
 let ledger = { usd: 0, has: false };
 let ledgerThrows = false;
 let ledgerWriteFails = false;
+let reservationSeq = 0;
+const reservations = new Map<string, { estimate: number; state: string }>();
 function guard() { if (ledgerThrows) throw new Error("ledger unreadable"); }
 function chain(): any {
   let insertRow: any = null, updateRow: any = null;
@@ -32,7 +34,17 @@ function chain(): any {
     }).then(res, rej),};
   return p;}
 vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...(await orig<Record<string, unknown>>()),
-  getSupabaseAdmin: () => ({ from: () => chain(), rpc: async (_fn: string, a: any) => { guard(); if (ledgerWriteFails) return { data: null, error: { message: "write failed" } }; ledger = { usd: Math.max(0, ledger.usd + (Number(a.p_delta) || 0)), has: true }; return { data: true, error: null }; } }),
+  getSupabaseAdmin: () => ({ from: () => chain(), rpc: async (fn: string, a: any) => {
+    guard(); if (ledgerWriteFails) return { data: null, error: { message: "write failed" } };
+    if (fn === "reserve_spend") { const estimate = Number(a.p_estimated_usd) || 0, cap = a.p_lifetime_cap_usd == null ? Infinity : Number(a.p_lifetime_cap_usd);
+      if (ledger.usd + estimate > cap + 1e-9) return { error: null, data: [{ outcome: "refused_lifetime", attempt_id: null, attempt_ordinal: null, reservation_state: null, reporting_day: "2026-07-23", estimated_usd: estimate, actual_usd: null, provider_task_id: null }] };
+      const id = `onboarding-${reservationSeq += 1}`; reservations.set(id, { estimate, state: "reserved" }); ledger = { usd: ledger.usd + estimate, has: true };
+      return { error: null, data: [{ outcome: "reserved", attempt_id: id, attempt_ordinal: 1, reservation_state: "reserved", reporting_day: "2026-07-23", estimated_usd: estimate, actual_usd: null, provider_task_id: null }] }; }
+    const held = reservations.get(String(a.p_attempt_id));
+    if (fn === "claim_spend_transmission") { if (held) held.state = "transmitted"; return { error: null, data: held ? "claimed" : "unavailable" }; }
+    if (fn === "reconcile_spend" && held) { ledger = { usd: Math.max(0, ledger.usd + Number(a.p_accounted_usd) - held.estimate), has: true }; held.state = "reconciled"; return { error: null, data: true }; }
+    if (fn === "release_spend" && held) { ledger = { usd: Math.max(0, ledger.usd - held.estimate), has: true }; held.state = "released"; return { error: null, data: true }; }
+    return { data: false, error: null }; } }),
   isSupabaseConfigured: () => true,}));
 const NOW = new Date("2026-07-24T00:00:00Z"); // ── in-memory world ─────────────────────────────────────────────────────────
 type TenantRow = { status: Account["status"]; domain: string; growth_goal: string | null; tos: string | null };
@@ -95,13 +107,21 @@ const inferValue = (sourceUrls: string[]) => ({ value: {
   name: "Acme Rugs", businessType: "local_service", siteArchetype: null, offerings: ["rug cleaning"], audiences: ["homeowners"],
   customerProblems: ["dirty rugs"], geographicScope: ["denver"], differentiators: ["same day service"], trustClaims: ["insured"],
   topicsToOwn: ["rug care"], topicsToExclude: [], importantPages: ["https://acme.test/"], confidence: 0.7, sourceUrls } });
-const completeInfer = (sourceUrls: string[]): CompleteFn => async () => inferValue(sourceUrls);
+const atomicComplete = (inner: CompleteFn): CompleteFn => async (args) => {
+  const rv = await spend.reserve({ tenantId: args.tenantId, ...args.spend }).catch(() => null);
+  if (!rv?.attemptId || rv.outcome !== "reserved") return { error: "blocked_budget", failure: "budget", retryable: false, httpAttempts: 0 };
+  if (await spend.claimTransmission(rv.attemptId) !== "claimed") return { error: "blocked_budget", failure: "budget", retryable: false, httpAttempts: 0 };
+  const out = await inner(args), costUsd = 0.005;
+  if (!(await spend.reconcile(rv.attemptId, costUsd, `response-${rv.attemptId}`))) return { error: "spend_reconciliation_failed", failure: "transient", retryable: false, httpAttempts: 1 };
+  return "error" in out ? { ...out, httpAttempts: 1, costUsd } : { ...out, httpAttempts: 1, provenance: { tenantId: args.tenantId, responseId: `response-${rv.attemptId}`, requestedModel: "test", servedModel: "test", status: "completed", createdAt: 1, inputTokens: 1, outputTokens: 1, costUsd, retryCount: 0 } };
+};
+const completeInfer = (sourceUrls: string[]): CompleteFn => atomicComplete(async () => inferValue(sourceUrls));
 const completeRefuse: CompleteFn = async () => ({ error: "refusal", retryable: false });
 const INTENTS = ["category", "problem", "comparison", "commercial", "factual", "trust", "brand"] as const;
 const WORDS = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet", "kilo", "lima", "mike", "november", "oscar"];
 const completeCandidates: CompleteFn = async () => ({ value: { groups: INTENTS.map((intent) => ({
   slug: `g-${intent}`, name: `${intent} topics`, intent, prompts: WORDS.map((word, i) => ({ text: `${intent} ${word} question`, recommended: i < 4 })) })) } });
-beforeEach(() => { ledger = { usd: 0, has: false }; ledgerThrows = false; ledgerWriteFails = false; });
+beforeEach(() => { ledger = { usd: 0, has: false }; ledgerThrows = false; ledgerWriteFails = false; reservationSeq = 0; reservations.clear(); });
 const A = "tenant-aaaa1111";
 const B = "tenant-bbbb2222";
 const activeCore = (w: ReturnType<typeof makeWorld>, id: string) => w.prompts.filter((p) => p.tenant_id === id && p.is_active && p.tags.includes("core_v1"));
@@ -244,16 +264,17 @@ describe("onboarding contract (Slice 5)", () => {
     expect((await inferProfile(A, { ...w.deps, complete: completeInfer(["https://acme.test/"]) })).source).toBe("site_read");
     ledgerThrows = false;
     ledger = { usd: 0, has: false }; ledgerWriteFails = true;
-    expect((await reserveOnboardingSpend(0.02, { tenantId: A })).allowed).toBe(false);
+    expect(await spend.reserve({ tenantId: A, platform: "onboarding-openai", purpose: "onboarding", logicalKey: "failed", estimatedUsd: 0.02, lifetimeCapUsd: 2 }).then(() => true).catch(() => false)).toBe(false);
     ledgerWriteFails = false; ledger = { usd: 0, has: false };
-    expect((await reserveOnboardingSpend(0.02, { tenantId: A })).allowed).toBe(true);
+    const held = await spend.reserve({ tenantId: A, platform: "onboarding-openai", purpose: "onboarding", logicalKey: "held", estimatedUsd: 0.02, lifetimeCapUsd: 2 }); expect(held.outcome).toBe("reserved");
     ledgerWriteFails = true;
-    await reconcileOnboardingSpend(0.02, 0.005, { tenantId: A }); // the refund write fails
+    await spend.reconcile(held.attemptId!, 0.005); // the exact-cost reconcile fails, so the conservative reservation remains
     ledgerWriteFails = false;
     expect(await getTenantLifetimeSpendUsd(A, "onboarding-openai")).toBeCloseTo(0.02, 6); // not reduced to the real 0.005
     ledger = { usd: 1.98, has: true };
-    const r1 = await reserveOnboardingSpend(0.02, { tenantId: A }); const r2 = await reserveOnboardingSpend(0.02, { tenantId: A });
-    expect([r1.allowed, r2.allowed].filter(Boolean).length).toBe(1);});
+    const reserve = (logicalKey: string) => spend.reserve({ tenantId: A, platform: "onboarding-openai", purpose: "onboarding", logicalKey, estimatedUsd: 0.02, lifetimeCapUsd: 2 });
+    const r1 = await reserve("concurrent-1"), r2 = await reserve("concurrent-2");
+    expect([r1.outcome, r2.outcome].filter((x) => x === "reserved").length).toBe(1);});
   it("12. an already-active account is never mutated by onboarding commands", async () => {
     const w = makeWorld();
     seedPending(w, A, { status: "active", domain: "live.com", growth_goal: "grow" });

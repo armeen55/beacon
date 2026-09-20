@@ -58,6 +58,7 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";
+const CUSTOMER_SURFACE_TABLE = "customer_surface_releases";
 
 /** PostgREST "table missing" (42P01) or "schema cache" (PGRST205) - treat as not-migrated-yet. */
 function isMissingBlobsTable(error: { code?: string } | null | undefined): boolean {
@@ -67,10 +68,14 @@ function isMissingBlobsTable(error: { code?: string } | null | undefined): boole
 
 /** MISSING IS NOT UNAVAILABLE. This answered `null` to both "no row for this key" and "could not be read", so the caller could only treat the second as the first: after a mirrored key aged out, one transient Supabase failure sent the read to a file hosted does not have, then to the caller's `[]`, which was cached and stamped freshly read, and a saved release could disappear from Today and Changes for the length of a TTL while valid truth sat in hand. A missing TABLE is configuration rather than an outage, so it stays `reachable` and keeps the file behaviour local and test runs have always had. */
 type Mirror = { rows: unknown[] | null; reachable: boolean };
-async function readMirroredBlob(scopeKey: string): Promise<Mirror> {
+async function readMirroredBlob(scopeKey: string, storeName: string): Promise<Mirror> {
   try {
     const { getSupabaseAdmin } = await import("./supabase");
-    const { data, error } = await getSupabaseAdmin().from(BLOBS_TABLE).select("content").eq("scope_key", scopeKey).maybeSingle();
+    const query = getSupabaseAdmin().from(storeName === "customer-surface" ? CUSTOMER_SURFACE_TABLE : BLOBS_TABLE)
+      .select("content").eq("scope_key", scopeKey);
+    const { data, error } = storeName === "customer-surface"
+      ? await query.order("generation", { ascending: false }).limit(1).maybeSingle()
+      : await query.maybeSingle();
     if (error != null) {
       // EVERY DATABASE ERROR IS UNAVAILABLE, a missing table included: PGRST205 is a schema-cache incident as
       // often as it is configuration, and classing it reachable let one such error erase a warm known-good
@@ -209,7 +214,7 @@ export async function releaseScope(name: string, key: string, owner: string): Pr
   }
 }
 
-export async function readStore<T>(name: string, fallback?: T[], opts: { tenantId?: string } = {}): Promise<T[]> {
+export async function readStore<T>(name: string, fallback?: T[], opts: { tenantId?: string; forceRefresh?: boolean } = {}): Promise<T[]> {
   const resolved = await resolveDataPath(name, opts.tenantId);
 
   if (resolved.scope === "unknown") {
@@ -219,13 +224,13 @@ export async function readStore<T>(name: string, fallback?: T[], opts: { tenantI
     );
   }
 
-  if (warm(name, resolved.cacheKey)) return cache.get(resolved.cacheKey) as T[];
+  if (!opts.forceRefresh && warm(name, resolved.cacheKey)) return cache.get(resolved.cacheKey) as T[];
 
   // Mirrored stores: the durable Supabase blob wins when present (this is what makes
   // the research caches exist on hosted prod). Missing row/table/env -> file as before.
   let degraded = false;
   if (SUPABASE_MIRRORED_STORES.has(name)) {
-    const mirror = await readMirroredBlob(resolved.cacheKey);
+    const mirror = await readMirroredBlob(resolved.cacheKey, name);
     if (mirror.rows != null) { cache.set(resolved.cacheKey, mirror.rows); filledAt.set(resolved.cacheKey, Date.now()); return mirror.rows as T[]; }
     // A FAILED REFRESH KEEPS THE LAST KNOWN GOOD, stamping only a short retry rather than a full TTL: the rows are stale and never pretend to have been confirmed, but empty is not more true than they are.
     if (!mirror.reachable) {
@@ -269,6 +274,9 @@ export async function readStore<T>(name: string, fallback?: T[], opts: { tenantI
  * render's request scope). Omitted -> unchanged ambient behavior.
  */
 export async function writeStore<T>(name: string, data: T[], opts: { tenantId?: string } = {}): Promise<void> {
+  if (name === "customer-surface") {
+    throw new Error("[json-store] customer-surface writes require publishCustomerRelease so ranking and content commit atomically.");
+  }
   const resolved = await resolveDataPath(name, opts.tenantId);
   if (resolved.scope === "unknown") {
     throw new Error(

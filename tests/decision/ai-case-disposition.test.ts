@@ -50,7 +50,7 @@ vi.mock("@/lib/persistence/supabase", () => {
       db.rows.set(k, { tenant_id: tenant, case_key: r.caseKey, state: r.state, query: r.query,
         page_url: r.pageUrl ?? null, stage: r.stage ?? null, proposal_id: r.proposalId ?? null,
         reason: r.reason, days: r.days ?? 0, engines: r.engines ?? 0, parents: r.parents ?? 0,
-        executions: r.executions ?? 0, decided_at: r.decidedAt });
+        executions: r.executions ?? 0, decided_at: r.decidedAt, diagnosis: r.diagnosis ?? null });
       landed += 1;}
     return landed;};
   /** A builder chain whose every method chains and whose await resolves the answer. */
@@ -138,3 +138,11 @@ describe("a persisted diagnosis is decoded, never trusted", () => {
     expect([DIAGNOSIS_CONTRACT > 1, decodeDiagnosis({ ...ok, version: DIAGNOSIS_CONTRACT - 1 })], "the contract moved with its rules, and the previous version fails closed").toEqual([true, null]);
     expect(decodeDiagnosis({ ...ok, kind: "missing_information", treatment: "add_answer_section" }), "missing information decodes; the gate is what holds it acquisition-first").toMatchObject({ kind: "missing_information" });
     expect([freshDiagnosis(decodeDiagnosis(ok) ?? undefined, "pk"), freshDiagnosis(decodeDiagnosis(ok) ?? undefined, "OTHER")], "the exact packet is current; any other is stale").toEqual([true, false]); }); });
+
+it("round-trips the exact owned passage proof through the durable case row", async () => {
+  db.rows.clear(); db.rpcCalls = 0; db.failReads = false; db.failWrites = false;
+  const s = await import("@/domains/decision/ai-case-store"), diagnosis = { kind: "scattered_answer", treatment: "rewrite_existing_section", explanation: "The answer is split across two passages.", ownedIds: ["own-2", "own-4"], evidenceIds: [], packet: "packet-bound-to-every-input", contentHash: "page-revision-7", completeness: "complete", observationIds: ["obs-1"], version: s.DIAGNOSIS_CONTRACT, decidedAt: "2026-09-18T00:00:00.000Z" } as const;
+  await s.recordAiCaseDispositions("t", [filed({ caseKey: "prompt:proof", state: "actionable", diagnosis })]);
+  const back = await s.readAiCaseDispositions("t");
+  expect(back.state === "read" ? back.rows[0]?.diagnosis : null).toEqual(diagnosis);
+});

@@ -16,6 +16,7 @@ import { isCurrent } from "@/domains/evidence/freshness";
 import { answerIntelOf } from "@/domains/evidence/answer-intel";
 import { citesOwnSite } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
+import { COMPETITIVE_PATTERN } from "@/domains/evidence/competitive-pattern";
 import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { log } from "@/lib/logger";
@@ -95,7 +96,7 @@ async function promotedNeeds(tenantId: string, snapshot: EvidenceSnapshot, nowMs
 
 /** A subject whose winning pages I have ALREADY READ is not research any more: it is a decision, so it is never
  *  queued behind work that has barely started. Two read pages is the bar the page brief itself is written at. */
-const settled = (i: TopicInvestigation): number => (i.currentReadableWinners >= 2 ? 1 : 0);
+const settled = (i: TopicInvestigation): number => (i.currentReadableWinners >= COMPETITIVE_PATTERN.minimum ? 1 : 0);
 
 /** THE order every step reads. A subject one purchase from a verdict comes first, and then WHAT A PAGE OF YOURS STANDS TO WIN BACK: a search one of your own pages is already losing clicks on outranks a phrase with 300,000 searches you own no page for, whatever the volume says, because volume nobody of yours competes for is somebody else's business. Then fewest missing pieces, then demand, then the stable key, so the same evidence always advances the SAME topic whether it is being bought for, compared or judged. Research, never work. */
 export function rankInvestigations(investigations: readonly TopicInvestigation[],
@@ -151,9 +152,9 @@ function topicsFor(snapshot: EvidenceSnapshot, promoted: readonly string[] = [])
     covered.add(key);
     extra.push({ ...BARE, key: `owned::${key}`, label: q!.query, queries: [q!.query],
       demand: { ...BARE.demand, gscImpressions: q!.impressions },
-      missingEvidence: ["I have not looked at Google's results for this yet."],
+      missingEvidence: ["Google's results for this have not been checked yet."],
       nextAcquisition: { kind: "buy_serp", subject: q!.query,
-        why: "A page of yours already comes up for this and I have never looked at its results, so buying that one results page is what changes the answer." } });
+        why: "A page of yours already comes up for this, but its results have not been checked. One results page is the next evidence that can change the answer." } });
   }
   // AND THE SEARCHES NO PAGE OF THIS ACCOUNT IS FOR, banked by the producers and promoted by the rule above.
   // They enter as ordinary subjects with nothing filled in: the ladder buys the results page and decides.
@@ -162,7 +163,7 @@ function topicsFor(snapshot: EvidenceSnapshot, promoted: readonly string[] = [])
     if (!key || covered.has(key) || extra.length >= MAX_OWNED_TOPICS + MAX_PROMOTED_TOPICS) continue;
     covered.add(key);
     extra.push({ ...BARE, key: `needs::${key}`, label: q, queries: [q],
-      missingEvidence: ["I have not looked at Google's results for this yet."],
+      missingEvidence: ["Google's results for this have not been checked yet."],
       nextAcquisition: { kind: "buy_serp", subject: q,
         why: "Pages of yours share the words in this search and every one of them is for something else, so buying that one results page is what says whether a page of your own is owed." } });
   }

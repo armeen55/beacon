@@ -18,7 +18,7 @@ const iso = (ms = NOW) => new Date(ms).toISOString();
 const SITES = [{ t: "acct-reef", url: "/tide-pool-guide", topic: "tide pool safety" }, { t: "acct-loom", url: "/blackwork-stitches", topic: "ordre des points" }] as const;
 const ckey = (t: string, ms = NOW) => `${t}:${new Date(ms).toISOString().slice(0, 10)}`;
 const mk = (o: Partial<RR.ResearchRun>): RR.ResearchRun => ({ id: "seed", tenant_id: "t", cycle_key: ckey("t", NOW), status: "paused", current_phase: "refresh_sources", phase_cursor: null,
-  progress: {}, spend_usd: 0, last_error: null, lease_owner: null, lease_expires_at: null, started_at: iso(), updated_at: iso(), completed_at: null, ...o });
+  progress: {}, spend_usd: 0, last_error: null, lease_owner: null, lease_expires_at: null, started_at: iso(), updated_at: iso(), completed_at: null, next_dispatch_at: null, dispatch_reason: null, dispatch_plan: null, dispatch_attempts: 0, ...o });
 function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } { const rows: RR.ResearchRun[] = [];
   const find = (id: string, t: string) => rows.find((x) => x.id === id && x.tenant_id === t);
   const open = (t: string) => rows.filter((r) => r.tenant_id === t).reverse().find((x) => x.status === "running" || x.status === "paused");
@@ -34,6 +34,7 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } { const
     async finish({ tenantId, id, owner, outcome, errorInfo, spendUsd }) { const r = find(id, tenantId); if (!r || r.lease_owner !== owner) return false;
       Object.assign(r, { status: outcome, lease_owner: null, lease_expires_at: null, last_error: outcome === "completed" ? null : errorInfo ?? null,
         ...(typeof spendUsd === "number" ? { spend_usd: spendUsd } : {}), ...(outcome === "completed" ? { current_phase: "done", completed_at: iso() } : {}) }); return true; },
+    async patchProgress({ tenantId, id, patch }) { const r = find(id, tenantId); if (!r) return null; r.progress = { ...r.progress, ...patch } as RR.ResearchRunProgress; return r.progress; },
     async latest(t) { const m = rows.filter((r) => r.tenant_id === t).at(-1); return m ? { ...m } : null; },
     async sameDay() { return []; } }; return { repo, rows }; }
 const freshRepo = (): RR.ResearchRun[] => { const { repo, rows } = memRepo(); RR.setResearchRunRepoForTests(repo); return rows; };
@@ -41,7 +42,7 @@ const NO_CHECKS = { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 
 const DUE: DueWork = { due: ["daily_observations"], readable: true, checks: NO_CHECKS, cases: { active: 0, parked: 0 }, nextDueAt: null, evidenceVersion: null, winners: { unread: 0, unranked: 0 } };
 const BENIGN: ResearchCycleSteps = { dueWork: async () => DUE, evidenceVersion: async () => null, reconcileCases: async () => {},
   acquireEvidence: async () => ({ acquired: false, detail: "no acquisition in this fixture" }), collectBought: async () => ({ pending: 0, ready: 0 }),
-  replenishReady: async () => null, researchOwed: async () => [], dayStanding: async () => NO_CHECKS, strandedToday: async () => [],
+  replenishReady: async () => null, researchOwed: async () => [], dayStanding: async () => NO_CHECKS,
   refreshSources: async () => ({ attempted: 0, succeeded: [], failures: [] }), backfillChunk: async () => ({ kind: "no_work" }), crawlPages: async () => 0,
   investigationFocus: async () => null, funnelUnit: async () => ({ status: "done", cursor: null, progress: {} }), currentBasis: async () => "basis_rv4",
   publishSurface: async () => {}, surfaceStale: async () => false, factCheck: async () => ({ status: "done" as const, banked: 0, bankedPages: [], pagesComplete: 0 }),

@@ -1,8 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { deliverableFailures } from "@/domains/decision/drafted-copy";
+import { deliverableFailures, draftFieldForPage } from "@/domains/decision/drafted-copy";
 import { ASSIGNMENT_EDITOR, assignmentOf } from "@/domains/decision/assignment";
-import { comparisonTopics, jobComparison } from "@/domains/evidence/comparison";
-import HUB from "../fixtures/hub-packet.json";
 import type { SourcePacket } from "@/domains/decision/drafted-copy";
 
 const SITES = [
@@ -25,6 +23,7 @@ const packetOf = (s: Site, over: Partial<SourcePacket> = {}): SourcePacket => ({
   evidence: { "page-title": s.title, "page-copy-1": s.passage, "fact-1": `${s.says} https://source.example says "${s.says}"` },
   checkedSentences: [s.says], trackedQuestion: s.queries[0]!, diagnosedProblem: "the page does not answer this search",
   gap: { kind: "missing_answer", propositions: [s.prop] }, ownedPaths: [], bannedTerms: [],
+  informationNeed: { question: s.queries[0]!, requiredAtomKeys: ["atom-1"], polarity: "supports", voice: "publisher", deliveryMode: "headed" }, answerAtoms: [{ key: "atom-1", evidenceId: "fact-1", polarity: "supports", voice: "publisher" }],
   demand: { preserve: [], vocabulary: [], unanswered: [] },
   comparison: { queries: [...s.queries], keep: [s.passage], verdict: "names",
     winners: [{ url: `https://${s.winner}/page`, publisher: s.winner, publisherClass: "publisher", truncated: false, held: s.quote,
@@ -38,7 +37,7 @@ describe("what one assignment carries", () => {
     it(`${s.t}: a body row carries all eight things the work needs, and the reader's task is the whole intent group`, () => {
       const a = assignmentOf(packetOf(s), null, "answer_block")!;
       expect(deliverableFailures({ actionType: "answer_block", targetUrl: s.url, placementAnchor: s.passage, beforeText: s.passage, finalCopy: s.says, naturalHeading: null, claims: [{ text: s.says, supportedBy: ["fact-1"] }], supportFacts: [], evidenceIdsUsed: ["fact-1"], uncertaintyOrOmitted: [], implementationMinutes: 2, measurementTarget: s.queries[0] }, { ...packetOf(s), assignment: a }), "a contextual addition may never acquire deletion scope from the writer").toContain("this assignment adds copy and deletes nothing, but the draft replaces existing words");
-      expect([a.shape, a.maxSentences, a.anchor, a.format.includes("adjacent passage"), a.format.includes("reader-facing question heading")], "the reader task chooses a contextual insertion or a standalone section, never the count of checked facts").toEqual([undefined, undefined, s.passage, true, true]);
+      expect([a.shape, a.maxSentences, a.anchor, a.deliveryMode, a.format.includes("descriptive heading")], "the producer fixes a complete delivery mode before drafting").toEqual(["section", undefined, s.passage, "headed", true]);
       expect([a.intent.includes(s.queries[0]!), a.intent.includes(s.queries[1]!)], "the reader's task is every phrasing of the group, never the one string the card was minted under").toEqual([true, true]);
       expect([a.propositions, ["answer_block", "section", "replacement", "restructure", "field"].includes(a.treatment), a.placement, a.keep, a.facts, a.observations?.map((o) => [o.publisher, o.publisherClass, o.quote]), a.completionTest.includes(s.prop)],
         "the diagnosed gap, a typed treatment, the placement, the material to keep, the checked statements with their sentences, the competitor observations with their quotes and classes, and the improvement in one sentence").toEqual([
@@ -69,14 +68,11 @@ describe("what one assignment carries", () => {
         "the page-context line answers the same question the same way, so a restructuring is never told to assemble what it may not use, and what it may not repeat is the arrangement rather than the material").toEqual([true, true, true, true]);
     });
 
-    it(`${s.t}: a proposition nothing checked carries is never both what a reader must know and what may not be stated`, () => {
-      const bare = assignmentOf(packetOf(s, { evidence: { "page-title": s.title, "page-copy-1": s.passage }, checkedSentences: [] }), null, "answer_block")!;
-      const must = ASSIGNMENT_EDITOR.lines(bare).find((l) => l.startsWith("WHAT A READER MUST KNOW")) ?? "";
-      const half = s.prop.split(" ").slice(0, -2).join(" "), refuted = assignmentOf(packetOf(s, { evidence: { "page-title": s.title, "page-copy-1": s.passage }, checkedSentences: [], refuted: [half] }), null, "answer_block")!, line = (a: typeof bare, starts: string) => ASSIGNMENT_EDITOR.lines(a).some((l) => l.startsWith(starts));
-      expect([bare.forbidden, bare.unbacked, must.includes(s.prop), must.includes(s.queries[0]!), bare.completionTest.includes(s.prop), bare.completionTest.includes(s.queries[0]!), /sentences of your own/.test(bare.mustLeadWith), line(bare, "NAMED BY THE DIAGNOSIS AND CARRIED BY NOTHING CHECKED: state it only where this page already states it"), refuted.forbidden, refuted.unbacked, line(refuted, "CONTRADICTED BY A SOURCE ON FILE")],
-        "WRITE FIRST (Stage 3): on additive work the unsupported proposition is UNBACKED, so a reader must know it and the writer is told to state it where the page states it with one caveat line; the completion test still falls to the reader's own task; a wording a source on file refutes is FORBIDDEN, and the unsupported proposition overlapping it is in BOTH lists, never in neither").toEqual([[], [s.prop], true, false, false, true, true, true, [half, s.prop], [s.prop], true]);
-      const kept = assignmentOf(packetOf(s), null, "answer_block")!;
-      expect([kept.forbidden, kept.completionTest.includes(s.prop)], "and a proposition a checked fact carries is deliverable, so the completion test names it").toEqual([[], true]);
+    it(`${s.t}: exact atom polarity and publisher voice fail closed`, () => {
+      const atoms = (polarity: "supports" | "contradicts" | "unknown", voice: "publisher" | "container", key = "atom-1") => [{ key, evidenceId: "fact-1", polarity, voice }];
+      expect([assignmentOf(packetOf(s, { answerAtoms: atoms("contradicts", "publisher") }), null, "answer_block"), assignmentOf(packetOf(s, { answerAtoms: atoms("unknown", "publisher") }), null, "answer_block"), assignmentOf(packetOf(s, { answerAtoms: atoms("supports", "container") }), null, "answer_block"), assignmentOf(packetOf(s, { answerAtoms: atoms("supports", "publisher", "other") }), null, "answer_block")],
+        "contradiction, unknown proof, container narration, and an unbound atom never become assignments").toEqual([null, null, null, null]);
+      expect(assignmentOf(packetOf(s), null, "answer_block")?.informationNeed?.requiredAtomKeys).toEqual(["atom-1"]);
     });
 
     it(`${s.t}: no line of a body brief is a lesson about a language, a script or a spelling`, () => {
@@ -93,27 +89,14 @@ describe("what one assignment carries", () => {
     });
   }
 
-  it("the captured hub packet's brief carries no contradictory pair, and the winners are read for the question's subject", () => {
-    const q = HUB.card.primaryQuery, body = HUB.body.passages.join(" ");
-    const cmp = jobComparison(HUB.research as never, [q], { url: HUB.body.url, text: body, headings: HUB.body.headings, passages: HUB.body.passages });
-    const a = assignmentOf({ ...packetOf(SITES[0]!), targetUrl: HUB.body.url, title: HUB.body.title, h1: HUB.body.h1, bodyText: body, headings: HUB.body.headings,
-      evidence: Object.fromEntries(HUB.body.passages.map((t, i) => [`page-copy-${i + 1}`, t])), checkedSentences: [], comparison: cmp, trackedQuestion: q,
-      gap: { kind: "incomplete_answer", propositions: [comparisonTopics(cmp)[0]!.topic] } } as unknown as SourcePacket, null, "answer_block")!;
-    const lines = ASSIGNMENT_EDITOR.lines(a), at = (x: string): string => lines.find((l) => l.startsWith(x)) ?? "";
-    expect([a.forbidden.length, a.unbacked?.length, at("WHAT A READER MUST KNOW").includes(a.unbacked![0]!), a.completionTest.includes(a.unbacked![0]!), at("WHAT A READER MUST KNOW").includes(q), a.completionTest.includes(q)],
-      "the one thing nothing checked carries is unbacked, not forbidden: a reader must know it, and the completion test is the reader's own search").toEqual([0, 1, true, false, false, true]);
-    expect([/never material for the new copy/.test(at("PAGE CONTEXT")) && /state only what the page's own words carry/.test(a.mustLeadWith), /\bscripts?\b|romaniz|the form you explain/i.test(lines.join(" ")), at("MUST PRESERVE").includes("nothing on the page is deleted or rewritten") && !!a.replaces],
-      "no line orders the page's own words as the only material while another rules them out, no line is a lesson about a language, and nothing is told to preserve a passage it replaces").toEqual([false, false, false]);
-    const shown = cmp.winners.find((w) => w.observations.length > 0)!;
-    expect([shown.held.length > 0, shown.observations.every((o) => shown.held.includes(o.quote) || body.length > 0), cmp.winners.some((w) => !w.heldWhole), cmp.verdict],
-      "the winner is read where it answers this search, the capture is bigger than one reading, and a partly shown winner leaves the verdict short of the fact that they name nothing").toEqual([true, true, true, "names"]);
-    /* A GAP READ OFF THE WINNERS IS A HYPOTHESIS, NEVER A FACT (campaign, 2026-09-06): the observation names a section, an arrangement or an answer this page could carry, and its new factual content stands on a checked fact or is filed as one for the evidence path to source. The rival's own sentence is never the thing to state. */
-    /* AND ONCE THAT SUBJECT'S SOURCE IS ON FILE THE WRITER IS HIRED WITH IT (operator, 2026-09-06): the section is judged by the missing-answer standard, leads with the checked sentence rather than with the rival's, and the completion test names the subject the reader came for. */
-    const subject = comparisonTopics(cmp)[0]!.topic, says = `${subject} are set out in full by the source read for them.`;
-    const sourced = assignmentOf({ ...packetOf(SITES[0]!), targetUrl: HUB.body.url, bodyText: body, headings: HUB.body.headings, comparison: cmp, trackedQuestion: q, checkedSentences: [says], evidence: { ...Object.fromEntries(HUB.body.passages.map((t, i) => [`page-copy-${i + 1}`, t])), "fact-1": `${says} https://source.example says "${says}".` }, gap: { kind: "incomplete_answer", propositions: [subject] } } as unknown as SourcePacket, null, "answer_block")!;
-    expect([sourced.standard, sourced.forbidden, sourced.mustLeadWith.includes(says), sourced.completionTest.includes(subject), ASSIGNMENT_EDITOR.lines(sourced).find((l) => l.startsWith("DIAGNOSED GAP"))?.includes(`${subject}. That gap is a READING`)], "the sourced section answers to the missing-answer standard, nothing is left unsupported, the first sentence is the checked one, and the completion test names the subject").toEqual(["missing_answer", [], true, true, true]);
-    const plain = assignmentOf({ ...packetOf(SITES[0]!), gap: { kind: "missing_answer", propositions: [SITES[0]!.prop] } } as unknown as SourcePacket, null, "answer_block")!;
-    expect([at("DIAGNOSED GAP").includes("READING OF THE PAGES ALREADY WINNING THIS SEARCH"), at("DIAGNOSED GAP").includes("never a fact of its own"), at("DIAGNOSED GAP").includes("state a new fact only where a supporting fact below carries it"), ASSIGNMENT_EDITOR.lines(plain).some((l) => l.startsWith("DIAGNOSED GAP") && l.includes("READING OF THE PAGES"))],
-      "the brief names this gap kind as a reading of the winners, says the copy may state a new fact only where a checked fact carries it, and says so for this kind alone").toEqual([true, true, true, false]);
+  it("a rewritten acquisition subject remains bound to the original information atom", () => {
+    const s = SITES[0]!, rewritten = "seasonal access rules for the eastern seal nursery", key = "original-missing-topic";
+    const a = assignmentOf(packetOf(s, { gap: { kind: "missing_answer", propositions: [rewritten] }, informationNeed: { question: s.queries[0]!, requiredAtomKeys: [key], polarity: "supports", voice: "publisher", deliveryMode: "inline" }, answerAtoms: [{ key, evidenceId: "fact-1", polarity: "supports", voice: "publisher" }] }), null, "answer_block")!;
+    expect([a.propositions, a.facts, a.shape, a.deliveryMode, a.format.includes("without an outer heading")], "the acquired wording may change while its producer-issued atom identity and fixed delivery remain exact").toEqual([[rewritten], [{ id: "fact-1", says: s.says }], "inline_addition", "inline", true]);
+  });
+
+  it("an unknown required atom is refused before the writer call", async () => {
+    const s = SITES[0]!, calls: string[] = [], refusals = new Map<string, string>(); await draftFieldForPage({ field: "answer_block", body: { url: s.url, title: s.title, h1: s.h1, metaDescription: null, headings: [s.head], passages: [s.passage], vocabulary: s.passage, completeness: "complete", version: "current" } as never, query: s.queries[0]!, brief: "answer", evidenceHints: [], ownedPaths: [], minutes: 1, refusalKey: "row", informationNeed: { question: s.prop, requiredAtomKeys: ["unknown"], polarity: "supports", voice: "publisher", deliveryMode: "headed" } }, { tenantId: s.t, now: new Date("2026-09-19T00:00:00Z"), refusals, complete: (async () => (calls.push("paid"), { error: "must not run", retryable: false })) as never });
+    expect([calls.length, refusals.get("row")]).toEqual([0, "The information need is not completely bound to qualified facts and a delivery mode; research is owed before drafting."]);
   });
 });

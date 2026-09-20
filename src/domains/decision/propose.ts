@@ -119,7 +119,7 @@ export async function proposeExistingPageChange(
   const diagnosis = input.evidence.diagnosis;
   if (!readyForAction(diagnosis)) {
     return { status: "no_draft", reason: diagnosis?.explanation
-      ?? "I checked the results page, but it does not yet show that the title is the problem.", drafterStatus: "not_diagnosed" };
+      ?? "The checked results page does not yet show that the title is the problem.", drafterStatus: "not_diagnosed" };
   }
   const field = input.opportunity.field ?? "title";
   // THE MONEY IS SPENT ON THE NEXT LINE, SO THE BUDGET IS READ ON THIS ONE. This path drafted outside the pass's ceiling entirely, so the strongest few pages spent first and whatever was left over was what the ceiling then counted from.

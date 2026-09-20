@@ -7,6 +7,7 @@ const env = vi.hoisted(() => ({ snap: null as unknown }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) }));
 vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => store.rows,
+  terminalWorkKeys: async () => new Set<string>(), terminalProposalHistory: async () => ({ fingerprints: new Set<string>(), legacyMutationKeys: new Set<string>() }),
   saveChangeProposal: async (p: ChangeProposal, _t?: unknown, keep?: (r: ChangeProposal) => void) => { store.rows.set(p.id, p); keep?.(p); return "saved"; },
   withdrawnProposalIds: async () => store.withdrawn, withdrawChangeProposal: async () => true }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));

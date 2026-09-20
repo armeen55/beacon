@@ -1,6 +1,5 @@
 /** Account isolation for the structured-output cache and budget: per-account store, account-keyed hashes, explicit routing with owner stamping, scoped recentTexts, and fail-closed on a missing account. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: vi.fn(async () => ({ allowed: true, remaining: 10 })), recordSpend: vi.fn(async () => {}) })); // Budget seam: spy on the real adjudicator budget so we can assert the explicit account reaches the cap check + spend record (drafter uses these directly).
 const db = vi.hoisted(() => ({ rows: new Map<string, { scope_key: string; store_name: string; content: unknown; updated_at: string }>(), unavailable: false, unacknowledged: false, writes: 0 }));
 vi.mock("@/domains/account", async (original) => ({ ...await original<object>(), getTenant: async (id: string) => ({ id, slug: id }) }));
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ from: () => ({
@@ -10,7 +9,6 @@ vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ from: 
       limit: async (n: number) => ({ data: rows().slice(0, n), error: db.unavailable ? { message: "outage" } : null }) }; return query; },
   upsert: (row: { scope_key: string; store_name: string; content: unknown; updated_at: string }) => ({ select: async () => { db.writes++; if (!db.unavailable && !db.unacknowledged) db.rows.set(row.scope_key, JSON.parse(JSON.stringify(row))); return { data: db.unacknowledged ? [] : [{ scope_key: row.scope_key }], error: db.unavailable ? { message: "outage" } : null }; } }),
 }) }) }));
-import { checkBudget, recordSpend } from "@/domains/decision/llm/adjudicator-budget";
 import { callStructuredLLM, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import { storeCacheImpl, llmCallCacheKey, type CacheImpl, type LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
 import { classifyStore } from "@/lib/persistence/store-classification";
@@ -38,8 +36,6 @@ function seam(values: Array<{ value: unknown; provenance?: typeof RECEIPT } | { 
   const complete: CompleteFn = async () => { calls += 1; return values[Math.min(i++, values.length - 1)]!; };
   return { complete, calls: () => calls }; }
 beforeEach(() => {
-  (checkBudget as unknown as ReturnType<typeof vi.fn>).mockClear();
-  (recordSpend as unknown as ReturnType<typeof vi.fn>).mockClear();
   db.rows.clear(); db.unavailable = false; db.unacknowledged = false; db.writes = 0; });
 describe("the call cache is per-account, keyed by account", () => { // ── store classification + key isolation ─────────────────────────────────────
   it("independent durable entries survive concurrent writes, outage and failed acknowledgments without crossing accounts", async () => {
@@ -96,11 +92,10 @@ describe("callStructuredLLM keeps accounts isolated end to end", () => { // ─�
     const aKey = (cache.store.get("tenant-a") ?? [])[0]!.key; expect((cache.store.get("tenant-b") ?? []).some((e: LlmCallCacheEntry) => e.key === aKey)).toBe(false); // Account A's key is absent from account B's partition.
     for (const r of cache.recents) expect(["tenant-a", "tenant-b"]).toContain(r.tenantId); // De-templating asked for the right account every time, and an account that generated nothing sees nothing.
     expect([await cache.impl.recentTexts("tenant-c", "atomic_edit", 5), await cache.impl.recentTexts("tenant-a", "atomic_edit", 5)]).toEqual([[], [VALID.after]]);
-    expect(checkBudget).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "tenant-a" })); // And the money seams were told WHICH account, explicitly, never left to the ambient one.
-    expect(recordSpend).toHaveBeenCalledWith(0.0031, expect.objectContaining({ tenantId: "tenant-a" })); expect(recordSpend).toHaveBeenCalledTimes(1); }); // A RECEIPT IS BILLED TO ITS OWN ACCOUNT, and account B's receipt-less attempt is billed to nobody at all: no estimate stands in for a purchase that never happened.
+    expect(outA.status === "drafted" && outA.costUsd).toBe(0.0031); }); // The provider receipt remains exact; the gateway owns its one atomic ledger write.
   it("a MISSING account fails closed BEFORE cache, budget, or the completion fn", async () => {
     const cache = partitionedCache(); const s = seam([{ value: VALID }]);
     const out = await callStructuredLLM({ ...REQ, tenantId: "  ", complete: s.complete, cacheImpl: cache.impl });
     expect(out.status).toBe("validation_failed"); // zero calls on all three seams
     expect(out.status === "validation_failed" && out.reason).toBe("missing_tenant"); expect([s.calls(), cache.reads.length]).toEqual([0, 0]);
-    expect(checkBudget).not.toHaveBeenCalled(); expect(recordSpend).not.toHaveBeenCalled(); }); });
+  }); });

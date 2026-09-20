@@ -57,7 +57,7 @@ export function AppHeader({ rightSlot }: { rightSlot?: React.ReactNode }) {
         <Link
           href="/changes"
           prefetch={false}
-          className={`${rightSlot ? "ml-3" : "ml-auto"} rounded-md bg-foreground px-2.5 py-1 text-[11px] font-semibold text-background transition-colors hover:bg-foreground/85`}
+          className={`${rightSlot ? "ml-3" : "ml-auto"} inline-flex min-h-11 items-center rounded-md bg-foreground px-3 py-1 text-[11px] font-semibold text-background transition-colors hover:bg-foreground/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary`}
         >
           Changes
         </Link>

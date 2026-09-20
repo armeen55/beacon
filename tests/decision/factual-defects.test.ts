@@ -23,7 +23,7 @@ import { openHold } from "@/domains/decision/completeness";
 import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
 import { supabaseFake } from "../helpers/supabase-fake";
 import type { ChangeProposal } from "@/domains/decision/contracts";
-Object.assign(db.client, supabaseFake({ rows: () => db.rows, insertDefaults: () => ({ created_at: "2026-07-01T00:00:00.000Z" }) }));
+Object.assign(db.client, supabaseFake({ rows: () => db.rows, insertDefaults: () => ({ created_at: "2026-07-01T00:00:00.000Z" }), proposalRpc: true }));
 const factualDefectCards = FACTUAL_DEFECTS.cards, reviewFactualBundle = FACTUAL_DEFECTS.review;
 import { VERIFICATION_RULES_VERSION } from "@/domains/evidence/pages/fact-checks";
 import { claimTypeOf, deriveSupport } from "@/domains/evidence/pages/claim-support";

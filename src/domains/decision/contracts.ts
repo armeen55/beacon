@@ -5,7 +5,7 @@ import type { AuthoritativeFact } from "@/domains/decision/drafts/factual-entail
 import type { CauseFinding } from "./diagnosis";
 import type { Obligation } from "./obligation";
 import type { DraftResolution } from "./producers/contract";
-/** The editor's complete acceptance verdict, banked separately from claim entailment. */
+import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 export const EditorAcceptanceSchema = z.object({ pageFit: z.boolean(), usefulAndNatural: z.boolean(), placementCorrect: z.boolean(), resolvesDiagnosis: z.boolean(), implementableNow: z.boolean(), improvesPage: z.boolean(), wouldHandToCustomer: z.boolean(), contested: z.boolean().optional(), notes: z.string().min(1).max(300),
   preservation: z.array(z.object({ text: z.string().min(1), disposition: z.enum(["kept", "corrected", "removed", "moved"]), verified: z.boolean(), reason: z.string().min(1), after: z.string().min(1).nullable(), by: z.array(z.string().min(1)), to: z.string().min(1).nullable(), of: z.string().min(1).optional() })).optional(),
 });
@@ -16,14 +16,14 @@ export const PublicationUnitsSchema = z.array(z.union([
   z.object({ kind: z.literal("heading"), level: z.number().int().min(1).max(6), text: z.string().min(1) }),
   z.object({ kind: z.literal("ordered_list"), items: z.array(z.string().min(1)).min(1) }),
   z.object({ kind: z.literal("unordered_list"), items: z.array(z.string().min(1)).min(1) }),
-])).min(1);
+  z.object({ kind: z.literal("table"), columns: z.array(z.string().min(1)).min(2).max(8), rows: z.array(z.array(z.string().min(1)).min(2).max(8)).min(1).max(30) }),
+])).min(1).superRefine((units, ctx) => { for (const [i, unit] of units.entries()) if (unit.kind === "table") for (const [r, row] of unit.rows.entries()) if (row.length !== unit.columns.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [i, "rows", r], message: "table rows must match the declared columns" }); });
 type PublicationUnits = z.infer<typeof PublicationUnitsSchema>;
 const PublicationTargetSchema = z.union([
   z.object({ mode: z.enum(["opening", "whole_body"]), anchorKind: z.null(), anchor: z.null() }),
   z.object({ mode: z.enum(["after_block", "after_section", "under_heading", "replace"]), anchorKind: z.enum(["heading", "passage"]), anchor: z.string().min(1) }),
 ]).refine((t) => !["after_section", "under_heading"].includes(t.mode) || t.anchorKind === "heading", "Section targets require a heading anchor.");
 type PublicationTarget = z.infer<typeof PublicationTargetSchema>;
-/** The demand + page context for one opportunity. Structural on purpose: the  evidence assembler owns HOW these are computed, the kernel only consumes them. */
 export interface EvidenceInput {
   tenantId: string;
   page: { path: string | null; url: string | null; label: string };
@@ -35,17 +35,14 @@ export interface EvidenceInput {
     currentValue?: string | null;
     intent?: string;
   };
-  /** Everything that grounds a safe draft. All optional: the drafter and the  validator degrade honestly when a field is absent. */
   evidence: {
     hints?: string[];
     pageBodyText?: string | null;
     outline?: string[];
     authoritativeFacts?: AuthoritativeFact[];
     authoritativeSourceDomains?: string[];
-    /** THE diagnosis that earned this action. No diagnosis, no drafter call. */
     diagnosis?: ActionDiagnosis;
   };
-  /** Honest value sizing for the ranker: recoverable clicks and the honest monthly opportunity midpoint (never a raw impressions sum). A missing figure makes the ranking directional rather than inventing one. */
   sizing?: { impactScore?: number | null; upsidePerMonth?: number | null };
 }
 
@@ -130,8 +127,6 @@ export type RecommendedChange =
 
 /** A compact, frozen copy of what grounded this proposal, never a live handle: enough for the operator to see why Beacon recommends it and for the validator to re-run on load. `evidenceRefCount` is the draft's. */
 type ProposalEvidence = { query: string; hints: string[]; evidenceRefCount: number };
-
-
 /** THE COMPLETE CHANGE UNIVERSE (Phase 4): every lever Beacon may recommend on one page, named once. ADDITIVE ONLY, so every stored bundle still decodes, and never CMS-specific: WHAT to change and WHERE, not which editor. */
 export type BundleComponentKind =
   | "title" | "meta" | "h1" | "opening_answer" | "section" | "internal_links" | "source_pack"
@@ -171,14 +166,15 @@ export type BundleComponent = {
   objective?: string;
   /** WHY this lever moves the diagnosed cause, in one sentence. */
   mechanism?: string;
-  /** Required whenever this changes factual content: the shape the drafter emits and source_pack renders. */
-  sourcePack?: { sourceRequirements: string[]; factRequirements: string[] };
+  /** Sources and claims already checked for this exact publication copy. Historical packs without
+   * `resolved: true` are unfinished research and cannot authorize Copy. */
+  sourcePack?: { sourceRequirements: string[]; factRequirements: string[]; resolved?: boolean };
   /** THE NEW WORDS ON A LINK (`anchor_text`) and THE ADDRESS A FORWARD MUST LAND ON (`redirect`): the live check needs both exactly, because reading the destination back out of the instruction found the address being MOVED and graded a correct forward as a wrong one. */
   anchorAfter?: string; redirectTo?: string;
   /** One sentence naming the metric and the window Beacon will read afterwards. */
   measurementPlan?: string;
   /** THE PRESERVATION MAP, owed by any component that REPLACES a page rather than adding to it (`full_rewrite` today). `keeps` are the held sections, facts and links that survive into the draft; `losses` are the named things it drops, each with the one sentence why. A rebuild that drops a held section and cannot name it is REJECTED by validate-proposal: no ranking section leaves without being named out loud. */
-  preserves?: { keeps: string[]; losses: Array<{ what: string; why: string }> };
+  preserves?: { keeps: string[]; losses: Array<{ what: string; why: string }> }; derivation?: { rule: "visible_faq_pairs_v1"; operation: "add" | "replace" | "remove"; source: { pageKey: string; contentHash: string; schemaHash: string; visibleFaqHash: string; captureRevision: string }; dependsOn: Array<{ componentId: string; revision: string }>; projectedVisibleFaqHash: string };
 };
 
 /** KEEP / CHANGE / ADD / REMOVE, for one existing page, in one place. A bundle used to hand over components and leave the operator to work out what the change LEFT ALONE, which is most of their page. Every planned component says whether it changes something that is there or adds something that is not; `keeps` names the held sections this change deliberately does not touch; `removes` exists only where a component genuinely replaces something. A new page has no plan: there is nothing yet to keep. */
@@ -212,6 +208,7 @@ export type BundleEvidenceItem = {
   observedAt: string | null;
   observationId?: string; // EXCLUSIVE with `observationIds`: the ONE stored observation a single-answer item was read from, so the chain back to the answer is a lookup
   observationIds?: string[]; // a fact SEVERAL answers stand behind names EVERY one of them, deduplicated and sorted where it is built, so no arbitrary member ever stands in for the set. Never both fields, so no reader picks which is true
+  sources?: { url: string; publisher: string; passage?: string; channel: "seo" | "aeo"; rank?: number | null; recurrence?: number | null }[];
 };
 
 export type ChangeBundle = {
@@ -299,7 +296,7 @@ export type ChangeProposal = {
   /** THE ONE TYPED NEXT STEP THIS ROW OWES, derived by decision/obligation at the one persistence door and stored beside the words. Absent means nothing is owed; it was read out of English before this field existed, so a reworded caveat silently changed what the machine went and did next. */
   obligation?: Obligation;
   /** THE ONE ENVELOPE EVERY DOOR READS FOR THIS ROW (operator, 2026-09-02). The writer, the evaluator, the promotion door, the banked re-read and the replay each rebuilt their own picture of the job from whatever they happened to hold, so three doors read three envelopes and a redraft was marked against a target nobody had shown it. Normalized once where the copy is written, stored beside the words, and re-read rather than re-derived. Optional and additive: a row banked before this field existed carries none and every door falls back exactly as it did. `propositions` is what a reader must know afterwards; `briefing` lines are shape only and no claim may ever cite them; `forbidden` names the propositions no fact on file supports, which may not be stated at all. */
-  factIdentity?: string; assignment?: { page: string; basis?: string; checkedGroups?: string[]; /** THE ONE EDITORIAL STANDARD THIS WORK IS JUDGED BY, TYPED AND PERSISTED (operator, 2026-09-05). The writer, the evaluator, the banked reading, the re-read and the serving door each worked out for themselves what kind of edit this was, and one of them worked it out from which evidence ids happened to be in the packet, so a row with no checked fact on file was judged as a different kind of work than the row the writer was briefed for. It is decided ONCE, where the assignment is built, and read everywhere after (proof `editorialStandard`). AND IT IS COPY-OWNED, which is where it belongs and where it was missing: `completeness.ts` COPY_OWNED carries `assignment` so this object rides the words it was written for through every later preservation merge, and a re-mint's brief is dropped wherever the preserved copy carries none of its own. Measured on the production store before that landed: 0 of the 451 stored rows on the one account that table holds carried one. */ standard?: "summary" | "missing_answer" | "restructuring" | "repositioning" | "correction" | "internal_link" | "structured_data"; treatment: "answer_block" | "section" | "replacement" | "restructure" | "field"; gapKind: string; propositions: string[]; diagnosedGap: string; mustLeadWith: string; opening: string; format: string; intent: string[]; supportingFacts?: string[]; /** THE CHECKED STATEMENTS THIS COPY MAY STATE, EACH WITH THE SENTENCE BEHIND ITS ID (campaign, 2026-09-05): the ids alone told a writer what it could cite and never what those ids say, so the sentences arrived separately in `mustLeadWith` and the two halves of one thing could drift. `supportingFacts` is the id list every row banked before this and is read as a fallback, never written beside it. AND WHAT THE PAGES WINNING THIS SEARCH CARRY THAT THIS PAGE DOES NOT, in their own words with the publisher and what that publisher is, so the brief the writer reads is the comparison the evidence layer made rather than a sentence rebuilt from it. AND THE OWNED MATERIAL THAT STAYS, plus the exact passage a replacement replaces, so nothing that already answers the reader is lost to an edit. */ facts?: { id: string; says: string }[]; observations?: { publisher: string; publisherClass: string; kind: string; text: string; quote: string }[]; keep?: string[]; replaces?: string; pageContext: string[]; /** CONTRADICTED BY A SOURCE ON FILE, or (for a correction or a replacement) carried by nothing checked: never stated. */ forbidden: string[]; /** NAMED BY THE DIAGNOSIS AND CARRIED BY NOTHING CHECKED, on additive work only (operator, write first): stated where the page already states it, under a page-copy id, with one caveat line. Absent on every other kind of work. */ unbacked?: string[]; rivals: string[]; briefing: string[]; mayReuse: string; mustPreserve: string; mustNotRepeat: string; placement: "additive" | "replacement" | "field"; completionTest: string; owed?: string; /** THE SMALLEST COMPLETE TREATMENT THIS GAP TAKES, TYPED (operator, 2026-09-02). One fixed format string told every body row to write "a heading, then complete sentences", so a page whose only defect was one missing sentence was answered with a headed block plus a second sentence summarising the page, and the evaluator rightly refused it. The shape is derived from the gap, the backed propositions and the page's own passages; `anchor` is the exact stored sentence or heading the copy lands after, and the finished shape records how the reader task was delivered. `maxSentences` is retained for historical decoding only, never a current editorial limit. Absent on a summary field and on every row banked before this existed, and every door then falls back exactly as it did. */ shape?: "inline_addition" | "exact_replacement" | "direct_answer" | "section" | "no_change"; anchor?: string | null; maxSentences?: number; /** Conversion actions observed in the page extract, not an exhaustive inventory. */ sells?: string[] };
+  factIdentity?: string; assignment?: { page: string; basis?: string; checkedGroups?: string[]; informationNeed?: { question: string; requiredAtomKeys: string[]; polarity: "supports"; voice: "publisher"; deliveryMode: "inline" | "headed" | "replacement" | "whole_page" }; deliveryMode?: "inline" | "headed" | "replacement" | "whole_page"; /** THE ONE EDITORIAL STANDARD THIS WORK IS JUDGED BY, TYPED AND PERSISTED (operator, 2026-09-05). The writer, the evaluator, the banked reading, the re-read and the serving door each worked out for themselves what kind of edit this was, and one of them worked it out from which evidence ids happened to be in the packet, so a row with no checked fact on file was judged as a different kind of work than the row the writer was briefed for. It is decided ONCE, where the assignment is built, and read everywhere after (proof `editorialStandard`). AND IT IS COPY-OWNED, which is where it belongs and where it was missing: `completeness.ts` COPY_OWNED carries `assignment` so this object rides the words it was written for through every later preservation merge, and a re-mint's brief is dropped wherever the preserved copy carries none of its own. Measured on the production store before that landed: 0 of the 451 stored rows on the one account that table holds carried one. */ standard?: "summary" | "missing_answer" | "restructuring" | "repositioning" | "correction" | "internal_link" | "structured_data"; treatment: "answer_block" | "section" | "replacement" | "restructure" | "field"; gapKind: string; propositions: string[]; diagnosedGap: string; mustLeadWith: string; opening: string; format: string; intent: string[]; supportingFacts?: string[]; /** THE CHECKED STATEMENTS THIS COPY MAY STATE, EACH WITH THE SENTENCE BEHIND ITS ID (campaign, 2026-09-05): the ids alone told a writer what it could cite and never what those ids say, so the sentences arrived separately in `mustLeadWith` and the two halves of one thing could drift. `supportingFacts` is the id list every row banked before this and is read as a fallback, never written beside it. AND WHAT THE PAGES WINNING THIS SEARCH CARRY THAT THIS PAGE DOES NOT, in their own words with the publisher and what that publisher is, so the brief the writer reads is the comparison the evidence layer made rather than a sentence rebuilt from it. AND THE OWNED MATERIAL THAT STAYS, plus the exact passage a replacement replaces, so nothing that already answers the reader is lost to an edit. */ facts?: { id: string; says: string }[]; observations?: { publisher: string; publisherClass: string; kind: string; text: string; quote: string }[]; keep?: string[]; replaces?: string; pageContext: string[]; /** CONTRADICTED BY A SOURCE ON FILE, or (for a correction or a replacement) carried by nothing checked: never stated. */ forbidden: string[]; /** NAMED BY THE DIAGNOSIS AND CARRIED BY NOTHING CHECKED, on additive work only (operator, write first): stated where the page already states it, under a page-copy id, with one caveat line. Absent on every other kind of work. */ unbacked?: string[]; rivals: string[]; briefing: string[]; mayReuse: string; mustPreserve: string; mustNotRepeat: string; placement: "additive" | "replacement" | "field"; completionTest: string; owed?: string; /** THE SMALLEST COMPLETE TREATMENT THIS GAP TAKES, TYPED (operator, 2026-09-02). One fixed format string told every body row to write "a heading, then complete sentences", so a page whose only defect was one missing sentence was answered with a headed block plus a second sentence summarising the page, and the evaluator rightly refused it. The shape is derived from the gap, the backed propositions and the page's own passages; `anchor` is the exact stored sentence or heading the copy lands after, and the finished shape records how the reader task was delivered. `maxSentences` is retained for historical decoding only, never a current editorial limit. Absent on a summary field and on every row banked before this existed, and every door then falls back exactly as it did. */ shape?: "inline_addition" | "exact_replacement" | "direct_answer" | "section" | "no_change"; anchor?: string | null; maxSentences?: number; /** Conversion actions observed in the page extract, not an exhaustive inventory. */ sells?: string[] };
   /** One plain sentence comparing this proposal to the one ranked directly below it, naming the factor that actually separated them. Absent on the last row. */
   whyRankedAboveNext?: string;
   /** WHERE THE SHAPE OF THIS COPY CAME FROM, when it came from somewhere better than a guess: the stored results page for this exact search, whose top titles agreed on the shape this one is written in. Absent means nothing was imitated, which is the normal answer, and a surface must not chip what is absent. */
@@ -354,6 +351,7 @@ const KIND_SCHEMA = z.enum(["title", "meta", "h1", "opening_answer", "section", 
   "noindex", "consolidation", "navigation", "new_page"]);
 const NAMED_SCHEMA = z.array(z.object({ what: z.string().min(1), why: z.string().min(1) }));
 const PRESERVATION_NOTES_SCHEMA = z.object({ keeps: z.array(z.string()), losses: NAMED_SCHEMA });
+const SCHEMA_DERIVATION = z.object({ rule: z.literal("visible_faq_pairs_v1"), operation: z.enum(["add", "replace", "remove"]), source: z.object({ pageKey: z.string().min(1), contentHash: z.string().min(1), schemaHash: z.string().min(1), visibleFaqHash: z.string().min(1), captureRevision: z.string().regex(/^[a-f0-9]{64}$/) }), dependsOn: z.array(z.object({ componentId: z.string().min(1), revision: z.string().regex(/^[a-f0-9]{64}$/) })).min(1), projectedVisibleFaqHash: z.string().regex(/^[a-f0-9]{64}$/) });
 
 const ChangeBundleSchema: z.ZodType<ChangeBundle> = z.object({
   objective: z.string().min(1),
@@ -363,23 +361,23 @@ const ChangeBundleSchema: z.ZodType<ChangeBundle> = z.object({
     kind: KIND_SCHEMA,
     label: z.string().min(1),
     before: z.string().nullable(),
-    after: z.string().min(1),
+    after: z.string(),
     units: PublicationUnitsSchema.optional(), target: PublicationTargetSchema.optional(),
     evidenceKeys: z.array(z.string().min(1)).min(1),
     risk: z.enum(["safe", "review", "dangerous"]),
     where: z.string().min(1).optional(), page: z.string().min(1).optional(),
     objective: z.string().min(1).optional(),
     mechanism: z.string().min(1).optional(),
-    sourcePack: z.object({ sourceRequirements: z.array(z.string()), factRequirements: z.array(z.string()) }).optional(),
+    sourcePack: z.object({ sourceRequirements: z.array(z.string()), factRequirements: z.array(z.string()), resolved: z.boolean().optional() }).optional(),
     measurementPlan: z.string().min(1).optional(), redirectTo: z.string().min(1).optional(), anchorAfter: z.string().min(1).optional(),
-    preserves: PRESERVATION_NOTES_SCHEMA.optional(),
+    preserves: PRESERVATION_NOTES_SCHEMA.optional(), derivation: SCHEMA_DERIVATION.optional(),
   })).min(1),
   dispositions: z.array(z.object({ page: z.string().min(1), because: z.string().min(1),
     verdict: z.enum(["differentiate", "keep_as_is", "merge", "redirect", "no_change"]) })).optional(),
   plan: z.object({ keeps: z.array(z.string()), removes: NAMED_SCHEMA,
     entries: z.array(z.object({ kind: KIND_SCHEMA, label: z.string().min(1), disposition: z.enum(["change", "add"]) })) }).optional(),
   receipt: z.object({
-    items: z.array(z.object({ key: z.string().min(1), fact: z.string().min(1), observedAt: z.string().nullable(), observationId: z.string().optional(), observationIds: z.array(z.string().min(1)).min(1).optional(), // the WHOLE support survives the round trip, or persistence quietly turns an aggregate back into one answer's word
+    items: z.array(z.object({ key: z.string().min(1), fact: z.string().min(1), observedAt: z.string().nullable(), observationId: z.string().optional(), observationIds: z.array(z.string().min(1)).min(1).optional(), sources: z.array(z.object({ url: z.string().min(1), publisher: z.string().min(1), passage: z.string().min(1).optional(), channel: z.enum(["seo", "aeo"]), rank: z.number().nullable().optional(), recurrence: z.number().nullable().optional() })).optional(), // the WHOLE support survives the round trip, or persistence quietly turns an aggregate back into one answer's word
       kind: z.enum(["gsc_demand", "keyword", "serp", "ai_observation", "winning_page", "page_extract", "competitor", "internal_link", "diagnosis", "independent_source"]) }).refine((i) => !(i.observationId && i.observationIds), { message: "one_answer_or_several_never_both" })),
     missing: z.array(z.string()),
     freshestObservedAt: z.string().nullable(),
@@ -390,12 +388,12 @@ const ChangeBundleSchema: z.ZodType<ChangeBundle> = z.object({
   measurementPlan: z.string().min(1),
 }).superRefine((b, ctx) => {
   // Referential integrity: unproven copy is never served, so every component must cite receipt items that exist.
-  const keys = new Set(b.receipt.items.map((i) => i.key));
-  for (const c of b.components) for (const k of c.evidenceKeys) {
-    if (!keys.has(k)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `component ${c.kind} cites missing evidence ${k}` });
+  const keys = new Set(b.receipt.items.map((i) => i.key)), ids = new Set(b.components.map(componentIdOf));
+  for (const c of b.components) {
+    for (const k of c.evidenceKeys) if (!keys.has(k)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `component ${c.kind} cites missing evidence ${k}` }); if (!c.after.trim() && !(c.kind === "schema" && c.derivation?.operation === "remove")) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `component ${c.kind} has no replacement` }); if (c.derivation && (c.kind !== "schema" || c.derivation.dependsOn.some((d) => !ids.has(d.componentId)))) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "derived schema must depend on components in its own bundle" });
   }
 }) as z.ZodType<ChangeBundle>;
-const AssignmentSchema: z.ZodType<NonNullable<ChangeProposal["assignment"]>> = z.object({ page: z.string(), basis: z.string().optional(), checkedGroups: z.array(z.string()).optional(), standard: z.enum(["summary", "missing_answer", "restructuring", "repositioning", "correction", "internal_link", "structured_data"]).optional(), treatment: z.enum(["answer_block", "section", "replacement", "restructure", "field"]), gapKind: z.string(), propositions: z.array(z.string()), diagnosedGap: z.string(), mustLeadWith: z.string(), opening: z.string(), format: z.string(), intent: z.array(z.string()), supportingFacts: z.array(z.string()).optional(), facts: z.array(z.object({ id: z.string(), says: z.string() })).max(8).optional(), observations: z.array(z.object({ publisher: z.string(), publisherClass: z.string(), kind: z.string(), text: z.string(), quote: z.string() })).max(12).optional(), keep: z.array(z.string()).max(4).optional(), replaces: z.string().optional(), pageContext: z.array(z.string()), forbidden: z.array(z.string()), unbacked: z.array(z.string()).optional(), rivals: z.array(z.string()), briefing: z.array(z.string()), mayReuse: z.string(), mustPreserve: z.string(), mustNotRepeat: z.string(), placement: z.enum(["additive", "replacement", "field"]), completionTest: z.string(), owed: z.string().optional(), shape: z.enum(["inline_addition", "exact_replacement", "direct_answer", "section", "no_change"]).optional(), anchor: z.string().nullable().optional(), maxSentences: z.number().optional(), sells: z.array(z.string()).optional() });
+const AssignmentSchema: z.ZodType<NonNullable<ChangeProposal["assignment"]>> = z.object({ page: z.string(), basis: z.string().optional(), checkedGroups: z.array(z.string()).optional(), informationNeed: z.object({ question: z.string(), requiredAtomKeys: z.array(z.string()), polarity: z.literal("supports"), voice: z.literal("publisher"), deliveryMode: z.enum(["inline", "headed", "replacement", "whole_page"]) }).optional(), deliveryMode: z.enum(["inline", "headed", "replacement", "whole_page"]).optional(), standard: z.enum(["summary", "missing_answer", "restructuring", "repositioning", "correction", "internal_link", "structured_data"]).optional(), treatment: z.enum(["answer_block", "section", "replacement", "restructure", "field"]), gapKind: z.string(), propositions: z.array(z.string()), diagnosedGap: z.string(), mustLeadWith: z.string(), opening: z.string(), format: z.string(), intent: z.array(z.string()), supportingFacts: z.array(z.string()).optional(), facts: z.array(z.object({ id: z.string(), says: z.string() })).max(8).optional(), observations: z.array(z.object({ publisher: z.string(), publisherClass: z.string(), kind: z.string(), text: z.string(), quote: z.string() })).max(12).optional(), keep: z.array(z.string()).max(4).optional(), replaces: z.string().optional(), pageContext: z.array(z.string()), forbidden: z.array(z.string()), unbacked: z.array(z.string()).optional(), rivals: z.array(z.string()), briefing: z.array(z.string()), mayReuse: z.string(), mustPreserve: z.string(), mustNotRepeat: z.string(), placement: z.enum(["additive", "replacement", "field"]), completionTest: z.string(), owed: z.string().optional(), shape: z.enum(["inline_addition", "exact_replacement", "direct_answer", "section", "no_change"]).optional(), anchor: z.string().nullable().optional(), maxSentences: z.number().optional(), sells: z.array(z.string()).optional() });
 type NewPagePiece = { slot?: number; assignment?: ChangeProposal["assignment"]; before?: string | null; draftNotes?: readonly string[]; target?: PublicationTarget; preservation?: ChangeProposal["preservation"]; editor?: z.infer<typeof EditorAcceptanceSchema>; reviewOf?: string; heading: string | null; after: string; units?: PublicationUnits; claims: readonly { text: string; supportedBy: readonly string[] }[]; supportFacts: NonNullable<ChangeProposal["supportFacts"]>; review: readonly { i: number; by: string[]; entailed: boolean }[]; gain?: { adds: string; by: readonly string[]; pageWhole: boolean; bodyHash?: string; targetHash?: string } };
 const NewPagePieceSchema: z.ZodType<NewPagePiece> = z.object({ assignment: AssignmentSchema.optional(), slot: z.number().int().nonnegative().optional(), before: z.string().nullable().optional(), draftNotes: z.array(z.string()).optional(), target: PublicationTargetSchema.optional(), preservation: z.array(z.object({ text: z.string().min(1), disposition: z.enum(["kept", "corrected", "removed", "moved"]), why: z.string().optional(), to: z.string().optional(), of: z.string().min(1).optional(), basis: z.enum(["duplicate_of", "replaced_by", "unsupported", "obsolete", "owner_confirmed"]).optional(), by: z.array(z.string()).optional() })).optional(), editor: EditorAcceptanceSchema.optional(), reviewOf: z.string().optional(), heading: z.string().nullable(), after: z.string().min(1), units: PublicationUnitsSchema.optional(), claims: z.array(z.object({ text: z.string().min(1), supportedBy: z.array(z.string().min(1)) })), supportFacts: z.array(SupportFactSchema), review: z.array(z.object({ i: z.number().int().min(0), by: z.array(z.string()), entailed: z.boolean() })), gain: z.object({ adds: z.string().min(1), by: z.array(z.string()), pageWhole: z.boolean(), bodyHash: z.string().min(1).optional(), targetHash: z.string().min(1).optional() }).optional() });
 const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
@@ -468,7 +466,6 @@ export function deserializeChangeProposal(content: string | null | undefined): C
     return res?.success ? res.data : null; } catch { return null; }
 }
 
-
 /** The coarse family used for identity + UI. */
 export function proposalFamily(input: EvidenceInput): string {
   if (input.opportunity.kind === "new_page") return "new_page";
@@ -479,7 +476,12 @@ export function proposalFamily(input: EvidenceInput): string {
 export function proposalId(input: EvidenceInput): string {
   const isNew = input.opportunity.kind === "new_page";
   const pageKey = isNew ? `new::${input.opportunity.query.toLowerCase().trim()}` : (input.page.path ?? input.page.url ?? input.page.label).toLowerCase().trim();
-  return `${input.tenantId}::${pageKey}::${input.opportunity.kind}::${isNew ? "new_page" : (input.opportunity.field ?? "edit")}`; }
+  const field = input.opportunity.field;
+  // Singleton fields share one permanent seat per page. Body opportunities do
+  // not: a page can carry independent answers for independent searches, so the
+  // search identity is part of the address from its first appearance.
+  const seat = isNew ? "new_page" : field ?? `edit@${canonicalQueryKey(input.opportunity.query)}`;
+  return `${input.tenantId}::${pageKey}::${input.opportunity.kind}::${seat}`; }
 
 /** Coarse effort minutes by family (a real per-move figure overrides this). */
 export function effortForFamily(family: string): number { return family === "title" || family === "meta" || family === "h1" ? 1 : family === "answer" ? 3 : family === "new_page" ? 60 : 5; }

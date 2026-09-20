@@ -8,12 +8,10 @@
 import { createElement, useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 import type { BundleComponent } from "@/domains/decision";
 import { confirmDangerousChangeAction, dismissProposalAction, markProposalImplementedAction, reviewDraftAction } from "./actions";
+import operatorUiPolicy from "./types";
 
-/** THE PRESS SURVIVES THE CONNECTION. A "Mark done" that THREW never reached the server, and telling the
- *  operator to press it again puts the burden of a flaky minute on the person who did the work. A plain
- *  whole-change mark is kept on this device and sent again on the next page load. Only plain ones: a partial
- *  bundle, a page move, a new page's address and their own applied wording all carry words this queue does not hold, so
- *  those still ask for a second press rather than recording something narrower than what they did. */
+/** A failed plain whole-change mark is kept on-device and retried; partial, moved, rewritten, and new-page
+ *  marks are never queued because this device cannot reconstruct their extra operator input. */
 const MARK_QUEUE_KEY = "beacon.mark-done.queue";
 const MARK_QUEUE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 type QueuedMark = { proposalId: string; at: number };
@@ -113,7 +111,8 @@ export function PublicationCopy({ text, units, link = null }: { text: string; un
   const line = (s: string) => withAnchor<ReactNode>(s, link, (t) => t, (t) => <span key="a" className="underline decoration-accent-primary underline-offset-2">{t}</span>);
   return <div className="space-y-2 whitespace-pre-wrap break-words">{units ? units.map((u, i) =>
     u.kind === "paragraph" ? <p key={i}>{line(u.text)}</p> : u.kind === "heading" ? createElement(`h${u.level}`, { key: i, className: "font-semibold" }, u.text)
-      : createElement(u.kind === "ordered_list" ? "ol" : "ul", { key: i, className: `pl-6 ${u.kind === "ordered_list" ? "list-decimal" : "list-disc"}` }, u.items.map((item, j) => <li key={j}>{line(item)}</li>))) : <p>{line(text)}</p>}</div>;
+      : u.kind === "table" ? <div key={i} className="overflow-x-auto"><table className="w-full border-collapse text-left text-[12px]"><thead><tr>{u.columns.map((column, j) => <th key={j} className="border border-border bg-surface-inset px-2 py-1.5 font-semibold">{line(column)}</th>)}</tr></thead><tbody>{u.rows.map((row, j) => <tr key={j}>{row.map((cell, k) => <td key={k} className="border border-border px-2 py-1.5 align-top">{line(cell)}</td>)}</tr>)}</tbody></table></div>
+        : createElement(u.kind === "ordered_list" ? "ol" : "ul", { key: i, className: `pl-6 ${u.kind === "ordered_list" ? "list-decimal" : "list-disc"}` }, u.items.map((item, j) => <li key={j}>{line(item)}</li>))) : <p>{line(text)}</p>}</div>;
 }
 
 /** ONE PAYLOAD FOR EVERY COPY PRESS, on Today and on Changes alike (audit 3.9, 2026-09-14): the rich half is real HTML
@@ -126,9 +125,11 @@ export function clipboardPayload(text: string, units?: BundleComponent["units"],
   const rich = (s: string) => withAnchor(s, link, escape, (t) => `<a href="${escape(absolute(link!))}">${escape(t)}</a>`).join("");
   const all: NonNullable<BundleComponent["units"]> = units ?? text.split(/\n+/).filter((s) => s.trim()).map((s) => ({ kind: "paragraph" as const, text: s }));
   const html = all.map((u) => u.kind === "paragraph" ? `<p>${rich(u.text)}</p>` : u.kind === "heading" ? `<h${u.level}>${escape(u.text)}</h${u.level}>`
-    : `<${u.kind === "ordered_list" ? "ol" : "ul"}>${u.items.map((item) => `<li>${rich(item)}</li>`).join("")}</${u.kind === "ordered_list" ? "ol" : "ul"}>`).join("");
+    : u.kind === "table" ? `<table><thead><tr>${u.columns.map((cell) => `<th>${rich(cell)}</th>`).join("")}</tr></thead><tbody>${u.rows.map((row) => `<tr>${row.map((cell) => `<td>${rich(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`
+      : `<${u.kind === "ordered_list" ? "ol" : "ul"}>${u.items.map((item) => `<li>${rich(item)}</li>`).join("")}</${u.kind === "ordered_list" ? "ol" : "ul"}>`).join("");
   const plain = all.map((u) => u.kind === "paragraph" || u.kind === "heading" ? u.text
-    : u.items.map((item, i) => `${u.kind === "ordered_list" ? `${i + 1}.` : "•"} ${item}`).join("\n")).join("\n\n");
+    : u.kind === "table" ? [u.columns, ...u.rows].map((row) => row.join("\t")).join("\n")
+      : u.items.map((item, i) => `${u.kind === "ordered_list" ? `${i + 1}.` : "•"} ${item}`).join("\n")).join("\n\n");
   return { html, plain };
 }
 
@@ -140,14 +141,14 @@ export function CopyButton({ text, units, link = null, label, onToast }: { text:
     const { html, plain } = clipboardPayload(text, units, link);
     if (typeof ClipboardItem === "undefined" || !navigator.clipboard.write) { await navigator.clipboard.writeText(plain); return "Copied"; }
     await navigator.clipboard.write([new ClipboardItem({ "text/plain": new Blob([plain], { type: "text/plain" }), "text/html": new Blob([html], { type: "text/html" }) })]);
-    return units?.some((u) => u.kind !== "paragraph") ? "Copied with its headings and lists" : "Copied";
+    return units?.some((u) => u.kind !== "paragraph") ? "Copied with its structure" : "Copied";
   };
   return (
-    <button type="button" data-copy-after="true"
+    <button type="button" data-copy-after="true" aria-live="polite"
       onClick={() => { copy().then(
         (message) => { say(message, 4000); onToast?.(message); },
         () => { say("Copy it by hand", 4000); onToast?.("Your clipboard could not be reached, so please copy it by hand."); }); }}
-      className="shrink-0 rounded-md border border-border px-2 py-1 text-[12px] font-semibold text-muted-foreground hover:text-foreground">
+      className="min-h-11 shrink-0 rounded-md border border-border px-3 py-1 text-[12px] font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2">
       {said ?? label}
     </button>
   );
@@ -170,7 +171,7 @@ export function SetAsideChange({ proposalId }: { proposalId: string }) {
   if (!state.asked) {
     return (
       <button type="button" data-set-aside="true" onClick={() => setState((s) => ({ ...s, asked: true }))}
-        className="text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
+        className="inline-flex min-h-11 items-center text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
         Skip
       </button>
     );
@@ -186,11 +187,11 @@ export function SetAsideChange({ proposalId }: { proposalId: string }) {
           if (res.success) setState({ done: true, asked: true, error: null });
           else setState({ done: false, asked: true, error: res.error ?? "Something went wrong." });
         })}
-        className="rounded-md border border-border px-3 py-1.5 text-[12px] font-semibold text-foreground disabled:opacity-60">
+        className="min-h-11 rounded-md border border-border px-3 py-1.5 text-[12px] font-semibold text-foreground disabled:opacity-60">
         {pending ? "Saving…" : "Yes, skip it"}
       </button>
       <button type="button" onClick={() => setState({ done: false, asked: false, error: null })}
-        className="text-[12px] text-muted-foreground underline underline-offset-2">
+        className="inline-flex min-h-11 items-center text-[12px] text-muted-foreground underline underline-offset-2">
         Keep it
       </button>
       {state.error ? <span className="text-[12px] text-red-500">{state.error}</span> : null}
@@ -209,7 +210,7 @@ export function ConfirmDangerous({ proposalId, version }: { proposalId: string; 
       <label className="flex items-start gap-2 text-[13px] leading-relaxed text-foreground">
         <input type="checkbox" checked={state.ticked} onChange={(e) => setState((s) => ({ ...s, ticked: e.target.checked }))} className="mt-0.5" data-confirm-tick="true" />
         <span>Read the pieces, the addresses and the risks above. This one moves or hides a page, so it takes a deliberate yes before it becomes work.</span></label>
-      <button type="button" disabled={!state.ticked || pending} data-confirm-dangerous="true" className="rounded-md border border-border px-3 py-1.5 text-[13px] font-semibold text-foreground disabled:opacity-60"
+      <button type="button" disabled={!state.ticked || pending} data-confirm-dangerous="true" className="min-h-11 rounded-md border border-border px-3 py-1.5 text-[13px] font-semibold text-foreground disabled:opacity-60"
         onClick={() => startTransition(async () => { const res = await confirmDangerousChangeAction({ proposalId, version });
           setState((s) => ({ ...s, done: res.success ? res.note ?? "Confirmed. This change is ready to make." : null, error: res.success ? null : res.error ?? "That could not be confirmed just now." })); })}>{pending ? "Saving…" : "Confirm this version"}</button>
       {state.error ? <p className="text-[12px] text-red-500">{state.error}</p> : null}
@@ -235,12 +236,12 @@ export function ReviewAnswer({ proposalId, version, approvable }: { proposalId: 
     <div className="flex flex-wrap items-center gap-3">
       {approvable ? (
         <button type="button" data-approve-draft="true" disabled={pending} onClick={() => answer("approve")}
-          className="rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-60">
+          className="min-h-11 rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-60">
           {pending ? "Saving…" : "Approve as ready"}
         </button>
       ) : null}
       <button type="button" data-improve-draft="true" disabled={pending} onClick={() => answer("improve")}
-        className="rounded-md border border-border px-3 py-1.5 text-[13px] font-semibold text-foreground disabled:opacity-60">
+        className="min-h-11 rounded-md border border-border px-3 py-1.5 text-[13px] font-semibold text-foreground disabled:opacity-60">
         Improve this draft
       </button>
       <span className="text-[12px] leading-relaxed text-muted-foreground">
@@ -260,11 +261,11 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
   proposalId: string;
   label?: string;
   /** Fired once the server accepted the record, so the card that hosts this can flip itself in place. */
-  onRecorded?: () => void;
+  onRecorded?: (note: string | null) => void;
   /** The bundle's pieces (several = a picker), each with the STABLE id it carries inside the stored bundle so
    *  two pieces of one kind are ticked apart. `moves` marks one that changes where the page lives;
    *  `recorded` marks one already on file. */
-  components?: { id: string; kind: string; label: string; moves?: boolean; recorded?: boolean }[];
+  components?: { id: string; kind: string; label: string; dependsOn?: readonly string[]; moves?: boolean; recorded?: boolean }[];
   /** A page that did not exist has no address until they publish it, so the address has to be given here. */
   newPage?: boolean;
 }) {
@@ -272,12 +273,9 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
   const [state, setState] = useState<{ done: boolean; error: string | null; note: string | null; queued?: boolean }>({ done: false, error: null, note: null });
   const flushed = useMarkQueueFlush();
   const pickable = components && components.length > 1 ? components : null;
-  // OPEN ON WHAT IS GENUINELY STILL THEIRS TO DO: pre-ticking a piece already on file offered to record a
-  // component already under measurement, and the server refuses to write it twice anyway.
-  const [applied, setApplied] = useState<Set<string>>(() => {
-    const all = pickable ?? components ?? [], open = all.filter((c) => !c.recorded);
-    return new Set((open.length > 0 ? open : all).map((c) => c.id));
-  });
+  // Recording measurement is a deliberate claim. A multi-piece change starts empty; the operator ticks only
+  // what actually reached the site, and already-recorded pieces cannot be selected again.
+  const [applied, setApplied] = useState<Set<string>>(() => new Set(pickable ? [] : (components ?? []).filter((c) => !c.recorded).map((c) => c.id)));
   // THE EXACT WORDING THEY APPLIED, where it is not the prepared wording. Named as that and as nothing else: free text under a vague label reads as replacement copy and was recorded as a comment, so a page written the operator's own way was read back against words nobody put there.
   const [ownWording, setOwnWording] = useState(""), [liveUrl, setLiveUrl] = useState(""), [confirmed, setConfirmed] = useState(false);
   const label = useMemo(() => (state.done ? "Marked done" : idle), [state.done, idle]);
@@ -285,6 +283,7 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
   // THE DELIBERATE YES, asked only about the pieces they say they applied. The server asks again and refuses
   // without it, so this box is the operator's act and never the gate.
   const movesPage = (components ?? []).some((c) => c.moves && applied.has(c.id));
+  const hasLinkedComponents = (components ?? []).some((c) => (c.dependsOn?.length ?? 0) > 0);
 
   // A PLAIN WHOLE-CHANGE MARK is the only shape this device can re-send faithfully: nothing here narrows what
   // was recorded, and nothing here is the operator's own words.
@@ -304,7 +303,7 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
         ...(movesPage ? { destructiveConfirmed: confirmed } : {}),
       }).catch(() => null);
       const end = MARK_PRESS.fresh(res, { queueable });
-      if (end.ending === "recorded") { setState({ done: true, error: null, note: res?.note ?? null }); onRecorded?.(); return; }
+      if (end.ending === "recorded") { const note = res?.note ?? null; setState({ done: true, error: null, note }); onRecorded?.(note); return; }
       if (end.ending === "queued") MARK_PRESS.keep(proposalId);
       setState({ done: false, error: end.said, note: null, queued: end.ending === "queued" });
     });
@@ -317,19 +316,25 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
           <p className="text-[12px] font-semibold text-foreground">Which pieces did you apply?</p>
           {/* KEYED BY THE PIECE'S OWN ID: two sections sharing one key ticked and unticked as one. */}
           {pickable.map((c) => (
-            <label key={c.id} className="flex items-center gap-2 text-[12px] text-muted-foreground">
-              <input type="checkbox" checked={applied.has(c.id)}
+            <label key={c.id} className="flex min-h-11 items-center gap-2 text-[12px] text-muted-foreground">
+              <input type="checkbox" checked={applied.has(c.id)} disabled={c.recorded} className="h-5 w-5 shrink-0"
+                data-linked-component={operatorUiPolicy.linkedComponentIds(pickable, c.id).size > 1 ? "true" : undefined}
                 onChange={(e) => setApplied((prev) => {
                   const next = new Set(prev);
-                  if (e.target.checked) next.add(c.id); else next.delete(c.id);
+                  for (const id of operatorUiPolicy.linkedComponentIds(pickable, c.id)) {
+                    if (e.target.checked) next.add(id); else next.delete(id);
+                  }
                   return next;
                 })} />
-              {c.label}
+              {c.label}{c.recorded ? " (already recorded)" : ""}
             </label>
           ))}
           <p className="text-[12px] text-muted-foreground">
             Only the pieces you tick get measured, so leave the ones you skipped unticked.
           </p>
+          {hasLinkedComponents ? <p className="text-[12px] text-muted-foreground" data-linked-components="true">
+            Visible FAQ copy and its matching structured data stay linked: ticking either selects or clears both.
+          </p> : null}
         </div>
       ) : null}
 
@@ -354,14 +359,14 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
         <label className="block text-[12px] text-muted-foreground" htmlFor={`note-${proposalId}`}>
           Applied different wording? Paste the exact words that are on the page. Both are kept, and the page is read for yours.
         </label>
-        <input id={`note-${proposalId}`} type="text" value={ownWording} onChange={(e) => setOwnWording(e.target.value)}
+        <textarea id={`note-${proposalId}`} rows={3} value={ownWording} onChange={(e) => setOwnWording(e.target.value)}
           placeholder="Optional: the exact wording now on the page"
-          className="w-full rounded-md border border-border bg-surface-inset px-3 py-1.5 text-[12px] text-foreground" />
+          className="w-full resize-y rounded-md border border-border bg-surface-inset px-3 py-2 text-[12px] text-foreground" />
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
         <button type="button" onClick={onClick} disabled={pending || state.done || nothingPicked || addressOwed || (movesPage && !confirmed)}
-          className="rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-60">
+          className="min-h-11 rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-60">
           {pending ? "Saving…" : label}
         </button>
         <span className="text-[12px] text-muted-foreground">

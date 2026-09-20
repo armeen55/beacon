@@ -3,7 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
 import { dayLabel, engineLabel, engineList } from "@/lib/presenter";
-import { canonicalQueryKey } from "@/domains/evidence/relevance-gate"; import { answeredIn } from "../diagnosis";
+import { canonicalQueryKey } from "@/domains/evidence/relevance-gate"; import { answeredIn, type CauseFinding } from "../diagnosis";
 import { citesOwnSite } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { buildFanoutEvidence, FANOUT_LINKAGE_CAVEAT, instrumentFacts, type FanoutRow } from "@/domains/evidence/ai-visibility/fanout-evidence";
 import { canonicalUrlKey, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
@@ -16,9 +16,9 @@ import { callStructuredLLM } from "../llm/structured-drafter"; import { DRAFT_BU
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
 import { askable, bestPageFor, count, noteNeedsOwnPage, pageWords, pathOf, plain,
   STOREFRONT, subjectWords, type Draft, type Fit, type Understanding } from "./page-fit";
+import { resolveFanoutCase, type FanoutStage } from "./fanout-case"; export { resolveFanoutCase } from "./fanout-case";
 
 /** WHERE A SEARCH ENDS UP AS FAR AS THE EVIDENCE ALONE CAN SAY. The vocabulary is the store's (ai-case-store) and is not spelled a second time here: two names for one set of states is the same defect this closure exists to remove. `held` and the landing states below need facts only a producer pass holds. */
-type FanoutStage = "owned_retrieved_not_cited" | "rivals_cited_own_not_retrieved" | "own_not_in_reported_sources";
 
 // ── THE ONE CASE STANDING, AND THE ONE WRITER OVER IT ─────────────────────────
 /** Every customer-facing word on an AEO card derives from ONE standing object, so a claim can only say what
@@ -60,34 +60,6 @@ function caseCopy(s: Standing): { headline: string; steps: string[] } {
   if (s.stage === "rivals_cited_own_not_retrieved") return {
     headline: `AI answers for ${q} that cite ${s.domain ?? "other sites"} and report reading nothing here`, steps };
   return { headline: `AI answers for ${q} that rely on other sites and never name this one`, steps };
-}
-type FanoutCase = { caseKey: string; state: AiCaseState; stage?: FanoutStage; pageUrl?: string; reason: string };
-
-/** PURE, AND IT NEVER CONSULTS THE QUEUE: evidence in, one state out; `landing` is the coverage answer the producer already computed. RECURRENCE ALONE IS NEVER WORK (Codex, 2026-08-21): days>=3 on one question and one assistant measures that assistant's habit, so actionable needs a dimension beyond time: a second tracked question, a second assistant, a page here read-and-passed-over on an instrument that reports reading, or the caller's corroboration that real Google demand asks the same. And a reading claim is legal only where reading is reported: otherwise "never read" degrades to "not among the sources relied on", a stage fact that on its own prescribes no work at all. */
-export function resolveFanoutCase(row: FanoutRow, landing?: { pageUrl: string | null; refused: boolean },
-  corroboration?: { googleDemand?: boolean }): FanoutCase {
-  const caseKey = `fanout:${row.key}`;
-  if (row.ownState === "cited") return { caseKey, state: "already_credited",
-    reason: `Credited on ${count(row.ownCitedAnswers, "answer")} of the ${count(row.reportingAnswers, "answer")} that ran this search and reported their sources. Nothing to change here; watch that it holds.` };
-  if (row.ownState === "unreported") return { caseKey, state: "unreported",
-    reason: "The assistants that ran this search never reported which pages they used, so where this site stood on it is unknown. That is missing reporting, not a zero, and no page edit closes it." };
-  if (!row.material) return { caseKey, state: "monitoring", reason: `${row.materialBecause}. Watched, and it becomes work the day it recurs.` };
-  const dimension = row.parents.length >= 2 ? `behind ${count(row.parents.length, "tracked question")}`
-    : row.engines.length >= 2 ? `across ${count(row.engines.length, "assistant")}`
-      : row.retrievedNotCitedAnswers > 0 ? "with a page here read for it and passed over"
-        : corroboration?.googleDemand ? "and people ask Google the same thing" : null;
-  if (dimension == null) return { caseKey, state: "monitoring",
-    reason: `${row.materialBecause}, on one question and one assistant with no consequence here yet. Watched, and it becomes work the day a second question, a second assistant, a read page or Google demand joins it.` };
-  const stage: FanoutStage = row.ownState === "retrieved_not_cited" ? "owned_retrieved_not_cited"
-    : row.retrievalReportingAnswers > 0 ? "rivals_cited_own_not_retrieved" : "own_not_in_reported_sources";
-  if (landing && landing.pageUrl == null) return { caseKey, state: "no_page", stage,
-    reason: `${row.materialBecause}, and no page of this account is for it yet, so no edit can win it. It is on the list of pages to build.` };
-  return { caseKey, state: "actionable", stage, ...(landing?.pageUrl ? { pageUrl: landing.pageUrl } : {}),
-    reason: stage === "owned_retrieved_not_cited"
-      ? `${row.materialBecause} ${dimension}, and a page here was read for it and passed over ${count(row.retrievedNotCitedAnswers, "time")}.`
-      : stage === "rivals_cited_own_not_retrieved"
-        ? `${row.materialBecause} ${dimension}, and no assistant reports reading a page of this account for it.`
-        : `${row.materialBecause} ${dimension}, and this site is not among the sources the assistants relied on for it. Whether any page here was read is not something these instruments report.` };
 }
 /** THE PASS'S OWN DIAGNOSIS PURSE, decided at the orchestration boundary and shared by tracked questions and fan-outs alike. The account cap and the pause live at the gateway; this is the per-pass funding decision the gateway cannot make, and without it a pass whose diagnoses all REFUSE keeps buying, because a refusal emits no card and the five-card output bound never notices. Unfunded cases stay owed for the next pass. */
 export type AeoMeter = { draw(): boolean; /** THE UNITS THIS PASS HAS LEFT, and the ONE door a unit comes back through: written by `DRAFT_BUDGET.refundIfNoCallMade`, exactly as every other paid door writes its allowance, so no clause of that rule can go missing here. */ left: number; spent(): { funded: number; attempted: number; givenBack: number; left: number } };
@@ -180,6 +152,15 @@ function gateOf(d: AeoGapDiagnosis | null, factReady = false): GapGate {
     : `The page answers this and the answer is buried: ${d.missing ?? d.explanation} The work is a structural rewrite of the named material, adding no new claims.`;
   return { emit: true, hire: true, treatment: d.treatment, work, diagnosis: d };
 }
+type AeoCausePayload = Extract<NonNullable<CauseFinding["payload"]>, { cause: "retrieved_not_cited" | "ai_citation_gap" }>;
+/** Conversion is a provenance boundary, not a summary. The exact passage ids and revision binding that earned
+ * a structural verdict must survive onto the Change; otherwise drafting can only see "rewrite" and silently
+ * widens that into permission to use every passage on the page. */
+const causePayload = (cause: AeoCausePayload["cause"], engine: string, promptText: string,
+  diagnosis?: AeoGapDiagnosis): AeoCausePayload | undefined => diagnosis ? ({ cause, engine, promptText,
+    ...(diagnosis.missing?.trim() ? { missing: diagnosis.missing.trim() } : {}), aeoKind: diagnosis.kind,
+    ownedIds: [...diagnosis.ownedIds], packet: diagnosis.packet, contentHash: diagnosis.contentHash,
+    completeness: diagnosis.completeness }) : undefined;
 /** 1. THE ANSWERS THAT CREDIT SOMEBODY ELSE, staged before a page is ever chosen. WHERE THIS SITE STOOD across the stored answers is the case, and the case decides the work: a page an engine read and passed over needs an answer it can lift; a brand named in prose and never credited needs a passage that earns the citation; a page no engine reports reading needs to be reachable before any wording matters; and a question whose answers never report sources is a reporting gap no page edit can close, so it stays visible and mints nothing. RECURRENCE IS COUNTED IN DISTINCT DAYS AND ASSISTANTS over the stored window through the same projection Visibility renders, never in raw rows, so a card and the screen can never disagree. */
 export async function aiCaseCards(bank: { query: string; refusedPages?: string[] }[], snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], weak: ReadonlySet<string>,
   earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>, u: Understanding, tenantId: string,
@@ -193,7 +174,7 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
   const bankedFile = await readAiCaseDispositions(tenantId);
   const banked = new Map(bankedFile.state === "read" ? bankedFile.rows.map((r) => [r.caseKey, r] as const) : []);
   const holdIds = new Set<string>(); /* ONE PAGE IS A CONTAINER OF ATOMIC OPPORTUNITIES (Product Truth, one page is never one opportunity; campaign, 2026-09-06). This card's id was spelled out of the PAGE ALONE in five places, so a second tracked question landing on the same page minted a card wearing the first card's identity, and the store kept whichever wrote last: the smaller question was lost with no verdict anywhere. The id is built HERE and nowhere else, and a page's cases take seats in the order this pass decides them. The FIRST keeps the id it has always had, so no row on file changes identity, and the one behind it carries its own canonical search key after "@", the way a link card carries its destination; the family is the part before the "@", so every door downstream reads them as one family. At most two a page a pass, and that bound is only about how much one pass opens at once: the store's current-row index and the overlap rule stay the arbiters of what may stand beside what. A SEARCH A LIVE CHANGE ALREADY ANSWERS IN ITS OWN WORDS IS NOT A SECOND CASE, read by the one rule the page's own passages are read by (decision/diagnosis `answeredIn`), so a page holding words for one phrasing is never given a second section saying them again. Asked of the second seat alone, so the first case on a page is byte for byte what it was. */ const seats = new Map<string, string[]>(), MAX_PER_PAGE = 2, livingCopy = (at: string, q: string): boolean => (written?.get(at) ?? []).some((w) => canonicalQueryKey(w.query) !== canonicalQueryKey(q) && answeredIn(q, w.copy));
-  const seatFor = (path: string, question: string): { slug: string; id: string; drop: () => void } | { refused: string } => { const at = path.toLowerCase(), held = seats.get(at) ?? [], key = canonicalQueryKey(question); if (held.includes(key)) return { refused: `A change opened this pass on ${path} already targets this search, so it is covered there rather than opened twice.` }; if (held.length > 0 && livingCopy(at, question)) return { refused: `A change already on file for ${path} carries words that answer this search, so no second section is opened to say it again. Ship that change and the next answers get checked against it.` }; if (held.length >= MAX_PER_PAGE) return { refused: `${path} already carries the ${count(MAX_PER_PAGE, "change")} one pass opens for a single page, so this search is picked up on the next pass.` }; seats.set(at, [...held, key]); const tail = held.length === 0 ? "" : `@${key}`; return { slug: `ai_answer_gap${tail}`, id: `${tenantId}::${at}::existing_edit::ai_answer_gap${tail}`, drop: () => seats.set(at, (seats.get(at) ?? []).filter((k) => k !== key)) }; };
+  const seatFor = (path: string, question: string): { slug: string; id: string; drop: () => void } | { refused: string } => { const at = path.toLowerCase(), held = seats.get(at) ?? [], key = canonicalQueryKey(question); if (held.includes(key)) return { refused: `A change opened this pass on ${path} already targets this search, so it is covered there rather than opened twice.` }; if (held.length > 0 && livingCopy(at, question)) return { refused: `A change already on file for ${path} carries words that answer this search, so no second section is opened to say it again. Ship that change and the next answers get checked against it.` }; if (held.length >= MAX_PER_PAGE) return { refused: `${path} already carries the ${count(MAX_PER_PAGE, "change")} one pass opens for a single page, so this search is picked up on the next pass.` }; seats.set(at, [...held, key]); const tail = `@${key}`; return { slug: `ai_answer_gap${tail}`, id: `${tenantId}::${at}::existing_edit::ai_answer_gap${tail}`, drop: () => seats.set(at, (seats.get(at) ?? []).filter((k) => k !== key)) }; };
   const windows = new Map<string, { days: Set<string>; engines: Set<string>; reporting: number; rnc: number }>();
   for (const o of windowObs ?? []) {
     const w = windows.get(canonicalQueryKey(o.promptText)) ?? { days: new Set<string>(), engines: new Set<string>(), reporting: 0, rnc: 0 };
@@ -324,7 +305,7 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
         fanouts: cluster.flatMap((f) => f.variants.map((v) => v.text)),
         observationIds: obsIds, stage },
       // THE CAUSE CARRIES ITS OWN RECEIPT, WEIGHED ALTERNATIVES AND KNOWN BLIND SPOTS (operator, 2026-08-17: empty arrays do not constitute causal evidence); every entry is computed from what this producer holds.
-      cause: { cause: passedOver ? "retrieved_not_cited" : "ai_citation_gap", action: "section", /* THE MISSING PROPOSITION IS TYPED ON THE ROW, NOT ONLY IN PROSE (operator, 2026-09-02): the reader names the information this page lacks and its kind, and both reached the card as an English sentence inside `work` and `after`, so the one thing a section exists to add could never be read back by the writer's door, the reviewer or the promotion door. Only where the reading actually named one; a diagnosis that names nothing types nothing. */ ...(gate.diagnosis?.missing?.trim() ? { payload: { cause: (passedOver ? "retrieved_not_cited" : "ai_citation_gap") as "retrieved_not_cited" | "ai_citation_gap", engine: cite.engine, promptText: g.prompt, missing: gate.diagnosis.missing.trim(), aeoKind: gate.diagnosis.kind } } : {}),
+      cause: { cause: passedOver ? "retrieved_not_cited" : "ai_citation_gap", action: "section", /* THE DIAGNOSIS TRAVELS WHOLE ENOUGH TO AUTHORIZE EXACTLY WHAT IT READ: proposition, kind, cited own passages, packet and content revision. */ ...((payload) => payload ? { payload } : {})(causePayload(passedOver ? "retrieved_not_cited" : "ai_citation_gap", cite.engine, g.prompt, gate.diagnosis)),
         evidenceKeys: ["ai-citations", `answers:${g.promptId}`, `cited:${cite.url}`, "copy-current", ...(passedOver ? ["retrieval:own-page"] : []), ...(mentioned ? ["brand-mentions"] : [])],
         explanation: passedOver ? `The stored record shows ${path} retrieved while answering "${g.prompt}" and credited nowhere (${domain} credited on ${count(cite.n, "answer")} instead). ${standLine} ${recurLine} The page is reachable and is being read; why the credit went elsewhere is what the whole-page reading decides, and nothing here claims it.`
           : mentioned ? `Assistants name this brand in prose on ${count(g.mentioned, "stored answer")} while answering "${g.prompt}" and credit ${domain} instead (${count(cite.n, "answer")}). ${standLine} ${recurLine} The name reaches the answer while the credit does not, and no stored answer reports retrieving ${path}; what the page lacks, if anything, is what the whole-page reading decides.`
@@ -464,6 +445,7 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
         modes: [...new Set(row.models.map((m) => m.mode).filter(Boolean))],
         fanoutKey: row.key, fanouts: variants, observationIds: row.observationIds, stage },
       cause: { cause: readOver ? "retrieved_not_cited" : "ai_citation_gap", action: "section",
+        ...((payload) => payload ? { payload } : {})(causePayload(readOver ? "retrieved_not_cited" : "ai_citation_gap", row.engines[0] ?? "unknown", voice, gateF.diagnosis)),
         evidenceKeys: ["ai-fanouts", `fanout:${row.key}`, ...row.parents.slice(0, 3).map((pr) => `answers:${pr.promptId}`), "copy-current"],
         explanation: `${count(row.executions, "stored answer")} across ${count(row.days, "day")} and ${count(row.engines.length, "assistant")} ran the search "${row.query}" while answering ${count(row.parents.length, "tracked question")}. ${readOver ? `${path} was read on ${row.retrievedNotCitedAnswers} of those answers and credited on none of them, so the page is reachable; why the credit went elsewhere is decided by the whole-page reading, never assumed.` : unreachF ? `No stored answer reports reading ${path} for it, and whether that reflects access, relevance or something else is not established here.` : `The sources relied on for it are other sites, and these instruments do not report what they read, so absence from the reading is not shown; absence from the credit is.`}`,
         competingExplanations: [readOver
@@ -494,4 +476,4 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
   return { drafts: out, filed: write.filed, hold: holdIds };
 }
 /** ONE test surface for the copy layer: every derivation pinned through one export. */
-export const AI_CASE_COPY = { caseCopy, intentOf, readableSubject, gateOf, diagnoseGap, aeoMeter } as const;
+export const AI_CASE_COPY = { caseCopy, intentOf, readableSubject, gateOf, diagnoseGap, causePayload, aeoMeter } as const;
