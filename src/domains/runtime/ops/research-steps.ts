@@ -62,6 +62,7 @@ export type ResearchCycleSteps = {
   /** GO AND GET EXACTLY THE READING A FUNDED CANDIDATE WAS REFUSED FOR (Codex, 2026-08-23). Not the ordinary broad
    * investigation, which picks its own topic: THIS reading, named by the producer or the drafting gate that could not proceed without it. EVERY kind the requirement union declares executes here, through machinery that already exists, and the switch is exhaustive so a new kind without a handler fails typecheck instead of becoming a typed dead end. Returns whether the reading landed, so an unfulfilled requirement stays owed. */
   acquireEvidence: (tenantId: string, need: ProposalAcquisitionNeed, basis: string | null, budgetMs: number, review?: Pick<Parameters<typeof import("@/domains/decision/drafted-copy").reviewFinishedCopy>[1], "attempts" | "stopBy">, deliveryScope?: Parameters<typeof DRAFT_BUDGET.scopeAllows>[0]) => Promise<{ acquired: boolean; detail: string;
+    /** False only when an explicit preflight proves no provider was asked; never inferred from prose. */ attempted?: boolean;
     /** WHETHER THE OBLIGATION THIS PURCHASE WAS BOUGHT FOR CAN NOW BE MET, which is a different question from whether the reading landed (live 2026-09-05): a source read and banked below the confidence its consumer requires is a reading that happened and an obligation that did not move, and calling that acquired is how a row re-owed the same purchase every drive for two days. Absent means the two answers are the same. */ unlocked?: boolean; /** THE PROVIDER WAS POSTED FOR THIS READING AND HAS NOT ANSWERED YET (production run p3, 2026-09-06): the money moves at the post, the answer is collected with a free follow-up, and the drive that collects it therefore buys nothing. Present ONLY where there is a post to collect, so absent is the one answer for every reading that landed, failed or cannot post at all. */ posted?: boolean }>;
   /** FINISH WHAT WAS ALREADY PAID FOR, FREE. A posted provider task is charged when it is posted and collected with a GET; the only collector ran on the scheduler tick, so while hosting was paused 51 tasks sat pending for days, the results pages they had already bought were never banked, and every gate asking for one answered no. Bounded, GET only, nothing posted. */
   collectBought: (budgetMs: number) => Promise<{ pending: number; ready: number }>;
@@ -281,11 +282,15 @@ export const defaultSteps: ResearchCycleSteps = {
   async reconcileCases(tenantId, basis, plan) { await reconcileCases(tenantId, basis, plan); },
   async investigationFocus(tenantId, basis) { return chooseInvestigation(tenantId, basis).catch(() => null); },
   async acquireEvidence(tenantId, need, basis, budgetMs, review, deliveryScope = "all_changes") {
-    if (!DRAFT_BUDGET.scopeAllows(deliveryScope, DRAFT_BUDGET.requirementDelivery(need))) return { acquired: false, detail: "this reading can only unlock whole-page work, which is outside the current existing-page proof" };
-    if (need.kind === "semantic_review" && !need.proposalId) return { acquired: false, detail: "a review requirement names no change, so there is nothing to read" };
-    if (!need.workKey?.trim()) return { acquired: false, detail: "the proposal-derived requirement has no nonblank work identity, so no provider may be called" };
-    if (!need.query.trim() && !need.url) return { acquired: false, detail: "the requirement names nothing to read" };
-    if (!basis) return { acquired: false, detail: "this dispatch has no confirmed basis, so nothing can be read against it" };
+    const deferred = (detail: string) => ({ acquired: false as const, attempted: false as const, detail });
+    if (!DRAFT_BUDGET.scopeAllows(deliveryScope, DRAFT_BUDGET.requirementDelivery(need))) return deferred("this reading can only unlock whole-page work, which is outside the current existing-page proof");
+    if (need.kind === "semantic_review" && !need.proposalId) return deferred("a review requirement names no change, so there is nothing to read");
+    if (!need.workKey?.trim()) return deferred("the proposal-derived requirement has no nonblank work identity, so no provider may be called");
+    if (!need.query.trim() && !need.url) return deferred("the requirement names nothing to read");
+    if (!basis) return deferred("this dispatch has no confirmed basis, so nothing can be read against it");
+    const { CREDIT_BREAKER } = await import("@/lib/cost/credit-breaker");
+    if (await CREDIT_BREAKER.peek(tenantId).catch(() => "held" as const) !== "clear") return deferred(CREDIT_BREAKER.sentence("openai"));
+    if (need.kind !== "semantic_review" && await CREDIT_BREAKER.peek(tenantId, {}, "dataforseo").catch(() => "held" as const) !== "clear") return deferred(CREDIT_BREAKER.sentence("dataforseo"));
     const unitStatus = (out: unknown): string => (out as { status?: string }).status ?? "unknown";
     const landed = (out: unknown): boolean => unitStatus(out) === "done" || unitStatus(out) === "advanced"; // stage one of winning-pages persists its reads and answers `advanced`; both words mean the write landed
     switch (need.kind) {

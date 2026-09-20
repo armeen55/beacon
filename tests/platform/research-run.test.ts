@@ -383,7 +383,7 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
     const drive = async (owed: readonly Owed[], detail: string, at = NOW): Promise<{ asked: number; owed: readonly Owed[]; attempts: readonly (number | undefined)[] }> => {
       const rows = freshRepo(); rows.push(mk({ tenant_id: t, cycle_key: ckey(t, at), current_phase: "fact_check", progress: { plan: { units: ["replenish_ready", "check_page_facts"] }, evidenceOwed: [...owed], replenish: { day: ckey(t, at).slice(-10), jobs: {}, outcomes: { readySaved: 0, evidenceBanked: 0, refused: 0, blocked: 0, unreached: 0, stuck: [], receipts: [{ key: "/rug::body::meaning", outcome: "prepared", providerCalls: 1 }] } } as never } })); let asked = 0;
       await runResearchCycle(t, { now: () => new Date(at), deadlineMs: 260_000, steps: { ...BENIGN, ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["replenish_ready", "check_page_facts"] }),
-        acquireEvidence: async () => (asked += 1, { acquired: false, detail }),
+        acquireEvidence: async () => (asked += 1, { acquired: false, ...(detail.includes("credit_held") ? { attempted: false as const } : {}), detail }),
         replenishReady: async () => ({ ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {}, evidenceOwed: [...owed] as never }) } });
       const row = rows.at(-1)!; return { asked, owed: row.progress?.evidenceOwed ?? [], attempts: (row.progress?.acquisitions ?? []).map((a) => a.attempts) }; };
     const SAME = "fact check of /rug: failed, 0 banked; the answer to \"rug meaning\" is still owed";

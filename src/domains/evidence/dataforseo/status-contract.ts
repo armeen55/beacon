@@ -17,10 +17,9 @@
  *           minutes." Provider-side and the task id survives, so the retry is a FREE
  *           collect, never a new charge. These five are the ONLY codes the docs mark
  *           temporary that we act on automatically.
- * limited   40203 "Cost limit exceeded" - the account's own DAILY spend ceiling, which
- *           resets. It charged nothing and it is not an account fault, so it is neither
- *           a permanent refusal nor a free-retry-now: I stop for the day, keep every
- *           posted task, and the next visit after the reset picks up where I left off.
+ * limited   40202/40203/40205/40206/40209 - documented rate, cost, duplicate-task,
+ *           or concurrency limits. They reset; a zero-charge response releases the
+ *           reservation and pauses this batch without permanently poisoning the ask.
  * blocked   EVERYTHING else, deliberately: it fails closed, keeps the identity, posts
  *           nothing, and shows the operator the raw code. Notably 40400 "Not found.",
  *           40402 "Invalid Path.", 40404 "Not found.", 40405 "Textual
@@ -46,7 +45,7 @@ const EXACT = new Map<number, TaskStatusClass>([
   [20100, "waiting"], [40601, "waiting"], [40602, "waiting"],
   [40401, "missing"], [40403, "missing"],
   [50000, "transient"], [50001, "transient"], [50301, "transient"], [50302, "transient"], [50303, "transient"],
-  [40203, "limited"],
+  [40202, "limited"], [40203, "limited"], [40205, "limited"], [40206, "limited"], [40209, "limited"],
 ]);
 
 /** Exact documented codes only; anything else fails closed onto "blocked". */
@@ -86,10 +85,8 @@ export function classifyTaskStatus(code: number | null): TaskStatusClass {
  *    uncertain - the cost is not a reported zero (any other number, or null
  *      because the provider reported nothing): we may have been charged, so keep
  *      the reservation and quarantine.
- *    daily_limit_release - REPORTED cost 0 AND the only refusal is the account's own
- *      daily spend ceiling (40203): refund and release, exactly like a temporary
- *      failure, but the caller stops for the day instead of retrying now. Nothing is
- *      held for review: a ceiling that resets must never need an operator to clear it. */
+ *    daily_limit_release - REPORTED cost 0 AND only documented resettable limits:
+ *      refund and release, then stop this batch. Nothing is held for review. */
 export type PaidResponseAction = "retry_free_release" | "daily_limit_release" | "blocked" | "uncertain";
 export function classifyPaidResponse(topCode: number | null, taskCode: number | null, providerCost: number | null): PaidResponseAction {
   if (providerCost !== 0) return "uncertain";

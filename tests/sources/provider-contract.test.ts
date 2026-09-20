@@ -31,8 +31,8 @@ describe("exact task-status taxonomy (docs.dataforseo.com/v3/appendix/errors)", 
   it("pins every documented code onto one class and fails closed on everything else", () => {
     const groups: [TaskStatusClass, (number | null)[]][] = [
       ["ready", [20000]], ["waiting", [null, 20100, 40601, 40602]], ["missing", [40401, 40403]], // waiting = still the provider's turn; ONLY the two missing codes are proven dead -> the one repost
-      ["transient", [50000, 50001, 50301, 50302, 50303]], ["limited", [40203]], // transient = FREE collect, id preserved; limited = the account's OWN daily ceiling, which resets
-      ["blocked", [40000, 40100, 40103, 40200, 40202, 40400, 40402, 40404, 40405, 40406, 40407, 40408, 40501, 40506, 50100, 50304, 50401, 50402, 44999, 61234]]]; // never missing, never a paid repost: contract, account, duplicate, terminal, unknown
+      ["transient", [50000, 50001, 50301, 50302, 50303]], ["limited", [40202, 40203, 40205, 40206, 40209]], // transient = FREE collect, id preserved; limited = a documented resettable provider limit
+      ["blocked", [40000, 40100, 40103, 40200, 40400, 40402, 40404, 40405, 40406, 40407, 40408, 40501, 40506, 50100, 50304, 50401, 50402, 44999, 61234]]]; // never missing, never a paid repost: contract, account, duplicate, terminal, unknown
     for (const [cls, codes] of groups) for (const code of codes) expect([code, classifyTaskStatus(code)]).toEqual([code, cls]); });
   it("judges a PAID response on REPORTED cost first, then on BOTH statuses: every non-success status must be exact-temporary at a reported 0", () => {
     const paid: [number | null, number | null, number | null, PaidResponseAction][] = [ [20000, null, null, "uncertain"], [50301, null, null, "uncertain"], [20000, 50301, 0.02, "uncertain"], [20000, 50303, 0.001, "uncertain"], // unreported or nonzero cost: the provider may have charged
@@ -42,7 +42,7 @@ describe("exact task-status taxonomy (docs.dataforseo.com/v3/appendix/errors)", 
       [50100, null, 0, "blocked"], [20000, 50100, 0, "blocked"], [20000, 50401, 0, "blocked"], [20000, 50402, 0, "blocked"], // terminal, or live-only where any retry is a NEW charge
       [40401, null, 0, "blocked"], [20000, 40403, 0, "blocked"], // a POST/Live reply can never prove a task is missing
       [20000, 61234, 0, "blocked"], // undocumented: fails closed
-      [40203, null, 0, "daily_limit_release"], [20000, 40203, 0, "daily_limit_release"], // a ceiling that RESETS releases, never a hold needing an operator
+      [40202, null, 0, "daily_limit_release"], [20000, 40203, 0, "daily_limit_release"], [40209, null, 0, "daily_limit_release"], // a limit that RESETS releases, never a hold needing an operator
       [40203, null, 0.01, "uncertain"], [40203, 50303, 0, "blocked"]]; // ...unless it may have charged, or is mixed with another refusal
     for (const c of paid) expect([c[0], c[1], c[2], classifyPaidResponse(c[0], c[1], c[2])]).toEqual(c); });});
 describe("exact provider paths + DYNAMIC method routing", () => {
@@ -74,7 +74,7 @@ describe("web-enabled request bodies per engine (only documented fields)", () =>
     expect(["force_web_search" in cb, "web_search_country_iso_code" in cb]).toEqual([false, false]); // structurally ABSENT, not merely falsy: the provider rejects the pair
     const off = harness(llmResponsesTaskPostAck, { modelsBody: modelsFor("o4-mini", true) }); await providerCall("llm_chatgpt", { user_prompt: "q" }, IDS, off.deps); const nw = harness(llmResponsesTaskPostAck, { modelsBody: modelsEnv({ model_name: "o1", web_search_supported: false, task_post_supported: true }) }); await providerCall("llm_chatgpt", { user_prompt: "q", web_search: true }, IDS, nw.deps);
     expect(["web_search" in off.calls.bodies[0][0], "web_search" in nw.calls.bodies[0][0]]).toEqual([false, false]);
-    const key = (publicInput: Record<string, unknown>) => identityCacheKey({ endpoint: "ai_optimization/chat_gpt/llm_responses/task_post", publicInput, locationCode: 2840, languageCode: "en", device: null, modelRequested: "o4-mini" });
+    const key = (publicInput: Record<string, unknown>) => identityCacheKey({ endpoint: "ai_optimization/chat_gpt/llm_responses/task_post", publicInput, providerPayload: [{ user_prompt: "q", model_name: "o4-mini", max_output_tokens: 2048, web_search: true }], locationCode: 2840, languageCode: "en", device: null, modelRequested: "o4-mini" });
     expect([("cacheKey" in r1 ? r1.cacheKey : null) === key({ user_prompt: "q", web_search: true }), key({ user_prompt: "q", web_search: true }) === key({ user_prompt: "q", web_search: true, force_web_search: true, web_search_country_iso_code: "US" })]).toEqual([true, false]); // the REAL call derives this exact identity, and rejected rows never serve the corrected ask
   });
   it("Claude sends force_web_search + country when asked (documented; conflicts only with use_reasoning, which we never send) and neither when web search is off", async () => {
@@ -100,7 +100,7 @@ describe("web-enabled request bodies per engine (only documented fields)", () =>
     expect([slot1.body.observation_day, slot1.body.sample_slot]).toEqual([undefined, undefined]); const plain = (b: Record<string, unknown>) => ({ ...b, tag: undefined });
     expect(plain(slot1.body)).toEqual(plain((await post({})).body)); // Slot 0 is not merely ignored, it is ABSENT from the identity, so an omitted slot and an explicit 0 agree.
     expect(slot0.key).toBe((await post({ observation_day: day })).key);
-    const key = (publicInput: Record<string, unknown>) => identityCacheKey({ endpoint: "ai_optimization/gemini/llm_responses/task_post", publicInput, locationCode: 2840, languageCode: "en", device: null, modelRequested: "gpt-4o" });
+    const key = (publicInput: Record<string, unknown>) => identityCacheKey({ endpoint: "ai_optimization/gemini/llm_responses/task_post", publicInput, providerPayload: [{ user_prompt: "q", model_name: "gpt-4o", max_output_tokens: 2048, web_search: true }], locationCode: 2840, languageCode: "en", device: null, modelRequested: "gpt-4o" });
     expect(slot0.key).toBe(key({ user_prompt: "q", web_search: true, observation_day: day }));});
   it("reads the brands the consumer answer named itself, however the provider shaped the list, and never turns unreadable into none", () => {
     const scraped = (brand_entities: unknown): ProviderEnvelope => ({ status_code: 20000, tasks: [{ status_code: 20000, result: [{ markdown: "an answer", brand_entities }] }] } as unknown as ProviderEnvelope);

@@ -9,7 +9,7 @@ import type spendReservations from "@/lib/cost/spend-reservations";
 import type { CachedCallResult, FunnelBoundaryDeps, ProviderEnvelope } from "./funnel-boundary";
 const API_BASE = "https://api.dataforseo.com/v3";
 const PLATFORM = "dataforseo-serp";
-const DAILY_LIMIT_DETAIL = "Today's research spending limit was reached, so research stopped here. Everything already collected is saved, and the next pass resumes from this point tomorrow.";
+const LIMIT_DETAIL = "The research provider reached a resettable request limit, so this batch stopped. Everything collected is saved, and a later pass resumes it without operator cleanup.";
 const CLAIM_LEASE_SECONDS = 120;
 const TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const AMBIGUITY_WINDOW_MS = 15 * 60 * 1000;
@@ -275,24 +275,21 @@ export async function collectResolvedTask(
   await d.cacheWrite(cacheKey, { updated_at: now.toISOString(), poll_attempts: pollAttempts,
     next_poll_at: new Date(now.getTime() + Math.min(MAX_TASK_POLL_MS, FIRST_TASK_POLL_MS * 2 ** Math.min(pollAttempts - 1, 12))).toISOString() }).catch(() => {});
   if (!transport.ok) {
-    if (transport.status === 402) { const code = firstTask(transport.body)?.status_code ?? topStatus(transport.body); return code === 40200 || code === 40210 ? { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") } : code === 40203 ? { state: "error", cacheKey, disposition: "daily_limit", detail: DAILY_LIMIT_DETAIL } : blockedResult(cacheKey, `code ${code ?? "unknown"}`); }
+    if (transport.status === 402) { const top = topStatus(transport.body), task = firstTask(transport.body)?.status_code, code = typeof task === "number" ? task : top, action = classifyPaidResponse(top, typeof task === "number" ? task : null, 0); if (isPaymentRefusal(transport.body)) { await CREDIT_BREAKER.trip(process.env.BEACON_TENANT_ID ?? "", {}, "dataforseo").catch(() => {}); return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") }; } return action === "daily_limit_release" ? { state: "error", cacheKey, disposition: "daily_limit", detail: LIMIT_DETAIL } : blockedResult(cacheKey, `code ${code ?? "unknown"}`); }
     if (transport.status != null && [401, 403, 404].includes(transport.status)) return { state: "error", cacheKey, disposition: "blocked", detail: `The provider answered ${transport.status} on collection. The task stays on file, is never bought again, and is checked for free after the account is corrected.` };
     if (deadlineDue) return terminalUnavailable(d, cacheKey, now, "transport_after_72h");
     return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: `The provider could not be reached to collect this (${transport.message}). It is tried again for free.` };
   }
   const collectedCost = readProviderCost(transport.body), task = firstTask(transport.body);
+  if (isPaymentRefusal(transport.body)) { await CREDIT_BREAKER.trip(process.env.BEACON_TENANT_ID ?? "", {}, "dataforseo").catch(() => {}); return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") }; }
   const code = typeof task?.status_code === "number" ? task.status_code : null;
   const top = topStatus(transport.body), topCls = top === 20000 ? "ready" : classifyTaskStatus(top);
   const statusCode = topCls === "ready" ? code : top, cls = classifyTaskStatus(statusCode);
   if (cls === "waiting") {
-    if (deadlineDue) {
-      const allowed = await d.authorizeRepost(cacheKey, `expired_after_72h_${statusCode ?? "unknown"}`).catch(() => false);
-      return allowed ? { state: "error", cacheKey, disposition: "repost_once", detail: `The provider exceeded its documented 72-hour task limit (code ${statusCode ?? "unknown"}). Its refunded task starts fresh once.` }
-        : settleDeniedRepost(d, cacheKey);
-    }
+    if (deadlineDue) return terminalUnavailable(d, cacheKey, now, `waiting_after_72h_${statusCode ?? "unknown"}`);
     return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: `The provider is still working on this (code ${statusCode ?? "unknown"}). It is collected for free on the next pass.` };
   }
-  if (cls === "limited") return { state: "error", cacheKey, disposition: "daily_limit", detail: DAILY_LIMIT_DETAIL };
+  if (cls === "limited") return { state: "error", cacheKey, disposition: "daily_limit", detail: LIMIT_DETAIL };
   if (cls === "missing") {
     const allowed = await d.authorizeRepost(cacheKey, `missing_${statusCode ?? "unknown"}`).catch(() => false);
     return allowed ? { state: "error", cacheKey, disposition: "repost_once", detail: `The provider no longer has this task (code ${statusCode ?? "unknown"}). It starts fresh once.` }
@@ -342,7 +339,7 @@ async function applyPaidRejection(d: CachedCallDeps, r: ResolvedCall, body: unkn
   }
   if (action === "daily_limit_release") {
     await releaseClaim(d, r.cacheKey, now, "daily_cost_limit");
-    return { state: "error", cacheKey: r.cacheKey, disposition: "daily_limit", detail: DAILY_LIMIT_DETAIL };
+    return { state: "error", cacheKey: r.cacheKey, disposition: "daily_limit", detail: LIMIT_DETAIL };
   }
   if (!(await holdBlocked(d, r.cacheKey, now, shown))) return { state: "error", cacheKey: r.cacheKey, disposition: "none", detail: "The provider refused this request and the refusal could not be recorded. It is held briefly and noted properly on the next pass." };
   return blockedResult(r.cacheKey, shown);
@@ -426,9 +423,11 @@ function tagTaskPayload(payload: unknown[], tag: string): unknown[] {
 }
 export function identityCacheKey(p: {
   endpointVersion?: string; endpoint: string; publicInput: unknown;
+  /** Exact normalized body before its recovery tag: a builder change is a new request contract. */
+  providerPayload?: unknown;
   locationCode: number; languageCode: string; device?: string | null; modelRequested?: string | null;
 }): string {
-  const raw = [p.endpointVersion ?? "v3", p.endpoint, stableStringify(p.publicInput),
+  const raw = [p.endpointVersion ?? "v3", p.endpoint, stableStringify(p.publicInput), stableStringify(p.providerPayload ?? p.publicInput),
     String(p.locationCode), p.languageCode, p.device ?? "", p.modelRequested ?? ""].join("|");
   return "dfs2_" + sha256(raw).slice(0, 40);
 }

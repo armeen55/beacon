@@ -239,7 +239,7 @@ export async function providerCall<K extends CapabilityKey>(
   const device = entry.dims.device ? ((ask as { device?: string }).device ?? "desktop") : null;
   const modelDim = entry.dims.model ? modelRequested : null;
   const publicInput = (ask ?? {}) as Record<string, unknown>;
-  const cacheKey = identityCacheKey({ endpoint: route.postPath, publicInput, locationCode: LOCATION_US, languageCode: LANG_EN, device, modelRequested: modelDim });
+  const cacheKey = identityCacheKey({ endpoint: route.postPath, publicInput, providerPayload: payload, locationCode: LOCATION_US, languageCode: LANG_EN, device, modelRequested: modelDim });
   const resolved: ResolvedCall = {
     cacheKey, endpoint: route.postPath, endpointVersion: "v3", postPath: route.postPath, getPath: route.getPath,
     tasksReadyPath: route.tasksReady,

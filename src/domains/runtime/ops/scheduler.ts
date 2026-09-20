@@ -49,8 +49,8 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
   const receipt = (): SchedulerReceipt => ({ claimed, attempted, succeeded, paused, failed, leaseHeldUntil, released, remaining: claimed - succeeded });
   const handBack = async (run: { tenant_id: string; id: string; lease_expires_at: string | null; spend_usd?: number; progress?: { funnel?: { spendUsd?: number } } | null }): Promise<boolean> => {
     const durable = await loadResearchRun(run.tenant_id, run.id), attributed = await researchRunSpendUsd(run.id).catch(() => null);
-    const spend = Math.max(Number(durable?.progress?.funnel?.spendUsd) || 0, Number(durable?.spend_usd) || 0,
-      Number(run.progress?.funnel?.spendUsd) || 0, Number(run.spend_usd) || 0, attributed ?? 0);
+    const spend = attributed ?? Math.max(Number(durable?.progress?.funnel?.spendUsd) || 0, Number(durable?.spend_usd) || 0,
+      Number(run.progress?.funnel?.spendUsd) || 0, Number(run.spend_usd) || 0);
     const canonicalUnreadable = durable == null && attributed == null;
     const ok = await finishRun(run.tenant_id, run.id, ownerToken, "paused", null, canonicalUnreadable ? null : spend);
     if (!ok) leaseHeldUntil.push(run.lease_expires_at ?? "");
