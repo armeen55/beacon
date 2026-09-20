@@ -12,10 +12,9 @@ import "server-only";
  * merge absorbed lands on the case that answers for it now; a candidate that provably belongs to a live case
  * is not weighed against the profile's relevance tokens, but it still passes every constraint gate.
  *
- * BATCHES FILL THE PROVIDER'S OWN CEILINGS: enrichment runs ceil(n / 700) keyword_overview requests, never
- * one per keyword and never a silent truncation at one request's worth, and the recurring winning domains
- * for a case are ONE serp_competitors request at its 200-keyword ceiling. Zero SERP spend here. All state is
- * basis-scoped with optimistic row_version.
+ * Paid expansion begins with the run's own case and observed language, never the onboarding summary while
+ * those stronger inputs exist. The full free pool stays retained; only its 200-row actionable front is
+ * enriched, matching the case-competitor ceiling instead of automatically pricing all 1,400 rows.
  */
 
 import type { BusinessProfile } from "@/domains/account";
@@ -50,31 +49,35 @@ function profileConfirmed(p: BusinessProfile): boolean {
   return [p.offerings, p.topicsToOwn, p.customerProblems].some((s) => s.origin === "operator_confirmed" && s.value.length > 0);
 }
 
-/** Paid discovery seeds: EVERY confirmed theme, deduped in a stable order (topics I
- *  want to own, then what I sell, then the problems customers bring), bounded at 12.
- *  The old .slice(0, 5) silently starved most of an account's themes of any discovery
- *  at all, so their keywords never entered the funnel and could never be checked in
- *  search. Cost bound: 2 labs calls per seed (related + suggestions), so at most 24. */
-const MAX_SEEDS = 12, SEED_WORDS = 5; /** A SEED IS A TOPIC OR A READER NEED, NEVER AN ONBOARDING SENTENCE AND NEVER A DESTINATION (operator, 2026-09-05). The three confirmed lists went to the keyword endpoints exactly as a person typed them, so "customers cannot tell which one to buy for a beginner" was bought as a keyword and a publisher or a rival typed into a themes box was bought as a subject to own. A short phrase IS a topic and passes through untouched; anything longer or punctuated as a sentence is reduced to the subject words it names, in order; anything shaped like an address is a destination and is not a topic at all. Deterministic, universal, and it spends less rather than more. */ const seedOf = (raw: string): string | null => { const s = String(raw ?? "").replace(/\s+/g, " ").trim(); if (!s || /^(?:https?:\/\/|www\.)/i.test(s) || /\.[a-z]{2,}(?:\/|$)/i.test(s)) return null; const words = s.split(" "); return words.length <= SEED_WORDS && !/[.!?;:]/.test(s) ? s.toLowerCase() : topicTokens(s).slice(0, SEED_WORDS).join(" ") || null; };
+/** Twelve seeds bound expansion at 24 calls (related + suggestions). Evidence keeps its exact search wording;
+ * only the cold-start profile fallback is reduced from onboarding prose to a topic. */
+const MAX_SEEDS = 12, SEED_WORDS = 5; const seedOf = (raw: string): string | null => { const s = String(raw ?? "").replace(/\s+/g, " ").trim(); if (!s || /^(?:https?:\/\/|www\.)/i.test(s) || /\.[a-z]{2,}(?:\/|$)/i.test(s)) return null; const words = s.split(" "); return words.length <= SEED_WORDS && !/[.!?;:]/.test(s) ? s.toLowerCase() : topicTokens(s).slice(0, SEED_WORDS).join(" ") || null; };
 /** Candidates one OBSERVED route may contribute in a pass. Each is free, so this bounds the pool and the
  *  stored blob, never money. Case sets on file match the decoder's own bound. */
-/** RESERVE ARITHMETIC AT THE CEILING, stated once so it is checkable. A case set is ONE labs_serp_competitors
- *  request reserved at $0.05, the run's frozen plan is what the loop below walks, and MAX_CASE_SETS is the most
- *  this state ever holds, so the absolute worst pass reserves 12 x 0.05 = $0.60 of competitor work (a normal
- *  three-topic plan reserves $0.15). The un-truncated overview batching adds one further $0.25 request at
- *  MAX_RETAINED, because 1,400 keywords is ceil(1400 / 700) = 2 requests where the old path bought 1. So this
- *  unit's per-pass reservation ceiling went up by $0.85. Reservations, never charges: reconcile drops each one
- *  to actual, and the account's own spend cap is still the thing that fails closed. */
 const MAX_PER_ROUTE = 300, MAX_CASE_SETS = 12;
-/** The two documented request ceilings, verified on docs.dataforseo.com 2026-07-31: keyword_overview takes up
- *  to 700 keywords ("The maximum number of keywords you can specify: 700") and serp_competitors up to 200. A
- *  larger set is ceil(n / ceiling) REQUESTS, never a truncation and never one request per keyword. */
-const OVERVIEW_BATCH = 700, COMPETITOR_KEYWORDS = 200;
+/** One actionable slice is the existing case-set ceiling: at most 200 overview rows reserve one $0.25 call,
+ * then each case's recurring winning domains reserve one $0.05 call. The other retained rows remain free,
+ * visible evidence rather than becoming a reason to buy a second overview batch. */
+const COMPETITOR_KEYWORDS = 200;
 
-function seedsFrom(p: BusinessProfile): string[] {
+function profileSeeds(p: BusinessProfile): string[] {
   const all = [...p.topicsToOwn.value, ...p.offerings.value, ...p.customerProblems.value].map(seedOf).filter((s): s is string => !!s);
   return [...new Set(all)].slice(0, MAX_SEEDS);
 }
+
+function expansionSeeds(p: BusinessProfile, plan: readonly PlanCase[], gsc: SerpAgendaPageQuery[] | null, observations: readonly CanonicalPairObservation[] | null): string[] {
+  const seen = new Set<string>(), evidence: string[] = [], take = (raw: string | null | undefined) => { const seed = normalizeKeyword(raw ?? ""), key = canonicalQueryKey(seed); if (!seed || !key || seen.has(key)) return; seen.add(key); evidence.push(seed); };
+  for (const c of plan) take(c.query);
+  for (const q of gsc ?? []) take(q.query);
+  for (const o of rotated(observations ?? [])) { for (const q of o.fanOutQueries ?? []) take(q); take(o.promptText); for (const q of strings(o.analysis?.questionsAnswered)) take(q); }
+  return evidence.length > 0 ? evidence.slice(0, MAX_SEEDS) : gsc !== null && observations !== null ? profileSeeds(p) : [];
+}
+
+const overviewRank = (k: FunnelKeyword): number => k.caseId ? 0
+  : k.origins?.some((o) => o.route === "gsc") ? 1
+  : k.origins?.some((o) => ["fanout", "prompt", "answer_entity"].includes(o.route)) ? 2
+  : k.origins?.some((o) => ["paa", "related_search"].includes(o.route)) ? 3
+  : k.supports === "existing_page" || k.supports === "consolidation" ? 4 : 5;
 
 function discProgress(s: FunnelState): FunnelCounters {
   return {
@@ -247,8 +250,13 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
       if (stage === "labs") {
         const account = await d.getAccount(tenantId).catch(() => null);
         const domain = account?.domain ? rootDomain(account.domain) : "";
-        const seeds = seedsFrom(profile);
-        const raw: FunnelKeyword[] = [];
+        // Read the account's already-paid evidence before choosing a paid expansion word. null is a failed
+        // read, so it never authorizes the profile fallback or pretends the source was empty.
+        const gscQueries = await d.loadPageQueries(tenantId).catch(() => null);
+        const observations = await d.loadCanonicalObservations(tenantId).catch(() => null);
+        if (!observations) { log.warn(`[research-funnel] ${AI_READ_FAILED}`, { tenantId }); softDetail = AI_READ_FAILED; }
+        const seeds = expansionSeeds(profile, planCases, gscQueries, observations);
+        const raw: FunnelKeyword[] = observedCandidates(tenantId, state, gscQueries, observations ?? []);
         // The account's OWN rankings as the ranked pull reports them: which of my pages ranks for a keyword and how many
         // do. It is the whole basis of the support classification, so it is trusted only when the pull actually LANDED.
         const ownedRanks = new Map<string, { url: string; rank: number }[]>();
@@ -304,16 +312,6 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
             }
           }
         }
-        // FREE, and already paid for once: my own Search Console queries, every answer on file with the
-        // searches it ran and the reading of it, and everything my own results pages have shown me. Read
-        // ONCE per pass. A failed read of either is absence of that source, never a claim it holds nothing.
-        const gscQueries = await d.loadPageQueries(tenantId).catch(() => null);
-        // null = the READ FAILED; [] = the account genuinely holds no answers yet. The old pairs source lived
-        // in memory and could not fail, so nothing here ever had to tell those apart. This one is a table read
-        // that times out, and a failure costs this pass its fresh AI look and NOTHING ELSE.
-        const observations = await d.loadCanonicalObservations(tenantId).catch(() => null);
-        if (!observations) { log.warn(`[research-funnel] ${AI_READ_FAILED}`, { tenantId }); softDetail = AI_READ_FAILED; }
-        raw.push(...observedCandidates(tenantId, state, gscQueries, observations ?? []));
         // THE WATERMARK IS WHAT I ACTUALLY HARVESTED, stamped only on a pass that truly read the canonical set, so
         // an interrupted pass recomputes the same debt and a completed one clears it. A reading that settled as a
         // refusal carries a hash like any other, so it moves this and can open ONE consuming pass that harvests
@@ -368,14 +366,15 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
         if (d.now() > deadline) return { status: "advanced", cursor: { stage: "overview" }, progress: discProgress(state) };
       }
 
-      // overview: enrich retained with volume/intent/difficulty, ceil(n / 700) REQUESTS
+      // Overview prices only the actionable front. The complete retained pool and every origin stay on file;
+      // rows outside this slice are honestly unenriched rather than silently discarded.
       if (stage !== "competitors") {
         const retained = state.discovery.retained;
-        const eligible = retained.map((k) => k.keyword).filter(overviewEligible);
-        if (eligible.length < retained.length) log.info("[research-funnel] keywords left out of the overview batch", { tenantId, dropped: retained.length - eligible.length, reason: "over_80_chars_or_10_words" });
-        const priced = new Map<string, FunnelKeyword>();
-        for (let at = 0; at < eligible.length; at += OVERVIEW_BATCH) {
-          const batch = eligible.slice(at, at + OVERVIEW_BATCH);
+        const eligible = retained.filter((k) => overviewEligible(k.keyword)).sort((a, b) => overviewRank(a) - overviewRank(b) || Number(isCurrent("keyword_volume", a.volumeCheckedAt, d.now())) - Number(isCurrent("keyword_volume", b.volumeCheckedAt, d.now())) || (b.searchVolume ?? 0) - (a.searchVolume ?? 0) || a.keyword.localeCompare(b.keyword)).slice(0, COMPETITOR_KEYWORDS).map((k) => k.keyword);
+        if (eligible.length < retained.length) log.info("[research-funnel] retained keywords left unenriched this pass", { tenantId, retained: retained.length, priced: eligible.length, reason: "actionable_200_or_provider_shape" });
+        const priced = new Map<string, FunnelKeyword>(), checked = new Set<string>();
+        for (let at = 0; at < eligible.length; at += COMPETITOR_KEYWORDS) {
+          const batch = eligible.slice(at, at + COMPETITOR_KEYWORDS);
           const r = interp(await d.callProvider("labs_keyword_overview", { keywords: batch }, ids));
           track(state, r);
           if (r.kind === "waiting") {
@@ -389,20 +388,21 @@ export function keywordDiscoveryUnit(deps: FunnelDeps = {}, planCases: readonly 
           }
           if (r.kind === "evidence") {
             const parsed = d.parse("labs_keyword_overview", r.payload as never) as ParsedKeywordItem[] | null;
-            for (const e of keywordsFromParsed(parsed ?? [], "profile")) priced.set(e.keyword, e);
+            if (parsed) { for (const keyword of batch) checked.add(keyword); for (const e of keywordsFromParsed(parsed, "profile")) priced.set(e.keyword, e); }
           } else if (r.soft === "not_configured") {
             // Missing credentials: keep the retained keywords, labeled as unenriched.
             softDetail = "Researched keywords remain saved, but search volume could not be added this run. The next pass will enrich them.";
             break;
           }
         }
-        if (priced.size > 0) {
+        if (checked.size > 0) {
+          const checkedAt = new Date(d.now()).toISOString();
           const merged = retained.map((k) => {
             const e = priced.get(k.keyword);
             // competitionLevel is the PROVIDER's own band; dropping it here made an
             // enriched row fall back to a derived guess while the bought value existed.
-            return e ? { ...k, searchVolume: e.searchVolume ?? k.searchVolume, competition: e.competition ?? k.competition,
-              competitionLevel: e.competitionLevel ?? k.competitionLevel, difficulty: e.difficulty ?? k.difficulty, intent: e.intent ?? k.intent } : k;
+            return e ? { ...k, volumeCheckedAt: checkedAt, searchVolume: e.searchVolume ?? k.searchVolume, competition: e.competition ?? k.competition,
+              competitionLevel: e.competitionLevel ?? k.competitionLevel, difficulty: e.difficulty ?? k.difficulty, intent: e.intent ?? k.intent } : checked.has(k.keyword) ? { ...k, volumeCheckedAt: checkedAt } : k;
           });
           state.discovery.retained = retainDiverse(merged, MAX_RETAINED);
           state.discovery.counts.retained = state.discovery.retained.length;

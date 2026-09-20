@@ -87,8 +87,8 @@ export function dedupeKeywords(raw: FunnelKeyword[]): FunnelKeyword[] {
     // the one fact that lets a ranked keyword name its own page. THE JOURNEY IS CARRIED FORWARD FOR THE
     // SAME REASON: whichever row survives, the surviving row arrived by every route both of them did.
     if (!prev) byKey.set(id, row);
-    else if ((row.searchVolume ?? -1) > (prev.searchVolume ?? -1)) byKey.set(id, { ...row, ownedRankingUrl: row.ownedRankingUrl ?? prev.ownedRankingUrl, ownedPosition: row.ownedPosition ?? prev.ownedPosition, ...mergeOrigins(prev, row) });
-    else byKey.set(id, { ...prev, ...(prev.ownedRankingUrl == null && row.ownedRankingUrl != null ? { ownedRankingUrl: row.ownedRankingUrl, ownedPosition: row.ownedPosition } : {}), ...mergeOrigins(prev, row) });
+    else if ((row.searchVolume ?? -1) > (prev.searchVolume ?? -1)) byKey.set(id, { ...row, volumeCheckedAt: row.volumeCheckedAt ?? prev.volumeCheckedAt, ownedRankingUrl: row.ownedRankingUrl ?? prev.ownedRankingUrl, ownedPosition: row.ownedPosition ?? prev.ownedPosition, ...mergeOrigins(prev, row) });
+    else byKey.set(id, { ...prev, volumeCheckedAt: prev.volumeCheckedAt ?? row.volumeCheckedAt, ...(prev.ownedRankingUrl == null && row.ownedRankingUrl != null ? { ownedRankingUrl: row.ownedRankingUrl, ownedPosition: row.ownedPosition } : {}), ...mergeOrigins(prev, row) });
   }
   return [...byKey.values()];
 }

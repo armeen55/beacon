@@ -108,19 +108,19 @@ function livenessOf(run: ResearchRun | null, nowMs: number, state: ResearchRunSt
   }
   const num = (v: unknown): number => Number(v) || 0;
   const f = run.progress?.funnel ?? {}, s = run.progress?.state ?? {};
-  const answers = num(f.answersAnalyzed), collected = num(s.checksAnswers), sources = num(run.progress?.sourcesRefreshed), spent = num(f.spendUsd);
+  const answers = num(f.answersAnalyzed), collected = num(s.checksAnswers), sources = num(run.progress?.sourcesRefreshed), spent = num(run.spend_usd);
   const at = whenLabel(Date.parse(run.completed_at ?? "") || touched, nowMs);
-  // ONE number, the closest one to the work an account pays for: a reading beats a collection, a collection beats a refresh, and money beats nothing at all.
+  // ONE number, the closest one to a saved customer outcome: a reading beats a collection, and a collection beats a refresh. Spend is accounting evidence only; it can prove a pass was not quiet, never that it was productive.
   // AN ARRIVED ANSWER WAS ORDERED EARLIER: "collected 12 new answers" beside "research is paused" read as new
   // paid work on a paused account (operator, 2026-08-21). Arrival of an already requested answer is what it is.
   const did = answers > 0 ? `Checked ${answers} new AI ${answers === 1 ? "answer" : "answers"} for mentions of this site` /* what the reading is FOR, not how hard it looked ("Read 35 new answers closely" told the operator nothing, walk of 2026-09-16) */
     : collected > 0 ? `${collected} previously requested AI ${collected === 1 ? "answer" : "answers"} arrived`
-    : sources > 0 ? `Refreshed ${sources} connected ${sources === 1 ? "source" : "sources"}`
-    : spent > 0 ? "Ran fresh research" : null; // WHAT happened, never its invoice: provider cost is internal metering, not customer value (terminal contract, 2026-08-25)
+    : sources > 0 ? `Refreshed ${sources} connected ${sources === 1 ? "source" : "sources"}` : null;
   // "NOTHING WAS OWED" IS A CLAIM ABOUT HOW THE RUN ENDED, not just what it counted. A run that paused or
   // died mid-research with zero output did NOT check everything, and saying so here contradicted the same
   // view's own pauseReason on the one surface that renders only this line.
   return did != null ? { state: "productive", line: `${did} ${at}.` }
+    : spent > 0 ? state === "completed" ? { state: "quiet", line: `Research ran ${at}, but saved no new usable evidence.` } : state === "running" ? { state: "quiet", line: `Research is still running. Paid work has not saved new usable evidence yet.` } : state === "queued" ? { state: "quiet", line: `Research is queued to continue. Paid work has not saved new usable evidence yet.` } : { state: "interrupted", line: `Research stopped partway ${at} after paid work saved no new usable evidence. ${RESTART_STEP}` }
     : state === "completed" ? { state: "quiet", line: `Checked ${at}. Nothing new was owed.` }
     : state === "queued" ? { state: "quiet", line: `Research continues on the next scheduled pass. Last progress ${at}.` }
     : { state: "interrupted", line: `Research stopped partway ${at}. ${RESTART_STEP}` };
@@ -209,4 +209,3 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
       ? `Writing your changes was still running when this drive's time ran out, so what it had already spent is remembered and the rest is owed again at its own rank. The next pass picks it up there.` : null,
   };
 }
-

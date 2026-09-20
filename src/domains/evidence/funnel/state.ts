@@ -41,6 +41,8 @@ export type FunnelKeyword = {
   competitionLevel?: "low" | "medium" | "high" | null;
   difficulty: number | null;
   intent: string | null;
+  /** A successful keyword-overview response covered this exact query, even when the provider returned null metrics. */
+  volumeCheckedAt?: string;
   discoveredVia: KeywordDiscoveryRoute;
   /** The confirmed theme this keyword was discovered FROM (per-seed sources only), so
    *  retention can keep every seed's discovery alive instead of one seed's. */

@@ -20,7 +20,7 @@ const err = (disposition: FailureDisposition, cacheKey: string | null = "ck-old"
   const deps = { loadCanonicalObservations: async (): Promise<CanonicalPairObservation[]> => history, loadState: async (t: string, b: string) => { const row = rows.get(`${t}|${b}`); return row ? { state: clone(row.state), rowVersion: row.rowVersion } : { state: emptyFunnelState(t, b), rowVersion: 0 }; },
     saveState: async (t: string, b: string, s: FunnelState, expected: number) => { const k = `${t}|${b}`; if ((rows.get(k)?.rowVersion ?? 0) !== expected) return null; rows.set(k, { state: clone(s), rowVersion: expected + 1 }); return expected + 1; } } satisfies Pick<FunnelDeps, "loadState" | "saveState" | "loadCanonicalObservations">;
   return { deps, peek: (t: string, b: string) => rows.get(`${t}|${b}`)?.state }; }
-const base = (profile: BusinessProfile, domain = "iranopedia.com"): FunnelDeps => ({ loadCanonicalObservations: async () => [], loadProfile: async () => profile, loadCrawl: async () => null, getAccount: async () => ({ domain } as Account), parse, now: () => 1_000_000 });
+const base = (profile: BusinessProfile, domain = "iranopedia.com"): FunnelDeps => ({ loadCanonicalObservations: async () => [], loadPageQueries: async () => [], loadProfile: async () => profile, loadCrawl: async () => null, getAccount: async () => ({ domain } as Account), parse, now: () => 1_000_000 });
 const DAY_A = "2026-07-21", DAY_B = "2026-07-22"; // THE PLANNER owns the reporting day; the unit never derives one
 const plan = (ps: { id: string; text: string }[], day = DAY_A, slot: 0 | 1 | 2 = 0): DueObservation[] => ps.flatMap((p) => ENG.map((engine) => ({ promptId: p.id, version: 1, text: p.text, engine, slot, day })));
 const canon = (over: Partial<CanonicalPairObservation> = {}): CanonicalPairObservation => ({ observationId: "obs_1", promptId: "p1", promptVersion: 2, promptText: "where to buy saffron", engine: "chatgpt", modelRequested: null, modelServed: null, observationMode: "consumer_search", reportingDay: DAY_A, observedAt: null, answerHash: "h", webSearchReported: null, fanOutQueries: null, citations: null, retrievedResults: null, brandMentions: null, analysis: null, ...over });
@@ -422,12 +422,12 @@ expect([paid, ["no.com", "h8.com", "h9.com"].map((h) => [row(h).extract, row(h).
   it("retains with SOURCE diversity, so one broad pull cannot evict every seed's discovery", () => { const site = Array.from({ length: 10 }, (_, i) => kw(`site keyword ${i}`, 9000 - i));
     const seeded = ["alpha", "beta"].map((s) => kw(`${s} niche keyword`, 10, { discoveredVia: "related", seed: s })); const out = retainDiverse([...site, ...seeded], 4).map((k) => k.keyword);
     expect(out).toEqual(["alpha niche keyword", "beta niche keyword", "site keyword 0", "site keyword 1"]); expect(retainDiverse([...seeded, ...site].reverse(), 4).map((k) => k.keyword)).toEqual(out); // volume alone kept only the broad pull
-    expect([MAX_RETAINED, retainDiverse(Array.from({ length: 1800 }, (_, i) => kw(`k${i}`, i)), MAX_RETAINED).length]).toEqual([1400, 1400]); }); // TWO full enrichment requests, not one request's worth
-  it("seeds discovery from EVERY confirmed theme, bounded at twelve, and prices the retained set in ONE bounded request", async () => { const store = memStore(); const topics = Array.from({ length: 15 }, (_, i) => `gadget topic ${String(i).padStart(2, "0")}`);
-    const wordy = `gadget ${Array.from({ length: 11 }, (_, i) => `w${i}`).join(" ")}`, long = `gadget ${"x".repeat(80)}`; let batch: string[] = []; const found = parsedKw([{ keyword: "gadget topic 00 review" }, { keyword: wordy }, { keyword: long }]);
-    await keywordDiscoveryUnit({ ...base(profileOf("td", [], topics)), ...store.deps, callProvider: async (cap: CapabilityKey, input: unknown) => { if (cap === "labs_keyword_overview") batch = (input as { keywords: string[] }).keywords; return ok(cap === "labs_keywords_for_site" ? found : parsedKw([])); } })("td", cur(), 60_000);
-    expect(store.peek("td", BASIS)!.discovery.seeds).toEqual(topics.slice(0, 12)); // the old five-seed truncation starved every theme after the fifth
-    expect(batch).toEqual(["gadget topic 00 review"]); }); // over 80 characters or over 10 words: dropped BEFORE the batch, never truncated into a different keyword
+    expect([MAX_RETAINED, retainDiverse(Array.from({ length: 1800 }, (_, i) => kw(`k${i}`, i)), MAX_RETAINED).length]).toEqual([1400, 1400]); }); // the full free evidence pool stays available even though only its actionable front is enriched
+  it("expands the live account's exact case, GSC and AEO language instead of its vague onboarding prose", async () => { const store = memStore(), p = profileOf("td", ["A reference website with helpful articles for readers."], ["Everything about Iranian culture, history, food, names, places, and people."]); p.customerProblems = confirmed(["People want trustworthy and interesting information in one place."]);
+    const asked: string[] = [], ideas: string[][] = [], cases = [{ caseId: "inv_names", query: "persian girl names" }];
+    await keywordDiscoveryUnit({ ...base(p), ...store.deps, loadPageQueries: async () => [{ query: "iranian baby girl names", impressions: 913, page: "https://iranopedia.com/persian-female-first-names" }], loadCanonicalObservations: async () => [canon({ promptText: "what are popular persian names", fanOutQueries: ["popular persian girl names"], analysis: { questionsAnswered: ["what do persian names mean"] } })], keywordIdeas: async (seeds) => (ideas.push(seeds), []), callProvider: async (cap: CapabilityKey, input: unknown) => { if (cap === "labs_related_keywords" || cap === "labs_keyword_suggestions") asked.push(String((input as { keyword: string }).keyword)); return ok(parsedKw([])); } }, cases)("td", cur(), 60_000);
+    const exact = ["persian girl names", "iranian baby girl names", "popular persian girl names", "what are popular persian names", "what do persian names mean"]; expect([store.peek("td", BASIS)!.discovery.seeds, [...new Set(asked)], ideas]).toEqual([exact, exact, [exact]]);
+    expect(asked.some((q) => /reference website|everything about|trustworthy and interesting/i.test(q))).toBe(false); });
 });
 describe("research funnel - the CASE-SCOPED keyword universe", () => {
   const CASE = "inv_canon", ABSORBED = "inv_old", at = new Date(NOW).toISOString();
@@ -462,17 +462,17 @@ describe("research funnel - the CASE-SCOPED keyword universe", () => {
     expect(rows.get("saffron benefits")).toEqual(["new_page", null, null]);
     const blind = memStore(observed()); await disc(blind, { getAccount: async () => null }); // no domain, so the ranked pull never runs
     expect(blind.peek("tc", BASIS)!.discovery.retained.every((k) => k.supports == null)).toBe(true); }); // never checked is NOT "no page of mine ranks"
-  it("fills the provider's own batch ceilings: ceil(n / 700) enrichment requests and ONE bounded competitors request per case set", async () => {
-    const s = emptyFunnelState("tc", BASIS); const pool = Array.from({ length: 1500 }, (_, i) => ({ keyword: `gadget topic ${i}`, volume: 2000 - i }));
-    s.cases = [{ id: CASE, anchors: pool.slice(0, 500).map((k) => canonicalQueryKey(k.keyword)) }];
-    const store = memStore(s); const batches: number[] = [], sets: number[] = [];
-    const out = await keywordDiscoveryUnit({ ...base(profileOf("tc", [], ["gadget"])), ...store.deps, keywordIdeas: async () => [], loadPageQueries: async () => [], loadCanonicalObservations: async () => [],
-      callProvider: async (cap: CapabilityKey, input: unknown) => { if (cap === "labs_keyword_overview") batches.push((input as { keywords: string[] }).keywords.length);
+  it("keeps all 1,400 free rows while pricing only the 200-row actionable slice and one competitor set", async () => {
+    const s = emptyFunnelState("tc", BASIS); s.discovery.retained = Array.from({ length: 1399 }, (_, i) => ({ keyword: `gadget incumbent ${i}`, searchVolume: null, competition: null, difficulty: null, intent: null, volumeCheckedAt: new Date(1_000_000).toISOString(), discoveredVia: "site" as const }));
+    s.cases = [{ id: CASE, anchors: [...s.discovery.retained.slice(0, 500).map((k) => canonicalQueryKey(k.keyword)), canonicalQueryKey("gadget fresh mature account question")] }];
+    const store = memStore(s); const batches: string[][] = [], sets: number[] = [];
+    const out = await keywordDiscoveryUnit({ ...base(profileOf("tc", [], ["gadget"])), ...store.deps, keywordIdeas: async () => [], loadPageQueries: async () => [{ query: "gadget fresh mature account question", impressions: 10, page: "https://own.com/fresh" }], loadCanonicalObservations: async () => [],
+      callProvider: async (cap: CapabilityKey, input: unknown) => { if (cap === "labs_keyword_overview") batches.push((input as { keywords: string[] }).keywords);
         if (cap === "labs_serp_competitors") sets.push((input as { keywords: string[] }).keywords.length);
-        return ok(cap === "labs_keywords_for_site" ? parsedKw(pool) : cap === "labs_serp_competitors" ? [{ domain: "rival.com", avgPosition: 4, rating: 91, keywordsCount: 120 }] : parsedKw([])); } }, [{ caseId: CASE, query: null }])("tc", cur(), 60_000);
+        return ok(cap === "labs_serp_competitors" ? [{ domain: "rival.com", avgPosition: 4, rating: 91, keywordsCount: 120 }] : parsedKw([])); } }, [{ caseId: CASE, query: null }])("tc", cur(), 60_000);
     expect([out.status, store.peek("tc", BASIS)!.discovery.retained.length]).toEqual(["done", 1400]);
-    expect(batches).toEqual([700, 700]); // 1,400 keywords is TWO full requests at the documented 700 ceiling, never 1,400 requests and never one request's worth kept
-    expect(sets).toEqual([200]); }); // 500 case keywords is ONE request at the documented 200 ceiling, never 500 requests
+    expect([[batches.map((b) => b.length), batches[0]?.includes("gadget fresh mature account question"), store.peek("tc", BASIS)!.discovery.retained.find((k) => k.keyword === "gadget fresh mature account question")?.volumeCheckedAt], sets]).toEqual([[[200], true, new Date(1_000_000).toISOString()], [200]]); }); // fresh evidence rotates ahead of answered-null incumbents and receives a durable receipt; one 200-keyword competitor request
+  it("never files an unparseable overview response as a month-long successful check", async () => { const store = memStore(), query = "gadget malformed overview"; await keywordDiscoveryUnit({ ...base(profileOf("tm", [], ["gadget"])), ...store.deps, keywordIdeas: async () => [], loadPageQueries: async () => [{ query, impressions: 10, page: "https://own.com/gadget" }], loadCanonicalObservations: async () => [], parse: (cap, env) => cap === "labs_keyword_overview" ? null : parse!(cap, env), callProvider: async () => ok(parsedKw([])) }, [{ caseId: "case-malformed", query }])("tm", cur(), 60_000); expect(store.peek("tm", BASIS)!.discovery.retained.find((k) => k.keyword === query)?.volumeCheckedAt).toBeUndefined(); });
   it("buys the recurring winning domains once per case set, records how that call was served, and does not buy the week again", async () => {
     const store = memStore(observed()); let calls = 0;
     const run = (over: Partial<FunnelDeps> = {}) => disc(store, { callProvider: async (cap: CapabilityKey) => { if (cap === "labs_serp_competitors") { calls += 1; return ok([{ domain: "rival.com", avgPosition: 4, rating: 91, keywordsCount: 12 }], "ck-comp"); }
@@ -508,11 +508,11 @@ describe("research funnel - the journey behind a keyword", () => {
     const out = await keywordDiscoveryUnit({ ...base(profileOf("tj", ["saffron"], ["saffron price"])), ...store.deps,
       keywordIdeas: async () => [], loadPageQueries: async () => [], loadCanonicalObservations: async () => [],
       callProvider: async (cap, input) => cap === "labs_keywords_for_site" ? ok(parsedKw([{ keyword: "Saffron Price Per Gram", volume: 700 }]))
-        : cap === "labs_related_keywords" && (input as { keyword: string }).keyword === "saffron price" ? ok(parsedKw([{ keyword: "saffron grades", volume: 300 }])) : ok(parsedKw([])),
+        : cap === "labs_related_keywords" && (input as { keyword: string }).keyword === "price saffron" ? ok(parsedKw([{ keyword: "saffron grades", volume: 300 }])) : ok(parsedKw([])),
       }, [{ caseId: JCASE, query: "price saffron" }])("tj", cur(), 60_000);
     expect(out.status).toBe("done"); const rows = rowsOf(store);
     expect(rows.get("saffron price per gram")!.origins).toEqual([{ route: "site", sourceQuery: "Saffron Price Per Gram" }]); // the whole-site pull answers for itself and has no parent theme, in the provider's own spelling
-    expect(rows.get("saffron grades")!.origins).toEqual([{ route: "related", parentQuery: "saffron price" }]); }); // a themed pull names the theme it was bought for
+    expect(rows.get("saffron grades")!.origins).toEqual([{ route: "related", parentQuery: "price saffron" }]); }); // a themed pull names the frozen case query it was bought for
   it("harvests the searches of EVERY answer on file, never only the one pair a pass happens to hold", async () => {
     const SHARED = "saffron every answer ran this"; // the working set is whatever today's plan is mid-flight: on this account ONE pair, while the store held every answer these searches actually came out of
     const twelve = ["p1", "p2", "p3"].flatMap((promptId, p) => ENG.map((engine, e) => { const n = p * 4 + e;
