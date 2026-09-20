@@ -275,13 +275,13 @@ export async function collectResolvedTask(
   await d.cacheWrite(cacheKey, { updated_at: now.toISOString(), poll_attempts: pollAttempts,
     next_poll_at: new Date(now.getTime() + Math.min(MAX_TASK_POLL_MS, FIRST_TASK_POLL_MS * 2 ** Math.min(pollAttempts - 1, 12))).toISOString() }).catch(() => {});
   if (!transport.ok) {
-    if (transport.status === 402) { const top = topStatus(transport.body), task = firstTask(transport.body)?.status_code, code = typeof task === "number" ? task : top, action = classifyPaidResponse(top, typeof task === "number" ? task : null, 0); if (isPaymentRefusal(transport.body)) { await CREDIT_BREAKER.trip(process.env.BEACON_TENANT_ID ?? "", {}, "dataforseo").catch(() => {}); return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") }; } return action === "daily_limit_release" ? { state: "error", cacheKey, disposition: "daily_limit", detail: LIMIT_DETAIL } : blockedResult(cacheKey, `code ${code ?? "unknown"}`); }
+    if (transport.status === 402) { const top = topStatus(transport.body), task = firstTask(transport.body)?.status_code, code = typeof task === "number" ? task : top, action = classifyPaidResponse(top, typeof task === "number" ? task : null, 0); if (isPaymentRefusal(transport.body)) return historicalPaymentWait(cacheKey, taskId); return action === "daily_limit_release" ? { state: "error", cacheKey, disposition: "daily_limit", detail: LIMIT_DETAIL } : blockedResult(cacheKey, `code ${code ?? "unknown"}`); }
     if (transport.status != null && [401, 403, 404].includes(transport.status)) return { state: "error", cacheKey, disposition: "blocked", detail: `The provider answered ${transport.status} on collection. The task stays on file, is never bought again, and is checked for free after the account is corrected.` };
     if (deadlineDue) return terminalUnavailable(d, cacheKey, now, "transport_after_72h");
     return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: `The provider could not be reached to collect this (${transport.message}). It is tried again for free.` };
   }
   const collectedCost = readProviderCost(transport.body), task = firstTask(transport.body);
-  if (isPaymentRefusal(transport.body)) { await CREDIT_BREAKER.trip(process.env.BEACON_TENANT_ID ?? "", {}, "dataforseo").catch(() => {}); return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") }; }
+  if (isPaymentRefusal(transport.body)) return historicalPaymentWait(cacheKey, taskId);
   const code = typeof task?.status_code === "number" ? task.status_code : null;
   const top = topStatus(transport.body), topCls = top === 20000 ? "ready" : classifyTaskStatus(top);
   const statusCode = topCls === "ready" ? code : top, cls = classifyTaskStatus(statusCode);
@@ -355,6 +355,10 @@ function blockedReason(row: { error_detail?: string | null } | null | undefined)
 function blockedResult(cacheKey: string, reason: string): CachedCallResult {
   if (reason === "repost_limit") return unavailableResult(cacheKey);
   return { state: "error", cacheKey, disposition: "blocked", detail: `The search provider would not run this request (${reason}) and charged nothing. It stays set aside until the account is looked at.` };
+}
+/** task_get describes one stored purchase, never current account health: production proved a seven-day-old task can briefly answer payment-held after the live balance is positive, then return its result on the next free GET. */
+function historicalPaymentWait(cacheKey: string, providerTaskId: string): CachedCallResult {
+  return { state: "waiting", cacheKey, providerTaskId, costUsd: 0, detail: "This stored provider task still reports the billing state from when it ran. Current account readiness is checked separately, so its paid task id is kept and collected again for free." };
 }
 const unavailableResult = (cacheKey: string): CachedCallResult => ({ state: "error", cacheKey, disposition: "quarantined", detail: "This evidence request stayed unavailable after its one safe recovery. It is set aside, and the rest of the work continues." });
 async function terminalUnavailable(d: CachedCallDeps, cacheKey: string, now: Date, reason: string): Promise<CachedCallResult> {

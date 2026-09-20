@@ -178,11 +178,11 @@ describe("Standard tasks - free resumption and the STRUCTURED dispositions", () 
   it("maps every in-body task code onto the frozen disposition and clears ONLY a proven dead identity", async () => {
     const cases: [number, string, boolean][] = [
       [40601, "waiting", false], [40602, "waiting", false], [50000, "retry_free", false], [50301, "retry_free", false], // genuine queue: free GET, zero reposts. transient: the SAME id is kept
-      [40100, "blocked", false], [40200, "capped", false], [40203, "daily_limit", false], [40401, "repost_once", true], [40403, "repost_once", true]]; // account/credit/contract: pause and keep the id. proven gone: clear, then ONE clean repost
+      [40100, "blocked", false], [40200, "waiting", false], [40203, "daily_limit", false], [40401, "repost_once", true], [40403, "repost_once", true]]; // an OLD task's payment state is not current account health; proven gone: clear, then ONE clean repost
     for (const [code, want, clears] of cases) {
       const { deps, calls } = makeDeps({ cacheRead: row() }); deps.fetchImpl = fetcher(calls, () => code === 40200 ? { status_code: code, tasks: [{ status_code: 20000 }] } : inBody(code)); const res = await collectResolvedTask("k", PATHS, deps);
       expect(res.state === "error" ? res.disposition : res.state).toBe(want);
-      if (res.state === "error" && want !== "daily_limit") expect(res.detail).toContain(String(code));
+      if (res.state === "error" && want !== "daily_limit") expect(res.detail).toContain(String(code)); if (code === 40200) expect([res.state, res.state === "waiting" && res.providerTaskId, res.state === "waiting" && res.costUsd]).toEqual(["waiting", "task-9", 0]);
       expect([cleared(calls.writes), calls.fetch.every((u) => u.includes("task_get"))]).toEqual([clears, true]); // never a repost
     } });
   it("never reposts a merely old task: only an exact missing result may replace a paid identity", async () => { let grants = 0; const stale = { posted_at: new Date(NOW.getTime() - 72 * 3_600_000).toISOString(), next_poll_at: FUTURE }; const g = makeDeps({ cacheRead: row(stale), authorizeRepost: async () => (++grants, true) }); g.deps.fetchImpl = fetcher(g.calls, () => inBody(40601)); const first = await collectResolvedTask("k", PATHS, g.deps); expect([first.state === "error" && first.disposition, grants, g.calls.fetch.length, quarantined(g.calls.writes)]).toEqual(["quarantined", 0, 1, true]); });
