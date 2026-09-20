@@ -98,10 +98,10 @@ describe("what a card says after a batch press, and what it says when it cannot 
     const { componentIdOf } = await import("@/domains/decision"), policy = (await import("@/app/(shell)/changes/types")).default, base = atomic(), source = base.bundle!.components[0]!, dependency = componentIdOf(source, 0), hash = "a".repeat(64);
     const schema = { kind: "schema" as const, label: "FAQ structured data", before: null, after: '{"@context":"https://schema.org","@type":"FAQPage"}', evidenceKeys: ["k1"], risk: "safe" as const,
       derivation: { rule: "visible_faq_pairs_v1" as const, operation: "add" as const, source: { pageKey: "/nowruz-guide", contentHash: hash, schemaHash: hash, visibleFaqHash: hash, captureRevision: hash }, dependsOn: [{ componentId: dependency, revision: hash }], projectedVisibleFaqHash: hash } };
-    const row = { ...base, bundle: { ...base.bundle!, components: [source, schema] } } as ChangeProposal, schemaId = componentIdOf(schema, 1), linked = [{ id: dependency }, { id: schemaId, dependsOn: [dependency] }];
+    const row = { ...base, pageUrl: "site.example/nowruz-guide", bundle: { ...base.bundle!, components: [source, schema] } } as ChangeProposal, schemaId = componentIdOf(schema, 1), linked = [{ id: dependency }, { id: schemaId, dependsOn: [dependency] }];
     expect([[...policy.linkedComponentIds(linked, dependency)], [...policy.linkedComponentIds(linked, schemaId)]]).toEqual([[dependency, schemaId], [schemaId, dependency]]);
     const cardHtml = await card(row), { BundleDetail } = await import("@/app/(shell)/changes/[id]/bundle-detail"), detailHtml = renderToStaticMarkup(createElement(BundleDetail, { proposal: row, bundle: row.bundle!, recorded: new Set<string>() }));
-    for (const html of [cardHtml, detailHtml]) expect([html.match(/data-linked-component="true"/g)?.length, html.includes("ticking either selects or clears both")]).toEqual([2, true]);
+    for (const html of [cardHtml, detailHtml]) expect([html.match(/data-linked-component="true"/g)?.length, html.includes("ticking either selects or clears both"), html.includes('href="https://site.example/nowruz-guide"')]).toEqual([2, true, true]);
   });
   it("prints what a change is waiting on where the change is, and prints nothing of the sort on work that is ready to make", async () => {
     const waiting = (input: string) => proposal({ status: "needs_review", riskLevel: "low", rankingReceipt: { ...proposal().rankingReceipt!, factors: [...proposal().rankingReceipt!.factors, { name: "readiness", input, contribution: 0, max: 0 }] } });

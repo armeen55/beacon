@@ -151,6 +151,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   const placement = proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.where ?? null : null;
   const units = proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.units : undefined;
   const link = proposal.recommendedChange.kind === "existing_edit" && proposal.recommendedChange.linkTo ? { href: proposal.recommendedChange.linkTo, anchor: proposal.recommendedChange.anchorText ?? "", pageUrl: proposal.pageUrl } : null;
+  const livePageHref = operatorUiPolicy.livePageHref(proposal.pageUrl);
   const reading = ready && !merge && reviewFits(proposal, proposal.semanticReview?.of); // a row accepted on a legacy-keyed reading still says what stands behind it (audit, 2026-09-14)
   const sources = reading ? citedPublishers(proposal).size : 0;
 
@@ -186,8 +187,8 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
       </div>
 
       <div className="space-y-3 px-4 pb-4">
-        {proposal.pageUrl ? (
-          <a href={proposal.pageUrl} target="_blank" rel="noreferrer" data-open-live-page="true"
+        {livePageHref ? (
+          <a href={livePageHref} target="_blank" rel="noreferrer" data-open-live-page="true"
             className="inline-flex items-center gap-1 text-[12px] font-semibold text-accent-primary underline underline-offset-2">
             Open live page <span aria-hidden>↗</span>
           </a>

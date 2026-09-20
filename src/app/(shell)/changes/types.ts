@@ -80,7 +80,13 @@ function linkedComponentIds(components: readonly LinkedComponent[], seed: string
   }
   return linked;
 }
-const operatorUiPolicy = { isManualEditProofWork, isBulkRecordable, isPasteableComponent, linkedComponentIds, measurementAcknowledgement };
+/** Only an absolute HTTP(S) page may leave Beacon. Older rows may omit the scheme; a bare path stays unlinked. */
+function livePageHref(value: string | null | undefined): string | null {
+  const raw = (value ?? "").trim(); if (!raw || raw.startsWith("/")) return null;
+  const candidate = /^https?:\/\//i.test(raw) ? raw : /^[^/?#]+\.[^/?#]+(?:[/?#]|$)/.test(raw) ? `https://${raw}` : "";
+  try { const parsed = new URL(candidate); return /^(?:http|https):$/.test(parsed.protocol) ? parsed.toString() : null; } catch { return null; }
+}
+const operatorUiPolicy = { isManualEditProofWork, isBulkRecordable, isPasteableComponent, linkedComponentIds, measurementAcknowledgement, livePageHref };
 export default operatorUiPolicy;
 
 /** A PAGE ADDRESS, READ THE WAY A PERSON SAYS IT. Every change surface printed the raw slug as its headline

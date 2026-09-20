@@ -72,7 +72,7 @@ function EvidenceLines({ items }: { items: EvidenceLine[] }) {
 export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes" }: { proposal: ChangeProposal; bundle: ChangeBundle; recorded: Set<string>; returnTo?: string }) {
   const facts = new Map(bundle.receipt.items.map((i) => [i.key, i]));
   const chips = [...bundle.scope.queries, ...bundle.scope.prompts];
-  const isNew = proposal.kind === "new_page";
+  const isNew = proposal.kind === "new_page", livePageHref = operatorUiPolicy.livePageHref(proposal.pageUrl);
   // A direct link obeys the same servability verdict as the queue: only ready work can be copied or recorded.
   const held = proposal.status !== "ready" ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet."
     : unsettledCause(proposal); // the first defect of the one verdict, typed faults included (journey review, 2026-09-06): `blocking` restated by a second name
@@ -104,7 +104,7 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
         <p className="text-[13px] text-muted-foreground">
           {isNew ? "A new page for" : "On this page"}: {proposal.pageLabel}
         </p>
-        {proposal.pageUrl ? <a href={proposal.pageUrl} target="_blank" rel="noreferrer"
+        {livePageHref ? <a href={livePageHref} target="_blank" rel="noreferrer"
           className="inline-flex min-h-11 items-center text-[12px] font-semibold text-accent-primary underline underline-offset-2">Open live page ↗</a> : null}
         <p className="text-[13px] leading-relaxed text-muted-foreground">{proposal.whyItMatters}</p>
         {proposal.whyRankedAboveNext ? <p className="text-[12px] leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">Why this is above the next change:</span> {proposal.whyRankedAboveNext}</p> : null}
@@ -412,7 +412,7 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
   const shownSteps = research && after && !(steps[0] ?? "").startsWith(after.slice(0, 25)) ? [after, ...steps] : steps;
   const checks = proposal.evidence?.hints ?? [];
   // TWO THINGS THE RENDERED APP CAUGHT ON 2026-09-05. A HEADLINE THAT CARRIES AN ADDRESS IS THE WRITER'S BRIEF, NOT THE CUSTOMER'S SENTENCE: the detail led with "Write a real description on /iran-flags/parthian-empire-flag: 7 pages share one templated line", a file name printed at the operator above the very address it names. AND BEACON'S OWN OBJECTIONS ARE NOT THE OPERATOR'S CAVEATS: the same row printed "its copy carries no record of what it stands on" under Keep in mind, which names an internal record and no next step; the hold this page already computed names those sentences, so no second vocabulary decides it here.
-  const brief = (proposal.opportunityType || "").trim().replace(/_/g, " "), edit = proposal.recommendedChange, caveats = cardCaveats(proposal, hold1.caveats), tried = proposal.previousCopy; // THE HOLD ANSWERS BOTH HALVES (measured, 2026-09-05): filtering the row's raw limitations against the hold's reasons alone still served "its copy carries no record of what it stands on" on /california-persian-cities/fremont, the one sentence that verdict had just DISPROVED from the row's own claims and support facts. What a person should keep in mind is now the same function's answer, so no gate sentence reaches a customer as their own caveat and the typed fault and the obligation still say what is owed.
+  const brief = (proposal.opportunityType || "").trim().replace(/_/g, " "), edit = proposal.recommendedChange, caveats = cardCaveats(proposal, hold1.caveats), tried = proposal.previousCopy, livePageHref = operatorUiPolicy.livePageHref(proposal.pageUrl); // THE HOLD ANSWERS BOTH HALVES (measured, 2026-09-05): filtering the row's raw limitations against the hold's reasons alone still served "its copy carries no record of what it stands on" on /california-persian-cities/fremont, the one sentence that verdict had just DISPROVED from the row's own claims and support facts. What a person should keep in mind is now the same function's answer, so no gate sentence reaches a customer as their own caveat and the typed fault and the obligation still say what is owed.
   const action = (/(^|\s)\//.test(brief) ? "" : brief) || (edit.kind === "new_page" ? `Build a new page that answers "${proposal.primaryQuery}"` : `Update the ${({ title: "page title", meta: "meta description", h1: "page headline", answer_block: "answer at the top of the page", section: "section", schema: "structured data" } as Record<string, string>)[edit.field] ?? "page"} to sharpen it for "${proposal.primaryQuery}"`); // never the bland shrug: the operator reads the page name and then what is being done to it
   return (
     <div className="max-w-3xl space-y-5" data-simple-detail="true">
@@ -424,7 +424,7 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
           {proposal.pagePath ? pageLabel(proposal.pagePath) : (proposal.pageLabel || "This page")}: {action}
         </h2>
         <p className="text-[12px] text-muted-foreground">{proposal.pagePath ?? proposal.pageLabel}</p>
-        {proposal.pageUrl ? <a href={proposal.pageUrl} target="_blank" rel="noreferrer" className="inline-flex text-[12px] font-semibold text-accent-primary underline underline-offset-2">Open live page ↗</a> : null}
+        {livePageHref ? <a href={livePageHref} target="_blank" rel="noreferrer" className="inline-flex text-[12px] font-semibold text-accent-primary underline underline-offset-2">Open live page ↗</a> : null}
         <p className="text-[12px] capitalize text-muted-foreground">About {proposal.estimatedEffortMinutes} min · {proposal.confidence} confidence · {proposal.riskLevel} risk</p>
       </div>
       {caveats.length > 0 ? <div className="space-y-1"><Heading>Keep in mind before copying</Heading><Bullets items={caveats} /></div> : null}
