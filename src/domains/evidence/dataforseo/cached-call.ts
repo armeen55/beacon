@@ -7,7 +7,6 @@ import { CREDIT_BREAKER } from "@/lib/cost/credit-breaker";
 import { globalMonthlyCapUsd } from "@/lib/cost/cost-breaker";
 import type spendReservations from "@/lib/cost/spend-reservations";
 import type { CachedCallResult, FunnelBoundaryDeps, ProviderEnvelope } from "./funnel-boundary";
-
 const API_BASE = "https://api.dataforseo.com/v3";
 const PLATFORM = "dataforseo-serp";
 const DAILY_LIMIT_DETAIL = "Today's research spending limit was reached, so research stopped here. Everything already collected is saved, and the next pass resumes from this point tomorrow.";
@@ -16,8 +15,7 @@ const TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const AMBIGUITY_WINDOW_MS = 15 * 60 * 1000;
 const LISTING_MEMO_MS = 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const FIRST_TASK_POLL_MS = 2 * 60 * 1000, MAX_TASK_POLL_MS = 6 * 60 * 60 * 1000;
-
+const FIRST_TASK_POLL_MS = 2 * 60 * 1000, MAX_TASK_POLL_MS = 6 * 60 * 60 * 1000, PROVIDER_TASK_MAX_MS = 72 * 60 * 60 * 1000;
 export type ResolvedCall = {
   cacheKey: string; endpoint: string; endpointVersion: string; postPath: string;
   getPath: ((id: string) => string | null) | null; tasksReadyPath: string | null;
@@ -31,23 +29,20 @@ type EvidenceCacheClaim = { // ── seams ────────────
   outcome: "ready" | "claimed" | "pending"; payload: unknown | null; providerTaskId: string | null;
   modelServed: string | null; readyAt: string | null; costUsd: number; fetchGeneration?: number;
 };
-
 type EvidenceCacheRow = {
   cache_key: string; endpoint: string; status: "pending" | "ready" | "error";
   provider_task_id: string | null; payload: unknown | null; model_served: string | null;
   spend_attempt_id?: string | null;
-  cost_usd: number; expires_at: string;
+  cost_usd: number; expires_at: string; posted_at?: string | null;
   quarantined_at?: string | null;
   error_detail?: string | null;
   next_poll_at?: string | null;
   poll_attempts?: number;
 };
-
 type ClaimArgs = {
   cacheKey: string; endpoint: string; endpointVersion: string; inputHash: string; inputSummary: string;
   locationCode: number; languageCode: string; device: string | null; modelRequested: string | null; claimSeconds: number;
 };
-
 export type CachedCallDeps = {
   env: NodeJS.ProcessEnv;
   now: () => Date;
@@ -60,20 +55,16 @@ export type CachedCallDeps = {
   authorizeRepost: (cacheKey: string, detail: string) => Promise<boolean>;
   breaker: (env: NodeJS.ProcessEnv, now: Date, projectedCostUsd: number) => Promise<{ tripped: boolean; reason?: string }>;
 };
-
 async function reconcileRetried(write: () => Promise<boolean>): Promise<boolean> {
   for (let attempt = 0; attempt < 3; attempt += 1) { try { if (await write()) return true; } catch { /* retry the receipt only */ } }
   return false;
 }
-
 export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps = {}): Promise<CachedCallResult> {
   const d = resolveDeps(deps);
   const cacheKey = r.cacheKey;
   const now = d.now();
   const paths = { getPath: (_e: string, id: string) => r.getPath?.(id) ?? null, tasksReadyPath: () => r.tasksReadyPath, ttlMsFor: () => r.ttlMs };
-
   if (!isDataForSeoConfigured(d.env)) return { state: "not_configured", cacheKey, detail: "DataForSEO not configured" };
-
   let claim: EvidenceCacheClaim;
   try {
     claim = await d.claimEvidenceFetch({
@@ -84,7 +75,6 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
   } catch (err) {
     return { state: "error", cacheKey, disposition: "none", detail: `This fetch could not be reserved (${short(err)}). It is tried again on the next pass.` };
   }
-
   if (claim.outcome === "ready") return { state: "hit", envelope: (claim.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: claim.modelServed };
   if (claim.outcome === "pending") {
     if (r.mode === "task") return collectResolvedTask(cacheKey, paths, deps);
@@ -105,12 +95,9 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     }
     return { state: "waiting", cacheKey, providerTaskId: claim.providerTaskId, costUsd: 0, detail: "Another run is already fetching this. Its result is picked up when it lands." };
   }
-
   if (r.mode === "task" && claim.providerTaskId) return collectResolvedTask(cacheKey, paths, deps);
-
   const verdict = await d.breaker(d.env, now, r.estCostUsd).catch(() => ({ tripped: true, reason: "global spend breaker unavailable, failing closed" }));
   if (verdict.tripped) { await releaseClaim(d, cacheKey, now, "capped"); return { state: "capped", cacheKey, detail: verdict.reason ?? "global monthly ceiling reached" }; }
-
   let reservation: Awaited<ReturnType<CachedCallDeps["spend"]["reserve"]>> | null;
   const generation = Number.isInteger(claim.fetchGeneration) && Number(claim.fetchGeneration) > 0 ? Number(claim.fetchGeneration) : 1;
   try {
@@ -139,7 +126,6 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     await releaseClaim(d, cacheKey, now, "precall_receipt_failed");
     return { state: "error", cacheKey, disposition: "none", detail: `The pre-call receipt could not be saved (${short(err)}). No provider call was made, and it is tried again.` };
   }
-
   if (!(await CREDIT_BREAKER.claimProbe(r.tenantId, {}, "dataforseo").catch(() => false))) { await d.spend.release(attemptId).catch(() => false); await releaseClaim(d, cacheKey, now, "credit_held"); return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") }; } // THE STOP ON FILE REFUSES BEFORE THE NETWORK and RELEASES the claim (reviewer, 2026-09-15: a blocked hold is for ever, a credit stop is until a call goes through); one probe per cooldown is the only call that may try to clear it
   const transmission = reservation.state === "reserved"
     ? await d.spend.claimTransmission(attemptId).catch(() => "unavailable" as const)
@@ -158,7 +144,6 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     if (transport.status === 402) { await CREDIT_BREAKER.trip(r.tenantId, {}, "dataforseo").catch(() => {}); return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") }; }
     return held;
   }
-
   const body = transport.body;
   const providerCost = readProviderCost(body);
   if (isPaymentRefusal(body)) {
@@ -167,7 +152,6 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     else await holdUncertain(d, r.mode, cacheKey, now, attemptId, "The provider reported an empty balance without proving this request cost nothing.");
     return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") };
   }
-
   if (r.mode === "task") {
     const posted = readTaskPosted(body);
     if (!posted.accepted || !posted.taskId) return applyPaidRejection(d, r, body, providerCost, now, attemptId, "The provider did not clearly accept this task and may still have charged for it, so the task was paused.");
@@ -254,6 +238,7 @@ export async function collectResolvedTask(
   if (row.status === "ready" && row.payload != null && Date.parse(row.expires_at) > now.getTime()) return { state: "hit", envelope: (row.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: row.model_served };
   const refused = blockedReason(row);
   if (refused) return blockedResult(cacheKey, refused);
+  if (row.error_detail?.startsWith("unavailable:")) return unavailableResult(cacheKey);
   const spendReceipt = row.spend_attempt_id ? await d.spend.read(row.spend_attempt_id).catch(() => null) : null;
   if (spendReceipt?.state === "reconciled" && spendReceipt.resultPayload != null) {
     const stored = readLiveResult(spendReceipt.resultPayload);
@@ -280,36 +265,45 @@ export async function collectResolvedTask(
     if (!taskId) return { state: "error", cacheKey, disposition: "quarantined", detail: "This one is paused because what the provider did with it could not be confirmed. It is held and checked against the provider's free finished-task list, and never paid for twice." };
   }
   if (!taskId) return { state: "waiting", cacheKey, providerTaskId: null, costUsd: 0, detail: "Another run is already fetching this. Its result is picked up when it lands." };
-  if (row.next_poll_at && Date.parse(row.next_poll_at) > now.getTime()) return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: "The provider task is waiting for its stored collection time." };
+  const recordedAt = Date.parse(row.posted_at ?? ""), postedAt = Number.isFinite(recordedAt) ? recordedAt : now.getTime();
+  if (!Number.isFinite(recordedAt)) await d.cacheWrite(cacheKey, { posted_at: now.toISOString() }).catch(() => {});
+  const deadlineDue = now.getTime() - postedAt >= PROVIDER_TASK_MAX_MS;
+  if (!deadlineDue && row.next_poll_at && Date.parse(row.next_poll_at) > now.getTime()) return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: "The provider task is waiting for its stored collection time." };
   const getPath = paths.getPath(row.endpoint, taskId);
   if (!getPath) return { state: "error", cacheKey, disposition: "none", detail: "There is no way to collect this task, so it starts fresh." };
-
   const transport = await runDataForSeoTransport({ url: `${API_BASE}/${getPath}`, payload: [], env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence-collect", method: "GET" });
   const pollAttempts = Math.max(0, Number(row.poll_attempts) || 0) + 1;
   await d.cacheWrite(cacheKey, { updated_at: now.toISOString(), poll_attempts: pollAttempts,
     next_poll_at: new Date(now.getTime() + Math.min(MAX_TASK_POLL_MS, FIRST_TASK_POLL_MS * 2 ** Math.min(pollAttempts - 1, 12))).toISOString() }).catch(() => {});
   if (!transport.ok) {
-    if (transport.status === 404) return { state: "error", cacheKey, disposition: "blocked", detail: "The provider answered 404 on collection. The task stays on file, is never bought again, and is checked for free." };
+    if (transport.status === 402) return blockedResult(cacheKey, "HTTP 402");
+    if (transport.status != null && [401, 403, 404].includes(transport.status)) return { state: "error", cacheKey, disposition: "blocked", detail: `The provider answered ${transport.status} on collection. The task stays on file, is never bought again, and is checked for free after the account is corrected.` };
+    if (deadlineDue) return terminalUnavailable(d, cacheKey, now, "transport_after_72h");
     return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: `The provider could not be reached to collect this (${transport.message}). It is tried again for free.` };
   }
-  const collectedCost = readProviderCost(transport.body);
-  const task = firstTask(transport.body);
+  const collectedCost = readProviderCost(transport.body), task = firstTask(transport.body);
   const code = typeof task?.status_code === "number" ? task.status_code : null;
   const top = topStatus(transport.body), topCls = top === 20000 ? "ready" : classifyTaskStatus(top);
   const statusCode = topCls === "ready" ? code : top, cls = classifyTaskStatus(statusCode);
-  if (cls === "waiting") return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: `The provider is still working on this (code ${statusCode ?? "unknown"}). It is collected for free on the next pass.` };
+  if (cls === "waiting") {
+    if (deadlineDue) {
+      const allowed = await d.authorizeRepost(cacheKey, `expired_after_72h_${statusCode ?? "unknown"}`).catch(() => false);
+      return allowed ? { state: "error", cacheKey, disposition: "repost_once", detail: `The provider exceeded its documented 72-hour task limit (code ${statusCode ?? "unknown"}). Its refunded task starts fresh once.` }
+        : settleDeniedRepost(d, cacheKey);
+    }
+    return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: `The provider is still working on this (code ${statusCode ?? "unknown"}). It is collected for free on the next pass.` };
+  }
   if (cls === "limited") return { state: "error", cacheKey, disposition: "daily_limit", detail: DAILY_LIMIT_DETAIL };
   if (cls === "missing") {
     const allowed = await d.authorizeRepost(cacheKey, `missing_${statusCode ?? "unknown"}`).catch(() => false);
-    return allowed
-      ? { state: "error", cacheKey, disposition: "repost_once", detail: `The provider no longer has this task (code ${statusCode ?? "unknown"}). It starts fresh once.` }
-      : { state: "error", cacheKey, disposition: "blocked", detail: "The provider lost this task after its one clean repost. It is set aside instead of being paid for again." };
+    return allowed ? { state: "error", cacheKey, disposition: "repost_once", detail: `The provider no longer has this task (code ${statusCode ?? "unknown"}). It starts fresh once.` }
+      : settleDeniedRepost(d, cacheKey);
   }
   if (cls === "blocked") return { state: "error", cacheKey, disposition: "blocked", detail: `The provider turned this request down (code ${statusCode ?? "unknown"}). It is paused until the account is sorted out. The task is still on file, so nothing gets paid for twice.` };
-  if (cls === "transient") return { state: "error", cacheKey, disposition: "retry_free", detail: `The provider hit a temporary problem on this task (code ${statusCode ?? "unknown"}). It is kept and collected again for free shortly.` };
+  if (cls === "transient") return deadlineDue ? terminalUnavailable(d, cacheKey, now, "transient_after_72h") : { state: "error", cacheKey, disposition: "retry_free", detail: `The provider hit a temporary problem on this task (code ${statusCode ?? "unknown"}). It is kept and collected again for free shortly.` };
   const live = readLiveResult(transport.body);
-  if (!live.valid) return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: "The provider marked this ready but sent no result yet. It is collected again for free." };
-  if (collectedCost == null) return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0,
+  if (!live.valid) return deadlineDue ? terminalUnavailable(d, cacheKey, now, "empty_result_after_72h") : { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: "The provider marked this ready but sent no result yet. It is collected again for free." };
+  if (collectedCost == null) return deadlineDue ? terminalUnavailable(d, cacheKey, now, "missing_charge_after_72h") : { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0,
     detail: "The provider returned the ready result without its final charge. The task id is preserved and collected again for free; an advance or estimate never authorizes the result." };
   if (row.spend_attempt_id) {
     if (!(await reconcileRetried(() => d.spend.reconcile(row.spend_attempt_id!, collectedCost, taskId, "provider_reported", transport.body))))
@@ -363,8 +357,20 @@ function blockedReason(row: { error_detail?: string | null } | null | undefined)
   return typeof detail === "string" && detail.startsWith("blocked:") ? detail.slice(8, 120) : null;
 }
 function blockedResult(cacheKey: string, reason: string): CachedCallResult {
+  if (reason === "repost_limit") return unavailableResult(cacheKey);
   if (reason === "HTTP 402") return { state: "error", cacheKey, disposition: "blocked", detail: CREDIT_BREAKER.sentence("dataforseo") }; // an empty balance is said in the operator's words, never as a status code (operator walk, 2026-09-16)
   return { state: "error", cacheKey, disposition: "blocked", detail: `The search provider would not run this request (${reason}) and charged nothing. It stays set aside until the account is looked at.` };
+}
+const unavailableResult = (cacheKey: string): CachedCallResult => ({ state: "error", cacheKey, disposition: "quarantined", detail: "This evidence request stayed unavailable after its one safe recovery. It is set aside, and the rest of the work continues." });
+async function terminalUnavailable(d: CachedCallDeps, cacheKey: string, now: Date, reason: string): Promise<CachedCallResult> {
+  if (!(await writeRetried(d, cacheKey, { quarantined_at: now.toISOString(), error_at: now.toISOString(), error_detail: `unavailable:${reason}`, fetch_claimed_until: null, next_poll_at: null }))) return { state: "error", cacheKey, disposition: "retry_free", detail: "This task reached its deadline, but that state could not be saved. It remains on its free task id." };
+  return unavailableResult(cacheKey);
+}
+async function settleDeniedRepost(d: CachedCallDeps, cacheKey: string): Promise<CachedCallResult> {
+  let latest: EvidenceCacheRow | null; try { latest = await d.cacheRead(cacheKey); } catch { latest = null; }
+  const reason = blockedReason(latest); if (reason) return blockedResult(cacheKey, reason);
+  if (!latest?.provider_task_id && latest?.error_detail?.startsWith("dead_task:")) return { state: "error", cacheKey, disposition: "repost_once", detail: "Another collector already authorized the one clean retry." };
+  return { state: "error", cacheKey, disposition: "retry_free", detail: "The task could not be settled safely. Its identity stays on file and is checked again for free." };
 }
 
 async function writeRetried(d: CachedCallDeps, cacheKey: string, patch: Record<string, unknown>): Promise<boolean> {

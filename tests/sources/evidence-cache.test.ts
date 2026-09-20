@@ -15,7 +15,7 @@ const claim = (outcome: "ready" | "pending" | "claimed", over: Record<string, un
 const liveOk = (cost: number, result: unknown = [{ rank: 1 }]) => ({ status_code: 20000, cost, tasks: [{ status_code: 20000, id: "t1", result }] });
 const inBody = (code: number, cost?: number) => ({ status_code: 20000, cost, tasks: [{ status_code: code, id: "task-9", result: null }] });
 const listing = (entries: unknown[]) => ({ status_code: 20000, tasks: [{ status_code: 20000, result: entries }] });
-const row = (over: Record<string, unknown> = {}) => async () => ({ cache_key: "k", endpoint: `${SERP}/task_post`, status: "pending" as const, provider_task_id: "task-9", payload: null, model_served: null, cost_usd: 0.006, expires_at: FUTURE, quarantined_at: null, ...over });
+const row = (over: Record<string, unknown> = {}) => async () => ({ cache_key: "k", endpoint: `${SERP}/task_post`, status: "pending" as const, provider_task_id: "task-9", payload: null, model_served: null, cost_usd: 0.006, expires_at: FUTURE, posted_at: NOW.toISOString(), quarantined_at: null, ...over });
 const blockedRow = (code = 50100) => row({ provider_task_id: null, quarantined_at: NOW.toISOString(), error_detail: `blocked:code ${code}` });
 const uncertainRow = () => row({ provider_task_id: null, quarantined_at: NOW.toISOString(), error_detail: "uncertain:unconfirmed provider call" });
 const httpFail = (status: number) => vi.fn(async () => new Response("no", { status })) as unknown as typeof fetch;
@@ -135,8 +135,8 @@ describe("Standard tasks - free resumption and the STRUCTURED dispositions", () 
     expect([res.state, res.state === "waiting" && res.providerTaskId, res.state === "waiting" && res.costUsd, calls.fetch.length, calls.writes.some((w) => w.provider_task_id === "task-123" && typeof w.next_poll_at === "string")]).toEqual(["waiting", "task-123", 0.006, 1, true]); // the actual cost, once, with the id and first poll time persisted
   });
   it("does not poll before next_poll_at and exponentially advances the durable clock after a wait", async () => {
-    const early = makeDeps({ cacheRead: row({ next_poll_at: new Date(NOW.getTime() + 60_000).toISOString(), poll_attempts: 2 }) });
-    expect((await collectResolvedTask("k", PATHS, early.deps)).state).toBe("waiting"); expect(early.calls.fetch).toHaveLength(0);
+    const early = makeDeps({ cacheRead: row({ posted_at: null, next_poll_at: new Date(NOW.getTime() + 60_000).toISOString(), poll_attempts: 2 }) });
+    expect((await collectResolvedTask("k", PATHS, early.deps)).state).toBe("waiting"); expect([early.calls.fetch.length, typeof early.calls.writes[0]?.posted_at]).toEqual([0, "string"]);
     const due = makeDeps({ cacheRead: row({ next_poll_at: NOW.toISOString(), poll_attempts: 2 }) }); due.deps.fetchImpl = fetcher(due.calls, () => inBody(40601));
     expect((await collectResolvedTask("k", PATHS, due.deps)).state).toBe("waiting"); const wake = due.calls.writes.find((w) => w.poll_attempts === 3)!;
     expect([due.calls.fetch.length, wake.poll_attempts, Date.parse(String(wake.next_poll_at)) > NOW.getTime()]).toEqual([1, 3, true]);
@@ -148,7 +148,7 @@ describe("Standard tasks - free resumption and the STRUCTURED dispositions", () 
     expect(reconcile).toHaveBeenCalledWith("a1", 0.006, "task-123", "provider_advance");
   });
   it.each([0.003, 0.02])("adjusts a Standard advance to the final task receipt, including refund/overage %s", async (finalCost) => {
-    const body = liveOk(finalCost), g = makeDeps({ cacheRead: row({ spend_attempt_id: "a1", cost_usd: 0.006 }) });
+    const body = liveOk(finalCost), g = makeDeps({ cacheRead: row({ spend_attempt_id: "a1", cost_usd: 0.006, posted_at: new Date(NOW.getTime() - 72 * 3_600_000).toISOString(), next_poll_at: FUTURE }) });
     (g.deps.spend as CachedCallDeps["spend"]).read = async () => ({ state: "reconciled", providerTaskId: "task-9", accountedUsd: 0.006, accountingBasis: "provider_advance" });
     const reconcile = vi.fn(async () => true); (g.deps.spend as CachedCallDeps["spend"]).reconcile = reconcile;
     g.deps.fetchImpl = fetcher(g.calls, () => body);
@@ -185,11 +185,11 @@ describe("Standard tasks - free resumption and the STRUCTURED dispositions", () 
       if (res.state === "error" && want !== "daily_limit") expect(res.detail).toContain(String(code));
       expect([cleared(calls.writes), calls.fetch.every((u) => u.includes("task_get"))]).toEqual([clears, true]); // never a repost
     } });
-  it("grants one proven-dead repost centrally, then blocks the same direct caller on the next dead generation", async () => { let grants = 0; const g = makeDeps({ cacheRead: row(), authorizeRepost: async () => ++grants === 1 }); g.deps.fetchImpl = fetcher(g.calls, () => inBody(40401)); const first = await collectResolvedTask("k", PATHS, g.deps), second = await collectResolvedTask("k", PATHS, g.deps); expect([first.state === "error" && first.disposition, second.state === "error" && second.disposition, grants, g.calls.reserve.length]).toEqual(["repost_once", "blocked", 2, 0]); });
-  it("on the FREE GET a raw 404 fails closed (identity kept, no repost); any other transport failure keeps the task", async () => {
-    const dead = makeDeps({ cacheRead: row(), fetchImpl: httpFail(404) }); const d1 = await collectResolvedTask("k", PATHS, dead.deps);
-    expect([d1.state === "error" && d1.disposition, cleared(dead.calls.writes)]).toEqual(["blocked", false]); // only in-body 40401/40403 ever authorize the repost
-    const blip = makeDeps({ cacheRead: row(), fetchImpl: httpFail(503) }); const b1 = await collectResolvedTask("k", PATHS, blip.deps);
+  it("grants one expired-task repost, then terminalizes only that item with no third GET", async () => { let grants = 0; const stale = { posted_at: new Date(NOW.getTime() - 72 * 3_600_000).toISOString(), next_poll_at: FUTURE }; const g = makeDeps({ cacheRead: async () => row({ ...stale, ...(grants > 1 ? { error_detail: "blocked:repost_limit", quarantined_at: NOW.toISOString() } : {}) })(), authorizeRepost: async () => ++grants === 1 }); g.deps.fetchImpl = fetcher(g.calls, () => inBody(40601)); const first = await collectResolvedTask("k", PATHS, g.deps), second = await collectResolvedTask("k", PATHS, g.deps), third = await collectResolvedTask("k", PATHS, g.deps); expect([first.state === "error" && first.disposition, second.state === "error" && second.disposition, third.state === "error" && third.disposition, grants, g.calls.fetch.length]).toEqual(["repost_once", "quarantined", "quarantined", 2, 2]); });
+  it("on the FREE GET account/identity failures block without clearing or reposting; a transport blip keeps the task", async () => {
+    for (const code of [401, 402, 403, 404]) { const dead = makeDeps({ cacheRead: row({ posted_at: NOW.toISOString() }), fetchImpl: httpFail(code) }); const d1 = await collectResolvedTask("k", PATHS, dead.deps);
+      expect([d1.state === "error" && d1.disposition, cleared(dead.calls.writes), d1.state === "error" && (code === 402 ? d1.detail.toLowerCase().includes("balance") : d1.detail.includes(String(code)))]).toEqual(["blocked", false, true]); }
+    const blip = makeDeps({ cacheRead: row({ posted_at: NOW.toISOString() }), fetchImpl: httpFail(503) }); const b1 = await collectResolvedTask("k", PATHS, blip.deps);
     expect([b1.state, b1.state === "waiting" && b1.costUsd, b1.state === "waiting" && b1.providerTaskId, cleared(blip.calls.writes), b1.state === "waiting" && b1.detail.includes("503")]).toEqual(["waiting", 0, "task-9", false, true]); });});
 describe("quarantine - indefinite, both modes, zero automatic paid retries", () => {
   it("an UNCERTAIN Standard post stays quarantined FOREVER: 30 days on it is still one free listing GET and zero posts", async () => {

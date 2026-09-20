@@ -199,14 +199,14 @@ export type EngineModelResolution = { model: string; method: "standard" | "live"
  *  identically; the disposition alone decides retry behavior.
  *    retry_free  - an exactly documented temporary provider failure on a FREE collect: the task id is
  *                  PRESERVED; retry later; ZERO reposts.
- *    repost_once - the task is proven missing/expired by an EXACT in-body 40401/40403 on a collect (never
- *                  a raw HTTP status, never a POST response): identity cleared; at most ONE clean repost.
+ *    repost_once - the task is proven missing/expired by an EXACT in-body 40401/40403 or its documented
+ *                  72-hour completion window elapsed: identity cleared; at most ONE clean repost.
  *    blocked     - a terminal, malformed, auth/payment, or unknown outcome. On a PAID response the
  *                  refusal is held DURABLY (refunded when the provider reported cost 0) and nothing
  *                  automatic retries it; on a FREE collect the task id is kept and re-checked for free.
  *                  The funnel surfaces it as explicit unavailable coverage.
- *    quarantined - an uncertain POST or an accepted task whose id could not be persisted: ZERO automatic
- *                  reposts ever; recovery ONLY via the stored task id or FREE tasks_ready listing matched by attempt tag.
+ *    quarantined - an uncertain purchase or one evidence item exhausted its safe recovery: ZERO automatic
+ *                  reposts; recovery only from its stored task id/list, otherwise the rest of the work continues.
  *    none        - a plain recoverable failure (claim/reserve/persist): retry the whole call later.
  *    daily_limit - the account's own daily spend ceiling refused the call at zero charge. It stops the
  *                  batch for the day like a refusal, but holds nothing and clears itself. */

@@ -87,8 +87,8 @@ function buildDefaultDeps(env: NodeJS.ProcessEnv): CachedCallDeps {
 /** Already-paid tasks whose durable backoff has elapsed, oldest wake first. */
 export async function pendingProviderTaskKeys(limit: number): Promise<string[]> {
   try {
-    const now = new Date().toISOString(), { data, error } = await getSupabaseAdmin().from("evidence_cache").select("cache_key")
-      .eq("status", "pending").not("provider_task_id", "is", null).gt("expires_at", now).lte("next_poll_at", now)
+    const now = new Date(), deadline = new Date(now.getTime() - 72 * 60 * 60 * 1000).toISOString(), { data, error } = await getSupabaseAdmin().from("evidence_cache").select("cache_key")
+      .eq("status", "pending").not("provider_task_id", "is", null).or(`next_poll_at.lte.${now.toISOString()},posted_at.lte.${deadline}`)
       .order("next_poll_at", { ascending: true }).limit(Math.max(1, limit));
     if (error != null) return [];
     return (data ?? []).map((r) => String(r.cache_key));
