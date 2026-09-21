@@ -219,6 +219,7 @@ const release = async (produce: () => Promise<unknown>) => { vi.resetModules(); 
   vi.doMock("@/lib/persistence/json-store", () => ({ readStore: async () => [], writeStore: async () => {}, claimScope: async () => true, releaseScope: async () => undefined }));
   vi.doMock("@/lib/tenant-context", () => ({ currentTenantId: async () => TENANT, slugForTenantId: async () => "fixture", runWithTenant: async (_t: string, fn: () => Promise<unknown>) => fn() }));
   vi.doMock("@/lib/single-flight", () => ({ runSingleFlight: async (_k: string, fn: () => Promise<unknown>) => fn() }));
+  vi.doMock("@/domains/runtime", () => ({ researchPermission: async () => "running" as const }));
   const swept: Array<{ shipped: string[] }> = []; // THE TRIPWIRE THE BUILD RUNS: what it was told is already measured, and what it reverted.
   vi.doMock("@/domains/measurement", () => ({ loadShippedChanges: ledger.read, loadShippedChangesForTenant: (_t: string) => ledger.read() }));
   vi.doMock("@/domains/decision", () => ({ produceProposalsForTenant: produce, publishCustomerRelease: async (a: { release: string; content: { computedAt: string } }) => { published.push(a.content); return a.release; }, reconcileImplementedWithoutShipment: async (_t: string, shipped: ReadonlySet<string>) => { swept.push({ shipped: [...shipped] }); return ["reverted"]; } }));

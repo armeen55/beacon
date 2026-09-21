@@ -44,6 +44,13 @@ const db = vi.hoisted(() => {
           Object.assign(held, { status: "needs_review", payload: args.p_payload, proposal_version: Number(held.proposal_version) + 1, queue_lane: null, queue_rank: null });
           return { data: "reopened", error: null };
         }
+        if (name === "save_change_proposal_proof_cas") {
+          const row = args.p_row as Row, at = state.rows.findIndex((r) => r.tenant_id === args.p_tenant_id && r.id === row.id), held = state.rows[at];
+          state.race?.(); state.race = null;
+          if (!held || held.proposal_version !== args.p_expected_version || held.status !== args.p_expected_status
+            || held.terminal_disposition != null || JSON.stringify(held.payload) !== JSON.stringify(args.p_expected_payload)) return { data: "blocked", error: null };
+          state.rows[at] = { ...held, ...row }; return { data: "saved", error: null };
+        }
         if (name === "save_change_proposal_cas") {
           const row = args.p_row as Row, at = state.rows.findIndex((r) => r.id === row.id);
           if (state.breakWrite) return { data: "blocked", error: null };
@@ -121,6 +128,10 @@ beforeEach(() => { db.state.rows = []; db.state.legacy = []; db.state.shipments 
 const seedShipment = (id: string, proposalId: string, version = "sv-1") => db.state.shipments.push({ tenant_id: T, id, proposal_id: proposalId, proposal_version: version, implemented_at: "2026-09-19T00:00:00.000Z" });
 /** POST-CONTRACT HISTORY (packet acceptance 22). The contract migration moved every row onto the three lifecycle words and the bridge decoder is deleted with it: the same reads answer identically without one, and no historical proposal disappears. */
 const PROMOTE = { kind: "promote" as const, at: "2026-08-15T00:00:00.000Z" };
+it("the proof save changes only the exact source version it read", async () => { const first = proposal({ status: "needs_review" });
+  expect(await saveChangeProposal(first)).toBe("saved"); const source = (await loadChangeProposal(T, first.id))!;
+  expect(await saveChangeProposal({ ...source, confidence: "high" }, undefined, undefined, source)).toBe("saved");
+  expect(await saveChangeProposal({ ...source, confidence: "low" }, undefined, undefined, source)).toBe("blocked"); });
 describe("rows written after the lifecycle contract", () => {
   const row = (id: string, word: string): Row => ({
     tenant_id: T, id, proposal_version: 1, status: word, terminal_disposition: null, superseded_by: null,
@@ -499,13 +510,8 @@ describe("structured data answers to its own gate", () => {
     for (const held of [null, { ...capture, version: "stale_known_good" }, { ...capture, fetchedAt: "2026-08-01T00:00:00Z" }, { ...capture, contentHash: null }, { ...capture, url: "https://other.example/" }, { ...capture, faqs: capture.faqs.map((pair) => ({ ...pair, answerComplete: false })) }, { ...capture, faqs: capture.faqs.map((pair) => ({ ...pair, source: "jsonld" })) }]) {
       const waiting = judge(held), owed = { ...p, status: "needs_review" as const, obligation: { kind: "evidence" as const, need: waiting.need! } };
       expect([waiting.verdict, waiting.schemaReplacement, nextObligation(owed)]).toEqual(["needs_review", undefined, owed.obligation]);
-      await saveChangeProposal(owed); const saved = await loadChangeProposal(T, p.id); expect(nextObligation(saved!)).toEqual(owed.obligation);
-      if (held === null) expect((await answerReviewedProposal(T, p.id, confirmedVersion(saved!), p.basis ?? null, { kind: "promote", at: "2026-09-13T00:00:00Z" })).status).toBe("refused");
     }
     expect(SCHEMA.rewriteFaq(markup, [...capture.faqs, { ...capture.faqs[0]!, answer: "An ambiguous second answer." }])).toBeNull();
-    const corrected = { ...p, copyStamp: "capture:h", recommendedChange: { kind: "existing_edit" as const, field: "schema" as const, before: null, after: repaired }, previousCopy: { after: markup, retiredBecause: "reconciled against current HTML pairs without a model", at: "2026-09-13T00:00:00Z", attempts: 0 } };
-    await saveChangeProposal(corrected); const landed = await loadChangeProposal(T, p.id);
-    expect([landed?.status, landed?.previousCopy?.after, landed?.previousCopy?.attempts, nextObligation(landed!), await saveChangeProposal(landed!)]).toEqual(["ready", markup, 0, null, "unchanged"]);
   });
   const FAQ = JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: [{ "@type": "Question", name: "What are Persian numerals?", acceptedAnswer: { "@type": "Answer", text: "Persian numerals are the symbols Iranians use to write numbers." } }] });
   const COPY = "What are Persian numerals? Persian numerals are the symbols Iranians use to write numbers. The table below gives every digit.", SOLD = "Structured data makes a result eligible for a richer display, it never guarantees one.";
@@ -520,11 +526,8 @@ describe("structured data answers to its own gate", () => {
     expect([(await judge(original, { pageCapture })).verdict, (await judge(moved, { pageCapture })).verdict, moved.recommendedChange]).toEqual(["rejected", "ready", { ...original.recommendedChange, where: "In this page's own custom code, in the page head. This is JSON-LD, not visible page text." }]);
     expect([moved.whyItMatters.includes("eligible"), moved.whyItMatters.startsWith("2 questions and their answers from this page"), moved.operatorSteps?.some((step) => step.includes("new answer paragraph")), moved.faults, convertSectionToSchema(moved)]).toEqual([false, true, false, original.faults, null]);
     expect([openHold(moved).defects.length > 0, (await judge(moved, { pageCapture: null })).need?.reasonCode]).toEqual([true, "schema_visible_pair_unconfirmed"]);
-    await saveChangeProposal(original); await saveChangeProposal(moved); const saved = (await loadChangeProposal(T, original.id))!;
-    expect([saved.status, saved.faults, openHold(saved).defects.length > 0]).toEqual(["needs_review", original.faults, true]);
-    expect([saved.whyItMatters, saved.operatorSteps, saved.previousCopy?.attempts ?? 0, await saveChangeProposal(saved)]).toEqual([moved.whyItMatters, moved.operatorSteps, 0, "unchanged"]);
     const wrapped = { ...original, faults: [], recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: '<script type="application/ld+json">'+after+'</script>' } }, converted = convertSectionToSchema(wrapped)!;
-    await saveChangeProposal(wrapped); await saveChangeProposal(converted); expect((await loadChangeProposal(T, original.id))?.previousCopy?.attempts).toBe(0);
+    expect(converted.recommendedChange.kind === "existing_edit" && converted.recommendedChange.field).toBe("schema");
     const eligible = JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: { "@type": "Question", name: "Who can enter?", acceptedAnswer: { "@type": "Answer", text: "Members are eligible to enter." } } }), factual = row(eligible, { claims: [{ text: "Members are eligible to enter.", supportedBy: ["page-copy-1"] }] });
     expect((await judge(factual, { pageCapture: { ...pageCapture, faqs: [{ question: "Who can enter?", answer: "Members are eligible to enter.", source: "html_section", answerComplete: true }] } })).verdict).toBe("ready");
     const wrongBefore = { ...moved, recommendedChange: { ...moved.recommendedChange, before: "A visible answer paragraph." } as ChangeProposal["recommendedChange"] };

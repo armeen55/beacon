@@ -290,11 +290,9 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   persist?: boolean }): Promise<ExtraQueueRun> {
   const { tenantId, snapshot, now } = input;
   const expectedCtrAt = input.curve?.expectedCtrAt ?? defaultExpectedCtrAt;
-  // WHICH SOURCE EACH FAMILY IS JUDGED ON. The two answer producers read stored AI answers and nothing else, so an answer read that failed must not let the sweep retire their cards as ones nobody re-emitted.
   const answersRead = snapshot.sources.some((s) => s.source === "native_ai" && s.status === "fresh");
-  const DEFECTS = ["missing_description", "duplicate_heading", "thin_page", "missing_answer", "faq_schema"];
+  const DEFECTS = ["missing_description", "duplicate_heading", "thin_page", "missing_answer"];
   const pages = snapshot.ownedPages.filter((p) => !!p.content);
-  // NOTHING TO READ IS NOT A FINISHED PASS. These producers rewrite their families in full and the sweep behind them retires only what a FINISHED producer no longer stands behind, so a pass that read nothing says so.
   if (pages.length === 0) return { cards: [], complete: false, families: [], held: [], needsOwnPage: [] };
   const weak = weakAnchorsOf(snapshot.ownedPages, snapshot.research);
   const meter: AeoMeter = aeoMeter(input.aeoDiagnoses ?? 0);

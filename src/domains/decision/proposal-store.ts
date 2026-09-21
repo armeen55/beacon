@@ -13,7 +13,7 @@ import { actionableProposalFailures, validateProposal, canonTextOf } from "./val
 import { readFactChecks } from "@/domains/evidence/pages/fact-checks"; import { unreviewed } from "./proof"; import { staleCopyReasons } from "./drafted-copy"; import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context"; import { canonicalUrlKey } from "@/domains/evidence/snapshot"; import { footprintCovers, footprintKey, footprintsOverlap } from "./mutation-footprint"; import { COPY_RULES } from "./copy-sanitize";
 import proposalSeats from "./proposal-seats";
 import proposalIdentity from "./proposal-identity";
-const { identityOf, proposalFingerprint, terminalProposalFingerprint } = proposalIdentity;
+const { identityOf, proposalFingerprint, retiredPolicyOf, terminalProposalFingerprint } = proposalIdentity;
 type Identity = ReturnType<typeof identityOf>;
 /** The canonical table (migrations/2026-07-31_change_proposals.sql). */
 const PROPOSAL_TABLE = "change_proposals";
@@ -66,13 +66,13 @@ const IMPLEMENTED_TRANSITION = Symbol("implemented-transition");
 /** The token a RETIREMENT saves under. Taking a draft back may not take anything else with it: the save exists only so the row is ON FILE before it is retired, and left to run the supersession path a draft that covers a narrower live card would retire that card on its way out and leave nothing writing it. */
 const NO_HANDOVER = Symbol("no-handover");
 
-/** DO TWO ROWS CARRY THE SAME WORDS? The replacement text of an atomic edit, the pieces of a bundle by kind, page and copy, or the four written fields of a new page. Deliberately WORDS ONLY: status, faults, limitations and the obligation are the caller's decision about those words and are never compared here. */
 const sameWords = (a: ChangeProposal, b: ChangeProposal): boolean => { const words = (p: ChangeProposal): string => { const c = p.recommendedChange; return JSON.stringify([c.kind === "existing_edit" ? c.after.trim() : [c.proposedTitle.trim(), c.metaDescription.trim(), c.openingAnswer.trim(), c.outline.map((h) => h.trim())], (p.bundle?.components ?? []).map((x) => [x.kind, x.page ?? null, x.after.trim()])]); }; return words(a) === words(b); };
 /** READY IS A FINISHED STATE, AND THIS IS WHERE IT IS MADE ONE (operator, 2026-09-04). Every door spread the stored row whole, so /persian-rugs/heriz-rug stood at `ready` still carrying the brief it outgrew ("The exact wording lands on this card once the next funded pass writes it"), the faults a gate raised before the words moved, the operator's stale ask for a redraft, and every refusal sentence the sweep had appended to its limitations since the day it was minted. A row demoted and re-promoted wore its old refusals for ever. The gate vocabulary is the SAME one the $0 replay strips (completeness's GATE_WORDS), so both doors agree by construction; a limitation that describes the accepted copy is not written by a gate and stays. */
 const finished = (p: ChangeProposal): ChangeProposal => { const { research: _brief, redraftRequested: _asked, ...rest } = p;
   return { ...rest, faults: [], limitations: AEO_BAR.writerLimitations(p.limitations).filter((l) => !GATE_WORDS.test(l)) }; };
 /** Persist one proposal as the CURRENT answer for its hypothesis, superseding whatever held that identity before. Writes nothing when the stored row already says exactly this. Never throws. `keep` is handed THE ROW THAT STANDS after the call (the merged row when one is written, the stored row when nothing is), so a caller's own map holds what the database holds rather than the draft it arrived with. */
-export async function saveChangeProposal(proposal: ChangeProposal, transition?: symbol, keep?: (row: ChangeProposal) => void): Promise<SaveResult> {
+export async function saveChangeProposal(proposal: ChangeProposal, transition?: symbol, keep?: (row: ChangeProposal) => void, exactExpected?: ChangeProposal): Promise<SaveResult> {
+  const retiredPolicy = retiredPolicyOf(proposal); if (retiredPolicy && transition !== NO_HANDOVER) { log.info("[proposal-store] a retired family cannot create current work", { tenantId: proposal.tenantId, id: proposal.id, family: retiredPolicy.family }); return "refused"; }
   if (proposal.status === "ready" && (unreviewed(proposal) != null || proposal.researchOnly === true)) proposal = { ...proposal, status: "needs_review" }; // THE STORE NEVER ISSUES AN AUTHORIZATION AND NO LONGER SIGNS ONE EITHER: it asks the one shared question and refuses to keep `ready` on a row whose sources have not been shown to support its claims. AND A ROW THAT SAYS IT HAS NO COPY IS NEVER STORED FINISHED (incident recovery, 2026-09-04): research-only work was refused by every door that reads it and still went on file wearing the word Ready, which is a stamp outranking its own row.
   /** ONE OBJECTION STANDS ON A ROW ONCE, WHICHEVER DOOR WROTE IT (live, 2026-09-05). A refusal reaches a row twice: raw from the gate that composed it, and again wrapped by the door that says which read it failed ("it did not pass the re-read of a stored change against the rules that stand today: " plus the same sentence). The writer's own guard is an EXACT-match test against what the row already holds, so the two forms never match each other, and one live answer row carries the identical objection twice in `faults` and twice in `limitations`; the card folds it for display and the row goes on holding both, so a reader of the row counts two defects where there is one. Folded HERE, at the one door every producer's row passes through on its way to being written down, so no future writer has to remember. THE TEST IS THE COMPOSER'S OWN SHAPE and nothing wider: an entry is dropped only when another entry in the same field ENDS with a colon, a space and exactly that entry, so a short limitation that merely reads like part of a longer one is untouched. Measured over the store: 1 of 171 rows folds, in both fields. */
   const once = (xs: readonly string[]): string[] => xs.filter((x) => !xs.some((y) => y !== x && y.endsWith(`: ${x}`))), kept = { faults: once(proposal.faults ?? []), limitations: once(proposal.limitations) };
@@ -106,6 +106,7 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     const rows = onPage.filter((e) => e.row.id === proposal.id || !e.stored || footprintsOverlap(e.stored, proposal)).map((e) => e.row);
     const mine = rows.find((r) => r.id === proposal.id) ?? history.find((r) => r.id === proposal.id) ?? (await rowById(proposal.tenantId, proposal.id));
     const mineDecoded = mine ? decode(mine.payload) : null;
+    if (exactExpected && (!mine || mine.terminal_disposition != null || !mineDecoded || serializeChangeProposal(mineDecoded) !== serializeChangeProposal(exactExpected))) return "blocked";
     const sameLegacyMutation = mineDecoded != null && footprintKey(mineDecoded) === ident0.mutation_key;
     if (mine && mine.mutation_key !== ident0.mutation_key && !sameLegacyMutation) { log.error("[proposal-store] this proposal id is permanently bound to another mutation, so nothing is saved",
       { tenantId: proposal.tenantId, id: proposal.id, held: mine.mutation_key, proposed: ident0.mutation_key }); return "blocked"; }
@@ -122,7 +123,7 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     }
     const stored = mine && mine.terminal_disposition == null ? decode(mine.payload) : null;
     if (mine?.status === "implemented_pending_verification" && transition !== IMPLEMENTED_TRANSITION) { log.info("[proposal-store] you already marked this change done, so a new draft is not written over it", { tenantId: proposal.tenantId, id: proposal.id }); return "blocked"; }
-    if (stored && transition !== NO_HANDOVER) proposal = preferFinished(proposal, stored, sameWords(proposal, stored) && proposal.researchOnly !== true);
+    if (stored && transition !== NO_HANDOVER && !exactExpected) proposal = preferFinished(proposal, stored, sameWords(proposal, stored) && proposal.researchOnly !== true);
     if (proposal.status === "ready" && openHold(proposal).defects.length > 0) proposal = { ...proposal, status: "needs_review" };
     if (proposal.status === "ready") proposal = finished(proposal); // AFTER the merge, because the merge can hand back the prior's own limitations and status, and BEFORE the obligation below, so what a finished row owes is computed from the row it actually is
     const owes0 = nextObligation(proposal); const owes = owes0?.kind === "evidence" && owes0.need.kind === "serp" && owes0.need.reasonCode !== "no_winner_to_read" && proposal.obligation && proposal.obligation.kind !== "evidence" ? proposal.obligation : owes0; // A CALLER HOLDING THE RESULTS PAGE MAY ANSWER THE QUESTION THE PURE LADDER ASKS (falsifier, 2026-09-02): `nextObligation` cannot see the snapshot, so it asks for the reading; a producer that has it in hand and finds the shape refused answers with the redraft that would earn it, and the store keeps that answer rather than resetting it to the wait. // THE TYPED NEXT STEP IS STAMPED AT EVERY DOOR, not only the producer's: the release loop and the caveat sweep save straight through here, so a row written by either would otherwise carry an obligation computed for words it no longer has. // AND A SETTLEMENT IS NOT AN ANSWER TO "NOBODY HAS READ THIS SEARCH'S WINNERS" (reviewer two, 2026-09-06): the caller guard above kept the stored `terminal: no substantive gap named` on every re-save of a settled row, so the reading the ladder owes was re-stamped away at the one door that writes the row and no caller outside the producer ever saw it. This one reasonCode is exempt: it is decided from the row's own typed `winnersOnFile`, which no caller holds a better answer for.
@@ -133,6 +134,7 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
       ? { ...computedIdent, mutation_key: mine.mutation_key }
       : computedIdent; // Existing seats keep their historical key after the collision-resistant v2 cutover; only their decoded mutation may authorize that compatibility path.
     const live = transition === NO_HANDOVER ? [] : onPage.filter((e) => e.row.terminal_disposition == null && e.row.id !== proposal.id && (!e.stored || footprintsOverlap(e.stored, proposal))); // A NEIGHBOUR IS ONLY TAKEN OVER WHEN THIS CHANGE WRITES EVERYTHING IT WROTE. Retiring on a bare intersection let a title-only rewrite consume a bundle that also moved the canonical and added a link, throwing the rest of that bundle's work away with no receipt; PARTIAL overlap is refused below instead, so two live rows can never both claim one edit and nothing is ever silently dropped. An unreadable neighbour counts as partial: it may be carrying anything.
+    if (exactExpected && live.length > 0) return "blocked";
     const partial = live.find((e) => !e.stored || !footprintCovers(proposal, e.stored));
     if (partial) { log.info("[proposal-store] this change writes part of what another live change writes, so it is not saved beside it",
       { tenantId: proposal.tenantId, holding: partial.row.id, draft: proposal.id }); return "blocked"; }
@@ -181,15 +183,18 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     }
     const row = rowFor(proposal, ident, version);
     assertRowsScopedToTenant([row as { tenant_id?: string | null }], proposal.tenantId, TABLE);
-    const { data: saved, error: saveError } = await sb.rpc("save_change_proposal_cas", {
-      p_tenant_id: proposal.tenantId, p_row: row, p_expect_absent: mine == null,
-      p_expected_version: mine?.proposal_version ?? null, p_expected_status: mine ? String(mine.status) : null,
-      p_expected_disposition: mine?.terminal_disposition ?? null, p_expected_current: expectedCurrentPage(data),
-    });
+    const exactArgs = { p_tenant_id: proposal.tenantId, p_row: row, p_expected_version: mine?.proposal_version ?? null,
+      p_expected_status: mine ? String(mine.status) : null, p_expected_payload: JSON.parse(serializeChangeProposal(exactExpected ?? proposal)) as unknown,
+      p_expected_current: expectedCurrentPage(data) };
+    const { data: saved, error: saveError } = exactExpected
+      ? await sb.rpc("save_change_proposal_proof_cas", exactArgs)
+      : await sb.rpc("save_change_proposal_cas", { p_tenant_id: proposal.tenantId, p_row: row, p_expect_absent: mine == null,
+        p_expected_version: mine?.proposal_version ?? null, p_expected_status: mine ? String(mine.status) : null,
+        p_expected_disposition: mine?.terminal_disposition ?? null, p_expected_current: expectedCurrentPage(data) });
     if (saveError || saved !== "saved") {
       log.error("[proposal-store] compare-and-set save did not land; a newer lifecycle decision stands", {
         tenantId: proposal.tenantId, id: proposal.id, answer: saved ?? null, error: saveError?.message ?? null });
-      return saved === "blocked" || saved === "stale_page" ? "blocked" : "failed"; }
+      return saved === "blocked" || saved === "stale_page" || saved === "research_resumed" ? "blocked" : "failed"; }
     keep?.(proposal); return "saved";
   } catch (e) { log.error("[proposal-store] save threw", { id: proposal.id, error: e instanceof Error ? e.message : String(e) }); return "failed"; }
 }

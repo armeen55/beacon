@@ -1,9 +1,7 @@
-/** PAUSING RESEARCH MUST STOP THE BUYING, NOT JUST THE RESEARCH CYCLE (operator, 2026-08-19): every stale surface rebuild ran the producer, which minted its paid budgets unconditionally, and maxDrafts bounded one pool of three. ZERO IS PROVED DIRECTLY: the doors are called and asked whether they touched the network. */
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { z } from "zod";
-import { runWithoutSpending, spendingRefused } from "@/lib/spend-scope";
+import { PROOF_SPEND, runWithoutSpending, spendingClosed } from "@/lib/spend-scope";
 const fetchSpy = vi.spyOn(globalThis, "fetch");
-/** THE ONE MODEL-DOOR REQUEST every door test below presses, carrying a key that must never reach the network. */
 const MODEL_ASK = { promptId: "page-job-read", promptVersion: 1, action: "test", apiKey: "sk-not-used",
   model: "gpt-5-mini", instructions: "x", input: "y", schemaName: "s", zodSchema: z.object({ a: z.string() }),
   maxOutputTokens: 16, tenantId: "tenant-fx" } as never;
@@ -23,36 +21,44 @@ describe("inside a no-spend scope nothing is bought, and nothing pretends it fai
     expect(result.state).toBe("capped"); // owed, not failed: a paused day is not an outage
     expect(fetchSpy).not.toHaveBeenCalled();});
   it("is ambient, so a path nobody remembered to thread the flag through still refuses", async () => {
-    const deepInside = async () => ({ refused: spendingRefused() }); expect(await runWithoutSpending(() => deepInside())).toEqual({ refused: true });
-    expect(await deepInside()).toEqual({ refused: false }); // and it never leaks outside its own call stack
+    const deepInside = async () => ({ refused: await spendingClosed("tenant-fx") }); expect(await runWithoutSpending(() => deepInside())).toEqual({ refused: true });
+    expect(await deepInside()).toEqual({ refused: false });
   });
   it("does not leak across a paid pass that runs after it", async () => {
-    await runWithoutSpending(async () => { expect(spendingRefused()).toBe(true); }); expect(spendingRefused()).toBe(false);});});
-/** THE ONE GATE IS INSIDE THE BODY all four rebuild doors share, so a fifth door added later inherits it. */
+    await runWithoutSpending(async () => { expect(await spendingClosed("tenant-fx")).toBe(true); }); expect(await spendingClosed("tenant-fx")).toBe(false);});
+  it("opens only the named tenant's model allowance and never its external-evidence door", async () => {
+    await PROOF_SPEND.run("tenant-fx", 1, 0.05, async () => {
+      expect([PROOF_SPEND.activeFor("tenant-fx"), PROOF_SPEND.activeFor("other"), PROOF_SPEND.authorize("tenant-fx", "external"), PROOF_SPEND.authorize("tenant-fx", "model", 0.02), PROOF_SPEND.authorize("tenant-fx", "model", 0.02)]).toEqual([true, false, true, false, true]);
+      expect(await runWithoutSpending(async () => PROOF_SPEND.activeFor("tenant-fx"))).toBe(false);
+    }); expect(PROOF_SPEND.activeFor("tenant-fx")).toBeNull();});});
 describe("a paused account rebuilds its surface and buys nothing, whatever the caller asked for", () => {
   const storeMock = (claim: boolean, held: unknown[] = []) => ({
     readStore: async () => held, writeStore: async () => undefined,
     claimScope: async (name: string) => { calls.claims.push(name); return claim ? "hold-1" : null; },
     releaseScope: async (name: string, _key: string, owner: string) => { calls.releases.push(`${name}:${owner}`); },});
   const calls = { claims: [] as string[], releases: [] as string[] };
-  it("overrides the caller's own draft budget, closes every door on the stack, and releases its hold", async () => {
+  it("never enters the broad producer while paused or rebuilding stored rows only", async () => {
     vi.resetModules(); calls.claims.length = 0; calls.releases.length = 0;
-    const seen: Array<{ opts: unknown; refusedInside: boolean }> = [];
+    let produced = 0, permission: "paused" | "running" = "paused"; const doors: string[] = [];
     vi.doMock("@/lib/persistence/json-store", () => storeMock(true));
-    vi.doMock("@/domains/runtime", () => ({ researchPermission: async () => "paused" as const }));
+    vi.doMock("@/lib/tenant-context", async (real) => ({ ...(await real() as object), slugForTenantId: async (id: string) => id }));
+    vi.doMock("@/domains/runtime", () => ({ researchPermission: async () => permission }));
     vi.doMock("@/domains/decision", () => ({
-      produceProposalsForTenant: async (_t: string, opts: unknown) => {
-        const { spendingRefused: refused } = await import("@/lib/spend-scope"); // ASKED FROM INSIDE THE PRODUCER, which is the only place the answer means anything.
-        seen.push({ opts, refusedInside: refused() });
-        return { proposals: [], outcome: "no_actionable_candidate", persisted: 0 };},
-      reconcileImplementedWithoutShipment: async () => undefined,}));
+      produceProposalsForTenant: async () => { produced += 1; throw new Error("broad producer reached"); },
+      reconcileImplementedWithoutShipment: async () => undefined, publishCustomerRelease: async (x: { release: string }) => x.release,}));
+    vi.doMock("@/domains/measurement", () => ({ loadShippedChangesForTenant: async () => [] }));
+    vi.doMock("@/domains/evidence", () => ({ loadGscDecaySignalsForTenant: async () => new Map(), loadGscPageSignalsForTenant: async () => new Map() }));
+    vi.doMock("@/app/(shell)/changes-data", () => ({ buildChangesViewUncached: async (_t: string, _r: string) => {
+      const { openAIStructuredResponse } = await import("@/domains/decision/llm/gateway"), { providerCall } = await import("@/domains/evidence/dataforseo/capabilities");
+      doors.push((await openAIStructuredResponse({ ...(MODEL_ASK as object), tenantId: _t } as never)).kind, (await providerCall("serp_organic" as never, { keyword: "x" } as never, { tenantId: _t, unitKey: "u" })).state);
+      return { proposals: [], stampRows: [] }; } }));
+    vi.doMock("@/app/(shell)/today-view-data", () => ({ buildTodayCompositeFromChanges: async () => ({ headline: "Stored truth" }) }));
     const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release");
-    await refreshCustomerSurface("tenant-fx", { maxDrafts: 5 }).catch(() => null); expect(seen).toHaveLength(1); // The caller asks for five paid drafts. The pause outranks it.
-    expect(seen[0]!.refusedInside).toBe(true); // every paid door inside this pass is already closed
-    expect(seen[0]!.opts).toMatchObject({ maxDrafts: 0 }); // and the pause outranked the caller's ask
-    expect(calls.claims).toContain("surface-claims"); // the cross-instance hold was taken at the boundary
-    expect(calls.releases).toContain("surface-claims:hold-1"); // and freed with ITS OWN token, build or no build
-    vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/runtime"); vi.doUnmock("@/domains/decision"); vi.resetModules();});
+    const paused = await refreshCustomerSurface("tenant-fx", { maxDrafts: 5 }); permission = "running";
+    const zero = await refreshCustomerSurface("tenant-other", { maxDrafts: 0 });
+    expect([paused.tenantId, zero.tenantId, produced, doors]).toEqual(["tenant-fx", "tenant-other", 0, ["blocked_budget", "capped", "blocked_budget", "capped"]]);
+    expect(fetchSpy).not.toHaveBeenCalled(); expect(calls.releases).toContain("surface-claims:hold-1");
+    for (const id of ["@/lib/persistence/json-store", "@/lib/tenant-context", "@/domains/runtime", "@/domains/decision", "@/domains/measurement", "@/domains/evidence", "@/app/(shell)/changes-data", "@/app/(shell)/today-view-data"]) vi.doUnmock(id); vi.resetModules();});
   it("hands a second instance the release on file instead of building twice", async () => {
     vi.resetModules(); calls.claims.length = 0; calls.releases.length = 0;
     const held = [{ schemaVersion: 2, tenantId: "tenant-fx", computedAt: "2026-08-20T00:00:00.000Z",
@@ -67,7 +73,18 @@ describe("a paused account rebuilds its surface and buys nothing, whatever the c
     expect(built).toBe(0); // the other dispatcher owns the build
     expect(out).toBe(held[0]); // this one serves what is already published
     vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/runtime"); vi.doUnmock("@/domains/decision"); vi.resetModules();});});
-/** THE DOORS THEMSELVES READ THE SWITCH, with no scope open at all: a caller added tomorrow inherits it. */
+describe("the funded proof can touch exactly one stored candidate", () => {
+  const id = "tenant-fx::/one::existing_edit::answer", row = { id, tenantId: "tenant-fx", status: "needs_review", impactScore: 7 };
+  const drive = async (readbackStatus: string, startStatus = "needs_review") => { const events: string[] = []; let stored = { ...row, status: startStatus };
+    const deps = { permission: async () => "paused", load: async (_t: string, asked: string) => (events.push(`load:${asked}`), stored),
+      evidence: async () => (events.push("stored-evidence"), {}), delivery: () => "existing_page_edit", obligation: () => ({ kind: "draft" }),
+      draft: async (rows: unknown[]) => (events.push(`draft:${(rows[0] as { id: string }).id}`), [{ ...row, status: "ready", researchOnly: false, obligation: undefined }]),
+      save: async (candidate: typeof row, _a?: unknown, _b?: unknown, expected?: typeof row) => (events.push(`save:${candidate.id}:${expected === stored}`), stored = { ...candidate, status: readbackStatus } as never, "saved"),
+      acceptable: (candidate: { status?: string; researchOnly?: boolean; obligation?: unknown } | null) => candidate?.status === "ready" && candidate.researchOnly === false && candidate.obligation == null };
+    const proof = (await import("@/domains/runtime/ops/atomic-proof")).default;
+    return { out: await proof.run({ tenantId: "tenant-fx", proposalId: id, maxOpenAiCalls: 2, maxOpenAiUsd: 0.1 }, deps as never), events }; };
+  it("persists then rereads the same stable id and trusts only the stored Ready row", async () => { const good = await drive("ready"), bad = await drive("needs_review"), already = await drive("ready", "ready");
+    expect([good.out.success, bad.out.success, already.out.success, good.events, already.events]).toEqual([true, false, false, [`load:${id}`, "stored-evidence", `draft:${id}`, `save:${id}:true`, `load:${id}`], [`load:${id}`]]);});});
 describe("the paid doors refuse a paused account even with no scope open", () => {
   it("blocks the model door at the pause bit, before any network", async () => {
     const { setSpendPauseProbeForTests } = await import("@/lib/spend-scope");
@@ -94,10 +111,8 @@ describe("the paid doors refuse a paused account even with no scope open", () =>
     setSpendPauseProbeForTests(null);
     expect(reached || out != null).toBe(true); // it went to work rather than refusing at the boundary
   });});
-/** ONE REBUILD PER ACCOUNT, DECIDED BY THE DATABASE (reviewer, 2026-08-19): read-check-act is not a claim. */
 describe("two dispatchers cannot both rebuild one account, and only the owner can free the hold", () => {
   type Hold = { content: [{ until: string; owner?: string }] };
-  /** One fake claims table honoring the three statements the store issues: winning insert, expired takeover, owner-matched release. */
   const claimsTable = (rows: Map<string, Hold>) => ({
     getSupabaseAdmin: () => ({
       from: () => ({
@@ -145,7 +160,6 @@ describe("two dispatchers cannot both rebuild one account, and only the owner ca
     await releaseScope("surface-claims", "tenant-fx", b!); // B's own release is the one that lands
     expect(typeof await claimScope("surface-claims", "tenant-fx", 300)).toBe("string"); // now C may build
     vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();});});
-/** A BROKEN HOSTED INSTANCE IS NOT A QUIET SINGLE-PROCESS MACHINE: only local file mode grants without a database (reviewer, 2026-08-19). */
 describe("the rebuild claim fails closed in every hosted failure mode", () => {
   const hosted = async (impl: () => unknown): Promise<string | null> => {
     vi.resetModules();
@@ -176,7 +190,6 @@ describe("the rebuild claim fails closed in every hosted failure mode", () => {
     const { claimScope } = await import("@/lib/persistence/json-store"); expect(typeof await claimScope("surface-claims", "tenant-fx", 300)).toBe("string");
     process.env.DATA_SOURCE = prior ?? "";
     vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();});});
-/** PRESSING PAUSE MUST LAND ON THE VERY NEXT PAID CALL (reviewer, 2026-08-21): permission is never remembered, only the refusal. These run the REAL read path, hermetics lifted for their duration. */
 describe("pressing Pause closes the doors on the very next paid call", () => {
   const withRealPausePath = async (fn: (mod: typeof import("@/lib/spend-scope")) => Promise<void>, reads: { paused: () => boolean; count?: { n: number } }) => {
     vi.resetModules();
@@ -222,7 +235,6 @@ describe("pressing Pause closes the doors on the very next paid call", () => {
       expect(provider.state).toBe("capped");
       expect(fetchSpy).not.toHaveBeenCalled(); // zero network, so zero ledger movement by construction
     }, { paused: () => paused });});});
-/** ALREADY-BOUGHT TASKS MUST ACTUALLY FINISH WHILE PAUSED (reviewer, 2026-08-21): the free collect existed as a function nothing called, and paid-for evidence expired provider side. */
 describe("an idle tick collects only provider receipts whose durable wake is due", () => {
   it("bounds free collection and performs no account-wide rebuild scan when no run is admitted", async () => {
     vi.resetModules();

@@ -717,6 +717,14 @@ describe("canonical bundle status", () => { // ── the re-read sweep reconcil
     const q = await loadProposalQueue("fixture-tenant", { currentBasis: "basis_test::d8", now: NOW });
     expect(q.ready.some((p) => p.id === row.id)).toBe(false); }); // demoted in the store AND off the ready lane: no split brain
 });
+describe("retired-family reconciliation", () => {
+  it("withdraws the obsolete FAQ lineage even in its legacy wrapper, without touching an implemented row", async () => { reset(SEEN());
+    const schema = baseProposal({ id: "fixture-tenant::/old-schema::existing_edit::faq_schema", pagePath: "/old-schema", pageUrl: "https://fixture-content.example/old-schema", changeFamily: "section", status: "ready", researchOnly: false,
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: '<script type="application/ld+json">{}</script>' } });
+    const implemented = { ...schema, id: "fixture-tenant::/implemented-schema::existing_edit::faq_schema", pagePath: "/implemented-schema", pageUrl: "https://fixture-content.example/implemented-schema", status: "implemented_pending_verification" as const };
+    env.store = new Map([[schema.id, schema], [implemented.id, implemented]]); await produceProposalsForTenant("fixture-tenant", { now: NOW, maxDrafts: 0, zeroSpend: true });
+    expect([env.withdrawn.includes(schema.id), env.store.has(schema.id), env.withdrawn.includes(implemented.id), env.store.get(implemented.id)?.status]).toEqual([true, false, false, "implemented_pending_verification"]); });
+});
 describe("a synthesis replacement is not demoted for standing on the page's own words", () => { // ── the sweep's thin-coverage rule and the synthesis charter agree ─────────────
   const COPY = "Funny Persian phrases are everyday slang and insults. The clearest examples are the playful ones that follow, each carrying the meaning a reader needs to use it well in ordinary conversation with friends and family members across generations of speakers.";
   const row = (where: string, id: string): ChangeProposal => baseProposal({ id, pagePath: "/funny", pageUrl: "https://fixture-outdoors.example/funny", basis: "basis_test::d8",
@@ -818,27 +826,4 @@ describe("a stampless re-mint never replaces finished work", () => {
     const rewrite = { ...remint, copyStamp: "T2|H2|D2|O2" }; // a producer that DID re-read the page and saw it move still replaces, with the retirement receipt
     const moved = preferFinished(rewrite, finished);
     expect([(moved.recommendedChange as { after: string }).after.startsWith("Write a description"), moved.previousCopy?.after], "a real page change still retires the old words onto a receipt").toEqual([true, (finished.recommendedChange as { after: string }).after]); });
-});
-describe("the $0 release loop converts what it can, and never touches what is being measured", () => {
-  const Q = "What is a haft seen table?", ANSWER = "A haft seen table is the spread a household sets out for the new year.";
-  const FAQ = JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: [{ "@type": "Question", name: Q, acceptedAnswer: { "@type": "Answer", text: ANSWER } }] });
-  const block = (status: "ready" | "needs_review") => baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::faq_schema", pagePath: "/nowruz-guide", pageUrl: `https://${GAP_URL}`, changeFamily: "section", status, basis: "basis_test::d8", primaryQuery: "nowruz traditions",
-    supportFacts: [{ id: "page-copy-1", fact: `${Q} ${ANSWER}` }], recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `<script type="application/ld+json">${FAQ}</script>` } });
-  const shipped = baseProposal({ id: "fixture-tenant::/nowruz-food::existing_edit::title", pagePath: "/nowruz-food", pageUrl: "https://fixture-outdoors.example/nowruz-food", status: "implemented_pending_verification", basis: "basis_test::d8",
-    claims: [{ text: "This search is asked 1,200 times a month.", supportedBy: ["demand-exact"] }], supportFacts: [{ id: "demand-exact", fact: "1,200 impressions for nowruz food traditions" }] });
-  const pass = async (row: ChangeProposal) => { reset(snap([{ ...GAP, content: { ...GAP.content!, outline: [...(GAP.content!.outline ?? []), Q, ANSWER] } }], looked([["nowruz traditions", GAP_URL]])));
-    env.pairedFaq = true; env.store = new Map([[row.id, row], [shipped.id, shipped]]); let paid = 0;
-    await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true, complete: (async () => { paid += 1; return { error: "no provider may be reached", retryable: false }; }) as never });
-    return { row: env.store.get(row.id)!, done: env.store.get(shipped.id)!, paid, writes: env.saved.filter((saved) => saved.id === row.id).length }; };
-  it("files a stored JSON-LD block under its own typed field at $0, refuses it as no kind of prose, and never walks an implemented row back to a brief", async () => {
-    const out = await pass(block("ready")); const c = out.row.recommendedChange as { field: string; after: string; where?: string };
-    expect([c.field, c.after.startsWith("{"), (c.where ?? "").length > 0, out.row.limitations.some((l) => /^Contains raw HTML markup/.test(l)), validateProposal(out.row, { pageBodyText: `${Q} ${ANSWER}` }).verdict, out.paid, out.row.status, out.row.faults ?? []], "the block is filed as structured data with its wrapper off and its placement stated, no rule written for sentences refuses it as markup, paired current capture passes while flat text alone stays unconfirmed, and none of it costs a call").toEqual(["schema", true, true, false, "needs_review", 0, "ready", []]);
-    expect([out.done.status, out.done.researchOnly ?? false, out.done.limitations], "and a change the operator already marked done is never re-minted as research, whatever its claims lean on").toEqual(["implemented_pending_verification", false, shipped.limitations]); });
-  it.each([false, true])("reconciles changed published FAQ answers while preserving unrelated graph and support, then writes nothing on replay (mixed=%s)", async (mixed) => {
-    const old = "A haft seen table is laid out for the autumn festival.", faq = JSON.parse(FAQ); faq.mainEntity[0].acceptedAnswer.text = old;
-    const other = { "@type": "WebPage", "@id": "#page", name: "Nowruz", identifier: "retain" }, after = JSON.stringify({ "@context": "https://schema.org", "@graph": [faq, ...(mixed ? [other] : [])] });
-    const original = { ...block("ready"), claims: [{ text: old, supportedBy: ["fact-old"] }, { text: "Nowruz", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "fact-old", fact: old }, { id: "page-copy-1", fact: "Nowruz" }], recommendedChange: { kind: "existing_edit" as const, field: "schema" as const, before: null, after } };
-    const out = await pass(original), replay = await pass(out.row), { SCHEMA } = await import("@/domains/evidence/pages/schema-validator"), graph = SCHEMA.read((out.row.recommendedChange as { after: string }).after);
-    expect([SCHEMA.pairs(graph), mixed ? graph.nodes.find((node) => node["@id"] === "#page") : null, out.row.status, out.paid, out.row.previousCopy?.after]).toEqual([[{ question: Q, answer: ANSWER }], mixed ? other : null, "ready", 0, after]);
-    expect([out.row.claims?.some((claim) => claim.text === old), out.row.claims?.find((claim) => claim.text === "Nowruz"), out.row.supportFacts?.find((fact) => fact.id === "page-copy-1"), replay.writes, replay.paid]).toEqual([false, original.claims[1], original.supportFacts[1], 0, 0]); });
 });

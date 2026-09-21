@@ -6,6 +6,8 @@ import { effortMinutesFor, fieldForComponent } from "./producers/contract";
 import { copyKey } from "./proof";
 
 type ActionFamily = "title-family" | "section-family" | "links-family" | "technical-family" | "consolidation" | "accuracy-family" | "new_page";
+const RETIRED_FAMILY_POLICIES = [{ family: "legacy_faq_schema", reason: "the old standalone FAQ generator was retired; future schema work must keep its own evidence and provenance", matches: (row: ChangeProposal) => row.id.split("::").at(-1)?.split("@")[0] === "faq_schema" }] as const;
+const retiredPolicyOf = (row: ChangeProposal): { family: string; reason: string } | null => RETIRED_FAMILY_POLICIES.find((policy) => policy.matches(row)) ?? null; // A removed producer enters by its exact minted family identity, never by customer copy or a broad field shape.
 const FAMILY_BY_KIND: Record<BundleComponentKind, ActionFamily> = { title: "title-family", meta: "title-family", h1: "title-family",
   opening_answer: "section-family", section: "section-family", source_pack: "section-family", paragraph_correction: "section-family",
   section_add: "section-family", section_remove: "section-family", section_rewrite: "section-family", restructure: "section-family", full_rewrite: "section-family",
@@ -100,7 +102,7 @@ const atomicRows = (p: ChangeProposal): ChangeProposal[] => {
   });
 };
 
-const proposalIdentity = { actionFamilyOf, identityOf, atomicRows,
+const proposalIdentity = { actionFamilyOf, identityOf, atomicRows, retiredPolicyOf,
   NO_FIELD_KIND: new Set<string>(["anchor_text", "internal_link_add", "internal_link_remove", "table_or_list_add", "schema", "canonical", "redirect", "noindex", "navigation"]),
   terminalProposalFingerprint, proposalFingerprint };
 export default proposalIdentity;

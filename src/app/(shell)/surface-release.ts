@@ -105,9 +105,6 @@ export async function invalidateCoreSurfaces(tenantId?: string): Promise<void> {
   await invalidateCustomerSurface(tenantId).catch(() => {});
 }
 
-/** The pass runs inside the no-spend scope, or exactly as it always did. One expression, so the paid and the
- *  free path can never drift apart. */
-const runWithoutSpendingIf = <T>(closed: boolean, fn: () => Promise<T>): Promise<T> => (closed ? runWithoutSpending(fn) : fn());
 /** Longer than a rebuild takes, short enough that a dispatcher killed mid-build never wedges the account
  *  past the next tick; a finished build releases the hold itself. */
 const SURFACE_CLAIM_SECONDS = 300;
@@ -141,9 +138,7 @@ function materialOf(rows: ReadonlyArray<{ id: string; lane: string }>, changes: 
 
 export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts?: number } = {}): Promise<CustomerSurface> {
   return runSingleFlight(`customer-surface:${tenantId}`, async () => runWithTenant(tenantId, async () => {
-    // TWO DISPATCHERS MUST NOT BOTH REBUILD ONE ACCOUNT, and in-process single flight cannot see another
-    // instance: the DATABASE decides who builds, held HERE at the one body every entrance shares, released
-    // on the way out so the next legitimate rebuild does not wait out the TTL.
+    // The database claim prevents cross-instance rebuilds; single flight covers this process.
     const hold = await claimScope("surface-claims", tenantId, SURFACE_CLAIM_SECONDS);
     if (hold == null) {
       const held = await readCustomerSurface(tenantId).catch(() => null);
@@ -151,61 +146,34 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
       throw new Error("Another instance is rebuilding this account's surfaces right now. The next visit reads the fresh release.");
     }
     try {
-    // THE PAUSE IS DECIDED HERE, ONCE, FOR EVERY DOOR: three of the four callers passed no budget at all, so
-    // model spend landed on a paused day (operator, 2026-08-19). A fifth caller added later inherits it.
-    // THE PAUSE OUTRANKS THE CALLER: whatever `maxDrafts` was asked for, a paused account drafts nothing.
-    // AN UNREADABLE SWITCH COUNTS AS PAUSED, because the expensive assumption is never the safe one.
+    // A pause or unreadable switch outranks every caller budget.
     const { researchPermission } = await import("@/domains/runtime");
     const permission = await researchPermission(tenantId).catch(() => "unreadable" as const);
     const paused = permission !== "running";
     if (paused) log.info("[surface-release] research is paused, so this release is rebuilt from stored evidence and buys nothing", { tenantId, permission });
+    const rebuildOnly = paused || opts.maxDrafts === 0;
+    const build = async (): Promise<CustomerSurface> => {
     const [{ produceProposalsForTenant, reconcileImplementedWithoutShipment }, { buildChangesViewUncached }, { buildTodayCompositeFromChanges }] =
       await Promise.all([
         import("@/domains/decision"),
         import("./changes-data"),
         import("./today-view-data"),
       ]);
-    // PRODUCE first, and A FAILURE HERE PROPAGATES on purpose: swallowing it republished yesterday's
-    // proposals behind today's timestamp. No actionable candidate resolves normally (an answer, not an
-    // outage); a pass whose every write failed aborts, so the previous release stays byte-identical.
-    // THE RELEASE THIS ONE REPLACES, held from before the build. The queue stamp lands inside the build and
-    // the blob lands at the end, so a blob write that fails left the NEW order stamped in the database beside
-    // the OLD release: "show more" paged a ranking the screen above it did not belong to. Read now, used only
-    // on that failure path, so the happy path costs one extra read and nothing else.
+    // Hold the prior release so a failed or unchanged build cannot stamp over it.
     const previous = await readCustomerSurface(tenantId).catch(() => null);
-    // `maxDrafts` rides through so a pass can be asked to REGENERATE the queue from stored evidence alone: at 0 the
-    // paid drafter never fires, which is how the queue is rebuilt and inspected without spending a cent. Omitted, the
-    // producer keeps its own bounded default, so every ordinary visit and every scheduled pass is unchanged.
-    // EVERY PAID DOOR CLOSED ON THE STACK, not just the two budgets: the model gateway and the provider call
-    // each ask the ambient scope before a client is built, so a path this option never reached still refuses.
-    const produced = await runWithoutSpendingIf(paused, () => produceProposalsForTenant(tenantId,
-      paused ? { maxDrafts: 0, zeroSpend: true, deliveryScope: "existing_page_edits" } : opts.maxDrafts === 0 ? { maxDrafts: 0, zeroSpend: true, deliveryScope: "existing_page_edits" } : opts.maxDrafts === undefined ? { deliveryScope: "existing_page_edits" } : { maxDrafts: opts.maxDrafts, deliveryScope: "existing_page_edits" })); // maxDrafts 0 means REPUBLISH STORED TRUTH: without zeroSpend the "free" rebuild could still buy sixty page readings. The production surface is also the operator's manual-edit proving phase: whole-page opportunities remain visible, but this entrance cannot fund them.
+    // A stored-only release does not enter the producer at all. Calling it with a zero budget still re-minted
+    // deterministic candidates, so clearing old rows could recreate the same retired work while "paused".
+    const produced = rebuildOnly ? null : await produceProposalsForTenant(tenantId,
+      opts.maxDrafts === undefined ? { deliveryScope: "existing_page_edits" } : { maxDrafts: opts.maxDrafts, deliveryScope: "existing_page_edits" });
     if (produced?.outcome === "persistence_failed") {
       throw new Error("This pass produced changes but could not save a single one, so your last release was kept instead of stamping a new time on work that cannot be loaded back.");
     }
-    // AND A PASS THAT RAN BLIND PUBLISHES NOTHING. The kernel ends early when a core evidence read did not
-    // answer, because judging every page against search data I could not fetch empties the queue rather than
-    // updating it. The previous release stays exactly as it was and the phase fails where a human can see it.
     if (produced?.outcome === "evidence_unreadable") {
       throw new Error("Your Google Search Console data could not be read just now, so your last release was kept instead of publishing a list built without it.");
     }
-    // ONE RELEASE IDENTITY, minted once and threaded through the ranking stamp, the Changes view and Today.
-    // Two ids were minted here and inside the build, so a "show more" could page one ranking while the screen
-    // above it named another, and the queue stamp could fail while the publish carried on regardless.
-    // THE TRIPWIRE, RUN BEFORE THE LIST IS CUT. A change reads "done" only because a record was written for it
-    // first, so a row marked done that no record points at is a change nobody is measuring. It is never left
-    // silently done and no record is ever invented for it: it goes back to the queue carrying the one sentence
-    // that says what happened, in the very release being built here, so the operator can close it for real. A
-    // LEDGER THAT WOULD NOT READ REVERTS NOTHING, because a list nobody could read is not proof of absence.
-    // UNCACHED AND TENANT-EXPLICIT: the request-scoped memo was seeded at the START of drafting, so the
-    // snapshot here could be minutes stale and a press landing mid-rebuild read as an orphan. And an EMPTY
-    // ledger is refused outright: a schema-cache blip falls back to an empty mirror without throwing, and
-    // absence of proof is not proof of absence.
     const { loadShippedChangesForTenant } = await import("@/domains/measurement");
     const ledger = await loadShippedChangesForTenant(tenantId).catch(() => null);
     if (ledger && ledger.length > 0) {
-      // AND A FINISHED READING RETIRES ITS ROW: a settled verdict (won, lost, inconclusive; the lifecycle's own terminal rule) means the
-      // change is no longer in flight, so its row stops counting as pending and its page opens for fresh work. Results keeps the verdict.
       await reconcileImplementedWithoutShipment(tenantId,
         new Set(ledger.map((r) => r.proposalId).filter((id): id is string => !!id)), 50,
         new Map(ledger.filter((r) => r.proposalId != null && (r.verdict === "won" || r.verdict === "lost" || r.verdict === "inconclusive"))
@@ -214,15 +182,9 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
     const computedAt = new Date().toISOString();
     const releaseId = `${tenantId}:${computedAt}`;
     const built = await buildChangesViewUncached(tenantId, releaseId);
-    // The order rides to the COMMIT, never into the blob: the release stores what renders, and the ranking
-    // lives in the rows the same transaction stamps. A build that cannot say its order publishes nothing.
     const { stampRows, ...changes } = built;
     if (!stampRows) throw new Error("the build handed over no ranking, so nothing was published and the previous release keeps serving");
-    // The one thing the production pass concluded that Today prints: the earliest retry date for a page that could not be read.
     const today = await buildTodayCompositeFromChanges(changes, { waitingUntil: produced?.waitingUntil });
-    // THE COMPACT VISIBILITY PROJECTION, published while the reads are already warm here, so the Google tab
-    // costs one blob read at render time instead of the split-window aggregates that kept timing out.
-    // Fail-soft: a failed read stamps nothing, never stale-and-wrong, and the tab falls back to a live read.
     const { loadGscDecaySignalsForTenant, loadGscPageSignalsForTenant } = await import("@/domains/evidence");
     const [decayRows, pageSignals] = await Promise.all([
       loadGscDecaySignalsForTenant(tenantId, new Date()).then((m) => [...m.values()]).catch(() => null),
@@ -280,6 +242,8 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
     // remain supported by readStore, but no generic blob writer can mutate this release.
     await readStore<CustomerSurface>(STORE, [], { tenantId, forceRefresh: true }).catch(() => undefined);
     return surface;
+    };
+    return rebuildOnly ? runWithoutSpending(build) : build();
     } finally {
       // Released with this build's own token: a rebuild that outlived its TTL comes back to somebody else's
       // live hold, and its late release must change nothing.

@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { recordAppError } from "@/lib/obs/error-ledger";
 import { perfCountExternal } from "@/lib/obs/perf-log";
 import { z } from "zod";
-import { spendingClosed } from "@/lib/spend-scope";
+import { PROOF_SPEND, spendingClosed } from "@/lib/spend-scope";
 import { assertPaidCallAllowed, globalMonthlyCapUsd } from "@/lib/cost/cost-breaker";
 import { CREDIT_BREAKER } from "@/lib/cost/credit-breaker";
 import spendReservations from "@/lib/cost/spend-reservations";
@@ -291,11 +291,9 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   // a license for a global call - fail closed with no cost, no network.
   const tenantId = (args.tenantId ?? "").trim();
   if (!tenantId) return { httpAttempts: 0, kind: "invalid_response", reason: "missing_tenant" };
-  // THE PAUSE IS ENFORCED HERE, NOT BY WHOEVER CALLED. A paused account still publishes its surface, and the
-  // surface rebuild runs the producer, so the drafter kept buying while research was off (operator, 2026-08-19).
-  // Refused BEFORE the model, the schema and the budget are touched: no client, no network, no ledger row, and
-  // the outcome is the one every caller already treats as "did not buy", never as a failure.
-  if (await spendingClosed(tenantId)) return { httpAttempts: 0, kind: "blocked_budget", reason: "research is paused for this account, so nothing is bought on this pass" };
+  // A normal paused call stops here; a named proof is charged against its private allowance below.
+  const proof = PROOF_SPEND.activeFor(tenantId);
+  if (proof === false || proof == null && await spendingClosed(tenantId)) return { httpAttempts: 0, kind: "blocked_budget", reason: "research is paused for this account, so nothing is bought on this pass" };
   const id: GatewayIdentity = {
     promptId: args.promptId,
     promptVersion: args.promptVersion,
@@ -349,6 +347,7 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   // ONE durable spend lifecycle. The byte count is a conservative input-token ceiling; caller projections may
   // raise it, never lower it. The exact request identity resumes only its own unresolved operation for this day.
   const computedEstimate = Math.max(projectedCostUsd, estimateCost(args.model, Buffer.byteLength(JSON.stringify(requestBody)), args.maxOutputTokens));
+  if (proof === true && PROOF_SPEND.authorize(tenantId, "model", computedEstimate) !== false) return { httpAttempts: 0, kind: "blocked_budget", reason: "the one-candidate proof reached its explicit OpenAI call or USD ceiling" };
   const context = args.spend;
   const reservations = args.reservationImpl ?? spendReservations;
   const requestFingerprint = createHash("sha256").update(`${OPENAI_RESPONSES_API}\n${JSON.stringify(requestBody)}`).digest("hex");

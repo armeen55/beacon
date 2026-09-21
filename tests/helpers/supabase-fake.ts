@@ -72,7 +72,7 @@ export function supabaseFake(o: SupabaseFakeOptions) {
 export function proposalStoreRpc(rows: () => Row[]) {
   return async (name: string, args: Record<string, unknown>): Promise<{ data: unknown; error: null }> => {
     const table = rows();
-    if (name === "save_change_proposal_cas") {
+    if (name === "save_change_proposal_cas" || name === "save_change_proposal_proof_cas") {
       const row = args.p_row as Row, at = table.findIndex((r) => r.tenant_id === args.p_tenant_id && r.id === row.id);
       if (at >= 0) table[at] = { ...table[at], ...row }; else table.push({ created_at: "2026-09-01T00:00:00.000Z", ...row });
       return { data: "saved", error: null };

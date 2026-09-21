@@ -1,47 +1,37 @@
-/** lib/spend-scope - THE FAIL-CLOSED SPEND BOUNDARY, held on the call stack rather than passed hand to hand.
- *
- *  Pausing research stopped the research cycle and stopped nothing else. Three doors into the paid drafter
- *  stayed open (a stale Today visit, a stale Changes visit and the cache warmer all rebuild the customer
- *  surface, which runs the proposal producer), and on 2026-08-19 Decision side model spend landed at 23:08
- *  UTC on a paused account, five hours after the last research run had finished. Bounding one budget pool and
- *  threading a flag through six producers is how that happened: every new path has to remember, and one
- *  forgetting costs real money.
- *
- *  So the rule is ambient and structural. A caller opens a no-spend scope once, and every paid door inside it
- *  refuses on its own, whatever imported it and however deep it sits: the model gateway and the provider call
- *  both ask this before a client is constructed or a byte leaves. Nothing is threaded, so nothing can be
- *  forgotten, and a path added later inherits the refusal instead of paying.
- *
- *  A refusal is a typed state the caller already handles, never a throw: "did not buy" must never read as
- *  "this pass failed", and it must never take back work a paid pass already banked. */
+/** Ambient fail-closed boundary: model and provider doors ask here before buying. */
 import { AsyncLocalStorage } from "node:async_hooks";
 
 const noSpend = new AsyncLocalStorage<true>();
+type ProofAllowance = { tenantId: string; calls: number; usd: number };
+const proofSpend = new AsyncLocalStorage<ProofAllowance>();
 
 /** Run `fn` with every paid door inside it closed, however deeply it is reached. */
 export function runWithoutSpending<T>(fn: () => T): T {
   return noSpend.run(true, fn);
 }
 
-/** Is buying refused on this call stack right now? Asked by the paid door itself, before it opens. */
-export function spendingRefused(): boolean {
-  return noSpend.getStore() === true;
-}
+/** One named-candidate proof may cross the paused model door under its own hard allowance. Every other
+ * account and every external-evidence door stays closed; reservation caps still apply underneath it. */
+export const PROOF_SPEND = {
+  run<T>(tenantId: string, maxCalls: number, maxUsd: number, fn: () => T): T {
+    if (!tenantId || !Number.isInteger(maxCalls) || maxCalls < 1 || !Number.isFinite(maxUsd) || maxUsd <= 0) throw new Error("invalid proof spending ceiling");
+    return proofSpend.run({ tenantId, calls: maxCalls, usd: maxUsd }, fn);
+  },
+  activeFor(tenantId: string): boolean | null { if (noSpend.getStore() === true) return false; const held = proofSpend.getStore(); return held ? held.tenantId === tenantId : null; },
+  authorize(tenantId: string, channel: "model" | "external", projectedUsd = 0): boolean | null {
+    const held = proofSpend.getStore(); if (!held) return null;
+    if (held.tenantId !== tenantId || channel === "external" || held.calls < 1 || projectedUsd <= 0 || projectedUsd > held.usd) return true;
+    held.calls -= 1; held.usd -= projectedUsd; return false;
+  },
+};
 
-/** THE PAUSE, ASKED AT THE DOOR ITSELF, so a caller added tomorrow inherits the refusal without opening a
- *  scope (the competitor-overlap path nobody wrapped kept buying on a paused account). PERMISSION TO SPEND
- *  IS NEVER REMEMBERED: only the refusal is memoized, an open door is re-asked on every paid call in every
- *  instance, and the verified pause write settles the memo directly, so Pause lands on the very next call.
- *  An UNREADABLE switch counts as paused. Hermetic under vitest exactly as checkBudget is; a test that pins
- *  the pause injects the probe. */
+/** Permission is never memoized; only a verified pause is briefly held. Unreadable fails closed. */
 type PauseProbe = (tenantId: string) => Promise<boolean>;
 let probeForTests: PauseProbe | null = null;
 export function setSpendPauseProbeForTests(probe: PauseProbe | null): void { probeForTests = probe; }
 const pausedMemo = new Map<string, number>(); // tenantId -> when the refusal was learned; running is never held
 const PAUSE_MEMO_MS = 60_000;
 
-/** The verified pause write tells the boundary directly: a fresh pause refuses in this process before any
- *  read, and a resume only clears the memo, it never grants, because a grant is only ever a fresh read. */
 export function settleSpendPause(tenantId: string, paused: boolean): void {
   if (paused) pausedMemo.set(tenantId, Date.now());
   else pausedMemo.delete(tenantId);
