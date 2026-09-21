@@ -133,8 +133,8 @@ const REGISTRY: Registry = {
   // came back as one of its own rankings and one page ranking once organically and once as an ad read as two pages, which is the whole arithmetic behind
   // "consolidation". A bought placement is not a page that wins a search. (docs: dataforseo_labs/google/ranked_keywords/live, item_types, 2026-07-31)
   labs_ranked_keywords: labsEntry("dataforseo_labs/google/ranked_keywords/live", "target", 0.2, { item_types: ["organic"] }),
-  labs_related_keywords: labsEntry("dataforseo_labs/google/related_keywords/live", "keyword", 0.02),
-  labs_keyword_suggestions: labsEntry("dataforseo_labs/google/keyword_suggestions/live", "keyword", 0.02),
+  labs_related_keywords: labsEntry("dataforseo_labs/google/related_keywords/live", "keyword", 0.2),
+  labs_keyword_suggestions: labsEntry("dataforseo_labs/google/keyword_suggestions/live", "keyword", 0.2),
   // Reserved at 0.25 on the arithmetic above (a 150-keyword call charged $0.02988, so a full 700 lands near $0.21). The CACHE LIFETIME IS THE FRESHNESS
   // MATRIX, not a number of its own: the provider reports volume and difficulty monthly, so a seven-day ttl expired a row every side of the product still
   // calls current and bought the identical numbers back four times a month.

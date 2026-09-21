@@ -437,9 +437,11 @@ export async function finishOneProposalAction(args: { proposalId: string }): Pro
     const result = await atomicProof.run({ tenantId, proposalId: args.proposalId, maxOpenAiCalls: 2, maxOpenAiUsd: 0.1 });
     const receipt = { providerCalls: result.meter?.providerCalls ?? 0, costUsd: result.meter?.costUsd ?? 0 };
     if (!result.success) {
-      const used = result.reason === "proof_already_attempted_or_admission_unavailable";
+      const used = result.reason === "proof_admission_resumed" || result.reason === "proof_admission_replayed";
+      const capped = result.reason.startsWith("proof_admission_refused_") || result.reason === "proof_admission_cap_refused";
       const error = used
         ? "This exact version already had its one finishing attempt. Nothing else was charged."
+        : capped ? "Today's internal spend breaker is still closed. No provider call was made."
         : result.reason.startsWith("research_") ? "Research must stay paused while this one change is finished."
           : "This change did not become finished, paste-ready work. Nothing broader was run.";
       return { success: false, ...receipt, error: `${error} Receipt: ${receipt.providerCalls} OpenAI call${receipt.providerCalls === 1 ? "" : "s"}, $${receipt.costUsd.toFixed(2)}; DataForSEO $0.` };

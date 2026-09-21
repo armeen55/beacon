@@ -161,7 +161,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     const out = await finishOneProposalAction({ proposalId: ID });
     expect(proofRun).toHaveBeenCalledWith({ tenantId: "t", proposalId: ID, maxOpenAiCalls: 2, maxOpenAiUsd: 0.1 });
     expect([out.success, out.providerCalls, out.costUsd, Object.keys(out).includes("stored")]).toEqual([true, 1, 0.04, false]);
-    proofRun.mockResolvedValueOnce({ success: false, reason: "proof_execution_failed", meter: { providerCalls: 2, costUsd: 0.09 } }); const failed = await finishOneProposalAction({ proposalId: ID }); expect(failed.error).toContain("Receipt: 2 OpenAI calls, $0.09; DataForSEO $0.");
+    proofRun.mockResolvedValueOnce({ success: false, reason: "proof_admission_refused_overrun", meter: { providerCalls: 0, costUsd: 0 } }); const failed = await finishOneProposalAction({ proposalId: ID }); expect(failed.error).toBe("Today's internal spend breaker is still closed. No provider call was made. Receipt: 0 OpenAI calls, $0.00; DataForSEO $0.");
     publish.allowed = false; const denied = await finishOneProposalAction({ proposalId: ID }); publish.allowed = true; expect([denied.success, proofRun.mock.calls.length]).toEqual([false, 2]);
     const shown = renderToStaticMarkup(createElement(SetAsideChange, { proposalId: ID, finishable: true })), hidden = renderToStaticMarkup(createElement(SetAsideChange, { proposalId: ID }));
     expect([shown.includes("Finish this one"), shown.includes("$0.10"), shown.includes("DataForSEO $0"), shown.includes("Research stays paused"), hidden.includes("Finish this one")]).toEqual([true, true, true, true, false]); });

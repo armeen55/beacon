@@ -25,8 +25,10 @@ async function run(input: Input, deps: Deps = DEPS) {
   const admissionKey = `atomic-proof::${tenantId}::${proposalId}::${deps.version(row)}`;
   const admission = await deps.spend.reserve({ tenantId, platform: "other", purpose: "atomic_proof_admission", logicalKey: admissionKey,
     requestFingerprint: admissionKey, estimatedUsd: 0, recoveryKind: "none" }).catch(() => null);
-  if (admission?.outcome !== "reserved" || !admission.attemptId) return refuse("proof_already_attempted_or_admission_unavailable", row);
-  if (await deps.spend.claimTransmission(admission.attemptId).catch(() => "unavailable" as const) !== "claimed") return refuse("proof_admission_not_claimed", row);
+  if (!admission) return refuse("proof_admission_unavailable", row);
+  if (admission.outcome !== "reserved" || !admission.attemptId) return refuse(`proof_admission_${admission.outcome}`, row);
+  const claim = await deps.spend.claimTransmission(admission.attemptId).catch(() => "unavailable" as const);
+  if (claim !== "claimed") return refuse(`proof_admission_${claim}`, row);
   const finish = async (success: boolean, reason: string, stored: ChangeProposal | null = row,
     meter: { ops: number; providerCalls: number; costUsd: number } | null = null) => {
     const recorded = await deps.spend.reconcile(admission.attemptId!, 0, null, "provider_reported", { success, reason }).catch(() => false);

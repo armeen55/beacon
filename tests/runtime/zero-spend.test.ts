@@ -95,10 +95,10 @@ describe("the funded proof can touch exactly one stored candidate", () => {
       draft: async () => (events.push("draft"), await wait, [{ ...row, status: "ready" }]), save: async () => "saved" };
     const proof = (await import("@/domains/runtime/ops/atomic-proof")).default, first = proof.run({ tenantId: "tenant-fx", proposalId: id, maxOpenAiCalls: 2, maxOpenAiUsd: 0.1 }, base as never);
     while (!events.length) await Promise.resolve(); const second = await proof.run({ tenantId: "tenant-fx", proposalId: id, maxOpenAiCalls: 2, maxOpenAiUsd: 0.1 }, base as never); release(); await first;
-    expect([second.success, second.reason, events]).toEqual([false, "proof_already_attempted_or_admission_unavailable", ["draft"]]);
+    expect([second.success, second.reason, events]).toEqual([false, "proof_admission_resumed", ["draft"]]);
     let admitted = false, reconciled = false, drafts = 0; const exploding = { ...base, spend: { reserve: async () => admitted ? { outcome: "resumed", attemptId: "proof-x" } : (admitted = true, { outcome: "reserved", attemptId: "proof-x" }), claimTransmission: async () => "claimed", reconcile: async () => (reconciled = true) }, draft: async () => { drafts++; throw new Error("provider broke"); } };
     const failed = await proof.run({ tenantId: "tenant-fx", proposalId: id, maxOpenAiCalls: 2, maxOpenAiUsd: 0.1 }, exploding as never), replay = await proof.run({ tenantId: "tenant-fx", proposalId: id, maxOpenAiCalls: 2, maxOpenAiUsd: 0.1 }, exploding as never);
-    expect([failed.success, failed.reason, reconciled, replay.reason, drafts]).toEqual([false, "proof_execution_failed", true, "proof_already_attempted_or_admission_unavailable", 1]);});});
+    expect([failed.success, failed.reason, reconciled, replay.reason, drafts]).toEqual([false, "proof_execution_failed", true, "proof_admission_resumed", 1]);});});
 describe("the paid doors refuse a paused account even with no scope open", () => {
   it("blocks the model door at the pause bit, before any network", async () => {
     const { setSpendPauseProbeForTests } = await import("@/lib/spend-scope");
