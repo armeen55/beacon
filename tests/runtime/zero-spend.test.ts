@@ -75,16 +75,30 @@ describe("a paused account rebuilds its surface and buys nothing, whatever the c
     vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/runtime"); vi.doUnmock("@/domains/decision"); vi.resetModules();});});
 describe("the funded proof can touch exactly one stored candidate", () => {
   const id = "tenant-fx::/one::existing_edit::answer", row = { id, tenantId: "tenant-fx", status: "needs_review", impactScore: 7 };
-  const drive = async (readbackStatus: string, startStatus = "needs_review") => { const events: string[] = []; let stored = { ...row, status: startStatus };
-    const deps = { permission: async () => "paused", load: async (_t: string, asked: string) => (events.push(`load:${asked}`), stored),
-      evidence: async () => (events.push("stored-evidence"), {}), delivery: () => "existing_page_edit", obligation: () => ({ kind: "draft" }),
+  const drive = async (readbackStatus: string, startStatus = "needs_review", permissions = ["paused"], saveResult = "saved") => { const events: string[] = []; let stored = { ...row, status: startStatus }, pi = 0;
+    const deps = { permission: async () => permissions[Math.min(pi++, permissions.length - 1)], load: async (_t: string, asked: string) => (events.push(`load:${asked}`), stored), version: () => "v1",
+      evidence: async () => (events.push(`stored-evidence:${await (await import("@/lib/spend-scope")).spendingClosed("tenant-fx")}`), {}), delivery: () => "existing_page_edit", obligation: () => ({ kind: "draft" }),
+      spend: { reserve: async () => (events.push("admit"), { outcome: "reserved", attemptId: "proof-1" }), claimTransmission: async () => (events.push("claim"), "claimed"),
+        reconcile: async (_id: string, usd: number, _task: null, _basis: string, payload: { success: boolean; reason: string }) => (events.push(`reconcile:${usd}:${payload.success}`), true) },
       draft: async (rows: unknown[]) => (events.push(`draft:${(rows[0] as { id: string }).id}`), [{ ...row, status: "ready", researchOnly: false, obligation: undefined }]),
-      save: async (candidate: typeof row, _a?: unknown, _b?: unknown, expected?: typeof row) => (events.push(`save:${candidate.id}:${expected === stored}`), stored = { ...candidate, status: readbackStatus } as never, "saved"),
+      save: async (candidate: typeof row, _a?: unknown, _b?: unknown, expected?: typeof row) => (events.push(`save:${candidate.id}:${expected === stored}`), stored = { ...candidate, status: readbackStatus } as never, saveResult),
       acceptable: (candidate: { status?: string; researchOnly?: boolean; obligation?: unknown } | null) => candidate?.status === "ready" && candidate.researchOnly === false && candidate.obligation == null };
     const proof = (await import("@/domains/runtime/ops/atomic-proof")).default;
     return { out: await proof.run({ tenantId: "tenant-fx", proposalId: id, maxOpenAiCalls: 2, maxOpenAiUsd: 0.1 }, deps as never), events }; };
-  it("persists then rereads the same stable id and trusts only the stored Ready row", async () => { const good = await drive("ready"), bad = await drive("needs_review"), already = await drive("ready", "ready");
-    expect([good.out.success, bad.out.success, already.out.success, good.events, already.events]).toEqual([true, false, false, [`load:${id}`, "stored-evidence", `draft:${id}`, `save:${id}:true`, `load:${id}`], [`load:${id}`]]);});});
+  it("persists then rereads the same stable id and trusts only the stored Ready row", async () => { const good = await drive("ready"), bad = await drive("needs_review"), already = await drive("ready", "ready"), changed = await drive("ready", "needs_review", ["paused"], "blocked");
+    expect([good.out.success, bad.out.success, already.out.success, changed.out.success, changed.events.at(-1), good.events, already.events]).toEqual([true, false, false, false, "reconcile:0:false", [`load:${id}`, "admit", "claim", "stored-evidence:true", `draft:${id}`, `save:${id}:true`, `load:${id}`, "reconcile:0:true"], [`load:${id}`]]);});
+  it("admits one concurrent press and spends nothing after research resumes", async () => {
+    const resumed = await drive("ready", "needs_review", ["paused", "running"]); expect([resumed.out.success, resumed.events.includes("draft:" + id), resumed.events.at(-1)]).toEqual([false, false, "reconcile:0:false"]);
+    const events: string[] = []; let held = false, release!: () => void; const wait = new Promise<void>((r) => { release = r; });
+    const base = { permission: async () => "paused", load: async () => row, version: () => "v1", evidence: async () => ({}), delivery: () => "existing_page_edit", obligation: () => ({ kind: "draft" }), acceptable: () => true,
+      spend: { reserve: async () => held ? { outcome: "resumed", attemptId: "proof-1" } : (held = true, { outcome: "reserved", attemptId: "proof-1" }), claimTransmission: async () => "claimed", reconcile: async () => true },
+      draft: async () => (events.push("draft"), await wait, [{ ...row, status: "ready" }]), save: async () => "saved" };
+    const proof = (await import("@/domains/runtime/ops/atomic-proof")).default, first = proof.run({ tenantId: "tenant-fx", proposalId: id, maxOpenAiCalls: 2, maxOpenAiUsd: 0.1 }, base as never);
+    while (!events.length) await Promise.resolve(); const second = await proof.run({ tenantId: "tenant-fx", proposalId: id, maxOpenAiCalls: 2, maxOpenAiUsd: 0.1 }, base as never); release(); await first;
+    expect([second.success, second.reason, events]).toEqual([false, "proof_already_attempted_or_admission_unavailable", ["draft"]]);
+    let admitted = false, reconciled = false, drafts = 0; const exploding = { ...base, spend: { reserve: async () => admitted ? { outcome: "resumed", attemptId: "proof-x" } : (admitted = true, { outcome: "reserved", attemptId: "proof-x" }), claimTransmission: async () => "claimed", reconcile: async () => (reconciled = true) }, draft: async () => { drafts++; throw new Error("provider broke"); } };
+    const failed = await proof.run({ tenantId: "tenant-fx", proposalId: id, maxOpenAiCalls: 2, maxOpenAiUsd: 0.1 }, exploding as never), replay = await proof.run({ tenantId: "tenant-fx", proposalId: id, maxOpenAiCalls: 2, maxOpenAiUsd: 0.1 }, exploding as never);
+    expect([failed.success, failed.reason, reconciled, replay.reason, drafts]).toEqual([false, "proof_execution_failed", true, "proof_already_attempted_or_admission_unavailable", 1]);});});
 describe("the paid doors refuse a paused account even with no scope open", () => {
   it("blocks the model door at the pause bit, before any network", async () => {
     const { setSpendPauseProbeForTests } = await import("@/lib/spend-scope");

@@ -86,6 +86,7 @@ export { rankProposals, proposalValueScore, MIN_FINISHED_READINGS } from "./rank
 // Today, out of measurement, and out of Mark done.
 // THE EXACT VERSION AN OPERATOR CONFIRMS. A change that moves or hides a page reaches `ready` on one yes to one version; the detail page prints the version it is showing and the mutation recomputes it off the row it re-reads.
 export { deliverableGaps, confirmedVersion, openHold, unsettledCause } from "./completeness";
+export { nextObligation } from "./obligation";
 export type { ProposalValidation } from "./validate-proposal";
 export { validateProposal, actionableProposalFailures } from "./validate-proposal";
 

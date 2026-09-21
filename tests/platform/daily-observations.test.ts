@@ -30,8 +30,7 @@ import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import { isAnalysisSettled, type AiObservationView, type DueObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import {
   DAILY_OBSERVATION_BATCH, FAILED_RETRIES_PER_DAY, MAX_SAMPLES_PER_DAY, dailyChecks, dueObservations, extraSampleVerdict,
-  planObservations, requestExtraSample, runAnswerAnalyses, selectAnalysisTargets,
-  type DayMarkers, type ExtraSampleGrant,
+  planObservations, runAnswerAnalyses, selectAnalysisTargets, type DayMarkers,
 } from "@/domains/runtime/ops/daily-observations";
 import { applyTrackedSelection, readActiveTrackedPrompts, type TrackedPromptRow } from "@/domains/runtime/prompt-set";
 import { reportingDay } from "@/lib/reporting-day";
@@ -106,23 +105,13 @@ describe("extra readings", () => {
     const all = (await dueObservations(T, DAY, { ...world, unreadBacklog: async () => 0 })) ?? [], small = (await dueObservations(T, DAY, { ...world, unreadBacklog: async () => 0, dailyBudgetUsd: async () => 0.5 })) ?? []; expect([all.length > 6, small.length, (await dailyChecks(T, DAY, { ...world, unreadBacklog: async () => 0, dailyBudgetUsd: async () => 0 }))!.due.length, all.slice(0, 6).map((d) => d.promptId + d.engine)], "the lane takes at most 30 percent of the day at $0.025 a reading, oldest-first, so a 50 cent day reads 6 and a $0 day reads none; a budget nobody could read bounds nothing (2026-09-17)").toEqual([true, 6, 0, small.map((d) => d.promptId + d.engine)]);
     expect(((await dueObservations(T, DAY, { ...world, unreadBacklog: async () => 200 })) ?? []).length).toBeGreaterThan(0);
     expect(await dueObservations(T, DAY, { ...world, unreadBacklog: async () => { throw new Error("meter down"); } })).toEqual([]); // A METER NOBODY COULD READ IS UNKNOWN, NEVER ZERO (operator, 2026-09-02): unknown asks nothing and spends nothing, as an EMPTY plan rather than a failed day, so the lane files as unreadable and the rest of the day still runs
-    const blind = await requestExtraSample(T, DAY, { ...world, unreadBacklog: async () => { throw new Error("meter down"); } }); // A BROKEN METER MUST NOT STOP THE CANONICAL DAY, and it may not grant the DISCRETIONARY extra either: both gates read a failed count as zero, so buying proceeded exactly when the protection could not be measured.
-    expect([blind.granted, blind.reason?.includes("could not be read")]).toEqual([false, true]);
     // AND THE BLOCKED LANE IS NAMED RATHER THAN HANDED OVER AS AN EMPTY WINDOW. The standing carries the backlog that stopped the buying, so a drive reads those answers back instead of asking for more; once the reading
     // clears it the day buys EXACTLY what was still owed and not one duplicate of what it already holds. A day owing nothing is blocked by nothing and never pays for the count; a count nobody could take is null, never zero.
     const over = await dailyChecks(T, DAY, { ...world, unreadBacklog: async () => 201 }), drained = await dailyChecks(T, DAY, { ...world, unreadBacklog: async () => 200 });
     expect([over!.readingBacklog, drained!.readingBacklog, drained!.due.length]).toEqual([201, undefined, over!.due.length]); expect([over!.total > 0, (await dailyChecks(T, "2026-12-31", { ...world, unreadBacklog: async () => 5000 }))!.total], "a backlog never shrinks the core set owed today or on any later day").toEqual([true, over!.total]); // THE CORE BASELINE NEVER ROTATES OR SHRINKS (operator, 2026-09-02)
     expect([(await dailyChecks(T, DAY, { ...world, readObservations: async () => fullDay(), unreadBacklog: async () => { throw new Error("never asked"); } }))!.readingBacklog,
       (await dailyChecks(T, DAY, { ...world, unreadBacklog: async () => { throw new Error("meter down"); } }))!.readingBacklog], "a settled day never pays for the count; unknown is null, never a truthful zero").toEqual([undefined, null]);
-    // AND THE DISCRETIONARY GRANT REFUSES THE SAME WAY, naming the backlog and the money rather than a policy: live, 891 answers carrying $7.75 of paid text had never been analysed and the button that buys more still said yes.
-    const settled = { ...world, readObservations: async () => fullDay(), readMarkers: async () => ({}), writeMarkers: async () => true };
-    const behind = await requestExtraSample(T, DAY, { ...settled, unreadBacklog: async () => 891 });
-    expect([behind.granted, behind.due, behind.reason.includes("891 answers already paid for are still waiting to be read")]).toEqual([false, [], true]);
-    expect((await requestExtraSample(T, DAY, { ...settled, unreadBacklog: async () => 0 })).granted).toBe(true); });
-
-  it("refuses honestly rather than guessing when it cannot read where today stands", async () => {
-    const out = await requestExtraSample(T, DAY, { readPrompts: async () => null, readObservations: async () => { throw new Error("db down"); } }); expect([out.granted, out.due]).toEqual([false, []]);
-    expect(out.reason).toContain("could not be read");});
+  });
   it("keeps a reading that lists one item too many instead of throwing the whole batch away", async () => {
     const { SCHEMA_BY_KIND } = await import("@/domains/decision/llm/schemas");
     const long = { sections: [], claims: [], topicEntities: Array.from({ length: 41 }, (_, i) => `entity ${i}`),
@@ -133,16 +122,6 @@ describe("extra readings", () => {
     expect(out.success, "a long answer is a long answer, never an invalid one").toBe(true);
     expect(out.success && out.data.topicEntities.length, "and what is over the bound is dropped, not the reading").toBe(30); });
 
-  it("SAVES the grant so the next pass actually plans it, and refuses rather than promising a reading it could not record", async () => {
-    let stored: ExtraSampleGrant | null = null;
-    const world = { readPrompts: async () => PROMPTS, readObservations: async () => fullDay(), unreadBacklog: async () => 0,
-      readMarkers: async () => (stored ? { extraSamples: stored } : {}),
-      writeMarkers: async (_t: string, p: { extraSamples?: ExtraSampleGrant }) => { if (p.extraSamples) stored = p.extraSamples; return true; } };
-    const first = await requestExtraSample(T, DAY, world); expect([first.granted, stored]).toEqual([true, { day: DAY, granted: 1 }]);
-    const plan = await dueObservations(T, DAY, world); // THE POINT: a NEW request cycle, nothing in memory, and the planner still knows a second reading is owed. And yesterday's grant never spends today's money.
-    expect([plan!.length, plan!.every((d) => d.slot === 1 && d.day === DAY), await dueObservations(T, "2026-08-01", { ...world, readObservations: async () => fullDay("2026-08-01") })]).toEqual([12, true, []]);
-    const lost = await requestExtraSample(T, DAY, { ...world, writeMarkers: async () => false }); // A grant I could not record is a refusal, never a promise.
-    expect([lost.granted, lost.due]).toEqual([false, []]); expect(lost.reason).toContain("could not be saved");});
   it("reports today's standing with the plan, so the progress number a surface shows is the planner's own arithmetic", async () => {
     const world = { readPrompts: async () => PROMPTS, readMarkers: async () => null }; const cold = await dailyChecks(T, DAY, { ...world, readObservations: async () => [] });
     expect([cold!.done, cold!.total, cold!.due.length]).toEqual([0, 12, 12]); // nothing landed yet, twelve pairs owed

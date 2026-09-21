@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { causeLabel, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, openHold, sameComponentId, unsettledCause } from "@/domains/decision";
+import { causeLabel, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, nextObligation, openHold, sameComponentId, unsettledCause } from "@/domains/decision";
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { ConfirmDangerous, CopyButton, PublicationCopy, MarkImplemented, SetAsideChange } from "../change-controls";
@@ -22,6 +22,7 @@ const EVIDENCE_GROUP: Record<BundleEvidenceItem["kind"], string> = {
   internal_link: "Links across your own site",
 };
 const EVIDENCE_ORDER = Object.keys(EVIDENCE_GROUP) as BundleEvidenceItem["kind"][];
+const canFinish = (p: ChangeProposal): boolean => p.status === "needs_review" && ["draft", "redraft", "review"].includes(nextObligation(p)?.kind ?? "");
 
 function seenLabel(observedAt: string | null): string {
   const day = monthDayLabel(observedAt);
@@ -117,8 +118,6 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
         {isNew ? (
           <p className="text-[13px] leading-relaxed text-muted-foreground">This page does not exist yet.</p>
         ) : null}
-        {/* A LONG CORRECTION LIST IS WORKED IN BATCHES: groups of ten fold, first open, each correction with
-            its own copy control and identity. Every other bundle renders its pieces exactly as before. */}
         {bundle.components.length > 10 && bundle.components.every((c) => c.kind === "factual_correction")
           ? Array.from({ length: Math.ceil(bundle.components.length / 10) }, (_, b) => (
             <details key={b} open={b === 0} className="rounded-2xl border border-border bg-surface-inset/40 p-2" data-correction-batch={b + 1}>
@@ -204,7 +203,7 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
         />}
         {held ? null : <p className="text-[12px] text-muted-foreground">After you make it, the page is checked and the measurement starts from what is found.</p>}
         {confirmable ? <ConfirmDangerous proposalId={proposal.id} version={confirmable} /> : null}
-        <SetAsideChange proposalId={proposal.id} />
+        <SetAsideChange proposalId={proposal.id} finishable={canFinish(proposal) && !confirmable} />
       </section>
     </div>
   );
@@ -400,11 +399,7 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
   const before = c.kind === "new_page" ? null : (c.before ?? "").trim() || null;
   const units = c.kind === "existing_edit" ? c.units : undefined, link = c.kind === "existing_edit" && c.linkTo ? { href: c.linkTo, anchor: c.anchorText ?? "" } : null;
   const steps = (proposal.operatorSteps ?? []).map((s) => s.replace(/^\d+[.)]\s*/, "").trim()).filter(Boolean);
-  // A DIRECT LINK STILL REACHES A ROW THE QUEUE NO LONGER RANKS, so the detail page asks the SAME completeness boundary: an unfinished deliverable is read, never pasted and never recorded as done here either. A
-  // card carrying no steps at all (an ownership decision asks the operator for nothing) leads with its own line, or the page would print an empty list where the finding should be.
   const research = deliverableGaps(proposal).length > 0;
-  // LIFECYCLE, NOT SHAPE. Completeness answered "are the words written", and this page asked nothing else: a finished card sitting in the review lane, which the list refuses to offer, was handed over here with a
-  // Copy press and a Mark done on a direct link. READY IS THE ONLY LANE THAT MAY BE PASTED, and it is asked here, on the row itself, exactly as the list and the mutation ask it.
   const hold1 = openHold(proposal);
   const held = proposal.status !== "ready"
     ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet."
@@ -417,8 +412,6 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
   return (
     <div className="max-w-3xl space-y-5" data-simple-detail="true">
       <Link href={returnTo} className="inline-flex text-[13px] text-muted-foreground hover:text-foreground">Back to Changes</Link>
-      {/* THE HEADLINE IS THE PAGE AND THE WORK, NEVER THE ARGUMENT. This h1 used to be the whole
-          whyItMatters paragraph, printed again word for word as the body two blocks down. */}
       <div className="space-y-1">
         <h2 className="text-[17px] font-semibold leading-relaxed text-foreground">
           {proposal.pagePath ? pageLabel(proposal.pagePath) : (proposal.pageLabel || "This page")}: {action}
@@ -442,8 +435,6 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
             <div className="min-w-0 flex-1 text-[15px] leading-relaxed text-foreground"><PublicationCopy text={after} units={units} link={link} /></div>
             {research || held ? null : <CopyButton text={after} units={units} link={link} label="Copy" />}
           </div>
-          {/* WHERE IT GOES, ON THE PAGE THAT SHOWS THE COPY. Copy that lands somewhere new carries its placement
-              and this page printed the words without it, so the operator read finished copy and still had to guess. */}
           {c.kind === "existing_edit" && c.where ? <p className="text-[13px] text-muted-foreground">Where it goes: {c.where}</p> : null}
         </div>
       ) : null}
@@ -460,11 +451,6 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
           <Bullets items={[...checks]} />
         </div>
       ) : null}
-      {/* WHAT EACH SENTENCE STANDS ON, IN THE EVIDENCE'S OWN WORDS. This printed "(from page-copy-1)", which is a
-          symbolic id and not a fact: nothing on the screen said what page-copy-1 says, so the one thing that makes
-          drafted copy checkable was unreadable exactly where the operator decides whether to paste it. The exact
-          quoted words the editor was shown ride on the row now, and an id with no quoted words behind it is shown
-          as unquoted rather than dressed up as evidence. AND A QUOTATION IS THE SENTENCE THAT WAS CHECKED, NEVER THE WHOLE ENTRY IT WAS BANKED IN (measured, 2026-09-05): 157 of one account's 409 banked facts run past 400 characters and 142 past 800, the longest is 1,000, and on 90 of its 171 rows the operator deciding whether to paste one line was handed a raw chunk of their own page's body under the words "Stands on", 347,094 characters across 350 rendered claim lines with a worst line of 5,074. The page's own copy is named as what it is and never reprinted, because a reader standing on the page already has it; a checked reading is quoted to its first sentence, which is what the writer was held to; and each id is said once. */}
       {(proposal.claims ?? []).length > 0 ? (
         <div className="space-y-1">
           <Heading>What each line stands on</Heading>
@@ -473,14 +459,10 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
             .join(", ")}`)} />
         </div>
       ) : null}
-      {/* A RESEARCH CARD HAS NOTHING TO MARK DONE: no copy has been written for this page, so recording it as
-          applied would start a reading of a change nobody made. A card still in review has nothing to mark done
-          either, for the same reason the list refuses to offer it. Setting it aside stays either way, because
-          deciding not to chase a question is a real answer. */}
       {held && !research ? <p className="text-[13px] leading-relaxed text-foreground" data-held-reason="true">{held}{waitingOn(proposal) ?? ""}</p> : null}
       <div className="flex flex-wrap items-center gap-3">
         {research || held ? null : <MarkImplemented proposalId={proposal.id} />}
-        <SetAsideChange proposalId={proposal.id} />
+        <SetAsideChange proposalId={proposal.id} finishable={canFinish(proposal)} />
       </div>
     </div>
   );

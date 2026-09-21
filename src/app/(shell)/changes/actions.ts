@@ -12,15 +12,13 @@ import { proposalDisposition, actionableProposalFailures, answerReviewedProposal
   type ChangeProposal } from "@/domains/decision";
 import { getTenant } from "@/domains/account";
 import { captureChangeMeta, loadShippedChanges, objectiveOfStage, recordShipment, verifyShipmentNow, type MeasurementState } from "@/domains/measurement";
+import { atomicProof } from "@/domains/runtime";
 import { invalidateCoreSurfaces } from "../surface-release";
 import { readChangesPage, type ChangesPage } from "../changes-data";
 import operatorUiPolicy from "./types";
 
-/** changes/actions: the manual "Mark implemented" action. Publishing authority is MANUAL and server-enforced: the kernel never writes a live page and never flips this itself. THE SHIPMENT TRANSACTION: the press writes a Shipment FIRST and flips the proposal SECOND, never the other way, because a crash between the two leaves a Shipment nobody flipped (which the next press heals) where the reverse leaves a change marked done that nothing on earth is measuring. And nothing lands at all unless the ONE verdict passes at this moment. `note` says what is still theirs to do after a PARTIAL apply, in their own words. */
-/** `retryable` says this ending is a bad moment and not a verdict, so a press held on the device is sent again instead of being dropped. A refusal (skipped, unfinished, held for review, not found, pieces nobody recognizes, a confirmation nobody gave) is a verdict and is never retried. A SHIPMENT WRITE THAT THREW AND A READING THAT COULD NOT BE STARTED ARE BAD MOMENTS: both say "Press it again in a moment", and a device holding that press dropped it silently and then counted it as recorded. */
-type MarkProposalImplementedResponse = { success: boolean; error?: string; note?: string; retryable?: boolean };
+type MarkProposalImplementedResponse = { success: boolean; error?: string; note?: string; retryable?: boolean; providerCalls?: number; costUsd?: number };
 
-/** What one press landed: whether every piece is now on file, how many this press wrote, how many are genuinely still theirs to do (the remainder came off THIS press before, so press two of three said "the other 2" with one left), AND THE RECORD THAT IS MEASURING IT. The flip that follows will not run without that id, so a press can never close a change no record stands behind. */
 type Shipped = { ok: true; complete: boolean; recorded: number; remaining: number; shipmentId: string; shipmentVersion: string; measurement: MeasurementState };
 
 /** The exact version applied: its copy, its components, the basis it was drafted under AND THE PIECES THIS PRESS ACTUALLY APPLIED. Deliberately EXCLUDES status, so the flip that follows cannot change the id and a retry lands on the same record. Applying a different subset later is a DIFFERENT thing to measure, so it gets its own record instead of being silently swallowed by the first one. */
@@ -428,6 +426,31 @@ export async function reviewDraftAction(args: { proposalId: string; version: str
   } catch (err) {
     log.error("reviewDraft: failed", { proposalId: args.proposalId, error: err instanceof Error ? err.message : String(err) });
     return { success: false, error: "That could not be saved just now. Press it again in a moment." };
+  }
+}
+
+export async function finishOneProposalAction(args: { proposalId: string }): Promise<MarkProposalImplementedResponse> {
+  if (!(await canPublishForCurrentTenant())) return { success: false, error: "You do not have permission to finish this change." };
+  if (!args.proposalId) return { success: false, error: "No change was specified." };
+  const tenantId = await currentTenantId();
+  try {
+    const result = await atomicProof.run({ tenantId, proposalId: args.proposalId, maxOpenAiCalls: 2, maxOpenAiUsd: 0.1 });
+    const receipt = { providerCalls: result.meter?.providerCalls ?? 0, costUsd: result.meter?.costUsd ?? 0 };
+    if (!result.success) {
+      const used = result.reason === "proof_already_attempted_or_admission_unavailable";
+      const error = used
+        ? "This exact version already had its one finishing attempt. Nothing else was charged."
+        : result.reason.startsWith("research_") ? "Research must stay paused while this one change is finished."
+          : "This change did not become finished, paste-ready work. Nothing broader was run.";
+      return { success: false, ...receipt, error: `${error} Receipt: ${receipt.providerCalls} OpenAI call${receipt.providerCalls === 1 ? "" : "s"}, $${receipt.costUsd.toFixed(2)}; DataForSEO $0.` };
+    }
+    await invalidateCoreSurfaces().catch(() => {});
+    revalidatePath("/changes"); revalidatePath("/", "layout");
+    const warning = result.reason === "stored_ready_but_admission_receipt_missing" ? " The work landed, but its $0 admission receipt did not; it will not run again." : "";
+    return { success: true, ...receipt, note: `Finished. This exact change is ready to copy. ${receipt.providerCalls} OpenAI call${receipt.providerCalls === 1 ? "" : "s"}, $${receipt.costUsd.toFixed(2)}; DataForSEO $0.${warning}` };
+  } catch (err) {
+    log.error("finishOneProposal: failed", { proposalId: args.proposalId, error: err instanceof Error ? err.message : String(err) });
+    return { success: false, error: "This change could not be finished just now. Nothing broader was run." };
   }
 }
 

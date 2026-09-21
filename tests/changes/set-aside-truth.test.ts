@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderToStaticMarkup } from "react-dom/server"; import type { ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server"; import { createElement, type ReactElement } from "react";
 import type { ChangeProposal } from "@/domains/decision";
 import { actionableProposalFailures as failures } from "@/domains/decision/validate-proposal";
 import type { ChangesView } from "@/app/(shell)/changes-data";
@@ -16,9 +16,12 @@ vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof im
   answerReviewedProposal: vi.fn(async () => ({ status: "promoted" as const })) }));
 vi.mock("@/app/(shell)/changes-data", async () => ({ ...(await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data")),
   loadChangesView: vi.fn() }));
-vi.mock("@/lib/auth/can-publish", () => ({ canPublishForCurrentTenant: async () => true }));
+const publish = vi.hoisted(() => ({ allowed: true }));
+vi.mock("@/lib/auth/can-publish", () => ({ canPublishForCurrentTenant: async () => publish.allowed }));
 const shipped = vi.hoisted(() => ({ records: [] as unknown[], held: [] as any[] }));
 const surfaceCalls = vi.hoisted(() => ({ n: 0 }));
+const proofRun = vi.hoisted(() => vi.fn());
+vi.mock("@/domains/runtime", async () => ({ ...(await vi.importActual<typeof import("@/domains/runtime")>("@/domains/runtime")), atomicProof: { run: proofRun } }));
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
   loadShippedChanges: async () => shipped.held, captureChangeMeta: async () => null, loadProofLedgerPersisted: async () => shipped.held,
   recordShipment: async (r: unknown) => { const f = r as { proposalId: string; proposalVersion: string };
@@ -152,6 +155,16 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     await link(hard); const no = await reviewDraftAction({ proposalId: hard.id, version: confirmedVersion(hard), decision: "approve" });
     await link(soft); const better = await reviewDraftAction({ proposalId: soft.id, version: confirmedVersion(soft), decision: "improve" }); const { answerReviewedProposal: answer } = await import("@/domains/decision");
     expect([yes.success, no.success, no.error?.includes("hand this to a customer"), better.success, vi.mocked(answer).mock.calls.map((c) => (c[4] as { kind: string }).kind)]) .toEqual([true, false, true, true, ["promote", "redraft"]]); });
+  it("finishes only the named row under the fixed tiny receipt and says the ceiling before the press", async () => {
+    proofRun.mockResolvedValueOnce({ success: true, reason: "stored_ready_substantive_and_complete", meter: { providerCalls: 1, costUsd: 0.04 } });
+    const { finishOneProposalAction } = await import("@/app/(shell)/changes/actions"), { SetAsideChange } = await import("@/app/(shell)/changes/change-controls");
+    const out = await finishOneProposalAction({ proposalId: ID });
+    expect(proofRun).toHaveBeenCalledWith({ tenantId: "t", proposalId: ID, maxOpenAiCalls: 2, maxOpenAiUsd: 0.1 });
+    expect([out.success, out.providerCalls, out.costUsd, Object.keys(out).includes("stored")]).toEqual([true, 1, 0.04, false]);
+    proofRun.mockResolvedValueOnce({ success: false, reason: "proof_execution_failed", meter: { providerCalls: 2, costUsd: 0.09 } }); const failed = await finishOneProposalAction({ proposalId: ID }); expect(failed.error).toContain("Receipt: 2 OpenAI calls, $0.09; DataForSEO $0.");
+    publish.allowed = false; const denied = await finishOneProposalAction({ proposalId: ID }); publish.allowed = true; expect([denied.success, proofRun.mock.calls.length]).toEqual([false, 2]);
+    const shown = renderToStaticMarkup(createElement(SetAsideChange, { proposalId: ID, finishable: true })), hidden = renderToStaticMarkup(createElement(SetAsideChange, { proposalId: ID }));
+    expect([shown.includes("Finish this one"), shown.includes("$0.10"), shown.includes("DataForSEO $0"), shown.includes("Research stays paused"), hidden.includes("Finish this one")]).toEqual([true, true, true, true, false]); });
   it("keeps everything this release actually knows when the bar moves under it", async () => {
     const stored = { schemaVersion: 2, releaseId: "t:1", computedAt: new Date().toISOString(), tenantId: "t",
       changes: { ...emptyView(0), proposals: [bundled("basis_old::d2", "t::old")], ready: [bundled("basis_old::d2", "t::old")],

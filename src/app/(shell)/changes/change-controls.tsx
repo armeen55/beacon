@@ -1,17 +1,10 @@
 "use client";
 
-/** change-controls - THE FOUR MUTATING CONTROLS, in one place: take the exact words, record that the change was
- *  made, and skip one. Split out of change-card so the card file is only what is SAID about a change and this
- *  file is only what can be DONE about it. Publishing stays MANUAL: nothing here writes to the operator's site.
- *  Every surface that hands over copy or records work renders these same controls, so a press means one thing. */
-
 import { createElement, useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 import type { BundleComponent } from "@/domains/decision";
-import { confirmDangerousChangeAction, dismissProposalAction, markProposalImplementedAction, reviewDraftAction } from "./actions";
+import { confirmDangerousChangeAction, dismissProposalAction, finishOneProposalAction, markProposalImplementedAction, reviewDraftAction } from "./actions";
 import operatorUiPolicy from "./types";
 
-/** A failed plain whole-change mark is kept on-device and retried; partial, moved, rewritten, and new-page
- *  marks are never queued because this device cannot reconstruct their extra operator input. */
 const MARK_QUEUE_KEY = "beacon.mark-done.queue";
 const MARK_QUEUE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 type QueuedMark = { proposalId: string; at: number };
@@ -157,10 +150,11 @@ export function CopyButton({ text, units, link = null, label, onToast }: { text:
 /** "Skip" is the operator's own dismissal, with the consequence stated before they press it. The
  *  store then refuses to re-draft the same change until the evidence itself moves. The LIST owns the
  *  optimistic version of this control; this two-step one is what the detail page asks. */
-export function SetAsideChange({ proposalId }: { proposalId: string }) {
+export function SetAsideChange({ proposalId, finishable = false }: { proposalId: string; finishable?: boolean }) {
   const [pending, startTransition] = useTransition();
-  const [state, setState] = useState<{ done: boolean; asked: boolean; error: string | null }>({ done: false, asked: false, error: null });
+  const [state, setState] = useState<{ done: boolean; asked: boolean; finished: string | null; error: string | null }>({ done: false, asked: false, finished: null, error: null });
 
+  if (state.finished) return <p className="text-[13px] font-semibold text-foreground" data-finish-one-done="true">{state.finished}</p>;
   if (state.done) {
     return (
       <p className="text-[12px] text-muted-foreground" data-set-aside-done="true">
@@ -170,10 +164,19 @@ export function SetAsideChange({ proposalId }: { proposalId: string }) {
   }
   if (!state.asked) {
     return (
-      <button type="button" data-set-aside="true" onClick={() => setState((s) => ({ ...s, asked: true }))}
-        className="inline-flex min-h-11 items-center text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
-        Skip
-      </button>
+      <div className="flex flex-wrap items-center gap-3">
+        {finishable ? <button type="button" disabled={pending} data-finish-one="true"
+          onClick={() => startTransition(async () => { const res = await finishOneProposalAction({ proposalId }).catch(() => null);
+            setState((s) => ({ ...s, finished: res?.success ? res.note ?? "Finished. This change is ready to copy." : null,
+              error: res?.success ? null : res?.error ?? "This change could not be finished just now." })); })}
+          className="min-h-11 rounded-md bg-accent-primary px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-60">
+          {pending ? "Finishing this one…" : "Finish this one"}
+        </button> : null}
+        {finishable ? <span className="text-[12px] text-muted-foreground">Up to 2 OpenAI calls / $0.10. DataForSEO $0. Research stays paused.</span> : null}
+        <button type="button" data-set-aside="true" onClick={() => setState((s) => ({ ...s, asked: true, error: null }))}
+          className="inline-flex min-h-11 items-center text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">Skip</button>
+        {state.error ? <span className="text-[12px] text-red-500">{state.error}</span> : null}
+      </div>
     );
   }
   return (
@@ -184,13 +187,13 @@ export function SetAsideChange({ proposalId }: { proposalId: string }) {
       <button type="button" disabled={pending}
         onClick={() => startTransition(async () => {
           const res = await dismissProposalAction({ proposalId });
-          if (res.success) setState({ done: true, asked: true, error: null });
-          else setState({ done: false, asked: true, error: res.error ?? "Something went wrong." });
+          if (res.success) setState({ done: true, asked: true, finished: null, error: null });
+          else setState({ done: false, asked: true, finished: null, error: res.error ?? "Something went wrong." });
         })}
         className="min-h-11 rounded-md border border-border px-3 py-1.5 text-[12px] font-semibold text-foreground disabled:opacity-60">
         {pending ? "Saving…" : "Yes, skip it"}
       </button>
-      <button type="button" onClick={() => setState({ done: false, asked: false, error: null })}
+      <button type="button" onClick={() => setState({ done: false, asked: false, finished: null, error: null })}
         className="inline-flex min-h-11 items-center text-[12px] text-muted-foreground underline underline-offset-2">
         Keep it
       </button>

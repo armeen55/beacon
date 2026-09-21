@@ -30,10 +30,7 @@ export {
 
 // Cache warming (used by the connectors "Update data" action + the publish phase)
 export { finalizeFreeSurfaces, publishCustomerSurfaces } from "./ops/warm-caches";
-
-// The daily AI-answer plan: one canonical reading per question, per engine, per
-// Pacific reporting day. "Update data" asks the extra-sample gate for a verdict.
-export { requestExtraSample } from "./ops/daily-observations";
+export { default as atomicProof } from "./ops/atomic-proof";
 
 // Onboarding facade (Slice 5) - the seven-step /onboard flow's command surface.
 export {

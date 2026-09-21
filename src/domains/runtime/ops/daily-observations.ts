@@ -468,31 +468,3 @@ async function spendFailureBudget(tenantId: string, day: string, s: DayState, op
   if (settled > 0) log.info("[daily-observations] settled checks the provider could not answer today", { tenantId, day, settled });
   if (changed) await (opts.writeMarkers ?? writeDayMarkers)(tenantId, { observationRetries: { day, counts, askedAt } }).catch(() => false);
 }
-
-/**
- * The Update-data path's gate. The press itself is the request; this answers
- * honestly whether an extra reading is legitimate right now, and PERSISTS the
- * grant so the next pass actually plans it. It adds no button and no surface.
- */
-export async function requestExtraSample(tenantId: string, day: string, opts: PlannerDeps = {}): Promise<{ granted: boolean; reason: string; due: DueObservation[] }> {
-  const state = await readDayState(tenantId, day, opts);
-  if (state == null) {
-    return { granted: false, reason: "Where today's checks stand could not be read, so no second reading is added on a guess. It is retried on your next visit.", due: [] };
-  }
-  // MONEY IS NOT SPENT ON A NEW ANSWER WHILE PAID ANSWERS SIT UNREAD (operator, 2026-08-27). The grant asked
-  // only whether the day had room for another reading, never whether anything had read the last ones. Live, 891
-  // answers carrying $7.75 of paid text had never been analysed, every one of them dated 2026-08-16 or later,
-  // and the button that buys more was still saying yes. Buying more of what nobody is reading is the one spend
-  // this product can never justify, so the refusal names the backlog and the money rather than a policy.
-  const behind = await (opts.unreadBacklog ?? unreadAnswerCount)(tenantId).catch(() => null); // AND A METER THAT WILL NOT READ MAY NOT GRANT THE EXTRA: both gates treated a failed count as zero, so buying proceeded exactly when the protection could not be measured (Codex, 2026-08-28). The SCHEDULED round above asks nothing while the meter is unreadable and files the lane as unreadable, so the canonical day goes on without buying; this discretionary grant fails closed too.
-  if (behind == null) return { granted: false, due: [], reason: "how many paid answers are still unread could not be read, and an extra sample is not bought while that is unknown" };
-  if (behind > UNREAD_BACKLOG_MAX) return { granted: false, due: [], reason: `${behind.toLocaleString("en-US")} answers already paid for are still waiting to be read, so no more are bought today. Reading those comes first, and the next fresh round starts once they are read.` };
-  const grant = state.markers?.extraSamples;
-  const already = grant?.day === day ? grant.granted : 0;
-  const verdict = extraSampleVerdict(day, { prompts: state.prompts, observed: state.observed, engines: state.engines,
-    unsupportedPairs: opts.unsupportedPairs, extraSamples: already, retries: reconcileRetries(day, state).counts });
-  if (!verdict.granted) return verdict;
-  const saved = await (opts.writeMarkers ?? writeDayMarkers)(tenantId, { extraSamples: { day, granted: already + 1 } }).catch(() => false);
-  if (!saved) return { granted: false, reason: "Your request for a second reading could not be saved, so none is promised. Press Update data again on your next visit.", due: [] };
-  return verdict;
-}
