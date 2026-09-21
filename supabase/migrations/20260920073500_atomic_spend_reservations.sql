@@ -1104,3 +1104,4 @@ begin
   end if;
 end;
 $privileges$;
+;

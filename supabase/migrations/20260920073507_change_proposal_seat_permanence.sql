@@ -682,3 +682,4 @@ begin
   end if;
 end;
 $assert_boundary$;
+;

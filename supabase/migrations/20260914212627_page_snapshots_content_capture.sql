@@ -1,0 +1,2 @@
+alter table public.page_snapshots add column if not exists content_capture jsonb;
+comment on column public.page_snapshots.content_capture is 'Observed main-content markup and JSON-LD for this capture: {version:1, mainHtml, jsonLd[], complete}. Null on pre-2026-09-14 captures.';;

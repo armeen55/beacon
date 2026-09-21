@@ -35,3 +35,4 @@ begin
   end if;
 end;
 $scheduler_cadence$;
+;

@@ -456,8 +456,8 @@ const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
 
 const PERSIST_VERSION = 1 as const;
 
-/** Serialize a proposal for the persistence layer (versioned envelope). */
-export function serializeChangeProposal(proposal: ChangeProposal): string { return JSON.stringify({ v: PERSIST_VERSION, proposal }); }
+/** Serialize a proposal for the persistence layer (versioned envelope). `workKey` is projected beside the canonical proposal so database locks can read the generation without decoding the business record. */
+export function serializeChangeProposal(proposal: ChangeProposal): string { return JSON.stringify({ v: PERSIST_VERSION, workKey: proposal.workKey, proposal }); }
 
 /** Parse + RE-VALIDATE a persisted proposal: a hand-edited row that no longer satisfies the contract can never be served as a trusted proposal. Fail-soft to null. */
 export function deserializeChangeProposal(content: string | null | undefined): ChangeProposal | null {

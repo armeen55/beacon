@@ -320,3 +320,4 @@ begin
   end if;
 end;
 $assert_customer_surface_boundary$;
+;

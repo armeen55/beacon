@@ -1,6 +1,4 @@
--- Internal audit snapshots are privileged operational history, not customer API tables.
--- TRUNCATE must be revoked explicitly: row policies do not protect it.
--- Preserve contents and existing service/admin grants; handle environments without these snapshots.
+-- Preserve operational snapshot rows and privileged access.
 DO $migration$
 DECLARE target text;
 BEGIN
@@ -12,3 +10,4 @@ BEGIN
   END LOOP;
 END
 $migration$;
+;

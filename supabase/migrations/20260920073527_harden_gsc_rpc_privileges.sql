@@ -59,3 +59,4 @@ begin
   end if;
 end;
 $gsc_rpc_boundary$;
+;

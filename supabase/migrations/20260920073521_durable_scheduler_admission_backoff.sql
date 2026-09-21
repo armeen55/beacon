@@ -259,3 +259,4 @@ $$;
 
 revoke all on function public.claim_due_research_work(text, int, int) from public, anon, authenticated;
 grant execute on function public.claim_due_research_work(text, int, int) to service_role;
+;
