@@ -91,19 +91,11 @@ const NOISE_DOMAINS = [
   "ebay.com", "aliexpress.com", "yelp.com", "tripadvisor.com",
 ];
 
-function stripDiacritics(s: string): string {
-  return s.normalize("NFD").replace(/[̀-ͯ]/g, "");
-}
-
-/** Distinguishing tokens of a topic/title/slug: lowercased, de-accented, singularized,
- *  with stopwords + generic brand terms removed and tokens < 3 chars dropped. */
-export function topicTokens(text: string | null | undefined, opts?: { keepRepeats?: boolean }): string[] {
+function stripDiacritics(s: string): string { return s.normalize("NFD").replace(/[̀-ͯ]/g, ""); }
+/** Distinguishing tokens of a topic/title/slug: lowercased, de-accented, singularized, with stopwords, generic terms and tokens < 3 chars dropped. */
+const baseTopicTokens = (text: string | null | undefined, opts?: { keepRepeats?: boolean }): string[] => {
   if (!text) return [];
-  const raw = stripDiacritics(String(text).toLowerCase())
-    .replace(/https?:\/\/[^\s]*/g, (u) => u.replace(/[^a-z0-9]+/g, " ")) // URL → words
-    .replace(/[^a-z0-9]+/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
+  const raw = stripDiacritics(String(text).toLowerCase()).replace(/https?:\/\/[^\s]*/g, (u) => u.replace(/[^a-z0-9]+/g, " ")).replace(/[^a-z0-9]+/g, " ").split(/\s+/).filter(Boolean);
   const out: string[] = [];
   for (let t of raw) {
     if (t.length < 3) continue;
@@ -118,8 +110,13 @@ export function topicTokens(text: string | null | undefined, opts?: { keepRepeat
     out.push(t);
   }
   return opts?.keepRepeats === true ? out : [...new Set(out)];
-}
+};
 
+/** Semantic identity never guesses transliteration: a false merge can preserve paid copy for the wrong search. */
+const semanticAtoms = (text: string | null | undefined): string[] => baseTopicTokens(text ?? "");
+const sameAtom = (a: string, b: string): boolean => a === b;
+const sameQuery = (a: string | null | undefined, b: string | null | undefined): boolean => { const left = semanticAtoms(a), right = semanticAtoms(b); if (left.length !== right.length || left.length === 0) return false; const free = [...right]; for (const atom of [...left].sort((x, y) => Number(x.endsWith("~e")) - Number(y.endsWith("~e")))) { let at = free.indexOf(atom); if (at < 0) at = free.findIndex((other) => sameAtom(atom, other)); if (at < 0) return false; free.splice(at, 1); } return free.length === 0; };
+export const topicTokens = Object.assign(baseTopicTokens, { semanticAtoms, sameAtom, sameQuery });
 export function domainOf(url: string): string {
   try {
     return new URL(url.startsWith("http") ? url : `https://${url}`).hostname.replace(/^www\./, "").toLowerCase();

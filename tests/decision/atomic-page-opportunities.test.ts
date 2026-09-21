@@ -1,35 +1,28 @@
-/** Separate reader tasks on a page retain their own ranked work identities across two unrelated accounts. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { EvidenceSnapshot, OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { emptyResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
 import { canonicalQueryKey as canon, topicTokens } from "@/domains/evidence/relevance-gate";
-import { substantiveGapOf } from "@/domains/decision/diagnosis";
+import { answeredIn, substantiveGapOf } from "@/domains/decision/diagnosis";
 import { demandOf } from "@/domains/decision/drafted-copy";
 import { footprintKey } from "@/domains/decision/mutation-footprint";
-import { deliverableGaps } from "@/domains/decision/completeness";
+import { deliverableGaps, preferFinished } from "@/domains/decision/completeness";
 import { nextObligation } from "@/domains/decision/obligation";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import { proposalStoreRpc, supabaseFake, type Row } from "../helpers/supabase-fake";
 const db = vi.hoisted(() => ({ rows: [] as Row[], filed: [] as Record<string, unknown>[] }));
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => client }));
-/** The live index: `ux_change_proposals_current` is (tenant, case, page, family, mutation_key) over current rows,
- *  so two sections on one page really do stand together only while what they WRITE differs. */
 const client = { ...supabaseFake({ rows: () => db.rows, insertDefaults: () => ({ created_at: "2026-08-01T00:00:00.000Z" }),
   clash: (row, rows) => (rows.some((r) => r.id !== row.id && r.terminal_disposition == null
     && ["tenant_id", "case_id", "page_key", "action_family", "mutation_key"].every((c) => r[c] === row[c]))
     ? { message: "duplicate key value violates unique constraint ux_change_proposals_current" } : null) }),
-  /** The disposition writer's own upsert, which is how the AI producer's verdicts become durable rows: what it was handed IS what a surface would later read back. */
   rpc: (name: string, args: { p_rows?: Record<string, unknown>[] } & Record<string, unknown>) => { if (name === "upsert_ai_case_dispositions") { db.filed.push(...(args.p_rows ?? [])); return Promise.resolve({ data: (args.p_rows ?? []).length, error: null }); } return proposalStoreRpc(() => db.rows)(name, args); } };
 const NOW = new Date("2026-08-01T00:00:00.000Z");
-/** TWO SEARCHES ONE PAGE EARNS AND NEVER ANSWERS, plus one passage that answers neither, on unrelated subjects. */
 const SITES = [
   { t: "tenant-one", path: "/rock-pools", title: "Rock pools of the north coast", subject: "north coast ledges",
     big: "how cold is the winter water", small: "which mussels grow on the ledges", third: "when do the seals return to the point",
-    /** ONE SENTENCE THAT ANSWERS TWO OF THE THREE SEARCHES, which is exactly what a live change on this page holds. */
     both: "Winter water on these ledges sits near four degrees, and the mussels that grow there stay covered at every tide.",
     onlyBig: "Winter water here sits near four degrees from December to March.",
     passage: "Visitors walk out at low tide and come back before the flats fill again.",
-    /** THE SAME PAGE AS A PLACE THE ASSISTANTS ANSWER ABOUT, with three questions its own words are for. */
     aiBig: "how deep are the rock pools at low tide", aiSmall: "which mussels grow in the rock pools", aiThird: "when do the seals return to the rock pools",
     topics: ["rock pools", "north coast", "mussels", "seals", "tides"],
     aiAnswered: "Mussels grow in these rock pools on every ledge the water covers." },
@@ -52,7 +45,6 @@ const body = (s: Site): unknown => ({ url: url(s), title: s.title, h1: s.title, 
 const snapshot = (s: Site, pages: OwnedPageEvidence[]): EvidenceSnapshot => ({ scope: { tenantId: s.t, site: `${s.t}.example`, builtAt: NOW.toISOString() },
   aiCitations: { ownedCited: 0, competitorCited: 0, engines: [], rowsScanned: 0 }, sources: [], competitors: [], keywordDemand: [], questionDemand: [], intentClusters: [],
   cannibalization: [], contentGaps: [], internalLinkOpportunities: [], evidenceHash: "fixture", research: emptyResearchEvidence(), ownedPages: pages });
-/** THE PRODUCER, run with the account's stored rows and stored bodies handed in, exactly as the walk hands them. */
 const mintFor = async (s: Site, rows: Array<[string, number]>, standing: unknown[] = []): Promise<ChangeProposal[]> => {
   vi.resetModules();
   vi.doMock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => new Map((standing as { id: string }[]).map((r) => [r.id, r])) }));
@@ -62,8 +54,6 @@ const mintFor = async (s: Site, rows: Array<[string, number]>, standing: unknown
 };
 const idOf = (s: Site, tail = ""): string => `${s.t}::${s.path}::existing_edit::missing_answer${tail}`;
 const seatStem = (id: string): string => id.replace(/#[0-9a-f]{64}$/i, "");
-/** THE WALK OVER THOSE CARDS, with the page's own words in hand and no provider behind it: what it says each card
- *  must BUY is the one observation that proves which search the writer was about to be briefed on. */
 const walked = async (s: Site, cards: ChangeProposal[], owed: string[][]): Promise<ChangeProposal[]> => {
   vi.resetModules();
   vi.doMock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadOwnedPageBodies: async () => new Map([[`${s.t}.example${s.path}`, body(s)]]) }));
@@ -71,7 +61,6 @@ const walked = async (s: Site, cards: ChangeProposal[], owed: string[][]): Promi
   const budget = DRAFT_BUDGET.plan({ jobs: cards.map((c) => ({ key: DRAFT_BUDGET.keyOf(c), family: "editor" as const, impact: c.impactScore ?? 0, calls: DRAFT_BUDGET.DELIVERABLE_CALLS })), candidates: cards.length, calls: 30 });
   return await applyDraftedCopy(cards as never, { tenantId: s.t, snapshot: snapshot(s, [page(s, [[s.big, 900], [s.small, 300]])]) as never, now: NOW, budget,
     owe: (k: string, need: { query?: string }) => owed.push([k, need.query ?? ""]), complete: async () => ({ value: {} }) } as never) as ChangeProposal[]; };
-/** A CARD THE STORE WILL TAKE, carrying the one search it is about, so what it writes is that search's own section. */
 const card = (s: Site, id: string, query: string, over: Partial<ChangeProposal> = {}): ChangeProposal => ({ id, tenantId: s.t, kind: "existing_edit", pagePath: s.path, pageUrl: url(s),
   pageLabel: s.title, primaryQuery: query, opportunityType: `An answer to "${query}"`, changeFamily: "section", status: "needs_review",
   recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `One section on ${s.path} that answers "${query}" in this page's own voice.` },
@@ -82,6 +71,11 @@ beforeEach(() => { db.rows = []; db.filed = []; vi.doUnmock("@/domains/decision/
 
 
 describe("a page carries as many changes as it has searches it never answers", () => {
+  it("never invents a transliteration identity that can merge two real searches", () => { const s = { ...SITES[0]!, path: "/winter-festival", title: "Winter festival", passage: "Families gather around a table and share fruit." }, demand = demandOf(page(s, [["what is shabe yalda", 40], ["what is shab-e yalda", 35]]), body(s) as never, [], null, s.t), gap = substantiveGapOf({}, demand as never); expect([topicTokens.sameQuery("what is shabe yalda", "what is shab-e yalda"), topicTokens.sameQuery("plan-e ticket", "plane ticket"), answeredIn("what is shab-e yalda", "Shabe Yalda is a winter-solstice celebration."), answeredIn("plane ticket", "Plan your ticket before travel."), gap?.impressions, gap?.queries?.length]).toEqual([false, false, false, false, 40, 1]); });
+  it("keeps finished copy only inside one semantic query and typed diagnosis epoch", () => { const s = SITES[0]!, old = { diagnosedGap: "old assignment" } as never, current = { diagnosedGap: "current assignment" } as never, finding = { cause: "incomplete_coverage", action: "add a section", payload: { cause: "incomplete_coverage", absentHeadings: ["Origin"], absentEntities: [] } };
+    const prior = card(s, "epoch", "what is shab e yalda", { status: "ready", researchOnly: false, mutationScope: "topic", demandImpressions90d: 103, diagnosisCause: "incomplete_coverage", causeFinding: finding as never, copyStamp: "page-1", factIdentity: "facts-1", workKey: "job-1", assignment: old, limitations: ["old 103"], claims: [{ text: "Shabe Yalda is a winter-solstice celebration.", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "Shabe Yalda is a winter-solstice celebration." }], recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Shabe Yalda is a winter-solstice celebration.", where: "After the opening paragraph" } });
+    const incoming = { ...prior, primaryQuery: "what is shab-e yalda", assignment: current, limitations: ["current 103"] }, stable = preferFinished(incoming, prior), movedDemand = preferFinished({ ...incoming, demandImpressions90d: 104, limitations: ["current 104"] }, prior), movedDiagnosis = preferFinished({ ...incoming, causeFinding: { ...finding, action: "rewrite the section" } as never }, prior); expect([stable.assignment, stable.limitations, movedDemand.assignment, movedDemand.limitations, movedDiagnosis.assignment, movedDiagnosis.limitations]).toEqual([old, ["old 103"], old, ["old 103"], current, ["current 103"]]);
+  });
   /** THE READER USED TO STOP AT THE BIGGEST ONE. `demandGap` took the largest group this page's passages do not
    *  answer and returned; asked again with that group's own key, it answers for the next one, with its own verdict,
    *  its own proposition and its own owed step, and the first group's verdict is byte for byte what it was. */

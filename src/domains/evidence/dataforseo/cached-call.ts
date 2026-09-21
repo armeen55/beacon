@@ -96,8 +96,6 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     return { state: "waiting", cacheKey, providerTaskId: claim.providerTaskId, costUsd: 0, detail: "Another run is already fetching this. Its result is picked up when it lands." };
   }
   if (r.mode === "task" && claim.providerTaskId) return collectResolvedTask(cacheKey, paths, deps);
-  const verdict = await d.breaker(d.env, now, r.estCostUsd).catch(() => ({ tripped: true, reason: "global spend breaker unavailable, failing closed" }));
-  if (verdict.tripped) { await releaseClaim(d, cacheKey, now, "capped"); return { state: "capped", cacheKey, detail: verdict.reason ?? "global monthly ceiling reached" }; }
   let reservation: Awaited<ReturnType<CachedCallDeps["spend"]["reserve"]>> | null;
   const generation = Number.isInteger(claim.fetchGeneration) && Number(claim.fetchGeneration) > 0 ? Number(claim.fetchGeneration) : 1;
   try {
@@ -113,11 +111,14 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
   if (!reservation.attemptId || !["reserved", "resumed", "replayed"].includes(reservation.outcome)) { await releaseClaim(d, cacheKey, now, "capped"); return { state: "capped", cacheKey, detail: `the spending cap refused this call for ${PLATFORM}: ${reservation.outcome}` }; }
   const attemptId = reservation.attemptId;
   if (reservation.outcome === "replayed") {
-    if (r.mode !== "live" || reservation.resultPayload == null) return holdUncertain(d, r.mode, cacheKey, now, attemptId,
+    if (reservation.resultPayload == null) return holdUncertain(d, r.mode, cacheKey, now, attemptId,
       "A paid result is on file, but it is incomplete and cannot be bought again.");
     return projectStoredLiveResult(d, r, cacheKey, reservation.resultPayload,
       reservation.accountedUsd ?? reservation.estimatedUsd, now);
   }
+  // The atomic reservation is also the exact receipt inbox: replay outranks a breaker; only a new wire consults it.
+  const verdict = await d.breaker(d.env, now, r.estCostUsd).catch(() => ({ tripped: true, reason: "global spend breaker unavailable, failing closed" }));
+  if (verdict.tripped) { await d.spend.release(attemptId).catch(() => false); await releaseClaim(d, cacheKey, now, "capped"); return { state: "capped", cacheKey, detail: verdict.reason ?? "global monthly ceiling reached" }; }
   const payload = r.mode === "task" ? tagTaskPayload(r.payload, attemptId) : r.payload;
   try {
     await d.cacheWrite(cacheKey, { spend_attempt_id: attemptId, posted_attempt_at: now.toISOString(), fetch_claimed_until: new Date(now.getTime() + AMBIGUITY_WINDOW_MS).toISOString() });
@@ -172,7 +173,6 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     if (providerCost == null) return holdUncertain(d, r.mode, cacheKey, now, attemptId, "The provider accepted this task but did not report its exact charge, so it remains paused for reconciliation.", posted.taskId);
     return { state: "waiting", cacheKey, providerTaskId: posted.taskId, costUsd: actual, modelRequested: r.modelRequested, detail: "The task is posted to the provider and collected with a free follow-up." };
   }
-
   const live = readLiveResult(body);
   if (!live.valid) return applyPaidRejection(d, r, body, providerCost, now, attemptId, "The provider answered without a usable result and may have charged for it, so the request was paused.");
   await CREDIT_BREAKER.clear(r.tenantId, {}, "dataforseo").catch(() => {});

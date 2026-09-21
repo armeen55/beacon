@@ -68,15 +68,15 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
     expect(out.state).toBe("ok");
     expect(reconcile).toHaveBeenCalledWith("a1", 0.0021, null, "provider_reported", liveOk(0.0021));
   });
-  it("rebuilds a LIVE cache row from a replayed paid envelope without another provider call", async () => {
+  it("rebuilds LIVE and final Standard cache rows from a replayed paid envelope despite a closed breaker", async () => {
     const body = liveOk(0.0021, [{ rank: 3 }]);
-    const g = makeDeps();
-    (g.deps.spend as CachedCallDeps["spend"]).reserve = async () => ({ outcome: "replayed", attemptId: "a1",
-      attemptOrdinal: 1, state: "reconciled", reportingDay: "2026-07-25", estimatedUsd: 0.01,
-      accountedUsd: 0.0021, providerTaskId: null, accountingBasis: "provider_reported", resultPayload: body });
-    const out = await runResolvedCall(resolved(), g.deps);
-    expect([out.state, out.state === "hit" && out.costUsd, g.calls.fetch.length, g.calls.writes.some((w) => w.status === "ready")]).toEqual(["hit", 0, 0, true]);
-    expect(out.state === "hit" && out.envelope.tasks?.[0]?.result).toEqual([{ rank: 3 }]);
+    for (const call of [resolved(), taskCall()]) { const g = makeDeps({ breaker: async () => ({ tripped: true, reason: "today is closed" }) });
+      (g.deps.spend as CachedCallDeps["spend"]).reserve = async () => ({ outcome: "replayed", attemptId: "a1",
+        attemptOrdinal: 1, state: "reconciled", reportingDay: "2026-07-25", estimatedUsd: 0.01,
+        accountedUsd: 0.0021, providerTaskId: "task-9", accountingBasis: "provider_reported", resultPayload: body });
+      const out = await runResolvedCall(call, g.deps);
+      expect([out.state, out.state === "hit" && out.costUsd, g.calls.fetch.length, g.calls.writes.some((w) => w.status === "ready"), g.calls.adjust]).toEqual(["hit", 0, 0, true, []]);
+      expect(out.state === "hit" && out.envelope.tasks?.[0]?.result).toEqual([{ rank: 3 }]); }
   });
   it("repairs a quarantined LIVE cache projection from its reconciled spend receipt at zero cost", async () => {
     const body = liveOk(0.0021, [{ rank: 4 }]);
@@ -98,7 +98,7 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
     const brk = makeDeps({ breaker: async () => ({ tripped: true, reason: "ceiling reached" }) }), nc = makeDeps({ env: {} as NodeJS.ProcessEnv, claimEvidenceFetch: spy as never });
     for (const g of [cap, rerr, brk, nc]) { states.push((await runResolvedCall(resolved(), g.deps)).state); expect(g.calls.fetch).toHaveLength(0); }
     expect(states).toEqual(["capped", "error", "capped", "not_configured"]);
-    for (const g of [brk, nc]) expect(g.calls.reserve).toHaveLength(0); // breaker/not-configured never reserve
+    expect([brk.calls.reserve, brk.calls.adjust, nc.calls.reserve]).toEqual([[0.01], [-0.01], []]); // the receipt inbox precedes the breaker; a new reservation is returned untouched
     expect(spy).not.toHaveBeenCalled(); // not_configured never even claims
   });
   it("cache identity has NO tenant input and splits on location / model", async () => {
