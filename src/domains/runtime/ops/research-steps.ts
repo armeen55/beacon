@@ -27,6 +27,7 @@ import { accountBasis, dueWork, evidenceRowVersion, READY_STOCK_ALARM, readyStoc
 import { DRAFT_BUDGET, type JobMemory } from "@/domains/decision/draft-budget";
 import { writerKindOf } from "@/domains/decision/drafted-copy";
 import { nextObligation } from "@/domains/decision/obligation";
+import type { ChangeProposal } from "@/domains/decision";
 import type { EvidenceRequirement } from "@/domains/decision/producers/contract";
 import type { ResearchPhase } from "../research-run";
 type OwedReading = EvidenceRequirement & { key: string; reason: string; workKey: string };
@@ -43,6 +44,15 @@ const BENIGN_BACKFILL_SKIPS = new Set(["not_started", "already_complete", "no_sy
 const FREE_COLLECT_PER_RUN = 8;
 /** How many banked claims one drive derives missing source support for, at $0 and from quotes already on file. Bounded because it is a backfill of standing inventory, not the pass's own work. */
 const SUPPORT_BACKFILL_PER_DRIVE = 12;
+const WRITING_TREATMENT = { answer: new Set(["add_answer_section", "rewrite_existing_section"]), description: new Set(["meta_description"]), title: new Set(["title_or_h1"]), h1: new Set(["title_or_h1"]), link: new Set(["internal_link_or_navigation"]) } as const;
+const completeSavedAssignment = (row: ChangeProposal): boolean => {
+  const a = row.assignment, kind = writerKindOf(row); if (!a || !a.page.trim() || !a.diagnosedGap.trim() || !a.completionTest.trim() || a.intent.length === 0) return false;
+  return kind !== "answer" || (!!a.informationNeed && a.informationNeed.requiredAtomKeys.length > 0 && !!a.deliveryMode); };
+const strongestBriefableExistingEdit = (rows: readonly ChangeProposal[]): ChangeProposal | null => {
+  const eligible = rows.filter((row) => { const owed = row.obligation ?? nextObligation(row); return row.kind === "existing_edit" && row.status === "needs_review" && row.recommendedChange.kind === "existing_edit" && writerKindOf(row) != null && (owed?.kind === "draft" || owed?.kind === "redraft") && !!row.primaryQuery.trim() && row.evidence.evidenceRefCount > 0; });
+  const reconstructable = (row: ChangeProposal): boolean => row.diagnosisCause != null;
+  const planned = (row: ChangeProposal): boolean => { const kind = writerKindOf(row); return reconstructable(row) && kind != null && WRITING_TREATMENT[kind].has(row.treatment as never); };
+  return eligible.find((row) => completeSavedAssignment(row) || planned(row)) ?? eligible.find((row) => completeSavedAssignment(row) || reconstructable(row)) ?? null; };
 /** The refresh_sources phase outcome: how many sources were attempted, the identities of the ones that actually synced, and the bounded per-source failure detail for the rest. `succeeded` is a list of provider identities (not a
  *  count) so retries can UNION distinct successes rather than double-count them. */
 type RefreshSourcesResult = { attempted: number; succeeded: string[]; failures: Array<{ provider: string; detail: string }> };
@@ -177,34 +187,24 @@ export const defaultSteps: ResearchCycleSteps = {
     const d = await import("@/domains/decision");
     const { creditBreakerHeld } = await import("@/domains/decision/llm/gateway");
     const basis = await d.resolveCurrentBasis(tenantId).catch(() => null);
-    // THE EVIDENCE VERSION IS PART OF THE QUESTION. Keyed on the page names alone, a manifest declared exhausted stayed shut for the rest of the day even when fresh evidence for those very pages landed an hour later (Codex, 2026-08-22). AND IT IS STAMPED IN DUE-WORK'S OWN WORDS, because due-work is what reads it back. There are two spellings of this account's basis: the queue's carries a decision-generation suffix, the evidence row is keyed on the bare tag. Built from the queue's spelling, the version read found no row and the stamp came out `...::v::` with nothing in it, so the comparison on the other side could never match: a proven exhaustion could never hold a day shut and the reopen-on-new- evidence rule was dead on arrival. Seen live in the 22:00Z memory on 2026-08-22, before it had cost anything.
     const acct = await accountBasis(tenantId).catch(() => null);
-    // A missing account fingerprint is an authorization failure, not a stable
-    // "no-basis" generation. Nothing is funded until both canonical spellings
-    // can be resolved; otherwise the resulting rows would be hidden immediately.
     if (basis == null || acct == null) return null;
     const version = acct ? await evidenceRowVersion(tenantId, acct).catch(() => null) : null;
-    // THE DRAFTING POLICY IS PART OF THE QUESTION TOO. A page written off because the OLD allowance ran out mid-deliverable says nothing about the new one, so a policy change reopens those settlements the same day rather than skipping the very pages it was made for.
     const closedUnder = `${acct ?? ""}::v${version ?? ""}`;
     const read = () => d.loadProposalQueue(tenantId, { currentBasis: basis, deliveryScope: "existing_page_edits" }).catch(() => null); // THE WHOLE QUEUE, READ ONCE: the stock is counted off it (STOCK, never a row count: thin levers fill at most their share of the five, so substantive work keeps funding) and the day's own memory is settled against the rows it holds, which is the same read either way
     const queue = await read();
     // A QUEUE I COULD NOT READ SETTLES NOTHING: the pass stays owed and the next drive asks again.
     if (queue == null) return null; const before = d.stockOf(queue.ready);
-    const focus = queue.ranked?.find((row) => { const owed = row.obligation ?? nextObligation(row); return row.kind === "existing_edit" && row.status === "needs_review" && row.researchOnly !== true && row.recommendedChange.kind === "existing_edit" && writerKindOf(row) != null && (owed?.kind === "draft" || owed?.kind === "redraft"); });
+    const focus = strongestBriefableExistingEdit(queue.ranked ?? []);
     const focusPage = focus?.pageUrl ?? focus?.pagePath ?? null;
-    // THE DAY REMEMBERS WORK, NOT PAGES (operator, 2026-09-02). Four page-keyed lists lived here (attempted under a manifest fingerprint, tried, spent, settled) and a fifth rule reset them whenever the fingerprint moved. Every one of them asked "the same page again" of work whose evidence, obligation or rules had already moved, so a corrected job could not run again until tomorrow and a banked reading wiped the spend memory of every other job in the account. ONE ledger keyed on the row's own `workKey` replaces all five: what a job's attempts cost, how its last attempt ended, and whether there is anything left to do for it under this exact evidence. A workKey nobody remembers is new work by construction, so nothing has to be reset.
     const jobs: Record<string, JobMemory> = d.settledByRows(seen?.jobs ?? {}, queue, reportingDay(now)); const floor = await readyStockFloor(tenantId).catch(() => READY_STOCK_ALARM); /* THE ROWS ANSWER BEFORE ANYTHING IS FUNDED: a job the caller's box cut off mid-flight lands its row after the box, and the memory takes that row's own answer rather than funding the same work a second time (decision/load-proposals settledByRows). AND THE MOMENT IT MAY SETTLE FROM IS THIS DAY'S OWN START: a drive holds no start of its own here, and the memory it carries is the day's, so a row standing since an earlier day answers for that day and never for this one, while the row a boxed walk landed minutes after the drive before it still settles the work it paid for. */ // the low-stock alarm level: it colors the receipt and nothing else
     const mark = (reason: "made_progress" | "retryable_blocked" | "candidates_exhausted", ready: number, persisted: number,
       outcomes?: { declared?: readonly string[]; readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[]; familyRead?: { asked: number; loaded: number } }, evidenceOwed?: readonly OwedReading[], waiting?: readonly string[], at: Record<string, JobMemory> = jobs) =>
       ({ ready, deficit: Math.max(0, floor - ready), persisted, satisfied: reason === "candidates_exhausted", reason, jobs: at, ...(reason === "candidates_exhausted" ? { closedUnder } : {}), ...(evidenceOwed && evidenceOwed.length > 0 ? { evidenceOwed } : {}), ...(waiting && waiting.length > 0 ? { waiting } : {}), ...(outcomes ? { outcomes } : {}) });
-    // THE COUNT SIZES NOTHING (operator, 2026-08-30). The old drive computed a shortfall here and handed it down as the number of rows this pass might buy, so a full-enough queue closed every family's spending while evidenced work stood unwritten. The pass now walks the whole declared manifest bounded by its own call ceiling and time box; the day still ends on CANDIDATES, not a count: `attempted` accumulates every settled key and the pass closes as `candidates_exhausted` only once the manifest it declared is fully settled. The paid pass itself re-judges every stored row first (its deterministic families are rewritten in full), so the count the day reports is proven, not believed.
-    // A SPENT PROVIDER BALANCE MAKES NO CALL AND CLAIMS NOTHING: nothing was tried, so nothing is written off as tried, and the day stays open for the moment the credit is back. This is the PURE read of the stop: the probe a cooldown grants is spent by the provider call itself, one door down, never by this guard.
     if (await creditBreakerHeld(tenantId).catch(() => true)) {
       log.warn("[research-run] the provider's own credit is spent, so the ready inventory was not topped up and this stays owed", { tenantId, ready: before, floor });
       return mark("retryable_blocked", before, 0);
     }
-    // A FRESH PAID TAKE IS FOR A RETRY, NEVER FOR A FIRST ASK (resource contract: unchanged inputs mean zero calls). `bypassCache: true` stood here unconditionally, so a request byte-identical to one this account had already paid for and validated was bought again on every walk of every drive. What the 2026-08-22 stall actually needed was a settled receipt, and every funded key files one now: a cached draft that fails a gate is filed as a deterministic refusal and the day is done with it, instead of being refunded and replayed for ever. So the cache answers a first ask, and the moment this day holds an attempt that took real calls and finished nothing, every later walk takes a fresh one: the retry exists to get different words, and the same words back would be the one thing it cannot use.
-    // THE SAME CANONICAL PRODUCER, stored evidence only: it posts no provider task by construction, and its paid work is planned, priced and funded once before it spends. Pages this day already reached a TERMINAL answer for are declared but not funded again, so each drive walks further down the one ranking instead of buying the same settled refusal twice. THE TOP-UP NEVER SERVES A CACHED DRAFT (found live, 2026-08-22 22:10Z). The call cache holds 300 entries for this account, its hard maximum, including 111 atomic edits and 100 page jobs written by the burn passes of 21 August. A hit returns `drafted` at $0 BEFORE the budget gate and the editor REFUNDS the attempt, so every drive replayed drafts written before today's gates existed, failed the same gates in the same way, spent nothing, and left the queue on zero. A stall with no cost signal at all: the 22:00Z drive funded five candidates and made not one OpenAI call.
     const { getTenantSpentThisMonthUsd } = await import("@/lib/cost/budget-ledger-supabase");
     const ledgerBefore = await getTenantSpentThisMonthUsd(tenantId, now, "adjudicator-openai").catch(() => null); let ledgerAfter: number | null = null; // read again below, and declared here because the composer above may be asked while the walk is still running
         // THE WALK IS THE DRIVE'S WHOLE ALLOWANCE, and nothing counts it down but money and time: no shortfall, no target, no "enough". THE TOP-UP NEVER SERVES A CACHED DRAFT, so it always pays for a fresh take.

@@ -175,7 +175,7 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
     const ledger = await loadShippedChangesForTenant(tenantId).catch(() => null);
     if (ledger && ledger.length > 0) {
       await reconcileImplementedWithoutShipment(tenantId,
-        new Set(ledger.map((r) => r.proposalId).filter((id): id is string => !!id)), 50,
+        new Set(ledger.map((r) => r.proposalId).filter((id): id is string => !!id)), 200,
         new Map(ledger.filter((r) => r.proposalId != null && (r.verdict === "won" || r.verdict === "lost" || r.verdict === "inconclusive"))
           .map((r) => [r.proposalId as string, r.verdict]))).catch(() => []);
     }
