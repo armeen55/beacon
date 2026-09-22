@@ -162,20 +162,24 @@ const REGISTRY: Registry = {
           var node = nodes[i];
           if (node.tagName.toLowerCase() !== 'script' || (node.getAttribute('type') || '').trim().toLowerCase() !== 'application/ld+json') node.parentNode.removeChild(node);
         }
-        var html = root.outerHTML, dictionary = [], counts = Object.create(null), ids = Object.create(null), codes = [], alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+        var html = root.outerHTML, dictionary = [], counts = Object.create(null), ids = Object.create(null), indices = '', alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
         var result = { url: document.URL, readyState: document.readyState, capturedAt: new Date().toISOString(), complete: false, codec: 'tokens-ascii-v1', dictionary: dictionary, indices: '', htmlChars: html.length };
         if (!html.length || html.length > 2000000) return result;
-        var parts = html.match(/[A-Za-z0-9_$-]+|[^A-Za-z0-9_$-]+/g) || [];
-        for (i = 0; i < parts.length; i++) { var word = parts[i]; if (counts[word] === undefined) { counts[word] = 0; dictionary.push(word); } counts[word]++; }
-        if (dictionary.length > 55040) { result.dictionary = []; return result; }
+        var tokens = /[A-Za-z0-9_$-]+|[^A-Za-z0-9_$-]+/g, match; // Jint doubles backing arrays: 8192 is the last capacity below its 10000 ceiling.
+        while ((match = tokens.exec(html)) !== null) {
+          var word = match[0];
+          if (counts[word] === undefined) { if (dictionary.length === 8192) { result.dictionary = []; return result; } counts[word] = 0; dictionary.push(word); }
+          counts[word]++;
+        }
         dictionary.sort(function (a, b) { return counts[b] - counts[a]; });
         for (i = 0; i < dictionary.length; i++) ids[dictionary[i]] = i;
-        for (i = 0; i < parts.length; i++) {
-          var id = ids[parts[i]];
-          while (id >= 32) { codes.push(alphabet.charAt(id % 32 + 32)); id = Math.floor(id / 32); }
-          codes.push(alphabet.charAt(id));
+        tokens.lastIndex = 0;
+        while ((match = tokens.exec(html)) !== null) {
+          var id = ids[match[0]];
+          while (id >= 32) { indices += alphabet.charAt(id % 32 + 32); id = Math.floor(id / 32); }
+          indices += alphabet.charAt(id);
         }
-        result.indices = codes.join(''); result.complete = true;
+        result.indices = indices; result.complete = true;
         if (JSON.stringify(result).length > 100000) { result.dictionary = []; result.indices = ''; result.complete = false; }
         return result;
       })()` }],
@@ -214,7 +218,6 @@ export async function providerCall<K extends CapabilityKey>(
     modelRequested = resolution.model;
   }
   const route = entry.route(resolution);
-  // Build and key the same normalized request.
   const ask = (entry.normalize ? entry.normalize(input) : input) as CapabilityInputByKey[K];
   let payload: unknown[];
   try {
@@ -305,7 +308,6 @@ export async function resolveEngineModel(engine: LlmEngine, deps: FunnelBoundary
   if (!envelope) return null;
   return selectResolution(modelObjects(envelope));
 }
-/** Prefer Standard + web (resumable AND current); else web-only (Live); else any Standard; else any (Live). */
 function selectResolution(models: Record<string, unknown>[]): EngineModelResolution | null {
   if (models.length === 0) return null;
   const web = (m: Record<string, unknown>) => m.web_search_supported === true;
@@ -341,7 +343,6 @@ function parseKeywords(env: ProviderEnvelope): ParsedKeywordItem[] {
     };
   }).filter((k) => k.keyword.length > 0);
 }
-/** Recurring domains retain provider order and missing metrics stay null (serp_competitors docs, 2026-07-31). */
 function parseSerpCompetitors(env: ProviderEnvelope): ParsedByCapability["labs_serp_competitors"] {
   return resultBlock(env).items.slice(0, MAX_COMPETITOR_ROWS).map((it) => ({
     domain: String(it.domain ?? ""), avgPosition: num(it.avg_position), rating: num(it.rating), keywordsCount: num(it.keywords_count),
@@ -469,7 +470,6 @@ function clean(o: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 function num(v: unknown): number | null { return typeof v === "number" && Number.isFinite(v) ? v : null; }
-/** The provider's OWN low/medium/high label; null when it sent none (never a guess). */
 function level(v: unknown): "low" | "medium" | "high" | null { const s = typeof v === "string" ? v.toLowerCase() : ""; return s === "low" || s === "medium" || s === "high" ? s : null; }
 function str(v: unknown): string | null { return typeof v === "string" && v.length > 0 ? v : null; }
 function arrStr(v: unknown): string[] | null { return Array.isArray(v) ? v.map((x) => String(x)).filter((s) => s.length > 0) : null; }
@@ -477,7 +477,6 @@ function arrStr(v: unknown): string[] | null { return Array.isArray(v) ? v.map((
 function links(v: unknown): { url: string; domain: string; title: string | null }[] | null {
   return Array.isArray(v) ? (v as Record<string, unknown>[]).map((s) => { const url = String(s.url ?? ""); return { url, domain: String(s.domain ?? hostname(url)), title: str(s.title) }; }).filter((c) => c.url.length > 0) : null;
 }
-/** Brands may be objects or strings; observed empty is [], entirely unreadable is null. */
 function brandTitles(v: unknown): string[] | null {
   if (!Array.isArray(v)) return null;
   const titles = v.map((b) => (typeof b === "string" ? str(b) : str((b as Record<string, unknown> | null)?.title))).filter((t): t is string => t != null);
