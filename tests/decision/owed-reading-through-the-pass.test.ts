@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
 const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>(), withdrawn: new Set<string>() }));
-const env = vi.hoisted(() => ({ snap: null as unknown }));
+const env = vi.hoisted(() => ({ snap: null as unknown, calls: 0 }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) }));
 vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => store.rows,
@@ -15,7 +15,7 @@ vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => ({ ...(await ori
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadOwnedPageBodies: async () => { throw new Error("no body store in this fixture"); } }));
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "acct-reef", domain: "acct-reef.example", growth_goal: null }), basisTag: () => "basis_rv2" }));
 import { emptyResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
-import { shapeBackingOf } from "@/domains/decision/drafted-copy";
+import { shapeBackingOf } from "@/domains/decision/drafted-copy"; import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import { nextObligation } from "@/domains/decision/obligation";
 
 const NOW = new Date("2026-09-06T09:00:00.000Z");
@@ -47,17 +47,17 @@ const card = (s: (typeof SITES)[number], over: Partial<ChangeProposal> = {}): Ch
   evidence: { query: s.q, hints: [], evidenceRefCount: 1 }, impactScore: 400, upsidePerMonth: null,
   basis: "basis_rv2", publish: "manual", createdAt: NOW.toISOString(), copyStamp: "Guide|Guide||What to bring", ...over });
 
-const drive = async (s: (typeof SITES)[number], titles: readonly string[]) => {
+const drive = async (s: (typeof SITES)[number], titles: readonly string[], unresolved = false, recoveryComplete = true) => {
   vi.resetModules();
-  vi.doMock("@/domains/decision/producers/demand-recovery", () => ({ demandRecoveryCards: async () => ({ cards: [card(s)], complete: true, window: { earlyDays: 400, earlyFrom: null, earlyTo: null }, losses: [] }) }));
-  const other = card(s, { id: `${s.t}::${s.page}-two::existing_edit::ai_answer_gap`, pagePath: `${s.page}-two`, pageUrl: `https://${s.t}.example${s.page}-two`, primaryQuery: `${s.q} at night`, winnersOnFile: undefined, obligation: undefined, impactScore: 10 });
+  vi.doMock("@/domains/decision/producers/demand-recovery", () => ({ demandRecoveryCards: async () => ({ cards: recoveryComplete ? [card(s, unresolved ? { diagnosisCause: "no_problem", causeFinding: { ...card(s).causeFinding!, cause: "no_problem", action: null }, treatment: undefined, obligation: { kind: "evidence", need: { kind: "competitor_page", query: s.q, reasonCode: "no_winner_to_read" } } } : {})] : [], complete: recoveryComplete, window: { earlyDays: 400, earlyFrom: null, earlyTo: null }, losses: [] }) }));
+  const other = card(s, { id: `${s.t}::${s.page}-two::existing_edit::ai_answer_gap`, pagePath: unresolved ? s.page : `${s.page}-two`, pageUrl: `https://${s.t}.example${s.page}${unresolved ? "" : "-two"}`, primaryQuery: `${s.q} at night`, winnersOnFile: undefined, obligation: undefined, impactScore: 10 });
   vi.doMock("@/domains/decision/producers/extra", () => ({ extraQueuePass: async () => ({ run: { cards: [other], complete: true, held: [], needsOwnPage: [], families: ["ai_answer_gap"] }, unitLoad: null }) }));
   const { produceProposalsForTenant: run } = await import("@/domains/decision/produce-proposals");
   env.snap = snapshot(s, titles);
-  return run(s.t, { now: NOW, bypassCache: true, produce: true, maxDrafts: 0, persist: true, complete: async () => ({ value: {} }) } as never);
+  return run(s.t, { now: NOW, bypassCache: true, produce: true, maxDrafts: unresolved ? 8 : 0, maxCalls: 20, persist: true, complete: async () => { env.calls++; return { value: {} }; } } as never);
 };
 
-beforeEach(() => { store.rows.clear(); });
+beforeEach(() => { store.rows.clear(); env.calls = 0; });
 
 describe("the reading a settled row owes, through the pass that writes the row", () => {
   it.each(SITES)("$t: the ladder's own answer for this row is the owed reading of its winners", (s) => {
@@ -69,14 +69,14 @@ describe("the reading a settled row owes, through the pass that writes the row",
     expect(shapeBackingOf(snapshot(s, s.lead), s.q, "The exact wording has not been written yet."), "a brief holds no line for the ranked titles to back").toBeNull();
   });
 
-  it.each(SITES)("$t: the pass writes that owed reading onto the row and hands it to the runtime's buying list", async (s) => {
+  it.each(SITES.flatMap(s => [false, true].map(unresolved => ({ ...s, unresolved }))))("$t/$unresolved: the pass writes that owed reading onto the row and hands it to the runtime's buying list", async (s) => {
     const settled = card(s, { obligation: { kind: "terminal", reason: "no substantive gap named" } });
-    store.rows.set(settled.id, settled);
-    const out = await drive(s, s.lead);
-    const kept = store.rows.get(settled.id)!;
+    store.rows.set(settled.id, s.unresolved ? { ...settled, researchOnly: false, obligation: { kind: "draft" } } : settled); const oldTitle = { ...settled, id: `${settled.id}@title`, researchOnly: false, obligation: { kind: "draft" as const }, recommendedChange: { kind: "existing_edit" as const, field: "title" as const, before: "Guide", after: "An old title based only on the historical click decline" } }; if (s.unresolved) store.rows.set(oldTitle.id, oldTitle);
+    const out = await drive(s, s.lead, s.unresolved);
+    const kept = store.rows.get(settled.id)!; if (s.unresolved) { expect(out.proposals.filter(p => p.pagePath === s.page).map(p => p.primaryQuery)).toEqual(expect.arrayContaining([s.q, `${s.q} at night`])); expect([out.paid.declared.includes(DRAFT_BUDGET.keyOf(oldTitle)), out.paid.declared.includes(DRAFT_BUDGET.keyOf(settled)), env.calls, store.rows.get(oldTitle.id)?.recommendedChange]).toEqual([false, false, 0, oldTitle.recommendedChange]); const failedRead = await drive(s, s.lead, true, false); expect([failedRead.paid.declared.includes(DRAFT_BUDGET.keyOf(oldTitle)), env.calls, store.rows.get(oldTitle.id)?.recommendedChange]).toEqual([false, 0, oldTitle.recommendedChange]); }
     expect([kept.obligation, (out.paid.evidenceOwed ?? []).map((n) => [n.kind, n.query, n.reasonCode])],
       "the row on file says which reading it is waiting on, and that reading reaches the one list the runtime's buy loops read")
-      .toEqual([{ kind: "evidence", need: { kind: "competitor_page", query: s.q, reasonCode: "no_winner_to_read" } }, [["competitor_page", s.q, "no_winner_to_read"]]]);
+      .toEqual([{ kind: "evidence", need: { kind: "competitor_page", query: s.q, reasonCode: "no_winner_to_read" } }, [...(s.unresolved ? [["page_source", s.q, "acquire_page_source"]] : []), ["competitor_page", s.q, "no_winner_to_read"]]]);
   });
 
   it.each(SITES)("$t: and two passes over the same evidence leave the row saying the same thing", async (s) => {

@@ -25,9 +25,6 @@ import { dailyChecks, dueObservations, runAnswerAnalyses } from "./daily-observa
 import { reportingDay } from "@/lib/reporting-day";
 import { accountBasis, dueWork, evidenceRowVersion, READY_STOCK_ALARM, readyStockFloor, type DueWork } from "./due-work";
 import { DRAFT_BUDGET, type JobMemory } from "@/domains/decision/draft-budget";
-import { writerKindOf } from "@/domains/decision/drafted-copy";
-import { nextObligation } from "@/domains/decision/obligation";
-import type { ChangeProposal } from "@/domains/decision";
 import type { EvidenceRequirement } from "@/domains/decision/producers/contract";
 import type { ResearchPhase } from "../research-run";
 type OwedReading = EvidenceRequirement & { key: string; reason: string; workKey: string };
@@ -44,15 +41,6 @@ const BENIGN_BACKFILL_SKIPS = new Set(["not_started", "already_complete", "no_sy
 const FREE_COLLECT_PER_RUN = 8;
 /** How many banked claims one drive derives missing source support for, at $0 and from quotes already on file. Bounded because it is a backfill of standing inventory, not the pass's own work. */
 const SUPPORT_BACKFILL_PER_DRIVE = 12;
-const WRITING_TREATMENT = { answer: new Set(["add_answer_section", "rewrite_existing_section"]), description: new Set(["meta_description"]), title: new Set(["title_or_h1"]), h1: new Set(["title_or_h1"]), link: new Set(["internal_link_or_navigation"]) } as const;
-const completeSavedAssignment = (row: ChangeProposal): boolean => {
-  const a = row.assignment, kind = writerKindOf(row); if (!a || !a.page.trim() || !a.diagnosedGap.trim() || !a.completionTest.trim() || a.intent.length === 0) return false;
-  return kind !== "answer" || (!!a.informationNeed && a.informationNeed.requiredAtomKeys.length > 0 && !!a.deliveryMode); };
-const strongestBriefableExistingEdit = (rows: readonly ChangeProposal[]): ChangeProposal | null => {
-  const eligible = rows.filter((row) => { const owed = row.obligation ?? nextObligation(row); return row.kind === "existing_edit" && row.status === "needs_review" && row.recommendedChange.kind === "existing_edit" && writerKindOf(row) != null && (owed?.kind === "draft" || owed?.kind === "redraft") && !!row.primaryQuery.trim() && row.evidence.evidenceRefCount > 0; });
-  const reconstructable = (row: ChangeProposal): boolean => row.diagnosisCause != null;
-  const planned = (row: ChangeProposal): boolean => { const kind = writerKindOf(row); return reconstructable(row) && kind != null && WRITING_TREATMENT[kind].has(row.treatment as never); };
-  return eligible.find((row) => completeSavedAssignment(row) || planned(row)) ?? eligible.find((row) => completeSavedAssignment(row) || reconstructable(row)) ?? null; };
 /** The refresh_sources phase outcome: how many sources were attempted, the identities of the ones that actually synced, and the bounded per-source failure detail for the rest. `succeeded` is a list of provider identities (not a
  *  count) so retries can UNION distinct successes rather than double-count them. */
 type RefreshSourcesResult = { attempted: number; succeeded: string[]; failures: Array<{ provider: string; detail: string }> };
@@ -195,8 +183,6 @@ export const defaultSteps: ResearchCycleSteps = {
     const queue = await read();
     // A QUEUE I COULD NOT READ SETTLES NOTHING: the pass stays owed and the next drive asks again.
     if (queue == null) return null; const before = d.stockOf(queue.ready);
-    const focus = strongestBriefableExistingEdit(queue.ranked ?? []);
-    const focusPage = focus?.pageUrl ?? focus?.pagePath ?? null;
     const jobs: Record<string, JobMemory> = d.settledByRows(seen?.jobs ?? {}, queue, reportingDay(now)); const floor = await readyStockFloor(tenantId).catch(() => READY_STOCK_ALARM); /* THE ROWS ANSWER BEFORE ANYTHING IS FUNDED: a job the caller's box cut off mid-flight lands its row after the box, and the memory takes that row's own answer rather than funding the same work a second time (decision/load-proposals settledByRows). AND THE MOMENT IT MAY SETTLE FROM IS THIS DAY'S OWN START: a drive holds no start of its own here, and the memory it carries is the day's, so a row standing since an earlier day answers for that day and never for this one, while the row a boxed walk landed minutes after the drive before it still settles the work it paid for. */ // the low-stock alarm level: it colors the receipt and nothing else
     const mark = (reason: "made_progress" | "retryable_blocked" | "candidates_exhausted", ready: number, persisted: number,
       outcomes?: { declared?: readonly string[]; readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[]; familyRead?: { asked: number; loaded: number } }, evidenceOwed?: readonly OwedReading[], waiting?: readonly string[], at: Record<string, JobMemory> = jobs) =>
@@ -230,7 +216,7 @@ export const defaultSteps: ResearchCycleSteps = {
       const exhausted = !boxed && paid.declared.length > 0 && (paid.evidenceOwed ?? []).length === 0 && mine.every(([, m]) => m.settled) && paid.declared.every((k) => mine.some(([o, m]) => o === k && m.settled));
       log.info("[research-run] the ready inventory after this walk", { tenantId, before, ready, target: floor, declared: paid.declared.length, jobs: Object.keys(at).length, receipts: paid.receipts.length, exhausted, boxed });
       return mark(boxed ? "retryable_blocked" : ready > before ? "made_progress" : exhausted ? "candidates_exhausted" : "retryable_blocked", ready, saved, tally, paid.evidenceOwed ?? [], waiting, at); };
-    const out = await d.produceProposalsForTenant(tenantId, { now, produce: true, deliveryScope: "existing_page_edits", maxDrafts: 1, ...(focusPage ? { focusPage } : {}), aeoDiagnoses: seen?.aeoDiagnoses, memory: jobs, bypassCache: Object.values(jobs).some((m) => m.calls > 0 && !m.settled), ...(seen?.callsSpent ? { maxCalls: Math.max(0, DRAFT_BUDGET.MAX_PAID_CALLS - seen.callsSpent) } : {}), ...(stopBy != null ? { stopBy } : {}), ...(seen?.waiting?.length ? { waiting: seen.waiting } : {}), ...(seen?.shared ? { shared: seen.shared } : {}), ...(seen?.noRoom ? { noRoom: true } : {}), ...(seen?.filed ? { handOver: (ask) => seen.filed?.(() => ((snap) => answerOf(snap.paid, before, snap.persisted, true))(ask())) } : {}) }).catch(() => null); // AND THE CALLER KEEPS A WAY TO READ THIS WALK IF ITS OWN BOX ENDS FIRST: the walk hands one back as soon as it has a record to give, and a drive that times out reads it instead of throwing the whole pass away. The scheduled production entrance explicitly holds whole-page writing outside this manual-edit proving phase.
+    const out = await d.produceProposalsForTenant(tenantId, { now, produce: true, deliveryScope: "existing_page_edits", aeoDiagnoses: seen?.aeoDiagnoses, memory: jobs, bypassCache: Object.values(jobs).some((m) => m.calls > 0 && !m.settled), ...(seen?.callsSpent ? { maxCalls: Math.max(0, DRAFT_BUDGET.MAX_PAID_CALLS - seen.callsSpent) } : {}), ...(stopBy != null ? { stopBy } : {}), ...(seen?.waiting?.length ? { waiting: seen.waiting } : {}), ...(seen?.shared ? { shared: seen.shared } : {}), ...(seen?.noRoom ? { noRoom: true } : {}), ...(seen?.filed ? { handOver: (ask) => seen.filed?.(() => ((snap) => answerOf(snap.paid, before, snap.persisted, true))(ask())) } : {}) }).catch(() => null); // AND THE CALLER KEEPS A WAY TO READ THIS WALK IF ITS OWN BOX ENDS FIRST: the walk hands one back as soon as it has a record to give, and a drive that times out reads it instead of throwing the whole pass away. The scheduled production entrance explicitly holds whole-page writing outside this manual-edit proving phase.
     ledgerAfter = out ? await getTenantSpentThisMonthUsd(tenantId, now, "adjudicator-openai").catch(() => null) : null;
     if (out && out.held.length > 0) log.info("[research-run] candidates the replenish pass could not finish, each with its reason", { tenantId, held: out.held.slice(0, 6) });
     // A PASS THAT COULD NOT RUN, COULD NOT READ ITS EVIDENCE, OR COULD NOT SAVE WHAT IT MADE HAS SETTLED NOTHING. It tried nothing it can prove, so nothing is written off and the day stays open.

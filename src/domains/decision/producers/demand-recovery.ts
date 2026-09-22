@@ -1,30 +1,21 @@
 import "server-only";
 
-/** decision/producers/demand-recovery - THE COLLAPSE, DIAGNOSED, then turned into work. The first version of
- *  this producer measured the losses and minted findings; the operator's ruling stands over it now: a
- *  measurable gap is not a cause, historical decline is not a treatment, and a card may exist only when the
- *  system can say WHY the audience left and propose the one action that addresses exactly that. So each lost
- *  unit is DECOMPOSED off its own two-window history: position slipped materially = ranking loss, which the
- *  lever table treats with content (a restoring section, never a sharper line); position held while the click
- *  rate collapsed = the line a searcher reads, treated with the title; anything the two windows cannot
- *  separate claims NO cause and lands as the investigation that names the acquisition which would decide it.
- *  IMPACT LANGUAGE IS SPLIT IN TWO: the historical loss is reported as LOST, and only the current window's
- *  own shortfall under the account's curve is carried as recoverable, because history proves what left, not
- *  what a rewrite brings back. Every number traces to the archive aggregate; nothing here is a guess. */
+/** Historical losses open investigations, never authorize an edit. The canonical current-page diagnosis
+ * owns treatments; a saved SERP or a fall in average position cannot establish why past clicks disappeared. */
 
 import { log } from "@/lib/logger";
 import { loadCanonicalDemandUnits } from "@/domains/evidence/demand-unit-loader";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate"; import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import type { TenantCtrCurve } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import type { ChangeProposal } from "@/domains/decision/contracts";
-import { winnersRead, type CauseFinding } from "@/domains/decision/diagnosis";
+import { noProblemFinding, winnersRead } from "@/domains/decision/diagnosis";
+import { diagnoseCandidate } from "@/domains/decision/diagnose";
 import { mutationKeyOf } from "@/domains/decision/mutation-footprint";
 import proposalSeats from "@/domains/decision/proposal-seats";
 
 /** Lost clicks per month before a unit is worth a card, and how many cards one pass mints. */
 const MIN_LOST_PER_MONTH = 20; // no count meter (operator, 2026-08-30): every unit above the loss floor gets its card
-/** Positions slipped before the decline is a ranking loss, the CTR fall that names the snippet, and how many sections one page may be asked for in one pass. */
-const POSITION_SLIP = 2, CTR_FALL = 0.4, MAX_BODY_CARDS = 2;
+const MAX_BODY_CARDS = 2;
 
 const pathOf = (url: string): string => {
   try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return url; } };
@@ -37,48 +28,9 @@ type DemandRecoveryRun = { cards: ChangeProposal[]; complete: boolean;
 
 const monthOf = (d: string | null): string => d ? new Date(`${d}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" }) : "the earlier window";
 const pageLabelOf = (snapshot: EvidenceSnapshot, url: string): string => { const p = snapshot.ownedPages.find((o) => canonicalUrlKey(o.url) === canonicalUrlKey(url)); return (p?.content?.h1 ?? p?.content?.title ?? "").replace(/\s+/g, " ").trim() || pathOf(url); };
-type Decomposed = { cause: "ranking_loss" | "ctr_snippet" | null; field: "section" | "title"; line: string };
 
-/** WHY the audience left. A slid position is its own evidence and owes content. A held position with a
- *  collapsed click rate names the snippet ONLY when the current results page for this audience is on file,
- *  because arithmetic alone cannot tell a weak line from a results page that changed shape around it
- *  (operator, 2026-08-17: a query in a title is not automatically the remedy for low CTR); without that
- *  read the fall is the TRIGGER for buying it, and the card claims research, never a treatment. */
-function decompose(h: NonNullable<Awaited<ReturnType<typeof loadCanonicalDemandUnits>>["units"][number]["history"]>,
-  hasSerp: boolean): Decomposed {
-  // ONLY THE TREATED PAGE'S OWN HISTORY MAY NAME A PAGE-SPECIFIC CAUSE (operator, 2026-08-17): the unit's
-  // blended position averages every page the site ranks with, and a second owned page entering the results
-  // manufactures an apparent slide with no page having moved. A swapped page or a material share shift is
-  // COMPOSITION, its own story, and claims no cause until the page split is decided.
-  if (h.pageSwapped) return { cause: null, field: "section",
-    line: `Google changed which of this site's pages it shows for these searches, so no single page's two-window history exists to compare: the page split is decided before any cause is claimed.` };
-  const shareShift = h.pageShareEarly != null && h.pageShareRecent != null ? h.pageShareEarly - h.pageShareRecent : null;
-  const dPos = h.pageEarlyPosition != null && h.pageRecentPosition != null ? h.pageRecentPosition - h.pageEarlyPosition : null;
-  const ctrEarly = h.earlyImpressions > 0 ? (h.earlyClicksPerDay * 30) / (h.earlyImpressions / 13) : null;
-  const ctrNow = h.recentImpressions > 0 ? (h.recentClicksPerDay * 30) / (h.recentImpressions / 3) : null;
-  if (dPos != null && dPos >= POSITION_SLIP) return { cause: "ranking_loss", field: "section",
-    line: `The page itself slid from position ${h.pageEarlyPosition!.toFixed(1)} to ${h.pageRecentPosition!.toFixed(1)} for this audience's searches, so something better took its ground: the fix is stronger content, not a sharper line.` };
-  if (dPos == null && h.earlyPosition != null && h.recentPosition != null && h.recentPosition - h.earlyPosition >= POSITION_SLIP)
-    return { cause: null, field: "section",
-      line: `The blended position across this site's pages slid, but the page now shown lacks its own two-window history, so the slide cannot be pinned on any one page: nothing is treated on an average across pages.` };
-  const ctrFell = dPos != null && Math.abs(dPos) < POSITION_SLIP && ctrEarly != null && ctrNow != null && ctrNow < ctrEarly * (1 - CTR_FALL);
-  if (ctrFell && shareShift != null && shareShift >= 0.2)
-    return { cause: null, field: "section",
-      line: `The click rate fell while another of this site's own pages absorbed part of these impressions, so the fall is at least partly composition between owned pages, not the line one page shows: the page split is decided before any wording is blamed.` };
-  if (ctrFell && hasSerp)
-    return { cause: "ctr_snippet", field: "title",
-      line: `The page holds its own position (${h.pageEarlyPosition!.toFixed(1)} then, ${h.pageRecentPosition!.toFixed(1)} now) while the share of searchers clicking it fell by more than ${Math.round(CTR_FALL * 100)} percent, and the stored results page shows what searchers now read, so the line is the diagnosed cause.` };
-  if (ctrFell)
-    return { cause: null, field: "section",
-      line: `The page holds its own position (${h.pageEarlyPosition!.toFixed(1)} then, ${h.pageRecentPosition!.toFixed(1)} now) while the share of searchers clicking it fell by more than ${Math.round(CTR_FALL * 100)} percent, and no current results page for this audience is on file: what searchers see there today decides whether the line, the results page shape or the demand itself changed, so nothing is treated until that read lands.` };
-  return { cause: null, field: "section",
-    line: "The two windows cannot separate a ranking slide from a snippet change on their own numbers, so the cause is not named until the current results page is read." };
-}
-
-/** THE COLLAPSE'S OWN ACQUISITIONS: each lost unit whose two windows cannot name a cause, or whose click
- *  rate fell at a held position with NO current results page on file, names that read as the one purchase
- *  that decides it. Handed to the research plan as exact searches, so the card's "the results page is read
- *  on the next pass" is a wire into the agenda rather than a hope. */
+/** Missing exact-search results are research debt. Landing that evidence enables comparison, not a
+ * promised diagnosis or a preselected title/section edit. Reuse the result when already held. */
 export async function recoveryAcquisitions(tenantId: string, snapshot: EvidenceSnapshot, max: number): Promise<{ topicKey: string; query: string }[]> {
   if (max <= 0) return [];
   try {
@@ -87,7 +39,6 @@ export async function recoveryAcquisitions(tenantId: string, snapshot: EvidenceS
     const out: { topicKey: string; query: string }[] = [];
     for (const u of units.filter((x) => (x.history?.lostClicksPerMonth ?? 0) >= MIN_LOST_PER_MONTH)) {
       if (u.serp != null || out.length >= max) continue;
-      if (decompose(u.history!, false).cause != null) continue;
       out.push({ topicKey: `recovery::${u.label.toLowerCase()}`, query: u.label });
     }
     return out;
@@ -109,71 +60,63 @@ export async function demandRecoveryCards(input: { tenantId: string; snapshot: E
     const losses = lost.slice(0, 20).map((u) => ({ unit: u.label, lostPerMonth: u.history!.lostClicksPerMonth,
       priorPage: u.history!.priorTopPage, currentPage: u.history!.currentTopPage, swapped: u.history!.pageSwapped }));
     const cards: ChangeProposal[] = [], durableSeats = await proposalSeats.loadProposalSeats(tenantId, lost.flatMap((u) => { const home = u.history!.currentTopPage ?? u.history!.priorTopPage; return home ? [pathOf(home)] : []; }));
-    /* ONE PAGE IS A CONTAINER OF ATOMIC OPPORTUNITIES (Product Truth, one page is never one opportunity; campaign, 2026-09-05). Every card here was named after its PAGE alone, so two audiences losing clicks on one page wore ONE row id: the dedupe behind this producer kept the larger and dropped the rest. The unsuffixed id remains with the mutation it first named even after retirement; another query gets its own canonical search key after "@". Two sections a page a pass, because a third writes a slot the store already holds; the line searchers read is ONE mutation however many audiences ask for it, so a page is asked for one of those and no more. */
-    const seats = new Map<string, string>(); { const bindings = [...durableSeats], per = new Map<string, { bodies: number; title: boolean }>();
+    /* Each historical audience retains its own durable seat. These section-shaped records hold research,
+     * not authority to add a section; independently diagnosed edits come from the canonical opportunity path. */
+    const seats = new Map<string, string>(); { const bindings = [...durableSeats], per = new Map<string, number>();
       for (const u of [...lost].sort((a, b) => b.recoverableClicks - a.recoverableClicks || a.label.localeCompare(b.label))) { const at = u.history!.currentTopPage ?? u.history!.priorTopPage; if (!at || !owned.has(canonicalUrlKey(at))) continue;
-        const page = pathOf(at).toLowerCase(), key = canonicalQueryKey(u.label), seat = `${page}::${key}`, held = per.get(page) ?? { bodies: 0, title: false }, field = decompose(u.history!, u.serp != null).field, title = field === "title";
-        if (seats.has(seat) || (title ? held.title : held.bodies >= MAX_BODY_CARDS)) continue; // one mutation, one card: a second audience whose search names the same words is the same section, and the page's line is written once
-        const base = `${tenantId}::${page}::existing_edit::demand_recovery`, mutationKey = mutationKeyOf({ pagePath: page, primaryQuery: u.label, mutationScope: "topic", recommendedChange: { kind: "existing_edit", field } }), id = proposalSeats.seatFor(base, mutationKey, bindings);
-        seats.set(seat, id); bindings.push({ id, mutationKey }); per.set(page, { bodies: held.bodies + (title ? 0 : 1), title: held.title || title }); } }
+        const page = pathOf(at).toLowerCase(), key = canonicalQueryKey(u.label), seat = `${page}::${key}`, held = per.get(page) ?? 0;
+        if (seats.has(seat) || held >= MAX_BODY_CARDS) continue;
+        const base = `${tenantId}::${page}::existing_edit::demand_recovery`, mutationKey = mutationKeyOf({ pagePath: page, primaryQuery: u.label, mutationScope: "topic", recommendedChange: { kind: "existing_edit", field: "section" } }), id = proposalSeats.seatFor(base, mutationKey, bindings);
+        seats.set(seat, id); bindings.push({ id, mutationKey }); per.set(page, held + 1); } }
     for (const u of lost) {
       const h = u.history!;
       const home = h.currentTopPage ?? h.priorTopPage;
       if (!home || !owned.has(canonicalUrlKey(home))) continue;
       const path = pathOf(home); const id = seats.get(`${path.toLowerCase()}::${canonicalQueryKey(u.label)}`); if (!id) continue; // the page's seats are decided above, in one order, so no ordering of the source rows can flip which audience holds which row
-      const d = decompose(h, u.serp != null);
+      const serp = snapshot.research?.serpEvidence.find((e) => canonicalQueryKey(e.query) === canonicalQueryKey(u.label));
+      const comparison = diagnoseCandidate({ query: u.label, ownedUrl: home, organic: serp?.organic ?? null,
+        body: false, gscPosition: h.pageRecentPosition });
+      const line = `${comparison.explanation} This current comparison does not establish why historical clicks fell; demand, results-page changes and page composition remain separate questions.`;
+      const reading = winnersRead(snapshot.research, u.label);
       const phrasings = u.vocabulary.slice(0, 6).map((v) => `"${v}"`).join(", ");
       const windowLine = `${monthOf(historyWindow.earlyFrom)} to ${monthOf(historyWindow.earlyTo)}`, label = pageLabelOf(snapshot, home); /* THE CARD READS AS A PERSON WOULD SAY IT (operator voice; production 2026-09-18): "37 clicks a month were LOST", "about 0 supported as recoverable today" and a raw slug were the headline the moment the history read came back */
       const story = `Searches for ${u.label} brought this site about ${n(h.earlyClicksPerDay * 30)} clicks a month from ${windowLine} and bring about ${n(h.recentClicksPerDay * 30)} now, down ${n(h.lostClicksPerMonth)} a month.`;
       const moved = h.pageSwapped ? ` Google moved the audience: ${pathOf(h.priorTopPage!)} earned it then, ${pathOf(h.currentTopPage ?? home)} is shown now.` : "";
-      const recoverable = Math.max(0, Math.round(u.recoverableClicks)), backNow = recoverable > 0 ? `, about ${n(recoverable)} of them within reach now` : "";
-      const hints = [story.trim() + moved, d.line,
-        d.cause != null
-          ? recoverable > 0 ? `At today's own demand and positions, about ${n(recoverable)} clicks over 28 days of that are within reach under the diagnosed cause; the rest depends on winning back ground and is not promised.` : "At today's own demand and positions none of that is within reach yet; every click of it depends on winning back ground first."
-          : recoverable > 0 ? `About ${n(recoverable)} clicks over 28 days is the measured shortfall against this account's own click curve at today's positions. None of it is claimed as recoverable until the cause is diagnosed.` : "Against this account's own click curve at today's positions there is no measured shortfall yet, so nothing is claimed as recoverable until the cause is diagnosed.",
+      const recoverable = Math.max(0, Math.round(u.recoverableClicks));
+      const hints = [story.trim() + moved, line,
+        recoverable > 0 ? `About ${n(recoverable)} clicks over 28 days is the measured shortfall against this account's own click curve at today's positions. None of it is claimed as recoverable until the cause is diagnosed.` : "Against this account's own click curve at today's positions there is no measured shortfall yet, so nothing is claimed as recoverable until the cause is diagnosed.",
         `People search this as: ${phrasings}`,
         ...(u.volume?.searchVolume ? [`"${u.label}" carries ${n(u.volume.searchVolume)} searches a month${u.volume.intent ? ` (${u.volume.intent})` : ""}`] : []),
         ...(u.serp ? [`The pages winning it now: ${u.serp.winners.slice(0, 3).map((w) => w.domain).join(", ")}`] : []),
         ...u.tensions];
-      const finding: CauseFinding | null = d.cause == null ? null : {
-        cause: d.cause, action: d.field === "title" ? "title" : "section", evidenceKeys: [],
-        explanation: `${story} ${d.line}`, competingExplanations: [], notConsidered: [],
-        falsifier: d.cause === "ranking_loss"
-          ? "If the page returns to its old position and the clicks do not follow, the ground was not the cause."
-          : "If Google shows the new line and the click rate does not move, the wording was not the cause.",
-      };
       cards.push({
-        id, tenantId, kind: "existing_edit", winnersOnFile: winnersRead(snapshot.research, u.label),
+        id, tenantId, kind: "existing_edit", winnersOnFile: reading,
         pagePath: path, pageUrl: home, pageLabel: label, primaryQuery: u.label,
         // THE HEADLINE NEVER SELLS THE HISTORICAL LOSS AS WIN-BACK (operator, 2026-08-17): the lost figure is
         // labeled lost, and the only number offered as recoverable is the current window's own shortfall.
-        opportunityType: d.cause === "ranking_loss"
-          ? `Win back "${u.label}" on ${label}: the page slipped from position ${h.pageEarlyPosition!.toFixed(1)} to ${h.pageRecentPosition!.toFixed(1)} and is down ${n(h.lostClicksPerMonth)} clicks a month${backNow}`
-          : d.cause === "ctr_snippet"
-            ? `Rewrite the line searchers read for "${u.label}" on ${label}: the position held while clicks fell ${n(h.lostClicksPerMonth)} a month${backNow}`
-            : `Explain the "${u.label}" decline on ${label}: down ${n(h.lostClicksPerMonth)} clicks a month and the cause is not yet separable`,
-        changeFamily: d.field, mutationScope: "topic", status: "needs_review",
+        opportunityType: `Explain the "${u.label}" decline on ${label}: down ${n(h.lostClicksPerMonth)} clicks a month and the cause is not yet separable`,
+        changeFamily: "section", mutationScope: "topic", status: "needs_review",
         // THE ASSIGNMENT LIVES IN THE TYPED BRIEF, NEVER IN THE COPY FIELD (incident recovery, 2026-09-04): `after` means the exact words to paste, and an instruction sitting there is indistinguishable from finished work to anything that reads the words alone.
-        recommendedChange: { kind: "existing_edit", field: d.field, before: null, after: "The exact wording has not been written yet." },
+        recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "The exact wording has not been written yet." },
+        obligation: reading === "read" ? { kind: "terminal", reason: "no substantive gap named" }
+          : { kind: "evidence", need: { kind: reading === "unread" ? "competitor_page" : "serp", query: u.label, reasonCode: "no_winner_to_read" } },
         researchOnly: true, research: {
-          missing: d.cause === "ranking_loss"
-            ? `Strengthen this page's coverage of ${u.label} with a section that answers, in the searchers' own words (${phrasings}), what the pages now above it answer.`
-            : d.cause === "ctr_snippet"
-              ? `Rewrite the line searchers read for "${u.label}" so it says what earned the clicks when the click rate was whole, keeping every word the page still earns on.`
-              : `The current results page for "${u.label}" has not been read, so the cause is not named and no wording may change yet.`,
-          next: d.cause == null ? "The results page for this search is read on the next pass, and the cause lands here with the work it authorizes."
-            : "The exact wording lands here once the editor writes it from the page's own stored copy under this diagnosis." },
-        whyItMatters: `${story}${moved} ${d.line}`, operatorSteps: [], estimatedEffortMinutes: d.field === "title" ? 2 : 30,
+          missing: line,
+          next: reading === "read" ? "Keep the historical loss as evidence. Only the current-page diagnosis can authorize an independently supported change; no draft is owed by this loss."
+            : `Read ${reading === "unread" ? "the saved winning pages" : "the exact search results"} for "${u.label}" before judging what, if anything, this page needs.` },
+        diagnosisCause: "no_problem", causeFinding: { ...noProblemFinding(line, "Historical losses do not establish a title or content defect."), evidenceKeys: comparison.evidenceKeys,
+          notConsidered: [{ cause: "demand_decline", missing: "Comparable demand and results-page observations across the historical windows are not established." }, { cause: "competitor_content_gap", missing: "This historical measurement does not independently establish a current missing proposition." }],
+          falsifier: "An independent current-page diagnosis names a specific defect supported by current evidence; that diagnosis, not this historical loss, authorizes its treatment." },
+        whyItMatters: `${story}${moved} ${line}`, operatorSteps: [], estimatedEffortMinutes: 0,
         riskLevel: "low", confidence: historyWindow.earlyDays >= 120 ? "medium" : "low",
-        limitations: ["The loss is measured from this account's own Search Console history over the two windows named above; only the current window's shortfall is claimed as recoverable."],
+        limitations: ["The historical loss and current modeled shortfall are measurements, not promised recovery or authority to change copy."],
         evidence: { query: u.label, hints, evidenceRefCount: Math.max(1, Math.min(u.queries.length + 2, hints.length)) },
-        ...(finding ? { causeFinding: finding, diagnosisCause: finding.cause } : {}),
         impactScore: recoverable > 0 ? recoverable : null, upsidePerMonth: null,
         demandImpressions90d: u.audience.impressions90d || null,
         publish: "manual", createdAt: now.toISOString(),
       });
     }
-    log.info("[demand-recovery] the collapse, diagnosed", { tenantId, earlyDays: historyWindow.earlyDays,
+    log.info("[demand-recovery] historical losses measured", { tenantId, earlyDays: historyWindow.earlyDays,
       lostUnits: lost.length, cards: cards.length, top: losses[0] ?? null });
     return { cards, complete: true, window: historyWindow, losses };
   } catch (e) {

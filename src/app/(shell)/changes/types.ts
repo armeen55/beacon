@@ -80,11 +80,11 @@ function linkedComponentIds(components: readonly LinkedComponent[], seed: string
   }
   return linked;
 }
-/** Only an absolute HTTP(S) page may leave Beacon. Older rows may omit the scheme; a bare path stays unlinked. */
-function livePageHref(value: string | null | undefined): string | null {
-  const raw = (value ?? "").trim(); if (!raw || raw.startsWith("/")) return null;
-  const candidate = /^https?:\/\//i.test(raw) ? raw : /^[^/?#]+\.[^/?#]+(?:[/?#]|$)/.test(raw) ? `https://${raw}` : "";
-  try { const parsed = new URL(candidate); return /^(?:http|https):$/.test(parsed.protocol) ? parsed.toString() : null; } catch { return null; }
+/** Browser and clipboard destinations share HTTP(S) resolution; relative targets need their owning page. */
+function livePageHref(value: string | null | undefined, pageUrl?: string | null): string | null {
+  const raw = (value ?? "").trim(); if (!raw) return null;
+  const candidate = /^[^:/?#]+\.[^:/?#]+(?::\d+)?(?:[/?#]|$)/.test(raw) ? `https://${raw}` : raw, base = pageUrl ? livePageHref(pageUrl) : null;
+  try { const parsed = new URL(candidate, base ?? undefined); return /^(?:http|https):$/.test(parsed.protocol) && !parsed.username && !parsed.password ? parsed.toString() : null; } catch { return null; }
 }
 const operatorUiPolicy = { isManualEditProofWork, isBulkRecordable, isPasteableComponent, linkedComponentIds, measurementAcknowledgement, livePageHref };
 export default operatorUiPolicy;

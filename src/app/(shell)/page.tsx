@@ -19,7 +19,7 @@ import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
 import { CopyButton, MarkImplemented, PublicationCopy } from "./changes/change-controls";
-import { pageLabel, RESEARCH_CADENCE } from "./changes/types";
+import operatorUiPolicy, { pageLabel, RESEARCH_CADENCE } from "./changes/types";
 
 /** Today `/` - WORK, NOT A STATUS REPORT (2026-08-11). The operator has made zero changes because this screen narrated internal
  *  work instead of handing him one edit. It is now exactly five things: the greeting with how many edits are open, THE TOP EDIT ITSELF
@@ -225,7 +225,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const hour = Number(nowPacific.toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "America/Los_Angeles" }));
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const top = today.nextOpportunities[0] ?? null;
-  const edit = today.topEdit ?? null;
+  const edit = today.topEdit ?? null, livePageHref = operatorUiPolicy.livePageHref(edit?.pageUrl);
   // A PLAN IS STILL READ RATHER THAN PASTED: a merge carries several moves, so it opens instead of copying.
   const plan = !!edit && !edit.paste && !edit.after;
   // THE OTHER CHANGES ARE THE OTHER FINISHED ONES, counted from the ready lane alone: Today never counts a
@@ -255,7 +255,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           <p className="mt-1 text-[15px] font-semibold leading-relaxed text-foreground">{edit?.action ?? top.recommendation}</p>
           {edit?.markup ? <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground" data-top-edit-markup="true">{edit.markup}</p> : null}
           {edit ? <p className="mt-1 text-[12px] capitalize text-muted-foreground">{edit.confidence} confidence · {edit.risk} risk</p> : null}
-          {edit?.pageUrl ? <a href={edit.pageUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-11 items-center text-[13px] font-semibold text-accent-primary underline underline-offset-2">Open live page ↗</a> : null}
+          {livePageHref ? <a href={livePageHref} target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-11 items-center text-[13px] font-semibold text-accent-primary underline underline-offset-2">Open live page ↗</a> : null}
           {edit && edit.after ? (
             <div className="mt-2 space-y-1" data-top-edit-lines="true">
               {edit.before ? (

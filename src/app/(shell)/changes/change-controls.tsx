@@ -114,8 +114,8 @@ export function PublicationCopy({ text, units, link = null }: { text: string; un
  *  that takes no HTML, and a page had "## Heading" pasted into it as visible text. */
 export function clipboardPayload(text: string, units?: BundleComponent["units"], link: CopyLink = null): { html: string; plain: string } {
   const escape = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
-  const absolute = (l: NonNullable<CopyLink>): string => { if (/^[a-z][a-z0-9+.-]*:/i.test(l.href)) return l.href; try { const host = l.pageUrl ? new URL(l.pageUrl).host : ""; return host ? `https://${host}${l.href.startsWith("/") ? "" : "/"}${l.href}` : l.href; } catch { return l.href; } }; // a site-relative address pasted into a CMS field is not a link anywhere but this app (review, 2026-09-15)
-  const rich = (s: string) => withAnchor(s, link, escape, (t) => `<a href="${escape(absolute(link!))}">${escape(t)}</a>`).join("");
+  const href = link ? operatorUiPolicy.livePageHref(link.href, link.pageUrl) : null;
+  const rich = (s: string) => withAnchor(s, href ? link : null, escape, (t) => `<a href="${escape(href!)}">${escape(t)}</a>`).join("");
   const all: NonNullable<BundleComponent["units"]> = units ?? text.split(/\n+/).filter((s) => s.trim()).map((s) => ({ kind: "paragraph" as const, text: s }));
   const html = all.map((u) => u.kind === "paragraph" ? `<p>${rich(u.text)}</p>` : u.kind === "heading" ? `<h${u.level}>${escape(u.text)}</h${u.level}>`
     : u.kind === "table" ? `<table><thead><tr>${u.columns.map((cell) => `<th>${rich(cell)}</th>`).join("")}</tr></thead><tbody>${u.rows.map((row) => `<tr>${row.map((cell) => `<td>${rich(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`

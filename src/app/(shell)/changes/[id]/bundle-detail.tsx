@@ -67,7 +67,7 @@ function EvidenceText({ text }: { text: string }) {
 }
 function EvidenceLines({ items }: { items: EvidenceLine[] }) {
   if (items.length === 0) return null;
-  return <ul className="list-disc space-y-2 pl-4 text-[13px] leading-relaxed text-muted-foreground">{items.map((item, i) => <li key={i}><EvidenceText text={item.text} />{item.readings.map((id, j) => <span key={id}> <Link href={`/visibility?view=ai&reading=${encodeURIComponent(id)}`} className="inline-flex min-h-11 items-center font-semibold text-accent-primary underline underline-offset-2">Open exact AI reading{item.readings.length > 1 ? ` ${j + 1}` : ""}</Link></span>)}{item.sources?.length ? <ul className="mt-1 space-y-1 border-l border-border pl-3">{item.sources.map((source) => <li key={`${source.channel}:${source.url}`}><a href={source.url} target="_blank" rel="noreferrer" className="font-semibold text-accent-primary underline underline-offset-2">{source.publisher} ↗</a><span> · {source.channel === "aeo" ? `${source.recurrence ?? 0} cited answer${source.recurrence === 1 ? "" : "s"}` : `Google rank ${source.rank ?? "not recorded"}`}</span>{source.passage ? <p className="mt-0.5 text-[12px] text-muted-foreground">What was read: “{source.passage}”</p> : null}</li>)}</ul> : null}</li>)}</ul>;
+  return <ul className="list-disc space-y-2 pl-4 text-[13px] leading-relaxed text-muted-foreground">{items.map((item, i) => <li key={i}><EvidenceText text={item.text} />{item.readings.map((id, j) => <span key={id}> <Link href={`/visibility?view=ai&reading=${encodeURIComponent(id)}`} className="inline-flex min-h-11 items-center font-semibold text-accent-primary underline underline-offset-2">Open exact AI reading{item.readings.length > 1 ? ` ${j + 1}` : ""}</Link></span>)}{item.sources?.length ? <ul className="mt-1 space-y-1 border-l border-border pl-3">{item.sources.map((source) => <li key={`${source.channel}:${source.url}`}>{operatorUiPolicy.livePageHref(source.url) ? <a href={operatorUiPolicy.livePageHref(source.url)!} target="_blank" rel="noreferrer" className="font-semibold text-accent-primary underline underline-offset-2">{source.publisher} ↗</a> : <span>{source.publisher}</span>}<span> · {source.channel === "aeo" ? `${source.recurrence ?? 0} cited answer${source.recurrence === 1 ? "" : "s"}` : `Google rank ${source.rank ?? "not recorded"}`}</span>{source.passage ? <p className="mt-0.5 text-[12px] text-muted-foreground">What was read: “{source.passage}”</p> : null}</li>)}</ul> : null}</li>)}</ul>;
 }
 
 export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes" }: { proposal: ChangeProposal; bundle: ChangeBundle; recorded: Set<string>; returnTo?: string }) {
@@ -126,13 +126,13 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
               </summary>
               <div className="mt-2 space-y-3">
                 {bundle.components.slice(b * 10, (b + 1) * 10).map((c, i) => (
-                  <ComponentCard key={i} component={c} cited={cited[b * 10 + i] ?? []} isNew={isNew} held={held != null} position={b * 10 + i + 1} total={bundle.components.length} />
+                  <ComponentCard key={i} component={c} pageUrl={proposal.pageUrl} cited={cited[b * 10 + i] ?? []} isNew={isNew} held={held != null} position={b * 10 + i + 1} total={bundle.components.length} />
                 ))}
               </div>
             </details>
           ))
           : bundle.components.map((c, i) => (
-            <ComponentCard key={i} component={c} cited={cited[i] ?? []} isNew={isNew} held={held != null} position={i + 1} total={bundle.components.length} />
+            <ComponentCard key={i} component={c} pageUrl={proposal.pageUrl} cited={cited[i] ?? []} isNew={isNew} held={held != null} position={i + 1} total={bundle.components.length} />
           ))}
       </section>
 
@@ -293,7 +293,7 @@ function ComponentCard({
   isNew,
   held,
   position,
-  total,
+  total, pageUrl,
 }: {
   component: BundleComponent;
   /** The facts this piece stands on that the page has NOT already printed, resolved by the caller. */
@@ -302,7 +302,7 @@ function ComponentCard({
   /** TRUE while the whole change is held for review, which takes the Copy control with it. */
   held: boolean;
   position: number;
-  total: number;
+  total: number; pageUrl?: string | null;
 }) {
   // Where it lands, what it achieves, why it works and the sources still owed all ride the row and render here.
   const plan: [string, string | undefined][] = [["Where it goes", component.where], ["What it does", component.objective], ["Why it works", component.mechanism]];
@@ -312,7 +312,7 @@ function ComponentCard({
   const moves = dangerousComponents([component]).length > 0;
   const to = component.redirectTo;
   const copyable = operatorUiPolicy.isPasteableComponent(component);
-  const link = copyable && to && component.anchorAfter ? { href: to, anchor: component.anchorAfter } : null;
+  const link = copyable && to && component.anchorAfter ? { href: to, anchor: component.anchorAfter, pageUrl: operatorUiPolicy.livePageHref(component.page, pageUrl) ?? pageUrl } : null;
   const consequences = moves ? [
     to ? `Anyone who opens the old address lands on ${to}.` : "This page stops answering at its own address.",
     ...(component.preserves?.keeps.length ? [`What survives the change: ${component.preserves.keeps.join(", ")}.`] : []),
@@ -397,7 +397,7 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
   const c = proposal.recommendedChange;
   const after = (c.kind === "new_page" ? c.proposedTitle : c.after ?? "").trim();
   const before = c.kind === "new_page" ? null : (c.before ?? "").trim() || null;
-  const units = c.kind === "existing_edit" ? c.units : undefined, link = c.kind === "existing_edit" && c.linkTo ? { href: c.linkTo, anchor: c.anchorText ?? "" } : null;
+  const units = c.kind === "existing_edit" ? c.units : undefined, link = c.kind === "existing_edit" && c.linkTo ? { href: c.linkTo, anchor: c.anchorText ?? "", pageUrl: proposal.pageUrl } : null;
   const steps = (proposal.operatorSteps ?? []).map((s) => s.replace(/^\d+[.)]\s*/, "").trim()).filter(Boolean);
   const research = deliverableGaps(proposal).length > 0;
   const hold1 = openHold(proposal);
