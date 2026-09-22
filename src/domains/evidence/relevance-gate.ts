@@ -112,9 +112,10 @@ const baseTopicTokens = (text: string | null | undefined, opts?: { keepRepeats?:
   return opts?.keepRepeats === true ? out : [...new Set(out)];
 };
 
-/** Semantic identity never guesses transliteration: a false merge can preserve paid copy for the wrong search. */
-const semanticAtoms = (text: string | null | undefined): string[] => baseTopicTokens(text ?? "");
-const sameAtom = (a: string, b: string): boolean => a === b;
+/** Join transliterated ezafe spellings without collapsing ordinary pairs such as plan-e/plane. */
+const TRANSLITERATED_BASE = /(?:kh|gh|zh|sh|ch|aa|ee|oo|ou|[qxz])/, TRANSLITERATED_DEPENDENT = /(?:kh|gh|zh|aa|ee|oo|ou|[qxz]|^y[a-z]{3,}a$)/, transliterationLink = (base: string, dependent: string): boolean => TRANSLITERATED_BASE.test(base) && TRANSLITERATED_DEPENDENT.test(dependent);
+const semanticAtoms = (text: string | null | undefined): string[] => { const words = stripDiacritics(String(text ?? "").toLowerCase()).match(/[a-z0-9]+(?:-[a-z0-9]+)*/g) ?? [], out: string[] = []; for (let i = 0; i < words.length; i += 1) { const word = words[i]!, next = words[i + 1] ?? "", hyphen = /^([a-z0-9]{3,})-e$/.exec(word), separated = next === "e" ? words[i + 2] ?? "" : ""; if (hyphen && transliterationLink(hyphen[1]!, next)) out.push(`${hyphen[1]}~e`); else if (separated && transliterationLink(word, separated)) { out.push(`${word}~e`); i += 1; } else out.push(...baseTopicTokens(word)); } return [...new Set(out)]; };
+const sameAtom = (a: string, b: string): boolean => a === b || a.endsWith("~e") && `${a.slice(0, -2)}e` === b || b.endsWith("~e") && `${b.slice(0, -2)}e` === a;
 const sameQuery = (a: string | null | undefined, b: string | null | undefined): boolean => { const left = semanticAtoms(a), right = semanticAtoms(b); if (left.length !== right.length || left.length === 0) return false; const free = [...right]; for (const atom of [...left].sort((x, y) => Number(x.endsWith("~e")) - Number(y.endsWith("~e")))) { let at = free.indexOf(atom); if (at < 0) at = free.findIndex((other) => sameAtom(atom, other)); if (at < 0) return false; free.splice(at, 1); } return free.length === 0; };
 export const topicTokens = Object.assign(baseTopicTokens, { semanticAtoms, sameAtom, sameQuery });
 export function domainOf(url: string): string {
