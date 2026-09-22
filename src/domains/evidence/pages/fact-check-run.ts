@@ -1,11 +1,10 @@
 import "server-only";
 
-/** evidence/pages/fact-check-run - ONE CLAIM, RESEARCHED PROPERLY, PER RENEWED LEASE. The first live runs proved four ways a unit can look like research without being it (Codex, 2026-08-18): a query built from the SUBJECT alone researched "Ahvaz definition" for a heat-record claim; sources found but unreadable were banked as checked, permanently clearing work nobody did; a truncated 12,000-character sample was called the whole page; and two encyclopedia pages counted as agreement because they ranked first. WHAT IT IS NOW. The persisted inventory is the cursor and coverage is persisted with it, so a page is only complete when every stored section was inventoried AND every claim is current. Acquisition searches the WHOLE PROPOSITION, never the subject alone. Every failure is TYPED and leaves the claim owed; only a readable world may settle one. `confirmed` requires a quote inside a fetched authoritative passage. */
 
 import { createHash } from "node:crypto"; import { FURNITURE_LABEL } from "@/domains/evidence/relevance-gate"; import { sha16 } from "@/domains/evidence/funnel/shared";
 import { log } from "@/lib/logger";
 import { recordFactChecks, recordOwedClaims, reopenObsoleteChecks, supersedeStaleFacts, statementKeyOf,
-  MISSING_ANSWER_RULES_VERSION, rulesVersionFor, unauthorizedReason, type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
+  MISSING_ANSWER_RULES_VERSION, rulesVersionFor, unauthorizedReason, authorizedCorrections, type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
 import { SUPPORT_ARTIFACT_VERSION, supportIdentity, supportFailure, unsupportedArtifact, deriveSupport, claimTypeOf, AUTHORITATIVE_KIND as AUTHORITATIVE, type ClaimSupport, type ClaimType, type SupportContext } from "./claim-support";
 export { claimTypeOf } from "./claim-support";
 
@@ -15,11 +14,9 @@ const EMPTY_ROW = { proposed: null, literal: null, usage: null, sources: [], agr
 const CANDIDATES = 6, FETCH_PER_CLAIM = 2;
 /** A call is only started when this much of the deadline remains, so its result can always be persisted. */
 const RESERVE_MS = 8_000;
-/** One extraction reads this much of the stored body. NEVER the definition of the page: coverage is persisted and a page is complete only when every stored section was inventoried (Codex, 2026-08-18). A SECTION SMALL ENOUGH THAT ONE EXTRACTION CAN READ IT WHOLE: at 12,000 a dense list page handed the reader its entire body at once and the forty-statement schema cap silently decided what was inventoried (194 name entries went in and 33 came out, with the page then marked complete). Smaller sections cost one cheap extraction each and are resumable by the coverage cursor, so a long page is READ rather than sampled. */
 const EXTRACT_CHUNK = 3_000;
 /** The most statements one extraction may return (`FactClaimExtractionSchema`). Read here so the cursor can tell a chunk that was READ from one that merely filled up. */
 const CLAIM_CAP = 40;
-/** CLAIM ATTEMPTS one pass may make, GLOBAL across every page it touches, counting successes, failures and waits alike (the old per-page nesting advertised four and allowed twelve, Codex 2026-08-18). A RUNAWAY STOP ONLY (operator, 2026-08-30, "i dont want any limits"): the deadline, the lease and the money doors are the bounds; at four, 283 owed claims took weeks while all three sat idle. */
 const ATTEMPTS_PER_PASS = 200;
 /** About ONE CLAIM, not the account: set aside, carry on. `judge_refused` joined 2026-08-30: a judgement that fails validation fails on THIS claim's content (live: one stubborn claim ended three passes running while 18 others had just judged clean); `judge_capped` and `judge_unavailable` stay account-wide stops. */ const PER_CLAIM = new Set(["fetch_refused", "fetch_unavailable", "search_refused", "search_unavailable", "search_waiting", "source_quality_unresolved", "judge_refused"]);
 
@@ -51,11 +48,9 @@ const CREDIBLE = new Set<SourceKind>(["news"]);
 const REJECTED = new Set<SourceKind>(["community", "babyname"]);
 
 export const pageHashOf = sha16;
-/** ONE stop list for the source query, the proposition fingerprint and the supported-share count (Stage 2, 2026-09-14): closed-class words plus the shape words a claim is dressed in, none of them a subject. */
 const STOP = new Set(["the", "and", "for", "with", "that", "this", "from", "its", "are", "was", "were", "has", "have", "had", "holds", "hold", "held", "also", "ever", "been", "not", "which", "their", "there", "into", "over",
   "meaning", "means", "name", "used", "word", "these", "them", "when", "such", "than", "then", "they", "being", "where", "what", "would", "about"]);
 
-/** THE SEARCH IS THE PROPOSITION. The subject alone researched "Ahvaz, Iran definition reference" for the claim that Ahvaz holds Asia's 54 degree heat record (Codex, 2026-08-18): the claim type may shape the query, but it may never erase the date, number, relationship or assertion being verified. AND FOR A ROW WITH NO CURRENT WORDING THE SEARCH CARRIES THE PAGE'S OWN SUBJECT (reviewer, 2026-09-02): such a row's subject is the bare question, so "are there cobras in iran" searched the world at large and came back with Iran's army aviation, and the judge was then handed passages about AH-1 Cobra attack helicopters for a page about a snake. `about` is the page's title and h1 and leads the query; a correction has its own wording to search and never takes it. */
 /** WHAT KIND OF SOURCE WOULD SETTLE THIS, one small hint per type. The claim itself is preserved whole below. */
 const HINT_FOR: Record<ClaimType, string> = { word_meaning: " name meaning origin etymology",
   usage_or_register: " usage formal informal grammar", // a usage rule is settled by a grammar or instructional reference, never by a dictionary headword
@@ -79,18 +74,17 @@ export function claimIdentity(subject: string, current: string, locator?: string
   const norm = `${subject}|${current}|${locator ?? ""}`.toLowerCase().replace(/\s+/g, " ").trim();
   return `${statementKeyOf(subject)}#${createHash("sha256").update(norm).digest("hex").slice(0, 10)}`;}
 
-/** THE CLAIM'S CONTENT-TOKEN FINGERPRINT: subject + wording reduced to its content words, sorted. Two statements with the SAME content words in any order are one proposition reworded, and the second is superseded free instead of researched twice. Deliberately NOT semantic: a reformulation that swaps in different words is a different fingerprint and is researched on its own (Codex, 2026-08-18). */
 export function tokenFingerprintOf(subject: string, current: string, role: ClaimType = "definition"): string {
   const toks = `${subject} ${current}`.toLowerCase().replace(/[^\p{L}\p{N}° ]+/gu, " ").split(/\s+/)
     .filter((t) => t.length > 0 && (/[\d°]/.test(t) || (t.length >= 4 && !STOP.has(t))));
   // THE NORMALIZED ROLE JOINS THE PROPOSITION, never the heading's prose: two headings that both mean "these are name meanings" stay ONE proposition, or every heading edit mints a new claim. Without it an owed claim was superseded as a duplicate WITHOUT being researched, so a checked title definition could settle a name-meaning claim for free.
   return `${role}:${[...new Set(toks)].sort().join(" ")}`;}
 
+const STOREFRONT_PATH = /(^|\/)(shop|store|cart|checkout|product-page|products?|collections?)(\/|$)/i, COMMERCE_CLAIM = /\$\s?\d|\d\s?(?:USD|EUR|GBP)\b|\bout of (?:five|5) stars?\b|\b\d(?:\.\d)? stars?\b|\brating:?\s?\d|\byelp (?:rating|review)\b|\bt-?shirts?\b|\bhoodies?\b|\bsweatshirts?\b|\bmugs?\b|\bview details\b|\badd to cart\b|\bcheckout\b|\bfree shipping\b|\b(?:regular|sale) price\b|\bour (?:store|products?|collection)\b|\bdiscover our\b|\b30-day guarantee\b|\breturn policy\b/i;
 const CLAIM_SYSTEM = 'You read one web page and list the statements on it that an outside source could confirm or contradict. '
   + 'Return ONLY {"statements":[{"subject","current","locator"}]}: `subject` is what the statement is about as the page writes it; '
   + '`current` is the page\'s own wording, quoted exactly; `locator` is where it sits (the heading or section it is under). '
   + 'Only statements of FACT about the world. Never marketing copy, navigation, or anything about the page itself, and never the site\'s own products, prices, ratings, reviews, shipping or customer notes. At most 40.';
-/** THE SITE'S OWN COMMERCE IS NOT A FACT ABOUT THE WORLD (operator audit, 2026-09-15): "Fesenjoon Fesenjan T-Shirt Price$23.99", "Iran Lion Sun Persian Hoodie Rating 5.0 out five stars based 1 review" and "postal issues some along way" (a customer review) were inventoried as claims and each bought a search and a reading. A product name, a price, a star rating, a review, a shipping note or a shop invitation has no outside source and is dropped before the inventory is written; a product page is not read for facts at all. */ const STOREFRONT_PATH = /(^|\/)(shop|store|cart|checkout|product-page|products?|collections?)(\/|$)/i, COMMERCE_CLAIM = /\$\s?\d|\d\s?(?:USD|EUR|GBP)\b|\bout of (?:five|5) stars?\b|\b\d(?:\.\d)? stars?\b|\brating:?\s?\d|\byelp (?:rating|review)\b|\bt-?shirts?\b|\bhoodies?\b|\bsweatshirts?\b|\bmugs?\b|\bview details\b|\badd to cart\b|\bcheckout\b|\bfree shipping\b|\b(?:regular|sale) price\b|\bour (?:store|products?|collection)\b|\bdiscover our\b|\b30-day guarantee\b|\breturn policy\b/i; /* storefront markers only: "Cyrus ordered the construction of Pasargadae" and "the postal service was founded in 1876" are facts about the world (reviewer, 2026-09-15) */
 
 const JUDGE_SYSTEM = 'You compare ONE statement a web page makes against PASSAGES QUOTED FROM SOURCES THAT WERE ACTUALLY FETCHED. '
   + 'Return ONLY {"verdict","proposed","literal","usage","confidence","supporting","note"}. '
@@ -121,7 +115,6 @@ const SCRIPT_OF: Record<string, RegExp> = {
   chinese: /[\u4E00-\u9FFF]/, japanese: /[\u3040-\u30FF\u4E00-\u9FFF]/, korean: /[\uAC00-\uD7AF]/,
   armenian: /[\u0530-\u058F]/, georgian: /[\u10A0-\u10FF]/, thai: /[\u0E00-\u0E7F]/,};
 
-/** WHY A PAID DOOR GAVE NOTHING, carried end to end. `capped` = the budget refused it, `waiting` = a posted task has not answered, `refused` = it answered and the answer would not validate, `unavailable` = it could not be reached. Each is a different debt and each leaves the claim owed (Codex, 2026-08-18). */
 type ProviderHold = "capped" | "waiting" | "refused" | "unavailable";
 
 /** The one model call a unit may make. `kind` names the STRUCTURED OUTPUT SCHEMA the answer must satisfy, so a caller cannot quietly ask the editor judge for a claim list and read zero statements for ever. */
@@ -129,7 +122,6 @@ type StructuredRead = (input: { kind: "fact_claim_extraction" | "fact_claim_judg
   system: string; user: string; grounded: string; projectedCostUsd: number; maxTokens: number })
   => Promise<{ value: Record<string, unknown> } | { hold: ProviderHold }>;
 
-/** WHY A UNIT FAILED, as an identity a later reader can act on: a cap, a queue wait, a timeout and a schema refusal are different debts, and one generic sentence hid which of them repeated paid attempts were hitting (Codex, 2026-08-18). Every failure leaves the claim OWED. */
 type UnitFailure = "no_page_body" | "lease_exhausted" | "inventory_write_failed" | "store_write_failed"
   | "lease_lost" | "source_quality_unresolved"
   | `extraction_${ProviderHold}` | `search_${ProviderHold}` | `fetch_${ProviderHold}` | `judge_${ProviderHold}`;
@@ -156,7 +148,7 @@ type FactCheckUnitDeps = {
   /** THE SOURCE ITSELF: fetch and parse one URL. A hold means nothing may be confirmed and nothing is banked. */
   fetchSource?: (url: string, required?: { structured: boolean }) => Promise<SourceAnswer>; /** A CLAIM WHOSE ANSWER IS THE SOURCE'S OWN STRUCTURE (2026-09-10): read as the source laid out in its sections, so the judge can name a heading as a group instead of quoting the lede. */ structured?: (subject: string) => boolean;
   /** THE PAGE THAT ALREADY CARRIES THIS SUBJECT, named by the requirement that asked for the reading: the winner a comparison found the subject on. It is read FIRST and it is not an authority of its own, only a candidate the ordinary policy admits; `subject` is the proposition it was named for, so a pass that reaches a different claim never spends it. */
-  rival?: { subject: string; url: string; /** THE WINNER'S OWN HEADING FOR THE SUBJECT (delivery loop, 2026-09-07): the window opened on the whole proposition phrase, which no page carries verbatim, so it fell back to the region densest in the search's words, the introduction, and the judge read "a general list of notable people" for a subject the page gives a section to. The heading is where that section starts. */ anchor?: string };
+  rival?: { subject: string; url: string; urls?: string[]; /** The nominated page's own heading, never transferred to other sources. */ anchor?: string };
   page: { url: string; path: string; body: string; prospective?: string };
   /** Claims this pass already failed on: aside for the rest of it, never for ever. */ skip?: ReadonlySet<string>;
   tenantId: string; now: Date; basis: string | null;
@@ -184,7 +176,6 @@ function sectionExcerpts(sections: readonly SourceSection[], groups: readonly st
 /** PURE. THE PASSAGE AROUND THE SUBJECT, never simply the opening of the document (the entity-anchored window the claim-verification literature reads on). A long reference page's first 6,000 characters are its navigation and its introduction, so a subject discussed further down reached the judge in an excerpt that never named it. About 160 words either side of the first place the subject, or a number the claim itself carries, appears past the opening; the opening stands when the subject is absent or already inside it, and the 6,000-character cap still bounds everything sent. */
 function subjectWindow(text: string, anchors: readonly string[], max = 6_000, words = 160, heading?: string): string {
   const hay = text.toLowerCase(), deep = anchors.map((a) => hay.indexOf(a.trim().toLowerCase())).filter((i) => i > max / 2).sort((x, y) => x - y)[0];
-  // THE WINNER'S OWN HEADING IS TAKEN WHEREVER IT STANDS (delivery loop, 2026-09-07): with the sections inline, the first occurrence of the heading is where its section starts, early in a short page as much as late in a long one; the depth rule below still keeps a bare subject phrase off a page's navigation.
   const named = heading?.trim() ? hay.indexOf(heading.trim().toLowerCase()) : -1, at = named >= 0 ? named : deep;
   if (at == null || at < 0) return askedWindow(text, anchors[0] ?? "", max);
   return `${text.slice(0, at).split(/\s+/).slice(-words).join(" ")} ${text.slice(at).split(/\s+/).slice(0, words * 2).join(" ")}`.slice(0, max);
@@ -209,13 +200,10 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   if (page.prospective ? !d.statementKey || !d.basis : !page.body.trim()) return fail("no_page_body", null, "no stored words or scoped prospective proposition to research");
   const hash = page.prospective ? null : pageHashOf(page.body), own = page.prospective ?? [...new Set(page.body.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 2))].join(" ").split(/\s+/).slice(0, 8).join(" ");
   const mine = (d.held ?? []).filter((h) => h.page === page.path), body = page.body.toLowerCase(), stands = (current: string): boolean => current.trim() === "" || body.includes(current.trim().toLowerCase());
-  // A ROW WHOSE WORDING STILL STANDS ON THE PAGE IS CURRENT WHATEVER THE READER'S PROJECTION HASHES TO (2026-09-14): the hash is stamped for reporting, and a re-read capture must not turn 974 checked facts into strangers.
   let inventory = mine.filter((h) => (h.pageContentHash === hash || (!page.prospective && stands(h.current))) && h.state !== "superseded" && (!page.prospective || (h.current.trim() === "" && h.evidenceBasis === d.basis)));
   const covRead = !page.prospective && d.readCoverage ? await d.readCoverage().catch(() => null) : null;
   let cov = covRead && covRead.pageContentHash === hash
     ? covRead : { pageContentHash: hash, coveredChars: 0, totalChars: page.body.length };
-  // A VERDICT FROM OBSOLETE RULES IS NOT CURRENT EVIDENCE (Codex, 2026-08-18): the one live checked row was
-  // AND A CONFIRMED VERDICT THE QUOTE-BOUND CONTRACT NOW REFUSES IS A CLAIM STILL OWED, not a settled finding: withdrawing the card without reopening the claim would strand the exact live defects this contract was written about (Alborz, Jasmine) as permanent dead findings, because a checked row is never re-inventoried. TARGETED, never a blanket version bump: only the rows the new authorization refuses reopen, so the four sound live corrections keep their verdicts and cards. Loop-safe: generation now binds to quotes too, so a re-researched claim either banks a carried gloss or holds below confirmed, where unauthorizedReason is null.
   const obsolete = inventory.filter((h) => (h.state === "checked" && h.rulesVersion !== rulesVersionFor(h))
     || (h.state === "checked" && h.confidence === "confirmed" && unauthorizedReason(h) != null));
   if (obsolete.length > 0 && await reopenObsoleteChecks(tenantId, page.path, obsolete).catch(() => 0) > 0) {
@@ -294,50 +282,58 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     pageContentHash: hash, pageLocator: claim.locator, sourceReadAt: null as string | null,
     evidenceBasis: d.basis, checkedAt: now.toISOString() };
 
-  // 3. THE SOURCES FOR THIS CLAIM, AND THE PAGE THE REQUIREMENT ALREADY NAMED IS READ BEFORE ANY SEARCH IS BOUGHT (campaign, 2026-09-06). A missing subject is found by comparing this page against the page that WINS its search, so the page carrying that subject is already known, and searching the world to rediscover it pays for what the account has: production filed "failed, 0 banked; the answer is still owed" on a subject whose own winner gives it a section. The named page is admitted as an ORDINARY candidate under the same policy every other one passes, never as an authority of its own, and one that cannot be read falls back to the search below, which is what a claim naming no page always does. The search then keeps its whole meaning: it is what finds sources nobody has named.
-  // A SITE MAY NOT VOUCH FOR ITSELF, and nothing enforced it: live, the Nazanin correction cited the very page it was correcting, iranopedia.com/persian-female-first-names, and banked that as a source.
   const hostOf = (u: string): string => u.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0]!.toLowerCase(), ownSite = hostOf(page.url ?? ""); // ONE spelling of a host, read by the own-site refusal and by the named page alike
-  // 4. READ THE SOURCES, AROUND THE SUBJECT. A title is not a fact, and A SOURCE NOBODY READ NEVER CLEARS THE CLAIM: when every fetch fails the claim stays OWED, because "the evidence disproved nothing" and "the infrastructure could not read the evidence" are different answers (Codex, 2026-08-18).
   const passages: { url: string; kind: SourceKind; text: string; title: string | null; readAt: string; sections: readonly SourceSection[] }[] = [];
-  let lastHold: ProviderHold = "unavailable";
-  const readSource = async (c: { url: string; kind: SourceKind }): Promise<void> => {
-    if (!d.fetchSource || !enough(d.deadlineAt, 20_000)) return;
+  let lastHold: ProviderHold = "unavailable", searched = false;
+  const attempted = new Set<string>();
+  const readSource = async (c: { url: string; kind: SourceKind }): Promise<ProviderHold | null> => {
+    if (!d.fetchSource || !enough(d.deadlineAt, 20_000) || attempted.has(c.url) || attempted.size >= FETCH_PER_CLAIM) return "unavailable";
+    attempted.add(c.url);
     const got = await d.fetchSource(c.url, { structured: d.structured?.(claim.subject) === true }).catch(() => ({ hold: "unavailable" as const }));
-    if ("hold" in got) { lastHold = got.hold; return; }
+    if ("hold" in got) { lastHold = got.hold; return got.hold; }
     const heading = c.url === d.rival?.url && d.rival.anchor?.trim() ? d.rival.anchor.trim() : undefined; // the winner's own heading, where the requirement named one
-    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, title: got.title ?? null, readAt: got.fetchedAt ?? new Date().toISOString(), sections: got.sections ?? [], text: d.structured?.(claim.subject) === true && (got.sections?.length ?? 0) >= 2 /* THE GROUPING QUESTION READS THE SOURCE AS ITS SECTIONS (live 16:30Z, 2026-09-10): asked over a window, the judge quoted the encyclopedia's lede and named no group, exactly as its rule for a lede says, so the row could never carry a group */ ? sectionDigest(got.sections ?? []) : subjectWindow(got.text, [claim.subject, ...(claim.current.match(/\b\d[\d,.]*\b/g) ?? [])], 6_000, 160, heading) }); };
-  const named = d.rival && d.rival.subject.trim().toLowerCase() === claim.subject.trim().toLowerCase() ? hostOf(d.rival.url) : ""; // the page was named for ONE proposition and is spent on that one only
-  if (named && named !== ownSite && !named.endsWith(`.${ownSite}`) && !REJECTED.has(sourceClassOf(named))) await readSource({ url: d.rival!.url, kind: sourceClassOf(named) });
-  if (passages.length === 0) {
+    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, title: got.title ?? null, readAt: got.fetchedAt ?? new Date().toISOString(), sections: got.sections ?? [], text: d.structured?.(claim.subject) === true && (got.sections?.length ?? 0) >= 2 ? sectionDigest(got.sections ?? []) : subjectWindow(got.text, [claim.subject, ...(claim.current.match(/\b\d[\d,.]*\b/g) ?? [])], 6_000, 160, heading) });
+    return null; };
+  const named = d.rival && d.rival.subject.trim().toLowerCase() === claim.subject.trim().toLowerCase()
+    ? [...new Set([d.rival.url, ...(d.rival.urls ?? [])])].filter((u) => { const host = hostOf(u); return host && host !== ownSite && !host.endsWith(`.${ownSite}`) && !REJECTED.has(sourceClassOf(host)); }) : [];
+  const alternative = named.slice(1).find((u) => hostOf(u) !== hostOf(named[0]!)) ?? named[1];
+  const readNamed = async (url: string): Promise<FactCheckUnitResult | null> => {
+    const hold = await readSource({ url, kind: sourceClassOf(hostOf(url)) });
+    return hold === "capped" || hold === "waiting" ? fail(`fetch_${hold}`, cursor, `the named source is ${hold}, so this claim is still owed`, next.statementKey) : null; };
+  if (named[0]) { const stopped = await readNamed(named[0]); if (stopped) return stopped; }
+  const search = async (): Promise<FactCheckUnitResult | null> => {
+    searched = true;
     if (!d.searchSources || !enough(d.deadlineAt, 15_000)) return fail("lease_exhausted", cursor, "no lease left to look for sources");
-    // THE SUCCESSOR'S SEARCH IS POSTED BEFORE THIS ONE IS AWAITED, so both tasks grind at the provider while this claim fetches and judges: the posted-SERP wait was the whole p95 tail (129s against a 20.6s median, live waves 2026-08-30).
-    const succ = !d.statementKey && owed.find((o) => o !== next && !d.skip?.has(o.statementKey) && !settled.has(propOf(o)) && propOf(o) !== propOf(next!));
+    const succ = attempted.size === 0 && !d.statementKey && owed.find((o) => o !== next && !d.skip?.has(o.statementKey) && !settled.has(propOf(o)) && propOf(o) !== propOf(next!));
     if (succ) d.warmSearch?.(sourceQueryFor(claimTypeOf(succ.subject, succ.current, succ.pageLocator), succ.subject, succ.current, own));
     const found = await d.searchSources(sourceQueryFor(type, claim.subject, claim.current, own)).catch(() => ({ hold: "unavailable" as const }));
     // A PROVIDER THAT DID NOT ANSWER IS NOT A WORLD WITH NO SOURCES: capped, waiting, refused and unreachable each leave the claim OWED under their own name, and only a readable answer with no qualifying source banks `none_found`.
     if ("hold" in found) return fail(`search_${found.hold}`, cursor, `the source search is ${found.hold}, so this claim is still owed`, next.statementKey);
-    // EXCLUSIONS COME BEFORE THE LIMIT, and ONE CANDIDATE PER PUBLISHER. Taking the first six raw results and filtering afterwards threw away a whole results page: six credible outlets were cut before the policy ever saw them, and the claim would have been buried as an empty world (Codex, 2026-08-19). The allowance counts QUALIFYING candidates.
     const organic = found.organic ?? [];
-    const seenDomains = new Set<string>();
+    const seenDomains = new Set(passages.map((p) => hostOf(p.url)));
     const candidates = organic
-      .map((o) => ({ url: o.url, domain: o.domain.replace(/^www\./, "").toLowerCase(), kind: sourceClassOf(o.domain), title: o.title ?? "" })) .filter((c) => !REJECTED.has(c.kind))
+      .map((o) => ({ url: o.url, domain: o.domain.replace(/^www\./, "").toLowerCase(), kind: sourceClassOf(o.domain), title: o.title ?? "" })) .filter((c) => !REJECTED.has(c.kind) && !attempted.has(c.url))
       .filter((c) => !ownSite || (c.domain !== ownSite && !c.domain.endsWith(`.${ownSite}`)))
       .filter((c) => !seenDomains.has(c.domain) && seenDomains.add(c.domain) !== undefined)
       .sort((a, b) => (AUTHORITATIVE.has(b.kind) ? 1 : 0) - (AUTHORITATIVE.has(a.kind) ? 1 : 0)) .slice(0, CANDIDATES);
     // `none_found` IS A CLAIM ABOUT THE WORLD, and only an empty results page may make it. A page full of results none of which clears the policy is an unresolved question, and the claim stays owed.
-    if (organic.length === 0) return bank({ ...base, proposed: null, sources: [], agreement: "none_found", confidence: "unsupported",
+    if (organic.length === 0) return passages.length > 0 ? null : bank({ ...base, proposed: null, sources: [], agreement: "none_found", confidence: "unsupported",
       verdict: "undecidable", note: "The search was readable and returned nothing at all for this claim, so nothing is proposed." });
     if (candidates.length === 0) return fail("source_quality_unresolved", cursor, `the search returned ${organic.length} results and none clears the source policy, so this claim is still owed`, next.statementKey);
     // PUBLISHER-DIVERSE PICKS: the second fetch prefers a DIFFERENT source class, so two generic encyclopedia pages are not taken merely because they rank first (Codex, 2026-08-18).
     const second = candidates.slice(1).find((c) => c.kind !== candidates[0]!.kind) ?? candidates[1];
-    const picks = [candidates[0]!, ...(second ? [second] : [])].slice(0, FETCH_PER_CLAIM);
-    for (const c of picks) await readSource(c);}
+    const picks = [candidates[0]!, ...(second ? [second] : [])].slice(0, FETCH_PER_CLAIM - attempted.size);
+    const before = passages.length;
+    for (const c of picks) { const hold = await readSource(c); if (hold === "capped" || hold === "waiting") return fail(`fetch_${hold}`, cursor, `the source is ${hold}, so this claim is still owed`, next.statementKey); }
+    return passages.length > before ? null : fail(`fetch_${lastHold}`, cursor, `sources were found and reading them is ${lastHold}, so this claim is still owed`, next.statementKey); };
+  if (passages.length === 0 && alternative) { const stopped = await readNamed(alternative); if (stopped) return stopped; }
+  if (passages.length === 0 && attempted.size < FETCH_PER_CLAIM) { const stopped = await search(); if (stopped) return stopped; }
   if (passages.length === 0) return fail(`fetch_${lastHold}`, cursor, `sources were found and reading them is ${lastHold}, so this claim is still owed`, next.statementKey);
 
   // 5. JUDGE against the passages only.
+  const judge = async (): Promise<FactCheck | FactCheckUnitResult> => {
   if (!enough(d.deadlineAt, 20_000)) return fail("lease_exhausted", cursor, "no lease left to judge this claim");
   const verdict = await d.read({ kind: "fact_claim_judgement", system: JUDGE_SYSTEM,
-    // A MISSING PROPOSITION IS RESEARCHED, NOT COMPARED: an owed claim with no current wording is the page's acknowledged gap (the missing-information loop seeds exactly these), so the judge is asked what the passages establish about the subject rather than to grade an empty quotation. `proposed` then carries the researched statement, which is what the writer's fact-* evidence renders. AND IT ANSWERS THE QUESTION ABOUT THIS PAGE'S OWN SUBJECT OR IT PROPOSES NOTHING (reviewer, 2026-09-02): asked for "the accurate, source-supported statement of this subject" over passages about Iran's army aviation, the judge wrote "Iran has AH-1 Cobra attack helicopters." for the Persian cobra page and noted that the sources do not address snakes. The page's own subject is named, one sentence from one quotable passage is what may be proposed, and `page_correct` is what says both held.
     user: [`Claim type: ${type}`, `Subject: ${claim.subject}`,
       claim.current.trim() ? `The page says: "${claim.current}"` : `${page.prospective ? "The proposed page does not exist yet. Its intended topic" : "The page does not answer this yet. This page is about"}: ${own}. From the passages alone, state in \`proposed\` ONE sentence that answers this question ABOUT THAT SUBJECT, taken from a single passage you can quote from one source; verdict page_correct means that sentence answers the question and the passage you quote supports it. If no passage answers this question about that subject, propose nothing, answer unsupported, and return verdict undecidable.`,
       "Passages fetched from real sources:",
@@ -364,7 +360,6 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     const p = quote.length === 0 ? undefined : passages.find((x) => x.url === sup.url) ?? passages.find((x) => norm(x.text).includes(norm(quote)));
     if (!p || verified.has(p.url)) continue;
     if (norm(p.text).includes(norm(quote))) { verified.set(p.url, quote); vouchedAs.set(p.url, sup.url); continue; }
-    // AND A NAMED SOURCE WHOSE QUOTE IS NOT IN ITS OWN PASSAGE MAY STILL HOLD THE ANSWER (live 19:00 PDT on /iran-flags/iran-islamic-republic-flag-history): the judge answered the pre-1979 flag question correctly from the History passage and paraphrased it into `quote`, both named sources failed the verbatim test, nothing was verified, so nothing was selected and both banked says "" while the row stayed `likely`. For a row with no current wording the passage the judge READ is searched for the window that carries the proposal, exactly as a verified quote that falls short is; the window is the source's own words, so it verifies by construction. A correction is untouched: its failed quote still banks nothing.
     const rescued = claim.current.trim() === "" && proposedNow ? carrying(p) : null;
     if (rescued) { verified.set(p.url, rescued); vouchedAs.set(p.url, sup.url); }}
   // A QUOTE PROVES THE SOURCE SAID IT, NEVER THAT IT SAID IT ABOUT THIS SUBJECT: a passage has to be about the SAME name in the SAME language. The reader names the subject it read and the code checks the half it can. Live, Wikipedia's "Daria (given name)" is quotable and lists "Darya" as a variant, so it authorized a Slavic name descended from Darius as the meaning of Persian دریا, sea. Every test the old chain ran was passing.
@@ -385,7 +380,6 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const identified = vouched.filter((p) => langOf(p) === leadLang);
   const dropped = passages.filter((p) => verified.has(p.url) && !identified.includes(p));
   const supporters = identified;
-  // EVERY SOURCE EARNS ITS OWN RULING, AND THE CODE ACCEPTS ONLY WHAT IT CAN VERIFY (claim-support, 2026-08-29). The model locates the supporting sentence and its spans; supportFailure accepts nothing it cannot find verbatim in the exact quote this row banks, localized to ONE sentence, whole words only, the subject named in that sentence or by this same fetch's own document title. What stood here was glossCarriedBy, a bag-of-words provenance test that let a passage about the man who held a title carry a name's meaning; provenance remains a refusal inside unauthorizedReason and authorizes nothing.
   const rulings = new Map((v.supporting ?? []).map((x) => [x.url, x] as const));
   const bankedSources = passages.map((p) => {
     let says = (verified.get(p.url) ?? "").slice(0, 600);
@@ -403,7 +397,6 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
       subjectFrom: r.subjectFrom === "title" ? "title" : "quote", relationSpan: r.relationSpan ?? "",
       meaningSpans: r.meaningSpans ?? [] } : null;
     const failure = candidate ? supportFailure(candidate, ctx) : "meaning_absent" as const;
-    // THE MODEL LOCATES, AND WHEN IT LOCATES BADLY THE CODE MAY LOCATE FOR ITSELF: live, the judge returned supported rulings whose subject span was EMPTY over a quote opening "The name Alborz is derived from", and a fail-closed net with no deterministic fallback starves the pipeline on model formatting rather than on evidence. deriveSupport accepts nothing supportFailure would not; it only finds it.
     return { ...stamp, support: failure == null ? candidate! : deriveSupport(ctx) ?? unsupportedArtifact(ctx, failure) };
   });
   // AGREEMENT IS SUPPORT, NOT INVENTORY: the sources whose own validated artifact carries this proposal. Without a proposal there is nothing to carry and the vouched readers count, exactly as before.
@@ -415,7 +408,6 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const confirmable = (supporters.some((p) => AUTHORITATIVE.has(p.kind))
     || supporters.filter((p) => CREDIBLE.has(p.kind)).length >= 2)
     && (!proposedNow || carriers.some((b) => AUTHORITATIVE.has(b.kind)));
-  // AND A REPLACEMENT HAS TO BE FOUND IN THE QUOTE THE ROW WILL BANK, NOT MERELY SOMEWHERE ON THE PAGE: the full fetched text used to authorize here, and live it confirmed "Mountain Rampart" off a sentence one past the verified quote, so the customer receipt showed a quote that never carried the published words. The page may help LOCATE evidence; only the BANKED quotes authorize, which is why the share and the door below read what each source is about to store rather than what the judge first offered. A correction (current wording exists) needs every content word of its short gloss carried by those quotes and may not simply restate one of them as the page's line; a missing-information statement keeps the older share, now against quotes.
   const bankedSays = new Map(bankedSources.map((b) => [b.url, b.says] as const));
   const read = norm(supporters.map((p) => bankedSays.get(p.url) ?? "").join(" "));
   const words = (v.proposed ?? "").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4 && !STOP.has(w));
@@ -427,11 +419,21 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const confidence: FactCheck["confidence"] = v.confidence === "confirmed" && confirmable && carried ? "confirmed"
     : v.confidence === "unsupported" ? "unsupported" : v.confidence === "disputed" ? "disputed" : "likely";
   const kept = confidence === "unsupported" || (claim.current.trim() === "" && v.verdict !== "page_correct") ? null : (v.proposed?.trim() || null); // A STATEMENT ABOUT THE WRONG SUBJECT IS NOT BANKED AT ALL: it would be re-read as the researched answer by every later pass, and the row would be handed back for research for ever
-  // AND A ROW BANKED WITH AN ANSWER NO FETCHED PASSAGE QUOTES SAYS SO ON THE ROW (reviewer, 2026-09-02). The free backfill sends exactly that shape back for one more paid unit and guards "once" on a sentence in the NOTE, which this bank overwrites, so the row was reopened, re-researched, banked identically and reopened again, indefinitely, at one judge call a drive. The marker goes down HERE, by the bank that already searched every fetched passage for a carrying window and found none, so the row is sent back at most once whatever the re-research finds. The words are the ones claim-support.ts guards on.
   const unquoted = claim.current.trim() === "" && !!kept && confidence !== "confirmed" && bankedSources.length > 0 && bankedSources.every((b) => b.says.trim() === "");
-  return bank({ ...base, proposed: kept, literal: v.literal?.trim() || null, usage: v.usage?.trim() || null,
+  return { ...base, proposed: kept, literal: v.literal?.trim() || null, usage: v.usage?.trim() || null,
     sources: bankedSources, sourceReadAt: supporters[0]?.readAt ?? null, agreement, confidence, verdict: v.verdict,
-    note: `${v.note ?? ""}${supporters.length > 0 ? "" : " No fetched passage carries a quote it relied on, so this is held below confirmed."}${unquoted ? " Every passage fetched here was searched and the passage behind this answer was not found." : ""}${readNotCarrying ? ` ${supporters.length} ${supporters.length === 1 ? "source was" : "sources were"} read and none of them carries the wording proposed here, so no source is named as standing behind it.` : ""}${dropped.length > 0 ? ` ${dropped.length} quoted ${dropped.length === 1 ? "source was" : "sources were"} set aside for being about a different subject or language than this page's.` : ""}${carried || confidence === "unsupported" ? "" : blocked ? ` Held below confirmed: ${blocked}.` : " The wording proposed here is not carried by the verified quote, so it is held below confirmed until a source says it."}`.trim() });
+    note: `${v.note ?? ""}${supporters.length > 0 ? "" : " No fetched passage carries a quote it relied on, so this is held below confirmed."}${unquoted ? " Every passage fetched here was searched and the passage behind this answer was not found." : ""}${readNotCarrying ? ` ${supporters.length} ${supporters.length === 1 ? "source was" : "sources were"} read and none of them carries the wording proposed here, so no source is named as standing behind it.` : ""}${dropped.length > 0 ? ` ${dropped.length} quoted ${dropped.length === 1 ? "source was" : "sources were"} set aside for being about a different subject or language than this page's.` : ""}${carried || confidence === "unsupported" ? "" : blocked ? ` Held below confirmed: ${blocked}.` : " The wording proposed here is not carried by the verified quote, so it is held below confirmed until a source says it."}`.trim() }; };
+  let result = await judge();
+  if ("status" in result) return result;
+  // A readable named page is not settled evidence until the existing support contract accepts it.
+  if (!searched && attempted.size < FETCH_PER_CLAIM && !(result.current && result.confidence === "confirmed" && result.verdict === "page_correct")
+    && authorizedCorrections([result], page.prospective ? undefined : { pageContentHash: hash, evidenceBasis: d.basis, body: page.body }, tenantId).length === 0) {
+    const before = passages.length, stopped = alternative && !attempted.has(alternative) ? await readNamed(alternative) : await search();
+    if (stopped) return stopped;
+    if (!searched && passages.length === before) return fail("fetch_unavailable", cursor, "the alternative source returned no readable words, so this claim is still owed", next.statementKey);
+    if (passages.length > before) result = await judge();
+  }
+  return "status" in result ? result : bank(result);
 }
 
 type FactCheckPassDeps = {
@@ -446,7 +448,7 @@ type FactCheckPassDeps = {
   /** The lease, re-earned before every attempt: money is about to be spent under it. */
   renew?: () => Promise<boolean>;
   read: StructuredRead;
-  structured?: (subject: string) => boolean; searchSources: (query: string) => Promise<SearchAnswer>; warmSearch?: (query: string) => void; /** The page a requirement named as already carrying its proposition, read first by the unit that reaches that claim. */ rival?: { subject: string; url: string };
+  structured?: (subject: string) => boolean; searchSources: (query: string) => Promise<SearchAnswer>; warmSearch?: (query: string) => void; /** Sources nominated for this proposition, reused before search. */ rival?: { subject: string; url: string; urls?: string[] };
   fetchSource: NonNullable<FactCheckUnitDeps["fetchSource"]>;
   readCoverage: (page: string) => Promise<InventoryCoverage | null>;
   writeCoverage: (page: string, cov: InventoryCoverage) => Promise<boolean>;};
@@ -487,7 +489,6 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
       if (out.status === "done" || out.cursor?.pageComplete) { if (!held.some((h) => h.page === page.path && setAside.has(h.statementKey))) pagesComplete += 1; break; }}}
   // AN ACCOUNT WITH NO STORED PAGE WORDS OWES NOTHING HERE. Reading that as a failure would pause a fresh
   // account at this phase for ever, now that it runs ahead of the crawl that fills the store.
-  // AND A PASS THAT OPENED NO PAGE SAYS WHY (live 04:32Z on 2026-09-03): a drive whose walk had already spent the clock handed the units a deadline that had passed, they broke out before the first page, and the receipt read "no stored page words to check yet" of an account holding hundreds. An empty store and a spent box are different facts and the row now carries the one that happened.
   if (opened === 0) return attempts >= ATTEMPTS_PER_PASS || Date.now() >= d.deadlineAt
     ? { status: "failed", banked: 0, bankedPages: [], pagesComplete: 0, attempts, failure: "lease_exhausted" as const, reason: "the drive's time box ended before the check began" }
     : { status: "done", banked: 0, bankedPages: [], pagesComplete: 0, attempts, reason: "no stored page words to check yet" };

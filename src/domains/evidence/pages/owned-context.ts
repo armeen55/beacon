@@ -55,8 +55,7 @@ const MAX_PAGE_CHARS = 48_000;
 const CRAWL_CARDS = 20;
 /** The crawler's whole-page ceiling. A body_text that reached it was cut, so the read is partial. */
 const CRAWL_BODY_TEXT_CHARS = 100_000;
-/** What this reader takes from ONE row before the ceiling decides, deliberately far above what the crawler
- *  writes, so the CEILING is the real bound and the crawler's caps are only evidence. */
+/** Legacy samples remain bounded; complete captures are bounded by held characters, not section count. */
 const MAX_PASSAGES = 200, MAX_PASSAGE_CHARS = 1_000;
 const MAX_OPENING_CHARS = 1200, MAX_OPENING_PARAGRAPHS = 8;
 const MAX_TITLE_CHARS = 200, MAX_META_CHARS = 320, MAX_ITEM_CHARS = 300;
@@ -84,7 +83,7 @@ function passagesOf(full: string, row: Row, capture: PageSnapshot["content_captu
     if (s.level > 0 && s.heading) out.push({ id: `${key}${n > 1 ? `~${n}` : ""}#0`, heading: s.heading, text: s.heading });
     for (const [i, text] of parts(s.text).entries()) out.push({ id: `${key}${n > 1 ? `~${n}` : ""}#${i + 1}`, heading: s.heading, text });
   }
-  return out.slice(0, MAX_PASSAGES);
+  return out;
 }
 const cap = (value: unknown, chars: number): string | null => { const s = typeof value === "string" ? value.trim() : ""; return s ? s.slice(0, chars) : null; };
 const items = (value: unknown, max: number, chars: number): string[] => (Array.isArray(value) ? value : []).map((x) => cap(x, chars)).filter((x): x is string => !!x).slice(0, max);

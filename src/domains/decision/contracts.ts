@@ -341,7 +341,7 @@ const ObligationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("draft") }), z.object({ kind: z.literal("sections"), owed: z.number().int().nonnegative() }),
   z.object({ kind: z.literal("redraft"), attempt: z.number().int().min(1), instruction: z.string().min(1) }),
   z.object({ kind: z.literal("evidence"), need: z.object({ kind: z.enum(["serp", "page_source", "competitor_page", "factual_source", "semantic_review"]),
-    finding: FindingSchema.optional(), query: z.string(), url: z.string().optional(), reasonCode: z.string().min(1), missingTopic: z.string().optional(), topic: z.object({ key: z.string().regex(/^topic:.+/), label: z.string().min(1) }).optional(), rivalUrl: z.string().optional(), proposalId: z.string().optional(), unlocks: z.object({ proposalId: z.string().min(1), step: z.enum(["draft", "sections", "redraft", "review", "settle"]) }).optional() }) }),
+    finding: FindingSchema.optional(), query: z.string(), url: z.string().optional(), reasonCode: z.string().min(1), missingTopic: z.string().optional(), topic: z.object({ key: z.string().regex(/^topic:.+/), label: z.string().min(1) }).optional(), rivalUrl: z.string().optional(), rivalUrls: z.array(z.string()).optional(), proposalId: z.string().optional(), unlocks: z.object({ proposalId: z.string().min(1), step: z.enum(["draft", "sections", "redraft", "review", "settle"]) }).optional() }) }),
   z.object({ kind: z.literal("review") }), z.object({ kind: z.literal("operator"), decision: z.literal("safety_confirmation") }),
   z.object({ kind: z.literal("terminal"), reason: z.string().min(1) })]) as z.ZodType<Obligation>;
 const KIND_SCHEMA = z.enum(["title", "meta", "h1", "opening_answer", "section", "internal_links", "source_pack",

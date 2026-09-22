@@ -1,9 +1,4 @@
-/** THE HARNESS WORLD: one in-memory account, one clock the caller advances, one scripted transport. It exists so the whole research-to-content sequence
- *  runs inside ONE test cycle instead of one half-hour scheduler tick per step, and so a failure branch is discovered beside the branch it competes with.
- *  Nothing here is a second runtime: every phase body, store and gate under test is the REAL one, reached through the seams production already exposes
- *  (setResearchRunRepoForTests, setAccountRepositoryForTests, the Supabase admin client, and the global fetch every provider transport resolves to).
- *  The account is `acct-fixture` on `example-site.test`; the rows, results pages and winners are captured production inputs with the account's identity
- *  replaced (tests/fixtures/harness). */
+/** In-memory account, clock and scripted transport around real production phases/stores. Fixtures replace account identity; scripted model approvals do not prove live copy quality. */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { reportingDay } from "@/lib/reporting-day";
@@ -12,38 +7,29 @@ export const T = "acct-fixture";
 export const SITE = "example-site.test";
 const FIX = join(process.cwd(), "tests", "fixtures", "harness");
 export const fixture = <V>(name: string): V => JSON.parse(readFileSync(join(FIX, name), "utf8")) as V;
-/** ONE reading of one search as the funnel banks it. */
 export type FixtureSerp = { query: string; status: string; source: string; cacheKey?: string; observedAt?: string; organic?: unknown[] };
-/** ONE winning page as the funnel banks it: an extract carrying words is a reading, an extract with none is a row banked before the reading existed. */
 export type FixtureWinner = { url: string; domain: string; appearances?: { query?: string }[]; extract?: { mainText?: string | null; truncated?: boolean | null } | null; readOutcome?: { state?: string; retryAfter?: string } | null };
-/** THE CLOCK THE DRIVES SHARE. Every step reads it, so advancing it here is what "a later drive" means. It starts at the process's own now because several
- *  steps bound themselves on the wall clock directly, and a drive whose `now` sat hours behind that reads its own time box as already spent. */
+/** Start at wall time because production deadlines use it; advance explicitly between simulated drives. */
 export const clock = { ms: Date.now() };
 export const now = (): Date => new Date(clock.ms);
 export const advance = (ms: number): number => (clock.ms += ms);
-/** The reporting day the shared clock stands in, which is the day every run key and every day memory is keyed on. The harness used to key its seeded runs on
- *  the UTC date, so from five in the afternoon Pacific every drive closed its pass as "a day that has ended" and nothing under test ever ran. */
 export const today = (): string => reportingDay(clock.ms);
-/** WHAT LEFT THIS PROCESS AND WHAT IT COST. `requests` is every scripted transport call in order; `paidUsd` is what the money path actually reserved,
- *  so a cache hit and a real request are told apart by the meter and by the attempt, never by a claim. */
+/** Scripted transport attempts and reservations, not real provider spending. */
 export const meter = { requests: [] as { kind: "search" | "reasoning" | "page"; url: string; at: number }[], paidUsd: 0, reserved: [] as number[], /** Every answer served from the store without a request, by the endpoint it belongs to. */ hits: [] as string[], /** The status this script answered each search request with. */ answered: [] as string[] };
 export const requestsOf = (kind: "search" | "reasoning" | "page"): number => meter.requests.filter((r) => r.kind === kind).length;
-/** The tables the real steps read and write. A table nobody seeds answers as an honest empty one. */
 export const tables = new Map<string, Row[]>();
 export const table = (name: string): Row[] => { if (!tables.has(name)) tables.set(name, []); return tables.get(name)!; };
 /** Spend is account-wide in production, but every receipt keeps its platform. Tests asking whether DataForSEO charged must never accidentally count an OpenAI editor call. */
 export const spentOn = (platform: string): number => table("spend_reservations")
   .filter((r) => r.platform === platform && !["released", "failed"].includes(String(r.state)))
   .reduce((sum, r) => sum + Number(r.state === "reconciled" ? r.actual_usd ?? r.estimated_usd ?? 0 : r.estimated_usd ?? 0), 0);
-/** PURE. PostgREST's json-path projection, which several readers here depend on: `alias:state->a->b` and `alias:state->>a`. Returning the column instead
- *  of the path is how a fake tells a reader "nothing on file" for a row that holds plenty. */
+/** PostgREST JSON-path projection, including aliases and text extraction. */
 function jsonPath(row: Row, path: string): unknown {
   const [head, ...rest] = path.split(/->>?/);
   let v: unknown = row[head!.trim()];
   for (const seg of rest) { if (v == null || typeof v !== "object") return null; v = (v as Row)[seg.trim()]; }
   return v ?? null;
 }
-/** The projection one SELECT asked for, applied. `*` and an empty list hand back the whole row. */
 function project(row: Row, cols: string): Row {
   const want = cols.trim();
   if (!want || want === "*") return { ...row };
@@ -56,8 +42,7 @@ function project(row: Row, cols: string): Row {
   }
   return out;
 }
-/** The in-memory Postgres the real stores run over: filters, ordering, paging, insert, update, upsert, delete, plus `maybeSingle` and the json-path
- *  projection above. It is deliberately one engine over `tables`, so a write one step makes is the row the next step reads. */
+/** Shared fake PostgREST state: writes from one production step are visible to the next. */
 export function client(): Record<string, unknown> {
   const from = (name: string) => {
     const tests: ((r: Row) => boolean)[] = [];
@@ -338,8 +323,7 @@ export function runRepo(): unknown {
   };
 }
 
-/** THE CONFIRMED BUSINESS TRUTH the funnel refuses to research without: three operator-confirmed lists, generic and account-shaped, so the basis resolves
- *  and keyword discovery does not stop at its own door. */
+/** Confirmed business-profile fixture required by research admission. */
 const confirmed = <V>(value: V) => ({ value, origin: "operator_confirmed", confidence: null, sourceUrls: [] });
 const profileRow = (): Row => ({ id: T, data: {
   accountId: T, schemaVersion: 2, updatedAt: "2026-01-01T00:00:00.000Z",
@@ -368,8 +352,7 @@ export function seedResearchState(basis: string, over: Partial<Record<"serps" | 
   return row;
 }
 
-/** THE ACCOUNT'S OWN SEARCH HISTORY, in the shape the three aggregate functions return it: what each page earns now, what it earned before, and the
- *  searches behind both. It is what makes a stalled hub row a demand-recovery opportunity rather than an idea. */
+/** Current and preceding page/query performance in the aggregate readers' shape. */
 export function seedSearchHistory(pages: readonly { path: string; query: string; clicksNow?: number; clicksPrior?: number }[]): void {
   for (const p of pages) {
     const url = `https://${SITE}${p.path}`, now = p.clicksNow ?? 6, prior = p.clicksPrior ?? 90;
@@ -387,9 +370,7 @@ export function seedOwnedPages(pages: readonly { path: string; title: string; h1
     content_hash: `hash-${p.path}`, extraction_certainty: "confirmed" });
 }
 
-/** PURE. The smallest value that satisfies one strict JSON Schema, with named fields overridden. The gateway sends the schema it wants back on every request,
- *  so a scripted answer never has to hand-copy a shape that can drift: what the harness supplies is the WORDS the doors read, and the shape comes from the
- *  contract itself. `by` is keyed on property name, so "after" or "reason" can carry a real sentence wherever it appears. */
+/** Minimal schema-shaped scripted value; `by` overrides named properties. */
 /** The words a scripted answer carries where the caller named none: long enough for a minimum-length rule, plain enough to carry no claim. */
 const FILLER = "This sentence stands in for words a writer would supply.";
 function valueFromSchema(schema: unknown, by: Record<string, unknown> = {}, name = ""): unknown {
@@ -409,9 +390,7 @@ function valueFromSchema(schema: unknown, by: Record<string, unknown> = {}, name
   return FILLER.repeat(Math.ceil(Math.max(min, 1) / FILLER.length)).slice(0, Math.max(min, Math.min(max, FILLER.length)));
 }
 
-/** ONE REASONING ANSWER, in the envelope the canonical gateway reads. `byKind` is keyed on the schema name the request carries; a kind mapped to `null`
- *  answers `incomplete`, which is a real provider outcome and never a fabricated draft. Anything else is built from the request's OWN schema with the
- *  caller's words filled in, so the writer, the reviewer and the fact judge each get a schema-valid answer carrying the sentences the doors read. */
+/** Scripted gateway envelope keyed by schema name; null simulates an incomplete response. */
 export function reasoningReply(byKind: Record<string, Record<string, unknown> | null>, body: unknown): { status?: number; body: unknown } {
   const req = body as { text?: { format?: { name?: unknown; schema?: unknown } } };
   const kind = String(req?.text?.format?.name ?? "");
@@ -425,16 +404,14 @@ export function reasoningReply(byKind: Record<string, Record<string, unknown> | 
 /** EVERY REASONING CALL THIS ARM MADE, in order, with the request that was sent: an arm can then ask what the writer was handed and whether the reading of those words saw the same material. */
 export const reasoningAsked: { kind: string; ask: string }[] = [];
 
-/** THE WORDS THE WRITER HANDS BACK FOR THE HUB ROW, in the shape the canonical editor accepts: an opening that answers the search outright, one claim per assertion, and every claim naming an id
- *  the packet really carries. It is a script and never a bypass: the same deterministic contract, the same evaluator and the same per-claim ruling read these words as they read production's. */
+/** Scripted hub answer using packet IDs; real deterministic delivery checks still run. */
 const HUB_BODY = ["Iran has produced writers, athletes and performers whose work travelled far beyond its borders.", "The poets section lists three poets with a short line on each.", "The athletes section lists wrestlers and weightlifters who won world titles.", "The actors section lists screen performers who worked at home and abroad.", "Each entry gives a name, a period and one sentence about why the person is remembered."]; /* the opening passage the writer replaces: every sentence of it survives verbatim behind the new opening, and the writer's ledger says so unit by unit, exactly as the per-unit preservation contract demands of production copy */
 export const WRITER = { field: "answer_block", before: null, naturalHeading: "Who the widely known Iranians are", placementId: "", implementationMinutes: 15, preservation: HUB_BODY.map((text) => ({ text, disposition: "kept" as const })),
   rationale: "The first lines never say who the search is about, so the answer is stated before the sections that hold the names.",
   after: `Iran's widely known figures fall into three groups of people: poets, athletes and screen actors. ${HUB_BODY.join(" ")}`, // the new opening states the answer once; the page's own sentences that already carry the detail follow it unchanged
   claims: [{ text: "Poets, athletes and screen actors are the three kinds of people named.", supportedBy: ["page-heading-2", "page-heading-3", "page-heading-4"] },
     { text: "The athletes are wrestlers and weightlifters who won world titles, and the actors worked on screen at home and abroad.", supportedBy: ["page-copy-1"] }] };
-/** THE READING OF THOSE WORDS, one ruling per claim by the index the evaluator is shown. A judge that says yes is still the REAL judge: what it may say is fixed by the schema the gateway sends, and
- *  every deterministic gate in front of it has already run on this same copy. */
+/** Scripted positive per-claim rulings; these verify pipeline wiring, not model judgement. */
 export const JUDGE = { pageFit: true, usefulAndNatural: true, placementCorrect: true, resolvesDiagnosis: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, contested: false,
   claims: [0, 1].map((i) => ({ i, by: WRITER.claims[i]!.supportedBy, entailed: true })), notes: "The first lines now name who the search is about before the sections that hold the names.", resolution: "none", preservation: HUB_BODY.map((text) => ({ text, disposition: "kept" as const, verified: true, reason: "The sentence survives verbatim behind the new opening.", after: text, by: [], to: null })) }; // one VERIFIED ruling per original unit the reviewer is shown, in the exact shape the acceptance schema fixes
 /** THE SECTION FAMILY, scripted to the same contract (Stage 3, 2026-09-14): the heading every winner carries and this page lacks, one checked reading behind it under fact-1, and the page's own words under page-copy-1. The judge rules both claims exactly, contests nothing, and owes no preservation ruling because the section replaces nothing. */

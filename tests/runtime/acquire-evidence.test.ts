@@ -96,7 +96,7 @@ describe("acquireEvidence is exhaustive over the requirement union", () => {
       search: "vellum binding", topic: "Repair methods", rival: "https://ref-vellum.example/vellum-binding", found: "https://found-vellum.example/repairs",
       says: "Repair methods for vellum binding begin by humidifying the skin and pressing the board flat again." },
   ] as const;
-  const world = async (s: typeof SITES[number], source: string, rivalText: string | null, prospective = false, stale = false) => {
+  const world = async (s: typeof SITES[number], source: string, rivalText: string | null, prospective = false, stale = false, rivalUrls?: string[]) => {
     vi.resetModules(); const raw: Record<string, unknown>[] = [], reads: string[] = [], asked: string[] = [], ownedReads: string[] = [];
     const body = [s.title, s.h1, s.body].join("\n"), TEXT: Record<string, string> = { [s.found]: s.says, ...(rivalText == null ? {} : { [s.rival]: rivalText }) };
     const { supabaseFake } = await import("../helpers/supabase-fake");
@@ -109,7 +109,7 @@ describe("acquireEvidence is exhaustive over the requirement union", () => {
     vi.doMock("@/domains/decision/llm/structured-drafter", async (a) => ({ ...(await a<Record<string, unknown>>()), callStructuredLLM: async (i: { kind: string; user: string }) => {
       asked.push(`${i.kind} ${i.user}`); return { status: "drafted", value: i.kind === "fact_claim_extraction" ? { statements: [] } : { verdict: "page_correct", proposed: s.says, confidence: "likely", note: "", supporting: [{ url: source, quote: s.says }], subjects: [{ url: source, sameEntity: true, language: "English", script: null, why: "the source addresses this topic" }] } }; } }));
     const { defaultSteps: steps } = await import("@/domains/runtime/ops/research-steps"), facts = await import("@/domains/evidence/pages/fact-checks");
-    const need: EvidenceRequirement & { workKey: string } = { kind: "factual_source", reasonCode: "missing_information", query: `${s.topic} ${s.search}`, ...(prospective ? { topic: { key: `topic:${s.search}`, label: s.search }, missingTopic: `${s.search} ${s.topic}` } : { url: `https://${s.host}${s.path}`, missingTopic: s.topic }), rivalUrl: s.rival, workKey: "test-work" };
+    const need: EvidenceRequirement & { workKey: string } = { kind: "factual_source", reasonCode: "missing_information", query: `${s.topic} ${s.search}`, ...(prospective ? { topic: { key: `topic:${s.search}`, label: s.search }, missingTopic: `${s.search} ${s.topic}` } : { url: `https://${s.host}${s.path}`, missingTopic: s.topic }), rivalUrl: s.rival, rivalUrls, workKey: "test-work" };
     const got = await steps.acquireEvidence(s.t, need, "b1", 120_000), ROWS = await facts.readFactChecks(s.t);
     const done = () => { for (const m of ["@/lib/persistence/supabase", "@/domains/evidence/pages/fact-checks", "@/domains/evidence/snapshot-loader", "@/domains/evidence/pages/owned-context", "@/domains/evidence/dataforseo/capabilities", "@/domains/decision/llm/structured-drafter"]) vi.doUnmock(m); vi.resetModules(); };
     return { got, ROWS, raw, reads, asked, ownedReads, need, steps, facts, done };
@@ -141,10 +141,10 @@ describe("acquireEvidence is exhaustive over the requirement union", () => {
       "and the answer is banked as a checked statement quoted from that page, with that page named as the source standing behind it").toEqual(["checked", s.says, [[s.rival, s.says, true]]]);
     expect([w.got.acquired, w.got.unlocked], "so the obligation the money was spent on is met on this one acquisition").toEqual([true, true]);
     w.done(); });
-  it.each(SITES)("falls back to the search when the page the requirement named cannot be read, and banks what the search found [$t]", async (s) => {
-    const w = await world(s, s.found, null); // the named page answers with no words at all, which is the shape a blocked or empty parse takes
+  it.each(SITES.flatMap((s) => [false, true].map((nominated) => ({ ...s, nominated }))))("banks an alternative when the first named page is unreadable, using named URLs before search [$t, nominated=$nominated]", async (s) => {
+    const w = await world(s, s.found, null, false, false, s.nominated ? [s.rival, s.found] : undefined);
     const row = w.ROWS[0] as { state: string; proposed: string | null; sources: { url: string }[] };
-    expect(w.reads, "the named page is tried first, and only its silence pays for a search and the reading of what that search found; the search it then buys carries the page's own subject and the missing one, with the frame's repeated words folded away").toEqual([`onpage_content_parsing ${s.rival}`, `serp_organic ${s.title} ${s.topic}`, `onpage_content_parsing ${s.found}`]);
+    expect(w.reads, "named candidates are reused before a proposition-specific search is bought").toEqual([`onpage_content_parsing ${s.rival}`, ...(s.nominated ? [] : [`serp_organic ${s.title} ${s.topic}`]), `onpage_content_parsing ${s.found}`]);
     expect([row.state, row.proposed, row.sources.map((x) => x.url), w.got.acquired, w.got.unlocked],
       "and the statement stands on the source the search found, exactly as it did before any page was ever named").toEqual(["checked", s.says, [s.found], true, true]);
     w.done(); });

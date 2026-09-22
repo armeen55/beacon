@@ -109,14 +109,14 @@ describe("the gap reader is exact, fail-closed and metered", () => {
     net.answer = { status: "refused" };
     expect(await ask(), "an unruled reader moves nothing").toBeNull(); });
   it("hands a fan-out its parent-linked source words without giving AI prose factual authority", async () => {
-    net.body = page(); net.answer = drafted({ kind: "missing_information", evidenceIds: ["source-1"], missing: "the meanings of the items" });
+    net.body = page(); net.answer = drafted({ kind: "missing_information", evidenceIds: ["source-1", "source-2"], missing: "the meanings of the items" });
     const packet = research(), external = packet.winningPages[0]!;
-    packet.winningPages.push({ ...external, url: "https://unrelated.example/no", appearances: [{ ...external.appearances[0]!, promptText: "unrelated question" }], extract: { ...external.extract, mainText: "UNRELATED SECRET CONTENT" } });
+    packet.winningPages.push({ ...external, url: "https://second.example/a", domain: "second.example" }, { ...external, url: "https://unrelated.example/no", appearances: [{ ...external.appearances[0]!, promptText: "unrelated question" }], extract: { ...external.extract, mainText: "UNRELATED SECRET CONTENT" } });
     const first = await ask({ caseKey: "fanout:table", query: "table items meanings", queries: ["what is on the table"], passages: [], research: packet });
-    expect(first).toMatchObject({ kind: "missing_information", evidenceIds: ["source-1"] });
+    expect(first).toMatchObject({ kind: "missing_information", evidenceIds: ["source-1", "source-2"] });
     expect(net.user).toContain(external.extract.mainText); expect(net.user).not.toContain("UNRELATED SECRET CONTENT");
     expect(AI_CASE_COPY.gateOf(first)).toMatchObject({ hire: false });
-    expect(AI_CASE_COPY.sourceDebt(first!, "table items meanings", OWN.url, "p")).toMatchObject({ obligation: { need: { rivalUrl: RIVAL.url } } });
+    expect(AI_CASE_COPY.sourceDebt(first!, "table items meanings", OWN.url, "p")).toMatchObject({ obligation: { need: { rivalUrl: RIVAL.url, rivalUrls: [RIVAL.url, "https://second.example/a"] } } });
     net.answer = drafted({ kind: "missing_information", evidenceIds: ["ans-1"], missing: "the meanings" });
     expect(await ask(), "an AI answer alone cannot support the proposition even beside a real source").toBeNull();
   });

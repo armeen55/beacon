@@ -105,14 +105,29 @@ describe("a missing proposition is researched, never graded", () => { beforeEach
     expect([await run((judge.supporting = [{ url: FLAG, quote: PARA }], `${JUDGED} A standard was fixed in 1910. The proportions were set at three to five. ${CARRIES}`)), await run(`${JUDGED} A standard was fixed in 1910. The proportions were set at three to five. ${CARRIES}`, { current: "The flag has three colours." })], "AND A NAMED SOURCE WHOSE QUOTE IS A PARAPHRASE STILL HELD THE ANSWER (live 19:00 PDT): the judge answered the question correctly and paraphrased the History sentence into its quote, both named sources failed the verbatim test, and the selection only ran for a source that already had a verified quote, so the row that held the answer banked two empty sources and stayed a finding. The passage the judge READ is searched, the sentence that carries the proposal is banked, and an encyclopedia carrier confirms it. A correction is untouched: its failed quote still banks nothing at all").toEqual([[CARRIES, true, "confirmed"], ["", undefined, "likely"]]);
     const A = "Before 1979 the flag of Iran was a tricolour of green, white and red.", B = "It was charged at the center with the Lion and Sun emblem, and it remained in use until the 1979 Islamic Revolution."; // P15. THE WINDOW IS A SLICE OF THE DOCUMENT, NOT AN ASSEMBLY OF ITS SENTENCES: a heading line carries no terminator, so it matched no sentence at all and `join(" ")` closed the gap over it, and the quote on the receipt, and the span the artifact claimed, were two sentences the source never wrote side by side.
     const HEADED = `The current flag was adopted in 1980.\nHistory of the national flag\n${A}\nThe emblem\n${B}`, headed = String((await run((judge.supporting = [{ url: FLAG, quote: PARA }], HEADED)))[0]); expect([HEADED.includes(headed), headed === `${A} ${B}`, headed.includes("The emblem"), headed.length <= 600], "every banked quote is a verbatim substring of the passage this fetch read: the heading between the two flag sentences travels with them instead of disappearing under a space the document never wrote, and the 600-character bound still holds").toEqual([true, false, true, true]); });
-  it("sources that cannot support the missing statement leave it typed debt, never invented copy", async () => {
+  it.each(["first", "named fallback", "search fallback", "unsupported", "empty", "held"])("settles nominated evidence once: %s", async (mode) => {
     db.cov = { pageContentHash: pageHashOf(PAGE.body), coveredChars: PAGE.body.length, totalChars: PAGE.body.length };
-    const missing = row({ statementKey: "missing#2", subject: "Average rug knot density in Kerman", current: "", pageLocator: "missing" });
-    const out = await unit({ held: [missing], read: reader({ claims: { statements: [] },
-      judge: { verdict: "undecidable", proposed: "", confidence: "unsupported", note: "nothing relevant", supporting: [] } }) });
-    expect(out.status).toBe("advanced");
-    const banked = db.rows.find((r) => r.statementKey === "missing#2")!; expect([banked.confidence, banked.proposed]).toEqual(["unsupported", null]); }); });
+    const subject = "What is the average rug knot density in Kerman?", quote = "Kerman rugs have an average knot density of 200 knots per square inch.", primary = "https://example.org/rugs", authority = "https://museum.edu/rugs";
+    const missing = row({ statementKey: "missing#2", subject, current: "", pageLocator: "missing" }), fetched: string[] = [];
+    const search = vi.fn(async () => mode === "held" ? { hold: "capped" as const } : { organic: mode === "empty" ? [] : [{ domain: "example.org", url: primary }, { domain: "museum.edu", url: authority }] });
+    const judge = vi.fn(async (input: { user: string }) => ({ value: input.user.includes(quote) ? { verdict: "page_correct", proposed: quote, confidence: "confirmed", supporting: [{ url: mode === "first" ? primary : authority, quote }], subjects: [{ url: mode === "first" ? primary : authority, sameEntity: true, language: "English", script: null, why: "rug density" }] } : { verdict: "undecidable", proposed: "", confidence: "unsupported", supporting: [] } }));
+    const seam = { statementKey: missing.statementKey, rival: { subject, url: primary, urls: mode === "named fallback" ? [primary, PAGE.url, "https://reddit.com/r/rugs", "https://example.org/another", authority] : [] }, read: judge, searchSources: search,
+      fetchSource: async (url: string) => { fetched.push(url); return { text: mode === "first" || (url === authority && mode !== "unsupported") ? quote : "The museum is closed on Mondays." }; } };
+    const out = await unit({ held: [missing], ...seam }), success = ["first", "named fallback", "search fallback"].includes(mode);
+    expect([out.status, fetched, search.mock.calls.length, judge.mock.calls.length]).toEqual([mode === "held" ? "failed" : "advanced", mode === "first" || mode === "held" || mode === "empty" ? [primary] : [primary, authority], mode === "first" || mode === "named fallback" ? 0 : 1, mode === "first" || mode === "held" || mode === "empty" ? 1 : 2]);
+    if (mode === "held") { expect([out.failure, db.rows.length]).toEqual(["search_capped", 0]); return; }
+    const banked = db.rows[0] as FactCheck;
+    expect([banked.state, banked.proposed, banked.sources.length]).toEqual(["checked", success ? quote : null, fetched.length]);
+    expect(banked.confidence).toBe(success ? mode === "first" ? "likely" : "confirmed" : "unsupported");
+    const again = await unit({ held: [banked], ...seam });
+    expect([again.status, db.rows.length, fetched.length, judge.mock.calls.length]).toEqual(["done", 1, mode === "first" || mode === "empty" ? 1 : 2, mode === "first" || mode === "empty" ? 1 : 2]);
+  }); });
 describe("every failure is typed and leaves the claim owed", () => { beforeEach(reset);
+  it.each(["fetch", "judge"])("a named-source %s hold stops before fallback spending", async (stage) => {
+    const search = vi.fn(), fetch = vi.fn(async () => stage === "fetch" ? { hold: "capped" as const } : { text: PASSAGE }), judge = vi.fn(async () => ({ hold: "capped" as const }));
+    const out = await unit({ held: [row({ statementKey: "k1" })], statementKey: "k1", rival: { subject: "Afsaneh", url: "https://example.org/x", urls: ["https://museum.edu/x"] }, searchSources: search, fetchSource: fetch, read: judge });
+    expect([out.failure, fetch.mock.calls.length, judge.mock.calls.length, search.mock.calls.length, db.rows.length]).toEqual([stage === "fetch" ? "fetch_capped" : "judge_capped", 1, stage === "fetch" ? 0 : 1, 0, 0]);
+  });
   it("a failed source read leaves the row OWED, never checked", async () => {
     const out = await unit({ held: [row({ statementKey: "k1" })], fetchSource: async () => ({ hold: "capped" }) }); // sources found, reading them refused
     expect([out.status, out.failure, out.cursor?.checked, db.rows.length]).toEqual(["failed", "fetch_capped", 0, 0]); }); // unread evidence never clears a claim

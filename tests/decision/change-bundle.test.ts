@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import * as proposalValidation from "@/domains/decision/validate-proposal";
 import { publicationDraft } from "../helpers/publication-draft"; import { COPY_RULES } from "@/domains/decision/copy-sanitize";
 import { componentIdOf, receiptComposition, type BundleComponent, type BundleComponentKind, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
 import { naturalAnchorOf, placementCandidatesOf, reviewFinishedCopy, writerKindOf } from "@/domains/decision/drafted-copy"; import { confirmedVersion, deliverableGaps, finishedWorkCovers, openHold, preferFinished } from "@/domains/decision/completeness"; import { applyDraftedCopy, deliverableFailures, draftFieldForPage, staleCopyReasons, withoutCta } from "@/domains/decision/drafted-copy"; // acceptDeliverable went internal: imported here for years and never called
@@ -623,7 +624,6 @@ ${P3}
 - Jeegareto bokhoram: affection for loved ones; literally I want to eat your liver.
 - Moosh bokhoradet: affection for children; literally may a mouse eat you.
 - Pedar sag: playful insult between close friends; literally dog father.` };
-    /** THE FIXTURE EDITOR RULES ON THE CLAIMS IT WAS HANDED, naming each claim's own ids: a coarse yes is no longer an answer the store may trust. */
     const rulesOn = (d: { claims: readonly { supportedBy: readonly string[] }[] }) => d.claims.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true }));
     const OKJ = { pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" };
     const NEED = FIXTURE_GAP.payload.missing, drive = (value: Record<string, unknown>, body = BODY, judge?: unknown, facts?: Record<string, string>) => draftFieldForPage({ field: "answer_block" as const, body: body as never, query: "funny persian phrases meanings", ...(facts ? { facts } : {}), checked: [checkedAnswer("/funny-farsi-phrases", body, NEED, ANSWER)], informationNeed: { question: NEED, requiredAtomKeys: [claimIdentity(NEED, "", "missing")], polarity: "supports", voice: "publisher", deliveryMode: "headed" },
@@ -1266,7 +1266,6 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
     const b = plan([BUNDLE], { candidates: 5 }); expect([DRAFT_BUDGET.BUNDLE_CALLS, b.funded[0]!.calls, b.take("/bundle")!.left]).toEqual([12, 12, 12]); });
   it("funds the whole ranked line and lets the strongest work spend a tight ceiling in rank order, so one expensive bundle cannot starve higher-value small changes and nothing is refused for calls the pass never made", () => {
     expect(plan([BUNDLE, ...SMALLS], { candidates: 5, calls: 40 }).funded.map((f) => f.key)).toEqual(["/bundle", "/a", "/b", "/c", "/d"]); // impact orders the line: the 60-impact bundle leads and everything still fits in forty
-    // AND A TIGHT CEILING REFUSES NOBODY IN ADVANCE (production receipts, 2026-09-04): reserving each job's first round declined thirty-four ranked candidates against money the drive never spent. The whole line is funded, the strongest work SPENDS the eleven calls in rank order, and the jobs the money never reaches draw nothing.
     const tight = plan([BUNDLE, ...SMALLS], { candidates: 5, calls: 11 }); let spent = 0; for (const f of tight.funded) { const s = tight.draw(f.key, DRAFT_BUDGET.DELIVERABLE_CALLS); while (s && s.left > 0) { s.left -= 1; spent += 1; } }
     expect([tight.funded.map((f) => f.key), tight.declined.map((d) => d.reason), spent]).toEqual([["/bundle", "/a", "/b", "/c", "/d"], [], 11]);});
   it("never lets the families together exceed the pass ceiling, however many jobs it funds and however hard each one draws", () => { const b = DRAFT_BUDGET.plan({ jobs: Array.from({ length: 50 }, (_, i) => job(`/p${i}`, "field_draft", 50 - i)), candidates: 50, calls: 7 }); let spent = 0; const whole = b.draw(b.funded[0]!.key, DRAFT_BUDGET.DELIVERABLE_CALLS)!.left;
@@ -1327,13 +1326,13 @@ describe("typed refusal contract", () => { // ── the typed refusal contract:
       complete: async () => ({ value: publicationDraft(draft) }) } as never);
     expect(owed).toEqual([{ key: "/funny-farsi-phrases::body::funny persian phrases", kind: "serp", reasonCode: "no_exact_serp" }]); // the smallest correct step, as DATA the runtime executes, keyed to the MUTATION that owes it (the money keys by mutation now, so two changes on one page each carry their own debt)
     expect(out[0]!.status).toBe("needs_review"); }); // and the card stays visible, owed, unsettled: acquisition reopens it, never a blind retry
-  it("a gain refusal resolves to the rival-identified missing topic, an unrelated fact never satisfies it, and the banked fact reaches the next draft as citable evidence", async () => {
+  it.each([false, true])("preserves missing-topic acquisition and exact source identity through Ready, query-scoped AEO: %s", async (aeo) => {
     const { GAIN } = await import("@/domains/decision/draft-resolution");
     const { canonicalUrlKey: ck5 } = await import("@/domains/evidence/snapshot");
     const PAGE_URL = "https://www.iranopedia.com/persian-female-first-names";
     const body = { url: PAGE_URL, title: "Persian Female Names", h1: "Persian Female Names", metaDescription: null, vocabulary: "", completeness: "complete", version: "current",
       headings: ["Classic names"], passages: ["Classic names", "Darya and Afsaneh are classic Persian names for girls, each carrying its own meaning in everyday use."] };
-    const page = { url: PAGE_URL, content: { wordCount: 300, title: body.title, h1: body.h1, outline: body.headings }, search: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } };
+    const page = { url: PAGE_URL, content: { wordCount: 300, title: body.title, h1: body.h1, outline: body.headings }, search: { clicks90d: 20, impressions90d: 900, ctr90d: 20 / 900, position90d: 8, topQueries: [{ query: "darya meaning", clicks: 20, impressions: 900, position: 8 }] }, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } };
     const rival = { url: "https://rival.example/persian-girl-names", domain: "rival.example", engines: [], examplePrompts: [], appearances: [{ query: "persian girl names" }],
       extract: { title: "Persian Girl Names", h1: null, wordCount: 3000, headings: ["Classic names", "Pronunciation guide for parents"], faqCount: 0, entityNames: [], openingSample: "", mainText: "Families in the north keep an older list and add to it with each generation.", hasList: true } };
     const research = { serpEvidence: [{ query: "persian girl names", organic: [{ rank: 1, url: rival.url }] }], winningPages: [rival] };
@@ -1350,15 +1349,16 @@ describe("typed refusal contract", () => { // ── the typed refusal contract:
     const answered = [...unrelated, { subject: "Pronunciation guide for parents", state: "checked" }];
     expect(GAIN.resolution("none", snapshot as never, card, page as never, body as never, answered).need?.missingTopic).toBeUndefined();
     bodyStore.map = new Map([[ck5(PAGE_URL), body]]);
-    const { MISSING_ANSWER_RULES_VERSION: RULES } = await import("@/domains/evidence/pages/fact-checks"); // a question the page does not answer is judged under rules of its own, and a row still carrying 4 is not current evidence
-    const { pageHashOf: hashOf } = await import("@/domains/evidence/pages/fact-check-run");
-    const bodyHash = hashOf([body.title, body.h1, ...body.headings, ...body.passages].filter(Boolean).join("\n"));
-    const FACT = { page: "/persian-female-first-names", statementKey: claimIdentity("Pronunciation guide for parents", "", "missing"), subject: "Pronunciation guide for parents",
-      current: "", proposed: "Most classic Persian girls' names are pronounced with even stress, so Darya is dar-YAH and Afsaneh is af-sah-NEH.",
-      literal: null, usage: null, sources: [{ url: "https://en.wiktionary.org/x", kind: "dictionary", says: "dar-YAH" }],
-      agreement: "single_source", confidence: "confirmed", verdict: "page_correct", alsoAt: [], note: "",
-      pageContentHash: bodyHash, pageLocator: "missing", sourceReadAt: NOW.toISOString(), state: "checked", rulesVersion: RULES, evidenceBasis: null, checkedAt: NOW.toISOString() };
-    factStore.rows = [FACT]; const NEW_COPY = "Most classic Persian girls' names are pronounced with even stress. Darya is pronounced dar-YAH. Afsaneh is pronounced af-sah-NEH. These pronunciations help parents say each name aloud."; // NO SUPERLATIVE THE FACT DOES NOT CARRY (campaign, 2026-09-05): this closed "from the first try", and "the first" was grounded only by the ASSIGNMENT's own instruction to open in the first sentence, which the canon no longer reads as evidence
+    const FACT = { ...checkedAnswer("/persian-female-first-names", body, "Pronunciation guide for parents",
+      "Most classic Persian girls' names are pronounced with even stress, so Darya is dar-YAH and Afsaneh is af-sah-NEH."),
+      sources: [{ url: "https://en.wiktionary.org/x", kind: "dictionary", says: "dar-YAH" }] };
+    if (aeo) {
+      card.id += `@${card.primaryQuery}`; card.factIdentity = FACT.statementKey;
+      card.causeFinding!.payload = { cause: "retrieved_not_cited", engine: "chatgpt", promptText: card.primaryQuery, aeoKind: "missing_information", missing: FACT.subject };
+    }
+    const other = checkedAnswer(card.pagePath!, body, "Darya meaning", "Darya means sea.");
+    factStore.rows = aeo ? [other, FACT] : [FACT]; const NEW_COPY = "Most classic Persian girls' names are pronounced with even stress. Darya is pronounced dar-YAH. Afsaneh is pronounced af-sah-NEH. These pronunciations help parents say each name aloud.";
+    const canon = vi.spyOn(proposalValidation, "validateProposal");
     const seen: string[] = []; const out2 = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never,
       judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ claims: d.claims.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })), pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" })) as never,
       budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/persian-female-first-names", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
@@ -1367,6 +1367,7 @@ describe("typed refusal contract", () => { // ── the typed refusal contract:
     expect(seen.join(" ")).toContain(JSON.stringify("Most classic Persian girls' names are pronounced with even stress, so Darya is dar-YAH and Afsaneh is af-sah-NEH. This is about \"Pronunciation guide for parents\".").slice(1, -1)); // the researched fact reached the writer as citable evidence
     expect(seen.join(" ")).toContain("rival-1"); // the rival stayed briefing beside it
     expect(out2[0]!.status).toBe("ready"); const done = out2[0]!; // THE READING REACHES THE FINISHED ROW, bound to the completed proposal and carrying the editor's own mapping, so the one canonical gate has something to trust instead of holding substantive work it just approved.
+    expect(canon.mock.calls.flatMap(([, context]) => context?.sources ?? []).map((s) => s.url)).toEqual([FACT.sources[0]!.url]); canon.mockRestore();
     expect(done.semanticReview!.of, "bound to the finished proposal, not a draft").toBe(copyKey(done));
     expect(done.semanticReview!.version).toBe(REVIEW_CONTRACT);
     expect(done.semanticReview!.claims).toEqual(done.claims!.map((c, i) => ({ i, by: [...c.supportedBy].sort(), entailed: true })));

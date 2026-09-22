@@ -37,9 +37,10 @@ const halfWritten = (s: (typeof SITES)[number]): ChangeProposal => ({
 beforeEach(() => { db.state.rows = []; });
 
 describe("a settlement nobody read the winners for, at the door that writes it", () => {
-  it.each(SITES)("$t: the ladder itself turns the stored settlement into the owed reading", (s) => {
-    const settled = row(s, { winnersOnFile: "unread", obligation: { kind: "terminal", reason: "no substantive gap named" } });
-    expect(nextObligation(settled)).toEqual({ kind: "evidence", need: { kind: "competitor_page", query: s.q, reasonCode: "no_winner_to_read" } });
+  it.each(SITES)("$t: source candidates survive the real proposal store intact", async (s) => {
+    const need = { kind: "factual_source" as const, query: s.q, missingTopic: s.topic, reasonCode: "source_support_unconfirmed", rivalUrl: "https://first.example/a", rivalUrls: ["https://first.example/a", "https://second.example/b"] };
+    const owed = row(s, { obligation: { kind: "evidence", need } });
+    expect(await saveChangeProposal(owed)).toBe("saved"); expect((await loadChangeProposals(s.t)).get(owed.id)?.obligation).toEqual({ kind: "evidence", need });
   });
 
   it.each(SITES)("$t: and the store writes that owed reading onto the row rather than re-stamping the settlement", async (s) => {
