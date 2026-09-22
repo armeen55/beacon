@@ -22,7 +22,7 @@ const EVIDENCE_GROUP: Record<BundleEvidenceItem["kind"], string> = {
   internal_link: "Links across your own site",
 };
 const EVIDENCE_ORDER = Object.keys(EVIDENCE_GROUP) as BundleEvidenceItem["kind"][];
-const canFinish = (p: ChangeProposal): boolean => p.status === "needs_review" && ["draft", "redraft", "review"].includes(nextObligation(p)?.kind ?? "");
+const canFinish = (p: ChangeProposal): boolean => p.recommendedChange.kind === "existing_edit" && p.status === "needs_review" && ["draft", "redraft", "review", "evidence"].includes(nextObligation(p)?.kind ?? "");
 
 function seenLabel(observedAt: string | null): string {
   const day = monthDayLabel(observedAt);
@@ -74,12 +74,9 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
   const facts = new Map(bundle.receipt.items.map((i) => [i.key, i]));
   const chips = [...bundle.scope.queries, ...bundle.scope.prompts];
   const isNew = proposal.kind === "new_page", livePageHref = operatorUiPolicy.livePageHref(proposal.pageUrl);
-  // A direct link obeys the same servability verdict as the queue: only ready work can be copied or recorded.
   const held = proposal.status !== "ready" ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet."
     : unsettledCause(proposal); // the first defect of the one verdict, typed faults included (journey review, 2026-09-06): `blocking` restated by a second name
-  // A settled page move can be confirmed beside its consequences; defective copy cannot be promoted here.
   const confirmable = proposal.status === "needs_review" && dangerousComponents(bundle.components).length > 0 && deliverableGaps(proposal).length === 0 && unsettledCause(proposal) == null ? confirmedVersion(proposal) : null;
-  // First occurrence wins so evidence is not repeated across the decision and investigation layers.
   const seen = new Set<string>();
   fresh(seen, [bundle.objective, proposal.whyItMatters]); // the head of the page says these first, so nothing repeats them
   const cited = bundle.components.map((c) => c.evidenceKeys.flatMap((key) => {
@@ -88,7 +85,6 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
   }));
   const reasons = fresh(seen, bundle.confidenceReasons);
   const checked = EVIDENCE_ORDER
-    // THE DATE IS NOT THE FACT. A receipt line that came through with nothing written on it still carried its reading date, so it printed a bullet saying "(checked Aug 10)" and nothing else.
     .map((kind) => ({ kind, items: bundle.receipt.items.filter((i) => i.kind === kind && i.fact.trim().length > 0)
       .flatMap((item) => fresh(seen, [`${item.fact}${seenLabel(item.observedAt)}`]).map((text) => ({ text, readings: item.kind === "ai_observation" ? [...(item.observationIds ?? []), ...(item.observationId ? [item.observationId] : [])] : [], sources: item.sources }))) }))
     .filter((g) => g.items.length > 0);
@@ -198,12 +194,11 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
           newPage={isNew}
           components={bundle.components.map((c, i) => ({ id: componentIdOf(c, i), kind: c.kind, label: c.label,
             ...(c.derivation ? { dependsOn: c.derivation.dependsOn.map((dependency) => dependency.componentId) } : {}),
-            // Era-tolerant, exactly as the server matches: a piece recorded before its copy joined its name still shows as recorded.
             moves: dangerousComponents([c]).length > 0, recorded: [...recorded].some((r) => sameComponentId(r, componentIdOf(c, i))) }))}
         />}
         {held ? null : <p className="text-[12px] text-muted-foreground">After you make it, the page is checked and the measurement starts from what is found.</p>}
         {confirmable ? <ConfirmDangerous proposalId={proposal.id} version={confirmable} /> : null}
-        <SetAsideChange proposalId={proposal.id} finishable={canFinish(proposal) && !confirmable} />
+        <SetAsideChange proposalId={proposal.id} finishable={canFinish(proposal) && !confirmable} prepare={nextObligation(proposal)?.kind !== "review"} />
       </section>
     </div>
   );
@@ -226,11 +221,8 @@ function weightWord(contribution: number, max: number): string {
 function Investigation({ proposal, seen }: { proposal: ChangeProposal; seen: Set<string> }) {
   const finding = proposal.causeFinding;
   const receipt = proposal.rankingReceipt;
-  // What was read to get here is the same evidence the sections above already printed more often than not, and an empty hint printed a bullet with nothing beside it.
   const hints = fresh(seen, proposal.evidence?.hints ?? []);
   const factors = (receipt?.factors ?? []).filter((f) => (f.input ?? "").trim().length > 0);
-  // AN EXPANDER PROMISES REASONING. With neither a cause nor a ranking receipt there is none, and
-  // the hints alone are the same evidence line the card above already carries, so opening "Show me how you worked this out" landed on one repeated sentence. No reasoning, no expander.
   if (!finding && !receipt) return null;
   return (
     <details className="rounded-2xl border border-border bg-surface-raised p-5" data-investigation="true">
@@ -304,11 +296,8 @@ function ComponentCard({
   position: number;
   total: number; pageUrl?: string | null;
 }) {
-  // Where it lands, what it achieves, why it works and the sources still owed all ride the row and render here.
   const plan: [string, string | undefined][] = [["Where it goes", component.where], ["What it does", component.objective], ["Why it works", component.mechanism]];
   const pack = component.sourcePack ?? null;
-  // A MERGE, A FORWARD, A CANONICAL OR A DE-INDEX IS THE ONE CHANGE A SENTENCE CANNOT TAKE BACK. Where it sends people, what survives it, what it drops and how to reverse it belong on the screen BEFORE the
-  // operator confirms it, and every line is held on the change itself, never worked out afterwards.
   const moves = dangerousComponents([component]).length > 0;
   const to = component.redirectTo;
   const copyable = operatorUiPolicy.isPasteableComponent(component);
@@ -406,7 +395,6 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
     : unsettledCause(proposal); // the SAME one verdict the list lanes by, so a direct link can never out-offer the queue
   const shownSteps = research && after && !(steps[0] ?? "").startsWith(after.slice(0, 25)) ? [after, ...steps] : steps;
   const checks = proposal.evidence?.hints ?? [];
-  // TWO THINGS THE RENDERED APP CAUGHT ON 2026-09-05. A HEADLINE THAT CARRIES AN ADDRESS IS THE WRITER'S BRIEF, NOT THE CUSTOMER'S SENTENCE: the detail led with "Write a real description on /iran-flags/parthian-empire-flag: 7 pages share one templated line", a file name printed at the operator above the very address it names. AND BEACON'S OWN OBJECTIONS ARE NOT THE OPERATOR'S CAVEATS: the same row printed "its copy carries no record of what it stands on" under Keep in mind, which names an internal record and no next step; the hold this page already computed names those sentences, so no second vocabulary decides it here.
   const brief = (proposal.opportunityType || "").trim().replace(/_/g, " "), edit = proposal.recommendedChange, caveats = cardCaveats(proposal, hold1.caveats), tried = proposal.previousCopy, livePageHref = operatorUiPolicy.livePageHref(proposal.pageUrl); // THE HOLD ANSWERS BOTH HALVES (measured, 2026-09-05): filtering the row's raw limitations against the hold's reasons alone still served "its copy carries no record of what it stands on" on /california-persian-cities/fremont, the one sentence that verdict had just DISPROVED from the row's own claims and support facts. What a person should keep in mind is now the same function's answer, so no gate sentence reaches a customer as their own caveat and the typed fault and the obligation still say what is owed.
   const action = (/(^|\s)\//.test(brief) ? "" : brief) || (edit.kind === "new_page" ? `Build a new page that answers "${proposal.primaryQuery}"` : `Update the ${({ title: "page title", meta: "meta description", h1: "page headline", answer_block: "answer at the top of the page", section: "section", schema: "structured data" } as Record<string, string>)[edit.field] ?? "page"} to sharpen it for "${proposal.primaryQuery}"`); // never the bland shrug: the operator reads the page name and then what is being done to it
   return (
@@ -460,7 +448,7 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
       {held && !research ? <p className="text-[13px] leading-relaxed text-foreground" data-held-reason="true">{held}{waitingOn(proposal) ?? ""}</p> : null}
       <div className="flex flex-wrap items-center gap-3">
         {research || held ? null : <MarkImplemented proposalId={proposal.id} />}
-        <SetAsideChange proposalId={proposal.id} finishable={canFinish(proposal)} />
+        <SetAsideChange proposalId={proposal.id} finishable={canFinish(proposal)} prepare={nextObligation(proposal)?.kind !== "review"} />
       </div>
     </div>
   );

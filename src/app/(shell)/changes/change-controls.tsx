@@ -150,7 +150,7 @@ export function CopyButton({ text, units, link = null, label, onToast }: { text:
 /** "Skip" is the operator's own dismissal, with the consequence stated before they press it. The
  *  store then refuses to re-draft the same change until the evidence itself moves. The LIST owns the
  *  optimistic version of this control; this two-step one is what the detail page asks. */
-export function SetAsideChange({ proposalId, finishable = false }: { proposalId: string; finishable?: boolean }) {
+export function SetAsideChange({ proposalId, finishable = false, prepare = false }: { proposalId: string; finishable?: boolean; prepare?: boolean }) {
   const [pending, startTransition] = useTransition();
   const [state, setState] = useState<{ done: boolean; asked: boolean; finished: string | null; error: string | null }>({ done: false, asked: false, finished: null, error: null });
 
@@ -166,13 +166,13 @@ export function SetAsideChange({ proposalId, finishable = false }: { proposalId:
     return (
       <div className="flex flex-wrap items-center gap-3">
         {finishable ? <button type="button" disabled={pending} data-finish-one="true"
-          onClick={() => startTransition(async () => { const res = await finishOneProposalAction({ proposalId }).catch(() => null);
+          onClick={() => startTransition(async () => { const res = await finishOneProposalAction({ proposalId, ...(prepare ? { prepare: true } : {}) }).catch(() => null);
             setState((s) => ({ ...s, finished: res?.success ? res.note ?? "Finished. This change is ready to copy." : null,
               error: res?.success ? null : res?.error ?? "This change could not be finished just now." })); })}
           className="min-h-11 rounded-md bg-accent-primary px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-60">
-          {pending ? "Finishing this one…" : "Finish this one"}
+          {pending ? "Preparing the change…" : prepare ? "Prepare best edit on this page" : "Finish this one"}
         </button> : null}
-        {finishable ? <span className="text-[12px] text-muted-foreground">Free page and evidence checks run first. Only if they pass: one OpenAI review, capped at $0.05. DataForSEO $0. Research stays paused.</span> : null}
+        {finishable ? <span className="text-[12px] text-muted-foreground">{prepare ? "One attempt for this page. Reuses saved evidence; up to $2 OpenAI and $0.40 DataForSEO. Unfinished work stays saved, never presented as ready. Research stays paused." : "Free page and evidence checks run first. Only if they pass: one OpenAI review, capped at $0.05. DataForSEO $0. Research stays paused."}</span> : null}
         <button type="button" data-set-aside="true" onClick={() => setState((s) => ({ ...s, asked: true, error: null }))}
           className="inline-flex min-h-11 items-center text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">Skip</button>
         {state.error ? <span className="text-[12px] text-red-500">{state.error}</span> : null}

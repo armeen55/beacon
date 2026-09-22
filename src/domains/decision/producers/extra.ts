@@ -17,14 +17,9 @@ import { RECEIPT } from "../diagnose";
 import { demandOf, placementCandidatesOf, winnersAgreeOn } from "../drafted-copy";
 import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { selectPageVersion } from "@/domains/evidence/pages/page-version";
-// THE SHARED PRIMITIVES live in page-fit now: two producers answer "which page of this account is this search
-// FOR" and one copy of that answer is the whole point of the split.
 import { count, labelOf, mint, pathOf, plain,
   STOREFRONT, subjectWords, type Draft, type Understanding } from "./page-fit";
 
-// WHAT ONLY THIS FILE USES STAYS IN THIS FILE. The split exists so two producers share ONE answer to "which
-// page is this search for"; everything else moving with it would have made page-fit a drawer and widened the
-// public surface for nothing.
 /** Past MAX_HEADING_WORDS a heading is a paragraph wrapped in a heading tag, saying nothing about what it answers. */
 const MAX_HEADING_WORDS = 12;
 /** A page worth linking to sits inside striking distance and is genuinely being seen. No count meter (operator, 2026-08-30, "i dont want any limits"): every page with the defect gets its card; the evidence floors stay the only quality gates. */
@@ -63,22 +58,17 @@ function recoverableClicks(p: OwnedPageEvidence, expectedCtrAt: (position: numbe
 /** How many links one source page may donate in one pass: distinct destinations, each its own card and footprint. */
 const LINKS_PER_SOURCE = 3;
 async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: ReadonlySet<string>, u: Understanding, expectedCtrAt: (position: number) => number, bodies: ReadonlyMap<string, OwnedPageBody>): Promise<{ drafts: Draft[]; complete: boolean }> {
-  // A READ THAT THREW IS NOT A SITE WITH NO LINKS. Swallowed, it returned the same empty list as a linkless site, this producer still reported FINISHED, and the sweep then withdrew every internal_link card on file for a database blip. The failure is carried out instead of flattened.
   const graphs = await getRepository().forTenant(tenantId).getPageSnapshotLinkGraphs().catch(() => null);
   if (graphs == null) return { drafts: [], complete: false };
   if (graphs.length === 0) return { drafts: [], complete: true };
-  // ONE RULE FOR WHICH CAPTURE IS THE PAGE (pages/page-version): a blank newest capture carries no links, and it used to stand for the page.
   const graphsByKey = new Map<string, typeof graphs>();
   for (const g of graphs) { const key = canonicalUrlKey(g.url); graphsByKey.set(key, [...(graphsByKey.get(key) ?? []), g]); }
   const linksByPage = new Map<string, Set<string>>();
   for (const [key, group] of graphsByKey) { const v = selectPageVersion(group, (g) => ({ fetchedAt: g.fetched_at ?? null, words: g.word_count ?? g.internal_links.length, bodyHeld: Array.isArray(g.internal_links), certainty: g.extraction_certainty ?? null })); if (v.content) linksByPage.set(key, new Set(v.content.internal_links.map((l) => pathOf(l.href).toLowerCase()))); }
-  // WHAT EACH PAGE IS HELD UP BY, off the same graph: how many pages point at it today. That is the link's purpose said as a number the operator can check, rather than as link equity.
   const inbound = new Map<string, number>();
   for (const links of linksByPage.values()) for (const to of links) inbound.set(to, (inbound.get(to) ?? 0) + 1);
   const strongest = pages.filter((p) => linksByPage.has(canonicalUrlKey(p.url)) && clicksOf(p) > 0 && !STOREFRONT.test(pathOf(p.url))).sort((a, b) => clicksOf(b) - clicksOf(a)); // the source-page meter is DELETED (operator, 2026-08-30): every read page with clicks may donate a link, same anchor and fit gates; a shop page donates none, its rails are not prose
-  // THE PLACEMENT IS THE GATE (operator, 2026-09-01): a link is a sentence on the source page that already talks about the destination's subject, so the source's stored PROSE is what is read, furniture excluded. Headings and rails put every flag's name on every flag page and the fit said yes to all of them.
   const nearMiss = pages.flatMap((p) => {
-    // THE SEARCH BECOMES THE WORDS ON THE LINK, so a search that is not words never qualifies: an operator like "site:" is never anchor text, a dictionary ask ("hyena in farsi") earns a line on its own page, and a question is a sentence nobody links with; anchors are the noun phrase the destination is FOR.
     const q = (p.search?.topQueries ?? []).filter((q) => !/[:/@]|^https?/i.test(q.query)
       && !/^(what|how|why|when|where|who|which|is|are|can|do|does)\b/i.test(q.query)
       && !/\bin (farsi|persian|english)\b/i.test(q.query) && q.position != null && q.position >= NEAR_MISS_MIN
@@ -90,13 +80,11 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
     const links = linksByPage.get(canonicalUrlKey(from.url))!;
     const spots = placementCandidatesOf(bodies.get(canonicalUrlKey(from.url)) ?? null, 500).filter((c) => c.kind === "sentence").map((c) => new Set(subjectWords(c.exactText, weak)));
     const own = new Set(subjectWords(`${from.content?.title ?? ""} ${from.content?.h1 ?? ""}`, weak)); // the source's own subject: a word both pages are about ("flag", "empire") places nothing
-    // DOWNHILL ONLY: the source must out-earn the destination, or the link asks the weaker page to lift the stronger one. THE WORDS ON THE LINK MUST BE WHAT THE DESTINATION IS FOR, and BOTH ENDS MUST BE READ AND SAY FITS: an unread pair, or an unsettled verdict, holds the card with its reason.
     const belongs = async (to: OwnedPageEvidence, anchor: string): Promise<boolean> => {
       const [dest, src] = [await u.of(to), await u.of(from)];
       for (const [page, read] of [[to, dest], [from, src]] as const) {
         if (!read.job) { u.hold(page.url, `${read.reason} for the link "${anchor}"`); return false; } }
       return linkFit(dest.job, src.job, subjectWords(anchor, weak), u.corpus) === "fits"; };
-    // TWO WORDS OF THE DESTINATION'S SUBJECT ON THE SOURCE PAGE, NEVER ONE (operator, 2026-09-01): one shared word is a coincidence, and "caspian" on a names page sent a link to a horse breed. SEVERAL LINKS PER SOURCE: every destination that fits is its own card, its own footprint and its own worth.
     const targets: { page: OwnedPageEvidence; query: OwnedQuerySignal }[] = [];
     for (const t of nearMiss) {
       if (targets.length >= LINKS_PER_SOURCE) break;
@@ -107,7 +95,6 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
     }
     for (const target of targets) {
     const to = pathOf(target.page.url), position = target.query.position!.toFixed(1);
-    // THE LINK'S OWN WORTH: the clicks the destination is leaving behind at the position it holds for this search, and that search's audience. Never the source page's whole audience.
     const gain = Math.round((expectedCtrAt(target.query.position!) - Math.min(1, target.query.clicks / Math.max(1, target.query.impressions))) * target.query.impressions * TO_28_DAYS);
     const held = inbound.get(to.toLowerCase()) ?? 0, dest = labelOf(target.page), support = held === 0 ? `No page of this site links to ${dest} at all today`
       : `Only ${count(held, "page")} of this site ${held === 1 ? "links" : "link"} to ${dest} today`; /* the page by its name, never its address (operator walk, 2026-09-16) */
@@ -115,11 +102,9 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
       page: from, slug: `internal_link@${to}`, field: "section", query: target.query.query, linkTo: to, demand: target.query.impressions, impact: gain > 0 ? gain : null,
       headline: `A route to ${labelOf(target.page)} for readers searching "${target.query.query}"`, before: null,
       after: `Add one link in the body of ${pathOf(from.url)} pointing to ${to}, with the anchor text "${target.query.query}".`,
-      // THE LINK'S PURPOSE, OFF THE STORED GRAPH: what holds the destination up today, what the words on it tell Google that page is for, and why this source page is the one being asked to give it.
       why: `${support}, and that page sits at position ${position} on Google for "${target.query.query}", shown ${count(target.query.impressions, "time")} for ${count(target.query.clicks, "click")}. A link carrying the words of that search points Google at the page that already ranks for it. ${labelOf(from)} earns ${count(clicksOf(from), "click")} in 90 days against that page's ${count(clicksOf(target.page), "click")} and ${links.size === 0 ? "links to no other page of this site yet" : `already links to ${count(links.size, "page")} of this site, none of them ${dest}`}, so the help runs from the page that can spare it to the page that needs it.`,
       steps: [`Open the site editor on ${pathOf(from.url)}`, `Add a link to ${to} inside the body copy, not the menu`, `Use "${target.query.query}" as the anchor text`, "Mark it done here and the position gets read again"],
       hints: [links.size === 0 ? `${labelOf(from)} links to no other page of this site yet` : `${labelOf(from)} links to ${count(links.size, "page")} of this site and none of them is ${dest}`, `${support}, counted across every page of this site read so far`, `${dest} ranks at position ${position} on Google for "${target.query.query}", shown ${count(target.query.impressions, "time")} in Search Console`, `${labelOf(from)} earns ${count(clicksOf(from), "click")} in the last 90 days`],
-      // Every page whose stored link graph was read for the counts above, plus the destination's own search row.
       minutes: 5, confidence: "medium", refs: linksByPage.size + 1,
       limitation: "The link list comes from the last stored read of this page, so a link added since then is not counted here.", cause: structural("internal_link_weakness", "section", [RECEIPT.copy, RECEIPT.gsc], `${support}, and it sits at position ${position} for "${target.query.query}", so nothing on this site sends a reader from ${labelOf(from)} to the page already ranking for that search.`, `If a link from ${pathOf(from.url)} to ${to} is found the next time this page's links are read, nothing is missing here.`),
     }); }
@@ -132,7 +117,6 @@ const structural = (cause: CauseFinding["cause"], action: CauseFinding["action"]
 function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, expectedCtrAt: (position: number) => number): Draft[] {
   const impressions = (p: OwnedPageEvidence): number => p.search?.impressions90d ?? 0; /** A ZERO SUPPRESSES THE CLAUSE THAT RANKS IT (rendered app, 2026-09-05). A live description read "20 pages carry the same templated description ... and /california-persian-cities/berkeley is the busiest of them at 0 impressions in 90 days", which calls a page the busiest and then prints the figure that says it is not. A superlative is a claim about a figure, so where the figure is zero the claim is dropped and the sentence that survives is the one the evidence carries. */ const ranked = (p: OwnedPageEvidence): string => impressions(p) > 0 ? `, and ${pathOf(p.url)} is the busiest of them at ${count(impressions(p), "impression")} in 90 days` : "";
   const rank = (list: OwnedPageEvidence[]): OwnedPageEvidence[] => [...list].sort((a, b) => impressions(b) - impressions(a) || pathOf(a.url).localeCompare(pathOf(b.url)));
-  // ONE ROW PER PAGE, not per address that reaches it. The address a read landed on decides which is which, so retired slugs never accuse the page they forward to of duplicating itself.
   const byIdentity = new Map<string, OwnedPageEvidence>();
   for (const p of all) { const key = identityOf(p); if (!byIdentity.has(key) || canonicalUrlKey(p.url) === key) byIdentity.set(key, p); }
   const pages = [...byIdentity.values()];
@@ -149,7 +133,6 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     page: p, slug: "missing_description", field: "meta", query: topQueryOf(p),
     headline: "A search description of this page's own, where Google is writing one for it today", before: null,
     after: "Write a description of about 150 characters that names this page's subject and the one answer it gives, and ends on a fact about the page rather than an instruction to read it.",
-    // A COUNT IS NOT AN ARGUMENT UNTIL IT IS BIG ENOUGH TO BE ONE. "3 views in 90 days, so that line is read a lot" was printed on a live card: the sentence was welded to the figure and stayed true only while the figure was large. It says what the figure actually shows now, and a small one says it is small.
     why: `${pathOf(p.url)} carries no description, so the line under its title in the results is Google's own writing. It was shown ${count(impressions(p), "time")} and earned ${count(clicksOf(p), "click")} in 90 days, ${impressions(p) >= 1000 ? "so that line is read a lot" : "so it is a small page today and this is a small fix"}.`,
     steps: [`Open the site editor on ${pathOf(p.url)}`, "Paste a description of about 150 characters", "Mark it done here and the click rate gets read again"],
     hints: [`${pathOf(p.url)} holds no description of its own`, `${pathOf(p.url)} earns ${count(impressions(p), "impression")} and ${count(clicksOf(p), "click")} in 90 days`, `${count(noMeta.length, "page")} with content stored carry no description`],
@@ -157,7 +140,6 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     limitation: "Read off the last stored copy of this page, so a description added since that read is not counted here.", cause: structural("ctr_snippet", "meta", [RECEIPT.copy, RECEIPT.gsc], `${pathOf(p.url)} carries no description of its own, so the line under its title in the results is Google's writing rather than this page's.`, `If a description of its own is found on ${pathOf(p.url)} the next time its copy is read, nothing is missing here.`),
   });
 
-  // A TEMPLATED DESCRIPTION IS A MISSING ONE WEARING WORDS: strip each page's own name out of its meta and what is left, when five or more pages share it, is one boilerplate line stamped across a template. Busiest first.
   const boilerplate = new Map<string, OwnedPageEvidence[]>();
   for (const p of pages) {
     const meta = (p.content?.metaDescription ?? "").trim().toLowerCase();
@@ -197,7 +179,6 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     });
   }
 
-  // A THIN CARD MUST CARRY THE EARNED SHAPE, not a word count. With no stored results page for this page's biggest search there is no outline to hand over, and "add 1,200 words" is a risk dressed as advice.
   const winnersOnFile = (p: OwnedPageEvidence): boolean => {
     const head = [...(p.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0]?.query;
     const s = head != null ? (snapshot.research?.serpEvidence ?? []).find((e) => canonicalQueryKey(e.query) === canonicalQueryKey(head) && (e.organic ?? []).length > 0) : null;
@@ -205,13 +186,6 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     const subject = new Set(topicTokens(`${p.content?.title ?? ""} ${p.content?.h1 ?? ""}`));
     return subject.size > 0 && (s.organic ?? []).filter((o) => topicTokens(o.title ?? "").some((t) => subject.has(t))).length >= 2;
   };
-  // A CONTENT GAP IS DIAGNOSED, NEVER COUNTED (operator, 2026-09-01). Word count authorized this card twice
-  // over: first a flat 200, then a demand-scaled floor, and both were the same mistake wearing different
-  // arithmetic, because a 150-word page can be complete and a 1,500-word page can miss the one question that
-  // matters. What authorizes an expansion now is a NAMED missing subject: a heading the pages winning this
-  // page's own head search agree on carrying, that this page's stored outline does not, with the demand and
-  // the stored results page as the evidence. The card names the exact subjects; "add N words" is gone.
-  // ONE COMPARISON DECIDES WHAT THIS PAGE HAS NO WORDS FOR (campaign review, 2026-09-05): a private word-overlap test stood here beside the older heading comparison, so two rules answered the same question and only one of them could tell a winner's chrome from its content. The typed comparison already asks it, of the page's own title, h1 and headings, and its answer is the one this producer mints on.
   const gapsOf = (p: OwnedPageEvidence): string[] => winnersAgreeOn(snapshot, p);
   const expandable = rank(pages.filter((p) => (p.content?.wordCount ?? 0) > 0 && impressions(p) > 0 && winnersOnFile(p)))
     .map((p) => ({ p, gaps: gapsOf(p) })).filter((x) => x.gaps.length > 0);
@@ -227,15 +201,10 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
       why: `${pathOf(p.url)} is shown ${count(impressions(p), "time")} in 90 days for "${topQueryOf(p)}", and every page winning that search covers ${named.map((g) => `"${g}"`).join(", ")} while this page's own headings do not.`,
       steps: [`Open the site editor on ${pathOf(p.url)}`, `Add a section covering ${named[0]}`, ...(named.length > 1 ? [`Cover the other named ${named.length === 2 ? "subject" : "subjects"} too: ${named.slice(1).join(", ")}`] : []), ...(stores ? [shopStep] : []), "Mark it done here and the impressions get read again"],
       hints: [`The winners of "${topQueryOf(p)}" agree on: ${named.join(", ")}`, `${pathOf(p.url)} is shown ${count(impressions(p), "time")} and earns ${count(clicksOf(p), "click")} in 90 days`, `${count(expandable.length, "page")} of the ${pages.length} stored pages are missing a subject their search's winners agree on`],
-      // This page's stored copy, its search row, and the stored results page the missing subjects came from.
       minutes: 30, confidence: "medium", refs: 3, impact: recoverableClicks(p, expectedCtrAt),
       limitation: "The missing subjects are read off the stored results page and the winners' own headings as last read; a subject added to the page since that read is not counted here.", cause: structural("incomplete_coverage", "section", [RECEIPT.copy, RECEIPT.pattern], `Every page winning "${topQueryOf(p)}" covers ${named.map((g) => `"${g}"`).join(", ")} and ${pathOf(p.url)} does not, on ${count(impressions(p), "impression")} in 90 days.`, `If ${pathOf(p.url)} is found covering ${named.map((g) => `"${g}"`).join(", ")} the next time its headings are read, nothing is missing here.`),
     });
   }
-  // A ZERO-WORD 200 IS AN UNREAD PAGE, NEVER A THIN ONE. A page built with javascript answers a raw fetch
-  // with a normal response and no readable words, so what it carries is UNKNOWN: judging it thin would be
-  // judging blindness, and skipping it silently hid the site's biggest pages. It gets a research card that
-  // names the rendered read as the next step, and no body-dependent change can stand on it until that lands.
   const unread = rank(pages.filter((p) => (p.content?.wordCount ?? 0) < READABLE_WORDS && impressions(p) > 0));
   for (const p of unread) {
     out.push({
@@ -278,7 +247,7 @@ function unansweredCards(snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[],
 /** Every extra card this account's stored evidence already supports, at `needs_review`, deduplicated against the queue it holds. Never throws: a source that will not read narrows the answer instead of failing the pass. */
 export async function extraQueueCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date;
   /** THE PASS'S AEO DIAGNOSIS PURSE. Absent means an UNFUNDED caller, so nothing is bought and every case stays owed. */
-  aeoDiagnoses?: number;
+  aeoDiagnoses?: number; focusPage?: string;
   /** THE BAR THIS ACCOUNT'S OWN SEARCHES ARE HELD TO, threaded from the pass that fitted it. Absent falls back to the industry table, a far more generous bar, so a caller that can fit one should. */
   curve?: Pick<TenantCtrCurve, "expectedCtrAt">;
   /** THE PASS'S PAGE-READING BUDGET, the second of the two named budgets a production pass owns. Handed in so the one paid read this file makes is counted where every other paid call is counted. */
@@ -298,34 +267,27 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   const meter: AeoMeter = aeoMeter(input.aeoDiagnoses ?? 0);
   const earned = new Map(pages.map((p) => [p.url, earnedWords(p, weak)]));
   const children = new Map(pages.map((p) => [pathOf(p.url), pages.filter((o) => o !== p && pathOf(o.url).startsWith(`${pathOf(p.url)}/`)).length]));
-  // WHAT THIS ACCOUNT ALREADY HOLDS, so a card never supersedes a change the strict path drafted for the same page and family, and an unreadable queue emits nothing rather than writing over work it cannot see. A ROW THIS PRODUCER MINTED ITSELF IS NOT SOMEBODY ELSE'S WORK: only a family held under ANOTHER id blocks.
   const [store, durableSeats] = await Promise.all([loadChangeProposals(tenantId), proposalSeats.loadProposalSeats(tenantId, pages.map((page) => pathOf(page.url)))]).catch(() => [null, null] as const);
   if (!store || !durableSeats) return { cards: [], complete: false, families: [], held: [], needsOwnPage: [] };
   const rows = [...store.values()];
   const seats = [...durableSeats, ...rows.map((row) => ({ id: row.id, mutationKey: footprintKey(row) }))];
   const taken = new Set(rows.flatMap((p) => [...mutationFootprint(p)]));
   const mine = new Set(rows.map((p) => p.id)); /* AND WHAT THOSE ROWS ALREADY WRITE, IN WORDS (production 02:30Z, 2026-09-06). The footprint above refuses a second card writing the same MUTATION, and two sections answering two phrasings of one question are two mutations, so a page holding a Ready sentence for "X before 1979" was given a second Ready change for "X before revolution" carrying that identical sentence. The words a live change would publish go to the gap reader, which asks whether they answer the next question behind the biggest one by the same rule it reads the page's own passages by. Body words only, decided by the footprint that is already the definition of what a change writes, and never a brief: a row whose copy field says its words are not written yet answers nothing. */ const written = new Map<string, { query: string; copy: string }[]>(); for (const r of rows) { const copy = r.researchOnly === true || ![...mutationFootprint(r)].some((k) => k.includes("::body::")) ? "" : [r.recommendedChange.kind === "existing_edit" ? r.recommendedChange.after : "", ...(r.bundle?.components ?? []).map((c) => c.after ?? "")].join(" ").trim(); if (!copy) continue; const at = (r.pagePath ?? "").trim().toLowerCase(); written.set(at, [...(written.get(at) ?? []), { query: r.primaryQuery ?? "", copy }]); }
-  // WHAT AN ESSAY MAY NEVER LAND ON is this file's rule, so this file decides which pages are worth reading.
   const eligible = pages.filter((p) => { const path = pathOf(p.url); return path !== "/" && !STOREFRONT.test(path); });
   const u = await pageUnderstanding(tenantId, eligible, { now, openPaths: new Set(rows.map((p) => (p.pagePath ?? "").toLowerCase())), ...(input.reads ? { reads: input.reads } : {}) });
   const bank: { query: string; refusedPages?: string[] }[] = [];
-  // ONE READING OF THIS ACCOUNT'S STORED WORDS AND CHECKED STATEMENTS, taken once and shared: the link placement gate asks which sentence on a page already speaks of a destination, and the demand gap asks whether the page's own body answers the search it earns. The reader pages its own queries, so this is the same read the sweep already takes of every held page.
   const misses = new Map<string, "no_capture" | "read_failed">(), bodies = await loadOwnedPageBodies(tenantId, pages.map((p) => p.url), misses).catch(() => { for (const p of pages) misses.set(canonicalUrlKey(p.url), "read_failed"); return new Map<string, OwnedPageBody>(); }); // WHY A PAGE HAS NO WORDS HERE, typed by the reader itself: a read that threw makes every page UNKNOWN rather than wordless, and an unknown page mints nothing at all
   const facts = new Map<string, FactCheck[]>(); for (const f of input.checked === null ? [] : input.checked ?? await readFactChecks(tenantId).catch(() => [])) facts.set(f.page, [...(facts.get(f.page) ?? []), f]);
   const links = await linkCards(tenantId, pages, weak, u, expectedCtrAt, bodies);
-  // THE STORED AI WINDOW, one lean read through the same projection Visibility renders; a failed read hands
-  // null through, and the staged producer then claims no recurrence it cannot show.
   const day = (d: Date): string => d.toISOString().slice(0, 10);
   const windowRows = await readAiObservations(tenantId, { fromDay: day(new Date(now.getTime() - 27 * 86_400_000)), toDay: day(now), slot: 0, projection: "fanout" }).catch(() => null);
   const windowObs = windowRows?.map((r) => canonicalPairOf(r)) ?? null;
-  // THE COMPLETE GOOGLE UNIVERSE, not the top-40 grain. Null = unknown, never no.
   const universe = await import("@/domains/evidence/readers/gsc-query-universe")
     .then((m) => m.loadGscQueryUniverse(tenantId, now)).catch(() => null);
-  const cases = await aiCaseCards(bank, snapshot, pages, weak, earned, children, u, tenantId, input.units ?? [], windowObs, now, input.persist !== false, meter, universe?.keys ?? null, written); // the words already on file for each page reach BOTH body producers, so one question a live change answers is refused a second card in one voice and not two
+  const cases = await aiCaseCards(bank, snapshot, pages, weak, earned, children, u, tenantId, input.units ?? [], windowObs, now, input.persist !== false, meter, universe?.keys ?? null, written, input.focusPage);
   const drafts = [...cases.drafts,
     ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt), ...unansweredCards(snapshot, pages, expectedCtrAt, { bodies, misses, facts, written, basis: input.basis ?? null, tenantId })]; // LAST, so an AI case about the same question keeps it: one question is one card
   const out: ChangeProposal[] = [];
-  // ONE QUESTION, ONE CARD: the answer an engine wrote and the follow-up search it ran to write it are one question, so only the strongest reading of it is filed.
   const answered = new Set<string>();
   for (const d of drafts) {
     const asks = "asked" in d && d.asked ? [canonicalQueryKey(d.query), canonicalQueryKey(d.asked)].filter(Boolean) : [];
@@ -340,11 +302,6 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
     seats.push({ id: card.id, mutationKey });
     out.push(card);
   }
-  // EACH FAMILY ANSWERS FOR ITS OWN SOURCE. A family whose evidence did not answer is left off this list, so the sweep behind this producer leaves its cards alone instead of retiring work nobody was able to re-read.
-  // `engine_followup` stays in the sweep with NO producer behind it on purpose: it is the one family this pass
-  // still owns and deliberately never emits, so the sweep withdraws every follow-up-search card already on file.
-  // AND THE AI FAMILY ANSWERS FOR ITS OWN RECORD TOO: a pass whose conclusions could not be filed has not
-  // rewritten this family in full, whatever it minted, so the sweep leaves the cards on file exactly alone.
   const families = [...(answersRead && cases.filed ? ["ai_answer_gap", "engine_followup"] : []), ...(links.complete ? ["internal_link"] : []), ...DEFECTS];
   if (families.length < DEFECTS.length + 3) log.warn("[extra] a source did not answer, so its families are held out of the sweep", { tenantId, families });
   log.info("[extra] the pass's AEO diagnosis purse", { tenantId, ...meter.spent(), refused: cases.hold.size });
@@ -353,7 +310,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
 
 /** THE ONE ENTRANCE FOR A PASS: loads the demand units once (both producers join the SAME audiences) and runs the $0 queue. The paid funnel's early return used to skip this producer entirely, so a paused quiet account never judged a single AI case (first canonical $0 acceptance run, 2026-08-21). */
 export async function extraQueuePass(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date;
-  curve?: Parameters<typeof extraQueueCards>[0]["curve"]; reads?: { left: number }; persist?: boolean; aeoDiagnoses?: number; basis?: string | null; checked?: readonly FactCheck[] | null }): Promise<{
+  curve?: Parameters<typeof extraQueueCards>[0]["curve"]; reads?: { left: number }; persist?: boolean; aeoDiagnoses?: number; focusPage?: string; basis?: string | null; checked?: readonly FactCheck[] | null }): Promise<{
   run: ExtraQueueRun; unitLoad: Awaited<ReturnType<typeof import("@/domains/evidence/demand-unit-loader")["loadCanonicalDemandUnits"]>> | null }> {
   const unitLoad = await import("@/domains/evidence/demand-unit-loader")
     .then((m) => m.loadCanonicalDemandUnits(input.tenantId, input.snapshot, input.curve, input.now)).catch(() => null);

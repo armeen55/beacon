@@ -4,6 +4,7 @@ import { isDataForSeoConfigured, monthlyCapUsd, runDataForSeoTransport } from ".
 import { resolveDeps } from "./default-deps";
 import { classifyPaidResponse, classifyTaskStatus } from "./status-contract";
 import { CREDIT_BREAKER } from "@/lib/cost/credit-breaker";
+import { PROOF_SPEND } from "@/lib/spend-scope";
 import { globalMonthlyCapUsd } from "@/lib/cost/cost-breaker";
 import type spendReservations from "@/lib/cost/spend-reservations";
 import type { CachedCallResult, FunnelBoundaryDeps, ProviderEnvelope } from "./funnel-boundary";
@@ -17,6 +18,7 @@ const LISTING_MEMO_MS = 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const FIRST_TASK_POLL_MS = 2 * 60 * 1000, MAX_TASK_POLL_MS = 6 * 60 * 60 * 1000, PROVIDER_TASK_MAX_MS = 72 * 60 * 60 * 1000;
 export type ResolvedCall = {
+  capability?: string;
   cacheKey: string; endpoint: string; endpointVersion: string; postPath: string;
   getPath: ((id: string) => string | null) | null; tasksReadyPath: string | null;
   publicInput: Record<string, unknown>; locationCode: number; languageCode: string;
@@ -117,7 +119,6 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     return projectStoredLiveResult(d, r, cacheKey, reservation.resultPayload,
       reservation.accountedUsd ?? reservation.estimatedUsd, now);
   }
-  // The atomic reservation is also the exact receipt inbox: replay outranks a breaker; only a new wire consults it.
   const verdict = await d.breaker(d.env, now, r.estCostUsd).catch(() => ({ tripped: true, reason: "global spend breaker unavailable, failing closed" }));
   if (verdict.tripped) { await d.spend.release(attemptId).catch(() => false); await releaseClaim(d, cacheKey, now, "capped"); return { state: "capped", cacheKey, detail: verdict.reason ?? "global monthly ceiling reached" }; }
   const payload = r.mode === "task" ? tagTaskPayload(r.payload, attemptId) : r.payload;
@@ -136,8 +137,14 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     return { state: "capped", cacheKey, detail: transmission === "work_retired" ? "The operator retired this exact work before the provider call. No provider call was made." : transmission === "run_inactive" ? "The research run no longer owns its lease. No provider call was made." : transmission === "stale_day" ? "The reporting day changed before the provider call. No provider call was made, and a fresh reservation is used next time." : "The spending door closed before this request reached the provider. No provider call was made." };
   }
   if (transmission !== "claimed") return holdUncertain(d, r.mode, cacheKey, now, attemptId, "This paid request already started and remains unresolved, so it was not sent again.");
+  if (PROOF_SPEND.authorize(r.tenantId, "external", r.estCostUsd, { capability: r.capability ?? "", url: String(r.publicInput.url ?? "") }) === true) {
+    if (await d.spend.release(attemptId, true).catch(() => false)) await releaseClaim(d, cacheKey, now, "proof_ceiling");
+    else await holdUncertain(d, r.mode, cacheKey, now, attemptId, "The proof did not call the provider, but its reservation could not be released safely.");
+    return { state: "capped", cacheKey, detail: "The bounded proof does not authorize this provider request." };
+  }
   if (!(await CREDIT_BREAKER.claimProbe(r.tenantId, {}, "dataforseo").catch(() => false))) { if (await d.spend.release(attemptId, true).catch(() => false)) await releaseClaim(d, cacheKey, now, "credit_held"); else await holdUncertain(d, r.mode, cacheKey, now, attemptId, "The recovery probe was not sent, but its reservation could not be released safely."); return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") }; } // Claim only after every local transmission gate: a cap/run refusal must never consume the one recovery probe.
   const transport = await runDataForSeoTransport({ url: `${API_BASE}/${r.postPath}`, payload, env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence", timeoutMs: r.requestTimeoutMs });
+  PROOF_SPEND.accountExternal(r.tenantId, r.estCostUsd, readProviderCost(transport.body));
   if (!transport.ok) {
     const cost = readProviderCost(transport.body);
     if (transport.status === 402 && cost === 0 && isPaymentRefusal(transport.body)) { await CREDIT_BREAKER.trip(r.tenantId, {}, "dataforseo").catch(() => {}); if (await d.spend.release(attemptId, true).catch(() => false)) await releaseClaim(d, cacheKey, now, "credit_held"); else await holdUncertain(d, r.mode, cacheKey, now, attemptId, "The provider reported no charge, but the reservation could not be released safely."); return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") }; }
@@ -318,7 +325,7 @@ export async function collectResolvedTask(
 
 async function holdUncertain(d: CachedCallDeps, mode: "live" | "task", cacheKey: string, now: Date, attemptId: string, lead: string, providerTaskId?: string): Promise<CachedCallResult> {
   await d.spend.markAmbiguous(attemptId, providerTaskId).catch(() => false);
-  const held = await quarantineRow(d, cacheKey, now);
+  const held = await holdRow(d, cacheKey, now, "uncertain:unconfirmed provider call");
   const way = mode === "task"
     ? "The provider's free finished-task list will be checked instead of paying for it twice."
     : "There is no free list for this kind of request, so its answer may be gone for good. It was set aside instead of purchased twice.";
@@ -342,13 +349,10 @@ async function applyPaidRejection(d: CachedCallDeps, r: ResolvedCall, body: unkn
     await releaseClaim(d, r.cacheKey, now, "daily_cost_limit");
     return { state: "error", cacheKey: r.cacheKey, disposition: "daily_limit", detail: LIMIT_DETAIL };
   }
-  if (!(await holdBlocked(d, r.cacheKey, now, shown))) return { state: "error", cacheKey: r.cacheKey, disposition: "none", detail: "The provider refused this request and the refusal could not be recorded. It is held briefly and noted properly on the next pass." };
+  if (!(await holdRow(d, r.cacheKey, now, `blocked:${shown}`))) return { state: "error", cacheKey: r.cacheKey, disposition: "none", detail: "The provider refused this request and the refusal could not be recorded. It is held briefly and noted properly on the next pass." };
   return blockedResult(r.cacheKey, shown);
 }
 
-async function holdBlocked(d: CachedCallDeps, cacheKey: string, now: Date, reason: string): Promise<boolean> {
-  return holdRow(d, cacheKey, now, `blocked:${reason}`);
-}
 function blockedReason(row: { error_detail?: string | null } | null | undefined): string | null {
   const detail = row?.error_detail;
   return typeof detail === "string" && detail.startsWith("blocked:") ? detail.slice(8, 120) : null;
@@ -377,9 +381,6 @@ async function writeRetried(d: CachedCallDeps, cacheKey: string, patch: Record<s
   return false;
 }
 
-async function quarantineRow(d: CachedCallDeps, cacheKey: string, now: Date): Promise<boolean> {
-  return holdRow(d, cacheKey, now, "uncertain:unconfirmed provider call");
-}
 async function holdRow(d: CachedCallDeps, cacheKey: string, now: Date, reason: string): Promise<boolean> {
   try {
     await d.cacheWrite(cacheKey, {
@@ -427,7 +428,6 @@ function tagTaskPayload(payload: unknown[], tag: string): unknown[] {
 }
 export function identityCacheKey(p: {
   endpointVersion?: string; endpoint: string; publicInput: unknown;
-  /** Exact normalized body before its recovery tag: a builder change is a new request contract. */
   providerPayload?: unknown;
   locationCode: number; languageCode: string; device?: string | null; modelRequested?: string | null;
 }): string {

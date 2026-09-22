@@ -1,4 +1,3 @@
-/** THE NIGHT THE SEARCH READ TIMED OUT. One statement timeout on the 90-day page-signal aggregate was served to every surface as an account with no search data at all: every page then judged clean, every $0 producer emitted nothing, and the sweep behind them read that silence as "the generator no longer stands behind these cards" and withdrew the operator's open queue mid-edit. Withdrawal is permanent in practice, so the cards were gone. Each test below pins one link of that chain. Fixture level: no live replay. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 type RpcAnswer = { data?: unknown; error?: { message: string; code?: string } | null };
 const env = vi.hoisted(() => ({ /** Queued answers per RPC name; the last one repeats. */ rpc: {} as Record<string, RpcAnswer[]>, calls: [] as Array<{ name: string; args: unknown }>, snapshot: null as unknown, schemaBody: undefined as unknown,
@@ -6,9 +5,7 @@ const env = vi.hoisted(() => ({ /** Queued answers per RPC name; the last one re
   /** THE LAST ROW THE STORE WAS HANDED FOR EACH ID: what persistence actually keeps. */ saved: new Map<string, ChangeProposal>(), store: new Map<string, unknown>(), withdrawn: [] as string[],
   /** The 28-day AI window as the producer's read sees it: rows, or the read failing outright. */ aiWindow: [] as unknown[] | "fail",
   /** The durable disposition table, shared across simulated cold instances. */ dispositions: new Map<string, Record<string, unknown>>(), upserts: 0,}));
-  /** Authorization reads fail closed independently: neither outage may buy work. */
 const proposalReads = vi.hoisted(() => ({ current: true, terminal: true }));
-/** A Supabase admin whose every builder method chains; the disposition writer implements its migration's documented semantics, so the durability tests exercise the contract. */
 vi.mock("@/lib/persistence/supabase", () => {
   const chain = (answer: RpcAnswer): unknown => new Proxy({} as Record<string, unknown>, { get: (_t, prop) => {
     if (prop === "then") return (res: (v: RpcAnswer) => unknown, rej: (e: unknown) => unknown) => Promise.resolve({ data: answer.data ?? null, error: answer.error ?? null }).then(res, rej);
@@ -31,7 +28,6 @@ vi.mock("@/lib/persistence/supabase", () => {
           return chain({ data: upsertDispositions(a.p_tenant_id, a.p_rows) as unknown as unknown[] });}
         return chain(next(name));},
       from: (table: string) => table === "ai_case_dispositions" ? chain({ data: [...env.dispositions.values()] as unknown as unknown[] }) : chain({ data: [] }),}), }; });
-/** The producer's own window read, failable on demand. */
 vi.mock("@/domains/evidence/ai-visibility/ai-observations", async (orig) => { const actual = (await orig()) as typeof import("@/domains/evidence/ai-visibility/ai-observations");
   return { ...actual, readAiObservations: async () => { if (env.aiWindow === "fail") throw new Error("canceling statement due to statement timeout"); return env.aiWindow; } }; });
 vi.mock("@/domains/decision/coverage-pass", async (orig) => { const actual = (await orig()) as typeof import("@/domains/decision/coverage-pass");
@@ -39,7 +35,6 @@ vi.mock("@/domains/decision/coverage-pass", async (orig) => { const actual = (aw
 vi.mock("@/domains/evidence/ai-visibility/answer-journeys", async (orig) => { const actual = (await orig()) as typeof import("@/domains/evidence/ai-visibility/answer-journeys");
   return { ...actual, readAnswerJourneys: async () => [] }; });
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "tenant-fx", domain: "fixture.example", growth_goal: null }), basisTag: () => "basis_fx",}));
-/** The real loader unless a test pins a snapshot: part of this file exercises it, part feeds the producer. */
 vi.mock("@/domains/evidence/snapshot-loader", async (orig) => { const actual = (await orig()) as typeof import("@/domains/evidence/snapshot-loader");
   return { ...actual, loadEvidenceSnapshot: async (t: string, o: never) => env.snapshot ?? actual.loadEvidenceSnapshot(t, o) }; });
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => { const actual = (await orig()) as typeof import("@/domains/evidence/pages/owned-context");
@@ -63,9 +58,7 @@ import { produceProposalsForTenant } from "@/domains/decision/produce-proposals"
 import type { ChangeProposal } from "@/domains/decision/contracts";
 const TENANT = "tenant-fx";
 const TIMEOUT = { message: "canceling statement due to statement timeout", code: "57014" };
-/** One full PostgREST page, so the reader asks for a second one and meets the error on it. */
 const fullPage = () => Array.from({ length: 1_000 }, (_v, i) => ({ page: `https://fixture.example/p${String(i).padStart(4, "0")}`, clicks: 5, impressions: 100, pos_weighted: 800, top_queries: [],}));
-/** A snapshot whose GSC leg says exactly what the test needs it to say. */
 function snapshotWith(status: "failed" | "fresh" | "empty"): unknown {
   const gscPayload = status === "fresh" ? [{ url: "https://fixture.example/a", clicks90d: 40, impressions90d: 900, ctr90d: 0.04, position90d: 12, topQueries: [] }] : [];
   const empty = { status: "empty" as const, lastSyncedAt: null, payload: [] };
@@ -73,7 +66,6 @@ function snapshotWith(status: "failed" | "fresh" | "empty"): unknown {
     gsc: { status, lastSyncedAt: null, payload: gscPayload }, ga4: empty, wix: empty, clarity: empty, dataforseo: empty,
     research: { status: "empty", lastSyncedAt: null, payload: emptyResearchEvidence() }, aiAnswersUnread: false,};
   return buildEvidenceSnapshot(input);}
-/** One untouched card the operator can still act on, in a family the sweep rewrites. */
 const openCard = (suffix: string): ChangeProposal => ({
   id: `${TENANT}::/shiraz::existing_edit::${suffix}`, tenantId: TENANT, kind: "existing_edit", pagePath: "/shiraz", pageUrl: "https://fixture.example/shiraz", pageLabel: "Shiraz",
   primaryQuery: "things to do in shiraz", opportunityType: "Answer the question", changeFamily: suffix,
@@ -136,8 +128,6 @@ describe("the sweep only retires what a producer that FINISHED rewrote", () => {
     env.store = new Map([[stale.id, stale], [theirs.id, theirs]]);
     await produceProposalsForTenant(TENANT);
     expect(env.withdrawn).toEqual([stale.id]); }); // The AI family enters the sweep ONLY through a finished extras pass whose verdicts were durably filed (pinned below), so a failed AI read leaves the AI card standing while finished families still sweep.
-  /** A DRY RUN WRITES NOTHING, AND IT IS THE PRODUCER THAT SAYS SO, not a reading of the code. A no-persist run was reported alongside 13 changed rows and nobody could tell whether the guard leaked or the harness had never run dry; the same pass answers both ways here, so the next such report is settled by running this. `withdrawn` is listed separately because it is the same act by another name. */
-  /** EVIDENCE IS BOUGHT DEPENDENCY FIRST (operator, 2026-09-04). The owed list was filled by walking the store in id order and the runtime buys the first eight of it, so the five most valuable rows on this account each owed a typed reading and not one of them was ever bought. */
   it("stamps each owed reading with its own row's ranked position, so the biggest need is buyable first whatever order the store listed it in", async () => {
     env.snapshot = snapshotWith("fresh");
     const owing = (slug: string, impact: number): ChangeProposal => ({ ...openCard("meta"), id: `${TENANT}::/${slug}::existing_edit::meta`, pagePath: `/${slug}`, pageUrl: `https://fixture.example/${slug}`, researchOnly: false, changeFamily: "meta", impactScore: impact, winnersOnFile: "none", obligation: { kind: "terminal", reason: "no substantive gap named" }, // the reading a row owes because nobody has read this search's winners, which is the live evidence debt the ladder still mints now that the shape hold is an advisory
@@ -148,7 +138,6 @@ describe("the sweep only retires what a producer that FINISHED rewrote", () => {
     const at = (slug: string) => owed.find((o) => o.key.includes(slug))!;
     expect([owed.length >= 2, at("zzz-worth-most").kind, at("aaa-worth-little").kind], "both rows owe the same typed reading and both are on the list").toEqual([true, "serp", "serp"]);
     expect([at("zzz-worth-most").rank! >= 1, at("zzz-worth-most").rank! < at("aaa-worth-little").rank!], "and the one worth 900 clicks is stamped above the one worth 2, whatever order the ids came back in").toEqual([true, true]); });
-  /** A NEED TRAVELS TO THE RUNTIME DETACHED FROM ITS ROW (round 2.5 reviewer, closed 2026-09-05). The field that named the row the money is for was declared and nothing wrote it, so it was deleted at landing; before that, the store would have erased it anyway, because a zod object strips what it does not declare and `proposalId` on a review need is lost that way on every persist today. It is written where the owed list is minted and a row is in hand, never by the ladder, which is persisted and would rewrite every stored row carrying an evidence need. */
   it.each(["tenant-one", "tenant-two"])("names on every owed reading the row the money is for and the rung it unlocks, and the store keeps both through a write [%s]", async (tenant) => {
     env.snapshot = snapshotWith("fresh");
     const written: ChangeProposal = { ...openCard("meta"), id: `${tenant}::/zzz-written::existing_edit::meta`, tenantId: tenant, pagePath: "/zzz-written", pageUrl: "https://fixture.example/zzz-written", researchOnly: false, changeFamily: "meta", winnersOnFile: "none", obligation: { kind: "terminal", reason: "no substantive gap named" },
@@ -171,7 +160,6 @@ describe("the sweep only retires what a producer that FINISHED rewrote", () => {
     env.wrote = []; env.withdrawn = [];
     await produceProposalsForTenant(TENANT, { persist: false });
     expect({ wrote: env.wrote, withdrawn: env.withdrawn }).toEqual({ wrote: [], withdrawn: [] }); }); // The pass directly above this one, identical but for the flag, withdraws `stale`. This one must do nothing at all.
-  /** AND WHAT A DRY RUN HANDS BACK IS WHAT PERSISTENCE WOULD KEEP. The guard used to sit at the TOP of persistIfChanged, so a dry run returned the row BEFORE nine transforms (identity stamp, banked-copy preservation, soft downgrade, ranking inheritance) and the copy an operator inspected was not the copy that later landed. Inspecting one object and storing another is the whole defect. */
   it("hands back exactly the payload persistence would keep", async () => {
     const shape = (p: ChangeProposal) => ({ id: p.id, rc: p.recommendedChange, steps: p.operatorSteps, claims: p.claims, support: (p.supportFacts ?? []).map((f) => f.id),
       workKey: p.workKey, status: p.status, pieces: (p.bundle?.components ?? []).map((c) => [c.kind, c.page, c.where, c.after]) });
@@ -182,7 +170,6 @@ describe("the sweep only retires what a producer that FINISHED rewrote", () => {
     const wet = await produceProposalsForTenant(TENANT);
     expect(dry.proposals.length).toBe(wet.proposals.length);
     expect(dry.proposals.map(shape)).toEqual(dry.proposals.map((p) => shape(env.saved.get(p.id) ?? p))); }); });
-/** A PASS THAT DID NOT BUY MUST NOT TAKE BACK WHAT A PAID PASS BANKED (operator, 2026-08-19). Pausing research now rebuilds the customer surface from stored evidence alone, which is right: a paused account still owes its customer a current list. What it may never do is read its own empty hands as the generator withdrawing its work. "Did not run" is not "rejected its previous work". */
 describe("a zero-spend regeneration is non-destructive", () => {
   it("leaves the operator's open cards exactly where they were, and still publishes", async () => {
     env.snapshot = snapshotWith("fresh");
@@ -196,7 +183,6 @@ describe("a zero-spend regeneration is non-destructive", () => {
     env.store = new Map();
     const out = await produceProposalsForTenant(TENANT, { zeroSpend: true, maxDrafts: 5 });
     expect(out.proposals.every((p) => p.researchOnly === true || p.status !== "ready")).toBe(true);});}); // maxDrafts is the caller's ask and the pause outranks it: nothing here was drafted for money.
-/** THE REAL COUNTEREXAMPLE, through the REAL AI producer, twice, as two cold instances sharing one durable table: the blind instance files nothing and holds its families; the seeing one files durably; and what it filed is what BOTH surfaces render, from the same row. */
 describe("a failed 28-day AI read files nothing, and only a seeing pass reopens the sweep", () => {
   const wixPage = (path: string, title: string, outline: string[]) => ({
     url: `https://fixture.example${path}`, title, metaDescription: "Plan the visit with what locals actually do.",
@@ -262,7 +248,6 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     expect(run.families).toEqual(expect.arrayContaining(["ai_answer_gap", "engine_followup"]));
     expect(run.aeoSpend, "an unfunded pass bought nothing").toMatchObject({ funded: 0, attempted: 0 });
     vi.doUnmock("@/domains/decision/producers/page-job"); });
-  /** AN UNFUNDED PASS BUYS NO READING, NAMES NO TREATMENT AND HIRES NOBODY. This fixture's page has never been read, so every case lands held: what it proves is that the pass spends nothing and claims nothing when it cannot diagnose. The rendered-copy promise is proved where cards exist, on the live replay. */
   it("an unfunded pass funds nothing, attempts nothing, and names no treatment", async () => {
     env.aiWindow = [];
     const run = await runExtras(aiSnapshot()); // reads {left: 0} and no aeoDiagnoses: an empty purse and an unread page

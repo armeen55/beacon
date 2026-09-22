@@ -208,7 +208,7 @@ export const capabilityAskable = (capability: string): boolean => Object.hasOwn(
 export async function providerCall<K extends CapabilityKey>(
   capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string; runId?: string; caseKey?: string; promptId?: string }, deps: FunnelBoundaryDeps = {},
 ): Promise<CachedCallResult> {
-  const proof = PROOF_SPEND.authorize(ids.tenantId, "external");
+  const proof = PROOF_SPEND.externalClosed(ids.tenantId, { capability, url: String((input as { url?: string }).url ?? "") });
   if (proof === true || proof == null && await spendingClosed(ids.tenantId)) return { state: "capped", cacheKey: null, detail: "Research is paused for this account, so nothing was bought. This is owed, not failed." };
   const peek = (deps as { creditPeek?: typeof CREDIT_BREAKER.peek }).creditPeek ?? CREDIT_BREAKER.peek; // AND NO PAID POST WHILE THE MODEL DOOR IS HELD (2026-09-14): research bought with no credit to reason on it is money spent on a queue nobody can read. The free GET collects never pass here.
   if (await peek(ids.tenantId).catch(() => "clear" as const) === "held") return { state: "capped", cacheKey: null, detail: CREDIT_BREAKER.sentence("openai") };
@@ -236,6 +236,7 @@ export async function providerCall<K extends CapabilityKey>(
   const publicInput = (ask ?? {}) as Record<string, unknown>;
   const cacheKey = identityCacheKey({ endpoint: route.postPath, publicInput, providerPayload: payload, locationCode: LOCATION_US, languageCode: LANG_EN, device, modelRequested: modelDim });
   const resolved: ResolvedCall = {
+    capability,
     cacheKey, endpoint: route.postPath, endpointVersion: "v3", postPath: route.postPath, getPath: route.getPath,
     tasksReadyPath: route.tasksReady,
     publicInput, locationCode: LOCATION_US, languageCode: LANG_EN, device, modelRequested: modelDim,

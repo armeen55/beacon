@@ -1,4 +1,3 @@
-/** Real runtime and canonical stores with scripted I/O; no manual Ready stamping or live-model quality claim. */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { publicationDraft } from "../helpers/publication-draft";
 
@@ -29,14 +28,11 @@ import {
   type FixtureSerp, type FixtureWinner, type Row, type RunRow,
 } from "./world";
 
-/** Production and the provider admission clock both read the process clock. Keep the harness's injected drive clock and `new Date()` on that same instant, so advancing to a later drive also makes a persisted provider wake due. */
 const advance = (ms: number): number => { const at = advanceWorld(ms); vi.setSystemTime(at); return at; };
 
-/** The one search this file drives end to end, the page that owes it, and the host at position four that the reading reserve refuses outright. */
 const HUB = "/famous-iranians", QUERY = "famous iranians", FORUM = "reddit.com";
 const serpFor = (q: string): FixtureSerp[] => fixture<FixtureSerp[]>("serps.json").filter((s) => s.query === q);
 
-/** One results page as the provider answers it: `Task Created` at the post, then the finished rows once `ready` flips. */
 function searchScript(state: { ready: boolean; posts: number }) {
   return (path: string) => {
     if (path.endsWith("task_post")) { state.posts += 1; return { body: { status_code: 20000, tasks: [{ id: "task-1", status_code: 20100, status_message: "Task Created.", cost: 0.0006 }] } }; }
@@ -50,25 +46,21 @@ function searchScript(state: { ready: boolean; posts: number }) {
     return { body: { status_code: 20000, cost: 0.01, tasks: [{ status_code: 20000, result: [{ items: [{ keyword: QUERY, search_volume: 1200, competition: 0.3, keyword_info: { search_volume: 1200, competition: 0.3 } }] }] }] } };
   };
 }
-/** A publisher that answers, in the shape the reader extracts: a title, a heading and enough words to be a reading. */
 const pageScript = (url: string) => (url.endsWith("/robots.txt") ? { html: "User-agent: *\nAllow: /", contentType: "text/plain" }
   : { html: `<html><head><title>Famous Iranians, by the work they did</title></head><body><h1>Famous Iranians through history</h1><h2>Poets</h2><h2>Athletes</h2><p>${"Famous Iranians are listed here by the work they did, with the years each of them worked and one line on why they are remembered. ".repeat(20)}</p></body></html>` });
 import { WRITER, JUDGE, SECTION, SECTION_WRITER, SECTION_JUDGE } from "./world";
-/** The words the reasoning gateway hands back where a door reads them; every other field comes from the request's own schema. */
 const REASONING = { page_job: { topics: ["names", "notable people", "history"], job: "Name the people this page covers and say why each is remembered.", audience: "readers looking a person up", promise: "a named list with one line each", missing: "a direct opening answer", sells: ["guides", "lists"] }, body_edit: publicationDraft(WRITER), editor_judgement: JUDGE, fact_claim_extraction: { statements: [] } };
 
 const ownedPage = () => seedOwnedPages([{ path: HUB, title: "Most Famous Iranians and Persians of All Time", h1: "Famous and Influential Iranian People",
   meta: "Explore the most famous Iranians and Persians in history.", h2: ["Famous Iranian Poets", "Famous Iranian Athletes", "Famous Iranian Actors"],
   body: ["Iran has produced writers, athletes and performers whose work travelled far beyond its borders.", "The poets section lists three poets with a short line on each.", "The athletes section lists wrestlers and weightlifters who won world titles.", "The actors section lists screen performers who worked at home and abroad.", "Each entry gives a name, a period and one sentence about why the person is remembered."].join("\n") }]);
 
-/** ONE DRIVE. A pass that closed leaves the account with no open run, exactly as production does, so the next drive opens its own with the plan it is for. */
 async function drive(plan: string[], phase = "keyword_discovery", progress: Row = {}, deadlineMs = 200_000): Promise<RunRow> {
   if (!runs.some((r) => r.status !== "completed")) seedRun({ status: "paused", current_phase: phase, progress: { plan: { units: plan }, ...progress } });
   await runResearchCycle(T, { now, deadlineMs, steps: defaultSteps });
   return runs[runs.length - 1]!;
 }
 const acquisitions = (r: RunRow): { key: string; kind: string; query: string; outcome: string; detail: string; sharedWith?: string[] }[] => (r.progress as { acquisitions?: never[] }).acquisitions ?? [];
-/** WHAT THE DAY STILL OWES AFTER A DRIVE, with the stamps that drive wrote on it: a results page posted today is collected for nothing on the next drive, and the fact that it was posted lives on the need itself, so a fixture that re-seeds an unstamped need pays twice where production does not (`carriedDayState` in research-run.ts hands the owed list, its buy stamps and its post stamps to every same-day pass). */
 const owedAfter = (r: RunRow, fallback: readonly Row[]): Row[] => { const owed = (r.progress as { evidenceOwed?: Row[] }).evidenceOwed; return owed?.length ? owed : [...fallback]; };
 const winnersOf = (): FixtureWinner[] => ((table("research_state")[0]?.state as { winningPages?: FixtureWinner[] })?.winningPages ?? []);
 const serpsOf = (): FixtureSerp[] => ((table("research_state")[0]?.state as { serps?: { queries?: FixtureSerp[] } })?.serps?.queries ?? []);
@@ -328,7 +320,6 @@ describe("three opportunities waiting on their own results page", () => {
 describe("the subject the winning page carries and this page does not", () => {
   const SUBJECT = "Scientists", RIVAL = "https://en.wikipedia.org/wiki/List_of_Iranians";
   const SAYS = "Famous Iranians who worked as scientists are listed here by the field each of them worked in, with the years they worked.";
-  /** The winner answers the body read the fact engine makes, in the provider's own content-parsing shape; everything else is the ordinary search script. */
   const factScript = (state: { ready: boolean; posts: number; parsed: string[] }) => (path: string, payload: unknown) => {
     if (path.startsWith("on_page/content_parsing")) { state.parsed.push(String((payload as { url?: string }[] | null)?.[0]?.url ?? ""));
       return { body: { status_code: 20000, cost: 0.002, tasks: [{ status_code: 20000, result: [{ items: [{ page_content: { main_topic: [{ main_title: "List of Iranians", h_title: SUBJECT, primary_content: [{ text: SAYS }] }] } }] }] }] } }; }
@@ -374,7 +365,6 @@ describe("the section the winner carries, read where it starts", () => {
   const SUBJECT = "Scientists", RIVAL = "https://en.wikipedia.org/wiki/List_of_Iranians";
   const SAYS = "Famous Iranians who worked as scientists are listed here by the field each of them worked in, with the years they worked.";
   const INTRO_LINE = "This is a general list of notable people from Iran and its historical predecessors, ordered by field and by era.";
-  /** A long introduction dense in the search's own words, which is where the old window landed: the densest region of the page, never the section the requirement named. */
   const INTRO = Array(60).fill(`${INTRO_LINE} Famous Iranians and Persians appear across every era of Iranian history, and the famous Iranians of each field are grouped below.`).join(" ");
   const longPage = (state: { ready: boolean; posts: number; parsed: string[] }) => (path: string, payload: unknown) => {
     if (path.startsWith("on_page/content_parsing")) { state.parsed.push(String((payload as { url?: string }[] | null)?.[0]?.url ?? ""));

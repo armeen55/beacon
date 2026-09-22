@@ -175,7 +175,7 @@ const causePayload = (cause: AeoCausePayload["cause"], engine: string, promptTex
 export async function aiCaseCards(bank: { query: string; refusedPages?: string[] }[], snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], weak: ReadonlySet<string>,
   earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>, u: Understanding, tenantId: string,
   units: readonly CanonicalDemandUnit[], windowObs: readonly CanonicalPairObservation[] | null, now: Date,
-  persist: boolean, meter: AeoMeter, googleKeys?: ReadonlySet<string> | null, /** THE COPY THE CHANGES ALREADY ON FILE FOR EACH PAGE WOULD PUBLISH, keyed by the page's own path in lower case, exactly as the demand producer receives it. Absent means nothing is on file for any page, and every verdict below is then byte for byte what it was. */ written?: ReadonlyMap<string, readonly { query: string; copy: string }[]>): Promise<{ drafts: Draft[]; filed: boolean; hold: ReadonlySet<string> }> {
+  persist: boolean, meter: AeoMeter, googleKeys?: ReadonlySet<string> | null, written?: ReadonlyMap<string, readonly { query: string; copy: string }[]>, focusPage?: string): Promise<{ drafts: Draft[]; filed: boolean; hold: ReadonlySet<string> }> {
   const site = (snapshot.scope.site ?? "").replace(/^www\./, "").toLowerCase();
   if (!site) return { drafts: [], filed: true, hold: new Set<string>() }; // nothing to conclude is not a filing that failed
   // THE STORED WINDOW, through the one shared projection: distinct days, assistants and the material follow-up searches behind every tracked question. The snapshot alone is the newest answer per question and engine, which cannot count days, and reading row totals as recurrence is the defect this replaced.
@@ -479,7 +479,8 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
     log.warn("[ai-cases] the stored AI window could not be read, so nothing is filed and nothing behind it is swept", { tenantId, decidedUnfiled: decided.length });
     return { drafts: out, filed: false, hold: holdIds };
   }
-  const write = persist ? await recordAiCaseDispositions(tenantId, decided) : { filed: true as const };
+  const scoped = focusPage ? decided.filter((d) => d.pageUrl && pathOf(d.pageUrl) === pathOf(focusPage)) : decided;
+  const write = persist && scoped.length ? await recordAiCaseDispositions(tenantId, scoped) : { filed: true as const };
   if (!write.filed) log.warn("[ai-cases] this pass decided these searches and could not file the decision, so it does not claim to have finished", { tenantId, reason: write.reason, decided: decided.length });
   // WHAT EVERY OTHER MATERIAL SEARCH BECAME, counted by state. Silence here would be the old defect wearing a new coat: a search that reached no card and no debt has to be nameable, and it is.
   if (Object.keys(states).length > 0) log.info("[ai-cases] every search the assistants ran, by where it ended up", { tenantId, ...states });

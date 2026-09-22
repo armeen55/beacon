@@ -1,4 +1,3 @@
-/** A SETTLED ROW WHOSE WINNERS NOBODY HAS READ, on three consecutive passes with no new evidence, then on the pass after a drive reads them. THE REAL STORE (over an in-memory Postgres) INSIDE THE REAL PASS, so the ladder, the merge, the persistence door and the runtime's buying list are all asked at once. The last group of arms asks the one question the rest assume: can the reading the stamp names actually be bought, on the shape production carried at 09:03Z on 2026-09-06 (a results page on file for a SIBLING phrasing, its winner read whole, none for the row's own search). Two synthetic accounts with unrelated subjects. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
@@ -42,7 +41,6 @@ const snapshot = (s: Site, serpQuery: string, winningPages: unknown[] = []): Evi
     serpEvidence: [{ query: serpQuery, observedAt: "2026-09-05T00:00:00.000Z", organic: [1, 2, 3].map((i) => ({ rank: i, domain: `rival-${i}.example`, url: `https://rival-${i}.example/x`, title: `A page about ${serpQuery}` })), aiOverview: [], aiMode: [], paa: [], related: [] }] } as never,
   ownedPages: [owned(s)] as never } as never);
 
-/** Byte for byte the shape demand-recovery mints (producers/demand-recovery.ts:141), with what is on file stamped. */
 const card = (s: Site, over: Partial<ChangeProposal> = {}): ChangeProposal => ({
   id: `${s.t}::${s.page}::existing_edit::demand_recovery`, tenantId: s.t, kind: "existing_edit", pagePath: s.page,
   pageUrl: `https://${s.t}.example${s.page}`, pageLabel: s.page, primaryQuery: s.q, opportunityType: "Rebuild lost ground",
@@ -55,7 +53,6 @@ const card = (s: Site, over: Partial<ChangeProposal> = {}): ChangeProposal => ({
   evidence: { query: s.q, hints: [], evidenceRefCount: 1 }, impactScore: 400, upsidePerMonth: null,
   basis: "basis_rv3", publish: "manual", createdAt: NOW.toISOString(), copyStamp: "Guide|Guide||What to bring", ...over });
 
-/** One ordinary pass over this account, with the recovery producer minting the row this review is about. */
 const drive = async (s: Site, onFile: "none" | "unread" | "read") => {
   vi.resetModules(); env.tenant = s.t; env.snap = snapshot(s, s.q);
   vi.doMock("@/domains/decision/producers/demand-recovery", () => ({ demandRecoveryCards: async () => ({ cards: [card(s, { winnersOnFile: onFile })], complete: true, window: { earlyDays: 400, earlyFrom: null, earlyTo: null }, losses: [] }) }));
@@ -69,8 +66,6 @@ const drive = async (s: Site, onFile: "none" | "unread" | "read") => {
   return { owed: (out.paid.evidenceOwed ?? []).map((n) => [n.kind, n.query, n.reasonCode]), obligation: stored?.obligation ?? null, version: (row?.proposal_version as number | undefined) ?? null };
 };
 
-/** The row as it stands on file before this review's passes: settled, with what is on file stamped on it.
- *  Written through the REAL store, which is itself the first arm: the settlement may not survive it. */
 const seed = async (s: Site, onFile: "none" | "unread" | "read") => {
   const { saveChangeProposal } = await import("@/domains/decision/proposal-store");
   const settled = card(s, { winnersOnFile: onFile, obligation: { kind: "terminal", reason: "no substantive gap named" } });
@@ -114,7 +109,6 @@ describe("the settled row whose winners nobody has read, three passes with no ne
   });
 });
 
-/** THE CARRY IN completeness.ts settledStep, asked on its own two edges. */
 describe("the carry of the owed reading across a re-mint", () => {
   const owedRead = { kind: "evidence", need: { kind: "competitor_page", query: SITES[0].q, reasonCode: "no_winner_to_read" } } as const;
   it("carries onto a re-mint of the same work and is discharged by the purchase, never carried past it", () => {
@@ -138,7 +132,6 @@ describe("the carry of the owed reading across a re-mint", () => {
   it("keeps banked words but lets a newly proved winner-reading debt outrank their old review step", () => { const prior = card(SITES[0], { researchOnly: false, recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A finished answer whose review is banked.", where: "After the existing safety introduction" }, claims: [{ text: "A finished answer whose review is banked.", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: "A finished answer whose review is banked." }], obligation: { kind: "review" } }), incomingDebt = { kind: "evidence", need: { kind: "competitor_page", query: SITES[0].q, reasonCode: "no_winner_to_read" } } as const, reminted = preferFinished(card(SITES[0], { winnersOnFile: "unread", obligation: incomingDebt as never }), prior); expect([reminted.recommendedChange.kind === "existing_edit" ? reminted.recommendedChange.after : null, reminted.obligation, nextObligation(reminted)], "preservation may keep the words, but it may never erase the current evidence dependency beneath them").toEqual(["A finished answer whose review is banked.", incomingDebt, incomingDebt]); });
 });
 
-/** CAN THE READING THE STAMP NAMES ACTUALLY BE BOUGHT, and does the purchase discharge it? `winnersOnFile` was decided over the WHOLE group (the label and its vocabulary) while the reading it names and the stamp that discharges it were both asked of the label alone, so a group whose results page is on file under a SIBLING phrasing was stamped `unread`, owed the winners of a search no results page exists for, and could never be discharged: the winning-pages unit reads what a results page on file ranks, and nothing on file ranks for this query. All three doors ask the row's own search now, so this shape owes the results page it really lacks and the sibling's own winner read settles nothing for it. Driven through the REAL producer. */
 describe("the reading the unread rung names, against what is really on file", () => {
   const unit = (s: Site) => ({ label: s.q, vocabulary: [s.q, s.sibling], queries: [], pages: [`${s.t}.example${s.page}`],
     history: { earlyClicksPerDay: 4, recentClicksPerDay: 0.5, lostClicksPerMonth: 105, earlyImpressions: 5000, recentImpressions: 4800,
@@ -160,7 +153,6 @@ describe("the reading the unread rung names, against what is really on file", ()
     expect(minted?.winnersOnFile, "no results page for this row's own search is on file, so nothing can read its winners yet").toBe("none");
   });
 
-  /** A WORD COUNT IS NOT A READING (campaign, 2026-09-06). The stamp asked whether a winner had a word count, and a winner banked before the content reading existed carries one with no words at all: the comparison can say nothing from it, so three hub rows on searches that ask nothing were stamped `read` and settled as if the pages winning them had been read and carried nothing. The stamp and the opportunity ladder read ONE definition now, so what a row says it is waiting on is what the walk would owe for the same evidence. */
   it.each(SITES)("$t: a winner banked with a word count and no words is not a reading, and the ladder owes that reading", async (s) => {
     const W = "https://rival-1.example/x", banked = (mainText: string | null) => [{ url: W, domain: "rival-1.example", engines: [], examplePrompts: [], appearances: [{ kind: "serp_organic", query: s.q, rank: 1, citedUrl: W, observedAt: "2026-09-05T00:00:00.000Z" }],
       extract: { url: W, wordCount: 900, ...(mainText == null ? {} : { mainText }), truncated: false, fetchedAt: "2026-09-06T00:00:00.000Z" }, readOutcome: null }];

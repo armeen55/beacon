@@ -1,17 +1,10 @@
-/** A JOB THAT FINISHED AFTER THE DRIVE STOPPED WAITING IS RECOGNISED, NOT BOUGHT AGAIN (2026-09-05). The drive boxes the WAIT, not the
- *  walk: when the box ends the walk carries on, and the job that was in flight saves its row a minute later. The day remembered that
- *  attempt as "still running", so the next drive funded the very same work and paid a second time for words already on file. The rows
- *  answer first now. Driven through the REAL step and the REAL plan, on two synthetic accounts with nothing in common, with the producer
- *  and the store faked and no provider, no key and no clock of its own. */
 import { describe, expect, it, vi } from "vitest";
 import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import { settledByRows } from "@/domains/decision/load-proposals";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 
 const NOW = new Date("2026-09-05T12:00:00.000Z");
-/** THE MOMENT THE JOB IN FLIGHT SAVED ITS ROW: four minutes after the drive stopped waiting, which is the same day and is why it settles. Every stored row carries the moment it was written, so the rows here do too. */
 const SAVED = new Date(NOW.getTime() + 4 * 60_000).toISOString();
-/** TWO SYNTHETIC ACCOUNTS. `a` is the job the box cuts off mid-flight, `b` the funded job the walk never began. */
 const SITES = [
   { t: "acct-tide", a: "/tide-pools", b: "/rock-shelves" },
   { t: "acct-bordado", a: "/bordado", b: "/puntadas" },
@@ -19,9 +12,6 @@ const SITES = [
 type Job = { calls: number; last: string; settled: boolean };
 type Ask = { memory?: Readonly<Record<string, Job>>; handOver?: (ask: () => { paid: unknown; persisted: number }) => void };
 
-/** ONE WALK, with the producer faked and every other door left real. `out` says how each funded job ended; `ready` and `toDo` are the
- *  rows on file at the moment the walk reads them, which is the whole point: the second walk reads a row the first walk's job saved
- *  after the box had already ended. */
 const harness = async (s: (typeof SITES)[number]) => {
   vi.resetModules();
   const wk = (k: string) => `${k}::wc5::e1`; // the identity a workKey carries: the funding key, the writer contract and the evidence behind THIS job
@@ -32,7 +22,6 @@ const harness = async (s: (typeof SITES)[number]) => {
   vi.doMock("@/domains/runtime/ops/due-work", async () => ({ ...(await vi.importActual<typeof import("@/domains/runtime/ops/due-work")>("@/domains/runtime/ops/due-work")), accountBasis: async () => "basis_test" }));
   vi.doMock("@/domains/decision", async () => ({
     resolveCurrentBasis: async () => "b", stockOf: (rows: unknown[]) => rows.length,
-    /** THE REAL RULE, never a stub: this is the behaviour under test. */
     settledByRows: (await vi.importActual<typeof import("@/domains/decision/load-proposals")>("@/domains/decision/load-proposals")).settledByRows,
     loadProposalQueue: async () => ({ ready: M.ready, toDo: M.toDo }),
     produceProposalsForTenant: async (_t: string, o: Ask) => {
@@ -100,10 +89,6 @@ describe("the drive stops waiting, the walk does not, and the row it saves is th
   }
 });
 
-/** AND ONLY A ROW THIS DAY'S WORK COULD HAVE WRITTEN MAY SETTLE IT (reviewer, 2026-09-05). The rule above is asked of the WHOLE live
- *  queue, not of the rows this drive wrote, so with no moment to measure against a ready row standing since an earlier day settled
- *  today's blocked job: the work was not lost, but the day's own receipt said a drive produced what it did not, and a fresh day memory
- *  could repeat it. The unit rule itself, on the same two accounts, with the moment the walk passes it. */
 const KEY = "work::body::one";
 const row = (s: (typeof SITES)[number], over: Partial<ChangeProposal> = {}): ChangeProposal => ({
   id: `${s.t}::body::x`, tenantId: s.t, kind: "existing_edit", pagePath: s.a, pageUrl: `https://${s.t}.example${s.a}`,

@@ -6,7 +6,7 @@ import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
 
 const LEDGER = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[] }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "tenant-one" }));
-vi.mock("@/domains/account", () => ({ requireReadyAccount: async () => ({ access: { kind: "ready" } }) }));
+vi.mock("@/domains/account", () => ({ requireReadyAccount: async () => ({ access: { kind: "ready" } }), getTenant: vi.fn() }));
 vi.mock("@/domains/measurement", async () => ({ loadProofLedgerCached: async () => LEDGER.rows, treatmentLearning: (await import("@/domains/measurement/treatment-learning")).treatmentLearning }));
 vi.mock("@/components/today/data-sources-strip", () => ({ countConnectedDataSources: async () => 2 }));
 vi.mock("@/components/today/refresh-my-data-button", () => ({ RefreshMyDataButton: () => null }));

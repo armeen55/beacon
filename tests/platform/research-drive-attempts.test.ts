@@ -1,4 +1,3 @@
-/** Canonical research-drive spending, debt identity and resume contracts. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } }));
 vi.mock("@/lib/persistence/supabase", async (actual) => ({ ...(await actual<Record<string, unknown>>()),
@@ -46,9 +45,6 @@ beforeEach(() => { NOW = 1_700_000_000_000; RR.setResearchRunRepoForTests(null);
   const byId = async (id: string) => ({ id, slug: id, provisional_name: "", domain: "own.example", status: "active" as const, signup_date: "", tos_accepted_at: null, daily_budget_usd: 0, growth_goal: null, created_at: "", updated_at: "" });
   setAccountRepositoryForTests({ getAccountById: byId, getAccountBySlug: byId } satisfies AccountRepository); });
 type Owed = NonNullable<RR.ResearchRunProgress["evidenceOwed"]>[number];
-/** ONE DRIVE. `seeded` is what the run row carries when the drive begins, `walked` is what the walk hands back, and
- *  `detail` is the sentence every purchase on it comes back with. The whole persisted progress is handed back beside
- *  the debt, because the ledger, the receipts and the row's own stamp are all read off the one drive that wrote them. */
 const reachedBy = (keys: readonly string[]) => ({ day: new Date(NOW).toISOString().slice(0, 10), jobs: {}, outcomes: { readySaved: 0, evidenceBanked: 0, refused: 0, blocked: 0, unreached: 0, stuck: [], receipts: keys.map((key) => ({ key, outcome: "prepared", providerCalls: 1 })) } });
 const oneDrive = async (s: typeof SITES[number], seeded: readonly Owed[], walked: readonly Owed[], detail = "the source search is still waiting", reached: readonly string[] = []): Promise<{ asked: number; owed: readonly Owed[]; progress: RR.ResearchRunProgress }> => {
   const rows = freshRepo(); rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: "fact_check",
@@ -80,9 +76,6 @@ describe("the two-attempt stop, when one reading is owed by two rows", () => {
       .toEqual([1, [[`${s.url}::a`, false, [`${s.url}::b`]], [`${s.url}::b`, true, [`${s.url}::a`]]]]);
   });
 });
-/** ONE DRIVE THROUGH A PHASE WHOSE OWN STEP ANSWERS `unit`, and the ONE fixture every door arm below is measured on:
- *  `owedTurn` is a drive that borrowed the phase's turn, `seed` is anything else the row carries, and `rows` continues
- *  the account the drive before it left. Answers what ran, what the row says, and where the phase ended. */
 const CASES = ["replenish_ready", "plan_cases"] as const, CAP = "the spending cap ended paid research for today";
 const doorDrive = async (s: typeof SITES[number], unit: { status: string; detail?: string }, units: readonly string[], phase: RR.ResearchRun["current_phase"], owedTurn = true, deadlineMs = 260_000, o: { seed?: RR.ResearchRunProgress; rows?: RR.ResearchRun[] } = {}) => {
   const rows = o.rows ?? freshRepo(); if (!o.rows) rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: phase,
@@ -416,9 +409,6 @@ const head = (s: typeof SITES[number]): Owed => serpNeed(s, "head", "w-head", 30
 const outcomes = (s: typeof SITES[number], keys?: readonly string[]) => ({ readySaved: 0, evidenceBanked: 0, refused: 0, blocked: 0, unreached: 0, stuck: [],
   receipts: (keys ?? [head(s).key, behind(s).key]).map((key) => ({ key, outcome: "prepared", providerCalls: 1 })) });
 const DAY = new Date(NOW).toISOString().slice(0, 10), YESTERDAY = new Date(NOW - 86_400_000).toISOString().slice(0, 10);
-/** ONE DRIVE AT THE FACT CHECK. `walked` is the list the walk hands back, `spendMs` what the walk takes off the clock,
- *  and `deadlineMs` decides which of the two purchase loops gets to spend, because the loop in front of the walk stops
- *  under the box the walk begins a job in. */
 const postDrive = async (s: typeof SITES[number], seeded: readonly Owed[], answer: (n: Owed) => Answer, o: { walked?: readonly Owed[]; deadlineMs?: number; spendMs?: number; reached?: readonly string[] } = {}) => {
   const rows = freshRepo(); let at = NOW;
   rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: "fact_check",

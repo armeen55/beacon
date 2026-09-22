@@ -30,7 +30,22 @@ describe("inside a no-spend scope nothing is bought, and nothing pretends it fai
     await PROOF_SPEND.run("tenant-fx", 1, 0.05, async () => {
       expect([PROOF_SPEND.activeFor("tenant-fx"), PROOF_SPEND.activeFor("other"), PROOF_SPEND.authorize("tenant-fx", "external"), PROOF_SPEND.authorize("tenant-fx", "model", 0.02), PROOF_SPEND.authorize("tenant-fx", "model", 0.02)]).toEqual([true, false, true, false, true]);
       expect(await runWithoutSpending(async () => PROOF_SPEND.activeFor("tenant-fx"))).toBe(false);
-    }); expect(PROOF_SPEND.activeFor("tenant-fx")).toBeNull();});});
+    }); expect(PROOF_SPEND.activeFor("tenant-fx")).toBeNull();});
+  it("limits an exact rendered-page proof, keeps immutable meters, and lets no-spend override both allowances", async () => {
+    const target = { capability: "onpage_rendered_html", url: "https://own.example/page" }, policy = { maxExternalCalls: 1, maxExternalUsd: 0.4, allowedExternal: [target] };
+    await PROOF_SPEND.run("tenant-fx", 2, 0.1, async () => {
+      expect([PROOF_SPEND.externalClosed("tenant-fx", target), PROOF_SPEND.externalClosed("other", target), PROOF_SPEND.externalClosed("tenant-fx", { ...target, url: "https://other.example/page" })]).toEqual([false, true, true]);
+      await runWithoutSpending(async () => expect([PROOF_SPEND.authorize("tenant-fx", "model", 0.02), PROOF_SPEND.authorize("tenant-fx", "external", 0.002, target)]).toEqual([true, true]));
+      expect(PROOF_SPEND.meter("tenant-fx")).toEqual({ modelCalls: 0, modelReservedUsd: 0, externalCalls: 0, externalReservedUsd: 0 });
+      expect(PROOF_SPEND.authorize("tenant-fx", "external", 0.5, target)).toBe(true);
+      expect([PROOF_SPEND.authorize("tenant-fx", "model", NaN), PROOF_SPEND.authorize("tenant-fx", "model", 0.02), PROOF_SPEND.authorize("tenant-fx", "external", 0.002, target), PROOF_SPEND.authorize("tenant-fx", "external", 0.002, target)]).toEqual([true, false, false, true]);
+      PROOF_SPEND.accountExternal("tenant-fx", 0.002, 0.003);
+      const copy = PROOF_SPEND.meter("tenant-fx")!; copy.externalCalls = 0;
+      expect(PROOF_SPEND.meter("tenant-fx")).toEqual({ modelCalls: 1, modelReservedUsd: 0.02, externalCalls: 1, externalReservedUsd: 0.003 });
+    }, policy);
+    await PROOF_SPEND.run("tenant-fx", 1, 0.1, async () => expect(PROOF_SPEND.authorize("tenant-fx", "model", 0.02)).toBe(true), { ...policy, stopBy: Date.now() - 1 });
+    expect(() => PROOF_SPEND.run("tenant-fx", 1, 0.1, () => {}, { ...policy, allowedExternal: [{ ...target, capability: "serp_organic" }] })).toThrow();
+  });});
 describe("a paused account rebuilds its surface and buys nothing, whatever the caller asked for", () => {
   const storeMock = (claim: boolean, held: unknown[] = []) => ({
     readStore: async () => held, writeStore: async () => undefined,

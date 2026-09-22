@@ -20,8 +20,8 @@ const publish = vi.hoisted(() => ({ allowed: true }));
 vi.mock("@/lib/auth/can-publish", () => ({ canPublishForCurrentTenant: async () => publish.allowed }));
 const shipped = vi.hoisted(() => ({ records: [] as unknown[], held: [] as any[] }));
 const surfaceCalls = vi.hoisted(() => ({ n: 0 }));
-const proofRun = vi.hoisted(() => vi.fn());
-vi.mock("@/domains/runtime", async () => ({ ...(await vi.importActual<typeof import("@/domains/runtime")>("@/domains/runtime")), atomicProof: { run: proofRun } }));
+const { proofRun, prepareRun } = vi.hoisted(() => ({ proofRun: vi.fn(), prepareRun: vi.fn() }));
+vi.mock("@/domains/runtime", async () => ({ ...(await vi.importActual<typeof import("@/domains/runtime")>("@/domains/runtime")), atomicProof: { run: proofRun, finishPage: prepareRun } }));
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
   loadShippedChanges: async () => shipped.held, captureChangeMeta: async () => null, loadProofLedgerPersisted: async () => shipped.held,
   recordShipment: async (r: unknown) => { const f = r as { proposalId: string; proposalVersion: string };
@@ -31,7 +31,6 @@ vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof
 const NOW = "basis_now::d4";
 const EXACT = "Iranian Comedians: the 12 names people actually search for";
 const ID = "t::/famous-iranian-comedians::existing_edit::bundle";
-/** Relative to now: a hard-coded reading date is a test that fails on a calendar day nobody chose. */
 const SEEN = new Date(Date.now() - 2 * 86_400_000).toISOString();
 const bundled = (basis: string, id = ID): ChangeProposal => ({
   id, tenantId: "t", kind: "existing_edit", pagePath: "/famous-iranian-comedians", pageLabel: "Famous Iranian comedians", primaryQuery: "iranian comedians",
@@ -55,7 +54,6 @@ async function renderChanges(view: ChangesView): Promise<string> {
   return renderToStaticMarkup(await ChangesSection() as ReactElement);}
 describe("a direct link renders only what the ranked list would, and always lands somewhere honest", () => {
   beforeEach(() => vi.clearAllMocks());
-  /** Serve one stored row at the link and render it. `retired` is what a history-including read finds. */
   async function link(p: ChangeProposal | null, retired: ChangeProposal | null = null): Promise<string> {
     const { loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");
     vi.mocked(resolveCurrentBasis).mockResolvedValue(NOW); // the bar the account holds NOW
@@ -78,7 +76,6 @@ describe("a direct link renders only what the ranked list would, and always land
     const b = bundled(NOW).bundle!;
     shipped.held = [{ proposalId: ID, page: "/famous-iranian-comedians", componentsApplied: [{ id: "0:title", ...b.components[0] }] }];
     const html = await link({ ...bundled(NOW), bundle: { ...b, components: [b.components[0]!, { ...b.components[0]!, kind: "meta", label: "Description", after: "Twelve comedians span stand-up, television and film, with their best-known performances." }] } } as ChangeProposal); const boxes = [...html.matchAll(/<input type="checkbox"[^>]*>/g)].map((m) => m[0]); shipped.held = []; expect([boxes.length, boxes[0]!.includes("disabled"), boxes.some((x) => x.includes("checked")), html.includes("already recorded")]).toEqual([2, true, false, true]); });
-  /** FRESHNESS IS PER COMPONENT, because a receipt is mixed by design. One AI answer taken this morning used to keep a whole change alive beside a page reading and a results check nobody had taken in months. And an atomic change carried no receipt at all, so it could never go stale: it ages on the day it was drafted. The gated rebuild used to be handed NOTHING, so a basis shift silently erased the retry date, the pages under investigation, the ideas held back and the kernel's own verdicts. THE APPROVAL BOUNDARY IS THE SERVER'S, NOT THE SCREEN'S. Editorial judgement is the operator's to answer; an unsupported claim, a blank, a wrong page or a placement nobody can check is a fact about the work, and no yes waves one through. THE COMPACT SENTENCE IS TYPED BY THE KIND OF WORK, never the internal brief said back: an ownership row says Beacon is reading the competing pages, and an unfamiliar family falls back to one plain sentence. EVERY GENUINE OPPORTUNITY IS REACHABLE, COMPACTLY: the preparing lane is collapsed by default, one plain sentence per row, its own detail link, and NEVER the internal research essay (operator, 2026-08-21). ONE STORY ACROSS BOTH SURFACES (operator, 2026-08-15): a gate decides the LANE, never whether genuine work is seen; the same counts appear on Today and Changes, and no row is in two lanes. Connecting Google is worth doing and it is not the price of entry: an account with approved questions and research of its own must not be told to connect before it may see anything at all. AND THE PROMOTION ITSELF NEVER RUNS AS A READ AND A SAVE: the action hands the store the exact version that was confirmed, and the store writes only while the row still IS that version (pinned in proposal-canon). */
   it("expires no change for the age of its readings, and refuses the one whose piece cites evidence the receipt never carried", () => {
     const cold = new Date(Date.now() - 40 * 86_400_000).toISOString(), ctx = { tenantId: "t", currentBasis: NOW }, b = bundled(NOW).bundle!, item = b.receipt.items[0]!;
     const { bundle: _b, ...atomic } = bundled(NOW), undated = { ...bundled(NOW), createdAt: cold, bundle: { ...b, receipt: { items: [{ ...item, observedAt: null }], missing: [], freshestObservedAt: null } } } as ChangeProposal;
@@ -89,7 +86,6 @@ describe("a direct link renders only what the ranked list would, and always land
     expect(await link(flat as ChangeProposal)).toContain("data-simple-detail");
     expect(await link(null, bundled(NOW))).toContain("This idea was set aside"); // history, not a page that never was
   });
-  /** THE ONE SERVABILITY VERDICT, ON THE DIRECT LINK TOO. The detail read status and unsettledCause and skipped openHold, so a stored ready row the queue itself demotes (a typed fault carried on the row) rendered Copy and Mark done on its own URL while the list refused to offer it. The list and the detail may never disagree about one row. */
   it("a ready row the hold blocks exposes neither Copy nor Mark done on its direct link", async () => {
     const { bundle: _b2, ...flat } = bundled(NOW);
     const held = { ...flat, limitations: [...(flat.limitations ?? []), "This claim carries no source yet, so it is held for review until one is on file."] } as ChangeProposal; const page = await link(held); expect(page).not.toContain(">Copy<");
@@ -165,6 +161,15 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     publish.allowed = false; const denied = await finishOneProposalAction({ proposalId: ID }); publish.allowed = true; expect([denied.success, proofRun.mock.calls.length]).toEqual([false, 3]);
     const shown = renderToStaticMarkup(createElement(SetAsideChange, { proposalId: ID, finishable: true })), hidden = renderToStaticMarkup(createElement(SetAsideChange, { proposalId: ID }));
     expect([shown.includes("Finish this one"), shown.includes("Free page and evidence checks run first"), shown.includes("$0.05"), shown.includes("DataForSEO $0"), shown.includes("Research stays paused"), hidden.includes("Finish this one")]).toEqual([true, true, true, true, true, false]); });
+  it("prepares the selected page only with disclosed ceilings and never calls a reservation an invoice", async () => {
+    const { finishOneProposalAction } = await import("@/app/(shell)/changes/actions"), { SetAsideChange } = await import("@/app/(shell)/changes/change-controls");
+    prepareRun.mockResolvedValueOnce({ success: false, allowance: { modelReservedUsd: 0.2, externalReservedUsd: 0.002 }, evidenceOwed: [{ kind: "factual_source", query: "regional weave" }] });
+    const failed = await finishOneProposalAction({ proposalId: ID, prepare: true });
+    expect(prepareRun).toHaveBeenCalledWith({ tenantId: "t", proposalId: ID, currentBasis: NOW, maxOpenAiCalls: 8, maxOpenAiUsd: 2, maxDataForSeoCalls: 1, maxDataForSeoUsd: 0.4 });
+    expect([failed.success, failed.error?.includes("not invoices"), failed.error?.includes("regional weave"), failed.error?.includes("Research stays paused")]).toEqual([false, true, true, true]);
+    const shown = renderToStaticMarkup(createElement(SetAsideChange, { proposalId: ID, finishable: true, prepare: true }));
+    expect([shown.includes("Prepare best edit on this page"), shown.includes("$2 OpenAI"), shown.includes("$0.40 DataForSEO")]).toEqual([true, true, true]);
+  });
   it("keeps everything this release actually knows when the bar moves under it", async () => {
     const stored = { schemaVersion: 2, releaseId: "t:1", computedAt: new Date().toISOString(), tenantId: "t",
       changes: { ...emptyView(0), proposals: [bundled("basis_old::d2", "t::old")], ready: [bundled("basis_old::d2", "t::old")],
@@ -196,7 +201,6 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     expect(withCurrentBasisOnly(current, { tenantId: "t", currentBasis: NOW }).proposals).toHaveLength(1); // my own bar, untouched
     expect(withCurrentBasisOnly(current, { tenantId: "t", currentBasis: null }).proposals, "an unreadable basis fails closed because no saved row can be proved current").toHaveLength(0); });
 });
-/** ONE BATCH CORE, NOT N SINGLE-CARD ACTIONS (operator, 2026-09-01). Three cards used to repeat the full single press each: three ledger reads, three 200-row canonical saves, 68 to 74 seconds, then immediate live-site verification while the operator was still publishing. The batch reads the ledger once, writes one Shipment per success, flips each row narrowly, defers research past the response, schedules no immediate verification, dedupes its input, replays idempotently, and one failed row never rolls back the others. */
 describe("bulk Mark Done is one batch, durable before acknowledged", () => {
   const readyRow = (id: string, over: Partial<ChangeProposal> = {}): ChangeProposal => ({ id, tenantId: "t", kind: "existing_edit", pagePath: `/${id.split("::")[1] ?? "p"}`.replace("//", "/"), pageUrl: `https://iranopedia.com${`/${id.split("::")[1] ?? "p"}`.replace("//", "/")}`, pageLabel: id, primaryQuery: "q", opportunityType: "Capture clicks",
     changeFamily: "meta", status: "ready", basis: NOW, modeledOn: 'the results page for "q": 3 ranked titles read, 2 of them leading with "q", and this line leads with it too',

@@ -1,6 +1,7 @@
 /** Slice 6/6C/6D/6E/6F canonical evidence cache + atomic money path + task lifecycle. Every seam injected: no network, no Supabase, no spend. Proves reserve -> network -> reconcile, single-flight, tenant-independent identity, the envelope rule, free resumption, the STRUCTURED dispositions, the PAID-RESPONSE status policy (a reported zero cost never authorizes a silent paid retry), the DURABLE blocked hold beside the INDEFINITE uncertain quarantine, the one-GET listing memo, fail-closed reads and writes. No paid call is ever repeated. */
 import { describe, it, expect, vi } from "vitest";
 import { runResolvedCall, collectResolvedTask, identityCacheKey, type CachedCallDeps, type ResolvedCall } from "@/domains/evidence/dataforseo/cached-call";
+import { PROOF_SPEND, runWithoutSpending } from "@/lib/spend-scope";
 /** Every UPDATE matches ZERO rows here, so the production write seam must throw. */
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ from: () => ({ update: () => ({ eq: () => ({ select: async () => ({ data: [], error: null }) }) }) }) }) }));
 const ENV = { DATAFORSEO_AUTH_B64: "abc" } as unknown as NodeJS.ProcessEnv;
@@ -41,6 +42,19 @@ async function secondVisit(ready: unknown, at: Date = NOW) {
   g.deps.fetchImpl = fetcher(g.calls, (u) => (u.includes("tasks_ready") ? ready : liveOk(0)));
   return { res: await runResolvedCall(taskCall(), g.deps), calls: g.calls };}
 describe("runResolvedCall - the atomic money path, and the paid-response policy (the STATUS decides, never the reported cost alone)", () => {
+  it.each([false, true])("meters only new proof wires; cache/replay is free and ambiguity=%s retains admission", async (ambiguous) => {
+    const target = { capability: "onpage_rendered_html", url: "https://own.example/page" }, request = resolved({ ...target, publicInput: { url: target.url }, estCostUsd: 0.002 });
+    await PROOF_SPEND.run("tenant-a", 8, 2, async () => {
+      const warm = makeDeps({ claimEvidenceFetch: claim("ready", { payload: liveOk(0.0021) }) });
+      expect((await runResolvedCall(request, warm.deps)).state).toBe("hit"); expect(PROOF_SPEND.meter("tenant-a")!.externalCalls).toBe(0);
+      const attempt = makeDeps(ambiguous ? { fetchImpl: throwing() } : {});
+      const result = await runResolvedCall(request, attempt.deps);
+      expect(result.state).toBe(ambiguous ? "error" : "ok");
+      expect(PROOF_SPEND.meter("tenant-a")).toMatchObject({ modelCalls: 0, externalCalls: 1, externalReservedUsd: ambiguous ? 0.002 : 0.0021 });
+      const refused = makeDeps(); expect((await runResolvedCall(request, refused.deps)).state).toBe("capped"); expect(refused.calls.fetch).toEqual([]);
+    }, { maxExternalCalls: 1, maxExternalUsd: 0.4, allowedExternal: [target] });
+    const closed = makeDeps(); expect((await runWithoutSpending(() => runResolvedCall(request, closed.deps))).state).toBe("capped"); expect(closed.calls.fetch).toEqual([]);
+  });
   it("a miss takes a pre-call receipt, one network call, one reservation, one reconcile, and caches the FULL envelope", async () => {
     const { deps, calls } = makeDeps(); const res = await runResolvedCall(resolved(), deps);
     expect([res.state, res.state === "ok" && res.costUsd, calls.fetch.length, calls.reserve, calls.adjust]).toEqual(["ok", 0.0021, 1, [0.01], [0.0021 - 0.01]]); // reserve first, reconcile est -> actual

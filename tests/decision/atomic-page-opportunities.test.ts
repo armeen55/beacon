@@ -87,7 +87,6 @@ describe("a page carries as many changes as it has searches it never answers", (
     expect([behind?.propositions[0]?.includes(s.small), behind?.propositions[0] === lead?.propositions[0]],
       "the second change is about the second search in its own words, never the first search said again").toEqual([true, false]);
   });
-  /** Stable base address for the largest search; each additional search carries its own canonical key. */
   it.each(SITES)("$t: offers two changes for two unanswered searches, and one change where there is one", async (s) => {
     const two = await mintFor(s, [[s.big, 900], [s.small, 300]]), one = await mintFor(s, [[s.big, 900]]);
     expect([two.map((c) => seatStem(c.id)), two.map((c) => c.primaryQuery), one.map((c) => seatStem(c.id)), one.map((c) => c.primaryQuery)],
@@ -99,11 +98,6 @@ describe("a page carries as many changes as it has searches it never answers", (
   it("reads a five-letter spelling of the page's own subject as the subject, so no answer is bought to define an Iranian singer as an Iranian singer", async () => {
     const singers = { ...SITES[0]!, t: "tenant-one", path: "/famous-iranian-singers", title: "Famous Iranian Singers", passage: "These famous Iranian singers have left a lasting impact on Persian music, blending traditional and modern styles, making them some of the most popular Iranian (Persian) singers of all time." };
     expect((await mintFor(singers, [["irani singer", 290], ["irani singers", 120]])).map((c) => [c.primaryQuery, c.researchOnly, c.obligation?.kind, c.opportunityType.startsWith("A read of what wins")]), "the first funded answer (2026-09-15) was minted because \"irani\" carries five letters and no rule joined it to \"iranian\"; the page answers its own subject, so the only card left is the reading of what wins it, never a draft").toEqual([["irani singer", true, "evidence", true]]); });
-  /** AND THE WRITER IS SENT TO THE RIGHT QUESTION. The walk reads the page's demand for itself and used to take
-   *  the page's leading gap for whatever card it held, so the second change would have been researched, briefed and
-   *  judged against the FIRST change's search: one row, two subjects, and money spent on a question that card was
-   *  never about. A card wearing its own search key takes the gap that names it, and takes nothing where this pass's
-   *  demand no longer names it at all. */
   it.each(SITES)("$t: keeps each change on its OWN search, reads that search's winners before a writer is hired with nothing on file, and settles a search this page no longer asks", async (s) => {
     const cards = await mintFor(s, [[s.big, 900], [s.small, 300]]), owed: string[][] = [];
     await walked(s, cards, owed); const away: string[][] = [], gone = await walked(s, [{ ...cards[1]!, primaryQuery: "which ferry crosses the sound", evidence: { query: "which ferry crosses the sound", hints: [], evidenceRefCount: 1 } }], away);
@@ -112,19 +106,12 @@ describe("a page carries as many changes as it has searches it never answers", (
       "each change stays named after its own search; with no checked fact and no winner's words on file the only ground is the page itself, so each card files the reading of its OWN search's winners (operator, 2026-09-15: the first funded answer restated the page to itself), never a fact check; a card whose search the demand no longer names buys nothing and says it has no gap rather than borrowing the other change's question")
       .toEqual([[s.big, s.small], [[`${s.path}::body::${canon(s.big)}`, s.big], [`${s.path}::body::${canon(s.small)}`, s.small]], [], ["terminal"]]);
   });
-  /** COVERAGE IS THE ARBITER, NOT THE PRODUCER. A finished change on file already writing that section takes the
-   *  opportunity off the list; a finished change about the OTHER search takes nothing off it. */
   it.each(SITES)("$t: holds the second change back while a finished change on file already writes that section", async (s) => {
     const held = await mintFor(s, [[s.big, 900], [s.small, 300]], [card(s, `${s.t}::${s.path}::existing_edit::ai_answer_gap`, s.small, { status: "ready", researchOnly: false })]);
     const other = await mintFor(s, [[s.big, 900], [s.small, 300]], [card(s, `${s.t}::${s.path}::existing_edit::ai_answer_gap`, "which tide covers the flats first", { status: "ready", researchOnly: false })]);
     expect([held.map((c) => c.primaryQuery), other.map((c) => c.primaryQuery)],
       "a change already writing that section is the opportunity, so it is not offered twice, and a change about a different search on the same page suppresses nothing").toEqual([[s.big], [s.big, s.small]]);
   });
-  /** A GROUP THE WORK ALREADY ON FILE ANSWERS IS NOT A SECOND OPPORTUNITY (production 02:30Z, 2026-09-06). A page
-   *  holding a Ready sentence for one phrasing of a question was given a SECOND Ready change for another phrasing of
-   *  the same question, carrying that identical sentence: two phrasings tokenize differently, so they are two groups,
-   *  and the page's own passages answer neither until the words are published. The copy a live change would publish
-   *  is read by the SAME rule the page's own passages are read by. */
   it.each(SITES)("$t: reads a search a change on file already answers as answered, and never moves the biggest one", (s) => {
     const rows: Array<[string, number]> = [[s.big, 900], [s.small, 300], [s.third, 150]];
     const of = (r: Array<[string, number]>, copy: string | null): ReturnType<typeof demandOf> =>
@@ -137,8 +124,6 @@ describe("a page carries as many changes as it has searches it never answers", (
     expect(JSON.stringify([lead(of(rows, s.both)), lead(of(rows, s.onlyBig))]) === JSON.stringify([lead(of(rows, null)), lead(of(rows, null))]),
       "and the biggest search this page does not answer is read exactly as it was, so the change already on file never changes what it is about").toBe(true);
   });
-  /** THE SAME RULE AT THE MINT: the producer reads the queue it already holds, so the second card is never minted to
-   *  say what a live change on this page already says. */
   it.each(SITES)("$t: mints no second change for a search the live change on this page already answers, and still mints one for a search it does not", async (s) => {
     const rows: Array<[string, number]> = [[s.big, 900], [s.small, 300], [s.third, 150]];
     const live = (copy: string): ChangeProposal => card(s, idOf(s), s.big, { status: "ready", researchOnly: false,
@@ -151,8 +136,6 @@ describe("a page carries as many changes as it has searches it never answers", (
 });
 
 describe("two sections on one page stand together, and each opens at its own address", () => {
-  /** THE ID IS THE URL (`/changes/[id]`), so an address carrying its search key has to survive the store, the list
-   *  and the detail read, and the second change has to be judged by the same doors as the first. */
   it.each(SITES)("$t: files both changes as current work, serves both, and judges the second by the same doors", async (s) => {
     const { saveChangeProposal, loadChangeProposal, loadChangeProposals } = await import("@/domains/decision/proposal-store");
     const first = card(s, idOf(s), s.big), second = card(s, idOf(s, `@${canon(s.small)}`), s.small);
@@ -166,8 +149,6 @@ describe("two sections on one page stand together, and each opens at its own add
       "the same doors ask the same questions of both, and they really do answer: what the second still owes before it is a deliverable, and what it owes next, are read exactly as the first's are rather than waved through on the shape of its address")
       .toEqual([deliverableGaps(first), nextObligation(first), true]);
   });
-  /** THE STORE IS THE ARBITER OF OVERLAP, AND MERGING IS THE ONLY COMBINATION (Product Truth): a change writing
-   *  PART of what a live change already writes is not saved beside it, whatever its id says. */
   it.each(SITES)("$t: refuses a second section that writes part of what a live change on this page already writes", async (s) => {
     const { saveChangeProposal } = await import("@/domains/decision/proposal-store");
     const wide = card(s, idOf(s, "@wide"), s.small, { bundle: { objective: `Answer "${s.small}" and show the counts beside it.`, metric: "clicks on this page for this search",
@@ -183,9 +164,6 @@ describe("two sections on one page stand together, and each opens at its own add
 });
 
 describe("two audiences losing clicks on one page are two rows", () => {
-  /** EVERY RECOVERY CARD WAS NAMED AFTER ITS PAGE, so two lost audiences on one page wore ONE id and the dedupe
-   *  behind the producer kept the larger and dropped the rest. The largest recoverable loss keeps the row already
-   *  on file; the audience behind it carries its own canonical search key. */
   const unit = (label: string, recoverable: number, home: string) => ({ label, vocabulary: [label], queries: [], pages: [home],
     history: { earlyClicksPerDay: 4, recentClicksPerDay: 1, lostClicksPerMonth: 90, earlyImpressions: 4000, recentImpressions: 900,
       priorTopPage: home, currentTopPage: home, pageSwapped: false, earlyPosition: 4, recentPosition: 9,
@@ -208,7 +186,6 @@ describe("two audiences losing clicks on one page are two rows", () => {
     const recovered = await demandRecoveryCards({ tenantId: s.t, snapshot: snapshot(s, [page(s, [[s.small, 900]])]) as never, now: NOW, preloaded: { units: [unit(s.small, 60, url(s))], historyWindow: { earlyDays: 120, earlyFrom: "2026-04-01", earlyTo: "2026-07-01" } } as never }), unanswered = await mintFor(s, [[s.small, 900]]);
     expect([recovered.cards[0]!.id, seatStem(unanswered[0]!.id)]).toEqual([`${recovery}@${canon(s.small)}`, `${answer}@${canon(s.small)}`]);
   });
-  /** A SETTLEMENT NOBODY READ THE WINNERS FOR IS NOT A SETTLEMENT, AND THE STORE'S OWN RECOMPUTE IS WHERE IT IS ASKED (production 09:03:46Z, 2026-09-06). Four hub rows were re-saved `terminal: no substantive gap named` by the release sweep on searches no results page had ever been bought for: the rule that answered lived at the walk, a terminal row is never funded, so it could not reach that door and the sweep wrote the settlement back every pass. The comparison rides the card as `winnersOnFile` and the ladder owns the rule, so the mint, the sweep's re-mint and the walk give one answer. */
   it.each(SITES)("$t: a settled row whose winners nobody has read is re-minted owing that reading, and one whose winners were read and carry nothing stays settled", async (s) => {
     const { demandRecoveryCards } = await import("@/domains/decision/producers/demand-recovery"), { preferFinished } = await import("@/domains/decision/completeness");
     const W = `https://winner-${s.t}.example/page`, seen = (q: string, read = true) => ({ ...emptyResearchEvidence(), serpEvidence: [{ query: q, observedAt: null, organic: [{ rank: 1, url: W, domain: "winner.example", title: null }], aiOverview: [], aiMode: [], paa: [], related: [] }],
@@ -226,24 +203,17 @@ describe("two audiences losing clicks on one page are two rows", () => {
   });
 });
 
-/** THE SAME RULE ON THE OTHER BODY PRODUCER: two AI answer cases landing on one page wore ONE id, spelled out of the
- *  page alone in five places, so the second card, the hold that keeps its writer waiting and the durable verdict all
- *  pointed at the first card's address and the smaller question was lost with no verdict anywhere. */
 describe("two questions the assistants answer elsewhere on one page are two changes", () => {
   const site = (s: Site): string => `${s.t}.example`;
-  /** ONE STORED ANSWER that credits somebody else, in the shape the snapshot carries it. */
   const answer = (prompt: string, promptId: string, i: number): unknown => ({ observationId: `${promptId}-${i}`, promptId, promptVersion: 1, promptText: prompt,
     engine: "chatgpt", modelRequested: null, modelServed: null, observationMode: "grounded", reportingDay: "2026-07-31", observedAt: null, answerHash: `h${promptId}${i}`,
     webSearchReported: null, citationsObserved: true, fanOutQueries: null, citations: [{ url: "https://rival.example/answer", domain: "rival.example", title: "A rival answer" }],
     retrievedResults: null, brandMentions: null, analysis: null });
-  /** The account's stored answers, biggest question first: the order the producer decides seats in. */
   const answersFor = (s: Site): unknown[] => [...[0, 1].map((i) => answer(s.aiBig, "p-big", i)), answer(s.aiSmall, "p-small", 0)];
-  /** THE READING OF THE PAGE the producer places a card on, handed in whole: no reading is bought here and none is faked away. */
   const understanding = (s: Site): unknown => { const job = { url: url(s), job: `What ${s.subject} is and what lives on it.`, pageType: "hub", audience: "readers new to it",
     topics: s.topics, commercial: false, promise: s.title, missing: "nothing yet", sells: [] };
     return { corpus: new Map([[`${site(s)}${s.path}`, job]]), held: [], hold: () => undefined, of: async () => ({ job, reason: "read" }) }; };
-  /** The real producer, its stores faked and its purse EMPTY, so every case is diagnosed by nobody and no provider is reached. */
-  const casesFor = async (s: Site, written?: Map<string, { query: string; copy: string }[]>, questions = answersFor(s)): Promise<{ drafts: { slug: string; query: string }[]; hold: string[]; filed: Record<string, unknown>[] }> => {
+  const casesFor = async (s: Site, written?: Map<string, { query: string; copy: string }[]>, questions = answersFor(s), focusPage?: string): Promise<{ drafts: { slug: string; query: string }[]; hold: string[]; filed: Record<string, unknown>[] }> => {
     vi.resetModules();
     vi.doMock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadOwnedPageBodies: async () => new Map([[`${site(s)}${s.path}`, body(s)]]) }));
     vi.doMock("@/domains/evidence/ai-visibility/answer-journeys", async (orig) => ({ ...(await orig<Record<string, unknown>>()), readAnswerJourneys: async () => [] }));
@@ -252,10 +222,16 @@ describe("two questions the assistants answer elsewhere on one page are two chan
     shot.research = { ...shot.research, aiObservations: questions };
     const earned = new Map([[url(s), new Set(topicTokens(s.topics.join(" ")))]]); // the words this page has EARNED the right to be asked about, read the one way every door reads them
     const out = await aiCaseCards([], shot as never, [page(s, [[s.big, 900]])], new Set(), earned, new Map(), understanding(s) as never, s.t, [], [], NOW, true,
-      AI_CASE_COPY.aeoMeter(0) as never, null, written);
+      AI_CASE_COPY.aeoMeter(0) as never, null, written, focusPage);
     return { drafts: out.drafts.map((d) => ({ slug: d.slug, query: d.query })), hold: [...out.hold], filed: db.filed };
   };
   const aiId = (s: Site, tail = ""): string => `${s.t}::${s.path}::existing_edit::ai_answer_gap${tail}`;
+  it("a focused pass files only that page's conclusions, not unrelated no-page verdicts", async () => {
+    const s = SITES[0]!, questions = [...answersFor(s), answer("where are space telescopes launched", "unrelated", 0)];
+    const out = await casesFor(s, undefined, questions, s.path);
+    expect(out.filed.length).toBeGreaterThan(0); expect(out.filed.every((r) => r.pageUrl === url(s))).toBe(true);
+    expect(out.filed.some((r) => r.caseKey === "prompt:unrelated")).toBe(false);
+  });
   it.each(SITES)("$t: opens a change for each question, and the one the assistants answer most keeps the address it already had", async (s) => {
     const out = await casesFor(s);
     expect([out.drafts.map((d) => d.query), out.drafts.map((d) => `${s.t}::${s.path}::existing_edit::${d.slug}`), out.hold],

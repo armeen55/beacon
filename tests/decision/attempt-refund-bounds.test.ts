@@ -1,6 +1,3 @@
-/** WHAT AN ATTEMPT PAYS FOR, ASKED ADVERSARIALLY (reviewer, 2026-09-06). Can a refund exceed what a door took, can a door give back an attempt it never spent, what does a call that never left the process cost, and does a reading that never arrived reach the caller's unsettled mark? FIVE answers were wrong: the day's cap refused a call and the page paid an attempt for it, a judging that threw was filed as a refusal Beacon had made, which the day memory counts as settling the job, an answer the drafter refused before any transport was charged for a call its own receipt counted at zero, and a reading that threw WHERE IT STOOD escaped the editor entirely, because a bare `.catch` never attaches to a function that throws before it returns a promise, and a receipt stamped `off`, `blocked_budget` or `cached` beside real dollars was refunded its attempt AND dropped from the dollars, so the money left both halves of the meter at once and no receipt could name it.
- *  Through the REAL money surface, the REAL editor and the REAL gateway, on two synthetic accounts with unrelated
- *  subjects and different languages: a rule that holds for one of them is not a rule. */
 import { describe, it, expect, vi } from "vitest";
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } }));
 const cap = vi.hoisted(() => ({ allowed: true }));
@@ -33,7 +30,6 @@ const VERDICT = { pageFit: true, usefulAndNatural: true, placementCorrect: true,
 const winners = (s: Site) => extractPageFacts([1, 2, 3].map((n) => ({ url: `https://w${n}.example/x`, domain: `w${n}.example`,
   extract: { title: s.q, h1: s.q, wordCount: 1200, headings: [...s.heads, "What to do first"], faqCount: 2, openingSample: s.lines[0]!, entityNames: [s.title], hasList: true, hasTable: false } })) as never);
 
-/** ONE FUNDED JOB, drawn through the real money surface. */
 const funded = (s: Site, calls = DRAFT_BUDGET.DELIVERABLE_CALLS) => { const key = DRAFT_BUDGET.keyOf({ pageUrl: s.url }), budget = DRAFT_BUDGET.plan({ jobs: [{ key, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 });
   return { key, budget, allowance: budget.draw(key, calls)! }; };
 
@@ -56,13 +52,10 @@ describe("a refund gives back the attempt the door took, and never more", () => 
   });
 });
 
-/** ONE DOOR, READ OFF BOTH HALVES AT ONCE: take the attempt, let the answer come back, put it on the dollars, then ask for the attempt back. */
 const door = (s: Site, answer: unknown) => { const { key, budget, allowance } = funded(s), before = allowance.left;
   allowance.left -= 1; allowance.record(answer); DRAFT_BUDGET.refundIfNoCallMade(allowance, answer); const m = budget.meterOf(key);
   return `${allowance.left === before ? "refunded" : "charged"}, calls ${m?.providerCalls ?? 0}, dollars ${m?.costUsd ?? 0}`; };
 
-/** THE RULE AS THE FILE ITSELF STATES IT (draft-budget.ts:225): an attempt pays for a call that ACTUALLY LEFT THE
- *  PROCESS, and `recordOn` beside it keeps that same call off the dollars, so the two halves read ONE predicate. */
 const STAMPS = [{ status: "off", attempts: 1 }, { status: "blocked_budget", attempts: 1 }, { status: "drafted", cached: true, attempts: 1 }, { status: "drafted", attempts: 0 }] as const;
 describe("a call that never left the process", () => {
   it.each(SITES)("$t: the day's cap refuses the call, so the attempt it did not buy comes back", async (s) => {
@@ -73,12 +66,10 @@ describe("a call that never left the process", () => {
       expect([budget.meterOf(key)?.providerCalls ?? 0, before - allowance.left], "the meter records no provider call, so the allowance may not record one either").toEqual([0, 0]);
     } finally { cap.allowed = true; }
   });
-  /** THE COST GUARD SITS ON THE PREDICATE, NOT ON ONE OF ITS CLAUSES (reviewer, 2026-09-06, finding 3). `off`, `blocked_budget` and `cached` answered on the status alone, so an answer stamped one of those beside real dollars was handed its attempt back here AND dropped from the dollars by `recordOn`: the same money left both halves at once and no receipt anywhere could name it. Asked as the cross product of the four stamps and the money, at both halves, on one funded page each. */
   it.each(SITES)("$t: the cost guard is on the predicate itself, so no stamp refunds an attempt beside real dollars", (s) => {
     expect(STAMPS.flatMap((x) => [0.02, 0].map((costUsd) => door(s, { ...x, costUsd }))), "a receipt that names money is a call that left the process whatever it calls itself, so it stays on the dollars and keeps the attempt it bought; the same stamp naming none is the call nobody made, and it comes back").toEqual(["charged, calls 1, dollars 0.02", "refunded, calls 0, dollars 0", "charged, calls 1, dollars 0.02", "refunded, calls 0, dollars 0",
         "charged, calls 1, dollars 0.02", "refunded, calls 0, dollars 0", "charged, calls 0, dollars 0.02", "refunded, calls 0, dollars 0"]);
   });
-  /** AND THE CLASS THE THREE NAMED STATUSES MISS. The drafter refuses an answer with no account before it touches the cache, the cap or the wire, and says so on the receipt as `attempts: 0, costUsd: 0`; the gateway stamps that same count 0 for a credit hold, a paused account and a schema nothing can convert. The meter reads the count and records no call; the refund read the status and charged one. Asked here through the REAL drafter, with a transport that would stamp its own attempt if anything ever reached it. */
   it.each(SITES)("$t: an answer refused before any transport puts nothing on the dollars, so it may not cost an attempt either", async (s) => {
     const { key, budget, allowance } = funded(s), before = allowance.left;
     allowance.left -= 1; // every paid door takes the attempt before the call, so this is the shape the refund has to answer
@@ -107,7 +98,6 @@ describe("a receipt with no dollars and no stamp", () => {
   });
 });
 
-/** AND THE PASS'S DIAGNOSIS PURSE IS THE SAME DOOR (reviewer, 2026-09-06, sixth pass). It gave a unit back on the cache flag alone, through a private clause spelled `AeoMeter.refund()` that took no answer at all, so no cost could gate it and the day cap refusing a call before the wire still cost the pass a reading it never bought. The private clause is deleted and the purse's `left` is written through the one rule, exactly as every other paid door writes its allowance. Driven through the REAL producer with the provider answer supplied at the gateway seam. */
 describe("the pass's diagnosis purse", () => {
   const RULING = { kind: "already_answered", ownedIds: ["own-1"], evidenceIds: [], missing: "", explanation: "the page already answers it" };
   const reading = async (s: Site, answer: unknown) => { const meter = AI_CASE_COPY.aeoMeter(2); gap.answer = answer;
@@ -124,7 +114,6 @@ describe("the pass's diagnosis purse", () => {
   });
 });
 
-/** AND THE PURSE ITSELF, ASKED ADVERSARIALLY AT ITS TWO EDGES (reviewer, 2026-09-06, seventh pass): can the one shared give-back push a meter above what the pass funded, can it push one under zero, and does either purse hand back a unit it never drew? Both bound the give-back by what was really taken, and these arms are the pins that say so. */
 describe("the AI-case meter's own left, through the one shared give-back", () => {
   it.each(SITES)("$t: never rises above the units the pass funded, however many answers made no call", (s) => { const meter = AI_CASE_COPY.aeoMeter(2), seen = [meter.left]; for (let i = 0; i < 5; i += 1) { DRAFT_BUDGET.refundIfNoCallMade(meter, { status: "off" }); seen.push(meter.left); }
     expect([seen.every((n) => n <= 2 && n >= 0), meter.left, meter.spent().givenBack], `${s.t}: a give-back lands only against a unit really drawn, so five refusals before a single reading invent nothing`).toEqual([true, 2, 0]); });
@@ -136,7 +125,6 @@ describe("the AI-case meter's own left, through the one shared give-back", () =>
     for (let i = 0; i < 5; i += 1) DRAFT_BUDGET.refundIfNoCallMade(slice ?? undefined, { status: "off" });
     expect([before, slice?.left, budget.calls.left], `${s.t}: both purses bound the give-back by what was really taken, so five refusals against a slice that spent nothing move neither the slice nor the pass's own ceiling`).toEqual([2, 2, 6]); });});
 
-/** THE JUDGING'S ATTEMPT, TAKEN INSIDE `acceptDeliverable` (drafted-copy.ts:253). */
 describe("the judging's own attempt", () => {
   const pass = async (s: Site, allowance: { left: number }, judge: unknown, unsettled = new Set<string>()) => {
     const piece = await draftFieldForPage({ field: "meta", body: bodyOf(s) as never, query: s.q, brief: "Write the description for this page.", evidenceHints: [], ownedPaths: [new URL(s.url).pathname], minutes: 3 },
@@ -150,7 +138,6 @@ describe("the judging's own attempt", () => {
     const out = await pass(s, allowance, async () => { throw new Error("the reading never came back"); });
     expect([out.piece, before - allowance.left, budget.meterOf(key)?.providerCalls ?? 0], "three rounds, each buying a writing and a reading: six attempts gone against three calls the meter can name, and no words").toEqual([null, 6, 3]);
   });
-  /** HOW A READING NEVER ANSWERS IS NOT PART OF THE FACT (reviewer, 2026-09-06). `acceptDeliverable` guarded the judging with `.catch`, which only ever catches a REJECTED promise, so a judge that threw where it stood took the whole pass down with it: the exception left the editor with the attempt already spent, no card was marked owed, and the caller saw a throw where every other reading failure arrives as a typed transport refusal. */
   it.each(SITES)("$t: a judge that throws where it stands leaves the card owed, exactly as one that rejects does", async (s) => {
     const { allowance } = funded(s), unsettled = new Set<string>();
     const sync = await pass(s, allowance, () => { throw new Error("the reading never came back"); }, unsettled).then((r) => ({ threw: null as unknown, ...r }), (e) => ({ threw: e, piece: undefined, unsettled }));
@@ -160,7 +147,6 @@ describe("the judging's own attempt", () => {
     const out = await reviewFinishedCopy(rowOf(s) as never, { tenantId: s.t, now: NOW, judge: (() => { throw new Error("the reading never came back"); }) as never }).catch((e: unknown) => e);
     expect([out instanceof Error, (out as { row: unknown; detail: string }).detail], "the review lane takes a reading too, so a throw there says the same thing about the words and banks nothing").toEqual([false, "no reading of these words came back, so nothing was banked"]);
   });
-  /** AND IT TAKES NO ATTEMPT OF ITS OWN, so no path through it may hand one back: a refund without a take is money invented (reviewer, 2026-09-06). */
   it.each(SITES)("$t: takes nothing and gives nothing back, whether the reading answers, refuses or throws", async (s) => {
     const moved: number[] = [];
     for (const judge of [async () => ({ ...VERDICT, cached: true }), async () => null, () => { throw new Error("the reading never came back"); }]) {
@@ -178,7 +164,6 @@ describe("the judging's own attempt", () => {
     const out = await pass(s, allowance, null);
     expect([out.piece, allowance.left, out.unsettled.has(s.url)], "the pass ran out mid deliverable, so nothing is settled against these words").toEqual([null, 0, true]);
   });
-  /** WHERE THE RESOLVED-PROMISE WRAP COULD HAVE MOVED THE MONEY (reviewer, 2026-09-06): starting the reading inside `Promise.resolve().then(...)` defers the CALL, and these two ask whether it deferred the take or the give-back with it. */
   it.each(SITES)("$t: the attempt is already taken when the reading starts and is back once it answers cached", async (s) => {
     const { allowance } = funded(s), before = allowance.left; let atCall = -1;
     const out = await pass(s, allowance, async () => (atCall = allowance.left, { ...VERDICT, cached: true }));
