@@ -5,30 +5,24 @@ import "server-only";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 
-/** THE PRE-WRITING DIAGNOSIS CONTRACT. Bump whenever the reader's question, packet shape or validation changes:
- *  a verdict taken under the old contract is then re-earned, never served on. */
-export const DIAGNOSIS_CONTRACT = 4; // v4: captured main-content scope and freshness travel with the packet; owned and credited IDs retain separate authority.
+/** Packet and acceptance contract; older readings are re-earned. */
+export const DIAGNOSIS_CONTRACT = 5; // v5: query-linked source pages reach diagnosis; AI answer excerpts cannot establish missing-information hypotheses.
 /** What the evidence proves about the PAGE, decided before any writer is hired. Deliberately separate from the observation stage: "retrieved and not cited" is what the assistant DID; these name what the page LACKS, if anything. `unknown` is a real verdict (the reader ran and the material does not say why) and authorizes no body treatment; a reader that never ran leaves no diagnosis at all. */
 type AeoGapKind = "already_answered" | "scattered_answer" | "missing_information" | "extraction_or_structure_gap"
   | "authority_or_source_gap" | "freshness_gap" | "reachability_gap" | "unknown";
 export type AeoGapDiagnosis = {
   kind: AeoGapKind;
-  /** The one treatment this diagnosis supports, or null when no content change is authorized. */
   treatment: "rewrite_existing_section" | "add_answer_section" | null;
   /** One plain sentence for the operator. */ explanation: string;
-  /** The exact owned passage ids the reading stood on, and the exact credited or observation evidence ids. */
   ownedIds: readonly string[]; evidenceIds: readonly string[];
+  /** Captured page URLs selected through cited source-* ids, never model-generated URLs. */
+  sourceUrls?: readonly string[];
   /** The specifically missing proposition or the named structural defect, when one exists. */ missing?: string; /** The stated limit when causation stays unknown. */ limitation?: string; /** THE BINDING: the owned content version and completeness the reading was made against, and every observation id it weighed. A page change or a new observation makes this stale, never silently reused. */
-  /** THE BINDING, EXACT: one canonical identity over everything the reading was made from (tenant, case, question, stage, page, content hash, completeness, the sorted observation set and the credited passages). Equality is the whole test, so adding OR removing an observation, editing a credited passage, moving the page body or bumping the contract all make it stale. */
   packet: string;
   contentHash: string; completeness: string; observationIds: readonly string[];
   version: number; decidedAt: string;
 };
-/** THE ONE LAW BINDING A DIAGNOSIS TO THE WORK IT MAY ORDER, written once and read by the producer that
- *  constructs a diagnosis AND the decoder that reads one back. Two copies of this drift, and a drifted copy is
- *  how a persisted row pairing `unknown` with a rewrite reaches the hiring branch. `missing_information` maps to
- *  an answer section and STILL never hires: the gate holds it acquisition-first, because nothing on file binds
- *  the proposition to the facts that support it. */
+/** A missing-information hypothesis requires factual acquisition before publication. */
 export const TREATMENT_FOR_KIND: Record<AeoGapKind, "rewrite_existing_section" | "add_answer_section" | null> = {
   scattered_answer: "rewrite_existing_section", extraction_or_structure_gap: "rewrite_existing_section",
   missing_information: "add_answer_section", already_answered: null, authority_or_source_gap: null,
@@ -39,8 +33,8 @@ export function decodeDiagnosis(raw: unknown): AeoGapDiagnosis | null {
   const d = raw as Record<string, unknown>;
   const ids = (v: unknown): string[] | null => Array.isArray(v) && v.every((x) => typeof x === "string" && x.length > 0) ? (new Set(v as string[]).size === v.length ? v as string[] : null) : null;
   const owned = ids(d.ownedIds), evidence = ids(d.evidenceIds), obs = ids(d.observationIds);
-  // THE PAIR IS THE CHECK, not two enums that happen to be legal apart: `unknown` carrying a rewrite is a row
-  // that would hire a writer off a verdict which authorized nothing.
+  const sources = d.sourceUrls == null ? [] : ids(d.sourceUrls);
+  if (sources == null || sources.some((s) => { try { const u = new URL(s); return !["http:", "https:"].includes(u.protocol) || !u.hostname || !!u.username || !!u.password; } catch { return true; } })) return null;
   if (typeof d.kind !== "string" || !(d.kind in TREATMENT_FOR_KIND)) return null;
   const treatment = TREATMENT_FOR_KIND[d.kind as AeoGapKind];
   if ((d.treatment ?? null) !== treatment) return null;
@@ -50,12 +44,10 @@ export function decodeDiagnosis(raw: unknown): AeoGapDiagnosis | null {
   if (typeof d.completeness !== "string" || typeof d.decidedAt !== "string") return null;
   if (d.version !== DIAGNOSIS_CONTRACT) return null; // an older contract is re-earned, never served on
   return { kind: d.kind as AeoGapKind, treatment, explanation: d.explanation,
-    ownedIds: owned, evidenceIds: evidence, ...(typeof d.missing === "string" && d.missing ? { missing: d.missing } : {}),
+    ownedIds: owned, evidenceIds: evidence, ...(sources.length ? { sourceUrls: sources } : {}), ...(typeof d.missing === "string" && d.missing ? { missing: d.missing } : {}),
     ...(typeof d.limitation === "string" && d.limitation ? { limitation: d.limitation } : {}),
     packet: d.packet, contentHash: d.contentHash, completeness: d.completeness, observationIds: obs, version: DIAGNOSIS_CONTRACT, decidedAt: d.decidedAt };
 }
-/** Is this banked reading about EXACTLY the packet in hand? One equality, no subset: a reading made from more
- *  observations than the current packet holds is as stale as one made from fewer. */
 export function freshDiagnosis(d: AeoGapDiagnosis | undefined, packet: string): boolean {
   return !!d && d.version === DIAGNOSIS_CONTRACT && !!d.packet && d.packet === packet;
 }

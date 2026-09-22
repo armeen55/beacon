@@ -29,6 +29,7 @@ import { addDays } from "@/domains/measurement/outcome-windows";
 import { isDueForMeasure, outcomeStateOf } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import { loadShippedChangesForTenant, pagesUnderMeasurementFromShipments, recordVerification, upsertShippedChange, type ShipmentVerification, type ShippedChangeRecord } from "@/domains/measurement/proof-gsc/shipped-change-store";
 import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
+import { verifyShipmentNow } from "@/domains/measurement/verify-shipment";
 import { learningFromShipments, treatmentLearning } from "@/domains/measurement/treatment-learning";
 import { supabaseFake, type Row } from "../helpers/supabase-fake";
 Object.assign(db.client, supabaseFake({ rows: () => db.state.rows, same: (stored, sent) => stored.tenant_id === sent.tenant_id && stored.id === sent.id,
@@ -56,6 +57,24 @@ beforeEach(() => {
   const seen = (slot: number, day: string, mentioned: boolean) => ({ slot, day, status: "observed", analysis: { ownedBrandMention: { mentioned } }, analysisHash: "x", answerHash: "x" }); // Three answers on the latest day, two of them naming this site, and one older day nothing may count: the starting number is the LATEST day's, and it is the whole of that day.
   ai.views.mockResolvedValue([seen(0, "2026-07-30", true), seen(0, "2026-07-30", false), seen(1, "2026-07-30", true), seen(0, "2026-06-01", true)]);});
 describe("the canonical Shipment", () => {
+  it("reads the whole tenant ledger and verifies an old target beyond 1000 rows, never returning a partial ledger on failure", async () => {
+    const rows: Row[] = Array.from({ length: 1205 }, (_, i) => ({ ...legacyRow(), id: `shp_${String(i).padStart(4, "0")}`, implemented_at: new Date(NOW.getTime() - i * 1000).toISOString(), shipped_at: new Date(NOW.getTime() - i * 1000).toISOString() }));
+    db.state.rows = [...[...rows].reverse().flatMap((r) => [{ ...r, tenant_id: "other", page: "https://other.test/private" }, r]), { ...legacyRow(), tenant_id: "other", id: "foreign" }];
+    let reads = 0, failAt = Infinity;
+    const original = db.client.from, fake = supabaseFake({ rows: () => db.state.rows, onSelect: (_table, read) => { expect(read.max).toBeLessThanOrEqual(500); reads++; }, error: () => reads === failAt ? { code: "42P01", message: "second page unavailable" } : null });
+    db.client.from = fake.from;
+    try {
+      expect((await loadShippedChangesForTenant(T)).map((r) => [r.id, r.page])).toEqual(rows.map((r) => [r.id, r.page]));
+      expect(reads).toBe(3);
+      db.state.rows.push({ ...rows[0], id: "closed", verification: { status: "differs", checkedAt: NOW.toISOString(), checks: 1, recheckAfter: null } });
+      const fetchPage = vi.fn(async (url: string) => ({ ok: true as const, html: '<html><head><title>Page</title><meta name="description" content="new"/></head><body><main><p>Published content.</p></main></body></html>', status: 200, finalUrl: url })), record = vi.fn(async (_tenant: string, _id: string, _verification: ShipmentVerification) => true), readHeld = vi.fn(async () => new Map());
+      const deps = { fetchPage, record, readHeld, loadProfile: async () => null, writeOwnedPage: async () => {}, readSerp: async () => null, now: () => NOW.getTime() };
+      expect([await verifyShipmentNow(T, "shp_1204", deps), await verifyShipmentNow(T, "foreign", deps), await verifyShipmentNow(T, "missing", deps), await verifyShipmentNow("", "shp_1204", deps)]).toEqual([1, 0, 0, 0]);
+      expect([fetchPage.mock.calls.map(([url]) => url), record.mock.calls.map(([tenant, id, v]) => [tenant, id, v.status]), readHeld.mock.calls.length]).toEqual([[rows[1204]!.page], [[T, "shp_1204", "verified"]], 0]);
+      reads = 0; failAt = 1;
+      await expect(loadShippedChangesForTenant(T)).rejects.toThrow("second page unavailable");
+    } finally { db.client.from = original; }
+  });
   it("a measure loop invalidates the release once, never once per record", async () => {
     const { upsertShippedChange, invalidateResultsSurfaceSafe } = await import("@/domains/measurement/proof-gsc/shipped-change-store"); invalidations.n = 0;
     for (let i = 0; i < 3; i += 1) await upsertShippedChange(await ship({ path: `/loop-${i}` }), T, { invalidate: false });
@@ -77,9 +96,6 @@ describe("the canonical Shipment", () => {
     serve(day(140)); await upsertShippedChange(await ship()); expect((await loadShippedChangesForTenant(T))[0].shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 140, mentioning: 84 });
     db.state.rows = []; db.state.file = []; serve(day(100));
     await upsertShippedChange(await ship()); expect((await loadShippedChangesForTenant(T))[0].shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 100, mentioning: 60 });});
-  it("heals a retried press instead of recording the change twice", async () => {
-    const first = await ship(); await upsertShippedChange(first); const retry = await ship(); await upsertShippedChange(retry);
-    expect(retry.id).toBe(first.id); expect(db.state.rows).toHaveLength(1);});
   it("stores a partial bundle as a partial bundle, and keeps the exact copy each piece carried", async () => {
     await upsertShippedChange(await ship({ shipment: origin({ componentsApplied: [COMPONENTS[0]] }) as never })); expect((await loadShippedChangesForTenant(T))[0].componentsApplied).toEqual([COMPONENTS[0]]);
     const withCopy = [{ kind: "title", label: "Page title", after: "Nowruz Traditions and the Haft-Seen Table" }];
@@ -87,6 +103,8 @@ describe("the canonical Shipment", () => {
     await upsertShippedChange(await ship({ shipment: origin({ componentsApplied: withCopy }) as never })); expect((await loadShippedChangesForTenant(T))[0].componentsApplied).toEqual(withCopy);});
   it("writes the stamp and the starting numbers once: a later writer keeps what is on file", async () => {
     await upsertShippedChange(await ship()); const first = (await loadShippedChangesForTenant(T))[0];
+    const retry = await ship(); await upsertShippedChange(retry);
+    expect([retry.id, db.state.rows.length]).toEqual([first.id, 1]);
     await upsertShippedChange({ ...first, implementedAt: "2026-08-07T00:00:00.000Z", shipmentBaseline: { search: { clicks: 400, impressions: 9000, ctr: 0.044, position: 3, windowDays: 28 }, ai: null, capturedAt: "2026-08-07T00:00:00.000Z" } });
     const [after] = await loadShippedChangesForTenant(T); expect([after.implementedAt, after.shipmentBaseline?.search?.clicks]).toEqual([NOW.toISOString(), 9]);});
   it("still decodes a record written before there were Shipments", async () => {
@@ -114,7 +132,6 @@ describe("recording what the live check found", () => {
     expect([early.windows.filter((w) => w.ran).map((w) => w.day), early.windows.find((w) => w.day === 14)!.adjustedLift > 0, early.verdict, mature.windows.find((w) => w.day === 28)!.ran, mature.verdict]).toEqual([[7, 14], true, "measuring", true, "won"]);
     db.state.rows = [{ ...legacyRow(), verdict: "won", windows: [ranWindow(14, 400)] }, { ...legacyRow(), id: "/mature::2026-06-20", verdict: "won", windows: [ranWindow(28, 400)] }];
     expect((await loadShippedChangesForTenant(T)).map((r) => [r.id, r.verdict, outcomeStateOf(r, NOW)]).sort(), "the read seam refuses the win word until day 28, so retirement, harvest and contamination all see a row still measuring").toEqual([["/cities::2026-06-20", "measuring", "measuring"], ["/mature::2026-06-20", "won", "win"]]);
-    // EIGHT LINKS ON ONE PAGE: one page level reading, stored on every row, and none of them wins on its own; the kernel names the credit as shared.
     const eight = Array.from({ length: 8 }, (_, i) => ({ ...held, id: `shp_link_${i}`, actionType: "internal_link_add" })), reads = await Promise.all(eight.map((r) => read(r, "2026-09-05", eight))), { readLedger } = await import("@/domains/measurement/proof-gsc/kernel");
     expect([[...new Set(reads.map((r) => r.verdict))], new Set(reads.map((r) => JSON.stringify(r.windows))).size, readLedger(reads, at("2026-09-05"), "2026-09-04")[0].verdict, (await read(eight[0]!, "2026-09-05")).verdict]).toEqual([["inconclusive"], 1, "confounded", "won"]);});
   it("writes the verdict without touching the stamp, and fails closed on a shipment that is not this account's", async () => {

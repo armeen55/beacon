@@ -1,8 +1,6 @@
 import "server-only";
-/** Shipped-change ledger store - THE canonical Shipment: the operator-confirmed implementation of one ChangeProposal and its verified
- * live state. History preserved; every Shipment column nullable. Write-once: implementedAt and shipmentBaseline (withHeldImmutables), the
- * pinned read (recordPinnedRead) and a confirmed verification (recordVerification keeps it and files later rechecks beside it). A verdict
- * decodes as "won" or "lost" only once its day 28 window has run; the verified_live column follows the verification status. */
+/** Canonical Shipment ledger: preserve applied identity, write-once baselines and confirmed receipts.
+ * Wins require day 28; verified_live follows the recorded verification or explicit operator confirmation. */
 
 import { cache } from "react";
 import { existsSync, readFileSync } from "node:fs";
@@ -41,26 +39,20 @@ export type ShipmentVerification = {
 };
 /** The two answers that let measurement begin: the change was seen on the page, or part of it was. */
 const CONFIRMED: ReadonlySet<string> = new Set(["verified", "partially_verified"]);
-/** A CONFIRMED READ IS KEPT. Once the live page confirmed the change, a later recheck that differs (a cache serving the old page, a CMS
- *  republish, a moved section) is filed as a subsequent observation on `rechecks` and changes neither the status nor the measurement
- *  riding on it; only an explicit operator revert changes it. A first answer, a same-status refresh and a fresh full confirmation (the
- *  requalification that re-earns the proof under a new checker contract) are written whole. PURE. */
+/** Preserve confirmed status through a differing recheck; first, same-status and fully verified reads replace the receipt. */
 function keepConfirmed(held: ShipmentVerification | null | undefined, next: ShipmentVerification): ShipmentVerification {
   if (held == null || !CONFIRMED.has(held.status) || next.status === "verified" || next.status === held.status) return next;
   // THE RECHECK DAY IS THE LATEST READ'S, never the confirmed read's: a kept `recheckAfter` already in the past re-queued a partly verified row on every pass for ever, and `rechecks` grew without bound.
   return { ...held, checks: next.checks ?? held.checks, recheckAfter: next.recheckAfter ?? null, rechecks: [...(held.rechecks ?? []), { status: next.status, checkedAt: next.checkedAt, reason: next.reason ?? null }] };
 }
-/** THE OPERATOR'S OWN CONFIRMATION IS NOT OVERWRITTEN BY A READ THAT SAW LESS. `verified_live` follows the automated status, except where it stands true off the
- *  manual form with no confirming read behind it: a later not_found or differs is filed on the row and the flag stays; only a confirming read or the operator moves it. PURE. */
+/** Preserve explicit operator confirmation when an automated read confirms less. */
 const liveAfter = (heldLive: boolean | null | undefined, heldRead: ShipmentVerification | null | undefined, next: ShipmentVerification): boolean =>
   CONFIRMED.has(next.status) || (heldLive === true && !CONFIRMED.has(heldRead?.status ?? ""));
 /** The immutable numbers this page stood at when the operator marked the change done. */
 type ShipmentBaseline = {
-  /** NULL WHERE GOOGLE HAD NOTHING TO SAY YET. The halves freeze independently: holding the AI half hostage
-   *  to this one threw away the baseline of exactly the page an AEO change exists for. */
+  /** Google and AI baselines freeze independently; null means missing evidence. */
   search: ProofBaseline | null;
-  /** The latest day's first AI reading. Null = none on file (Results says unmeasurable, never rebuilds a
-   *  before side). `analyzed` IS the denominator; the rest is optional so pre-existing rows decode. */
+  /** Latest day's first AI reading; analyzed is the denominator. Optional fields preserve historical decoding. */
   ai: {
     day: string; checked: number; analyzed?: number; mentioning: number;
     citationSample?: number; ownedCiting?: number; rankSum?: number; rankCount?: number;
@@ -100,7 +92,6 @@ export type ShippedChangeRecord = {
   lastCrawlAt?: string | null; recrawlRequestedAt?: string | null;
   /** Operator override pinning the learning verdict to inconclusive. */
   operatorVerdictOverride: "inconclusive" | null;
-  // ── Shipment (null on every pre-Phase-6 row) ────────────────────────────────
   /** The ChangeProposal this implements, and the exact version of its copy applied. */
   proposalId: string | null;
   proposalVersion: string | null;
@@ -125,9 +116,7 @@ export type ShippedChangeRecord = {
   verification: ShipmentVerification | null;
   /** WHAT THE OPERATOR SAYS THEY ACTUALLY DID, in their own words, on the row. Free text on its own is never replacement copy: it becomes the version the page is read against only where the interface asked for the exact applied wording AND the press recorded one piece, and then it rides that piece as `appliedAfter` as well, bound to what it describes. The repair door writes placement and source prose here, which is why this field alone never decides a reading. */
   operatorNote: string | null;
-  /** THE EXACT AI SCOPE this change targets, typed, never flattened; Results remeasures exactly this.
-   *  `caseKey` is the canonical case identity; `models`/`modes` the instrument (RECORDED, never a filter);
-   *  `fanoutKey` the cluster identity; `observationIds` durable membership. All optional: jsonb decodes. */
+  /** Exact AI scope and durable observation membership; models/modes describe the instrument, never filter it. */
   aiScope: {
     caseKey?: string; promptIds: string[]; promptVersions?: number[]; engines: string[];
     models?: string[]; modes?: string[]; fanoutKey?: string; fanouts: string[];
@@ -137,9 +126,7 @@ export type ShippedChangeRecord = {
   judgedMetric: ShipmentObjective | null; primaryWindowDays: number | null;
   /** WHAT KIND OF WORK THIS WAS AND WHAT ELSE WAS ALREADY IN FLIGHT ON THE PAGE, both taken at the press and neither ever recomputed. `overlapAtShip` is how many OTHER changes of theirs were already being measured on this same page at that moment, which is the fact that lets a later reading say it was taken alongside other work instead of pretending the whole movement belongs to one edit. Null on every row written before the stamp existed; those get what their own stored fields can honestly carry, read lazily, never a guess. */
   treatmentStamp: { signature: TreatmentSignature; overlapAtShip: number } | null;
-  /** THE FINISHED READING, FROZEN. Written once the window closed and Google finalized the days behind it,
-   *  so the background re-measure every fifteen minutes can no longer move a number the operator was already
-   *  shown. Null while the reading can still legitimately change (see pinned-read.ts). */
+  /** Frozen after the measurement window and source data finalize; null while the reading can change. */
   pinnedRead: PinnedRead | null;
   createdAt: string;
   updatedAt: string;
@@ -307,15 +294,22 @@ async function queryTenantLedger(
   tid: string,
   fallback: () => Promise<ShippedChangeRecord[]> = readFile,
 ): Promise<ShippedChangeRecord[]> {
-  const { data, error } = await admin.from(TABLE).select("*").eq("tenant_id", tid);
-  if (error != null) {
-    // A TABLE THAT IS NOT THERE YET IS A VALID EMPTY: the pre-migration deploy window reads the file mirror, exactly as it always has.
-    if (isUndefinedTableError(error)) return sortNewest(await fallback());
-    // ANY OTHER ERROR IS AN OUTAGE, AND AN OUTAGE IS NOT AN EMPTY LEDGER: it THROWS; callers that would
-    // rather degrade already catch, and the one that must tell the truth (results-ledger-data) does not.
-    throw new Error(`[shipped-change-store] ledger read failed for ${tid}: ${error.message ?? String(error)}`);
+  const rows: LedgerRow[] = [], pageSize = 500;
+  let after: string | null = null;
+  for (;;) {
+    let query = admin.from(TABLE).select("*").eq("tenant_id", tid).order("id", { ascending: true }).limit(pageSize);
+    if (after !== null) query = query.gt("id", after);
+    const { data, error } = await query;
+    if (error != null || data == null) {
+      if (after === null && isUndefinedTableError(error)) return sortNewest(await fallback());
+      throw new Error(`[shipped-change-store] ledger read failed for ${tid}: ${error?.message ?? "missing response"}`);
+    }
+    const page = data as LedgerRow[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+    after = page[page.length - 1]!.id;
   }
-  return sortNewest((data as LedgerRow[]).map(rowToRecord));
+  return sortNewest(rows.map(rowToRecord));
 }
 /** Every ledger mutation invalidates the /results SWR snapshot + core surfaces. Best-effort both ways. EXPORTED FOR THE LOOPS: a measure pass persists up to fifteen records, and invalidating per record rewrote the whole release blob fifteen times to stamp the same epoch zero; a loop invalidates ONCE, after it. */
 export async function invalidateResultsSurfaceSafe(): Promise<void> {

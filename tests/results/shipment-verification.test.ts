@@ -17,7 +17,7 @@ vi.mock("@/domains/evidence", () => {
 import { isCurrent } from "@/domains/evidence/freshness";
 import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
 import type { BundleComponent } from "@/domains/decision"; import { COPY_RULES } from "@/domains/decision/copy-sanitize";
-import { shipmentBustedAt, shipmentsAwaitingVerification, verifyDueShipments, verifyShipment, verifyShipmentNow } from "@/domains/measurement/verify-shipment";
+import { shipmentBustedAt, shipmentsAwaitingVerification, verifyDueShipments, verifyShipment } from "@/domains/measurement/verify-shipment";
 import { readTechnicalFindings, technicalComponents } from "@/domains/decision/technical-findings";
 import { evaluateChange, evaluateWindows } from "@/domains/measurement/proof-gsc/kernel";
 import { buildResultsView } from "@/app/(shell)/results/results-presentation";
@@ -206,17 +206,7 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     for (const id of ["a", "b", "c", "d", "e"]) ROWS.push(row({ id, implementedAt: `2026-07-3${id === "a" ? 0 : 1}T09:00:00Z` }));
     const read: string[] = []; const written = await verifyDueShipments(T, { ...base, fetchPage: (async (u: string) => { read.push(u); return { ok: true as const, html: PAGE, status: 200, finalUrl: u }; }) });
     expect([written, read.length, WRITES.length], "five shipments at ONE address are five answers off ONE read of that page: four shipments sitting on iranopedia.com/iran-animals fetched it four times and stored four captures of it inside five seconds, and 79 of that account's 1,086 stored page versions are that one address").toEqual([5, 1, 5]); expect(WRITES.map((w) => w[2].status)).toEqual(["verified", "verified", "verified", "verified", "verified"]);});
-  it("finds its target past the sweep cap, and rules nothing else in its place", async () => {
-    for (const id of ["a", "b", "c", "d", "e"]) ROWS.push(row({ id, implementedAt: `2026-07-${id === "e" ? "31" : "30"}T09:00:00Z` }));
-    const read: string[] = [];
-    const written = await verifyShipmentNow(T, "e", { ...base, fetchPage: (async (u: string) => { read.push(u); return { ok: true as const, html: PAGE, status: 200, finalUrl: u }; }) });
-    expect([written, read.length, WRITES.map((w) => w[1])], "the fifth-in-line target, one read, one record").toEqual([1, 1, ["e"]]);
-    ROWS.length = 0; WRITES.length = 0; for (const id of ["a", "b", "c"]) ROWS.push(row({ id, implementedAt: "2026-07-30T09:00:00Z" })); // and the one shipment just marked done goes through the same path and nothing else
-    const read2: string[] = [];
-    const written2 = await verifyShipmentNow(T, "b", { ...base, fetchPage: (async (u: string) => { read2.push(u); return { ok: true as const, html: PAGE, status: 200, finalUrl: u }; }) });
-    expect([written, read.length, WRITES.map((w) => w[1])], "one shipment, one read, one record").toEqual([1, 1, ["b"]]);
-    expect(await verifyShipmentNow(T, "nope", { ...base, fetchPage: serve(PAGE) }), "a shipment that is not due reads nothing").toBe(0); });
-  it("reads at most twelve results pages in one pass, however many changes are owed one", async () => { for (const id of [..."abcdefghijklmno"]) ROWS.push(row({ id, targetQueries: ["nowruz table"] })); let asked = 0;
+  it("reads at most fifteen shipments and twelve results pages in one pass, however many are owed", async () => { for (const id of [..."abcdefghijklmnopqrst"]) ROWS.push(row({ id, targetQueries: ["nowruz table"] })); let asked = 0;
     const written = await verifyDueShipments(T, { ...base, fetchPage: serve(PAGE), readSerp: async () => { asked += 1; return []; } });
     expect([written, asked], "fifteen pages read for free, twelve results pages bought, and the rest are owed the next pass").toEqual([15, 12]);});
   it("records a page it was refused rather than retrying it forever: the answer lands, so the change stops being due", async () => {

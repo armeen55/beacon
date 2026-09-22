@@ -58,9 +58,8 @@ type VerifyDeps = {
   record?: (tenantId: string, shipmentId: string, verification: ShipmentVerification) => Promise<boolean>;
 };
 
-/** How many live pages ONE pass may read for verification. A verification is one free read of a page the
- *  account owns, and three of them is a pass's worth: the rest are still due on the next visit. */
-const MAX_VERIFICATIONS_PER_PASS = 15, TARGET_SCAN_BOUND = 50; // verifications 3 to 15 (operator, 2026-08-30): 56 changes measuring drained at three a pass; the fetch itself is the only cost
+/** Bound live owned-page reads per pass; the remaining shipments stay due. */
+const MAX_VERIFICATIONS_PER_PASS = 15; // verifications 3 to 15 (operator, 2026-08-30): 56 changes measuring drained at three a pass; the fetch itself is the only cost
 /** The kinds a live page answers for on its own, with no wording needed to check them. */
 const COPY_FREE_KINDS: ReadonlySet<string> = new Set(["noindex", "redirect", "consolidation", "navigation"]);
 /** Where a sitemap lives when nobody has told me otherwise. Anything else is honestly unreadable rather than graded against a guess. */
@@ -328,8 +327,7 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
 /** AND THE PAGE IS READ AGAINST THE VERSION THAT IS ACTUALLY ON IT. Where the operator told this door they applied their own wording, that wording is what the page is checked for, and the prepared wording stays on the record beside it: both versions are kept, the suggestion and the version applied, and neither is overwritten by the other. */
 const componentsOf = SHIPMENT_PROOF.components;
 
-/** One Shipment row, as verification reads it. A row that already holds an answer is here on the day that
- *  answer promised, carrying the reads it has had so the bound is counted from them and never from zero. */
+/** Preserve the applied claim and prior check count when selecting a due Shipment. */
 const toVerifiable = (r: ShippedChangeRecord): VerifiableShipment =>
   ({ id: r.id, url: r.page, proposalId: r.proposalId, proposalVersion: r.proposalVersion, claim: r, requalification: r.verification?.status === "verified" && !SHIPMENT_PROOF.of(r), components: componentsOf(r), targetQueries: r.targetQueries ?? [], implementedAt: r.implementedAt ?? null, ...(r.verification != null ? { priorChecks: r.verification.checks ?? 1 } : {}) });
 
@@ -338,16 +336,12 @@ export const MAX_CHECKS = 3;
 const loadRows = (tenantId: string, deps: VerifyDeps): Promise<ShippedChangeRecord[]> =>
   (deps.loadShipments ?? loadShippedChangesForTenant)(tenantId).catch(() => []);
 
-/** The changes the operator marked implemented that I have NOT checked on their live page yet, newest stamp
- *  first and bounded. Free: rows already on file, and `verification` being null IS the due marker. */
+/** Select bounded due implementations from saved truth, newest stamp first. */
 export async function shipmentsAwaitingVerification(tenantId: string, limit = MAX_VERIFICATIONS_PER_PASS, deps: VerifyDeps = {}): Promise<VerifiableShipment[]> {
   if (!tenantId?.trim()) return [];
   const rows = await loadRows(tenantId, deps);
-  // TODAY IS THE OPERATOR'S DAY, never the UTC one. A retry promised for the 5th was owed from 5 PM Pacific
-  // on the 4th when today came off a UTC instant, so a read a silent site was owed was taken a day early and
-  // its answer, taken before the site had a chance, spent one of the bounded checks.
+  // Retry dates use the operator's reporting day, not UTC.
   const today = reportingDay(deps.now ? deps.now() : Date.now());
-  /** Never checked, or a read whose own promised recheck day has arrived. */
   const closed = rows.filter((r) => !!r?.page && r.verification != null && r.verification.status !== "verified" && (r.verification.recheckAfter ?? null) == null);
   const moved = closed.length === 0 ? new Map<string, OwnedPageBody>() : await (deps.readHeld ?? heldBodies)(closed.map((r) => r.page), tenantId).catch(() => new Map<string, OwnedPageBody>());
   const due = (r: ShippedChangeRecord): boolean => {
@@ -368,11 +362,11 @@ export async function shipmentsAwaitingVerification(tenantId: string, limit = MA
 }
 
 /** ONE SHIPMENT, CHECKED NOW: "did my paste land" waited for the next sweep, which is the wrong answer at ten to thirty applies a day, and the verifier, the due read and the record all existed already (Codex, 2026-08-28). Same path, so this is no second verification route; a shipment no longer due is simply absent and this returns 0. */
-export const verifyShipmentNow = (tenantId: string, shipmentId: string, deps: VerifyDeps = {}): Promise<number> => verifyDueShipments(tenantId, deps, (s) => s.id === shipmentId); // the target is picked BY ID across a wider bound, so a shipment fourth in the due order is still the one checked
+export const verifyShipmentNow = (tenantId: string, shipmentId: string, deps: VerifyDeps = {}): Promise<number> => verifyDueShipments(tenantId, deps, (s) => s.id === shipmentId);
 
 export async function verifyDueShipments(tenantId: string, deps: VerifyDeps = {}, only?: (s: { id: string }) => boolean): Promise<number> { // `only` narrows the SAME due read to one shipment
-  // A TARGETED CHECK SELECTS ITS SHIPMENT BEFORE ANY SWEEP LIMIT: filtering after the three-row cap meant a target fourth in line was never the one verified (Codex, 2026-08-28). The sweep keeps its own cap.
-  const due = (await shipmentsAwaitingVerification(tenantId, only ? TARGET_SCAN_BOUND : MAX_VERIFICATIONS_PER_PASS, deps)).filter((s) => !only || only(s)).slice(0, MAX_VERIFICATIONS_PER_PASS); let written = 0; const serpReads = { left: SERP_READS_PER_PASS }; // ONE ceiling for the whole pass, carried across every shipment in it
+  const selected = only ? { ...deps, loadShipments: async (t: string) => (await loadRows(t, deps)).filter(only) } : deps; // Select before due-page reads and sweep limits, from the complete tenant ledger.
+  const due = await shipmentsAwaitingVerification(tenantId, MAX_VERIFICATIONS_PER_PASS, selected); let written = 0; const serpReads = { left: SERP_READS_PER_PASS };
   const unsavable = new Set<string>(); // BOUNDED IN-RUN SKIP, carried on the pass and nowhere else: an answer that could not be SAVED means the shipment is still due, so a second shipment at the SAME address would send me back to the customer's website inside one pass for a result I already know I cannot store
   const read = new Map<string, ReturnType<NonNullable<VerifyDeps["fetchPage"]>>>(), stored = new Set<string>(); /** ONE ADDRESS IS READ ONCE A PASS, AND STORED ONCE (measured, 2026-09-05). Four shipments sit on iranopedia.com/iran-animals, so one pass fetched that page four times and wrote four captures of it inside five seconds; 79 of the account's 1,086 stored page versions are that one address, and a pile like that is what the body reader's row budget has to page around. The fetch is shared across the shipments at one address and the capture is written once, so every shipment still gets its own reading of the same words. */
   const fetchOnce: NonNullable<VerifyDeps["fetchPage"]> = (url, ...rest) => { const k = canonicalUrlKey(url), had = read.get(k); if (had) return had; if (read.size >= MAX_VERIFICATIONS_PER_PASS) return Promise.resolve({ ok: false, reason: "fetch_failed", detail: "read_boundary" }); const got = (deps.fetchPage ?? fetchPageHtml)(url, ...rest); read.set(k, got); return got; },
@@ -390,16 +384,11 @@ export async function verifyDueShipments(tenantId: string, deps: VerifyDeps = {}
   return written;
 }
 
-/** WHEN THIS PAGE'S TRUTH LAST MOVED UNDERNEATH ME: the latest moment the operator implemented something at
- *  this address. The freshness matrix takes it as `bustedAt`, so a body read BEFORE the operator changed the
- *  page is not treated as a read of the page that exists now, however recent the clock says it is.
- *  Fail-soft to null, which is the same answer as "nothing changed it". */
+/** Latest implementation at this exact address invalidates older owned captures; fail-soft to null. */
 export async function shipmentBustedAt(tenantId: string, url: string, deps: VerifyDeps = {}): Promise<string | null> {
   if (!tenantId?.trim() || !url?.trim()) return null;
   const key = canonicalUrlKey(url);
-  // ONE ADDRESS, COMPARED AS AN ADDRESS. A path suffix test made the home page ("/", which every address
-  // ends with) bust every page on the site, and /guide bust /nowruz-guide, so one change threw away every
-  // body Beacon held. Only the page the change was made to is busted by it.
+  // Compare canonical addresses, never path suffixes that can match unrelated pages.
   const stamps = (await loadRows(tenantId, deps))
     .filter((r) => !!r.implementedAt && canonicalUrlKey(r.page) === key)
     .map((r) => r.implementedAt!)
