@@ -543,7 +543,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     // (research paused, credit held, breaker, budget, an unconvertible schema) as a charged provider call, and
     // the operator read those as money spent (Codex, 2026-08-23, from a live receipt). The gateway stamps the
     // one transport fact on its outcome; this adds it, and a seam that reports nothing adds nothing.
-    const out: Awaited<ReturnType<CompleteFn>> = await Promise.resolve().then(() => complete({ system, user: req.user, maxTokens, timeoutMs, kind: req.kind, tenantId, spend })).catch(() => ({ error: "completion did not return an outcome", failure: "transient", retryable: false }));
+    const out: Awaited<ReturnType<CompleteFn>> = await Promise.resolve().then(() => complete({ system, user: req.user, maxTokens, timeoutMs, kind: req.kind, tenantId, spend })).catch(() => ({ error: "completion did not return an outcome", failure: "transient", retryable: false, httpAttempts: 1 })); // A thrown transport has no receipt proving it stopped before the wire; count it conservatively. Explicit pre-wire refusals return httpAttempts:0 themselves.
     if (req.attempts && (out.httpAttempts ?? 0) === 0 && attemptCostUsd("error" in out ? out.costUsd : out.provenance?.costUsd) === 0) req.attempts.left += 1;
     networkAttempts += Math.max(0, Math.round((out as { httpAttempts?: number }).httpAttempts ?? 0));
 

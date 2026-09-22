@@ -172,7 +172,7 @@ export function SetAsideChange({ proposalId, finishable = false }: { proposalId:
           className="min-h-11 rounded-md bg-accent-primary px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-60">
           {pending ? "Finishing this one…" : "Finish this one"}
         </button> : null}
-        {finishable ? <span className="text-[12px] text-muted-foreground">Up to 2 OpenAI calls / $0.10. DataForSEO $0. Research stays paused.</span> : null}
+        {finishable ? <span className="text-[12px] text-muted-foreground">Exactly one OpenAI review, capped at $0.05. DataForSEO $0. Research stays paused.</span> : null}
         <button type="button" data-set-aside="true" onClick={() => setState((s) => ({ ...s, asked: true, error: null }))}
           className="inline-flex min-h-11 items-center text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">Skip</button>
         {state.error ? <span className="text-[12px] text-red-500">{state.error}</span> : null}
