@@ -444,12 +444,12 @@ export async function finishOneProposalAction(args: { proposalId: string }): Pro
         : result.reason === "openai_not_configured_in_this_runtime" ? "OpenAI is not configured in the runtime handling this press. No admission or provider call was used."
           : result.reason.startsWith("research_") ? "Research must stay paused while this one change is finished."
           : "This change did not become finished, paste-ready work. Nothing broader was run.";
-      return { success: false, ...receipt, error: `${error} Receipt: ${receipt.providerCalls} OpenAI call${receipt.providerCalls === 1 ? "" : "s"}, $${receipt.costUsd.toFixed(2)}; DataForSEO $0.` };
+      return { success: false, ...receipt, error: `${error} Receipt: ${receipt.providerCalls} OpenAI call${receipt.providerCalls === 1 ? "" : "s"}, $${receipt.costUsd.toFixed(receipt.costUsd > 0 && receipt.costUsd < 0.01 ? 6 : 2)}; DataForSEO $0.` };
     }
     await invalidateCoreSurfaces().catch(() => {});
     revalidatePath("/changes"); revalidatePath("/", "layout");
     const warning = result.reason === "stored_ready_but_admission_receipt_missing" ? " The work landed, but its $0 admission receipt did not; it will not run again." : "";
-    return { success: true, ...receipt, note: `Finished. This exact change is ready to copy. ${receipt.providerCalls} OpenAI call${receipt.providerCalls === 1 ? "" : "s"}, $${receipt.costUsd.toFixed(2)}; DataForSEO $0.${warning}` };
+    return { success: true, ...receipt, note: `Finished. This exact change is ready to copy. ${receipt.providerCalls} OpenAI call${receipt.providerCalls === 1 ? "" : "s"}, $${receipt.costUsd.toFixed(receipt.costUsd > 0 && receipt.costUsd < 0.01 ? 6 : 2)}; DataForSEO $0.${warning}` };
   } catch (err) {
     log.error("finishOneProposal: failed", { proposalId: args.proposalId, error: err instanceof Error ? err.message : String(err) });
     return { success: false, error: "This change could not be finished just now. Nothing broader was run." };

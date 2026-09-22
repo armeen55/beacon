@@ -156,11 +156,11 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     await link(soft); const better = await reviewDraftAction({ proposalId: soft.id, version: confirmedVersion(soft), decision: "improve" }); const { answerReviewedProposal: answer } = await import("@/domains/decision");
     expect([yes.success, no.success, no.error?.includes("hand this to a customer"), better.success, vi.mocked(answer).mock.calls.map((c) => (c[4] as { kind: string }).kind)]) .toEqual([true, false, true, true, ["promote", "redraft"]]); });
   it("finishes only the named row under the fixed tiny receipt and says the ceiling before the press", async () => {
-    proofRun.mockResolvedValueOnce({ success: true, reason: "stored_ready_substantive_and_complete", meter: { providerCalls: 1, costUsd: 0.04 } });
+    proofRun.mockResolvedValueOnce({ success: true, reason: "stored_ready_substantive_and_complete", meter: { providerCalls: 1, costUsd: 0.004748 } });
     const { finishOneProposalAction } = await import("@/app/(shell)/changes/actions"), { SetAsideChange } = await import("@/app/(shell)/changes/change-controls");
     const out = await finishOneProposalAction({ proposalId: ID });
     expect(proofRun).toHaveBeenCalledWith({ tenantId: "t", proposalId: ID, currentBasis: NOW, maxOpenAiCalls: 1, maxOpenAiUsd: 0.05 });
-    expect([out.success, out.providerCalls, out.costUsd, Object.keys(out).includes("stored")]).toEqual([true, 1, 0.04, false]);
+    expect([out.success, out.providerCalls, out.costUsd, Object.keys(out).includes("stored"), out.note?.includes("$0.004748")]).toEqual([true, 1, 0.004748, false, true]);
     proofRun.mockResolvedValueOnce({ success: false, reason: "proof_admission_refused_overrun", meter: { providerCalls: 0, costUsd: 0 } }); const failed = await finishOneProposalAction({ proposalId: ID }); proofRun.mockResolvedValueOnce({ success: false, reason: "candidate_preflight:This repeats the answer already on the page.", meter: null }); const preflight = await finishOneProposalAction({ proposalId: ID }); expect([failed.error, preflight.error]).toEqual(["Today's internal spend breaker is still closed. No provider call was made. Receipt: 0 OpenAI calls, $0.00; DataForSEO $0.", "This repeats the answer already on the page. No provider call was made. Receipt: 0 OpenAI calls, $0.00; DataForSEO $0."]);
     publish.allowed = false; const denied = await finishOneProposalAction({ proposalId: ID }); publish.allowed = true; expect([denied.success, proofRun.mock.calls.length]).toEqual([false, 3]);
     const shown = renderToStaticMarkup(createElement(SetAsideChange, { proposalId: ID, finishable: true })), hidden = renderToStaticMarkup(createElement(SetAsideChange, { proposalId: ID }));

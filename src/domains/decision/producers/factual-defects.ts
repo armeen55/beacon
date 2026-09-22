@@ -5,7 +5,7 @@ import "server-only";
 import { log } from "@/lib/logger";
 import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { REVIEW_CONTRACT, copyKey, wordingOnlySuspicion } from "@/domains/decision/proof";
-import { labelOf } from "@/domains/decision/completeness";
+import { labelOf } from "@/domains/decision/completeness"; import { COPY_RULES } from "@/domains/decision/copy-sanitize";
 import { authorizedCorrections, correctionSeverity, readFactChecks, rulesVersionFor, unauthorizedReason, type FactCheck } from "@/domains/evidence/pages/fact-checks";
 import { claimTypeOf, supportShortfall } from "@/domains/evidence/pages/claim-support"; import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import type { BundleComponent, ChangeProposal } from "@/domains/decision/contracts";
@@ -337,7 +337,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
           // of credit that review never runs, so five of the seven live corrections sat in the operator's queue
           // with a replacement that cannot stand where it goes and NO reason on the card saying so.
           limitations: [unfitToStandIn(before, after, c.subject)
-            ?? "Beacon's own sense review has not read this correction yet, so it waits for that reading rather than for the operator to do Beacon's checking.",
+            ?? COPY_RULES.reviewHolds.correction,
             "The page's own words were treated as evidence of what it says, never as proof they are true."],
           causeFinding: { cause: "factual_error", action: "section", evidenceKeys: ["fact-1"],
             explanation: treat === "replace" ? `${path} states a meaning for ${c.subject} that an independent source of record contradicts, and a supported replacement is on file.`
