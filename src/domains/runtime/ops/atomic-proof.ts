@@ -8,21 +8,22 @@ const acceptable = (row: ChangeProposal | null): boolean => !!row && row.status 
 const DEPS = { permission: researchPermission, load: loadChangeProposal, review: reviewFinishedCopy, promote: answerReviewedProposal, reviewAuthorized: (row: ChangeProposal) => row.semanticReview?.version === REVIEW_CONTRACT && COPY_RULES.accepted(row.semanticReview.editor) && reviewFits(row, row.semanticReview.of) && unreviewed(row) == null,
   acceptable, obligation: nextObligation, delivery: DRAFT_BUDGET.deliveryOf, version: confirmedVersion, preflight: preflightReviewedProposal,
   providerConfigured: () => !!process.env.OPENAI_API_KEY?.trim(), spend: spendReservations };
-type Deps = typeof DEPS; type Input = { tenantId: string; proposalId: string; maxOpenAiCalls: number; maxOpenAiUsd: number; now?: Date };
+type Deps = typeof DEPS; type Input = { tenantId: string; proposalId: string; currentBasis: string | null; maxOpenAiCalls: number; maxOpenAiUsd: number; now?: Date };
 async function run(input: Input, deps: Deps = DEPS) {
-  const { tenantId, proposalId, maxOpenAiCalls, maxOpenAiUsd } = input;
+  const { tenantId, proposalId, currentBasis, maxOpenAiCalls, maxOpenAiUsd } = input;
   const refuse = (reason: string, stored: ChangeProposal | null = null) => ({ success: false as const, proposalId, reason, stored, meter: null });
-  if (!tenantId || !proposalId.startsWith(`${tenantId}::`) || maxOpenAiCalls !== 1
+  if (!tenantId || !currentBasis || !proposalId.startsWith(`${tenantId}::`) || maxOpenAiCalls !== 1
     || !Number.isFinite(maxOpenAiUsd) || maxOpenAiUsd <= 0 || maxOpenAiUsd > 0.05) return refuse("invalid_identity_or_ceiling");
   if (await deps.permission(tenantId) !== "paused") return refuse("research_must_remain_paused");
   const row = await deps.load(tenantId, proposalId);
   if (!row || row.id !== proposalId || row.tenantId !== tenantId) return refuse("stored_candidate_not_found");
+  if (row.basis !== currentBasis) return refuse("candidate_basis_is_not_current", row);
   if (deps.delivery(row) !== "existing_page_edit" || row.status !== "needs_review") return refuse("candidate_is_not_one_unfinished_manual_edit", row);
   const obligation = deps.obligation(row);
   if (obligation?.kind !== "review") return refuse(`candidate_owes_${obligation?.kind ?? "nothing"}`, row);
-  const now = input.now ?? new Date(), preflight = await deps.preflight(tenantId, row, now);
+  const now = input.now ?? new Date(), preflight = await deps.preflight(tenantId, row, currentBasis, now);
   if (preflight) return refuse(`candidate_preflight:${preflight}`, row);
-  if (deps.reviewAuthorized(row)) { if (await deps.permission(tenantId) !== "paused") return refuse("accepted_review_could_not_be_settled", row); const promoted = await deps.promote(tenantId, proposalId, deps.version(row), row.basis ?? null, { kind: "promote", at: now.toISOString() }), stored = await deps.load(tenantId, proposalId); return promoted.status === "promoted" && deps.acceptable(stored) ? { success: true as const, proposalId, reason: "stored_ready_from_current_review", stored, meter: { ops: 0, providerCalls: 0, costUsd: 0 } } : refuse(`promotion_${promoted.status}${promoted.refusal ? `:${promoted.refusal}` : ""}`, stored); }
+  if (deps.reviewAuthorized(row)) { if (await deps.permission(tenantId) !== "paused") return refuse("accepted_review_could_not_be_settled", row); const promoted = await deps.promote(tenantId, proposalId, deps.version(row), currentBasis, { kind: "promote", at: now.toISOString() }), stored = await deps.load(tenantId, proposalId); return promoted.status === "promoted" && deps.acceptable(stored) ? { success: true as const, proposalId, reason: "stored_ready_from_current_review", stored, meter: { ops: 0, providerCalls: 0, costUsd: 0 } } : refuse(`promotion_${promoted.status}${promoted.refusal ? `:${promoted.refusal}` : ""}`, stored); }
   if (!deps.providerConfigured()) return refuse("openai_not_configured_in_this_runtime", row);
   const admissionKey = `atomic-proof-v2::${tenantId}::${proposalId}::${deps.version(row)}`;
   const admission = await deps.spend.reserve({ tenantId, platform: "other", purpose: "atomic_proof_admission", logicalKey: admissionKey,
@@ -51,7 +52,7 @@ async function run(input: Input, deps: Deps = DEPS) {
   const meter = budget.meterOf(key), proposed = reviewed.row && reviewed.row.id === proposalId && reviewed.row.tenantId === tenantId ? reviewed.row : null;
   if (!proposed) return finish(false, "review_did_not_return_the_exact_candidate", row, meter);
   if (await deps.permission(tenantId) !== "paused") return finish(false, "research_pause_changed_before_persist");
-  const promoted = await deps.promote(tenantId, proposalId, deps.version(row), row.basis ?? null, { kind: "promote", at: now.toISOString() }, proposed), stored = await deps.load(tenantId, proposalId);
+  const promoted = await deps.promote(tenantId, proposalId, deps.version(row), currentBasis, { kind: "promote", at: now.toISOString() }, proposed), stored = await deps.load(tenantId, proposalId);
   if (await deps.permission(tenantId) !== "paused") return finish(false, "research_pause_changed_after_persist", stored, meter);
   if (promoted.status !== "promoted") return finish(false, `promotion_${promoted.status}${promoted.refusal ? `:${promoted.refusal}` : ""}`, stored, meter);
   const accepted = deps.acceptable(stored);

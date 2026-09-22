@@ -59,7 +59,7 @@ const NAMED_AUTHORITATIVE_DOMAINS = new Set([
   "npr.org",
   "loc.gov",
   "un.org",
-  "who.int",
+  "who.int", "iucn.org", "iucnredlist.org",
 ]);
 
 /** Extract a bare domain (no scheme, no "www.", lowercased) from a URL string

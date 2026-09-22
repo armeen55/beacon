@@ -434,7 +434,7 @@ export async function finishOneProposalAction(args: { proposalId: string }): Pro
   if (!args.proposalId) return { success: false, error: "No change was specified." };
   const tenantId = await currentTenantId();
   try {
-    const result = await atomicProof.run({ tenantId, proposalId: args.proposalId, maxOpenAiCalls: 1, maxOpenAiUsd: 0.05 });
+    const result = await atomicProof.run({ tenantId, proposalId: args.proposalId, currentBasis: await resolveCurrentBasis(tenantId), maxOpenAiCalls: 1, maxOpenAiUsd: 0.05 });
     const receipt = { providerCalls: result.meter?.providerCalls ?? 0, costUsd: result.meter?.costUsd ?? 0 };
     if (!result.success) {
       const used = result.reason === "proof_admission_resumed" || result.reason === "proof_admission_replayed";

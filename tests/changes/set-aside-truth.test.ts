@@ -159,7 +159,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     proofRun.mockResolvedValueOnce({ success: true, reason: "stored_ready_substantive_and_complete", meter: { providerCalls: 1, costUsd: 0.04 } });
     const { finishOneProposalAction } = await import("@/app/(shell)/changes/actions"), { SetAsideChange } = await import("@/app/(shell)/changes/change-controls");
     const out = await finishOneProposalAction({ proposalId: ID });
-    expect(proofRun).toHaveBeenCalledWith({ tenantId: "t", proposalId: ID, maxOpenAiCalls: 1, maxOpenAiUsd: 0.05 });
+    expect(proofRun).toHaveBeenCalledWith({ tenantId: "t", proposalId: ID, currentBasis: NOW, maxOpenAiCalls: 1, maxOpenAiUsd: 0.05 });
     expect([out.success, out.providerCalls, out.costUsd, Object.keys(out).includes("stored")]).toEqual([true, 1, 0.04, false]);
     proofRun.mockResolvedValueOnce({ success: false, reason: "proof_admission_refused_overrun", meter: { providerCalls: 0, costUsd: 0 } }); const failed = await finishOneProposalAction({ proposalId: ID }); expect(failed.error).toBe("Today's internal spend breaker is still closed. No provider call was made. Receipt: 0 OpenAI calls, $0.00; DataForSEO $0.");
     publish.allowed = false; const denied = await finishOneProposalAction({ proposalId: ID }); publish.allowed = true; expect([denied.success, proofRun.mock.calls.length]).toEqual([false, 2]);
