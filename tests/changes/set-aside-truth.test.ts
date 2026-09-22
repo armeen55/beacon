@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderToStaticMarkup } from "react-dom/server"; import { createElement, type ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server"; import { createRoot } from "react-dom/client"; import { act, createElement, type ReactElement } from "react"; import { createRequire } from "node:module";
 import type { ChangeProposal } from "@/domains/decision";
 import { actionableProposalFailures as failures } from "@/domains/decision/validate-proposal";
 import type { ChangesView } from "@/app/(shell)/changes-data";
@@ -167,8 +167,11 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     expect(prepareRun).toHaveBeenCalledWith({ tenantId: "t", proposalId: ID, currentBasis: NOW, maxOpenAiCalls: 8, maxOpenAiUsd: 2, maxDataForSeoCalls: 3, maxDataForSeoUsd: 0.4, authorizationId: AUTH });
     expect([failed.success, failed.error?.includes("not invoices"), failed.error?.includes("regional weave"), failed.error?.includes("Research stays paused"), used.error?.includes("already used"), missing.error?.includes("not configured")]).toEqual([false, true, true, true, true, true]);
     publish.allowed = false; const denied = await finishOneProposalAction({ proposalId: ID, prepare: true, authorizationId: AUTH }); publish.allowed = true; expect([denied.success, prepareRun.mock.calls.length]).toEqual([false, 3]);
-    const shown = renderToStaticMarkup(createElement(SetAsideChange, { proposalId: ID, finishable: true, prepare: true }));
-    expect([shown.includes("Prepare best edit on this page"), shown.includes("Each confirmed attempt"), shown.includes("$2 OpenAI"), shown.includes("$0.40 DataForSEO")]).toEqual([true, true, true, true]);
+    const { JSDOM } = createRequire(import.meta.url)("jsdom"), dom = new JSDOM("<div id='root'></div>"), popup = vi.fn(() => false); dom.window.confirm = popup; vi.stubGlobal("window", dom.window); vi.stubGlobal("document", dom.window.document); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const root = createRoot(dom.window.document.getElementById("root")); let release!: (value: { success: boolean; reason: string; allowance: null }) => void; prepareRun.mockClear(); prepareRun.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    try { await act(async () => root.render(createElement(SetAsideChange, { proposalId: ID, finishable: true, prepare: true }))); const button = dom.window.document.querySelector("[data-finish-one]") as HTMLButtonElement; expect(dom.window.document.body.textContent).toContain("Each attempt reuses saved evidence; up to $2 OpenAI and $0.40 DataForSEO."); await act(async () => button.click());
+      expect(popup).not.toHaveBeenCalled(); expect(button.disabled).toBe(true); expect(prepareRun).toHaveBeenCalledOnce(); expect(prepareRun.mock.calls[0]?.[0]).toMatchObject({ proposalId: ID, maxOpenAiUsd: 2, maxDataForSeoUsd: 0.4, authorizationId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i) }); await act(async () => { button.click(); release({ success: false, reason: "no_new_ready_substantive_edit", allowance: null }); }); expect(prepareRun).toHaveBeenCalledOnce(); expect(button.disabled).toBe(false);
+    } finally { await act(async () => root.unmount()); dom.window.close(); vi.unstubAllGlobals(); }
   });
   it("keeps everything this release actually knows when the bar moves under it", async () => {
     const stored = { schemaVersion: 2, releaseId: "t:1", computedAt: new Date().toISOString(), tenantId: "t",

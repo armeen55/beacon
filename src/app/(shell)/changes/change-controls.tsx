@@ -166,15 +166,14 @@ export function SetAsideChange({ proposalId, finishable = false, prepare = false
     return (
       <div className="flex flex-wrap items-center gap-3">
         {finishable ? <button type="button" disabled={pending} data-finish-one="true"
-          onClick={() => { if (prepare && !window.confirm("Authorize one new attempt for this page, up to $2 OpenAI plus $0.40 DataForSEO? Previous work and receipts stay saved. Research stays paused. Nothing is published.")) return;
-            const authorizationId = prepare ? crypto.randomUUID() : undefined;
+          onClick={() => { const authorizationId = prepare ? crypto.randomUUID() : undefined;
             startTransition(async () => { const res = await finishOneProposalAction({ proposalId, ...(prepare ? { prepare: true, authorizationId } : {}) }).catch(() => null);
             setState((s) => ({ ...s, finished: res?.success ? res.note ?? "Finished. This change is ready to copy." : null,
               error: res?.success ? null : res?.error ?? "This change could not be finished just now." })); }); }}
           className="min-h-11 rounded-md bg-accent-primary px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-60">
           {pending ? "Preparing the change…" : prepare ? "Prepare best edit on this page" : "Finish this one"}
         </button> : null}
-        {finishable ? <span className="text-[12px] text-muted-foreground">{prepare ? "Each confirmed attempt reuses saved evidence; up to $2 OpenAI and $0.40 DataForSEO. Unfinished work and previous receipts stay saved. Research stays paused." : "Free page and evidence checks run first. Only if they pass: one OpenAI review, capped at $0.05. DataForSEO $0. Research stays paused."}</span> : null}
+        {finishable ? <span className="text-[12px] text-muted-foreground">{prepare ? "Each attempt reuses saved evidence; up to $2 OpenAI and $0.40 DataForSEO. Unfinished work and previous receipts stay saved. Research stays paused." : "Free page and evidence checks run first. Only if they pass: one OpenAI review, capped at $0.05. DataForSEO $0. Research stays paused."}</span> : null}
         <button type="button" data-set-aside="true" onClick={() => setState((s) => ({ ...s, asked: true, error: null }))}
           className="inline-flex min-h-11 items-center text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">Skip</button>
         {state.error ? <span className="text-[12px] text-red-500">{state.error}</span> : null}
