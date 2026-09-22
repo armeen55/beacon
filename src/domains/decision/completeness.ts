@@ -115,7 +115,7 @@ export function openHold(p: ChangeProposal, also: { found?: readonly string[] } 
     bodyDefects.push(...AEO_BAR.emptyMeta(c.after, heading));
   }
   for (const part of p.bundle?.components ?? []) if (part.kind === "meta") bodyDefects.push(...AEO_BAR.emptyMeta(part.after, heading));
-  const current = (why: string): boolean => !(COPY_RULES.supersededEditorFinding(why) && unreviewed(p) == null);
+  const reviewOwed = unreviewed(p), current = (why: string): boolean => !((COPY_RULES.supersededEditorFinding(why) || COPY_RULES.preservationFinding(why)) && reviewOwed == null);
   const hard = [...bodyDefects, ...gaps, ...lims.filter((l) => current(l) && HARD_LIMITATION.test(l))];
   for (const part of p.bundle?.components ?? []) if (part.sourcePack && part.sourcePack.resolved !== true) hard.push(`the ${part.label.toLowerCase()} still owes source checking before it can be copied`);
   const publicCopy = c.kind === "new_page" ? [c.openingAnswer, ...p.bundle?.components.filter((part) => /^(opening_answer|section|section_add|section_rewrite)$/.test(part.kind)).map((part) => part.after) ?? []] : c.kind === "existing_edit" && c.field !== "schema" ? [c.after, ...(p.bundle?.components.filter((part) => /^(opening_answer|section|section_add|section_rewrite|meta|title|h1|internal_link)$/.test(part.kind)).map((part) => part.after) ?? [])] : [];

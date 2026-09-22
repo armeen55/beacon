@@ -145,7 +145,7 @@ export function proofOf(p: ChangeProposal): ProofReceipt {
     : null;
 
   return { ranksHere, whyAction, alternative, opportunity, wording, wordingBasis, queryEcho, shape: p.modeledOn ?? null,
-    losses: materialLosses(p),
+    losses: COPY_RULES.materialLosses(p),
     limits: [...(p.bundle?.receipt.missing ?? []), ...(p.limitations ?? []), ...certifiedScope(p)].map((l) => l.trim()).filter(Boolean) };
 }
 
@@ -301,7 +301,7 @@ export function evidenceShortfall(p: ChangeProposal): string | null { // ONE AUT
   }
   return preservationShortfall(p);
 }
-const preservationShortfall = (p: ChangeProposal, publication?: readonly BundleComponent[]): string | null => COPY_RULES.preservation({ ...p, editor: p.semanticReview?.editor }, reviewFits(p, p.semanticReview?.of), materialLosses(p).map((text) => text.replace(/^the (?:link|figure) /, "")), publication);
+const preservationShortfall = (p: ChangeProposal, publication?: readonly BundleComponent[]): string | null => COPY_RULES.preservation({ ...p, editor: p.semanticReview?.editor }, reviewFits(p, p.semanticReview?.of), COPY_RULES.materialLosses(p).map((text) => text.replace(/^the (?:link|figure) /, "")), publication);
 
 export function mechanicalRepair(before: string, after: string): boolean {
   return COPY_RULES.renderedText(before).length > 0 && COPY_RULES.renderedText(before) === COPY_RULES.renderedText(after);
@@ -313,20 +313,4 @@ function certifiedScope(p: ChangeProposal): string[] {
   if (mechanicalRepair(c.before, c.after)) return ["This repairs the marks named here and nothing else. The rest of the wording is carried over as it was, not certified as the best copy for this page."]; const material = (t: string): number => t.toLowerCase().normalize("NFKD").split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3).length;
   if (p.changeFamily === "factual_correction" && material(c.after) < material(c.before)) return ["The corrected line is shorter than the one it replaces: only the meaning the cited source carries survives, the unsupported wording was narrowed, and nothing here claims the shorter line earns more traffic."];
   return [];
-}
-
-function materialLosses(p: ChangeProposal): string[] {
-  const c = p.recommendedChange;
-  if (c.kind !== "existing_edit" || !c.before?.trim()) return [];
-  const before = c.before, after = c.after;
-  const bare = (t: string): string => t.toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "");
-  const a = bare(after);
-  const out: string[] = [];
-  for (const u of before.match(/https?:\/\/\S+|\bwww\.\S+|(?<=\s|^)\/[a-z0-9-]{2,}(?:\/[a-z0-9-]+)+/g) ?? [])
-    if (!after.includes(u.replace(/[).,]+$/, ""))) out.push(`the link ${u.replace(/[).,]+$/, "")}`);
-  for (const n of before.match(/\d[\d,.]*(?:\s?(?:%|percent|BCE|CE|AD|BC))?/g) ?? [])
-    if (n.replace(/[^\d]/g, "").length >= 2 && !a.includes(bare(n))) out.push(`the figure ${n.trim()}`);
-  for (const ph of before.match(/(?:[\p{Lu}\p{N}][\p{L}\p{N}'’-]* ){1,5}\p{Lu}[\p{L}\p{N}'’-]+/gu) ?? [])
-    if (!a.includes(bare(ph))) out.push(`"${ph.trim()}"`);
-  return [...new Set(out)];
 }
