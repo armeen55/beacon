@@ -10,6 +10,21 @@ import { claimIdentity } from "@/domains/evidence/pages/fact-check-run";
 import type { EvidenceRequirement } from "@/domains/decision/producers/contract";
 import { defaultSteps } from "@/domains/runtime/ops/research-steps";
 describe("acquireEvidence is exhaustive over the requirement union", () => {
+  it("settles only the exact current complete saved page, even when the model door is held", async () => {
+    vi.resetModules();
+    const url = "https://me.example/flags", need = { kind: "page_source" as const, url, query: "iran flag", workKey: "capture" };
+    let body: Record<string, unknown> | null = null;
+    vi.doMock("@/domains/evidence/pages/owned-context", async (a) => ({ ...(await a<Record<string, unknown>>()), loadOwnedPageBodies: async () => new Map(body ? [[canonicalUrlKey(url), body]] : []) }));
+    vi.doMock("@/lib/cost/credit-breaker", async (a) => { const mod = await a<{ CREDIT_BREAKER: Record<string, unknown> }>(); return { ...mod, CREDIT_BREAKER: { ...mod.CREDIT_BREAKER, peek: async () => "held" } }; });
+    try {
+      const { defaultSteps: steps } = await import("@/domains/runtime/ops/research-steps");
+      const fresh = { version: "current", contentHash: "capture-hash", completeness: "complete", fetchedAt: new Date().toISOString(), faqs: [] };
+      for (const [capture, acquired] of [[null, false], [{ ...fresh, completeness: "partial" }, false], [{ ...fresh, version: "stale_known_good" }, false], [{ ...fresh, fetchedAt: "2000-01-01" }, false], [fresh, true]] as const) {
+        body = capture; expect((await steps.acquireEvidence("t1", need, "b", 25_000)).acquired).toBe(acquired);
+      }
+      expect(await steps.acquireEvidence("t1", { ...need, kind: "serp" }, "b", 25_000)).toMatchObject({ acquired: false, attempted: false });
+    } finally { vi.doUnmock("@/domains/evidence/pages/owned-context"); vi.doUnmock("@/lib/cost/credit-breaker"); vi.resetModules(); CALLS.win.length = 0; CALLS.cursors.length = 0; }
+  });
   it("refuses malformed proposal debt before any DataForSEO or evidence unit is reached", async () => {
     CALLS.serp.length = 0; CALLS.win.length = 0;
     const got = await defaultSteps.acquireEvidence("t1", { kind: "serp", query: "iran flag", workKey: " " }, "b", 5_000);
@@ -23,7 +38,7 @@ describe("acquireEvidence is exhaustive over the requirement union", () => {
   });
   it("routes serp, competitor_page and page_source to the existing units, carries their run receipt, and factual_source to the fact-check pass", async () => { CALLS.cursors.length = 0; const receipt = { runId: "run-1", cycle: "t1:p1:2026-09-20" };
     expect((await defaultSteps.acquireEvidence("t1", { kind: "serp", query: "iran flag", workKey: "test-work" }, "b", 5_000, undefined, "all_changes", receipt)).acquired).toBe(true); expect((await defaultSteps.acquireEvidence("t1", { kind: "competitor_page", query: "iran flag", url: "https://rival.example/iran-flag", workKey: "test-work" }, "b", 5_000, undefined, "all_changes", receipt)).acquired).toBe(true);
-    expect((await defaultSteps.acquireEvidence("t1", { kind: "page_source", query: "iran flag", url: "https://me.example/flags", workKey: "test-work" }, "b", 5_000, undefined, "all_changes", receipt)).acquired).toBe(true); expect(CALLS.serp).toEqual([["iran flag"]]); // the exact search, through the exact unit the funnel already uses
+    expect((await defaultSteps.acquireEvidence("t1", { kind: "page_source", query: "iran flag", url: "https://me.example/flags", workKey: "test-work" }, "b", 5_000, undefined, "all_changes", receipt)).acquired).toBe(false); expect(CALLS.serp).toEqual([["iran flag"]]); // An advanced unit without the actual saved page leaves the debt open.
     expect([CALLS.win, CALLS.cursors]).toEqual([[{ qs: ["iran flag"], owned: null, competitor: "https://rival.example/iran-flag" }, { qs: [], owned: "https://me.example/flags" }], Array(3).fill({ basis: "b", ...receipt })]);
     const facts = await defaultSteps.acquireEvidence("t1", { kind: "factual_source", query: "iran flag", url: "https://me.example/flags", workKey: "test-work" }, "b", 1_000); expect(facts.detail).toContain("fact check"); // the pass RAN; hermetically it banks nothing, which is an honest not-acquired, never "nothing here can buy a factual_source"
     expect((await defaultSteps.acquireEvidence("t1", { kind: "serp", query: "x", workKey: "test-work" }, null, 5_000)).acquired).toBe(false); // no confirmed basis, no read: unchanged fail-closed rule

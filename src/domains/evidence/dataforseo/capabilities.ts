@@ -8,20 +8,13 @@ import { normalizePageIntersection, parsePageIntersection, MAX_INTERSECTION_PAGE
 import { freshnessMsFor } from "../freshness";
 import { mainOf } from "../funnel/research-evidence";
 import type { CachedCallResult, CapabilityInputByKey, CapabilityKey, EngineModelResolution, FunnelBoundaryDeps, ObservationIdentity, ParsedAiAnswer, ParsedByCapability, ParsedKeywordItem, ParsedSerp, ProviderEnvelope } from "./funnel-boundary";
-/** capabilities - the typed DataForSEO provider registry behind the frozen funnel-boundary contract. ONE entry per CapabilityKey owns the EXACT request
- *  builder (only fields the docs document for that endpoint), the optional ask NORMALIZATION that runs BEFORE the cache identity, the reservation, the
- *  cache dimensions, the envelope parser, and its route (post + free task_get + free tasks_ready). providerCall is the ONE model-resolution point: it
- *  resolves the engine model ONCE, picks Standard vs Live from that resolution, and stamps the requested model back. The model is NEVER caller-supplied.
- *  Every field verified vs docs.dataforseo.com: 2026-07-26 for llm_responses/llm_scraper/serp and every family's tasks_ready, 2026-07-28 for
- *  page_intersection and on_page content_parsing, 2026-08-02 for the llm_responses annotation spans and token/money receipt. */
+/** Typed provider contracts own request normalization, routing, reservation, cache identity and parsing. */
 const DFS_API_BASE = "https://api.dataforseo.com/v3";
 const LOCATION_US = 2840, LANG_EN = "en", DAY = 86_400_000;
 const MAX_IDEAS_SEEDS = 200, IDEAS_DEFAULT_LIMIT = 700, IDEAS_MAX_LIMIT = 1000; // documented keyword_ideas seed ceiling, default and max limit, in ONE place so the ask and the built body agree
 /** serp_competitors documents the SAME 200-keyword ceiling and a limit defaulting to 100, maxing at 1000. Beacon asks for 50: a case wants the handful of domains that keep coming up, not a directory. (docs: serp_competitors/live, 2026-07-31) */
 const COMPETITORS_SEEDS = 200, COMPETITORS_LIMIT = 50, COMPETITORS_MAX_LIMIT = 1000, MAX_COMPETITOR_ROWS = 50;
-/** Bound the token-variable half of every LLM ask at the REQUEST. Documented on chat_gpt/claude/gemini llm_responses task_post AND live and on perplexity
- *  live ("maximum 4096, default 2048"), NOT on llm_scraper, so it never goes there. Honest limit: with web search or a reasoning model the output may
- *  exceed it, so it narrows the spend rather than capping it. */
+/** Documented llm_responses output bound; reasoning/search can exceed it, so this is not a spend guarantee. */
 const LLM_MAX_OUTPUT_TOKENS = 2048;
 type LlmEngine = "chatgpt" | "gemini" | "claude" | "perplexity";
 const ENGINE_SLUG: Record<LlmEngine, string> = { chatgpt: "chat_gpt", gemini: "gemini", claude: "claude", perplexity: "perplexity" };
@@ -31,6 +24,7 @@ type Route = { mode: "live" | "task"; postPath: string; getPath: ((id: string) =
 type Entry<K extends CapabilityKey> = {
   ttlMs: number;
   estCostUsd: number;
+  requestTimeoutMs?: number;
   dims: { device: boolean; model: boolean };
   /** Present = the call needs a resolved engine model (Standard vs Live routing). */
   engine?: LlmEngine;
@@ -45,16 +39,12 @@ type Registry = { [K in CapabilityKey]: Entry<K> };
 class MissingFieldsError extends Error { constructor(cap: string, missing: string[]) {
   super(`capability ${cap}: missing required field(s): ${missing.join(", ")}`); this.name = "MissingFieldsError"; } }
 // ── request builders (emit ONLY documented fields per endpoint) ───────────────
-/** ChatGPT llm_responses: user_prompt + model_name + max_output_tokens + web_search ONLY. force_web_search is NEVER sent here and neither is a country:
- *  the endpoint rejects force on a reasoning model with an in-body 40501, verified live 2026-07-25 on o4-mini, and the live models list that day reported
- *  reasoning true for EVERY ChatGPT model. (docs: chat_gpt llm_responses task_post + live, 2026-07-26) */
+/** ChatGPT supports web_search, not force_web_search or country (llm_responses docs, 2026-07-26). */
 function chatGptBuild(i: CapabilityInputByKey["llm_chatgpt"], r: EngineModelResolution | null): unknown[] {
   const web = r?.webSearch === true && i.web_search === true;
   return [clean({ user_prompt: i.user_prompt, model_name: r?.model, max_output_tokens: LLM_MAX_OUTPUT_TOKENS, web_search: web ? true : undefined })];
 }
-/** Claude llm_responses: a DIFFERENT contract from ChatGPT. force_web_search and web_search_country_iso_code are both documented here and conflict only
- *  with use_reasoning, which Beacon never sends. Both ride an ENABLED web search, so neither is emitted when it is off. (docs: claude task_post + live,
- *  2026-07-26) */
+/** Claude supports force and country only with web search enabled (llm_responses docs, 2026-07-26). */
 function claudeBuild(i: CapabilityInputByKey["llm_claude"], r: EngineModelResolution | null): unknown[] {
   const web = r?.webSearch === true && i.web_search === true;
   return [clean({ user_prompt: i.user_prompt, model_name: r?.model, max_output_tokens: LLM_MAX_OUTPUT_TOKENS,
@@ -78,10 +68,7 @@ function scraperBuild(i: CapabilityInputByKey["llm_scraper_chatgpt"]): unknown[]
     force_web_search: forceWeb ? true : undefined,
     expand_citations: forceWeb && i.expand_citations === true ? true : undefined })];
 }
-/** THE LLM OBSERVATION IDENTITY, applied BEFORE the cache identity and to the LLM capabilities ONLY (no builder ever emits it). The plan's reporting day
- *  always rides the identity, so tomorrow's reading is a new question and not a replay of tonight's answer out of the one-day cache; a deliberate second
- *  sample rides it too, so slot 1 is a real second opinion at real cost. Slot 0 is left OUT, so a same-day retry is still a $0 replay of one identical
- *  ask. No day is ever invented: an ask without one keys exactly as it did before. */
+/** Observation day and nonzero sample distinguish purchases; neither is sent to the provider. */
 function llmIdentity<T extends ObservationIdentity>(i: T): T {
   const { observation_day: day, sample_slot: slot, ...rest } = i;
   return { ...rest, ...(typeof day === "string" && day.length > 0 ? { observation_day: day } : {}),
@@ -108,8 +95,7 @@ function serpEntry<K extends "serp_organic" | "serp_ai_mode">(base: string, estC
     parse: parseSerp,
   };
 }
-/** DYNAMIC routing: a Standard-capable resolution posts a resumable task_post (free task_get resume); otherwise the Live endpoint. Both paths are carried
- *  per engine; providerCall picks by the resolution. */
+/** Prefer resumable Standard when the resolved model supports it; otherwise use Live. */
 function llmDynamicRoute(engine: LlmEngine): (r: EngineModelResolution | null) => Route {
   const slug = ENGINE_SLUG[engine];
   const standard: Route = { mode: "task", postPath: `ai_optimization/${slug}/llm_responses/task_post`, getPath: (id) => `ai_optimization/${slug}/llm_responses/task_get/${id}`, tasksReady: `ai_optimization/${slug}/llm_responses/tasks_ready` };
@@ -181,13 +167,23 @@ const REGISTRY: Registry = {
     },
     parse: parsePageIntersection,
   },
-  // ONE public read of a body my own fetch could not get, US/English, never after a robots denial. Priced as Instant Pages and the documented example charges
-  // $0.000125; reserved far above it at 0.002, so the cap is never held under one read, and reconcile drops it to actual. (docs: content_parsing/live 07-28)
+  // Public competitor text fallback; owned-page structure uses the separate DOM capability below.
   onpage_content_parsing: {
     ttlMs: 7 * DAY, estCostUsd: 0.002, dims: { device: false, model: false },
     normalize: (i) => ({ url: canonicalUrl(i.url) }), // one URL, one identity: a #fragment never buys twice
     route: () => ({ mode: "live", postPath: "on_page/content_parsing/live", getPath: null, tasksReady: null }),
     build: (i) => [{ url: i.url, enable_javascript: true, accept_language: LANG_EN, ip_pool_for_scan: "us" }], parse: parseContentParsing,
+  },
+  onpage_rendered_html: {
+    ttlMs: freshnessMsFor("owned_page"), estCostUsd: 0.002, requestTimeoutMs: 45_000, dims: { device: false, model: false },
+    normalize: (i) => ({ url: canonicalUrl(i.url), ...(i.revision ? { revision: i.revision } : {}) }),
+    route: () => ({ mode: "live", postPath: "on_page/instant_pages", getPath: null, tasksReady: null }),
+    // Fixed, synchronous DOM capture, not site-supplied code or the ambiguous raw-HTML endpoint.
+    // JS pricing: $0.0015/page (DataForSEO OnPage pricing, 2026-09-22); reserve above it.
+    build: (i) => [{ url: i.url, enable_javascript: true, enable_xhr: true, return_despite_timeout: false,
+      accept_language: LANG_EN, ip_pool_for_scan: "us",
+      custom_js: "(() => { const root = document.documentElement.cloneNode(true); root.querySelectorAll('script:not([type=\"application/ld+json\"]),style').forEach(node => node.remove()); const html = root.outerHTML; return { url: document.URL, readyState: document.readyState, capturedAt: new Date().toISOString(), html: html.length <= 2000000 ? html : null }; })()" }],
+    parse: parseRenderedHtml,
   },
   serp_organic: serpEntry("serp/google/organic", 0.0021, SERP_DEPTH),
   serp_ai_mode: serpEntry("serp/google/ai_mode", 0.01),
@@ -206,8 +202,7 @@ const REGISTRY: Registry = {
     normalize: llmIdentity, build: scraperBuild, parse: parseScraper,
   },
 };
-/** CAN THIS CAPABILITY BE ASKED AT ALL, read off the registry itself rather than a second list somebody has to remember to update. A planner asks this so
- *  an engine the registry carries no way to reach is left out of every plan while that is true, and planned again the day it comes back. */
+/** Askability follows the registry, not a parallel planner list. */
 export const capabilityAskable = (capability: string): boolean => Object.hasOwn(REGISTRY, capability);
 // ── composed provider call (the ONE model-resolution point) ───────────────────
 export async function providerCall<K extends CapabilityKey>(
@@ -245,6 +240,7 @@ export async function providerCall<K extends CapabilityKey>(
     tasksReadyPath: route.tasksReady,
     publicInput, locationCode: LOCATION_US, languageCode: LANG_EN, device, modelRequested: modelDim,
     payload, ttlMs: entry.ttlMs, estCostUsd: entry.estCostUsd, mode: route.mode, tenantId: ids.tenantId,
+    requestTimeoutMs: entry.requestTimeoutMs,
     purpose: ids.unitKey.startsWith("fact-check:") ? "fact_check" : "bulk", // the daily gate holds the fact-check reserve on it
     who: { unitKey: ids.unitKey, ...(ids.runId ? { runId: ids.runId } : {}), ...(ids.caseKey ? { caseKey: ids.caseKey } : {}), ...(ids.promptId ? { promptId: ids.promptId } : {}) },
   };
@@ -253,10 +249,7 @@ export async function providerCall<K extends CapabilityKey>(
   if (modelRequested && (result.state === "ok" || result.state === "waiting")) return { ...result, modelRequested };
   return result;
 }
-/** THE batched ideas ask: N seed themes cost ceil(N / 200) requests through the SAME providerCall (one transport, cache identity, reserve-then-reconcile
- *  spend path, tenant attribution and fail-closed cap), never one paid request per keyword. Seeds are trimmed, lowercased, deduped and ordered, so the
- *  same themes in any order derive the SAME cache identity and reuse what was already bought. One result per batch, in order. A refusal, the spend cap or
- *  the daily ceiling stops the remaining batches. */
+/** Normalized seeds share cached requests of up to 200; refusal or a ceiling stops the batch. */
 export async function keywordIdeasBatched(
   seeds: string[], ids: { tenantId: string; unitKey: string }, deps: FunnelBoundaryDeps = {}, limit?: number,
 ): Promise<CachedCallResult[]> {
@@ -273,13 +266,11 @@ export async function keywordIdeasBatched(
   }
   return out;
 }
-/** Resume a waiting Standard task via the endpoint-derived FREE task_get path, or recover a quarantined row via the endpoint-derived FREE tasks_ready
- *  listing. */
+/** Resume or recover a stored Standard purchase through its free collection endpoints. */
 export async function collectCapability(cacheKey: string, deps: FunnelBoundaryDeps = {}): Promise<CachedCallResult> {
   return collectResolvedTask(cacheKey, { getPath: getPathForEndpoint, tasksReadyPath: tasksReadyForEndpoint, ttlMsFor: ttlMsForEndpoint }, deps);
 }
-/** Ready-payload freshness for a collected task, by endpoint: every Standard family in the registry (SERP, AI Mode, llm_responses, llm_scraper) carries
- *  the 1-day ttl. Null = not a task endpoint. */
+/** Every Standard family has one-day freshness; non-task endpoints return null. */
 const ttlMsForEndpoint = (endpoint: string): number | null => (endpoint.endsWith("/task_post") ? DAY : null);
 /** The free task_get derivation from a stored task_post endpoint: serp + scraper use /task_get/advanced, llm_responses uses the plain /task_get. */
 function getPathForEndpoint(endpoint: string, id: string): string | null {
@@ -289,9 +280,7 @@ function getPathForEndpoint(endpoint: string, id: string): string | null {
   if (endpoint.includes("/llm_responses/")) return `${base}/task_get/${id}`;
   return null;
 }
-/** The free tasks_ready derivation. ONE rule across every family we post to, each verified on docs.dataforseo.com 2026-07-26 as a free GET returning {id,
- *  tag} per finished task: serp/google/{organic,ai_mode}, ai_optimization/{chat_gpt,claude,gemini}/llm_responses and ai_optimization/chat_gpt/llm_scraper
- *  all expose <base>/tasks_ready. */
+/** Every Standard family exposes free <base>/tasks_ready (DataForSEO docs, 2026-07-26). */
 function tasksReadyForEndpoint(endpoint: string): string | null {
   return endpoint.endsWith("/task_post") ? `${endpoint.slice(0, -"/task_post".length)}/tasks_ready` : null;
 }
@@ -373,10 +362,7 @@ function parseKeywords(env: ProviderEnvelope): ParsedKeywordItem[] {
     };
   }).filter((k) => k.keyword.length > 0);
 }
-/** serp_competitors -> the recurring domains, bounded, in the provider's OWN order (it sorts by rating descending by default, which is its composite of
- *  how often and how highly a domain comes up). Each item carries its metrics as flat fields, never a nested metrics object. A metric the provider did
- *  not send stays NULL: "I do not know its average position" and "its average position is 0" are different claims. (docs:
- *  dataforseo_labs/google/serp_competitors/live example response, verified 2026-07-31) */
+/** Recurring domains retain provider order and missing metrics stay null (serp_competitors docs, 2026-07-31). */
 function parseSerpCompetitors(env: ProviderEnvelope): ParsedByCapability["labs_serp_competitors"] {
   return resultBlock(env).items.slice(0, MAX_COMPETITOR_ROWS).map((it) => ({
     domain: String(it.domain ?? ""), avgPosition: num(it.avg_position), rating: num(it.rating), keywordsCount: num(it.keywords_count),
@@ -433,18 +419,12 @@ function parseLlmAnswer(env: ProviderEnvelope): ParsedAiAnswer {
   // llm_responses documents NEITHER a retrieval list nor a brand list (llm_responses live + task_get, all four engines, 2026-07-31): not observable here reads null, never an observed empty.
   return { answerText: texts.length ? texts.join("\n") : null, modelServed: str(result0?.model_name), webSearchReported: web, citations, fanOutQueries: arrStr(result0?.fan_out_queries), usage: usageOf(result0), retrievedResults: null, brandMentions: null };
 }
-/** What the ask cost the PROVIDER, in its own numbers: tokens each way, reasoning tokens where the model
- *  charges for thinking, and the money figure it reports for the LLM itself. An envelope carrying none of
- *  them reads null, so "it did not tell me" is never stored as a zero. This is the provider's report, NOT
- *  the money that moved through the ledger: that stays the paid-attempt cost the caller already holds. */
+/** Provider-reported token/money usage; missing stays null and never substitutes for the spend ledger. */
 function usageOf(r: Record<string, unknown> | null): ParsedAiAnswer["usage"] {
   const u = { inputTokens: num(r?.input_tokens), outputTokens: num(r?.output_tokens), reasoningTokens: num(r?.reasoning_tokens), moneySpentUsd: num(r?.money_spent) };
   return Object.values(u).every((v) => v == null) ? null : u;
 }
-/** llm_scraper carries the WHOLE consumer journey and keeps its three claims apart: `sources` are the CITED pages, `search_results` are the pages it reported
- *  RETRIEVING (stored as reported, because the endpoint nowhere promises they exclude the cited ones, so the not-cited half is DERIVED downstream by
- *  retrievedNotCitedLinks and never assumed here), `brand_entities` are the brands it named itself. It reports NO web_search field, so the only honest
- *  evidence the ask reached the web is web results in hand; nothing returned reads null, never a claimed false. (docs: task_get/advanced, 2026-07-31) */
+/** Scraper citations, retrieved results and named brands are separate; unreported web-search state stays unknown. */
 function parseScraper(env: ProviderEnvelope): ParsedAiAnswer {
   const { result0 } = resultBlock(env);
   const citations = links(result0?.sources), retrievedResults = links(result0?.search_results);
@@ -455,8 +435,16 @@ function parseScraper(env: ProviderEnvelope): ParsedAiAnswer {
     brandMentions: brandTitles(result0?.brand_entities),
   };
 }
-/** on_page content_parsing -> the SAME extract a directly read winner carries, so a page read through the provider is never a second extract model. What
- *  the provider did not send stays absent, never a fake zero, and the caller stamps fetchedAt. (docs: on_page/content_parsing/live, 2026-07-28) */
+/** Completed DOM observation, not proof that every delayed application request finished. */
+function parseRenderedHtml(env: ProviderEnvelope): ParsedByCapability["onpage_rendered_html"] {
+  const { result0, items } = resultBlock(env), item = items[0];
+  const dom = item?.custom_js_response as { html?: unknown; url?: unknown; readyState?: unknown; capturedAt?: unknown } | undefined;
+  if (result0?.crawl_progress !== "finished" || item?.status_code !== 200 || item?.custom_js_client_exception
+    || dom?.readyState !== "complete" || typeof dom.html !== "string" || !dom.html.trim() || dom.html.length > 2_000_000
+    || typeof dom.url !== "string" || !/^https?:\/\//i.test(dom.url)
+    || typeof dom.capturedAt !== "string" || !Number.isFinite(Date.parse(dom.capturedAt))) throw new Error("rendered document unavailable or incomplete");
+  return { html: dom.html, url: dom.url, httpStatus: 200, capturedAt: dom.capturedAt };
+}
 function parseContentParsing(env: ProviderEnvelope): ParsedByCapability["onpage_content_parsing"] {
   const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
   const pc = (resultBlock(env).items[0]?.page_content ?? {}) as Record<string, unknown>;
@@ -465,7 +453,6 @@ function parseContentParsing(env: ProviderEnvelope): ParsedByCapability["onpage_
   const sections = topics.map((t) => ({ heading: str(t.h_title), text: arr(t.primary_content).map((p) => str(p.text) ?? "").join(" ").replace(/\s+/g, " ").trim() })).filter((s) => s.text); return { title: str(topics[0]?.main_title), h1: str(topics[0]?.h_title), wordCount: body ? body.split(" ").length : 0, ...(sections.length > 0 ? { sections } : {}), /* each heading with the words under it, so a reader can open on the section the requirement named */
     /* WHAT THIS ENDPOINT DOES NOT SEND IS NOT CAPTURED, NEVER NONE (Build Queue E-039). `page_content` carries the page's header, its footer and its topics, each topic a title, its paragraphs and its tables, and nothing else: no meta description, no entity list, no list flag and no link counts. A question-entry count of 0 stood here and it is a claim this payload cannot make, so a provider-read winner read as a page with no question entries beside a crawled one that really had none. Every field this parse does not fill is left ABSENT, which the extract and the comparison both read as unknown. */ headings: topics.map((t) => str(t.h_title) ?? "").filter(Boolean).slice(0, 20),
     openingSample: body.slice(0, 600) || null, hasTable: topics.some((t) => arr(t.table_content).length > 0),
-    // THE WHOLE RENDERED BODY, under the crawler's own 100,000 character ceiling, because the rendered read of a page the account OWNS stores exactly this text as that page's snapshot and a comparison-sized cut there would make a partial capture read as a page held whole. The winner path re-holds it to the comparison ceiling.
     ...mainOf(body, 0, 100_000) };
 }
 function modelObjects(env: ProviderEnvelope): Record<string, unknown>[] {

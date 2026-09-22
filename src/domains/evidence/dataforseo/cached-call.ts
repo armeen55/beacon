@@ -22,6 +22,7 @@ export type ResolvedCall = {
   publicInput: Record<string, unknown>; locationCode: number; languageCode: string;
   device: string | null; modelRequested: string | null;
   payload: unknown[]; ttlMs: number; estCostUsd: number; mode: "live" | "task"; tenantId: string;
+  requestTimeoutMs?: number;
   purpose: "fact_check" | "bulk"; // the daily gate holds the fact-check reserve against bulk buying
   who?: { unitKey?: string; runId?: string; caseKey?: string; promptId?: string };
 };
@@ -136,7 +137,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
   }
   if (transmission !== "claimed") return holdUncertain(d, r.mode, cacheKey, now, attemptId, "This paid request already started and remains unresolved, so it was not sent again.");
   if (!(await CREDIT_BREAKER.claimProbe(r.tenantId, {}, "dataforseo").catch(() => false))) { if (await d.spend.release(attemptId, true).catch(() => false)) await releaseClaim(d, cacheKey, now, "credit_held"); else await holdUncertain(d, r.mode, cacheKey, now, attemptId, "The recovery probe was not sent, but its reservation could not be released safely."); return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") }; } // Claim only after every local transmission gate: a cap/run refusal must never consume the one recovery probe.
-  const transport = await runDataForSeoTransport({ url: `${API_BASE}/${r.postPath}`, payload, env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence" });
+  const transport = await runDataForSeoTransport({ url: `${API_BASE}/${r.postPath}`, payload, env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence", timeoutMs: r.requestTimeoutMs });
   if (!transport.ok) {
     const cost = readProviderCost(transport.body);
     if (transport.status === 402 && cost === 0 && isPaymentRefusal(transport.body)) { await CREDIT_BREAKER.trip(r.tenantId, {}, "dataforseo").catch(() => {}); if (await d.spend.release(attemptId, true).catch(() => false)) await releaseClaim(d, cacheKey, now, "credit_held"); else await holdUncertain(d, r.mode, cacheKey, now, attemptId, "The provider reported no charge, but the reservation could not be released safely."); return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") }; }
@@ -356,7 +357,6 @@ function blockedResult(cacheKey: string, reason: string): CachedCallResult {
   if (reason === "repost_limit") return unavailableResult(cacheKey);
   return { state: "error", cacheKey, disposition: "blocked", detail: `The search provider would not run this request (${reason}) and charged nothing. It stays set aside until the account is looked at.` };
 }
-/** task_get describes one stored purchase, never current account health: production proved a seven-day-old task can briefly answer payment-held after the live balance is positive, then return its result on the next free GET. */
 function historicalPaymentWait(cacheKey: string, providerTaskId: string): CachedCallResult {
   return { state: "waiting", cacheKey, providerTaskId, costUsd: 0, detail: "This stored provider task still reports the billing state from when it ran. Current account readiness is checked separately, so its paid task id is kept and collected again for free." };
 }

@@ -8,6 +8,7 @@ import { applySynthesis } from "@/domains/evidence/case-identity";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader"; import { projectFunnelEvidence } from "@/domains/evidence/funnel/observe";
 import { renderUnreadOwnedPages } from "@/domains/evidence/pages/rendered-read";
+import { isCurrent } from "@/domains/evidence/freshness";
 import { canonicalUrlKey, jobWinners, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { synthesizeCases } from "@/domains/decision/case-synthesis";
 import { buildTopicInvestigations, reconcileResearchCases } from "@/domains/evidence/topic-investigation";
@@ -279,8 +280,9 @@ export const defaultSteps: ResearchCycleSteps = {
     if (!need.query.trim() && !need.url) return deferred("the requirement names nothing to read");
     if (!basis) return deferred("this dispatch has no confirmed basis, so nothing can be read against it");
     const { CREDIT_BREAKER } = await import("@/lib/cost/credit-breaker");
-    if (await CREDIT_BREAKER.peek(tenantId).catch(() => "held" as const) !== "clear") return deferred(CREDIT_BREAKER.sentence("openai"));
-    if (need.kind !== "semantic_review" && await CREDIT_BREAKER.peek(tenantId, {}, "dataforseo").catch(() => "held" as const) !== "clear") return deferred(CREDIT_BREAKER.sentence("dataforseo"));
+    // Owned-page repair starts with free saved/raw reads; its paid fallback checks both provider doors itself.
+    if (need.kind !== "page_source" && await CREDIT_BREAKER.peek(tenantId).catch(() => "held" as const) !== "clear") return deferred(CREDIT_BREAKER.sentence("openai"));
+    if (need.kind !== "page_source" && need.kind !== "semantic_review" && await CREDIT_BREAKER.peek(tenantId, {}, "dataforseo").catch(() => "held" as const) !== "clear") return deferred(CREDIT_BREAKER.sentence("dataforseo"));
     const unitStatus = (out: unknown): string => (out as { status?: string }).status ?? "unknown", unitCursor = { basis, ...(runReceipt ?? {}) };
     const landed = (out: unknown): boolean => unitStatus(out) === "done" || unitStatus(out) === "advanced"; // stage one of winning-pages persists its reads and answers `advanced`; both words mean the write landed
     switch (need.kind) {
@@ -295,15 +297,17 @@ export const defaultSteps: ResearchCycleSteps = {
       }
       case "page_source": {
         if (!need.url) return { acquired: false, detail: "a page_source requirement names no page" };
-        const out = await winningPagesUnit({}, [], null, need.url, null)(tenantId, unitCursor, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) }));
+        const out = await winningPagesUnit({}, [], null, need.url, null, null, true)(tenantId, unitCursor, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) }));
+        const { loadOwnedPageBodies } = await import("@/domains/evidence/pages/owned-context");
+        const body = (await loadOwnedPageBodies(tenantId, [need.url]).catch(() => null))?.get(canonicalUrlKey(need.url));
+        const current = body?.version === "current" && !!body.contentHash && isCurrent("owned_page", body.fetchedAt, Date.now());
         if (need.reasonCode === "schema_visible_pair_unconfirmed") {
-          const { loadOwnedPageBodies } = await import("@/domains/evidence/pages/owned-context");
-          const body = (await loadOwnedPageBodies(tenantId, [need.url]).catch(() => null))?.get(canonicalUrlKey(need.url));
           const same = (question: string): boolean => question.trim().replace(/\s+/g, " ").toLowerCase() === need.query.trim().replace(/\s+/g, " ").toLowerCase();
-          const acquired = body?.version === "current" && !!body.contentHash && body.faqs.some((pair) => pair.answerComplete === true && same(pair.question));
-          return { acquired, detail: `own-page FAQ capture of ${need.url}: ${acquired ? "current complete HTML pair on file" : "the required current complete HTML pair is not on file"}` };
+          const acquired = current && body.faqs.some((pair) => pair.answerComplete === true && same(pair.question));
+          return { acquired, ...("attempted" in out && out.attempted === false ? { attempted: false as const } : {}), detail: `own-page FAQ capture of ${need.url}: ${acquired ? "current complete HTML pair on file" : "the required current complete HTML pair is not on file"}` };
         }
-        return { acquired: landed(out), detail: `own-page read of ${need.url}: ${unitStatus(out)}` };
+        const acquired = current && body.completeness === "complete";
+        return { acquired, ...("attempted" in out && out.attempted === false ? { attempted: false as const } : {}), detail: `own-page read of ${need.url}: ${acquired ? "current complete capture on file" : `current complete capture still owed (${unitStatus(out)})`}` };
       }
       case "factual_source": {
         if (need.finding && (need.finding.tenantId !== tenantId || need.finding.page !== (need.topic?.key ?? (need.url ? pathOf(need.url) : null)))) return { acquired: false, detail: "the known finding does not belong to this tenant and factual owner" };

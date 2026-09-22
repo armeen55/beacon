@@ -32,6 +32,7 @@ export type CapabilityKey =
   | "labs_serp_competitors"
   | "labs_page_intersection"
   | "onpage_content_parsing"
+  | "onpage_rendered_html"
   | "serp_organic"
   | "serp_ai_mode"
   | "llm_chatgpt"
@@ -131,6 +132,7 @@ export type ParsedByCapability = {
   labs_page_intersection: ParsedPageIntersection;
   /** Parsed DIRECTLY into the ONE extract shape every winner already carries: no second extract model. */
   onpage_content_parsing: ResearchPageExtract;
+  onpage_rendered_html: { html: string; url: string; httpStatus: number; capturedAt: string };
   serp_organic: ParsedSerp;
   serp_ai_mode: ParsedSerp;
   llm_chatgpt: ParsedAiAnswer;
@@ -172,6 +174,7 @@ export type CapabilityInputByKey = {
   labs_page_intersection: PageIntersectionAsk;
   /** ONE public page read of a body my own fetch could not get. NEVER used after a robots denial. */
   onpage_content_parsing: { url: string };
+  onpage_rendered_html: { url: string; revision?: string };
   /** `depth` IS EMITTED and defaulted by the builder, so it changes the REQUEST without changing the cache
    *  identity of an ask that never named one. Without it the provider returned its own default page and stored
    *  results held seven to nine organic rows, so no owned position past about nine was decidable at all. */
@@ -269,6 +272,7 @@ export type FunnelUnitOutcome = {
   status: "advanced" | "waiting" | "done" | "failed";
   cursor: Record<string, unknown> | null;
   progress: FunnelCounters;
+  attempted?: false;
   detail?: string;
   /** STRUCTURED failure discriminant, set ONLY where an executor catches a state
    *  conflict: the research notes moved underneath this writer, so NOTHING was

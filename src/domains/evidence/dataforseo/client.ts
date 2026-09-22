@@ -56,6 +56,7 @@ export async function runDataForSeoTransport(args: {
   env: NodeJS.ProcessEnv;
   fetchImpl: typeof fetch;
   perfDetail?: string;
+  timeoutMs?: number;
   /** Defaults to POST; task_get resumption uses GET (no body). */
   method?: "GET" | "POST";
 }): Promise<
@@ -69,6 +70,7 @@ export async function runDataForSeoTransport(args: {
     const init: RequestInit = {
       method,
       headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
+      ...(args.timeoutMs ? { signal: AbortSignal.timeout(args.timeoutMs) } : {}),
     };
     if (method === "POST") init.body = JSON.stringify(args.payload);
     const res = await args.fetchImpl(args.url, init);

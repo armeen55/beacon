@@ -1,13 +1,9 @@
-/** Native research-to-content tests use the real runtime/default steps and canonical stores behind scripted I/O.
- * Clock advances instead of waiting for cron; direct acquisition controls isolate exact-record refresh.
- * No artifact is marked Ready by hand. These simulations do not certify hosted execution or model quality. */
+/** Real runtime and canonical stores with scripted I/O; no manual Ready stamping or live-model quality claim. */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { publicationDraft } from "../helpers/publication-draft";
 
 vi.mock("@/lib/persistence/supabase", async () => { const w = await import("./world"); const c = w.client(); return { getSupabaseAdmin: () => c, isSupabaseConfigured: () => true }; });
 vi.mock("@/lib/logger", async () => { const w = await import("./world"); return { log: { debug: () => {}, info: (m: string, x?: unknown) => w.logs.push(`${m} ${JSON.stringify(x ?? {})}`), warn: (m: string, x?: unknown) => w.logs.push(`${m} ${JSON.stringify(x ?? {})}`), error: (m: string, x?: unknown) => w.logs.push(`${m} ${JSON.stringify(x ?? {})}`) } }; });
-// THE TWO SEAMS THE CHANGES ACTION SITS BEHIND, and nothing else about it: who may publish for this account, and which account the request is for. The framework's own page cache and its background
-// hook are stubbed because there is no request here to revalidate or defer into; every rule the press applies is the shipped one.
 vi.mock("@/lib/auth/can-publish", () => ({ canPublishForCurrentTenant: async () => true }));
 vi.mock("@/lib/tenant-context", async (actual) => ({ ...(await actual<Record<string, unknown>>()), currentTenantId: async () => (await import("./world")).T }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {}, unstable_cache: (f: unknown) => f }));
@@ -180,7 +176,6 @@ describe("the winners of a search on file", () => {
     expect(spentOn("dataforseo"), "reading a public page is a polite free fetch, so winner reads add no DataForSEO charge even when the same drive uses OpenAI reasoning").toBe(0); advance(86_400_001); const expired = await dueWork(T, now()); expect(expired.winners.unread, "each refused reading becomes due only when its promised retry date arrives").toBe(3); expect(expired.due).toContain("read_winner_pages");
   });
 
-  /** A READING IS NEVER EVICTED BY A RANKING (production, 2026-09-06). The winners array was rebuilt from the ranked window on every pass, so the pages read for one search were thrown away as soon as this account's other searches competed for the same fifteen slots: the row that needed them read "none of the pages winning it has been read", bought the readings again, and lost them again. On the captured rows: five searches, four readings on file, one pass, and three of the four lost under the rule this replaces. */
   it("14: every winner already read for one of this account's searches is still on file, with its words, after a pass that ranks other searches above it", async () => {
     seedResearchState(basis, {}); // every captured search and every captured winner, four of them carrying words
     script.search = searchScript({ ready: true, posts: 0 });
@@ -192,9 +187,6 @@ describe("the winners of a search on file", () => {
 });
 
 describe("the reading the comparison names", () => {
-  /** THE STALL THIS ARM WAS WRITTEN FOR: `producers/core.ts` took the next winner off the results page with no words on file and excused only a publisher's robots refusal, while the reading reserve
-   *  (`funnel/normalize`, `isNoiseDomain`) drops a social, forum or marketplace host and marked nothing, so www.reddit.com at position 4 was demanded on every drive and read on none. Measured before
-   *  the repair: six drives, six purchases, the identical refusal each time, and the row never left needs_review. One rule now, in the projection both sides read. */
   it("8: a winner the reading reserve will never take is not demanded, so the comparison finishes and the drive can write", async () => {
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     script.search = searchScript({ ready: true, posts: 0 });
@@ -209,8 +201,6 @@ describe("the reading the comparison names", () => {
 });
 
 describe("the finished work, and recording that the operator applied it", () => {
-  /** STEPS EIGHT TO TEN OF THE SEQUENCE, on the account's own captured rows: the packet's evidence reaches the writer, the reading of the finished words is given the same copy and the same page, and
-   *  what the drive wrote survives a reload of the canonical store as work the operator can act on. The writer and the reading are scripted; every gate between them is the shipped one. */
   it("9 and 10: the assignment reaches the writer with the packet's evidence, review reads the same material, and the finished copy reloads as Ready", async () => {
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     script.search = searchScript({ ready: true, posts: 0 });
@@ -226,8 +216,6 @@ describe("the finished work, and recording that the operator applied it", () => 
     expect(rows.map((r) => [r.status, nextObligation(r), r.recommendedChange.kind === "existing_edit" && r.recommendedChange.after === writer.after]), "the finished change reloads as Ready with no remaining operator obligation, and what reloads is the fully preserving sourced opening itself, not a note about it").toEqual([["ready", null, true]]);
   });
 
-  /** STEP TWELVE, through the REAL Changes action: the press the operator makes on the card the drive just wrote. The change keeps the id it was written under, the record names the page and the exact
-   *  words that went out, and the row comes back as work under measurement rather than work still to do. */
   it("12: recording the implementation keeps the change's identity and its baseline", async () => {
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     script.search = searchScript({ ready: true, posts: 0 });
@@ -259,10 +247,6 @@ describe("a pass that has nothing new to buy", () => {
   });
 });
 
-/** THREE ROWS, EACH WAITING ON ITS OWN RESULTS PAGE, AT THE RANKS THE PRODUCTION CASE SAT AT (58, 63 and 66, behind a head that needs no reading). This is the drive-count promise the operator's
- *  correction is about. Under the rule this replaces, the loop stopped at the first gap in the ranking and crossed it at most once a drive, for work the last walk had reached: with no walk behind
- *  the row it crossed nothing, so the first of these was deferred with "the work ranked above this reading needs no reading at all" and none of the three was ever bought. Under one order they are
- *  posted together, collected together, and the row whose last dependency landed is finished on the drive that collected it. */
 describe("three opportunities waiting on their own results page", () => {
   const PAGES = [{ path: HUB, query: QUERY, h2: ["Famous Iranian Poets", "Famous Iranian Athletes", "Famous Iranian Actors"] },
     { path: "/persian-male-names", query: "iranian male names", h2: ["Names from poetry", "Names from history", "Names in use today"] },

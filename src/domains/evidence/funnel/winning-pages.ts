@@ -10,6 +10,7 @@ import { pageIdFor } from "@/domains/evidence/scanning/in-process-scan";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import { resolveCitationTargets } from "@/domains/evidence/competitor-intel/polite-fetch";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
+import { renderUnreadOwnedPages } from "@/domains/evidence/pages/rendered-read";
 import type { FunnelUnitFn, ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { owedWinnerReads, PRIORITY_WINNERS_PER_QUERY, rankWinningPages } from "./normalize";
 import { type FunnelState, type FunnelWinningPage } from "./state";
@@ -78,61 +79,66 @@ const RETRY_MS: Record<WinnerReadOutcome["state"], number> = { robots_blocked: 3
 const readOutcomeAt = <S extends WinnerReadOutcome["state"]>(state: S, at: number) => ({ state, attemptedAt: new Date(at).toISOString(), retryAfter: new Date(at + RETRY_MS[state]).toISOString() });
 /** How many failed reads of MY OWN pages the research row remembers. A handful, never a log, and now a CAPACITY rather than a queue: an unexpired hold is never pushed out of it. */
 const MAX_OWNED_READS = 10;
-/** What the one owned read did: the memory to persist, and the pause when a body I had in hand could not be made durable. */
-type OwnedRead = { held: OwnedPageReadOutcome[]; pause: string | null };
-/** A page response is NOT a durable success until its snapshot write lands. This is my own persistence failing, so it is never a robots denial and never "your page did not answer": those are the page's answer, this one is mine. */
+type OwnedRead = { held: OwnedPageReadOutcome[]; pause: string | null; acquired: boolean; attempted?: false };
 const OWNED_WRITE_PAUSE = "The page was read, but its contents could not be saved, so it is not counted as read yet. The next visit will read it again.";
 
-/** THE read of ONE page of the account's OWN, at most once per run, under the caller's live lease, and NEVER through a paid provider: the publisher here is the customer. Decision NAMES the URL and reads the result, so
- *  nothing about a page render ever reaches the customer's website. A success persists the canonical page snapshot and CLEARS the failure memory for that URL; a failure is remembered on the SAME retry policy a winning
- *  page gets, so the same dead URL is not refetched on every visit and the date I promised the operator stays that same date until the retry is genuinely due. */
+/** A named debt settles only against the canonical durable capture, not a fetch or a stage transition. */
 async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageReadOutcome[], url: string,
-  deadline: number, profile: BusinessProfile | null, bustedAt: string | null): Promise<OwnedRead> {
+  deadline: number, profile: BusinessProfile | null, bustedAt: string | null, state: FunnelState): Promise<OwnedRead> {
   const now = d.now(), key = canonicalUrlKey(url), kept: OwnedPageReadOutcome[] = [], seen = new Set<string>();
-  // PRUNE THE EXPIRED, THEN DEDUPE BY CANONICAL URL. Slicing a bounded list newest-first could drop an
-  // unexpired 30-day robots hold once ten newer failures arrived, and that URL then looked untried and was
-  // fetched before the very date I promised. An expired row is a memory of nothing and frees its slot instead.
-  // A DATE I CANNOT READ IS NOT A PROMISE I MUST KEEP. `now >= NaN` is false, so a row whose retryAfter is
-  // unparseable was never pruned and never expired: it blocked its own URL forever, and ten of them filled
-  // the memory and failed every owned read of that account closed, for good. Unreadable means expired.
   const due = (t: string): boolean => { const ms = Date.parse(t); return !Number.isFinite(ms) || now >= ms; };
   for (const o of held) { const k = canonicalUrlKey(o.url); if (due(o.retryAfter) || seen.has(k)) continue; seen.add(k); kept.push(o); }
-  // Inside its own live hold, or out of time: no fetch, and no new date. The winner loop has always checked the
-  // deadline before every read; without the same check here the customer's own site was fetched twice, at ten
-  // seconds apiece, AFTER the unit's budget was spent and often after the lease it was supposed to run under.
-  if (seen.has(key) || now > deadline) return { held: kept, pause: null };
-  // READ BEFORE FETCH, off the ONE canonical row the write below lands in. The snapshot write and the funnel
-  // save are two different writes, so a state conflict on the second used to send me back out to the
-  // customer's website for a body I had persisted seconds earlier. A body already on file at current
-  // freshness IS the read: zero network, and the failure memory for that URL is already cleared above.
-  // BUT A BODY READ BEFORE THE PAGE CHANGED IS NOT THE PAGE. `bustedAt` is when its truth moved underneath
-  // me (an implementation the operator marked, or a content hash that moved), and a read older than that
-  // moment describes a page that no longer exists, however recent the clock says it is.
-  const body = await d.readOwnedBodies(tenantId, [url]).then((m) => m.get(key) ?? null).catch(() => null);
-  if (isCurrent("owned_page", body?.fetchedAt, now, bustedAt)) return { held: kept, pause: null };
-  // FAIL CLOSED ON A FULL MEMORY. A read whose failure I could not remember would be repeated on every pass
-  // forever, and evicting a live hold would break a date I promised, so I do not make the read at all.
-  if (kept.length >= MAX_OWNED_READS) { log.info("[research-funnel] owned read deferred: every read-memory slot is a live hold", { tenantId, holds: kept.length }); return { held: kept, pause: null }; }
+  let captureProblem = false, priorWords = 0, unresolvedHash: string | null = null, latestCapture: Record<string, unknown> | null = null;
+  const settled = async (): Promise<boolean> => {
+    const body = await d.readOwnedBodies(tenantId, [url]).then((m) => m.get(key) ?? null).catch(() => null);
+    latestCapture = body?.captureStates?.find((row) => row.id === body.latestCaptureId) ?? null;
+    captureProblem ||= body?.version === "stale_known_good" || body?.completeness === "partial";
+    if (body && captureProblem) {
+      priorWords = Math.max(priorWords, body.vocabulary.trim().split(/\s+/).filter(Boolean).length);
+      const latest = body.captureStates?.find((row) => row.id === body.latestCaptureId);
+      unresolvedHash = typeof latest?.content_hash === "string" ? latest.content_hash : body.contentHash;
+    }
+    return body?.version === "current" && body.completeness === "complete" && !!body.contentHash
+      && isCurrent("owned_page", body.fetchedAt, d.now(), bustedAt);
+  };
+  if (await settled()) return { held: kept.filter((o) => canonicalUrlKey(o.url) !== key), pause: null, acquired: true };
+  // A live hold never moves merely because another pass looked at it; a full memory never evicts it.
+  if (seen.has(key) || now >= deadline || kept.length >= MAX_OWNED_READS) return { held: kept, pause: null, acquired: false, attempted: false };
   const absolute = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-  const remember = (state: OwnedPageReadOutcome["state"]): OwnedRead => ({ held: [{ url, ...readOutcomeAt(state, now) }, ...kept].slice(0, MAX_OWNED_READS), pause: null });
+  const remember = (state: OwnedPageReadOutcome["state"], retryMs = RETRY_MS[state]): OwnedRead => ({
+    held: [{ url, ...readOutcomeAt(state, now), retryAfter: new Date(now + retryMs).toISOString() }, ...kept].slice(0, MAX_OWNED_READS), pause: null, acquired: false,
+  });
   let res;
-  try { res = await d.fetchPage(absolute, new Map(), {}); } catch { return remember("temporarily_unavailable"); }
+  try { res = await d.fetchPage(absolute, new Map(), { timeoutMs: Math.max(1, Math.min(10_000, (deadline - d.now()) / 2)) }); }
+  catch { return remember("temporarily_unavailable"); }
   if (!res.ok) return remember(res.reason === "robots_blocked" ? "robots_blocked" : "temporarily_unavailable");
-  // THE PROFILE TRAVELS WITH THE READ, like every other crawl of this account's pages. Extracting blind left
-  // the location and service terms empty, and this row upserts on the SAME id the crawlers use, so a blind
-  // read quietly degraded the richer row the account already had.
-  // A SWALLOWED WRITE IS NOT A SUCCESS. Catching this failure let the unit carry on as though an acquired body
-  // had become durable: nothing was persisted, so the memory is left exactly as it was, the page is never
-  // called readable, and the phase pauses on MY OWN persistence failure, named as exactly that.
-  // AND IT STILL EARNS A DATE. Pausing with the memory untouched left a persistently failing write refetching
-  // the customer's site on every single visit, which is the exact behaviour the retry memory exists to stop.
-  try { await d.writeOwnedPage(extractPageSnapshot(res.html, absolute, pageIdFor(url), tenantId, res.status, profile ?? undefined), tenantId); }
+  if (res.finalUrl && canonicalUrlKey(res.finalUrl) !== key) return remember("temporarily_unavailable");
+  const snapshot = extractPageSnapshot(res.html, absolute, pageIdFor(key), tenantId, res.status, profile ?? undefined, res.finalUrl);
+  const latest = latestCapture as Record<string, unknown> | null, source = latest?.content_capture as typeof snapshot.content_capture;
+  const unchanged = captureProblem && latest?.content_hash === snapshot.content_hash && latest.title === snapshot.title && latest.h1 === snapshot.h1
+    && latest.meta_description === snapshot.meta_description && source?.mainHtml === snapshot.content_capture?.mainHtml
+    && JSON.stringify(source?.jsonLd) === JSON.stringify(snapshot.content_capture?.jsonLd);
+  // Repeating the same raw shell does not corroborate a known missing rendered body.
+  if (captureProblem && snapshot.content_capture && (snapshot.content_hash === unresolvedHash || (priorWords >= 100 && snapshot.word_count * 5 < priorWords * 3))) {
+    snapshot.content_capture.complete = false; snapshot.extraction_certainty = "uncertain";
+  }
+  try { if (!unchanged) await d.writeOwnedPage(snapshot, tenantId); }
   catch { return { ...remember("temporarily_unavailable"), pause: OWNED_WRITE_PAUSE }; }
-  return { held: kept, pause: null };
+  if (await settled()) return { held: kept, pause: null, acquired: true };
+  if (deadline - d.now() < 50_000) return { held: kept, pause: null, acquired: false, attempted: false };
+  let attempted = false;
+  try {
+    await renderUnreadOwnedPages(tenantId, 1, { url: absolute, deps: d, profile, deadline, bustedAt, rawSnapshot: snapshot, onRead: (r, raw) => {
+      attempted = raw.state !== "capped" && raw.state !== "not_configured" && raw.state !== "waiting" && !(raw.state === "error" && ["none", "daily_limit"].includes(raw.disposition));
+      track(state, r);
+    } });
+  } catch { return { ...remember("temporarily_unavailable", RETRY_MS.provider_unavailable), pause: "The rendered page could not be acquired or saved; the capture remains unresolved." }; }
+  if (await settled()) return { held: kept, pause: null, acquired: true };
+  return attempted ? remember("temporarily_unavailable", RETRY_MS.provider_unavailable) : { held: kept, pause: null, acquired: false, attempted: false };
 }
 
 /** Read winners before comparing them under a renewed lease. Short turns persist one public reading and resume. */
-export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[] = [], intersection: FunnelIntersectionAsk | null = null, ownedUrl: string | null = null, ownedBustedAt: string | null = null, competitorUrl: string | null = null): FunnelUnitFn {
+export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[] = [], intersection: FunnelIntersectionAsk | null = null, ownedUrl: string | null = null, ownedBustedAt: string | null = null, competitorUrl: string | null = null, ownedOnly = false): FunnelUnitFn {
   const d = resolveDeps(deps);
   const resolve = deps.resolveCitations ?? resolveCitationTargets; // wrapper citations resolve to their REAL target before ranking, so one page is never two winners
   return async (tenantId, cursor, budgetMs) => {
@@ -144,6 +150,18 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
     const ctx: SaveCtx = { rowVersion: loaded.rowVersion }, nowIso = new Date(d.now()).toISOString();
     const pages: FunnelWinningPage[] = []; let attempts = 0; // attempts = pages I actually went out and read this cycle, the bounded total the counter reports
     try {
+      if (ownedOnly) {
+        if (!ownedUrl) return { status: "failed", cursor: null, progress: {}, detail: "The owned-page acquisition names no page." };
+        const account = await d.getAccount(tenantId).catch(() => null);
+        if (!account?.domain || rootDomain(ownedUrl) !== rootDomain(account.domain)) return { status: "failed", attempted: false, cursor: null, progress: {}, detail: "The requested page does not belong to this account's website." };
+        const profile = await d.loadProfile(tenantId).catch(() => null);
+        const owned = await readOwnedPage(d, tenantId, state.ownedReads ?? [], ownedUrl, deadline, profile, ownedBustedAt, state);
+        state.ownedReads = owned.held;
+        await save(d, tenantId, basis, state, ctx);
+        return { status: owned.acquired ? "done" : "failed", cursor: null, ...(owned.attempted === false ? { attempted: false as const } : {}),
+          progress: { cacheHits: state.cycle.cacheHits, spendUsd: round(state.cycle.spentUsd) },
+          detail: owned.pause ?? (owned.acquired ? "The requested page has a current complete capture on file." : "The requested page still lacks a current complete capture; its retry remains on file.") };
+      }
       // The caller renews the run lease between persisted readings and this comparison stage.
       if ((cursor as { stage?: string } | null)?.stage === "compare") {
         const bought = intersection ? await buyComparison(d, state, intersection, ids, nowIso) : null;
@@ -225,15 +243,13 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
         .sort((a, b) => (b.extract?.fetchedAt ?? "").localeCompare(a.extract?.fetchedAt ?? "")).slice(0, readingsBound), keptKeys = new Set(kept.map((w) => canonicalUrlKey(w.url)));
       state.winningPages = [...pages, ...kept, ...rest.filter((w) => !keptKeys.has(canonicalUrlKey(w.url)) && w.readOutcome
         && d.now() < Date.parse(w.readOutcome.retryAfter)).map((w) => ({ ...w, extract: null, appearances: [] })).slice(0, WINNER_READ_BUDGET * 2)];
-      // AT MOST ONE page of the account's OWN, named by the caller, read here rather than anywhere a render can reach.
-      let ownedPause: string | null = null;
-      if (ownedUrl && !shortRead) { const owned = await readOwnedPage(d, tenantId, state.ownedReads ?? [], ownedUrl, deadline, profile, ownedBustedAt); state.ownedReads = owned.held; ownedPause = owned.pause; }
+      const owned = ownedUrl && !shortRead ? await readOwnedPage(d, tenantId, state.ownedReads ?? [], ownedUrl, deadline, profile, ownedBustedAt, state) : null;
+      if (owned) state.ownedReads = owned.held;
       // Optimistic funnel persistence is separate from the caller's renewed ResearchRun lease.
       await save(d, tenantId, basis, state, ctx);
       log.info("[research-funnel] page read budget", { tenantId, attempts, paidReads, ceilings: [MAX_PAGE_ATTEMPTS, MAX_PAID_BODY_READS] }); // internal progress truth: both ceilings, never silent
       const counters = { pageReadsAttempted: attempts, cacheHits: state.cycle.cacheHits, spendUsd: round(state.cycle.spentUsd) };
-      // Unacknowledged owned-body persistence pauses without pretending delivery succeeded.
-      if (ownedPause) return { status: "failed", cursor: null, progress: counters, detail: ownedPause };
+      if (owned?.pause) return { status: "failed", cursor: null, progress: counters, detail: owned.pause };
       return { status: "advanced", cursor: { stage: shortRead && attempts > 0 ? "read" : "compare" }, progress: counters };
     } catch (e) {
       if (e instanceof StateConflictError) return { status: "failed", code: "state_conflict", cursor, progress: { pageReadsAttempted: attempts }, detail: CONFLICT_DETAIL };

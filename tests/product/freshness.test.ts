@@ -61,9 +61,9 @@ describe("the ONE page of the account's own, and what makes it due", () => {
   const U = "own.com/nowruz", ABS = `https://${U}`;
   const page = { ok: true, html: "<html><body><h1>Nowruz</h1><p>How a nowruz table is set out.</p></body></html>", status: 200 };
   const run = async (fetchedAt: string, bustedAt: string | null) => { const store = memStore(emptyFunnelState("to", BASIS)); const tried: string[] = [];
-    const bodies = new Map<string, { fetchedAt: string }>([[canonicalUrlKey(U), { fetchedAt }]]);
+    const bodies = new Map([[canonicalUrlKey(U), { fetchedAt, version: "current", completeness: "complete", contentHash: "body" }]]);
     await winningPagesUnit({ ...store.deps, parse, now: () => NOW, loadProfile: async () => emptyBusinessProfile("to") as BusinessProfile, getAccount: async () => ({ domain: "own.com" } as Account), readPageExtract: async () => null,
-      readOwnedBodies: (async () => bodies) as unknown as FunnelDeps["readOwnedBodies"], writeOwnedPage: async () => {},
+      readOwnedBodies: (async () => bodies) as unknown as FunnelDeps["readOwnedBodies"], writeOwnedPage: async () => { bodies.get(canonicalUrlKey(U))!.fetchedAt = at(NOW); },
       fetchPage: (async (url: string) => { tried.push(url); return page; }) as unknown as FunnelDeps["fetchPage"] }, [], null, U, bustedAt)("to", cur(), 60_000);
     return tried; };
   it("is not re-read inside its window, is re-read once the window lapses, and is re-read the moment something changed it", async () => {

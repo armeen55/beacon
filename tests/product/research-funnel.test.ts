@@ -327,7 +327,7 @@ expect([paid, ["no.com", "h8.com", "h9.com"].map((h) => [row(h).extract, row(h).
   it("buys ONE comparison for the WHOLE page set, never buys a landed one twice, and a resumed crash costs nothing", async () => { const asks: unknown[] = [];
     const call = (async (cap: CapabilityKey, input: unknown) => { if (cap !== "labs_page_intersection") return ok(serp([])); asks.push(input); return asks.length > 1 ? { state: "hit", envelope: answer, costUsd: 0, cacheKey: "ck-pi", modelServed: null } as CachedCallResult : ok(answer, "ck-pi"); }) as FunnelDeps["callProvider"]; const st = memStore(cmpSeed()); const winners = await winningPagesUnit(cmpDeps(st, call), [], ASK)("tx", cur(), 60_000);
     expect([winners.status, winners.cursor, asks.length]).toEqual(["advanced", { stage: "compare" }, 0]); // stage one banks the winners and spends NOTHING; the purchase waits for a renewed lease
-    const r1 = await winningPagesUnit(cmpDeps(st, call), [], ASK)("tx", { ...cur(), ...winners.cursor }, 60_000); const held = st.peek("tx", BASIS)!.pageComparisons;
+    const r1 = await winningPagesUnit(cmpDeps(st, call), [], ASK, OWN)("tx", { ...cur(), ...winners.cursor }, 60_000); const held = st.peek("tx", BASIS)!.pageComparisons;
     expect([r1.status, asks.length, asks[0]]).toEqual(["done", 1, { pages: [W1, W2], exclude_pages: [OWN], intersection_mode: "union", limit: 100 }]); // ONE request carries every page, normalized: a call per page or per keyword is a defect
     expect([held.length, held[0]!.topicKey, held[0]!.unavailable, held[0]!.receipt, held[0]!.comparison!.pages, held[0]!.comparison!.keywords[0]!.ranks]).toEqual([1, "t1", null, "ck-pi", [{ page: 1, url: W1 }, { page: 2, url: W2 }], [{ page: 1, url: W1, title: "t", rank: 3 }]]); // parsed WITH the ask, so the slot NAMES its page; rank_group, never rank_absolute
     const round = JSON.parse(JSON.stringify(st.peek("tx", BASIS)!)) as FunnelState; expect(round.pageComparisons[0]!.askKey).toBe(held[0]!.askKey); // survives storage unchanged
@@ -349,28 +349,94 @@ expect([paid, ["no.com", "h8.com", "h9.com"].map((h) => [row(h).extract, row(h).
     expect([calls, one.peek("tx", BASIS)!.pageComparisons]).toEqual([0, []]); }); // one page is not a comparison: refused before the money, and nothing stored
 }); describe("research funnel - the ONE page of the account's OWN a run may read", () => {
   const U = "own.com/nowruz", ABS = `https://${U}`, DAY = 86_400_000, at = (ms: number) => new Date(ms).toISOString();
+  const captured = (now: number) => ({ fetchedAt: at(now), contentHash: "held-content", version: "current" as string, completeness: "complete" as string, vocabulary: "The page's held content" });
   const page = { ok: true, html: "<html><body><h1>Nowruz</h1><p>How a nowruz table is set out.</p></body></html>", status: 200 }; const seeded = (ownedReads: FunnelState["ownedReads"]) => { const s = emptyFunnelState("to", BASIS); s.ownedReads = ownedReads; return memStore(s); };
   const hold = (url: string, state: "robots_blocked" | "temporarily_unavailable", ms: number) => ({ url, state, attemptedAt: at(NOW), retryAfter: at(NOW + ms) });
-  const run = async (store: ReturnType<typeof memStore>, now: number, answer: unknown, ownedUrl: string | null = U, tenant = "to", over: Partial<FunnelDeps> = {}, bodies = new Map<string, { fetchedAt: string }>()) => { const tried: string[] = [], saved: string[][] = [], paid: string[] = [];
+  const run = async (store: ReturnType<typeof memStore>, now: number, answer: unknown, ownedUrl: string | null = U, tenant = "to", over: Partial<FunnelDeps> = {}, bodies = new Map<string, ReturnType<typeof captured>>(), budgetMs = 25_000) => { const tried: string[] = [], saved: string[][] = [], paid: string[] = [];
     const out = await winningPagesUnit({ ...store.deps, loadProfile: async () => emptyBusinessProfile(tenant), getAccount: async () => ({ domain: "own.com" } as Account), now: () => now, parse, readPageExtract: async () => null, callProvider: (async (cap: CapabilityKey) => { paid.push(cap); return ok(serp([])); }) as FunnelDeps["callProvider"],
-      fetchPage: (async (url: string) => { tried.push(url); return answer; }) as unknown as FunnelDeps["fetchPage"], readOwnedBodies: (async () => bodies) as unknown as FunnelDeps["readOwnedBodies"], writeOwnedPage: async (snap, t) => { saved.push([snap.id, snap.url, t]); bodies.set(canonicalUrlKey(snap.url), { fetchedAt: at(now) }); }, ...over }, [], null, ownedUrl)(tenant, cur(), 60_000);
+      fetchPage: (async (url: string) => { tried.push(url); return answer; }) as unknown as FunnelDeps["fetchPage"], readOwnedBodies: (async () => bodies) as unknown as FunnelDeps["readOwnedBodies"], writeOwnedPage: async (snap, t) => { saved.push([snap.id, snap.url, t]); bodies.set(canonicalUrlKey(snap.url), captured(now)); }, ...over }, [], null, ownedUrl, null, null, ownedUrl !== null)(tenant, cur(), budgetMs);
     return { out, tried, saved, paid, held: store.peek(tenant, BASIS)!.ownedReads }; }; it("reads the named page ONCE, persists the page snapshot itself, never pays a provider for it, and clears what stopped me last time", async () => {
     const store = seeded([{ url: U, state: "temporarily_unavailable", attemptedAt: at(NOW - 2 * DAY), retryAfter: at(NOW - DAY) }]); const r = await run(store, NOW, page);
     expect([r.tried, r.saved.map((s) => s.slice(1)), r.held, r.paid]).toEqual([[ABS], [[ABS, "to"]], [], []]); // one read, the canonical snapshot under my own tenant, the memory cleared, and the customer's own page never sent to a provider
-    expect((await run(store, NOW, page, null)).tried).toEqual([]); }); // no page named, no page read
-  it("counts a page I just saved as read: a conflict on the research row sends the retry to the body I persisted, never back out to the website", async () => { const store = seeded([]), bodies = new Map<string, { fetchedAt: string }>();
+    expect((await run(store, NOW, page, null)).tried).toEqual([]);
+    const redirected = await run(seeded([]), NOW, { ...page, finalUrl: "https://other.example/login" });
+    expect([redirected.out.status, redirected.saved, redirected.paid]).toEqual(["failed", [], []]);
+    expect(await (await import("@/domains/evidence/pages/rendered-read")).renderUnreadOwnedPages("to", 0)).toBe(0); });
+  it("counts a page I just saved as read: a conflict on the research row sends the retry to the body I persisted, never back out to the website", async () => { const store = seeded([]), bodies = new Map<string, ReturnType<typeof captured>>();
     const first = await run(store, NOW, page, U, "to", { saveState: async () => null }, bodies); // the snapshot landed; the funnel row moved underneath the save
     expect([first.out.status, first.out.code, first.tried, [...bodies.keys()]]).toEqual(["failed", "state_conflict", [ABS], [U]]);
     const second = await run(store, NOW + 1000, page, U, "to", {}, bodies); // Runtime re-invokes the SAME phase
-    expect([second.out.status, second.tried, second.held]).toEqual(["advanced", [], []]); }); // ONE website fetch across both passes, and no failure hold for a page I can read
+    expect([second.out.status, second.tried, second.held]).toEqual(["done", [], []]); }); // ONE website fetch across both passes, and no failure hold for a page I can read
+  it.each([{ version: "stale_known_good" }, { completeness: "partial" }, { contentHash: "" }])("does not settle fresh unqualified owned evidence: %j", async (defect) => {
+    const store = seeded([]), bodies = new Map([[U, { ...captured(NOW), ...defect }]]);
+    const unrelated = vi.fn(async () => { throw new Error("unrelated research must not run"); });
+    const short = await run(store, NOW, page, U, "to", { writeOwnedPage: async () => {}, loadCanonicalObservations: unrelated }, bodies);
+    expect([short.out.status, short.out.attempted, short.held, short.paid]).toEqual(["failed", false, [], []]);
+    const result = await run(store, NOW, page, U, "to", { writeOwnedPage: async () => {}, loadCanonicalObservations: unrelated }, bodies, 90_000);
+    expect(result.out.status).toBe("failed"); expect(result.tried).toEqual([ABS]); expect(result.held).toHaveLength(1);
+    expect(unrelated).not.toHaveBeenCalled();
+    const foreign = await run(store, NOW, page, "https://other.example/page", "to", {}, bodies);
+    expect([foreign.out.attempted, foreign.tried, foreign.paid]).toEqual([false, [], []]);
+    const retry = await run(store, NOW + 1, page, U, "to", {}, bodies);
+    expect(retry.out.status).toBe("failed"); expect(retry.tried).toEqual([]); expect(retry.paid).toEqual([]);
+  });
+  it.each(["complete", "collapsed", "partial", "refused", "redirected", "stale", "cached_old", "repaired_raw", "paused", "unconfigured", "waiting", "conflict"])("qualifies actual saved snapshots after %s acquisition", async (outcome) => {
+    const { extractPageSnapshot } = await import("@/domains/evidence/pages/extractor"), { loadOwnedPageBodies } = await import("@/domains/evidence/pages/owned-context");
+    const repository = await import("@/lib/persistence/repositories/snapshot-reader");
+    vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(NOW);
+    const shell = `<html><main><h1>Textiles</h1><p>${"intro ".repeat(65)}</p></main></html>`;
+    const full = `<html><main><h1>Textiles</h1>${Array.from({ length: 27 }, (_, i) => `<section><h2>Weave ${i}</h2><p>A distinct regional textile with its own materials and documented design characteristics.</p></section>`).join("")}</main></html>`;
+    const baseline = { ...extractPageSnapshot(shell.replace("intro ".repeat(65), "original ".repeat(123)), ABS, "page", "to"), id: "baseline", fetched_at: at(NOW - 3 * DAY) };
+    const latest = { ...extractPageSnapshot(shell, ABS, "page", "to"), id: "shell", fetched_at: at(NOW - DAY) };
+    if (outcome === "partial") latest.content_capture!.complete = false;
+    const rows = outcome === "partial" ? [latest] : [baseline, latest], writes: typeof rows = [], provider = vi.fn(), store = seeded([]);
+    const spy = vi.spyOn(repository, "selectedSnapshots").mockImplementation(async (tenant) => { expect(tenant).toBe("to"); return rows as never; });
+    const deferred = ["paused", "unconfigured", "waiting"].includes(outcome), cache = new Map<string, CachedCallResult>(); let transports = 0;
+    const deps: Partial<FunnelDeps> = { readOwnedBodies: loadOwnedPageBodies,
+      loadCanonicalObservations: async () => { throw new Error("unrelated observations"); },
+      writeOwnedPage: async (snap) => { rows.push(snap); writes.push(snap); },
+      callProvider: (async (cap, input) => {
+        provider(cap, input); vi.setSystemTime(NOW + provider.mock.calls.length);
+        if (deferred && provider.mock.calls.length === 1) return outcome === "waiting" ? waiting("held") : { state: outcome === "paused" ? "capped" : "not_configured", cacheKey: null, detail: "deferred" };
+        const key = JSON.stringify(input), prior = cache.get(key); if (prior?.state === "ok") return { ...prior, state: "hit", costUsd: 0 };
+        transports += 1;
+        const result = outcome === "refused" ? err("blocked") : ok({ html: ["collapsed", "partial", "conflict"].includes(outcome) ? shell : full,
+          url: outcome === "redirected" ? "https://other.example/login" : ABS, httpStatus: 200,
+          capturedAt: at(outcome === "stale" ? NOW - 9 * DAY : outcome === "cached_old" ? NOW - 2 * DAY : NOW + provider.mock.calls.length) });
+        cache.set(key, result); return result;
+      }) as FunnelDeps["callProvider"],
+    };
+    try {
+      const first = await run(store, NOW, { ...page, html: outcome === "repaired_raw" ? full : shell }, U, "to", outcome === "conflict" ? { ...deps, saveState: async () => null } : deps, new Map(), 60_000);
+      if (outcome === "repaired_raw") { expect([first.out.status, provider.mock.calls, writes.length]).toEqual(["done", [], 1]); return; }
+      expect(provider.mock.calls).toEqual([["onpage_rendered_html", { url: ABS, revision: expect.any(String) }]]);
+      if (outcome === "conflict") {
+        await run(store, NOW + 2, { ...page, html: shell }, U, "to", deps, new Map(), 60_000);
+        expect([first.out.code, transports, provider.mock.calls.length, provider.mock.calls[1]]).toEqual(["state_conflict", 1, 2, provider.mock.calls[0]]); return;
+      }
+      if (deferred) {
+        expect([first.out.attempted, first.held, writes, store.peek("to", BASIS)!.cycle.spentUsd]).toEqual([false, [], [], 0]);
+        const next = await run(store, NOW + 2, page, U, "to", deps, new Map(), 60_000);
+        expect([next.out.status, provider.mock.calls.length]).toEqual(["done", 2]); return;
+      }
+      expect(first.out.status).toBe(outcome === "complete" ? "done" : "failed");
+      const body = (await loadOwnedPageBodies("to", [ABS])).get(U)!;
+      if (outcome === "complete") expect([body.version, body.completeness, body.fetchedAt, body.vocabulary.includes("Weave 26")]).toEqual(["current", "complete", at(NOW + 1), true]);
+      else expect([first.held[0]?.state, first.held[0]?.retryAfter]).toEqual(["temporarily_unavailable", at(NOW + 7 * DAY)]);
+      if (outcome === "cached_old") expect(body.version).toBe("stale_known_good");
+      expect(store.peek("to", BASIS)!.cycle.spentUsd).toBe(outcome === "refused" ? 0 : 0.01);
+      const again = await run(store, NOW + 2, page, U, "to", deps);
+      expect([again.tried, provider.mock.calls.length]).toEqual([[], 1]);
+    } finally { spy.mockRestore(); vi.useRealTimers(); }
+  });
   it("a page I could not SAVE is not a page I read: the phase pauses in my own words and that URL still earns a date, so a broken write cannot refetch it every visit", async () => { const prior = { url: U, state: "temporarily_unavailable" as const, attemptedAt: at(NOW - 2 * DAY), retryAfter: at(NOW - DAY) };
     const r = await run(seeded([prior]), NOW, page, U, "to", { writeOwnedPage: async () => { throw new Error("the row was rejected"); } });
     expect([r.out.status, r.out.cursor, r.tried, r.held.map((o) => [o.url, o.state, o.retryAfter])]).toEqual(["failed", null, [ABS], [[U, "temporarily_unavailable", at(NOW + DAY)]]]); // never a robots denial, never "your page did not answer", and never a clean slate
     expect(r.out.detail).toBe("The page was read, but its contents could not be saved, so it is not counted as read yet. The next visit will read it again.");
-    const amb = seeded([]), bodies = new Map<string, { fetchedAt: string }>(); // the row DID land and the write's own answer was lost
-    const one = await run(amb, NOW, page, U, "to", { writeOwnedPage: async (snap) => { bodies.set(canonicalUrlKey(snap.url), { fetchedAt: at(NOW) }); throw new Error("timed out"); } }, bodies);
+    const amb = seeded([]), bodies = new Map<string, ReturnType<typeof captured>>(); // the row DID land and the write's own answer was lost
+    const one = await run(amb, NOW, page, U, "to", { writeOwnedPage: async (snap) => { bodies.set(canonicalUrlKey(snap.url), captured(NOW)); throw new Error("timed out"); } }, bodies);
     const two = await run(amb, NOW + DAY + 1000, page, U, "to", {}, bodies); // a day later, past the hold, so it is READ-BEFORE-FETCH doing the work and not the date
-    expect([one.out.status, one.tried.length, two.out.status, two.tried, two.held]).toEqual(["failed", 1, "advanced", [], []]); }); // the body I persisted IS the read: still exactly ONE fetch
+    expect([one.out.status, one.tried.length, two.out.status, two.tried, two.held]).toEqual(["failed", 1, "done", [], []]); }); // the body I persisted IS the read: still exactly ONE fetch
   it("honors my own site's robots rules for a month, never lets newer failures crowd that promise out, and never holds another account or basis to it", async () => { const store = memStore(); const shut = await run(store, NOW, { ok: false, reason: "robots_blocked" });
     expect(shut.held.map((o) => [o.state, o.retryAfter])).toEqual([["robots_blocked", at(NOW + 30 * DAY)]]);
     expect((await run(store, NOW + 29 * DAY, page)).tried).toEqual([]); expect((await run(store, NOW + 31 * DAY, page)).tried).toEqual([ABS]); // one month held, then exactly one new attempt

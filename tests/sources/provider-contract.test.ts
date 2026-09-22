@@ -28,6 +28,25 @@ function harness(fetchBody: unknown, over: Record<string, unknown> = {}) {
     cacheRead: async () => null, cacheWrite: async (_k: string, patch: Record<string, unknown>) => { calls.writes.push(patch); }, ...depsOver };
   return { deps: deps as unknown as Record<string, unknown>, calls, task: () => calls.fetch.filter((u) => !u.endsWith("/models")) };}
 describe("exact task-status taxonomy (docs.dataforseo.com/v3/appendix/errors)", () => {
+  it("captures rendered DOM through the cached paid boundary without inventing HTML from parsed text", async () => {
+    const url = "https://site.example/library", html = '<html><head><title>Library</title></head><body><main><h1>Library</h1><p>Loaded after JavaScript.</p></main></body></html>';
+    const dom = { html, url, readyState: "complete", capturedAt: NOW.toISOString() }, item = { status_code: 200, custom_js_response: dom, custom_js_client_exception: null as string | null };
+    const envelope = (row = item, crawl_progress = "finished"): ProviderEnvelope => ({ status_code: 20000, cost: 0.0015, tasks: [{ status_code: 20000, result: [{ crawl_progress, items: [row] }] }] });
+    const h = harness(envelope()), first = await providerCall("onpage_rendered_html", { url: `${url}#section` }, IDS, h.deps);
+    expect(first.state).toBe("ok"); expect(h.task()).toEqual([`${BASE}on_page/instant_pages`]);
+    const changed = harness(envelope()), next = await providerCall("onpage_rendered_html", { url, revision: "changed-owned-capture" }, IDS, changed.deps);
+    expect(next.cacheKey).not.toBe(first.cacheKey); expect(changed.calls.bodies[0]![0]).toEqual(h.calls.bodies[0]![0]);
+    expect(h.calls.bodies[0]![0]).toMatchObject({ url, enable_javascript: true, enable_xhr: true, return_despite_timeout: false });
+    expect(parseCapability("onpage_rendered_html", envelope())).toEqual({ html, url, httpStatus: 200, capturedAt: NOW.toISOString() });
+    for (const invalid of [envelope(item, "in_progress"), envelope({ ...item, status_code: 404 }), envelope({ ...item, custom_js_response: { ...dom, readyState: "loading" } }), envelope({ ...item, custom_js_response: { ...dom, html: "" } }), envelope({ ...item, custom_js_client_exception: "script failed" })]) {
+      expect(parseCapability("onpage_rendered_html", invalid)).toBeNull();
+    }
+    const hit = harness(envelope(), { claimEvidenceFetch: async () => ({ outcome: "ready", payload: envelope(), providerTaskId: null, modelServed: null, readyAt: NOW.toISOString(), costUsd: 0.0015 }) });
+    expect((await providerCall("onpage_rendered_html", { url }, IDS, hit.deps)).state).toBe("hit"); expect(hit.calls.fetch).toEqual([]);
+    const ambiguous = vi.fn(async () => true), release = vi.fn(async () => true);
+    const timed = harness({}, { spend: atomicSpend({ markAmbiguous: ambiguous, release }), fetchImpl: async (_u: string, init: RequestInit) => { expect(init.signal).toBeInstanceOf(AbortSignal); throw new DOMException("render deadline", "TimeoutError"); } });
+    expect(await providerCall("onpage_rendered_html", { url }, IDS, timed.deps)).toMatchObject({ state: "error", disposition: "quarantined" }); expect(ambiguous).toHaveBeenCalled(); expect(release).not.toHaveBeenCalled();
+  });
   it("pins every documented code onto one class and fails closed on everything else", () => {
     const groups: [TaskStatusClass, (number | null)[]][] = [
       ["ready", [20000]], ["waiting", [null, 20100, 40601, 40602]], ["missing", [40401, 40403]], // waiting = still the provider's turn; ONLY the two missing codes are proven dead -> the one repost

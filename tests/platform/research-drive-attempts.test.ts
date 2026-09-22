@@ -1,9 +1,4 @@
-/** WHAT ONE DRIVE MAY BUY AND WHAT IT STILL OWES THE WALK, on two synthetic accounts with unrelated subjects,
- *  through the real `runResearchCycle`: a reading is bought once a drive and spends after two attempts per work
- *  identity per day whichever rows owe it and whichever of the two purchase loops paid, every key the ledger and the
- *  row's own prior stamp are read on carries the work identity and joins its parts on a separator no part can carry,
- *  EVERY answer the phase's own step can give sends the loop back through the stock-first block that step's turn
- *  skipped, and the door in front of that block asks the block's own question about room. */
+/** Canonical research-drive spending, debt identity and resume contracts. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } }));
 vi.mock("@/lib/persistence/supabase", async (actual) => ({ ...(await actual<Record<string, unknown>>()),
@@ -63,17 +58,13 @@ const oneDrive = async (s: typeof SITES[number], seeded: readonly Owed[], walked
     acquireEvidence: async () => (asked += 1, { acquired: false, detail }),
     replenishReady: async () => ({ ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {}, evidenceOwed: [...walked] as never }) } });
   const progress = rows.at(-1)!.progress ?? {}; return { asked, owed: progress.evidenceOwed ?? [], progress }; };
-/** THE LEDGER IS KEYED BY THE READING AND THE WORK IDENTITY TOGETHER. Keyed by the reading alone, with `spentOn` asked
- *  of the NEED's own identity, one reading owed by two rows under two identities reset its count on every drive. */
 describe("the two-attempt stop, when one reading is owed by two rows", () => {
   it.each(SITES)("$t: two rows owing one reading under two work identities are one purchase a drive, and each row spends after its own two attempts with its own work on the stamp", async (s) => {
     const need = (suffix: string, work: string, rank: number): Owed => ({ key: `${s.url}::${suffix}`, kind: "factual_source", query: s.topic, url: s.url, rank,
       reasonCode: "acquire_factual_source", reason: "owed", workKey: work, missingTopic: s.topic });
     const drive = (owed: readonly Owed[]) => oneDrive(s, owed, owed); // the walk hands back exactly what the row already owed
-    // one row, one reading: the stop holds, which is round ten's own pin
     let one = await drive([need("a", "w1", 1)]); const solo: number[] = [];
     for (let i = 0; i < 4; i += 1) { solo.push(one.asked); one = await drive(one.owed); }
-    // two rows, one reading, two funding identities
     let two = await drive([need("a", "w1", 1), need("b", "w2", 2)]); const pair: number[] = [], stampedWork: (string | undefined)[] = [];
     for (let i = 0; i < 5; i += 1) { pair.push(two.asked); stampedWork.push(two.owed.find((n) => n.key === `${s.url}::a`)?.tried?.work); two = await drive(two.owed); }
     expect([solo, pair], "one row spends its reading after two attempts, and two rows owing THE SAME reading under two funding identities spend it on the same schedule: one purchase serves both, the purchase writes an attempt under each row's own identity, and neither row restarts the other's count")
@@ -89,8 +80,6 @@ describe("the two-attempt stop, when one reading is owed by two rows", () => {
       .toEqual([1, [[`${s.url}::a`, false, [`${s.url}::b`]], [`${s.url}::b`, true, [`${s.url}::a`]]]]);
   });
 });
-/** THE BLOCK'S DOOR IS SKIPPED FOR AN OWED TURN ON THE PROMISE THAT EVERY ANSWER SENDS THE LOOP BACK, so a `failed`
- *  answer owes the walk exactly as a `waiting` one does, and the room the door asks for is the block's own. */
 /** ONE DRIVE THROUGH A PHASE WHOSE OWN STEP ANSWERS `unit`, and the ONE fixture every door arm below is measured on:
  *  `owedTurn` is a drive that borrowed the phase's turn, `seed` is anything else the row carries, and `rows` continues
  *  the account the drive before it left. Answers what ran, what the row says, and where the phase ended. */
@@ -119,7 +108,6 @@ describe("the walk the owed turn skipped", () => {
     expect(owed.blocker, "and the row still says what could not be STARTED on this drive, which is what round nine promised and what `noRoom` inside the walk then enforces").toContain("Preparing more finished changes needs 110 seconds");
   });
 });
-/** The three rules the same block already held before the reviewer read it, pinned so no repair can quietly cost them. */
 describe("what rounds eight to ten do hold", () => {
   const seed = (s: typeof SITES[number], progress: RR.ResearchRunProgress) => { const rows = freshRepo();
     rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: "serp_analysis", progress })); return rows; };
@@ -152,8 +140,6 @@ describe("what rounds eight to ten do hold", () => {
       .toEqual([1, 1, 0, [2, 2], ["the source search returned nothing", "the source search returned nothing"]]);
   });
 });
-/** REACH IS ASKED OF THE ROW'S KEY AND OF NOTHING ELSE. The producer mints one need per key, so this shape cannot be
- *  minted today; pinned as a fact, so a producer that ever owes two kinds on one key is caught by this arm. */
 describe("how far down the order the last walk reached", () => {
   it.each(SITES)("$t: a receipt for one row lifts reach to the deepest rank any need on that key carries, whatever kind it is", async (s) => {
     const owed: Owed[] = [
@@ -169,25 +155,16 @@ describe("how far down the order the last walk reached", () => {
     expect(bought, "the walk's receipt was earned for the row at rank 5 and the reading bought across the gap is the one at rank 90, because reach is read off the key alone").toEqual(["serp:5", "factual_source:90"]);
   });
 });
-/** THE STAMP IS WRITTEN BEFORE THE WALK AND NEVER AFTER IT. `stamp(left)` runs inside the pre-walk purchase loop and
- *  `stamp(...)` runs again on the walk's own list BEFORE the loop behind it buys anything, so every attempt the
- *  post-walk loop makes lives in the drive's memory and dies with it. A reading the head of the order defers on every
- *  drive is bought only there, so its count restarts at 1 for ever and the two-attempt stop never reaches it. */
 describe("a reading bought after the walk", () => {
   it.each(SITES)("$t: spends after two attempts exactly as one bought before the walk does", async (s) => {
     const need: Owed = { key: `${s.url}::deep`, kind: "factual_source", query: s.topic, url: s.url, rank: 50,
       reasonCode: "acquire_factual_source", reason: "owed", workKey: "w1", missingTopic: s.topic };
-    // rank 50 with no walk receipt on file: the pre-walk loop defers at the first gap in the ranking and buys nothing,
-    // so this reading is only ever reachable through the loop that runs AFTER the walk.
     let owed: readonly Owed[] = []; const asked: number[] = [], counts: (number | undefined)[] = [];
     for (let i = 0; i < 5; i += 1) { const d = await oneDrive(s, owed, [need]); asked.push(d.asked); counts.push(d.owed[0]?.tried?.count); owed = d.owed; }
     expect([asked, counts], "the reading is attempted, the attempt is counted onto the row, and the third drive spends it: the stop is about the READING and not about which of the two loops paid for it")
       .toEqual([[1, 1, 0, 0, 0], [1, 2, 2, 2, 2]]);
   });
 });
-/** ONE ENTRY PER SERVED NEED. A purchase that failed writes an attempt for the buying row AND for every row that owes
- *  the same reading, each under its own identity. A row the drive never reached still spends, which is right while the
- *  reading is genuinely one reading; this pins that it is never charged more than the reading was attempted. */
 describe("the rows a failed purchase also served", () => {
   it.each(SITES)("$t: a row served only by another row's purchase spends on the reading's own count, never faster", async (s) => {
     const need = (suffix: string, work: string, rank: number): Owed => ({ key: `${s.url}::${suffix}`, kind: "factual_source", query: s.topic, url: s.url, rank,
@@ -199,8 +176,6 @@ describe("the rows a failed purchase also served", () => {
       .toEqual([[1, 1, 0, 0], [1, 2, 2, 2]]);
   });
 });
-/** THE FALLBACK IS THE ROW'S OWN PRIOR STAMP, keyed on `key::kind::query` and never on the work, so a row whose
- *  funding identity MOVED reads back an attempt made under the identity it no longer wears. */
 describe("the stamp a row keeps when its funding identity moves", () => {
   it.each(SITES)("$t: names the identity the row wears now, and counts the attempt this drive actually made", async (s) => {
     const at = (work: string): Owed => ({ key: `${s.url}::moved`, kind: "factual_source", query: s.topic, url: s.url, rank: 1,
@@ -213,8 +188,6 @@ describe("the stamp a row keeps when its funding identity moves", () => {
   });
 });
 
-/** THE COMPOUND KEY IS TWO STRINGS JOINED BY THE SEPARATOR EITHER OF THEM MAY CONTAIN. A work identity is built as
- *  `<declared>::<...>` in the walk's own ledger (research-steps), so the separator is live in the right half. */
 describe("the ledger key when the work identity carries the separator", () => {
   it.each(SITES)("$t: two different readings under two different identities never share one ledger entry", async (s) => {
     const a: Owed = { key: `${s.url}::a`, kind: "serp", query: "alpha", rank: 1, reasonCode: "no_serp", reason: "owed", workKey: `job::${s.topic}` };
@@ -226,8 +199,6 @@ describe("the ledger key when the work identity carries the separator", () => {
   });
 });
 
-/** THE DOOR IN FRONT OF THE STOCK-FIRST BLOCK, after B11 replaced the `waiting` literal with the enclosing
- *  `unit.status !== "done"` and the block's own room question. */
 describe("the owed-turn door", () => {
   const run = async (s: typeof SITES[number], answers: readonly ("done" | "waiting" | "failed" | "advanced")[], deadlineMs = 260_000, phase: "serp_analysis" | "fact_check" = "serp_analysis") => {
     const rows = freshRepo(); rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: phase,
@@ -239,7 +210,6 @@ describe("the owed-turn door", () => {
       factCheck: async () => (units += 1, { status: "done" as const, banked: 0, bankedPages: [], pagesComplete: 0 }),
       replenishReady: async () => (walks += 1, { ready: 1, deficit: 0, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {}, evidenceOwed: [] as never }) } });
     return { walks, units, blocker: rows.at(-1)!.progress?.state?.blocker ?? null }; };
-  /** THE SAME DRIVE WITH NO TURN OWED: the block is reached on its own door instead of through the one in front of it. */
   const runNoTurn = async (s: typeof SITES[number], deadlineMs: number) => {
     const rows = freshRepo(); rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: "fact_check", progress: { plan: { units: ["replenish_ready", "check_page_facts"] } } }));
     let walks = 0;
@@ -261,7 +231,6 @@ describe("the owed-turn door", () => {
   });
 
   it.each(SITES)("$t: the door and the block ask one question about room at every point of the band", async (s) => {
-    // fact_check is the only phase that holds a unit floor out of the walk's box, so it is where the two could differ.
     const band = [260_000, 200_000, 130_000, 90_000, 46_000, 44_000];
     const owed: number[] = [], plain: number[] = [];
     for (const ms of band) { owed.push((await run(s, ["waiting"], ms, "fact_check")).walks); plain.push((await runNoTurn(s, ms)).walks); }
@@ -269,9 +238,6 @@ describe("the owed-turn door", () => {
   });
 });
 
-/** 1a. THE BLOCKING ARM OF RV5, RE-RUN. A reading the ranking defers on every drive is reachable only through the loop
- *  behind the walk, so the stamp that loop writes has to survive the drive, name this row's own work and carry the
- *  sentence the LATEST attempt came back with. */
 describe("a reading only the post-walk loop can reach", () => {
   it.each(SITES)("$t: spends after two attempts, and its stamp names its own work and its latest sentence", async (s) => {
     const need: Owed = { key: `${s.url}::deep`, kind: "factual_source", query: s.topic, url: s.url, rank: 50,
@@ -285,8 +251,6 @@ describe("a reading only the post-walk loop can reach", () => {
   });
 });
 
-/** 1b. THE TWO LOOPS ON ONE DRIVE. The pre-walk loop persists its stamp, the walk replaces the list, the post-walk loop
- *  stamps again: the row the customer reads must never carry two answers about one purchase. */
 describe("the pre-walk and the post-walk loop on one drive", () => {
   it.each(SITES)("$t: one reading both loops touch is one purchase, one count and one sentence on the row", async (s) => {
     const need: Owed = { key: `${s.url}::head`, kind: "factual_source", query: s.topic, url: s.url, rank: 1,
@@ -309,8 +273,6 @@ describe("the pre-walk and the post-walk loop on one drive", () => {
   });
 });
 
-/** 1c. THE SEPARATOR. Every key this drive builds joins its parts on the source escape U+0000. None of them is
- *  persisted, so no row a reader opens can carry the escape unless the account's own data already did. */
 const NUL = "\u0000";
 describe("the source escape the keys are joined on", () => {
   it.each(SITES)("$t: never reaches a persisted string, and a query that carries it is the only way one can", async (s) => {
@@ -333,7 +295,6 @@ describe("the source escape the keys are joined on", () => {
   });
 });
 
-/** 1e. THE DRIVE'S OWN MEMORY. `boughtReadings` is the drive's, so nothing the reading identity keys can outlive it. */
 describe("the bought-readings map across a drive boundary", () => {
   it.each(SITES)("$t: a reading bought on one drive is bought again on the next, and no key crosses between them", async (s) => {
     const need: Owed = { key: `${s.url}::x`, kind: "serp", query: "alpha", rank: 1, reasonCode: "no_serp", reason: "owed", workKey: "w1" };
@@ -344,7 +305,6 @@ describe("the bought-readings map across a drive boundary", () => {
   });
 });
 
-/** 1d. THE ONE DOOR. Every answer the phase's own step can give has to send the loop back through the block its turn skipped. */
 describe("the door in front of the block, on the last phase the plan allows", () => {
   it.each(SITES)("$t: a done answer on the last funnel phase still owes this drive its walk, exactly once", async (s) => {
     const done = await doorDrive(s, { status: "done" }, ["replenish_ready", "read_winner_pages"], "winning_pages");
@@ -378,10 +338,6 @@ describe("the door in front of the block, on the last phase the plan allows", ()
   });
 });
 
-/** 1d, the other half: the four answers that leave the phase through a YIELD. The block in front of the phase is
- *  skipped for exactly the pass the step's turn is taken on, and the promise written at :248 and :376 is that every
- *  answer sends the loop back through it. Each arm below pairs the answer with the SAME drive carrying no owed turn,
- *  so the owed turn is the only variable and the fixture cannot be the cause. */
 const observed = async (s: typeof SITES[number], unit: { status: string; detail?: string }, standing: unknown, owedTurn: boolean, seenDone = 0) => {
   const rows = freshRepo(); rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: "prompt_observations",
     progress: { plan: { units: ["daily_observations", "publish_surfaces"] }, ...(owedTurn ? { waited: { phase: "prompt_observations" as const, drives: 1, unpaid: true } } : {}) } }));
@@ -420,9 +376,6 @@ describe("the answers that leave the phase through a yield", () => {
   });
 });
 
-/** AND THE ROW SAYS WHAT REALLY STOPPED THE STEP WHILE THAT WALK RUNS (reviewer, 2026-09-06). The walk's own "nothing was
- *  started for it" sentence was written over the step's reason at all four of those exits, on the very drives the walk
- *  then ran on, so the operator was told a false thing twice over: the money door, not the walk, is what ended the step. */
 describe("the sentence the row carries when the walk door holds a yield back", () => {
   it.each(SITES)("$t: a step that took the drive's turn and hit the spending cap still says the spending cap stopped it", async (s) => {
     const owed = await doorDrive(s, { status: "failed", detail: CAP }, CASES, "serp_analysis", true, 100_000);
@@ -439,9 +392,6 @@ describe("the sentence the row carries when the walk door holds a yield back", (
   });
 });
 
-/** AND THE DOOR HOLDS ONE PHASE BACK ONCE AND NEVER TWICE: it answers the same phase, the loop re-enters the stock-first
- *  block whose mark the step's own turn dropped, and the pause behind that block ends the drive, so the yield itself
- *  happens on the next drive, where no turn is owed and paid evidence really does end for the day. */
 describe("how many times the door can hold one phase", () => {
   it.each(SITES)("$t: the phase yields no more than once on the drive that borrowed its turn, and is left on the next one", async (s) => {
     const one = await doorDrive(s, { status: "failed", detail: CAP }, CASES, "serp_analysis", true, 100_000);
@@ -460,15 +410,9 @@ describe("how many times the door can hold one phase", () => {
   });
 });
 
-/** A RESULTS PAGE IS CHARGED AT THE POST AND COLLECTED WITH A FREE FOLLOW-UP, so the drive that collects one spends
- *  nothing on it. Counted as a purchase, one page took the one reading a drive may buy out of the ranking's order on
- *  the drive that posted it AND on the drive that collected it (production run p3, 2026-09-06: rank 30 posted 16:00Z,
- *  collected 16:30Z, the rank-57 hub need deferred by the same sentence both times). Every drive below has its clock
- *  spent by the walk, so what the loop AHEAD of the walk decided is the whole of what the drive bought. */
 type Answer = { acquired: boolean; posted?: boolean; detail: string };
 const serpNeed = (s: typeof SITES[number], suffix: string, work: string, rank: number, over: Partial<Owed> = {}): Owed => ({ key: `${s.url}::${suffix}`, kind: "serp", query: `${s.topic} ${suffix}`, rank, reasonCode: "no_exact_serp", reason: "owed", workKey: work, ...over });
 const head = (s: typeof SITES[number]): Owed => serpNeed(s, "head", "w-head", 30, { query: s.topic }), behind = (s: typeof SITES[number]): Owed => serpNeed(s, "behind", "w-behind", 57, { query: `${s.topic} hub` });
-// the last walk filed a reached receipt for both rows, so the gap the head of this order leaves may be crossed once
 const outcomes = (s: typeof SITES[number], keys?: readonly string[]) => ({ readySaved: 0, evidenceBanked: 0, refused: 0, blocked: 0, unreached: 0, stuck: [],
   receipts: (keys ?? [head(s).key, behind(s).key]).map((key) => ({ key, outcome: "prepared", providerCalls: 1 })) });
 const DAY = new Date(NOW).toISOString().slice(0, 10), YESTERDAY = new Date(NOW - 86_400_000).toISOString().slice(0, 10);
@@ -487,7 +431,6 @@ const postDrive = async (s: typeof SITES[number], seeded: readonly Owed[], answe
       evidenceOwed: [...(o.walked ?? [head(s), behind(s)])] as never, outcomes: outcomes(s, o.reached) as never }) } });
   const progress = rows.at(-1)!.progress ?? {};
   return { asked, owed: progress.evidenceOwed ?? [], deferred: (progress.acquisitions ?? []).filter((a) => a.outcome === "deferred").map((a) => a.key) }; };
-/** The head answers `waiting`, which is the post; everything else refuses in the ordinary way, so the post is the only variable. */
 const posts = (s: typeof SITES[number]) => (n: Owed): Answer => n.key === head(s).key
   ? { acquired: false, posted: true, detail: `results page for "${s.topic}": waiting` }
   : { acquired: false, detail: "the results-page provider refused" };
@@ -515,8 +458,6 @@ describe("a results page posted on one drive and collected on the next", () => {
   });
 });
 
-/** THE STAMP IS THE READING'S AND NOT THE ROW'S, so every row owing the reading one post was made for carries it, and
- *  the buy stamp lands beside it when the page finally does. They cannot disagree: the loop asks the buy stamp first. */
 describe("the stamp on the rows one post also serves", () => {
   it.each(SITES)("$t: a row served by another row's post carries the stamp, and keeps it beside the buy stamp once the page lands", async (s) => {
     const first = serpNeed(s, "shared", "w-head", 1), sibling = serpNeed(s, "shared-b", "w-sib", 2, { query: `${s.topic} shared` });
@@ -532,8 +473,6 @@ describe("the stamp on the rows one post also serves", () => {
   });
 });
 
-/** AND THE STAMP IS THE DAY'S. Yesterday's post is not cleared off the row and is not read as today's either, so the
- *  reading it names still costs this day the one purchase the ranking's order allows. */
 describe("the stamp when the day turns", () => {
   it.each(SITES)("$t: a post stamped yesterday is not cleared, and does not spend today's allowance for free", async (s) => {
     const stale = serpNeed(s, "stale", "w1", 1, { postedOn: YESTERDAY }), later = behind(s);
@@ -544,9 +483,6 @@ describe("the stamp when the day turns", () => {
   });
 });
 
-/** AND THE LOOP BEHIND THE WALK DOES NOT ASK THE POST STAMP AT ALL (RV7 finding 1, measured and not endorsed): it
- *  filters on the buy stamp alone, so a free collection takes one of the eight slots there where in front of the walk
- *  it takes none. It costs one drive of latency and never money; the clause that would close it is `n.postedOn !== day`. */
 describe("the loop behind the walk, on a drive the loop in front of it could not spend", () => {
   it.each(SITES)("$t: MEASURED: a page already posted today takes one of the eight slots behind the walk, where in front of it it takes none", async (s) => {
     const nine = Array.from({ length: 9 }, (_, i) => serpNeed(s, `n${i}`, `w${i}`, i + 1, i === 0 ? { postedOn: DAY } : {}));
