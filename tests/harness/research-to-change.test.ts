@@ -59,7 +59,7 @@ const pageScript = (url: string) => (url.endsWith("/robots.txt") ? { html: "User
   : { html: `<html><head><title>Famous Iranians, by the work they did</title></head><body><h1>Famous Iranians through history</h1><h2>Poets</h2><h2>Athletes</h2><p>${"Famous Iranians are listed here by the work they did, with the years each of them worked and one line on why they are remembered. ".repeat(20)}</p></body></html>` });
 import { WRITER, JUDGE, SECTION, SECTION_WRITER, SECTION_JUDGE } from "./world";
 /** The words the reasoning gateway hands back where a door reads them; every other field comes from the request's own schema. */
-const REASONING = { page_job: { topics: ["names", "notable people", "history"], job: "Name the people this page covers and say why each is remembered.", audience: "readers looking a person up", promise: "a named list with one line each", missing: "a direct opening answer", sells: ["guides", "lists"] }, body_edit: publicationDraft(WRITER), editor_judgement: JUDGE };
+const REASONING = { page_job: { topics: ["names", "notable people", "history"], job: "Name the people this page covers and say why each is remembered.", audience: "readers looking a person up", promise: "a named list with one line each", missing: "a direct opening answer", sells: ["guides", "lists"] }, body_edit: publicationDraft(WRITER), editor_judgement: JUDGE, fact_claim_extraction: { statements: [] } };
 
 const ownedPage = () => seedOwnedPages([{ path: HUB, title: "Most Famous Iranians and Persians of All Time", h1: "Famous and Influential Iranian People",
   meta: "Explore the most famous Iranians and Persians in history.", h2: ["Famous Iranian Poets", "Famous Iranian Athletes", "Famous Iranian Actors"],
