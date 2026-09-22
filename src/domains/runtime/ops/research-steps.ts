@@ -171,7 +171,14 @@ async function decliningPagesFirst(tenantId: string): Promise<typeof nextCrawlCa
     return t !== tenantId ? urls : [...urls.filter((u) => losing.has(crawlKey(u))), ...urls.filter((u) => !losing.has(crawlKey(u)))]; };
 }
 
-export const defaultSteps: ResearchCycleSteps = {
+export const defaultSteps: ResearchCycleSteps & {
+  resumeAcquired: <T>(got: Awaited<ReturnType<ResearchCycleSteps["acquireEvidence"]>>, kind: EvidenceRequirement["kind"], forget: (...parts: string[]) => void, resume: () => Promise<T>) => Promise<T | null>;
+} = {
+  async resumeAcquired(got, kind, forget, resume) {
+    if (!got.acquired) return null;
+    forget("evidence", "cards", ...(kind === "semantic_review" ? ["proposals"] : []));
+    return got.unlocked === false ? null : resume();
+  },
   async replenishReady(tenantId, now, seen, stopBy) {
     const d = await import("@/domains/decision");
     const { creditBreakerHeld } = await import("@/domains/decision/llm/gateway");

@@ -24,8 +24,6 @@ describe("inside a no-spend scope nothing is bought, and nothing pretends it fai
     const deepInside = async () => ({ refused: await spendingClosed("tenant-fx") }); expect(await runWithoutSpending(() => deepInside())).toEqual({ refused: true });
     expect(await deepInside()).toEqual({ refused: false });
   });
-  it("does not leak across a paid pass that runs after it", async () => {
-    await runWithoutSpending(async () => { expect(await spendingClosed("tenant-fx")).toBe(true); }); expect(await spendingClosed("tenant-fx")).toBe(false);});
   it("opens only the named tenant's model allowance and never its external-evidence door", async () => {
     await PROOF_SPEND.run("tenant-fx", 1, 0.05, async () => {
       expect([PROOF_SPEND.activeFor("tenant-fx"), PROOF_SPEND.activeFor("other"), PROOF_SPEND.authorize("tenant-fx", "external"), PROOF_SPEND.authorize("tenant-fx", "model", 0.02), PROOF_SPEND.authorize("tenant-fx", "model", 0.02)]).toEqual([true, false, true, false, true]);
@@ -45,6 +43,22 @@ describe("inside a no-spend scope nothing is bought, and nothing pretends it fai
     }, policy);
     await PROOF_SPEND.run("tenant-fx", 1, 0.1, async () => expect(PROOF_SPEND.authorize("tenant-fx", "model", 0.02)).toBe(true), { ...policy, stopBy: Date.now() - 1 });
     expect(() => PROOF_SPEND.run("tenant-fx", 1, 0.1, () => {}, { ...policy, allowedExternal: [{ ...target, capability: "serp_organic" }] })).toThrow();
+  });
+  it("adds nominated sources without replenishing or leaking the proof's allowances", async () => {
+    const tenant = "tenant-fx", capture = { capability: "onpage_rendered_html", url: "https://own.example/page" }, source = { capability: "onpage_content_parsing", url: "https://authority.example/article?version=1" }, stopBy = Date.now() + 60_000;
+    expect(() => PROOF_SPEND.withExternalTargets(tenant, [source], () => {})).toThrow();
+    await PROOF_SPEND.run(tenant, 8, 2, async () => {
+      expect([PROOF_SPEND.authorize(tenant, "model", 0.9), PROOF_SPEND.authorize(tenant, "external", 0.2, capture)]).toEqual([false, false]);
+      for (const [account, target] of [["other", source], [tenant, { ...source, capability: "serp_organic" }], ...["file:///tmp/x", "https://user:secret@authority.example/x", "not-a-url"].map((url) => [tenant, { ...source, url }])] as [string, typeof source][]) expect(() => PROOF_SPEND.withExternalTargets(account, [target], () => {})).toThrow();
+      await PROOF_SPEND.withExternalTargets(tenant, [source], async () => {
+        expect([PROOF_SPEND.externalClosed(tenant, source), PROOF_SPEND.externalClosed("other", source), PROOF_SPEND.externalClosed(tenant, { ...source, url: "https://authority.example/article?version=2" }), PROOF_SPEND.externalClosed(tenant, { ...source, capability: "serp_organic" })]).toEqual([false, true, true, true]);
+        expect([PROOF_SPEND.authorize(tenant, "external", 0.3, source), PROOF_SPEND.authorize(tenant, "external", 0.15, source), PROOF_SPEND.authorize(tenant, "model", 0.9)]).toEqual([true, false, false]);
+        await PROOF_SPEND.withExternalTargets(tenant, [source], async () => expect([PROOF_SPEND.authorize(tenant, "external", 0.01, source), PROOF_SPEND.authorize(tenant, "model", 0.3)]).toEqual([true, true]));
+        expect(() => PROOF_SPEND.run(tenant, 8, 2, () => {})).toThrow();
+        const clock = vi.spyOn(Date, "now").mockReturnValueOnce(stopBy); expect(PROOF_SPEND.authorize(tenant, "model", 0.01)).toBe(true); clock.mockRestore();
+      });
+      expect([PROOF_SPEND.externalClosed(tenant, source), PROOF_SPEND.meter(tenant)]).toEqual([true, { modelCalls: 2, modelReservedUsd: 1.8, externalCalls: 2, externalReservedUsd: 0.35 }]);
+    }, { maxExternalCalls: 2, maxExternalUsd: 0.4, allowedExternal: [capture], stopBy });
   });});
 describe("a paused account rebuilds its surface and buys nothing, whatever the caller asked for", () => {
   const storeMock = (claim: boolean, held: unknown[] = []) => ({

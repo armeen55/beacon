@@ -76,11 +76,13 @@ async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS>
   const deadline = d.clock() + 240_000, stopBy = deadline - 100_000;
   let stored: ChangeProposal | null = null, captured = false, allowance: ReturnType<typeof PROOF_SPEND.meter> = null;
   let output: Awaited<ReturnType<typeof produceProposalsForTenant>> | null = null;
-  const result = (success: boolean, reason: string) => ({ success, proposalId: stored?.id ?? proposalId, reason, stored, captured, allowance,
-    meter: output ? output.paid.receipts.reduce((m, r) => ({ providerCalls: m.providerCalls + r.providerCalls, costUsd: m.costUsd + r.costUsd }), { providerCalls: 0, costUsd: 0 }) : null,
+  let acquisition: Awaited<ReturnType<typeof defaultSteps.acquireEvidence>> | null = null;
+  const receipts: Awaited<ReturnType<typeof produceProposalsForTenant>>["paid"]["receipts"][number][] = [], shared = new Map<string, unknown>();
+  const result = (success: boolean, reason: string) => ({ success, proposalId: stored?.id ?? proposalId, reason, stored, captured, allowance, acquisition,
+    meter: output ? receipts.reduce((m, r) => ({ providerCalls: m.providerCalls + r.providerCalls, costUsd: m.costUsd + r.costUsd }), { providerCalls: 0, costUsd: 0 }) : null,
     evidenceOwed: output?.paid.evidenceOwed ?? [], held: output?.held ?? [] });
   if (!tenantId || !currentBasis || !proposalId.startsWith(`${tenantId}::`) || input.maxOpenAiCalls !== 8 || input.maxOpenAiUsd !== 2
-    || input.maxDataForSeoCalls !== 1 || input.maxDataForSeoUsd !== 0.4) return result(false, "invalid_identity_or_ceiling");
+    || input.maxDataForSeoCalls !== 3 || input.maxDataForSeoUsd !== 0.4) return result(false, "invalid_identity_or_ceiling");
   if (await d.permission(tenantId) !== "paused") return result(false, "research_must_remain_paused");
   const row = await d.load(tenantId, proposalId);
   if (!row || row.tenantId !== tenantId || row.id !== proposalId || row.basis !== currentBasis
@@ -124,21 +126,51 @@ async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS>
           if (!captured) { reason = `owned_capture_owed:${acquired.detail}`; return; }
         }
         if (d.clock() >= stopBy || await d.permission(tenantId) !== "paused") { reason = "captured_but_drafting_deferred"; return; }
-        output = await d.produce(tenantId, { ...base, persist: true, maxCalls: 8, aeoDiagnoses: 1 });
-        for (const proposal of output.proposals.filter((p) => samePage(p) && d.substantive(p) && already.get(p.id) !== d.version(p))) {
-          const saved = await d.load(tenantId, proposal.id);
-          if (saved && samePage(saved) && saved.basis === currentBasis && d.substantive(saved) && d.acceptable(saved)) { stored = saved; success = true; break; }
+        const produce = async (aeoDiagnoses: number) => {
+          if (d.clock() >= stopBy || await d.permission(tenantId) !== "paused") return;
+          output = await d.produce(tenantId, { ...base, shared, persist: true, maxCalls: Math.max(0, 8 - (PROOF_SPEND.meter(tenantId)?.modelCalls ?? 8)), aeoDiagnoses });
+          receipts.push(...output.paid.receipts);
+          if (output.persisted > 0) for (const key of shared.keys()) if (key.startsWith("proposals:") || key.startsWith("cards:")) shared.delete(key);
+          for (const proposal of output.proposals.filter((p) => samePage(p) && d.substantive(p) && already.get(p.id) !== d.version(p))) {
+            const saved = await d.load(tenantId, proposal.id);
+            if (saved && samePage(saved) && saved.basis === currentBasis && d.substantive(saved) && d.acceptable(saved)) { stored = saved; success = true; break; }
+          }
+          reason = success ? "stored_ready_substantive_and_complete" : "no_new_ready_substantive_edit";
+          return output;
+        };
+        const first = await produce(1);
+        if (!success && first && first.outcome !== "evidence_unreadable" && first.outcome !== "persistence_failed"
+          && !first.paid.receipts.some((r) => ["provider_blocked", "cost_blocked", "retryable_blocked"].includes(r.outcome) && r.providerCalls > 0)) {
+          const need = first.paid.evidenceOwed?.find((n) => n.kind === "factual_source" && n.url && canonicalUrlKey(n.url) === pageKey
+            && !n.topic && n.workKey?.trim() && n.proposalId && n.proposalId === n.unlocks?.proposalId
+            && DRAFT_BUDGET.scopeAllows("existing_page_edits", DRAFT_BUDGET.requirementDelivery(n)));
+          const owing = need ? await d.load(tenantId, need.proposalId!) : null, obligation = owing ? d.obligation(owing) : null;
+          const fields = ["kind", "query", "url", "reasonCode", "missingTopic", "topic", "finding", "proposalId", "rivalUrl", "rivalUrls"] as const;
+          if (need && owing && owing.id === need.proposalId && samePage(owing) && owing.basis === currentBasis && owing.status === "needs_review"
+            && owing.workKey === need.workKey && DRAFT_BUDGET.keyOf(owing) === need.key && obligation?.kind === "evidence"
+            && fields.every((key) => JSON.stringify(need[key]) === JSON.stringify(obligation.need[key]))) {
+            const urls = [...new Set([need.rivalUrl, ...(need.rivalUrls ?? [])].filter((u): u is string => !!u))];
+            const targets = urls.slice(0, 2).map((url) => ({ capability: "onpage_content_parsing", url }));
+            if (targets.length > 0 && d.clock() < stopBy && await d.permission(tenantId) === "paused") {
+              const got = await PROOF_SPEND.withExternalTargets(tenantId, targets, () => runWithProposalWorkKey(need.workKey, () => d.acquire(tenantId,
+                { ...need, rivalUrl: targets[0]!.url, rivalUrls: targets.map((t) => t.url) }, accountBasis, Math.min(90_000, stopBy - d.clock()), undefined, "existing_page_edits")));
+              acquisition = got; reason = `factual_source_owed:${got.detail}`;
+              await defaultSteps.resumeAcquired(got, need.kind, (...parts) => { for (const key of shared.keys()) if (parts.some((part) => key.startsWith(`${part}:`))) shared.delete(key); }, async () => {
+                reason = "source_banked_but_drafting_deferred";
+                return produce(0);
+              });
+            }
+          }
         }
-        reason = success ? "stored_ready_substantive_and_complete" : "no_new_ready_substantive_edit";
         if (await d.permission(tenantId) !== "paused") { success = false; reason = "research_pause_changed_after_execution"; }
       } finally { allowance = PROOF_SPEND.meter(tenantId); }
-    }, { maxExternalCalls: 1, maxExternalUsd: 0.4, allowedExternal: [{ capability: "onpage_rendered_html", url: page }], stopBy });
+    }, { maxExternalCalls: 3, maxExternalUsd: 0.4, allowedExternal: [{ capability: "onpage_rendered_html", url: page }], stopBy });
   } catch { reason = "proof_execution_failed"; }
   // A crashed/ambiguous authorized call consumes admission. Only a positively observed zero-call scope releases it.
   const used = allowance as ReturnType<typeof PROOF_SPEND.meter>;
   const noCalls = used != null && used.modelCalls === 0 && used.externalCalls === 0;
   const recorded = noCalls && !success ? await d.spend.release(admission.attemptId, true).catch(() => false)
-    : await d.spend.reconcile(admission.attemptId, 0, null, "provider_reported", { success, reason, allowance }).catch(() => false);
+    : await d.spend.reconcile(admission.attemptId, 0, null, "provider_reported", { success, reason, allowance, acquisition }).catch(() => false);
   return result(success, recorded ? reason : "proof_admission_receipt_missing");
 }
 const atomicProof = { run, finishPage };

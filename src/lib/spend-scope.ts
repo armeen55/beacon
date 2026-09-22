@@ -14,18 +14,23 @@ export function runWithoutSpending<T>(fn: () => T): T { return noSpend.run(true,
 
 export const PROOF_SPEND = {
   run<T>(tenantId: string, maxCalls: number, maxUsd: number, fn: () => T, policy: ProofPolicy = { maxExternalCalls: 0, maxExternalUsd: 0 }): T {
-    if (!tenantId || !Number.isInteger(maxCalls) || maxCalls < 1 || !Number.isFinite(maxUsd) || maxUsd <= 0
+    if (proofSpend.getStore() || !tenantId || !Number.isInteger(maxCalls) || maxCalls < 1 || !Number.isFinite(maxUsd) || maxUsd <= 0
       || !Number.isInteger(policy.maxExternalCalls) || policy.maxExternalCalls < 0 || !Number.isFinite(policy.maxExternalUsd) || policy.maxExternalUsd < 0
       || policy.maxExternalCalls > 0 && (policy.maxExternalUsd <= 0 || !policy.allowedExternal?.length) || policy.stopBy != null && !Number.isFinite(policy.stopBy)
-      || policy.allowedExternal?.some((target) => target.capability !== "onpage_rendered_html" || !targetUrl(target.url))) throw new Error("invalid proof spending ceiling");
+      || policy.allowedExternal?.some((target) => !["onpage_rendered_html", "onpage_content_parsing"].includes(target.capability) || !targetUrl(target.url))) throw new Error("invalid proof spending ceiling");
     return proofSpend.run({ tenantId, maxCalls, maxUsd, policy: { ...policy, allowedExternal: policy.allowedExternal?.map((target) => ({ ...target })) },
       meter: { modelCalls: 0, modelReservedUsd: 0, externalCalls: 0, externalReservedUsd: 0 } }, fn);
+  },
+  withExternalTargets<T>(tenantId: string, targets: ExternalTarget[], fn: () => T): T {
+    const held = proofSpend.getStore();
+    if (!held || held.tenantId !== tenantId || targets.some((target) => target.capability !== "onpage_content_parsing" || !targetUrl(target.url))) throw new Error("invalid proof source scope");
+    return proofSpend.run({ ...held, policy: { ...held.policy, allowedExternal: [...(held.policy.allowedExternal ?? []), ...targets.map((target) => ({ ...target }))] } }, fn);
   },
   activeFor(tenantId: string): boolean | null { if (noSpend.getStore() === true) return false; const held = proofSpend.getStore(); return held ? held.tenantId === tenantId : null; },
   externalClosed(tenantId: string, target?: ExternalTarget): boolean | null {
     if (noSpend.getStore() === true) return true;
     const held = proofSpend.getStore(); if (!held) return null;
-    return held.tenantId !== tenantId || !target || target.capability !== "onpage_rendered_html"
+    return held.tenantId !== tenantId || !target || !["onpage_rendered_html", "onpage_content_parsing"].includes(target.capability)
       || !held.policy.allowedExternal?.some((allowed) => allowed.capability === target.capability && targetUrl(allowed.url) === targetUrl(target.url));
   },
   authorize(tenantId: string, channel: "model" | "external", projectedUsd = 0, target?: ExternalTarget): boolean | null {

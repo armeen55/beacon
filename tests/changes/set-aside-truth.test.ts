@@ -163,10 +163,10 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     expect([shown.includes("Finish this one"), shown.includes("Free page and evidence checks run first"), shown.includes("$0.05"), shown.includes("DataForSEO $0"), shown.includes("Research stays paused"), hidden.includes("Finish this one")]).toEqual([true, true, true, true, true, false]); });
   it("prepares the selected page only with disclosed ceilings and never calls a reservation an invoice", async () => {
     const { finishOneProposalAction } = await import("@/app/(shell)/changes/actions"), { SetAsideChange } = await import("@/app/(shell)/changes/change-controls");
-    prepareRun.mockResolvedValueOnce({ success: false, allowance: { modelReservedUsd: 0.2, externalReservedUsd: 0.002 }, evidenceOwed: [{ kind: "factual_source", query: "regional weave" }] });
-    const failed = await finishOneProposalAction({ proposalId: ID, prepare: true });
-    expect(prepareRun).toHaveBeenCalledWith({ tenantId: "t", proposalId: ID, currentBasis: NOW, maxOpenAiCalls: 8, maxOpenAiUsd: 2, maxDataForSeoCalls: 1, maxDataForSeoUsd: 0.4 });
-    expect([failed.success, failed.error?.includes("not invoices"), failed.error?.includes("regional weave"), failed.error?.includes("Research stays paused")]).toEqual([false, true, true, true]);
+    prepareRun.mockResolvedValueOnce({ success: false, allowance: { modelReservedUsd: 0.2, externalReservedUsd: 0.002 }, evidenceOwed: [{ kind: "factual_source", query: "regional weave" }] }).mockResolvedValueOnce({ success: false, reason: "proof_admission_replayed", allowance: null });
+    const failed = await finishOneProposalAction({ proposalId: ID, prepare: true }), used = await finishOneProposalAction({ proposalId: ID, prepare: true });
+    expect(prepareRun).toHaveBeenCalledWith({ tenantId: "t", proposalId: ID, currentBasis: NOW, maxOpenAiCalls: 8, maxOpenAiUsd: 2, maxDataForSeoCalls: 3, maxDataForSeoUsd: 0.4 });
+    expect([failed.success, failed.error?.includes("not invoices"), failed.error?.includes("regional weave"), failed.error?.includes("Research stays paused"), used.success, used.error?.includes("already used"), used.error?.includes("No new provider request")]).toEqual([false, true, true, true, false, true, true]);
     const shown = renderToStaticMarkup(createElement(SetAsideChange, { proposalId: ID, finishable: true, prepare: true }));
     expect([shown.includes("Prepare best edit on this page"), shown.includes("$2 OpenAI"), shown.includes("$0.40 DataForSEO")]).toEqual([true, true, true]);
   });

@@ -77,7 +77,7 @@ describe("the two-attempt stop, when one reading is owed by two rows", () => {
   });
 });
 const CASES = ["replenish_ready", "plan_cases"] as const, CAP = "the spending cap ended paid research for today";
-const doorDrive = async (s: typeof SITES[number], unit: { status: string; detail?: string }, units: readonly string[], phase: RR.ResearchRun["current_phase"], owedTurn = true, deadlineMs = 260_000, o: { seed?: RR.ResearchRunProgress; rows?: RR.ResearchRun[] } = {}) => {
+const doorDrive = async (s: typeof SITES[number], unit: { status: string; detail?: string } | readonly string[], units: readonly string[], phase: RR.ResearchRun["current_phase"], owedTurn = true, deadlineMs = 260_000, o: { seed?: RR.ResearchRunProgress; rows?: RR.ResearchRun[] } = {}) => {
   const rows = o.rows ?? freshRepo(); if (!o.rows) rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: phase,
     progress: { plan: { units: [...units] as never }, ...(owedTurn ? { waited: { phase: phase as never, drives: 1, unpaid: true } } : {}), ...(o.seed ?? {}) } }));
   let walks = 0, units_ = 0, collects = 0;
@@ -85,7 +85,7 @@ const doorDrive = async (s: typeof SITES[number], unit: { status: string; detail
     dueWork: async () => ({ ...DUE, due: [...units] as never }),
     dayStanding: async () => NO_CHECKS,
     collectBought: async () => (collects += 1, { pending: 0, ready: 0 }),
-    funnelUnit: async () => (units_ += 1, { ...unit, cursor: { at: units_ }, progress: {} }) as never,
+    funnelUnit: async () => (units_ += 1, { ...("status" in unit ? unit : { status: unit[Math.min(units_ - 1, unit.length - 1)] }), cursor: { at: units_ }, progress: {} }) as never,
     replenishReady: async () => (walks += 1, { ready: 1, deficit: 0, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {}, evidenceOwed: [] as never }) } });
   const r = rows.at(-1)!; return { walks, collects, units: units_, rows, blocker: r.progress?.state?.blocker ?? null, phase: r.current_phase, status: r.status }; };
 describe("the walk the owed turn skipped", () => {
@@ -102,24 +102,13 @@ describe("the walk the owed turn skipped", () => {
   });
 });
 describe("what rounds eight to ten do hold", () => {
-  const seed = (s: typeof SITES[number], progress: RR.ResearchRunProgress) => { const rows = freshRepo();
-    rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: "serp_analysis", progress })); return rows; };
   it.each(SITES)("$t: the stock-first block runs at most once on a drive, whatever answers the phase gives it", async (s) => {
-    seed(s, { plan: { units: ["replenish_ready", "plan_cases"] }, waited: { phase: "serp_analysis", drives: 1, unpaid: true } });
-    let walks = 0; const answers = ["advanced", "waiting", "waiting"] as const; let n = 0;
-    await runResearchCycle(s.t, { now: () => new Date(NOW), deadlineMs: 260_000, steps: { ...BENIGN,
-      dueWork: async () => ({ ...DUE, due: ["replenish_ready", "plan_cases"] }),
-      funnelUnit: async () => ({ status: answers[Math.min(n++, 2)]!, cursor: { at: n }, progress: {} }) as never,
-      replenishReady: async () => (walks += 1, { ready: 1, deficit: 0, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {}, evidenceOwed: [] as never }) } });
+    const { walks } = await doorDrive(s, ["advanced", "waiting", "waiting"], CASES, "serp_analysis");
     expect(walks, "an owed turn, an advanced answer that sends the loop back, then a waiting answer behind the block: the block's own `replenished` mark makes `stockDue` false, so neither door can open it a second time").toBe(1);
   });
   it.each(SITES)("$t: an owed turn whose step answers waiting under the walk's floor always writes the sentence before it pauses", async (s) => {
-    const rows = seed(s, { plan: { units: ["replenish_ready", "plan_cases"] }, waited: { phase: "serp_analysis", drives: 1, unpaid: true } });
-    await runResearchCycle(s.t, { now: () => new Date(NOW), deadlineMs: 100_000, steps: { ...BENIGN,
-      dueWork: async () => ({ ...DUE, due: ["replenish_ready", "plan_cases"] }),
-      funnelUnit: async () => ({ status: "waiting" as const, cursor: { pending: 3 }, progress: {} }),
-      replenishReady: async () => ({ ready: 1, deficit: 0, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {}, evidenceOwed: [] as never }) } });
-    expect([rows.at(-1)!.progress?.state?.blocker, rows.at(-1)!.status], "the row says which work was not started, what it needed, what the drive had, and that the next pass runs it first")
+    const { blocker, status } = await doorDrive(s, { status: "waiting" }, CASES, "serp_analysis", true, 100_000);
+    expect([blocker, status], "the row says which work was not started, what it needed, what the drive had, and that the next pass runs it first")
       .toEqual(["Preparing more finished changes needs 110 seconds and this drive had 100 left, so nothing was started for it. The next pass runs it first.", "paused"]);
   });
   it.each(SITES)("$t: one reading owed by two rows under ONE work identity is bought once and spent after two attempts, and the latest sentence lands on both rows", async (s) => {
@@ -193,23 +182,9 @@ describe("the ledger key when the work identity carries the separator", () => {
 });
 
 describe("the owed-turn door", () => {
-  const run = async (s: typeof SITES[number], answers: readonly ("done" | "waiting" | "failed" | "advanced")[], deadlineMs = 260_000, phase: "serp_analysis" | "fact_check" = "serp_analysis") => {
-    const rows = freshRepo(); rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: phase,
-      progress: { plan: { units: ["replenish_ready", phase === "fact_check" ? "check_page_facts" : "plan_cases"] }, waited: { phase, drives: 1, unpaid: true } } }));
-    let walks = 0, n = 0, units = 0;
-    await runResearchCycle(s.t, { now: () => new Date(NOW), deadlineMs, steps: { ...BENIGN,
-      dueWork: async () => ({ ...DUE, due: ["replenish_ready", phase === "fact_check" ? "check_page_facts" : "plan_cases"] }),
-      funnelUnit: async () => (units += 1, { status: answers[Math.min(n++, answers.length - 1)]!, cursor: { at: n }, progress: {} }) as never,
-      factCheck: async () => (units += 1, { status: "done" as const, banked: 0, bankedPages: [], pagesComplete: 0 }),
-      replenishReady: async () => (walks += 1, { ready: 1, deficit: 0, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {}, evidenceOwed: [] as never }) } });
-    return { walks, units, blocker: rows.at(-1)!.progress?.state?.blocker ?? null }; };
-  const runNoTurn = async (s: typeof SITES[number], deadlineMs: number) => {
-    const rows = freshRepo(); rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: "fact_check", progress: { plan: { units: ["replenish_ready", "check_page_facts"] } } }));
-    let walks = 0;
-    await runResearchCycle(s.t, { now: () => new Date(NOW), deadlineMs, steps: { ...BENIGN,
-      dueWork: async () => ({ ...DUE, due: ["replenish_ready", "check_page_facts"] }),
-      replenishReady: async () => (walks += 1, { ready: 1, deficit: 0, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {}, evidenceOwed: [] as never }) } });
-    return { walks, blocker: rows.at(-1)!.progress?.state?.blocker ?? null }; };
+  const run = (s: typeof SITES[number], answers: readonly ("done" | "waiting" | "failed" | "advanced")[], deadlineMs = 260_000, phase: "serp_analysis" | "fact_check" = "serp_analysis") =>
+    doorDrive(s, answers, ["replenish_ready", phase === "fact_check" ? "check_page_facts" : "plan_cases"], phase, true, deadlineMs);
+  const runNoTurn = (s: typeof SITES[number], deadlineMs: number) => doorDrive(s, { status: "done" }, ["replenish_ready", "check_page_facts"], "fact_check", false, deadlineMs);
 
   it.each(SITES)("$t: no sequence of answers opens the block twice on one drive", async (s) => {
     const churn = await run(s, ["waiting", "waiting", "waiting"]), mixed = await run(s, ["advanced", "failed", "waiting"]), twice = await run(s, ["advanced", "advanced", "waiting"]);
@@ -306,27 +281,14 @@ describe("the door in front of the block, on the last phase the plan allows", ()
   });
 
   it.each(SITES)("$t: the drive the done answer costs is one drive and never the day", async (s) => {
-    const rows = freshRepo(); rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: "winning_pages",
-      progress: { plan: { units: ["replenish_ready", "read_winner_pages"] }, waited: { phase: "winning_pages", drives: 1, unpaid: true } } }));
-    let walks = 0, units = 0;
-    const one = { now: () => new Date(NOW), deadlineMs: 260_000, steps: { ...BENIGN,
-      dueWork: async () => ({ ...DUE, due: ["replenish_ready", "read_winner_pages"] as never }),
-      funnelUnit: async () => (units += 1, { status: "done" as const, cursor: null, progress: {} }),
-      replenishReady: async () => (walks += 1, { ready: 1, deficit: 0, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {}, evidenceOwed: [] as never }) } };
-    await runResearchCycle(s.t, one); const first = rows.at(-1)!.current_phase;
-    await runResearchCycle(s.t, one);
-    expect([first, walks, units, rows.at(-1)!.current_phase], "the first drive pauses where it stands and walks once, and the second runs the block first, re-runs the step and takes the advance it earned, so the door costs one drive and never the day")
+    const plan = ["replenish_ready", "read_winner_pages"], first = await doorDrive(s, { status: "done" }, plan, "winning_pages");
+    const second = await doorDrive(s, { status: "done" }, plan, "winning_pages", true, 260_000, { rows: first.rows });
+    expect([first.phase, first.walks + second.walks, first.units + second.units, second.phase], "the first drive pauses where it stands and walks once, and the second runs the block first, re-runs the step and takes the advance it earned, so the door costs one drive and never the day")
       .toEqual(["winning_pages", 2, 2, "done"]);
   });
 
   it.each(SITES)("$t: an advanced answer followed by a done answer opens the block once and no more", async (s) => {
-    const rows = freshRepo(); rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: "winning_pages",
-      progress: { plan: { units: ["replenish_ready", "read_winner_pages"] }, waited: { phase: "winning_pages", drives: 1, unpaid: true } } }));
-    let walks = 0, n = 0; const answers = ["advanced", "done"] as const;
-    await runResearchCycle(s.t, { now: () => new Date(NOW), deadlineMs: 260_000, steps: { ...BENIGN,
-      dueWork: async () => ({ ...DUE, due: ["replenish_ready", "read_winner_pages"] }),
-      funnelUnit: async () => ({ status: answers[Math.min(n++, 1)]!, cursor: { at: n }, progress: {} }) as never,
-      replenishReady: async () => (walks += 1, { ready: 1, deficit: 0, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {}, evidenceOwed: [] as never }) } });
+    const { walks } = await doorDrive(s, ["advanced", "done"], ["replenish_ready", "read_winner_pages"], "winning_pages");
     expect(walks, "the block's own mark makes stockDue false, so neither door can open it a second time").toBe(1);
   });
 });

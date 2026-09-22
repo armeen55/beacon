@@ -938,7 +938,6 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     await dispatch(paying); const afterFirst = paidUnits; expect([rows.length, rows[0]!.status, afterFirst > 0]).toEqual([1, "completed", true]);
     expect(await dispatch(paying)).toEqual(R()); // the day is settled, so nothing is claimed and nothing is opened
     expect([rows.length, paidUnits]).toEqual([1, afterFirst]); }); // no second row, not one more paid unit
-  /** ONE canonical runtime, two doors: the operator's "update my data" press and the nightly dispatch drive the SAME row, or the app has a second pipeline. */
   it("shares one runtime with the operator's own refresh: the same phases, the same row, resumed and not restarted", async () => {
     const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); const scheduled: string[] = [];
     await dispatch({ ...healthySteps(scheduled), publishSurface: async () => { scheduled.push("publish"); throw new Error("stop here, mid-cycle"); } });
@@ -1017,7 +1016,6 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     DB.missing.clear(); PAUSED.add(T); rows = freshRepo(); await run(paid); expect(rows).toHaveLength(0); // the operator said stop
     PAUSED.delete(T); rows = freshRepo(); await run(paid); expect(rows).toHaveLength(1); }); // and the ONE state that spends: the switch read, and it read false
 });
-/** The rules themselves, on injected persisted state: no network, no clock tricks, no lease. */
 describe("dueWork: what is genuinely owed, computed from persisted state only", () => {
   const parked = (ms: number) => ({ basis: "b1", topics: [{ topicKey: "t1", query: "haft seen", requirement: "exact_serp", retryAfter: new Date(ms).toISOString() }] });
   const base = { staleSources: async () => 0, checks: async () => ({ ...NO_CHECKS, done: 4, total: 4, answers: 4, due: 0 }), basis: async () => "b1", evidenceVersion: async () => 7, answersToAnalyze: async () => false, analysisFingerprint: async () => "fp1", consumedAnalyses: async () => "fp1",
