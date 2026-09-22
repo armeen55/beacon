@@ -2,13 +2,13 @@ import { getSupabaseAdmin } from "../supabase";
 import type { PageSnapshot } from "@/domains/evidence/pages/types";
 import { selectPageVersion } from "@/domains/evidence/pages/page-version";
 
-type Capture = Pick<PageSnapshot, "id" | "page_id" | "fetched_at" | "word_count" | "extraction_certainty"> & { bodyHeld?: boolean };
-const facts = (s: Capture) => ({ fetchedAt: s.fetched_at, words: s.word_count ?? 0, bodyHeld: s.bodyHeld === true, certainty: s.extraction_certainty ?? null });
-const identityColumns = "id, page_id, fetched_at, word_count, extraction_certainty";
+type Capture = Pick<PageSnapshot, "id" | "page_id" | "fetched_at" | "word_count" | "extraction_certainty" | "content_hash"> & { bodyHeld?: boolean };
+const facts = (s: Capture) => ({ fetchedAt: s.fetched_at, words: s.word_count ?? 0, bodyHeld: s.bodyHeld === true, certainty: s.extraction_certainty ?? null, contentIdentity: s.content_hash }), goodCapture = (s: Capture): boolean => s.extraction_certainty !== "uncertain" && ((s.word_count ?? 0) > 0 || s.bodyHeld === true);
+const identityColumns = "id, page_id, fetched_at, word_count, extraction_certainty, content_hash";
 const pageSize = 500, requestBytes = 8000;
 
 /** Shared identity-first read: history never crowds out pages or their trusted bodies. */
-export async function selectedSnapshots<T extends Pick<PageSnapshot, "id" | "fetched_at">>(tenantId: string, columns: string, urls?: readonly string[]): Promise<T[]> {
+export async function selectedSnapshots<T extends Pick<PageSnapshot, "id" | "fetched_at">>(tenantId: string, columns: string, urls?: readonly string[], options?: { retainPreviousTrusted?: boolean }): Promise<T[]> {
   if (!tenantId.trim()) throw new Error("page snapshots require an explicit tenant");
   if (urls?.length === 0) return [];
   const sb = getSupabaseAdmin(), selected = new Map<string, Capture[]>(), heldBodies = new Map<string, string>();
@@ -46,8 +46,9 @@ export async function selectedSnapshots<T extends Pick<PageSnapshot, "id" | "fet
     for (const r of observed) if (typeof r.body_text === "string") heldBodies.set(r.id, r.body_text);
     for (const row of rows) {
       row.bodyHeld = heldBodies.has(row.id);
-      const v = selectPageVersion([...(selected.get(row.page_id) ?? []), row], facts);
-      selected.set(row.page_id, v.current === v.content ? [v.current!] : [v.current!, v.content!]);
+      const merged = [...(selected.get(row.page_id) ?? []), row].filter((candidate, index, all) => all.findIndex((other) => other.id === candidate.id) === index), v = selectPageVersion(merged, facts), keep = v.current === v.content ? [v.current!] : [v.current!, v.content!];
+      if (options?.retainPreviousTrusted) { const trusted = merged.filter(goodCapture).sort((a, b) => b.fetched_at.localeCompare(a.fetched_at) || b.id.localeCompare(a.id)), current = v.current!, baseline = trusted.find((candidate) => (candidate.word_count ?? 0) >= 100 && (current.word_count ?? 0) * 5 < (candidate.word_count ?? 0) * 3), agreeing = current.content_hash ? trusted.find((candidate) => candidate.id !== current.id && candidate.content_hash === current.content_hash && (!baseline || candidate.fetched_at > baseline.fetched_at)) : undefined; keep.push(...trusted.slice(0, 2), ...(baseline ? [baseline] : []), ...(agreeing ? [agreeing] : [])); }
+      selected.set(row.page_id, keep.filter((candidate, index, all) => all.findIndex((other) => other.id === candidate.id) === index));
     }
   };
   let afterPage: string | null = null;
@@ -61,7 +62,7 @@ export async function selectedSnapshots<T extends Pick<PageSnapshot, "id" | "fet
     await keep(rows);
     if (rows.length < pageSize) break;
     let boundary = rows[rows.length - 1]!;
-    while (selectPageVersion(selected.get(boundary.page_id)!, facts).state === "blank") {
+    while (selectPageVersion(selected.get(boundary.page_id)!, facts).state === "blank" || options?.retainPreviousTrusted === true) {
       const at = JSON.stringify(boundary.fetched_at), id = JSON.stringify(boundary.id), olderThan = `fetched_at.lt.${at},and(fetched_at.eq.${at},id.lt.${id})`;
       withinRequest({ ...scoped, page_id: `eq.${boundary.page_id}`, or: `(${olderThan})` });
       const older = await identities().eq("page_id", boundary.page_id).or(olderThan)

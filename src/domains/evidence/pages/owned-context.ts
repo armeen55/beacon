@@ -195,7 +195,7 @@ export async function loadOwnedPageBodies(tenantId: string, urls: string[], miss
   for (let at = 0; at < asked.length; at += MAX_URLS) {
     const slice = asked.slice(at, at + MAX_URLS);
     try {
-      const rows = await selectedSnapshots<PageSnapshot>(tenantId, COLUMNS, variantsOf(slice));
+      const rows = await selectedSnapshots<PageSnapshot>(tenantId, COLUMNS, variantsOf(slice), { retainPreviousTrusted: true });
       for (const row of rows) {
         const key = canonicalUrlKey(row.url);
         if (wanted.has(key)) captures.set(key, [...(captures.get(key) ?? []), row]);
@@ -207,10 +207,10 @@ export async function loadOwnedPageBodies(tenantId: string, urls: string[], miss
     }
   }
   for (const [key, rows] of captures) {
-    const v = selectPageVersion(rows, (r) => ({ fetchedAt: typeof r.fetched_at === "string" ? r.fetched_at : null, words: typeof r.word_count === "number" && r.word_count > 0 ? r.word_count : typeof r.body_text === "string" ? r.body_text.trim().split(/\s+/).filter(Boolean).length : 0, bodyHeld: typeof r.body_text === "string", certainty: typeof r.extraction_certainty === "string" ? r.extraction_certainty : null }));
+    const v = selectPageVersion(rows, (r) => ({ fetchedAt: typeof r.fetched_at === "string" ? r.fetched_at : null, words: typeof r.word_count === "number" && r.word_count > 0 ? r.word_count : typeof r.body_text === "string" ? r.body_text.trim().split(/\s+/).filter(Boolean).length : 0, bodyHeld: typeof r.body_text === "string", certainty: typeof r.extraction_certainty === "string" ? r.extraction_certainty : null, contentIdentity: typeof r.content_hash === "string" ? r.content_hash : null }));
     if (!v.content) continue;
     const body = bodyOf(v.content), newestAt = v.conflict && typeof (v.current as Row | null)?.fetched_at === "string" ? ((v.current as Row).fetched_at as string) : null;
-    out.set(key, { ...body, version: v.state, newestAt, ...(v.conflict ? { heldNote: `${body.heldNote} The newest read of this page, ${newestAt?.slice(0, 10) ?? "recently"}, captured no words; these are the words captured ${body.fetchedAt?.slice(0, 10) ?? "earlier"}. They prove what the page said then, never what it lacks now.` } : {}) });
+    out.set(key, { ...body, version: v.state, newestAt, ...(v.conflict ? { heldNote: `${body.heldNote} ${v.conflictKind === "collapse" ? `The newest read of this page, ${newestAt?.slice(0, 10) ?? "recently"}, captured sharply less content than the preceding trusted read; one more agreeing capture is required before treating that apparent deletion as current.` : `The newest read of this page, ${newestAt?.slice(0, 10) ?? "recently"}, captured no words Beacon can trust.`} These are the words captured ${body.fetchedAt?.slice(0, 10) ?? "earlier"}. They prove what the page said then, never what it lacks now.` } : {}) });
   }
   // AND THE ASKED PAGES THAT PRODUCED NO BODY SAY WHY, one typed word each, so "nothing is on file" is never confused with "the store could not be read".
   if (misses) for (const key of wanted) if (!out.has(key)) misses.set(key, failed.has(key) ? "read_failed" : "no_capture");

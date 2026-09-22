@@ -10,7 +10,7 @@
 
 import type { OwnedPageBody } from "./owned-context"; // TYPE ONLY: the server read stays in owned-context, and the judgments below are read by the client-bundled verdict
 type PageVersionState = "current" | "stale_known_good" | "sample_only" | "blank" | "unread";
-type PageVersionFacts = { fetchedAt: string | null; words: number; bodyHeld: boolean; certainty: string | null };
+type PageVersionFacts = { fetchedAt: string | null; words: number; bodyHeld: boolean; certainty: string | null; contentIdentity?: string | null };
 type PageVersion<T> = {
   /** The newest capture on file, whatever it holds. */
   current: T | null;
@@ -18,7 +18,7 @@ type PageVersion<T> = {
   content: T | null;
   state: PageVersionState;
   /** TRUE when the newest capture is blank or untrusted and an older confirmed body stands in: presence may be read off it, absence may not. */
-  conflict: boolean;
+  conflict: boolean; conflictKind?: "untrusted" | "collapse";
   /** When the words in `content` were captured. */
   contentAt: string | null;
   words: number;
@@ -26,18 +26,17 @@ type PageVersion<T> = {
 
 const at = (f: PageVersionFacts): string => f.fetchedAt ?? "";
 /** A capture the crawler could trust: confirmed, and either carrying words or holding the body whole (a genuinely empty page held whole is a real read). An `uncertain` extraction, or a zero-word row with no held body, is not one. */
-const good = (f: PageVersionFacts): boolean => f.certainty !== "uncertain" && (f.words > 0 || f.bodyHeld);
+const good = (f: PageVersionFacts): boolean => f.certainty !== "uncertain" && (f.words > 0 || f.bodyHeld), collapsed = (now: PageVersionFacts, before: PageVersionFacts): boolean => before.bodyHeld && now.bodyHeld && before.words >= 100 && now.words * 5 < before.words * 3;
 
 export function selectPageVersion<T>(rows: readonly T[], facts: (row: T) => PageVersionFacts): PageVersion<T> {
-  const sorted = [...rows].sort((a, b) => at(facts(b)).localeCompare(at(facts(a))));
-  const current = sorted[0] ?? null;
+  const sorted = [...rows].sort((a, b) => at(facts(b)).localeCompare(at(facts(a)))), current = sorted[0] ?? null;
   if (current == null) return { current: null, content: null, state: "unread", conflict: false, contentAt: null, words: 0 };
   const cf = facts(current);
-  if (good(cf)) return { current, content: current, state: cf.bodyHeld ? "current" : "sample_only", conflict: false, contentAt: cf.fetchedAt, words: cf.words };
+  if (good(cf)) { const older = sorted.slice(1).filter((row) => good(facts(row))), baseline = older.find((row) => collapsed(cf, facts(row))) ?? null, agreed = !!cf.contentIdentity && older.slice(0, baseline == null ? 0 : older.indexOf(baseline)).some((row) => facts(row).contentIdentity === cf.contentIdentity); if (baseline != null && !agreed) { const pf = facts(baseline); return { current, content: baseline, state: "stale_known_good", conflict: true, conflictKind: "collapse", contentAt: pf.fetchedAt, words: pf.words }; } return { current, content: current, state: cf.bodyHeld ? "current" : "sample_only", conflict: false, contentAt: cf.fetchedAt, words: cf.words }; }
   const known = sorted.find((r) => good(facts(r))) ?? null;
   if (known == null) return { current, content: current, state: "blank", conflict: false, contentAt: cf.fetchedAt, words: 0 };
   const kf = facts(known);
-  return { current, content: known, state: "stale_known_good", conflict: true, contentAt: kf.fetchedAt, words: kf.words };
+  return { current, content: known, state: "stale_known_good", conflict: true, conflictKind: "untrusted", contentAt: kf.fetchedAt, words: kf.words };
 }
 
 /** THE JUDGMENTS READ OFF A BODY ONCE IT IS IN HAND live here beside the version rule, and never in the server-only reader: the readiness verdict runs in the browser bundle through diagnosis, so what a page carries and which of its words are its own may import nothing that opens a database. */
