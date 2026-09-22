@@ -60,7 +60,7 @@ export function actionableProposalFailures(
 ): string[] {
   const out = [...receiptIntegrityFailures(p)];
   if (p.tenantId !== ctx.tenantId) out.push("This change was drafted for another account, so it stays held rather than offered.");
-  if (p.status !== "ready" && p.status !== "needs_review") out.push("This one is not waiting on you any more, so it stays held rather than offered.");
+  if (p.status !== "ready" && p.status !== "needs_review") out.push("This one is not waiting on you any more, so it stays held rather than offered."); if (ctx.currentBasis == null || p.basis !== ctx.currentBasis) out.push(ctx.currentBasis == null ? "The current decision basis could not be read, so no saved change can be offered safely." : "This change was drafted under an older decision basis, so it stays held until the current rules produce or re-confirm it.");
   return [...new Set(out)];
 }
 

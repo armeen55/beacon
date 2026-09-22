@@ -450,13 +450,11 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
           <Heading>What was checked</Heading>
           <Bullets items={[...checks]} />
         </div>
-      ) : null}
+      ) : null}{/* Atomic edits owe the same diagnosis, alternatives, falsifier and ranking receipt as deep bundles. */}<Investigation proposal={proposal} seen={new Set(checks.map(normFact))} />
       {(proposal.claims ?? []).length > 0 ? (
         <div className="space-y-1">
           <Heading>What each line stands on</Heading>
-          <Bullets items={(proposal.claims ?? []).map((c) => `${c.text.replace(/[.\s]+$/, "")}. Stands on: ${[...new Set([...c.supportedBy]
-            .map((id) => { const f = (proposal.supportFacts ?? []).find((x) => x.id === id); const said = (f?.fact ?? "").trim(); return /^(?:page-|target-section|section-after|draft-so-far)/.test(id) ? "the words already on this page" : !said ? `${id} (the words behind this were not banked with the copy)` : `"${(/^[\s\S]{40,220}?[.!?]["'”’]?(?=\s|$)/.exec(said)?.[0] ?? said.slice(0, 220)).trim()}"`; }))]
-            .join(", ")}`)} />
+          <EvidenceLines items={(proposal.claims ?? []).map((c) => ({ readings: [], text: `${c.text.replace(/[.\s]+$/, "")}. Stands on: ${[...new Set([...c.supportedBy].map((id) => { const f = (proposal.supportFacts ?? []).find((x) => x.id === id), said = (f?.fact ?? "").trim(), sources = (f?.sources ?? []).map((s) => `${s.kind} source ${s.url}`).join(", "); return /^(?:page-|target-section|section-after|draft-so-far)/.test(id) ? "the words already on this page" : !said ? `${id} (the words behind this were not banked with the copy)` : `"${(/^[\s\S]{40,220}?[.!?]["'”’]?(?=\s|$)/.exec(said)?.[0] ?? said.slice(0, 220)).trim()}"${sources ? ` (${sources})` : ""}`; }))].join(", ")}` }))} />
         </div>
       ) : null}
       {held && !research ? <p className="text-[13px] leading-relaxed text-foreground" data-held-reason="true">{held}{waitingOn(proposal) ?? ""}</p> : null}

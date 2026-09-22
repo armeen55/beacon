@@ -143,7 +143,7 @@ describe("a row says what its own record holds", () => {
   const finished = (s: (typeof SITES)[number]): ChangeProposal => row({ id: `${s.t}::${s.path}::existing_edit::missing_answer`, tenantId: s.t, pagePath: s.path, pageUrl: s.url, primaryQuery: s.q, changeFamily: "answer_block", status: "ready", researchOnly: false,
     recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: s.claim, where: 'One sentence placed after the heading "What lives there"' },
     claims: [{ text: s.claim, supportedBy: ["fact-1", "page-copy-1"] }], supportFacts: [{ id: "fact-1", fact: s.src }, { id: "page-copy-1", fact: "the page's own words" }],
-    copyStamp: "the page as it read", workKey: `${s.path}::body::${s.q}::wc4::basis_x::d8::hash::existing_edit::answer_block::add_answer_section::cause::${s.q}::draft::r5:sc2::fact-1,page-copy-1` });
+    copyStamp: "the page as it read", workKey: `${s.path}::body::${s.q}::wc4::basis_x::d9::hash::existing_edit::answer_block::add_answer_section::cause::${s.q}::draft::r5:sc2::fact-1,page-copy-1` });
   const reviewed = (p: ChangeProposal): ChangeProposal => ({ ...p, semanticReview: { of: copyKey(p), version: REVIEW_CONTRACT, claims: [{ i: 0, entailed: true, by: ["fact-1", "page-copy-1"] }], materialChange: true } as never });
   it.each(SITES)("says on the finished card what stands behind the words and how many checked sources carry them, and never asks a customer to decide what the card already told them, on $t", async (s) => {
     const { renderToStaticMarkup } = await import("react-dom/server"); const { createElement } = await import("react"); const { ChangeCard } = await import("@/app/(shell)/changes/change-card");

@@ -123,7 +123,7 @@ async function authorizeGroundedOpening(): Promise<{ after: string; claims: { te
   script.reasoning = (body) => reasoningReply({ ...REASONING, body_edit: publicationDraft(writer), editor_judgement: judge }, body);
   return writer;
 }
-
+async function finishHub(settle = false): Promise<void> { let spent = meter.paidUsd; for (let i = 0; i < 12; i += 1) { advance(30 * 60_000); await drive(["read_winner_pages"], "winning_pages"); const row = [...(await loadChangeProposals(T)).values()].find((r) => (r.pagePath ?? "") === HUB), owed = await dueWork(T, now()), quiet = meter.paidUsd === spent; spent = meter.paidUsd; if (row?.status === "ready" && nextObligation(row) == null && owed.winners.unread === 0 && (!settle || quiet)) return; } throw new Error("the existing-page sequence did not reach terminal Ready with every readable winner and derived judgment settled inside twelve bounded drives"); }
 describe("the owed results page, bought once and finished for nothing", () => {
   const need = (workKey = `${HUB}::body::${QUERY}::wc5::e1`) => ({ key: `${HUB}::body::${QUERY}`, kind: "serp", query: QUERY, rank: 1, reasonCode: "no_winner_to_read",
     reason: "no results page for this search is on file", workKey, unlocks: { proposalId: `${T}::${HUB}::existing_edit::demand_recovery`, step: "draft" } });
@@ -215,7 +215,7 @@ describe("the finished work, and recording that the operator applied it", () => 
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     script.search = searchScript({ ready: true, posts: 0 });
     const writer = await authorizeGroundedOpening();
-    for (let i = 0; i < 7; i += 1) { advance(30 * 60_000); await drive(["read_winner_pages"], "winning_pages"); }
+    await finishHub();
     const asked = reasoningAsked.filter((a) => a.kind === "body_edit").at(-1);
     expect([asked != null, asked?.ask.includes(QUERY) === true, asked?.ask.includes("page-copy-1") === true, asked?.ask.includes("fact-1") === true],
       "the writer is hired for this row's own search and handed both the page's stored words and the checked source under ids its claims may cite").toEqual([true, true, true, true]);
@@ -232,7 +232,7 @@ describe("the finished work, and recording that the operator applied it", () => 
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     script.search = searchScript({ ready: true, posts: 0 });
     await authorizeGroundedOpening();
-    for (let i = 0; i < 7; i += 1) { advance(30 * 60_000); await drive(["read_winner_pages"], "winning_pages"); }
+    await finishHub();
     const ready = [...(await loadChangeProposals(T)).values()].find((r) => (r.pagePath ?? "") === HUB)!;
     const { markProposalImplementedAction } = await import("@/app/(shell)/changes/actions");
     const pressed = await markProposalImplementedAction({ proposalId: ready.id });
@@ -246,7 +246,7 @@ describe("a pass that has nothing new to buy", () => {
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     script.search = searchScript({ ready: true, posts: 0 });
     await authorizeGroundedOpening();
-    for (let i = 0; i < 7; i += 1) { advance(30 * 60_000); await drive(["read_winner_pages"], "winning_pages"); }
+    await finishHub(true);
     const held = [...(await loadChangeProposals(T)).values()].find((r) => (r.pagePath ?? "") === HUB)!;
     const after = winnersOf().length, spent = meter.paidUsd, fetches = requestsOf("page"), copy = held.recommendedChange.kind === "existing_edit" ? held.recommendedChange.after : "";
     advance(30 * 60_000);

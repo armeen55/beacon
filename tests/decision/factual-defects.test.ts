@@ -42,7 +42,7 @@ const bless = (row: Record<string, unknown>): Record<string, unknown> => ({ ...r
     quote: s.says, titleContext: s.titleContext ?? null }); return a ? { ...s, support: a } : s; }) });
 const check = (over: Record<string, unknown> = {}) => bless({
   page: "/persian-female-first-names", statementKey: String(over.subject ?? "Afsaneh").toLowerCase(),
-  pageContentHash: LIVE_HASH, evidenceBasis: "basis_x::d8", state: "checked", rulesVersion: VERIFICATION_RULES_VERSION,
+  pageContentHash: LIVE_HASH, evidenceBasis: "basis_x::d9", state: "checked", rulesVersion: VERIFICATION_RULES_VERSION,
   sourceReadAt: "2026-08-17T00:00:00.000Z", pageLocator: null, subject: "Afsaneh", current: "Goddess, divine and strong.",
   proposed: "Legend, myth, fable in Persian.", language: "Persian", literal: "legend", usage: null,
   sources: [{ url: "https://www.behindthename.com/name/afsaneh", kind: "dictionary", says: "the name Afsaneh means legend, myth or fable in Persian" },

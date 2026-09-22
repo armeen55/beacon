@@ -65,7 +65,7 @@ describe("a direct link renders only what the ranked list would, and always land
   it("hands over the exact edits for current work, and no copy at all for a change whose own receipt does not resolve", async () => {
     const live = await link(bundled(NOW)); // the row IS the current bar's work
     expect([live.includes(EXACT), live.includes("Mark done"), live.includes("This idea was set aside")]).toEqual([true, true, false]);
-    const older = await link(bundled("basis_old::d2")); expect([older.includes(EXACT), older.includes("This idea was set aside")], "REPLACES the raised-bar set-aside: a row drafted in an earlier generation is judged by the checks themselves, which all still run, so its exact copy is handed over").toEqual([true, false]); const broken = bundled(NOW); const stale = await link({ ...broken, bundle: { ...broken.bundle!, components: [{ ...broken.bundle!.components[0]!, evidenceKeys: ["nothing-holds-this"] }] } } as ChangeProposal); expect([stale.includes("This idea was set aside"), stale.includes("See the work that stands now")]).toEqual([true, true]); expect(stale).not.toMatch(new RegExp(`${EXACT}|Comedians</p>|Mark done`)); });
+    const older = await link(bundled("basis_old::d2")); expect([older.includes(EXACT), older.includes("This idea was set aside")], "copy drafted under rules that no longer stand is history, never an actionable handoff").toEqual([false, true]); const broken = bundled(NOW); const stale = await link({ ...broken, bundle: { ...broken.bundle!, components: [{ ...broken.bundle!.components[0]!, evidenceKeys: ["nothing-holds-this"] }] } } as ChangeProposal); expect([stale.includes("This idea was set aside"), stale.includes("See the work that stands now")]).toEqual([true, true]); expect(stale).not.toMatch(new RegExp(`${EXACT}|Comedians</p>|Mark done`)); });
   it("refuses at the link what the list refuses: a receipt that does not resolve and a merge filed as ready, while a dated reading is handed over with its date", async () => {
     const b = bundled(NOW).bundle!, cold = new Date(Date.now() - 120 * 86_400_000).toISOString();
     for (const bundle of [
@@ -180,21 +180,21 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     const { today } = await loadTodayView(); // it really was rebuilt from what survived the bar
     expect([today.headerSentence === "stale", today.headerSentence.includes("August 4"), today.waitingUntil]).toEqual([false, true, "2026-08-04T18:00:00.000Z"]);
     vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/runtime"); vi.resetModules(); });
-  it("keeps a stored release whole and judges every row in it by the checks themselves, never by the generation its basis was stamped in", async () => {
+  it("revalidates a stored release against the exact current basis before serving any row", async () => {
     const { withCurrentBasisOnly } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data");
     const mixed = { ...emptyView(2), proposals: [bundled("basis_old::d2", "t::old"), bundled(NOW, "t::now"), { ...bundled("", "t::none"), basis: undefined }], // demotedStaleBasis 2 OVERLAPS the 3 listed rows in an old-rule release: 3, never 5.
       ready: [bundled("basis_old::d2", "t::old")], summary: { todo: 0, ready: 1, measuring: 0, results: 0 } } as ChangesView;
     const held = withCurrentBasisOnly(mixed, { tenantId: "t", currentBasis: NOW }); // the current row survives; it was never set aside
-    expect([held.proposals.length, held.ready.length, held.summary.ready], "REPLACES the raised-bar set-aside on a stored release: every row this account holds is still its work, and what it clears or fails is decided by the one readiness verdict").toEqual([3, 1, 1]);
+    expect([held.proposals.length, held.ready.length, held.summary.ready], "only the current-basis row survives; a stale row and a basis-less row are history, and an old ready stamp cannot attach to the survivor").toEqual([1, 0, 0]);
     const faulted = { ...bundled(NOW, "t::faulted"), faults: ["it points at the page instead of answering"] } as ChangeProposal, byFault = withCurrentBasisOnly({ ...emptyView(0), proposals: [faulted, { ...bundled(NOW, "t::gone"), status: "implemented_pending_verification" }], ready: [faulted], summary: { todo: 0, ready: 1, measuring: 0, results: 0 } } as ChangesView, { tenantId: "t", currentBasis: NOW }); // one row that no longer waits on the operator makes the release re-sort, as a real photograph with one skipped row does
     expect([byFault.ready.length, byFault.toDo.length, byFault.summary.ready], "and a stored ready row held by a typed fault re-sorts out of the lane: the release reads the verdict's defects, never the hard arms alone (journey review, 2026-09-06)").toEqual([0, 1, 0]);
     const uniformlyStale = { ...emptyView(0), proposals: [bundled("basis_old::d3", "t::old")], ready: [bundled("basis_old::d3", "t::old")],
       summary: { todo: 0, ready: 1, measuring: 0, results: 0 } } as ChangesView;
     const stale = withCurrentBasisOnly(uniformlyStale, { tenantId: "t", currentBasis: NOW }); // ONE bar, and it is not mine: consistency is not currency
-    expect([stale.proposals.length, stale.ready.length, stale.summary.ready], "and a release whose every row was stamped in an earlier generation is served whole rather than emptied").toEqual([1, 1, 1]);
+    expect([stale.proposals.length, stale.ready.length, stale.summary.ready], "a release whose every row was stamped in an earlier generation is withheld rather than represented as current work").toEqual([0, 0, 0]);
     const current = { ...emptyView(0), proposals: [bundled(NOW)], ready: [bundled(NOW)] } as ChangesView;
     expect(withCurrentBasisOnly(current, { tenantId: "t", currentBasis: NOW }).proposals).toHaveLength(1); // my own bar, untouched
-    expect(withCurrentBasisOnly(current, { tenantId: "t", currentBasis: null }).proposals, "and an account whose basis cannot be read is still shown its own work: the rows are this tenant's and the checks all ran").toHaveLength(1); });
+    expect(withCurrentBasisOnly(current, { tenantId: "t", currentBasis: null }).proposals, "an unreadable basis fails closed because no saved row can be proved current").toHaveLength(0); });
 });
 /** ONE BATCH CORE, NOT N SINGLE-CARD ACTIONS (operator, 2026-09-01). Three cards used to repeat the full single press each: three ledger reads, three 200-row canonical saves, 68 to 74 seconds, then immediate live-site verification while the operator was still publishing. The batch reads the ledger once, writes one Shipment per success, flips each row narrowly, defers research past the response, schedules no immediate verification, dedupes its input, replays idempotently, and one failed row never rolls back the others. */
 describe("bulk Mark Done is one batch, durable before acknowledged", () => {

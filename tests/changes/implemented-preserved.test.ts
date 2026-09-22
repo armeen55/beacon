@@ -14,7 +14,7 @@ import { loadProposalQueue } from "@/domains/decision/load-proposals";
 import { deliverableGaps } from "@/domains/decision/completeness";
 import type { ChangeProposal } from "@/domains/decision";
 
-const BASIS = "basis_now::d8";
+const BASIS = "basis_now::d9";
 /** THE STORED WORDING OF THE TWO LIVE ROWS: a template nobody filled in, which is exactly what today's read refuses. */
 const TEMPLATE = "The population is NUMBER as of YEAR (SOURCE).";
 const SITES = [

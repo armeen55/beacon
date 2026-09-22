@@ -13,7 +13,7 @@ const card = (id: string, over: Partial<ChangeProposal> = {}): ChangeProposal =>
   opportunityType: id, changeFamily: "section", status: "ready", whyItMatters: "w", estimatedEffortMinutes: 1,
   recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "a" },
   riskLevel: "low", confidence: "medium", limitations: [], evidence: { query: "q", hints: [], evidenceRefCount: 1 },
-  impactScore: 10, upsidePerMonth: null, basis: "b::d8", publish: "manual", createdAt: "2026-08-26T00:00:00.000Z", ...over,
+  impactScore: 10, upsidePerMonth: null, basis: "b::d9", publish: "manual", createdAt: "2026-08-26T00:00:00.000Z", ...over,
 } as ChangeProposal);
 const withPieces = (id: string, cs: BundleComponent[], over: Partial<ChangeProposal> = {}) => card(id, {
   bundle: { objective: "o", metric: "clicks", scope: { queries: ["q"], prompts: [] }, components: cs,
