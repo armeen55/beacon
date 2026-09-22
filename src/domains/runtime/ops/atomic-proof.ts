@@ -1,11 +1,11 @@
 import "server-only";
-import { reviewFinishedCopy } from "@/domains/decision/drafted-copy"; import { unreviewed } from "@/domains/decision/proof";
+import { reviewFinishedCopy } from "@/domains/decision/drafted-copy"; import { REVIEW_CONTRACT, reviewFits, unreviewed } from "@/domains/decision/proof"; import { COPY_RULES } from "@/domains/decision/copy-sanitize";
 import { confirmedVersion, deliverableGaps } from "@/domains/decision/completeness"; import { DRAFT_BUDGET } from "@/domains/decision/draft-budget"; import { nextObligation } from "@/domains/decision/obligation"; import { loadChangeProposal, saveChangeProposal } from "@/domains/decision/proposal-store";
 import type { ChangeProposal } from "@/domains/decision/contracts"; import { PROOF_SPEND } from "@/lib/spend-scope"; import { researchPermission } from "./due-work";
 import spendReservations from "@/lib/cost/spend-reservations";
 const acceptable = (row: ChangeProposal | null): boolean => !!row && row.status === "ready" && row.researchOnly !== true
   && deliverableGaps(row).length === 0 && nextObligation(row) === null;
-const DEPS = { permission: researchPermission, load: loadChangeProposal, review: reviewFinishedCopy, save: saveChangeProposal, reviewAuthorized: (row: ChangeProposal) => unreviewed(row) == null,
+const DEPS = { permission: researchPermission, load: loadChangeProposal, review: reviewFinishedCopy, save: saveChangeProposal, reviewAuthorized: (row: ChangeProposal) => row.semanticReview?.version === REVIEW_CONTRACT && COPY_RULES.accepted(row.semanticReview.editor) && reviewFits(row, row.semanticReview.of) && unreviewed(row) == null,
   acceptable, obligation: nextObligation, delivery: DRAFT_BUDGET.deliveryOf, version: confirmedVersion,
   providerConfigured: () => !!process.env.OPENAI_API_KEY?.trim(), spend: spendReservations };
 type Deps = typeof DEPS; type Input = { tenantId: string; proposalId: string; maxOpenAiCalls: number; maxOpenAiUsd: number; now?: Date };
@@ -20,8 +20,8 @@ async function run(input: Input, deps: Deps = DEPS) {
   if (deps.delivery(row) !== "existing_page_edit" || row.status !== "needs_review") return refuse("candidate_is_not_one_unfinished_manual_edit", row);
   const obligation = deps.obligation(row);
   if (obligation?.kind !== "review") return refuse(`candidate_owes_${obligation?.kind ?? "nothing"}`, row);
-  if (deps.reviewAuthorized(row)) { const replay = await deps.review(row, { tenantId, now: input.now ?? new Date(), attempts: { left: 0 }, proposalWorkKey: row.workKey }).catch(() => ({ row: null, detail: "accepted review replay failed" })), exact = replay.row?.id === proposalId && replay.row.tenantId === tenantId ? replay.row : null, candidate = exact ? { ...exact, status: "ready" as const } : null;
-    if (!candidate || !deps.acceptable(candidate) || await deps.permission(tenantId) !== "paused") return refuse("accepted_review_could_not_be_settled", row); const saved = await deps.save(candidate, undefined, undefined, row), stored = await deps.load(tenantId, proposalId); return (saved === "saved" || saved === "unchanged") && deps.acceptable(stored) ? { success: true as const, proposalId, reason: "stored_ready_from_current_review", stored, meter: { ops: 0, providerCalls: 0, costUsd: 0 } } : refuse(`persist_${saved}`, stored); }
+  if (deps.reviewAuthorized(row)) { const candidate = { ...row, status: "ready" as const, obligation: undefined, faults: row.faults?.filter((f) => !COPY_RULES.reviewHold(f)), limitations: row.limitations.filter((f) => !COPY_RULES.reviewHold(f)) };
+    if (!deps.acceptable(candidate) || await deps.permission(tenantId) !== "paused") return refuse("accepted_review_could_not_be_settled", row); const saved = await deps.save(candidate, undefined, undefined, row), stored = await deps.load(tenantId, proposalId); return (saved === "saved" || saved === "unchanged") && deps.acceptable(stored) ? { success: true as const, proposalId, reason: "stored_ready_from_current_review", stored, meter: { ops: 0, providerCalls: 0, costUsd: 0 } } : refuse(`persist_${saved}`, stored); }
   if (!deps.providerConfigured()) return refuse("openai_not_configured_in_this_runtime", row);
   const admissionKey = `atomic-proof-v2::${tenantId}::${proposalId}::${deps.version(row)}`;
   const admission = await deps.spend.reserve({ tenantId, platform: "other", purpose: "atomic_proof_admission", logicalKey: admissionKey,
