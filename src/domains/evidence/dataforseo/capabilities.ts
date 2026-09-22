@@ -182,7 +182,7 @@ const REGISTRY: Registry = {
     // JS pricing: $0.0015/page (DataForSEO OnPage pricing, 2026-09-22); reserve above it.
     build: (i) => [{ url: i.url, enable_javascript: true, enable_xhr: true, return_despite_timeout: false,
       accept_language: LANG_EN, ip_pool_for_scan: "us",
-      custom_js: "(() => { const root = document.documentElement.cloneNode(true); root.querySelectorAll('script:not([type=\"application/ld+json\"]),style').forEach(node => node.remove()); const html = root.outerHTML; return { url: document.URL, readyState: document.readyState, capturedAt: new Date().toISOString(), html: html.length <= 2000000 ? html : null }; })()" }],
+      custom_js: "(function () { var root = document.documentElement.cloneNode(true); var nodes = root.querySelectorAll('script:not([type=\"application/ld+json\"]),style'); for (var i = nodes.length - 1; i >= 0; i--) { nodes[i].parentNode.removeChild(nodes[i]); } var html = root.outerHTML; return { url: document.URL, readyState: document.readyState, capturedAt: new Date().toISOString(), html: html.length <= 2000000 ? html : null }; })()" }],
     parse: parseRenderedHtml,
   },
   serp_organic: serpEntry("serp/google/organic", 0.0021, SERP_DEPTH),

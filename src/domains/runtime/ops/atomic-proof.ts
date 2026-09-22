@@ -5,6 +5,7 @@ import type { ChangeProposal } from "@/domains/decision/contracts"; import { PRO
 import spendReservations, { runWithProposalWorkKey } from "@/lib/cost/spend-reservations";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
+import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { isCurrent } from "@/domains/evidence/freshness";
 import { defaultSteps } from "./research-steps";
@@ -65,7 +66,7 @@ async function run(input: Input, deps: Deps = DEPS) {
   return finish(accepted, accepted ? "stored_ready_substantive_and_complete" : "stored_row_is_not_ready_substantive_and_complete", stored, meter);
   } catch { return finish(false, "proof_execution_failed", row, budget?.meterOf(key) ?? null); }
 }
-const PAGE_DEPS = { ...DEPS, produce: produceProposalsForTenant, acquire: defaultSteps.acquireEvidence, list: loadChangeProposals,
+const PAGE_DEPS = { ...DEPS, produce: produceProposalsForTenant, acquire: defaultSteps.acquireEvidence, list: loadChangeProposals, snapshot: loadEvidenceSnapshot,
   bodies: loadOwnedPageBodies, account: getTenant, basis: defaultSteps.currentBasis, clock: Date.now,
   substantive: (row: ChangeProposal) => writerKindOf(row) === "answer" && row.changeFamily !== "factual_correction" };
 type PageInput = Omit<Input, "now"> & { maxDataForSeoCalls: number; maxDataForSeoUsd: number };
@@ -97,8 +98,8 @@ async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS>
   } catch { return result(false, "candidate_is_not_owned_page"); }
   const pageKey = canonicalUrlKey(page), samePage = (p: ChangeProposal) => p.tenantId === tenantId && canonicalUrlKey(p.pageUrl ?? "") === pageKey;
   const base = { focusPage: page, deliveryScope: "existing_page_edits" as const, produce: true, maxDrafts: 1, stopBy };
-  output = await runWithoutSpending(() => d.produce(tenantId, { ...base, persist: false, zeroSpend: true, maxCalls: 0, aeoDiagnoses: 0 }));
-  if (output.outcome === "evidence_unreadable") return result(false, "saved_evidence_unreadable");
+  const snapshot = await runWithoutSpending(() => d.snapshot(tenantId)).catch(() => null);
+  if (!snapshot || snapshot.sources.some((s) => (s.source === "gsc" || s.source === "wix") && s.status === "failed")) return result(false, "saved_evidence_unreadable");
   const savedRows = await d.list(tenantId, { failClosed: true }).catch(() => null);
   if (!savedRows) return result(false, "saved_proposals_unreadable");
   const already = new Map([...savedRows.values()].filter((p) => samePage(p) && d.substantive(p) && d.acceptable(p)).map((p) => [p.id, d.version(p)]));

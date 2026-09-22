@@ -1,5 +1,7 @@
 /** Provider-contract proof: the capability registry composed with the money-safe core, bound to BOUNDED official DataForSEO fixtures. No network, no Supabase, no spend. Pins the exact paths (post, FREE task_get, FREE tasks_ready), the PER-ENGINE request body with its documented output-token bound, DYNAMIC Standard-vs-Live routing, the envelope rule, and method-aware resolution. */
 import { describe, it, expect, vi } from "vitest";
+import { createRequire } from "node:module";
+import { runInNewContext } from "node:vm";
 import { providerCall, keywordIdeasBatched, collectCapability, parseCapability, resolveEngineModel } from "@/domains/evidence/dataforseo/capabilities";
 import { identityCacheKey } from "@/domains/evidence/dataforseo/cached-call";
 import { comparePageCoverage, parsePageIntersection } from "@/domains/evidence/page-intersection";
@@ -37,6 +39,12 @@ describe("exact task-status taxonomy (docs.dataforseo.com/v3/appendix/errors)", 
     const changed = harness(envelope()), next = await providerCall("onpage_rendered_html", { url, revision: "changed-owned-capture" }, IDS, changed.deps);
     expect(next.cacheKey).not.toBe(first.cacheKey); expect(changed.calls.bodies[0]![0]).toEqual(h.calls.bodies[0]![0]);
     expect(h.calls.bodies[0]![0]).toMatchObject({ url, enable_javascript: true, enable_xhr: true, return_despite_timeout: false });
+    const { JSDOM } = createRequire(import.meta.url)("jsdom") as { JSDOM: new (html: string, options: { url: string }) => { window: Window & typeof globalThis } };
+    const browser = new JSDOM(html.replace("</head>", '<script>window.untrusted = true</script><style>p{color:red}</style><script type="application/ld+json">{"@type":"WebPage"}</script></head>'), { url });
+    Object.defineProperty(browser.window.NodeList.prototype, "forEach", { value: undefined }); Object.defineProperty(browser.window.Element.prototype, "remove", { value: undefined });
+    const capture = runInNewContext(String(h.calls.bodies[0]![0].custom_js), { document: browser.window.document }) as typeof dom;
+    expect(capture.url).toBe(url); expect(capture.html).toContain('<main><h1>Library</h1><p>Loaded after JavaScript.</p></main>'); expect(capture.html).toContain('application/ld+json');
+    expect(capture.html).not.toContain('window.untrusted'); expect(capture.html).not.toContain('<style>'); expect(browser.window.document.querySelectorAll('script,style').length).toBe(3); browser.window.close();
     expect(parseCapability("onpage_rendered_html", envelope())).toEqual({ html, url, httpStatus: 200, capturedAt: NOW.toISOString() });
     for (const invalid of [envelope(item, "in_progress"), envelope({ ...item, status_code: 404 }), envelope({ ...item, custom_js_response: { ...dom, readyState: "loading" } }), envelope({ ...item, custom_js_response: { ...dom, html: "" } }), envelope({ ...item, custom_js_client_exception: "script failed" })]) {
       expect(parseCapability("onpage_rendered_html", invalid)).toBeNull();
