@@ -401,7 +401,7 @@ async function seedProposition(tenantId: string, pageUrl: string, proposition: s
     import("@/domains/evidence/pages/fact-checks"), import("@/domains/evidence/pages/fact-check-run"),
     import("@/domains/evidence/pages/owned-context"), import("@/domains/decision/load-proposals")]);
   const bodies = topic ? null : await loadOwnedPageBodies(tenantId, [pageUrl]).catch(() => null);
-  const b = bodies?.get?.(canonicalUrlKey(pageUrl)); if (!topic && (!b || (finding && (b.version !== "current" || !b.contentHash)))) return null;
+  const b = bodies?.get?.(canonicalUrlKey(pageUrl)); if (!topic && (!b || b.version !== "current" || !b.contentHash)) return null;
   const body = b ? [b.title, b.h1, ...(b.headings ?? []), ...(b.passages ?? [])].filter(Boolean).join("\n") : "";
   const basis = topic ? currentBasis ?? null : await resolveCurrentBasis(tenantId).catch(() => null);
   if (topic && !basis) return null;
@@ -484,7 +484,7 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
         pages: topic ? [{ url: `https://${snapshot.scope.site}`, path: topic.key, prospective: topic.label, loadBody: async () => "" }] : ranked.map((p) => ({ url: p.url, path: pathOf(p.url), loadBody: async () => {
           const bodies = await loadOwnedPageBodies(tenantId, [p.url]).catch(() => null);
           const b = bodies?.get?.(canonicalUrlKey(p.url)); // the same canonical key: an absolute owned-page address read back nothing here, so every page was skipped for having no stored words and the pass banked nothing on a store holding hundreds
-          return b ? [b.title, b.h1, ...b.headings, ...b.passages].filter(Boolean).join("\n") : "";
+          return b?.version === "current" && !!b.contentHash ? [b.title, b.h1, ...b.headings, ...b.passages].filter(Boolean).join("\n") : "";
         } })),
         refreshHeld: (page) => facts.readFactChecks(tenantId, page).catch(() => null),
         readCoverage: (page) => facts.readInventoryCoverage(tenantId, page).catch(() => null),
