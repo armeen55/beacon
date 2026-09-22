@@ -4,21 +4,18 @@ import { PROOF_SPEND } from "@/lib/spend-scope";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import type { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
 import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
-
-const url = "https://kiln.example/studio-kilns", tenantId = "kiln";
-const input = { tenantId, proposalId: "kiln::section", currentBasis: "basis", maxOpenAiCalls: 8, maxOpenAiUsd: 2, maxDataForSeoCalls: 3, maxDataForSeoUsd: 0.4 };
+const url = "https://kiln.example/studio-kilns", tenantId = "kiln", input = { tenantId, proposalId: "kiln::section", currentBasis: "basis", maxOpenAiCalls: 8, maxOpenAiUsd: 2, maxDataForSeoCalls: 3, maxDataForSeoUsd: 0.4 }, AUTH = "4B926534-2D8F-4AD8-A84B-15137B8AA007";
 type Deps = NonNullable<Parameters<typeof atomicProof.finishPage>[1]>;
 const template = { id: input.proposalId, tenantId, basis: "basis", pageUrl: "kiln.example/studio-kilns", primaryQuery: "studio kilns", workKey: "kiln-work", status: "needs_review", changeFamily: "answer_block", limitations: [], recommendedChange: { kind: "existing_edit", field: "section", after: "original" } } as unknown as ChangeProposal;
 const produced = (rows: ChangeProposal[]) => ({ proposals: rows, outcome: "proposals_persisted", paid: { receipts: [], evidenceOwed: [] }, held: [] }) as unknown as Awaited<ReturnType<typeof produceProposalsForTenant>>;
-
 describe("one paused page proof uses canonical production without renewing its budget", () => {
-  it.each(["ready", "old_ready", "foreign", "wrong_site", "capture_failed", "no_wire", "ambiguous", "unqualified", "admission_used", "boxed", "unreadable", "failed_gsc", "failed_pages", "failed_snapshot", "source_ready", "source_unused", "source_failed", "source_mismatch", "source_foreign", "source_deadline", "source_repeat", "source_paused", "source_providerheld", "source_work_changed"])("reports %s from durable readback and keeps paid admission", async (outcome) => {
+  it.each(["ready", "authorized", "authorized_used", "malformed_authorization", "provider_missing", "old_ready", "foreign", "wrong_site", "capture_failed", "no_wire", "ambiguous", "unqualified", "admission_used", "boxed", "unreadable", "failed_gsc", "failed_pages", "failed_snapshot", "source_ready", "source_unused", "source_failed", "source_mismatch", "source_foreign", "source_deadline", "source_repeat", "source_paused", "source_providerheld", "source_work_changed"])("reports %s from durable readback and keeps paid admission", async (outcome) => {
     const candidate = structuredClone(template), ready = { ...candidate, status: "ready" } as ChangeProposal;
     const source = outcome.startsWith("source_"), rivalUrl = "https://authority.example/kilns";
     const need = { kind: "factual_source" as const, key: DRAFT_BUDGET.keyOf(candidate), query: candidate.primaryQuery, url, proposalId: candidate.id, unlocks: { proposalId: candidate.id, step: "draft" as const }, workKey: candidate.workKey!, reason: "missing comparison", reasonCode: "source_support_unconfirmed" as const, missingTopic: "kiln insulation", rivalUrl, rivalUrls: [rivalUrl], delivery: "existing_page_edit" as const };
-    let paid = 0, clock = Date.now(), acquired = 0;
+    let paid = 0, clock = Date.now(), acquired = 0, admitted = false;
     if (source) candidate.obligation = { kind: "evidence", need: { ...need, ...(outcome === "source_mismatch" ? { missingTopic: "different claim" } : {}) } };
-    const reserve = vi.fn(async (_request: { logicalKey: string }) => ({ outcome: outcome === "admission_used" ? "replayed" : "reserved", attemptId: "admission" }));
+    const reserve = vi.fn(async (_request: { logicalKey: string }) => ({ outcome: ["admission_used", "authorized_used"].includes(outcome) || outcome === "authorized" && admitted ? "replayed" : (admitted = true, "reserved"), attemptId: "admission" }));
     const claim = vi.fn(async () => "claimed" as const), release = vi.fn(async () => true), reconcile = vi.fn(async () => true);
     const acquire = vi.fn<NonNullable<Deps["acquire"]>>(async (_t, need, basis) => {
       if (need.kind === "factual_source") {
@@ -50,7 +47,7 @@ describe("one paused page proof uses canonical production without renewing its b
       return produced([outcome === "foreign" ? { ...ready, id: "other::section", tenantId: "other" } : ready]);
     });
     const deps: NonNullable<Parameters<typeof atomicProof.finishPage>[1]> = {
-      permission: async () => acquired && outcome === "source_paused" ? "running" : "paused", load: async () => source ? paid === 2 && outcome === "source_ready" ? ready : candidate : paid ? outcome === "unqualified" ? candidate : ready : candidate,
+      permission: async () => acquired && outcome === "source_paused" ? "running" : "paused", providerConfigured: () => outcome !== "provider_missing", load: async () => source ? paid === 2 && outcome === "source_ready" ? ready : candidate : paid ? outcome === "unqualified" ? candidate : ready : candidate,
       snapshot: async () => {
         expect(PROOF_SPEND.activeFor(tenantId)).toBe(false); if (outcome === "boxed") clock += 150_000;
         if (outcome === "failed_snapshot") throw new Error("snapshot unavailable");
@@ -64,7 +61,8 @@ describe("one paused page proof uses canonical production without renewing its b
       acquire, produce,
       spend: { reserve, claimTransmission: claim, release, reconcile } as unknown as NonNullable<Parameters<typeof atomicProof.finishPage>[1]>["spend"],
     };
-    const result = await atomicProof.finishPage(input, deps);
+    const withAuth = ["authorized", "authorized_used"].includes(outcome), result = await atomicProof.finishPage({ ...input, ...(withAuth ? { authorizationId: AUTH } : outcome === "malformed_authorization" ? { authorizationId: "not-a-uuid" } : {}) }, deps);
+    if (outcome === "authorized") { paid = 0; const replay = await atomicProof.finishPage({ ...input, authorizationId: AUTH }, deps); expect([replay.reason, reserve.mock.calls.length, produce.mock.calls.length]).toEqual(["proof_admission_replayed", 2, 1]); }
     if (source) {
       const continued = outcome === "source_ready" || outcome === "source_repeat", attempted = !["source_mismatch", "source_foreign", "source_providerheld", "source_work_changed"].includes(outcome);
       expect([result.success, paid, acquired]).toEqual([outcome === "source_ready", continued ? 2 : 1, attempted ? 1 : 0]);
@@ -73,17 +71,19 @@ describe("one paused page proof uses canonical production without renewing its b
       expect(result.evidenceOwed).toHaveLength(outcome === "source_ready" ? 0 : 1);
       expect(reconcile).toHaveBeenCalledTimes(1); expect(release).not.toHaveBeenCalled(); return;
     }
-    expect(result.success).toBe(outcome === "ready");
-    expect(produce).toHaveBeenCalledTimes(["wrong_site", "capture_failed", "no_wire", "ambiguous", "admission_used", "boxed", "unreadable"].includes(outcome) || outcome.startsWith("failed_") ? 0 : 1);
-    if (["admission_used", "boxed", "wrong_site", "unreadable"].includes(outcome) || outcome.startsWith("failed_")) {
+    expect(result.success).toBe(outcome === "ready" || outcome === "authorized");
+    expect(produce).toHaveBeenCalledTimes(["wrong_site", "capture_failed", "no_wire", "ambiguous", "admission_used", "authorized_used", "malformed_authorization", "provider_missing", "boxed", "unreadable"].includes(outcome) || outcome.startsWith("failed_") ? 0 : 1);
+    if (["admission_used", "authorized_used", "malformed_authorization", "provider_missing", "boxed", "wrong_site", "unreadable"].includes(outcome) || outcome.startsWith("failed_")) {
       expect(acquire).not.toHaveBeenCalled(); expect(claim).not.toHaveBeenCalled();
+      if (["malformed_authorization", "provider_missing"].includes(outcome)) expect(reserve).not.toHaveBeenCalled();
+      if (outcome === "authorized_used") expect((reserve.mock.calls[0]?.[0] as { logicalKey: string }).logicalKey).toBe(`page-proof-v3::kiln::kiln.example/studio-kilns::basis::operator:${AUTH.toLowerCase()}`);
     } else if (outcome === "no_wire") {
       expect(release).toHaveBeenCalledWith("admission", true); expect(reconcile).not.toHaveBeenCalled();
     } else {
       expect(release).not.toHaveBeenCalled(); expect(reconcile).toHaveBeenCalled();
       expect(result.allowance?.externalCalls).toBe(1);
       const key = reserve.mock.calls[0]?.[0] as { logicalKey: string } | undefined;
-      expect(key?.logicalKey).toBe("page-proof-v3::kiln::kiln.example/studio-kilns::basis");
+      expect(key?.logicalKey).toBe(`page-proof-v3::kiln::kiln.example/studio-kilns::basis${withAuth ? `::operator:${AUTH.toLowerCase()}` : ""}`);
       expect(key?.logicalKey).not.toContain(candidate.workKey);
     }
   });

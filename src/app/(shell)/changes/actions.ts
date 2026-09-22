@@ -371,16 +371,17 @@ export async function reviewDraftAction(args: { proposalId: string; version: str
   }
 }
 
-export async function finishOneProposalAction(args: { proposalId: string; prepare?: boolean }): Promise<MarkProposalImplementedResponse> {
+export async function finishOneProposalAction(args: { proposalId: string; prepare?: boolean; authorizationId?: string }): Promise<MarkProposalImplementedResponse> {
   if (!(await canPublishForCurrentTenant())) return { success: false, error: "You do not have permission to finish this change." };
   if (!args.proposalId) return { success: false, error: "No change was specified." };
   const tenantId = await currentTenantId();
   try {
     if (args.prepare === true) {
-      const result = await atomicProof.finishPage({ tenantId, proposalId: args.proposalId, currentBasis: await resolveCurrentBasis(tenantId), maxOpenAiCalls: 8, maxOpenAiUsd: 2, maxDataForSeoCalls: 3, maxDataForSeoUsd: 0.4 });
+      const result = await atomicProof.finishPage({ tenantId, proposalId: args.proposalId, currentBasis: await resolveCurrentBasis(tenantId), maxOpenAiCalls: 8, maxOpenAiUsd: 2, maxDataForSeoCalls: 3, maxDataForSeoUsd: 0.4, ...(args.authorizationId !== undefined ? { authorizationId: args.authorizationId } : {}) });
       const a = result.allowance, receipt = a ? ` Authorized request ceilings: OpenAI $${a.modelReservedUsd.toFixed(4)}, DataForSEO $${a.externalReservedUsd.toFixed(4)}. These are reservations, not invoices.` : " No paid request was authorized.";
       await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout");
       if (result.success) return { success: true, note: `A finished edit on this page is ready in Changes. Nothing was published.${receipt}` };
+      if (result.reason === "openai_not_configured_in_this_runtime") return { success: false, error: "The writing service is not configured in this runtime. No finishing attempt or paid request was used." };
       if (["proof_admission_replayed", "proof_admission_resumed"].includes(result.reason)) return { success: false, error: "This page version already used its finishing attempt. No new provider request was authorized. Its saved work and receipts remain intact; research stays paused." };
       const owed = result.evidenceOwed?.[0], detail = owed ? ` Still needs ${owed.kind.replaceAll("_", " ")} for “${owed.query}”.` : "";
       return { success: false, error: `This attempt did not produce a finished edit. Any collected evidence and unfinished copy remain saved.${detail}${receipt} Research stays paused.` };

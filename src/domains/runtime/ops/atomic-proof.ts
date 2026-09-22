@@ -69,7 +69,7 @@ async function run(input: Input, deps: Deps = DEPS) {
 const PAGE_DEPS = { ...DEPS, produce: produceProposalsForTenant, acquire: defaultSteps.acquireEvidence, list: loadChangeProposals, snapshot: loadEvidenceSnapshot,
   bodies: loadOwnedPageBodies, account: getTenant, basis: defaultSteps.currentBasis, clock: Date.now,
   substantive: (row: ChangeProposal) => writerKindOf(row) === "answer" && row.changeFamily !== "factual_correction" };
-type PageInput = Omit<Input, "now"> & { maxDataForSeoCalls: number; maxDataForSeoUsd: number };
+type PageInput = Omit<Input, "now"> & { maxDataForSeoCalls: number; maxDataForSeoUsd: number; authorizationId?: string };
 
 async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS> = {}) {
   const d = { ...PAGE_DEPS, ...overrides }, { tenantId, proposalId, currentBasis } = input;
@@ -82,8 +82,10 @@ async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS>
     meter: output ? receipts.reduce((m, r) => ({ providerCalls: m.providerCalls + r.providerCalls, costUsd: m.costUsd + r.costUsd }), { providerCalls: 0, costUsd: 0 }) : null,
     evidenceOwed: output?.paid.evidenceOwed ?? [], held: output?.held ?? [] });
   if (!tenantId || !currentBasis || !proposalId.startsWith(`${tenantId}::`) || input.maxOpenAiCalls !== 8 || input.maxOpenAiUsd !== 2
-    || input.maxDataForSeoCalls !== 3 || input.maxDataForSeoUsd !== 0.4) return result(false, "invalid_identity_or_ceiling");
+    || input.maxDataForSeoCalls !== 3 || input.maxDataForSeoUsd !== 0.4
+    || (input.authorizationId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.authorizationId))) return result(false, "invalid_identity_or_ceiling");
   if (await d.permission(tenantId) !== "paused") return result(false, "research_must_remain_paused");
+  if (!d.providerConfigured()) return result(false, "openai_not_configured_in_this_runtime");
   const row = await d.load(tenantId, proposalId);
   if (!row || row.tenantId !== tenantId || row.id !== proposalId || row.basis !== currentBasis
     || d.delivery(row) !== "existing_page_edit" || row.status !== "needs_review" || !row.pageUrl || !row.workKey?.trim()) return result(false, "candidate_is_not_current_unfinished_page_work");
@@ -106,7 +108,7 @@ async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS>
   if (!savedRows) return result(false, "saved_proposals_unreadable");
   const already = new Map([...savedRows.values()].filter((p) => samePage(p) && d.substantive(p) && d.acceptable(p)).map((p) => [p.id, d.version(p)]));
   if (d.clock() >= stopBy || await d.permission(tenantId) !== "paused") return result(false, "proof_preparation_deferred");
-  const admissionKey = `page-proof-v3::${tenantId}::${pageKey}::${currentBasis}`;
+  const admissionKey = `page-proof-v3::${tenantId}::${pageKey}::${currentBasis}${input.authorizationId ? `::operator:${input.authorizationId.toLowerCase()}` : ""}`;
   const admission = await d.spend.reserve({ tenantId, platform: "other", purpose: "atomic_proof_admission", logicalKey: admissionKey,
     requestFingerprint: admissionKey, estimatedUsd: 0, recoveryKind: "none" }).catch(() => null);
   if (admission?.outcome !== "reserved" || !admission.attemptId) return result(false, `proof_admission_${admission?.outcome ?? "unavailable"}`);

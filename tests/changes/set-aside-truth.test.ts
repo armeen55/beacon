@@ -28,8 +28,7 @@ vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof
     const held = shipped.held.find((x) => x.proposalId === f.proposalId && x.proposalVersion === f.proposalVersion); // the REAL door's idempotency, mirrored: same proposal and version answers the row already on file and writes nothing
     if (held) return { shipmentId: held.id, measurement: held.measurementState ?? "measuring" };
     shipped.records.push(r); return { shipmentId: "rec-1", measurement: "measuring" }; } }));
-const NOW = "basis_now::d4";
-const EXACT = "Iranian Comedians: the 12 names people actually search for";
+const NOW = "basis_now::d4", AUTH = "4b926534-2d8f-4ad8-a84b-15137b8aa007", EXACT = "Iranian Comedians: the 12 names people actually search for";
 const ID = "t::/famous-iranian-comedians::existing_edit::bundle";
 const SEEN = new Date(Date.now() - 2 * 86_400_000).toISOString();
 const bundled = (basis: string, id = ID): ChangeProposal => ({
@@ -163,12 +162,13 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     expect([shown.includes("Finish this one"), shown.includes("Free page and evidence checks run first"), shown.includes("$0.05"), shown.includes("DataForSEO $0"), shown.includes("Research stays paused"), hidden.includes("Finish this one")]).toEqual([true, true, true, true, true, false]); });
   it("prepares the selected page only with disclosed ceilings and never calls a reservation an invoice", async () => {
     const { finishOneProposalAction } = await import("@/app/(shell)/changes/actions"), { SetAsideChange } = await import("@/app/(shell)/changes/change-controls");
-    prepareRun.mockResolvedValueOnce({ success: false, allowance: { modelReservedUsd: 0.2, externalReservedUsd: 0.002 }, evidenceOwed: [{ kind: "factual_source", query: "regional weave" }] }).mockResolvedValueOnce({ success: false, reason: "proof_admission_replayed", allowance: null });
-    const failed = await finishOneProposalAction({ proposalId: ID, prepare: true }), used = await finishOneProposalAction({ proposalId: ID, prepare: true });
-    expect(prepareRun).toHaveBeenCalledWith({ tenantId: "t", proposalId: ID, currentBasis: NOW, maxOpenAiCalls: 8, maxOpenAiUsd: 2, maxDataForSeoCalls: 3, maxDataForSeoUsd: 0.4 });
-    expect([failed.success, failed.error?.includes("not invoices"), failed.error?.includes("regional weave"), failed.error?.includes("Research stays paused"), used.success, used.error?.includes("already used"), used.error?.includes("No new provider request")]).toEqual([false, true, true, true, false, true, true]);
+    prepareRun.mockResolvedValueOnce({ success: false, allowance: { modelReservedUsd: 0.2, externalReservedUsd: 0.002 }, evidenceOwed: [{ kind: "factual_source", query: "regional weave" }] }).mockResolvedValueOnce({ success: false, reason: "proof_admission_replayed", allowance: null }).mockResolvedValueOnce({ success: false, reason: "openai_not_configured_in_this_runtime", allowance: null });
+    const failed = await finishOneProposalAction({ proposalId: ID, prepare: true, authorizationId: AUTH }), used = await finishOneProposalAction({ proposalId: ID, prepare: true, authorizationId: AUTH }), missing = await finishOneProposalAction({ proposalId: ID, prepare: true, authorizationId: AUTH });
+    expect(prepareRun).toHaveBeenCalledWith({ tenantId: "t", proposalId: ID, currentBasis: NOW, maxOpenAiCalls: 8, maxOpenAiUsd: 2, maxDataForSeoCalls: 3, maxDataForSeoUsd: 0.4, authorizationId: AUTH });
+    expect([failed.success, failed.error?.includes("not invoices"), failed.error?.includes("regional weave"), failed.error?.includes("Research stays paused"), used.error?.includes("already used"), missing.error?.includes("not configured")]).toEqual([false, true, true, true, true, true]);
+    publish.allowed = false; const denied = await finishOneProposalAction({ proposalId: ID, prepare: true, authorizationId: AUTH }); publish.allowed = true; expect([denied.success, prepareRun.mock.calls.length]).toEqual([false, 3]);
     const shown = renderToStaticMarkup(createElement(SetAsideChange, { proposalId: ID, finishable: true, prepare: true }));
-    expect([shown.includes("Prepare best edit on this page"), shown.includes("$2 OpenAI"), shown.includes("$0.40 DataForSEO")]).toEqual([true, true, true]);
+    expect([shown.includes("Prepare best edit on this page"), shown.includes("Each confirmed attempt"), shown.includes("$2 OpenAI"), shown.includes("$0.40 DataForSEO")]).toEqual([true, true, true, true]);
   });
   it("keeps everything this release actually knows when the bar moves under it", async () => {
     const stored = { schemaVersion: 2, releaseId: "t:1", computedAt: new Date().toISOString(), tenantId: "t",
