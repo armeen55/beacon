@@ -64,25 +64,25 @@ const many = (n: number) => Array.from({ length: n }, (_, i) =>
 describe("a page's own statements against their sources", () => {
   beforeEach(() => { checks.rows = []; store.rows = []; store.withdrew = []; store.why = []; store.bodyFails = false; });
   it("a correction whose evidence stopped being current is withdrawn, and a page nobody could read is left alone", async () => {
-    const live = "t::/persian-female-first-names::existing_edit::fact-afsaneh", dead = "t::/persian-female-first-names::existing_edit::fact-darya", applied = "t::/persian-female-first-names::existing_edit::fact-hamid";
-    store.rows = [{ id: live }, { id: dead }, { id: applied, status: "implemented_pending_verification" } as { id: string }, { id: "t::/other::existing_edit::fact-elsewhere" }];
-    checks.rows = [check()]; // Afsaneh still authorized; Darya's row is gone, and /other was never read this pass
+    const live = "t::/persian-female-first-names::existing_edit::fact-afsaneh@new-seat#mutation", dead = "t::/persian-female-first-names::existing_edit::fact-darya@new-seat#mutation", applied = "t::/persian-female-first-names::existing_edit::fact-hamid@new-seat#mutation";
+    checks.rows = [check()]; const [base] = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards; const stored = (id: string, subject = "Afsaneh", status = "needs_review") => ({ ...base!, id, status, recommendedChange: { ...base!.recommendedChange, where: `The "${subject}" entry` } });
+    store.rows = [stored(live), stored(dead, "Darya"), stored(applied, "Hamid", "implemented_pending_verification"), stored("t::/other::existing_edit::fact-elsewhere"), stored(`${dead}@unreadable`, "")];
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(store.withdrew, "a correction the operator already applied is never taken back, whatever its evidence does (the Hamid correction, 2026-09-02)").toEqual([dead]);
     const LIFT = "The name comes from Old French jessemin, from Persian yasamin and nothing else besides";
     checks.rows = [check({ subject: "Afsaneh", proposed: LIFT, sources: [{ url: "https://en.wiktionary.org/j", kind: "dictionary", says: LIFT }] }),
       check({ subject: "Afsaneh", state: "superseded", proposed: "Nothing any quote carries" })];
-    store.rows = [{ id: "t::/persian-female-first-names::existing_edit::fact-afsaneh" }]; store.withdrew = []; store.why = [];
+    store.rows = [stored(live)]; store.withdrew = []; store.why = [];
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(store.why.join(" "), "the live reading's own refusal").toContain("restates the source's own sentence");
     const stripped = check() as { sources: { support?: unknown }[] }; // A ROW EVERY OLDER RULE ACCEPTS AND NO ARTIFACT SUPPORTS IS WITHDRAWN SAYING SO: exactly the passage that used to authorize silently.
     stripped.sources = stripped.sources.map((x) => ({ ...x, support: undefined }));
-    checks.rows = [stripped]; store.rows = [{ id: "t::/persian-female-first-names::existing_edit::fact-afsaneh" }]; store.withdrew = []; store.why = [];
+    checks.rows = [stripped]; store.rows = [stored(live), stored(applied, "Afsaneh", "implemented_pending_verification")]; store.withdrew = []; store.why = [];
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
-    expect(store.why.join(" "), "the support shortfall names itself").toContain("no source's own passage has been shown to support this exact claim");
-    checks.rows = [check({ current: "", proposed: "Iran has AH-1 Cobra attack helicopters.", verdict: "undecidable" })]; store.rows = [{ id: live }]; store.withdrew = []; store.why = []; // A ROW WITH NO CURRENT WORDING NAMES NO WITHDRAWAL: it mints no card of its own, and it carries the standing Afsaneh card's own 48-character slug, so a refusal read off it would take that card down for a claim it was never about
+    expect(store.withdrew).toEqual([live]); expect(store.why.join(" "), "the support shortfall names itself").toContain("no source's own passage has been shown to support this exact claim");
+    checks.rows = [check({ current: "", proposed: "Iran has AH-1 Cobra attack helicopters.", verdict: "undecidable" })]; store.rows = [stored(live)]; store.withdrew = []; store.why = []; // Missing current wording is not evidence that the prior correction died.
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW }); expect([store.withdrew, store.why], "it contributes null exactly as it did before a missing answer could be refused, so the correction's card is kept").toEqual([[], []]);
-    checks.rows = [check({ current: "Afsaneh (Persian Fallow Deer)", proposed: null })]; store.rows = [{ id: live }]; store.withdrew = []; store.why = []; // A CONFIRMED ROW WHOSE PROPOSAL IS ONLY THE SUBJECT'S NAME reads as proposing nothing, and the card minted on it before that rule is withdrawn saying so, never kept under a warning for ever (Caspian Red Deer, ten days of "no named reason", 2026-09-17)
+    checks.rows = [check({ current: "Afsaneh (Persian Fallow Deer)", proposed: null })]; store.rows = [stored(live)]; store.withdrew = []; store.why = []; // A null proposal still names its refusal on a revised seat.
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW }); expect([store.withdrew, store.why.join(" ")]).toEqual([[live], expect.stringContaining("proposes no wording beyond the subject's own name")]);
     store.withdrew = []; store.bodyFails = true;
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
@@ -103,7 +103,7 @@ describe("a page's own statements against their sources", () => {
     expect((card!.recommendedChange as { where?: string }).where).toContain('The "Afsaneh" entry'); expect((card!.recommendedChange as { where?: string }).where).toContain("the FAQ answer on this page");
     expect(card!.supportFacts?.map((f) => f.id)).toEqual(["fact-1", "fact-2"]); expect(card!.supportFacts?.[0]!.fact).toContain('behindthename.com/name/afsaneh says: "the name Afsaneh means legend, myth or fable in Persian"');
     expect(card!.claims?.[0]!.supportedBy).toEqual(["fact-1", "fact-2"]);
-    expect(card!.status, "Beacon's own reviewer has not read it yet, so it is not offered as finished").toBe("needs_review"); });
+    expect(card!.status, "Beacon's own reviewer has not read it yet, so it is not offered as finished").toBe("needs_review"); checks.rows = [check({ subject: "Example Director", current: "Age: Born August 29, 1941", proposed: "Born July 29, 1941", sources: [{url:"https://en.wikipedia.org/example",kind:"encyclopedia",says:"Example Director was born July 29, 1941."}] })]; const [dated] = (await factualDefectCards({tenantId:"t",snapshot,now:NOW})).cards; expect(dated?.recommendedChange).toMatchObject({before:"Age: Born August 29, 1941",after:"Age: Born July 29, 1941"}); expect(dated?.claims?.[0]?.text).toMatch(/^Example Director: Born July 29, 1941/); });
   it("a hypothesis or a homograph derivation never authorizes a flat replacement", async () => {
     const src = (says: string) => [{ url: "https://en.wikipedia.org/x", kind: "encyclopedia", says }];
     checks.rows = [check({ subject: "Maryam", proposed: "beloved", sources: src('The name may have originated from the root mr "love; beloved"') }),
@@ -177,7 +177,7 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const by = new Map((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards.map((c) => [c.id.split("fact-")[1]!, c]));
     const say = (k: string) => [by.get(k)!.opportunityType, (by.get(k)!.claims ?? [])[0]!.text, by.get(k)!.whyItMatters].join(" | ");
     expect(say("leila"), "page_wrong contradicts").toContain("contradict"); expect(say("leila")).toContain("Correct what"); // A REAL FALSEHOOD KEEPS DIRECT LANGUAGE.
-    expect(say("noor"), "page_imprecise sharpens").toContain("less precisely"); // A NARROWING SAYS SO, and never that the page is wrong.
+    expect(say("noor"), "page_imprecise sharpens").toContain("Sharpen what"); expect(by.get("noor")!.claims?.[0]?.text).toBe("Noor means Light"); // The sourced claim is only the supported assertion; the correction record retains the predecessor.
     const CARRIER = new Set(["the", "and", "not", "its", "for", "with", "from", "that", "this", "was", "are"]); // ANCHORED TO ITS OWN EVIDENCE: `staleCopyReasons` refuses a claim overlapping its cited evidence by under a quarter, and a version leading with the page's current wording pushed two live corrections out of Ready reading "argues from support nobody banked".
     const words = (t: string) => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !CARRIER.has(w));
     for (const k of ["leila", "noor", "mahsa"]) { const card = by.get(k)!, mine = words((card.claims ?? [])[0]!.text);

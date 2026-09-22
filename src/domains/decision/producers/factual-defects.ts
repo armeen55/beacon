@@ -7,7 +7,7 @@ import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snaps
 import { REVIEW_CONTRACT, copyKey, wordingOnlySuspicion } from "@/domains/decision/proof";
 import { labelOf } from "@/domains/decision/completeness";
 import { authorizedCorrections, correctionSeverity, readFactChecks, rulesVersionFor, unauthorizedReason, type FactCheck } from "@/domains/evidence/pages/fact-checks";
-import { supportShortfall } from "@/domains/evidence/pages/claim-support"; import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
+import { claimTypeOf, supportShortfall } from "@/domains/evidence/pages/claim-support"; import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import type { BundleComponent, ChangeProposal } from "@/domains/decision/contracts";
 
 /** How many corrections ride one card, and how many the operator is asked to do in one sitting. A hundred and seventy two prose steps is not a deliverable; batches of this size are. NOTHING DISAPPEARS BEHIND THE CAP (Codex,
@@ -299,13 +299,10 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
         const act = treat === "replace" ? `Correct what ${path} says about ${c.subject}`
           : treat === "narrow" ? `Sharpen what ${path} says about ${c.subject}`
             : `Repair the formatting of what ${path} says about ${c.subject}`;
-        // THE CLAIM LEADS WITH WHAT THE SOURCES SUPPORT. Leading with the page's current wording instead pushed the
-        // claim's own words away from the evidence it cites, and `staleCopyReasons` reads exactly that overlap: two
-        // live corrections fell out of Ready reading "argues from support nobody banked". The disposition still
-        // shows, in the words after the comma, where it costs the claim no ground against its own source.
-        const claimText = treat === "replace" ? `${c.subject} means ${c.proposed}, not ${q(before)}`
-          : treat === "narrow" ? `${c.subject} means ${c.proposed}, stated less precisely as ${q(before)}`
-            : `${c.subject} means ${c.proposed}, written with broken formatting as ${q(before)}`;
+        // A lexical meaning and a date/quantity are different claims; lead with the supported value in either case.
+        const supported = claimTypeOf(c.subject, c.current, c.pageLocator) === "word_meaning" ? `${c.subject} means ${c.proposed}` : `${c.subject}: ${c.proposed}`;
+        // Sources support the published assertion; the before/after and preservation record explain the correction.
+        const claimText = supported;
         const kept = treat === "replace" ? "the sources on file contradict this wording"
           : treat === "narrow" ? "the sources on file put this wording more precisely"
             : "the supported meaning is unchanged and only its formatting is repaired";
@@ -357,15 +354,11 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
         });
       }
     }
-    // A CORRECTION CARD EXISTS ONLY WHILE ITS CORRECTION IS AUTHORIZED. These cards deliberately carry no bundle,
-    // so the stale sweep cannot reach them, and nothing else could either: a card minted on evidence later found
-    // to be about the wrong subject stayed Ready for ever, which is a false confirmation preserved purely because
-    // a card already existed. This producer owns every `fact-` id, so it retires exactly the ones it did not
-    // re-emit. NARROW AND FAIL-CLOSED: only pages whose body actually loaded this pass are judged, because
-    // `authorizedCorrections` compares a page hash and a failed body read would otherwise retire every correction
-    // on the site at once, which is how three consecutive passes once destroyed the operator's finished work.
+    // Compare the mutation, not its permanent store seat; a revised seat is still the same correction.
+    // Only loaded pages and identifiable claim placements may authorize a withdrawal.
+    const { footprintKey } = await import("@/domains/decision/mutation-footprint");
     const judged = new Set([...pageHashes.keys()].map((k) => pathOf(owned.get(k)!.url).toLowerCase()));
-    const emitted = new Set(cards.map((c) => c.id));
+    const emitted = new Set(cards.map(footprintKey));
     // THE WITHDRAWAL SAYS THE REAL REASON when the row itself can name one: "evidence no longer current" told
     // the operator nothing about a quote that never carried the published words.
     // ONLY THE CLAIM'S CURRENT ROW MAY SAY WHY IT WAS WITHDRAWN. A subject keeps its superseded history under
@@ -388,11 +381,11 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
     for (const [key, rows] of byPage) { const pg = owned.get(key); if (!pg) continue;
       for (const r of rows) if (r.state === "checked" && (r.current.trim() === "" || r.rulesVersion === rulesVersionFor(r))) liveChecked.add(`${pathOf(pg.url).toLowerCase()}::fact-${slugOf(r.subject) || ""}`); } // a row with no current wording vouches exactly as it did before the rules a missing answer is judged under moved, so no card changes hands on a slug collision either way
     for (const p of (await loadChangeProposals(tenantId).catch(() => null))?.values() ?? []) {
-      const id = p.id.split("::");
+      const id = p.id.split("::"), subject = subjectOf(p);
       // A PAGE WHOSE BODY DID NOT LOAD IS NOT A PAGE WHOSE CORRECTIONS DIED. `authorizedCorrections` compares a
       // page hash, so without one every correction on the site reads as unauthorized at once.
-      if (!id[3]?.startsWith("fact-") || emitted.has(p.id) || !judged.has(id[1] ?? "") || p.status === "implemented_pending_verification") continue; // an applied correction is the operator's, never this producer's to take back
-      const slug = `${id[1] ?? ""}::${id[3] ?? ""}`, said = why.get(slug);
+      if (!id[3]?.startsWith("fact-") || !subject || !judged.has(id[1] ?? "") || p.status === "implemented_pending_verification" || emitted.has(footprintKey(p))) continue; // applied or unidentifiable work is never this producer's to take back
+      const slug = `${id[1] ?? ""}::fact-${slugOf(subject)}`, said = why.get(slug);
       if (!said && liveChecked.has(slug)) {
         log.warn("[factual-defects] a correction went unminted with NO named reason while its checked row stands; the card is KEPT and this pass is the anomaly", { tenantId, id: p.id });
         continue;

@@ -280,25 +280,25 @@ export async function terminalWorkKeys(tenantId: string): Promise<Set<string>> {
   return keys;
 }
 
-/** Pre-work history for rows retired before work keys existed. Exact fingerprints protect reconstructable rows;
- * the legacy mutation set is deliberately conservative because there is no honest evidence/contract identity to
- * distinguish a re-mint. It blocks that mutation before a provider call instead of paying and refusing at save. */
+/** Preserve exact terminal content; the authoritative generation ledger can identify an otherwise unkeyed payload. */
 export async function terminalProposalHistory(tenantId: string): Promise<{ fingerprints: Set<string>; legacyMutationKeys: Set<string> }> {
-  const fingerprints = new Set<string>(), legacyMutationKeys = new Set<string>();
-  if (!tenantId) return { fingerprints, legacyMutationKeys };
-  let after: string | null = null;
-  for (;;) {
+  const fingerprints = new Set<string>(), legacyMutationKeys = new Set<string>(), identified = new Set<string>(); if (!tenantId) return { fingerprints, legacyMutationKeys };
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await getSupabaseAdmin().from("proposal_work_tombstones").select("proposal_id, work_key").eq("tenant_id", tenantId).order("work_key", { ascending: true }).order("proposal_id", { ascending: true }).range(offset, offset + 499);
+    if (error || !data) throw new Error(`terminal generation associations could not be read${error?.message ? `: ${error.message}` : ""}`);
+    for (const row of data as Array<{ proposal_id: string; work_key: string }>) if (row.work_key?.trim() && !row.work_key.startsWith("__legacy_unkeyed__:")) identified.add(row.proposal_id);
+    if (data.length < 500) break;
+  }
+  let after: string | null = null; for (;;) {
     let q = getSupabaseAdmin().from(TABLE).select("id, mutation_key, payload").eq("tenant_id", tenantId).not("terminal_disposition", "is", null);
     if (after) q = q.gt("id", after);
     const { data, error } = await q.order("id", { ascending: true }).limit(500);
     if (error || !data) throw new Error(`terminal proposal payload history could not be read${error?.message ? `: ${error.message}` : ""}`);
     for (const row of data as Array<{ id: string; mutation_key: string; payload: unknown }>) {
-      const proposal = decode(row.payload);
-      if (proposal) fingerprints.add(terminalProposalFingerprint(proposal));
-      if (!proposal?.workKey && row.mutation_key) legacyMutationKeys.add(row.mutation_key);
+      const proposal = decode(row.payload); if (proposal) fingerprints.add(terminalProposalFingerprint(proposal));
+      if ((!proposal || (!proposal.workKey && !identified.has(row.id))) && row.mutation_key) legacyMutationKeys.add(row.mutation_key);
     }
-    if (data.length < 500) break;
-    after = String((data[data.length - 1] as { id: string }).id);
+    if (data.length < 500) break; after = String((data[data.length - 1] as { id: string }).id);
   }
   return { fingerprints, legacyMutationKeys };
 }

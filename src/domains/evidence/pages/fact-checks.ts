@@ -63,7 +63,7 @@ export const statementKeyOf = (subject: string): string => subject.trim().toLowe
 
 type Row = Record<string, unknown>;
 
-/** WHAT A CHECK ACTUALLY PROPOSES, and never a wording that only names the subject again (measured 2026-09-05 over all 972 checked statements on the account: FIFTEEN of the 490 carrying a proposal propose their own subject back, seven byte for byte and eight differing only in case, seven of them `confirmed`, and ONE of the fifteen is admitted as correction work by `authorizedCorrections` today). A correction is a wording a page can be MADE to read, and "Caspian Red Deer" proposed for the subject "Caspian Red Deer" is not one: where the page already says exactly that, acting on it changes nothing, and where the current line carries more ("Mashhad (3 million)", "Meaning:Water lily, pure and serene.") acting on it DELETES what the page says and explains nothing. Canonicalized by `statementKeyOf`, which is already the identity of a subject here, so spacing and case decide nothing. Asked at the reader so the fifteen on file propose nothing today at $0 and no write, and at the bank so none is ever written again, off ONE predicate so the two doors cannot disagree. Nothing else about the row moves: its sources, its agreement, its confidence and its verdict are what the reading found. */
+/** Merely repeating the subject authorizes no replacement; preserve its research as a finding. */
 const proposalOf = (subject: string, proposed: string | null): string | null =>
   proposed != null && statementKeyOf(proposed) === statementKeyOf(subject) ? null : proposed;
 
@@ -85,14 +85,17 @@ const decode = (r: Row): FactCheck => ({
   checkedAt: String(r.checked_at ?? ""),
 });
 
-/** Every source-checked statement on file for this account. THROWS on a failed read. */
+/** Page below PostgREST's response cap; any failed batch refuses the entire reading. */
 export async function readFactChecks(tenantId: string, page?: string): Promise<FactCheck[]> {
-  let q = getSupabaseAdmin().from(TABLE).select("*").eq("tenant_id", tenantId);
-  if (page) q = q.eq("page_key", page);
-  const { data, error } = await q.order("statement_key", { ascending: true }).limit(5000);
-  if (error) throw new Error(`[fact-checks] read failed: ${error.message}`);
-  // Rows under a reserved '#' key are bookkeeping (inventory coverage), never statements.
-  return ((data ?? []) as Row[]).map(decode).filter((f) => !!f.page && !!f.statementKey && !f.statementKey.startsWith("#"));
+  const rows: Row[] = [], width = 500;
+  for (let start = 0; ; start += width) {
+    let q = getSupabaseAdmin().from(TABLE).select("*").eq("tenant_id", tenantId);
+    if (page) q = q.eq("page_key", page);
+    const { data, error } = await q.order("statement_key", { ascending: true }).order("page_key", { ascending: true }).range(start, start + width - 1);
+    if (error || !Array.isArray(data)) throw new Error(`[fact-checks] read failed: ${error?.message ?? "missing batch"}`);
+    rows.push(...(data as Row[])); if (data.length < width) break;
+  }
+  return rows.map(decode).filter((f) => !!f.page && !!f.statementKey && !f.statementKey.startsWith("#"));
 }
 
 /** HOW MUCH OF THE STORED BODY HAS BEEN INVENTORIED for a page version. Its own row under a reserved key:
@@ -369,10 +372,7 @@ export function authorizedCorrections(checks: readonly FactCheck[],
       && (current.body === undefined ? !!current.pageContentHash : c.current.trim() === "" || wordingOn(current.body, c.current)) /* an empty-string hash is no hash: nothing is authorized without a body or a real version (audit, 2026-09-14) */
       && (current.evidenceBasis === undefined || (c.evidenceBasis ?? null) === (current.evidenceBasis ?? null))))));
 }
-
-/** WHICH CORRECTION MATTERS MOST, so a bundle that cannot show everything shows the worst first and never an
- *  alphabetical accident: a wholly wrong statement outranks an imprecise one, two agreeing sources outrank
- *  one, a statement repeated elsewhere on the page outranks a single occurrence. PURE and total. */
+/** Rank contradictions before imprecision, supported agreement before one source, and repeated errors first. */
 export function correctionSeverity(c: FactCheck): number {
   return (c.verdict === "page_wrong" ? 100 : 50)
     + (c.agreement === "multiple_agree" ? 30 : 0)
