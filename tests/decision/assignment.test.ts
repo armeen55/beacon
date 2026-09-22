@@ -45,8 +45,8 @@ describe("what one assignment carries", () => {
     });
 
     it(`${s.t}: a summary field is judged by the summary standard and a body row is not`, () => {
-      expect([assignmentOf(packetOf(s), null, "meta")!.standard, assignmentOf(packetOf(s), null, "answer_block")!.standard],
-        "the standard is chosen once, by what the edit is, and never re-inferred from whichever evidence ids are in the packet").toEqual(["summary", "missing_answer"]);
+      const summary = assignmentOf(packetOf(s), null, "meta", "find a source the prior attempt asked for")!, body = assignmentOf(packetOf(s), null, "answer_block", "find a source the prior attempt asked for")!; expect([summary.standard, body.standard, summary.owed, body.owed, ASSIGNMENT_EDITOR.lines({ ...summary, owed: "historical source request" }).some((l) => l.includes("STILL OWES"))],
+        "the standard is chosen once; a summary neither banks nor reprints settled source instructions, while body correction debt remains available").toEqual(["summary", "missing_answer", undefined, "find a source the prior attempt asked for", false]);
     });
 
     it(`${s.t}: a replacement is told to keep what is true and add the improvement, and is never forbidden new wording`, () => {

@@ -437,9 +437,8 @@ export async function finishOneProposalAction(args: { proposalId: string }): Pro
     const result = await atomicProof.run({ tenantId, proposalId: args.proposalId, currentBasis: await resolveCurrentBasis(tenantId), maxOpenAiCalls: 1, maxOpenAiUsd: 0.05 });
     const receipt = { providerCalls: result.meter?.providerCalls ?? 0, costUsd: result.meter?.costUsd ?? 0 };
     if (!result.success) {
-      const used = result.reason === "proof_admission_resumed" || result.reason === "proof_admission_replayed";
-      const capped = result.reason.startsWith("proof_admission_refused_") || result.reason === "proof_admission_cap_refused";
-      const error = used
+      const used = result.reason === "proof_admission_resumed" || result.reason === "proof_admission_replayed", capped = result.reason.startsWith("proof_admission_refused_") || result.reason === "proof_admission_cap_refused", preflight = result.reason.startsWith("candidate_preflight:") ? result.reason.slice("candidate_preflight:".length) : null;
+      const error = preflight ? `${preflight} No provider call was made.` : used
         ? "This exact version already had its one finishing attempt. Nothing else was charged."
         : capped ? "Today's internal spend breaker is still closed. No provider call was made."
         : result.reason === "openai_not_configured_in_this_runtime" ? "OpenAI is not configured in the runtime handling this press. No admission or provider call was used."

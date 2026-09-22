@@ -35,7 +35,7 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     ...(rewrite?.replaces?.trim() ? { replaces: rewrite.replaces.trim() } : {}),
     pageContext: ctx,
     forbidden: [],
-    rivals, briefing, ...(owed ? { owed } : {}),
+    rivals, briefing, ...(owed && standard !== "summary" ? { owed } : {}),
   };
   const deliver = props;
   const w = WIDTH[field];
@@ -125,7 +125,7 @@ const assignmentLines = (a: Assignment): string[] => [
   `MUST PRESERVE: ${a.mustPreserve}`,
   `MUST NOT REPEAT: ${a.mustNotRepeat}`,
   `PLACEMENT: ${a.placement === "field" ? "it REPLACES this page's own line and lands nowhere else: it is not a section, it has no heading, and it names no place on the page" : a.placement === "replacement" ? "it replaces the passage named above and nothing else" : a.shape === "inline_addition" || a.shape === "direct_answer" ? `your sentences land directly after "${a.anchor ?? ""}", inside the copy that is already there. Return that exact wording as placementAnchor and return naturalHeading as null: this shape has no outer heading; follow OUTPUT FORMAT for headings inside finalCopy` : `it adds copy after "${a.anchor ?? ""}" and deletes nothing. Return that exact wording as placementAnchor. Choose naturalHeading only when this treatment needs its own heading; the adjacent passage must supply the context of a headingless insertion`}`,
-  ...(a.owed ? [`WHAT THIS ROW STILL OWES FROM ITS LAST ATTEMPT: ${a.owed}`] : []),
+  ...(a.owed && a.standard !== "summary" ? [`WHAT THIS ROW STILL OWES FROM ITS LAST ATTEMPT: ${a.owed}`] : []),
   `COMPLETION TEST: ${a.completionTest}`,
 ];
 const STANDARDS: Readonly<Record<ReturnType<typeof editorialStandard>, string>> = {
