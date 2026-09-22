@@ -8,7 +8,6 @@ import { normalizePageIntersection, parsePageIntersection, MAX_INTERSECTION_PAGE
 import { freshnessMsFor } from "../freshness";
 import { mainOf } from "../funnel/research-evidence";
 import type { CachedCallResult, CapabilityInputByKey, CapabilityKey, EngineModelResolution, FunnelBoundaryDeps, ObservationIdentity, ParsedAiAnswer, ParsedByCapability, ParsedKeywordItem, ParsedSerp, ProviderEnvelope } from "./funnel-boundary";
-/** Typed provider contracts own request normalization, routing, reservation, cache identity and parsing. */
 const DFS_API_BASE = "https://api.dataforseo.com/v3";
 const LOCATION_US = 2840, LANG_EN = "en", DAY = 86_400_000;
 const MAX_IDEAS_SEEDS = 200, IDEAS_DEFAULT_LIMIT = 700, IDEAS_MAX_LIMIT = 1000; // documented keyword_ideas seed ceiling, default and max limit, in ONE place so the ask and the built body agree
@@ -26,19 +25,15 @@ type Entry<K extends CapabilityKey> = {
   estCostUsd: number;
   requestTimeoutMs?: number;
   dims: { device: boolean; model: boolean };
-  /** Present = the call needs a resolved engine model (Standard vs Live routing). */
   engine?: LlmEngine;
   route: (r: EngineModelResolution | null) => Route;
-  /** Canonicalize the ask BEFORE it becomes a cache identity, so two spellings of one request never buy the same rows twice. No caller can skip it. */
   normalize?: (input: CapabilityInputByKey[K]) => CapabilityInputByKey[K];
   build: (input: CapabilityInputByKey[K], r: EngineModelResolution | null) => unknown[];
   parse: (env: ProviderEnvelope) => ParsedByCapability[K];
 };
 type Registry = { [K in CapabilityKey]: Entry<K> };
-/** Thrown by a builder when a runtime-required field COMBINATION is absent. */
 class MissingFieldsError extends Error { constructor(cap: string, missing: string[]) {
   super(`capability ${cap}: missing required field(s): ${missing.join(", ")}`); this.name = "MissingFieldsError"; } }
-// ── request builders (emit ONLY documented fields per endpoint) ───────────────
 /** ChatGPT supports web_search, not force_web_search or country (llm_responses docs, 2026-07-26). */
 function chatGptBuild(i: CapabilityInputByKey["llm_chatgpt"], r: EngineModelResolution | null): unknown[] {
   const web = r?.webSearch === true && i.web_search === true;
@@ -68,7 +63,6 @@ function scraperBuild(i: CapabilityInputByKey["llm_scraper_chatgpt"]): unknown[]
     force_web_search: forceWeb ? true : undefined,
     expand_citations: forceWeb && i.expand_citations === true ? true : undefined })];
 }
-/** Observation day and nonzero sample distinguish purchases; neither is sent to the provider. */
 function llmIdentity<T extends ObservationIdentity>(i: T): T {
   const { observation_day: day, sample_slot: slot, ...rest } = i;
   return { ...rest, ...(typeof day === "string" && day.length > 0 ? { observation_day: day } : {}),
@@ -95,20 +89,16 @@ function serpEntry<K extends "serp_organic" | "serp_ai_mode">(base: string, estC
     parse: parseSerp,
   };
 }
-/** Prefer resumable Standard when the resolved model supports it; otherwise use Live. */
 function llmDynamicRoute(engine: LlmEngine): (r: EngineModelResolution | null) => Route {
   const slug = ENGINE_SLUG[engine];
   const standard: Route = { mode: "task", postPath: `ai_optimization/${slug}/llm_responses/task_post`, getPath: (id) => `ai_optimization/${slug}/llm_responses/task_get/${id}`, tasksReady: `ai_optimization/${slug}/llm_responses/tasks_ready` };
   const live: Route = { mode: "live", postPath: `ai_optimization/${slug}/llm_responses/live`, getPath: null, tasksReady: null };
   return (r) => (r?.method === "standard" ? standard : live);
 }
-/** PRICING EVIDENCE for the 0.035 reservation (dataforseo.com/pricing/ai-optimization/llm-responses + the task_post docs, read 2026-07-26): a
- *  Standard-queue LLM task costs $0.0002 plus a $0.01 prepayment refunded down to the LLM's actual charge; Live adds $0.0006 plus the LLM charge,
- *  token-based and NOT capped by max_output_tokens when web_search is on. So 0.035 is a deliberate high estimate, not a proven bound. */
+/** LLM pricing (DataForSEO, 2026-07-26): Standard $0.0002 + $0.01 refundable prepayment; Live $0.0006 + tokens. $0.035 estimates, not a guaranteed search/token cap. */
 function llmDynamicEntry<K extends "llm_chatgpt" | "llm_gemini" | "llm_claude">(engine: LlmEngine, build: Entry<K>["build"]): Entry<K> {
   return { ttlMs: 1 * DAY, estCostUsd: 0.035, dims: { device: false, model: true }, engine, route: llmDynamicRoute(engine), normalize: llmIdentity, build, parse: parseLlmAnswer };
 }
-// ── the registry ─────────────────────────────────────────────────────────────
 /** Labs receipts (2026-07-25): 50 rows $0.018, 150 $0.02988, 1000 $0.132. Reserve above observed maximum; reconcile actual cost. */
 const REGISTRY: Registry = {
   labs_keywords_for_site: labsEntry("dataforseo_labs/google/keywords_for_site/live", "target", 0.2),
@@ -119,7 +109,6 @@ const REGISTRY: Registry = {
   // Reserve $0.25 for 700 keywords (~$0.21); monthly freshness follows the canonical matrix.
   labs_keyword_overview: {
     ttlMs: freshnessMsFor("keyword_volume"), estCostUsd: 0.25, dims: { device: false, model: false },
-    // Normalize before identity so ordering and casing never buy the same batch twice.
     normalize: (i) => ({ keywords: [...new Set(i.keywords.map((k) => String(k ?? "").trim().toLowerCase()).filter(Boolean))].sort().slice(0, 700) }),
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/keyword_overview/live", getPath: null, tasksReady: null }),
     build: (i) => [{ keywords: i.keywords.slice(0, 700), location_code: LOCATION_US, language_code: LANG_EN }], parse: parseKeywords,
@@ -134,10 +123,8 @@ const REGISTRY: Registry = {
   // Weekly domain evidence per case's keyword set; reserve $0.05 above the documented $0.0105 example (serp_competitors/live, 2026-07-31).
   labs_serp_competitors: {
     ttlMs: 7 * DAY, estCostUsd: 0.05, dims: { device: false, model: false },
-    // Normalized BEFORE the identity, like keyword_ideas: the provider lowercases the keywords itself, so two orderings of one set never derive two identities.
     normalize: (i) => ({ keywords: [...new Set(i.keywords.map((k) => String(k ?? "").trim().toLowerCase()).filter(Boolean))].sort().slice(0, COMPETITORS_SEEDS), limit: Math.min(Math.max(1, Math.trunc(i.limit ?? COMPETITORS_LIMIT)), COMPETITORS_MAX_LIMIT) }),
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/serp_competitors/live", getPath: null, tasksReady: null }),
-    // item_types organic ONLY: a paid placement is not a page that wins a search, and the default sends both.
     build: (i) => {
       if (i.keywords.length === 0) throw new MissingFieldsError("labs_serp_competitors", [`keywords (1 to ${COMPETITORS_SEEDS} keywords)`]);
       return [{ keywords: i.keywords, location_code: LOCATION_US, language_code: LANG_EN, item_types: ["organic"], limit: Math.min(Math.max(1, Math.trunc(i.limit ?? COMPETITORS_LIMIT)), COMPETITORS_MAX_LIMIT) }];
@@ -149,7 +136,6 @@ const REGISTRY: Registry = {
     ttlMs: 7 * DAY, estCostUsd: 0.2, dims: { device: false, model: false }, normalize: normalizePageIntersection,
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/page_intersection/live", getPath: null, tasksReady: null }),
     build: (i) => {
-      // A comparison of fewer than two pages is not a comparison: refuse it before the money, never after.
       if (i.pages.length < 2) throw new MissingFieldsError("labs_page_intersection", [`pages (2 to ${MAX_INTERSECTION_PAGES} absolute http/https urls)`]);
       return [clean({ pages: Object.fromEntries(i.pages.map((u, n) => [String(n + 1), u])), exclude_pages: i.exclude_pages?.length ? i.exclude_pages : undefined,
         location_code: LOCATION_US, language_code: LANG_EN, intersection_mode: i.intersection_mode, item_types: ["organic"], limit: i.limit })];
@@ -167,30 +153,30 @@ const REGISTRY: Registry = {
     ttlMs: freshnessMsFor("owned_page"), estCostUsd: 0.002, requestTimeoutMs: 45_000, dims: { device: false, model: false },
     normalize: (i) => ({ url: canonicalUrl(i.url), ...(i.revision ? { revision: i.revision } : {}) }),
     route: () => ({ mode: "live", postPath: "on_page/instant_pages", getPath: null, tasksReady: null }),
-    // Fixed, synchronous DOM capture, not site-supplied code or the ambiguous raw-HTML endpoint.
     // JS pricing: $0.0015/page (DataForSEO OnPage pricing, 2026-09-22); reserve above it.
     build: (i) => [{ url: i.url, enable_javascript: true, enable_xhr: true, return_despite_timeout: false,
       accept_language: LANG_EN, ip_pool_for_scan: "us",
       custom_js: String.raw`(function () {
-        var root = document.documentElement.cloneNode(true), nodes = root.querySelectorAll('script,style,svg,template,iframe,noscript');
+        var root = document.documentElement.cloneNode(true), nodes = root.querySelectorAll('script,style');
         for (var i = nodes.length - 1; i >= 0; i--) {
           var node = nodes[i];
           if (node.tagName.toLowerCase() !== 'script' || (node.getAttribute('type') || '').trim().toLowerCase() !== 'application/ld+json') node.parentNode.removeChild(node);
         }
-        nodes = root.querySelectorAll('*');
-        var keep = /^(id|class|href|rel|name|content|alt|hidden|aria-.+|role|itemprop|itemscope|itemtype|itemid|itemref|lang|dir|title|type|colspan|rowspan|headers|scope|start|reversed|value|datetime)$/i;
-        for (i = nodes.length - 1; i >= -1; i--) {
-          node = i < 0 ? root : nodes[i];
-          for (var j = node.attributes.length - 1; j >= 0; j--) {
-            var attribute = node.attributes[j], name = attribute.name;
-            if (name === 'style') {
-              var visibility = attribute.value.match(/(?:^|;)\s*(?:display|visibility)\s*:[^;]*/gi);
-              if (visibility) node.setAttribute(name, visibility.join(';')); else node.removeAttribute(name);
-            } else if (!keep.test(name)) node.removeAttribute(name);
-          }
+        var html = root.outerHTML, dictionary = [], counts = Object.create(null), ids = Object.create(null), codes = [], alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+        var result = { url: document.URL, readyState: document.readyState, capturedAt: new Date().toISOString(), complete: false, codec: 'tokens-ascii-v1', dictionary: dictionary, indices: '', htmlChars: html.length };
+        if (!html.length || html.length > 2000000) return result;
+        var parts = html.match(/[A-Za-z0-9_$-]+|[^A-Za-z0-9_$-]+/g) || [];
+        for (i = 0; i < parts.length; i++) { var word = parts[i]; if (counts[word] === undefined) { counts[word] = 0; dictionary.push(word); } counts[word]++; }
+        if (dictionary.length > 55040) { result.dictionary = []; return result; }
+        dictionary.sort(function (a, b) { return counts[b] - counts[a]; });
+        for (i = 0; i < dictionary.length; i++) ids[dictionary[i]] = i;
+        for (i = 0; i < parts.length; i++) {
+          var id = ids[parts[i]];
+          while (id >= 32) { codes.push(alphabet.charAt(id % 32 + 32)); id = Math.floor(id / 32); }
+          codes.push(alphabet.charAt(id));
         }
-        var result = { url: document.URL, readyState: document.readyState, capturedAt: new Date().toISOString(), html: root.outerHTML, complete: true };
-        if (JSON.stringify(result).length > 100000) { result.html = null; result.complete = false; }
+        result.indices = codes.join(''); result.complete = true;
+        if (JSON.stringify(result).length > 100000) { result.dictionary = []; result.indices = ''; result.complete = false; }
         return result;
       })()` }],
     parse: parseRenderedHtml,
@@ -202,7 +188,6 @@ const REGISTRY: Registry = {
   llm_claude: llmDynamicEntry("claude", claudeBuild),
   llm_perplexity: {
     ttlMs: 1 * DAY, estCostUsd: 0.035, dims: { device: false, model: true }, engine: "perplexity",
-    // Perplexity models are Live-only (task_post_supported=false for all), so this stays Live-only; providerCall still resolves the model once for the id.
     route: () => ({ mode: "live", postPath: "ai_optimization/perplexity/llm_responses/live", getPath: null, tasksReady: null }),
     normalize: llmIdentity, build: perplexityBuild, parse: parseLlmAnswer,
   },
@@ -212,9 +197,7 @@ const REGISTRY: Registry = {
     normalize: llmIdentity, build: scraperBuild, parse: parseScraper,
   },
 };
-/** Askability follows the registry, not a parallel planner list. */
 export const capabilityAskable = (capability: string): boolean => Object.hasOwn(REGISTRY, capability);
-// ── composed provider call (the ONE model-resolution point) ───────────────────
 export async function providerCall<K extends CapabilityKey>(
   capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string; runId?: string; caseKey?: string; promptId?: string }, deps: FunnelBoundaryDeps = {},
 ): Promise<CachedCallResult> {
@@ -228,7 +211,6 @@ export async function providerCall<K extends CapabilityKey>(
   if (entry.engine) { // ONE resolution: the method routes the call AND the model rides the request
     resolution = await resolveEngineModel(entry.engine, deps);
     if (!resolution) return { state: "not_configured", cacheKey: null, detail: `No usable ${entry.engine} model is available to ask right now. It is tried again on the next pass.` };
-    // The resolution is the ONLY source of the model: no caller override exists.
     modelRequested = resolution.model;
   }
   const route = entry.route(resolution);
@@ -255,7 +237,6 @@ export async function providerCall<K extends CapabilityKey>(
     who: { unitKey: ids.unitKey, ...(ids.runId ? { runId: ids.runId } : {}), ...(ids.caseKey ? { caseKey: ids.caseKey } : {}), ...(ids.promptId ? { promptId: ids.promptId } : {}) },
   };
   const result = await runResolvedCall(resolved, deps);
-  // Stamp the requested model back so the executor records it without re-resolving.
   if (modelRequested && (result.state === "ok" || result.state === "waiting")) return { ...result, modelRequested };
   return result;
 }
@@ -265,7 +246,6 @@ export async function keywordIdeasBatched(
 ): Promise<CachedCallResult[]> {
   const cleaned = [...new Set((seeds ?? []).map((s) => String(s ?? "").trim().toLowerCase()).filter(Boolean))].sort();
   const out: CachedCallResult[] = [];
-  // Normalize default and oversized limits before deriving cache identity.
   const asked = Math.min(Math.max(1, Math.trunc(limit ?? IDEAS_DEFAULT_LIMIT)), IDEAS_MAX_LIMIT);
   for (let i = 0; i < cleaned.length; i += MAX_IDEAS_SEEDS) {
     const input = { keywords: cleaned.slice(i, i + MAX_IDEAS_SEEDS), limit: asked };
@@ -275,13 +255,10 @@ export async function keywordIdeasBatched(
   }
   return out;
 }
-/** Resume or recover a stored Standard purchase through its free collection endpoints. */
 export async function collectCapability(cacheKey: string, deps: FunnelBoundaryDeps = {}): Promise<CachedCallResult> {
   return collectResolvedTask(cacheKey, { getPath: getPathForEndpoint, tasksReadyPath: tasksReadyForEndpoint, ttlMsFor: ttlMsForEndpoint }, deps);
 }
-/** Every Standard family has one-day freshness; non-task endpoints return null. */
 const ttlMsForEndpoint = (endpoint: string): number | null => (endpoint.endsWith("/task_post") ? DAY : null);
-/** The free task_get derivation from a stored task_post endpoint: serp + scraper use /task_get/advanced, llm_responses uses the plain /task_get. */
 function getPathForEndpoint(endpoint: string, id: string): string | null {
   if (!endpoint.endsWith("/task_post")) return null;
   const base = endpoint.slice(0, -"/task_post".length);
@@ -293,10 +270,8 @@ function getPathForEndpoint(endpoint: string, id: string): string | null {
 function tasksReadyForEndpoint(endpoint: string): string | null {
   return endpoint.endsWith("/task_post") ? `${endpoint.slice(0, -"/task_post".length)}/tasks_ready` : null;
 }
-/** Pure: the full bounded envelope -> the capability's frozen typed output. */
 export function parseCapability<K extends CapabilityKey>(capability: K, envelope: ProviderEnvelope): ParsedByCapability[K] | null {
   try { return REGISTRY[capability].parse(envelope) as ParsedByCapability[K]; } catch { return null; } }
-// ── model resolution (FREE models endpoint, method-aware, cached) ──────────────
 /** Labeled fallbacks (docs, 2026-07-24), used only when credentials are absent: chatgpt/claude standard, gemini/perplexity live. */
 const FALLBACK: Record<LlmEngine, EngineModelResolution> = {
   chatgpt: { model: "gpt-4o", method: "standard", webSearch: true },
@@ -306,7 +281,6 @@ const FALLBACK: Record<LlmEngine, EngineModelResolution> = {
 };
 export async function resolveEngineModel(engine: LlmEngine, deps: FunnelBoundaryDeps = {}): Promise<EngineModelResolution | null> {
   const d = resolveDeps(deps);
-  // No credentials -> the labeled fallback, no network.
   if (!isDataForSeoConfigured(d.env)) return FALLBACK[engine];
   const path = `ai_optimization/${ENGINE_SLUG[engine]}/llm_responses/models`;
   const cacheKey = "dfsmodels_" + sha256(path).slice(0, 32);
@@ -328,7 +302,6 @@ export async function resolveEngineModel(engine: LlmEngine, deps: FunnelBoundary
       }).catch(() => {});
     }
   }
-  // Missing live model list fails closed: providerCall refuses a null resolution without posting.
   if (!envelope) return null;
   return selectResolution(modelObjects(envelope));
 }
@@ -343,7 +316,6 @@ function selectResolution(models: Record<string, unknown>[]): EngineModelResolut
   return { model, method: post(chosen) ? "standard" : "live", webSearch: web(chosen) };
 }
 
-// ── parsers (tolerant of provider variation; never invent data) ──────────────
 function resultBlock(env: ProviderEnvelope): { result0: Record<string, unknown> | null; items: Record<string, unknown>[] } {
   const result = env.tasks?.[0]?.result;
   const result0 = (Array.isArray(result) ? (result[0] as Record<string, unknown> | undefined) : (result as Record<string, unknown> | undefined)) ?? null;
@@ -439,15 +411,43 @@ function parseScraper(env: ProviderEnvelope): ParsedAiAnswer {
     brandMentions: brandTitles(result0?.brand_entities),
   };
 }
+/** Decode only a complete, bounded, lossless transport; token references never become HTML authority on their own. */
+function unpackRenderedHtml(dom: Record<string, unknown>): string {
+  const { dictionary, indices, htmlChars } = dom, alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  if (dom.codec !== "tokens-ascii-v1" || dom.complete !== true || "html" in dom || !Array.isArray(dictionary) || dictionary.length > 55_040
+    || typeof indices !== "string" || indices.length > 100_000 || typeof htmlChars !== "number" || !Number.isInteger(htmlChars) || htmlChars < 1 || htmlChars > 2_000_000) throw new Error("invalid rendered transport");
+  let dictionaryChars = 0, decodedChars = 0, cursor = 0;
+  const pieces: string[] = [];
+  for (const token of dictionary) {
+    if (typeof token !== "string" || !token.length || (dictionaryChars += token.length) > 2_000_000) throw new Error("invalid rendered dictionary");
+  }
+  while (cursor < indices.length) {
+    let id = 0, shift = 0, digit: number;
+    do {
+      if (cursor >= indices.length || shift > 15) throw new Error("unterminated rendered reference");
+      digit = alphabet.indexOf(indices[cursor++]!);
+      if (digit < 0) throw new Error("invalid rendered reference");
+      id += (digit % 32) * 2 ** shift; shift += 5;
+    } while (digit >= 32);
+    if (id >= dictionary.length) throw new Error("missing rendered token");
+    const token = dictionary[id] as string;
+    if ((decodedChars += token.length) > htmlChars) throw new Error("rendered expansion exceeds declared size");
+    pieces.push(token);
+  }
+  if (decodedChars !== htmlChars) throw new Error("incomplete rendered transport");
+  return pieces.join("");
+}
 /** Completed DOM observation, not proof that every delayed application request finished. */
 function parseRenderedHtml(env: ProviderEnvelope): ParsedByCapability["onpage_rendered_html"] {
   const { result0, items } = resultBlock(env), item = items[0];
-  const dom = item?.custom_js_response as { html?: unknown; url?: unknown; readyState?: unknown; capturedAt?: unknown; complete?: unknown } | undefined;
+  const dom = item?.custom_js_response as Record<string, unknown> | undefined;
   if (result0?.crawl_progress !== "finished" || item?.status_code !== 200 || item?.custom_js_client_exception
-    || dom?.readyState !== "complete" || (dom.complete !== undefined && dom.complete !== true) || typeof dom.html !== "string" || !dom.html.trim() || JSON.stringify(dom).length > 100_000
+    || dom?.readyState !== "complete" || (dom.complete !== undefined && dom.complete !== true) || JSON.stringify(dom).length > 100_000
     || typeof dom.url !== "string" || !/^https?:\/\//i.test(dom.url)
     || typeof dom.capturedAt !== "string" || !Number.isFinite(Date.parse(dom.capturedAt))) throw new Error("rendered document unavailable or incomplete");
-  return { html: dom.html, url: dom.url, httpStatus: 200, capturedAt: dom.capturedAt };
+  const html = dom.codec === undefined && !["dictionary", "indices", "htmlChars"].some((key) => key in dom) ? dom.html : unpackRenderedHtml(dom);
+  if (typeof html !== "string" || !html.trim() || html.length > 2_000_000) throw new Error("rendered document unavailable or incomplete");
+  return { html, url: dom.url, httpStatus: 200, capturedAt: dom.capturedAt };
 }
 function parseContentParsing(env: ProviderEnvelope): ParsedByCapability["onpage_content_parsing"] {
   const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
@@ -463,7 +463,6 @@ function modelObjects(env: ProviderEnvelope): Record<string, unknown>[] {
   const result = env.tasks?.[0]?.result;
   return Array.isArray(result) ? (result as Record<string, unknown>[]) : [];
 }
-// ── small pure helpers ──
 function clean(o: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(o)) if (v !== undefined) out[k] = v;
