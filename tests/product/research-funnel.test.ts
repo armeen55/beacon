@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest"; import { PROOF_SPEND } from "@/lib/spend-scope";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot"; import { emptyBusinessProfile, type Account, type BusinessProfile, type ProfileSection } from "@/domains/account";
 import type { CachedCallResult, CapabilityKey, FailureDisposition, ParsedAiAnswer, ParsedKeywordItem, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { keywordDiscoveryUnit } from "@/domains/evidence/funnel/discovery"; import { projectFunnelEvidence, promptObservationUnit, serpAnalysisUnit } from "@/domains/evidence/funnel/observe"; import { winningPagesUnit } from "@/domains/evidence/funnel/winning-pages";
@@ -355,9 +355,13 @@ expect([paid, ["no.com", "h8.com", "h9.com"].map((h) => [row(h).extract, row(h).
   const run = async (store: ReturnType<typeof memStore>, now: number, answer: unknown, ownedUrl: string | null = U, tenant = "to", over: Partial<FunnelDeps> = {}, bodies = new Map<string, ReturnType<typeof captured>>(), budgetMs = 25_000) => { const tried: string[] = [], saved: string[][] = [], paid: string[] = [];
     const out = await winningPagesUnit({ ...store.deps, loadProfile: async () => emptyBusinessProfile(tenant), getAccount: async () => ({ domain: "own.com" } as Account), now: () => now, parse, readPageExtract: async () => null, callProvider: (async (cap: CapabilityKey) => { paid.push(cap); return ok(serp([])); }) as FunnelDeps["callProvider"],
       fetchPage: (async (url: string) => { tried.push(url); return answer; }) as unknown as FunnelDeps["fetchPage"], readOwnedBodies: (async () => bodies) as unknown as FunnelDeps["readOwnedBodies"], writeOwnedPage: async (snap, t) => { saved.push([snap.id, snap.url, t]); bodies.set(canonicalUrlKey(snap.url), captured(now)); }, ...over }, [], null, ownedUrl, null, null, ownedUrl !== null)(tenant, cur(), budgetMs);
-    return { out, tried, saved, paid, held: store.peek(tenant, BASIS)!.ownedReads }; }; it("reads the named page ONCE, persists the page snapshot itself, never pays a provider for it, and clears what stopped me last time", async () => {
-    const store = seeded([{ url: U, state: "temporarily_unavailable", attemptedAt: at(NOW - 2 * DAY), retryAfter: at(NOW - DAY) }]); const r = await run(store, NOW, page);
-    expect([r.tried, r.saved.map((s) => s.slice(1)), r.held, r.paid]).toEqual([[ABS], [[ABS, "to"]], [], []]); // one read, the canonical snapshot under my own tenant, the memory cleared, and the customer's own page never sent to a provider
+    return { out, tried, saved, paid, held: store.peek(tenant, BASIS)!.ownedReads }; }; it.each(["expired", "approved", "robots", "ordinary", "other_url", "foreign_tenant"])("rechecks only exact owner-authorized temporary holds: %s", async (mode) => {
+    const blocked = hold(U, mode === "robots" ? "robots_blocked" : "temporarily_unavailable", mode === "expired" ? -DAY : 7 * DAY), other = hold("own.com/other", "temporarily_unavailable", DAY);
+    const store = seeded([blocked, other]), work = () => run(store, NOW, page), succeeds = ["expired", "approved"].includes(mode);
+    const r = await (["expired", "ordinary"].includes(mode) ? work() : PROOF_SPEND.run(mode === "foreign_tenant" ? "foreign" : "to", 8, 2, work,
+      { maxExternalCalls: 1, maxExternalUsd: 0.4, allowedExternal: [{ capability: "onpage_rendered_html", url: mode === "other_url" ? "https://own.com/other" : ABS }] }));
+    expect([r.tried, r.saved.map((s) => s.slice(1)), r.held, r.paid]).toEqual(succeeds ? [[ABS], [[ABS, "to"]], [other], []] : [[], [], [blocked, other], []]);
+    if (mode !== "expired") return;
     expect((await run(store, NOW, page, null)).tried).toEqual([]);
     const redirected = await run(seeded([]), NOW, { ...page, finalUrl: "https://other.example/login" });
     expect([redirected.out.status, redirected.saved, redirected.paid]).toEqual(["failed", [], []]);

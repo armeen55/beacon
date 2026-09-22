@@ -1,8 +1,7 @@
 import "server-only";
-/** funnel/winning-pages (integrity closure) - THE page work of a research pass, split out of funnel/observe when that file reached its size ceiling: rank every SERP and AI appearance into winning pages, acquire the
- * bodies I am allowed to acquire under two explicit ceilings, read AT MOST ONE page of the account's OWN, and then, as a SECOND stage under a freshly renewed run lease, buy the ONE page-by-page comparison the winners
- * earned. Nothing here re-picks a topic (the caller freezes it), nothing pays twice for the same identity (the money core's cache does that), and no failed read is forgotten (every one carries its own retry date). */
+/** Rank appearances, acquire bounded winner/owned reads, then compare under a renewed lease; failures retain retry dates. */
 import { log } from "@/lib/logger";
+import { PROOF_SPEND } from "@/lib/spend-scope";
 import { reportingDay } from "@/lib/reporting-day";
 import type { BusinessProfile } from "@/domains/account";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
@@ -85,9 +84,10 @@ const OWNED_WRITE_PAUSE = "The page was read, but its contents could not be save
 /** A named debt settles only against the canonical durable capture, not a fetch or a stage transition. */
 async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageReadOutcome[], url: string,
   deadline: number, profile: BusinessProfile | null, bustedAt: string | null, state: FunnelState): Promise<OwnedRead> {
-  const now = d.now(), key = canonicalUrlKey(url), kept: OwnedPageReadOutcome[] = [], seen = new Set<string>();
+  const now = d.now(), key = canonicalUrlKey(url), kept: OwnedPageReadOutcome[] = [], seen = new Set<string>(), absolute = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+  const authorizedRetry = PROOF_SPEND.activeFor(tenantId) === true && PROOF_SPEND.externalClosed(tenantId, { capability: "onpage_rendered_html", url: absolute }) === false;
   const due = (t: string): boolean => { const ms = Date.parse(t); return !Number.isFinite(ms) || now >= ms; };
-  for (const o of held) { const k = canonicalUrlKey(o.url); if (due(o.retryAfter) || seen.has(k)) continue; seen.add(k); kept.push(o); }
+  for (const o of held) { const k = canonicalUrlKey(o.url); if (due(o.retryAfter) || seen.has(k) || (authorizedRetry && k === key && o.state === "temporarily_unavailable")) continue; seen.add(k); kept.push(o); }
   let captureProblem = false, priorWords = 0, unresolvedHash: string | null = null, latestCapture: Record<string, unknown> | null = null;
   const settled = async (): Promise<boolean> => {
     const body = await d.readOwnedBodies(tenantId, [url]).then((m) => m.get(key) ?? null).catch(() => null);
@@ -104,7 +104,6 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
   if (await settled()) return { held: kept.filter((o) => canonicalUrlKey(o.url) !== key), pause: null, acquired: true };
   // A live hold never moves merely because another pass looked at it; a full memory never evicts it.
   if (seen.has(key) || now >= deadline || kept.length >= MAX_OWNED_READS) return { held: kept, pause: null, acquired: false, attempted: false };
-  const absolute = /^https?:\/\//i.test(url) ? url : `https://${url}`;
   const remember = (state: OwnedPageReadOutcome["state"], retryMs = RETRY_MS[state]): OwnedRead => ({
     held: [{ url, ...readOutcomeAt(state, now), retryAfter: new Date(now + retryMs).toISOString() }, ...kept].slice(0, MAX_OWNED_READS), pause: null, acquired: false,
   });

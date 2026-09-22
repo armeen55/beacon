@@ -109,25 +109,17 @@ function llmDynamicEntry<K extends "llm_chatgpt" | "llm_gemini" | "llm_claude">(
   return { ttlMs: 1 * DAY, estCostUsd: 0.035, dims: { device: false, model: true }, engine, route: llmDynamicRoute(engine), normalize: llmIdentity, build, parse: parseLlmAnswer };
 }
 // ── the registry ─────────────────────────────────────────────────────────────
-/** THE ONE RESERVATION ARITHMETIC every Labs entry below rides, stated once instead of five times. The live charges on file (50 rows $0.018, 150 rows
- *  $0.02988, 1000 rows $0.132, read 2026-07-25) fit about $0.012 per request plus $0.00012 per returned row, and keywords_for_site and ranked_keywords each
- *  actually charged $0.132 against an old $0.02 estimate. Every estCostUsd here is therefore rounded UP past the worst case that endpoint can return, so the
- *  cap is never held BELOW what the provider can charge; reconcile always drops the reservation to the actual cost. */
+/** Labs receipts (2026-07-25): 50 rows $0.018, 150 $0.02988, 1000 $0.132. Reserve above observed maximum; reconcile actual cost. */
 const REGISTRY: Registry = {
   labs_keywords_for_site: labsEntry("dataforseo_labs/google/keywords_for_site/live", "target", 0.2),
-  // item_types organic ONLY, the same doc-verified field serp_competitors sends: the endpoint defaults to organic AND paid, so an ad this account bought
-  // came back as one of its own rankings and one page ranking once organically and once as an ad read as two pages, which is the whole arithmetic behind
-  // "consolidation". A bought placement is not a page that wins a search. (docs: dataforseo_labs/google/ranked_keywords/live, item_types, 2026-07-31)
+  // Organic only: paid placements are not winning pages (ranked_keywords/live docs, 2026-07-31).
   labs_ranked_keywords: labsEntry("dataforseo_labs/google/ranked_keywords/live", "target", 0.2, { item_types: ["organic"] }),
   labs_related_keywords: labsEntry("dataforseo_labs/google/related_keywords/live", "keyword", 0.2),
   labs_keyword_suggestions: labsEntry("dataforseo_labs/google/keyword_suggestions/live", "keyword", 0.2),
-  // Reserved at 0.25 on the arithmetic above (a 150-keyword call charged $0.02988, so a full 700 lands near $0.21). The CACHE LIFETIME IS THE FRESHNESS
-  // MATRIX, not a number of its own: the provider reports volume and difficulty monthly, so a seven-day ttl expired a row every side of the product still
-  // calls current and bought the identical numbers back four times a month.
+  // Reserve $0.25 for 700 keywords (~$0.21); monthly freshness follows the canonical matrix.
   labs_keyword_overview: {
     ttlMs: freshnessMsFor("keyword_volume"), estCostUsd: 0.25, dims: { device: false, model: false },
-    // Normalized BEFORE the identity, like its siblings: two orderings or casings of one keyword batch used
-    // to derive two cache identities and BUY the same rows twice (Codex, 2026-08-21).
+    // Normalize before identity so ordering and casing never buy the same batch twice.
     normalize: (i) => ({ keywords: [...new Set(i.keywords.map((k) => String(k ?? "").trim().toLowerCase()).filter(Boolean))].sort().slice(0, 700) }),
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/keyword_overview/live", getPath: null, tasksReady: null }),
     build: (i) => [{ keywords: i.keywords.slice(0, 700), location_code: LOCATION_US, language_code: LANG_EN }], parse: parseKeywords,
@@ -139,9 +131,7 @@ const REGISTRY: Registry = {
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/keyword_ideas/live", getPath: null, tasksReady: null }),
     build: (i) => [{ keywords: i.keywords.slice(0, MAX_IDEAS_SEEDS), location_code: LOCATION_US, language_code: LANG_EN, limit: Math.min(Math.max(1, Math.trunc(i.limit ?? IDEAS_DEFAULT_LIMIT)), IDEAS_MAX_LIMIT) }], parse: parseKeywords,
   },
-  // THE RECURRING WINNING DOMAINS across a case's whole keyword set, in ONE request. Its consumer is the discovery unit's competitors stage: one bounded
-  // request per case set, at most once a week per case, stored as DOMAIN evidence beside the case and never as a keyword. Reserved at 0.05, well past both
-  // the documented example cost of 0.0105 and the $0.018 the arithmetic above puts 50 rows at. (docs: serp_competitors/live, verified 2026-07-31)
+  // Weekly domain evidence per case's keyword set; reserve $0.05 above the documented $0.0105 example (serp_competitors/live, 2026-07-31).
   labs_serp_competitors: {
     ttlMs: 7 * DAY, estCostUsd: 0.05, dims: { device: false, model: false },
     // Normalized BEFORE the identity, like keyword_ideas: the provider lowercases the keywords itself, so two orderings of one set never derive two identities.
@@ -154,8 +144,7 @@ const REGISTRY: Registry = {
     },
     parse: parseSerpCompetitors,
   },
-  // Never bought here yet, so it rides the arithmetic above: reserved at 0.2, past the largest Labs live charge on file. ONE request carries the WHOLE page
-  // set, never one per page.
+  // One request for the whole page set; reserve $0.2 above the largest observed Labs charge.
   labs_page_intersection: {
     ttlMs: 7 * DAY, estCostUsd: 0.2, dims: { device: false, model: false }, normalize: normalizePageIntersection,
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/page_intersection/live", getPath: null, tasksReady: null }),
@@ -182,7 +171,28 @@ const REGISTRY: Registry = {
     // JS pricing: $0.0015/page (DataForSEO OnPage pricing, 2026-09-22); reserve above it.
     build: (i) => [{ url: i.url, enable_javascript: true, enable_xhr: true, return_despite_timeout: false,
       accept_language: LANG_EN, ip_pool_for_scan: "us",
-      custom_js: "(function () { var root = document.documentElement.cloneNode(true); var nodes = root.querySelectorAll('script:not([type=\"application/ld+json\"]),style'); for (var i = nodes.length - 1; i >= 0; i--) { nodes[i].parentNode.removeChild(nodes[i]); } var html = root.outerHTML; return { url: document.URL, readyState: document.readyState, capturedAt: new Date().toISOString(), html: html.length <= 2000000 ? html : null }; })()" }],
+      custom_js: String.raw`(function () {
+        var root = document.documentElement.cloneNode(true), nodes = root.querySelectorAll('script,style,svg,template,iframe,noscript');
+        for (var i = nodes.length - 1; i >= 0; i--) {
+          var node = nodes[i];
+          if (node.tagName.toLowerCase() !== 'script' || (node.getAttribute('type') || '').trim().toLowerCase() !== 'application/ld+json') node.parentNode.removeChild(node);
+        }
+        nodes = root.querySelectorAll('*');
+        var keep = /^(id|class|href|rel|name|content|alt|hidden|aria-.+|role|itemprop|itemscope|itemtype|itemid|itemref|lang|dir|title|type|colspan|rowspan|headers|scope|start|reversed|value|datetime)$/i;
+        for (i = nodes.length - 1; i >= -1; i--) {
+          node = i < 0 ? root : nodes[i];
+          for (var j = node.attributes.length - 1; j >= 0; j--) {
+            var attribute = node.attributes[j], name = attribute.name;
+            if (name === 'style') {
+              var visibility = attribute.value.match(/(?:^|;)\s*(?:display|visibility)\s*:[^;]*/gi);
+              if (visibility) node.setAttribute(name, visibility.join(';')); else node.removeAttribute(name);
+            } else if (!keep.test(name)) node.removeAttribute(name);
+          }
+        }
+        var result = { url: document.URL, readyState: document.readyState, capturedAt: new Date().toISOString(), html: root.outerHTML, complete: true };
+        if (JSON.stringify(result).length > 100000) { result.html = null; result.complete = false; }
+        return result;
+      })()` }],
     parse: parseRenderedHtml,
   },
   serp_organic: serpEntry("serp/google/organic", 0.0021, SERP_DEPTH),
@@ -222,8 +232,7 @@ export async function providerCall<K extends CapabilityKey>(
     modelRequested = resolution.model;
   }
   const route = entry.route(resolution);
-  // The canonical ask is what gets built AND what gets keyed, so a reordered set or an omitted default can never derive a second identity for one and the
-  // same request.
+  // Build and key the same normalized request.
   const ask = (entry.normalize ? entry.normalize(input) : input) as CapabilityInputByKey[K];
   let payload: unknown[];
   try {
@@ -256,8 +265,7 @@ export async function keywordIdeasBatched(
 ): Promise<CachedCallResult[]> {
   const cleaned = [...new Set((seeds ?? []).map((s) => String(s ?? "").trim().toLowerCase()).filter(Boolean))].sort();
   const out: CachedCallResult[] = [];
-  // NORMALIZE THE ASK BEFORE IT BECOMES AN IDENTITY: an omitted limit, an explicit 700 and a 5000 all build ONE request, so keying on the raw ask bought
-  // identical rows three times.
+  // Normalize default and oversized limits before deriving cache identity.
   const asked = Math.min(Math.max(1, Math.trunc(limit ?? IDEAS_DEFAULT_LIMIT)), IDEAS_MAX_LIMIT);
   for (let i = 0; i < cleaned.length; i += MAX_IDEAS_SEEDS) {
     const input = { keywords: cleaned.slice(i, i + MAX_IDEAS_SEEDS), limit: asked };
@@ -304,8 +312,7 @@ export async function resolveEngineModel(engine: LlmEngine, deps: FunnelBoundary
   const cacheKey = "dfsmodels_" + sha256(path).slice(0, 32);
   const now = d.now();
   let envelope: ProviderEnvelope | null = null;
-  // A read FAILURE is not an absent row: our records are down, so fail closed here and make ZERO provider calls (not even the free models GET) rather than
-  // walk on toward a paid one. An ABSENT row is a real miss and does fetch the free list.
+  // Store failure closes spending, including free models GET; a confirmed cache miss may fetch.
   let row: Awaited<ReturnType<typeof d.cacheRead>>;
   try { row = await d.cacheRead(cacheKey); } catch { return null; }
   if (row && row.status === "ready" && row.payload != null && Date.parse(row.expires_at) > now.getTime()) {
@@ -321,8 +328,7 @@ export async function resolveEngineModel(engine: LlmEngine, deps: FunnelBoundary
       }).catch(() => {});
     }
   }
-  // Configured + live but the list is unavailable -> FAIL CLOSED (null). providerCall turns a null resolution into a bounded no-model result and never posts
-  // anything.
+  // Missing live model list fails closed: providerCall refuses a null resolution without posting.
   if (!envelope) return null;
   return selectResolution(modelObjects(envelope));
 }
@@ -378,8 +384,7 @@ function parseSerp(env: ProviderEnvelope): ParsedSerp {
   const organic = items.filter((i) => i.type === "organic").map((i) => ({ // rank_group IS the organic position; rank_absolute counts ads and packs, so it read result 1 as "#2"
     rank: Number(i.rank_group ?? i.rank_absolute ?? 0), domain: String(i.domain ?? ""), url: String(i.url ?? ""), title: str(i.title), snippet: cut(i.description ?? i.snippet, SNIPPET_MAX),
   }));
-  // WHAT THE PAGE IS SHAPED LIKE, WHO HOLDS ITS ANSWER BOX, and WHAT THAT BOX SAYS. All three are in every payload already bought; the parser dropped them, so nothing downstream could see that a search HAS a featured
-  // snippet, let alone read it. A PAYLOAD THAT NEVER LISTED ITS BLOCKS PROVES NO ABSENCE: item_types reads null there, and the snippet is left ABSENT rather than reported as a page that has none.
+  // Preserve SERP structure and snippet ownership; unreported blocks stay unknown, never absent.
   const itemTypes = Array.isArray(result0?.item_types) ? (result0!.item_types as unknown[]).map((t) => String(t)).filter(Boolean) : null;
   const snip = items.find((i) => i.type === "featured_snippet");
   const featuredSnippet = snip ? { url: String(snip.url ?? ""), domain: String(snip.domain ?? hostname(String(snip.url ?? ""))), title: str(snip.title), text: cut(snip.description ?? snip.text, ANSWER_MAX) } : itemTypes == null ? undefined : null;
@@ -406,9 +411,7 @@ function parseLlmAnswer(env: ProviderEnvelope): ParsedAiAnswer {
       if (sec.type === "text" && typeof sec.text === "string") texts.push(sec.text);
       if (!Array.isArray(sec.annotations)) continue;
       citations = citations ?? [];
-      // AN ANNOTATION KNOWS WHICH WORDS IT BACKS. The documented shape carries start_index, end_index and
-      // the passage text beside the url, and dropping them meant the exact sentence a source stood behind
-      // had to be guessed back out of the answer later. Kept where sent, absent where not.
+      // Preserve provider-reported annotation offsets and passage text; never infer missing values.
       for (const a of sec.annotations as Record<string, unknown>[]) {
         const url = String(a.url ?? "");
         if (!url) continue;
@@ -439,9 +442,9 @@ function parseScraper(env: ProviderEnvelope): ParsedAiAnswer {
 /** Completed DOM observation, not proof that every delayed application request finished. */
 function parseRenderedHtml(env: ProviderEnvelope): ParsedByCapability["onpage_rendered_html"] {
   const { result0, items } = resultBlock(env), item = items[0];
-  const dom = item?.custom_js_response as { html?: unknown; url?: unknown; readyState?: unknown; capturedAt?: unknown } | undefined;
+  const dom = item?.custom_js_response as { html?: unknown; url?: unknown; readyState?: unknown; capturedAt?: unknown; complete?: unknown } | undefined;
   if (result0?.crawl_progress !== "finished" || item?.status_code !== 200 || item?.custom_js_client_exception
-    || dom?.readyState !== "complete" || typeof dom.html !== "string" || !dom.html.trim() || dom.html.length > 2_000_000
+    || dom?.readyState !== "complete" || (dom.complete !== undefined && dom.complete !== true) || typeof dom.html !== "string" || !dom.html.trim() || JSON.stringify(dom).length > 100_000
     || typeof dom.url !== "string" || !/^https?:\/\//i.test(dom.url)
     || typeof dom.capturedAt !== "string" || !Number.isFinite(Date.parse(dom.capturedAt))) throw new Error("rendered document unavailable or incomplete");
   return { html: dom.html, url: dom.url, httpStatus: 200, capturedAt: dom.capturedAt };
@@ -475,8 +478,7 @@ function arrStr(v: unknown): string[] | null { return Array.isArray(v) ? v.map((
 function links(v: unknown): { url: string; domain: string; title: string | null }[] | null {
   return Array.isArray(v) ? (v as Record<string, unknown>[]).map((s) => { const url = String(s.url ?? ""); return { url, domain: String(s.domain ?? hostname(url)), title: str(s.title) }; }).filter((c) => c.url.length > 0) : null;
 }
-/** The brands the answer named itself, read whether the provider sent objects with a title or plain strings. An observed empty list is []; a list whose
- *  every element is unreadable is NULL: "I do not know which brands it named" and "it named none" are different claims. */
+/** Brands may be objects or strings; observed empty is [], entirely unreadable is null. */
 function brandTitles(v: unknown): string[] | null {
   if (!Array.isArray(v)) return null;
   const titles = v.map((b) => (typeof b === "string" ? str(b) : str((b as Record<string, unknown> | null)?.title))).filter((t): t is string => t != null);
