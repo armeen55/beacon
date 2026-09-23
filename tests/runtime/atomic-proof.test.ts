@@ -9,7 +9,7 @@ type Deps = NonNullable<Parameters<typeof atomicProof.finishPage>[1]>;
 const template = { id: input.proposalId, tenantId, basis: "basis", pageUrl: "kiln.example/studio-kilns", primaryQuery: "studio kilns", workKey: "kiln-work", status: "needs_review", changeFamily: "answer_block", limitations: [], recommendedChange: { kind: "existing_edit", field: "section", after: "original" } } as unknown as ChangeProposal;
 const produced = (rows: ChangeProposal[]) => ({ proposals: rows, outcome: "proposals_persisted", paid: { receipts: [], evidenceOwed: [] }, held: [] }) as unknown as Awaited<ReturnType<typeof produceProposalsForTenant>>;
 describe("one paused page proof uses canonical production without renewing its budget", () => {
-  it.each(["ready", "meta_ready", "authorized", "authorized_used", "malformed_authorization", "provider_missing", "old_ready", "foreign", "wrong_site", "capture_failed", "no_wire", "ambiguous", "unqualified", "admission_used", "boxed", "unreadable", "failed_gsc", "failed_pages", "failed_snapshot", "source_ready", "source_unused", "source_failed", "source_mismatch", "source_foreign", "source_deadline", "source_repeat", "source_paused", "source_providerheld", "source_work_changed"])("reports %s from durable readback and keeps paid admission", async (outcome) => {
+  it.each(["ready", "meta_ready", "authorized", "authorized_used", "malformed_authorization", "provider_missing", "old_ready", "foreign", "wrong_site", "capture_failed", "no_wire", "ambiguous", "unqualified", "admission_used", "boxed", "unreadable", "failed_gsc", "failed_pages", "failed_snapshot", "preferred_missing", "exact_owed", "source_ready", "source_unused", "source_failed", "source_mismatch", "source_foreign", "source_deadline", "source_repeat", "source_paused", "source_providerheld", "source_work_changed"])("reports %s from durable readback and keeps paid admission", async (outcome) => {
     const candidate = structuredClone(template); if (outcome === "meta_ready") Object.assign(candidate, { changeFamily: "meta", recommendedChange: { kind: "existing_edit", field: "meta", before: "Wrong subject", after: "Right subject" } }); const ready = { ...candidate, status: "ready" } as ChangeProposal;
     const source = outcome.startsWith("source_"), rivalUrl = "https://authority.example/kilns";
     const need = { kind: "factual_source" as const, key: DRAFT_BUDGET.keyOf(candidate), query: candidate.primaryQuery, url, proposalId: candidate.id, unlocks: { proposalId: candidate.id, step: "draft" as const }, workKey: candidate.workKey!, reason: "missing comparison", reasonCode: "source_support_unconfirmed" as const, missingTopic: "kiln insulation", rivalUrl, rivalUrls: [rivalUrl], delivery: "existing_page_edit" as const };
@@ -35,7 +35,7 @@ describe("one paused page proof uses canonical production without renewing its b
       expect([options.focusPage, options.preferred, options.deliveryScope, options.maxDrafts]).toEqual([url, { proposalId: candidate.id, workKey: candidate.workKey, strict: true }, "existing_page_edits", 1]);
       paid += 1;
       expect([options.maxCalls, options.aeoDiagnoses, options.persist]).toEqual([paid === 1 ? 8 : 6, paid === 1 ? 1 : 0, true]);
-      expect(PROOF_SPEND.authorize(tenantId, "model", 0.1)).toBe(false);
+      if (!["preferred_missing", "exact_owed"].includes(outcome)) expect(PROOF_SPEND.authorize(tenantId, "model", 0.1)).toBe(false);
       if (source) {
         if (paid === 1) { options.shared!.set("evidence:old", true); options.shared!.set("cards:old", true); options.shared!.set("account:kept", true); }
         else expect([...options.shared!.keys()]).toEqual(["account:kept"]);
@@ -44,10 +44,10 @@ describe("one paused page proof uses canonical production without renewing its b
         out.paid.receipts = [{ key: need.key, funded: true, family: "editor", treatment: null, impact: 1, allowance: 1, fallbacks: [], workKey: need.workKey, ops: 1, providerCalls: 1, costUsd: 0.1, ms: 0, providerAttempted: true, outcome: outcome === "source_providerheld" ? "provider_blocked" : "evidence_required", persistence: null }];
         return out;
       }
-      return produced([outcome === "foreign" ? { ...ready, id: "other::section", tenantId: "other" } : ready]);
+      if (["preferred_missing", "exact_owed"].includes(outcome)) { const out = produced([candidate]); if (outcome === "preferred_missing") out.paid.preferredRetiredReason = "missing"; else { out.paid.preferredWorkKey = candidate.workKey; out.paid.receipts = [{ key: DRAFT_BUDGET.keyOf(candidate), family: "editor", workKey: candidate.workKey!, providerCalls: 0, costUsd: 0, outcome: "evidence_required" } as typeof out.paid.receipts[number]]; out.paid.evidenceOwed = [{ kind: "serp", key: DRAFT_BUDGET.keyOf(candidate), query: "named source", proposalId: candidate.id, workKey: candidate.workKey!, reason: "private planning detail", reasonCode: "no_winner_to_read", delivery: "existing_page_edit" }]; } return out; } return produced([outcome === "foreign" ? { ...ready, id: "other::section", tenantId: "other" } : ready]);
     });
     const deps: NonNullable<Parameters<typeof atomicProof.finishPage>[1]> = {
-      permission: async () => acquired && outcome === "source_paused" ? "running" : "paused", providerConfigured: () => outcome !== "provider_missing", load: async () => source ? paid === 2 && outcome === "source_ready" ? ready : candidate : paid ? outcome === "unqualified" ? candidate : ready : candidate,
+      permission: async () => acquired && outcome === "source_paused" ? "running" : "paused", providerConfigured: () => outcome !== "provider_missing", load: async () => source ? paid === 2 && outcome === "source_ready" ? ready : candidate : paid ? ["unqualified", "preferred_missing", "exact_owed"].includes(outcome) ? candidate : ready : candidate,
       snapshot: async () => {
         expect(PROOF_SPEND.activeFor(tenantId)).toBe(false); if (outcome === "boxed") clock += 150_000;
         if (outcome === "failed_snapshot") throw new Error("snapshot unavailable");
@@ -57,7 +57,7 @@ describe("one paused page proof uses canonical production without renewing its b
       basis: async () => "account-basis",
       list: async () => { if (outcome === "unreadable") throw new Error("store unavailable"); return new Map([[candidate.id, outcome === "old_ready" ? ready : candidate]]); },
       delivery: () => "existing_page_edit", version: (row) => JSON.stringify(row.recommendedChange), substantive: () => true,
-      acceptable: (row) => row?.status === "ready", bodies: async () => new Map(), clock: () => clock,
+      acceptable: (row) => row?.status === "ready", bodies: async () => ["preferred_missing", "exact_owed"].includes(outcome) ? new Map([["kiln.example/studio-kilns", { version: "current", completeness: "complete", contentHash: "current-hash", fetchedAt: new Date(clock).toISOString() }]]) as Awaited<ReturnType<NonNullable<Deps["bodies"]>>> : new Map(), clock: () => clock,
       acquire, produce,
       spend: { reserve, claimTransmission: claim, release, reconcile } as unknown as NonNullable<Parameters<typeof atomicProof.finishPage>[1]>["spend"],
     }; if (outcome === "meta_ready") delete deps.substantive;
@@ -71,13 +71,13 @@ describe("one paused page proof uses canonical production without renewing its b
       expect(result.evidenceOwed).toHaveLength(outcome === "source_ready" ? 0 : 1);
       expect(reconcile).toHaveBeenCalledTimes(1); expect(release).not.toHaveBeenCalled(); return;
     }
-    expect(result.success).toBe(["ready", "meta_ready", "authorized"].includes(outcome));
+    expect(result.success).toBe(["ready", "meta_ready", "authorized"].includes(outcome)); if (["preferred_missing", "exact_owed"].includes(outcome)) expect([result.preferredRetiredReason, result.preferredOutcome, result.captured, result.allowance?.modelCalls, result.allowance?.externalCalls]).toEqual([outcome === "preferred_missing" ? "missing" : undefined, outcome === "exact_owed" ? "evidence_required" : null, true, 0, 0]);
     expect(produce).toHaveBeenCalledTimes(["wrong_site", "capture_failed", "no_wire", "ambiguous", "admission_used", "authorized_used", "malformed_authorization", "provider_missing", "boxed", "unreadable"].includes(outcome) || outcome.startsWith("failed_") ? 0 : 1);
     if (["admission_used", "authorized_used", "malformed_authorization", "provider_missing", "boxed", "wrong_site", "unreadable"].includes(outcome) || outcome.startsWith("failed_")) {
       expect(acquire).not.toHaveBeenCalled(); expect(claim).not.toHaveBeenCalled();
       if (["malformed_authorization", "provider_missing"].includes(outcome)) expect(reserve).not.toHaveBeenCalled();
       if (outcome === "authorized_used") expect((reserve.mock.calls[0]?.[0] as { logicalKey: string }).logicalKey).toBe(`page-proof-v3::kiln::kiln.example/studio-kilns::basis::operator:${AUTH.toLowerCase()}`);
-    } else if (outcome === "no_wire") {
+    } else if (["no_wire", "preferred_missing", "exact_owed"].includes(outcome)) {
       expect(release).toHaveBeenCalledWith("admission", true); expect(reconcile).not.toHaveBeenCalled();
     } else {
       expect(release).not.toHaveBeenCalled(); expect(reconcile).toHaveBeenCalled();

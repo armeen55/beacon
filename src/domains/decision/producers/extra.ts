@@ -17,6 +17,7 @@ import proposalSeats from "../proposal-seats";
 import { RECEIPT } from "../diagnose";
 import { demandOf, placementCandidatesOf, winnersAgreeOn } from "../drafted-copy";
 import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
+import { GAIN } from "../draft-resolution";
 import { selectPageVersion } from "@/domains/evidence/pages/page-version";
 import { count, labelOf, mint, pathOf, plain,
   STOREFRONT, subjectWords, type Draft, type Understanding } from "./page-fit";
@@ -129,15 +130,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     return shops.some((d) => STORE_FIRST.test(d)) || shops.length >= 2;
   };
   const out: Draft[] = [];
-  const wrongSubject = (p: OwnedPageEvidence): { before: string; named: string; actual: string } | null => {
-    const b = bodies.get(canonicalUrlKey(p.url));
-    if (!b || b.version !== "current" || b.completeness !== "complete" || b.sourceCapture?.complete !== true || !isCurrent("owned_page", b.fetchedAt, now.getTime())) return null;
-    const actual = (b.h1 ?? "").replace(/\s*\([^)]*\).*/, "").trim(), title = (b.title ?? "").toLowerCase(), before = (b.metaDescription ?? "").trim();
-    const named = /^([^:]{5,80}):/.exec(before)?.[1]?.replace(/\s+(?:in|of|for)\s+.+$/i, "").trim() ?? "";
-    const words = (s: string): string[] => s.toLowerCase().match(/[a-z]{3,}/g) ?? [], a = words(actual), n = words(named), bodyText = b.passages.join(" ").toLowerCase();
-    return a.length >= 2 && n.length >= 2 && a.at(-1) === n.at(-1) && a[0] !== n[0] && title.includes(actual.toLowerCase()) && bodyText.includes(actual.toLowerCase()) && !bodyText.includes(named.toLowerCase()) && !bodyText.includes(n[0]!) ? { before, named, actual } : null;
-  };
-  const wrong = new Map(rank(pages).flatMap((p) => { const proof = wrongSubject(p); return proof ? [[canonicalUrlKey(p.url), proof] as const] : []; }));
+  const wrong = new Map(rank(pages).flatMap((p) => { const proof = GAIN.wrongSubject(p, bodies.get(canonicalUrlKey(p.url)), now); return proof ? [[canonicalUrlKey(p.url), proof] as const] : []; }));
   for (const p of rank(pages.filter((p) => wrong.has(canonicalUrlKey(p.url))))) { const proof = wrong.get(canonicalUrlKey(p.url))!;
     out.push({ page: p, slug: "missing_description", field: "meta", query: topQueryOf(p), before: proof.before,
       headline: `Correct the search description that names ${proof.named} instead of ${proof.actual}`,

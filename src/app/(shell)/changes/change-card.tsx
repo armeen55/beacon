@@ -171,7 +171,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
       {onPick ? <label className="ml-1 mt-1 flex min-h-11 min-w-11 shrink-0 items-center justify-center"><input type="checkbox" data-pick-done="true" checked={picked ?? false} onChange={() => onPick(proposal.id)} aria-label={`Select ${pageTitle} for the batch`} className="h-5 w-5 accent-accent-primary" /></label> : null}
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
         className="flex w-full items-start gap-3 p-4 text-left">
-        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-accent-primary/10 text-[12px] font-bold text-accent-primary ring-1 ring-accent-primary/20" title={proposal.whyRankedAboveNext ?? undefined}><span className="tabular-nums" data-change-rank={rank}>{rank}</span></span>
+        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-accent-primary/10 text-[12px] font-bold text-accent-primary ring-1 ring-accent-primary/20" title={proposal.whyRankedAboveNext ? `Full ranked backlog: ${proposal.whyRankedAboveNext}` : undefined}><span className="tabular-nums" data-change-rank={rank}>{rank}</span></span>
         <span className="flex-1 space-y-1">
           <span className="flex flex-wrap items-center gap-2">
             <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${isNew || parts > 1 ? "bg-accent-primary/15 text-accent-primary" : "bg-surface-inset text-muted-foreground"}`}>
@@ -278,7 +278,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
         ) : null}
         {proposal.whyRankedAboveNext ? (
           <p className="text-[12px] leading-relaxed text-muted-foreground" data-why-ranked="true">
-            <span className="font-semibold text-foreground">Why it is above the next change:</span> {proposal.whyRankedAboveNext}
+            <span className="font-semibold text-foreground">Why this ranks above the next opportunity in the full backlog:</span> {proposal.whyRankedAboveNext}
           </p>
         ) : null}
 

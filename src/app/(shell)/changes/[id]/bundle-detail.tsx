@@ -115,7 +115,7 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
         {livePageHref ? <a href={livePageHref} target="_blank" rel="noreferrer"
           className="inline-flex min-h-11 items-center text-[12px] font-semibold text-accent-primary underline underline-offset-2">Open live page ↗</a> : null}
         <p className="text-[13px] leading-relaxed text-muted-foreground">{proposal.whyItMatters}</p>
-        {proposal.whyRankedAboveNext ? <p className="text-[12px] leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">Why this is above the next change:</span> {proposal.whyRankedAboveNext}</p> : null}
+        {proposal.whyRankedAboveNext ? <p className="text-[12px] leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">Why this ranks above the next opportunity in the full backlog:</span> {proposal.whyRankedAboveNext}</p> : null}
         <p className="text-[12px] capitalize text-muted-foreground">About {proposal.estimatedEffortMinutes} min · {proposal.confidence} confidence · {proposal.riskLevel} risk</p>
         {bundle.risks.length > 0 ? <div className="space-y-1 border-t border-border pt-3"><Heading>Risks to read before copying</Heading><Bullets items={bundle.risks} /></div> : null}
       </section>

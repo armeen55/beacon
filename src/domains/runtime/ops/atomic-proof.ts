@@ -79,6 +79,7 @@ async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS>
   let acquisition: Awaited<ReturnType<typeof defaultSteps.acquireEvidence>> | null = null;
   const receipts: Awaited<ReturnType<typeof produceProposalsForTenant>>["paid"]["receipts"][number][] = [], shared = new Map<string, unknown>();
   const result = (success: boolean, reason: string) => ({ success, proposalId: stored?.id ?? proposalId, reason, stored, captured, allowance, acquisition,
+    preferredRetiredReason: output?.paid.preferredRetiredReason, preferredOutcome: output?.paid.receipts.find((r) => r.family === "editor" && !!output?.paid.preferredWorkKey && r.workKey === output?.paid.preferredWorkKey)?.outcome ?? null,
     meter: output ? receipts.reduce((m, r) => ({ providerCalls: m.providerCalls + r.providerCalls, costUsd: m.costUsd + r.costUsd }), { providerCalls: 0, costUsd: 0 }) : null,
     evidenceOwed: output?.paid.evidenceOwed ?? [], held: output?.held ?? [] });
   if (!tenantId || !currentBasis || !proposalId.startsWith(`${tenantId}::`) || input.maxOpenAiCalls !== 8 || input.maxOpenAiUsd !== 2

@@ -380,8 +380,20 @@ export async function finishOneProposalAction(args: { proposalId: string; prepar
       if (result.success) return { success: true, note: `A finished edit on this page is ready in Changes. Nothing was published.${receipt}` };
       if (result.reason === "openai_not_configured_in_this_runtime") return { success: false, error: "The writing service is not configured in this runtime. No finishing attempt or paid request was used." };
       if (["proof_admission_replayed", "proof_admission_resumed"].includes(result.reason)) return { success: false, error: "This page version already used its finishing attempt. No new provider request was authorized. Its saved work and receipts remain intact; research stays paused." };
-      const owed = result.evidenceOwed?.[0], detail = owed ? ` Still needs ${owed.kind.replaceAll("_", " ")} for “${owed.query}”.` : "";
-      return { success: false, error: `This attempt did not produce a finished edit. Any collected evidence and unfinished copy remain saved.${detail}${receipt} Research stays paused.` };
+      const owed = result.evidenceOwed?.find((need) => need.proposalId === result.proposalId || need.unlocks?.proposalId === result.proposalId);
+      const refusal = result.preferredRetiredReason === "missing" ? "The current page plan no longer includes this exact edit."
+        : result.preferredRetiredReason === "blocked" ? "The exact edit is held by a current evidence or safety requirement."
+        : result.preferredRetiredReason === "settled" ? "This exact work was already settled on unchanged evidence."
+        : result.preferredRetiredReason === "out_of_scope" ? "This edit now needs whole-page delivery, which this focused action cannot finish."
+        : result.preferredOutcome === "evidence_required" || owed ? "The exact edit still needs its named evidence before writing can finish."
+        : result.preferredOutcome === "review_saved" ? "The exact edit was saved for review and is not yet copy-ready."
+        : result.preferredOutcome === "not_reached" ? "This run ended before the exact edit began."
+        : result.preferredOutcome === "deterministic_refusal" ? "The exact edit failed a current copy or safety check."
+        : "This attempt did not produce a finished edit.";
+      const detail = owed ? ` Still needs ${owed.kind.replaceAll("_", " ")} for “${owed.query}”.` : "";
+      const capture = result.captured ? " A complete current page capture was confirmed." : result.reason.startsWith("owned_capture_owed:") ? " A complete current page capture is still needed." : "";
+      const calls = a?.modelCalls === 0 && a.externalCalls === 0 ? " This focused run made 0 provider calls." : "";
+      return { success: false, error: `${refusal} Any collected evidence and unfinished copy remain saved.${capture}${detail}${calls}${receipt} Research stays paused.` };
     }
     const result = await atomicProof.run({ tenantId, proposalId: args.proposalId, currentBasis: await resolveCurrentBasis(tenantId), maxOpenAiCalls: 1, maxOpenAiUsd: 0.05 });
     const receipt = { providerCalls: result.meter?.providerCalls ?? 0, costUsd: result.meter?.costUsd ?? 0 };

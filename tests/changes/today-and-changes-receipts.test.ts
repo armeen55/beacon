@@ -94,23 +94,24 @@ describe("what a card says after a batch press, and what it says when it cannot 
     const waiting = (input: string) => proposal({ status: "needs_review", riskLevel: "low", rankingReceipt: { ...proposal().rankingReceipt!, factors: [...proposal().rankingReceipt!.factors, { name: "readiness", input, contribution: 0, max: 0 }] } });
     const held = await card(waiting("a source reading is owed before these words can be written"), { review: true });
     expect(held.includes("A source reading is owed before these words can be written."), "an operator looking at a card ranked above smaller finished work is told it is waiting on a reading, not on them").toBe(true);
-    expect((await card(atomic(), {})).includes("data-waiting-on"), "and finished work ready to make today waits on nothing, so it says nothing").toBe(false);});});
+    expect((await card(atomic(), {})).includes("data-waiting-on"), "and finished work ready to make today waits on nothing, so it says nothing").toBe(false);});
+  it("labels the next global opportunity without implying another Ready card", async () => {
+    const row = atomic(), view = viewOf([row]); row.whyRankedAboveNext = 'Ranked ahead of the change for seven in farsi because more is riding on it.';
+    const list = await renderList({ ...view, summary: { ...view.summary, todo: 20, research: 128 } }), detail = await renderDetail(row);
+    for (const html of [list, detail]) expect([html.includes("next opportunity in the full backlog"), html.includes("seven in farsi"), html.includes("above the next change")]).toEqual([true, true, false]);
+    expect([list.includes("20 changes have draft copy"), list.includes("128 opportunities do not yet have a finished change"), list.includes("Why this ranks here:")]).toEqual([true, true, true]); });});
 describe("a card says why this opportunity and why these words, and never trades one for the other", () => {
   const P = (over: Partial<ChangeProposal>): ChangeProposal => ({ ...proposal(), status: "ready", bundle: undefined, claims: undefined, supportFacts: undefined, ...over } as ChangeProposal);
-
   it("a claim shows the evidence IT names and never another claim's source", () => {
     const r = proofOf(P({ claims: [{ text: "The flag changed in July 1980.", supportedBy: ["fact-1"] }, { text: "The Lion and Sun is older.", supportedBy: ["owned-page-1"] }],
       supportFacts: [{ id: "fact-1", fact: "Wikipedia, Flag of Iran: adopted 1980." }, { id: "owned-page-1", fact: "/iran-flags: standardised under the Pahlavi era." }] }));
     expect(r.wording).toEqual([{ claim: "The flag changed in July 1980.", because: ["Wikipedia, Flag of Iran: adopted 1980."] }, { claim: "The Lion and Sun is older.", because: ["/iran-flags: standardised under the Pahlavi era."] }]);
     expect(JSON.stringify(r.wording)).not.toContain("30,423");
     expect(proofOf(P({ claims: [{ text: "x", supportedBy: ["page-copy-9"] }], supportFacts: [] })).wording).toEqual([]); });
-
-
   it("evidence that disagrees is stated as a limit and never upgraded into confidence about the words", () => {
     const r = proofOf(P({ limitations: ["Two sources give different dates for the 1980 change."] }));
     expect(r.limits).toContain("Two sources give different dates for the 1980 change.");
     expect(JSON.stringify(r)).not.toContain("agree"); });
-
   it("body narration owes contextual acceptance rather than an arranging-verb rejection", async () => {
     const { reviewFinishedCopy } = await import("@/domains/decision/drafted-copy");
     const { openHold } = await import("@/domains/decision/completeness");
@@ -123,7 +124,6 @@ describe("a card says why this opportunity and why these words, and never trades
     const { staleCopyReasons } = await import("@/domains/decision/drafted-copy"), after = "Shoma is the deferential or formal you, and to is the familiar or intimate you.\n- shoma: deferential or formal you";
     expect(staleCopyReasons({ ...proposal(), bundle: undefined, recommendedChange: { kind: "existing_edit", field: "section", before: null, after }, claims: [{ text: after, supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: after }] } as ChangeProposal, new Map(), []).join(" ")).toContain("says the same thing twice");
   });
-
   it("a replacement names what it removes, and a lost link refuses Ready outright", async () => {
     const P = (before: string | null, after: string) => ({ ...proposal(), status: "ready", bundle: undefined,
       claims: [{ text: "Persian statements.", supportedBy: ["f1"] }], supportFacts: [{ id: "f1", fact: "banked." }],
