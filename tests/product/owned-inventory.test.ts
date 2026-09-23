@@ -1,38 +1,35 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"; import { createHash } from "node:crypto";
-const db = vi.hoisted(() => ({ owned: [] as Record<string, unknown>[], snaps: [] as Record<string, unknown>[], missing: "", fails: false, client: {} as Record<string, unknown> }));
+const db = vi.hoisted(() => ({ owned: [] as Record<string, unknown>[], snaps: [] as Record<string, unknown>[], blobs: [] as Record<string, unknown>[], missing: "", fails: false, client: {} as Record<string, unknown> }));
 const FRESH = { crawl_state: "uncrawled", completeness: "missing", is_canonical_target: true, http_status: null, last_crawled_at: null, status_reconfirmed_at: null, content_hash: null, blocked_until: null, redirects_to: null };
 vi.mock("@/lib/persistence/supabase", async (o) => ({ ...((await o()) as object), getSupabaseAdmin: () => db.client }));
-import { discoverUrls, runInProcessColdStartScan, MAX_DISCOVERED_URLS } from "@/domains/evidence/scanning/in-process-scan"; import { completenessOf, runCrawlBatch, type CrawlFrontierState } from "@/domains/evidence/scanning/crawl-frontier";
+import { discoverUrls, runInProcessColdStartScan, MAX_DISCOVERED_URLS } from "@/domains/evidence/scanning/in-process-scan"; import { completenessOf, loadCrawlFrontier, runCrawlBatch, startColdStartCrawl, type CrawlFrontierState } from "@/domains/evidence/scanning/crawl-frontier";
 import { markBlocked, markCrawled, nextCrawlCandidates, readInventory, upsertDiscovery } from "@/domains/evidence/scanning/owned-pages-store";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor"; import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context"; import { pageContains } from "@/domains/evidence/pages/page-version";
 import { supabaseFake } from "../helpers/supabase-fake";
-Object.assign(db.client, supabaseFake({ rows: (t) => (t === "owned_pages" ? db.owned : db.snaps),
+Object.assign(db.client, supabaseFake({ rows: (t) => (t === "owned_pages" ? db.owned : t === "json_store_blobs" ? db.blobs : db.snaps),
   error: (t) => (db.missing === t || db.fails ? { code: db.fails ? "500" : "PGRST205", message: "Could not find the table" } : null),
-  same: (stored, sent) => stored.tenant_id === sent.tenant_id && stored.url === sent.url,
+  same: (stored, sent) => sent.scope_key ? stored.scope_key === sent.scope_key : stored.tenant_id === sent.tenant_id && stored.url === sent.url,
   insertDefaults: () => ({ ...FRESH, first_seen: new Date().toISOString(), last_seen_in_discovery: new Date().toISOString() }) }));
 const T = "tenant-own", OTHER = "tenant-other", NOW = new Date("2026-08-03T00:00:00.000Z"), asked: string[] = [];
 const at = (days: number) => new Date(NOW.getTime() + days * 86_400_000);
-const serve = (map: Record<string, string>) => (async (u: string) => (asked.push(String(u)), map[String(u)] == null
-  ? { ok: false, status: 404, text: async () => "" } : { ok: true, status: 200, url: String(u), text: async () => map[String(u)] })) as unknown as typeof fetch;
+const serve = (map: Record<string, string>) => (async (u: string) => { const url = String(u), body = map[url]; asked.push(url);
+  return new Response(body ?? "", { status: body == null ? 404 : 200, headers: { "content-type": url.endsWith("robots.txt") ? "text/plain" : url.endsWith(".xml") ? "application/xml" : "text/html" } }); }) as unknown as typeof fetch;
 const urlset = (u: string[]) => `<urlset>${u.map((x) => `<url><loc>${x}</loc></url>`).join("")}</urlset>`;
 const index = (k: string[]) => `<sitemapindex>${k.map((x) => `<sitemap><loc>${x}</loc></sitemap>`).join("")}</sitemapindex>`;
 const discover = (m: Record<string, string>) => discoverUrls("https://own.com", serve(m), 100, () => NOW.getTime(), NOW.getTime() + 60_000);
-beforeEach(() => { db.owned = []; db.snaps = []; db.missing = ""; db.fails = false; asked.length = 0; });
+beforeEach(() => { db.owned = []; db.snaps = []; db.blobs = []; db.missing = ""; db.fails = false; asked.length = 0; });
 describe("the owned-page inventory: what the site says it has, and what my read of it found", () => {
-  it("follows the Sitemap: directive robots.txt publishes, three levels of index nesting deep, and inventories what it found", async () => {
+  it("follows every child map through deeper indexes and cycles without leaving this site", async () => {
+    const children = Array.from({ length: 61 }, (_, i) => `https://own.com/sm/child-${i}.xml`), root = "https://own.com/sm/root.xml";
     const out = await discover({ // the sitemap is at NEITHER conventional path: only the directive finds it
       "https://own.com/robots.txt": "User-agent: *\nDisallow: /admin\nSitemap: https://own.com/sm/root.xml",
-      "https://own.com/sm/root.xml": index(["https://own.com/sm/mid.xml"]), "https://own.com/sm/mid.xml": index(["https://own.com/sm/leaf.xml", "https://own.com/sm/deeper.xml", "https://evil.example/sm.xml"]),
+      [root]: index(["https://own.com/sm/mid.xml", ...children]), "https://own.com/sm/mid.xml": index(["https://own.com/sm/leaf.xml", "https://own.com/sm/deeper.xml", "https://evil.example/sm.xml"]),
       "https://own.com/sm/leaf.xml": urlset(["https://own.com/a/", "https://own.com/b?utm=x", "https://own.com/a"]),
-      "https://own.com/sm/deeper.xml": index(["https://own.com/sm/too-deep.xml"]), "https://own.com/sm/too-deep.xml": urlset(["https://own.com/never"]) }); // a FOURTH level is past the bound
-    expect([out.source, out.truncated, out.pages.every((p) => p.via === "robots_sitemap"), asked.some((u) => u.includes("evil.example"))]).toEqual(["sitemap", 0, true, false]); // a child index on another host is dropped UNFETCHED
-    expect(out.pages.map((p) => p.url).sort()).toEqual(["https://own.com/a", "https://own.com/b"]); // canonical, deduped, query dropped, never the too-deep page
-    expect(await upsertDiscovery(T, out.pages)).toBe(2);
-    expect((await readInventory(T, { limit: 10 })).map((r) => [r.url, r.crawl_state, r.completeness])).toEqual([["https://own.com/a", "uncrawled", "missing"], ["https://own.com/b", "uncrawled", "missing"]]);
-    expect(await readInventory(OTHER, { limit: 10 })).toEqual([]); }); // never another account's inventory
+      "https://own.com/sm/deeper.xml": index(["https://own.com/sm/too-deep.xml", root]), "https://own.com/sm/too-deep.xml": urlset(["https://own.com/never"]), ...Object.fromEntries(children.map((u, i) => [u, urlset([`https://own.com/child-${i}`])])) });
+    expect([out.source, out.checkpoint, out.pages.length, out.pages.at(-1)?.url, asked.filter((u) => u === root).length, asked.some((u) => u.includes("evil.example"))]).toEqual(["sitemap", null, 64, "https://own.com/child-60", 1, false]);
+    expect([await upsertDiscovery(T, out.pages), (await readInventory(T, { limit: 100 })).length, await readInventory(OTHER, { limit: 10 })]).toEqual([64, 64, []]); }); // never another account's inventory
   it("keeps the conventional path as a fallback, COUNTS what one pass could not record, and says plainly when it has no inventory yet", async () => {
-    const out = await discover({ "https://own.com/sitemap.xml": urlset(Array.from({ length: MAX_DISCOVERED_URLS + 3 }, (_, i) => `https://own.com/p${i}`)) });
-    expect([out.pages.length, out.truncated, out.pages[0]!.via]).toEqual([MAX_DISCOVERED_URLS, 3, "sitemap"]);
+    const out = await discover({ "https://own.com/sitemap.xml": urlset(Array.from({ length: MAX_DISCOVERED_URLS + 3 }, (_, i) => `https://own.com/p${i}`)) }); expect([out.pages.length, out.truncated, out.pages[0]!.via]).toEqual([MAX_DISCOVERED_URLS, 3, "sitemap"]);
     db.missing = "owned_pages"; // the pre-migration window is never reported as an empty website
     expect([await upsertDiscovery(T, [{ url: "/a", via: "sitemap" }]), await readInventory(T)]).toEqual([0, []]); });
   it("preserves first_seen across rediscovery and never undoes what the crawl learned", async () => {
@@ -123,19 +120,22 @@ describe("a crawl is finished only when the inventory is", () => {
   it("reads a page it has not read on every pass until there are none left, and never the same page twice", async () => {
     const urls = ["a", "b", "c", "d", "e"].map((p) => `https://own.com/${p}`), pages = { "https://own.com/robots.txt": "User-agent: *\nDisallow: /\nUser-agent: BeaconBot\nUser-agent: OtherBot\nDisallow: /\nAllow: /a\nAllow: /b\nAllow: /c\nAllow: /d\nAllow: /e", ...Object.fromEntries(urls.map((u) => [u, html("Ordinary prose.")])) }; await upsertDiscovery(T, urls.map((url) => ({ url, via: "sitemap" as const })));
     const hold = { s: state({ page_cap: 2 }) }; // two pages a pass, so three passes is the whole five-page site
-    const p1 = await batch(hold, pages), p2 = await batch(hold, pages), p3 = await batch(hold, pages);
-    expect([p1.read.length, p2.read.length, p3.read.length, new Set([...p1.read, ...p2.read, ...p3.read]).size]).toEqual([2, 2, 1, 5]); // every pass advances, and the batches are disjoint
-    expect([p1.out.complete, p2.out.complete, p3.out.complete, hold.s.status, hold.s.pages_crawled, await readInventory(T, { states: ["uncrawled"] })]).toEqual([false, false, true, "complete", 5, []]); }); // finished because the inventory is
+    const p1 = await batch(hold, pages), p2 = await batch(hold, pages), p3 = await batch(hold, pages); expect([p1.read.length, p2.read.length, p3.read.length, new Set([...p1.read, ...p2.read, ...p3.read]).size]).toEqual([2, 2, 1, 5]);
+    expect([p1.out.complete, p2.out.complete, p3.out.complete, hold.s.status, hold.s.pages_crawled, await readInventory(T, { states: ["uncrawled"] })]).toEqual([false, false, true, "complete", 5, []]);
+    const uncertain = { s: state() }, guard = { loadState: async () => uncertain.s, saveState: async (s: CrawlFrontierState) => { uncertain.s = s; }, pickCandidates: async () => [], ...noWrite }; db.fails = true; const stopped = await runCrawlBatch({ tenantId: T, deps: guard }), before = uncertain.s.status; db.fails = false; const retried = await runCrawlBatch({ tenantId: T, deps: guard }); expect([stopped.complete, before, retried.complete, uncertain.s.status]).toEqual([false, "in_progress", true, "complete"]); const initial = { s: state() }, io = { ...noWrite, now: () => NOW.getTime(), loadState: async () => initial.s, saveState: async (s: CrawlFrontierState) => { initial.s = s; } }; db.fails = true; const lost = await runCrawlBatch({ tenantId: T, deps: io }), heldStatus = initial.s.status; db.fails = false; const recovered = await runCrawlBatch({ tenantId: T, deps: io }); expect([lost.status, heldStatus, recovered.complete]).toEqual(["no_crawl", "in_progress", true]); });
   it("resumes an oversized sitemap where the last pass stopped, instead of walking the same first pages forever", async () => {
-    const many = Array.from({ length: MAX_DISCOVERED_URLS + 1_200 }, (_, i) => `https://own.com/p${i}`), sm = { "https://own.com/sitemap.xml": urlset(many) };
-    const first = await discover(sm); // what one pass could not record is counted AND pointed at
-    expect([first.pages.length, first.truncated, first.nextCursor]).toEqual([MAX_DISCOVERED_URLS, 1_200, MAX_DISCOVERED_URLS]);
-    const second = await discoverUrls("https://own.com", serve(sm), 100, () => NOW.getTime(), NOW.getTime() + 60_000, first.nextCursor);
-    expect([second.pages.length, second.truncated, second.nextCursor]).toEqual([1_200, 0, 0]); // the remainder, and nothing left to resume
-    expect(new Set([...first.pages, ...second.pages].map((p) => p.url)).size).toBe(many.length); // the WHOLE site, across two passes, nothing enumerated twice
-    const hold = { s: state({ discovery_cursor: 2 }) }; // and the CRAWL drives that second pass: a dry inventory with a cursor on file resumes discovery
-    await batch(hold, { "https://own.com/sitemap.xml": urlset(["https://own.com/x", "https://own.com/y", "https://own.com/z"]) });
-    expect([(await readInventory(T)).map((r) => r.url), hold.s.discovery_cursor]).toEqual([["https://own.com/z"], 0]); });
+    const many = Array.from({ length: MAX_DISCOVERED_URLS + 1_200 }, (_, i) => `https://own.com/p${i}`), sm = { "https://own.com/sitemap.xml": urlset(many) }, first = await discover(sm); expect([first.pages.length, first.truncated, first.checkpoint?.stack.at(-1)?.offset]).toEqual([MAX_DISCOVERED_URLS, 1_200, MAX_DISCOVERED_URLS]); const second = await discoverUrls("https://own.com", serve(sm), 100, () => NOW.getTime(), NOW.getTime() + 60_000, first.checkpoint);
+    expect([second.pages.length, second.truncated, second.checkpoint, new Set([...first.pages, ...second.pages].map((p) => p.url)).size]).toEqual([1_200, 0, null, many.length]); const changed = await discoverUrls("https://own.com", serve({ "https://own.com/sitemap.xml": urlset(["https://own.com/new", ...many]) }), 100, () => NOW.getTime(), NOW.getTime() + 60_000, first.checkpoint); expect(changed.pages[0]?.url).toBe("https://own.com/new");
+    const hold = { s: state({ discovery: first.checkpoint }) }, deps = { loadState: async () => hold.s, saveState: async (s: CrawlFrontierState) => { hold.s = s; }, pickCandidates: async () => [], ...noWrite, fetchImpl: serve(sm) };
+    await runCrawlBatch({ tenantId: T, deps: { ...deps, recordDiscovery: async () => 1 } }); expect([hold.s.discovery?.stack.at(-1)?.offset, hold.s.status]).toEqual([MAX_DISCOVERED_URLS, "in_progress"]); await runCrawlBatch({ tenantId: T, deps }); expect([hold.s.discovery, db.owned.length]).toEqual([null, 1_200]);
+    db.owned = []; const legacy = { s: state({ discovery_cursor: 2 }) }; await batch(legacy, { "https://own.com/sitemap.xml": urlset(["https://own.com/x", "https://own.com/y", "https://own.com/z"]) }); expect([db.owned.some((r) => r.url === "https://own.com/z"), legacy.s.discovery_cursor]).toEqual([true, 0]); });
+  it("keeps a cut document and failed write pending in tenant-scoped durable state", async () => { const one = "https://own.com/one.xml", two = "https://own.com/two.xml", map = { "https://own.com/sitemap.xml": index([one, two]), [one]: urlset(["https://own.com/a"]), [two]: urlset(["https://own.com/b"]) }; let tick = NOW.getTime(); const timed = (async (u: string, init?: RequestInit) => { const r = await serve(map)(u, init); if (u === one) tick += 1_000; return r; }) as typeof fetch;
+    const cut = await discoverUrls("https://own.com", timed, 100, () => tick, tick + 500), resumed = await discoverUrls("https://own.com", serve(map), 100, () => tick, tick + 60_000, cut.checkpoint); expect([cut.pages.map((p) => p.url), cut.checkpoint?.stack.at(-1)?.url, resumed.pages.map((p) => p.url), resumed.checkpoint]).toEqual([["https://own.com/a"], one, ["https://own.com/b"], null]);
+    const limited = (async (u: string, init?: RequestInit) => u === one ? new Response("", { status: 429 }) : serve(map)(u, init)) as typeof fetch, throttled = await discoverUrls("https://own.com", limited, 100, () => tick, tick + 60_000); expect([throttled.held, throttled.checkpoint?.stack.at(-1)?.url, throttled.pages.length]).toEqual(["sitemap_unreadable", one, 0]); const chain = Array.from({ length: 34 }, (_, i) => `https://own.com/d${i}.xml`), deep = { "https://own.com/sitemap.xml": index([chain[0]!]), ...Object.fromEntries(chain.map((u, i) => [u, i < chain.length - 1 ? index([chain[i + 1]!]) : urlset(["https://own.com/deep"])])) }, depth = await discover(deep), depthState: { s: CrawlFrontierState | null } = { s: null }; await startColdStartCrawl({ tenantId: T, domain: "own.com", deps: { fetchImpl: serve(deep), loadState: async () => null, saveState: async (s) => { depthState.s = s; }, pickCandidates: async () => [] } }); expect([depth.held, depth.checkpoint?.stack.length, depthState.s?.status, depthState.s?.detail]).toEqual(["depth_limit", 32, "in_progress", "depth_limit"]);
+    const saved: { s: CrawlFrontierState | null } = { s: null }; const failed = await startColdStartCrawl({ tenantId: T, domain: "own.com", deps: { fetchImpl: serve(map), recordDiscovery: async () => 0, loadState: async () => null, saveState: async (s) => { saved.s = s; }, pickCandidates: async () => [] } }); expect([failed.status, saved.s?.discovery?.root, saved.s?.status, db.owned.length]).toEqual(["in_progress", 0, "in_progress", 0]);
+    const old = state(); db.blobs.push({ scope_key: "crawl-frontier::global", content: [old] }); expect(await loadCrawlFrontier(T)).toEqual(old); const start = (tenantId: string) => startColdStartCrawl({ tenantId, domain: "own.com", deps: { fetchImpl: serve(map), loadState: async () => null, recordDiscovery: async () => 0 } }); await start(T); await start(OTHER);
+    expect([db.blobs.map((b) => b.scope_key).sort(), (await loadCrawlFrontier(T))?.tenant_id, (await loadCrawlFrontier(OTHER))?.tenant_id]).toEqual([["crawl-frontier::global", `crawl-frontier::tenant:${OTHER}`, `crawl-frontier::tenant:${T}`].sort(), T, OTHER]);
+    const before = db.blobs.find((b) => b.scope_key === `crawl-frontier::tenant:${T}`)!.content; db.missing = "json_store_blobs"; expect((await start(T)).status).toBe("unreachable"); db.missing = ""; expect(db.blobs.find((b) => b.scope_key === `crawl-frontier::tenant:${T}`)!.content).toEqual(before); });
   it("stays open while a refused page waits out its retry date, never asks before it, and closes once the page answers", async () => {
     await upsertDiscovery(T, [{ url: "https://own.com/page.htm", via: "sitemap" }]);
     await batch({ s: state() }, { "https://own.com/robots.txt": "User-agent: *\nAllow: /page\nDisallow: /*.htm", "https://own.com/page.htm": html("It opens now.") }); // Actual robots precedence refuses it: due again a day from now.

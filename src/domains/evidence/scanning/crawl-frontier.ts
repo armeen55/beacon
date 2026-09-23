@@ -27,7 +27,7 @@ import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import type { PageEntity, PageSnapshot } from "@/domains/evidence/pages/types";
 import { visibleFaqs } from "@/domains/evidence/pages/types";
 import { syncPages, syncPageSnapshots } from "@/lib/persistence/dual-write";
-import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 import {
   canonicalOwnedUrl,
@@ -87,8 +87,9 @@ export type CrawlFrontierState = {
   pages_failed: number;
   /** The PER-PASS page bound. */
   page_cap: number;
-  /** Where the next discovery pass resumes; 0, or absent on an older row, means end to end. */
+  /** A legacy URL offset is restarted from the roots once, then replaced by the document checkpoint. */
   discovery_cursor?: number;
+  discovery?: Awaited<ReturnType<typeof discoverUrls>>["checkpoint"];
   source: "sitemap" | "homepage" | "none";
   started_at: string;
   updated_at: string;
@@ -96,7 +97,7 @@ export type CrawlFrontierState = {
   batches_run: number;
   /** Compact audit facts per crawled page - the first-look preview's input. */
   page_facts: CrawlPageFact[];
-  /** Honest failure detail when status is "unreachable". */
+  /** Honest hold or failure detail. */
   detail?: string;
 };
 
@@ -126,18 +127,25 @@ type CrawlFrontierDeps = {
 // ---------------------------------------------------------------------------
 
 export async function loadCrawlFrontier(tenantId: string): Promise<CrawlFrontierState | null> {
-  try {
-    const rows = (await readStore<CrawlFrontierState>(STORE)) ?? [];
-    return rows.find((r) => r && r.tenant_id === tenantId) ?? null;
-  } catch {
-    return null;
+  if (!tenantId.trim()) return null;
+  const admin = getSupabaseAdmin();
+  const current = await admin.from("json_store_blobs").select("content").eq("scope_key", `${STORE}::tenant:${tenantId}`).limit(1);
+  if (current.error) throw current.error;
+  if (current.data?.length) {
+    const row = (current.data[0] as { content?: CrawlFrontierState[] }).content?.[0];
+    if (row?.tenant_id !== tenantId) throw new Error("crawl_frontier_tenant_mismatch");
+    return row;
   }
+  const legacy = await admin.from("json_store_blobs").select("content").eq("scope_key", `${STORE}::global`).limit(1);
+  if (legacy.error) throw legacy.error;
+  return ((legacy.data?.[0] as { content?: CrawlFrontierState[] } | undefined)?.content ?? []).find((r) => r?.tenant_id === tenantId) ?? null;
 }
 
 async function saveCrawlFrontier(state: CrawlFrontierState): Promise<void> {
-  const rows = (await readStore<CrawlFrontierState>(STORE)) ?? [];
-  const others = rows.filter((r) => r && r.tenant_id !== state.tenant_id);
-  await writeStore<CrawlFrontierState>(STORE, [...others, state]);
+  if (!state.tenant_id.trim()) throw new Error("crawl_frontier_tenant_required");
+  const { error } = await getSupabaseAdmin().from("json_store_blobs").upsert({ scope_key: `${STORE}::tenant:${state.tenant_id}`,
+    store_name: STORE, content: [state], updated_at: new Date().toISOString() }, { onConflict: "scope_key" });
+  if (error) throw error;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,10 +218,6 @@ export function completenessOf(snap: PageSnapshot): "complete" | "partial" | "un
   if ((snap.word_count ?? 0) === 0 && snap.http_status === 200) return "unread";
   return snap.content_capture?.complete !== true || (snap.structural_warnings ?? []).some((w) => w.startsWith("body_text_truncated")) ? "partial" : "complete"; }
 
-// ---------------------------------------------------------------------------
-// Init: bounded discovery -> durable inventory -> working set
-// ---------------------------------------------------------------------------
-
 type StartCrawlResult = {
   status: CrawlFrontierStatus;
   discovered: number;
@@ -248,19 +252,12 @@ export async function startColdStartCrawl(args: { tenantId: string; domain: stri
     }
 
     const started = now();
-    const { pages: discovered, source, truncated, nextCursor } = await discoverUrls(
+    const { pages: discovered, source, truncated, checkpoint } = await discoverUrls(
       site.origin, fetchImpl, perRequestMs, now, started + DISCOVERY_BUDGET_MS);
-    if (truncated > 0) {
-      log.warn("[crawl-frontier] more pages than one discovery pass records; resuming from here",
-        { tenant: args.tenantId, recorded: discovered.length, past_ceiling: truncated, resume_at: nextCursor });
-    }
-
-    // THE INVENTORY IS THE RECORD. A failed write is logged and the crawl still runs off what this pass found.
     const recorded = await recordDiscovery(args.tenantId, discovered).catch(() => 0);
-    if (recorded === 0 && discovered.length > 0) {
-      log.warn("[crawl-frontier] I found pages but could not record them in the inventory yet", {
-        tenant: args.tenantId, found: discovered.length });
-    }
+    const pending = recorded === discovered.length ? checkpoint : { root: 0, rootsHash: null, stack: [], hadPages: false, hold: "discovery_write_incomplete" as const };
+    if (recorded !== discovered.length) log.warn("[crawl-frontier] discovery write incomplete; restarting documents", { tenant: args.tenantId, found: discovered.length, recorded });
+    if (truncated > 0) log.warn("[crawl-frontier] sitemap document continues next pass", { tenant: args.tenantId, recorded, past_ceiling: truncated });
 
     // A single homepage seed is UNVERIFIED, so probe it once and let a dead site read as unreachable.
     const nowIsoStart = new Date(now()).toISOString();
@@ -268,8 +265,9 @@ export async function startColdStartCrawl(args: { tenantId: string; domain: stri
       tenant_id: args.tenantId, domain: site.host, status: "in_progress", frontier: [], visited: [],
       pages_crawled: 0, pages_failed: 0, page_cap: pageCap, source,
       started_at: nowIsoStart, updated_at: nowIsoStart, last_batch_at: null,
-      batches_run: 0, page_facts: [], discovery_cursor: nextCursor,
+      batches_run: 0, page_facts: [], discovery_cursor: 0, discovery: pending, detail: pending?.hold,
     };
+    if (recorded !== discovered.length) { await save(base); return { status: "in_progress", discovered: recorded, detail: "discovery_write_incomplete" }; }
     if (source === "homepage" && discovered.length === 1) {
       const probe = await fetchPageHtml(site.origin, new Map(), { fetchImpl, timeoutMs: perRequestMs });
       if (!probe.ok) {
@@ -285,9 +283,10 @@ export async function startColdStartCrawl(args: { tenantId: string; domain: stri
     }
 
     // The working set comes from the INVENTORY when it is there; this pass's own findings are the fallback.
-    const fromInventory = await pickCandidates(args.tenantId, MAX_FRONTIER_URLS, new Date(now())).catch(() => []);
+    const fromInventory = await pickCandidates(args.tenantId, MAX_FRONTIER_URLS, new Date(now()), { strict: true });
     const seeds = fromInventory.length > 0 ? fromInventory : discovered.map((d) => d.url);
     const { frontier, added } = enqueueDiscovered(base, seeds);
+    if (added === 0 && pending) { await save(base); return { status: "in_progress", discovered: recorded, detail: "sitemap_discovery_pending" }; }
     if (added === 0) {
       const dead: CrawlFrontierState = { ...base, status: "unreachable", detail: "no_reachable_pages" };
       await save(dead);
@@ -304,18 +303,17 @@ export async function startColdStartCrawl(args: { tenantId: string; domain: stri
   }
 }
 
-/** DISCOVERY IS NOT ONE-SHOT: this resumes at the cursor a truncated pass left and records what it finds.
- *  Returns the next cursor (0 = enumerated end to end). Failure-soft. */
+/** Commit a document checkpoint only after every page from this slice reached the inventory. */
 async function resumeDiscovery(args: {
-  tenantId: string; domain: string; cursor: number; fetchImpl: typeof fetch; perRequestMs: number;
+  tenantId: string; domain: string; checkpoint: NonNullable<CrawlFrontierState["discovery"]>; fetchImpl: typeof fetch; perRequestMs: number;
   now: () => number; record: typeof upsertDiscovery;
-}): Promise<number> {
+}): Promise<CrawlFrontierState["discovery"]> {
   const site = originFromDomain(args.domain);
-  if (!site) return 0;
-  const { pages, nextCursor } = await discoverUrls(site.origin, args.fetchImpl, args.perRequestMs,
-    args.now, args.now() + DISCOVERY_BUDGET_MS, args.cursor);
-  if (pages.length > 0) await args.record(args.tenantId, pages).catch(() => 0);
-  return nextCursor;
+  if (!site) return args.checkpoint;
+  const { pages, checkpoint } = await discoverUrls(site.origin, args.fetchImpl, args.perRequestMs,
+    args.now, args.now() + DISCOVERY_BUDGET_MS, args.checkpoint);
+  const written = pages.length > 0 ? await args.record(args.tenantId, pages).catch(() => 0) : 0;
+  return written === pages.length ? checkpoint : { ...args.checkpoint, hold: "discovery_write_incomplete" };
 }
 
 // ---------------------------------------------------------------------------
@@ -372,8 +370,8 @@ export async function runCrawlBatch(args: {
     // FINISHED IS A READING, NEVER A LATCH. A finished crawl asks what every pass asks (never read, retry
     // date arrived, read gone stale) and reopens on a CLEAN pass, same bounds; owed nothing, it stands.
     if (state.status === "complete") {
-      const owed = await pickCandidates(args.tenantId, MAX_FRONTIER_URLS, new Date(now())).catch(() => []);
-      if (owed.length === 0) return { ...noRun("already_complete", "complete"), totalCrawled: state.pages_crawled };
+      const owed = await pickCandidates(args.tenantId, MAX_FRONTIER_URLS, new Date(now()), { strict: true });
+      if (owed.length === 0 && !state.discovery && !state.discovery_cursor) return { ...noRun("already_complete", "complete"), totalCrawled: state.pages_crawled };
       state = { ...state, status: "in_progress", visited: [], frontier: enqueueDiscovered({ ...state, frontier: [], visited: [] }, owed).frontier };
       await save(state);
     }
@@ -386,7 +384,7 @@ export async function runCrawlBatch(args: {
 
     // REFILL FROM THE INVENTORY: an empty working set means this blob is spent, not a finished site.
     if (frontier.length === 0 && visited.size < state.page_cap) {
-      const more = await pickCandidates(args.tenantId, MAX_FRONTIER_URLS, new Date(now())).catch(() => []);
+      const more = await pickCandidates(args.tenantId, MAX_FRONTIER_URLS, new Date(now()), { strict: true });
       frontier = enqueueDiscovered({ ...state, frontier: [], visited: [...visited] }, more).frontier;
     }
 
@@ -493,37 +491,37 @@ export async function runCrawlBatch(args: {
     // A DRAINED WORKING SET IS NOT A FINISHED SITE, and neither is a spent pass. Completion asks the
     // inventory one last time and then DISCOVERY one last time; a spent pass rolls over and refills.
     const passSpent = visited.size >= state.page_cap;
-    let cursor = state.discovery_cursor ?? 0;
+    let checkpoint: CrawlFrontierState["discovery"] = state.discovery ?? (state.discovery_cursor ? { root: 0, rootsHash: null, stack: [], hadPages: false } : null);
     if (frontier.length === 0 && !passSpent) {
       const refill = async () => {
-        const left = await pickCandidates(args.tenantId, MAX_FRONTIER_URLS, new Date(now())).catch(() => []);
+        const left = await pickCandidates(args.tenantId, MAX_FRONTIER_URLS, new Date(now()), { strict: true });
         frontier = enqueueDiscovered({ ...state, frontier: [], visited: [...visited] }, left).frontier;
       };
       await refill();
-      if (frontier.length === 0 && cursor > 0 && now() < deadlineAt) {
-        cursor = await resumeDiscovery({ tenantId: args.tenantId, domain: state.domain, cursor,
-          fetchImpl, perRequestMs, now, record: recordDiscovery }).catch(() => cursor);
+      if (frontier.length === 0 && checkpoint && now() < deadlineAt) {
+        checkpoint = await resumeDiscovery({ tenantId: args.tenantId, domain: state.domain, checkpoint,
+          fetchImpl, perRequestMs, now, record: recordDiscovery }).catch(() => checkpoint);
         await refill();
       }
     }
     // A PAGE WAITING OUT A RETRY DATE IS NOT A PAGE ALREADY READ, so a drained working set is not the site.
     const owed = !passSpent && frontier.length === 0
-      ? await readInventoryImpl(args.tenantId, { limit: 1, states: ["uncrawled", "blocked"] }).catch(() => [])
+      ? await readInventoryImpl(args.tenantId, { limit: 1, states: ["uncrawled", "blocked"], strict: true })
       : [];
-    const complete = !passSpent && frontier.length === 0 && owed.length === 0;
+    const complete = !passSpent && frontier.length === 0 && owed.length === 0 && !checkpoint;
     const updatedIso = new Date(now()).toISOString();
     const next: CrawlFrontierState = {
       ...state,
       status: complete ? "complete" : "in_progress",
       frontier: passSpent ? [] : frontier,
       visited: passSpent ? [] : [...visited],
-      discovery_cursor: cursor,
+      discovery_cursor: 0, discovery: checkpoint,
       pages_crawled: state.pages_crawled + crawled,
       pages_failed: state.pages_failed + failed,
       updated_at: updatedIso,
       last_batch_at: updatedIso,
       batches_run: state.batches_run + 1,
-      page_facts: [...state.page_facts, ...newFacts].slice(0, MAX_PAGE_FACTS),
+      page_facts: [...state.page_facts, ...newFacts].slice(0, MAX_PAGE_FACTS), detail: checkpoint?.hold,
     };
     await save(next);
 

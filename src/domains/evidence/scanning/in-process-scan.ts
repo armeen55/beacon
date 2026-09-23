@@ -32,9 +32,8 @@ const DEFAULT_TOTAL_BUDGET_MS = 22_000;
 /** Per-request timeout, kept well under the route's maxDuration ceiling. */
 const DEFAULT_PER_REQUEST_MS = 5_000;
 
-/** DISCOVERY BOUNDS. A sitemap index may point at indexes; three levels reaches every real site
- *  shape while a hostile or cyclic index runs out of budget instead of running forever. */
-const MAX_SITEMAP_DEPTH = 3;
+/** A malformed chain has an explicit pending hold, never a silently discarded child. */
+const MAX_SITEMAP_DEPTH = 32;
 const MAX_SITEMAP_FETCHES = 200;
 /** One discovery pass records at most this many URLs per account. THE BOUND IS PER PASS, NEVER PER
  *  SITE: the overflow is counted and a CURSOR is handed back, so the next pass resumes the enumeration
@@ -128,29 +127,32 @@ export function canonicalOwnedUrl(
   return { url: `${u.protocol}//${u.hostname}${path}`, key: urlKey(u), path };
 }
 
-async function fetchText(url: string, fetchImpl: typeof fetch, timeoutMs: number): Promise<string | null> {
+async function fetchText(url: string, fetchImpl: typeof fetch, timeoutMs: number): Promise<{ text: string | null; retry: boolean }> {
   try {
     const res = await fetchImpl(url, {
       headers: { "User-Agent": COMPETITOR_INTEL_UA, Accept: "application/xml,text/xml,*/*" },
       signal: AbortSignal.timeout(timeoutMs),
       redirect: "follow",
     });
-    if (!res.ok) return null;
-    return await res.text();
+    if (!res.ok) return { text: null, retry: res.status === 408 || res.status === 429 || res.status >= 500 };
+    return { text: await res.text(), retry: false };
   } catch {
-    return null;
+    return { text: null, retry: true };
   }
 }
 
+type SitemapFrame = { url: string; depth: number; via: DiscoveredVia; offset: number; hash?: string };
+type DiscoveryCheckpoint = { root: number; rootsHash: string | null; stack: SitemapFrame[]; hadPages: boolean;
+  hold?: "robots_unreadable" | "sitemap_unreadable" | "depth_limit" | "budget" | "discovery_write_incomplete" };
 type DiscoveryResult = {
   /** Canonical owned URLs with how each became known, deduped, in discovery order. */
   pages: DiscoveredPage[];
   source: "sitemap" | "homepage" | "none";
-  /** URLs the pass found and could not record because the per-pass ceiling was reached. */
+  /** Remaining entries in the current document after this pass's page ceiling. */
   truncated: number;
-  /** Where the NEXT pass should resume, as a position in the site's own enumeration order. 0 means
-   *  there is nothing left: this pass reached the end of what the site publishes. */
-  nextCursor: number;
+  /** A small document stack plus offsets; null only after every root and child was examined. */
+  checkpoint: DiscoveryCheckpoint | null;
+  held?: DiscoveryCheckpoint["hold"];
 };
 
 /**
@@ -160,10 +162,8 @@ type DiscoveryResult = {
  * publishes, then the two conventional paths as a fallback, then the homepage and its nav as a
  * last resort for a site with no sitemap at all.
  *
- * RESUMABLE. `resumeFrom` is a cursor a previous pass handed back: the enumeration is deterministic
- * (the site's own documents, in the site's own order), so skipping the first `resumeFrom` URLs it
- * names continues an oversized sitemap instead of restarting it. That is what makes a site with more
- * pages than one pass may record eventually inventoried in full rather than permanently half-known.
+ * RESUMABLE. A document stack records each index/leaf offset. The caller commits that checkpoint only
+ * after the discovered pages have landed in the inventory; a stopped document stays on the stack.
  */
 export async function discoverUrls(
   origin: string,
@@ -171,69 +171,83 @@ export async function discoverUrls(
   perRequestMs: number,
   now: () => number,
   deadlineAt: number,
-  resumeFrom = 0,
+  resume?: DiscoveryCheckpoint | null,
 ): Promise<DiscoveryResult> {
   const site = originFromDomain(origin);
   const host = site?.host ?? "";
   const overBudget = () => now() > deadlineAt;
   const found = new Map<string, DiscoveredPage>();
   const seen = new Set<string>();
+  const state: DiscoveryCheckpoint = resume ? { ...resume, stack: resume.stack.map((f) => ({ ...f })) }
+    : { root: 0, rootsHash: null, stack: [], hadPages: false };
   let truncated = 0;
   const record = (raw: string, via: DiscoveredVia) => {
     const c = canonicalOwnedUrl(raw, host);
     if (!c || seen.has(c.key)) return;
-    seen.add(c.key);
-    if (seen.size <= resumeFrom) return; // an earlier pass already recorded this one
-    if (found.size >= MAX_DISCOVERED_URLS) {
-      truncated++;
-      return;
-    }
+    seen.add(c.key); state.hadPages = true;
     found.set(c.key, { url: c.url, via });
   };
-  // Truncation is the ONLY reason to resume: a pass that reached the end of the site hands back 0, so
-  // the next enumeration starts at the top and picks up whatever the site has published since.
-  const cursor = () => (truncated > 0 ? resumeFrom + found.size : 0);
-
-  // 1. The site's own answer. A robots.txt that names its sitemaps is authoritative; the two
-  //    guessed paths only ever existed because nothing here read those directives.
-  const robotsTxt = overBudget() ? null : await fetchText(`${origin}/robots.txt`, fetchImpl, perRequestMs);
-  const declared = robotsTxt ? parseRobotsText(robotsTxt, `${origin}/robots.txt`, 200).sitemaps : [];
-  const queue: { url: string; depth: number; via: DiscoveredVia }[] = [
-    ...declared.map((url) => ({ url, depth: 0, via: "robots_sitemap" as DiscoveredVia })),
-    { url: `${origin}/sitemap.xml`, depth: 0, via: "sitemap" as DiscoveredVia },
-    { url: `${origin}/sitemap_index.xml`, depth: 0, via: "sitemap" as DiscoveredVia },
-  ];
-
-  // 2. Breadth-first through the index tree. Each document is fetched at most once, and NEVER off
-  //    this site: a child loc or a Sitemap: directive naming another host is dropped unfetched.
+  // Roots are reconstructed from robots once per pass; their hash restarts enumeration if the site
+  // changes its list. Only the active ancestry is persisted, so a 50,000-child index cannot bloat state.
+  let roots: { url: string; via: DiscoveredVia }[] | null = null;
+  const rootsOf = async () => {
+    if (roots) return true;
+    const robots = await fetchText(`${origin}/robots.txt`, fetchImpl, perRequestMs);
+    if (robots.retry) return false;
+    const declared = robots.text ? parseRobotsText(robots.text, `${origin}/robots.txt`, 200).sitemaps : [];
+    roots = [...declared.map((url) => ({ url, via: "robots_sitemap" as DiscoveredVia })),
+      { url: `${origin}/sitemap.xml`, via: "sitemap" }, { url: `${origin}/sitemap_index.xml`, via: "sitemap" }];
+    const hash = createHash("sha256").update(roots.map((r) => r.url).join("\n")).digest("hex").slice(0, 16);
+    if (state.rootsHash && state.rootsHash !== hash) { state.root = 0; state.stack = []; state.hadPages = false; }
+    state.rootsHash = hash;
+    return true;
+  };
   const onSite = (u: string): boolean => {
     try { return stripWww(new URL(u).hostname.toLowerCase()) === host; } catch { return false; }
   };
-  const fetched = new Set<string>();
-  while (queue.length > 0 && fetched.size < MAX_SITEMAP_FETCHES && !overBudget()) {
-    const next = queue.shift()!;
-    if (fetched.has(next.url) || !onSite(next.url)) continue;
-    fetched.add(next.url);
-    const xml = await fetchText(next.url, fetchImpl, perRequestMs);
-    if (!xml) continue;
-    const children = parseSitemapIndexLocs(xml);
-    if (children.length > 0) {
-      if (next.depth + 1 >= MAX_SITEMAP_DEPTH) continue;
-      for (const child of children) queue.push({ url: child, depth: next.depth + 1, via: next.via });
-      continue;
+  const docs = new Map<string, { hash: string; children: string[]; entries: ReturnType<typeof parseSitemapUrlEntries> }>();
+  let fetches = 0, done = false, held: DiscoveryResult["held"];
+  while (!overBudget()) {
+    if (state.stack.length === 0) {
+      if (!await rootsOf()) { held = "robots_unreadable"; break; }
+      if (state.root >= roots!.length) { done = true; break; }
+      const root = roots![state.root++]!;
+      state.stack.push({ ...root, depth: 0, offset: 0 });
     }
-    for (const e of dedupeSitemapEntries(parseSitemapUrlEntries(xml))) record(e.url, next.via);
+    const frame = state.stack.at(-1)!;
+    if (!onSite(frame.url)) { state.stack.pop(); continue; }
+    let doc = docs.get(frame.url);
+    if (!doc) {
+      if (fetches >= MAX_SITEMAP_FETCHES) break;
+      const response = await fetchText(frame.url, fetchImpl, perRequestMs); fetches++;
+      if (response.retry) { held = "sitemap_unreadable"; break; }
+      if (response.text === null) { state.stack.pop(); continue; }
+      doc = { hash: createHash("sha256").update(response.text).digest("hex").slice(0, 16), children: parseSitemapIndexLocs(response.text), entries: dedupeSitemapEntries(parseSitemapUrlEntries(response.text)) };
+      docs.set(frame.url, doc);
+    }
+    if (frame.hash && frame.hash !== doc.hash) frame.offset = 0;
+    frame.hash = doc.hash;
+    if (doc.children.length > 0) {
+      if (frame.offset >= doc.children.length) { state.stack.pop(); continue; }
+      const child = doc.children[frame.offset]!;
+      if (!onSite(child) || state.stack.some((f) => f.url === child)) { frame.offset++; continue; }
+      if (state.stack.length >= MAX_SITEMAP_DEPTH) { held = "depth_limit"; break; }
+      frame.offset++; state.stack.push({ url: child, depth: frame.depth + 1, via: frame.via, offset: 0 });
+    } else {
+      if (frame.offset >= doc.entries.length) { state.stack.pop(); continue; }
+      if (found.size >= MAX_DISCOVERED_URLS) { truncated = doc.entries.length - frame.offset; break; }
+      record(doc.entries[frame.offset++]!.url, frame.via);
+    }
   }
-  // `seen`, not `found`: a resumed pass whose whole remainder was already recorded still came from a
-  // sitemap, and treating that as "no sitemap" would fall through to the homepage seed and lose the source.
-  if (seen.size > 0) return { pages: [...found.values()], source: "sitemap", truncated, nextCursor: cursor() };
+  if (!done) { state.hold = held ?? "budget"; return { pages: [...found.values()], source: state.hadPages ? "sitemap" : "none",
+    truncated, checkpoint: state, held: state.hold }; }
+  if (state.hadPages) return { pages: [...found.values()], source: "sitemap", truncated: 0, checkpoint: null };
 
-  // 3. No sitemap anywhere. Seed the homepage plus its nav links so a sitemap-less small site still
-  //    gets real inventory. Every seeded URL is still robots-checked and host-filtered at crawl time.
+  // No sitemap supplied a page. Homepage/nav are the final, still bounded source.
   record(origin, "homepage");
-  const homeHtml = overBudget() ? null : await fetchText(origin, fetchImpl, perRequestMs);
+  const homeHtml = overBudget() ? null : (await fetchText(origin, fetchImpl, perRequestMs)).text;
   if (homeHtml) for (const path of pickSecondaryPaths(homeHtml)) record(`${origin}${path}`, "nav");
-  return { pages: [...found.values()], source: "homepage", truncated, nextCursor: cursor() };
+  return { pages: [...found.values()], source: "homepage", truncated: 0, checkpoint: null };
 }
 
 /**

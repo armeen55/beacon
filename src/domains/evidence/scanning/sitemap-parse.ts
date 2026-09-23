@@ -8,9 +8,6 @@
 
 type SitemapUrlEntry = { url: string; lastmod: string | null };
 
-/** Children returned from ONE index document. The caller's own fetch budget bounds the tree. */
-const MAX_CHILD_SITEMAPS = 50;
-
 /** Parse `<url><loc>…</loc><lastmod>…</lastmod></url>` blocks (flat urlset). */
 export function parseSitemapUrlEntries(xml: string): SitemapUrlEntry[] {
   const entries: SitemapUrlEntry[] = [];
@@ -31,9 +28,8 @@ export function parseSitemapUrlEntries(xml: string): SitemapUrlEntry[] {
 /**
  * Parse `<sitemap><loc>…</loc></sitemap>` children of a `<sitemapindex>`.
  * Returns [] when the XML is not an index (flat urlset, garbage, etc.).
- * Caps at MAX_CHILD_SITEMAPS, preserving document order (Wix lists the
- * most product-shaped collections first; order rarely matters because
- * callers fetch all children up to the cap).
+ * Preserves document order. The caller's persisted document offset and per-pass fetch bound
+ * control traversal; truncating this list would permanently lose later maps.
  */
 export function parseSitemapIndexLocs(xml: string): string[] {
   if (!/<sitemapindex[\s>]/.test(xml)) return [];
@@ -45,7 +41,6 @@ export function parseSitemapIndexLocs(xml: string): string[] {
       const loc = locMatch[1].trim();
       if (loc.length > 0) locs.push(loc);
     }
-    if (locs.length >= MAX_CHILD_SITEMAPS) break;
   }
   return locs;
 }

@@ -123,10 +123,10 @@ export async function upsertDiscovery(tenantId: string, pages: readonly Discover
   }
 }
 
-/** One bounded page of the inventory, in URL order. Empty on any failure, with the honest log. */
+/** One bounded page of inventory; completion callers may request a throwing read. */
 export async function readInventory(
   tenantId: string,
-  opts: { limit?: number; offset?: number; states?: OwnedPageRow["crawl_state"][] } = {},
+  opts: { limit?: number; offset?: number; states?: OwnedPageRow["crawl_state"][]; strict?: boolean } = {},
 ): Promise<OwnedPageRow[]> {
   if (!tenantId?.trim()) return [];
   const limit = Math.max(1, Math.min(opts.limit ?? 100, MAX_INVENTORY_PAGE));
@@ -137,11 +137,13 @@ export async function readInventory(
     const { data, error } = await q.order("url", { ascending: true }).range(offset, offset + limit - 1);
     if (error) {
       failClosed("read", tenantId, error);
+      if (opts.strict) throw error;
       return [];
     }
     return (data ?? []) as unknown as OwnedPageRow[];
   } catch (e) {
     failClosed("read", tenantId, e);
+    if (opts.strict) throw e;
     return [];
   }
 }
@@ -155,6 +157,7 @@ export async function nextCrawlCandidates(
   tenantId: string,
   limit: number,
   now: Date = new Date(),
+  opts: { strict?: boolean } = {},
 ): Promise<string[]> {
   if (!tenantId?.trim()) return [];
   const want = Math.max(1, Math.min(limit, MAX_INVENTORY_PAGE));
@@ -168,6 +171,7 @@ export async function nextCrawlCandidates(
       const { data, error } = await build(buildBase(admin, tenantId).or(`blocked_until.is.null,blocked_until.lte."${nowIso}"`)).limit(want - out.length);
       if (error) {
         failClosed("read", tenantId, error);
+        if (opts.strict) throw error;
         return;
       }
       for (const r of (data ?? []) as { url: string }[]) {
@@ -182,6 +186,7 @@ export async function nextCrawlCandidates(
     return out.slice(0, want);
   } catch (e) {
     failClosed("read", tenantId, e);
+    if (opts.strict) throw e;
     return [];
   }
 }

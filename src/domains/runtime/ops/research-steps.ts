@@ -168,7 +168,7 @@ async function decliningPagesFirst(tenantId: string): Promise<typeof nextCrawlCa
   const losing = new Set([...(decay?.values() ?? [])].filter((d) => d.clicksNow < d.clicksPrior).map((d) => crawlKey(d.page)));
   if (losing.size === 0) return nextCrawlCandidates;
   // BOUND TO THE ACCOUNT THE DECLINE WAS READ FOR: a caller that ever hands this wrapper a different tenant gets the inventory's own order back, never another account's pages ranked over its own. Closing over the outer id alone left that a silent cross-tenant shape.
-  return async (t: string, limit: number, now?: Date) => { const urls = await nextCrawlCandidates(t, limit, now);
+  return async (t: string, limit: number, now?: Date, opts?: { strict?: boolean }) => { const urls = await nextCrawlCandidates(t, limit, now, opts);
     return t !== tenantId ? urls : [...urls.filter((u) => losing.has(crawlKey(u))), ...urls.filter((u) => !losing.has(crawlKey(u)))]; };
 }
 
