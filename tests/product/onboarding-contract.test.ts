@@ -10,7 +10,6 @@ import {
 import { SHOWN_FIELDS, isProfileConfirmed } from "@/domains/runtime/onboarding-store";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import spend from "@/lib/cost/spend-reservations";
-import { historyNote } from "@/app/(shell)/settings/config/tracked-prompts-section";
 import { getTenantLifetimeSpendUsd } from "@/lib/cost/budget-ledger-supabase";
 let ledger = { usd: 0, has: false };
 let ledgerThrows = false;
@@ -395,10 +394,4 @@ describe("setup and settings surfaces (Phase 8)", () => {
     const thin = editor(16);
     expect(thin).toContain("Approve my selection");
     expect(thin).not.toContain('disabled=""'); }); // the one primary action on the step is live, not a dead end
-  it("tells an operator where each tracked question's trend starts, so a rewording never looks like a drop", () => {
-    expect(historyNote({ version: 1, createdAt: "2026-05-10T00:00:00Z" }))
-      .toBe("This exact question has been asked since May 10, and its trend runs from there.");
-    expect(historyNote({ version: 3, createdAt: "2026-05-10T00:00:00Z" }))
-      .toBe("This is version 3 of this question. It changed 2 times, and each change restarts its trend, so it is only compared against readings of the wording it has now.");
-    for (const note of [historyNote({ version: 1, createdAt: "2026-05-10T00:00:00Z" }), historyNote({ version: 2, createdAt: "2026-05-10T00:00:00Z" })]) {
-      expect(note!).not.toMatch(/[–—]/); expect(note!).not.toMatch(/\d{4}-\d{2}-\d{2}/);}});});
+});

@@ -77,7 +77,10 @@ const preservationResidue = (p: PreservationRow, publication: readonly BundleCom
 const preservationPreflight = (p: PreservationRow, publication: readonly BundleComponent[] = []): string | null => {
   const c = p.recommendedChange; if (c.kind !== "existing_edit" || !c.before?.trim()) return null;
   const body = c.field === "section" || c.field === "answer_block", due = body ? [] : materialLosses({ ...p, pagePath: "" }), { ledger, byRecord } = unitLedger(p, true, publication, due);
-  if (body) { for (const u of ledger.filter(u => u.disposition === "kept")) { const bad = byRecord(u), lost = u.why?.trim() ? null : materialLosses({ recommendedChange: { ...c, before: u.text }, pageUrl: p.pageUrl, pagePath: "" }).find(losable); if (bad && bad !== RULING || lost) return `it says it keeps ${lost ?? u.text.slice(0, 60)} but the new copy does not carry it`; } return null; }
+  if (body) { for (const u of ledger) { const bad = byRecord(u); if (bad && bad !== RULING) return `it ${bad}: "${u.text.slice(0, 60)}"`; if (u.disposition !== "kept") continue;
+      const losses = materialLosses({ recommendedChange: { ...c, before: u.text }, pageUrl: p.pageUrl, pagePath: "" }), hardLoss = u.why?.trim() ? losses.find((text) => /^the (?:link|figure) /.test(text)) : losses.find(losable);
+      const namedLoss = [...u.text.matchAll(/["\u201c]([^"\u201d]+)["\u201d]\s+meaning\b/giu)].map((m) => m[1]!.trim().replace(/[,.!?;:]+$/, "")).find((term) => term.length >= 3 && /^[\p{L}\p{M}'’-]+$/u.test(term) && !carriesUnit(term, c.after));
+      if (hardLoss || namedLoss) return `it says it keeps ${hardLoss ?? `"${namedLoss}"`} but the new copy does not carry it`; } return null; }
   for (const u of ledger) { const bad = byRecord(u); if (bad && bad !== RULING) return `it ${bad}: "${u.text.slice(0, 60)}"`; }
   for (const text of due.filter(losable)) if (!carriesUnit(text, c.after) && ledger.filter(u => renderedText(u.text) === renderedText(text)).length !== 1)
     return `it replaces a passage saying "${text.slice(0, 60)}" and neither says it nor accounts for it: every original unit needs its own preservation disposition`;

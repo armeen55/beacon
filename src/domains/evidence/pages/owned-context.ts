@@ -26,6 +26,9 @@ export type OwnedPageBody = {
   faqs: { question: string; answer: string; source: "html_details" | "html_section"; answerComplete?: boolean }[];
   entityNames: string[];
   internalLinks: { href: string; anchorText: string }[];
+  /** Exact editable paragraph and following link component from a coherent captured DOM. */
+  linkedParagraphs?: { text: string; links: { href: string; anchor: string }[] }[];
+  capturedLinks?: { href: string; anchor: string }[];
   sourceCapture?: PageSnapshot["content_capture"];
   fetchedAt: string | null;
   /** Only complete permits whole-page absence claims. */
@@ -92,6 +95,26 @@ function bodyOf(row: Row): OwnedPageBody {
   const title = cap(row.title, MAX_TITLE_CHARS), h1 = cap(row.h1, MAX_ITEM_CHARS);
   const parsed = (() => { try { return sourceCapture?.mainHtml && /<[a-z][\w-]*(?:\s[^<>]*)?>/i.test(sourceCapture.mainHtml) ? load(sourceCapture.mainHtml) : undefined; } catch { return undefined; } })();
   const source = parsed && typeof row.body_text === "string" && parsed.root().text().replace(/\s+/g, " ").trim() === row.body_text.trim() ? parsed : undefined;
+  const linkedParagraphs: NonNullable<OwnedPageBody["linkedParagraphs"]> = [];
+  const capturedLinks: NonNullable<OwnedPageBody["capturedLinks"]> = [];
+  if (source && sourceCapture?.complete) {
+    const nodes = source("p,a,h1,h2,h3,h4,h5,h6").toArray(), flat = (s: string) => s.replace(/\s+/g, " ").trim();
+    source("a[href]").each((_i, node) => { const href = source(node).attr("href"), anchor = flat(source(node).text()); if (href && anchor) capturedLinks.push({ href, anchor }); });
+    for (let i = 0; i < nodes.length; i += 1) {
+      if (nodes[i]!.tagName !== "p") continue;
+      const text = flat(source(nodes[i]).text()), links: { href: string; anchor: string }[] = [];
+      if (!text) continue;
+      for (const node of nodes.slice(i + 1)) {
+        if (node.tagName !== "a" || source(node).closest("p").length) break;
+        const from = [nodes[i], ...source(nodes[i]).parents().toArray()].slice(0, 6), to = [node, ...source(node).parents().toArray()].slice(0, 6);
+        if (!from.some((ancestor, depth) => depth > 0 && to.indexOf(ancestor) > 0 && to.indexOf(ancestor) < 6 && (!source(ancestor).is("main,body,html") || depth === 1 && to.indexOf(ancestor) === 1))) break;
+        const href = source(node).attr("href"), anchor = flat(source(node).text());
+        if (!href || !anchor) break;
+        links.push({ href, anchor });
+      }
+      if (links.length) linkedParagraphs.push({ text, links });
+    }
+  }
   const headings = source ? items(source("h1,h2,h3,h4,h5,h6").toArray().map((el) => source(el).text()), MAX_HEADINGS, MAX_ITEM_CHARS)
     : [...(h1 ? [h1] : []), ...items(row.h2_list, MAX_HEADINGS, MAX_ITEM_CHARS), ...items(row.h3_list, MAX_HEADINGS, MAX_ITEM_CHARS)].slice(0, MAX_HEADINGS);
   // Stored body text takes precedence over legacy paragraph samples.
@@ -133,7 +156,7 @@ function bodyOf(row: Row): OwnedPageBody {
     url: typeof row.url === "string" ? row.url : "",
     title, h1, metaDescription: cap(row.meta_description, MAX_META_CHARS), headings, passages, answerPassages, passageMeta: units.slice(0, passages.length).map(({ id, heading }) => ({ id, heading })),
     openingSample: cap(answerPassages.slice(0, MAX_OPENING_PARAGRAPHS).join(" ").replace(/\s+/g, " "), MAX_OPENING_CHARS),
-    vocabulary: full, cardTexts, faqs, entityNames, internalLinks, ...(sourceCapture ? { sourceCapture } : {}),
+    vocabulary: full, cardTexts, faqs, entityNames, internalLinks, ...(linkedParagraphs.length ? { linkedParagraphs } : {}), ...(capturedLinks.length ? { capturedLinks } : {}), ...(sourceCapture ? { sourceCapture } : {}),
     fetchedAt: typeof row.fetched_at === "string" ? row.fetched_at : null,
     completeness: sampled ? "sample_only" : truncated ? "partial" : "complete",
     contentHash: typeof row.content_hash === "string" ? row.content_hash : null,

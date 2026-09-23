@@ -16,6 +16,14 @@ vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => supabaseF
 }) }));
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context"; import { pageContains } from "@/domains/evidence/pages/page-version";
 describe("one rule decides which capture is the page", () => {
+  it("keeps a captured paragraph distinct from its adjacent link even beyond the summary link cap", async () => {
+    const url = "https://iranopedia.com/traditions", prose = 'Nowruz marks spring and the first day of the Iranian calendar. The word "Nowruz" combines "now," meaning new, and "ruz," meaning day. Families display Haft-Seen, dance, and share music during the celebration. The table has seven symbolic items whose names begin with the Persian letter S, and each item represents part of life or nature.';
+    db.rows = [extractPageSnapshot(`<main><h1>Persian Holidays</h1>${'<a href="/other">Other</a>'.repeat(15)}<h2>Nowruz</h2><div id="wix-column"><div><div><div class="wixui-rich-text"><p>${prose}</p></div></div></div><div><div><div><a href="/nowruz" aria-label="Learn More">Learn More</a></div></div></div></div><h2>Yalda</h2><p>Yalda is celebrated on the longest night of the year.</p></main>`, url, "traditions", "t")];
+    const body = (await loadOwnedPageBodies("t", [url])).get("iranopedia.com/traditions")!;
+    expect([body.completeness, body.linkedParagraphs?.find(p => p.text === prose)?.links, body.internalLinks.some(l => l.href === "/nowruz")]).toEqual(["complete", [{ href: "/nowruz", anchor: "Learn More" }], false]);
+    db.rows = [extractPageSnapshot(`<main><h1>Persian Holidays</h1><section><p>${prose}</p></section><section><a href="/nowruz">Learn More</a></section></main>`, url, "traditions", "t")];
+    const distant = (await loadOwnedPageBodies("t", [url])).get("iranopedia.com/traditions")!; expect([distant.linkedParagraphs?.length ?? 0, distant.capturedLinks?.some(l => l.href === "/nowruz")]).toEqual([0, true]);
+  });
   it("holds a Joojeh-style client shell while allowing a genuinely short complete page", async () => {
     const url = "https://iranopedia.com/persian-kabobs/joojeh-kabob";
     const shell = extractPageSnapshot(`<main><h1>Joojeh Kabob</h1>${"<h2>\u200b</h2>".repeat(10)}<a>Previous</a><a>Next</a></main>`, url, "joojeh", "t");
