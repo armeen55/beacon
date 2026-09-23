@@ -64,7 +64,7 @@ const proposal = (over: Record<string, unknown> = {}) => authorize({
     scope: { queries: ["nowruz traditions"], prompts: [] },
     receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "1,200 impressions and 9 clicks.", observedAt: new Date(Date.now() - 86_400_000).toISOString() }],
       missing: [], freshestObservedAt: new Date(Date.now() - 86_400_000).toISOString() },
-    components: [{ kind: "title", label: "Page title", after: null, risk: "safe", evidenceKeys: ["k1"] }, { kind: "opening_answer", label: "Opening answer", risk: "safe", evidenceKeys: ["k1"] }] }, ...over, });
+    components: [{ kind: "title", label: "Page title", after: "Nowruz Traditions and the Haft-Seen Table", risk: "safe", evidenceKeys: ["k1"] }, { kind: "opening_answer", label: "Opening answer", after: "Nowruz begins at the spring equinox, when families gather around a haft-seen table.", risk: "safe", evidenceKeys: ["k1"] }] }, ...over, });
 beforeEach(() => {
   ownerFlag.value = true;
   Object.values(mocks).forEach((m) => m.mockReset());
@@ -128,7 +128,7 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
     expect((await markProposalImplementedAction({ proposalId: PROPOSAL_ID, expectedVersion: PRESS.expectedVersion, ...over })).success).toBe(false); expect([mocks.recordShipment.mock.calls.length, mocks.transitionProposalToImplemented.mock.calls.length]).toEqual([0, 0]);});
   it("a change still in review is refused however it is pressed", async () => {
     mocks.loadChangeProposal.mockResolvedValue(proposal({ status: "needs_review", riskLevel: "high",
-      bundle: { ...(proposal().bundle as object), components: [{ kind: "title", label: "Page title", after: null, risk: "dangerous", evidenceKeys: ["k1"] }] } }));
+      bundle: { ...(proposal().bundle as object), components: [{ kind: "title", label: "Page title", after: "Nowruz Traditions and the Haft-Seen Table", risk: "dangerous", evidenceKeys: ["k1"] }] } }));
     const res = await markProposalImplementedAction({ ...PRESS }); expect([res.success, res.error]).toEqual([false, "This change is still being reviewed, so it cannot be marked done yet. Open Changes for the work that is ready to make today."]);
     expect([mocks.recordShipment.mock.calls.length, mocks.transitionProposalToImplemented.mock.calls.length]).toEqual([0, 0]);});
   it.each([

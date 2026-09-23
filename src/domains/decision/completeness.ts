@@ -31,6 +31,8 @@ const glued = (t: string): boolean => { const lv = labelOf(t); return !!lv && lv
 export function deliverableGaps(p: ChangeProposal): string[] {
   const gaps: string[] = [];
   const rewrite = COPY_RULES.pieceDebt(p); if (rewrite === null) gaps.push("the banked rewrite has an invalid plan or piece record"); else if (rewrite) gaps.push(`${rewrite} planned rewrite pieces have no copy written`); if (p.researchOnly === true) gaps.push(rewrite !== undefined ? "the rewrite is not yet qualified as complete publishable work" : p.kind === "new_page" && p.newPageDraft?.pieces.length ? "the new page is not yet qualified as complete publishable work" : "nothing has been written for it yet");
+  const parts = p.bundle?.components ?? [];
+  if (p.bundle && parts.length === 0 || parts.some((part) => noCopy(part.after) || notFinal(part.after))) gaps.push("a bundle component has no finished copy");
   const c = p.recommendedChange;
   if (c.kind === "new_page") {
     for (const [what, text] of [["title", c.proposedTitle], ["description", c.metaDescription], ["opening", c.openingAnswer]] as const) {
@@ -57,7 +59,6 @@ export function deliverableGaps(p: ChangeProposal): string[] {
   else if (glued(c.after)) gaps.push("its label runs straight into the words after it, so it would paste as one glued phrase");
   else if (typeof c.before === "string" && c.before.trim() !== "" && COPY_RULES.flat(c.after) === COPY_RULES.flat(c.before)) gaps.push("it changes nothing: the new words are the words the page already carries");
   const placed = (t: string | null | undefined): boolean => !!t && t.trim().length >= 12 && !notFinal(t);
-  const parts = p.bundle?.components ?? [];
   if (parts.some((part) => (part.kind === "full_rewrite" || part.target?.mode === "whole_body") && (part.kind !== "full_rewrite" || !part.before?.trim() || !part.units?.length || part.target?.mode !== "whole_body"))) gaps.push("the whole-page replacement lacks its full-rewrite kind, complete original body, publication structure or explicit body scope");
   const said = p.bundle?.dispositions ?? [];
   const written = (pg: string): boolean => parts.some((x) => x.page === pg && !noCopy(x.after) && !notFinal(x.after));

@@ -23,6 +23,16 @@ const EVIDENCE_GROUP: Record<BundleEvidenceItem["kind"], string> = {
 };
 const EVIDENCE_ORDER = Object.keys(EVIDENCE_GROUP) as BundleEvidenceItem["kind"][];
 const canFinish = (p: ChangeProposal): boolean => p.recommendedChange.kind === "existing_edit" && p.status === "needs_review" && ["draft", "redraft", "review", "evidence"].includes(nextObligation(p)?.kind ?? "");
+const researchNext = (p: ChangeProposal): string => {
+  const owed = nextObligation(p);
+  if (owed?.kind === "evidence") return ({ serp: "Beacon will read the search results before deciding what this page needs.", page_source: "Beacon will read the current page before writing against it.", competitor_page: "Beacon will read the relevant winning page before deciding what is missing.", factual_source: "Beacon will check a source for the missing claim before writing it.", semantic_review: "Beacon will check the finished copy against its saved sources." } as const)[owed.need.kind];
+  if (owed?.kind === "redraft") return `Beacon will revise the saved copy: ${owed.instruction}`;
+  if (owed?.kind === "terminal") return owed.reason;
+  if (owed?.kind === "operator") return "Review the safety decision before this change can proceed.";
+  if (owed?.kind === "review") return "Beacon will review the finished copy and its sources.";
+  if (owed?.kind === "sections" || owed?.kind === "draft") return "Beacon will finish and check the publication copy before it can be applied.";
+  return p.research?.next?.trim() || "Beacon will recheck this change before it can be applied.";
+};
 
 function seenLabel(observedAt: string | null): string {
   const day = monthDayLabel(observedAt);
@@ -74,9 +84,10 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
   const facts = new Map(bundle.receipt.items.map((i) => [i.key, i]));
   const chips = [...bundle.scope.queries, ...bundle.scope.prompts];
   const isNew = proposal.kind === "new_page", livePageHref = operatorUiPolicy.livePageHref(proposal.pageUrl);
+  const research = proposal.researchOnly === true || deliverableGaps(proposal).length > 0;
   const held = proposal.status !== "ready" ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet."
     : unsettledCause(proposal); // the first defect of the one verdict, typed faults included (journey review, 2026-09-06): `blocking` restated by a second name
-  const confirmable = proposal.status === "needs_review" && dangerousComponents(bundle.components).length > 0 && deliverableGaps(proposal).length === 0 && unsettledCause(proposal) == null ? confirmedVersion(proposal) : null;
+  const confirmable = !research && proposal.status === "needs_review" && dangerousComponents(bundle.components).length > 0 && deliverableGaps(proposal).length === 0 && unsettledCause(proposal) == null ? confirmedVersion(proposal) : null;
   const seen = new Set<string>();
   fresh(seen, [bundle.objective, proposal.whyItMatters]); // the head of the page says these first, so nothing repeats them
   const cited = bundle.components.map((c) => c.evidenceKeys.flatMap((key) => {
@@ -110,7 +121,7 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
       </section>
 
       <section className="space-y-3">
-        <Heading>{isNew ? "The pieces to paste" : "The exact edits"}</Heading>
+        <Heading>{research ? "Prepared pieces, not ready to paste" : isNew ? "The pieces to paste" : "The exact edits"}</Heading>
         {isNew ? (
           <p className="text-[13px] leading-relaxed text-muted-foreground">This page does not exist yet.</p>
         ) : null}
@@ -122,13 +133,13 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
               </summary>
               <div className="mt-2 space-y-3">
                 {bundle.components.slice(b * 10, (b + 1) * 10).map((c, i) => (
-                  <ComponentCard key={i} component={c} pageUrl={proposal.pageUrl} cited={cited[b * 10 + i] ?? []} isNew={isNew} held={held != null} position={b * 10 + i + 1} total={bundle.components.length} />
+                  <ComponentCard key={i} component={c} pageUrl={proposal.pageUrl} cited={cited[b * 10 + i] ?? []} isNew={isNew} held={research || held != null} position={b * 10 + i + 1} total={bundle.components.length} />
                 ))}
               </div>
             </details>
           ))
           : bundle.components.map((c, i) => (
-            <ComponentCard key={i} component={c} pageUrl={proposal.pageUrl} cited={cited[i] ?? []} isNew={isNew} held={held != null} position={i + 1} total={bundle.components.length} />
+            <ComponentCard key={i} component={c} pageUrl={proposal.pageUrl} cited={cited[i] ?? []} isNew={isNew} held={research || held != null} position={i + 1} total={bundle.components.length} />
           ))}
       </section>
 
@@ -189,7 +200,7 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
       </section>
 
       <section className="space-y-3 rounded-2xl border border-border bg-surface-raised p-5">
-        {held ? <p className="text-[13px] leading-relaxed text-foreground">{held}{waitingOn(proposal) ?? ""}</p> : <MarkImplemented
+        {research || held ? <p className="text-[13px] leading-relaxed text-foreground">{held ?? "This copy is still being prepared, so nothing here is ready to paste or mark done."}{waitingOn(proposal) ?? ""}</p> : <MarkImplemented
           proposalId={proposal.id}
           expectedVersion={confirmedVersion(proposal)}
           newPage={isNew}
@@ -197,7 +208,8 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
             ...(c.derivation ? { dependsOn: c.derivation.dependsOn.map((dependency) => dependency.componentId) } : {}),
             moves: dangerousComponents([c]).length > 0, recorded: [...recorded].some((r) => sameComponentId(r, componentIdOf(c, i))) }))}
         />}
-        {held ? null : <p className="text-[12px] text-muted-foreground">After you make it, the page is checked and the measurement starts from what is found.</p>}
+        {research ? <p className="text-[13px] leading-relaxed text-foreground" data-research-next="true">Next: {researchNext(proposal)}</p> : null}
+        {research || held ? null : <p className="text-[12px] text-muted-foreground">After you make it, the page is checked and the measurement starts from what is found.</p>}
         {confirmable ? <ConfirmDangerous proposalId={proposal.id} version={confirmable} /> : null}
         <SetAsideChange proposalId={proposal.id} finishable={canFinish(proposal) && !confirmable} prepare={nextObligation(proposal)?.kind !== "review"} />
       </section>
@@ -389,12 +401,11 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
   const before = c.kind === "new_page" ? null : (c.before ?? "").trim() || null;
   const units = c.kind === "existing_edit" ? c.units : undefined, link = c.kind === "existing_edit" && c.linkTo ? { href: c.linkTo, anchor: c.anchorText ?? "", pageUrl: proposal.pageUrl } : null;
   const steps = (proposal.operatorSteps ?? []).map((s) => s.replace(/^\d+[.)]\s*/, "").trim()).filter(Boolean);
-  const research = deliverableGaps(proposal).length > 0;
+  const research = proposal.researchOnly === true || deliverableGaps(proposal).length > 0;
   const hold1 = openHold(proposal);
   const held = proposal.status !== "ready"
     ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet."
     : unsettledCause(proposal); // the SAME one verdict the list lanes by, so a direct link can never out-offer the queue
-  const shownSteps = research && after && !(steps[0] ?? "").startsWith(after.slice(0, 25)) ? [after, ...steps] : steps;
   const checks = proposal.evidence?.hints ?? [];
   const brief = (proposal.opportunityType || "").trim().replace(/_/g, " "), edit = proposal.recommendedChange, caveats = cardCaveats(proposal, hold1.caveats), tried = proposal.previousCopy, livePageHref = operatorUiPolicy.livePageHref(proposal.pageUrl); // THE HOLD ANSWERS BOTH HALVES (measured, 2026-09-05): filtering the row's raw limitations against the hold's reasons alone still served "its copy carries no record of what it stands on" on /california-persian-cities/fremont, the one sentence that verdict had just DISPROVED from the row's own claims and support facts. What a person should keep in mind is now the same function's answer, so no gate sentence reaches a customer as their own caveat and the typed fault and the obligation still say what is owed.
   const action = (/(^|\s)\//.test(brief) ? "" : brief) || (edit.kind === "new_page" ? `Build a new page that answers "${proposal.primaryQuery}"` : `Update the ${({ title: "page title", meta: "meta description", h1: "page headline", answer_block: "answer at the top of the page", section: "section", schema: "structured data" } as Record<string, string>)[edit.field] ?? "page"} to sharpen it for "${proposal.primaryQuery}"`); // never the bland shrug: the operator reads the page name and then what is being done to it
@@ -409,12 +420,16 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
         {livePageHref ? <a href={livePageHref} target="_blank" rel="noreferrer" className="inline-flex text-[12px] font-semibold text-accent-primary underline underline-offset-2">Open live page ↗</a> : null}
         <p className="text-[12px] capitalize text-muted-foreground">About {proposal.estimatedEffortMinutes} min · {proposal.confidence} confidence · {proposal.riskLevel} risk</p>
       </div>
-      {caveats.length > 0 ? <div className="space-y-1"><Heading>Keep in mind before copying</Heading><Bullets items={caveats} /></div> : null}
-      {research || (steps.length > 0 && !after) ? (
+      {caveats.length > 0 ? <div className="space-y-1"><Heading>What to keep in mind</Heading><Bullets items={caveats} /></div> : null}
+      {research ? (
+        <div className="space-y-1" data-research-next="true"><Heading>What Beacon does next</Heading>
+          <p className="text-[14px] leading-relaxed text-foreground">{researchNext(proposal)}</p>
+        </div>
+      ) : steps.length > 0 && !after ? (
         <div className="space-y-1">
           <Heading>What is settled, and what is still owed:</Heading>
           <ol className="list-none space-y-1 text-[14px] leading-relaxed text-muted-foreground">
-            {shownSteps.map((s, i) => <li key={i}><span className="tabular-nums font-semibold">{i + 1}. </span>{s}</li>)}
+            {steps.map((s, i) => <li key={i}><span className="tabular-nums font-semibold">{i + 1}. </span>{s}</li>)}
           </ol>
         </div>
       ) : after ? (
