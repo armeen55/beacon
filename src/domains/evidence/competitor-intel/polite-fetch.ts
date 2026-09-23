@@ -8,14 +8,13 @@
  *
  * robots.txt groups are parsed by the same Evidence parser discovery uses;
  * the matching crawler's rules precede wildcard groups, with longest-match Allow/Disallow.
- * A robots fetch failure is treated as PERMISSIVE (we already identify
- * ourselves + fetch rarely and sequentially) — same call the scanner
- * script made.
+ * A robots server/network failure blocks that origin for this pass; a 404
+ * means the file is absent. Each redirected page hop gets its own verdict.
  */
 
 import type { ResearchWinningAppearance } from "@/domains/evidence/funnel/research-evidence";
 import { perfCountExternal } from "@/lib/obs/perf-log";
-import { isSafeRedirectHopUrl } from "@/lib/net/safe-source-fetch";
+import { isSafeRedirectHopUrl, safeFetchSourceText } from "@/lib/net/safe-source-fetch";
 import { parseRobotsText, type RobotsFile } from "../pages/robots-parser";
 
 export const COMPETITOR_INTEL_UA = "BeaconBot/1.0 (competitor-intel)";
@@ -29,6 +28,8 @@ export const GEMINI_WRAPPER_HOST = "vertexaisearch.cloud.google.com";
 
 type PoliteFetchDeps = {
   fetchImpl?: typeof fetch;
+  /** Testable DNS resolution; production uses the pinned safe fetcher's resolver. */
+  resolve?: (host: string) => Promise<string[]>;
   /** Per-request timeout. Default 10s (competitor-intel posture).
    *  Onboarding derivation passes 20s — live check 2026-06-11: a real
    *  Wix homepage (iranopedia.com) exceeds 10s cold, and silently
@@ -38,6 +39,7 @@ type PoliteFetchDeps = {
 };
 
 type RobotsVerdict = "allowed" | "blocked";
+const ROBOTS_UNAVAILABLE: RobotsFile["directives"] = [{ userAgent: "BeaconBot", rules: [{ kind: "disallow", pattern: "/" }] }];
 
 function isPathAllowed(path: string, groups: RobotsFile["directives"]): boolean {
   const specific = groups.filter((g) => g.userAgent.toLowerCase() === "beaconbot");
@@ -76,10 +78,10 @@ async function robotsVerdictFor(
   robotsCache: Map<string, RobotsFile["directives"]>,
   deps: PoliteFetchDeps = {},
 ): Promise<RobotsVerdict> {
-  const fetchImpl = deps.fetchImpl ?? fetch;
   let origin: string;
   let path: string;
   try {
+    if (!isSafeRedirectHopUrl(url)) return "blocked";
     const u = new URL(url);
     origin = u.origin;
     path = (u.pathname || "/") + u.search;
@@ -89,15 +91,14 @@ async function robotsVerdictFor(
 
   let groups = robotsCache.get(origin);
   if (groups == null) {
-    try {
-      const res = await fetchImpl(`${origin}/robots.txt`, {
-        headers: { "User-Agent": COMPETITOR_INTEL_UA },
-        signal: AbortSignal.timeout(deps.timeoutMs ?? TIMEOUT_MS),
-      });
-      groups = res.ok ? parseRobotsText(await res.text(), `${origin}/robots.txt`, res.status).directives : [];
-    } catch {
-      groups = []; // fetch failure → permissive (identified UA + rare, sequential pulls)
-    }
+    const robotsUrl = `${origin}/robots.txt`;
+    const res = await safeFetchSourceText(robotsUrl, { fetchImpl: deps.fetchImpl, resolve: deps.resolve }, {
+      timeoutMs: deps.timeoutMs ?? TIMEOUT_MS, deadlineMs: (deps.timeoutMs ?? TIMEOUT_MS) * 6,
+      maxRedirects: 5, maxBytes: 500 * 1024, allowedContentTypes: ["text/plain"], userAgent: COMPETITOR_INTEL_UA,
+      beforeHop: async (hop) => { if (!isSafeRedirectHopUrl(hop)) return false; perfCountExternal("crawl", "robots"); return true; },
+    });
+    groups = res.ok ? parseRobotsText(res.text, robotsUrl, res.status).directives
+      : res.status === 404 || res.status === 410 ? [] : ROBOTS_UNAVAILABLE;
     robotsCache.set(origin, groups);
   }
   return isPathAllowed(path, groups) ? "allowed" : "blocked";
@@ -124,35 +125,15 @@ export async function fetchPageHtml(
 ): Promise<PoliteHtmlResult> {
   const verdict = await robotsVerdictFor(url, robotsCache, deps);
   if (verdict === "blocked") return { ok: false, reason: "robots_blocked" };
-  const fetchImpl = deps.fetchImpl ?? fetch;
-  try {
-    // W2-B - count the live page crawl at its transport, so the per-GET external-
-    // call tally shows any crawl a render path accidentally triggers (it must be 0).
-    perfCountExternal("crawl");
-    const res = await fetchImpl(url, {
-      headers: {
-        "User-Agent": COMPETITOR_INTEL_UA,
-        Accept: "text/html,application/xhtml+xml",
-      },
-      signal: AbortSignal.timeout(deps.timeoutMs ?? TIMEOUT_MS),
-      redirect: "follow",
-    });
-    if (!res.ok) {
-      return { ok: false, reason: "fetch_failed", detail: `http_${res.status}` };
-    }
-    return {
-      ok: true,
-      html: await res.text(),
-      status: res.status,
-      finalUrl: typeof res.url === "string" && res.url ? res.url : undefined,
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      reason: "fetch_failed",
-      detail: err instanceof Error ? err.message : "unknown",
-    };
-  }
+  let denied = false;
+  const res = await safeFetchSourceText(url, { fetchImpl: deps.fetchImpl, resolve: deps.resolve }, {
+    timeoutMs: deps.timeoutMs ?? TIMEOUT_MS, deadlineMs: (deps.timeoutMs ?? TIMEOUT_MS) * 5,
+    maxRedirects: 4, allowedContentTypes: ["text/html", "application/xhtml+xml"], userAgent: COMPETITOR_INTEL_UA,
+    beforeHop: async (hop) => { if (!isSafeRedirectHopUrl(hop) || await robotsVerdictFor(hop, robotsCache, deps) !== "allowed") { denied = true; return false; }
+      perfCountExternal("crawl"); return true; },
+  });
+  return res.ok ? { ok: true, html: res.text, status: res.status, finalUrl: res.finalUrl }
+    : { ok: false, reason: denied ? "robots_blocked" : "fetch_failed", detail: res.status ? `http_${res.status}` : res.reason };
 }
 
 // -- Slice 6I: bounded redirect-only resolution of Gemini wrapper citations ---

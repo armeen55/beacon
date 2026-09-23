@@ -7,7 +7,7 @@ import { Agent } from "undici";
 /**
  * safe-source-fetch (W5 stop-ship F1, 2026-07-09) - the SSRF-safe outbound fetcher for LLM-PROPOSED source URLs. A structured draft's cited source URL is untrusted, model-generated text; fetching it to verify a claim is a server-side request whose destination the attacker (the model, or a poisoned brief) partially controls. That is exactly the shape of an SSRF: a URL that points at 169.254.169.254 (cloud metadata), 127.0.0.1, an internal 10.x service, or a public host that DNS-resolves to a private address, and then a naive follow-redirect fetch happily reaches it.
  *
- * This module is the ONLY thing allowed to fetch a source URL. It is DEDICATED and separate from competitor-intel/polite-fetch.ts on purpose: that crawler keeps redirect:"follow" because it only ever crawls the tenant's OWN host-checked domain; this one fetches arbitrary model-proposed hosts, so it does manual, host-revalidated-per-hop redirects and fails closed on anything private/reserved.
+ * This module is the validated outbound transport for source URLs. The polite page reader also uses it, adding a robots verdict before each page hop. Every hop is manual, host-revalidated, and fails closed on private/reserved destinations.
  *
  * Per-hop algorithm (initial request AND every redirect target re-run the full check before a byte is sent):
  * 1. assertSafeUrl - http/https only, no user:pass@ credentials, no non-default/unsafe port.
@@ -48,7 +48,7 @@ const ACCESS_BLOCKED_STATUSES: ReadonlySet<number> = new Set([401, 403, 429, 451
 
 type SafeFetchResult =
   | { ok: true; text: string; finalUrl: string; status: number }
-  | { ok: false; reason: SafeFetchReason };
+  | { ok: false; reason: SafeFetchReason; status?: number };
 
 type SafeFetchDeps = {
   /** Injectable transport. Default = global fetch, ALWAYS called redirect:"manual". */
@@ -70,6 +70,9 @@ type SafeFetchOptions = {
   maxBytes?: number;
   /** Content-types allowed on a 2xx. Default html/xhtml/plain. */
   allowedContentTypes?: readonly string[];
+  /** Refuse a hop before any request (e.g. a destination's robots policy). */
+  beforeHop?: (url: string) => Promise<boolean>;
+  userAgent?: string;
 };
 
 type AssertSafeUrlResult =
@@ -398,6 +401,10 @@ export async function safeFetchSourceText(
     const key = u.toString();
     if (visited.has(key)) return { ok: false, reason: "redirect_loop" };
     visited.add(key);
+    if (opts.beforeHop) {
+      try { if (!await opts.beforeHop(key)) return { ok: false, reason: "access_blocked" }; }
+      catch { return { ok: false, reason: "access_blocked" }; }
+    }
 
     // Socket pinning (DNS-TOCTOU fix): this hop's Agent can only connect to the exact address just validated above - the request URL below still carries the ORIGINAL hostname, so TLS SNI + the Host header are unchanged; only the DNS step is overridden. A fresh Agent per hop (never reused across redirects, closed once this hop is done).
     const dispatcher = pinnedDispatcher(validated.pinnedIp, validated.pinnedFamily);
@@ -415,7 +422,7 @@ export async function safeFetchSourceText(
       const init: RequestInit & { dispatcher?: Agent } = {
         method: "GET",
         redirect: "manual",
-        headers: { "User-Agent": SOURCE_VERIFY_UA, Accept: allowed.join(", ") },
+        headers: { "User-Agent": opts.userAgent ?? SOURCE_VERIFY_UA, Accept: allowed.join(", ") },
         signal: AbortSignal.timeout(hopTimeout),
         dispatcher,
       };
@@ -459,7 +466,7 @@ export async function safeFetchSourceText(
       // G5 (2026-07-10): a host that answered but refused us (403/robots-block class) is reported distinctly from a dead/broken URL, so the source gate can honestly hold "could not read this citation" vs "no source".
       return {
         ok: false,
-        reason: ACCESS_BLOCKED_STATUSES.has(status) ? "access_blocked" : "fetch_failed",
+        reason: ACCESS_BLOCKED_STATUSES.has(status) ? "access_blocked" : "fetch_failed", status,
       };
     }
 

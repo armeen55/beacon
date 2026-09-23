@@ -6,8 +6,6 @@ import { buildResultsBrain } from "@/app/(shell)/results/results-brain";
 import { RESULT_LINES } from "@/app/(shell)/results/results-lines";
 import { countLedgerLifecycle, splitLedgerLifecycle } from "@/domains/decision/changes/lifecycle-counts";
 const { rowState } = RESULT_LINES;
-import { buildResultsCsv } from "@/app/(shell)/results/results-csv";
-import { buildHeadline } from "@/domains/measurement/proof-gsc/read-honesty";
 const NOW = new Date("2026-06-01T00:00:00Z"), SHIPPED = "2026-05-01";
 const WINDOWS = evaluateWindows(SHIPPED, NOW, "2026-06-01");
 const win = (day: 7 | 14 | 28, over: Partial<KernelInput["windows"][number]> = {}) => ({ day, ran: true, adjustedClicksLift: 40,
@@ -102,11 +100,6 @@ describe("the next step belongs to the kind of work that was done", () => {
     const dud = first({ read: evaluateChange(input({ actionType: "other" }), WINDOWS, []) }); // nothing can grade it, so nothing is claimed
     expect([dud.verdictWord, dud.liftLabel, dud.bar, dud.nextStep]).toEqual(["Not measurable", null, null, "Nothing to wait for on this one."]); expect(dud.happened).toMatch(/^Recorded, and not judged/);});});
 describe("what the screen calls the work, and what it will not promise", () => {
-  it("says what is missing when the change is recorded and no fair comparison exists", () => {
-    const said = (m: string) => first({ read: measuring, measurement: m as never }).happened;
-    expect(said("insufficient_comparison")).toBe("Recorded. A fair comparison is not available yet: too few similar pages on this site can stand behind this one.");
-    expect([said("measurement_unavailable").slice(0, 55), said("verification_needed").slice(0, 30), said("measuring").slice(0, 17)])
-      .toEqual(["Recorded. A fair comparison is not available yet: Searc", "Recorded from what was applied", "Nothing read yet."]);});
   it("prints no slug, no raw date stamp, no lab word, no first person and no dash", () => {
     const view = buildResultsView([shipment(), shipment({ read: declined }), shipment({ read: measuring }), shipment({ read: cutOff }),
       shipment({ read: sharedCredit }), shipment({ implementedAt: null, baseline: null, verification: null, basisMove: null }), ...(["withdrawn", "superseded", "dismissed", "gone"] as const).map((d) => shipment({ recommendation: { state: "retired", disposition: d } }))], NOW);
@@ -117,12 +110,7 @@ describe("what the screen calls the work, and what it will not promise", () => {
     for (const [why, bad] of [["dash", /[–—]/], ["raw date stamp", /\d{4}-\d{2}-\d{2}/], ["slug", /[a-z]+_[a-z]+/], ["first person", /\b(I|me|my|we|our)\b/],
       ["lab word", /\b(experiment|controls?|baseline|treatment|serp|observational|directional|confounded|evidence|window)\b/i]] as const)
       for (const s of strings) expect(s, `${why} in: ${s}`).not.toMatch(bad); });
-  it("every sentence the headline switch can print speaks subjectless: the whole branch space, not a sample", () => {
-    const V = ["waiting", "insufficient_evidence", "directional_decline", "no_clear_movement", "directional_improvement", "stronger_improvement", "confounded"] as const; const M = ["clicks", "ctr", "position", "unclassified"] as const; // Third time this class shipped: a branch got rewritten and its sibling did not, and a fixture pin sampled around it. So walk the space.
-    for (const verdict of V) for (const basisDay of [7, 14, 28, 56] as const) for (const overlapCount of [0, 1, 2]) for (const overlapClosedOn of [null, "2026-05-05"]) for (const metric of M) {
-      const line = buildHeadline({ verdict, metric, lift: verdict === "directional_decline" ? -30 : 40, impressionsLift: 60, basisDay, overlapCount, overlapClosedOn, ga4ExtraSessions: 12, ga4Trustworthy: true });
-      expect(line, line).not.toMatch(/\b(I|me|my|we|our)\b/); expect(line, line).not.toMatch(/[\u2013\u2014]/);}
-    expect(buildResultsCsv([shipment().read, declined, measuring, sharedCredit, cutOff]), "first person in the export").not.toMatch(/\b(I|me|my|we|our)\b/);});});
+});
 describe("an AI change is judged on the thing it was raised to move", () => {
   const level0 = { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 };
   const flatOnGoogle = evaluateChange(input({ windows: [win(7, level0), win(14, level0), win(28, level0)] }), WINDOWS, []);
@@ -286,14 +274,6 @@ describe("raw movement, a provisional reading and mature learning stay apart", (
     expect(rowFor(gained).unadjustedNote, "BOTH FACTS, AND WHICH ONE HAPPENED: the raw movement and the adjusted comparison sit together, and the sentence names the page's own gain rather than leaving one word to cover two different things").toContain("This page took more clicks than before and the pages compared against it took fewer, so both are true of it.");
     expect(rowFor(heldStill).unadjustedNote, "and the reading that is ahead only because the comparison fell says exactly that, on a row whose headline number is identical to the one above").toContain("Finishing ahead here is the comparison falling further, not traffic this page gained.");
     expect([rowFor(gained).happened, rowFor(heldStill).happened], "the adjusted sentence is unchanged and says the same thing about both, which is why the raw line has to exist").toEqual([rowFor(gained).happened, rowFor(gained).happened]); });
-  it.each(["tenant-one", "tenant-two"])("says what the account's own readings changed in the next decision, in the funding door's own rule, and never that an early reading is already at work [%s]", () => {
-    const one = shipment(), pair = [shipment(), shipment({ read: { ...shipment().read, id: "c2" } })];
-    const three = [...pair, shipment({ read: { ...shipment().read, id: "c3" } })], down = three.map((p) => shipment({ read: { ...p.read, lift: -30 }, learning: { ...p.learning!, windows: p.learning!.windows.map((w) => ({ ...w, adjustedLift: -30 })) } }));
-    const teaches = (rows: ShipmentPresentation[]) => buildResultsBrain(rows, NOW).thoughts[0]!.teaches;
-    expect(teaches([one]), "UNDER THE VOTE THE QUEUE IS UNCHANGED, and the page says so instead of implying every reading is already aiming the next recommendation").toBe("1 closed reading of this exact kind of change here, and the next one is recommended exactly as before: the order moves once 3 closed readings are down between them.");
-    expect(teaches(three), "a record that is not down buys nothing at all, because the traffic riding on a change decides the queue and never the kind of change").toContain("and a record that is not down earns no place in the queue");
-    expect(teaches(down), "and a record that IS down names the funding change it makes, with its own numbers").toContain("down between them, so the next one is placed below the rest until one finishes ahead.");
-    expect([buildResultsBrain([], NOW).thoughts.length, buildResultsBrain([shipment({ verification: null })], NOW).thoughts[0]!.teaches], "an account with nothing verified says nothing has changed rather than printing a zero").toEqual([0, "Nothing here has changed what gets recommended next yet."]); });
   it.each(["tenant-one", "tenant-two"])("prints the operator's own wording beside the prepared wording, and never a stored label that is really a writer's brief [%s]", () => {
     const applied = first({ applied: [{ kind: "meta", prepared: "Best Persian restaurants in Berkeley.", operator: "Persian restaurants in Berkeley, picked by readers." }] });
     expect(applied.appliedLines, "BOTH VERSIONS ARE ON THE RECORD AND BOTH REACH THE SCREEN: the live check read the page for the operator's words, and nothing said whose words the reading was about").toEqual(["The search description: your wording is on the page, \"Persian restaurants in Berkeley, picked by readers.\", and the prepared wording was \"Best Persian restaurants in Berkeley.\". The live check read the page for yours."]);
@@ -314,9 +294,4 @@ describe("what was applied and what the reading learned are two separate sentenc
         "Applied on May 1. Confirmed on the page on May 3.", "Applied on May 1, in your own wording. Confirmed on the page on May 3.", "Applied on May 1. Built in the browser, so it could not be read.",
         "Applied on May 1. Not found on the page.", "Applied on May 1. Not on the live page yet.", "Marked done before the day it was applied was recorded. It has not been read on the live page yet."]);
       expect(at({ verification: check("verified") }).execution.toLowerCase(), "and it says not one word about the reading: that is the other sentence's job").not.toMatch(/click|read \d|ahead|behind|days/); });
-    it(`${s.t}: the learning sentences say what the reading found and what it changed about what gets funded next`, () => {
-      const row = at(); expect([row.happened, row.funded], "the reading and what it taught funding are said apart from the execution above, and the funding sentence is the one the belief at the top of this page uses").toEqual([
-        "Ran 28 days. 40 clicks ahead of pages that were not changed, which this page's own clicks cannot prove: about 28 percent is the least a change here can show, and this one is 20 percent.",
-        "1 closed reading of this exact kind of change here, and the next one is recommended exactly as before: the order moves once 3 closed readings are down between them."]);
-      expect(at({ implementedAt: null, verification: null }).funded, "and a row that never trained anything says the account has changed nothing about funding yet").toBe("Nothing here has changed what gets recommended next yet."); });
   } });

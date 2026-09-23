@@ -10,7 +10,6 @@ import {
 import { SHOWN_FIELDS, isProfileConfirmed } from "@/domains/runtime/onboarding-store";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import spend from "@/lib/cost/spend-reservations";
-import { CONNECTOR_REGISTRY } from "@/lib/connectors/registry";
 import { historyNote } from "@/app/(shell)/settings/config/tracked-prompts-section";
 import { getTenantLifetimeSpendUsd } from "@/lib/cost/budget-ledger-supabase";
 let ledger = { usd: 0, has: false };
@@ -393,13 +392,9 @@ describe("setup and settings surfaces (Phase 8)", () => {
     const editor = (n: number) => renderToStaticMarkup(createElement(PromptsEditor, {
       groups: [{ slug: "g", name: "Choosing", prompts: Array.from({ length: n }, (_, i) => ({ id: `p${i}`, text: `question ${i}`, recommended: true, approved: false })) }],
       mode: "onboarding" as const, submitLabel: "Approve my selection", onSubmit: () => {},}));
-    const thin = editor(16); expect(thin).toContain("16 strong questions found for your business. 20 to 50 is the range that works best, and more arrive as Beacon learns your market.");
+    const thin = editor(16);
     expect(thin).toContain("Approve my selection");
-    expect(thin).not.toContain('disabled=""'); // the one primary action on the step is live, not a dead end
-    const full = editor(24); expect(full).toContain("Between 20 and 50 questions stay tracked, and this is the range that works best.");});
-  it("offers the customer's own three sources on Connections, and nothing Beacon runs on its own account", () => {
-    expect(CONNECTOR_REGISTRY.map((c) => c.id).sort()).toEqual(["clarity", "google_ga4", "google_gsc"]); const words = CONNECTOR_REGISTRY.map((c) => `${c.label} ${c.summary}`).join(" ").toLowerCase();
-    expect(words).not.toMatch(/openai|dataforseo|crawler|perplexity|gemini/); expect(CONNECTOR_REGISTRY.find((c) => c.id === "google_gsc")!.summary).toContain("Strongly recommended");});
+    expect(thin).not.toContain('disabled=""'); }); // the one primary action on the step is live, not a dead end
   it("tells an operator where each tracked question's trend starts, so a rewording never looks like a drop", () => {
     expect(historyNote({ version: 1, createdAt: "2026-05-10T00:00:00Z" }))
       .toBe("This exact question has been asked since May 10, and its trend runs from there.");

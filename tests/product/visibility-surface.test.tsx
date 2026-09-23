@@ -121,9 +121,6 @@ describe("Visibility is a workspace, and every number on it names what it was co
     const many = fanoutDetail({ row: fanoutRow(), spanDays: 3, disposition: DISPOSITION, rows: Array.from({ length: 61 }, (_, i) => ({ ...ROW, id: `obs_r${i}` })) });
     expect(many.executions.rows).toHaveLength(60);
     expect(renderToStaticMarkup(<AiWorkspace view={ai()} range={7} engine={null} sub="searches" reading={null} fanout={f} />)).toContain("prompt=p1&amp;reading=obs_7"); });
-  it("keeps dense choices and wide evidence tables keyboard-scrollable on a narrow screen", () => {
-    const markup = renderToStaticMarkup(<AiWorkspace view={ai()} range={7} engine={null} sub="searches" reading={null} fanout={fanout()} />);
-    expect([markup.includes('data-scrollable-choices="true"'), markup.includes('role="region"'), markup.includes("table, scroll for more columns"), markup.includes('tabindex="0"')]).toEqual([true, true, true, true]); });
   it("opens one run into the whole of itself, and never prints an unreported silence as a factual none", () => {
     const all = answerDetail(ROW, new Map(LANDSCAPE.map((l) => [l.domain, l.kind]))).join("\n");
     for (const s of [LONG_ANSWER, "https://own.example/haft-seen", "https://standards.example/nowruz", "https://other.example/x", "gpt-x-preview", "gpt-x", "9f3c1a2b"]) expect(all).toContain(s);

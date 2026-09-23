@@ -1,6 +1,6 @@
 /** PLATFORM - tenant isolation + write durability: repo facade scoping, dual-write validation before I/O, the fail-closed write contract, and the canonical Account/BusinessProfile + lifecycle promises. Structural pushdown lives in the foundation guard, not source scans. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-vi.mock("server-only", () => ({}));
+vi.mock("server-only", () => ({})); vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "8.8.8.8", family: 4 }] }));
 const mem = vi.hoisted(() => ({ upsert: null as null | ((table: string, rows: unknown[]) => { data: unknown[] | null; error: { message: string } | null }) }));
 vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => {
@@ -71,8 +71,7 @@ describe("a canonical write that did not land never reads as done", () => {
     expect(seen).toEqual(["results"]); });
   it("a crawled page whose snapshot write failed stays unvisited, so the next batch reads it again", async () => {
     const { runCrawlBatch } = await import("@/domains/evidence/scanning/crawl-frontier"); const html = "<html><head><title>A page</title></head><body><h1>A page</h1><p>Some words on the page.</p></body></html>";
-    const fetchImpl = (async (u: string) => (String(u).endsWith("/robots.txt") ? { ok: false, status: 404, text: async () => "" }
-      : { ok: true, status: 200, url: String(u), text: async () => html })) as unknown as typeof fetch;
+    const fetchImpl = (async (u: string) => new Response(String(u).endsWith("/robots.txt") ? "" : html, { status: String(u).endsWith("/robots.txt") ? 404 : 200, headers: { "content-type": String(u).endsWith("/robots.txt") ? "text/plain" : "text/html" } })) as typeof fetch;
     const ISO = "2026-07-31T00:00:00.000Z";
     const state = { tenant_id: TENANT, domain: "own.example", status: "in_progress", frontier: ["https://own.example/a"], visited: [], pages_crawled: 0,
       pages_failed: 0, page_cap: 10, source: "homepage", started_at: ISO, updated_at: ISO, last_batch_at: null, batches_run: 0, page_facts: [] } as CrawlFrontierState;

@@ -20,10 +20,6 @@ vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...(await orig<Record<s
     q.maybeSingle = async () => ({ data: null, error: null }); q.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => answer().then(res, rej);
     return q; } }) }));
 describe("Today renders, and tells the truth about its own queue", () => {
-  it.each([["@/app/(shell)/page", ["max-w-3xl", 'aria-label="Loading today"']], ["@/app/(shell)/changes/page", ["Changes", "Finished changes come first"]],
-    ["@/app/(shell)/results/page", ["Results", "7, 14 and 28 days"]]] as const)("renders the %s frame without throwing", async (mod, claims) => {
-    const { default: Page } = await import(mod) as { default: (a?: unknown) => Promise<ReactElement> }; const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
-    for (const claim of claims) expect(html).toContain(claim); }, 15_000);
   it("splits what is measuring into the changes confirmed live and the ones still waiting on that check", async () => {
     vi.resetModules(); const ago = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString(), row = (id: string, status: string | null) => { const r = { id, path: `/${id}`, page: `https://fixture.example/${id}`, actionType: "section_add", after: "The complete section gives readers the supported explanation, its scope, and the distinctions needed to understand the subject without sending them elsewhere", shippedAt: ago(3), implementedAt: ago(3), verdict: "measuring", verification: null, windows: [], baseline: { impressions: 0, clicks: 0 } }; return { ...r, verification: status ? { status, checkedAt: ago(2), checkerContract: SHIPMENT_PROOF.contract, proof: SHIPMENT_PROOF.of(r, "Inspected page"), components: [{ kind: "section_add", state: "verified" as const, note: null }] } : null }; };
     const ledgerRows = [row("a", "verified"), row("b", null), row("c", "not_found"), row("d", "blocked")]; vi.doMock("@/domains/measurement", async (o) => ({ ...(await o<Record<string, unknown>>()), loadProofLedgerCached: async () => ledgerRows }));

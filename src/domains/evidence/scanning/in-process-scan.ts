@@ -18,6 +18,7 @@
 import { createHash } from "node:crypto";
 
 import { fetchPageHtml, COMPETITOR_INTEL_UA } from "@/domains/evidence/competitor-intel/polite-fetch";
+import { safeFetchSourceText } from "@/lib/net/safe-source-fetch";
 import { parseSitemapUrlEntries, parseSitemapIndexLocs, dedupeSitemapEntries } from "./sitemap-parse";
 import { parseRobotsText } from "@/domains/evidence/pages/robots-parser";
 import { upsertDiscovery, type DiscoveredPage, type DiscoveredVia } from "./owned-pages-store";
@@ -128,17 +129,12 @@ export function canonicalOwnedUrl(
 }
 
 async function fetchText(url: string, fetchImpl: typeof fetch, timeoutMs: number): Promise<{ text: string | null; retry: boolean }> {
-  try {
-    const res = await fetchImpl(url, {
-      headers: { "User-Agent": COMPETITOR_INTEL_UA, Accept: "application/xml,text/xml,*/*" },
-      signal: AbortSignal.timeout(timeoutMs),
-      redirect: "follow",
-    });
-    if (!res.ok) return { text: null, retry: res.status === 408 || res.status === 429 || res.status >= 500 };
-    return { text: await res.text(), retry: false };
-  } catch {
-    return { text: null, retry: true };
-  }
+  const res = await safeFetchSourceText(url, { fetchImpl }, {
+    userAgent: COMPETITOR_INTEL_UA, timeoutMs, deadlineMs: timeoutMs * 6, maxRedirects: 5,
+    maxBytes: 8_000_000, allowedContentTypes: ["application/xml", "text/xml", "text/plain", "application/rss+xml"],
+  });
+  return res.ok ? { text: res.text, retry: false }
+    : { text: null, retry: res.status !== 404 && res.status !== 410 };
 }
 
 type SitemapFrame = { url: string; depth: number; via: DiscoveredVia; offset: number; hash?: string };
@@ -190,11 +186,14 @@ export async function discoverUrls(
   // Roots are reconstructed from robots once per pass; their hash restarts enumeration if the site
   // changes its list. Only the active ancestry is persisted, so a 50,000-child index cannot bloat state.
   let roots: { url: string; via: DiscoveredVia }[] | null = null;
+  const robotsCache: Parameters<typeof fetchPageHtml>[1] = new Map();
   const rootsOf = async () => {
     if (roots) return true;
     const robots = await fetchText(`${origin}/robots.txt`, fetchImpl, perRequestMs);
     if (robots.retry) return false;
-    const declared = robots.text ? parseRobotsText(robots.text, `${origin}/robots.txt`, 200).sitemaps : [];
+    const parsed = robots.text ? parseRobotsText(robots.text, `${origin}/robots.txt`, 200) : null;
+    robotsCache.set(new URL(origin).origin, parsed?.directives ?? []);
+    const declared = parsed?.sitemaps ?? [];
     roots = [...declared.map((url) => ({ url, via: "robots_sitemap" as DiscoveredVia })),
       { url: `${origin}/sitemap.xml`, via: "sitemap" }, { url: `${origin}/sitemap_index.xml`, via: "sitemap" }];
     const hash = createHash("sha256").update(roots.map((r) => r.url).join("\n")).digest("hex").slice(0, 16);
@@ -245,7 +244,8 @@ export async function discoverUrls(
 
   // No sitemap supplied a page. Homepage/nav are the final, still bounded source.
   record(origin, "homepage");
-  const homeHtml = overBudget() ? null : (await fetchText(origin, fetchImpl, perRequestMs)).text;
+  const home = overBudget() ? null : await fetchPageHtml(origin, robotsCache, { fetchImpl, timeoutMs: perRequestMs });
+  const homeHtml = home?.ok ? home.html : null;
   if (homeHtml) for (const path of pickSecondaryPaths(homeHtml)) record(`${origin}${path}`, "nav");
   return { pages: [...found.values()], source: "homepage", truncated: 0, checkpoint: null };
 }

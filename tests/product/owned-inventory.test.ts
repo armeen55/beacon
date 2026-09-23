@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"; import { createHash } from "node:crypto";
+vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "8.8.8.8", family: 4 }] }));
 const db = vi.hoisted(() => ({ owned: [] as Record<string, unknown>[], snaps: [] as Record<string, unknown>[], blobs: [] as Record<string, unknown>[], missing: "", fails: false, client: {} as Record<string, unknown> }));
 const FRESH = { crawl_state: "uncrawled", completeness: "missing", is_canonical_target: true, http_status: null, last_crawled_at: null, status_reconfirmed_at: null, content_hash: null, blocked_until: null, redirects_to: null };
 vi.mock("@/lib/persistence/supabase", async (o) => ({ ...((await o()) as object), getSupabaseAdmin: () => db.client }));
@@ -19,6 +20,19 @@ const index = (k: string[]) => `<sitemapindex>${k.map((x) => `<sitemap><loc>${x}
 const discover = (m: Record<string, string>) => discoverUrls("https://own.com", serve(m), 100, () => NOW.getTime(), NOW.getTime() + 60_000);
 beforeEach(() => { db.owned = []; db.snaps = []; db.blobs = []; db.missing = ""; db.fails = false; asked.length = 0; });
 describe("the owned-page inventory: what the site says it has, and what my read of it found", () => {
+  it("holds unsafe sitemap redirects without fetching them and accepts a public redirected document", async () => {
+    const sitemap = "https://own.com/sitemap.xml", publicMap = "https://other.example/map.xml", privateMap = "http://127.0.0.1/private.xml", calls: string[] = [], modes: string[] = [];
+    const redirected = (target: string) => (async (raw: string, init?: RequestInit) => { const url = String(raw); calls.push(url); modes.push(String(init?.redirect)); return url.endsWith("robots.txt") ? new Response("", { status: 404 }) : url === sitemap ? new Response("", { status: 302, headers: { location: target } }) : new Response(urlset(["https://own.com/real"]), { status: 200, headers: { "content-type": "application/xml" } }); }) as typeof fetch;
+    const held = await discoverUrls("https://own.com", redirected(privateMap), 100, () => NOW.getTime(), NOW.getTime() + 60_000); expect([held.held, calls.includes(privateMap), modes.every((m) => m === "manual")]).toEqual(["sitemap_unreadable", false, true]);
+    calls.length = 0; modes.length = 0; const permitted = await discoverUrls("https://own.com", redirected(publicMap), 100, () => NOW.getTime(), NOW.getTime() + 60_000); expect([permitted.pages.map((p) => p.url), calls.includes(publicMap), modes.every((m) => m === "manual")]).toEqual([["https://own.com/real"], true, true]); });
+  it("discovers nav from a permitted HTML homepage and never reads a robots-disallowed homepage", async () => {
+    const homepage = "<html><nav><a href='/about'>About</a></nav><main><h1>Home</h1></main></html>", open = await discover({ "https://own.com/": homepage });
+    expect([open.source, open.pages.some((p) => p.url === "https://own.com/about"), asked.includes("https://own.com/")]).toEqual(["homepage", true, true]);
+    asked.length = 0; const shut = await discover({ "https://own.com/robots.txt": "User-agent: BeaconBot\nDisallow: /", "https://own.com/": homepage });
+    expect([shut.pages.map((p) => p.url), asked.includes("https://own.com/")]).toEqual([["https://own.com/"], false]);
+    asked.length = 0; const deniedFetch = (async (raw: string) => { const url = String(raw); asked.push(url); return new Response("", { status: url.endsWith("/robots.txt") ? 403 : 200, headers: { "content-type": "text/plain" } }); }) as typeof fetch;
+    const denied = await discoverUrls("https://own.com", deniedFetch, 100, () => NOW.getTime(), NOW.getTime() + 60_000);
+    expect([denied.held, asked]).toEqual(["robots_unreadable", ["https://own.com/robots.txt"]]); });
   it("follows every child map through deeper indexes and cycles without leaving this site", async () => {
     const children = Array.from({ length: 61 }, (_, i) => `https://own.com/sm/child-${i}.xml`), root = "https://own.com/sm/root.xml";
     const out = await discover({ // the sitemap is at NEITHER conventional path: only the directive finds it
