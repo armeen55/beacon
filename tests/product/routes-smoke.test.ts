@@ -1,7 +1,6 @@
-/** Four-surface smoke (Core 100K product contract): Today, Changes, Results, Connections each render their frame without throwing, plus the Today claims a stranger reads first (the ready count, the one CTA, the hero chart sentence). Deep behavior lives in the kept behavioral contract suites. */
 import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
 import { describe, it, expect, vi } from "vitest";
-import { renderToReadableStream, renderToStaticMarkup } from "react-dom/server"; import type { ReactElement } from "react";
+import { renderToReadableStream, renderToStaticMarkup } from "react-dom/server"; import { createElement, type ReactElement } from "react";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => { const redirected = (url: string) => { throw new Error(`NEXT_REDIRECT:${url}`); };
   return { permanentRedirect: redirected, redirect: redirected, useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }), useSearchParams: () => new URLSearchParams(), usePathname: () => "/settings/connectors" }; });
@@ -12,7 +11,6 @@ vi.mock("@/domains/runtime/research-run", () => ({ RESEARCH_RUN_LEASE_SECONDS: 8
   phaseLabel: "", stepsDone: 0, stepsTotal: 3, counters: {}, updatedAt: null, completedAt: null })) })); // The smoke suite pins frames; lifecycle gating has its own behavioral tests.
 vi.mock("@/domains/account/lifecycle", () => ({ requireReadyAccount: vi.fn(async () => ({ access: { kind: "ready", account: { status: "active" } } })),
   resolveAccountAccess: vi.fn(async () => ({ kind: "ready", account: { status: "active" } })), AccountUnavailableError: class extends Error {} }));
-/** THE LEDGER READ, as its two DIFFERENT answers, driven from THE STORE rather than from a stub of the module that decides. It only ever had one answer: every layer swallowed a failed read into an empty list, so a database outage rendered the one sentence that tells an operator to stop expecting measurement ("No changes are being measured yet") over an account with a full ledger. `ledgerError` is what Supabase hands back; every other table reads clean and empty. */
 vi.mock("next/server", async (orig) => ({ ...(await orig<Record<string, unknown>>()), after: () => {} })); // after() is only legal in a request scope, so the background rebuild it schedules is a no-op here; the RENDER path is what is under test.
 const DB = vi.hoisted(() => ({ ledgerError: null as { code: string; message: string } | null }));
 vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...(await orig<Record<string, unknown>>()), isSupabaseConfigured: () => true,
@@ -27,13 +25,16 @@ describe("Today renders, and tells the truth about its own queue", () => {
     const { default: Page } = await import(mod) as { default: (a?: unknown) => Promise<ReactElement> }; const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
     for (const claim of claims) expect(html).toContain(claim); }, 15_000);
   it("splits what is measuring into the changes confirmed live and the ones still waiting on that check", async () => {
-    vi.resetModules(); const ago = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString(), row = (id: string, status: string | null) => { const r = { id, path: `/${id}`, page: `https://fixture.example/${id}`, actionType: "section_add", after: "The complete section gives readers the supported explanation, its scope, and the distinctions needed to understand the subject without sending them elsewhere", shippedAt: ago(3), implementedAt: ago(3), verdict: "measuring", verification: null, windows: [], baseline: { impressions: 0, clicks: 0 } }; return { ...r, verification: status ? { status, checkedAt: ago(2), checkerContract: SHIPMENT_PROOF.contract, proof: SHIPMENT_PROOF.of(r, "Inspected page"), components: [{ kind: "section_add", state: "verified", note: null }] } : null }; };
-    vi.doMock("@/domains/measurement", async (o) => ({ ...(await o<Record<string, unknown>>()), loadProofLedgerCached: async () => [row("a", "verified"), row("b", null), row("c", "not_found")] }));
+    vi.resetModules(); const ago = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString(), row = (id: string, status: string | null) => { const r = { id, path: `/${id}`, page: `https://fixture.example/${id}`, actionType: "section_add", after: "The complete section gives readers the supported explanation, its scope, and the distinctions needed to understand the subject without sending them elsewhere", shippedAt: ago(3), implementedAt: ago(3), verdict: "measuring", verification: null, windows: [], baseline: { impressions: 0, clicks: 0 } }; return { ...r, verification: status ? { status, checkedAt: ago(2), checkerContract: SHIPMENT_PROOF.contract, proof: SHIPMENT_PROOF.of(r, "Inspected page"), components: [{ kind: "section_add", state: "verified" as const, note: null }] } : null }; };
+    const ledgerRows = [row("a", "verified"), row("b", null), row("c", "not_found"), row("d", "blocked")]; vi.doMock("@/domains/measurement", async (o) => ({ ...(await o<Record<string, unknown>>()), loadProofLedgerCached: async () => ledgerRows }));
     vi.doMock("@/app/(shell)/today-gate-data", () => ({ loadTodayV2GateData: async () => ({ unreadable: false, isDemoMode: false, firstReading: { isFirstReading: false, context: null } }) }));
     vi.doMock("@/app/(shell)/today-view-data", async (o) => ({ ...(await o<Record<string, unknown>>()), loadTodayView: async () => ({ hasChanges: true, today: { headerSentence: "", nextOpportunities: [], readyTotal: 0 } }) }));
     const { default: Page } = await import("@/app/(shell)/page") as { default: (a?: unknown) => Promise<ReactElement> };
     const html = await new Response(await renderToReadableStream(await Page({ searchParams: Promise.resolve({}) }), { onError: () => {} })).text();
-    expect(html).toContain("1 confirmed live and measuring, 2 waiting on a live check"); // one live check landed, two changes are still owed one
+    expect(html).toContain("1 confirmed live and measuring, 2 waiting on a live check, 1 change could not be verified");
+    const { countLedgerLifecycle } = await import("@/domains/decision"); const { ChangesListClient } = await import("@/app/(shell)/changes-list-client"); const c = countLedgerLifecycle(ledgerRows); const view = { proposals: [], ready: [], toDo: [], research: [], aiCases: { state: "unavailable" }, summary: { ready: 0, todo: 0, research: 0, implemented: 0, measuring: c.measuring, results: c.decided }, measuringCountCanonical: c.measuring, waitingLiveCountCanonical: c.waiting, blockedCountCanonical: c.blocked } as unknown as import("@/app/(shell)/changes-data").ChangesView;
+    expect(renderToStaticMarkup(createElement(ChangesListClient, { view }))).toContain("1 confirmed live and measuring · 2 waiting on a live check · 1 change could not be verified");
+    const stale = renderToStaticMarkup(createElement(ChangesListClient, { view: { ...view, waitingLiveCountCanonical: undefined, blockedCountCanonical: undefined, measuringCountCanonical: 158, wonCountCanonical: 6 } })); expect(stale).toContain("Live-check breakdown updating"); expect(stale).not.toMatch(/158 recorded|6 clear wins/);
     for (const m of ["@/domains/measurement", "@/app/(shell)/today-gate-data", "@/app/(shell)/today-view-data"]) vi.doUnmock(m); vi.resetModules(); }, 15_000);
   it("says it could not read the measured changes, and never that there are none, when THE STORE itself errors", async () => {
     const { default: Page } = await import("@/app/(shell)/results/page") as { default: (a?: unknown) => Promise<ReactElement> };
@@ -56,7 +57,7 @@ describe("Today renders, and tells the truth about its own queue", () => {
     const led = buildTodayViewFromChanges({ ...rv, research: [research], proposals: [research, rv.ready[0]!],
       summary: { ready: 1, todo: 0, research: 1 } } as never);
     expect(led.nextOpportunities[0]!.lane).toBe("ready");
-    const { buildScoreboard } = await import("@/domains/measurement"); // ONE COUNT RULE: the header owns "N measuring", the chart never repeats it
+    const { buildScoreboard } = await import("@/domains/measurement"); // The chart does not repeat the lifecycle count.
     expect(buildScoreboard([{ date: "2026-07-01", clicks: 10, impressions: 0 }, { date: "2026-07-20", clicks: 20, impressions: 0 }], [], new Date("2026-07-21T00:00:00Z"))?.verdictLine ?? "").not.toMatch(/measuring/i); });});
 describe("Connectors settings route smoke", () => {
   it("renders the connector page with the shipped cards + the one summary strip", async () => {

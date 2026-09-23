@@ -85,7 +85,8 @@ export function ChangesListClient({ view, initialPicked = [] }: { view: ChangesV
     + Math.max(0, (view.summary.ready ?? 0) - loadedReady - lost));
   const remaining = Math.max(0, (moved?.total ?? view.summary.ready ?? 0) - loadedReady - lost);
   const measuring = view.countsUnavailable ? null : view.measuringCountCanonical;
-  const wins = view.countsUnavailable ? null : view.wonCountCanonical ?? null;
+  const waiting = view.waitingLiveCountCanonical, blocked = view.blockedCountCanonical ?? 0;
+  const wins = view.countsUnavailable || waiting == null ? null : view.wonCountCanonical ?? null;
   const rememberView = (type: string, q: string) => { if (typeof window === "undefined") return; const next = new URLSearchParams(window.location.search);
     if (type === "all") next.delete("type"); else next.set("type", type); if (q.trim()) next.set("q", q); else next.delete("q");
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${next.size ? `?${next}` : ""}`); };
@@ -245,10 +246,9 @@ export function ChangesListClient({ view, initialPicked = [] }: { view: ChangesV
           What is measuring could not be read just now.{" "}
           <Link href="/results" className="font-semibold text-accent-primary underline underline-offset-2">Results has the full ledger</Link>
         </p>
-      ) : measuring > 0 || (wins ?? 0) > 0 ? (
+      ) : measuring > 0 || blocked > 0 || (wins ?? 0) > 0 ? (
         <p className="text-[13px] tabular-nums text-muted-foreground" data-measurement-line="true">
-          {measuring.toLocaleString("en-US")} {measuring === 1 ? "change" : "changes"} measuring
-          {wins != null && wins > 0 ? ` · ${wins.toLocaleString("en-US")} clear ${wins === 1 ? "win" : "wins"}` : ""}
+          {[waiting == null && measuring > 0 ? "Live-check breakdown updating" : "", waiting != null && measuring - waiting > 0 ? `${(measuring - waiting).toLocaleString("en-US")} confirmed live and measuring` : "", waiting != null && waiting > 0 ? `${waiting.toLocaleString("en-US")} waiting on a live check` : "", blocked > 0 ? `${blocked.toLocaleString("en-US")} ${blocked === 1 ? "change could" : "changes could"} not be verified` : "", wins != null && wins > 0 ? `${wins.toLocaleString("en-US")} clear ${wins === 1 ? "win" : "wins"}` : ""].filter(Boolean).join(" · ")}
           {" · "}
           <Link href="/results" className="font-semibold text-accent-primary underline underline-offset-2">View Results</Link>
         </p>

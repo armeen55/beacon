@@ -1,6 +1,7 @@
 /** Cross-surface counts from full-ledger reads: history stays visible;
  * only qualified applied units count as wins. Revert bookkeeping is not a new treatment. */
 import { bandOf, readRecordsForLearning, type LedgerRecordLike } from "@/domains/measurement/proof-gsc/kernel";
+import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
 
 /** The minimal shape of a shipped-change ledger row this module needs - structurally
  *  satisfied by ShippedChangeRecord (proof-gsc/shipped-change-store.ts). */
@@ -98,7 +99,8 @@ function toLedgerRecordLike(row: LedgerLifecycleRow): LedgerRecordLike & { opera
   };
 }
 
-type LedgerLifecycleSplit<T> = { won: T[]; promising: T[]; learned: T[]; measuring: T[] };
+type LedgerLifecycleSplit<T> = { won: T[]; promising: T[]; learned: T[]; measuring: T[]; blocked: T[] };
+const liveProof = (row: LedgerLifecycleRow): boolean => SHIPMENT_PROOF.of({ ...row, actionType: row.actionType ?? undefined }) != null;
 
 /**
  * Split a whole ledger into the three Results bands - the ONE band membership rule, from the SAME kernel read the Results page renders (bandOf). Results renders
@@ -112,11 +114,15 @@ export function splitLedgerLifecycle<T extends LedgerLifecycleRow>(
   // restored as attribution limited). No-revert ledgers pass through untouched.
   const real = excludeRevertBookkeeping(rows);
   const reads = readRecordsForLearning(real.map(toLedgerRecordLike), now);
-  const out: LedgerLifecycleSplit<T> = { won: [], promising: [], learned: [], measuring: [] };
+  const out: LedgerLifecycleSplit<T> = { won: [], promising: [], learned: [], measuring: [], blocked: [] };
   // A WIN NOBODY CONFIRMED ON THE LIVE PAGE IS NOT A WIN (operator, 2026-09-01): Today printed "6 wins" and Changes "6 clear wins" off
   // reads whose live page was never read back, beside a Results page saying nothing was verified. A finished improving read files as
   // won only when the change was confirmed live; otherwise it is finished context and counts with what was learned.
-  real.forEach((row, i) => { const band = bandOf(reads[i]); out[band === "won" && reads[i].learning.eligible !== true ? "learned" : band].push(row); });
+  real.forEach((row, i) => {
+    if (row.implementedAt != null && row.verification?.status === "blocked" && row.verification.recheckAfter == null) { out.blocked.push(row); return; }
+    if (row.implementedAt != null && !liveProof(row)) { out.measuring.push(row); return; }
+    const band = bandOf(reads[i]); out[band === "won" && reads[i].learning.eligible !== true ? "learned" : band].push(row);
+  });
   return out;
 }
 
@@ -133,11 +139,14 @@ export function ledgerProofLine(row: Pick<LedgerLifecycleRow, "windows">): strin
 export function countLedgerLifecycle(
   rows: ReadonlyArray<LedgerLifecycleRow>,
   now: Date = new Date(),
-): { measuring: number; decided: number; won: number } {
+): { measuring: number; waiting: number; blocked: number; decided: number; won: number } {
   const split = splitLedgerLifecycle(rows, now);
+  const flight = [...split.measuring, ...split.promising];
   return {
     // A promising (pre-28-day) improvement is still in flight, never decided.
-    measuring: split.measuring.length + split.promising.length,
+    measuring: flight.length,
+    waiting: flight.filter((row) => row.implementedAt != null && !liveProof(row)).length,
+    blocked: split.blocked.length,
     decided: split.won.length + split.learned.length,
     won: split.won.length,
   };

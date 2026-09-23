@@ -120,9 +120,11 @@ type LedgerRow = Awaited<ReturnType<typeof loadProofLedgerCached>>[number];
 const provenLift = (r: LedgerRow): number | null =>
   [...r.windows].filter((w) => w.ran && (w.controlsUsed ?? 0) > 0 && w.adjustedLift != null)
     .sort((a, b) => b.day - a.day)[0]?.adjustedLift ?? null;
+const confirmedLive = (r: LedgerRow): boolean => treatmentLearning([{ ...r, windows: [] }])[0]?.verified === 1;
 function lastWinLine(rows: Awaited<ReturnType<typeof loadProofLedgerCached>>, nowMs: number): string | null {
   const b = splitLedgerLifecycle(rows, new Date(nowMs));
-  const newest = [...b.won, ...b.learned].sort((x, y) => (y.implementedAt ?? y.shippedAt).localeCompare(x.implementedAt ?? x.shippedAt))[0];
+  const context = b.measuring.filter((r) => r.implementedAt != null && !confirmedLive(r) && r.windows.some((w) => w.day >= 28 && w.ran) && provenLift(r) != null);
+  const newest = [...b.won, ...b.learned, ...context].sort((x, y) => (y.implementedAt ?? y.shippedAt).localeCompare(x.implementedAt ?? x.shippedAt))[0];
   if (!newest) return null;
   // A WIN WITH NO CLICK NUMBER IS STILL A WIN. Rounding a missing lift to zero deleted the whole line, so an
   // account whose newest win was read in click rate or position was told nothing had ever worked.
@@ -130,6 +132,7 @@ function lastWinLine(rows: Awaited<ReturnType<typeof loadProofLedgerCached>>, no
   const page = pageLabel((newest.page || newest.path).replace(/^https?:\/\/[^/]+/, "") || "/"), peers = "the pages that were not changed";
   const clicks = (n: number): string => `${n.toLocaleString("en-US")} ${n === 1 ? "click" : "clicks"}`;
   if (b.won.includes(newest)) return lift != null && lift > 0 ? `Your last change to ${page} earned ${lift.toLocaleString("en-US")} more ${lift === 1 ? "click" : "clicks"} than ${peers}.` : `Your last change to ${page} finished ahead of ${peers}.`;
+  if (context.includes(newest)) return `Your last change to ${page} read ${lift! > 0 ? `${clicks(lift!)} ahead of` : lift! < 0 ? `${clicks(-lift!)} behind` : "level with"} ${peers}, and the live page has not confirmed the change yet, ${lift! > 0 ? "so it is not counted as a win" : "so this is context, not a measured outcome"}.`;
   // A FINISHED READING THAT IS NOT A WIN IS STILL AN ANSWER, and the two reasons it is not one are different facts: it went the other way, or nothing has confirmed the change on the live page yet.
   if (lift != null && lift > 0) return `Your last change to ${page} read ${clicks(lift)} ahead of ${peers}, and the live page has not confirmed the change yet, so it is not counted as a win.`;
   return lift != null && lift < 0 ? `Your last change to ${page} finished ${clicks(-lift)} behind ${peers}.` : `Your last change to ${page} finished level with ${peers}.`;
@@ -153,12 +156,12 @@ function weekStrip(rows: Awaited<ReturnType<typeof loadProofLedgerCached>>, nowM
   if (rows.length === 0) return null;
   const b = splitLedgerLifecycle(rows, new Date(nowMs));
   const made = rows.filter((r) => Date.parse(r.implementedAt ?? r.shippedAt) >= nowMs - WEEK_MS);
-  const conf = (r: LedgerRow): boolean => treatmentLearning([{ ...r, windows: [] }])[0]?.verified === 1, flight = [...b.measuring, ...b.promising], live = flight.filter(conf).length;
+  const flight = [...b.measuring, ...b.promising], live = flight.filter(confirmedLive).length;
   const settled = b.won.length + b.learned.length;
   return {
     made: {
       label: "made", value: made.length > 0 ? `${made.length} ${made.length === 1 ? "change" : "changes"} this week` : "No changes this week",
-      sub: flight.length === 0 ? "nothing measuring right now" : [live > 0 ? `${live} confirmed live and measuring` : "", flight.length - live > 0 ? `${flight.length - live} waiting on a live check` : ""].filter(Boolean).join(", "),
+      sub: [live > 0 ? `${live} confirmed live and measuring` : "", flight.length - live > 0 ? `${flight.length - live} waiting on a live check` : "", b.blocked.length > 0 ? `${b.blocked.length} ${b.blocked.length === 1 ? "change could" : "changes could"} not be verified` : ""].filter(Boolean).join(", ") || "nothing measuring right now",
       pages: pagesHover(made),
     },
     // ALL TIME, SAID ON THE TILE. "3 wins all time" sat beside "2 edits this week" under one week framing, so the

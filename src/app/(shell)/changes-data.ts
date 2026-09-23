@@ -42,6 +42,8 @@ export type ChangesView = {
   summary: ChangesSummary;
   /** Whole-tenant measuring count (proof ledger, the ONE-COUNT RULE). */
   measuringCountCanonical: number;
+  waitingLiveCountCanonical?: number;
+  blockedCountCanonical?: number;
   /** Validator-passed rows set aside because they predate the current decision bar. */
   demotedStaleBasis: number;
   /** True when I could not read the current bar, so the count above is not a raised bar. */
@@ -314,7 +316,7 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
   const openNow = queue.toDo.length + queue.research.length;
   const readyZeroHint = queue.ready.length > 0 ? null
     : openNow === 0 && summary.measuring > 0
-      ? `No finished change is ready right now. Everything written so far is live and being read (${summary.measuring} in progress), and the next change is ranked here as fresh demand data comes in.`
+      ? `No finished change is ready right now. ${summary.measuring} recorded ${summary.measuring === 1 ? "change is" : "changes are"} in progress; Results shows which live checks are still owed.`
       : setAsideHint(openNow);
 
   // THE RANKING IS NO LONGER STAMPED HERE (Codex, 2026-08-23): stamping during the build meant a build that later
@@ -344,6 +346,8 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
     summary,
     basisUnreadable: queue.basisUnreadable,
     measuringCountCanonical: ledgerCounts.measuring,
+    waitingLiveCountCanonical: ledgerCounts.waiting,
+    blockedCountCanonical: ledgerCounts.blocked,
     demotedStaleBasis: queue.demotedStaleBasis,
     decidedCountCanonical: ledgerCounts.decided,
     wonCountCanonical: won,
