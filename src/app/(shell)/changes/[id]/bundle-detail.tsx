@@ -22,7 +22,7 @@ const EVIDENCE_GROUP: Record<BundleEvidenceItem["kind"], string> = {
   internal_link: "Links across your own site",
 };
 const EVIDENCE_ORDER = Object.keys(EVIDENCE_GROUP) as BundleEvidenceItem["kind"][];
-const canFinish = (p: ChangeProposal): boolean => p.recommendedChange.kind === "existing_edit" && p.status === "needs_review" && ["draft", "redraft", "review", "evidence"].includes(nextObligation(p)?.kind ?? "");
+const canFinish = (p: ChangeProposal): boolean => p.recommendedChange.kind === "existing_edit" && p.status === "needs_review" && (["draft", "redraft", "review", "evidence"].includes(nextObligation(p)?.kind ?? "") || nextObligation(p)?.kind === "sections" && p.recommendedChange.field === "meta" && p.newPageDraft?.brief.kind === "body_meta" && p.changeFamily !== "full_rewrite" && p.recommendedChange.target?.mode !== "whole_body" && !p.bundle);
 const researchNext = (p: ChangeProposal): string => {
   const owed = nextObligation(p);
   if (owed?.kind === "evidence") return ({ serp: "Beacon will read the search results before deciding what this page needs.", page_source: "Beacon will read the current page before writing against it.", competitor_page: "Beacon will read the relevant winning page before deciding what is missing.", factual_source: "Beacon will check a source for the missing claim before writing it.", semantic_review: "Beacon will check the finished copy against its saved sources." } as const)[owed.need.kind];
