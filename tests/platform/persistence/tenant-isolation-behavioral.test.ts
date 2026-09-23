@@ -103,21 +103,14 @@ describe("Tier A sync* helpers stay tenant-wired", () => {
     await expect(syncImportRuns([{ id: "r1", tenant_id: OTHER } as unknown as Parameters<typeof syncImportRuns>[0][number]], TENANT)).rejects.toThrow(/tenant mismatch/);
     await expect(syncImportRuns([{ id: "r1", tenant_id: "" } as unknown as Parameters<typeof syncImportRuns>[0][number]], "")).rejects.toThrow(/tenantId must be a non-empty string/);});});
 describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
-  const FORBIDDEN_VOCAB =
-    /(harborview|referencepedia|builder|project_mix|budget_range|cities_served|publish_target|email_frequency|profound|semrush|founder|bay area)/i;
-  const fakeSupabase = (inserted: Record<string, unknown>[], owners: { user_id: string }[] = []) => // Supabase stub: select("user_id") answers the collision probe with `owners`; the membership idempotency probe answers empty so provisioning proceeds.
-    ({ from: (table: string) => ({
-      select: (cols: string) => ({ eq: () => Object.assign(Promise.resolve({ data: cols === "user_id" ? owners : [], error: null }), { order: () => Promise.resolve({ data: [], error: null }) }) }),
-      upsert: async (row: Record<string, unknown>) => { inserted.push({ __table: table, ...row }); return { error: null }; },
-    }) }) as never;
   const NEW_USER = { userId: "12345678-abcd-abcd-abcd-1234567890ab", email: "owner@gmail.com" };
-  it("the provisioned tenants row names EXACTLY the physical columns, and never adopts another user's tenant", async () => {
-    const { provisionTenantForNewUser, PROVISIONING_DEFAULTS } = await import("@/domains/account/onboarding/provision-tenant"); expect(JSON.stringify(PROVISIONING_DEFAULTS)).not.toMatch(FORBIDDEN_VOCAB);
-    const inserted: Record<string, unknown>[] = []; expect(await provisionTenantForNewUser(fakeSupabase(inserted), NEW_USER)).toEqual({ ok: true, tenantId: "tenant-12345678", created: true });
-    const { __table: _t, ...row } = inserted.find((r) => r.__table === "tenants")!;
-    expect(Object.keys(row).sort()).toEqual(["business_name", "created_at", "daily_budget_usd", "domain", "growth_goal", "id", "signup_date", "slug", "status", "tos_accepted_at", "updated_at"]); // Any key that is not a real column takes EVERY signup down with PGRST204; the physical set also proves no vertical vocabulary is written.
-    expect(typeof row.business_name === "string" && (row.business_name as string).length > 0, "business_name is NOT NULL").toBe(true);
-    expect(await provisionTenantForNewUser(fakeSupabase([], [{ user_id: "other-user" }]), NEW_USER)).toEqual({ ok: false, error: "tenant id collision", phase: "tenant_collision" });}); // A colliding id already owned by someone else is refused, never adopted.
+  it("provisions through one guarded RPC and refuses an unexpected owner receipt", async () => {
+    const { provisionTenantForNewUser } = await import("@/domains/account/onboarding/provision-tenant");
+    const rpc = vi.fn(async () => ({ data: [{ tenant_id: "tenant-12345678abcdabcdabcd1234567890ab", created: true }], error: null }));
+    const client = { rpc, from: () => { throw new Error("split write"); } } as never;
+    expect(await provisionTenantForNewUser(client, NEW_USER)).toEqual({ ok: true, tenantId: "tenant-12345678abcdabcdabcd1234567890ab", created: true });
+    expect(rpc).toHaveBeenCalledWith("provision_account_owner", { p_user_id: NEW_USER.userId, p_business_name: "New Beacon Account" });
+    rpc.mockResolvedValueOnce({ data: [{ tenant_id: "tenant-12345678", created: true }], error: null }); expect((await provisionTenantForNewUser(client, NEW_USER)).ok).toBe(false);});
   it("cold first read resolves the real account identity; no placeholder is ever cached as identity", async () => {
     const bp = await import("@/domains/account/business-profile");
     bp.__resetBusinessProfileCacheForTests();

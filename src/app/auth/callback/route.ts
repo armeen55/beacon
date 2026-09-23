@@ -11,8 +11,7 @@ import { provisionTenantForNewUser, resolveAccountAccess } from "@/domains/accou
  *   - Returning user, onboarding unfinished         → `/onboard`
  *   - Returning user, onboarding done               → `next` or `/`
  *
- * Provisioning is idempotent: a repeat magic-link click after a partial
- * failure detects the existing tenant_members row and skips the inserts.
+ * Provisioning is transactional and idempotent across repeat callbacks.
  */
 
 /** Only same-origin app paths may be honored. A protocol-relative "//evil.com"
@@ -55,8 +54,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Provision (idempotent). Use the service-role admin client so the
-  // INSERT can bypass RLS deny-all on the tenants table.
+  // The service-role-only RPC creates the account and owner atomically.
   const admin = getSupabaseAdmin();
   const provision = await provisionTenantForNewUser(admin, {
     userId: user.id,
@@ -64,9 +62,7 @@ export async function GET(request: NextRequest) {
   });
 
   if (!provision.ok) {
-    // Provisioning failed mid-flight. Surface the error on /signup, which
-    // renders a "Try again" card for the signed-in user; the retry detects any
-    // orphaned tenant row (idempotent inserts) and resumes cleanly.
+    // A failed RPC rolls back both writes. Signup offers a safe retry.
     console.error("[auth/callback] provisioning failed:", {
       userId: user.id,
       phase: provision.phase,
