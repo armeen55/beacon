@@ -1,6 +1,6 @@
 import "server-only";
 
-/** evidence/ai-visibility/answer-journeys - THE ANSWER ITSELF, for the few prompts a card is being written
+/** evidence/ai-visibility/answer-journeys - THE ANSWER ITSELF, for the prompts a card is being written
  *  about. The snapshot's canonical window carries ONE newest row per question and engine, which is the right
  *  window for "where do we stand" and the wrong one for "why": a card written off it said none of three
  *  answers credited this site while the record held fifty-four answers, two of them citing it by name
@@ -8,7 +8,7 @@ import "server-only";
  *  answers with their whole journey (engine, prompt version, reporting day, citations, retrieved pages,
  *  fan-outs, brand mentions) plus the account's own standing across them. A page an engine RETRIEVED and did
  *  not cite is a different diagnosis from a page it never saw, and only this read can tell them apart.
- *  Bounded and $0: stored rows only, one prompt, text truncated at the source. */
+ *  Bounded and $0: stored rows only, one batched read per 20 prompts, text truncated at the source. */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
@@ -52,7 +52,7 @@ type AnswerStanding = {
   retrievedNotCitedEngines: string[];
 };
 
-const ANSWER_CAP = 4_000, PASSAGE_RADIUS = 260, JOURNEY_CAP = 40;
+const ANSWER_CAP = 4_000, PASSAGE_RADIUS = 260, JOURNEY_CAP = 40, BATCH_PROMPTS = 20;
 
 /** The passage of `text` around the first occurrence of the rival's domain or bare name. Null = the answer
  *  never names it in prose (the citation rode a link list), which is itself a fact worth stating. */
@@ -74,40 +74,40 @@ const strings = (raw: unknown): string[] => Array.isArray(raw) ? raw.map((r) => 
 type Row = { prompt_id: string; prompt_version: number | null; engine: string; completed_at: string | null;
   reporting_day: string | null; answer_text: string | null; journey: Record<string, unknown> | null };
 
-/** Up to `cap` stored answers for one prompt, newest first, each with its whole journey and the rival passage
- *  located. `site` is the account's own bare host, so each answer can say whether it credited or merely
- *  retrieved this account. Empty on any failure, which is logged: a read that did not happen is never an
- *  account whose answers say nothing. */
-export async function readAnswerJourneys(tenantId: string, promptId: string, rivalDomain: string,
-  cap = 3, site?: string): Promise<AnswerJourney[]> {
-  try {
-    const { data, error } = await getSupabaseAdmin().from("ai_observations")
-      .select("prompt_id, prompt_version, engine, completed_at, reporting_day, answer_text, journey")
-      // `observed` IS THE STATUS AN ANSWER IN HAND CARRIES. This read asked for "completed", a value this
-      // table has never written, so it returned nothing for every account since it was built: the passage
-      // hints never appeared on a card and the retrieval signal never reached a diagnosis (2026-08-17).
-      // Filtering on the body itself is the check that cannot drift from what the writer stamps.
-      .eq("tenant_id", tenantId).eq("prompt_id", promptId).eq("status", "observed")
-      .not("answer_text", "is", null)
-      .order("completed_at", { ascending: false }).limit(Math.min(cap, JOURNEY_CAP));
-    if (error != null) { log.warn("[answer-journeys] read failed", { tenantId, promptId, error: error.message }); return []; }
-    return ((data ?? []) as Row[])
-      .filter((r) => (r.answer_text ?? "").trim().length > 0)
-      .map((r) => {
-        const text = (r.answer_text ?? "").slice(0, ANSWER_CAP);
-        const j = r.journey ?? {};
+/** Each selected prompt gets its own newest 40, even when another prompt has thousands of answers.
+ *  A failed chunk is explicit: callers must hold those cases, never treat a failed read as zero citations. */
+export async function readAnswerJourneysBatch(tenantId: string, site: string,
+  selected: readonly { promptId: string; rivalDomain: string }[]): Promise<{ rows: Map<string, AnswerJourney[]>; failed: Set<string> }> {
+  const rows = new Map<string, AnswerJourney[]>(), failed = new Set<string>();
+  const domains = new Map(selected.map((one) => [one.promptId, one.rivalDomain]));
+  const ids = [...domains.keys()].filter(Boolean);
+  for (let offset = 0; offset < ids.length; offset += BATCH_PROMPTS) {
+    const chunk = ids.slice(offset, offset + BATCH_PROMPTS), allowed = new Set(chunk);
+    try {
+      const { data, error } = await getSupabaseAdmin().rpc("read_answer_journeys_batch", {
+        p_tenant_id: tenantId, p_site: site, p_prompt_ids: chunk });
+      if (error || !Array.isArray(data)) throw new Error(error?.message ?? "missing batch rows");
+      const grouped = new Map(chunk.map((id) => [id, [] as AnswerJourney[]]));
+      for (const raw of data as Row[]) {
+        if (!allowed.has(raw.prompt_id) || typeof raw.answer_text !== "string" || !raw.answer_text.trim()
+          || typeof raw.engine !== "string" || (grouped.get(raw.prompt_id)?.length ?? JOURNEY_CAP) >= JOURNEY_CAP)
+          throw new Error("batch identity, shape or per-prompt bound changed");
+        const text = raw.answer_text.slice(0, ANSWER_CAP), j = raw.journey ?? {};
         const citations = links(j.cited_sources), retrieved = links(j.retrieved_results);
-        return { promptId: r.prompt_id, promptVersion: r.prompt_version, engine: r.engine,
-          observedAt: r.completed_at, reportingDay: r.reporting_day,
-          answerText: text, citedPassage: passageAround(text, rivalDomain),
+        grouped.get(raw.prompt_id)!.push({ promptId: raw.prompt_id, promptVersion: raw.prompt_version,
+          engine: raw.engine, observedAt: raw.completed_at, reportingDay: raw.reporting_day,
+          answerText: text, citedPassage: passageAround(text, domains.get(raw.prompt_id)!),
           citations, retrieved, fanOuts: strings(j.fan_outs), brandMentions: strings(j.brand_mentions),
-          ownCited: !!site && citesOwnSite(citations, site),
-          ownRetrieved: !!site && citesOwnSite(retrieved, site) };
-      });
-  } catch (e) {
-    log.warn("[answer-journeys] read threw", { tenantId, promptId, error: e instanceof Error ? e.message : String(e) });
-    return [];
+          ownCited: citesOwnSite(citations, site), ownRetrieved: citesOwnSite(retrieved, site) });
+      }
+      for (const id of chunk) if (grouped.get(id)!.length > 0) rows.set(id, grouped.get(id)!); else failed.add(id);
+    } catch (e) {
+      chunk.forEach((id) => failed.add(id));
+      log.warn("[answer-journeys] batch read failed", { tenantId, prompts: chunk.length,
+        error: e instanceof Error ? e.message : String(e) });
+    }
   }
+  return { rows, failed };
 }
 
 /** WHAT THE WHOLE STORED RECORD SAYS about one question, from the journeys handed in. PURE: the caller owns

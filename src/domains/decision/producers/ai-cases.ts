@@ -10,7 +10,7 @@ import { canonicalUrlKey, type EvidenceSnapshot, type OwnedPageEvidence } from "
 import { jobComparison } from "@/domains/evidence/comparison";
 import type { CanonicalPairObservation } from "@/domains/evidence/funnel/research-evidence";
 import type { CanonicalDemandUnit } from "@/domains/evidence/demand-units";
-import { journeyLabel, readAnswerJourneys, standingOf } from "@/domains/evidence/ai-visibility/answer-journeys";
+import { journeyLabel, readAnswerJourneysBatch, standingOf } from "@/domains/evidence/ai-visibility/answer-journeys";
 import { sectionFit } from "./page-job";
 import { DIAGNOSIS_CONTRACT, freshDiagnosis, TREATMENT_FOR_KIND, readAiCaseDispositions, recordAiCaseDispositions, type AeoGapDiagnosis, type AiCaseDisposition, type AiCaseState } from "../ai-case-store";
 import { callStructuredLLM } from "../llm/structured-drafter"; import { DRAFT_BUDGET } from "../draft-budget";
@@ -213,6 +213,7 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
   const out: Draft[] = [];
   // EVERY TRACKED QUESTION FILES A VERDICT TOO (reviewer, 2026-08-20): only fanout: was ever written, so a credited question read as unjudged. One helper, same shape, prompt-keyed.
   const decided: AiCaseDisposition[] = [];
+  const selected: { g: Group; match: NonNullable<Fit["match"]>; domain: string; cite: { n: number; url: string; title: string; engine: string }; path: string }[] = [];
   const notePrompt = (g: { key: string; prompt: string; promptId: string; rows: number; answers: number }, state: AiCaseState, reason: string, over: Partial<AiCaseDisposition> = {}): void => {
     const w = windows.get(g.key);
     decided.push({ caseKey: `prompt:${g.promptId}`, state, query: g.prompt, reason,
@@ -262,9 +263,15 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
     const match = fit.match;
     const top = [...g.domains.entries()].sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0]))[0];
     if (!match || !top) continue;
-    const [domain, cite] = top, path = pathOf(match.page.url);
-    // THE ANSWERS THEMSELVES, and this account's standing across them. The snapshot window is the NEWEST row per question and engine, which cannot tell "never seen" from "seen and passed over": read off it alone this card said none of three answers credited the site while the record held fifty-four, two citing it and ten retrieving it (operator, 2026-08-17).
-    const journeys = out.length < 3 ? await readAnswerJourneys(tenantId, g.promptId, domain, 40, site) : [];
+    const [domain, cite] = top;
+    selected.push({ g, match, domain, cite, path: pathOf(match.page.url) });
+  }
+  // One bounded historical read across selected cases; a popular first prompt cannot crowd out a later one.
+  const history = await readAnswerJourneysBatch(tenantId, snapshot.scope.site ?? "", selected.map(({ g, domain }) => ({ promptId: g.promptId, rivalDomain: domain })));
+  for (const { g, match, domain, cite, path } of selected) {
+    if (history.failed.has(g.promptId)) { u.hold(match.page.url, `Stored answer history for "${g.prompt}" could not be read.`);
+      notePrompt(g, "held", "The stored answer history could not be read, so no claim about past citations or retrieval is made yet.", { pageUrl: match.page.url }); continue; }
+    const journeys = history.rows.get(g.promptId) ?? [];
     const stand = standingOf(journeys);
     const passages = journeys.filter((j) => j.citedPassage != null).slice(0, 2).map((j) => `The ${journeyLabel(j)} answer drew on ${domain}: "${j.citedPassage}"`);
     const linkOnly = journeys.length > 0 && passages.length === 0 ? [`The stored answers list ${domain} as a source without quoting it in prose, so what those answers took from it is not on file.`] : [];

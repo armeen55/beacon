@@ -1,25 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 type RpcAnswer = { data?: unknown; error?: { message: string; code?: string } | null };
-const env = vi.hoisted(() => ({ /** Queued answers per RPC name; the last one repeats. */ rpc: {} as Record<string, RpcAnswer[]>, calls: [] as Array<{ name: string; args: unknown }>, snapshot: null as unknown, schemaBody: undefined as unknown,
-  /** EVERY DURABLE WRITE THE PRODUCE PATH CAN MAKE, named as it happens, so a dry run can be asked to have made none. */ wrote: [] as string[],
-  /** THE LAST ROW THE STORE WAS HANDED FOR EACH ID: what persistence actually keeps. */ saved: new Map<string, ChangeProposal>(), store: new Map<string, unknown>(), withdrawn: [] as string[],
-  /** The 28-day AI window as the producer's read sees it: rows, or the read failing outright. */ aiWindow: [] as unknown[] | "fail",
-  /** The durable disposition table, shared across simulated cold instances. */ dispositions: new Map<string, Record<string, unknown>>(), upserts: 0,}));
+const env = vi.hoisted(() => ({ rpc: {} as Record<string, RpcAnswer[]>, calls: [] as Array<{ name: string; args: unknown }>, snapshot: null as unknown, schemaBody: undefined as unknown,
+  wrote: [] as string[], saved: new Map<string, ChangeProposal>(), store: new Map<string, unknown>(), withdrawn: [] as string[],
+  aiWindow: [] as unknown[] | "fail", dispositions: new Map<string, Record<string, unknown>>(), upserts: 0 }));
 const proposalReads = vi.hoisted(() => ({ current: true, terminal: true }));
 vi.mock("@/lib/persistence/supabase", () => {
-  const chain = (answer: RpcAnswer): unknown => new Proxy({} as Record<string, unknown>, { get: (_t, prop) => {
-    if (prop === "then") return (res: (v: RpcAnswer) => unknown, rej: (e: unknown) => unknown) => Promise.resolve({ data: answer.data ?? null, error: answer.error ?? null }).then(res, rej);
-    return () => chain(answer); }, });
+  const chain = (answer: RpcAnswer): unknown => new Proxy({} as Record<string, unknown>, { get: (_t, prop) => prop === "then"
+    ? (res: (v: RpcAnswer) => unknown, rej: (e: unknown) => unknown) => Promise.resolve({ data: answer.data ?? null, error: answer.error ?? null }).then(res, rej)
+    : () => chain(answer) });
   const next = (name: string): RpcAnswer => { const queue = env.rpc[name]; if (!queue || queue.length === 0) return { data: [] }; return queue.length === 1 ? queue[0]! : queue.shift()!;};
   const upsertDispositions = (tenant: string, raw: unknown[]): number => { let landed = 0;
     for (const r of raw as Array<Record<string, unknown>>) {
       if (!r.caseKey || !r.reason) continue;
       const k = `${tenant}|${String(r.caseKey)}`, held = env.dispositions.get(k);
       if (held && String(r.decidedAt) < String(held.decided_at)) continue; // the stale-writer guard
-      env.dispositions.set(k, { tenant_id: tenant, case_key: r.caseKey, state: r.state, query: r.query,
-        page_url: r.pageUrl ?? null, stage: r.stage ?? null, proposal_id: r.proposalId ?? null, reason: r.reason,
-        days: r.days ?? 0, engines: r.engines ?? 0, parents: r.parents ?? 0, executions: r.executions ?? 0,
-        decided_at: r.decidedAt, diagnosis: r.diagnosis ?? held?.diagnosis ?? null }); // the migration's coalesce: an unruled pass strips no banked reading
+      env.dispositions.set(k, { tenant_id: tenant, case_key: r.caseKey, state: r.state, query: r.query, page_url: r.pageUrl ?? null, stage: r.stage ?? null,
+        proposal_id: r.proposalId ?? null, reason: r.reason, days: r.days ?? 0, engines: r.engines ?? 0, parents: r.parents ?? 0, executions: r.executions ?? 0,
+        decided_at: r.decidedAt, diagnosis: r.diagnosis ?? held?.diagnosis ?? null }); // an unruled pass strips no banked reading
       landed += 1;}
     return landed;};
   return { isSupabaseConfigured: () => true, getSupabaseAdmin: () => ({
@@ -33,7 +30,7 @@ vi.mock("@/domains/evidence/ai-visibility/ai-observations", async (orig) => { co
 vi.mock("@/domains/decision/coverage-pass", async (orig) => { const actual = (await orig()) as typeof import("@/domains/decision/coverage-pass");
   return { ...actual, readCoverage: async () => null, recordCoverageNeeds: async () => undefined }; });
 vi.mock("@/domains/evidence/ai-visibility/answer-journeys", async (orig) => { const actual = (await orig()) as typeof import("@/domains/evidence/ai-visibility/answer-journeys");
-  return { ...actual, readAnswerJourneys: async () => [] }; });
+  return { ...actual, readAnswerJourneysBatch: async (_t: string, _s: string, selected: { promptId: string }[]) => ({ rows: new Map(selected.map((one) => [one.promptId, []])), failed: new Set() }) }; });
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "tenant-fx", domain: "fixture.example", growth_goal: null }), basisTag: () => "basis_fx",}));
 vi.mock("@/domains/evidence/snapshot-loader", async (orig) => { const actual = (await orig()) as typeof import("@/domains/evidence/snapshot-loader");
   return { ...actual, loadEvidenceSnapshot: async (t: string, o: never) => env.snapshot ?? actual.loadEvidenceSnapshot(t, o) }; });
@@ -62,19 +59,15 @@ const fullPage = () => Array.from({ length: 1_000 }, (_v, i) => ({ page: `https:
 function snapshotWith(status: "failed" | "fresh" | "empty"): unknown {
   const gscPayload = status === "fresh" ? [{ url: "https://fixture.example/a", clicks90d: 40, impressions90d: 900, ctr90d: 0.04, position90d: 12, topQueries: [] }] : [];
   const empty = { status: "empty" as const, lastSyncedAt: null, payload: [] };
-  const input: EvidenceSnapshotInput = { scope: { tenantId: TENANT, site: "fixture.example", builtAt: "2026-08-12T00:00:00.000Z" },
+  return buildEvidenceSnapshot({ scope: { tenantId: TENANT, site: "fixture.example", builtAt: "2026-08-12T00:00:00.000Z" },
     gsc: { status, lastSyncedAt: null, payload: gscPayload }, ga4: empty, wix: empty, clarity: empty, dataforseo: empty,
-    research: { status: "empty", lastSyncedAt: null, payload: emptyResearchEvidence() }, aiAnswersUnread: false,};
-  return buildEvidenceSnapshot(input);}
+    research: { status: "empty", lastSyncedAt: null, payload: emptyResearchEvidence() }, aiAnswersUnread: false } satisfies EvidenceSnapshotInput); }
 const openCard = (suffix: string): ChangeProposal => ({
   id: `${TENANT}::/shiraz::existing_edit::${suffix}`, tenantId: TENANT, kind: "existing_edit", pagePath: "/shiraz", pageUrl: "https://fixture.example/shiraz", pageLabel: "Shiraz",
-  primaryQuery: "things to do in shiraz", opportunityType: "Answer the question", changeFamily: suffix,
-  status: "needs_review", researchOnly: true, evidence: { query: "things to do in shiraz", hints: [], evidenceRefCount: 1 }, // A BRIEF, said out loud: the sweep retires cards nobody has written words for, and drafted copy leaves only through a receipt about the words (falsifier, 2026-09-02)
-  recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A short answer block." },
-  whyItMatters: "The page never answers the question it ranks for.", estimatedEffortMinutes: 10, riskLevel: "low", confidence: "medium", limitations: [], impactScore: 20, upsidePerMonth: 5,
-  publish: "manual", createdAt: "2026-08-10T00:00:00.000Z", });
-beforeEach(() => { env.rpc = {}; env.calls = []; env.snapshot = null; env.schemaBody = undefined; env.store = new Map(); env.withdrawn = [];
-  env.aiWindow = []; env.dispositions = new Map(); env.upserts = 0; proposalReads.current = true; proposalReads.terminal = true; });
+  primaryQuery: "things to do in shiraz", opportunityType: "Answer the question", changeFamily: suffix, status: "needs_review", researchOnly: true,
+  evidence: { query: "things to do in shiraz", hints: [], evidenceRefCount: 1 }, recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A short answer block." },
+  whyItMatters: "The page never answers the question it ranks for.", estimatedEffortMinutes: 10, riskLevel: "low", confidence: "medium", limitations: [], impactScore: 20, upsidePerMonth: 5, publish: "manual", createdAt: "2026-08-10T00:00:00.000Z" });
+beforeEach(() => { env.rpc = {}; env.calls = []; env.snapshot = null; env.schemaBody = undefined; env.store = new Map(); env.withdrawn = []; env.aiWindow = []; env.dispositions = new Map(); env.upserts = 0; proposalReads.current = true; proposalReads.terminal = true; });
 describe("a search read that did not answer", () => {
   it.each(["current", "terminal"] as const)("spends zero when the %s proposal ledger cannot be read", async (which) => {
     env.snapshot = snapshotWith("fresh"); proposalReads[which] = false;
@@ -185,31 +178,25 @@ describe("a zero-spend regeneration is non-destructive", () => {
     expect(out.proposals.every((p) => p.researchOnly === true || p.status !== "ready")).toBe(true);});}); // maxDrafts is the caller's ask and the pause outranks it: nothing here was drafted for money.
 describe("a failed 28-day AI read files nothing, and only a seeing pass reopens the sweep", () => {
   const wixPage = (path: string, title: string, outline: string[]) => ({
-    url: `https://fixture.example${path}`, title, metaDescription: "Plan the visit with what locals actually do.",
-    h1: title, h2: [], outline, schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 900,
-    internalLinks: [], fetchedAt: "2026-08-10T00:00:00.000Z" });
+    url: `https://fixture.example${path}`, title, metaDescription: "Plan the visit with what locals actually do.", h1: title, h2: [], outline,
+    schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 900, internalLinks: [], fetchedAt: "2026-08-10T00:00:00.000Z" });
   const storedAnswer = (promptId: string, promptText: string, citations: Array<{ url: string; domain: string; title: string }> | null) => ({
     promptId, promptVersion: 1, promptText, engine: "chatgpt", observationMode: "consumer_search" as const,
-    modelRequested: null, modelServed: null, answerHash: "h", webSearchReported: true, fanOutQueries: null,
-    citations, retrievedResults: null, brandMentions: null, analysis: null,
-    observationId: `obs_${promptId}`, reportingDay: "2026-08-19", observedAt: "2026-08-19T00:00:00.000Z",
-    citationsObserved: citations != null });
+    modelRequested: null, modelServed: null, answerHash: "h", webSearchReported: true, fanOutQueries: null, citations, retrievedResults: null,
+    brandMentions: null, analysis: null, observationId: `obs_${promptId}`, reportingDay: "2026-08-19", observedAt: "2026-08-19T00:00:00.000Z", citationsObserved: citations != null });
   const aiSnapshot = () => {
     const src = <T,>(payload: T) => ({ status: "fresh" as const, lastSyncedAt: null, payload });
     return buildEvidenceSnapshot({
       scope: { tenantId: TENANT, site: "fixture.example", builtAt: "2026-08-20T00:00:00.000Z" },
       gsc: src([]), ga4: src([]), clarity: src([]), dataforseo: src([]),
-      wix: src([wixPage("/shiraz", "Things to do in Shiraz", ["Things to do in Shiraz", "Day trips from Shiraz"]),
-        wixPage("/rugs", "Persian rug buying guide", ["Knot density", "Dyes and wool"]),
-        wixPage("/food", "Persian food classics", ["Kabob", "Stews"]),
-        wixPage("/music", "Persian music instruments", ["Tar", "Setar"])]),
+      wix: src([wixPage("/shiraz", "Things to do in Shiraz", ["Things to do in Shiraz", "Day trips from Shiraz"]), wixPage("/rugs", "Persian rug buying guide", ["Knot density", "Dyes and wool"]),
+        wixPage("/food", "Persian food classics", ["Kabob", "Stews"]), wixPage("/music", "Persian music instruments", ["Tar", "Setar"])]),
       research: src({ ...emptyResearchEvidence(), aiObservations: [
         storedAnswer("pA", "things to do in shiraz", [{ url: "https://rival.example/shiraz", domain: "rival.example", title: "Shiraz guide" }]),
         storedAnswer("pB", "best time to visit shiraz", null),
         storedAnswer("pC", "shiraz day trips", [{ url: "https://rival.example/trips", domain: "rival.example", title: "Shiraz day trips" }])] }), aiAnswersUnread: false });};
   const coldExtras = async () => { vi.resetModules(); return import("@/domains/decision/producers/extra"); };
-  const runExtras = async (snapshot: unknown) => (await coldExtras()).extraQueueCards({
-    tenantId: TENANT, snapshot: snapshot as never, now: new Date("2026-08-20T09:00:00Z"), reads: { left: 0 } });
+  const runExtras = async (snapshot: unknown) => (await coldExtras()).extraQueueCards({ tenantId: TENANT, snapshot: snapshot as never, now: new Date("2026-08-20T09:00:00Z"), reads: { left: 0 } });
   it("holds the AI families out of the sweep and files no verdict when the window read fails, while its finished families still answer", async () => {
     env.aiWindow = "fail";
     const run = await runExtras(aiSnapshot()); expect(run.families).not.toContain("ai_answer_gap");
@@ -234,8 +221,7 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     const out = await produceProposalsForTenant(TENANT, { zeroSpend: true }); expect(out.outcome).not.toBe("persistence_failed");
     expect(env.upserts).toBeGreaterThan(0); // the quiet pass filed
     expect(env.dispositions.get(`${TENANT}|prompt:pB`)?.state).toBe("unreported"); });
-  /** An undiagnosed observation belongs in Visibility's filed explanation, not in Changes. A card that says
-   * "nothing to do yet" is activity masquerading as an operator action and competes with real work. */
+  /** An undiagnosed observation belongs in Visibility's filed explanation, not in Changes. */
   it("keeps undiagnosed tracked and fan-out observations out of the actionable Changes queue", async () => {
     env.aiWindow = []; vi.resetModules();
     vi.doMock("@/domains/decision/producers/page-job", async (orig) => { const real = await orig() as Record<string, unknown>;

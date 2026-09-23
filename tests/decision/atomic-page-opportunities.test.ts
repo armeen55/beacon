@@ -9,48 +9,45 @@ import { deliverableGaps, preferFinished } from "@/domains/decision/completeness
 import { nextObligation } from "@/domains/decision/obligation";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import { proposalStoreRpc, supabaseFake, type Row } from "../helpers/supabase-fake";
-const db = vi.hoisted(() => ({ rows: [] as Row[], filed: [] as Record<string, unknown>[] }));
+const db = vi.hoisted(() => ({ rows: [] as Row[], filed: [] as Record<string, unknown>[], journeys: null as Record<string, unknown>[] | null,
+  journeyError: false, journeyCalls: [] as Record<string, unknown>[] }));
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => client }));
 const client = { ...supabaseFake({ rows: () => db.rows, insertDefaults: () => ({ created_at: "2026-08-01T00:00:00.000Z" }),
   clash: (row, rows) => (rows.some((r) => r.id !== row.id && r.terminal_disposition == null
     && ["tenant_id", "case_id", "page_key", "action_family", "mutation_key"].every((c) => r[c] === row[c]))
     ? { message: "duplicate key value violates unique constraint ux_change_proposals_current" } : null) }),
-  rpc: (name: string, args: { p_rows?: Record<string, unknown>[] } & Record<string, unknown>) => { if (name === "upsert_ai_case_dispositions") { db.filed.push(...(args.p_rows ?? [])); return Promise.resolve({ data: (args.p_rows ?? []).length, error: null }); } return proposalStoreRpc(() => db.rows)(name, args); } };
+  rpc: (name: string, args: { p_rows?: Record<string, unknown>[]; p_prompt_ids?: string[] } & Record<string, unknown>) => { if (name === "upsert_ai_case_dispositions") { db.filed.push(...(args.p_rows ?? [])); return Promise.resolve({ data: (args.p_rows ?? []).length, error: null }); }
+    if (name === "read_answer_journeys_batch") { db.journeyCalls.push(args); return Promise.resolve(db.journeyError ? { data: null, error: { message: "statement timeout" } } : { data: db.journeys ?? (args.p_prompt_ids ?? []).map((id) => journeyRow(id)), error: null }); }
+    return proposalStoreRpc(() => db.rows)(name, args); } };
 const NOW = new Date("2026-08-01T00:00:00.000Z");
+const journeyRow = (id: string, n = 0): Record<string, unknown> => ({ prompt_id: id, prompt_version: 1, engine: "chatgpt",
+  completed_at: new Date(NOW.getTime() - n * 60_000).toISOString(), reporting_day: "2026-08-01", answer_text: `Banked passage for ${id} from rival.example`,
+  journey: { cited_sources: [{ url: "https://rival.example/a", domain: "rival.example" }], retrieved_results: id === "prompt-4" ? [{ url: "https://tenant-one.example/a", domain: "tenant-one.example" }] : [] } });
 const SITES = [
   { t: "tenant-one", path: "/rock-pools", title: "Rock pools of the north coast", subject: "north coast ledges",
     big: "how cold is the winter water", small: "which mussels grow on the ledges", third: "when do the seals return to the point",
-    both: "Winter water on these ledges sits near four degrees, and the mussels that grow there stay covered at every tide.",
-    onlyBig: "Winter water here sits near four degrees from December to March.",
-    passage: "Visitors walk out at low tide and come back before the flats fill again.",
+    both: "Winter water on these ledges sits near four degrees, and the mussels that grow there stay covered at every tide.", onlyBig: "Winter water here sits near four degrees from December to March.", passage: "Visitors walk out at low tide and come back before the flats fill again.",
     aiBig: "how deep are the rock pools at low tide", aiSmall: "which mussels grow in the rock pools", aiThird: "when do the seals return to the rock pools",
-    topics: ["rock pools", "north coast", "mussels", "seals", "tides"],
-    aiAnswered: "Mussels grow in these rock pools on every ledge the water covers." },
+    topics: ["rock pools", "north coast", "mussels", "seals", "tides"], aiAnswered: "Mussels grow in these rock pools on every ledge the water covers." },
   { t: "tenant-two", path: "/bordado", title: "Bordado borders and stitch counts", subject: "bordado borders",
     big: "how many strands does a border take", small: "which loom weaves the widest cloth", third: "how wide is the finished panel",
-    both: "A border takes six strands here, and the widest cloth this loom weaves is woven to the same count.",
-    onlyBig: "A border takes six strands here, and that count never changes.",
-    passage: "Every panel here is worked flat on a frame that keeps the cloth taut.",
+    both: "A border takes six strands here, and the widest cloth this loom weaves is woven to the same count.", onlyBig: "A border takes six strands here, and that count never changes.", passage: "Every panel here is worked flat on a frame that keeps the cloth taut.",
     aiBig: "how many strands does a bordado border take", aiSmall: "which loom weaves the widest bordado stitch", aiThird: "when did bordado borders change their stitch counts",
-    topics: ["bordado", "borders", "stitch counts", "looms", "strands"],
-    aiAnswered: "The widest bordado stitch on this loom is woven to the same count." },
+    topics: ["bordado", "borders", "stitch counts", "looms", "strands"], aiAnswered: "The widest bordado stitch on this loom is woven to the same count." },
 ];
 type Site = (typeof SITES)[number];
 const url = (s: Site): string => `https://${s.t}.example${s.path}`;
 const page = (s: Site, rows: Array<[string, number]>): OwnedPageEvidence => ({ url: url(s),
-  content: { title: s.title, metaDescription: "d", h1: s.title, h2: [], outline: [], schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 900, internalLinks: [], fetchedAt: NOW.toISOString() },
-  search: { clicks90d: 10, impressions90d: 9000, ctr90d: 0.01, position90d: 8, topQueries: rows.map(([query, impressions]) => ({ query, impressions, clicks: 1, position: 8 })) },
+  content: { title: s.title, metaDescription: "d", h1: s.title, h2: [], outline: [], schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 900, internalLinks: [], fetchedAt: NOW.toISOString() }, search: { clicks90d: 10, impressions90d: 9000, ctr90d: 0.01, position90d: 8, topQueries: rows.map(([query, impressions]) => ({ query, impressions, clicks: 1, position: 8 })) },
   engagement: null, friction: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } });
 const body = (s: Site): unknown => ({ url: url(s), title: s.title, h1: s.title, metaDescription: null, headings: [], passages: [s.passage], vocabulary: "", cardTexts: [], faqs: [], entityNames: [], internalLinks: [], openingSample: s.passage, fetchedAt: NOW.toISOString(), completeness: "complete", version: "current", contentHash: "h", heldNote: null });
 const snapshot = (s: Site, pages: OwnedPageEvidence[]): EvidenceSnapshot => ({ scope: { tenantId: s.t, site: `${s.t}.example`, builtAt: NOW.toISOString() },
-  aiCitations: { ownedCited: 0, competitorCited: 0, engines: [], rowsScanned: 0 }, sources: [], competitors: [], keywordDemand: [], questionDemand: [], intentClusters: [],
-  cannibalization: [], contentGaps: [], internalLinkOpportunities: [], evidenceHash: "fixture", research: emptyResearchEvidence(), ownedPages: pages });
+  aiCitations: { ownedCited: 0, competitorCited: 0, engines: [], rowsScanned: 0 }, sources: [], competitors: [], keywordDemand: [], questionDemand: [], intentClusters: [], cannibalization: [], contentGaps: [], internalLinkOpportunities: [], evidenceHash: "fixture", research: emptyResearchEvidence(), ownedPages: pages });
 const mintFor = async (s: Site, rows: Array<[string, number]>, standing: unknown[] = []): Promise<ChangeProposal[]> => {
   vi.resetModules();
   vi.doMock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => new Map((standing as { id: string }[]).map((r) => [r.id, r])) }));
   vi.doMock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadOwnedPageBodies: async () => new Map([[`${s.t}.example${s.path}`, body(s)]]) }));
-  const out = await (await import("@/domains/decision/producers/extra")).extraQueueCards({ tenantId: s.t, snapshot: snapshot(s, [page(s, rows)]) as never, now: NOW, reads: { left: 0 }, persist: false });
-  return out.cards.filter((c) => c.id.includes("::existing_edit::missing_answer"));
+  const out = await (await import("@/domains/decision/producers/extra")).extraQueueCards({ tenantId: s.t, snapshot: snapshot(s, [page(s, rows)]) as never, now: NOW, reads: { left: 0 }, persist: false }); return out.cards.filter((c) => c.id.includes("::existing_edit::missing_answer"));
 };
 const idOf = (s: Site, tail = ""): string => `${s.t}::${s.path}::existing_edit::missing_answer${tail}`;
 const seatStem = (id: string): string => id.replace(/#[0-9a-f]{64}$/i, "");
@@ -67,7 +64,7 @@ const card = (s: Site, id: string, query: string, over: Partial<ChangeProposal> 
   whyItMatters: `Searchers ask "${query}" here and nothing on the page answers it.`, estimatedEffortMinutes: 30, riskLevel: "low", confidence: "medium",
   limitations: [], evidence: { query, hints: [], evidenceRefCount: 1 }, impactScore: 40, upsidePerMonth: null, basis: "basis_today::d6", publish: "manual", createdAt: NOW.toISOString(), ...over });
 
-beforeEach(() => { db.rows = []; db.filed = []; vi.doUnmock("@/domains/decision/proposal-store"); vi.doUnmock("@/domains/evidence/pages/owned-context"); vi.resetModules(); });
+beforeEach(() => { db.rows = []; db.filed = []; db.journeys = null; db.journeyError = false; db.journeyCalls = []; vi.doUnmock("@/domains/decision/proposal-store"); vi.doUnmock("@/domains/evidence/pages/owned-context"); vi.resetModules(); });
 
 
 describe("a page carries as many changes as it has searches it never answers", () => {
@@ -210,13 +207,13 @@ describe("two questions the assistants answer elsewhere on one page are two chan
     webSearchReported: null, citationsObserved: true, fanOutQueries: null, citations: [{ url: "https://rival.example/answer", domain: "rival.example", title: "A rival answer" }],
     retrievedResults: null, brandMentions: null, analysis: null });
   const answersFor = (s: Site): unknown[] => [...[0, 1].map((i) => answer(s.aiBig, "p-big", i)), answer(s.aiSmall, "p-small", 0)];
-  const understanding = (s: Site): unknown => { const job = { url: url(s), job: `What ${s.subject} is and what lives on it.`, pageType: "hub", audience: "readers new to it",
+  const understanding = (s: Site) => { const job = { url: url(s), job: `What ${s.subject} is and what lives on it.`, pageType: "hub", audience: "readers new to it",
     topics: s.topics, commercial: false, promise: s.title, missing: "nothing yet", sells: [] };
     return { corpus: new Map([[`${site(s)}${s.path}`, job]]), held: [], hold: () => undefined, of: async () => ({ job, reason: "read" }) }; };
-  const casesFor = async (s: Site, written?: Map<string, { query: string; copy: string }[]>, questions = answersFor(s), focusPage?: string): Promise<{ drafts: { slug: string; query: string }[]; hold: string[]; filed: Record<string, unknown>[] }> => {
+  const casesFor = async (s: Site, written?: Map<string, { query: string; copy: string }[]>, questions = answersFor(s), focusPage?: string, historyFailure = false): Promise<{ drafts: { slug: string; query: string }[]; hold: string[]; filed: Record<string, unknown>[] }> => {
+    db.journeyError = historyFailure;
     vi.resetModules();
     vi.doMock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadOwnedPageBodies: async () => new Map([[`${site(s)}${s.path}`, body(s)]]) }));
-    vi.doMock("@/domains/evidence/ai-visibility/answer-journeys", async (orig) => ({ ...(await orig<Record<string, unknown>>()), readAnswerJourneys: async () => [] }));
     const { aiCaseCards, AI_CASE_COPY } = await import("@/domains/decision/producers/ai-cases");
     const shot = snapshot(s, [page(s, [[s.big, 900]])]) as unknown as { research: { aiObservations: unknown[] } };
     shot.research = { ...shot.research, aiObservations: questions };
@@ -237,12 +234,32 @@ describe("two questions the assistants answer elsewhere on one page are two chan
     expect([out.drafts.map((d) => d.query), out.drafts.map((d) => `${s.t}::${s.path}::existing_edit::${d.slug}`), out.hold],
       "the page's strongest question keeps the id every row on file already wears and the one behind it opens at its own search, and the hold that keeps each writer waiting names the card it is actually about")
       .toEqual([[s.aiBig, s.aiSmall], [aiId(s, `@${canon(s.aiBig)}`), aiId(s, `@${canon(s.aiSmall)}`)], [aiId(s, `@${canon(s.aiBig)}`), aiId(s, `@${canon(s.aiSmall)}`)]]);
+    expect(out.filed.filter((r) => r.state === "actionable").map((r) => [r.query, r.proposalId])).toEqual([[s.aiBig, aiId(s, `@${canon(s.aiBig)}`)], [s.aiSmall, aiId(s, `@${canon(s.aiSmall)}`)]]);
   });
-  it.each(SITES)("$t: files the verdict on each question against the id its own card carries", async (s) => {
-    const out = await casesFor(s);
-    expect(out.filed.filter((r) => r.state === "actionable").map((r) => [r.query, r.proposalId]),
-      "a verdict on file points at a change the operator can open, so the second question's row never names the first question's card")
-      .toEqual([[s.aiBig, aiId(s, `@${canon(s.aiBig)}`)], [s.aiSmall, aiId(s, `@${canon(s.aiSmall)}`)]]);
+  it("files a hold with no card when stored history cannot be read", async () => {
+    const out = await casesFor(SITES[0]!, undefined, answersFor(SITES[0]!), undefined, true);
+    expect(out.drafts).toEqual([]); expect(out.filed.filter((r) => r.state === "held").map((r) => r.caseKey)).toEqual(["prompt:p-big", "prompt:p-small"]);
+    expect(db.journeyCalls[0]).toMatchObject({ p_tenant_id: SITES[0]!.t, p_site: `${SITES[0]!.t}.example`, p_prompt_ids: ["p-big", "p-small"] });
+  });
+  it("holds an identity-mismatched batch instead of treating it as no citations", async () => {
+    db.journeys = [journeyRow("another-prompt")];
+    const out = await casesFor(SITES[0]!);
+    expect(out.drafts).toEqual([]); expect(out.filed.filter((r) => r.state === "held").map((r) => r.caseKey)).toEqual(["prompt:p-big", "prompt:p-small"]);
+  });
+  it("carries each of five selected questions' own banked passage into its own case", async () => {
+    const base = SITES[0]!, subjects = ["mussels", "seals", "tides", "birds", "crabs"];
+    const sites = subjects.map((word, i) => ({ ...base, path: `/rock-pools-${word}`, title: `Rock pools ${word}`, subject: `rock pools ${word}`, topics: ["rock", "pools", word], passage: `Rock pools ${word} are described here.`, aiBig: `rock pools ${word}` }));
+    const pages = sites.map((s) => page(s, [[s.aiBig, 900]])), questions = sites.map((s, i) => answer(s.aiBig, `prompt-${i}`, 0));
+    const jobs = new Map(sites.flatMap((s) => [...understanding(s).corpus]));
+    vi.resetModules(); vi.doMock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadOwnedPageBodies: async () => new Map(sites.map((s) => [`${site(s)}${s.path}`, body(s)])) }));
+    db.journeys = [...Array.from({ length: 40 }, (_, i) => journeyRow("prompt-0", i)), ...[1, 2, 3, 4].map((i) => journeyRow(`prompt-${i}`))];
+    const { aiCaseCards, aeoMeter } = await import("@/domains/decision/producers/ai-cases"), shot = snapshot(base, pages); shot.research = { ...shot.research!, aiObservations: questions } as never;
+    const earned = new Map(pages.map((p, i) => [p.url, new Set(topicTokens(sites[i]!.topics.join(" ")))]));
+    const understandingAll = { corpus: jobs, held: [], hold: () => undefined, of: async (p: OwnedPageEvidence) => ({ job: jobs.get(`${site(base)}${new URL(p.url).pathname}`), reason: "read" }) };
+    const out = await aiCaseCards([], shot, pages, new Set(), earned, new Map(), understandingAll as never, base.t, [], [], NOW, true, aeoMeter(0));
+    expect(db.journeyCalls).toHaveLength(1); expect(db.journeyCalls[0]).toMatchObject({ p_tenant_id: base.t, p_site: site(base) }); expect(new Set(db.journeyCalls[0]?.p_prompt_ids as string[])).toEqual(new Set(["prompt-0", "prompt-1", "prompt-2", "prompt-3", "prompt-4"])); expect(out.drafts).toHaveLength(5);
+    for (const [i, s] of sites.entries()) expect(out.drafts.find((draft) => draft.query === s.aiBig)?.hints.some((hint) => hint.includes(`Banked passage for prompt-${i}`))).toBe(true);
+    expect(out.drafts.find((draft) => draft.query === sites[4]!.aiBig)?.why).toContain("retrieved on 1");
   });
   it.each(SITES)("$t: opens no second change for a question the words of a change already on file answer", async (s) => {
     const out = await casesFor(s, new Map([[s.path.toLowerCase(), [{ query: s.aiBig, copy: s.aiAnswered }]]]));

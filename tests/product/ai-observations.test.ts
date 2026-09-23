@@ -76,7 +76,9 @@ describe("one canonical identity per observation", () => {
     expect(rows.length).toBe(12); // 3 questions x 4 engines, nothing implied and nothing dropped
     for (const r of rows) expect(r.id).toBe(aiObservationId({ tenantId: TENANT, promptId: r.prompt_id, promptVersion: 1, engine: r.engine, day: DAY, slot: 0 })); // one deterministic id per pair, so twelve pairs are twelve rows
     expect(new Set(rows.map((r) => `${r.reporting_day}|${r.sample_slot}|${r.language}|${r.location}`))).toEqual(new Set([`${DAY}|0|en|2840`]));
-    expect(rows.every((r) => r.site === SITE && r.prompt_text.length > 0 && r.completed_at === new Date(NOW).toISOString())).toBe(true);});
+    expect(rows.every((r) => r.site === SITE && r.prompt_text.length > 0 && r.completed_at === new Date(NOW).toISOString() && r.journey.run_id === "run-1" && r.tenant_id === TENANT)).toBe(true);
+    expect(rowsFor("prompt_answer_observations")).toEqual([]); // one canonical record; no parallel history projection
+  });
   it("reuses the SAME row when a failed check is retried, and never buys the same day twice", async () => {
     const broken = world({}, { state: "error", cacheKey: null, disposition: "none", detail: "the provider could not finish it" }); await run(broken.deps, duePlan()); const failed = observations();
     expect([failed.length, new Set(failed.map((r) => r.status)).size, failed[0]!.failure_reason]).toEqual([12, 1, "the provider could not finish it"]);
@@ -143,12 +145,7 @@ describe("tenant isolation and the derived history row", () => {
     expect(mine.some((r) => theirs.some((t) => t.id === r.id))).toBe(false); // the same question on the same day is a DIFFERENT observation per account
     await expect(recordAiObservation({ ...mine[0]! }, OTHER)).rejects.toThrow(/tenant mismatch/); // and the writer refuses to be told otherwise
   });
-  it("writes ONE canonical record per reading and no history projection beside it (the parallel copy is deleted, 2026-08-19)", async () => {
-    await run(world().deps, duePlan()); const rows = observations();
-    expect(rows.length).toBe(12);
-    expect(rowsFor("prompt_answer_observations")).toEqual([]); // no second AI truth is ever written again
-    expect(rows.every((r) => r.journey.run_id === "run-1" && r.tenant_id === TENANT)).toBe(true); // the canonical row itself names the run that bought it
-  });});
+});
 describe("re-analysis reads what was already bought", () => {
   it("reads stored answers back and records a verdict beside them without asking any provider again", async () => {
     db.read = [{ id: "obs_1", tenant_id: TENANT, prompt_id: "q1", prompt_version: 1, engine: "chatgpt", sample_slot: 0, reporting_day: DAY,
