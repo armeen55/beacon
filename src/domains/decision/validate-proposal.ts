@@ -381,6 +381,8 @@ export function validateProposal(
   } else {
     quality = evaluateNewPageBrief(proposal, change, opts.evidenceText ?? null);
   }
+  const quantityGap = COPY_RULES.newMetaQuantityGap(proposal);
+  if (quantityGap && !REJECT_STATUSES.has(quality.status)) quality = { status: "missing_source", reasons: [quantityGap], copyAllowed: false, canRegenerate: true, confidence: "high" };
 
   const components = proposal.bundle?.components ?? [];
   const componentFails = [...componentFailures(components, opts.heldHeadings ?? []),

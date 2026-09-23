@@ -34,6 +34,7 @@ export function deliverableGaps(p: ChangeProposal): string[] {
   const parts = p.bundle?.components ?? [];
   if (p.bundle && parts.length === 0 || parts.some((part) => noCopy(part.after) || notFinal(part.after))) gaps.push("a bundle component has no finished copy");
   const c = p.recommendedChange;
+  if (p.researchOnly !== true) { const numeric = COPY_RULES.newMetaQuantityGap(p); if (numeric) gaps.push(numeric); }
   if (c.kind === "new_page") {
     for (const [what, text] of [["title", c.proposedTitle], ["description", c.metaDescription], ["opening", c.openingAnswer]] as const) {
       if (noCopy(text)) gaps.push(`it carries no ${what}`);
