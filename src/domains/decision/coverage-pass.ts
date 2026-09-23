@@ -195,6 +195,8 @@ export type DecidedTopic = {
 export type CoverageRead = { decided: DecidedTopic | null; needs: ResearchNeed[]; waitingUntil: string | null };
 
 type ReadCoverageOptions = {
+  /** Re-adjudicate one stored topic's current evidence without changing the account's ranked verdict. */
+  onlyTopicKey?: string;
   /** How much research the caller may queue. 0 queues NOTHING, searches and comparison
    *  alike, and asks only "what is decided". The clamp used to guard the search branch
    *  only, so a caller that asked for no research still got handed a paid comparison. */
@@ -258,6 +260,7 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
   const ownedReads = new Map((snapshot.research.ownedReads ?? []).map((o) => [o.url, o]));
   const promoted = await promotedNeeds(tenantId, snapshot, nowMs);
   for (const inv of rankInvestigations(topicsFor(snapshot, promoted), (i) => ownedOpportunity(snapshot, i, opts.curve?.expectedCtrAt))) {
+    if (opts.onlyTopicKey && inv.key !== opts.onlyTopicKey) continue;
     // STOPPING ON A PARK IS HOW THE RULE BELOW BECAME DEAD CODE: production reads this pass with no research budget, so the walk ended the moment ANY verdict landed, and a park ranks first.
     if (decided && ACTS.has(decided.decision.verdict) && queries >= max && (max <= 0 || needs.some((n) => n.comparison))) break;
     let candidates = ownedCandidatesFor(snapshot, inv, bodies);
