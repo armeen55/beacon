@@ -1,4 +1,5 @@
 import "server-only";
+import { isDeepStrictEqual } from "node:util";
 
 /**
  * record-shipment - THE ONE DOOR THAT WRITES A SHIPMENT, and the seam every surface presses through.
@@ -27,7 +28,7 @@ import { log } from "@/lib/logger";
 import { readLastFinalizedDate } from "./gsc-window";
 import { matchedControlsFor, recordShippedChange } from "./measure-pass";
 import type { ControlReceipt } from "./contamination";
-import { loadShippedChangesForTenant, upsertShippedChange, type ShippedChangeRecord } from "./shipped-change-store";
+import { insertShippedChangeOnce, loadShippedChangesForTenant, type ShippedChangeRecord } from "./shipped-change-store";
 import type { ShipmentObjective } from "../shipment-ai-outcome";
 import { dayOfStamp } from "../outcome-windows";
 import type { MeasurementState } from "./types";
@@ -48,6 +49,8 @@ type ShipmentFacts = {
   openPaths?: readonly string[];
   ledger?: readonly ShippedChangeRecord[];
   tenantId: string;
+  /** One operator-supplied event identity, whose facts cannot be silently changed on retry. */
+  externalEvent?: boolean;
   proposalId: string;
   /** The exact version of the copy applied. Same proposal + same version = the same row, always. */
   proposalVersion: string;
@@ -66,6 +69,7 @@ type ShipmentFacts = {
   /** THE STAMP: when the change actually went live. Defaults to now for a press made as it happens. */
   implementedAt?: string;
   preChangeContentHash?: string | null;
+  preChangeHashUnavailable?: boolean;
   operatorNote?: string | null;
   /** THE EXACT AI SCOPE the proposal targeted, typed, never flattened into targetQueries: the case identity
    *  every surface joins on, the exact prompt ids and wordings, the assistants, the fan-out cluster and the
@@ -110,6 +114,19 @@ async function heldShipment(f: Pick<ShipmentFacts, "tenantId" | "proposalId" | "
   return ledger.find((r) => r.proposalId === f.proposalId && r.proposalVersion === f.proposalVersion) ?? null;
 }
 
+function sameExternalEvent(held: ShippedChangeRecord, f: ShipmentFacts): boolean {
+  return held.page === f.page && held.path === f.path && held.actionType === f.actionType
+    && held.before === f.before && held.after === f.after && held.implementedAt === f.implementedAt
+    && held.operatorNote === (f.operatorNote?.trim() || null)
+    && held.bundleHypothesis === f.bundleHypothesis && held.judgedMetric === (f.judgedMetric ?? "clicks")
+    && isDeepStrictEqual(held.targetQueries, f.targetQueries)
+    && isDeepStrictEqual(held.componentsApplied, f.componentsApplied);
+}
+function returnHeld(held: ShippedChangeRecord, f: ShipmentFacts): RecordedShipment {
+  if (f.externalEvent && !sameExternalEvent(held, f)) throw new Error("This event ID already records different implementation facts");
+  return { shipmentId: held.id, measurement: held.measurementState ?? "measuring" };
+}
+
 /** The write both doors share: capture the baseline, store the row, hand back what landed. */
 async function write(
   f: ShipmentFacts,
@@ -128,7 +145,7 @@ async function write(
       proposalId: f.proposalId, proposalVersion: f.proposalVersion, basis: f.basis, caseId: f.caseId,
       bundleHypothesis: f.bundleHypothesis, componentsApplied: f.componentsApplied,
       implementedAt: stamp, preChangeContentHash: f.preChangeContentHash ?? null,
-      preChangeHashUnavailable: extra.preChangeHashUnavailable,
+      preChangeHashUnavailable: f.preChangeHashUnavailable === true || extra.preChangeHashUnavailable,
       operatorNote: f.operatorNote?.trim() || null,
       aiScope: f.aiScope ?? null, treatmentStamp: f.treatmentStamp ?? null,
     },
@@ -139,7 +156,10 @@ async function write(
   const measurement: MeasurementState = record.measurementState === "measurement_unavailable" || extra.measurement === "measuring" && record.shipmentBaseline == null
     ? "measurement_unavailable" : extra.measurement;
   record.measurementState = measurement;
-  await upsertShippedChange(record, f.tenantId, { invalidate: f.invalidate !== false }); // a batch invalidates once, after its last row
+  if (!await insertShippedChangeOnce(record, f.tenantId, f.invalidate !== false)) {
+    const held = await heldShipment(f); if (!held) throw new Error("The Shipment identity was occupied but could not be read back");
+    return returnHeld(held, f);
+  }
   if (measurement !== extra.measurement || measurement !== "measuring") {
     log.info("[shipment] recorded, and the comparison it can carry", {
       tenant: f.tenantId, id: record.id, measurement });
@@ -159,7 +179,7 @@ export async function recordShipment(facts: ShipmentFacts, opts?: { /** THE BATC
   if (held != null) {
     log.info("[shipment] this exact change is already recorded, so its record was left alone", {
       tenant: facts.tenantId, proposalId: facts.proposalId, shipment: held.id });
-    return { shipmentId: held.id, measurement: held.measurementState ?? "measuring" };
+    return returnHeld(held, facts);
   }
   const now = facts.now ?? new Date();
   const { controlPages, controlsReceipt, measurement } =

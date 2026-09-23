@@ -34,7 +34,7 @@ const NULL_METRICS: GscWindowMetrics = { clicks: 0, impressions: 0, ctr: 0, posi
 const SITE_SERIES = "site::every-other-page";
 
 /** GSC's reporting zone is Pacific and so is the operator's; a ship date defaults to that day through the ONE definition of a reporting day, never a second copy of the zone. */
-export const defaultPacificShipDate = (now: Date = new Date()): string => reportingDay(now);
+const defaultPacificShipDate = (now: Date = new Date()): string => reportingDay(now);
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 const round4 = (n: number): number => Math.round(n * 10000) / 10000;
@@ -359,14 +359,7 @@ export async function matchedControlsFor(
   });
 }
 
-/** The same chooser, for a door that wants only the pages. NULL still means the read failed. */
-export async function selectControlPages(tenantId: string, treatedPage: string): Promise<string[] | null> {
-  const now = new Date();
-  return (await matchedControlsFor(tenantId, treatedPage, defaultPacificShipDate(now), now))?.controls ?? null;
-}
-
-/** Capture a 28-day baseline + create the ledger record for a manually-shipped change, then measure it immediately. Preserves the (path,
- *  ship-date) id. With `shipment`, the SAME record is the canonical Shipment for one ChangeProposal: its id is derived from the proposal
+/** Build the canonical Shipment for one ChangeProposal: its id is derived from the proposal
  *  and the exact version applied (so a retry lands on the same row), it carries the stamp the measurement window is read from, and its
  *  starting numbers cover search AND AI. Every read here is of data already bought. */
 export async function recordShippedChange(args: {

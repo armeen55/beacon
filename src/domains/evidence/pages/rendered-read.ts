@@ -87,7 +87,7 @@ export async function renderUnreadOwnedPages(tenantId: string, cap = RENDERED_RE
     const unresolvedHash = typeof latest?.content_hash === "string" ? latest.content_hash : before?.version === "current" && before.completeness === "partial" ? before.contentHash : null;
     const unchangedPartial = (before?.version === "stale_known_good" || before?.completeness === "partial") && snap.content_hash === unresolvedHash;
     if ((collapsed || unchangedPartial) && snap.content_capture) { snap.content_capture.complete = false; snap.extraction_certainty = "uncertain"; }
-    snap.structural_warnings = [...(snap.structural_warnings ?? []), `rendered_read: post-JavaScript DOM captured; retry after ${new Date(Date.parse(got.capturedAt) + freshnessMsFor("owned_page")).toISOString()}`];
+    snap.structural_warnings = [...(snap.structural_warnings ?? []), `rendered_read: Raw HTML corroborated against paid Instant Pages metadata; retry after ${new Date(Date.parse(got.capturedAt) + freshnessMsFor("owned_page")).toISOString()}`];
     try { await d.writeOwnedPage(snap, tenantId); } catch (e) { await hold(url); throw e; }
     const after = (await d.readOwnedBodies(tenantId, [url])).get(key);
     if (after?.version === "current" && after.completeness === "complete" && after.contentHash === snap.content_hash) landed += 1;

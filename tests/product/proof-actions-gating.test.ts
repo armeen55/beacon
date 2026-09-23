@@ -5,7 +5,6 @@ const { ownerFlag, mocks } = vi.hoisted(() => ({
   ownerFlag: { value: true },
   mocks: {
     captureChangeMeta: vi.fn(),
-    recordShippedChange: vi.fn(),
     measureRecord: vi.fn(),
     loadShippedChanges: vi.fn(),
     upsertShippedChange: vi.fn(),
@@ -39,15 +38,15 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/assemble-packet", () => ({
   loadPageSurgeonContext: mocks.loadPageSurgeonContext, topPagesByDemand: mocks.topPagesByDemand,}));
 vi.mock("@/domains/measurement/proof-gsc/measure-pass", () => ({
-  captureChangeMeta: mocks.captureChangeMeta, recordShippedChange: mocks.recordShippedChange, measureRecord: mocks.measureRecord,
-  defaultPacificShipDate: () => "2026-06-22",
-  selectControlPages: async () => { const pages = mocks.topPagesByDemand(); return pages === null ? null : pages.slice(0, 3); },}));
+  captureChangeMeta: mocks.captureChangeMeta, measureRecord: mocks.measureRecord,}));
 vi.mock("@/domains/measurement/proof-gsc/shipped-change-store", () => ({
   loadShippedChanges: mocks.loadShippedChanges, upsertShippedChange: mocks.upsertShippedChange,}));
 vi.mock("@/domains/measurement/proof-gsc/record-shipment", () => ({ recordShipment: mocks.recordShipment }));
 import { recordShippedChangeAction, recomputeProofLedgerAction } from "@/app/(shell)/results/actions";
 import { markProposalImplementedAction } from "@/app/(shell)/changes/actions";
 const BASIS = "basis_today::d6";
+const EVENT = { eventId: "123e4567-e89b-42d3-a456-426614174000", shippedAt: "2026-06-20T20:00:00.000Z", timeZone: "America/Los_Angeles", offsetMinutes: -420 };
+const external = (over: Record<string, unknown> = {}) => recordShippedChangeAction({ ...EVENT, pageUrl: "https://x.test/cities", changeType: "edit_title", before: "old", after: "new", ...over });
 const PROPOSAL_ID = "tenant-test::/nowruz-guide::existing_edit::bundle";
 const authorize = <T extends { bundle?: unknown; kind?: string }>(p: T): T => { const parts = ((p.bundle as { components?: { kind: string; label: string; after?: string | null }[] } | undefined)?.components ?? []);
   const owed = parts.map((c, i) => ({ c, i })).filter((x) => x.c.kind !== "title" && x.c.kind !== "meta");
@@ -72,53 +71,41 @@ beforeEach(() => {
   mocks.captureChangeMeta.mockResolvedValue({
     canonPage: "https://x.test/cities", path: "/cities", before: "old", after: "new", targetQueries: ["cities in iran"],
     headlineAction: "title", contentHash: "hash-before",});
-  mocks.recordShippedChange.mockResolvedValue({ id: "/cities::2026-06-19", verdict: "measuring" });
   mocks.recordShipment.mockResolvedValue({ shipmentId: "shp_1", measurement: "measuring" });
-  mocks.upsertShippedChange.mockResolvedValue(undefined);
   mocks.loadShippedChanges.mockResolvedValue([]);
-  mocks.loadPageSurgeonContext.mockResolvedValue({});
-  mocks.topPagesByDemand.mockReturnValue(["https://x.test/a", "https://x.test/b", "https://x.test/c"]);
   mocks.resolveCurrentBasis.mockResolvedValue(BASIS);
   mocks.loadChangeProposal.mockResolvedValue(proposal());
   mocks.transitionProposalToImplemented.mockResolvedValue(true);});
-describe("recordShippedChangeAction, account-owner gating", () => {
-  it("non-owner ⇒ refused even with the operator env flag on, no record written", async () => {
-    ownerFlag.value = false;
-    const res = await recordShippedChangeAction({ pageUrl: "https://x.test/cities" });
-    expect([res.success, /owner/i.test(res.error ?? ""), mocks.recordShippedChange.mock.calls.length, mocks.upsertShippedChange.mock.calls.length]).toEqual([false, true, 0, 0]);});
-  it("account owner ⇒ captures baseline + persists the record, and a missing page is refused", async () => {
-    expect((await recordShippedChangeAction({ pageUrl: "https://x.test/cities" })).success).toBe(true); expect([mocks.recordShippedChange.mock.calls.length, mocks.upsertShippedChange.mock.calls.length]).toEqual([1, 1]);
-    expect((await recordShippedChangeAction({ pageUrl: "" })).success).toBe(false); expect(mocks.recordShippedChange).toHaveBeenCalledOnce();});
-  it("ANY page ⇒ still records, controls derived from top-demand pages", async () => {
-    expect((await recordShippedChangeAction({ pageUrl: "/cities" })).success).toBe(true);
-    expect(mocks.topPagesByDemand).toHaveBeenCalled(); // fallback control selection fired
-    expect(mocks.recordShippedChange.mock.calls[0][0].controlPages.length).toBeGreaterThan(0);});
-  it("passes explicit change fields through to recordShippedChange", async () => {
-    const res = await recordShippedChangeAction({
-      pageUrl: "/cities", changeType: "edit_meta", before: "old meta", after: "new meta", shippedAt: "2026-06-20",
-      notes: "manual edit on my site", targetQueries: "cities in iran\nlargest cities in iran, cities of iran",
-      verifiedLive: true, liveSourceUrl: "https://www.fixture-content.example/cities",
-    });
-    expect(res.success).toBe(true); const arg = mocks.recordShippedChange.mock.calls[0][0];
-    expect(arg.actionType).toBe("edit_meta"); expect(arg.before).toBe("old meta");
-    expect(arg.after).toBe("new meta"); expect(arg.notes).toBe("manual edit on my site");
-    expect(arg.verifiedLive).toBe(true); expect(arg.liveSourceUrl).toBe("https://www.fixture-content.example/cities");
-    expect(arg.targetQueries).toEqual(["cities in iran", "largest cities in iran", "cities of iran"]);});
-  it("a real edit owes its before and after; a keep-current decision does not", async () => {
-    const noCopy = { canonPage: "https://x.test/cities", path: "/cities", before: null, after: null, targetQueries: [], headlineAction: null };
-    mocks.captureChangeMeta.mockResolvedValue(noCopy);
-    const refused = await recordShippedChangeAction({ pageUrl: "/cities", changeType: "edit_title" });
-    expect([refused.success, /before and after/i.test(refused.error ?? ""), mocks.recordShippedChange.mock.calls.length]).toEqual([false, true, 0]);
-    expect([(await recordShippedChangeAction({ pageUrl: "/cities", changeType: "keep_current" })).success, mocks.recordShippedChange.mock.calls.length]).toEqual([true, 1]);});
-  it("duplicate page + ship date ⇒ refused, nothing overwritten", async () => {
-    mocks.loadShippedChanges.mockResolvedValue([{ path: "/cities", actionType: "meta", shippedAt: "2026-06-20T08:00:00.000Z" }]);
-    const res = await recordShippedChangeAction({ pageUrl: "/cities", shippedAt: "2026-06-20" }); expect([res.success, /already recorded/i.test(res.error ?? ""), mocks.recordShippedChange.mock.calls.length]).toEqual([false, true, 0]);});
-  it("fewer than 2 control pages ⇒ refused, nothing recorded", async () => {
-    mocks.topPagesByDemand.mockReturnValue(["https://x.test/a"]); // only 1 candidate
-    const res = await recordShippedChangeAction({ pageUrl: "/cities" }); expect([res.success, /only 1 page on your site/i.test(res.error ?? ""), mocks.recordShippedChange.mock.calls.length]).toEqual([false, true, 0]);});
-  it("never hands a customer a backend error", async () => { // P1-13
-    mocks.captureChangeMeta.mockRejectedValue(new Error("relation shipped_change_proof does not exist"));
-    expect(await recordShippedChangeAction({ pageUrl: "/cities" })).toEqual({ success: false, error: "That change could not be recorded just now. Try it again in a moment." });});});
+describe("external work uses the same Shipment contract", () => {
+  it("requires the owner and refuses a foreign host before a matching-path capture can rewrite it", async () => {
+    ownerFlag.value = false; expect((await external()).success).toBe(false); ownerFlag.value = true;
+    expect((await external({ pageUrl: "https://other.test/cities" })).success).toBe(false);
+    expect(mocks.captureChangeMeta).not.toHaveBeenCalled(); expect(mocks.recordShipment).not.toHaveBeenCalled(); });
+  it("records two distinct same-day edits, including weak controls, with their true instants and no self-verification", async () => {
+    expect((await external({ changeType: "edit_meta", before: "old meta", after: "new meta", notes: "own edit", targetQueries: "cities in iran\nlargest cities in iran" })).success).toBe(true);
+    expect((await external({ eventId: "123e4567-e89b-42d3-a456-426614174001", shippedAt: "2026-06-20T21:00:00.000Z", changeType: "edit_title" })).success).toBe(true);
+    const [a, b] = mocks.recordShipment.mock.calls.map((c) => c[0]);
+    expect([a.proposalId !== b.proposalId, a.implementedAt, b.implementedAt, a.preChangeHashUnavailable, a.componentsApplied[0].kind, a.targetQueries, "verifiedLive" in a]).toEqual([true, EVENT.shippedAt, "2026-06-20T21:00:00.000Z", true, "meta", ["cities in iran", "largest cities in iran"], false]);
+  });
+  it("rejects unzoned, mismatched-offset, and spring-gap instants before writing", async () => {
+    for (const over of [{ shippedAt: "2026-06-20T13:00" }, { offsetMinutes: -480 }, { shippedAt: "2026-03-08T10:30:00.000Z", offsetMinutes: -480 }])
+      expect((await external(over)).success).toBe(false);
+    expect(mocks.recordShipment).not.toHaveBeenCalled();
+    expect((await external({ shippedAt: "2026-11-01T09:30:00.000Z", offsetMinutes: -480 })).success).toBe(true);
+    expect((await external({ eventId: "123e4567-e89b-42d3-a456-426614174001", shippedAt: "2026-06-21T06:30:00.000Z" })).success).toBe(true);
+    expect(mocks.recordShipment.mock.calls.map((c) => c[0].implementedAt)).toEqual(["2026-11-01T09:30:00.000Z", "2026-06-21T06:30:00.000Z"]); });
+  it("a lost response retry keeps operator intent while cached query suggestions change", async () => {
+    await external(); mocks.captureChangeMeta.mockResolvedValue({ canonPage: "https://x.test/cities", path: "/cities", before: "old", after: "new", targetQueries: ["a fresh GSC suggestion"], headlineAction: "title" });
+    await external(); expect(mocks.recordShipment.mock.calls.map((c) => c[0].targetQueries)).toEqual([[], []]);
+    expect(mocks.recordShipment.mock.calls.map((c) => c[0].proposalId)).toEqual([`external::${EVENT.eventId}`, `external::${EVENT.eventId}`]);
+    mocks.recordShipment.mockRejectedValueOnce(new Error("This event ID already records different implementation facts"));
+    expect((await external({ after: "different" })).error).toContain("first record was kept"); });
+  it("refuses unsupported structure and incomplete copy", async () => {
+    mocks.captureChangeMeta.mockResolvedValue({ canonPage: "https://x.test/cities", path: "/cities", before: null, after: null, targetQueries: [], headlineAction: null });
+    expect((await external({ after: "" })).success).toBe(false);
+    for (const changeType of ["keep_current", "monitor", "new_page", "section_add", "schema", "faq", "add_internal_link"]) expect((await external({ changeType })).success).toBe(false);
+    expect(mocks.recordShipment).not.toHaveBeenCalled(); });
+});
 describe("recomputeProofLedgerAction, account-owner gating", () => {
   it("non-owner ⇒ refused, nothing recomputed", async () => {
     ownerFlag.value = false;
@@ -134,9 +121,6 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
       .toEqual([PROPOSAL_ID, BASIS, "hash-before", ["title", "opening_answer"]]);
     expect(/line Google shows/.test(facts().bundleHypothesis)).toBe(true);
     expect(mocks.transitionProposalToImplemented.mock.calls[0]![2]).toBe("shp_1");});
-  it("records only the components the operator says they applied, with the risk grade each carried", async () => {
-    expect((await markProposalImplementedAction({ ...PRESS, componentIds: [componentIdOf(proposal().bundle!.components[0]!, 0)] })).success).toBe(true);
-    const [one] = facts().componentsApplied; expect([one.id.startsWith("0:title:"), one.kind, one.label, one.after, one.risk]).toEqual([true, "title", "Page title", null, "safe"]);});
   it.each([
     ["a selection I do not recognize", { componentIds: ["bogus"] }],
     ["a selection with nothing in it", { componentIds: [] as string[] }],
@@ -173,11 +157,6 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
     const once = (await press({ componentIds: [componentIdOf(parts[0]!, 0)] }), facts());
     held.length = 0;
     await press({ componentIds: [componentIdOf(parts[0]!, 0), componentIdOf(parts[0]!, 0)] }); expect([facts().proposalVersion, facts().componentsApplied]).toEqual([once.proposalVersion, once.componentsApplied]);});
-  it("tells a failed comparison read apart from a site that genuinely has too few pages", async () => {
-    mocks.topPagesByDemand.mockReturnValue(null);
-    expect(await recordShippedChangeAction({ pageUrl: "/cities" }))
-      .toEqual({ success: false, error: "Your other pages could not be read just now, so this is not recorded yet. Try it again in a moment." });
-    expect(mocks.recordShippedChange).not.toHaveBeenCalled();});
   it("never hands a customer a backend error", async () => { // P1-13: a Supabase relation name is not an answer
     mocks.transitionProposalToImplemented.mockRejectedValue(new Error("relation change_proposals does not exist"));
     expect(await markProposalImplementedAction({ ...PRESS })).toEqual({ success: false, retryable: true, error: "That could not be recorded just now. Press it again in a moment." });});

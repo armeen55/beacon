@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Minus, Plus } from "lucide-react";
 
@@ -17,19 +17,10 @@ import {
 
 /** Change-type options for the manual record form (value ⇒ label). */
 const CHANGE_TYPE_OPTIONS: { value: string; label: string }[] = [
-  { value: "", label: "Auto (name it automatically)" },
-  { value: "new_page", label: "New page" },
-  { value: "edit_title", label: "Title" },
+  { value: "", label: "Choose the field you changed" },
+  { value: "edit_title", label: "Page title" },
   { value: "edit_meta", label: "Meta description" },
   { value: "change_h1", label: "Main heading" },
-  { value: "intro_answer_block", label: "Answer block (top of page)" },
-  { value: "section_add", label: "New section / depth" },
-  { value: "faq", label: "Visible Q&A" },
-  { value: "schema", label: "Structured data" },
-  { value: "add_internal_link", label: "Internal links" },
-  { value: "keep_current", label: "Keep the page as it is and watch it" },
-  { value: "monitor", label: "Watch only" },
-  { value: "change", label: "Other change" },
 ];
 
 /** Item 23 - shared visible keyboard-focus ring for every interactive element here. */
@@ -39,6 +30,7 @@ const FOCUS =
 const FIELD_LABEL = "block text-[11px] font-medium text-foreground/80";
 const FIELD_INPUT =
   `mt-1 w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground placeholder:text-muted-foreground/60 ${FOCUS}`;
+const localMinute = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 
 /**
  * Record a shipped change for ANY page. Paste a page path ("/cities") or full
@@ -51,15 +43,15 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
   // initialPage prefills from a /results?page=... hand-off so recording a
   // shipped change never means re-typing the path.
   const [pageUrl, setPageUrl] = useState(initialPage);
-  const [showDetails, setShowDetails] = useState(false);
+  const [showDetails, setShowDetails] = useState(true);
   const [changeType, setChangeType] = useState("");
   const [before, setBefore] = useState("");
   const [after, setAfter] = useState("");
   const [shippedAt, setShippedAt] = useState("");
+  const [foldLater, setFoldLater] = useState(false);
   const [targetQueries, setTargetQueries] = useState("");
   const [notes, setNotes] = useState("");
-  const [verifiedLive, setVerifiedLive] = useState(false);
-  const [liveSourceUrl, setLiveSourceUrl] = useState("");
+  const eventId = useRef<string | null>(null), firstNow = useRef<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<{ message: string; isError: boolean } | null>(null);
 
@@ -69,30 +61,39 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
     setBefore("");
     setAfter("");
     setShippedAt("");
+    setFoldLater(false);
     setTargetQueries("");
     setNotes("");
-    setVerifiedLive(false);
-    setLiveSourceUrl("");
+    eventId.current = null; firstNow.current = null;
   };
 
+  const first = shippedAt ? new Date(shippedAt) : null;
+  const fold = first && Number.isFinite(first.getTime()) ? [30, 60, 90, 120].find((n) => localMinute(new Date(first.getTime() + n * 60_000)) === shippedAt.slice(0, 16)) ?? 0 : 0;
   const submit = () => {
     const value = pageUrl.trim();
     if (!value) return;
+    const entered = shippedAt ? new Date(shippedAt) : new Date(firstNow.current ?? new Date().toISOString());
+    if (!Number.isFinite(entered.getTime()) || shippedAt && localMinute(entered) !== shippedAt.slice(0, 16)) {
+      setFeedback({ message: "That local time does not exist here. Choose another time.", isError: true }); return;
+    }
+    const instant = foldLater && fold ? new Date(entered.getTime() + fold * 60_000) : entered;
+    if (!shippedAt) firstNow.current ??= instant.toISOString();
+    eventId.current ??= crypto.randomUUID();
     startTransition(async () => {
       setFeedback(null);
       const res = await recordShippedChangeAction({
         pageUrl: value,
+        eventId: eventId.current!,
         changeType: changeType || undefined,
         before: before.trim() || undefined,
         after: after.trim() || undefined,
-        shippedAt: shippedAt || undefined,
+        shippedAt: instant.toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+        offsetMinutes: -instant.getTimezoneOffset(),
         targetQueries: targetQueries.trim() || undefined,
         notes: notes.trim() || undefined,
-        verifiedLive: verifiedLive || undefined,
-        liveSourceUrl: liveSourceUrl.trim() || undefined,
       });
       if (res.success) {
-        setFeedback({ message: "Recorded. Now measuring below.", isError: false });
+        setFeedback({ message: "Recorded. Beacon will check the live page; Results will show when measurement is available.", isError: false });
         reset();
         setShowDetails(false);
         router.refresh();
@@ -106,9 +107,8 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
     <div className="rounded-lg border border-border/60 bg-surface-inset/30 p-4">
       <div className="text-[13px] font-semibold text-foreground">Record an edit made outside this queue</div>
       <p className="mt-0.5 text-[12px] text-muted-foreground">
-        Changed a page yourself, in whatever tool your site runs on? Paste the page address plus the before and after copy
-        under Add details. The page&apos;s standing is recorded today and checked after 1, 2, and 4 weeks against similar
-        pages. Nothing publishes.
+        Changed a page title, meta description, or main heading yourself? Enter the exact before and after wording.
+        Beacon checks the live page and measures what the available data supports. Nothing publishes.
       </p>
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
         <input
@@ -123,7 +123,7 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
         />
         <button
           type="button"
-          disabled={pending || !pageUrl.trim()}
+          disabled={pending || !pageUrl.trim() || !changeType || !before.trim() || !after.trim()}
           onClick={submit}
           className={`rounded-md border border-foreground bg-foreground px-3 py-1.5 text-[12px] font-medium text-background hover:opacity-90 disabled:opacity-50 ${FOCUS}`}
         >
@@ -177,12 +177,17 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
                 id="proof-shipped-at"
                 type="datetime-local"
                 value={shippedAt}
-                onChange={(e) => setShippedAt(e.target.value)}
+                onChange={(e) => { setShippedAt(e.target.value); setFoldLater(false); }}
                 className={FIELD_INPUT}
               />
               <p className="mt-0.5 text-[10px] text-muted-foreground">
-                Leave blank for now. The 7, 14 and 28 day reads count from here.
+                Your local time; leave blank for now. Results uses the Pacific reporting day for its 7, 14 and 28 day reads.
               </p>
+              {fold > 0 ? <label className={FIELD_LABEL}>When clocks repeated this time
+                <select value={foldLater ? "later" : "earlier"} onChange={(e) => setFoldLater(e.target.value === "later")} className={FIELD_INPUT}>
+                  <option value="earlier">First occurrence</option><option value="later">Second occurrence</option>
+                </select>
+              </label> : null}
             </div>
           </div>
 
@@ -246,31 +251,6 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
             />
           </div>
 
-          <div className="rounded-md border border-border/50 bg-background/60 p-2.5">
-            <label className="flex items-start gap-2 text-[12px] text-foreground/90">
-              <input
-                type="checkbox"
-                checked={verifiedLive}
-                onChange={(e) => setVerifiedLive(e.target.checked)}
-                className={`mt-0.5 rounded-sm ${FOCUS}`}
-              />
-              <span>
-                This change was confirmed live on the site.
-                <span className="block text-[10px] text-muted-foreground">
-                  Check this once you can see the new copy on the live page.
-                </span>
-              </span>
-            </label>
-            {verifiedLive ? (
-              <input
-                type="text"
-                value={liveSourceUrl}
-                onChange={(e) => setLiveSourceUrl(e.target.value)}
-                placeholder="Live URL you verified it at (optional)"
-                className={FIELD_INPUT}
-              />
-            ) : null}
-          </div>
         </div>
       ) : null}
 

@@ -11,11 +11,8 @@ import type { CachedCallResult, FunnelBoundaryDeps, ProviderEnvelope } from "./f
 const API_BASE = "https://api.dataforseo.com/v3";
 const PLATFORM = "dataforseo-serp";
 const LIMIT_DETAIL = "The research provider reached a resettable request limit, so this batch stopped. Everything collected is saved, and a later pass resumes it without operator cleanup.";
-const CLAIM_LEASE_SECONDS = 120;
-const TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-const AMBIGUITY_WINDOW_MS = 15 * 60 * 1000;
-const LISTING_MEMO_MS = 60 * 1000;
-const DAY_MS = 24 * 60 * 60 * 1000;
+const CLAIM_LEASE_SECONDS = 120, TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000, AMBIGUITY_WINDOW_MS = 15 * 60 * 1000;
+const LISTING_MEMO_MS = 60 * 1000, DAY_MS = 24 * 60 * 60 * 1000;
 const FIRST_TASK_POLL_MS = 2 * 60 * 1000, MAX_TASK_POLL_MS = 6 * 60 * 60 * 1000, PROVIDER_TASK_MAX_MS = 72 * 60 * 60 * 1000;
 export type ResolvedCall = {
   capability?: string;
@@ -24,7 +21,7 @@ export type ResolvedCall = {
   publicInput: Record<string, unknown>; locationCode: number; languageCode: string;
   device: string | null; modelRequested: string | null;
   payload: unknown[]; ttlMs: number; estCostUsd: number; mode: "live" | "task"; tenantId: string;
-  requestTimeoutMs?: number;
+  requestTimeoutMs?: number; paidBlockedReason?: string | null;
   purpose: "fact_check" | "bulk"; // the daily gate holds the fact-check reserve against bulk buying
   who?: { unitKey?: string; runId?: string; caseKey?: string; promptId?: string };
 };
@@ -83,6 +80,8 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     if (r.mode === "task") return collectResolvedTask(cacheKey, paths, deps);
     try {
       const liveRow = await d.cacheRead(cacheKey);
+      if (liveRow?.error_detail?.startsWith("raw_html_charge:")) return { state: "error", cacheKey, disposition: "quarantined", detail: `Raw HTML unexpectedly reported a charge (${liveRow.error_detail.slice(16)} USD). This page is held for investigation without another provider request.` };
+      if (liveRow?.error_detail?.startsWith("raw_html_mismatch:")) return { state: "error", cacheKey, disposition: "quarantined", detail: "Saved Raw HTML disagreed with the paid page. This task is held until a new page revision earns a new receipt." };
       if (liveRow?.spend_attempt_id) {
         const receipt = await d.spend.read(liveRow.spend_attempt_id).catch(() => null);
         if (receipt?.state === "reconciled" && receipt.resultPayload != null) {
@@ -99,6 +98,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     return { state: "waiting", cacheKey, providerTaskId: claim.providerTaskId, costUsd: 0, detail: "Another run is already fetching this. Its result is picked up when it lands." };
   }
   if (r.mode === "task" && claim.providerTaskId) return collectResolvedTask(cacheKey, paths, deps);
+  if (r.paidBlockedReason) { await releaseClaim(d, cacheKey, now, "capped"); return { state: "capped", cacheKey, detail: r.paidBlockedReason }; }
   let reservation: Awaited<ReturnType<CachedCallDeps["spend"]["reserve"]>> | null;
   const generation = Number.isInteger(claim.fetchGeneration) && Number(claim.fetchGeneration) > 0 ? Number(claim.fetchGeneration) : 1;
   try {

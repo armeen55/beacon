@@ -57,6 +57,7 @@ export async function runDataForSeoTransport(args: {
   fetchImpl: typeof fetch;
   perfDetail?: string;
   timeoutMs?: number;
+  maxResponseBytes?: number;
   /** Defaults to POST; task_get resumption uses GET (no body). */
   method?: "GET" | "POST";
 }): Promise<
@@ -75,7 +76,18 @@ export async function runDataForSeoTransport(args: {
     if (method === "POST") init.body = JSON.stringify(args.payload);
     const res = await args.fetchImpl(args.url, init);
     let body: unknown, parsed = false;
-    try { body = await res.json(); parsed = true; } catch { /* an HTTP status without a cost envelope proves no refund */ }
+    try {
+      if (args.maxResponseBytes) {
+        const reader = res.body?.getReader(); if (!reader) throw new Error("missing provider body");
+        const chunks: Uint8Array[] = []; let size = 0;
+        for (;;) { const { done, value } = await reader.read(); if (done) break;
+          size += value.byteLength; if (size > args.maxResponseBytes) { await reader.cancel(); throw new Error("provider body exceeds limit"); } chunks.push(value); }
+        const bytes = new Uint8Array(size); let offset = 0;
+        for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+        body = JSON.parse(new TextDecoder().decode(bytes));
+      } else body = await res.json();
+      parsed = true;
+    } catch { /* an HTTP status without a cost envelope proves no refund */ }
     if (!res.ok) return { ok: false, status: res.status, message: `http ${res.status}`, ...(parsed ? { body } : {}) };
     if (!parsed) throw new Error("invalid provider envelope");
     return { ok: true, body };

@@ -1,7 +1,4 @@
 import "server-only";
-/** Canonical Shipment ledger: preserve applied identity, write-once baselines and confirmed receipts.
- * Wins require day 28; verified_live follows the recorded verification or explicit operator confirmation. */
-
 import { cache } from "react";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -38,7 +35,6 @@ export type ShipmentVerification = {
   /** LATER READS THAT DISAGREED WITH A CONFIRMED ONE, filed beside it and never over it (keepConfirmed). */
   rechecks?: Array<{ status: ShipmentVerification["status"]; checkedAt: string; reason: ShipmentVerification["reason"] }>;
 };
-/** The two answers that let measurement begin: the change was seen on the page, or part of it was. */
 const CONFIRMED: ReadonlySet<string> = new Set(["verified", "partially_verified"]);
 /** Preserve confirmed status through a differing recheck; first, same-status and fully verified reads replace the receipt. */
 function keepConfirmed(held: ShipmentVerification | null | undefined, next: ShipmentVerification): ShipmentVerification {
@@ -46,10 +42,8 @@ function keepConfirmed(held: ShipmentVerification | null | undefined, next: Ship
   // THE RECHECK DAY IS THE LATEST READ'S, never the confirmed read's: a kept `recheckAfter` already in the past re-queued a partly verified row on every pass for ever, and `rechecks` grew without bound.
   return { ...held, checks: next.checks ?? held.checks, recheckAfter: next.recheckAfter ?? null, rechecks: [...(held.rechecks ?? []), { status: next.status, checkedAt: next.checkedAt, reason: next.reason ?? null }] };
 }
-/** Preserve explicit operator confirmation when an automated read confirms less. */
 const liveAfter = (heldLive: boolean | null | undefined, heldRead: ShipmentVerification | null | undefined, next: ShipmentVerification): boolean =>
   CONFIRMED.has(next.status) || (heldLive === true && !CONFIRMED.has(heldRead?.status ?? ""));
-/** The immutable numbers this page stood at when the operator marked the change done. */
 type ShipmentBaseline = {
   /** Google and AI baselines freeze independently; null means missing evidence. */
   search: ProofBaseline | null;
@@ -378,6 +372,18 @@ export async function upsertShippedChange(record: ShippedChangeRecord, tenantId?
   }
   await mirrorFile(record);
   if (tell) await invalidateResultsSurfaceSafe();
+}
+
+/** The canonical recording door inserts once. A concurrent retry may lose the PK race, but can never rewrite the first stamp, baseline, or live receipt. */
+export async function insertShippedChangeOnce(record: ShippedChangeRecord, tenantId: string, invalidate = true): Promise<boolean> {
+  if (!tenantId || !record.proposalId || !record.proposalVersion || !record.implementedAt) throw new Error("A Shipment needs its tenant, event, version, and actual instant");
+  const { data, error } = await getSupabaseAdmin().from(TABLE)
+    .upsert(recordToRow(tenantId, record), { onConflict: "tenant_id,id", ignoreDuplicates: true }).select("id");
+  if (error) throw new Error(`shipped-change-store: insert failed: ${error.message}`);
+  if (!data?.length) return false;
+  await mirrorFile(record);
+  if (invalidate) await invalidateResultsSurfaceSafe();
+  return true;
 }
 
 async function upsertFile(record: ShippedChangeRecord): Promise<void> {

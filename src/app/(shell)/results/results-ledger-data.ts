@@ -69,7 +69,7 @@ export async function presentShipments(tenantId: string, records: ShippedChangeR
     aiOutcomesForShipments(tenantId, records.map((r) => ({
       implementedAt: r.implementedAt, shipmentBaseline: r.shipmentBaseline, scopeQueries: r.targetQueries, aiScope: r.aiScope,
     }))).catch(() => records.map(() => null)),
-    recommendationStates(tenantId, [...new Set(records.map((r) => r.proposalId).filter((id): id is string => !!id))]),
+    recommendationStates(tenantId, [...new Set(records.map((r) => r.proposalId).filter((id): id is string => !!id && !id.startsWith("external::")))]),
   ]);
   const reads = readLedger(records, new Date(), latestGscDate);
   return records.map((r, i) => {

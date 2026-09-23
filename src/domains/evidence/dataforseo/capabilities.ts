@@ -1,14 +1,17 @@
 import "server-only";
 import { PROOF_SPEND, spendingClosed } from "@/lib/spend-scope"; import { CREDIT_BREAKER } from "@/lib/cost/credit-breaker";
 import { createHash } from "node:crypto";
+import { load as cheerioLoad } from "cheerio";
 import { isDataForSeoConfigured, runDataForSeoTransport } from "./client";
 import { collectResolvedTask, identityCacheKey, runResolvedCall, type ResolvedCall } from "./cached-call";
 import { resolveDeps } from "./default-deps";
 import { normalizePageIntersection, parsePageIntersection, MAX_INTERSECTION_PAGES } from "../page-intersection";
 import { freshnessMsFor } from "../freshness";
 import { mainOf } from "../funnel/research-evidence";
+import { extractPageSnapshot } from "../pages/extractor";
 import type { CachedCallResult, CapabilityInputByKey, CapabilityKey, EngineModelResolution, FunnelBoundaryDeps, ObservationIdentity, ParsedAiAnswer, ParsedByCapability, ParsedKeywordItem, ParsedSerp, ProviderEnvelope } from "./funnel-boundary";
 const DFS_API_BASE = "https://api.dataforseo.com/v3";
+const RAW_STOP_KEY = "dfs_raw_html_credential_stop";
 const LOCATION_US = 2840, LANG_EN = "en", DAY = 86_400_000;
 const MAX_IDEAS_SEEDS = 200, IDEAS_DEFAULT_LIMIT = 700, IDEAS_MAX_LIMIT = 1000; // documented keyword_ideas seed ceiling, default and max limit, in ONE place so the ask and the built body agree
 /** serp_competitors documents the SAME 200-keyword ceiling and a limit defaulting to 100, maxing at 1000. Beacon asks for 50: a case wants the handful of domains that keep coming up, not a directory. (docs: serp_competitors/live, 2026-07-31) */
@@ -153,36 +156,9 @@ const REGISTRY: Registry = {
     ttlMs: freshnessMsFor("owned_page"), estCostUsd: 0.002, requestTimeoutMs: 45_000, dims: { device: false, model: false },
     normalize: (i) => ({ url: canonicalUrl(i.url), ...(i.revision ? { revision: i.revision } : {}) }),
     route: () => ({ mode: "live", postPath: "on_page/instant_pages", getPath: null, tasksReady: null }),
-    // JS pricing: $0.0015/page (DataForSEO OnPage pricing, 2026-09-22); reserve above it.
+    // Instant Pages stores the HTML for the documented free Raw HTML read by task ID.
     build: (i) => [{ url: i.url, enable_javascript: true, enable_xhr: true, return_despite_timeout: false,
-      accept_language: LANG_EN, ip_pool_for_scan: "us",
-      custom_js: String.raw`(function () {
-        var root = document.documentElement.cloneNode(true), nodes = root.querySelectorAll('script,style');
-        for (var i = nodes.length - 1; i >= 0; i--) {
-          var node = nodes[i];
-          if (node.tagName.toLowerCase() !== 'script' || (node.getAttribute('type') || '').trim().toLowerCase() !== 'application/ld+json') node.parentNode.removeChild(node);
-        }
-        var html = root.outerHTML, dictionary = [], counts = Object.create(null), ids = Object.create(null), indices = '', alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-        var result = { url: document.URL, readyState: document.readyState, capturedAt: new Date().toISOString(), complete: false, codec: 'tokens-ascii-v1', dictionary: dictionary, indices: '', htmlChars: html.length };
-        if (!html.length || html.length > 2000000) return result;
-        var tokens = /[A-Za-z0-9_$-]+|[^A-Za-z0-9_$-]+/g, match; // Jint doubles backing arrays: 8192 is the last capacity below its 10000 ceiling.
-        while ((match = tokens.exec(html)) !== null) {
-          var word = match[0];
-          if (counts[word] === undefined) { if (dictionary.length === 8192) { result.dictionary = []; return result; } counts[word] = 0; dictionary.push(word); }
-          counts[word]++;
-        }
-        dictionary.sort(function (a, b) { return counts[b] - counts[a]; });
-        for (i = 0; i < dictionary.length; i++) ids[dictionary[i]] = i;
-        tokens.lastIndex = 0;
-        while ((match = tokens.exec(html)) !== null) {
-          var id = ids[match[0]];
-          while (id >= 32) { indices += alphabet.charAt(id % 32 + 32); id = Math.floor(id / 32); }
-          indices += alphabet.charAt(id);
-        }
-        result.indices = indices; result.complete = true;
-        if (JSON.stringify(result).length > 100000) { result.dictionary = []; result.indices = ''; result.complete = false; }
-        return result;
-      })()` }],
+      accept_language: LANG_EN, ip_pool_for_scan: "us", store_raw_html: true }],
     parse: parseRenderedHtml,
   },
   serp_organic: serpEntry("serp/google/organic", 0.0021, SERP_DEPTH),
@@ -206,10 +182,15 @@ export async function providerCall<K extends CapabilityKey>(
   capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string; runId?: string; caseKey?: string; promptId?: string }, deps: FunnelBoundaryDeps = {},
 ): Promise<CachedCallResult> {
   const proof = PROOF_SPEND.externalClosed(ids.tenantId, { capability, url: String((input as { url?: string }).url ?? "") });
-  if (proof === true || proof == null && await spendingClosed(ids.tenantId)) return { state: "capped", cacheKey: null, detail: "Research is paused for this account, so nothing was bought. This is owed, not failed." };
+  const paused = proof === true || proof == null && await spendingClosed(ids.tenantId);
   const peek = (deps as { creditPeek?: typeof CREDIT_BREAKER.peek }).creditPeek ?? CREDIT_BREAKER.peek; // AND NO PAID POST WHILE THE MODEL DOOR IS HELD (2026-09-14): research bought with no credit to reason on it is money spent on a queue nobody can read. The free GET collects never pass here.
-  if (await peek(ids.tenantId).catch(() => "clear" as const) === "held") return { state: "capped", cacheKey: null, detail: CREDIT_BREAKER.sentence("openai") };
-  if (await peek(ids.tenantId, {}, "dataforseo").catch(() => "clear" as const) === "held") return { state: "capped", cacheKey: null, detail: CREDIT_BREAKER.sentence("dataforseo") }; // AND NO POST WHILE THE SEARCH PROVIDER ITSELF IS DRY (2026-09-15): every search answered 402 for an hour, each refusal was refunded and counted, and no surface said the balance was empty
+  const rawStop = capability === "onpage_rendered_html" ? await resolveDeps(deps).cacheRead(RAW_STOP_KEY).catch(() => "unreadable" as const) : null;
+  const blocked = paused ? "Research is paused for this account, so nothing was bought. This is owed, not failed."
+    : rawStop === "unreadable" ? "The Raw HTML safety record could not be read, so no rendered page was bought."
+    : rawStop?.error_detail?.startsWith("raw_html_charge:") ? "Raw HTML reported an unexpected charge. Rendered page purchases are held for investigation."
+    : await peek(ids.tenantId).catch(() => "clear" as const) === "held" ? CREDIT_BREAKER.sentence("openai")
+    : await peek(ids.tenantId, {}, "dataforseo").catch(() => "clear" as const) === "held" ? CREDIT_BREAKER.sentence("dataforseo") : null;
+  if (blocked && capability !== "onpage_rendered_html") return { state: "capped", cacheKey: null, detail: blocked };
   const entry = REGISTRY[capability];
   let resolution: EngineModelResolution | null = null, modelRequested: string | null = null;
   if (entry.engine) { // ONE resolution: the method routes the call AND the model rides the request
@@ -236,10 +217,13 @@ export async function providerCall<K extends CapabilityKey>(
     publicInput, locationCode: LOCATION_US, languageCode: LANG_EN, device, modelRequested: modelDim,
     payload, ttlMs: entry.ttlMs, estCostUsd: entry.estCostUsd, mode: route.mode, tenantId: ids.tenantId,
     requestTimeoutMs: entry.requestTimeoutMs,
+    paidBlockedReason: blocked,
     purpose: ids.unitKey.startsWith("fact-check:") ? "fact_check" : "bulk", // the daily gate holds the fact-check reserve on it
     who: { unitKey: ids.unitKey, ...(ids.runId ? { runId: ids.runId } : {}), ...(ids.caseKey ? { caseKey: ids.caseKey } : {}), ...(ids.promptId ? { promptId: ids.promptId } : {}) },
   };
   const result = await runResolvedCall(resolved, deps);
+  if (capability === "onpage_rendered_html" && (result.state === "ok" || result.state === "hit"))
+    return hydrateRendered(result, canonicalUrl(String(publicInput.url ?? "")), ids.tenantId, deps);
   if (modelRequested && (result.state === "ok" || result.state === "waiting")) return { ...result, modelRequested };
   return result;
 }
@@ -412,43 +396,71 @@ function parseScraper(env: ProviderEnvelope): ParsedAiAnswer {
     brandMentions: brandTitles(result0?.brand_entities),
   };
 }
-/** Decode only a complete, bounded, lossless transport; token references never become HTML authority on their own. */
-function unpackRenderedHtml(dom: Record<string, unknown>): string {
-  const { dictionary, indices, htmlChars } = dom, alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  if (dom.codec !== "tokens-ascii-v1" || dom.complete !== true || "html" in dom || !Array.isArray(dictionary) || dictionary.length > 55_040
-    || typeof indices !== "string" || indices.length > 100_000 || typeof htmlChars !== "number" || !Number.isInteger(htmlChars) || htmlChars < 1 || htmlChars > 2_000_000) throw new Error("invalid rendered transport");
-  let dictionaryChars = 0, decodedChars = 0, cursor = 0;
-  const pieces: string[] = [];
-  for (const token of dictionary) {
-    if (typeof token !== "string" || !token.length || (dictionaryChars += token.length) > 2_000_000) throw new Error("invalid rendered dictionary");
-  }
-  while (cursor < indices.length) {
-    let id = 0, shift = 0, digit: number;
-    do {
-      if (cursor >= indices.length || shift > 15) throw new Error("unterminated rendered reference");
-      digit = alphabet.indexOf(indices[cursor++]!);
-      if (digit < 0) throw new Error("invalid rendered reference");
-      id += (digit % 32) * 2 ** shift; shift += 5;
-    } while (digit >= 32);
-    if (id >= dictionary.length) throw new Error("missing rendered token");
-    const token = dictionary[id] as string;
-    if ((decodedChars += token.length) > htmlChars) throw new Error("rendered expansion exceeds declared size");
-    pieces.push(token);
-  }
-  if (decodedChars !== htmlChars) throw new Error("incomplete rendered transport");
-  return pieces.join("");
-}
-/** Completed DOM observation, not proof that every delayed application request finished. */
+/** The paid Instant Pages envelope owns the URL/time; only Raw HTML for its exact task owns the markup. */
 function parseRenderedHtml(env: ProviderEnvelope): ParsedByCapability["onpage_rendered_html"] {
   const { result0, items } = resultBlock(env), item = items[0];
-  const dom = item?.custom_js_response as Record<string, unknown> | undefined;
-  if (result0?.crawl_progress !== "finished" || item?.status_code !== 200 || item?.custom_js_client_exception
-    || dom?.readyState !== "complete" || (dom.complete !== undefined && dom.complete !== true) || JSON.stringify(dom).length > 100_000
-    || typeof dom.url !== "string" || !/^https?:\/\//i.test(dom.url)
-    || typeof dom.capturedAt !== "string" || !Number.isFinite(Date.parse(dom.capturedAt))) throw new Error("rendered document unavailable or incomplete");
-  const html = dom.codec === undefined && !["dictionary", "indices", "htmlChars"].some((key) => key in dom) ? dom.html : unpackRenderedHtml(dom);
-  if (typeof html !== "string" || !html.trim() || html.length > 2_000_000) throw new Error("rendered document unavailable or incomplete");
-  return { html, url: dom.url, httpStatus: 200, capturedAt: dom.capturedAt };
+  const captured = item?.fetch_time, html = item?.rendered_html;
+  if (env.status_code !== 20000 || env.tasks?.[0]?.status_code !== 20000 || !env.tasks?.[0]?.id
+    || result0?.crawl_progress !== "finished" || item?.status_code !== 200 || typeof item?.url !== "string"
+    || !/^https?:\/\//i.test(item.url) || typeof captured !== "string" || !Number.isFinite(Date.parse(captured))
+    || typeof html !== "string" || !html.trim() || html.length > 2_000_000) throw new Error("rendered document unavailable or incomplete");
+  const meta = item.meta as { content?: { plain_text_word_count?: unknown }; htags?: Record<string, unknown> } | undefined;
+  const words = meta?.content?.plain_text_word_count, levels = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
+  const headings = levels.map((level) => meta?.htags?.[level]);
+  if (typeof words !== "number" || !Number.isFinite(words) || words < 1 || !headings.some((h) => Array.isArray(h) && h.some((v) => typeof v === "string" && v.trim()))) throw new Error("paid content metadata unavailable");
+  const snap = extractPageSnapshot(html, item.url, "rendered-check", "rendered-check");
+  const $ = cheerioLoad(html); $("script,style,noscript,svg,iframe,template,[hidden],[aria-hidden=true]").remove();
+  $("br,p,div,section,article,h1,h2,h3,h4,h5,h6,li,dt,dd,blockquote,pre,table,tr,th,td,figure,figcaption,details,summary").each((_, node) => { $(node).before(" ").after(" "); });
+  const normalize = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+  const expected = headings.map((group) => Array.isArray(group) ? group.filter((h): h is string => typeof h === "string" && !!h.trim()).map(normalize).sort() : []);
+  const actual = levels.map((level) => $(level).toArray().map((node) => normalize($(node).text())).filter(Boolean).sort());
+  const text = $("body").text().replace(/\s+/g, " ").trim(), fullWords = text ? text.split(/\s+/).length : 0;
+  if (expected.some((group, index) => JSON.stringify(group) !== JSON.stringify(actual[index])) || fullWords < words * 0.85 || fullWords > words * 1.25
+    || snap.word_count < words * 0.35) throw new Error("raw HTML disagrees with paid visible content");
+  return { html, url: item.url, httpStatus: 200, capturedAt: new Date(captured).toISOString() };
+}
+async function hydrateRendered(result: Extract<CachedCallResult, { state: "ok" | "hit" }>, url: string, tenantId: string, deps: FunnelBoundaryDeps): Promise<CachedCallResult> {
+  const env = result.envelope, task = env.tasks?.[0], { result0, items } = resultBlock(env), item = items[0];
+  if (env.status_code !== 20000 || env.tasks?.length !== 1 || task?.status_code !== 20000 || !task.id
+    || !/^[\w-]{16,80}$/.test(task.id) || result0?.crawl_progress !== "finished" || item?.status_code !== 200
+    || typeof item.url !== "string" || canonicalUrl(item.url) !== url || typeof item.fetch_time !== "string"
+    || !Number.isFinite(Date.parse(item.fetch_time))) return { state: "error", cacheKey: result.cacheKey, disposition: "blocked", detail: "The paid page receipt did not prove the requested page and capture time." };
+  if (parseCapability("onpage_rendered_html", env)) return result;
+  const d = resolveDeps(deps);
+  let row: Awaited<ReturnType<typeof d.cacheRead>>;
+  try { row = await d.cacheRead(result.cacheKey); const stop = await d.cacheRead(RAW_STOP_KEY);
+    if (stop?.error_detail?.startsWith("raw_html_charge:")) return { state: "error", cacheKey: result.cacheKey, disposition: "quarantined", detail: "Raw HTML previously reported a charge. Rendered acquisition is held without another provider request." }; }
+  catch { return { state: "error", cacheKey: result.cacheKey, disposition: "none", detail: "The page safety records could not be checked, so no raw HTML request was sent." }; }
+  if (row?.error_detail?.startsWith("raw_html_charge:")) return { state: "error", cacheKey: result.cacheKey, disposition: "quarantined", detail: "Raw HTML previously reported a charge. This page is held without another provider request." };
+  if (row?.error_detail?.startsWith("raw_html_mismatch:")) return { state: "error", cacheKey: result.cacheKey, disposition: "quarantined", detail: "Saved Raw HTML disagreed with the paid page. This task awaits a new page revision." };
+  const raw = await runDataForSeoTransport({ url: `${DFS_API_BASE}/on_page/raw_html`, payload: [{ id: task.id, url }], env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence-raw-html", timeoutMs: 15_000, maxResponseBytes: 16_000_000 });
+  const body = raw.body as { status_code?: number; cost?: number; tasks?: Array<{ id?: string; status_code?: number; cost?: number; data?: { id?: string; url?: string }; result?: Array<{ items?: { html?: unknown } }> }> } | undefined;
+  const freeTask = body?.tasks?.[0], html = freeTask?.result?.[0]?.items?.html;
+  const charges = [body?.cost, freeTask?.cost].filter((amount): amount is number => typeof amount === "number" && Number.isFinite(amount) && amount > 0);
+  if (charges.length) {
+    const charge = Math.max(...charges);
+    PROOF_SPEND.accountExternal(tenantId, 0, charge);
+    const at = d.now().toISOString(), detail = `raw_html_charge:${charge}:task:${task.id}`;
+    try {
+      await d.cacheUpsert(RAW_STOP_KEY, { endpoint: "on_page/raw_html", endpoint_version: "v3", input_hash: sha256(RAW_STOP_KEY).slice(0, 40), input_summary: "Unexpected Raw HTML charge", location_code: 0, language_code: "", status: "error", expires_at: "9999-12-31T00:00:00.000Z", quarantined_at: at, error_at: at, error_detail: detail, payload: { tenantId, taskId: task.id, cacheKey: result.cacheKey, reportedChargeUsd: charge } });
+      await d.cacheWrite(result.cacheKey, { status: "error", quarantined_at: at, error_at: at, error_detail: detail });
+    }
+    catch { return { state: "error", cacheKey: result.cacheKey, disposition: "quarantined", detail: `Raw HTML reported ${charge} USD; its hold could not be saved. No further provider request should run.` }; }
+    return { state: "error", cacheKey: result.cacheKey, disposition: "quarantined", detail: `Raw HTML unexpectedly reported ${charge} USD. This task is held without another provider request.` };
+  }
+  if (!raw.ok || body?.status_code !== 20000 || body?.cost !== 0 || body.tasks?.length !== 1 || freeTask?.id !== task.id
+    || freeTask.status_code !== 20000 || freeTask.cost !== 0 || freeTask.data?.id && freeTask.data.id !== task.id
+    || freeTask.data?.url && canonicalUrl(freeTask.data.url) !== url || typeof html !== "string" || !html.trim() || html.length > 2_000_000)
+    return { state: "error", cacheKey: result.cacheKey, disposition: "retry_free", detail: "The free raw HTML read did not match the paid page task, reported a charge, or had no complete HTML. The paid request remains saved." };
+  const hydrated = { ...env, tasks: [{ ...task, result: [{ ...result0, items: [{ ...item, rendered_html: html }, ...items.slice(1)] }] }] };
+  if (!parseCapability("onpage_rendered_html", hydrated)) {
+    try { await d.cacheWrite(result.cacheKey, { status: "error", quarantined_at: d.now().toISOString(), error_at: d.now().toISOString(), error_detail: `raw_html_mismatch:task:${task.id}:sha256:${sha256(html).slice(0, 16)}` }); }
+    catch { return { state: "error", cacheKey: result.cacheKey, disposition: "none", detail: "The raw HTML mismatch could not be saved, so this page remains unresolved." }; }
+    return { state: "error", cacheKey: result.cacheKey, disposition: "quarantined", detail: "The raw HTML disagreed with paid page content; this exact task is held until a new revision." };
+  }
+  try { await d.cacheWrite(result.cacheKey, { payload: hydrated, content_hash: sha256(JSON.stringify(hydrated)).slice(0, 40) }); }
+  catch { return { state: "error", cacheKey: result.cacheKey, disposition: "none", detail: "The free page HTML could not be saved, so it was not delivered." }; }
+  return { ...result, envelope: hydrated };
 }
 function parseContentParsing(env: ProviderEnvelope): ParsedByCapability["onpage_content_parsing"] {
   const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);

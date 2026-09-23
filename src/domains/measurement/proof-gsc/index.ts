@@ -70,11 +70,8 @@ export { scheduleAutoMeasure } from "./auto-measure-on-use";
 
 // Measure pass (record + measure + capture control meta)
 export {
-  defaultPacificShipDate,
   measureRecord,
   captureChangeMeta,
-  recordShippedChange,
-  selectControlPages,
   matchedControlsFor,
   openChangePaths,
 } from "./measure-pass";

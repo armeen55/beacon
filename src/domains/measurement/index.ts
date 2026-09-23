@@ -28,12 +28,9 @@ export {
   readLedger,
   verdictPhrase,
   scheduleAutoMeasure,
-  defaultPacificShipDate,
   measureRecord,
   captureChangeMeta,
-  recordShippedChange,
   recordShipment,
-  selectControlPages,
   matchedControlsFor,
   contaminationFor,
   withCorrection,
@@ -71,4 +68,3 @@ export { buildScoreboard, buildMoneyLine, type Scoreboard } from "./scoreboard/s
 
 // Revenue-by-day
 export { loadRevenueByDayForTenant } from "./revenue/load-revenue";
-

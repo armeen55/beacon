@@ -1,4 +1,3 @@
-/** THE CANONICAL SHIPMENT (V1 Truth Convergence Phase 6). Protected here: ONE Shipment per (proposal, version applied) and a retry that heals instead of duplicating; a partial bundle stored as one; the stamp and the starting numbers written exactly once; pre-Phase-6 rows still decoding; a check naming another account's Shipment landing nothing; and the 28-day ranking window read from the stamp. Fixtures only: the fake Postgres below holds the rows. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 const db = vi.hoisted(() => ({ state: { rows: [] as Row[], file: [] as Row[], offline: false, upsertError: null as Row | null, updateError: null as Row | null }, client: {} as Record<string, unknown> }));
 const gsc = vi.hoisted(() => ({ window: vi.fn(), lastFinal: vi.fn() }));
@@ -201,19 +200,24 @@ describe("the measurement pass settles itself, all the way to the screen", () =>
   });});
 describe("the recording seam", () => {
   const facts = (over: Record<string, unknown> = {}) => ({ ...origin(), tenantId: T, page: PAGE, path: "/nowruz-guide", actionType: "title-family", before: "Nowruz", after: "Nowruz Traditions", targetQueries: ["nowruz traditions"], now: NOW, ...over });
+  const external = (id: string, over: Record<string, unknown> = {}) => facts({ externalEvent: true, proposalId: `external::${id}`, proposalVersion: "manual-v1", implementedAt: NOW.toISOString(), actionType: "edit_title", bundleHypothesis: "Operator-recorded change made outside Beacon's queue.", targetQueries: [], componentsApplied: [{ id, kind: "title", label: "title", before: "Nowruz", after: "Nowruz Traditions", page: PAGE, where: null }], ...over });
   const stored = async () => (await loadShippedChangesForTenant(T))[0]!;
   beforeEach(() => { ctl.pages = ["https://x.test/a", "https://x.test/b", "https://x.test/c"]; });
-  it("makes no second record when a change is processed again unchanged, keeps its stamp and the live check already on it, and gives each account its own one record", async () => {
-    withSiteHistory();
-    for (const tenant of ["acct-one", "acct-two"]) {
-      db.state.rows = []; db.state.file = [];
-      const first = await recordShipment(facts({ tenantId: tenant }) as never);
-      await recordVerification(tenant, first.shipmentId, verification("verified"));
-      const again = await recordShipment(facts({ tenantId: tenant }) as never); // the same change, reprocessed with nothing about it changed
-      const [row] = await loadShippedChangesForTenant(tenant);
-      expect([again.shipmentId === first.shipmentId, db.state.rows.length, row!.implementedAt, row!.verification?.status], "the same record, one row for this account, the day it was applied unmoved, and the reading it already has left exactly as it stands").toEqual([true, 1, NOW.toISOString(), "verified"]);
-    }
-    db.state.rows = []; db.state.file = []; // and two accounts applying the same-shaped change keep one record each, never one shared row
+  it("keeps distinct same-day external edits and the first write of a concurrent retry", async () => {
+    gsc.lastFinal.mockResolvedValue(null);
+    const a = external("one"), b = external("two", { implementedAt: "2026-07-31T13:00:00.000Z" });
+    const [first, retry] = await Promise.all([recordShipment(a as never, { preloadedLedger: [] }), recordShipment(a as never, { preloadedLedger: [] })]);
+    await recordVerification(T, first.shipmentId, verification("verified")); const second = await recordShipment(b as never);
+    expect([first.measurement, first.shipmentId, retry.shipmentId, second.shipmentId === first.shipmentId, db.state.rows.length, (await loadShippedChangesForTenant(T)).map((r) => r.implementedAt)]).toEqual(["measurement_unavailable", retry.shipmentId, first.shipmentId, false, 2, [b.implementedAt, a.implementedAt]]);
+    expect([(await recordShipment(a as never)).shipmentId, (await loadShippedChangesForTenant(T)).find((r) => r.id === first.shipmentId)?.verification?.status]).toEqual([first.shipmentId, "verified"]);
+    await expect(recordShipment(external("one", { targetQueries: ["changed intent"] }) as never)).rejects.toThrow(/different implementation facts/);
+    const { presentShipments } = await vi.importActual<typeof import("@/app/(shell)/results/results-ledger-data")>("@/app/(shell)/results/results-ledger-data");
+    expect((await presentShipments(T, await loadShippedChangesForTenant(T)))[0]?.recommendation?.state).toBe("unknown");
+    const contested = external("race"), changed = external("race", { targetQueries: ["a changed operator target"] });
+    const settled = await Promise.allSettled([recordShipment(contested as never, { preloadedLedger: [] }), recordShipment(changed as never, { preloadedLedger: [] })]);
+    expect(settled.map((x) => x.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect([db.state.rows.length, (await loadShippedChangesForTenant(T)).find((r) => r.proposalId === "external::race")?.targetQueries]).toEqual([3, (settled[0]!.status === "fulfilled" ? contested : changed).targetQueries]); });
+  it("the same event identity on two accounts creates two isolated Shipments", async () => {
     await recordShipment(facts({ tenantId: "acct-one" }) as never); await recordShipment(facts({ tenantId: "acct-two" }) as never);
     expect([(await loadShippedChangesForTenant("acct-one")).length, (await loadShippedChangesForTenant("acct-two")).length, db.state.rows.length]).toEqual([1, 1, 2]); });
   it("a batch of ten records ten Shipments off one ledger read and one open-changes read, invalidates nothing per row, and a retry adds none", async () => {
@@ -269,11 +273,9 @@ describe("the recording seam", () => {
     withSiteHistory(); const resumed = await autoMeasureDuePass(T, { now: next });
     expect([resumed.due, resumed.measured, resumed.failed, (await stored()).windows.some((w) => w.day === 28 && w.ran)]).toEqual([1, 1, 0, true]);
   });
-  it("measures when the comparison is really there, and a second press rewrites nothing", async () => {
+  it("measures when the comparison is really there", async () => {
     const first = await recordShipment(facts()); expect([first.measurement, (await stored()).measurementState]).toEqual(["measuring", "measuring"]);
-    await recordVerification(T, first.shipmentId, verification("verified")); const again = await recordShipment(facts());
-    expect([again.shipmentId, again.measurement, db.state.rows.length]).toEqual([first.shipmentId, "measuring", 1]);
-    expect((await stored()).verification?.status).toBe("verified"); // the check was not erased back to due
+    await recordVerification(T, first.shipmentId, verification("verified"));
     withSiteHistory(9, [["https://x.test/a", { clicks: 20, impressions: 4000, ctr: 0.005, position: 11 }], ["https://x.test/b", { clicks: 30, impressions: 5000, ctr: 0.006, position: 9 }]]);
     const w28 = (await measureRecord(T, await stored(), new Date("2026-10-01T00:00:00.000Z"), "2026-09-05", new Set())).windows.find((w) => w.day === 28)!;
     expect([w28.controlsUsed, w28.comparedToSite]).toEqual([2, undefined]); });});

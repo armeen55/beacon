@@ -31,13 +31,13 @@ export function supabaseFake(o: SupabaseFakeOptions) {
           .map((r) => (want ? Object.fromEntries(want.filter((c) => c in r).map((c) => [c, r[c]])) : { ...r }));
         return counting ? { data: head ? null : page, count: hit.length, error: null } : { data: page, error: null };}
       if (o.landsNothing?.()) return { data: [], error: null }; // accepted, landed nothing
-      for (const row of sent) {
+      const returned: Row[] = []; for (const row of sent) {
         const clash = o.clash?.(row, rows());
         if (clash) return { data: null, error: clash };
         const at = rows().findIndex((r) => same(r, row));
-        if (at >= 0) { if (!skipDup) rows()[at] = { ...rows()[at], ...row }; continue; }
-        rows().push({ ...o.insertDefaults?.(), ...row });}
-      return { data: sent.map((r) => ({ id: r.id })), error: null };};
+        if (at >= 0) { if (!skipDup) { rows()[at] = { ...rows()[at], ...row }; returned.push({ id: row.id }); } continue; }
+        rows().push({ ...o.insertDefaults?.(), ...row }); returned.push({ id: row.id });}
+      return { data: returned, error: null };};
     const where = (t: (r: Row) => boolean) => { tests.push(t); return q; };
     const q: Record<string, unknown> = {
       select: (c?: string, x?: { count?: string; head?: boolean }) => {
