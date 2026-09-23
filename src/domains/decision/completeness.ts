@@ -37,10 +37,13 @@ export function deliverableGaps(p: ChangeProposal): string[] {
       if (noCopy(text)) gaps.push(`it carries no ${what}`);
       else if (notFinal(text)) gaps.push(`its ${what} describes the work instead of being it`);
     }
-    if (c.outline.length < 3) gaps.push("it names fewer than three sections");
+    if (c.outline.length === 0) gaps.push("it names no sections");
     const bank = p.newPageDraft, made = bank ? COPY_RULES.newPagePieces(bank) : undefined; if (made === null || bank && Array.isArray(bank.brief.sections) && bank.brief.sections.length !== c.outline.length) gaps.push("the banked new page has an ambiguous plan or piece record");
+    if (bank && p.researchOnly !== true && (!p.bundle?.components.some(x => x.kind === "h1" && COPY_RULES.flat(x.after) === COPY_RULES.flat(String(bank.brief.pageHeading ?? ""))) || !bank.brief.pageHeading)) gaps.push("the public page has no banked H1 heading");
     const written = new Set((p.bundle?.components ?? []).filter((x) => /^(section|section_add|section_rewrite)$/.test(x.kind) && !noCopy(x.after) && !notFinal(x.after)).map((x) => COPY_RULES.flat(x.label))), owed = c.outline.filter((h, i) => made ? noCopy(made.get(i + 1)?.after) || notFinal(made.get(i + 1)?.after ?? "") : COPY_RULES.flat(h).length > 0 && !written.has(COPY_RULES.flat(h)));
     if (owed.length > 0) gaps.push(`${owed.length} of its ${c.outline.length} sections have no copy written`);
+    if (bank && p.researchOnly !== true) { const parts = p.bundle?.components ?? [], heads = c.outline.map(COPY_RULES.flat), sections = parts.filter(x => x.kind === "section");
+      if (sections.length !== heads.length || sections.some((x, i) => COPY_RULES.flat(x.label) !== heads[i] || !made?.get(i + 1) || COPY_RULES.flat(x.after) !== COPY_RULES.flat(COPY_RULES.publication(made.get(i + 1)!, c.outline[i]!).after)) || !parts.some(x => x.kind === "opening_answer" && COPY_RULES.flat(x.after) === COPY_RULES.flat(c.openingAnswer))) gaps.push("the public page does not contain every banked opening and section in its promised order"); }
     return [...new Set(gaps)];
   }
   if (c.field === "schema") {
@@ -181,6 +184,7 @@ function identityMoves(prior: ChangeProposal, incoming: ChangeProposal): string 
 const CAUSE_STAMPED = "the diagnosed cause changed";
 /** THE PAID READING RIDES ITS OWN WORDS: `semanticReview.of` is the copy key; `unreviewed` accepts only while it still matches, so carrying a reading onto that key can never authorize unread words. Guarding at the caller failed: an unfinished prior returns early, so a matching key at the call site never proved the reading would survive. */
 export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal | null | undefined, incomingOwnsCopy = false): ChangeProposal {
+  if (prior?.tenantId === incoming.tenantId && prior.kind === "new_page" && incoming.kind === "new_page" && incoming.researchOnly === true && (incoming.obligation?.kind === "terminal" || incoming.obligation?.kind === "evidence" && incoming.obligation.need.reasonCode === "new_page_source_owed") && COPY_RULES.recordKey([prior.bundle?.components, prior.claims, prior.supportFacts]) === COPY_RULES.recordKey([incoming.bundle?.components, incoming.claims, incoming.supportFacts])) return incoming;
   prior = prior?.tenantId === incoming.tenantId ? prior : null; const moved = !!prior && (!sameContext(prior, incoming) || !scopesCover(prior, incoming)), receipt = prior?.previousCopy && !incoming.previousCopy ? { previousCopy: moved ? { ...prior.previousCopy, attempts: 0, retiredBecause: identityMoves(prior, incoming) } : prior.previousCopy } : {};
   const row0 = incomingOwnsCopy ? { ...incoming, ...receipt } : decideFinished(incoming, prior), fresh = row0.semanticReview, old = prior?.semanticReview; let parts: NonNullable<NonNullable<ChangeProposal["semanticReview"]>["parts"]> = [];
   if (row0.kind === "existing_edit" && prior?.kind === "existing_edit") { try { const subjects = COPY_RULES.reviewSubjects(row0).subjects, candidates = [...(old?.version === REVIEW_CONTRACT ? old.parts ?? [] : []).filter((r) => !fresh?.parts?.some((x) => x.key === r.key)), ...(fresh?.parts ?? [])]; parts = candidates.filter((r, _, all) => all.filter((x) => x.key === r.key).length === 1 && !!r.review.inputKey && subjects.some((s) => reviewFits(s.one, r.review.of) && unreviewed({ ...s.one, semanticReview: r.review }) == null)); } catch { parts = []; } }

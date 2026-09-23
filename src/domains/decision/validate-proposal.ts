@@ -177,8 +177,8 @@ function evaluateNewPageBrief(
     return bad("Part of this page traces back to nothing that was checked, so it stays held rather than offered.");
   }
   const headings = change.outline.map((h) => h.trim().toLowerCase()).filter(Boolean);
-  if (headings.length < 3 || new Set(headings).size !== headings.length) {
-    return bad("This page's sections are too thin or repeat each other, so it stays held rather than offered.");
+  if (headings.length < 1 || new Set(headings).size !== headings.length) {
+    return bad("This page has no section or repeats a section, so it stays held rather than offered.");
   }
   const topic = new Set(proposal.primaryQuery.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2));
   const about = (t: string): boolean => topic.size === 0 || t.toLowerCase().split(/[^a-z0-9]+/).some((w) => topic.has(w));

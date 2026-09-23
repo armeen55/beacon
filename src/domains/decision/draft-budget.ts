@@ -82,6 +82,7 @@ type DeclinedJob = { key: string; family: string; calls: number; reason: string 
 
 /** Expected value orders funding; attempts, calls and deadline bound it, never Ready inventory. */
 function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean; quiet?: boolean | string;
+  /** One already acquired reading may finish its exact current work before unrelated jobs. */ preferredWorkKey?: string;
   /** Fail-closed proving mode. Nothing outside the paid manifest needs to fork: discovery, evidence and the
    *  visible queue continue to cover the full opportunity set, but a whole page cannot draw an allowance. */
   deliveryScope?: DeliveryScope;
@@ -148,12 +149,13 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   const started = (j: PaidJob): boolean => { const m = seen(j); return m != null && !m.settled && m.calls > 0; }; /* AN ATTEMPT IS REAL CALLS THAT FINISHED NOTHING, AND NOTHING ELSE (measured, 2026-09-05). Work the clock never reached spent no money, learned nothing and proved nothing about itself, so demoting it is demoting a page for the drive's own arithmetic. Only a job that was actually asked and came back empty sorts behind untried work. */
   const waiting = new Set(input.waiting ?? []); /** WAS THIS JOB FUNDED AND LEFT UNBEGUN BY THE LAST WALK. It is a queue position INSIDE its own worth: two jobs the ranking cannot separate are separated by which one the last walk stopped short of, so a drive picks up where the last one left off without ever lifting weak work over strong. */
   const waited = (j: PaidJob): boolean => !!j.workKey && waiting.has(j.workKey);
+  const preferred = (j: PaidJob): boolean => !!input.preferredWorkKey && j.workKey === input.preferredWorkKey && !j.blocked && !memoryDecline(seen(j));
   // FINISHING IS A TIE-BREAK, NEVER A BAND (operator, 2026-08-30): the absolute correction-first order put
   // every one-cent finish above every new section, answer, link, and page whatever their traffic was worth,
   // which is the names-only queue. Expected value orders everything; a cheap finish wins only when values tie.
   // AND BEING UNREACHED IS A TIE-BREAK TOO (measured, 2026-09-05): standing above worth it lifted sixteen summary lines worth 0.59 clicks and less over a sourced answer to 1,361 searches, and the demotion that guarded against that lifting hand became a ratchet nothing released. Worth orders everything; the queue position breaks ties.
   const ranked = [...byKey.values()].sort((a, b) =>
-    Number(started(a)) - Number(started(b)) || b.impact - a.impact || Number(waited(b)) - Number(waited(a)) || finishes(b) - finishes(a) || a.calls - b.calls || a.key.localeCompare(b.key));
+    Number(preferred(b)) - Number(preferred(a)) || Number(started(a)) - Number(started(b)) || b.impact - a.impact || Number(waited(b)) - Number(waited(a)) || finishes(b) - finishes(a) || a.calls - b.calls || a.key.localeCompare(b.key));
   const funded = new Map<string, number>(), declined: DeclinedJob[] = scopeHeld.map((j) => ({ key: j.key, family: j.family, calls: Math.max(1, Math.round(j.calls)), reason: "whole-page writing is outside the current manual-edit proving phase; the opportunity stays visible and ranked, but this pass cannot buy or generate it" }));
   // MONEY IS SPENT, NEVER COMMITTED, AND A COMMITMENT IS NOT ELIGIBILITY (measured on production receipts, 2026-09-04, and again 2026-09-05). Reserving each job's first round here declined thirty-four ranked candidates against money the pass never spent: one drive committed the whole sixty-call ceiling to twenty-nine rows, reached two of them, and refused the rest for a purse that ended the drive untouched. The reservation is deleted whole. What bounds a pass is `unspent`, the real ceiling, reserved in `draw` below at the moment each call is made: a job the money never reaches files `cost_blocked` in its own words rather than being refused before anything ran, and it is owed again at its own rank.
   let slots = Math.max(0, input.candidates), unspent = ceiling;

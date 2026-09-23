@@ -63,12 +63,12 @@ const scientistSource = () => {
   return { url: SECTION.source, kind, says: quote, support };
 };
 
-async function drive(plan: string[], phase = "keyword_discovery", progress: Row = {}, deadlineMs = 200_000): Promise<RunRow> {
+async function drive(plan: string[], phase = "keyword_discovery", progress: Row = {}, deadlineMs = 200_000, observe?: (preferred?: { proposalId: string; workKey: string }) => false | Awaited<ReturnType<typeof defaultSteps.replenishReady>> | void): Promise<RunRow> {
   if (!runs.some((r) => r.status !== "completed")) seedRun({ status: "paused", current_phase: phase, progress: { plan: { units: plan }, ...progress } });
-  await runResearchCycle(T, { now, deadlineMs, steps: defaultSteps });
+  await runResearchCycle(T, { now, deadlineMs, steps: observe ? { ...defaultSteps, replenishReady: (...args) => { const answer = observe(args[2]?.preferred); return answer === false ? Promise.resolve(null) : answer ? Promise.resolve(answer) : defaultSteps.replenishReady(...args); } } : defaultSteps });
   return runs[runs.length - 1]!;
 }
-const acquisitions = (r: RunRow): { key: string; kind: string; query: string; outcome: string; detail: string; sharedWith?: string[] }[] => (r.progress as { acquisitions?: never[] }).acquisitions ?? [];
+const acquisitions = (r: RunRow): { key: string; workKey: string; kind: string; query: string; outcome: string; detail: string; unlocks?: { proposalId: string }; sharedWith?: string[] }[] => (r.progress as { acquisitions?: never[] }).acquisitions ?? [];
 const owedAfter = (r: RunRow, fallback: readonly Row[]): Row[] => { const owed = (r.progress as { evidenceOwed?: Row[] }).evidenceOwed; return owed?.length ? owed : [...fallback]; };
 const winnersOf = (): FixtureWinner[] => ((table("research_state")[0]?.state as { winningPages?: FixtureWinner[] })?.winningPages ?? []);
 const serpsOf = (): FixtureSerp[] => ((table("research_state")[0]?.state as { serps?: { queries?: FixtureSerp[] } })?.serps?.queries ?? []);
@@ -251,8 +251,6 @@ describe("three opportunities waiting on their own results page", () => {
   const PAGES = [{ path: HUB, query: QUERY, h2: ["Famous Iranian Poets", "Famous Iranian Athletes", "Famous Iranian Actors"] },
     { path: "/persian-male-names", query: "iranian male names", h2: ["Names from poetry", "Names from history", "Names in use today"] },
     { path: "/persian-female-first-names", query: "girl iranian names", h2: ["Names from poetry", "Names from history", "Names in use today"] }] as const;
-  /** ONE PROVIDER, THREE TASKS. A post is charged and answers `Task Created`; the free follow-up answers `Ok.` for the search that task was posted for, so which task belongs to which search is the
-   *  provider's own bookkeeping and not the test's. */
   const threeTasks = (state: { ready: boolean; posted: string[] }) => { const byId = new Map<string, string>();
     return (path: string, payload: unknown) => {
       const asked = String(((payload as { keyword?: unknown }[] | null)?.[0]?.keyword) ?? "");
@@ -279,7 +277,7 @@ describe("three opportunities waiting on their own results page", () => {
       "all three results pages are posted on the one drive, each receipt saying the provider is still working on it, and no reading is put off to a later drive").toEqual([keys, 0]);
     const postsAfterOne = PAGES.map((p) => state.posted.filter((q) => q === p.query).length);
     state.ready = true; advance(30 * 60_000);
-    const two = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owedAfter(one, owed) });
+    const promoted: { proposalId: string; workKey: string }[] = []; const two = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owedAfter(one, owed) }, 200_000, (p) => { if (p) promoted.push(p); });
     expect([PAGES.map((p) => state.posted.filter((q) => q === p.query).length), postsAfterOne, acquisitions(two).filter((a) => a.outcome === "deferred").length],
       "the drive that finishes them posts none of them again, and none of them is put off: one search is two posted tasks, the results page and the answer above it, each charged at the post and collected with a free follow-up").toEqual([postsAfterOne, [2, 2, 2], 0]);
     const onFile = new Set(serpsOf().filter((x) => x.status === "done").map((x) => x.query));
@@ -288,14 +286,31 @@ describe("three opportunities waiting on their own results page", () => {
     expect(PAGES.map((p) => readFor(p.query)), "and the winner reads the three collections unlocked follow on the SAME drive, so no page waits another half hour for the reading its comparison needs").toEqual([true, true, true]);
     expect(logs.some((l) => l.includes("the reading landed, so the work that asked for it was drafted in the same turn")),
       "and the row whose last dependency landed is handed to the writer in that same turn, rather than being owed to the next drive").toBe(true);
-    expect([...(await loadChangeProposals(T)).values()].filter((r) => (r.pagePath ?? "") === HUB).map((r) => r.status),
-      "so the opportunity is finished on the drive that collected its page: two drives from a row waiting on a results page to copy the operator can act on, which is the fewest the deadline allows").toEqual(["ready"]);
+    expect([[...(await loadChangeProposals(T)).values()].filter((r) => (r.pagePath ?? "") === HUB).map((r) => r.status), acquisitions(two).some((a) => a.outcome === "unlocked" && a.unlocks && promoted.some((p) => p.proposalId === a.unlocks!.proposalId && p.workKey === a.workKey))],
+      "the collected page hires its exact owed proposal, with the acquired work identity carried to the writer on the same drive").toEqual([["ready"], true]);
+  });
+  it("replays an unlocked writer after the first walk has no room, without reposting its source", async () => {
+    seedResearchState(basis, { serps: [], winningPages: [] }); const state = { ready: false, posted: [] as string[] }; script.search = threeTasks(state);
+    const owed = [owedSerp(PAGES[0]!, 58)], first = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owed });
+    state.ready = true; advance(30 * 60_000); const second = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owedAfter(first, owed) }, 200_000, (preferred) => preferred ? false : undefined);
+    const wake = (second.progress as { replenish?: { awakened?: string[] } }).replenish?.awakened ?? [], landed = acquisitions(second).find((a) => a.outcome === "unlocked" && a.unlocks?.proposalId);
+    expect([wake.includes(landed?.key ?? ""), landed?.workKey]).toEqual([true, owed[0]!.workKey]);
+    const posts = [...state.posted]; advance(30 * 60_000);
+    const wrong = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owedAfter(second, owed) }, 200_000, (preferred) => preferred && ({ ready: 0, deficit: 1, persisted: 0, satisfied: false, reason: "retryable_blocked", jobs: {}, preferred: { ...preferred, currentWorkKey: `${preferred.workKey}::current` }, outcomes: { readySaved: 0, evidenceBanked: 0, refused: 0, blocked: 0, unreached: 0, stuck: [], receipts: [{ key: HUB, family: "editor", workKey: `${preferred.workKey}::other`, outcome: "produced" }] } }));
+    expect((wrong.progress as { replenish?: { awakened?: string[] } }).replenish?.awakened).toContain(landed?.key);
+    const resumed: { proposalId: string; workKey: string }[] = []; advance(30 * 60_000);
+    await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owedAfter(wrong, owed) }, 200_000, (preferred) => { if (preferred) resumed.push(preferred); });
+    expect([resumed.some((p) => p.proposalId === landed?.unlocks?.proposalId && p.workKey === landed.workKey), state.posted]).toEqual([true, posts]);
+  });
+  it("retires a vanished preferred proposal with a durable typed reason after its source landed", async () => {
+    seedResearchState(basis, { serps: [], winningPages: [] }); const state = { ready: false, posted: [] as string[] }; script.search = threeTasks(state);
+    const owed = [owedSerp(PAGES[0]!, 58)], first = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owed }); state.ready = true; advance(30 * 60_000);
+    const waiting = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owedAfter(first, owed) }, 200_000, (preferred) => preferred ? false : undefined); advance(30 * 60_000);
+    const retired = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owedAfter(waiting, owed) }, 200_000, (preferred) => preferred && ({ ready: 0, deficit: 1, persisted: 0, satisfied: false, reason: "retryable_blocked", jobs: {}, preferred: { ...preferred, retiredReason: "missing" }, outcomes: { readySaved: 0, evidenceBanked: 0, refused: 0, blocked: 0, unreached: 0, stuck: [], receipts: [] } }));
+    const progress = retired.progress as { replenish?: { awakened?: string[]; outcomes?: { preferred?: { retiredReason?: string } } } };
+    expect([progress.replenish?.awakened ?? [], progress.replenish?.outcomes?.preferred?.retiredReason]).toEqual([[], "missing"]);
   });
 
-  /** THE PURCHASES AHEAD OF THE WALK MAY NOT STARVE THE WALK (operator's rule, 2026-09-06). Production's 19:30Z drive that day bought nine readings before its walk, for rows ranked 84 to 139, and left the
-   *  walk its 110-second floor alone: 31 of its 35 funded jobs read that the drive's time box had ended before that page's turn, three hub rows among them whose own results pages and winner reads had landed
-   *  on that very drive. The same shape here: three hub rows whose pages are posted and waiting, eleven lower-ranked readings owed beside them, and the drive's own clock advanced only where this file
-   *  advances it, so what an arm reads off it is WHICH SIDE OF THE WALK each purchase fell on and what the drive wrote, never how long anything took. */
   it("14: the free collections its hub rows are waiting on are finished in front of the walk, the row those collections unlocked is written on that same drive, and eleven lower-ranked readings take the room behind the walk", async () => {
     const OTHERS = PAGES.slice(1);
     seedSearchHistory(OTHERS.map((p) => ({ path: p.path, query: p.query })));
@@ -413,12 +428,10 @@ describe("the grouping answer already on file", () => {
         subjects: [{ url: RIVAL, sameEntity: true, language: "English", script: null, why: "the article covers the people this subject is about" }] } }, body);
     const { AEO_BAR } = await import("@/domains/decision/accept-worthy"), subject = `${QUERY} ${AEO_BAR.groupingQuestion}`;
     const owner = (await loadOwnedPageBodies(T, [`https://${SITE}${HUB}`])).get(canonicalUrlKey(`https://${SITE}${HUB}`))!, version = pageHashOf([owner.title, owner.h1, ...(owner.headings ?? []), ...(owner.passages ?? [])].filter(Boolean).join("\n"));
-    // THE PRODUCTION ROW: checked with two group names and one sentence, no excerpt field, no writer owing it a grouping (it already holds one), so nothing but the pass's own sweep can ever reopen it.
     table("page_source_facts").push({ tenant_id: T, page_key: HUB, statement_key: claimIdentity(subject, "", "missing"), subject, current_wording: "", proposed: SAYS, sources: [{ url: RIVAL, kind: "encyclopedia", says: `${SUBJECT} ${SAYS}`, groups: [SUBJECT] }], agreement: "single_source", confidence: "confirmed", verdict: "page_correct", also_at: [], note: "banked before the sections rode",
       page_content_hash: version, page_locator: "missing", source_read_at: "2026-09-09T12:00:00.000Z", claim_state: "checked", rules_version: rulesVersionFor({ subject, current: "" }), evidence_basis: await resolveCurrentBasis(T), checked_at: "2026-09-09T12:00:00.000Z", superseded_at: null });
     await drive(["check_page_facts"], "fact_check");
     const reopened = (await readFactChecks(T)).find((h) => h.subject === subject);
-    // The source search is a Standard task: one pass posts it, and no GET is permitted until its persisted wake.
     await drive(["check_page_facts"], "fact_check");
     advance(30 * 60_000);
     await drive(["check_page_facts"], "fact_check");

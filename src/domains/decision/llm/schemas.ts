@@ -91,6 +91,7 @@ export type AtomicEditDraft = z.infer<typeof AtomicEditDraftSchema> & Pick<impor
 
 const NewPageBriefSchema = z.object({
   proposedTitle: z.string().min(10).max(120),
+  pageHeading: z.string().min(5).max(120),
   metaDescription: z.string().min(40).max(200),
   /** The answer a searcher gets in the first paragraph, before anything else. */
   openingAnswer: z.string().min(60).max(800),
@@ -103,14 +104,14 @@ const NewPageBriefSchema = z.object({
     covers: z.string().min(20).max(400),
     /** Evidence ids copied EXACTLY from the supplied list. */
     evidenceKeys: z.array(z.string().min(1).max(40)).min(1).max(8),
-  })).min(3).max(8),
+  })).min(1).max(8),
   /** What the writer must cite, and what must be checked before this goes live. */
   sourceRequirements: z.array(z.string().min(10).max(240)).max(6),
 
   factRequirements: z.array(z.string().min(10).max(240)).max(6),
   /** Addresses and questions copied EXACTLY from the supplied OWN PAGES and OBSERVED QUESTIONS lists. */
-  internalLinks: z.array(z.object({ url: z.string().min(1).max(300), anchor: z.string().min(2).max(120) })).max(4),
-  faqQuestions: z.array(z.string().min(5).max(200)).max(6),
+  internalLinks: z.array(z.object({ url: z.string().min(1).max(300), anchor: z.string().min(2).max(120) })).max(0),
+  faqQuestions: z.array(z.string().min(5).max(200)).max(0),
 });
 export type NewPageBrief = z.infer<typeof NewPageBriefSchema>;
 
@@ -225,7 +226,7 @@ export const SCHEMA_BY_KIND = {
   aeo_gap: AeoGapSchema,
   competitor_comparison: CompetitorComparisonSchema,
   editor_judgement: EditorJudgementSchema,
-  page_acceptance: EditorJudgementSchema.omit({ claims: true, preservation: true }).extend({ repairs: z.array(z.object({ component: z.number().int().nonnegative(), instruction: z.string().min(1).max(600) })).max(24).default([]) }),
+  page_acceptance: EditorJudgementSchema.omit({ preservation: true }).extend({ repairs: z.array(z.object({ component: z.number().int().nonnegative(), instruction: z.string().min(1).max(600) })).max(24).default([]) }),
   fact_claim_extraction: FactClaimExtractionSchema,
   fact_claim_judgement: FactClaimJudgementSchema,
   factual_review: FactualReviewSchema,

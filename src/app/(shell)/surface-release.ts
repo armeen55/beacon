@@ -164,7 +164,7 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
     // A stored-only release does not enter the producer at all. Calling it with a zero budget still re-minted
     // deterministic candidates, so clearing old rows could recreate the same retired work while "paused".
     const produced = rebuildOnly ? null : await produceProposalsForTenant(tenantId,
-      opts.maxDrafts === undefined ? { deliveryScope: "existing_page_edits" } : { maxDrafts: opts.maxDrafts, deliveryScope: "existing_page_edits" });
+      opts.maxDrafts === undefined ? { deliveryScope: "all_changes" } : { maxDrafts: opts.maxDrafts, deliveryScope: "all_changes" });
     if (produced?.outcome === "persistence_failed") {
       throw new Error("This pass produced changes but could not save a single one, so your last release was kept instead of stamping a new time on work that cannot be loaded back.");
     }

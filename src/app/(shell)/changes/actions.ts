@@ -194,6 +194,7 @@ export async function markProposalImplementedAction(args: {
     }
     const components = stored.bundle?.components ?? [];
     const ids = components.map(componentIdOf);
+    if (stored.kind === "new_page" && args.componentIds && (new Set(args.componentIds).size !== ids.length || args.componentIds.length !== ids.length || ids.some(id => !args.componentIds!.includes(id)))) return { success: false, error: "A new page is one complete publication. Apply and record every component together." };
     let applied = components;
     let appliedIds = ids;
     if (args.componentIds !== undefined) {
