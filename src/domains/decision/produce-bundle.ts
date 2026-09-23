@@ -314,7 +314,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   // against this page's, and a change that moves a section off ANOTHER page of yours reads it here or refuses.
   const heldOf = (url: string, c: OwnedPageEvidence["content"], b?: OwnedBody): OwnedPageBody | null => !b ? null
     : { url, title: c?.title ?? null, h1: c?.h1 ?? null, metaDescription: b.metaDescription ?? c?.metaDescription ?? null,
-      headings: b.headings ?? c?.outline ?? [], passages: b.passages ?? [], openingSample: b.openingSample, vocabulary: b.vocabulary ?? "", cardTexts: b.cardTexts ?? [],
+      headings: b.headings ?? c?.outline ?? [], passages: b.passages ?? [], ...(b.answerPassages ? { answerPassages: b.answerPassages } : {}), ...(b.passageMeta ? { passageMeta: b.passageMeta } : {}), openingSample: b.openingSample, vocabulary: b.vocabulary ?? "", cardTexts: b.cardTexts ?? [],
       faqs: b.faqs ?? [], entityNames: b.entityNames ?? [], internalLinks: b.internalLinks ?? [], fetchedAt: b.fetchedAt,
       completeness: b.completeness ?? "sample_only", contentHash: b.contentHash ?? null, heldNote: b.heldNote ?? "A sample of this page is on file, not the whole page.",
       version: b.version, newestAt: b.newestAt, ...(b.sourceCapture ? { sourceCapture: b.sourceCapture } : {}) };

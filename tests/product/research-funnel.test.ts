@@ -445,9 +445,11 @@ expect([paid, ["no.com", "h8.com", "h9.com"].map((h) => [row(h).extract, row(h).
     expect(shut.held.map((o) => [o.state, o.retryAfter])).toEqual([["robots_blocked", at(NOW + 30 * DAY)]]);
     expect((await run(store, NOW + 29 * DAY, page)).tried).toEqual([]); expect((await run(store, NOW + 31 * DAY, page)).tried).toEqual([ABS]); // one month held, then exactly one new attempt
     const day = Array.from({ length: 9 }, (_, i) => hold(`own.com/x${i}`, "temporarily_unavailable", DAY)), month = hold(U, "robots_blocked", 30 * DAY);
-    const full = seeded([...day, month]); // every slot in the bounded memory is a live promise
-    for (const u of ["own.com/n1", "own.com/n2", "own.com/n3"]) expect((await run(full, NOW + 1000, page, u)).tried).toEqual([]); // FAIL CLOSED: never a read whose failure I could not remember
-    expect([full.peek("to", BASIS)!.ownedReads.length, (await run(full, NOW + 1000, page, U)).tried]).toEqual([10, []]); // the month-long promise is still on file, and still unfetched
+    const full = seeded([...day, month]); // each existing retry promise must survive another URL's turn
+    const eleventh = await run(full, NOW + 1000, { ok: false, reason: "fetch_failed" }, "own.com/n1");
+    expect([eleventh.tried, eleventh.held.length, eleventh.held.filter((o) => o.url === U || o.url === "own.com/n1").map((o) => o.retryAfter)])
+      .toEqual([["https://own.com/n1"], 11, [at(NOW + 1000 + DAY), at(NOW + 30 * DAY)]]);
+    expect([(await run(full, NOW + 2000, page, "own.com/n1")).tried, (await run(full, NOW + 2000, page, U)).tried, full.peek("to", BASIS)!.ownedReads.length]).toEqual([[], [], 11]);
     const room = await run(seeded([...day, month]), NOW + DAY + 1, page, "own.com/n1"); // a day later the nine day-holds are memory of nothing
     expect([room.tried, room.held]).toEqual([["https://own.com/n1"], [month]]); // expired rows pruned, room made, and the month-long hold survived
     expect((await run(memStore(), NOW, { ok: false, reason: "fetch_failed" }, U, "tb")).tried).toEqual([ABS]); }); // another account is never held by my refusal

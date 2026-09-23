@@ -363,11 +363,16 @@ export function seedSearchHistory(pages: readonly { path: string; query: string;
 }
 
 /** THE ACCOUNT'S OWN PAGES as the crawl banks them, so the writer has words of its own to write against and the diagnosis has passages to read. */
-export function seedOwnedPages(pages: readonly { path: string; title: string; h1: string; meta: string; h2: readonly string[]; body: string }[]): void {
-  for (const p of pages) table("page_snapshots").push({ id: `snap${p.path}`, page_id: p.path, observation_run_id: "obs-1", tenant_id: T, url: `https://${SITE}${p.path}`, canonical_url: null, final_url: null, http_status: 200, title: p.title, h1: p.h1, meta_description: p.meta, schema_types: [], location_terms: [], service_terms: [], internal_link_count: 0, external_link_count: 0, robots_meta: null, has_canonical_mismatch: false, headings_hash: "h", faq_hash: "f", schema_hash: "s", faq_schema_block_count: 0, structural_warnings: [], table_count: 0, schema_validation_warnings: [], h3_count: 0,
-    fetched_at: new Date(clock.ms - 86_400_000).toISOString(), word_count: p.body.split(/\s+/).length, h2_list: [...p.h2], h3_list: [], faqs: [],
-    body_text: p.body, body_paragraph_sample: p.body.split("\n").filter(Boolean).slice(0, 8), card_texts: [], schema_entity_names: [], internal_links: [],
-    content_hash: `hash-${p.path}`, extraction_certainty: "confirmed" });
+export async function seedOwnedPages(pages: readonly { path: string; title: string; h1: string; meta: string; h2: readonly string[]; body: string }[]): Promise<void> {
+  const { extractPageSnapshot } = await import("@/domains/evidence/pages/extractor");
+  for (const p of pages) {
+    const esc = (s: string) => s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;");
+    const paragraphs = p.body.split("\n").filter(Boolean);
+    const body = paragraphs.map((line, i) => `${p.h2[i - 1] ? `<h2>${esc(p.h2[i - 1]!)}</h2>` : ""}<p>${esc(line)}</p>`).join("");
+    const trailing = p.h2.slice(Math.max(0, paragraphs.length - 1)).map((h) => `<h2>${esc(h)}</h2>`).join("");
+    const html = `<html><head><title>${esc(p.title)}</title><meta name="description" content="${esc(p.meta)}"></head><body><main><h1>${esc(p.h1)}</h1>${body}${trailing}</main></body></html>`;
+    table("page_snapshots").push({ ...extractPageSnapshot(html, `https://${SITE}${p.path}`, p.path, T), id: `snap${p.path}`, observation_run_id: "obs-1", fetched_at: new Date(clock.ms - 86_400_000).toISOString() });
+  }
 }
 
 /** Minimal schema-shaped scripted value; `by` overrides named properties. */
@@ -410,7 +415,7 @@ export const WRITER = { field: "answer_block", before: null, naturalHeading: "Wh
   rationale: "The first lines never say who the search is about, so the answer is stated before the sections that hold the names.",
   after: `Iran's widely known figures fall into three groups of people: poets, athletes and screen actors. ${HUB_BODY.join(" ")}`, // the new opening states the answer once; the page's own sentences that already carry the detail follow it unchanged
   claims: [{ text: "Poets, athletes and screen actors are the three kinds of people named.", supportedBy: ["page-heading-2", "page-heading-3", "page-heading-4"] },
-    { text: "The athletes are wrestlers and weightlifters who won world titles, and the actors worked on screen at home and abroad.", supportedBy: ["page-copy-1"] }] };
+    { text: "The athletes are wrestlers and weightlifters who won world titles, and the actors worked on screen at home and abroad.", supportedBy: ["page-copy-6", "page-copy-8"] }] };
 /** Scripted positive per-claim rulings; these verify pipeline wiring, not model judgement. */
 export const JUDGE = { pageFit: true, usefulAndNatural: true, placementCorrect: true, resolvesDiagnosis: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, contested: false,
   claims: [0, 1].map((i) => ({ i, by: WRITER.claims[i]!.supportedBy, entailed: true })), notes: "The first lines now name who the search is about before the sections that hold the names.", resolution: "none", preservation: HUB_BODY.map((text) => ({ text, disposition: "kept" as const, verified: true, reason: "The sentence survives verbatim behind the new opening.", after: text, by: [], to: null })) }; // one VERIFIED ruling per original unit the reviewer is shown, in the exact shape the acceptance schema fixes

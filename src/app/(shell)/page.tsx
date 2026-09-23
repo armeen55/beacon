@@ -293,7 +293,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
               {others > 0 ? `See the other ${others.toLocaleString("en-US")} finished ${others === 1 ? "change" : "changes"}` : "Open Changes"}
             </Link>
           </div>
-          {edit?.paste ? <div className="mt-3 border-t border-border pt-3"><MarkImplemented proposalId={top.changeId} /></div> : null}
+          {edit?.paste && top.version ? <div className="mt-3 border-t border-border pt-3"><MarkImplemented proposalId={top.changeId} expectedVersion={top.version} /></div> : null}
           {upNext.length > 0 ? (
             <div className="mt-4 border-t border-border pt-3" data-up-next="true">
               <p className="text-[12px] font-semibold text-muted-foreground">Up next</p>

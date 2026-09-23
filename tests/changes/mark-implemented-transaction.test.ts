@@ -1,6 +1,5 @@
-/** THE MARK-IMPLEMENTED TRANSACTION. There is no bare status flip on the decision facade: the record is written FIRST and the change is flipped SECOND, carrying that record's own id, so a crash between the two leaves a record the next press heals where the reverse would leave a change marked done that nothing on earth is measuring. A piece is named by its exact copy too, so a redraft is genuinely new work while pressing the SAME version twice stays one record. AN UNFINISHED DELIVERABLE IS NOT WORK SOMEBODY CAN HAVE DONE. The server asks the ONE completeness boundary, never the prose, so no stale tab opens a 28 day reading on work nobody wrote. THE BOUNDARY IS THE TYPED FACT: a producer that writes a brief instead of copy stamps it as it mints the card, and a blank nobody filled in is still a blank, whoever wrote it. THE ONE DOOR, standing in for the real one: it always writes and always answers with the row's id, it is idempotent on (proposal, version), and the row is durable the moment it lands, which is exactly what a retry after a crash finds. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { componentIdOf, type ChangeProposal } from "@/domains/decision";
+import { componentIdOf, confirmedVersion, type ChangeProposal } from "@/domains/decision";
 type Rec = { id: string; proposalId: string; proposalVersion: string; componentsApplied: Array<{ id: string; kind?: string; after?: string; before?: string | null; page?: string; where?: string | null; anchorAfter?: string; redirectTo?: string; appliedAfter?: string }>; path: string; page: string; implementedAt: string | null; operatorNote?: string | null; verification?: string | null; treatmentStamp: { signature: Record<string, string | null>; overlapAtShip: number } | null };
 const led = vi.hoisted(() => ({ verified: [] as string[], records: [] as Rec[], breakWrite: false, noRecordId: false, flip: vi.fn(async (..._a: unknown[]) => true) }));
 const stored = vi.hoisted(() => ({ proposal: null as unknown, byId: null as Map<string, unknown> | null, disposition: null as string | null, tenant: "t" }));
@@ -37,31 +36,31 @@ const change = (after = AFTER): ChangeProposal => ({
     components: [{ kind: "title", label: "Title", risk: "safe", before: "Comedians", after, evidenceKeys: ["k1"] }],
     receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "163 clicks lost in 4 weeks.", observedAt: SEEN }], missing: [], freshestObservedAt: SEEN } },
 } as unknown as ChangeProposal);
-/** ONE LINK CHANGE, as the editor hands one over: the destination and the exact words typed on the change itself, and a link piece inside the bundle that types neither of them. The live check reads a link on both its address and its words, so both have to reach the record. */
 const linkChange = (): ChangeProposal => { const p = change("One sentence pointing readers to the haft seen page.") as ChangeProposal & { recommendedChange: unknown };
   p.recommendedChange = { kind: "existing_edit", field: "section", before: null, after: "One sentence pointing readers to the haft seen page.", where: 'In the body copy, with "the haft seen explained" linked to /haft-seen', linkTo: "/haft-seen", anchorText: "the haft seen explained" }; (p.bundle as { components: unknown[] }).components = [{ kind: "internal_link_add", label: "Link to the haft seen page", risk: "safe", before: null, after: "One sentence pointing readers to the haft seen page.", evidenceKeys: ["k1"] }]; return p; };
+const expectedOf = (id: string) => confirmedVersion((stored.byId?.get(id) ?? stored.proposal) as ChangeProposal);
+const batch = (ids: string[]) => ({ proposals: ids.map((id) => ({ id, expectedVersion: expectedOf(id) })) });
 const schemaChange = (): ChangeProposal => { const p = change("Add a visible answer and matching FAQ markup."), section = { ...p.bundle!.components[0]!, label: "Visible FAQ answer" }, dependency = componentIdOf(section, 0), hash = "a".repeat(64);
   p.bundle = { ...p.bundle!, components: [section, { kind: "schema", label: "FAQ structured data", risk: "safe", before: null, after: '{"@context":"https://schema.org","@type":"FAQPage"}', evidenceKeys: ["k1"], derivation: { rule: "visible_faq_pairs_v1", operation: "add", source: { pageKey: "/famous-iranian-comedians", contentHash: hash, schemaHash: hash, visibleFaqHash: hash, captureRevision: hash }, dependsOn: [{ componentId: dependency, revision: hash }], projectedVisibleFaqHash: hash } }] };
   return p; };
 const press = async (p: ChangeProposal) => { stored.proposal = p;
-  return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id }); };
+  return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, expectedVersion: confirmedVersion(p) }); };
 beforeEach(() => { led.records = []; led.breakWrite = false; led.noRecordId = false; stored.disposition = null; stored.byId = null; stored.tenant = "t"; surf.rebuilds = 0; led.flip.mockReset(); led.flip.mockResolvedValue(true); }); // the rebuild count is reset with every other fixture, so no assertion about it depends on the test before it
 describe("many at once is one trip, and still one shipment each", () => {
   it("records twenty changes on one press and rebuilds the surfaces once, not twenty times", async () => {
     const ids = Array.from({ length: 20 }, (_, i) => `t::/p-${i}::existing_edit::bundle`);
     stored.proposal = linkChange();
-    const mark = (await import("@/app/(shell)/changes/actions")).markManyImplementedAction; const out = await mark({ proposalIds: ids }); expect(surf.rebuilds, "one rebuild for the whole batch").toBe(1); expect(out.done + out.already, "and every id is answered").toBe(20);
+    const mark = (await import("@/app/(shell)/changes/actions")).markManyImplementedAction; const out = await mark(batch(ids)); expect(surf.rebuilds, "one rebuild for the whole batch").toBe(1); expect(out.done + out.already, "and every id is answered").toBe(20);
     expect(led.flip).toHaveBeenCalledTimes(20); expect(led.records[0]!.componentsApplied[0], "and the words the link has to carry reach the record through the batch door too").toMatchObject({ kind: "internal_link_add", anchorAfter: "the haft seen explained" }); // still one atomic transition each
     surf.rebuilds = 0; led.flip.mockClear();
-    const again = await mark({ proposalIds: ids }); expect(again.done, "nothing is recorded twice").toBe(0); expect(again.already).toBe(20); });});
-/** WHAT THE OPERATOR ACTUALLY APPLIED IS RECORDED WHOLE, and the piece is named by the change and never by the brief the writer was handed: four live records carried "Write a real description on <address>: ..." where the name of the applied piece belongs. Proof 12 of the loop plan. */
+    const again = await mark(batch(ids)); expect(again.done, "nothing is recorded twice").toBe(0); expect(again.already).toBe(20); });});
 describe("an applied change keeps the suggestion and the version applied side by side", () => {
   const atomic = (tenant: string, after = AFTER): ChangeProposal => ({ ...change(after), id: `${tenant}::/famous-iranian-comedians::existing_edit::title`, tenantId: tenant, bundle: undefined } as unknown as ChangeProposal);
   const facts = () => led.records[led.records.length - 1] as unknown as { componentsApplied: Array<{ label: string; after: string; appliedAfter?: string }>; operatorNote?: string | null; after?: string; implementedAt: string | null };
   it("names the piece off the change, keeps both versions when the operator applied their own wording, and repeats none of it on a second press, on two accounts", async () => {
     for (const [tenant, wording] of [["acct-one", "The line that is really on this page now."], ["acct-two", "A second account's own line, typed by hand."]] as const) {
       led.records = []; stored.tenant = tenant; stored.proposal = atomic(tenant);
-      const press = async (over: Record<string, unknown> = {}) => (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: atomic(tenant).id, ...over });
+      const press = async (over: Record<string, unknown> = {}) => (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: atomic(tenant).id, expectedVersion: expectedOf(atomic(tenant).id), ...over });
       const first = await press({ appliedText: wording });
       expect([first.success, facts().componentsApplied.map((c) => c.label)], "the piece is named by the change and the page it is on, never by the sentence the writer was briefed with").toEqual([true, ["Page title on Famous Iranian comedians"]]);
       expect([facts().componentsApplied[0]!.after, facts().componentsApplied[0]!.appliedAfter, facts().operatorNote, facts().after], "the prepared wording stays exactly where it was, the operator's version rides the piece it replaced, and their own account of it is on the row").toEqual([AFTER, wording, wording, AFTER]);
@@ -73,15 +72,15 @@ describe("an applied change keeps the suggestion and the version applied side by
   it("never lets one typed line claim to be the version applied to several pieces at once", async () => {
     stored.proposal = change(); // the two-piece bundle: nothing can say which piece the line landed on
     (stored.proposal as ChangeProposal & { bundle: { components: unknown[] } }).bundle.components = [{ kind: "title", label: "Title", risk: "safe", before: "Comedians", after: AFTER, evidenceKeys: ["k1"] }, { kind: "meta", label: "Meta", risk: "safe", before: null, after: "B", evidenceKeys: ["k1"] }];
-    await (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: change().id, appliedText: "One line for two pieces." });
+    await (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: change().id, expectedVersion: expectedOf(change().id), appliedText: "One line for two pieces." });
     expect([facts().componentsApplied.map((c) => c.appliedAfter), facts().operatorNote], "no piece claims it, and their words are kept on the row where they are true").toEqual([[undefined, undefined], "One line for two pieces."]);
+    const held = led.records[0]!, at = held.implementedAt; held.verification = "confirmed on the page"; const again = await (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: change().id, expectedVersion: expectedOf(change().id), appliedText: "One line for two pieces." }); expect([again.success, led.records.length, led.records[0]!.implementedAt, led.records[0]!.verification]).toEqual([true, 1, at, "confirmed on the page"]);
     const other = { ...change("A second change, recorded by the batch"), id: "t::/other::existing_edit::bundle" } as ChangeProposal;
     stored.byId = new Map([[other.id, other]]);
-    const batch = await (await import("@/app/(shell)/changes/actions")).markManyImplementedAction({ proposalIds: [other.id] });
-    expect([batch.done, facts().operatorNote ?? null, facts().componentsApplied.map((c) => c.appliedAfter)], "and a batch carries no shared wording at all: one line cannot be the version applied to twenty different changes, so the batch records the prepared wording and nothing else").toEqual([1, null, [undefined]]);
-    const many = stored.proposal as ChangeProposal; stored.byId = new Map([[many.id, many]]); const forged = await (await import("@/app/(shell)/changes/actions")).markManyImplementedAction({ proposalIds: [many.id] });
+    const batchResult = await (await import("@/app/(shell)/changes/actions")).markManyImplementedAction(batch([other.id]));
+    expect([batchResult.done, facts().operatorNote ?? null, facts().componentsApplied.map((c) => c.appliedAfter)], "and a batch carries no shared wording at all: one line cannot be the version applied to twenty different changes, so the batch records the prepared wording and nothing else").toEqual([1, null, [undefined]]);
+    const many = stored.proposal as ChangeProposal; stored.byId = new Map([[many.id, many]]); const forged = await (await import("@/app/(shell)/changes/actions")).markManyImplementedAction(batch([many.id]));
     expect([forged.done, forged.failed[0]?.error, led.records.length], "a forged bulk request cannot flatten a multi-piece bundle into one recorded press").toEqual([0, "This change has several pieces or needs confirmation, so record it from its own change page.", 2]); });});
-/** A BATCH ANSWERS FOR EVERY CHANGE IN IT, one by one. Proof 13 of the loop plan. */
 describe("a partial batch failure is visible per change and retryable without duplicating what landed", () => {
   it("records the good ones once, names each refusal against its own change, and a retry of the whole batch adds no second record", async () => {
     const good = { ...change("Words that are finished and ready"), id: "t::/a::existing_edit::bundle" } as ChangeProposal;
@@ -89,14 +88,27 @@ describe("a partial batch failure is visible per change and retryable without du
     const unfinished = { ...change("Write a description of about 150 characters that names this page's subject."), id: "t::/c::existing_edit::bundle", researchOnly: true } as ChangeProposal;
     stored.byId = new Map([[good.id, good], [held.id, held], [unfinished.id, unfinished]]);
     const mark = (await import("@/app/(shell)/changes/actions")).markManyImplementedAction;
-    const first = await mark({ proposalIds: [good.id, held.id, unfinished.id] });
+    const first = await mark(batch([good.id, held.id, unfinished.id]));
     expect([first.done, first.already, first.failed.map((f) => f.id), first.results.map((r) => r.outcome), led.records.length], "one recorded, two refused, each refusal carrying the id of the change it belongs to").toEqual([1, 0, [held.id, unfinished.id], ["recorded", "failed", "failed"], 1]);
     expect(first.failed.map((f) => f.error), "and each one says what is wrong with THAT change, in its own words").toEqual(["This change is still being reviewed.", expect.stringContaining("is not finished yet")]);
-    const retry = await mark({ proposalIds: [good.id, held.id, unfinished.id] });
+    const retry = await mark(batch([good.id, held.id, unfinished.id]));
     expect([retry.done, retry.already, retry.failed.length, led.records.length], "pressing the whole batch again records nothing twice: the one that landed answers as already measuring and the two refusals are unchanged").toEqual([0, 1, 2, 1]); });});
 describe("nothing is marked done that no record stands behind", () => {
+  it("refuses a copied version after the saved copy changes, before any shipment or status flip", async () => {
+    const shown = { ...change("Copy the operator actually saw"), supportFacts: [{ id: "k1", fact: "A supported fact", sources: [{ url: "https://source.example/old", kind: "publisher" }] }] } as ChangeProposal, rewritten = change("A later saved rewrite"); stored.proposal = rewritten; stored.byId = new Map([[shown.id, rewritten]]);
+    const { markProposalImplementedAction, markManyImplementedAction } = await import("@/app/(shell)/changes/actions"), intent = { id: shown.id, expectedVersion: confirmedVersion(shown) };
+    const single = await markProposalImplementedAction({ proposalId: intent.id, expectedVersion: intent.expectedVersion }), bulk = await markManyImplementedAction({ proposals: [intent] });
+    expect([single.success, single.error?.includes("rewritten"), bulk.failed[0]?.error.includes("rewritten"), led.records.length, led.flip.mock.calls.length]).toEqual([false, true, true, 0, 0]);
+    const sourceOnly = { ...shown, supportFacts: [{ ...shown.supportFacts![0]!, sources: [{ url: "https://source.example/new", kind: "publisher" }] }] }; stored.byId.set(shown.id, sourceOnly);
+    const staleSource = await markProposalImplementedAction({ proposalId: shown.id, expectedVersion: intent.expectedVersion }); expect([staleSource.success, staleSource.error?.includes("rewritten"), led.records.length, led.flip.mock.calls.length]).toEqual([false, true, 0, 0]); });
+  it("rejects a bare historical component selector even with a current proposal version", async () => {
+    const p = change(); stored.proposal = p; const result = await (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, expectedVersion: confirmedVersion(p), componentIds: ["0:title"] });
+    expect([result.success, led.records.length, led.flip.mock.calls.length]).toEqual([false, 0, 0]); });
+  it("does not reuse a prior Shipment when only the cited source changed", async () => { const first = { ...change(), supportFacts: [{ id: "k1", fact: "A fact", sources: [{ url: "https://source.example/first", kind: "publisher" }] }] } as ChangeProposal;
+    expect((await press(first)).success).toBe(true); const next = { ...first, supportFacts: [{ ...first.supportFacts![0]!, sources: [{ url: "https://source.example/second", kind: "publisher" }] }] };
+    expect((await press(next)).success).toBe(true); expect([led.records.length, led.records[0]!.proposalVersion === led.records[1]!.proposalVersion]).toEqual([2, false]); });
   it("refuses forged partial schema groups and records the visible copy with its derived schema as one press", async () => { const linked = schemaChange(), ids = linked.bundle!.components.map(componentIdOf); stored.proposal = linked;
-    const mark = (componentIds: string[]) => import("@/app/(shell)/changes/actions").then(({ markProposalImplementedAction }) => markProposalImplementedAction({ proposalId: linked.id, componentIds }));
+    const mark = (componentIds: string[]) => import("@/app/(shell)/changes/actions").then(({ markProposalImplementedAction }) => markProposalImplementedAction({ proposalId: linked.id, expectedVersion: expectedOf(linked.id), componentIds }));
     const copyOnly = await mark([ids[0]!]), schemaOnly = await mark([ids[1]!]);
     expect([copyOnly.success, schemaOnly.success, copyOnly.error, schemaOnly.error, led.records.length]).toEqual([false, false, expect.stringContaining("one linked change"), expect.stringContaining("one linked change"), 0]);
     const both = await mark(ids); expect([both.success, led.records.length, led.records[0]!.componentsApplied.map((component) => component.kind)]).toEqual([true, 1, ["title", "schema"]]); });
@@ -110,7 +122,7 @@ describe("nothing is marked done that no record stands behind", () => {
     (two.bundle as { components: unknown[] }).components = [{ kind: "title", label: "Title", risk: "safe", before: "Comedians", after: "A", anchorAfter: "smuggled", evidenceKeys: ["k1"] },
       { kind: "meta", label: "Meta", risk: "safe", before: null, after: "B", evidenceKeys: ["k1"] }];
     stored.proposal = two;
-    const r = await (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: two.id, componentIds: ["0:title"] }); expect([r.success, r.note ?? ""], "and it really was the partial branch").toEqual([true, expect.stringContaining("still on your list")]); expect(led.verified, "the partial press schedules the same shipment").toEqual([led.records[led.records.length - 1]!.id]); expect(led.records[led.records.length - 1]!.componentsApplied[0]!.anchorAfter, "and words riding a piece the live check would never read them off are not recorded at all").toBeUndefined(); });
+    const r = await (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: two.id, expectedVersion: expectedOf(two.id), componentIds: [componentIdOf(two.bundle!.components[0]!, 0)] }); expect([r.success, r.note ?? ""], "and it really was the partial branch").toEqual([true, expect.stringContaining("still on your list")]); expect(led.verified, "the partial press schedules the same shipment").toEqual([led.records[led.records.length - 1]!.id]); expect(led.records[led.records.length - 1]!.componentsApplied[0]!.anchorAfter, "and words riding a piece the live check would never read them off are not recorded at all").toBeUndefined(); });
   it("stamps what kind of work it was, and how much of theirs was already being measured on that page", async () => {
     const first = { ...change(), treatment: "title_or_h1", diagnosisCause: "ctr_snippet" } as ChangeProposal; // THE PRESS IS THE LAST MOMENT THE CARD EXISTS: the treatment and the diagnosed cause live nowhere on a shipment, so a Results screen asking which of this account's bets pay would have nothing but the coarse action word to group by.
     expect((await press(first)).success).toBe(true);
@@ -130,9 +142,8 @@ describe("nothing is marked done that no record stands behind", () => {
     const res = await press(change()); expect([res.success, led.records.length, led.flip.mock.calls.length]).toEqual([false, 0, 0]);
     stored.disposition = "dismissed"; led.records = []; led.flip.mockReset();
     const no = await press(change("Different words for the dismissed row")); expect([no.success, led.records.length, led.flip.mock.calls.length], "no shipment and no flip on a dismissed row").toEqual([false, 0, 0]); });
-  /** A PRESS HELD ON THE DEVICE IS SENT AGAIN ONLY WHERE SENDING IT AGAIN COULD WORK. The browser queue used to drop every answered failure, so "press it again in a moment" threw away a press the operator had already made; a verdict must still settle the entry or the device argues with the server for ever. */
   it("tells a bad moment apart from a verdict on every ending of the press, so a held press is retried and a refusal never is", async () => {
-    const press = async (p: ChangeProposal) => { stored.proposal = p; return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id }); };
+    const press = async (p: ChangeProposal) => { stored.proposal = p; return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, expectedVersion: confirmedVersion(p) }); };
     led.flip.mockRejectedValueOnce(new Error("relation change_proposals does not exist"));
     const moment = await press(change());
     const refused = await press({ ...change("Words nobody has approved"), status: "needs_review" } as ChangeProposal);
@@ -150,9 +161,6 @@ describe("nothing is marked done that no record stands behind", () => {
     expect([led.records.length, led.flip.mock.calls.length, led.flip.mock.calls[1]![2]]).toEqual([1, 2, "rec-1"]); }); // no second record, and the flip lands carrying it
 });
 
-/** THE OPERATOR LOOP RECORDS EXACTLY WHAT HAPPENED (2026-09-05). Two accounts with nothing in common, the real action, the store faked: a
- *  press that lands writes one record and never a second, a bad moment stays the operator's to send again, and a verdict is said in the
- *  server's own sentence instead of being counted as work that landed. */
 const SITES = [
   { t: "acct-tide", path: "/tide-pools", label: "Tide Pools", q: "tide pool safety", after: "Tide pools: when to go and how to stay upright on the rocks", mine: "The exact line that is on the page now." },
   { t: "acct-bordado", path: "/bordado", label: "Bordado a mano", q: "puntadas de bordado", after: "Bordado a mano: las puntadas que lleva cada motivo", mine: "La linea exacta que quedo en la pagina." },
@@ -162,7 +170,7 @@ const card = (s: Site, over: Partial<ChangeProposal> = {}): ChangeProposal => ({
   pagePath: s.path, pageUrl: `https://${s.t}.example${s.path}`, pageLabel: s.label, primaryQuery: s.q, ...over } as ChangeProposal);
 const atomic = (s: Site, over: Partial<ChangeProposal> = {}): ChangeProposal => card(s, { bundle: undefined, ...over } as Partial<ChangeProposal>);
 const pressOn = async (s: Site, p: ChangeProposal, over: Record<string, unknown> = {}) => { stored.tenant = s.t; stored.proposal = p;
-  return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, ...over }); };
+  return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, expectedVersion: confirmedVersion(p), ...over }); };
 
 describe("one press is one record, and every ending of a press is named", () => {
   for (const s of SITES) {

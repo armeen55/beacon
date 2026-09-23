@@ -24,6 +24,7 @@ type Shipped = { ok: true; complete: boolean; recorded: number; remaining: numbe
 /** The exact version applied: its copy, its components, the basis it was drafted under AND THE PIECES THIS PRESS ACTUALLY APPLIED. Deliberately EXCLUDES status, so the flip that follows cannot change the id and a retry lands on the same record. Applying a different subset later is a DIFFERENT thing to measure, so it gets its own record instead of being silently swallowed by the first one. */
 function shippedVersionOf(p: ChangeProposal, appliedIds: readonly string[], liveUrl?: string, appliedText?: string | null): string {
   return createHash("sha256").update(JSON.stringify({
+    sourceVersion: confirmedVersion(p),
     change: p.recommendedChange,
     page: liveUrl ?? p.pageUrl ?? p.pagePath,
     appliedText: appliedText ?? null,
@@ -97,7 +98,7 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
   try {
     const ledger = opts.preloadedLedger ?? await loadShippedChanges();
     const already = new Set<string>();
-    const mine = ledger.filter((r) => r.proposalId === proposal.id);
+    const mine = ledger.filter((r) => r.proposalId === proposal.id && r.proposalVersion === shippedVersionOf(proposal, (r.componentsApplied ?? []).flatMap((c) => c.id ? [c.id] : []), opts.liveUrl, r.componentsApplied?.length === 1 ? r.operatorNote ?? null : null));
     let previous: (typeof mine)[number] | undefined;
     for (const r of mine) for (const c of r.componentsApplied ?? []) for (const current of all)
       if (sameComponentId(c.id ?? "", current.id ?? "", [{ ...c, before: c.before === undefined && r.componentsApplied?.length === 1 ? r.before : c.before, page: c.page ?? r.page }, current])
@@ -146,13 +147,10 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
   }
 }
 
-/** What the press says about the reading it just started. THE HEALTHY PATH NAMES THE DATE: "Marked done" with no
- *  promise left the operator with no idea when anything would come back, and the one question after applying a
- *  change is "when do I hear whether it worked" (blind customer review, 2026-08-25). The first proof window is
- *  7 days and search data trails the live site by about 3 more, so the date is day 10, on Results. */
 /** Record that the operator applied a change. THE CLAIM STARTS THE CHECK AND NEVER ENDS IT: whatever arrives here, the Shipment is written with no verification on it, so Beacon still reads the live page itself. */
 export async function markProposalImplementedAction(args: {
   proposalId: string;
+  expectedVersion: string;
   /** WHICH PIECES THEY ACTUALLY APPLIED, by the stable id each piece carries inside its stored bundle. ABSENT means all of them; anything else is intersected against the bundle on file and refused when it selects nothing, so a hand-made list can no longer conjure an empty selection past the confirmation. */
   componentIds?: string[];
   /** THE EXACT WORDING THEY PUT ON THE PAGE, where it is not the prepared wording. The screen asks for exactly that and for nothing else, which is what makes it the version applied rather than a comment: the prepared wording stays on the record beside it and the page is read for this one. */
@@ -171,7 +169,7 @@ export async function markProposalImplementedAction(args: {
   if (!(await canPublishForCurrentTenant())) {
     return { success: false, error: "You do not have permission to mark this change implemented." };
   }
-  if (!args.proposalId) return { success: false, error: "No change was specified." };
+  if (!args.proposalId || !args.expectedVersion) return { success: false, error: "Open this change again to record the exact version you applied." };
 
   const tenantId = await currentTenantId();
   try {
@@ -181,6 +179,7 @@ export async function markProposalImplementedAction(args: {
     if (stored == null) {
       return { success: false, error: "That change could not be found, so it was not marked implemented." };
     }
+    if (confirmedVersion(stored) !== args.expectedVersion) return { success: false, error: "This change has been rewritten since you saw it. Open it again and record only the version you applied." };
     if (!operatorUiPolicy.isManualEditProofWork(stored)) return { success: false, error: "Whole-page work is outside the current manual-edit proof, so it cannot be recorded here." };
     if (stored.status !== "implemented_pending_verification"
       && actionableProposalFailures(stored, { tenantId, currentBasis: basis }).length > 0) {
@@ -199,7 +198,7 @@ export async function markProposalImplementedAction(args: {
     let appliedIds = ids;
     if (args.componentIds !== undefined) {
       const wanted = new Set(args.componentIds);
-      const picked = components.map((component, i) => ({ component, id: ids[i]! })).filter(({ id }) => [...wanted].some((w) => sameComponentId(w, id)));
+      const picked = components.map((component, i) => ({ component, id: ids[i]! })).filter(({ id }) => wanted.has(id));
       applied = picked.map(({ component }) => component); appliedIds = picked.map(({ id }) => id);
       if (applied.length === 0 || applied.length !== wanted.size) {
         return { success: false, error: "The pieces you ticked are not recognized, so nothing was recorded. Open the change again and tick what you applied." };
@@ -234,7 +233,7 @@ export async function markProposalImplementedAction(args: {
         : "Those pieces were already on file and are being measured.";
       return { success: true, note: `${landed} The other ${left} ${one("is", "are")} still on your list: tick ${one("it", "them")} here when you apply ${one("it", "them")}.` };
     }
-    const ok = await transitionProposalToImplemented(tenantId, args.proposalId, shipment.shipmentId, shipment.shipmentVersion, liveUrl);
+    const ok = await transitionProposalToImplemented(tenantId, args.proposalId, shipment.shipmentId, shipment.shipmentVersion, args.expectedVersion, liveUrl);
     if (!ok) {
       return { success: false, error: "That change could not be found, so it was not marked implemented." };
     }
@@ -249,15 +248,11 @@ export async function markProposalImplementedAction(args: {
   }
 }
 
-/** MANY AT ONCE, BECAUSE THAT IS HOW AN OPERATOR ACTUALLY WORKS. Every card owned its own server action, and
- *  Next runs those strictly one at a time, so twenty cards meant twenty round trips, twenty ledger reads and
- *  twenty full surface rebuilds: thirty to sixty seconds of "Saving..." for work the operator finished in one
- *  sitting. The recording underneath stays ATOMIC, one shipment per change exactly as before; what is shared is
- *  the trip and the rebuild. IDEMPOTENT by construction: a change already being measured answers that it is,
- *  and says so per id rather than failing the batch. A press that records nothing still rebuilds nothing. */
-export async function markManyImplementedAction(args: { proposalIds: string[] }): Promise<{ success: boolean; done: number; already: number; failed: { id: string; error: string }[]; note: string; results: { id: string; outcome: "recorded" | "already" | "failed"; shipmentId?: string; note?: string; error?: string }[] }> {
+/** One trip for several version-bound presses; each Shipment remains atomic and idempotent. */
+export async function markManyImplementedAction(args: { proposals: { id: string; expectedVersion: string }[] }): Promise<{ success: boolean; done: number; already: number; failed: { id: string; error: string }[]; note: string; results: { id: string; outcome: "recorded" | "already" | "failed"; shipmentId?: string; note?: string; error?: string }[] }> {
   const t0 = Date.now();
-  const ids = [...new Set((args.proposalIds ?? []).filter((x) => typeof x === "string" && x.trim()))];
+  const wanted = new Map((args.proposals ?? []).filter((x) => typeof x?.id === "string" && x.id.trim() && typeof x.expectedVersion === "string" && x.expectedVersion.trim()).map((x) => [x.id, x.expectedVersion]));
+  const ids = [...wanted.keys()];
   if (ids.length === 0) return { success: false, done: 0, already: 0, failed: [], results: [], note: "No changes were selected." };
   if (!(await canPublishForCurrentTenant())) return { success: false, done: 0, already: 0, failed: [], results: [], note: "You do not have permission to mark these changes implemented." };
   const tenantId = await currentTenantId();
@@ -273,6 +268,7 @@ export async function markManyImplementedAction(args: { proposalIds: string[] })
       const disposition = await proposalDisposition(tenantId, id).catch(() => null);
       const row = disposition == null ? stored.get(id) ?? await loadChangeProposal(tenantId, id).catch(() => null) : null;
       if (!row) return { id, outcome: "failed", error: "That change could not be found." };
+      if (confirmedVersion(row) !== wanted.get(id)) return { id, outcome: "failed", error: "This change has been rewritten since you selected it. Open it again before recording." };
       if (!operatorUiPolicy.isManualEditProofWork(row)) return { id, outcome: "failed", error: "Whole-page work is outside the current manual-edit proof." };
       if (!operatorUiPolicy.isBulkRecordable(row)) return { id, outcome: "failed", error: "This change has several pieces or needs confirmation, so record it from its own change page." };
       if (row.status !== "implemented_pending_verification" && actionableProposalFailures(row, { tenantId, currentBasis: basis }).length > 0)
@@ -287,7 +283,7 @@ export async function markManyImplementedAction(args: { proposalIds: string[] })
       const shipment = await recordImplementation(tenantId, row, { appliedIds, preloadedLedger: ledger, openPaths, invalidate: false }); // NO SHARED WORDING ON A BATCH: one line of the operator's own words cannot be the version applied to twenty different changes, so the batch records the prepared wording and a different version is recorded on the change itself
       if (!shipment.ok) return { id, outcome: "failed", error: shipment.error };
       const alreadyDone = row.status === "implemented_pending_verification" || (shipment.recorded === 0 && (row.bundle?.components ?? []).length > 0); // an atomic row records zero COMPONENT ids by construction; only a bundle with nothing fresh is genuinely already on file
-      const ok = row.status === "implemented_pending_verification" ? true : await transitionProposalToImplemented(tenantId, id, shipment.shipmentId, shipment.shipmentVersion);
+      const ok = row.status === "implemented_pending_verification" ? true : await transitionProposalToImplemented(tenantId, id, shipment.shipmentId, shipment.shipmentVersion, wanted.get(id)!);
       if (!ok) return { id, outcome: "failed", error: "The change could not be marked done. Press it again in a moment." };
       return { id, outcome: alreadyDone ? "already" : "recorded", shipmentId: shipment.shipmentId, note: alreadyDone ? "Already recorded. Open Results for its current verification and measurement state." : operatorUiPolicy.measurementAcknowledgement(shipment.measurement) };
     } catch (err) {

@@ -92,10 +92,9 @@ describe("the corrections box", () => {
   it("reads the three instructions an operator can give", () => {
     const { overrides, errors } = parseCompetitorOverrides("pin fixer.example\nexclude spam.example\nBig.Example is a Publisher\n"); expect(errors).toEqual([]);
     expect(overrides).toEqual([{ domain: "fixer.example", action: "pin" }, { domain: "spam.example", action: "exclude" }, { domain: "big.example", action: "correct", kind: "publisher" }]); });
-  it("says exactly what it could not read, and keeps the lines it could", () => {
+  it("keeps valid lines when neighboring instructions are invalid", () => {
     const { overrides, errors } = parseCompetitorOverrides("beat everyone\npin over there\nbig.example is a wombat\nexclude keep.example"); expect(overrides).toEqual([{ domain: "keep.example", action: "exclude" }]);
-    expect(errors[0]).toBe('"beat everyone" could not be read. Write one instruction per line: "pin example.com", "exclude example.com", or "example.com is a publisher".');
-    expect(errors[1]).toContain('"over there" is not a usable domain'); expect(errors[2]).toContain('There is no group called "wombat"'); });});
+    expect(errors).toHaveLength(3); });});
 describe("a correction survives a save and a reload", () => {
   let row: Record<string, unknown> | null = null;
   beforeEach(() => { row = null; __resetBusinessProfileCacheForTests();

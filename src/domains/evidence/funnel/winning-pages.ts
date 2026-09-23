@@ -76,8 +76,6 @@ async function buyComparison(d: ResolvedDeps, state: FunnelState, want: FunnelIn
  *  held a week; a site that simply did not answer me is retried tomorrow. Without this memory the same dead URL was refetched on every single pass forever, because "403" and "not tried yet" looked alike. */
 const RETRY_MS: Record<WinnerReadOutcome["state"], number> = { robots_blocked: 30 * 86_400_000, provider_unavailable: 7 * 86_400_000, temporarily_unavailable: 86_400_000 };
 const readOutcomeAt = <S extends WinnerReadOutcome["state"]>(state: S, at: number) => ({ state, attemptedAt: new Date(at).toISOString(), retryAfter: new Date(at + RETRY_MS[state]).toISOString() });
-/** How many failed reads of MY OWN pages the research row remembers. A handful, never a log, and now a CAPACITY rather than a queue: an unexpired hold is never pushed out of it. */
-const MAX_OWNED_READS = 10;
 type OwnedRead = { held: OwnedPageReadOutcome[]; pause: string | null; acquired: boolean; attempted?: false };
 const OWNED_WRITE_PAUSE = "The page was read, but its contents could not be saved, so it is not counted as read yet. The next visit will read it again.";
 
@@ -102,10 +100,11 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
       && isCurrent("owned_page", body.fetchedAt, d.now(), bustedAt);
   };
   if (await settled()) return { held: kept.filter((o) => canonicalUrlKey(o.url) !== key), pause: null, acquired: true };
-  // A live hold never moves merely because another pass looked at it; a full memory never evicts it.
-  if (seen.has(key) || now >= deadline || kept.length >= MAX_OWNED_READS) return { held: kept, pause: null, acquired: false, attempted: false };
+  // Retry protection belongs to each URL. Ten unrelated failures cannot deny
+  // an eleventh page, and admitting it must not evict an active hold.
+  if (seen.has(key) || now >= deadline) return { held: kept, pause: null, acquired: false, attempted: false };
   const remember = (state: OwnedPageReadOutcome["state"], retryMs = RETRY_MS[state]): OwnedRead => ({
-    held: [{ url, ...readOutcomeAt(state, now), retryAfter: new Date(now + retryMs).toISOString() }, ...kept].slice(0, MAX_OWNED_READS), pause: null, acquired: false,
+    held: [{ url, ...readOutcomeAt(state, now), retryAfter: new Date(now + retryMs).toISOString() }, ...kept], pause: null, acquired: false,
   });
   let res;
   try { res = await d.fetchPage(absolute, new Map(), { timeoutMs: Math.max(1, Math.min(10_000, (deadline - d.now()) / 2)) }); }

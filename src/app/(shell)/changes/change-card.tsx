@@ -412,7 +412,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
               for each where it applies rather than refusing the press afterwards. EVERY BUNDLE OF TWO OR MORE PIECES GETS
               THE PICKER (audit 3.9): a bundle past the inline limit got a bare Mark done, so one press recorded every piece
               as applied when the operator had pasted one. */}
-          {review ? null : parts > INLINE_PIECES ? <span className="text-[12px] text-muted-foreground">Open the change to record only the pieces you actually applied.</span> : <MarkImplemented proposalId={proposal.id} newPage={isNew} onRecorded={recordDone}
+          {review ? null : parts > INLINE_PIECES ? <span className="text-[12px] text-muted-foreground">Open the change to record only the pieces you actually applied.</span> : <MarkImplemented proposalId={proposal.id} expectedVersion={confirmedVersion(proposal)} newPage={isNew} onRecorded={recordDone}
             components={parts > 1 || held.length > 0 ? piecesOf(bundle) : undefined} />}
           <button type="button" data-set-aside="true" onClick={() => onAside(proposal.id)}
             className="inline-flex min-h-11 items-center text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">

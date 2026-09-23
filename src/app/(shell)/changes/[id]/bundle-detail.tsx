@@ -191,6 +191,7 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
       <section className="space-y-3 rounded-2xl border border-border bg-surface-raised p-5">
         {held ? <p className="text-[13px] leading-relaxed text-foreground">{held}{waitingOn(proposal) ?? ""}</p> : <MarkImplemented
           proposalId={proposal.id}
+          expectedVersion={confirmedVersion(proposal)}
           newPage={isNew}
           components={bundle.components.map((c, i) => ({ id: componentIdOf(c, i), kind: c.kind, label: c.label,
             ...(c.derivation ? { dependsOn: c.derivation.dependsOn.map((dependency) => dependency.componentId) } : {}),
@@ -447,7 +448,7 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
       ) : null}
       {held && !research ? <p className="text-[13px] leading-relaxed text-foreground" data-held-reason="true">{held}{waitingOn(proposal) ?? ""}</p> : null}
       <div className="flex flex-wrap items-center gap-3">
-        {research || held ? null : <MarkImplemented proposalId={proposal.id} />}
+        {research || held ? null : <MarkImplemented proposalId={proposal.id} expectedVersion={confirmedVersion(proposal)} />}
         <SetAsideChange proposalId={proposal.id} finishable={canFinish(proposal)} prepare={nextObligation(proposal)?.kind !== "review"} />
       </div>
     </div>

@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import type { ChangesView } from "./changes-data";
 import type { ChangeProposal } from "@/domains/decision";
 import { ChangeCard } from "./changes/change-card";
-import { openHold } from "@/domains/decision/completeness";
+import { confirmedVersion, openHold } from "@/domains/decision/completeness";
 import { dismissProposalAction, loadMoreChangesAction, markManyImplementedAction } from "./changes/actions";
 import operatorUiPolicy, { CHANGES_PAGE_SIZE } from "./changes/types";
 
@@ -113,7 +113,7 @@ export function ChangesListClient({ view, initialPicked = [] }: { view: ChangesV
   const markPicked = () => { if (!bulk.canSubmit) { say("Clear the selected changes hidden by this view before recording work."); return; } startBulk(async () => {
     const n = picked.length;
     say(`Recording ${n} ${n === 1 ? "change" : "changes"}…`); // said the moment the press lands; the durable answer replaces it
-    const res = await markManyImplementedAction({ proposalIds: picked }).catch(() => null);
+    const res = await markManyImplementedAction({ proposals: picked.flatMap((id) => { const row = bulkRows.find((p) => p.id === id); return row ? [{ id, expectedVersion: confirmedVersion(row) }] : []; }) }).catch(() => null);
     if (!res) { say("That could not be recorded just now. Press it again in a moment."); return; }
     const failedIds = new Set(res.failed.map((f) => f.id));
     setFinished((prev) => [...prev, ...picked.filter((id) => !failedIds.has(id))]); // FAILED ROWS STAY SELECTED AND VISIBLE; recorded rows leave the list only after the durable answer

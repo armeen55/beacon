@@ -1,4 +1,3 @@
-/** The four causes that used to reach the operator as a sentence and a shrug: links to somewhere real, sources and subjects assembled ONLY from evidence held, a merge that arrives as a question, a rebuild only when the causes agree. Each runs on a fixture context and then the REAL validator, plus the pinned dangerous-kind list. */
 import { describe, it, expect, vi } from "vitest";
 import { DANGEROUS_COMPONENT_KINDS as DECISION_DANGEROUS, PublicationUnitsSchema, type BundleComponent, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
 import { DANGEROUS_COMPONENT_KINDS as MEASUREMENT_DANGEROUS } from "@/domains/measurement/proof-gsc/measure-lifecycle";
@@ -6,6 +5,7 @@ import type { CauseFinding } from "@/domains/decision/diagnosis"; import { effor
 import { produceConsolidation, produceFullRewriteRecommendation, produceSourceExpansion } from "@/domains/decision/producers/extended"; import { CORE_PRODUCERS } from "@/domains/decision/producers/core";
 import type { WinningPattern } from "@/domains/decision/winning-pattern";
 import { validateProposal } from "@/domains/decision/validate-proposal";
+import { claimTypeOf, deriveSupport } from "@/domains/evidence/pages/claim-support";
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context"; import { RECEIPT } from "@/domains/decision/diagnose"; import { COPY_RULES } from "@/domains/decision/copy-sanitize";
 const TENANT = "fixture-tenant";
 const QUERY = "rain barrel sizing";
@@ -20,7 +20,6 @@ const PATTERN: WinningPattern = { archetype: "informational_guide", disagreement
   commonEntities: [{ entity: "Roof area", seenOn: [0] }, { entity: "Downspout diverter", seenOn: [0, 1] }],
   questionsAnswered: ["What size rain barrel do I need?"], openingPattern: "They answer the question in the first line.",
   ownedGaps: [{ gap: "None of this page covers overflow", seenOn: [0] }], publishers: ["a.example", "b.example", "c.example"] };
-/** WHAT THE WINNERS WERE READ TO COVER, as receipt lines. produce-bundle writes one of these per common heading and per question, and a rebuild cites the one behind each section it writes. */
 const COVERS = [...PATTERN.commonHeadings.map((h) => h.heading), ...PATTERN.questionsAnswered]
   .map((heading) => ({ key: RECEIPT.cover(heading), kind: "winning_page" as const, fact: `Every one of the pages that win "${QUERY}" covers ${heading}.`, observedAt: null }));
 const LINKS = [["/roof-area-calculator", "roof area"], ["/barrel-sizes", "barrel sizes"], ["/rain-barrels", "this page"],
@@ -28,7 +27,6 @@ const LINKS = [["/roof-area-calculator", "roof area"], ["/barrel-sizes", "barrel
 const OWNED = [["rain-collection", "Rain collection basics", "Rain collection"], ["storm-drains", "Storm drains", "Storm drains"],
   ["barrel-sizes", "Barrel sizes", "Barrel sizes"], ["roof-area-calculator", "Roof area calculator", "Roof area"],
   ["contact", "Contact us", "Contact"], ["careers", "Careers", "Careers"]].map(([p, title, h1]) => ({ url: `https://fixture-content.example/${p}`, title: title!, h1: h1! }));
-/** THE SECOND PAGE ON THE SAME SEARCH: its own exact-search numbers, and the words it carries today. */
 const OTHER_URL = "https://fixture-content.example/barrel-sizes";
 const CMP = [{ url: PAGE_URL, clicks: 90, impressions: 6000, position: 3 }, { url: OTHER_URL, clicks: 20, impressions: 900, position: 9 }];
 const ctxOf = (over: Partial<ProducerCtx> = {}): ProducerCtx => ({ finding: finding("internal_link_weakness", { cause: "internal_link_weakness", medianWinnerLinks: 12, ownedLinks: 3 }),
@@ -39,7 +37,6 @@ const ctxOf = (over: Partial<ProducerCtx> = {}): ProducerCtx => ({ finding: find
     cardTexts: [], faqs: [], entityNames: ["Roof area", "Storm"], internalLinks: LINKS, metaDescription: null,
     fetchedAt: "2026-07-30T00:00:00.000Z", completeness: "sample_only", contentHash: null, heldNote: "I hold a sample of this page, not the whole page." },
   pattern: PATTERN, receiptFacts: FACTS, readiness: { gsc: true, ownedCopy: true, serp: true, winners: 3, body: true }, draft: { section: async () => null }, ...over, });
-/** BOTH PAGES AS I CURRENTLY HOLD THEM, by the same canonical address the producer looks them up under. */
 const OTHER_KEY = "fixture-content.example/barrel-sizes";
 const HUB = "https://fixture-content.example/rain-barrels", KID = "https://fixture-content.example/rain-barrels/steel-barrels";
 const nestedBodies = (): Map<string, OwnedPageBody> => { const b = (over: Partial<OwnedPageBody>): OwnedPageBody => ({ ...ctxOf().body!, completeness: "complete" as const, ...over } as OwnedPageBody);
@@ -47,7 +44,6 @@ const nestedBodies = (): Map<string, OwnedPageBody> => { const b = (over: Partia
 const nestedSplit = () => finding("cannibalization", { cause: "cannibalization", competingPaths: [HUB, KID], comparison: [{ url: KID, clicks: 90, impressions: 6000, position: 3 }, { url: HUB, clicks: 20, impressions: 900, position: 9 }], survivor: KID });
 const BODIES = new Map([["fixture-content.example/rain-barrels", { ...ctxOf().body!, title: "Rain barrel sizing guide", h1: "Rain barrel sizing guide", completeness: "complete" as const }],
   [OTHER_KEY, { ...ctxOf().body!, url: OTHER_URL, title: "Barrel sizes guide", h1: "Barrel sizes guide", headings: ["Barrel sizes"], completeness: "complete" as const }]]);
-/** A drafter that writes every section AND the page's own opening: the only shape a rebuild may ever ship on. */
 const OPENING = "Rain barrel sizing comes down to roof area and how much rain one storm brings.";
 const wholeCtx = (over: Partial<ProducerCtx> = {}): ProducerCtx => ctxOf({ body: { ...ctxOf().body!, completeness: "complete", version: "current" }, ...over });
 const whole = (refuseAt = -1): ProducerCtx["draft"] => { let n = 0; return { restore: async piece => piece, compose: (pieces) => { const units: NonNullable<BundleComponent["units"]> = pieces.flatMap((p) => [...(p.heading ? [{ kind: "heading" as const, level: 2, text: p.heading }] : []), { kind: "paragraph" as const, text: p.body }]); return { units, after: COPY_RULES.bodyCopy(units), pieces: pieces.map(p => ({ slot: p.slot, assignment: p.assignment, heading: p.heading, after: p.body, units: [{ kind: "paragraph" as const, text: p.body }], claims: [], supportFacts: [], review: [] })) }; }, openingAnswer: async () => OPENING,
@@ -58,7 +54,6 @@ const bundleOf = (components: BundleComponent[]): ChangeBundle => ({ objective: 
   metric: "Clicks over 28 days.", scope: { queries: [QUERY], prompts: [] }, components, alternatives: [], risks: [], confidenceReasons: [],
   receipt: { items: [...KEYS.map((key) => ({ key, kind: "gsc_demand" as const, fact: FACTS[0]!, observedAt: null })), ...COVERS], missing: [], freshestObservedAt: null },
   measurementPlan: "I will read clicks, views and average position at 7, 14 and 28 days." });
-/** THE PAGE'S OWN WORDS AND THE EVIDENCE, exactly as produce-bundle hands them to a component: receipt lines, the outline, the winners' whole reading and this page's own subjects and link words. A thing I read is not invented. */
 const NOW = new Date("2026-07-25T00:00:00.000Z");
 const OUTLINE = ["How much rain a roof collects", "Barrel sizes"];
 const RECEIPT_ONLY = [...FACTS, ...OUTLINE, "Rain Barrels"].join(" ");
@@ -67,10 +62,8 @@ const GATE_OPTS = { pageBodyText: "Rain barrels catch what runs off a roof.", no
     ...PATTERN.questionsAnswered, "Roof area", "Storm", ...LINKS.map((l) => `${l.anchorText} ${l.href}`)].join(" "),
   contextTokens: [...new Set(`${QUERY} Rain Barrels Rain Barrels`.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2))].sort(),
   heldHeadings: ["How much rain a roof collects", "Barrel sizes"] };
-/** THE CHANGE A BUNDLE PERSISTS: its FIRST component's before and after, in the one field vocabulary a row carries. */
 const envelope = (primary: BundleComponent) =>
   ({ kind: "existing_edit" as const, field: fieldForComponent(primary.kind), before: primary.before, after: primary.after });
-/** THE PROPOSAL PRODUCTION ACTUALLY GATES: that envelope, priced by the kind of change it is, page words alongside. */
 const validate = (components: BundleComponent[], evidenceText?: string, over: Partial<ChangeProposal> = {}): ReturnType<typeof validateProposal> => {
   const primary = components[0]!;
   return validateProposal({
@@ -81,7 +74,6 @@ const validate = (components: BundleComponent[], evidenceText?: string, over: Pa
     limitations: [], evidence: { query: QUERY, hints: [], evidenceRefCount: 1 }, impactScore: 100, upsidePerMonth: null,
     publish: "manual", createdAt: "2026-07-25T00:00:00.000Z", bundle: bundleOf(components), ...over,
   } as ChangeProposal, { ...GATE_OPTS, ...(evidenceText === undefined ? {} : { evidenceText }) });};
-/** THE COMPONENT GATE'S OWN ANSWER: every component refusal ends in the operator's words, never the validator's. */
 const componentRefusals = (v: ReturnType<typeof validateProposal>): string[] =>
   v.reasons.filter((r) => r.endsWith("so it stays held rather than offered."));
 const answered = (c: BundleComponent): boolean => !!c.where && !!c.objective && !!c.mechanism && !!c.measurementPlan;
@@ -114,11 +106,30 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect(out.refusal).toContain("The only wording that came back is for /rain-barrels/steel-barrels, not for this page");
     expect(new Set((out.dispositions ?? []).map((d) => d.page))).toEqual(new Set(["/rain-barrels", "/rain-barrels/steel-barrels"])); }); // the other page's decision is still on the record, never silently dropped
   it("assembles a source pack only from resolved claim-level sources, never my own measurements", async () => {
-    const fact = (subject: string, proposed: string, url: string) => ({ page: "/rain-barrels", statementKey: subject.toLowerCase(), subject, current: "", proposed, literal: null, usage: null, sources: [{ url, kind: "encyclopedia" as const, says: proposed }], agreement: "single_source" as const, confidence: "likely" as const, verdict: "page_correct" as const, alsoAt: [], note: "", pageContentHash: null, pageLocator: "missing", sourceReadAt: "2026-09-01T00:00:00.000Z", state: "checked" as const, rulesVersion: 4, evidenceBasis: null, checkedAt: "2026-09-01T00:00:00.000Z" });
-    vi.resetModules(); vi.doMock("@/domains/evidence/pages/fact-checks", async (a) => ({ ...(await a<Record<string, unknown>>()), readFactChecks: async () => [fact("Downspout diverter", "A downspout diverter directs roof water between a drain and a barrel.", "https://reference.example/diverters"), fact("Rain barrels", "Rain barrels catch what runs off a roof.", "https://reference.example/barrels")] })); const sourceExpansion = (await import("@/domains/decision/producers/extended")).produceSourceExpansion;
-    const section = async (i: { heading: string | null }) => ({ heading: i.heading ?? "Where these claims come from", body: "A downspout diverter splits roof water between the drain and the barrel, and the pages being cited explain when one is needed." }), gap = await sourceExpansion(ctxOf({ finding: finding("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what size rain barrel do I need" }), draft: { section } })), read = await sourceExpansion(ctxOf({ finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }), draft: { section } })), c = gap.components[0]!;
-    expect([c.kind, c.sourcePack?.resolved, c.sourcePack?.factRequirements, c.sourcePack?.sourceRequirements[0], componentRefusals(validate(gap.components)), validate(read.components).verdict]).toEqual(["entity_expansion", true, ["Downspout diverter."], expect.stringContaining("https://reference.example/diverters"), [], "ready"]); for (const beaconFact of FACTS) expect(JSON.stringify([c, read.components[0]])).not.toContain(beaconFact); expect(JSON.stringify(c)).not.toContain(INVENTED);
+    const fact = (subject: string, proposed: string, url: string) => { const page = "/rain-barrels", statementKey = subject.toLowerCase(), kind = "encyclopedia" as const, support = deriveSupport({ tenantId: TENANT, page, statementKey, pageLocator: "missing", subject, claimKind: claimTypeOf(subject, proposed, "missing"), current: "", proposed, url, kind, quote: proposed, titleContext: null }); expect(support, "the fixture must carry a valid current artifact for its exact claim").not.toBeNull(); return { page, statementKey, subject, current: "", proposed, literal: null, usage: null, sources: [{ url, kind, says: proposed, support: support! }], agreement: "single_source" as const, confidence: "likely" as const, verdict: "page_correct" as const, alsoAt: [], note: "", pageContentHash: null, pageLocator: "missing", sourceReadAt: "2026-09-01T00:00:00.000Z", state: "checked" as const, rulesVersion: 4, evidenceBasis: null, checkedAt: "2026-09-01T00:00:00.000Z" }; };
+    const good = fact("Downspout diverter", "A downspout diverter directs roof water between a drain and a barrel.", "https://reference.example/diverters");
+    const stale = { ...good, statementKey: "downspout diverter earlier reading", sources: [{ ...good.sources[0]!, support: undefined }] };
+    const { authorizedCorrections } = await import("@/domains/evidence/pages/fact-checks");
+    expect(authorizedCorrections([stale, good], undefined, TENANT)).toHaveLength(2);
+    vi.resetModules(); vi.doMock("@/domains/evidence/pages/fact-checks", async (a) => ({ ...(await a<Record<string, unknown>>()), readFactChecks: async () => [stale, good, fact("Rain barrels", "Rain barrels catch what runs off a roof.", "https://reference.example/barrels")] })); const sourceExpansion = (await import("@/domains/decision/producers/extended")).produceSourceExpansion;
+    const hints: string[][] = [], section = async (i: { heading: string | null; evidenceHints: string[] }) => (hints.push(i.evidenceHints), { heading: i.heading ?? "Where these claims come from", body: "A downspout diverter splits roof water between the drain and the barrel, and the pages being cited explain when one is needed." }), gap = await sourceExpansion(ctxOf({ finding: finding("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what size rain barrel do I need" }), draft: { section } })), read = await sourceExpansion(ctxOf({ finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }), draft: { section } })), c = gap.components[0]!;
+    expect([c.kind, c.sourcePack?.resolved, c.sourcePack?.factRequirements, c.sourcePack?.sourceRequirements[0], componentRefusals(validate(gap.components)), validate(read.components).verdict]).toEqual(["entity_expansion", true, ["A downspout diverter directs roof water between a drain and a barrel."], expect.stringContaining("https://reference.example/diverters"), [], "ready"]); for (const beaconFact of FACTS) expect(JSON.stringify([c, read.components[0]])).not.toContain(beaconFact); expect(JSON.stringify(c)).not.toContain(INVENTED);
+    expect(hints[0]?.[0]).toBe(c.sourcePack?.sourceRequirements[0]);
     vi.doUnmock("@/domains/evidence/pages/fact-checks"); vi.resetModules(); });
+  it("refuses to buy copy when a current source supports a different predicate about the same subject", async () => {
+    const subject = "Rain barrels", proposed = "Rain barrels discharge roof runoff into storm drains.", url = "https://reference.example/runoff", page = "/rain-barrels", statementKey = "rain barrels";
+    const support = deriveSupport({ tenantId: TENANT, page, statementKey, pageLocator: "missing", subject, claimKind: claimTypeOf(subject, proposed, "missing"), current: "", proposed, url, kind: "encyclopedia", quote: proposed, titleContext: null });
+    expect(support).not.toBeNull();
+    const fact = { page, statementKey, subject, current: "", proposed, literal: null, usage: null, sources: [{ url, kind: "encyclopedia" as const, says: proposed, support: support! }], agreement: "single_source" as const, confidence: "likely" as const, verdict: "page_correct" as const, alsoAt: [], note: "", pageContentHash: null, pageLocator: "missing", sourceReadAt: "2026-09-01T00:00:00.000Z", state: "checked" as const, rulesVersion: 4, evidenceBasis: null, checkedAt: "2026-09-01T00:00:00.000Z" };
+    const { authorizedCorrections } = await import("@/domains/evidence/pages/fact-checks");
+    expect(authorizedCorrections([fact], undefined, TENANT)).toHaveLength(1);
+    vi.resetModules(); vi.doMock("@/domains/evidence/pages/fact-checks", async (actual) => ({ ...(await actual<Record<string, unknown>>()), readFactChecks: async () => [fact] }));
+    let drafted = 0;
+    const sourceExpansion = (await import("@/domains/decision/producers/extended")).produceSourceExpansion;
+    const out = await sourceExpansion(ctxOf({ finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "how do rain barrels retain water" }), draft: { section: async () => (drafted += 1, { heading: "Rain barrels", body: "Copy that cannot be sourced." }) } }));
+    expect([out.components.length, drafted, out.refusal]).toEqual([0, 0, expect.stringContaining("owes a verified source")]);
+    vi.doUnmock("@/domains/evidence/pages/fact-checks"); vi.resetModules();
+  });
   /** TWO PAGES ON ONE SEARCH IS A SIGNAL TO INVESTIGATE, never proof the clicks are splitting, and never a decision handed back to the operator: the survivor is proven off inspectable evidence or nothing ships. */
   it("settles a split only when the survivor is proven, and then hands over the exact merge", async () => {
     const split = (over: Record<string, unknown> = {}) => finding("cannibalization", { cause: "cannibalization", competingPaths: [PAGE_URL, OTHER_URL], comparison: [], survivor: null, ...over });

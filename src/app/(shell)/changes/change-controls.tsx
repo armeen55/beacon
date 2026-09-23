@@ -7,30 +7,29 @@ import operatorUiPolicy from "./types";
 
 const MARK_QUEUE_KEY = "beacon.mark-done.queue";
 const MARK_QUEUE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-type QueuedMark = { proposalId: string; at: number };
+type QueuedMark = { proposalId: string; expectedVersion: string; at: number };
 
 function readMarkQueue(): QueuedMark[] {
   try {
     const rows: unknown = JSON.parse(window.localStorage.getItem(MARK_QUEUE_KEY) ?? "[]");
     const cutoff = Date.now() - MARK_QUEUE_MAX_AGE_MS;
     return Array.isArray(rows)
-      ? rows.filter((r: QueuedMark) => typeof r?.proposalId === "string" && typeof r?.at === "number" && r.at > cutoff)
+      ? rows.filter((r: QueuedMark) => typeof r?.proposalId === "string" && typeof r?.expectedVersion === "string" && !!r.expectedVersion && typeof r?.at === "number" && r.at > cutoff)
       : [];
   } catch { return []; }
+}
+function unboundMarks(): number {
+  try {
+    const rows: unknown = JSON.parse(window.localStorage.getItem(MARK_QUEUE_KEY) ?? "[]");
+    return Array.isArray(rows) ? rows.filter((r: QueuedMark) => typeof r?.proposalId === "string" && typeof r?.at === "number" && r.at > Date.now() - MARK_QUEUE_MAX_AGE_MS && !r.expectedVersion).length : 0;
+  } catch { return 0; }
 }
 function writeMarkQueue(rows: QueuedMark[]): void {
   try { window.localStorage.setItem(MARK_QUEUE_KEY, JSON.stringify(rows)); } catch { /* private mode: the press is simply not kept */ }
 }
 type PressAnswer = { success: boolean; retryable?: boolean; error?: string };
 
-/** WHAT BECOMES OF A PRESS THAT RECORDS A CHANGE, as ONE rule at both moments a press is answered: the press made now
- *  and the presses this device was holding. THREE ENDINGS, NEVER TWO. Only `success` is recorded. A verdict settles the
- *  press and is said in the SERVER'S OWN WORDS, because "recorded" was printed over "Beacon has not finished this
- *  one yet": the entry was correctly dropped and then counted as work that landed, so the operator was told a press
- *  was on file that nothing was measuring. A bad moment (`retryable`, or a throw) is neither: where the press is one
- *  this device can re-send faithfully it is kept and sent again on the next load, and where it is not, the server's own
- *  sentence stands and the operator presses again. The fresh press read `success` alone, so the five endings the server
- *  types as a bad moment were honoured on the flush and dropped on the first press, which is where they mostly arrive. */
+/** The same success, retry and refusal rule serves a fresh press and offline replay. */
 export const MARK_PRESS = {
   /** THE PRESS MADE NOW, one answer in, one ending out (a throw is `null`). `queueable` is the caller's own fact: only a
    *  plain whole-change mark carries nothing this device's queue cannot re-send, so only that one may be kept. */
@@ -58,8 +57,8 @@ export const MARK_PRESS = {
     ].filter(Boolean).join(" ") };
   },
   /** THE PRESS KEPT ON THIS DEVICE until the next load sends it again. */
-  keep(proposalId: string): void {
-    writeMarkQueue([...readMarkQueue().filter((r) => r.proposalId !== proposalId), { proposalId, at: Date.now() }]);
+  keep(proposalId: string, expectedVersion: string): void {
+    writeMarkQueue([...readMarkQueue().filter((r) => r.proposalId !== proposalId || r.expectedVersion !== expectedVersion), { proposalId, expectedVersion, at: Date.now() }]);
   },
 };
 
@@ -71,27 +70,25 @@ function useMarkQueueFlush(): string | null {
   useEffect(() => {
     if (markQueueFlushed) return;
     markQueueFlushed = true;
+    const old = unboundMarks();
     const pending = readMarkQueue();
     writeMarkQueue(pending);
-    if (pending.length === 0) return;
+    const oldNotice = old ? `${old} earlier offline press${old === 1 ? "" : "es"} could not be replayed because this device did not save the copy version. Open the change and record exactly what you applied.` : "";
+    if (pending.length === 0) { if (oldNotice) setSaid(oldNotice); return; }
     void (async () => {
       const answers: (PressAnswer | null)[] = [];
       for (const row of pending) {
-        try { answers.push(await markProposalImplementedAction({ proposalId: row.proposalId })); } catch { answers.push(null); }
+        try { answers.push(await markProposalImplementedAction({ proposalId: row.proposalId, expectedVersion: row.expectedVersion })); } catch { answers.push(null); }
       }
       const { keep, said: says } = MARK_PRESS.flush(answers);
       writeMarkQueue(keep.map((i) => pending[i]!));
-      setSaid(says);
+      setSaid([says, oldNotice].filter(Boolean).join(" "));
     })();
   }, []);
   return said;
 }
 
-/** The exact words, on the clipboard, in one press. The button itself says it worked for two seconds, because a
- *  toast at the foot of a long list is no answer to a press at the top of it. Nothing is written to the site.
- *  ONE COPY CONTROL FOR THE WHOLE PRODUCT: Today's top edit and the change detail render this same button, so
- *  a pasteable line is never handed over without the press that takes it. `onToast` is the LIST's echo and is
- *  absent everywhere else, because a server-rendered page cannot hand a function to a client component. */
+/** One copy control serves Today and Changes; `onToast` is the list's optional echo. */
 /** THE WORDS OF A LINK CHANGE: the address the underlined words point at. The card says "make the underlined words a link",
  *  so the words are underlined on screen and carried as a real anchor on the clipboard. */
 type CopyLink = { href: string; anchor: string; /** The page the copy lands on: the clipboard's anchor is written absolute off its host, so a pasted link resolves anywhere. */ pageUrl?: string | null } | null;
@@ -257,12 +254,10 @@ export function ReviewAnswer({ proposalId, version, approvable }: { proposalId: 
   );
 }
 
-/** "Mark done" records that the OPERATOR applied the change. THE PARTIAL-BUNDLE PICKER: three of five pieces
- *  applied must not record five, and the two they skipped stay theirs to do. THE NOTE carries their own words
- *  beside the reading. THE ADDRESS, for a new page only. THE CONFIRMATION, for a piece that moves or hides a
- *  page, which the server asks for again and refuses without. */
-export function MarkImplemented({ proposalId, label: idle = "Mark done", components, newPage = false, onRecorded }: {
+/** Record only selected pieces of the displayed version; new pages and risky moves require their additional facts. */
+export function MarkImplemented({ proposalId, expectedVersion, label: idle = "Mark done", components, newPage = false, onRecorded }: {
   proposalId: string;
+  expectedVersion: string;
   label?: string;
   /** Fired once the server accepted the record, so the card that hosts this can flip itself in place. */
   onRecorded?: (note: string | null) => void;
@@ -300,7 +295,7 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
       // is read by the SAME rule the flush reads, so a bad moment the server typed is kept here too instead of
       // being printed once and lost.
       const res = await markProposalImplementedAction({
-        proposalId,
+        proposalId, expectedVersion,
         ...(newPage ? { liveUrl: liveUrl.trim() } : {}),
         ...(pickable && applied.size < pickable.length ? { componentIds: [...applied] } : {}),
         ...(ownWording.trim() ? { appliedText: ownWording.trim() } : {}),
@@ -308,7 +303,7 @@ export function MarkImplemented({ proposalId, label: idle = "Mark done", compone
       }).catch(() => null);
       const end = MARK_PRESS.fresh(res, { queueable });
       if (end.ending === "recorded") { const note = res?.note ?? null; setState({ done: true, error: null, note }); onRecorded?.(note); return; }
-      if (end.ending === "queued") MARK_PRESS.keep(proposalId);
+      if (end.ending === "queued") MARK_PRESS.keep(proposalId, expectedVersion);
       setState({ done: false, error: end.said, note: null, queued: end.ending === "queued" });
     });
   }

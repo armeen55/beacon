@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server"; import { createRoot } from "react-dom/client"; import { act, createElement, type ReactElement } from "react"; import { createRequire } from "node:module";
 import type { ChangeProposal } from "@/domains/decision";
+import { confirmedVersion as versionOf } from "@/domains/decision/completeness";
 import { actionableProposalFailures as failures } from "@/domains/decision/validate-proposal";
 import type { ChangesView } from "@/app/(shell)/changes-data";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -93,7 +94,7 @@ describe("a direct link renders only what the ranked list would, and always land
   });
   it("refuses a receipt that no longer resolves, and holds a page-mover until the operator confirms it here", async () => {
     shipped.records = [];
-    const b = bundled(NOW).bundle!; const mark = async (p: ChangeProposal, args: Record<string, unknown> = {}) => { await link(p); return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, ...args }); }; const broken = { ...bundled(NOW), bundle: { ...b, components: [{ ...b.components[0]!, evidenceKeys: ["nothing-holds-this"] }] } } as ChangeProposal; expect([(await mark(broken)).success, shipped.records.length]).toEqual([false, 0]);
+    const b = bundled(NOW).bundle!; const mark = async (p: ChangeProposal, args: Record<string, unknown> = {}) => { await link(p); return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, expectedVersion: versionOf(p), ...args }); }; const broken = { ...bundled(NOW), bundle: { ...b, components: [{ ...b.components[0]!, evidenceKeys: ["nothing-holds-this"] }] } } as ChangeProposal; expect([(await mark(broken)).success, shipped.records.length]).toEqual([false, 0]);
     const merge = { ...bundled(NOW), status: "needs_review", riskLevel: "high", bundle: { ...b, risks: ["The old address stops answering."], components: [{ ...b.components[0]!, kind: "consolidation", label: "Merge the two pages", risk: "dangerous", redirectTo: "https://site.example/keep" }] } } as unknown as ChangeProposal;
     const refused = await mark(merge); expect([refused.success, refused.error?.includes("still being reviewed"), shipped.records.length]).toEqual([false, true, 0]); expect([(await mark(merge, { destructiveConfirmed: true })).success, shipped.records.length]).toEqual([false, 0]);
     const { confirmDangerousChangeAction: confirm } = await import("@/app/(shell)/changes/actions"), { confirmedVersion, answerReviewedProposal: promote } = await import("@/domains/decision");
@@ -103,7 +104,7 @@ describe("a direct link renders only what the ranked list would, and always land
     await link(merge); const ok = await confirm({ proposalId: merge.id, version: confirmedVersion(merge) }), sent = vi.mocked(promote).mock.calls.at(-1);
     expect([html.includes("Confirm this version"), html.includes("Mark done"), stale.success, stale.error?.includes("rewritten since"), wrong.success, wrong.error?.includes("does not move or hide a page"), ok.success, vi.mocked(promote).mock.calls.length, sent?.[1], sent?.[2] === confirmedVersion(merge)]).toEqual([true, false, false, true, false, true, true, 1, merge.id, true]); });
   it("refuses a hand-made Mark done request for whole-page work during the manual-edit proof", async () => { shipped.records = []; const b = bundled(NOW).bundle!, whole = { ...bundled(NOW), changeFamily: "full_rewrite", bundle: { ...b, components: [{ ...b.components[0]!, kind: "full_rewrite", target: { mode: "whole_body", anchorKind: null, anchor: null } }] } } as ChangeProposal;
-    await link(whole); const result = await (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: whole.id }); expect([result.success, result.error?.includes("outside the current manual-edit proof"), shipped.records.length]).toEqual([false, true, 0]); }); });
+    await link(whole); const result = await (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: whole.id, expectedVersion: versionOf(whole) }); expect([result.success, result.error?.includes("outside the current manual-edit proof"), shipped.records.length]).toEqual([false, true, 0]); }); });
 describe("an account that skipped the connectors still reaches its own Today", () => {
   it("calls an account a demo only when it truly holds nothing, never merely because it connected nothing", async () => {
     const gate = async (repo: () => unknown) => {
@@ -232,7 +233,7 @@ describe("bulk Mark Done is one batch, durable before acknowledged", () => {
     const rows = new Map(["a", "b", "c"].map((k) => { const r = readyRow(`t::/${k}::existing_edit::missing_description`); return [r.id, r] as const; }));
     const { markManyImplementedAction, transition, reads } = await wire(rows, []);
     const ids = [...rows.keys()];
-    const res = await markManyImplementedAction({ proposalIds: [...ids, ids[0]!] }); // a duplicated input id is one press
+    const res = await markManyImplementedAction({ proposals: [...ids, ids[0]!].map((id) => ({ id, expectedVersion: versionOf(rows.get(id)!) })) }); // a duplicated input id is one press
     expect([res.success, res.done, res.already, res.failed.length], "three recorded, none failed, the duplicate deduped").toEqual([true, 3, 0, 0]);
     expect(res.results.map((r) => r.outcome), "per-id results say what each row became").toEqual(["recorded", "recorded", "recorded"]);
     expect(res.results.every((r) => !!r.shipmentId), "every success names its Shipment").toBe(true);
@@ -242,10 +243,10 @@ describe("bulk Mark Done is one batch, durable before acknowledged", () => {
     const a = readyRow("t::/a::existing_edit::missing_description"), b = readyRow("t::/b::existing_edit::missing_description", { status: "needs_review" });
     const rows = new Map([a, b].map((r) => [r.id, r] as const));
     const { markManyImplementedAction } = await wire(rows, []);
-    const first = await markManyImplementedAction({ proposalIds: [a.id, b.id] });
+    const first = await markManyImplementedAction({ proposals: [a, b].map((p) => ({ id: p.id, expectedVersion: versionOf(p) })) });
     expect([first.done, first.failed.length, first.failed[0]?.id], "the review row fails alone; the ready row records").toEqual([1, 1, b.id]);
     const written = shipped.records.at(-1) as { proposalVersion: string }; // CRASH HEAL: the Shipment landed but the flip did not. The retry finds the SAME Shipment through the door's own (proposal, version) idempotency, writes nothing new, and completes the flip it owes.
     const healed = await wire(rows, [{ id: "rec-1", proposalId: a.id, proposalVersion: written.proposalVersion, componentsApplied: [{ id: null }], measurementState: "measuring" }]);
-    const retry = await healed.markManyImplementedAction({ proposalIds: [a.id] });
+    const retry = await healed.markManyImplementedAction({ proposals: [{ id: a.id, expectedVersion: versionOf(a) }] });
     expect([retry.results[0]!.outcome, retry.results[0]!.shipmentId, shipped.records.length, healed.transition.mock.calls.length], "the retry heals the flip through the SAME Shipment, writes no duplicate, and flips once").toEqual(["recorded", "rec-1", 0, 1]); });
 });

@@ -16,6 +16,7 @@ import type { GscProofConfidence, GscProofVerdict, MeasurementState, ProofBaseli
 import type { PinnedRead } from "./pinned-read";
 import type { ControlReceipt } from "./contamination";
 import { settledVerdictOf } from "./measure-lifecycle";
+import { SHIPMENT_PROOF } from "./shipment-proof";
 
 const TABLE = "shipped_change_proof", STORE = "proof-gsc-ledger";
 /** What the live check found. FROZEN SHAPE, written only through `recordVerification`; `components` names
@@ -41,7 +42,7 @@ export type ShipmentVerification = {
 const CONFIRMED: ReadonlySet<string> = new Set(["verified", "partially_verified"]);
 /** Preserve confirmed status through a differing recheck; first, same-status and fully verified reads replace the receipt. */
 function keepConfirmed(held: ShipmentVerification | null | undefined, next: ShipmentVerification): ShipmentVerification {
-  if (held == null || !CONFIRMED.has(held.status) || next.status === "verified" || next.status === held.status) return next;
+  if (held == null || held.checkerContract !== SHIPMENT_PROOF.contract || !CONFIRMED.has(held.status) || next.status === "verified" || next.status === held.status) return next;
   // THE RECHECK DAY IS THE LATEST READ'S, never the confirmed read's: a kept `recheckAfter` already in the past re-queued a partly verified row on every pass for ever, and `rechecks` grew without bound.
   return { ...held, checks: next.checks ?? held.checks, recheckAfter: next.recheckAfter ?? null, rechecks: [...(held.rechecks ?? []), { status: next.status, checkedAt: next.checkedAt, reason: next.reason ?? null }] };
 }

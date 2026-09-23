@@ -208,7 +208,7 @@ function failureStatusOf(result: { reason: string; detail?: string }): number {
 /** PURE. How much of the page the snapshot holds. `unread`: a normal response whose body yielded zero words, a page the raw fetch cannot see (javascript-rendered), never a page that says nothing. The inventory used to grade these `complete`, asserting coverage of pages nobody had read. */
 export function completenessOf(snap: PageSnapshot): "complete" | "partial" | "unread" {
   if ((snap.word_count ?? 0) === 0 && snap.http_status === 200) return "unread";
-  return (snap.structural_warnings ?? []).some((w) => w.startsWith("body_text_truncated")) ? "partial" : "complete"; }
+  return snap.content_capture?.complete !== true || (snap.structural_warnings ?? []).some((w) => w.startsWith("body_text_truncated")) ? "partial" : "complete"; }
 
 // ---------------------------------------------------------------------------
 // Init: bounded discovery -> durable inventory -> working set

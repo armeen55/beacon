@@ -11,6 +11,7 @@
 
 import { topicTokens } from "@/domains/evidence/relevance-gate";
 import { authorizedCorrections, readFactChecks } from "@/domains/evidence/pages/fact-checks";
+import { claimTypeOf, supportFailure } from "@/domains/evidence/pages/claim-support";
 import { classifyResult } from "@/domains/evidence/serp-shape"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { ChangeProposal } from "../contracts"; import { COPY_RULES } from "../copy-sanitize"; import { createHash } from "node:crypto"; import { canonicalUrlKey } from "@/domains/evidence/relevance-gate";
 import type { CauseFinding } from "../diagnosis"; import { RECEIPT } from "../diagnose";
@@ -138,8 +139,8 @@ export const produceSourceExpansion: Producer = async (ctx) => {
   // Credibility first: an engine that READ this page and named somebody else judged whether it can be checked, so that one sources what the page already claims; a gap it never reached is a coverage question.
   const expansion = cause === "ai_citation_gap" && missing.length > 0;
   // 1. THE CLAIM, and it has to belong on the page.
-  const claims = (expansion ? missing : pageClaims(ctx)).slice(0, MAX_REQUIREMENTS);
-  if (claims.length === 0) return refuse("Nothing on file is a claim this page could make that a source would back: no subject the cited pages all name that this one leaves out, and none of this page's own sentences. This page and those need reading again.");
+  const candidates = (expansion ? missing : pageClaims(ctx)).slice(0, MAX_REQUIREMENTS);
+  if (candidates.length === 0) return refuse("Nothing on file is a claim this page could make that a source would back: no subject the cited pages all name that this one leaves out, and none of this page's own sentences. This page and those need reading again.");
   // 2. WHAT KIND OF SOURCE, read off the pages actually being cited for this search rather than invented.
   const publishers = [...new Set((ctx.pattern?.publishers ?? []).map((p) => p.trim()).filter((p) => p.length > 0))].slice(0, 3);
   if (publishers.length === 0 || !ctx.pattern) return refuse("The pages being cited for this search have not been read, so what kind of source would stand up here is unknown. They need reading first.");
@@ -147,9 +148,25 @@ export const produceSourceExpansion: Producer = async (ctx) => {
   // evidence work, not operator work, and must not consume a drafting call or reach Ready as homework.
   const pagePath = (() => { try { return new URL(ctx.page.url.startsWith("http") ? ctx.page.url : `https://${ctx.page.url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return ctx.page.url; } })();
   const verified = authorizedCorrections(await readFactChecks(ctx.tenantId, pagePath).catch(() => []), undefined, ctx.tenantId).filter((f) => f.sources.length > 0);
-  const backing = (c: string): string | null => { const tokens = new Set(topicTokens(c)), fact = verified.find((f) => c.toLowerCase().includes(f.subject.toLowerCase()) || topicTokens(f.subject).filter((t) => tokens.has(t)).length >= 2) ?? null, source = fact?.sources[0]; return source ? `${c} stands on a verified source already on file: ${source.url} says "${source.says}". Cite that page.` : null; };
-  const sourceRequirements = claims.map(backing);
-  if (sourceRequirements.some((line) => line == null)) return refuse(`The page-level claim still owes a verified source before copy is written. The fact pass must resolve ${claims.filter((_, i) => sourceRequirements[i] == null).map(sentence).join("; ")}.`);
+  const same = (a: string, b: string): boolean => a.trim().replace(/\s+/g, " ").replace(/[.!?]+$/, "").toLowerCase()
+    === b.trim().replace(/\s+/g, " ").replace(/[.!?]+$/, "").toLowerCase();
+  const backed = candidates.map((candidate) => {
+    // An expansion candidate is a subject until a qualified reading supplies
+    // its predicate. Existing page copy already states a predicate, so require
+    // that exact proposition. Topic overlap authorizes neither kind.
+    const supported = verified.flatMap((fact) => fact.proposed && (expansion
+      ? same(fact.subject, candidate) && fact.current.trim() === ""
+      : same(fact.proposed, candidate)) ? fact.sources.map((source) => ({ fact, source })) : [])
+      .find(({ fact, source }) => source.support && supportFailure(source.support, {
+        tenantId: ctx.tenantId, page: fact.page, statementKey: fact.statementKey, pageLocator: fact.pageLocator,
+        subject: fact.subject, claimKind: claimTypeOf(fact.subject, fact.current || fact.proposed!, fact.pageLocator),
+        current: fact.current, proposed: fact.proposed!, url: source.url, kind: source.kind, quote: source.says,
+        titleContext: source.titleContext ?? null,
+      }) == null);
+    return supported ? { claim: supported.fact.proposed!, requirement: `${supported.fact.statementKey} [${supported.source.support!.identity}]: ${supported.source.url} says "${supported.source.support!.supportSpan}". Cite that page.` } : null;
+  });
+  if (backed.some((item) => item == null)) return refuse(`The page-level claim still owes a verified source before copy is written. The fact pass must resolve ${candidates.filter((_, i) => backed[i] == null).map(sentence).join("; ")}.`);
+  const claims = backed.map((item) => item!.claim), sourceRequirements = backed.map((item) => item!.requirement);
   // 4. WHERE IT BELONGS.
   const place = ctx.page.outline[0] ? `the section headed "${ctx.page.outline[0]}"` : "the part of this page that answers the search";
   // 3. THE EXACT LINE, bought through the same firewall, budget and cache as every other draft, and grounded in what belongs on a page: the winners' reading and this page's own words. Never my own figures.
@@ -161,7 +178,7 @@ export const produceSourceExpansion: Producer = async (ctx) => {
       ? `${seen.engine} answered "${seen.promptText}" naming other sites and never this page, and every page it named covers ${claims.join(", ")} while this one does not. Cover that here in one short section, in this page's own terms, and name where each statement comes from.`
       : `${seen.engine} read this page while answering "${seen.promptText}" and cited other sites. Restate what this page already says, in one short section, so every statement in it names the source a reader can check: ${claims.join(" ")}`,
     outline: ctx.page.outline,
-    evidenceHints: [...claims, ...(ctx.pattern.commonHeadings ?? []).map((h) => h.heading), ...(ctx.pattern.brief?.deltas ?? []).filter((delta) => delta.dimension === "questions" && delta.sources.length > 0).map((delta) => delta.need)],
+    evidenceHints: [...sourceRequirements, ...(ctx.pattern.commonHeadings ?? []).map((h) => h.heading), ...(ctx.pattern.brief?.deltas ?? []).filter((delta) => delta.dimension === "questions" && delta.sources.length > 0).map((delta) => delta.need)],
   });
   if (!drafted) return refuse("No sourced line for this page passed its own checks, so nothing is handed over rather than filler.");
   return {

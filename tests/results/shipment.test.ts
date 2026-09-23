@@ -48,7 +48,7 @@ const legacyRow = (): Row => ({
   shipped_at: "2026-06-20T12:00:00.000Z", baseline: { clicks: 5, impressions: 400, ctr: 0.0125, position: 12, windowDays: 28 }, target_queries: [], control_pages: [], windows: [],
   verdict: "measuring", confidence: "low", measured_at: null, notes: null, verified_live: false, live_source_url: null, recrawl_requested_at: null, created_at: "2026-06-20T00:00:00.000Z", updated_at: "2026-06-20T00:00:00.000Z",});
 const withSiteHistory = (clicks = 9, matched: Array<[string, unknown]> = []) => gsc.window.mockImplementation(async (a: { siteTotal?: { key: string } }) => new Map<string, unknown>([[PAGE, { clicks, impressions: 1200, ctr: clicks / 1200, position: 14 }], ...matched, ...(a.siteTotal ? [[a.siteTotal.key, { clicks: 900, impressions: 120000, ctr: 0.0075, position: 14 }] as [string, unknown]] : [])]));
-const verification = (status: ShipmentVerification["status"]): ShipmentVerification => ({ status, checkedAt: "2026-08-02T00:00:00.000Z", components: [{ kind: "title", state: "verified", note: null }] });
+const verification = (status: ShipmentVerification["status"]): ShipmentVerification => ({ status, checkerContract: SHIPMENT_PROOF.contract, checkedAt: "2026-08-02T00:00:00.000Z", components: [{ kind: "title", state: "verified", note: null }] });
 const ranWindow = (day: number, adjustedLift: number, controlsUsed = 3) => ({ day, checkOn: "2026-09-25", ran: true, treatedDelta: 0, controlDelta: 0, adjustedLift, treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0.02, treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0, controlsUsed, treatedPostImpressions: 5000,});
 beforeEach(() => {
   Object.assign(db.state, { rows: [], file: [], offline: false, upsertError: null, updateError: null });
@@ -148,6 +148,10 @@ describe("recording what the live check found", () => {
     const manual = () => loadShippedChangesForTenant(T).then((rows) => rows.find((r) => r.id === "shp_manual")!); expect([(await manual()).verifiedLive, (await manual()).verification?.status]).toEqual([true, "not_found"]);
     await recordVerification(T, "shp_manual", { ...verification("partially_verified"), recheckAfter: "2026-08-01", checks: 1 }); await recordVerification(T, "shp_manual", { ...verification("differs"), recheckAfter: "2026-08-05", checks: 2 });
     expect([(await manual()).verifiedLive, (await manual()).verification?.status, (await manual()).verification?.recheckAfter, (await manual()).verification?.rechecks?.length]).toEqual([true, "partially_verified", "2026-08-05", 1]);});});
+it("replaces a contract-4 confirmation when the current structural read disagrees", async () => {
+  const record = await ship(); await upsertShippedChange({ ...record, verifiedLive: true, verification: { ...verification("verified"), checkerContract: 4 } });
+  await recordVerification(T, record.id, { ...verification("differs"), reason: "not_published_yet" }); const after = (await loadShippedChangesForTenant(T))[0]!;
+  expect([after.verification?.checkerContract, after.verification?.status, after.verifiedLive, after.implementedAt]).toEqual([SHIPMENT_PROOF.contract, "differs", false, NOW.toISOString()]); });
 describe("when the Shipment columns are not there yet", () => {
   const MISSING_COLUMN = { code: "PGRST204", message: "Could not find the 'implemented_at' column of 'shipped_change_proof' in the schema cache" };
   it("refuses a Shipment it cannot store durably, but still files a pre-Shipment row nothing reads from the table", async () => {

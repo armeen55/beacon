@@ -21,7 +21,7 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     : packet.treatment === "structural_synthesis" || kind === "scattered_answer" || kind === "weak_extractability" ? "restructuring"
     : kind === "stale_fact" ? "correction"
     : "missing_answer";
-  const need = packet.informationNeed, atoms = packet.answerAtoms ?? [], complete = !!need && need.requiredAtomKeys.length > 0 && need.requiredAtomKeys.every((key) => { const found = atoms.filter((a) => a.key === key); return found.length > 0 && found.every((a) => a.polarity === need.polarity && a.voice === need.voice); });
+  const need = packet.informationNeed, atoms = packet.answerAtoms ?? [], complete = !!need && need.requiredAtomKeys.length > 0 && need.requiredAtomKeys.every((key) => { const found = atoms.filter((a) => a.key === key); return found.length > 0 && found.every((a) => a.polarity === need.polarity && a.voice === need.voice && !!packet.evidence[a.evidenceId]?.trim()); });
   if (!WIDTH[field] && !complete) return null;
   const bound = (WIDTH[field] ? facts : [...new Set(atoms.filter((a) => need!.requiredAtomKeys.includes(a.key)).map((a) => a.evidenceId))]).slice(0, 8);
   const base = { page: packet.targetUrl, standard, gapKind: kind,
@@ -29,7 +29,9 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     ...((packet.reading?.sells ?? []).length > 0 ? { sells: [...packet.reading!.sells] } : {}),
     propositions: props, diagnosedGap: gap,
     intent: [...new Set([...(packet.comparison?.queries ?? []), packet.trackedQuestion ?? "", ...(packet.demand.unanswered ?? [])])].filter((x): x is string => !!x).slice(0, 6),
-    facts: bound.map((id) => ({ id, says: (packet.checkedSentences ?? [])[facts.indexOf(id)] ?? "" })),
+    // The atom names the exact qualified evidence entry, not a position in the
+    // fact-only list. A page-copy atom used to survive as an id with no words.
+    facts: bound.map((id) => ({ id, says: packet.evidence[id] ?? "" })),
     observations: (packet.comparison?.winners ?? []).flatMap((w) => w.observations.slice(0, 2).map((o) => ({ publisher: w.publisher, publisherClass: w.publisherClass, kind: o.kind, text: o.text, quote: o.quote }))).slice(0, 12),
     keep: (packet.comparison?.keep ?? []).slice(0, 4),
     ...(rewrite?.replaces?.trim() ? { replaces: rewrite.replaces.trim() } : {}),

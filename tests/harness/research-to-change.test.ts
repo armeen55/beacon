@@ -15,10 +15,12 @@ import { defaultSteps } from "@/domains/runtime/ops/research-steps";
 import { dueWork, accountBasis } from "@/domains/runtime/ops/due-work";
 import { setAccountRepositoryForTests, type AccountRepository } from "@/domains/account/tenants/store";
 import { nextObligation } from "@/domains/decision/obligation";
+import { confirmedVersion } from "@/domains/decision/completeness";
 import { COPY_RULES } from "@/domains/decision/copy-sanitize";
 import { loadChangeProposals } from "@/domains/decision/proposal-store";
 import { authorizedCorrections, readFactChecks, recordFactChecks, rulesVersionFor } from "@/domains/evidence/pages/fact-checks";
 import { pageHashOf, claimIdentity } from "@/domains/evidence/pages/fact-check-run";
+import { claimTypeOf, deriveSupport } from "@/domains/evidence/pages/claim-support";
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { resolveCurrentBasis } from "@/domains/decision/load-proposals";
@@ -54,6 +56,12 @@ const REASONING = { page_job: { topics: ["names", "notable people", "history"], 
 const ownedPage = () => seedOwnedPages([{ path: HUB, title: "Most Famous Iranians and Persians of All Time", h1: "Famous and Influential Iranian People",
   meta: "Explore the most famous Iranians and Persians in history.", h2: ["Famous Iranian Poets", "Famous Iranian Athletes", "Famous Iranian Actors"],
   body: ["Iran has produced writers, athletes and performers whose work travelled far beyond its borders.", "The poets section lists three poets with a short line on each.", "The athletes section lists wrestlers and weightlifters who won world titles.", "The actors section lists screen performers who worked at home and abroad.", "Each entry gives a name, a period and one sentence about why the person is remembered."].join("\n") }]);
+const scientistSource = () => {
+  const kind = "encyclopedia" as const, quote = SECTION.says, statementKey = claimIdentity(SECTION.subject, "", "missing");
+  const support = deriveSupport({ tenantId: T, page: HUB, statementKey, pageLocator: null, subject: SECTION.subject, claimKind: claimTypeOf(SECTION.subject, quote), current: "", proposed: quote, url: SECTION.source, kind, quote, titleContext: null });
+  if (!support) throw new Error("the fixture's scientist quote must entail its claim");
+  return { url: SECTION.source, kind, says: quote, support };
+};
 
 async function drive(plan: string[], phase = "keyword_discovery", progress: Row = {}, deadlineMs = 200_000): Promise<RunRow> {
   if (!runs.some((r) => r.status !== "completed")) seedRun({ status: "paused", current_phase: phase, progress: { plan: { units: plan }, ...progress } });
@@ -80,7 +88,7 @@ beforeEach(async () => {
   basis = (await accountBasis(T))!;
   seedProposals((r) => String(r.page_key) === HUB);
   seedSearchHistory([{ path: HUB, query: QUERY }]);
-  ownedPage();
+  await ownedPage();
 });
 afterEach(() => vi.useRealTimers());
 
@@ -90,16 +98,16 @@ afterEach(() => vi.useRealTimers());
 async function authorizeGroundedOpening(): Promise<{ after: string; claims: { text: string; supportedBy: string[] }[] }> {
   const url = `https://${SITE}${HUB}`, owner = (await loadOwnedPageBodies(T, [url])).get(canonicalUrlKey(url))!, evidenceBasis = await resolveCurrentBasis(T), at = now().toISOString();
   await recordFactChecks(T, HUB, [{ page: HUB, statementKey: claimIdentity(SECTION.subject, "", "missing"), subject: SECTION.subject, current: "", proposed: SECTION.says, literal: null, usage: null,
-    sources: [{ url: SECTION.source, kind: "encyclopedia", says: SECTION.says }], agreement: "single_source", confidence: "confirmed", verdict: "page_correct", alsoAt: [], note: "",
+    sources: [scientistSource()], agreement: "single_source", confidence: "confirmed", verdict: "page_correct", alsoAt: [], note: "",
     pageContentHash: pageHashOf([owner.title, owner.h1, ...owner.headings, ...owner.passages].filter(Boolean).join("\n")), pageLocator: null, sourceReadAt: at, state: "checked",
     rulesVersion: rulesVersionFor({ subject: SECTION.subject, current: "" }), evidenceBasis, checkedAt: at }]);
   script.page = (pageUrl) => pageUrl.endsWith("/robots.txt") ? { html: "User-agent: *\nAllow: /", contentType: "text/plain" }
     : { html: `<html><head><title>Famous Iranians, by the work they did</title></head><body><h1>Famous Iranians through history</h1><h2>Poets</h2><h2>Athletes</h2><h2>${SECTION.subject}</h2><p>${SECTION.says} ${"Each entry names a person and says why they are remembered. ".repeat(20)}</p></body></html>` };
-  const originalUnits = COPY_RULES.originalUnits(owner.passages.join("\n"));
+  const originalUnits = COPY_RULES.originalUnits(owner.answerPassages!.join("\n"));
   const preservation = originalUnits.map((text) => ({ text, disposition: "kept" as const }));
   const writer = { ...SECTION_WRITER, naturalHeading: "Who the widely known Iranians are", preservation,
     rationale: "The pages above this one answer the search immediately, so this opening names the groups already on the page and adds the checked scientists before preserving every existing passage.",
-    after: `Famous Iranians include poets, athletes, actors and scientists. ${SECTION.says} ${owner.passages.join(" ")}`,
+    after: `Famous Iranians include poets, athletes, actors and scientists. ${SECTION.says} ${owner.answerPassages!.join(" ")}`,
     claims: [
       { text: "Famous Iranians include poets, athletes, actors and scientists.", supportedBy: ["page-heading-2", "page-heading-3", "page-heading-4", "fact-1"] },
       { text: SECTION.says, supportedBy: ["fact-1"] },
@@ -215,7 +223,7 @@ describe("the finished work, and recording that the operator applied it", () => 
     await finishHub();
     const ready = [...(await loadChangeProposals(T)).values()].find((r) => (r.pagePath ?? "") === HUB)!;
     const { markProposalImplementedAction } = await import("@/app/(shell)/changes/actions");
-    const pressed = await markProposalImplementedAction({ proposalId: ready.id });
+    const pressed = await markProposalImplementedAction({ proposalId: ready.id, expectedVersion: confirmedVersion(ready) });
     const after = (await loadChangeProposals(T)).get(ready.id), shipped = table("shipped_change_proof").filter((r) => r.tenant_id === T), facts = shipped[0] as { page?: string; components_applied?: { after?: string }[] } | undefined;
     expect([pressed.success, after?.id, after?.status, shipped.length, facts?.page, (facts?.components_applied ?? [])[0]?.after?.includes(SECTION.says)], `the press lands (${"error" in pressed ? pressed.error : "no error"}), the change keeps the identity it was written under and reads as work being measured, and exactly one record stands behind it naming the page and the exact words that went out, which is what a later reading compares against`).toEqual([true, ready.id, "implemented_pending_verification", 1, `https://${SITE}${HUB}`, true]);
   });
@@ -253,7 +261,7 @@ describe("three opportunities waiting on their own results page", () => {
         return { body: { status_code: 20000, cost: 0, tasks: [{ id, status_code: state.ready ? 20000 : 40602, status_message: state.ready ? "Ok." : "Task in Queue.",
           result: state.ready ? [{ keyword: q, items: [1, 2, 3].map((n) => ({ type: "organic", rank_absolute: n, domain: `ref${n}.example`, url: `https://ref${n}.example/${q.replace(/\s+/g, "-")}`, title: `${q} on ref${n}` })) }] : null }] } }; }
       return { body: { status_code: 20000, cost: 0.01, tasks: [{ status_code: 20000, result: [{ items: [{ keyword: asked, search_volume: 1200, competition: 0.3, keyword_info: { search_volume: 1200, competition: 0.3 } }] }] }] } }; }; };
-  const seedSiblings = (of: readonly typeof PAGES[number][]): void => void seedOwnedPages(of.map((p) => ({ path: p.path, title: `Persian and Iranian ${p.query}`, h1: `Persian and Iranian ${p.query}`, meta: `A named list for ${p.query}.`, h2: [...p.h2],
+  const seedSiblings = (of: readonly typeof PAGES[number][]): Promise<void> => seedOwnedPages(of.map((p) => ({ path: p.path, title: `Persian and Iranian ${p.query}`, h1: `Persian and Iranian ${p.query}`, meta: `A named list for ${p.query}.`, h2: [...p.h2],
     body: ["Iran has produced writers, athletes and performers whose work travelled far beyond its borders.", "The poets section lists three poets with a short line on each.", "The athletes section lists wrestlers and weightlifters who won world titles.", "The actors section lists screen performers who worked at home and abroad.", "Each entry gives a name, a period and one sentence about why the person is remembered."].join("\n") })));
   const owedSerp = (p: typeof PAGES[number], rank: number) => ({ key: `${p.path}::body::${p.query}`, kind: "serp" as const, query: p.query, rank, reasonCode: "no_exact_serp",
     reason: `no results page for "${p.query}" is on file`, workKey: `${p.path}::body::${p.query}::wc5::e1`, unlocks: { proposalId: `${T}::${p.path}::existing_edit::demand_recovery`, step: "draft" } });
@@ -261,7 +269,7 @@ describe("three opportunities waiting on their own results page", () => {
   it("13: three results pages are posted on one drive and collected on the next, the winner reads follow on that same drive, and the row whose last dependency landed is drafted before the drive ends", async () => {
     const OTHERS = PAGES.slice(1);
     seedSearchHistory(OTHERS.map((p) => ({ path: p.path, query: p.query })));
-    seedSiblings(OTHERS);
+    await seedSiblings(OTHERS);
     seedResearchState(basis, { serps: [], winningPages: [] });
     const state = { ready: false, posted: [] as string[] }; script.search = threeTasks(state);
     const owed = PAGES.map((p, i) => owedSerp(p, [58, 63, 66][i]!)), keys = owed.map((n) => n.key).sort(), mine = (a: { key: string }) => keys.includes(a.key);
@@ -291,7 +299,7 @@ describe("three opportunities waiting on their own results page", () => {
   it("14: the free collections its hub rows are waiting on are finished in front of the walk, the row those collections unlocked is written on that same drive, and eleven lower-ranked readings take the room behind the walk", async () => {
     const OTHERS = PAGES.slice(1);
     seedSearchHistory(OTHERS.map((p) => ({ path: p.path, query: p.query })));
-    seedSiblings(OTHERS);
+    await seedSiblings(OTHERS);
     seedResearchState(basis, { serps: [], winningPages: [] });
     const state = { ready: false, posted: [] as string[] }; script.search = threeTasks(state);
     const owed = PAGES.map((p, i) => owedSerp(p, [58, 63, 66][i]!));
@@ -333,7 +341,7 @@ describe("the subject the winning page carries and this page does not", () => {
       fact_claim_judgement: { verdict: "page_correct", proposed: SAYS, confidence: "confirmed", note: "", supporting: [{ url: RIVAL, quote: SAYS, groups: [], supported: true, supportSpan: SAYS, subjectSpan: `${QUERY} ${SUBJECT}`, subjectFrom: "quote", relationSpan: "", meaningSpans: [] }],
         subjects: [{ url: RIVAL, sameEntity: true, language: "English", script: null, why: "the article covers the people this subject is about" }] } }, body);
     const url = `https://${SITE}${HUB}`, owner = (await loadOwnedPageBodies(T, [url])).get(canonicalUrlKey(url))!, evidenceBasis = await resolveCurrentBasis(T);
-    const current = mode === "published" ? owner.passages[0]! : "", locator = mode === "published" ? owner.h1 : "missing";
+    const current = mode === "published" ? owner.answerPassages![0]! : "", locator = mode === "published" ? owner.h1 : "missing";
     const key = mode === "legacy" ? "scientists" : claimIdentity(SUBJECT, current, locator), hash = pageHashOf([owner.title, owner.h1, ...owner.headings, ...owner.passages].filter(Boolean).join("\n"));
     const facts = await import("@/domains/evidence/pages/fact-checks"); await facts.recordOwedClaims(T, HUB, [{ statementKey: key, subject: SUBJECT, current, locator }], hash, evidenceBasis);
     if (mode === "published") await facts.recordFactChecks(T, HUB, [{ ...(await readFactChecks(T)).find(f => f.statementKey === key)!, state: "superseded", pageContentHash: "older-owned-version", evidenceBasis: "older-basis", rulesVersion: 0 }]);
@@ -433,7 +441,7 @@ describe("the whole-page writer and the pages winning the search", () => {
   it("21: the section family through the same door: named the heading every winner carries and this page lacks, and holding one checked reading, the writer adds a HEADED section citing fact-1 and the page's own words, the judge rules both claims exactly and contests nothing, and the section reloads as Ready with nothing owed", async () => {
     seedResearchState(basis, { serps: serpFor(QUERY) }); script.search = searchScript({ ready: true, posts: 0 });
     const url = `https://${SITE}${HUB}`, owner = (await loadOwnedPageBodies(T, [url])).get(canonicalUrlKey(url))!, evidenceBasis = await resolveCurrentBasis(T), at = now().toISOString(), facts = await import("@/domains/evidence/pages/fact-checks");
-    await facts.recordFactChecks(T, HUB, [{ page: HUB, statementKey: claimIdentity(SECTION.subject, "", "missing"), subject: SECTION.subject, current: "", proposed: SECTION.says, literal: null, usage: null, sources: [{ url: SECTION.source, kind: "encyclopedia", says: SECTION.says }], agreement: "single_source", confidence: "confirmed", verdict: "page_correct", alsoAt: [], note: "", pageContentHash: pageHashOf([owner.title, owner.h1, ...owner.headings, ...owner.passages].filter(Boolean).join("\n")), pageLocator: null, sourceReadAt: at, state: "checked", rulesVersion: rulesVersionFor({ subject: SECTION.subject, current: "" }), evidenceBasis, checkedAt: at }]);
+    await facts.recordFactChecks(T, HUB, [{ page: HUB, statementKey: claimIdentity(SECTION.subject, "", "missing"), subject: SECTION.subject, current: "", proposed: SECTION.says, literal: null, usage: null, sources: [scientistSource()], agreement: "single_source", confidence: "confirmed", verdict: "page_correct", alsoAt: [], note: "", pageContentHash: pageHashOf([owner.title, owner.h1, ...owner.headings, ...owner.passages].filter(Boolean).join("\n")), pageLocator: null, sourceReadAt: at, state: "checked", rulesVersion: rulesVersionFor({ subject: SECTION.subject, current: "" }), evidenceBasis, checkedAt: at }]);
     script.reasoning = (body) => reasoningReply({ ...REASONING, body_edit: publicationDraft(SECTION_WRITER), editor_judgement: SECTION_JUDGE }, body);
     /* THE COVERAGE VERDICT IS THE FIXTURE (the harness carries no discovery topics, so the coverage pass itself decides nothing here): the deep door is entered by the verdict door with the winners' shared heading, exactly as produce-proposals hands it over */
     const { loadEvidenceSnapshot } = await import("@/domains/evidence/snapshot-loader"), { produceBundleForSnapshot } = await import("@/domains/decision/produce-bundle"), { saveChangeProposal } = await import("@/domains/decision/proposal-store"), pattern = { commonHeadings: [{ heading: SECTION.subject, seenOn: [SECTION.source] }], commonEntities: [], questionsAnswered: [], ownedGaps: [], winners: 3 };

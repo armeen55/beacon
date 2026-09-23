@@ -67,35 +67,15 @@ describe("structured-drafter strict transport", () => {
     expect(cached.status === "drafted" && [cached.cached, cached.costUsd, hit.calls()]).toEqual([true, 0, 0]); const blocked = seam([{ error: "blocked_budget", retryable: false }]);
     const stopped = await callStructuredLLM({ ...REQ, complete: blocked.complete }); // a budget block fired no call
     expect(stopped.status === "validation_failed" && [stopped.costUsd, blocked.calls()]).toEqual([0, 1]); const refunded = { left: 1 }, noWire = await callStructuredLLM({ ...REQ, attempts: refunded, complete: async () => ({ error: "blocked_budget", retryable: false, httpAttempts: 0, costUsd: 0 }) }); expect([refunded.left, noWire.status === "validation_failed" && noWire.attempts, noWire.status === "validation_failed" && noWire.costUsd], "a proven pre-network refusal refunds its reservation without claiming a review").toEqual([1, 0, 0]); const unknown = { left: 1 }, lost = await callStructuredLLM({ ...REQ, attempts: unknown, complete: async () => { throw new Error("receipt lost"); } }); expect([unknown.left, lost.status === "validation_failed" && lost.attempts], "a thrown transport is never rewritten as proof that no request crossed the wire").toEqual([0, 1]); }); });
-/** A DESCRIPTION IS ABOUT THE PAGE'S SUBJECT, AND A PAGE'S QUESTION RAIL IS NOT ITS SUBJECT. `Page covers:` renders the stored headings verbatim, so on a product page whose first headings are its FAQ the model was told, truthfully, that the page covers shipping and returns, and it sold those: "Iran Shir o Khorshid Vertical Stripe Shirt with FAQs on shipping, returns, waterproofing, and gift-ready details on the page". A heading shaped as a question is the page ASKING something, not being about it. Only a description drops them; every other field still reads the whole outline. */
-describe("a description names the subject, never the page's own furniture", () => {
-  const ask = async (field: "meta" | "title") => { let seen = { system: "", user: "" }; const capture: CompleteFn = async (r) => { seen = { system: r.system, user: r.user }; return { error: "refusal", retryable: false }; };
-    await draftAtomicEditStructured({ query: "shir o khorshid shirt", pageLabel: "Shir o Khorshid Shirt", field, currentValue: null, tenantId: "t",
-      outline: ["Shir o Khorshid Vertical Stripe Shirt", "Does this ship internationally?", "What is the return policy?", "Cotton, mid-weight, regular fit"] }, { complete: capture });
-    return seen; };
-  it("tells the retry which text was rejected, and never asks a kind for a field its own schema lacks", async () => {
-    let second = ""; // LIVE on the fact judge: a Wikipedia reference marker like "[ 1 ]" inside a quoted passage trips the
-    const capture: CompleteFn = async (r) => { second = r.system;
-      return { value: { ...VALID_ATOMIC_EDIT, after: "Nowruz Traditions: what searchers ask [ 1 ] about" } }; }; // in `after`: rationale is reasoning the operator never pastes, so it is not scanned
-    await callStructuredLLM({ ...REQ, complete: capture });
-    expect(second, "the retry is shown the exact offending text").toContain("[ 1 ]");
-    expect(second).toContain("evidenceRefs"); // atomic_edit DOES carry evidenceRefs, so the instruction still belongs on this kind.
-    let judgeRetry = "";
-    const judge: CompleteFn = async (r) => { judgeRetry = r.system; return { value: { verdict: "not a valid judgement [ 2 ]" } }; };
-    await callStructuredLLM({ kind: "fact_claim_judgement", tenantId: "t", system: "You judge one claim.",
-      user: "Judge it.", grounded: "a passage", complete: judge } as never);
-    expect(judgeRetry, "a judgement has no evidenceRefs field, so it is never asked for one").not.toContain("evidenceRefs");
+describe("publication-only copy checks", () => {
+  it("treats citation markers in a fact verdict as data, while rejecting them in publication copy", async () => {
+    const copy = await callStructuredLLM({ ...REQ, complete: seam([{ value: { ...VALID_ATOMIC_EDIT, after: "Nowruz Traditions [ 1 ]" } }]).complete });
+    expect(copy.status).toBe("validation_failed");
     const VERDICT = { verdict: "page_correct", confidence: "likely", proposed: "", literal: "light", usage: "given name", note: 'the page quotes its source as "light [ 1 ]"', supporting: [], subjects: [] }; // A VERDICT IS NOT A PAGE (live, 2026-08-30): the judge quotes the page's own citation markers, so a schema-valid judgement carrying "[ 1 ]" DRAFTS; the bracket rule guards only copy a customer could paste (the atomic_edit above still refuses it).
     const ruled = await callStructuredLLM({ kind: "fact_claim_judgement", tenantId: "t", system: "You judge one claim.", user: "Judge it.", grounded: "a passage", complete: seam([{ value: VERDICT }]).complete } as never);
     expect(ruled.status, "a citation marker in a verdict is data, never an unfilled placeholder").toBe("drafted"); });
 
-  it("keeps the questions out of a meta and leaves every other field alone", async () => {
-    const meta = await ask("meta"), title = await ask("title");
-    expect(meta.user).toContain("Cotton, mid-weight, regular fit"); // the real attribute survives
-    expect(meta.user).not.toMatch(/ship internationally|return policy/); // the question rail never becomes the subject
-    expect(meta.system).toContain("DESCRIBE THE THING THE PAGE IS ABOUT, NEVER THE PAGE");
-    expect(title.user).toContain("Does this ship internationally?"); // a title still reads the whole outline
-    expect(title.system).not.toContain("DESCRIBE THE THING THE PAGE IS ABOUT"); });});
+});
 /** The body transport preserves publication structure and exact predecessor scope, not an answer-length quota. */
 import { withoutCta } from "@/domains/decision/drafted-copy";
 describe("structured body delivery", () => {

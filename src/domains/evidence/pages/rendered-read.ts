@@ -7,45 +7,41 @@ import { isCurrent, freshnessMsFor } from "@/domains/evidence/freshness";
 import { interp, resolveDeps, sha16, type FunnelDeps, type Interp, type ResolvedDeps } from "@/domains/evidence/funnel/shared";
 import type { BusinessProfile } from "@/domains/account";
 import { extractPageSnapshot } from "./extractor";
-import { selectPageVersion } from "./page-version";
 import type { CachedCallResult } from "@/domains/evidence/dataforseo/funnel-boundary";
 import type { PageSnapshot } from "./types";
 
 /** Bulk crawl recovery and exact page-source debt share the same rendered acquisition and snapshot writer. */
-const RENDERED_READS_PER_PASS = 60, SNAPSHOT_SCAN = 2000;
+const RENDERED_READS_PER_PASS = 60, INVENTORY_PAGE = 100, RETRY_MS = 86_400_000;
+async function holdUnresolved(tenantId: string, url: string, now: number): Promise<void> {
+  const { data, error } = await getSupabaseAdmin().from("owned_pages").update({ blocked_until: new Date(now + RETRY_MS).toISOString(), updated_at: new Date(now).toISOString() })
+    .eq("tenant_id", tenantId).eq("url", url).select("url");
+  if (error || data?.length !== 1) throw new Error(`rendered recovery retry could not be stored: ${error?.message ?? "inventory row changed"}`);
+}
 async function unreadOwnedPages(tenantId: string, d: ResolvedDeps, cap: number): Promise<string[]> {
   const sb = getSupabaseAdmin();
-  const { data, error } = await sb.from("page_snapshots")
-    .select("url, word_count, http_status, content_hash, extraction_certainty, fetched_at, structural_warnings, capture_complete:content_capture->complete").eq("tenant_id", tenantId)
-    .order("fetched_at", { ascending: false }).limit(SNAPSHOT_SCAN);
-  if (error) throw error;
-  type Row = { url: string; word_count: number; http_status: number; content_hash: string; extraction_certainty: string; fetched_at: string; structural_warnings: string[]; capture_complete: boolean | null };
-  const grouped = new Map<string, Row[]>(), held = new Set<string>();
-  for (const row of (data ?? []) as unknown as Row[]) {
-    const key = canonicalUrlKey(row.url);
-    if (!key) continue;
-    grouped.set(key, [...(grouped.get(key) ?? []), row]);
-    if (Array.isArray(row.structural_warnings) && row.structural_warnings.some((w: string) => w.startsWith("rendered_read"))
-      && isCurrent("owned_page", row.fetched_at, d.now())) held.add(key);
+  const picked: string[] = [], seen = new Set<string>();
+  for (let offset = 0; picked.length < cap; offset += INVENTORY_PAGE) {
+    const { data, error } = await sb.from("owned_pages").select("url").eq("tenant_id", tenantId)
+      .eq("crawl_state", "crawled").eq("http_status", 200).eq("is_canonical_target", true)
+      .or(`blocked_until.is.null,blocked_until.lte."${new Date(d.now()).toISOString()}"`)
+      .order("blocked_until", { ascending: true, nullsFirst: true })
+      .order("last_crawled_at", { ascending: true }).order("url", { ascending: true })
+      .range(offset, offset + INVENTORY_PAGE - 1);
+    if (error || !Array.isArray(data)) throw error ?? new Error("owned-page inventory read was incomplete");
+    const urls = data.map((row) => String(row.url ?? "")).filter(Boolean);
+    const misses = new Map<string, "no_capture" | "read_failed">(), bodies = await d.readOwnedBodies(tenantId, urls, misses);
+    for (const url of urls) {
+      const key = canonicalUrlKey(url), body = bodies.get(key), miss = misses.get(key);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      if (miss === "read_failed" || (!body && miss !== "no_capture")) throw new Error("owned-page body read was incomplete");
+      if (!(body?.version === "current" && body.completeness === "complete" && body.contentHash
+        && isCurrent("owned_page", body.fetchedAt, d.now()))) picked.push(url);
+      if (picked.length >= cap) break;
+    }
+    if (data.length < INVENTORY_PAGE) break;
   }
-  // Metadata only selects candidates; the canonical reader below makes the acquisition decision.
-  const targets = [...grouped].flatMap(([key, rows]) => {
-    const v = selectPageVersion(rows, (r) => ({ fetchedAt: r.fetched_at, words: r.word_count, bodyHeld: true, certainty: r.extraction_certainty, contentIdentity: r.content_hash })), row = rows[0]!;
-    return held.has(key) || row.http_status !== 200 || (v.state === "current" && row.capture_complete === true && row.extraction_certainty === "confirmed" && isCurrent("owned_page", row.fetched_at, d.now())) ? [] : [row.url];
-  });
-  if (!targets.length) return [];
-  const since = new Date(d.now() - 90 * 86_400_000).toISOString().slice(0, 10);
-  const { data: demand } = await sb.from("gsc_daily_page_totals")
-    .select("page, impressions").eq("tenant_id", tenantId).gte("date", since)
-    .in("page", targets.flatMap((url) => [url, url.replace("://www.", "://"), url.replace("://", "://www.")]));
-  const impressions = new Map<string, number>();
-  for (const row of demand ?? []) {
-    const key = canonicalUrlKey(row.page);
-    impressions.set(key, (impressions.get(key) ?? 0) + (row.impressions ?? 0));
-  }
-  const candidates = targets.sort((a, b) => (impressions.get(canonicalUrlKey(b)) ?? 0) - (impressions.get(canonicalUrlKey(a)) ?? 0)).slice(0, cap);
-  const bodies = await d.readOwnedBodies(tenantId, candidates);
-  return candidates.filter((url) => { const body = bodies.get(canonicalUrlKey(url)); return !(body?.version === "current" && body.completeness === "complete" && body.contentHash && isCurrent("owned_page", body.fetchedAt, d.now())); });
+  return picked;
 }
 
 /** A provider DOM is evidence only after canonical extraction and durable readback. No text-to-HTML fabrication. */
@@ -56,6 +52,9 @@ export async function renderUnreadOwnedPages(tenantId: string, cap = RENDERED_RE
   if (cap <= 0) return 0;
   const d = resolveDeps(options.deps ?? {}), deadline = options.deadline ?? d.now() + 90_000;
   const targets = (options.url ? [options.url] : await unreadOwnedPages(tenantId, d, cap)).slice(0, cap);
+  // Exact-page acquisition persists its own retry in the winning-page state.
+  // Bulk recovery needs an inventory hold so the next pass reaches later URLs.
+  const hold = async (url: string) => { if (!options.url) await holdUnresolved(tenantId, url, d.now()); };
   const profile = options.profile ?? await d.loadProfile(tenantId).catch(() => null);
   let landed = 0;
   for (const url of targets) {
@@ -66,17 +65,19 @@ export async function renderUnreadOwnedPages(tenantId: string, cap = RENDERED_RE
     // Bulk recovery must also honor current robots; exact debt already performed this permitted raw read.
     let rawSnapshot = options.rawSnapshot;
     if (!rawSnapshot) {
-      const raw = await d.fetchPage(url, new Map(), { timeoutMs: Math.max(1, Math.min(10_000, (deadline - d.now()) / 2)) });
-      if (!raw.ok || (raw.finalUrl && canonicalUrlKey(raw.finalUrl) !== key)) continue;
+      const raw = await d.fetchPage(url, new Map(), { timeoutMs: Math.max(1, Math.min(10_000, (deadline - d.now()) / 2)) })
+        .catch(() => null);
+      if (!raw) { await hold(url); continue; }
+      if (!raw.ok || (raw.finalUrl && canonicalUrlKey(raw.finalUrl) !== key)) { await hold(url); continue; }
       rawSnapshot = extractPageSnapshot(raw.html, url, pageIdFor(key), tenantId, raw.status, profile ?? undefined, raw.finalUrl);
     }
     if (deadline - d.now() < 50_000) break;
     const revision = sha16(JSON.stringify([options.bustedAt ?? null, rawSnapshot.content_hash, rawSnapshot.title, rawSnapshot.meta_description, rawSnapshot.h1, rawSnapshot.content_capture?.mainHtml, rawSnapshot.content_capture?.jsonLd]));
     const raw = await d.callProvider("onpage_rendered_html", { url, revision }, { tenantId, unitKey: `rendered:${key}` }), r = interp(raw);
     options.onRead?.(r, raw);
-    if (r.kind !== "evidence") break;
+    if (r.kind !== "evidence") { await hold(url); break; }
     const got = d.parse("onpage_rendered_html", r.payload as never);
-    if (!got || canonicalUrlKey(got.url) !== key || got.httpStatus !== 200 || !isCurrent("owned_page", got.capturedAt, d.now(), options.bustedAt)) break;
+    if (!got || canonicalUrlKey(got.url) !== key || got.httpStatus !== 200 || !isCurrent("owned_page", got.capturedAt, d.now(), options.bustedAt)) { await hold(url); break; }
     const snap = extractPageSnapshot(got.html, url, pageIdFor(key), tenantId, got.httpStatus, profile ?? undefined, got.url);
     snap.id = `snap-${pageIdFor(key)}-rendered-${Date.parse(got.capturedAt)}`;
     snap.fetched_at = got.capturedAt;
@@ -87,10 +88,10 @@ export async function renderUnreadOwnedPages(tenantId: string, cap = RENDERED_RE
     const unchangedPartial = (before?.version === "stale_known_good" || before?.completeness === "partial") && snap.content_hash === unresolvedHash;
     if ((collapsed || unchangedPartial) && snap.content_capture) { snap.content_capture.complete = false; snap.extraction_certainty = "uncertain"; }
     snap.structural_warnings = [...(snap.structural_warnings ?? []), `rendered_read: post-JavaScript DOM captured; retry after ${new Date(Date.parse(got.capturedAt) + freshnessMsFor("owned_page")).toISOString()}`];
-    await d.writeOwnedPage(snap, tenantId);
+    try { await d.writeOwnedPage(snap, tenantId); } catch (e) { await hold(url); throw e; }
     const after = (await d.readOwnedBodies(tenantId, [url])).get(key);
     if (after?.version === "current" && after.completeness === "complete" && after.contentHash === snap.content_hash) landed += 1;
-    else break;
+    else { await hold(url); break; }
     log.info("[rendered-read] requested page capture qualified", { tenantId, url });
   }
   return landed;

@@ -10,11 +10,11 @@ import operatorUiPolicy, { pageLabel } from "./changes/types";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
 import { countTrackedQuestions, researchPermission, researchRunStatus } from "@/domains/runtime";
 import { checkBudget } from "@/domains/decision";
-import { openHold, type BundleComponent, type ChangeProposal } from "@/domains/decision";
+import { confirmedVersion, openHold, type BundleComponent, type ChangeProposal } from "@/domains/decision";
 
 /** One ranked "do this next" change Today reads. FOUR FIELDS, because four are rendered: the effort, the upside,
  *  the ranking sentence and the evidence tier rode this shape for months and no screen ever read one of them. */
-type TodayOpportunity = { changeId: string; pageLabel: string; recommendation: string; problem?: string;
+type TodayOpportunity = { changeId: string; version?: string; pageLabel: string; recommendation: string; problem?: string;
   /** ONLY FINISHED WORK REACHES TODAY (Product Truth, 2026-08-27): the top card and Up next draw from the ready lane alone, so
    *  the lane is stated once and can be nothing else. */
   lane: "ready" };
@@ -76,7 +76,7 @@ function recommendationOf(p: ChangeProposal): string {
 
 /** PURE: map a ranked proposal to Today's opportunity shape. The PROBLEM rides along, because three directives
  *  with no statement of what any of them is for is a chore list, not a recommendation. */
-const proposalToOpportunity = (p: ChangeProposal): TodayOpportunity => ({ changeId: p.id, pageLabel: (p.pagePath ? pageLabel(p.pagePath) : "") || p.pageLabel, /* the short page name the Changes card uses, never the full title ("On Ahvaz, Iran - History, Population, Attractions, Fun Facts", walk of 2026-09-16) */
+const proposalToOpportunity = (p: ChangeProposal): TodayOpportunity => ({ changeId: p.id, version: confirmedVersion(p), pageLabel: (p.pagePath ? pageLabel(p.pagePath) : "") || p.pageLabel, /* the short page name the Changes card uses, never the full title ("On Ahvaz, Iran - History, Population, Attractions, Fun Facts", walk of 2026-09-16) */
   recommendation: recommendationOf(p), lane: "ready", ...(p.whyItMatters ? { problem: p.whyItMatters } : {}) });
 
 /** PURE: the top ranked change said as an action plus the two lines. Null when it carries nothing to put there.

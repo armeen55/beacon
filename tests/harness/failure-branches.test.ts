@@ -59,7 +59,7 @@ beforeEach(async () => {
   basis = (await accountBasis(T))!;
   seedProposals((r) => String(r.page_key) === HUB);
   seedSearchHistory([{ path: HUB, query: QUERY }]);
-  seedOwnedPages([{ path: HUB, title: "Most Famous Iranians and Persians of All Time", h1: "Famous and Influential Iranian People",
+  await seedOwnedPages([{ path: HUB, title: "Most Famous Iranians and Persians of All Time", h1: "Famous and Influential Iranian People",
     meta: "Explore the most famous Iranians and Persians in history.", h2: ["Famous Iranian Poets", "Famous Iranian Athletes"],
     body: ["Iran has produced writers, athletes and performers whose work travelled far beyond its borders.", "The poets section lists three poets with a short line on each.", "The athletes section lists wrestlers who won world titles.", "Each entry gives a name, a period and one sentence about why the person is remembered."].join("\n") }]);
 });
@@ -114,7 +114,7 @@ describe("a provider that fails", () => {
 
     // The page's own words move, which moves the work identity the count was kept under.
     table("page_snapshots").length = 0;
-    seedOwnedPages([{ path: HUB, title: "Iranians and Persians people remember", h1: "People from Iran worth knowing", meta: "A named list of Iranians and Persians, with a line on each.",
+    await seedOwnedPages([{ path: HUB, title: "Iranians and Persians people remember", h1: "People from Iran worth knowing", meta: "A named list of Iranians and Persians, with a line on each.",
       h2: ["Poets", "Athletes", "Performers"], body: ["The list below names people from Iran and says in one line why each is remembered.", "Poets come first, then athletes, then performers.", "Every entry gives the years the person worked."].join("\n") }]);
     advance(60 * 1000);
     const moved = await drive(["replenish_ready"], "keyword_discovery");
@@ -210,7 +210,7 @@ describe("the providers taking their real time", () => {
   type Walk = { jobs?: Record<string, { calls: number; last: string; settled: boolean }>; waiting?: string[]; outcomes?: { ended?: string; receipts?: { key: string; family: string; outcome: string; providerCalls: number }[] } };
   const walkOf = (r: RunRow): Walk | undefined => (r.progress as { replenish?: Walk }).replenish, writersHired = (): number => reasoningAsked.filter((a) => a.kind === "body_edit").length;
   /** A finished row is saved under its publication family while the walk declares the deep-bundle job that produced it. The durable work key bridges those names, so a drive that loses its lease after the row lands resumes without hiring the writer or buying the same readings again. */
-  beforeEach(() => { table("page_snapshots").length = 0; seedOwnedPages([HUB_PAGE]); script.reasoning = (body) => reasoningReply({ ...REASONING, body_edit: publicationDraft(WRITER), editor_judgement: JUDGE }, body); script.search = healthySearch({ posts: 0 }); script.page = rivalPage; });
+  beforeEach(async () => { table("page_snapshots").length = 0; await seedOwnedPages([HUB_PAGE]); script.reasoning = (body) => reasoningReply({ ...REASONING, body_edit: publicationDraft(WRITER), editor_judgement: JUDGE }, body); script.search = healthySearch({ posts: 0 }); script.page = rivalPage; });
 
   it("a substantive body job for the hub row finishes inside the 200 second slice at the measured provider-time ratios, and its copy is on the store", async () => {
     seedResearchState(basis, { serps: serpFor(QUERY) }); script.latency = SLOW; const from = clock.ms, began = Date.now(); // everything the row needs is on file but the rival at position five, which this same drive reads for itself

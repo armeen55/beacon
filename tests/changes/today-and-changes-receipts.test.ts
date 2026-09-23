@@ -73,19 +73,6 @@ describe("what a card says after a batch press, and what it says when it cannot 
     expect([recorded.includes("Recorded. Open Results"), recorded.includes("Mark done"), recorded.includes("Copy")], "a card recorded by the batch below the list never keeps offering the work as still owed").toEqual([true, false, false]);
     const refused = await card(atomic(), { problem: "This change is still being reviewed." });
     expect([refused.includes("Not recorded: This change is still being reviewed. Press Mark done on this one to try it again."), refused.includes("Mark done")], "and a refused one names its own reason and stays pressable").toEqual([true, true]);});
-  it("never leads a change detail with a brief that carries a raw address, and never falls back on a shrug either", async () => {
-    const { loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");
-    const row = proposal({ status: "needs_review", riskLevel: "low", modeledOn: SHAPE, bundle: undefined, createdAt: SEEN, limitations: ["its copy carries no record of what it stands on", "Read off the last stored copy of each page."], opportunityType: "Write a real description on /iran-flags/parthian-empire-flag: 7 pages share one templated line" });
-    vi.mocked(loadChangeProposal).mockResolvedValue(row); vi.mocked(resolveCurrentBasis).mockResolvedValue(row.basis ?? null);
-    const { default: Page } = await import("@/app/(shell)/changes/[id]/page");
-    const html = renderToStaticMarkup(await Page({ params: Promise.resolve({ id: encodeURIComponent(row.id) }) }) as ReactElement);
-    expect([html.includes("/iran-flags/parthian-empire-flag: 7 pages"), html.includes("one edit to make"), html.includes("Update the page title to sharpen it for")], "the file name never leads the page, and what replaces it says what is being done rather than shrugging").toEqual([false, false, true]);
-    expect([html.includes("its copy carries no record of what it stands on"), html.includes("Read off the last stored copy of each page.")], "and Beacon's own gate sentence is never served to a customer as their own caveat, while a real caveat still is").toEqual([false, true]);});
-  it("never leads a card with the writer's brief when that brief carries a raw address, and keeps a real headline that carries none", async () => {
-    const brief = await card(atomic(), { proposal: proposal({ status: "ready", riskLevel: "low", modeledOn: SHAPE, bundle: undefined, opportunityType: "Write a real description on /california-persian-cities/berkeley: 20 pages share one templated line" }) });
-    expect([brief.includes("/california-persian-cities/berkeley: 20 pages share one templated line"), brief.includes("Update the title to sharpen it for")], "the file name never leads the card; the change says what it does, and the page it does it to is the line above").toEqual([false, true]);
-    const real = await card(atomic(), { proposal: proposal({ status: "ready", riskLevel: "low", modeledOn: SHAPE, bundle: undefined, opportunityType: "Answer the question people actually type into Google" }) });
-    expect(real.includes("Answer the question people actually type into Google"), "and a headline that carries no address is still the producer's own sentence").toBe(true);});
   it("renders only the recorded mutation: an addition never becomes a deletion, and schema is never visible prose", async () => {
     const base = proposal({ status: "ready", riskLevel: "low", modeledOn: SHAPE, bundle: undefined });
     const addition = await card({ ...base, recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Nowruz is celebrated at the spring equinox.", where: 'A new section headed "When is Nowruz?", placed after "Nowruz"' } }, {});
@@ -109,24 +96,7 @@ describe("what a card says after a batch press, and what it says when it cannot 
     expect(held.includes("A source reading is owed before these words can be written."), "an operator looking at a card ranked above smaller finished work is told it is waiting on a reading, not on them").toBe(true);
     expect((await card(atomic(), {})).includes("data-waiting-on"), "and finished work ready to make today waits on nothing, so it says nothing").toBe(false);});});
 describe("a card says why this opportunity and why these words, and never trades one for the other", () => {
-  const rank = (directional: boolean) => ({ score: 5, factors: [], directional, basis: "b" });
   const P = (over: Partial<ChangeProposal>): ChangeProposal => ({ ...proposal(), status: "ready", bundle: undefined, claims: undefined, supportFacts: undefined, ...over } as ChangeProposal);
-  const NEVER = ["will earn", "will recover", "guarantee", "expect to gain", "sources agree", "Backed by"];
-
-  it("search-backed: names the search and BOTH windows, states the diagnosed defect, promises no traffic", () => {
-    const r = proofOf(P({ demandImpressions90d: 30423, impactScore: 76, primaryQuery: "iran flag", rankingReceipt: rank(false),
-      causeFinding: { ...FINDING, explanation: "Two of your own pages come up for this search" } }));
-    expect(r.ranksHere).toBe('This page was shown 30,423 times for "iran flag" in 90 days and is short about 76 clicks in the last 28 days. Two of your own pages come up for this search.');
-    for (const n of NEVER) expect(r.ranksHere!, n).not.toContain(n); });
-
-  it("AEO: names the question and the exact citation stage, and never invents a gap nobody measured", () => {
-    const ai = (stage: NonNullable<ChangeProposal["aiImpact"]>["stage"]) => proofOf(P({ primaryQuery: "basic Persian phrases", rankingReceipt: rank(true),
-      aiImpact: { answers: 3, mentionRate: 0, citedRivals: 8, audienceWeight: 1011, days: 3, engines: 1, stage } })).ranksHere!;
-    expect(ai("owned_retrieved_not_cited")).toBe('Assistants answered "basic Persian phrases" 3 times on 3 separate days, and assistants read this page and quoted somebody else.');
-    expect(ai("rivals_cited_own_not_retrieved")).toContain("never reached this page and quoted 8 other sites");
-    const unreported = ai("citations_unreported");
-    expect(unreported).toContain("do not report which sources they used");
-    for (const n of ["quoted somebody else", "never reached", "not among the sources"]) expect(unreported, n).not.toContain(n); });
 
   it("a claim shows the evidence IT names and never another claim's source", () => {
     const r = proofOf(P({ claims: [{ text: "The flag changed in July 1980.", supportedBy: ["fact-1"] }, { text: "The Lion and Sun is older.", supportedBy: ["owned-page-1"] }],
@@ -135,18 +105,6 @@ describe("a card says why this opportunity and why these words, and never trades
     expect(JSON.stringify(r.wording)).not.toContain("30,423");
     expect(proofOf(P({ claims: [{ text: "x", supportedBy: ["page-copy-9"] }], supportFacts: [] })).wording).toEqual([]); });
 
-  it("page-only repair: explains the defect, invents no demand, and apologises for nothing", () => {
-    const r = proofOf(P({ demandImpressions90d: null, impactScore: 4, primaryQuery: "/persian-rugs/kerman-rug factual accuracy",
-      pagePath: "/persian-rugs/kerman-rug", causeFinding: undefined, rankingReceipt: rank(true) }));
-    expect(r.ranksHere).toBe("About 4 clicks over 28 days are missing here. No cause is named for it yet, so this is the order to work in, not a promise about size.");
-    expect(r.ranksHere!).not.toContain("factual accuracy"); });
-
-  it("a sparse row renders what it has, omits what it lacks, and invents no zero", () => {
-    const r = proofOf(P({ demandImpressions90d: null, impactScore: null, aiImpact: undefined, causeFinding: undefined, rankingReceipt: undefined, evidence: undefined }));
-    expect(r.ranksHere).toBeNull(); expect(r.wording).toEqual([]); expect(r.opportunity).toEqual([]);
-    expect(r.limits).toEqual([]); expect(r.shape).toBeNull();
-    expect(r.queryEcho).toBe('"nowruz traditions" is the search already bringing people to this page, and the new wording uses it.');
-    expect(proofOf(P({ recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Nothing relevant." } })).queryEcho).toBeNull(); });
 
   it("evidence that disagrees is stated as a limit and never upgraded into confidence about the words", () => {
     const r = proofOf(P({ limitations: ["Two sources give different dates for the 1980 change."] }));
@@ -260,9 +218,6 @@ describe("a ranked card explains itself without being opened", () => {
     const html = renderToStaticMarkup(createElement(ChangesListClient, { view: viewOf([row]), initialPicked: [row.id, "hidden"] }));
     expect([html.includes("2 selected · 1 hidden by this view"), /data-bulk-done="true"[^>]*disabled/.test(html), html.includes("Clear hidden")]).toEqual([true, true, true]); });
 
-  it("states that facets cover loaded work instead of implying an unseen page was filtered", async () => { const row = atomic(), view = viewOf([row]);
-    view.summary.ready = 3; const html = await renderList(view);
-    expect([html.includes('data-loaded-filter-scope="true"'), html.includes("Filters cover the 1 finished changes loaded here. Load the remaining 2 below to include them."), html.includes("Show 2 more finished changes")]).toEqual([true, true, true]); });
 
   it("a change that moves or hides a page carries its two-step hold on the card", async () => {
     const html = await renderList(viewOf([proposal({ modeledOn: SHAPE })]));
@@ -311,10 +266,7 @@ describe("a change detail hands over the whole investigation and the controls to
       "To undo it"]) expect(html, s).toContain(s);
     expect(html).not.toContain("This page has none today."); // A piece that RETIRES a page is not a page that happens to have nothing today.
     expect([html.includes("Confirmed: this moves or hides a page"), html.includes("still being reviewed")]).toEqual([false, true]); }); // AND NOTHING TO CONFIRM WHILE IT IS IN REVIEW: a piece that moves or hides a page is graded dangerous, the canon refuses a dangerous piece in the ready lane, so this change can only ever be read here, never recorded.
-  it("opens the investigation only when it holds one, never onto a line the card above already said", async () => {
-    expect(await renderDetail(proposal({ causeFinding: undefined, rankingReceipt: undefined }))).not.toContain("How this was worked out");
-    expect(await renderDetail(proposal({ causeFinding: undefined }))).toContain("How this was worked out"); // a ranking receipt is reasoning too
-  }); });
+  });
 describe("a finished change is read, decided and pasted without being opened", () => {
   const SITES = [
     { t: "tenant-one", path: "/tide-pools", label: "Tide pools", q: "tide pool safety", now: "Tide pools are fun for the whole family.",

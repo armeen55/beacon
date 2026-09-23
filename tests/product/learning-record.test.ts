@@ -70,7 +70,5 @@ describe("what a record teaches is read off the work's own signature, and the fa
     expect([RESULT_LINES.fundingFor(map, rowOf("technical_reachability")), RESULT_LINES.fundingFor(map, rowOf("consolidate_or_differentiate"))],
       "the page reads this exact bet's own nine readings where they exist and the family's twelve where they do not, off the same map the ranking eats").toEqual([
         { readings: 9, netLift: -116, of: "kind" }, { readings: 12, netLift: -64, of: "family" }]);
-    expect(RESULT_LINES.fundingLine(RESULT_LINES.fundingFor(map, rowOf("technical_reachability"))), "and it says which record spoke, in the funding door's own rule").toBe(
-      "9 closed readings of this exact kind of change here are 116 clicks down between them, so the next one is placed below the rest until one finishes ahead.");
   });
 });

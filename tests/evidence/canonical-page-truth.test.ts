@@ -4,6 +4,9 @@ import { assemblePacketForUrl } from "@/domains/decision/recommendation-intellig
 import { jobEvidenceHash } from "@/domains/evidence/snapshot";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { supabaseFake } from "../helpers/supabase-fake";
+import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
+import { demandOf } from "@/domains/decision/drafted-copy";
+import { substantiveGapOf } from "@/domains/decision/diagnosis";
 const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], calls: 0, failAfter: Infinity, reads: [] as { max: number; cols: string; inBytes: number }[] }));
 vi.mock("@/lib/persistence/repositories", async () => { const { supabaseBackend } = await import("@/lib/persistence/repositories/supabase-backend"); return { getRepository: () => supabaseBackend }; });
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => supabaseFake({
@@ -13,6 +16,21 @@ vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => supabaseF
 }) }));
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context"; import { pageContains } from "@/domains/evidence/pages/page-version";
 describe("one rule decides which capture is the page", () => {
+  it("a heading locates an answer but only page prose can satisfy the reader task", async () => {
+    const url = "https://fixture-revision.example/people";
+    const read = async (prose: string) => {
+      db.rows = [extractPageSnapshot(`<main><h1>Famous Iranians</h1><h2>Poets</h2>${prose ? `<p>${prose}</p>` : ""}</main>`, url, "people", "t")];
+      const body = (await loadOwnedPageBodies("t", [url])).get("fixture-revision.example/people")!;
+      const demand = demandOf({ url, content: { title: "Famous Iranians", h1: "Famous Iranians" }, search: { topQueries: [{ query: "famous iranian poets", impressions: 900 }] } } as never, body, [], null, "t");
+      return { body, demand, gap: substantiveGapOf({}, demand) };
+    };
+    const neutral = "This page groups biographical entries by field. Each entry includes a name, the period when the person worked, and a short description of the work. The sections are arranged so readers can scan one field at a time. The lists can be browsed in order or used to find a particular biography. Each profile links to more detail.";
+    const heading = await read(neutral);
+    expect([heading.body.version, heading.body.openingSample, heading.demand.passages, heading.gap?.kind]).toEqual(["current", neutral, [neutral], "missing_answer"]);
+    const answer = `Famous Iranian poets include Hafez and Rumi, whose work readers still study. ${neutral}`;
+    const answered = await read(answer);
+    expect([answered.body.openingSample, answered.demand.passages, answered.gap]).toEqual([answer, [answer], null]);
+  });
   it("carries same-sized material revisions from extraction through the stored projection into job identity, without clock churn", async () => {
     const { extractPageSnapshot } = await import("@/domains/evidence/pages/extractor");
     const url = "https://fixture-revision.example/page", at = new Date("2026-09-10T12:00:00Z");
@@ -60,7 +78,9 @@ describe("one rule decides which capture is the page", () => {
     expect(withWinners([winner(1, 101), ...five.slice(1)]), "a material change inside the five publishers the writer receives still reopens the job").not.toBe(withWinners(five));
   });
   it("the targeted reader hands the writer the stale body with its dates, and a stale body can never prove a current absence", async () => {
-    const row = (url: string, fetched_at: string, body_text: string, word_count: number, extraction_certainty: string) => ({ url, title: "Iranian actors", h1: "Iranian actors", meta_description: null, fetched_at, word_count, h2_list: [], h3_list: [], faqs: [], body_text, body_paragraph_sample: [], card_texts: [], schema_entity_names: [], internal_links: [], content_hash: "h", extraction_certainty });
+    const row = (url: string, fetched_at: string, body_text: string, word_count: number, extraction_certainty: string) => ({
+      ...extractPageSnapshot(`<main><p>${body_text}</p></main>`, url, url, "t"), id: `${url}:${fetched_at}`, title: "Iranian actors", h1: "Iranian actors", fetched_at, word_count, body_text, content_hash: "h", extraction_certainty,
+    });
     db.rows = [row("https://iranopedia.com/iranian-actors-actresses", "2026-08-30T22:30:00Z", "", 0, "uncertain"), row("https://www.iranopedia.com/iranian-actors-actresses", "2026-08-04T22:43:00Z", "Shohreh Aghdashloo was nominated for an Academy Award. Golshifteh Farahani works in France.", 921, "confirmed")]; const page = (await loadOwnedPageBodies("t", ["https://www.iranopedia.com/iranian-actors-actresses"])).get("iranopedia.com/iranian-actors-actresses")!;
     expect([page.version, page.newestAt?.slice(0, 10), page.fetchedAt?.slice(0, 10), page.passages.length > 0, page.heldNote.includes("captured no words")]).toEqual(["stale_known_good", "2026-08-30", "2026-08-04", true, true]); expect([pageContains(page, "Golshifteh Farahani"), pageContains(page, "Navid Negahban")]).toEqual(["yes", "unknown"]);
     db.rows = [row("https://iranopedia.com/iran-flags/iran-islamic-republic-flag-history", "2026-08-29T20:51:00Z", "The flag adopted in 1980 carries the Takbir twenty-two times along the edges of the green and red bands.", 129, "confirmed")]; const flag = (await loadOwnedPageBodies("t", ["https://iranopedia.com/iran-flags/iran-islamic-republic-flag-history"])).get("iranopedia.com/iran-flags/iran-islamic-republic-flag-history")!;
@@ -76,7 +96,7 @@ describe("one rule decides which capture is the page", () => {
     const sample = (await loadOwnedPageBodies("t", [flag.url])).get("iranopedia.com/iran-flags/iran-islamic-republic-flag-history")!;
     expect([sample.completeness, pageContains(sample, "An unshown answer")]).toEqual(["sample_only", "unknown"]);
     for (const [body, certainty, expected] of [["", "confirmed", "current"], [null, "confirmed", "stale_known_good"], ["", "uncertain", "blank"]]) {
-      db.rows = [{ ...row(flag.url, "2026-09-10", "", 0, String(certainty)), body_text: body }, ...(certainty === "uncertain" ? [] : [row(flag.url, "2026-09-09", "A trusted older body.", 4, "confirmed")])];
+      db.rows = [{ ...row(flag.url, "2026-09-10", "", 0, String(certainty)), body_text: body, ...(body === null ? { content_capture: null } : {}) }, ...(certainty === "uncertain" ? [] : [row(flag.url, "2026-09-09", "A trusted older body.", 4, "confirmed")])];
       const read = (await loadOwnedPageBodies("t", [flag.url])).get("iranopedia.com/iran-flags/iran-islamic-republic-flag-history")!;
       expect([read.version, pageContains(read, "Unshown words")]).toEqual([expected, expected === "current" ? "no" : "unknown"]);
     }

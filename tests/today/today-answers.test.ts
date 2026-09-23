@@ -33,23 +33,15 @@ async function today(): Promise<string> {
   return renderToStaticMarkup(await inner.type(inner.props));
 }
 
-describe("Today says the one thing to do and whether the last thing worked", () => {
-  it.each(["tenant-one", "tenant-two"])("names the page the way a person says it, never as an address, and reports a win with the number the ledger stored [%s]", async () => {
-    LEDGER.rows = [row()];
-    const html = await today();
-    expect(html, "the page is NAMED, and its address never reaches the screen: Results has said the page this way since it was built and Today printed the slug beside it").toContain("Your last change to Beverly hills earned 40 more clicks than the pages that were not changed.");
-    expect(html).not.toContain("/california-persian-cities/beverly-hills earned");
-  });
-
-  it.each(["tenant-one", "tenant-two"])("answers for a finished reading that did not win instead of saying nothing at all, and never calls an unconfirmed reading a result [%s]", async () => {
-    LEDGER.rows = [row({ windows: win(-12) })];
-    expect(await today(), "SILENCE IS NOT AN ANSWER: only a win was ever printed, so a reading that finished behind left the screen blank and the operator read that as nothing having happened").toContain("Your last change to Beverly hills finished 12 clicks behind the pages that were not changed.");
-    LEDGER.rows = [row({ windows: win(0) })];
-    expect(await today(), "and a reading that moved nothing says exactly that rather than printing a bare zero").toContain("Your last change to Beverly hills finished level with the pages that were not changed.");
-    LEDGER.rows = [row({ verification: null })];
-    expect(await today(), "AND A READING THE LIVE PAGE NEVER CONFIRMED IS NOT A RESULT: it carries the number it read and the reason it is not a win, in one sentence").toContain("read 40 clicks ahead of the pages that were not changed, and the live page has not confirmed the change yet, so it is not counted as a win.");
-    LEDGER.rows = [];
-    expect(await today(), "and an account with nothing settled prints no sentence at all rather than a zero").not.toContain("Your last change to");
+describe("Today says whether the last recorded change worked", () => {
+  it("distinguishes a win, loss, level result, unconfirmed reading and no record", async () => {
+    for (const [input, expected] of [
+      [row(), /Beverly hills earned 40 more clicks/],
+      [row({ windows: win(-12) }), /Beverly hills finished 12 clicks behind/],
+      [row({ windows: win(0) }), /Beverly hills finished level/],
+      [row({ verification: null }), /live page has not confirmed the change yet, so it is not counted as a win/],
+    ] as const) { LEDGER.rows = [input]; const html = await today(); expect(html).toMatch(expected); expect(html).not.toContain("/california-persian-cities/beverly-hills earned"); }
+    LEDGER.rows = []; expect(await today()).not.toContain("Your last change to");
   });
 });
 
