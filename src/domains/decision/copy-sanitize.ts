@@ -75,8 +75,9 @@ function unitLedger(p: PreservationRow, qualified: boolean, publication: readonl
 const preservationResidue = (p: PreservationRow, publication: readonly BundleComponent[] = []): Unit[] => { const c = p.recommendedChange; if (c.kind !== "existing_edit" || !c.before?.trim()) return []; const body = c.field === "section" || c.field === "answer_block", { units, ledger, byRecord } = unitLedger(p, true, publication, body ? [] : materialLosses({ ...p, pagePath: "" })); return body && units.length <= 1 && p.changeFamily === "factual_correction" ? [] : ledger.filter((u) => byRecord(u) === RULING); };
 /** A reviewer cannot repair an absent unit or an invalid destination. Refuse those records before buying its reading. */
 const preservationPreflight = (p: PreservationRow, publication: readonly BundleComponent[] = []): string | null => {
-  const c = p.recommendedChange; if (c.kind !== "existing_edit" || !c.before?.trim() || c.field === "section" || c.field === "answer_block") return null;
-  const due = materialLosses({ ...p, pagePath: "" }), { ledger, byRecord } = unitLedger(p, true, publication, due);
+  const c = p.recommendedChange; if (c.kind !== "existing_edit" || !c.before?.trim()) return null;
+  const body = c.field === "section" || c.field === "answer_block", due = body ? [] : materialLosses({ ...p, pagePath: "" }), { ledger, byRecord } = unitLedger(p, true, publication, due);
+  if (body) { for (const u of ledger.filter(u => u.disposition === "kept")) { const bad = byRecord(u), lost = u.why?.trim() ? null : materialLosses({ recommendedChange: { ...c, before: u.text }, pageUrl: p.pageUrl, pagePath: "" }).find(losable); if (bad && bad !== RULING || lost) return `it says it keeps ${lost ?? u.text.slice(0, 60)} but the new copy does not carry it`; } return null; }
   for (const u of ledger) { const bad = byRecord(u); if (bad && bad !== RULING) return `it ${bad}: "${u.text.slice(0, 60)}"`; }
   for (const text of due.filter(losable)) if (!carriesUnit(text, c.after) && ledger.filter(u => renderedText(u.text) === renderedText(text)).length !== 1)
     return `it replaces a passage saying "${text.slice(0, 60)}" and neither says it nor accounts for it: every original unit needs its own preservation disposition`;

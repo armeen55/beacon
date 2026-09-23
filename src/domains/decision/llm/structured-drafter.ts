@@ -420,6 +420,7 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
   /** Concatenated grounded text for the numeric-fidelity firewall. */
   grounded: string;
   observationGrounded?: string; // Diagnostic refs have their own observed-data ledger, never authority for publishable facts.
+  citationIds?: readonly string[]; // Exact source-packet IDs, passed by the packet builder rather than inferred from page prose.
   /** THE ASSIGNMENT'S OWN LINES, the one part of the prompt beyond the grounded text whose numbers a body or atomic edit may carry (review, 2026-09-14): rival, serp and comparison text never ground a figure. */ assignmentGrounded?: string;
   /** A phrase CODE resolved and the writer was told to carry verbatim, so markup the writer wrapped around it can be taken off before the firewalls read the copy. */ unmarkPhrase?: string;
   projectedCostUsd?: number;
@@ -441,14 +442,18 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
 function validateDraftValue(req: StructuredDraftRequest<StructuredDraftKind>, schema: z.ZodTypeAny, value: unknown, ledger: GroundedNumbers, year: number): { data: unknown } | { errors: string[] } {
   const parsed = schema.safeParse(sanitizeDashesDeep(value));
   if (!parsed.success) return { errors: parsed.error.issues.slice(0, 4).map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`) };
-  const refs = (parsed.data as { evidenceRefs?: { source?: string }[] }).evidenceRefs;
+  const refs = (parsed.data as { evidenceRefs?: { source?: string; detail?: string }[] }).evidenceRefs;
   if (Array.isArray(refs) && !evidenceIsGrounded(refs)) return { errors: [UNGROUNDED_EVIDENCE_ERROR] };
   const data = unmarkAnchor(stampAnySources(parsed.data, req.authoritativeSourceDomains), req.unmarkPhrase);
-  const fw = runContentFirewalls(draftProseStringValues(req.observationGrounded == null ? data : { ...data as Record<string, unknown>, evidenceRefs: undefined }), ledger, {
+  const suppliedIds = new Set(req.citationIds?.filter((id) => /^page-copy-\d+$/.test(id)) ?? []);
+  const unknownId = req.citationIds && refs?.flatMap((r) => r.detail?.match(/\bpage-copy-\d+\b/g) ?? []).find((id) => !suppliedIds.has(id));
+  if (unknownId) return { errors: [`evidenceRefs: unknown citation ${unknownId}`] };
+  const citationRefs = req.citationIds ? refs?.map((r) => ({ ...r, detail: r.detail?.replace(/\bpage-copy-\d+\b/g, "cited passage") })) : refs; // Only packet-authorized citation indexes are metadata; all other numbers remain prose claims.
+  const fw = runContentFirewalls(draftProseStringValues(req.observationGrounded == null ? { ...data as Record<string, unknown>, evidenceRefs: citationRefs } : { ...data as Record<string, unknown>, evidenceRefs: undefined }), ledger, {
     deferSuperlativeCheck: req.kind.startsWith("answer_analysis") || req.deferSuperlatives === true || primaryCustomerText(req.kind, data) == null,
     skipPlaceholderCheck: primaryCustomerText(req.kind, data) == null, ownWords: req.ownWords,
   });
-  const observed = req.observationGrounded == null ? { ok: true as const } : runContentFirewalls(draftProseStringValues(refs), buildRequestLedger(req.observationGrounded, year), { deferSuperlativeCheck: true, skipPlaceholderCheck: true });
+  const observed = req.observationGrounded == null ? { ok: true as const } : runContentFirewalls(draftProseStringValues(citationRefs), buildRequestLedger(req.observationGrounded, year), { deferSuperlativeCheck: true, skipPlaceholderCheck: true });
   return !fw.ok || !observed.ok ? { errors: [`firewall:${!fw.ok ? fw.reason : !observed.ok ? observed.reason : "invalid"}`] } : { data };
 }
 const unpaidFailure = (reason: string, errors = [reason], failure: LlmFailure = "transient"): StructuredDraftResult<never> => ({ status: "validation_failed", reason, errors, failure, costUsd: 0, retried: false, attempts: 0 });
@@ -751,6 +756,7 @@ export async function draftAtomicEditStructured(
     system: (body ? BODY_EDIT_SYSTEM : (ATOMIC_HEAD[input.field] ?? ATOMIC_HEAD.default!) + ATOMIC_EDIT_SYSTEM) + (input.field === "answer_block" ? (body ? BODY_COPY_CLAUSE.replace(/\bafter\b/g, "the assembled publication") : BODY_COPY_CLAUSE) + BODY_DELIVERY[(replaces ?? input.replaces) != null ? "replacement" : input.answerShape === "inline" ? "inline" : input.answerShape === "adaptive" ? "adaptive" : "section"] + (body ? " The predecessor is code-owned; do not echo it. Return final publication units rather than a flat after field." : "") : input.field === "meta" ? META_SUBJECT_CLAUSE : input.field === "title" || input.field === "h1" ? TITLE_SHAPE_CLAUSE : "") + fewShots,
     user,
     grounded, assignmentGrounded: evidenceHints.join("\n"),
+    ...(input.packet ? { citationIds: Object.keys(input.packet.evidence) } : {}),
     ...(input.packet ? { observationGrounded: [...Object.values(input.packet.evidence), ...(input.packet.demand.unanswered ?? [])].join("\n") } : {}),
     projectedCostUsd: 0.02,
     ...(opts.proposalWorkKey ? { proposalWorkKey: opts.proposalWorkKey } : {}),
