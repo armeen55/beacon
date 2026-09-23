@@ -1,4 +1,4 @@
-/** decision/rank-proposals: THE ONE ranking, across every kind of change this kernel can propose. ONE inspectable score built from bounded factors, each naming the input it read: CORRECTNESS IS THE ADMISSION TICKET AND NEVER A SCORE. A 250-wide lifecycle band used to sit on top of every other factor put together, so being safe to paste outweighed everything riding on the change and a description on a page shown three times ranked beside a page bleeding 152 clicks. Whether a change may be shown at all is settled BEFORE this file (completeness's deliverable gaps and the authorization verdict); what is left here is worth, and worth is what the order is built from. visibility     the clicks the diagnosis proved are recoverable, or the page's own 90-day views at a THIRD of the ceiling when those are bigger, named as an audience and never as a recovery: a defect card carries no click figure at all, and without this the order collapsed onto effort alone and a page shown twice outranked a rebuild of one shown thirty thousand times. evidence       how much receipt there is to show. causeFit       does the lever address the cause the evidence NAMED. A mismatch is discounted the same amount a match earns AND forfeits the proven recovery above, because that recovery belongs to the cause and not to the page, so a wrong lever can never win on size alone. strategic      how many of the questions customers actually ask are in scope. effort         a one minute paste beats an hour of writing when everything else is equal, and only then. risk           a change that moves or hides a page is discounted, never promoted. overlap        a page already carrying a change under measurement is discounted hard. confounding    several changes landing on the same page in one batch discount each other. history        what this KIND of change has actually done on this site, off finished readings only, shrunk hard towards nothing: THE KIND OF CHANGE NEVER DECIDES THE ORDER, the expected traffic does. NO INVENTED NUMBERS: with no proven figure the receipt is marked directional and says the order is a direction, not a size. Every ranked proposal carries `rankingReceipt`, and every one but the last carries `whyRankedAboveNext`. PURE, no I/O, deterministic and stable (equal scores keep input order). */
+/** decision/rank-proposals: THE ONE ranking, across every kind of change this kernel can propose. ONE inspectable score built from bounded factors, each naming the input it read: CORRECTNESS IS THE ADMISSION TICKET AND NEVER A SCORE. A 250-wide lifecycle band used to sit on top of every other factor put together, so being safe to paste outweighed everything riding on the change and a description on a page shown three times ranked beside a page bleeding 152 clicks. Whether a change may be shown at all is settled BEFORE this file (completeness's deliverable gaps and the authorization verdict); what is left here is worth, and worth is what the order is built from. visibility     an attributable modeled CTR gap, or page-wide audience for page-scoped edits only, named as an audience and never as a recovery: a defect card carries no click figure at all, and without this the order collapsed onto effort alone and a page shown twice outranked a rebuild of one shown thirty thousand times. evidence       how much receipt there is to show. causeFit       does the lever address the cause the evidence NAMED. A mismatch is discounted the same amount a match earns AND forfeits the proven recovery above, because that recovery belongs to the cause and not to the page, so a wrong lever can never win on size alone. strategic      how many of the questions customers actually ask are in scope. effort         a one minute paste beats an hour of writing when everything else is equal, and only then. risk           a change that moves or hides a page is discounted, never promoted. overlap        a page already carrying a change under measurement is discounted hard. confounding    several changes landing on the same page in one batch discount each other. history        what this KIND of change has actually done on this site, off finished readings only, shrunk hard towards nothing: THE KIND OF CHANGE NEVER DECIDES THE ORDER, the expected traffic does. NO INVENTED NUMBERS: with no proven figure the receipt is marked directional and says the order is a direction, not a size. Every ranked proposal carries `rankingReceipt`, and every one but the last carries `whyRankedAboveNext`. PURE, no I/O, deterministic and stable (equal scores keep input order). */
 
 import type { ChangeProposal } from "./contracts";
 import { dangerousComponents } from "./contracts";
@@ -6,6 +6,7 @@ import { actionFamilyOf } from "@/domains/measurement/proof-gsc/change-family";
 import { treatmentSignatureOf } from "./mutation-footprint";
 import type { CauseFinding } from "./diagnosis";
 import { topicTokens } from "@/domains/evidence/relevance-gate";
+import { attributionOf, attributedClicks } from "./proof";
 // THE TRUTH TABLE LIVES WHERE THE BOUNDARY LIVES. This ranking discounts a lever that cannot treat the cause the evidence named; decision/authorization REFUSES one. One table, read twice, never restated.
 import { CAUSE_LEVERS, withholdReason } from "./authorization";
 import { openHold } from "./completeness";
@@ -16,7 +17,7 @@ export const MIN_FINISHED_READINGS = 3; // EXPORTED, AND THE ONE PLACE THIS NUMB
 type LearningHistory = ReadonlyMap<string, { readings: number; netLift: number }>; // keyed BOTH by `family::treatment` and by the coarse family (measurement/treatment-learning), so a consumer may ask the finer record first
 
 /** THE ONE SCORING CONTEXT A DRIVE HOLDS, read by every number this file produces: what this account's own closed readings say (`familyHistory`), which pages already carry a change under measurement, and `batch`, every change the decision is being made among, so "how many others land on this page" is one count over one population instead of a number each caller works out for itself. Funding used to pass none of it while the displayed queue passed all of it, so one row answered to two authorities. Every field is optional and absent means what it has always meant: nothing learned, nothing measuring, nothing else on the page. */
-type Scoring = { measuringPagePaths?: readonly (string | null)[]; familyHistory?: LearningHistory; batch?: readonly ChangeProposal[]; /** WHAT THIS ACCOUNT SAID IT IS WORKING TOWARDS, in the operator's own words and only where the operator actually stated them (R2 residual 1, 2026-09-05). It is an INPUT of the ranking, not an attribute of a row, so it rides this context exactly as the learning and the batch do: one string per pass instead of a copy stamped on every row, no store write and no new field on any business record. Absent asks nothing of any card. */ accountGoal?: string };
+type Scoring = { measuringPagePaths?: readonly (string | null)[]; familyHistory?: LearningHistory; batch?: readonly ChangeProposal[]; now?: Date; keywordVolumeMonthly?: number; planningPageAudience?: boolean; /** WHAT THIS ACCOUNT SAID IT IS WORKING TOWARDS, in the operator's own words and only where the operator actually stated them (R2 residual 1, 2026-09-05). It is an INPUT of the ranking, not an attribute of a row, so it rides this context exactly as the learning and the batch do: one string per pass instead of a copy stamped on every row, no store write and no new field on any business record. Absent asks nothing of any card. */ accountGoal?: string };
 /** WHAT COUNTS AS ONE PAGE FOR NEIGHBOURS: the address, or the search a page that does not exist yet would answer. Spelled ONCE, so the money and the queue can never key the same page two ways. A change is one of the changes on its own page, so the count of the page always loses one: a job standing in for a page's work is counted the same way as a row on it. */
 const pageKeyOf = (p: ChangeProposal): string => p.pagePath ?? `new::${p.primaryQuery.trim().toLowerCase()}`;
 const countPeers = (batch: readonly ChangeProposal[]): Map<string, number> => { const m = new Map<string, number>(); for (const p of batch) m.set(pageKeyOf(p), (m.get(pageKeyOf(p)) ?? 0) + 1); return m; };
@@ -35,7 +36,7 @@ const MAX = { visibility: 120 } as const;
 const FLOOR = { evidence: 0.85, causeFit: 0.6, advisories: 0.6, strategic: 0.9, effort: 0.75, risk: 0.6, overlap: 0.5, confounding: 0.7, history: 0.9 } as const; // `strategic` carries TWO facts since 2026-09-05, the tracked questions in scope and the account's own stated goal, so its ceiling is the two five-percent arms it composes rather than the one it used to hold; a card missing only one of them is discounted exactly as much as it always was.
 /** How many readings it takes before a family's record pulls its full (small) weight. High on purpose: the account holds twelve settled readings in total, so nothing here may speak with confidence yet. */
 const HISTORY_SHRINK = 12;
-/** HOW FAR A MEASURED SHORTFALL IS DISCOUNTED BEFORE IT ORDERS THE QUEUE. THESE ARE POLICY PRIORS AND NOT MEASUREMENTS (operator, 2026-08-27), which is why nothing built from them is ever called expected clicks: a prior multiplied by a real number produces a PRIORITY, not a forecast, and printing it as a forecast makes invented certainty look empirical. What separates the two values is whether the cause is diagnosed and the lever treats it, never what family the change belongs to. They become measurements only when this account's own finished readings can calibrate them at `CALIBRATION_MIN` samples, and until then the receipt says "assumed" out loud and names the sample it does not have. */
+/** HOW FAR AN ATTRIBUTED, MODELED CTR GAP IS DISCOUNTED BEFORE IT ORDERS THE QUEUE. THESE ARE POLICY PRIORS AND NOT MEASUREMENTS (operator, 2026-08-27), which is why nothing built from them is ever called expected clicks: a prior multiplied by a real number produces a PRIORITY, not a forecast, and printing it as a forecast makes invented certainty look empirical. What separates the two values is whether the cause is diagnosed and the lever treats it, never what family the change belongs to. They become measurements only when this account's own finished readings can calibrate them at `CALIBRATION_MIN` samples, and until then the receipt says "assumed" out loud and names the sample it does not have. */
 const COLLECTS = { diagnosed: 0.5, undiagnosed: 0.2 } as const;
 /** Finished readings of one kind of change before this account's own record may set the discount instead of the
  *  prior above. Twelve settled readings exist in total across every family, so today nothing reaches it. */
@@ -86,6 +87,7 @@ const num = (n: number): string => Math.round(n).toLocaleString();
 /** WHOSE RECORD IS SPEAKING, in the operator's words: the exact work, or the whole family it belongs to. Said out loud on both receipt lines, because "readings of this kind of change" over a family record is the collapse this split exists to end. */
 const RECORD_WORD = { kind: "this exact kind of change", family: "this whole family of changes" } as const;
 const cap = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
+/** A page total is not the shortfall for a reader task; proof and ranking share this one admission. */
 
 /** HOW MUCH RECEIPT THIS ONE CAN SHOW, clamped to its own floor: a tampered `evidenceRefCount` must never
  *  drag a change down through the lifecycle tiers on nothing but a bad number. */
@@ -95,7 +97,7 @@ const shownEvidence = (p: ChangeProposal): number =>
 /** Every factor for ONE proposal, in reading order. `peers` is how many OTHER proposals
  *  in the same batch land on the same page; `measuring` is true when that page already
  *  has a change under measurement. */
-function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, history: LearningHistory | null, accountGoal: string): { factors: Factor[]; directional: boolean } {
+function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, history: LearningHistory | null, accountGoal: string, now: Date, keywordVolumeMonthly = 0, planningPageAudience = false): { factors: Factor[]; directional: boolean } {
   const f: Factor[] = [];
   const add = (name: string, input: string, contribution: number, max: number): void =>
     void f.push({ name, input, contribution: round2(contribution), max });
@@ -126,17 +128,19 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const levers = cause ? CAUSE_LEVERS[cause] : undefined;
   // PROVEN RECOVERY REQUIRES A DIAGNOSED, TREATABLE CAUSE. "The gap is measured and nothing names a cause
   // yet" rode the proven band as "167 clicks proven recoverable" on a card whose own receipt said nothing
-  // written on the page fixes it. A recovery belongs to a cause somebody can treat; a gap with no cause, or
-  // a cause with no lever, is a MEASURED SHORTFALL and is said as one, at half the proven band's reach.
+  // written on the page fixes it. A modeled gap with no diagnosed cause gets the lower band and no recovery claim.
   const treatable = !!levers && levers.size > 0;
   const addressed = treatable && withholdReason(p, cause) == null;
 
-  const clicks = Number.isFinite(p.impactScore) && p.impactScore != null ? Math.max(0, p.impactScore) : null;
-  const demand = Number.isFinite(p.demandImpressions90d) && p.demandImpressions90d != null ? Math.max(0, p.demandImpressions90d) : null;
-  const directional = !(addressed && clicks != null && clicks > 0); // a size is not a proven recovery: an undiagnosed shortfall still ranks, and still says the order is a direction
-  // ONE HORIZON, ONE QUESTION: how many more organic clicks over the NEXT 28 DAYS. `impactScore` is the 28-day-equivalent SHORTFALL the evidence measured (normalised once, at `evidence/demand-units`, because `opportunities` used to take Math.max of a 90-day shortfall and a 28-day fall and record no unit at all, so a card's own sentence could name a different span from its own number). What a change is WORTH is that shortfall times the chance THIS change collects it, and that chance is stated rather than assumed: a diagnosed cause with a lever that treats it collects more often than a shortfall nobody has explained. A midpoint `upsidePerMonth` band sat here too and was unreachable: no producer in this kernel has ever set the field, so it ranked nothing and is deleted rather than left to look like a rule. A WRONG LEVER FORFEITS THE RECOVERY ENTIRELY, and always has: where the cause IS treatable and this change does not treat it, the shortfall belongs to the cause and not to the page, so it rides nothing here.
+  const keywordProxy = Number.isFinite(keywordVolumeMonthly) && keywordVolumeMonthly > 0 ? Math.min(MAX.visibility * PER_POINT, keywordVolumeMonthly / 100) : null;
+  const clicks = attributedClicks(p, now) ?? keywordProxy;
+  const groupDemand = attributionOf(p, now)?.impressions90d;
+  const pageScoped = p.recommendedChange.kind === "existing_edit" && ["title", "meta", "h1"].includes(p.recommendedChange.field);
+  const demand = groupDemand ?? ((pageScoped || planningPageAudience) && Number.isFinite(p.demandImpressions90d) ? p.demandImpressions90d : null);
+  const directional = true; // The CTR-curve gap is modeled from observed group rows, not an observed recovery from this edit.
+  // ONE HORIZON, ONE QUESTION: the modeled 28-day-equivalent CTR gap. `impactScore` is the shortfall the evidence modeled (normalised once, at `evidence/demand-units`, because `opportunities` used to take Math.max of a 90-day shortfall and a 28-day fall and record no unit at all, so a card's own sentence could name a different span from its own number). What a change is WORTH is that shortfall times the chance THIS change collects it, and that chance is stated rather than assumed: a diagnosed cause with a lever that treats it collects more often than a shortfall nobody has explained. A midpoint `upsidePerMonth` band sat here too and was unreachable: no producer in this kernel has ever set the field, so it ranked nothing and is deleted rather than left to look like a rule. A WRONG LEVER FORFEITS THE RECOVERY ENTIRELY, and always has: where the cause IS treatable and this change does not treat it, the shortfall belongs to the cause and not to the page, so it rides nothing here.
   const sized = clicks != null && clicks > 0 && (addressed || !treatable);
-  // WHAT IS MEASURED AND WHAT IS ASSUMED, SAID SEPARATELY. The shortfall is measured; the share of it this change
+  // WHAT IS OBSERVED AND WHAT IS ASSUMED, SAID SEPARATELY. The query-group rows are observed; the share this change
   // collects is a policy prior until this account has finished readings enough to calibrate it, so the sentence
   // reports the measured figure FIRST, then the assumption by name, and calls the product a priority and never a
   // forecast. A family's own record replaces the prior only past CALIBRATION_MIN readings, and says so when it does.
@@ -146,20 +150,22 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const priority = !sized ? null : Math.round(clicks! * share);
   const basis = calibrated ? `a ${Math.round(share * 100)} percent share measured across ${num(record!.readings)} readings of ${RECORD_WORD[record!.of]} here, each closed at 14 days or later`
     : `an assumed ${Math.round(share * 100)} percent share, which is this product's policy and not a figure measured here`;
-  const proven = priority == null ? null : addressed
-    ? { input: `${num(clicks!)} clicks over 28 days measured as recoverable and the cause diagnosed, so ${num(priority)} is what it is ranked on: ${basis}`,
+  const proven = priority == null ? null : keywordProxy != null && attributedClicks(p, now) == null
+    ? { input: `${num(keywordVolumeMonthly)} reported monthly searches for this proposed topic; a one-percent policy proxy, then ${basis}, gives ${num(priority)} priority units, not observed clicks or an owned-page recovery`, value: Math.min(MAX.visibility / 2, priority / PER_POINT) }
+    : addressed
+    ? { input: `a directional CTR-curve gap of up to ${num(clicks!)} clicks per 28-day equivalent, modeled from this page's 90-day reader-task query group with the cause diagnosed; ${num(priority)} is a priority after ${basis}, not observed recovery`,
       value: Math.min(MAX.visibility, priority / PER_POINT) }
-    : { input: `${num(clicks!)} clicks over 28 days of measured shortfall with no cause diagnosed yet, so ${num(priority)} is what it is ranked on: ${basis}`,
+    : { input: `a directional CTR-curve gap of up to ${num(clicks!)} clicks per 28-day equivalent, modeled from this page's 90-day reader-task query group with no cause diagnosed yet; ${num(priority)} is a priority after ${basis}, not observed recovery`,
       value: Math.min(MAX.visibility / 2, priority / PER_POINT) };
   // THE AUDIENCE. A card minted off a defect carries no recoverable click figure at all, so the order collapsed onto how long the work takes and a page shown twice outranked a rebuild of a page shown thirty thousand times. Views are not a recovery, so they earn a THIRD of the ceiling, nothing at all under AUDIENCE_FLOOR, and the whole third only at AUDIENCE_FULL, while a proven recovery can reach three times higher. WHICHEVER IS BIGGER IS WHAT IS RIDING ON THE CHANGE, and the receipt names both. A PAGE'S TRAFFIC IS NOT THIS CHANGE'S TRAFFIC. The queue orders on expected Google gain and expected AI gain; a change whose own cause claims neither may stay visible and may not ride the page's impressions to the top (Codex, 2026-08-18: an accuracy correction led on 56,804 impressions it does not address).
   const claimsAudience = (p.causeFinding?.cause ?? p.diagnosisCause) !== "factual_error";
   const audience = claimsAudience && demand != null && demand > AUDIENCE_FLOOR
-    ? { input: `shown ${num(demand)} times in 90 days, an audience size rather than a proven recovery`,
+    ? { input: groupDemand != null ? `this page's reader-task query group was shown ${num(demand)} times in 90 days, an audience size rather than a proven recovery` : `this page was shown ${num(demand)} times in 90 days, a page-wide audience rather than evidence that this reader task recovers clicks`,
       value: (MAX.visibility / 3) * Math.min(1, Math.log10(demand / AUDIENCE_FLOOR) / Math.log10(AUDIENCE_FULL / AUDIENCE_FLOOR)) }
     : null;
-  // A MEASURED FIGURE IS WHAT THE CHANGE RIDES, AND THE PAGE'S AUDIENCE IS A FALLBACK, NEVER AN UPGRADE. This
+  // A QUERY-GROUP MODEL IS WHAT THE CHANGE RIDES, AND THE PAGE'S AUDIENCE IS A FALLBACK, NEVER AN UPGRADE. This
   // took whichever number was BIGGER, so a change carrying its own measured recovery was scored on its page's
-  // impressions instead: live, a title change with 98 clicks a month of measured shortfall rode 16,493
+  // impressions instead: live, a title change with 98 clicks a month of modeled gap rode 16,493
   // impressions for 29.56 points where its own measured figure was worth 4.9. That is the comment three lines
   // above ("a page's traffic is not this change's traffic") contradicted by the next statement.
   const google = proven ?? audience;
@@ -188,12 +194,12 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   // AI EVIDENCE IS EVIDENCE, NEVER A TRAFFIC FIGURE. Taking whichever band was bigger let recurrence and stage,
   // which are counts of answers, outrank a measured click recovery. It rides only where there is no Google
   // figure at all, and then as a direction rather than a size.
-  // A PROXY NEVER BEATS A MEASURED FIGURE, BUT PROXIES MAY COMPETE WITH EACH OTHER. Preferring Google outright
+  // AN AUDIENCE PROXY NEVER BEATS A MODELED QUERY-GROUP GAP, BUT PROXIES MAY COMPETE WITH EACH OTHER. Preferring Google outright
   // meant a page WITH an audience could never count its AI evidence at all, so an AEO card on a page shown
   // 90,000 times ranked level with one on a page shown none.
   const proxy = ai && (!google || ai.value > google.value) ? ai : google;
   const rode = proven ?? proxy;
-  // AND AN UNMEASURED PROXY MAY NOT OUTRANK MATERIALLY SIZED MEASURED WORK. Impressions and answer counts are both proxies: at a third of the ceiling each was worth 40 points, which is 160 discounted clicks at PER_POINT, so no measured recovery this account can produce could ever catch one. Capped at DIRECTIONAL_MAX so proxies still order each other and always sit under real measured work. SCALED, NEVER CLAMPED. Clamping flattened every proxy onto the ceiling, so recurrence and stage stopped ordering AEO cards against each other at all (a question asked once ranked level with one asked every day for a week). The band keeps its whole shape and is rescaled into the directional range, so proxies order each other exactly as before and simply cannot reach measured work.
+  // AND AN UNMEASURED PROXY MAY NOT OUTRANK MATERIALLY SIZED MEASURED WORK. Impressions and answer counts are both proxies: at a third of the ceiling each was worth 40 points, which is 160 discounted clicks at PER_POINT, so no modeled query-group gap this account can produce could ever catch one. Capped at DIRECTIONAL_MAX so proxies still order each other and always sit under real measured work. SCALED, NEVER CLAMPED. Clamping flattened every proxy onto the ceiling, so recurrence and stage stopped ordering AEO cards against each other at all (a question asked once ranked level with one asked every day for a week). The band keeps its whole shape and is rescaled into the directional range, so proxies order each other exactly as before and simply cannot reach measured work.
   const ridden = rode && rode !== proven
     ? { ...rode, value: rode.value * (DIRECTIONAL_MAX / (MAX.visibility / 3)) } : rode;
   // WHAT IS RIDING ON IT, HELD AT THE CONFIDENCE IT HAS EARNED. Unfinished copy and a low reading each
@@ -297,26 +303,22 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   return { factors: f, directional };
 }
 
-function receiptFor(p: ChangeProposal, peers: number, measuring: boolean, history: LearningHistory | null = null, accountGoal = ""): Receipt {
-  const { factors, directional } = factorsFor(p, peers, measuring, history, accountGoal);
+function receiptFor(p: ChangeProposal, peers: number, measuring: boolean, history: LearningHistory | null = null, accountGoal = "", now = new Date(), keywordVolumeMonthly = 0, planningPageAudience = false): Receipt {
+  const { factors, directional } = factorsFor(p, peers, measuring, history, accountGoal, now, keywordVolumeMonthly, planningPageAudience);
   const score = round2(factors.reduce((a, x) => a + x.contribution, 0));
   const items = shownEvidence(p);
-  // "DIRECTIONAL" COVERS TWO DIFFERENT SITUATIONS AND ONLY ONE OF THEM HAS NO NUMBER. A card carrying a measured
-  // shortfall with no cause diagnosed yet is directional, and this told the operator "No click figure backs this
-  // one" directly under a factor reading "80 clicks over 28 days of measured shortfall". The card contradicted
-  // itself. What is missing there is the CAUSE, not the figure, so it says that instead.
-  const measured = Math.max(0, p.impactScore ?? 0);
-  const evidenced = `${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence and what it takes you to do`;
-  const basis = !directional
-    ? `Ranked on a discounted traffic priority, not a forecast: ${num(measured)} clicks over 28 days measured as recoverable, discounted by an assumed share, ${evidenced}.`
-    : measured > 0
-      ? `${num(measured)} clicks over 28 days are measured as missing here and nothing has named the cause yet, so this is the order to work in, not a promise about size. Ranked on that, ${evidenced}.`
-      : `No click figure backs this one, so this is the order to work in, not a promise about size. Ranked on ${evidenced}.`;
+  // "DIRECTIONAL" COVERS TWO DIFFERENT SITUATIONS AND ONLY ONE OF THEM HAS NO NUMBER. A modeled query-group gap is directional even with a diagnosed cause; the account has not observed recovery from this edit.
+  const measured = attributedClicks(p, now) ?? 0;
+  const attribution = attributionOf(p, now);
+  const evidenced = `${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence and what it takes you to do${attribution ? `; this page's reader-task query group has ${attribution.members.length} observed ${attribution.members.length === 1 ? "phrasing" : "phrasings"}; the newest finalized account search row is ${attribution.sourceDay}, while this group's own last day is not recorded` : ""}`;
+  const basis = measured > 0
+    ? `Directional estimate only: up to ${num(measured)} clicks per 28-day equivalent is a CTR-curve gap modeled from the 90-day query-group rows, not observed recovery or a forecast. Ranked on that bounded proxy and ${evidenced}.`
+    : `No attributable click figure backs this one, so this is the order to work in, not a promise about size. Ranked on ${evidenced}.`;
   return { score, factors, directional, basis };
 }
 
 /** THE SCALAR THE ORDER IS BUILT FROM, and the same one the money is spent on. `ctx` is the drive's ONE scoring context (below), so the buy order, the walk order, the queue order and the sentence under the card are one answer: funding read none of it and disagreed with the displayed order on 29 of 66 live positions, one card worth 2.15 to the funder and 71.26 to the operator. Absent means a proposal read entirely on its own, which is what a caller inspecting one card gets. */
-export function proposalValueScore(p: ChangeProposal, ctx: Scoring = {}): number { return receiptFor(p, Math.max(0, (countPeers(ctx.batch ?? []).get(pageKeyOf(p)) ?? 1) - 1), measuredIn(p, ctx), ctx.familyHistory ?? null, ctx.accountGoal ?? "").score; }
+export function proposalValueScore(p: ChangeProposal, ctx: Scoring = {}): number { return receiptFor(p, Math.max(0, (countPeers(ctx.batch ?? []).get(pageKeyOf(p)) ?? 1) - 1), measuredIn(p, ctx), ctx.familyHistory ?? null, ctx.accountGoal ?? "", ctx.now ?? new Date(), ctx.keywordVolumeMonthly ?? 0, ctx.planningPageAudience === true).score; }
 
 /** The factor that actually separated two neighbours: the biggest contribution gap. */
 function separator(a: Receipt, b: Receipt): { name: string; a: Factor; b: Factor } | null {
@@ -366,7 +368,7 @@ function whyAbove(next: ChangeProposal, a: Receipt, b: Receipt): string {
  */
 export function rankProposals(proposals: readonly ChangeProposal[], ctx: Scoring = {}): ChangeProposal[] {
   const perPage = countPeers(ctx.batch ?? proposals); // the caller's own batch when it holds one for the whole drive, otherwise exactly the proposals handed in
-  const scored = proposals.map((p, i) => ({ p, i, receipt: receiptFor(p, Math.max(0, (perPage.get(pageKeyOf(p)) ?? 1) - 1), measuredIn(p, ctx), ctx.familyHistory ?? null, ctx.accountGoal ?? "") }));
+  const now = ctx.now ?? new Date(), scored = proposals.map((p, i) => ({ p, i, receipt: receiptFor(p, Math.max(0, (perPage.get(pageKeyOf(p)) ?? 1) - 1), measuredIn(p, ctx), ctx.familyHistory ?? null, ctx.accountGoal ?? "", now) }));
   scored.sort((a, b) => (b.receipt.score - a.receipt.score) || (a.i - b.i));
   return scored.map((row, idx) => {
     const next = scored[idx + 1];

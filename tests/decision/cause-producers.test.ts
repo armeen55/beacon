@@ -222,7 +222,7 @@ describe("the wording cause keeps the path it has always had", () => {
     const card = (await run(bare, research)).cards.find((c) => c.id.endsWith("::missing_description"))!;
     const seen = (p: ChangeProposal) => proofOf({ ...p, rankingReceipt: { score: 1, directional: true, basis: "no proven click figure", factors: [] } }).ranksHere ?? "";
     expect([card.causeFinding?.cause, card.diagnosisCause, card.causeFinding?.evidenceKeys.length ?? 0, seen(card).includes("carries no description of its own"), seen(card).includes("No cause is named")], "the finding the card was made from, said in the ladder's own vocabulary, and printed instead of the shrug").toEqual(["ctr_snippet", "ctr_snippet", 2, true, false]);
-    expect(seen({ ...card, causeFinding: undefined, diagnosisCause: undefined }), "and the shrug is exactly what a causeless row still prints, so this proves the cause and not the clause").toContain("No cause is named"); });
+    expect(seen({ ...card, causeFinding: undefined, diagnosisCause: undefined }), "a causeless row remains directional without inventing a cause").toContain("order to work in"); });
   it("a results page about a different subject shapes nothing here, whatever it contains", async () => {
     const foreign = { ...research, serpEvidence: [{ ...research.serpEvidence[0]!, organic: [{ rank: 1, domain: "a.example", url: "https://a.example/1", title: "Premier league fixtures this week" }, { rank: 2, domain: "b.example", url: "https://b.example/2", title: "Stadium seating guide" }] }] };
     const out = await run(pageOf(150, ["Iranian comedians"]), foreign); expect(out.cards.some((c) => c.id.endsWith("::thin_page")), "winners that never name this page's subject authorize no shaping").toBe(false); });

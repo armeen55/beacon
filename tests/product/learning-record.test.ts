@@ -29,7 +29,7 @@ const card = (s: (typeof SITES)[number], treatment: string | null, id: string): 
   pageLabel: "A page", primaryQuery: s.q, opportunityType: "Capture clicks", changeFamily: "internal_links", status: "ready", researchOnly: false,
   recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "One sentence pointing readers at the other page." },
   ...(treatment ? { treatment } : {}), whyItMatters: "This page loses clicks.", estimatedEffortMinutes: 5, riskLevel: "low", confidence: "high",
-  limitations: [], evidence: { query: s.q, hints: [], evidenceRefCount: 3 }, impactScore: 400, upsidePerMonth: null, publish: "manual",
+  limitations: [], evidence: { query: s.q, hints: ["This exact page and search group has 400 recoverable clicks in 28 days."], evidenceRefCount: 3 }, impactScore: 400, impactAttribution: { page: `https://${s.t}.example${s.page}`, query: s.q, members: [s.q], clicks28d: 400, impressions90d: 4000, sourceDay: new Date().toISOString().slice(0, 10) }, upsidePerMonth: null, publish: "manual",
   createdAt: SHIPPED, // no cause is named on these two, so what is riding on them is the measured shortfall itself and the history factor is genuinely reached
 } as unknown as ChangeProposal);
 const historyOf = (p: ChangeProposal): string => (p.rankingReceipt?.factors ?? []).find((f) => f.name === "history")?.input ?? "";

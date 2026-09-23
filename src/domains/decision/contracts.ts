@@ -109,8 +109,6 @@ export function readyForAction(d: ActionDiagnosis | null | undefined): boolean {
 export function confidenceFor(r: EvidenceReadiness, d?: ActionDiagnosis | null): ChangeProposal["confidence"] {
   if (!evidenceComplete(r) || (d !== undefined && !readyForAction(d))) return "low";
   return r.winners >= 2 && r.body ? "high" : "medium"; }
-
-
 /** `new_page` is earned: only the page by page comparison proves this account reaches none of what the winners share. */
 type ProposalKind = "existing_edit" | "new_page";
 
@@ -266,6 +264,7 @@ export type ChangeProposal = {
   evidence: ProposalEvidence;
   /** Honest value sizing for the ranker (may be null, never fabricated). */
   impactScore: number | null;
+  impactAttribution?: { page: string; query: string; members: string[]; clicks28d: number; impressions90d: number; sourceDay: string };
   upsidePerMonth: number | null;
   /** HOW BIG THE AUDIENCE BEHIND THIS CHANGE IS: views its page earned in Google over 90 days, off the account's own rows. An audience size and never a proven recovery, so the ranker reads it ONLY where both proven figures are empty, at a third of the ceiling, and says so. Absent on a pre-field row. */
   demandImpressions90d?: number | null;
@@ -406,6 +405,7 @@ const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   limitations: z.array(z.string()), faults: z.array(z.string()).optional(),
   evidence: z.object({ query: z.string(), hints: z.array(z.string()), evidenceRefCount: z.number() }),
   impactScore: z.number().nullable(),
+  impactAttribution: z.object({ page: z.string().min(1), query: z.string().min(1), members: z.array(z.string().min(1)).min(1).max(40), clicks28d: z.number().finite().nonnegative(), impressions90d: z.number().finite().nonnegative(), sourceDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).optional(),
   upsidePerMonth: z.number().nullable(),
   demandImpressions90d: z.number().nullable().optional(),
   aiImpact: z.object({ answers: z.number(), mentionRate: z.number(), citedRivals: z.number(), audienceWeight: z.number().nullable(),

@@ -96,8 +96,8 @@ async function readEvidenceSnapshot(
       // timeout looked exactly like an account that has never ranked for anything and every page judged clean.
       // A PARTIAL READ IS A FAILED READ TOO: rows landed and then the statement died, so the pages behind the
       // break are missing from a payload that would otherwise be served as this account's whole search truth.
-      readGscPageSignalsForTenant(tenantId, now).then((read) => ({ map: read.signals, failed: read.incomplete }))
-        .catch(() => ({ map: new Map<string, GscPageSignal>(), failed: true })),
+      readGscPageSignalsForTenant(tenantId, now).then((read) => ({ map: read.signals, failed: read.incomplete, latestFinalizedDay: read.latestFinalizedDay ?? null }))
+        .catch(() => ({ map: new Map<string, GscPageSignal>(), failed: true, latestFinalizedDay: null })),
       loadGa4PageValuesForTenant(tenantId, now).catch(() => new Map<string, Ga4PageValue>()),
       loadGa4PageRevenueForTenant(tenantId, now).catch(() => new Map<string, PageRevenueValue>()),
       loadClarityPageSignalsForTenant(tenantId, now).catch(() => new Map<string, ClarityPageSignal>()),
@@ -230,7 +230,7 @@ async function readEvidenceSnapshot(
     null;
   const input: EvidenceSnapshotInput = {
     scope: { tenantId, site, builtAt: now.toISOString() },
-    gsc: { status: gsc.failed ? "failed" : statusFor(gscPayload.length), lastSyncedAt: null, payload: gscPayload },
+    gsc: { status: gsc.failed ? "failed" : statusFor(gscPayload.length), lastSyncedAt: gsc.latestFinalizedDay ? `${gsc.latestFinalizedDay}T00:00:00.000Z` : null, payload: gscPayload },
     ga4: { status: statusFor(ga4Payload.length), lastSyncedAt: null, payload: ga4Payload },
     wix: { status: snapshots.unread ? "failed" : statusFor(wixByUrl.size), lastSyncedAt: null, payload: [...wixByUrl.values()] },
     clarity: { status: statusFor(clarityPayload.length), lastSyncedAt: null, payload: clarityPayload },

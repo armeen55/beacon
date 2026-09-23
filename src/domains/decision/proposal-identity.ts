@@ -57,7 +57,7 @@ const proposalFingerprint = (p: ChangeProposal): string => {
     ...(p.winnersOnFile ? { winnersOnFile: p.winnersOnFile } : {}), ...(p.obligation ? { obligation: p.obligation } : {}),
     copy: [p.opportunityType, p.whyItMatters, ...(p.operatorSteps ?? []), p.bundle?.objective ?? "", ...(p.bundle?.confidenceReasons ?? []), ...(p.research ? [p.research.missing, p.research.next] : [])],
     receipt: evidenceMaterial(p), missing: p.bundle?.receipt.missing ?? [],
-    ...(p.rankingReceipt ? { ranked: true } : {}), ...(p.impactScore != null ? { impact: p.impactScore } : {}), };
+    ...(p.rankingReceipt ? { ranked: true } : {}), ...(p.impactScore != null ? { impact: p.impactScore } : {}), ...(p.impactAttribution ? { impactAttribution: p.impactAttribution } : {}), };
   return createHash("sha256").update(JSON.stringify(material, (_key, value) => value && typeof value === "object" && !Array.isArray(value)
     ? Object.fromEntries(Object.keys(value as Record<string, unknown>).sort().map((key) => [key, (value as Record<string, unknown>)[key]])) : value)).digest("hex").slice(0, 16);
 };

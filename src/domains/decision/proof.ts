@@ -4,6 +4,7 @@ import { COPY_RULES } from "./copy-sanitize";
 import { componentIdOf } from "./contracts";
 import type { BundleComponent, BundleComponentKind, ChangeProposal } from "./contracts";
 import type { CauseFinding } from "./diagnosis";
+import { canonicalUrlKey } from "@/domains/evidence/relevance-gate";
 /** What the card may say about a change, already selected and ordered. Every part is optional because honest
  *  absence is the normal case: a page-only repair has no demand figure and must not pretend to one. */
 type ProofReceipt = {
@@ -50,11 +51,26 @@ const AI_STAGE: Record<NonNullable<NonNullable<ChangeProposal["aiImpact"]>["stag
 /** NOT EVERY `primaryQuery` IS A SEARCH. A factual-correction card is filed under a synthetic label built from  its own address ("/persian-rugs/kerman-rug factual accuracy", producers/factual-defects.ts), and views are  back-filled onto any row missing them, so quoting that label beside a real impression count would invent a  search nobody ran. A real search never contains the address of the page it lands on, and both sides of that  test are canonical fields, so no prose is read to decide it. */
 const searchable = (p: ChangeProposal): boolean =>
   p.primaryQuery.trim().length > 0 && !(p.pagePath && p.primaryQuery.includes(p.pagePath));
-const forSearch = (p: ChangeProposal): string => (searchable(p) ? ` for ${quoted(p.primaryQuery)}` : "");
+
+/** A page total cannot size one reader task. Only a fresh, page-bound demand unit containing this query can. */
+const MAX_ATTRIBUTION_AGE_MS = 7 * 86_400_000;
+function attributionOf(p: ChangeProposal, now: Date): NonNullable<ChangeProposal["impactAttribution"]> | null {
+  const a = p.impactAttribution, query = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+  const age = a ? now.getTime() - Date.parse(`${a.sourceDay}T00:00:00.000Z`) : NaN;
+  return a && a.page && p.pageUrl && Number.isFinite(age) && age >= 0 && age <= MAX_ATTRIBUTION_AGE_MS && canonicalUrlKey(a.page) === canonicalUrlKey(p.pageUrl)
+    && query(a.query) && query(a.query) === query(p.primaryQuery) && a.members?.some((m) => query(m) === query(p.primaryQuery))
+    && Number.isFinite(a.clicks28d) && a.clicks28d >= 0 && Number.isFinite(a.impressions90d) && a.impressions90d >= 0 ? a : null;
+}
+function attributedClicks(p: ChangeProposal, now: Date): number | null {
+  const a = attributionOf(p, now);
+  return a && p.impactScore != null && Number.isFinite(p.impactScore)
+    && (p.causeFinding?.cause ?? p.diagnosisCause) !== "factual_error" ? Math.max(0, Math.min(a.clicks28d, p.impactScore)) : null;
+}
+export { attributionOf, attributedClicks }; // Internal Decision sharing; the public facade does not export these readers.
 
 /** THE SIZE OF THE PROBLEM, in the unit it was actually measured in. Views are a 90-day audience and the click
  *  shortfall is the last 28 days: they are two windows and are never merged into one figure. */
-function demandClause(p: ChangeProposal): string | null {
+function demandClause(p: ChangeProposal, now: Date): string | null {
   const ai = p.aiImpact;
   if (ai && ai.answers > 0 && searchable(p)) {
     const stage = ai.stage ? AI_STAGE[ai.stage](ai.citedRivals) : null;
@@ -62,18 +78,18 @@ function demandClause(p: ChangeProposal): string | null {
     const head = `Assistants answered ${quoted(p.primaryQuery)} ${num(ai.answers)} ${ai.answers === 1 ? "time" : "times"}${runs}`;
     return stage ? sentence(`${head}, and ${stage}`) : sentence(head);
   }
-  const shown = p.demandImpressions90d, short = p.impactScore;
+  const a = attributionOf(p, now), shown = a?.impressions90d ?? null, short = attributedClicks(p, now);
   const hasShown = shown != null && shown > 0, hasShort = short != null && short > 0;
-  if (hasShown && hasShort) return sentence(`This page was shown ${num(shown!)} times${forSearch(p)} in 90 days and is short about ${num(short!)} ${short === 1 ? "click" : "clicks"} in the last 28 days`);
-  if (hasShown) return sentence(`This page was shown ${num(shown!)} times${forSearch(p)} in 90 days`);
-  if (hasShort) return sentence(`About ${num(short!)} ${short === 1 ? "click" : "clicks"} over 28 days ${short === 1 ? "is" : "are"} missing${searchable(p) ? ` on ${quoted(p.primaryQuery)}` : " here"}`);
+  if (hasShown && hasShort) return sentence(`This page's ${num(a!.members.length)} reader-task ${a!.members.length === 1 ? "phrasing was" : "phrasings were"} shown ${num(shown!)} times in 90 days; up to ${num(short!)} clicks per 28-day equivalent is a modeled CTR-curve gap, not observed recovery. Account search data is finalized through ${a!.sourceDay}; this group's last occurrence is unknown`);
+  if (hasShown) return sentence(`This page's reader-task query group was shown ${num(shown!)} times in 90 days. Account search data is finalized through ${a!.sourceDay}; this group's last occurrence is unknown`);
+  if (hasShort) return sentence(`Up to ${num(short!)} clicks per 28-day equivalent is a modeled CTR-curve gap for this page's reader-task query group, not observed recovery. Account search data is finalized through ${a!.sourceDay}; this group's last occurrence is unknown`);
   return null;
 }
 
 /** THE TWO ANSWERS, selected. Nothing here reads a regex over prose: a clause exists because a typed field
  *  exists, and disappears with it. */
-export function proofOf(p: ChangeProposal): ProofReceipt {
-  const demand = demandClause(p);
+export function proofOf(p: ChangeProposal, now = new Date()): ProofReceipt {
+  const demand = demandClause(p, now);
   // The diagnosed defect, in the diagnosis's own typed words. Skipped when the demand clause is the AI one,
   // which already said the cause: "assistants read this page and quoted somebody else" IS retrieved_not_cited,
   // and saying it twice reads as two findings.
@@ -86,7 +102,7 @@ export function proofOf(p: ChangeProposal): ProofReceipt {
   const markup = p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "schema";
   const order = markup ? "Structured data claims no traffic of its own, so it is ordered after every change that does." /* the audience above is the page's, never the markup's (walk of 2026-09-16) */
     : p.rankingReceipt?.directional && !named
-    ? "No cause is named for it yet, so this is the order to work in, not a promise about size." : null;
+    ? "This is the order to work in, not a promise about size or recovered clicks." : null;
   const ranksHere = [demand, explained ?? order].filter(Boolean).join(" ") || null;
 
   // WHY THIS ACTION, said only by something that actually chose it: a bundle states its own objective, and a

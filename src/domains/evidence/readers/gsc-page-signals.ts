@@ -76,7 +76,7 @@ const isMissingObject = (code: string | null | undefined): boolean =>
 /** One page-signal read, and whether it is the WHOLE window. `incomplete` means an error cut the paging
  *  short after some rows landed: the signals are real but partial, and a surface that treats partial as
  *  complete judges every unread page clean. A read that got nothing at all throws instead. */
-type GscPageSignalsRead = { signals: Map<string, GscPageSignal>; incomplete: boolean };
+type GscPageSignalsRead = { signals: Map<string, GscPageSignal>; incomplete: boolean; latestFinalizedDay?: string | null };
 
 async function readGscPageSignalsForDayUncached(tenantId: string, day: string): Promise<GscPageSignalsRead> {
   const out = new Map<string, GscPageSignal>();
@@ -199,14 +199,17 @@ async function readGscPageSignalsForDayUncached(tenantId: string, day: string): 
  *  was here and did nothing: every call site handed it a fresh `new Date()` or left the argument off, and
  *  React keys a memo on the arguments it was given. The day is normalized inside the one entry every caller
  *  uses, so there is exactly one slot to share. */
-const readGscPageSignalsForDay = cache(async (tenantId: string, day: string): Promise<GscPageSignalsRead> =>
-  readThroughDaily<{ entries: [string, GscPageSignal][]; incomplete: boolean }>({
-    tenantId, kind: "gsc-signals", watermark: await gscWatermark(tenantId),
+const readGscPageSignalsForDay = cache(async (tenantId: string, day: string): Promise<GscPageSignalsRead> => {
+  const latestFinalizedDay = await gscWatermark(tenantId);
+  const payload = await readThroughDaily<{ entries: [string, GscPageSignal][]; incomplete: boolean }>({
+    tenantId, kind: "gsc-signals", watermark: latestFinalizedDay,
     compute: async () => { const r = await readGscPageSignalsForDayUncached(tenantId, day);
       // A PARTIAL READ IS NEVER BANKED: cached, a truncated window would read back as the account's whole
       // search truth all day, where today the failure dies with the request.
       return { payload: { entries: [...r.signals], incomplete: r.incomplete }, cacheable: !r.incomplete }; },
-  }).then((p) => ({ signals: new Map(p.entries), incomplete: p.incomplete })));
+  });
+  return { signals: new Map(payload.entries), incomplete: payload.incomplete, latestFinalizedDay };
+});
 
 /** The data's own clock: the newest finalized day on file. Moves only when a sync lands rows, so it is the
  *  one honest cache key; null (an unreadable probe) computes live and banks nothing. */

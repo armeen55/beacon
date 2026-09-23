@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { causeLabel, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, nextObligation, openHold, sameComponentId, unsettledCause } from "@/domains/decision";
+import { attributionOf, causeLabel, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, nextObligation, openHold, sameComponentId, unsettledCause } from "@/domains/decision";
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { ConfirmDangerous, CopyButton, PublicationCopy, MarkImplemented, SetAsideChange } from "../change-controls";
@@ -235,7 +235,8 @@ function Investigation({ proposal, seen }: { proposal: ChangeProposal; seen: Set
   const finding = proposal.causeFinding;
   const receipt = proposal.rankingReceipt;
   const hints = fresh(seen, proposal.evidence?.hints ?? []);
-  const factors = (receipt?.factors ?? []).filter((f) => (f.input ?? "").trim().length > 0);
+  const unbound = (proposal.impactScore != null || proposal.demandImpressions90d != null) && !attributionOf(proposal, new Date());
+  const factors = unbound ? [] : (receipt?.factors ?? []).filter((f) => (f.input ?? "").trim().length > 0);
   if (!finding && !receipt) return null;
   return (
     <details className="rounded-2xl border border-border bg-surface-raised p-5" data-investigation="true">
@@ -277,14 +278,14 @@ function Investigation({ proposal, seen }: { proposal: ChangeProposal; seen: Set
           </div>
         ) : null}
 
-        {receipt && factors.length > 0 ? (
+        {receipt && (factors.length > 0 || unbound) ? (
           <div className="space-y-1">
             <p className="text-[12px] font-semibold text-foreground">Why this one ranks where it does</p>
-            <ul className="space-y-1 text-[13px] leading-relaxed text-muted-foreground">
+            {factors.length > 0 ? <ul className="space-y-1 text-[13px] leading-relaxed text-muted-foreground">
               {/* A LABEL IS NOT A SCORE: readiness contributes nothing on purpose, so "(did not move this one either way)" after the sentence saying what the change waits on read as a shrug about the dependency. */}
               {factors.map((f, i) => <li key={i} className="tabular-nums">{f.input}{f.max === 0 ? "" : ` (${weightWord(f.contribution, f.max)})`}</li>)}
-            </ul>
-            <p className="text-[12px] leading-relaxed text-muted-foreground">{receipt.basis}</p>
+            </ul> : null}
+            <p className="text-[12px] leading-relaxed text-muted-foreground">{unbound ? "No attributable click figure backs this saved ranking receipt. The change remains directional until its reader-task demand is checked again." : receipt.basis}</p>
           </div>
         ) : null}
       </div>
