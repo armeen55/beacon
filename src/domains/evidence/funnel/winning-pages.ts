@@ -9,6 +9,7 @@ import { pageIdFor } from "@/domains/evidence/scanning/in-process-scan";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import { resolveCitationTargets } from "@/domains/evidence/competitor-intel/polite-fetch";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
+import type { PageSnapshot } from "@/domains/evidence/pages/types";
 import { renderUnreadOwnedPages } from "@/domains/evidence/pages/rendered-read";
 import type { FunnelUnitFn, ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { owedWinnerReads, PRIORITY_WINNERS_PER_QUERY, rankWinningPages } from "./normalize";
@@ -102,10 +103,25 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
   if (await settled()) return { held: kept.filter((o) => canonicalUrlKey(o.url) !== key), pause: null, acquired: true };
   // Retry protection belongs to each URL. Ten unrelated failures cannot deny
   // an eleventh page, and admitting it must not evict an active hold.
-  if (seen.has(key) || now >= deadline) return { held: kept, pause: null, acquired: false, attempted: false };
+  const heldForKey = kept.find((o) => canonicalUrlKey(o.url) === key);
+  if (now >= deadline) return { held: kept, pause: null, acquired: false, attempted: false };
   const remember = (state: OwnedPageReadOutcome["state"], retryMs = RETRY_MS[state]): OwnedRead => ({
     held: [{ url, ...readOutcomeAt(state, now), retryAfter: new Date(now + retryMs).toISOString() }, ...kept], pause: null, acquired: false,
   });
+  if (heldForKey) {
+    const saved = latestCapture as Partial<PageSnapshot> | null, capture = saved?.content_capture;
+    if (heldForKey.state === "robots_blocked" || !saved || typeof saved.content_hash !== "string"
+      || !Object.hasOwn(saved, "title") || !Object.hasOwn(saved, "h1") || !Object.hasOwn(saved, "meta_description")
+      || capture?.version !== 1 || typeof capture.mainHtml !== "string" || !Array.isArray(capture.jsonLd))
+      return { held: kept, pause: null, acquired: false, attempted: false };
+    let attempted = false;
+    try { await renderUnreadOwnedPages(tenantId, 1, { url: absolute, deps: d, profile, deadline, bustedAt,
+      rawSnapshot: saved as PageSnapshot, bankedAfter: heldForKey.attemptedAt,
+      onRead: (r, raw) => { attempted = raw.state === "hit" || raw.state === "ok" || raw.state === "error" && ["retry_free", "quarantined"].includes(raw.disposition); track(state, r); } }); }
+    catch { return { held: kept, pause: null, acquired: false, attempted: false }; }
+    if (await settled()) return { held: kept.filter((o) => canonicalUrlKey(o.url) !== key), pause: null, acquired: true };
+    return attempted ? remember("temporarily_unavailable", RETRY_MS.provider_unavailable) : { held: kept, pause: null, acquired: false, attempted: false };
+  }
   let res;
   try { res = await d.fetchPage(absolute, new Map(), { timeoutMs: Math.max(1, Math.min(10_000, (deadline - d.now()) / 2)) }); }
   catch { return remember("temporarily_unavailable"); }
@@ -122,7 +138,7 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
   }
   try { if (!unchanged) await d.writeOwnedPage(snapshot, tenantId); }
   catch { return { ...remember("temporarily_unavailable"), pause: OWNED_WRITE_PAUSE }; }
-  if (await settled()) return { held: kept, pause: null, acquired: true };
+  if (await settled()) return { held: kept.filter((o) => canonicalUrlKey(o.url) !== key), pause: null, acquired: true };
   if (deadline - d.now() < 50_000) return { held: kept, pause: null, acquired: false, attempted: false };
   let attempted = false;
   try {
@@ -131,7 +147,7 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
       track(state, r);
     } });
   } catch { return { ...remember("temporarily_unavailable", RETRY_MS.provider_unavailable), pause: "The rendered page could not be acquired or saved; the capture remains unresolved." }; }
-  if (await settled()) return { held: kept, pause: null, acquired: true };
+  if (await settled()) return { held: kept.filter((o) => canonicalUrlKey(o.url) !== key), pause: null, acquired: true };
   return attempted ? remember("temporarily_unavailable", RETRY_MS.provider_unavailable) : { held: kept, pause: null, acquired: false, attempted: false };
 }
 

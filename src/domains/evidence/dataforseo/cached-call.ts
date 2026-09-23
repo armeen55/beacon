@@ -33,7 +33,7 @@ type EvidenceCacheRow = {
   cache_key: string; endpoint: string; status: "pending" | "ready" | "error";
   provider_task_id: string | null; payload: unknown | null; model_served: string | null;
   spend_attempt_id?: string | null;
-  cost_usd: number; expires_at: string; posted_at?: string | null;
+  cost_usd: number; expires_at: string; ready_at?: string | null; posted_at?: string | null;
   quarantined_at?: string | null;
   error_detail?: string | null;
   next_poll_at?: string | null;

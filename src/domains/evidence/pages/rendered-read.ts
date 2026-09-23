@@ -46,7 +46,7 @@ async function unreadOwnedPages(tenantId: string, d: ResolvedDeps, cap: number):
 
 /** A provider DOM is evidence only after canonical extraction and durable readback. No text-to-HTML fabrication. */
 export async function renderUnreadOwnedPages(tenantId: string, cap = RENDERED_READS_PER_PASS, options: {
-  url?: string; deps?: FunnelDeps; profile?: BusinessProfile | null; deadline?: number; bustedAt?: string | null;
+  url?: string; deps?: FunnelDeps; profile?: BusinessProfile | null; deadline?: number; bustedAt?: string | null; bankedAfter?: string;
   rawSnapshot?: PageSnapshot; onRead?: (result: Interp, raw: CachedCallResult) => void;
 } = {}): Promise<number> {
   if (cap <= 0) return 0;
@@ -73,7 +73,7 @@ export async function renderUnreadOwnedPages(tenantId: string, cap = RENDERED_RE
     }
     if (deadline - d.now() < 50_000) break;
     const revision = sha16(JSON.stringify([options.bustedAt ?? null, rawSnapshot.content_hash, rawSnapshot.title, rawSnapshot.meta_description, rawSnapshot.h1, rawSnapshot.content_capture?.mainHtml, rawSnapshot.content_capture?.jsonLd]));
-    const raw = await d.callProvider("onpage_rendered_html", { url, revision }, { tenantId, unitKey: `rendered:${key}` }), r = interp(raw);
+    const raw = await d.callProvider("onpage_rendered_html", { url, revision }, { tenantId, unitKey: `rendered:${key}`, ...(options.bankedAfter ? { bankedAfter: options.bankedAfter } : {}) }), r = interp(raw);
     options.onRead?.(r, raw);
     if (r.kind !== "evidence") { await hold(url); break; }
     const got = d.parse("onpage_rendered_html", r.payload as never);

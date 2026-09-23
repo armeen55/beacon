@@ -22,7 +22,6 @@ type LlmEngine = "chatgpt" | "gemini" | "claude" | "perplexity";
 const ENGINE_SLUG: Record<LlmEngine, string> = { chatgpt: "chat_gpt", gemini: "gemini", claude: "claude", perplexity: "perplexity" };
 /** tasksReady = the FREE GET listing of finished-but-uncollected tasks, the only AUTOMATIC recovery a quarantined row ever gets. Null on Live routes. */
 type Route = { mode: "live" | "task"; postPath: string; getPath: ((id: string) => string) | null; tasksReady: string | null };
-
 type Entry<K extends CapabilityKey> = {
   ttlMs: number;
   estCostUsd: number;
@@ -71,7 +70,6 @@ function llmIdentity<T extends ObservationIdentity>(i: T): T {
   return { ...rest, ...(typeof day === "string" && day.length > 0 ? { observation_day: day } : {}),
     ...(typeof slot === "number" && slot > 0 ? { sample_slot: Math.trunc(slot) } : {}) } as T;
 }
-
 function labsEntry<K extends "labs_keywords_for_site" | "labs_ranked_keywords" | "labs_related_keywords" | "labs_keyword_suggestions">(
   postPath: string, keyField: "target" | "keyword", estCostUsd: number, fixed: Record<string, unknown> = {}): Entry<K> {
   return {
@@ -179,7 +177,7 @@ const REGISTRY: Registry = {
 };
 export const capabilityAskable = (capability: string): boolean => Object.hasOwn(REGISTRY, capability);
 export async function providerCall<K extends CapabilityKey>(
-  capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string; runId?: string; caseKey?: string; promptId?: string }, deps: FunnelBoundaryDeps = {},
+  capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string; runId?: string; caseKey?: string; promptId?: string; bankedAfter?: string }, deps: FunnelBoundaryDeps = {},
 ): Promise<CachedCallResult> {
   const proof = PROOF_SPEND.externalClosed(ids.tenantId, { capability, url: String((input as { url?: string }).url ?? "") });
   const paused = proof === true || proof == null && await spendingClosed(ids.tenantId);
@@ -210,6 +208,11 @@ export async function providerCall<K extends CapabilityKey>(
   const modelDim = entry.dims.model ? modelRequested : null;
   const publicInput = (ask ?? {}) as Record<string, unknown>;
   const cacheKey = identityCacheKey({ endpoint: route.postPath, publicInput, providerPayload: payload, locationCode: LOCATION_US, languageCode: LANG_EN, device, modelRequested: modelDim });
+  if (capability === "onpage_rendered_html" && ids.bankedAfter) {
+    const d = resolveDeps(deps), row = await d.cacheRead(cacheKey).catch(() => null);
+    if (row?.status !== "ready" || !row.payload || !Number.isFinite(Date.parse(ids.bankedAfter)) || Date.parse(row.ready_at ?? "") <= Date.parse(ids.bankedAfter)
+      || Date.parse(row.expires_at ?? "") <= d.now().getTime()) return { state: "capped", cacheKey, detail: "No newer paid page task can be verified for this exact capture; the retry hold remains." };
+  }
   const resolved: ResolvedCall = {
     capability,
     cacheKey, endpoint: route.postPath, endpointVersion: "v3", postPath: route.postPath, getPath: route.getPath,
@@ -217,7 +220,7 @@ export async function providerCall<K extends CapabilityKey>(
     publicInput, locationCode: LOCATION_US, languageCode: LANG_EN, device, modelRequested: modelDim,
     payload, ttlMs: entry.ttlMs, estCostUsd: entry.estCostUsd, mode: route.mode, tenantId: ids.tenantId,
     requestTimeoutMs: entry.requestTimeoutMs,
-    paidBlockedReason: blocked,
+    paidBlockedReason: ids.bankedAfter ? "Only the exact newer paid page task may be replayed; no new purchase is authorized." : blocked,
     purpose: ids.unitKey.startsWith("fact-check:") ? "fact_check" : "bulk", // the daily gate holds the fact-check reserve on it
     who: { unitKey: ids.unitKey, ...(ids.runId ? { runId: ids.runId } : {}), ...(ids.caseKey ? { caseKey: ids.caseKey } : {}), ...(ids.promptId ? { promptId: ids.promptId } : {}) },
   };
@@ -227,7 +230,6 @@ export async function providerCall<K extends CapabilityKey>(
   if (modelRequested && (result.state === "ok" || result.state === "waiting")) return { ...result, modelRequested };
   return result;
 }
-/** Normalized seeds share cached requests of up to 200; refusal or a ceiling stops the batch. */
 export async function keywordIdeasBatched(
   seeds: string[], ids: { tenantId: string; unitKey: string }, deps: FunnelBoundaryDeps = {}, limit?: number,
 ): Promise<CachedCallResult[]> {
@@ -259,7 +261,6 @@ function tasksReadyForEndpoint(endpoint: string): string | null {
 }
 export function parseCapability<K extends CapabilityKey>(capability: K, envelope: ProviderEnvelope): ParsedByCapability[K] | null {
   try { return REGISTRY[capability].parse(envelope) as ParsedByCapability[K]; } catch { return null; } }
-/** Labeled fallbacks (docs, 2026-07-24), used only when credentials are absent: chatgpt/claude standard, gemini/perplexity live. */
 const FALLBACK: Record<LlmEngine, EngineModelResolution> = {
   chatgpt: { model: "gpt-4o", method: "standard", webSearch: true },
   claude: { model: "claude-sonnet-4-20250514", method: "standard", webSearch: true },
@@ -484,7 +485,6 @@ function num(v: unknown): number | null { return typeof v === "number" && Number
 function level(v: unknown): "low" | "medium" | "high" | null { const s = typeof v === "string" ? v.toLowerCase() : ""; return s === "low" || s === "medium" || s === "high" ? s : null; }
 function str(v: unknown): string | null { return typeof v === "string" && v.length > 0 ? v : null; }
 function arrStr(v: unknown): string[] | null { return Array.isArray(v) ? v.map((x) => String(x)).filter((s) => s.length > 0) : null; }
-/** A provider list of web pages -> the ONE link shape every observation keeps. null = the provider sent no such list. */
 function links(v: unknown): { url: string; domain: string; title: string | null }[] | null {
   return Array.isArray(v) ? (v as Record<string, unknown>[]).map((s) => { const url = String(s.url ?? ""); return { url, domain: String(s.domain ?? hostname(url)), title: str(s.title) }; }).filter((c) => c.url.length > 0) : null;
 }

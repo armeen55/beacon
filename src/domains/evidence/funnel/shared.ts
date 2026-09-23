@@ -37,7 +37,7 @@ import { loadFunnelState, saveFunnelState, type FunnelPair, type FunnelState, ty
  *  of the numbers, which is exactly how two of them drifted. Import freshnessMsFor / isCurrent from there. */
 
 export type FunnelDeps = {
-  callProvider?: <K extends CapabilityKey>(capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string }) => Promise<CachedCallResult>;
+  callProvider?: <K extends CapabilityKey>(capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string; bankedAfter?: string }) => Promise<CachedCallResult>;
   collectTask?: (cacheKey: string) => Promise<CachedCallResult>;
   parse?: typeof parseCapability;
   readPageExtract?: typeof readPublicPageExtract;

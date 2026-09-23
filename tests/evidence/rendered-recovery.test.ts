@@ -16,6 +16,32 @@ describe("rendered recovery follows unresolved page identities", () => {
     { tenant_id: tenant, url: unread, crawl_state: "crawled", http_status: 200, is_canonical_target: true, last_crawled_at: "2026-09-19T00:00:00.000Z" },
   ];
 
+  it("replays a newer banked rendered task through an active source hold and clears it only after readback", async () => {
+    const { winningPagesUnit } = await import("@/domains/evidence/funnel/winning-pages");
+    const shell = "<main><h1>Comedians</h1><p>Loading names.</p></main>", full = `<main><h1>Comedians</h1><p>${"A named comedian appears with context. ".repeat(20)}</p></main>`;
+    const raw = extractPageSnapshot(shell, unread, "page", tenant), rendered = extractPageSnapshot(full, unread, "page", tenant);
+    const held = { url: unread, state: "temporarily_unavailable", attemptedAt: new Date(now - 1000).toISOString(), retryAfter: new Date(now + 7 * 86_400_000).toISOString() };
+    const state = { ownedReads: [held], ledger: { spentUsd: 0, cacheHits: 0 }, cycle: { runId: null, cycleKey: null, spentUsd: 0, cacheHits: 0 } } as never;
+    let body = { version: "current", completeness: "partial", contentHash: raw.content_hash, vocabulary: "Loading names.", fetchedAt: current,
+      captureStates: [{ ...raw, id: "raw" }], latestCaptureId: "raw" } as Record<string, unknown>;
+    let ready = false; const called: string[] = [], writes: string[] = [], fetched: string[] = [];
+    const deps = { now: () => now, loadState: async () => ({ state, rowVersion: 1 }), saveState: async () => 2,
+      getAccount: async () => ({ domain: "fixture.example" }), loadProfile: async () => null,
+      readOwnedBodies: async () => new Map([[canonicalUrlKey(unread), body]]), fetchPage: async (url: string) => { fetched.push(url); return { ok: true, html: shell, status: 200, finalUrl: unread }; },
+      writeOwnedPage: async (snap: typeof raw) => { writes.push(snap.content_hash); body = { ...body, contentHash: snap.content_hash,
+        completeness: snap.content_capture?.complete ? "complete" : "partial", fetchedAt: snap.fetched_at,
+        captureStates: [{ ...snap }], latestCaptureId: snap.id }; },
+      callProvider: async (_cap: string, _ask: unknown, ids: { bankedAfter?: string }) => { called.push(ids.bankedAfter ?? "none"); return ready
+        ? { state: "hit", envelope: {}, cacheKey: "saved-task", costUsd: 0 } : { state: "capped", cacheKey: "saved-task", detail: "no newer receipt" }; },
+      parse: () => ({ url: unread, html: full, httpStatus: 200, capturedAt: current }),
+    } as unknown as FunnelDeps;
+    const read = winningPagesUnit(deps, [], null, unread, null, null, true), cursor = { basis: "basis", runId: "run" };
+    expect((await read(tenant, cursor, 90_000)).status).toBe("failed"); expect([called, (state as { ownedReads: unknown[] }).ownedReads]).toEqual([[held.attemptedAt], [held]]);
+    ready = true;
+    expect((await read(tenant, cursor, 90_000)).status).toBe("done");
+    expect([called, fetched, (state as { ownedReads: unknown[] }).ownedReads, body.completeness, writes.includes(rendered.content_hash)]).toEqual([[held.attemptedAt, held.attemptedAt], [], [], "complete", true]);
+  });
+
   it("reaches structurally unresolved URL behind 2,001 newer snapshots and spends nothing on a qualified neighbor", async () => {
     const disputed = row("old", "page-z", unread, "2026-09-01T00:00:00.000Z", 3);
     disputed.body_text = "B"; disputed.content_capture = { version: 1, complete: true, mainHtml: "<main><p>A</p></main>", jsonLd: [] };
