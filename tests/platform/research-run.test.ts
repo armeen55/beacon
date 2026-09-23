@@ -22,14 +22,15 @@ vi.mock("@/lib/persistence/supabase", async (actual) => ({ ...(await actual<Reco
         return { data: [{ id, daily_budget_usd: DB.budget.get(id) ?? 50 }], error: null }; } }) }),
     }; } }) }));
 const CRAWL = vi.hoisted(() => ({ state: null as null | "in_progress" | "complete" | "unreachable", starts: 0, forced: false, batches: 0, racer: null as null | (() => void),
-  pick: null as null | ((t: string, limit: number, now?: Date) => Promise<string[]>), inventory: [] as string[], decay: [] as { page: string; clicksNow: number; clicksPrior: number }[] }));
+  pick: null as null | ((t: string, limit: number, now?: Date) => Promise<string[]>), budgets: [] as number[], renders: [] as number[], inventory: [] as string[], decay: [] as { page: string; clicksNow: number; clicksPrior: number }[] }));
+vi.mock("@/domains/evidence/pages/rendered-read", () => ({ renderUnreadOwnedPages: async (_t: string, _cap: number, options: { deadline: number }) => (CRAWL.renders.push(options.deadline), 0) }));
 vi.mock("@/domains/evidence/scanning/owned-pages-store", async (actual) => ({ ...(await actual<Record<string, unknown>>()), nextCrawlCandidates: async () => CRAWL.inventory }));
 vi.mock("@/domains/evidence/readers/gsc-page-signals", async (actual) => ({ ...(await actual<Record<string, unknown>>()),
   loadGscDecaySignalsForTenant: async () => new Map(CRAWL.decay.map((d) => [d.page, d])) }));
 vi.mock("@/domains/evidence/scanning/crawl-frontier", async (actual) => ({ ...(await actual<Record<string, unknown>>()),
   startColdStartCrawl: async (a: { force?: boolean }) => { CRAWL.starts += 1; CRAWL.forced = CRAWL.forced || a.force === true; CRAWL.racer?.();
     CRAWL.state = CRAWL.state ?? "in_progress"; return { status: CRAWL.state, discovered: 3 }; },
-  continueColdStartCrawlIfStarted: async (_t: string, deps?: { pickCandidates?: (t: string, l: number, n?: Date) => Promise<string[]> }) => (CRAWL.pick = deps?.pickCandidates ?? null, CRAWL.state == null || CRAWL.state === "unreachable"
+  continueColdStartCrawlIfStarted: async (_t: string, deps?: { pickCandidates?: (t: string, l: number, n?: Date) => Promise<string[]>; batchBudgetMs?: number }) => (CRAWL.pick = deps?.pickCandidates ?? null, CRAWL.budgets.push(deps?.batchBudgetMs ?? -1), CRAWL.state == null || CRAWL.state === "unreachable"
     ? { ran: false, status: CRAWL.state ?? "no_crawl", crawled: 0, failed: 0, totalCrawled: 0, remaining: 0, complete: false, detail: CRAWL.state ?? "no_frontier_state" }
     : (CRAWL.batches += 1, { ran: true, status: CRAWL.state, crawled: 3, failed: 0, totalCrawled: 3 * CRAWL.batches, remaining: 0, complete: false })) }));
 const ROUTE = vi.hoisted(() => ({ receipt: {} as Record<string, unknown>, fail: null as Error | null }));
@@ -53,8 +54,8 @@ function installAccountRepo(): void {
   const byId = async (id: string) => ({ id, slug: id, provisional_name: "", domain: "example.com", status: statusOf(id), signup_date: "", tos_accepted_at: null, daily_budget_usd: 0, growth_goal: null, created_at: "", updated_at: "" });
   setAccountRepositoryForTests({ getAccountById: byId, getAccountBySlug: byId } satisfies AccountRepository); }
 let NOW = 1_700_000_000_000; const iso = (ms = NOW) => new Date(ms).toISOString();
-const DAY = 24 * 3600 * 1000, T = "acct-a", U = "acct-b", LEASE = RR.RESEARCH_RUN_LEASE_SECONDS * 1000, FLEET = [T, U];
-const ckey = (t: string, ms = NOW) => `${t}:${new Date(ms).toISOString().slice(0, 10)}`; // the daily key the DATABASE computes
+const DAY = 24 * 3600 * 1000, T = "acct-a", U = "acct-b", LEASE = RR.RESEARCH_RUN_LEASE_SECONDS * 1000, FLEET = [T, U], CREATED = new Map<string, string>();
+const ckey = (t: string, ms = NOW) => `${t}:${reportingDay(ms)}`; // the daily key the DATABASE computes
 const mk = (o: Partial<RR.ResearchRun>): RR.ResearchRun => ({ id: "seed", tenant_id: T, cycle_key: ckey(T, NOW), status: "paused", current_phase: "refresh_sources", phase_cursor: null, progress: {}, spend_usd: 0, last_error: null,
   lease_owner: null, lease_expires_at: null, started_at: iso(), updated_at: iso(), completed_at: null, next_dispatch_at: null, dispatch_reason: null, dispatch_plan: null, dispatch_attempts: 0, ...o });
 function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } { const rows: RR.ResearchRun[] = [];
@@ -69,14 +70,14 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } { const
         if (open.lease_owner != null && open.lease_owner !== owner && Date.parse(open.lease_expires_at!) >= NOW) return null; // a foreign LIVE lease
         Object.assign(open, { lease_owner: owner, lease_expires_at: exp, status: open.status === "paused" ? "running" : open.status, updated_at: iso(), next_dispatch_at: null, dispatch_reason: null, dispatch_plan: null });
         return { ...open }; } // id / cycle_key / phase / cursor / progress / last_error preserved
-      const today = new Date(NOW).toISOString().slice(0, 10); if (rows.some((x) => x.tenant_id === tenantId && x.status === "completed" && (x.completed_at ?? "").slice(0, 10) === today)) return null;
+      const today = reportingDay(NOW); if (rows.some((x) => x.tenant_id === tenantId && x.status === "completed" && x.completed_at && reportingDay(Date.parse(x.completed_at)) === today)) return null;
       rows.push(mk({ id: `r${rows.length}`, tenant_id: tenantId, cycle_key: ckey(tenantId, NOW), status: "running", lease_owner: owner, lease_expires_at: exp }));  // mk defaults already give refresh_sources / null cursor / {} progress / null error.
       return { ...rows[rows.length - 1]! }; },
     async claimDue({ owner, limit, leaseSeconds }) {  // claim_due_research_work: enumerate ACTIVE, not-paused accounts whose current reporting day still owes work, then claim each THROUGH the claim above, so the lease stays the only mechanism.
-      const out: RR.ResearchRun[] = [], today = new Date(NOW).toISOString().slice(0, 10);
-      const lastMoved = (t: string) => rows.filter((x) => x.tenant_id === t)  // Fairness order: greatest(max(started_at), max(updated_at)) asc, then id; a resume touches ONLY updated_at.
-        .map((x) => (x.updated_at > x.started_at ? x.updated_at : x.started_at)).sort().pop() ?? ""; const queue = [...FLEET].sort((a, b) => lastMoved(a).localeCompare(lastMoved(b)) || a.localeCompare(b));
-      for (const t of queue) { if (out.length >= limit) break; if (statusOf(t) !== "active" || PAUSED.has(t)) continue; const done = newestFirst(t).find((x) => x.status === "completed" && (x.completed_at ?? "").slice(0, 10) === today), open = openRun(t);
+      const out: RR.ResearchRun[] = [], today = reportingDay(NOW);
+      const lastMoved = (t: string) => rows.filter((x) => x.tenant_id === t && (x.status !== "completed" || x.cycle_key.endsWith(today)))
+        .map((x) => x.updated_at).sort().pop() ?? CREATED.get(t) ?? iso(NOW); const queue = [...FLEET].sort((a, b) => lastMoved(a).localeCompare(lastMoved(b)) || a.localeCompare(b));
+      for (const t of queue) { if (out.length >= limit) break; if (statusOf(t) !== "active" || PAUSED.has(t)) continue; const done = newestFirst(t).find((x) => x.status === "completed" && x.completed_at && reportingDay(Date.parse(x.completed_at)) === today), open = openRun(t);
         const recoverable = !!open && (open.status === "running" ? open.lease_owner == null || Date.parse(open.lease_expires_at ?? "") < NOW : !open.next_dispatch_at || Date.parse(open.next_dispatch_at) <= NOW);
         if (open && !recoverable) continue;
         if (done && !recoverable && (!done.next_dispatch_at || Date.parse(done.next_dispatch_at) > NOW)) continue;
@@ -92,8 +93,8 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } { const
       Object.assign(r, { current_phase: patch.phase, progress: patch.progress ?? r.progress, phase_cursor: patch.cursor ?? null, lease_expires_at: iso(NOW + leaseSeconds * 1000) });  // Like the SQL: phase_cursor is ALWAYS set to the patch value (null clears).
       return true; }, async renew({ tenantId, id, owner, leaseSeconds, cursor }) {
       const r = find(id, tenantId); if (!r || !live(r, owner) || r.status !== "running") return false; Object.assign(r, { phase_cursor: cursor ?? null, lease_expires_at: iso(NOW + leaseSeconds * 1000) }); return true; },
-    async finish({ tenantId, id, owner, outcome, errorInfo, spendUsd }) { const r = find(id, tenantId), done = outcome === "completed"; if (!r || !live(r, owner) || !(r.status === "running" || r.status === "paused")) return false; const attempts = done ? 0 : Math.min(r.dispatch_attempts + 1, 10), wake = iso(NOW + (done ? 10 * 60_000 : Math.min(12 * 3600_000, 10 * 60_000 * 2 ** Math.max(0, attempts - 1))));
-      Object.assign(r, { status: outcome, lease_owner: null, lease_expires_at: null, last_error: done ? null : errorInfo ?? null, next_dispatch_at: wake, dispatch_reason: done ? "completion_probe" : "paused_backoff", dispatch_attempts: attempts, ...(typeof spendUsd === "number" ? { spend_usd: spendUsd } : {}), ...(done ? { current_phase: "done", completed_at: iso() } : {}) }); return true; },
+    async finish({ tenantId, id, owner, outcome, errorInfo, spendUsd }) { const r = find(id, tenantId), done = outcome === "completed", failed = !done && errorInfo != null; if (!r || !live(r, owner) || !(r.status === "running" || r.status === "paused")) return false; const attempts = failed ? Math.min(r.dispatch_attempts + 1, 10) : 0, wake = iso(NOW + (failed ? Math.min(12 * 3600_000, 10 * 60_000 * 2 ** Math.max(0, attempts - 1)) : 10 * 60_000));
+      Object.assign(r, { status: outcome, lease_owner: null, lease_expires_at: null, last_error: done ? null : errorInfo ?? null, next_dispatch_at: wake, dispatch_reason: done ? "completion_probe" : failed ? "failure_backoff" : r.progress?.providerWait ? "provider_wait" : "continuation", dispatch_attempts: attempts, ...(typeof spendUsd === "number" ? { spend_usd: spendUsd } : {}), ...(done ? { current_phase: "done", completed_at: iso() } : {}) }); return true; },
     async patchProgress({ tenantId, id, patch, increment }) { return patchProgress(tenantId, id, patch as RR.ResearchRunProgress, increment?.key, increment?.day); },
     async latest(t) { const m = newestFirst(t)[0]; return m ? { ...m } : null; },
     async read({ tenantId, id }) { const r = find(id, tenantId); return r ? { ...r } : null; },
@@ -122,7 +123,7 @@ const healthySteps = (log: string[]): Partial<ResearchCycleSteps> => ({
   refreshSources: async () => (log.push("refresh"), { attempted: 2, succeeded: ["google_gsc", "google_ga4"], failures: [] }), backfillChunk: async () => (log.push("backfill"), { kind: "advanced", daysPulled: 30 }),
   crawlPages: async () => (log.push("crawl"), 0), publishSurface: async () => void log.push("publish"), surfaceStale: async () => false }); const run = (steps: Partial<ResearchCycleSteps>, deadlineMs?: number) =>
   runResearchCycle(T, { now: () => new Date(NOW), steps: { ...BENIGN, ...steps }, deadlineMs: deadlineMs ?? RESEARCH_CYCLE_DEADLINE_MS }); // the drive under the scheduler's window; the visit door's own smaller window is pinned below
-beforeEach(() => { vi.unstubAllEnvs(); NOW = 1_700_000_000_000; RR.setResearchRunRepoForTests(null); ACCOUNT_STATUS.clear(); PAUSED.clear(); DB.missing.clear(); DB.ignoresWrites.clear(); DB.readThrows = false; DB.fleet = []; DB.served = []; DB.fleetError = null; REBUILT.length = 0; installAccountRepo(); });  // ACCOUNT_STATUS is cleared so every tenant defaults to active.
+beforeEach(() => { vi.unstubAllEnvs(); NOW = 1_700_000_000_000; RR.setResearchRunRepoForTests(null); ACCOUNT_STATUS.clear(); PAUSED.clear(); FLEET.splice(2); CREATED.clear(); CREATED.set(T, iso(NOW - DAY)); CREATED.set(U, iso(NOW - DAY)); DB.missing.clear(); DB.ignoresWrites.clear(); DB.readThrows = false; DB.fleet = []; DB.served = []; DB.fleetError = null; REBUILT.length = 0; installAccountRepo(); });  // ACCOUNT_STATUS is cleared so every tenant defaults to active.
 describe("research-run claim: one open run per account across all dates", () => { it("resumes the account's one unfinished run first: yesterday's paused run is reclaimed by the same id with phase and cursor untouched, a later-day visit reuses it, and no second row is ever created", async () => {
     const rows = freshRepo(); const cursor = { phase: "gsc_backfill_chunk", attemptKey: "k" }; rows.push(mk({ id: "seed", status: "paused", current_phase: "gsc_backfill_chunk", phase_cursor: cursor, cycle_key: ckey(T, NOW - DAY), started_at: iso(NOW - DAY) }));
     const first = await RR.claimRun(T, "o1"); // resumed, not a new run: phase and cursor untouched, paused flips to running
@@ -734,8 +735,8 @@ describe("a day of AI checks ends when the day ends, never when a batch does", (
     const rows = withRun({ current_phase: "prompt_observations" }); await run({ dayStanding: async () => null });
     expect([rows[0]!.status, rows[0]!.current_phase, rows[0]!.progress.observations?.state]).toEqual(["completed", "done", "reading_unreadable"]); expect(rows[0]!.progress.state?.blocker).toContain("could not be counted"); });});
 describe("reading a pre-existing account's own website", () => {
-  const crawl = () => defaultSteps.crawlPages(T, new Date(NOW));
-  beforeEach(() => { CRAWL.state = null; CRAWL.starts = 0; CRAWL.batches = 0; CRAWL.forced = false; CRAWL.racer = null; CRAWL.pick = null; CRAWL.inventory = []; CRAWL.decay = []; });
+  const crawl = () => defaultSteps.crawlPages(T, new Date(NOW), Date.now() + 200_000);
+  beforeEach(() => { CRAWL.state = null; CRAWL.starts = 0; CRAWL.batches = 0; CRAWL.forced = false; CRAWL.racer = null; CRAWL.pick = null; CRAWL.budgets = []; CRAWL.renders = []; CRAWL.inventory = []; CRAWL.decay = []; });
   it("puts a page losing clicks at the FRONT of the batch, without ever adding a page the inventory withheld", async () => {
     CRAWL.inventory = ["https://site.example/steady", "https://www.site.example/losing/", "https://site.example/other"];
     CRAWL.decay = [{ page: "https://site.example/losing", clicksNow: 4, clicksPrior: 90 }, { page: "https://site.example/steady", clicksNow: 90, clicksPrior: 90 }];
@@ -744,7 +745,11 @@ describe("reading a pre-existing account's own website", () => {
     CRAWL.decay = []; CRAWL.pick = null; await crawl(); expect(await CRAWL.pick!(T, 200)).toEqual(CRAWL.inventory); }); // no readable decline is the inventory's own order, exactly as before
   it("starts the frontier once for an active account that never had one, reads one bounded batch, and only continues it from then on", async () => {
     expect([await crawl(), CRAWL.starts, CRAWL.batches, CRAWL.forced]).toEqual([3, 1, 1, false]); // one init, one batch, never forced, never onboarding
-    expect([await crawl(), CRAWL.starts, CRAWL.batches]).toEqual([3, 1, 2]); }); // an existing frontier is continued, never started again
+    expect([await crawl(), CRAWL.starts, CRAWL.batches]).toEqual([3, 1, 2]); expect(CRAWL.budgets.every((n) => n > 0 && n < 200_000)).toBe(true); expect(CRAWL.renders).toHaveLength(2); }); // an existing frontier is continued under the same deadline
+  it("does not start a late crawl or rendered provider call and keeps the phase for replay", async () => {
+    expect(await defaultSteps.crawlPages(T, new Date(NOW), Date.now() + 40_000)).toBe(0); expect([CRAWL.batches, CRAWL.renders.length]).toEqual([0, 0]); const rows = withRun({ status: "running", current_phase: "crawl_pages", lease_owner: "o", lease_expires_at: iso(NOW + LEASE) });
+    await driveClaimed(rows[0]!, "o", SOMETHING_DUE, () => new Date(NOW), NOW + 40_000, { ...BENIGN, crawlPages: async () => (CRAWL.batches += 1, 3) });
+    expect([rows[0]!.current_phase, rows[0]!.status, CRAWL.batches]).toEqual(["crawl_pages", "paused", 0]); });
   it("continues the state a concurrent instance created rather than resetting it, and leaves an unreachable site exactly as it found it", async () => {
     CRAWL.racer = () => { CRAWL.state = "complete"; }; // another instance initialized between the load and the start
     expect([await crawl(), CRAWL.starts, CRAWL.batches]).toEqual([3, 1, 1]); // the SURVIVING state is what gets continued
@@ -941,7 +946,7 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
   it("shares one runtime with the operator's own refresh: the same phases, the same row, resumed and not restarted", async () => {
     const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); const scheduled: string[] = [];
     await dispatch({ ...healthySteps(scheduled), publishSurface: async () => { scheduled.push("publish"); throw new Error("stop here, mid-cycle"); } });
-    expect([scheduled, rows.length, rows[0]!.status, rows[0]!.current_phase]).toEqual([["refresh", "backfill", "crawl", "publish"], 1, "paused", "publish_surface"]);
+    expect([scheduled, rows.length, rows[0]!.status, rows[0]!.current_phase, rows[0]!.dispatch_reason]).toEqual([["refresh", "backfill", "crawl", "publish"], 1, "paused", "publish_surface", "failure_backoff"]);
     const visited: string[] = []; // the operator now presses refresh on the account the dispatch left unfinished
     await runResearchCycle(T, { now: () => new Date(NOW), steps: { ...BENIGN, ...healthySteps(visited) } });
     expect([visited, rows.length, rows[0]!.status]).toEqual([["publish"], 1, "completed"]); });  // The SAME row, picked up at the SAME phase it stopped on: never a restart, never work paid for twice.
@@ -953,32 +958,33 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
       return { rebuilt: [...REBUILT], paused: receipt.paused }; };
     expect([await tick(215_000), await tick(250_000)]).toEqual([
       { rebuilt: [t], paused: 1 }, { rebuilt: [], paused: 1 }]); });
-  it("holds one live claim and admits no second account in the same invocation", async () => {
-    const rows = freshRepo(); const leasedWhileDriving: number[] = [];  // THE DEFECT: claiming three accounts up front left two holding live foreign leases for minutes, and an operator who opened Beacon on one of them was refused by a lease taken for them.
-    const receipt = await dispatch({ refreshSources: async () => {
-      leasedWhileDriving.push(rows.filter((r) => r.lease_owner != null).length); return { attempted: 0, succeeded: [], failures: [] }; } });
-    expect(receipt).toEqual(R({ claimed: 1, attempted: 1, succeeded: 1 })); expect(leasedWhileDriving).toEqual([1]); });
+  it("holds one live claim and rotates current turns despite older historical rows", async () => {
+    const rows = freshRepo(), served: string[] = [], leased: number[] = []; for (const [tenant, age] of [[T, 3], [U, 2]] as const) rows.push(mk({ id: `${tenant}-old`, tenant_id: tenant, cycle_key: ckey(tenant, NOW - age * DAY), status: "completed", updated_at: iso(NOW - age * DAY), completed_at: iso(NOW - age * DAY) }));
+    const step = { refreshSources: async (tenant: string) => { served.push(tenant); leased.push(rows.filter((r) => r.lease_owner != null).length); return { attempted: 0, succeeded: [], failures: [] }; } };
+    expect(await dispatch(step)).toEqual(R({ claimed: 1, attempted: 1, succeeded: 1 })); await dispatch(step); NOW += 10 * 60_000; await dispatch(step); await dispatch(step);
+    expect(rows.slice(2).map((r) => r.tenant_id)).toEqual([T, U, T, U]); expect(served).toEqual([T, U]); expect(leased).toEqual([1, 1]);
+    NOW += 10 * 60_000; FLEET.push("acct-c"); CREATED.set("acct-c", iso(NOW)); await dispatch(step); expect(rows.at(-1)!.tenant_id).toBe(T); NOW += 10 * 60_000; FLEET.push("acct-d"); CREATED.set("acct-d", iso(NOW)); await dispatch(step); await dispatch(step); await dispatch(step); await dispatch(step); expect(rows.slice(-4).map((r) => r.tenant_id)).toEqual([U, T, "acct-c", "acct-d"]); });
   it("turns 144 ten-minute ticks over settled and credit-held truth into zero heavy passes", async () => {
     const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); let phases = 0, admissionReads = 0;
     for (let tick = 0; tick < 144; tick += 1) { NOW += 10 * 60_000; await dispatch({ dueWork: async () => (admissionReads += 1, { ...NOTHING_DUE, state: { blocker: "credit held" } } as DueWork), refreshSources: async () => (phases += 1, { attempted: 0, succeeded: [], failures: [] }) }); }
     expect(phases).toBe(0); expect(admissionReads).toBeGreaterThan(0); expect(rows.length).toBeLessThanOrEqual(2); // one $0 admission receipt per reporting day, never 144 drives
   });
-  it("persists a paused backoff, resumes it when due, and still recovers an expired running lease immediately", async () => {
-    const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); rows.push(mk({ status: "paused", next_dispatch_at: iso(NOW + 10 * 60_000), dispatch_attempts: 1 }));
-    expect(await dispatch(NO_PHASE)).toEqual(R()); NOW += 10 * 60_000; expect((await dispatch({})).claimed).toBe(1);
-    rows.length = 0; rows.push(mk({ status: "running", lease_owner: "dead", lease_expires_at: iso(NOW - 1), next_dispatch_at: iso(NOW + DAY) })); expect((await dispatch({})).claimed).toBe(1);
+  it("continues ordinary pauses promptly, backs off repeated failures, and recovers expired leases", async () => {
+    const rows = withRun({ status: "running", lease_owner: "o", lease_expires_at: iso(NOW + LEASE) }); setAccountStatus(U, "pending_onboarding"); const id = rows[0]!.id; await RR.finishRun(T, id, "o", "paused"); expect([rows[0]!.dispatch_reason, rows[0]!.dispatch_attempts, rows[0]!.next_dispatch_at]).toEqual(["continuation", 0, iso(NOW + 10 * 60_000)]);
+    for (let n = 1; n <= 2; n++) { await RR.claimRun(T, `o${n}`); await RR.finishRun(T, id, `o${n}`, "paused", { phase: "crawl_pages", at: iso(), message: "failed" }); expect([rows[0]!.dispatch_reason, rows[0]!.dispatch_attempts, rows[0]!.next_dispatch_at]).toEqual(["failure_backoff", n, iso(NOW + 10 * 60_000 * 2 ** (n - 1))]); }
+    await RR.claimRun(T, "o3"); await RR.finishRun(T, id, "o3", "paused"); expect([rows[0]!.dispatch_attempts, rows[0]!.next_dispatch_at]).toEqual([0, iso(NOW + 10 * 60_000)]);
+    expect(await dispatch(NO_PHASE)).toEqual(R()); NOW += 10 * 60_000; expect((await dispatch({})).claimed).toBe(1); rows.length = 0; rows.push(mk({ status: "running", lease_owner: "dead", lease_expires_at: iso(NOW - 1), next_dispatch_at: iso(NOW + DAY) })); expect((await dispatch({})).claimed).toBe(1);
   });
-  it("opens a stored same-day follow-up only after its wake and preserves its exact plan", async () => {
-    const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); let reads = 0; const due = async () => (++reads <= 2 ? SOMETHING_DUE : NOTHING_DUE);
-    expect((await dispatch({ dueWork: due })).succeeded).toBe(1); expect(rows[0]!.dispatch_plan).toEqual(["daily_observations"]);
-    NOW += 9 * 60_000; expect((await dispatch({ dueWork: due })).claimed).toBe(0); NOW += 60_000; expect((await dispatch({ dueWork: due })).claimed).toBe(1);
-    expect(rows[1]!.progress.plan).toMatchObject({ units: ["daily_observations"], openedFor: true });
+  it("honors the newest same-day wake after a visit pass and ignores a restamped older wake", async () => {
+    const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); const future = iso(NOW + 3 * 3600_000), due = async () => NOW < Date.parse(future) ? { ...NOTHING_DUE, nextDueAt: future } : SOMETHING_DUE; expect((await dispatch({ dueWork: due })).succeeded).toBe(1); expect([rows[0]!.next_dispatch_at, rows[0]!.dispatch_reason]).toEqual([future, "future_due"]); rows[0]!.next_dispatch_at = iso(NOW - 1); const visit = await RR.startExtraPass(T, "visit", reportingDay(NOW)); expect(visit).not.toBeNull();
+    await RR.finishRun(T, visit!.id, "visit", "completed"); await RR.patchRunProgress(T, visit!.id, { dispatch: { at: null, reason: "settled", plan: [], attempts: 0 } }); expect((await dispatch({ dueWork: due })).claimed).toBe(0); await RR.patchRunProgress(T, rows[0]!.id, { dispatch: { at: iso(NOW - 1), reason: "stale_patch", plan: [], attempts: 0 } }); expect((await dispatch({ dueWork: due })).claimed).toBe(0);
+    await RR.patchRunProgress(T, visit!.id, { dispatch: { at: future, reason: "future_due", plan: [], attempts: 0 } }); NOW += 3 * 3600_000 - 1; expect((await dispatch({ dueWork: due })).claimed).toBe(0); NOW += 1; expect((await dispatch({ dueWork: due })).claimed).toBe(1); expect(rows[2]!.status).toBe("completed");
   });
-  it("never starts an account it cannot give a real slice to, and releases one whose claim spent the last of it", async () => {
+  it("preserves the drive floor and publication reserve before and after a claim", async () => {
     const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); rows.push(mk({ id: "a", status: "paused" })); const spend = (budgetMs: number, stepMs = 0) => { let reading = 0;
       return runDueAccounts({ now: () => new Date(NOW + reading++ * stepMs), budgetMs, steps: { ...BENIGN, ...NO_PHASE } }); };
-    expect(await spend(29_000)).toEqual(R()); // under half a minute buys nothing worth claiming
-    expect([rows[0]!.status, rows[0]!.lease_owner]).toEqual(["paused", null]); expect(await spend(60_000, 20_000)).toEqual(R({ claimed: 1, paused: 1, remaining: 1 }));  // 60 seconds of budget against a clock that moves 20 per reading: the claim lands, the slice does not.
+    for (const ms of [31_000, 69_000, 79_000]) expect(await spend(ms)).toEqual(R());
+    expect([rows[0]!.status, rows[0]!.lease_owner]).toEqual(["paused", null]); expect(await spend(100_000, 20_000)).toEqual(R({ claimed: 1, paused: 1, remaining: 1 }));
     expect([rows[0]!.status, rows[0]!.lease_owner]).toEqual(["paused", null]); }); // handed back, never left leased
   it("keeps back enough of the dispatch for the customer's release, so research can never eat the publish", async () => {
     freshRepo(); setAccountStatus(U, "pending_onboarding"); const given: number[] = [];
@@ -986,15 +992,9 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
       analyzeAnswers: async (_t, _d, budgetMs) => (given.push(budgetMs), NO_READING) };
     await runDueAccounts({ now: () => new Date(NOW), steps: { ...BENIGN, ...watch } });
     expect(given[0]).toBeLessThanOrEqual(200_000); }); // the fixed 240-second dispatch minus its release reserve; the longer recovery lease cannot enlarge scheduled compute
-  it("cannot double-drive: a duplicate dispatch loses at the lease seam, and a finished day is claimed again by neither", async () => {
-    const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); // one candidate, so the refusal is the whole answer
-    rows.push(mk({ id: "live", status: "running", lease_owner: "other-dispatch", lease_expires_at: iso(NOW + LEASE) })); expect(await dispatch(NO_PHASE)).toEqual(R());
-    expect(rows[0]!.lease_owner).toBe("other-dispatch"); // a live foreign lease is somebody else's work, never disturbed
-    const fresh = freshRepo(); await dispatch(); expect(fresh[0]!.status).toBe("completed"); expect(await dispatch(NO_PHASE)).toEqual(R()); // the day it finished is not claimed again
-    expect(fresh).toHaveLength(1); });
-  it("never claims an account whose operator paused research, or one that is not active", async () => {
-    const rows = freshRepo(); PAUSED.add(T); PAUSED.add(U); expect(await dispatch(NO_PHASE)).toEqual(R()); PAUSED.delete(T); setAccountStatus(T, "pending_onboarding"); expect((await dispatch(NO_PHASE)).claimed).toBe(0);
-    expect(rows).toHaveLength(0); });
+  it("cannot double-drive: a duplicate dispatch loses at the lease seam", async () => {
+    const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); rows.push(mk({ id: "live", status: "running", lease_owner: "other-dispatch", lease_expires_at: iso(NOW + LEASE) })); expect(await dispatch(NO_PHASE)).toEqual(R());
+    expect(rows[0]!.lease_owner).toBe("other-dispatch"); }); // a live foreign lease is somebody else's work, never disturbed
   it("plans today and never the days it missed: a run resumed after a long pause reports into today's date, and one day makes one row", async () => {
     const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); rows.push(mk({ id: "old", status: "paused", cycle_key: `${T}:2026-07-01`, started_at: iso(NOW - 30 * DAY) }));
     await dispatch(); expect([rows.length, rows[0]!.status]).toEqual([1, "completed"]); // the one unfinished run is RESUMED, no missed day is invented

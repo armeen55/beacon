@@ -7,7 +7,7 @@ import "server-only";
 import { log } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { researchRunSpendUsd } from "@/lib/cost/spend-reservations";
-import { claimDueRuns, finishRun, loadResearchRun, newOwnerToken } from "../research-run";
+import { claimDueRuns, finishRun, loadResearchRun, newOwnerToken, type ResearchRun } from "../research-run";
 import { driveClaimed, RESEARCH_CYCLE_DEADLINE_MS, type ResearchCycleSteps } from "./on-visit-refresh";
 import { defaultSteps } from "./research-steps";
 
@@ -16,9 +16,8 @@ import { defaultSteps } from "./research-steps";
  * Deriving this value from the lease made every ten-minute tick eligible to consume the platform maximum. */
 const SCHEDULER_BUDGET_MS = 240_000;
 
-/** The least time an account is worth STARTING on. Under half a minute there is no room for a renewed lease and a real bounded unit, so claiming would only park a live lease in front of the
- *  operator's own visit. Nothing is claimed instead, and the account is first in line on the next dispatch. */
-const MIN_ACCOUNT_SLICE_MS = 30_000;
+/** The drive needs its own forty-second start floor as well as the publication reserve before a claim is useful. */
+const MIN_ACCOUNT_SLICE_MS = 40_000;
 
 /** WHAT THE DISPATCH KEEPS BACK SO THE CUSTOMER SEES THE DAY'S WORK. A zero-dollar release rebuild takes seconds; research
  *  will always fill whatever it is given, so the publish has to be reserved rather than left over. Enough for the rebuild of
@@ -47,12 +46,12 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
   let claimed = 0, attempted = 0, succeeded = 0, paused = 0, failed = 0, released = 0;
   const leaseHeldUntil: string[] = [];
   const receipt = (): SchedulerReceipt => ({ claimed, attempted, succeeded, paused, failed, leaseHeldUntil, released, remaining: claimed - succeeded });
-  const handBack = async (run: { tenant_id: string; id: string; lease_expires_at: string | null; spend_usd?: number; progress?: { funnel?: { spendUsd?: number } } | null }): Promise<boolean> => {
+  const handBack = async (run: ResearchRun, failedDrive = false): Promise<boolean> => {
     const durable = await loadResearchRun(run.tenant_id, run.id), attributed = await researchRunSpendUsd(run.id).catch(() => null);
     const spend = attributed ?? Math.max(Number(durable?.progress?.funnel?.spendUsd) || 0, Number(durable?.spend_usd) || 0,
       Number(run.progress?.funnel?.spendUsd) || 0, Number(run.spend_usd) || 0);
     const canonicalUnreadable = durable == null && attributed == null;
-    const ok = await finishRun(run.tenant_id, run.id, ownerToken, "paused", null, canonicalUnreadable ? null : spend);
+    const ok = await finishRun(run.tenant_id, run.id, ownerToken, "paused", failedDrive ? { phase: run.current_phase, message: "scheduled drive failed before it could close", at: nowFn().toISOString() } : null, canonicalUnreadable ? null : spend);
     if (!ok) leaseHeldUntil.push(run.lease_expires_at ?? "");
     return ok;
   };
@@ -69,7 +68,7 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
       log.warn("[research-run] the stale surface could not republish on this tick", { tenantId, error: error instanceof Error ? error.message.slice(0, 160) : String(error) });
     }
   };
-  if (endsAt - nowFn().getTime() < MIN_ACCOUNT_SLICE_MS) return receipt();
+  if (endsAt - nowFn().getTime() < MIN_ACCOUNT_SLICE_MS + PUBLISH_RESERVE_MS) return receipt();
   const run = (await claimDueRuns(ownerToken, 1))[0];
   if (run == null) {
     await steps.collectBought(Math.min(20_000, Math.max(0, endsAt - nowFn().getTime())));
@@ -77,12 +76,12 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
   }
   claimed = 1;
   const left = endsAt - nowFn().getTime();
-  if (left < MIN_ACCOUNT_SLICE_MS) {
+  if (left < MIN_ACCOUNT_SLICE_MS + PUBLISH_RESERVE_MS) {
     if (await handBack(run)) paused = 1; else failed = 1;
     return receipt();
   }
   attempted = 1;
-  const deadline = nowFn().getTime() + Math.min(RESEARCH_CYCLE_DEADLINE_MS, Math.max(MIN_ACCOUNT_SLICE_MS, left - PUBLISH_RESERVE_MS));
+  const deadline = Math.min(nowFn().getTime() + RESEARCH_CYCLE_DEADLINE_MS, endsAt - PUBLISH_RESERVE_MS);
   const outcome = await runWithTenant(run.tenant_id, async () => {
     await (await import("@/domains/evidence/dataforseo/client")).DATAFORSEO_READINESS.recover(run.tenant_id).catch(() => "unreadable" as const);
     const work = await steps.dueWork(run.tenant_id, nowFn()).catch(() => null);
@@ -93,7 +92,7 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
   });
   if (outcome === "completed") succeeded = 1;
   else if (outcome === "paused") paused = 1;
-  else { failed = 1; if (outcome !== "lost_lease" && await handBack(run)) released = 1; }
+  else { failed = 1; if (outcome !== "lost_lease" && await handBack(run, true)) released = 1; }
   await republishStale(run.tenant_id);
   log.info("[research-run] scheduled admission finished", { claimed, succeeded, failed, paused });
   return receipt();

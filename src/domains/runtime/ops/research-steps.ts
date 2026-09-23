@@ -55,7 +55,7 @@ export type ResearchCycleSteps = {
   backfillChunk: (tenantId: string, now: Date, attemptKey: string) => Promise<BackfillChunkResult>;
   /** ONE bounded batch of the account's OWN website (crawl_pages). The polite raw reads are free; pages the raw fetch stored as zero-word 200s then get a BOUNDED rendered read through the one provider gateway, because a CMS page
    *  rendered with javascript is invisible to a raw fetch and blindness is not evidence. */
-  crawlPages: (tenantId: string, now: Date) => Promise<number>;
+  crawlPages: (tenantId: string, now: Date, deadline: number) => Promise<number>;
   /** The four Slice 6 evidence executors (evidence facade), one per funnel phase. */
   funnelUnit: (phase: ResearchPhase, tenantId: string, cursor: Record<string, unknown> | null, budgetMs: number, focus: ResearchFocus | null) => Promise<FunnelUnitOutcome>;
   /** THIS run's investigation, asked for ONCE (Runtime asks Decision, Evidence gets strings and pages). */
@@ -260,16 +260,18 @@ export const defaultSteps: ResearchCycleSteps & {
     throw new Error(`gsc backfill chunk did not advance: ${result.reason}`.slice(0, 200));
   },
   // THE ONE PLACE THE WEBSITE GETS READ, AND THE ONE PLACE A CRAWL BEGINS. A render must never crawl, so the resumable frontier is driven here, one bounded batch per pass. Cold start used to fire only from onboarding, so an account that predates it had no frontier at all: every pass asked to CONTINUE one, was told there is none, and called that a healthy no-op forever. A missing frontier is now initialized once, NEVER forced, so an instance that got there first is loaded and continued rather than reset; unreachable is persisted truth and stops here. Fail-soft throughout, and a site already read whole is still a no-op that advances.
-  async crawlPages(tenantId) {
-    const deps = { pickCandidates: await decliningPagesFirst(tenantId) };
+  async crawlPages(tenantId, _now, deadline) {
+    if (deadline - Date.now() < 50_000) return 0;
+    const deps = { pickCandidates: await decliningPagesFirst(tenantId), batchBudgetMs: Math.max(0, deadline - Date.now() - 50_000) };
     const first = await continueColdStartCrawlIfStarted(tenantId, deps);
     if (first.status !== "no_crawl" || first.detail !== "no_frontier_state")
-      return first.crawled + await renderUnreadOwnedPages(tenantId).catch(() => 0);
+      return first.crawled + await renderUnreadOwnedPages(tenantId, undefined, { deadline }).catch(() => 0);
     const domain = (await getTenant(tenantId).catch(() => null))?.domain?.trim();
     if (!domain) return 0;
     if ((await startColdStartCrawl({ tenantId, domain, deps })).status === "unreachable") return 0;
-    return (await continueColdStartCrawlIfStarted(tenantId, deps)).crawled
-      + await renderUnreadOwnedPages(tenantId).catch(() => 0); },
+    if (deadline - Date.now() < 50_000) return 0;
+    return (await continueColdStartCrawlIfStarted(tenantId, { ...deps, batchBudgetMs: Math.max(0, deadline - Date.now() - 50_000) })).crawled
+      + await renderUnreadOwnedPages(tenantId, undefined, { deadline }).catch(() => 0); },
   async dayStanding(tenantId, day) { const c = await dailyChecks(tenantId, day);
     return c == null ? null : { done: c.done, total: c.total, answers: c.answers, unavailable: c.unavailable, unsupported: c.unsupported,
       ...(c.readingBacklog !== undefined ? { readingBacklog: c.readingBacklog } : {}) }; },

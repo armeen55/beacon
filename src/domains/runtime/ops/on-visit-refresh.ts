@@ -356,9 +356,11 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
     }
 
     if (phase === "crawl_pages") {
+      if (roomLeft() < 50_000) { if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return "lost_lease"; return pause(); }
       let read = 0;
-      try { read = await steps.crawlPages(tenantId, nowFn()); }
+      try { read = await steps.crawlPages(tenantId, nowFn(), deadline); }
       catch (error) { return pause({ phase, message: (error instanceof Error ? error.message : String(error)).slice(0, 300), at: nowFn().toISOString() }); }
+      if (roomLeft() < 50_000) { if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return "lost_lease"; return pause(); }
       if (read > 0) log.info("[research-run] read more of your website", { tenantId, pages: read });
       const again = read > 0 && (crawlRounds += 1) < MAX_CRAWL_ROUNDS && deadline - nowFn().getTime() > REPLENISH_RESERVE_MS + REPLENISH_MIN_MS + STOP_STARTING_MS, next = again ? phase : nextPhase(phase);
       if (!await advancePhase(tenantId, run.id, ownerToken, { phase: next, progress, cursor: again ? attemptCursor : null })) return "lost_lease";
@@ -400,8 +402,8 @@ export async function driveClaimed(run: ResearchRun, ownerToken: string, work: D
   const stampNextAdmission = async (receipt: DriveReceipt): Promise<DriveReceipt> => {
     if (receipt !== "completed") return receipt;
     const next = await steps.dueWork(tenantId, nowFn()).catch(() => null); if (next == null || !next.readable) return receipt;
-    const due = [...next.due], at = due.length > 0 ? new Date(nowFn().getTime() + 10 * 60_000).toISOString() : null;
-    await patchRunProgress(tenantId, run.id, { dispatch: { at, reason: due.length > 0 ? "due_work" : "settled", plan: due, attempts: 0 } })
+    const due = [...next.due], future = Date.parse(next.nextDueAt ?? ""), at = due.length > 0 ? new Date(nowFn().getTime() + 10 * 60_000).toISOString() : Number.isFinite(future) && future > nowFn().getTime() ? new Date(future).toISOString() : null;
+    await patchRunProgress(tenantId, run.id, { dispatch: { at, reason: due.length > 0 ? "due_work" : at ? "future_due" : "settled", plan: due, attempts: 0 } })
       .catch((error) => log.warn("[research-run] next admission did not land; the bounded completion probe remains", { tenantId, error: error instanceof Error ? error.message : String(error) }));
     return receipt; };
   const fresh = run.current_phase === "refresh_sources" && run.phase_cursor == null;
