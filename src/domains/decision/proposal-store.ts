@@ -67,7 +67,7 @@ const sameWords = (a: ChangeProposal, b: ChangeProposal): boolean => { const wor
 const finished = (p: ChangeProposal): ChangeProposal => { const { research: _brief, redraftRequested: _asked, ...rest } = p;
   return { ...rest, faults: [], limitations: AEO_BAR.writerLimitations(p.limitations).filter((l) => !GATE_WORDS.test(l)) }; };
 /** Persist one proposal as the CURRENT answer for its hypothesis, superseding whatever held that identity before. Writes nothing when the stored row already says exactly this. Never throws. `keep` is handed THE ROW THAT STANDS after the call (the merged row when one is written, the stored row when nothing is), so a caller's own map holds what the database holds rather than the draft it arrived with. */
-export async function saveChangeProposal(proposal: ChangeProposal, transition?: symbol, keep?: (row: ChangeProposal) => void, exactExpected?: ChangeProposal): Promise<SaveResult> {
+export async function saveChangeProposal(proposal: ChangeProposal, transition?: symbol, keep?: (row: ChangeProposal) => void, exactExpected?: ChangeProposal, expectAbsent = false): Promise<SaveResult> {
   const retiredPolicy = retiredPolicyOf(proposal); if (retiredPolicy && transition !== NO_HANDOVER) { log.info("[proposal-store] a retired family cannot create current work", { tenantId: proposal.tenantId, id: proposal.id, family: retiredPolicy.family }); return "refused"; }
   if (proposal.status === "ready" && (unreviewed(proposal) != null || proposal.researchOnly === true)) proposal = { ...proposal, status: "needs_review" }; // THE STORE NEVER ISSUES AN AUTHORIZATION AND NO LONGER SIGNS ONE EITHER: it asks the one shared question and refuses to keep `ready` on a row whose sources have not been shown to support its claims. AND A ROW THAT SAYS IT HAS NO COPY IS NEVER STORED FINISHED (incident recovery, 2026-09-04): research-only work was refused by every door that reads it and still went on file wearing the word Ready, which is a stamp outranking its own row.
   /** ONE OBJECTION STANDS ON A ROW ONCE, WHICHEVER DOOR WROTE IT (live, 2026-09-05). A refusal reaches a row twice: raw from the gate that composed it, and again wrapped by the door that says which read it failed ("it did not pass the re-read of a stored change against the rules that stand today: " plus the same sentence). The writer's own guard is an EXACT-match test against what the row already holds, so the two forms never match each other, and one live answer row carries the identical objection twice in `faults` and twice in `limitations`; the card folds it for display and the row goes on holding both, so a reader of the row counts two defects where there is one. Folded HERE, at the one door every producer's row passes through on its way to being written down, so no future writer has to remember. THE TEST IS THE COMPOSER'S OWN SHAPE and nothing wider: an entry is dropped only when another entry in the same field ENDS with a colon, a space and exactly that entry, so a short limitation that merely reads like part of a longer one is untouched. Measured over the store: 1 of 171 rows folds, in both fields. */
@@ -101,6 +101,7 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     const onPage = ((data ?? []) as CanonRow[]).map((r) => ({ row: r, stored: r.id === proposal.id ? null : decode(r.payload) })); // WHAT THIS CHANGE COLLIDES WITH, never everything that merely shares its page: a table row and a heading both stand, while a bundle rewriting a title takes over the plain title rewrite. A row that will not decode is KEPT, because an unreadable neighbour is not proof of no conflict. The id is looked up separately too, since it may have been filed under a DIFFERENT family last time.
     const rows = onPage.filter((e) => e.row.id === proposal.id || !e.stored || footprintsOverlap(e.stored, proposal)).map((e) => e.row);
     const mine = rows.find((r) => r.id === proposal.id) ?? history.find((r) => r.id === proposal.id) ?? (await rowById(proposal.tenantId, proposal.id));
+    if (expectAbsent && mine) return "blocked";
     const mineDecoded = mine ? decode(mine.payload) : null;
     if (exactExpected && (!mine || mine.terminal_disposition != null || !mineDecoded || serializeChangeProposal(mineDecoded) !== serializeChangeProposal(exactExpected))) return "blocked";
     const sameLegacyMutation = mineDecoded != null && footprintKey(mineDecoded) === ident0.mutation_key;
@@ -162,6 +163,7 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     if (measuring) { log.info("[proposal-store] this edit is already carried by a change I am measuring, so the new draft is not saved",
       { tenantId: proposal.tenantId, holding: measuring.id, status: measuring.status, draft: proposal.id }); return "blocked"; }
     if (handover) {
+      if (expectAbsent) return "blocked";
       // ONE database operation: guard, step-aside and landing commit together or not at all, so a crash mid-handover never leaves this hypothesis with no current answer. The scoping proof is made first.
       log.info("[proposal-store] superseding", { id: handover.id, by: proposal.id, version });
       const row = rowFor(proposal, ident, version);
@@ -253,12 +255,13 @@ export async function answerReviewedProposal(tenantId: string, id: string, versi
 }
 
 /** BEACON'S OWN RETRACTION. A draft a safety gate refused is not queued work and not a rejection the operator has to read: it lands as history under the disposition that says I took it back. Fail-soft. */
-export async function withdrawChangeProposal(proposal: ChangeProposal, reason?: string): Promise<boolean> { if (proposal.status === "implemented_pending_verification") { log.warn("[proposal-store] a change the operator applied is never withdrawn by a producer; the shipment stands and measurement continues", { tenantId: proposal.tenantId, id: proposal.id }); return false; } // THE OPERATOR'S APPLIED CHANGE STANDS (operator, 2026-09-02): the factual-defects producer withdrew the Hamid correction, one of the six changes applied on September 1, because its fact evidence moved
-  const saved = await saveChangeProposal(proposal, NO_HANDOVER);
-  if (saved === "failed" || saved === "blocked") return false;
-  if (saved === "refused") return true; // already withdrawn or dismissed under this basis
-  const held = await rowById(proposal.tenantId, proposal.id).catch(() => null);
-  return setDisposition(proposal.tenantId, proposal.id, "withdrawn", null, reason ?? null, held ?? undefined);
+export async function withdrawChangeProposal(proposal: ChangeProposal, reason?: string): Promise<"retired" | "blocked" | "failed"> { if (proposal.status === "implemented_pending_verification") { log.warn("[proposal-store] a change the operator applied is never withdrawn by a producer; the shipment stands and measurement continues", { tenantId: proposal.tenantId, id: proposal.id }); return "blocked"; } // THE OPERATOR'S APPLIED CHANGE STANDS (operator, 2026-09-02): the factual-defects producer withdrew the Hamid correction, one of the six changes applied on September 1, because its fact evidence moved
+  let held: CanonRow | null; try { held = await rowById(proposal.tenantId, proposal.id, true); } catch { return "failed"; }
+  if (held) { const exact = decode(held.payload); if (held.terminal_disposition != null || held.status === "implemented_pending_verification" || !exact || serializeChangeProposal(exact) !== serializeChangeProposal(proposal)) return "blocked"; }
+  else { let savedRow: ChangeProposal | null = null; const saved = await saveChangeProposal(proposal, NO_HANDOVER, row => { savedRow = row; }, undefined, true); if (saved === "failed" || saved === "blocked") return saved; if (saved === "refused" || !savedRow) return "blocked"; try { held = await rowById(proposal.tenantId, proposal.id, true); } catch { return "failed"; } const exact = held && decode(held.payload), normalized = decode(JSON.parse(serializeChangeProposal(savedRow)) as unknown); if (!held || held.terminal_disposition != null || !exact || !normalized || serializeChangeProposal(exact) !== serializeChangeProposal(normalized)) return "blocked"; }
+  if (await setDisposition(proposal.tenantId, proposal.id, "withdrawn", null, reason ?? null, held)) return "retired";
+  try { const current = await rowById(proposal.tenantId, proposal.id, true); return !current || current.terminal_disposition != null || current.status === "implemented_pending_verification" || current.proposal_version !== held.proposal_version ? "blocked" : "failed"; }
+  catch { return "failed"; }
 }
 
 /** Exact paid-work identities already retired for any reason. A work key binds
@@ -319,9 +322,10 @@ export async function dismissChangeProposal(tenantId: string, id: string): Promi
 // ── reads ─────────────────────────────────────────────────────────────────────
 
 /** One canonical row by id, whatever its disposition. Null when there is none. */
-async function rowById(tenantId: string, id: string): Promise<CanonRow | null> {
+async function rowById(tenantId: string, id: string, failClosed = false): Promise<CanonRow | null> {
   const { data, error } = await getSupabaseAdmin().from(TABLE).select(CANON_COLUMNS).eq("tenant_id", tenantId).eq("id", id).limit(1);
-  return error || !data || data.length === 0 ? null : (data[0] as CanonRow); }
+  if (error || !data) { if (failClosed) throw new Error(error?.message ?? "proposal row unreadable"); return null; }
+  return data.length === 0 ? null : (data[0] as CanonRow); }
 
 /** HISTORY ONLY: rows written before the canonical table existed. Nothing here is current work unless the  canonical table has never heard of that id. */
 async function readLegacy(tenantId: string, limit: number, id?: string): Promise<Array<{ id: string; content: string }>> {

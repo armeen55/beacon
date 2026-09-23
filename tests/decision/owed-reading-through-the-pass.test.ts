@@ -9,7 +9,7 @@ vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: as
 vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => store.rows,
   terminalWorkKeys: async () => new Set<string>(), terminalProposalHistory: async () => ({ fingerprints: new Set<string>(), legacyMutationKeys: new Set<string>() }),
   saveChangeProposal: async (p: ChangeProposal, _t?: unknown, keep?: (r: ChangeProposal) => void) => { store.rows.set(p.id, p); keep?.(p); return "saved"; },
-  withdrawnProposalIds: async () => store.withdrawn, withdrawChangeProposal: async () => true }));
+  withdrawnProposalIds: async () => store.withdrawn, withdrawChangeProposal: async () => "retired" as const }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
 vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => ({ ...(await orig<Record<string, unknown>>()), readFactChecks: async () => [] }));
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadOwnedPageBodies: async () => { throw new Error("no body store in this fixture"); } }));

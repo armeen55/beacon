@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 const db = vi.hoisted(() => {
-  const state = { rows: [] as Row[], legacy: [] as Row[], shipments: [] as Array<{ tenant_id: string; id: string; proposal_id: string; proposal_version: string; implemented_at: string }>, captures: {} as Record<string, string>, captureRows: {} as Record<string, Row>, missing: false, rpcMissing: false, breakWrite: false, rpcCalls: 0, raceForeign: "", race: null as null | (() => void) };
+  const state = { rows: [] as Row[], legacy: [] as Row[], shipments: [] as Array<{ tenant_id: string; id: string; proposal_id: string; proposal_version: string; implemented_at: string }>, captures: {} as Record<string, string>, captureRows: {} as Record<string, Row>, missing: false, rpcMissing: false, breakWrite: false, rpcCalls: 0, raceForeign: "", race: null as null | (() => void), raceOnSelect: null as number | null, selectCount: 0 };
   const client: Record<string, unknown> = {
     rpc(name: string, args: Record<string, unknown>) { state.rpcCalls += 1;
       const run = (): { data: string | null; error: { message: string; code?: string } | null } => {
@@ -99,7 +99,7 @@ Object.assign(db.client, supabaseFake({
   rows: (t) => (t === "change_proposals" ? db.state.rows : db.state.legacy),
   error: (t) => (t === "change_proposals" && db.state.missing ? { code: "PGRST205", message: "table not found in schema cache" } : null),
   landsNothing: () => db.state.breakWrite, insertDefaults: () => ({ created_at: "2026-07-01T00:00:00.000Z" }),
-  onSelect: () => { const r = db.state.race; db.state.race = null; r?.(); },
+  onSelect: () => { db.state.selectCount += 1; if (db.state.raceOnSelect != null && db.state.selectCount !== db.state.raceOnSelect) return; const r = db.state.race; db.state.race = null; r?.(); },
   clash: (row, rows) => (rows.some((r) => r.id !== row.id && r.terminal_disposition == null
     && ["tenant_id", "case_id", "page_key", "action_family"].every((c) => r[c] === row[c]))
     ? { message: "duplicate key value violates unique constraint ux_change_proposals_current" } : null),}));
@@ -121,7 +121,7 @@ const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
 const deep = (over: Partial<ChangeProposal> = {}) => proposal({ id: `${T}::${PAGE}::existing_edit::title-family`, bundle: bundle("title"), diagnosisCause: "ctr_snippet", modeledOn: "the stored results page for this search", ...over });
 const current = () => db.state.rows.filter((r) => r.terminal_disposition == null);
 const seedLegacy = (p: ChangeProposal) => db.state.legacy.push({ tenant_id: p.tenantId, rec_id: p.id, kind: "change_proposal", content: serializeChangeProposal(p), created_at: p.createdAt });
-beforeEach(() => { db.state.rows = []; db.state.legacy = []; db.state.shipments = []; db.state.captures = {}; db.state.captureRows = {}; db.state.missing = false; db.state.rpcMissing = false; db.state.breakWrite = false; db.state.rpcCalls = 0; db.state.raceForeign = ""; db.state.race = null; });
+beforeEach(() => { db.state.rows = []; db.state.legacy = []; db.state.shipments = []; db.state.captures = {}; db.state.captureRows = {}; db.state.missing = false; db.state.rpcMissing = false; db.state.breakWrite = false; db.state.rpcCalls = 0; db.state.raceForeign = ""; db.state.race = null; db.state.raceOnSelect = null; db.state.selectCount = 0; });
 it("reloads the exact qualified page-copy and fact sentences bound to a reader task", async () => {
   const { assignmentOf } = await import("@/domains/decision/assignment");
   const own = "The page says the Haft-Seen table has seven symbolic items.", checked = "Haft-Seen is a Nowruz table with seven symbolic items. https://reference.example/haft-seen says the seven items are symbolic.";
@@ -176,8 +176,11 @@ describe("canonical proposal persistence", () => {
     Object.assign(db.state.rows[0]!, { status: "implemented_pending_verification",
       payload: JSON.parse(serializeChangeProposal({ ...p, status: "implemented_pending_verification" })) });
     expect([await withdrawChangeProposal(p, "stale sweep"), db.state.rows[0]!.terminal_disposition,
-      db.state.rows[0]!.status]).toEqual([false, null, "implemented_pending_verification"]);
+      db.state.rows[0]!.status]).toEqual(["blocked", null, "implemented_pending_verification"]);
   });
+  it("cannot overwrite a newer same-ID draft while retiring old copy, but can record a new refused draft", async () => { const old = proposal(); expect(await saveChangeProposal(old)).toBe("saved"); const newer = proposal({ recommendedChange: { kind: "existing_edit", field: "title", before: "Persian Holidays", after: "Persian Holidays and Nowruz Customs" } }); expect(await saveChangeProposal(newer)).toBe("saved"); const before = JSON.stringify(db.state.rows[0]); expect(await withdrawChangeProposal(old, "old evidence")).toBe("blocked"); expect(JSON.stringify(db.state.rows[0])).toBe(before);
+    db.state.rows = []; const fresh = proposal(); expect(await withdrawChangeProposal(fresh, "refused before publishing")).toBe("retired"); expect(db.state.rows[0]?.terminal_disposition).toBe("withdrawn"); });
+  it("does not overwrite a draft inserted after retirement observed an absent seat", async () => { const stale = proposal(), newer = proposal({ recommendedChange: { kind: "existing_edit", field: "title", before: "Persian Holidays", after: "Persian Holidays and Nowruz Customs" } }); db.state.raceOnSelect = 2; db.state.race = () => { db.state.rows.push({ ...JSON.parse(JSON.stringify({ id: newer.id, tenant_id: T, proposal_version: 1, status: newer.status, terminal_disposition: null, superseded_by: null, basis: newer.basis, mutation_key: "title", payload: JSON.parse(serializeChangeProposal(newer)) })) }); }; expect(await withdrawChangeProposal(stale, "old evidence")).toBe("blocked"); expect(db.state.rows).toHaveLength(1); expect(db.state.rows[0]?.terminal_disposition).toBeNull(); expect(deserializeChangeProposal(JSON.stringify(db.state.rows[0]?.payload))?.recommendedChange).toEqual(newer.recommendedChange); });
   it("bumps one live mutation in place, keeps a retired seat permanent, and never rebinds its id", async () => {
     expect(await saveChangeProposal(proposal())).toBe("saved");
     expect(await saveChangeProposal(proposal())).toBe("unchanged"); // same material content, same timestamp, no write

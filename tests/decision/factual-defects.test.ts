@@ -11,7 +11,7 @@ const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], client: {}
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client }));
 vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<typeof import("@/domains/decision/proposal-store")>()),
   loadChangeProposals: async () => new Map(store.rows.map((r) => [r.id, r])),
-  withdrawChangeProposal: async (p: { id: string }, reason?: string) => { store.withdrew.push(p.id); store.why.push(reason ?? ""); return true; } }));
+  withdrawChangeProposal: async (p: { id: string }, reason?: string) => { store.withdrew.push(p.id); store.why.push(reason ?? ""); return "retired" as const; } }));
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<typeof import("@/domains/evidence/pages/owned-context")>()), // THE PAGE AS DECISION CAN SEE IT: a correction is work only while the page still says what it objected to.
   loadOwnedPageBodies: async (_t: string, urls: string[]) => { if (store.bodyFails) throw new Error("the page bodies could not be read"); // KEYED AS THE REAL LOADER KEYS: canonically. Raw-url keying here hid the producer reading this map with the wrong key and refusing every banked check site-wide; with this keying, every mint test below IS the regression pin for that join.
     if ((urls?.length ?? 0) > 7) return new Map(); // AND BOUNDED AS THE REAL LOADER IS BOUNDED: an over-wide ask returns nothing at all, which live starved the mint the day checks crossed seven pages.

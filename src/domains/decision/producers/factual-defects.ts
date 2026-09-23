@@ -389,10 +389,11 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
         log.warn("[factual-defects] a correction went unminted with NO named reason while its checked row stands; the card is KEPT and this pass is the anomaly", { tenantId, id: p.id });
         continue;
       }
-      await withdrawChangeProposal(p, said
+      const withdrawal = await withdrawChangeProposal(p, said
         ? `Withdrawn: ${said}. The claim stays a finding until a source quote genuinely carries it.`
-        : "The evidence behind this correction is no longer current, so the correction is withdrawn rather than left standing on it.").catch(() => false);
-      log.info("[factual-defects] a correction lost its evidence and was withdrawn", { tenantId, id: p.id });
+        : "The evidence behind this correction is no longer current, so the correction is withdrawn rather than left standing on it.").catch(() => "failed" as const);
+      if (withdrawal === "retired") log.info("[factual-defects] a correction lost its evidence and was withdrawn", { tenantId, id: p.id });
+      else log.warn("[factual-defects] the stale correction could not be withdrawn", { tenantId, id: p.id, withdrawal });
     }
     log.info("[factual-defects] banked checks turned into work", { tenantId, cards: cards.length, checks: checks.length });
     return { cards, complete: true };

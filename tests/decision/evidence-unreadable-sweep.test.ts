@@ -43,7 +43,7 @@ vi.mock("@/domains/decision/proposal-store", async (orig) => { const actual = (a
   return { ...actual, loadChangeProposals: async () => { if (!proposalReads.current) throw new Error("current queue unavailable"); return new Map(env.store as Map<string, ChangeProposal>); },
     terminalWorkKeys: async () => { if (!proposalReads.terminal) throw new Error("terminal history unavailable"); return new Set<string>(); }, withdrawnProposalIds: async () => new Set<string>(),
     terminalProposalHistory: async () => { if (!proposalReads.terminal) throw new Error("terminal history unavailable"); return { fingerprints: new Set<string>(), legacyMutationKeys: new Set<string>() }; },
-    withdrawChangeProposal: async (p: ChangeProposal) => { env.withdrawn.push(p.id); return true; },
+    withdrawChangeProposal: async (p: ChangeProposal) => { env.withdrawn.push(p.id); return "retired" as const; },
     publishCustomerRelease: async () => { env.wrote.push("publishCustomerRelease"); return true; },
     saveChangeProposal: async (p: ChangeProposal) => { env.wrote.push(`saveChangeProposal:${p.id}`); env.saved.set(p.id, p); if (env.schemaBody !== undefined) { env.store.set(p.id, p); return "saved" as const; } return "unchanged" as const; } }; });
 vi.mock("@/domains/decision/ai-case-store", async (orig) => { const a = await orig() as { recordAiCaseDispositions: (...x: never[]) => Promise<unknown> }; // RECORDING, NEVER REPLACING: these two write elsewhere and the rest of this file depends on what they really do.

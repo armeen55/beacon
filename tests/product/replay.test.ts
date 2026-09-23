@@ -8,7 +8,7 @@ vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await o
 vi.mock("@/domains/decision/proposal-store", () => ({
   loadChangeProposals: async () => new Map(env.store),
   saveChangeProposal: async (p: ChangeProposal, _transition?: symbol, keep?: (row: ChangeProposal) => void) => { env.saved.push(p); if ([...env.refuseSave].some((k) => p.id.includes(k))) return "failed" as const; const prior = env.store.get(p.id), same = prior != null && JSON.stringify(prior) === JSON.stringify(p); env.store.set(p.id, p); env.withdrawn.delete(p.id); keep?.(p); return same ? "unchanged" as const : "saved" as const; },
-  withdrawChangeProposal: async (p: ChangeProposal) => { if (p.status === "implemented_pending_verification") return false; if ([...env.refuseSave].some((k) => p.id.includes(k))) return false; env.store.delete(p.id); env.withdrawn.add(p.id); return true; },
+  withdrawChangeProposal: async (p: ChangeProposal) => { if (p.status === "implemented_pending_verification") return "blocked" as const; if ([...env.refuseSave].some((k) => p.id.includes(k))) return "failed" as const; env.store.delete(p.id); env.withdrawn.add(p.id); return "retired" as const; },
   withdrawnProposalIds: async () => new Set(env.withdrawn),
   terminalWorkKeys: async () => new Set<string>(),
   terminalProposalHistory: async () => ({ fingerprints: new Set<string>(), legacyMutationKeys: new Set<string>() }),
