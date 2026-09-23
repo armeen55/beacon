@@ -123,7 +123,7 @@ export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string;
     const current = ctx.currentRows.get(p.id);
     return !!current && operatorUiPolicy.isManualEditProofWork(current) && current.status === p.status && current.researchOnly === p.researchOnly
       && confirmedVersion(current) === confirmedVersion(p) && actionableProposalFailures(current, ctx).length === 0
-      && openHold(current).lane === openHold(p).lane && (p.status !== "ready" || openHold(current).defects.length === 0);
+      && openHold(current).lane === openHold(p).lane;
   }).map((p) => p.id));
   // A PHOTOGRAPH IS RE-SORTED, NEVER EMPTIED. A blob published before a gate tightened can be carrying a row in
   // the wrong lane, so every surviving row is put back through the ONE hold: nothing is dropped for being
@@ -209,7 +209,7 @@ export async function readChangesPage(
     const standing = (row: { id: string; lane: "ready" | "todo" | "research" }) => {
       const p = current.get(row.id);
       return (lane === "all" || row.lane === lane) && !!p && actionableProposalFailures(p, { tenantId, currentBasis: basis }).length === 0
-        && operatorUiPolicy.isManualEditProofWork(p) && (lane !== "ready" || p.status === "ready" && p.researchOnly !== true);
+        && operatorUiPolicy.isManualEditProofWork(p) && (lane !== "ready" || p.status === "ready" && p.researchOnly !== true && openHold(p).defects.length === 0);
     };
     const ids = saved.manifest.filter(standing).map((r) => r.id);
     const slice = saved.manifest.slice(Math.max(0, cursor), page.nextRank).filter(standing).map((r) => r.id);

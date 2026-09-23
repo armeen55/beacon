@@ -2,15 +2,15 @@ import "server-only";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 import { deserializeChangeProposal, type ChangeProposal } from "./contracts";
-import { actionableProposalFailures } from "./validate-proposal";
+import { actionableProposalFailures } from "./validate-proposal"; import { openHold } from "./completeness";
 import { rankProposals } from "./rank-proposals";
 
 export const QUEUE_PAGE = 500, QUEUE_CEILING = 20_000;
 type Lane = "ready" | "todo" | "research";
 const decode = (payload: unknown): ChangeProposal | null => payload == null ? null
   : deserializeChangeProposal(typeof payload === "string" ? payload : JSON.stringify(payload));
-const laneOfRow = (p: ChangeProposal, stamped: string | undefined): Lane =>
-  p.status === "ready" && p.researchOnly !== true ? "ready" : p.researchOnly === true ? "research" : stamped === "research" ? "research" : "todo";
+const laneOfRow = (p: ChangeProposal): Lane => { const hold = openHold(p);
+  return p.status === "ready" && hold.lane === "review" && hold.defects.length === 0 ? "ready" : hold.lane === "research" ? "research" : "todo"; };
 const escaped = (value: string): string => value.replace(/[\\%_]/g, "\\$&");
 
 /** One DB page of the stamped ranking. A later material write clears its stamp
@@ -35,9 +35,9 @@ export async function readQueuePage(tenantId: string, lane: Lane | "all", basis:
     if (page.error) throw new Error(page.error.message);
     const read = (page.data ?? []) as unknown as Array<{ payload: unknown; queue_rank: number; queue_lane: string | null }>;
     const kept = read.map(r => ({ p: decode(r.payload), rank: r.queue_rank, stamped: (r.queue_lane ?? "").split("::")[1] }))
-      .filter((r): r is { p: ChangeProposal; rank: number; stamped: string } => !!r.p && actionableProposalFailures(r.p, { tenantId, currentBasis: basis }).length === 0 && (eligible?.(r.p) ?? true) && (lane !== "ready" || laneOfRow(r.p, r.stamped) === "ready"));
+      .filter((r): r is { p: ChangeProposal; rank: number; stamped: string } => !!r.p && actionableProposalFailures(r.p, { tenantId, currentBasis: basis }).length === 0 && (eligible?.(r.p) ?? true) && (lane !== "ready" || laneOfRow(r.p) === "ready"));
     const rows = kept.map(r => r.p), fresh = new Map(rankProposals(rows).map(p => [p.id, p]));
-    return { rows: rows.map(p => fresh.get(p.id) ?? p), laneById: Object.fromEntries(kept.map(r => [r.p.id, laneOfRow(r.p, r.stamped)])),
+    return { rows: rows.map(p => fresh.get(p.id) ?? p), laneById: Object.fromEntries(kept.map(r => [r.p.id, laneOfRow(r.p)])),
       rankById: Object.fromEntries(kept.map(r => [r.p.id, r.rank])), stampedLaneById: Object.fromEntries(kept.map(r => [r.p.id, r.stamped])),
       total: Math.max(rows.length, (counted.count ?? rows.length) - (read.length - rows.length)), dropped: read.length - rows.length,
       release, nextRank: read.at(-1)?.queue_rank ?? at, more: read.length === limit };
@@ -60,7 +60,7 @@ export async function queueLaneCounts(tenantId: string, release: string, basis: 
       const { data, error } = await q.order("id", { ascending: true }).limit(100);
       if (error) throw new Error(error.message);
       const page = (data ?? []) as Array<{ id: string; payload: unknown; queue_lane: string | null }>;
-      for (const r of page) { if (counted.has(r.id)) continue; counted.add(r.id); const p = decode(r.payload); if (p && actionableProposalFailures(p, { tenantId, currentBasis: basis }).length === 0 && (eligible?.(p) ?? true)) out[laneOfRow(p, (r.queue_lane ?? "").split("::")[1])] += 1; }
+      for (const r of page) { if (counted.has(r.id)) continue; counted.add(r.id); const p = decode(r.payload); if (p && actionableProposalFailures(p, { tenantId, currentBasis: basis }).length === 0 && (eligible?.(p) ?? true)) out[laneOfRow(p)] += 1; }
       if (page.length < 100) break;
       after = page[page.length - 1]!.id;
     }
