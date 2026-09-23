@@ -65,7 +65,7 @@ type Props = {
    *  Required (2026-08-12): the old optional "bare connected count" fallback was
    *  a second, quieter count that could disagree with this one. */
   rollup: ConnectorRollup;
-  /** BUG 3 (2026-07-11), per-source refresh-ledger facts for the "last pulled /
+  /** BUG 3 (2026-07-11), per-source refresh-ledger facts for the "last checked /
    *  data through / result" strip, keyed by ledger source name. Composed
    *  server-side from latestRefreshBySource; self-hiding when absent. */
   refreshLedger?: RefreshLedgerFacts;
@@ -74,8 +74,8 @@ type Props = {
 /** BUG 3 (2026-07-11) one source's refresh-ledger fact, as the page hands it to
  *  the client (plain, serializable). */
 type RefreshLedgerFact = {
-  /** ISO 8601 timestamp of the most recent refresh of this source. */
-  lastPulled: string;
+  /** ISO 8601 timestamp of the latest refresh check, including no-call holds. */
+  lastChecked: string;
   /** Newest source data date after that run (YYYY-MM-DD), or null when unknown. */
   dataThrough: string | null;
   result: "ok" | "partial" | "failed";
@@ -181,25 +181,27 @@ function formatDataDate(ymd?: string | null): string | null {
 
 /**
  * BUG 3 (2026-07-11): the per-source refresh-ledger line. States, in plain
- * English, when this source was last pulled, what date its data is current
- * through, and whether the pull worked - the honest facts the operator asked
+ * English, when this source was last checked, what date its stored data reached,
+ * and whether that check actually pulled a complete report - the facts the operator asked
  * for. Self-hides when there is no ledger row yet. This is the surface that
  * makes a "synced today but the newest data is weeks old" partial visible.
  */
 function RefreshLedgerLine({ fact }: { fact?: RefreshLedgerFact }) {
   if (fact == null) return null;
-  const when = formatDate(fact.lastPulled);
+  const when = formatDate(fact.lastChecked);
   const through = formatDataDate(fact.dataThrough);
   const base =
     through != null
-      ? `Last pulled ${when}, data through ${through}.`
-      : `Last pulled ${when}.`;
+      ? `Last checked ${when}, ${fact.result === "ok" ? "data through" : "latest stored data dated"} ${through}.`
+      : `Last checked ${when}.`;
   const verdict =
-    fact.result === "ok"
+    fact.reason === "partial_report_held"
+      ? " Automatic retries are paused after an incomplete Analytics report; use Sync now to retry."
+      : fact.result === "ok"
       ? ""
       : fact.result === "partial"
-        ? " No new data came back that time."
-        : " That pull did not work; it gets tried again automatically.";
+        ? " That pull was incomplete; the data-through date may lag."
+        : " This check did not finish; see the connection status here.";
   const tone =
     fact.result === "failed"
       ? "text-status-warning"
@@ -534,23 +536,13 @@ export function ConnectorsClient({
 
   // The honest rollup (2026-07-20) is the ONE source of the summary counts +
   // copy: there is no second, quieter count to disagree with it.
-  const { connectedCount: connected, total, needsAttentionCount: needsAttention, unknownCount } = rollup;
+  const { needsAttentionCount: needsAttention, dataLagCount } = rollup;
 
-  // FP10a (2026-07-02) - one health color for the summary strip. A connected
-  // source that is NOT delivering data (needs attention) is an "attention"
-  // state, never "live" - the certified leak was a green "4 of 4" hiding a
-  // broken GA4 ingest. A source that could not be CHECKED is not an alarm
-  // either: it is simply not a claim, so it holds the strip at neutral.
+  // Configuration alone is neutral; an impaired source or late data needs attention.
   const summaryIntent =
-    needsAttention > 0
+    needsAttention > 0 || dataLagCount > 0
       ? "attention"
-      : unknownCount > 0
-        ? "neutral"
-        : connected >= total && connected > 0
-          ? "live"
-          : connected > 0
-            ? "waiting"
-            : "neutral";
+      : "neutral";
 
   return (
     <div className="space-y-6">

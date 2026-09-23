@@ -112,7 +112,7 @@ export function connectorById(id: string): ConnectorRegistryEntry | undefined {
  *  caller from the SAME connector state the cards render, never re-detected here. */
 export type ConnectorRollupFact = {
   id: LiveConnectorId;
-  /** A token row exists and is not soft-disconnected. */
+  /** The source has a live grant and any required property selection. */
   connected: boolean;
   /** Connected BUT provably not delivering: GA4 ingest failures, never-synced,
    *  long-stale, a dead grant. Only meaningful when `connected` is true. */
@@ -121,20 +121,23 @@ export type ConnectorRollupFact = {
    *  source's state is unknown. It is neither connected nor disconnected here:
    *  a smaller count would be a claim nothing can back. */
   unknown?: boolean;
+  /** Latest date actually present in the refresh ledger, not the pull time. */
+  dataThrough?: string | null;
 };
 
 export type ConnectorRollup = {
   /** Total live connectors (the registry length). */
   total: number;
-  /** How many hold a live (non-disconnected) token. */
+  /** How many have completed source setup. */
   connectedCount: number;
   /** How many of the connected ones are impaired (see ConnectorRollupFact). */
   needsAttentionCount: number;
   /** How many could not be checked at all. Counted separately so a failed read
    *  never shrinks the connected number and never reads as a disconnection. */
   unknownCount: number;
-  /** The headline: e.g. "3 of 3 connected, 2 need attention" (or just
-   *  "3 of 3 connected" when none are impaired). */
+  dataUnknownCount: number;
+  dataLagCount: number;
+  /** Configuration count, distinct from the data-through verdict below. */
   headline: string;
   /** The subline, in Beacon voice, that never undercounts the impaired sources. */
   subline: string;
@@ -154,12 +157,20 @@ export function rollupConnectors(
     (f) => f.connected && f.needsAttention,
   ).length;
   const unknownCount = facts.filter((f) => f.unknown === true).length;
+  const today = Math.floor(Date.now() / 86_400_000);
+  const dataDay = (f: ConnectorRollupFact) => /^\d{4}-\d{2}-\d{2}$/.test(f.dataThrough ?? "")
+    ? Math.floor(Date.parse(`${f.dataThrough}T00:00:00Z`) / 86_400_000) : NaN;
+  const dataUnknownCount = facts.filter((f) => f.connected && (!Number.isFinite(dataDay(f)) || dataDay(f) > today)).length;
+  const dataLagCount = facts.filter((f) => {
+    const sla = connectorById(f.id)?.sla.slaMaxDataAgeDays;
+    return f.connected && sla != null && Number.isFinite(dataDay(f)) && today - dataDay(f) > sla;
+  }).length;
 
   // Noun plural ("source" -> "sources") gets an "s" for >1; the VERB "need"
   // inverts ("2 need", but "1 needs"), so it gets an "s" only when singular.
   const nounS = (n: number) => (n === 1 ? "" : "s");
   const verbS = (n: number) => (n === 1 ? "s" : "");
-  const bits = [`${connectedCount} of ${total} connected`];
+  const bits = [`${connectedCount} of ${total} configured`];
   if (needsAttentionCount > 0)
     bits.push(`${needsAttentionCount} need${verbS(needsAttentionCount)} attention`);
   // A source that could not be read is stated, never subtracted in silence.
@@ -170,14 +181,18 @@ export function rollupConnectors(
   if (unknownCount > 0 && needsAttentionCount === 0) {
     subline = `${unknownCount} source${nounS(unknownCount)} could not be checked just now. Nothing about ${unknownCount === 1 ? "it" : "them"} changed. Reload to check again.`;
   } else if (needsAttentionCount > 0) {
-    subline = `${needsAttentionCount} connected source${nounS(needsAttentionCount)} ${needsAttentionCount === 1 ? "is" : "are"} not delivering data yet. Open the flagged cards below to fix ${needsAttentionCount === 1 ? "it" : "them"}.${unknownCount > 0 ? ` ${unknownCount} other source${nounS(unknownCount)} could not be checked just now, and nothing about ${unknownCount === 1 ? "it" : "them"} changed.` : ""}`;
+    subline = `${needsAttentionCount} configured source${nounS(needsAttentionCount)} need${verbS(needsAttentionCount)} attention. Open the flagged cards below.${unknownCount > 0 ? ` ${unknownCount} other source${nounS(unknownCount)} could not be checked just now, and nothing about ${unknownCount === 1 ? "it" : "them"} changed.` : ""}`;
   } else if (connectedCount === 0) {
     subline = "Connect a source below to see what to do next.";
+  } else if (dataLagCount > 0) {
+    subline = `${dataLagCount} source${nounS(dataLagCount)} ${dataLagCount === 1 ? "has" : "have"} data older than expected. Check the last check and data-through dates below.`;
   } else if (connectedCount < total) {
-    subline = "Everything you have connected is delivering data. Connect the rest to unlock more.";
+    subline = "Connect or finish setup for the remaining sources. Last check and data-through dates are below.";
+  } else if (dataUnknownCount > 0) {
+    subline = `${dataUnknownCount} configured source${nounS(dataUnknownCount)} ${dataUnknownCount === 1 ? "has" : "have"} an unconfirmed data-through date. Check each source below.`;
   } else {
-    subline = "Everything is connected and delivering data.";
+    subline = "Connections are configured. Last check and data-through dates below show what has arrived.";
   }
 
-  return { total, connectedCount, needsAttentionCount, unknownCount, headline, subline };
+  return { total, connectedCount, needsAttentionCount, unknownCount, dataUnknownCount, dataLagCount, headline, subline };
 }

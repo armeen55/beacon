@@ -112,7 +112,7 @@ async function loadConnectorsPageData() {
       const row = latest[key];
       if (row != null) {
         facts[key] = {
-          lastPulled: row.started_at,
+          lastChecked: row.started_at,
           dataThrough: row.latest_data_date,
           result: row.result,
           reason: row.failure_category,
@@ -137,7 +137,7 @@ async function loadConnectorsPageData() {
   );
   const facts: ConnectorRollupFact[] = CONNECTOR_REGISTRY.map((c, i) => ({
     id: c.id,
-    connected: infos[i]!.status === "connected",
+    connected: infos[i]!.status === "connected" && (!c.requiresPropertySelection || Boolean(infos[i]!.ga4_property_id)),
     needsAttention:
       healths[i]?.health === "needs_attention" ||
       refreshLedger[c.sourceKey]?.result === "failed",
@@ -145,6 +145,7 @@ async function loadConnectorsPageData() {
       infos[i]!.status === "unknown" ||
       healths[i] == null ||
       healths[i]!.health === "unknown",
+    dataThrough: refreshLedger[c.sourceKey]?.result === "ok" ? refreshLedger[c.sourceKey]?.dataThrough ?? null : null,
   }));
   const rollup = rollupConnectors(facts);
 
