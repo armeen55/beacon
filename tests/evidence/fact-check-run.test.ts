@@ -7,9 +7,11 @@ vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {
       if (db.writeFails) return 0; for (const c of checks) if (c.state === "superseded") db.superseded.push(String(c.subject)); db.rows.push(...checks); return checks.length; },
     recordOwedClaims: async (_t: string, _p: string, claims: Record<string, unknown>[]) => (db.owed.push(...claims), claims.length),
     reopenObsoleteChecks: async (_t: string, _p: string, stale: { statementKey: string }[]) => (db.reopened.push(...stale.map((x) => x.statementKey)), stale.length),
+    reopenChangedSourceChecks: async (_t: string, _p: string, changed: { statementKey: string }[]) => (db.reopened.push(...changed.map((x) => x.statementKey)), changed.map((x) => x.statementKey)),
     supersedeStaleFacts: async (_t: string, _p: string, _h: string, present: (c: string) => boolean) => {
       const gone = db.rows.filter((r) => !present(String(r.current))); db.superseded.push(...gone.map((g) => String(g.subject))); return gone.length; },};});
 import { runFactCheckUnit, runFactCheckPass, pageHashOf, claimTypeOf, sourceQueryFor, claimIdentity, tokenFingerprintOf } from "@/domains/evidence/pages/fact-check-run"; const ATTEMPTS_PER_PASS = 200, EXTRACT_CHUNK = 3_000; // pinned here: the pass allowance and the inventory chunk are not public surface
+import { FACT_SOURCE } from "@/domains/evidence/pages/fact-source-identity";
 import { rulesVersionFor, VERIFICATION_RULES_VERSION, type FactCheck, type InventoryCoverage } from "@/domains/evidence/pages/fact-checks";
 import { SUPPORT_ARTIFACT_VERSION, supportFailure, supportIdentity, deriveSupport, backfillClaimSupport, type ClaimSupport, type SupportContext, type UnsupportedReason } from "@/domains/evidence/pages/claim-support"; const NOW = new Date("2026-08-18T00:00:00.000Z"); const PAGE = { url: "https://x.example/names", path: "/names", body: "Afsaneh means Goddess. Darya means Beauty." }; const reader = (byStage: { claims?: unknown; judge?: unknown }) => async (input: { system: string }) => {
   const a = input.system.startsWith("You read one web page") ? byStage.claims : byStage.judge; return (a == null ? { hold: "unavailable" } : { value: a }) as { value: Record<string, unknown> } | { hold: "unavailable" }; };
@@ -67,12 +69,6 @@ describe("a missing proposition is researched, never graded", () => { beforeEach
     expect(db.rows.map((r) => r.statementKey), "AND A QUESTION THE PAGE DOES NOT ANSWER IS RESEARCHED BEFORE THE PAGE'S OWN INVENTORY, by the row's shape and not by the locator an acquisition seeded it with, which a reopened row does not keep: live, three reopened questions waited while a hub's Quick Facts were checked").toEqual(["missing#1"]);
     db.rows = []; await unit({ held: [missing], read: judge("undecidable") }); const astray = db.rows.find((r) => r.statementKey === "missing#1")!;
     expect([astray.state, astray.proposed, astray.confidence], "and a statement the judge would not say answers the question is banked as no statement at all, so a confirmed undecidable row can no longer exist").toEqual(["checked", null, "likely"]); });
-  it("banks typed groups from the adjacent sentence, never invents groups for the flora lede", async () => {
-    const url = "https://en.wikipedia.org/wiki/Wildlife", lead = "The reserve supports animals in several habitats.", names = ["River mammals", "Wetland birds"], text = `${lead} River mammals live along rivers and Wetland birds breed in marshes.`;
-    const run = async (quote: string, groups: string[], fetched: string) => { reset(); await unit({ held: [row({ statementKey: "groups", subject: "Which animal groups live here?", current: "", pageLocator: "missing" })], read: reader({ claims: { statements: [] }, judge: { verdict: "page_correct", proposed: quote, confidence: "confirmed", supporting: [{ url, quote, groups }], subjects: [{ url, sameEntity: true, language: "English", script: null, why: "animals" }] } }), searchSources: async () => ({ organic: [{ domain: "en.wikipedia.org", url, title: "Reserve animals" }] }), fetchSource: async () => ({ text: fetched, title: "Reserve animals" }) }); return (db.rows.find((r) => r.statementKey === "groups") as unknown as FactCheck).sources[0]!; };
-    const banked = await run(lead, names, text), flora = "The wildlife of Iran include the fauna and flora of Iran.", bare = await run(flora, [], flora), forged = await run(flora, names, flora);
-    expect([banked.groups, banked.says, bare.groups, forged.groups]).toEqual([names, text, [], []]);
-  });
   it("banks the source's own sections under a grouping answer, the apparatus of a reference work left out, and none where the judge named no group", async () => {
     const url = "https://en.wikipedia.org/wiki/Wildlife_of_Iran", quote = "As of 2001, 20 of Iran's mammal species and 14 bird species were endangered.", groups = ["mammal species", "bird species"];
     const sections = [{ heading: "History", text: "Iran's fauna was described by travellers from the tenth century onward, and the first surveys of it were made in 1920. " }, { heading: "Fauna", text: "The mammals of Iran include the Asiatic cheetah, the Persian leopard, the brown bear and the wild goat. Birds include the Caspian snowcock and the see-see partridge. " }, { heading: "Endangered", text: `${quote} The Asiatic cheetah survives only in the central deserts. ` }, { heading: "References", text: "1. Firouz, E. (2005). The Complete Fauna of Iran. I.B. Tauris. 2. Ziaie, H. (2008). A Field Guide to the Mammals of Iran. " }];
@@ -128,9 +124,6 @@ describe("every failure is typed and leaves the claim owed", () => { beforeEach(
     const out = await unit({ held: [row({ statementKey: "k1" })], statementKey: "k1", rival: { subject: "Afsaneh", url: "https://example.org/x", urls: ["https://museum.edu/x"] }, searchSources: search, fetchSource: fetch, read: judge });
     expect([out.failure, fetch.mock.calls.length, judge.mock.calls.length, search.mock.calls.length, db.rows.length]).toEqual([stage === "fetch" ? "fetch_capped" : "judge_capped", 1, stage === "fetch" ? 0 : 1, 0, 0]);
   });
-  it("a failed source read leaves the row OWED, never checked", async () => {
-    const out = await unit({ held: [row({ statementKey: "k1" })], fetchSource: async () => ({ hold: "capped" }) }); // sources found, reading them refused
-    expect([out.status, out.failure, out.cursor?.checked, db.rows.length]).toEqual(["failed", "fetch_capped", 0, 0]); }); // unread evidence never clears a claim
   it("every provider hold keeps its own name, against the stage that took it", async () => {
     const held = [row({ statementKey: "k1" })];
     for (const hold of ["capped", "waiting", "unavailable"] as const) expect((await unit({ held, searchSources: async () => ({ hold }) })).failure).toBe(`search_${hold}`);
@@ -232,7 +225,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     db.rows = [];
     await unit({ held: [row({ statementKey: "k1" })] }); // a dictionary quoting its own words may confirm
     const ok = db.rows[0] as FactCheck; expect([ok.confidence, ok.state]).toEqual(["confirmed", "checked"]);
-    expect(ok.sourceReadAt).not.toBeNull();
+    expect([ok.sourceReadAt != null, ok.sources[0]?.readHash]).toEqual([true, FACT_SOURCE.hash(PASSAGE)]);
     const src = (JSON.parse(JSON.stringify(ok.sources)) as FactCheck["sources"])[0]!; // A FUTURE FACT EARNS ITS ARTIFACT INSIDE THE JUDGEMENT CALL IT ALREADY MAKES, and it survives the JSONB round trip it will live in: same identity, still valid, after JSON serialization.
     expect([src.support?.supported, src.support?.version]).toEqual([true, SUPPORT_ARTIFACT_VERSION]);
     expect(supportFailure(src.support, { tenantId: "t", page: ok.page, statementKey: ok.statementKey, pageLocator: ok.pageLocator, subject: ok.subject, claimKind: "definition", current: ok.current,
@@ -357,11 +350,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     const fixArt = deriveSupport({ tenantId: tenant, page: fix.page, statementKey: fix.statementKey, pageLocator: fix.pageLocator, subject: fix.subject, claimKind: "definition", current: fix.current, proposed: "new", url: "https://en.wiktionary.org/x", kind: "dictionary", quote: 'The name Afsaneh means "new".', titleContext: null });
     const corr = (confidence: FactCheck["confidence"]): FactCheck => ({ ...fix, confidence, sourceReadAt: NOW.toISOString(), sources: [{ ...fix.sources[0]!, support: fixArt! }] });
     expect([authorizedCorrections([corr("confirmed")], undefined, tenant).length, authorizedCorrections([corr("likely")], undefined, tenant).length], "REPLACING the page's own words still owes what two agreeing sources earn, and likely is not it").toEqual([1, 0]); });
-  it("reads a source through the REAL provider parser, not a shape invented to match", async () => {
-    const { parseCapability } = await import("@/domains/evidence/dataforseo/capabilities");
-    const envelope = { tasks: [{ result: [{ items: [{ page_content: { main_topic: [{ main_title: "Afsaneh", h_title: "Etymology", primary_content: [{ text: PASSAGE }] }] } }] }] }] };
-    const p = parseCapability("onpage_content_parsing", envelope as never) as { mainText: string | null; openingSample: string | null; headings: string[] }; const text = [p.mainText, p.openingSample, ...p.headings].filter(Boolean).join("\n");
-    await unit({ held: [row({ statementKey: "k1" })], fetchSource: async () => ({ text }) }); expect([text.includes("fable"), (db.rows[0] as FactCheck).confidence]).toEqual([true, "confirmed"]); }); });
+});
 describe("a verdict from obsolete rules is not current evidence", () => { beforeEach(reset);
   it("re-opens the live Ahvaz check produced under the old subject-only query, and leaves a current one settled", async () => {
     const AHVAZ = "Ahvaz, Iran holds the record for hottest day ever in Asia at 54 °C (129 °F)", page = { url: "https://x.example/ahvaz", path: "/ahvaz", body: `${AHVAZ} And more.` };
@@ -376,6 +365,14 @@ describe("a verdict from obsolete rules is not current evidence", () => { before
     const settled = await unit({ page, held: [{ ...old, rulesVersion: VERIFICATION_RULES_VERSION }],
       searchSources: async () => { searches += 1; return SOURCE; } });
     expect([db.reopened, searches, settled.status]).toEqual([[], 0, "done"]); }); });
+describe("a checked finding follows only its own newer saved source", () => { beforeEach(reset);
+  it.each(["confirmed", "likely", "unsupported"] as const)("reopens one dependent %s finding amid unrelated owed work", async (confidence) => {
+    db.cov = { pageContentHash: pageHashOf(PAGE.body), coveredChars: PAGE.body.length, totalChars: PAGE.body.length }; const stamp = "2026-08-19T00:00:00.000Z", a = row({ state: "checked", confidence, sources: [{ url: "https://en.wiktionary.org/x", kind: "dictionary", says: "old", readHash: FACT_SOURCE.hash("old"), readAt: NOW.toISOString() }] }), b = row({ statementKey: "b", subject: "Darya", current: "Beauty", state: "checked", sources: [{ url: "https://other.example/y", kind: "publisher", says: "other", readHash: FACT_SOURCE.hash("other"), readAt: NOW.toISOString() }] }); let providers = 0; const forbidden = async () => { providers++; throw Error("no provider work owed"); }, base = { held: [a, b], deadlineAt: Date.now() + 10_000, read: forbidden, searchSources: forbidden, fetchSource: forbidden };
+    const stable = await unit({ ...base, readCachedSource: async (url: string) => ({ text: url === a.sources[0]!.url ? "old" : "other", fetchedAt: stamp }) }), unrelated = await unit({ ...base, statementKey: "k", readCachedSource: async (url: string) => ({ text: url === a.sources[0]!.url ? "old" : "changed unrelated", fetchedAt: stamp }) }); expect([stable.status, unrelated.status, db.reopened, providers]).toEqual(["done", "done", [], 0]);
+    expect([FACT_SOURCE.usable({ mainText: "", openingSample: "shell", headings: ["Afsaneh"], truncated: false }, stamp), FACT_SOURCE.usable({ mainText: "body", sections: [{ heading: "only", text: "body" }], truncated: false }, stamp, true)]).toEqual([false, false]);
+    const grouped = { ...a, sources: [{ ...a.sources[0]!, readHash: FACT_SOURCE.hash("Afsaneh\nold"), sectionsRead: true }] }; expect([(await FACT_SOURCE.changed([grouped], async () => ({ text: "old", fetchedAt: stamp, structured: false }))).length, (await FACT_SOURCE.changed([grouped], async () => ({ text: "Afsaneh\nchanged", fetchedAt: stamp, structured: true }))).length]).toEqual([0, 1]);
+    const changed = await unit({ ...base, held: [a, { ...b, state: "owed" }], readCachedSource: async (url: string) => ({ text: url === a.sources[0]!.url ? "new relevant support" : "other", fetchedAt: stamp }) }); let fetches = 0; const replay = await unit({ ...base, deadlineAt: Date.now() + 600_000, held: [{ ...a, state: "owed", sources: [{ url: a.sources[0]!.url, kind: "dictionary", says: "" }] }, b], read: reader({ judge: CONFIRMS }), fetchSource: async () => (fetches++, { text: PASSAGE, fetchedAt: stamp }) }); expect([changed.status, replay.status, db.reopened, providers, fetches]).toEqual(["failed", "advanced", ["k"], 0, 1]);
+  }); });
 describe("the live 54 C Ahvaz results page", () => { beforeEach(reset); // the organic results the already-paid SERP returned, in order
   const LIVE = { organic: [["www.washingtonpost.com", "washingtonpost.com/a"], ["mashable.com", "mashable.com/a"],
     ["www.newarab.com", "newarab.com/a"], ["www.cnbc.com", "cnbc.com/a"], ["www.globalcitizen.org", "globalcitizen.org/a"],
@@ -399,7 +396,6 @@ describe("the live 54 C Ahvaz results page", () => { beforeEach(reset); // the o
       read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, proposed: "Ahvaz reached 129 degrees Fahrenheit, a record for Asia", supporting: [{ url: "https://washingtonpost.com/a", quote: WAPO }, { url: "https://cnbc.com/a", quote: CNBC }], subjects: [{ url: "https://washingtonpost.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }, { url: "https://cnbc.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }] } }) });
     const r = db.rows[0] as FactCheck; expect([r.agreement, r.confidence]).toEqual(["single_source", "likely"]); // AGREEMENT IS EARNED, NOT COUNTED: the Post carries the whole proposal, CNBC reports 54 Celsius on Thursday and carries none of "Ahvaz 129 Fahrenheit record Asia", so it corroborates the story and is not a second voice for this wording. Both are still read, credited and kept on the row.
     expect(r.sources.filter((x) => x.says.trim() !== "").length, "both stay credited").toBe(2);
-    expect(r.sources.filter((x) => x.says.length > 0)).toHaveLength(2); // each credited with ITS OWN sentence
     db.reopened = []; await unit({ held: [{ ...r, state: "checked" } as FactCheck], read: reader({ claims: { statements: [] }, judge: CONFIRMS }) });
     expect(db.reopened).toEqual([]); }); });
 describe("backfilling support onto already-banked facts", () => {

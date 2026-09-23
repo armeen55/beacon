@@ -8,6 +8,7 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { asksAQuestion, AUTHORITATIVE_KIND, GLOSS_STOP, supportShortfall } from "./claim-support";
 import type { ClaimSupport } from "./claim-support";
 import { log } from "@/lib/logger";
+import { createHash } from "node:crypto";
 
 const TABLE = "page_source_facts";
 
@@ -39,7 +40,7 @@ export type FactCheck = {
   /** `support` is this source's own ruling on THIS claim; `titleContext` is a heading from the SAME fetch,
    *  never a SERP title or a URL slug, which are discovery hints and prove nothing about a passage. */
   sources: Array<{ url: string; kind: SourceKind; says: string; groups?: string[]; groupExcerpts?: { heading: string; says: string }[]; sectionsRead?: boolean;
-    titleContext?: string; titleContextFrom?: "fetched_document"; support?: ClaimSupport }>;
+    titleContext?: string; titleContextFrom?: "fetched_document"; support?: ClaimSupport; readHash?: string; readAt?: string }>;
   agreement: "multiple_agree" | "single_source" | "sources_conflict" | "none_found";
   confidence: "confirmed" | "likely" | "disputed" | "unsupported";
   verdict: "page_correct" | "page_wrong" | "page_imprecise" | "undecidable";
@@ -228,6 +229,31 @@ export async function reopenObsoleteChecks(tenantId: string, page: string, stale
   if (error) { log.warn("[fact-checks] obsolete checks were not re-opened", { tenantId, page, error: error.message }); return 0; }
   log.info("[fact-checks] checks from obsolete rules re-opened", { tenantId, page, reopened: stale.length });
   return stale.length;
+}
+
+/** Archive the exact checked row before conditionally reopening it. A concurrent recheck wins the CAS. */
+export async function reopenChangedSourceChecks(tenantId: string, page: string, changed: readonly FactCheck[]): Promise<string[]> {
+  if (!changed.length) return [];
+  const at = new Date().toISOString(), db = getSupabaseAdmin();
+  const history = changed.map((g) => ({ tenant_id: tenantId, page_key: page,
+    statement_key: `${g.statementKey}~src${createHash("sha256").update(JSON.stringify([g.checkedAt, g.sources])).digest("hex").slice(0, 16)}`,
+    subject: g.subject, current_wording: g.current, proposed: g.proposed, literal: g.literal, usage: g.usage,
+    sources: g.sources, agreement: g.agreement, confidence: g.confidence, verdict: g.verdict,
+    also_at: g.alsoAt, note: g.note, page_content_hash: g.pageContentHash, page_locator: g.pageLocator,
+    source_read_at: g.sourceReadAt, evidence_basis: g.evidenceBasis, rules_version: g.rulesVersion,
+    claim_state: "superseded", superseded_at: at, checked_at: g.checkedAt, updated_at: at }));
+  const { error: archiveError } = await db.from(TABLE).upsert(history, { onConflict: "tenant_id,page_key,statement_key", ignoreDuplicates: true });
+  if (archiveError) throw new Error(`[fact-checks] changed source history did not land: ${archiveError.message}`);
+  const reopened: string[] = [];
+  for (const g of changed) {
+    const { data, error } = await db.from(TABLE).update({ proposed: null, literal: null, usage: null, sources: g.sources.map((s) => ({ url: s.url, kind: s.kind, says: "" })), source_url: null, source_quote: null,
+      source_class: null, agreement: "none_found", confidence: "unsupported", verdict: "undecidable", source_read_at: null,
+      note: "Owed again: a newer saved reading changed a source this finding relied on.", claim_state: "owed", checked_at: at, updated_at: at })
+      .eq("tenant_id", tenantId).eq("page_key", page).eq("statement_key", g.statementKey).eq("claim_state", "checked").eq("checked_at", g.checkedAt).select("statement_key");
+    if (error) throw new Error(`[fact-checks] changed source could not reopen its finding: ${error.message}`);
+    reopened.push(...(data ?? []).map((row) => row.statement_key as string));
+  }
+  return reopened;
 }
 
 /** PURE: the checks that may authorize replacing published words./** PURE: the checks that may authorize replacing published words. Confirmed, contradicting the page, carrying

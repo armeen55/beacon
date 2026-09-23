@@ -502,7 +502,7 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
           const r = held?.truncated === false && held.mainText?.trim() && Number.isFinite(at) && at <= Date.now() && (!required?.structured || (held.sections?.length ?? 0) >= 2) ? { parsed: held, fetchedAt: cached!.fetchedAt } : await bought("onpage_content_parsing", { url }, `src:${url}`.slice(0, 80));
           if (r == null || "hold" in r) return { hold: r?.hold ?? "unavailable" };
           const parsed = r.parsed as { title?: string | null; mainText?: string | null; bodyText?: string | null; openingSample?: string | null; headings?: string[]; sections?: { heading: string | null; text: string }[] } | null;
-          const text = parsed?.sections?.length /* THE SECTIONS INLINE, EACH HEADING ABOVE ITS OWN WORDS (delivery loop, 2026-09-07): a flat body followed by the heading list put every heading at the document's tail, so a window anchored on the winner's heading opened on the wrong region; the flat shape stays for a parse that carried no topics */ ? parsed.sections.map((s) => [s.heading, s.text].filter(Boolean).join("\n")).join("\n") : [parsed?.mainText ?? parsed?.bodyText, parsed?.openingSample, ...(parsed?.headings ?? [])].filter(Boolean).join("\n");
+          const text = parsed ? (await import("@/domains/evidence/pages/fact-source-identity")).FACT_SOURCE.text(parsed) : "";
           return text.trim() ? { text, title: parsed?.title ?? null, sections: parsed?.sections ?? [], ...("fetchedAt" in r ? { fetchedAt: r.fetchedAt } : {}) } : { hold: "refused" as const }; // the FETCHED document's own title rides along: it identifies the subject of an anaphoric passage, which a SERP title or slug never can
         },
       });

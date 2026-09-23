@@ -1,15 +1,12 @@
 import "server-only";
-
-
 import { createHash } from "node:crypto"; import { FURNITURE_LABEL } from "@/domains/evidence/relevance-gate"; import { sha16 } from "@/domains/evidence/funnel/shared";
 import { log } from "@/lib/logger";
-import { recordFactChecks, recordOwedClaims, reopenObsoleteChecks, supersedeStaleFacts, statementKeyOf,
+import { recordFactChecks, recordOwedClaims, reopenObsoleteChecks, reopenChangedSourceChecks, supersedeStaleFacts, statementKeyOf,
   MISSING_ANSWER_RULES_VERSION, rulesVersionFor, unauthorizedReason, authorizedCorrections, type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
+import { FACT_SOURCE } from "./fact-source-identity";
 import { SUPPORT_ARTIFACT_VERSION, supportIdentity, supportFailure, unsupportedArtifact, deriveSupport, claimTypeOf, AUTHORITATIVE_KIND as AUTHORITATIVE, type ClaimSupport, type ClaimType, type SupportContext } from "./claim-support";
 export { claimTypeOf } from "./claim-support";
-
 const EMPTY_ROW = { proposed: null, literal: null, usage: null, sources: [], agreement: "none_found" as const, confidence: "unsupported" as const, verdict: "undecidable" as const, alsoAt: [], note: "", sourceReadAt: null };
-
 /** How many candidate sources one claim weighs, and how many it will actually fetch. */
 const CANDIDATES = 6, FETCH_PER_CLAIM = 2;
 /** A call is only started when this much of the deadline remains, so its result can always be persisted. */
@@ -19,7 +16,6 @@ const EXTRACT_CHUNK = 3_000;
 const CLAIM_CAP = 40;
 const ATTEMPTS_PER_PASS = 200;
 /** About ONE CLAIM, not the account: set aside, carry on. `judge_refused` joined 2026-08-30: a judgement that fails validation fails on THIS claim's content (live: one stubborn claim ended three passes running while 18 others had just judged clean); `judge_capped` and `judge_unavailable` stay account-wide stops. */ const PER_CLAIM = new Set(["fetch_refused", "fetch_unavailable", "search_refused", "search_unavailable", "search_waiting", "source_quality_unresolved", "judge_refused"]);
-
 const SCHOLARLY = /(^|\.)(iranicaonline\.org|dsal\.uchicago\.edu|jstor\.org|academia\.edu|brill\.com|oup\.com|cambridge\.org|nih\.gov|who\.int)$|\.(edu|gov|ac\.[a-z]{2})$/i;
 const DICTIONARY = /(^|\.)(wiktionary\.org|merriam-webster\.com|oed\.com|dehkhoda\.ut\.ac\.ir|vajehyab\.com|abadis\.ir|collinsdictionary\.com)$/i;
 const ENCYCLOPEDIA = /(^|\.)(wikipedia\.org|britannica\.com|encyclopedia\.com)$/i;
@@ -29,7 +25,6 @@ const BABYNAME = /(baby|names?)[-.]?(names?|meaning|central|nology)|(^|\.)(momju
 const COMMUNITY = /(^|\.)(youtube\.com|youtu\.be|tiktok\.com|instagram\.com|facebook\.com|x\.com|twitter\.com|reddit\.com|quora\.com|pinterest\.com|medium\.com|substack\.com|tumblr\.com|blogspot\.com|wordpress\.com|linkedin\.com|vimeo\.com|dailymotion\.com|answers\.com|stackexchange\.com|stackoverflow\.com|fandom\.com|wikihow\.com)$/i;
 /** CREDIBLE JOURNALISTIC PUBLISHERS. Two independent ones may support a confirmation; one supports `likely`. */
 const NEWS = /(^|\.)(washingtonpost|nytimes|wsj|bbc|cnn|cnbc|reuters|apnews|theguardian|guardian|aljazeera|newarab|alaraby|npr|time|forbes|wired|axios|bloomberg|ft|economist|independent|telegraph|dw|france24|euronews|abcnews|nbcnews|cbsnews|usatoday|latimes|newsweek|mashable|globalcitizen|scientificamerican|nationalgeographic|livescience|weather|accuweather|smithsonianmag|phys)\.(com|org|net|co\.uk|uk|de|fr|qa)$/i;
-
 function sourceClassOf(domain: string): SourceKind {
   const d = domain.replace(/^www\./, "").toLowerCase();
   if (SCHOLARLY.test(d)) return "scholarly";
@@ -46,7 +41,6 @@ function sourceClassOf(domain: string): SourceKind {
 const CREDIBLE = new Set<SourceKind>(["news"]);
 /** Never read at all: user-generated, video and baby-name mills. */
 const REJECTED = new Set<SourceKind>(["community", "babyname"]);
-
 export const pageHashOf = sha16;
 const STOP = new Set(["the", "and", "for", "with", "that", "this", "from", "its", "are", "was", "were", "has", "have", "had", "holds", "hold", "held", "also", "ever", "been", "not", "which", "their", "there", "into", "over",
   "meaning", "means", "name", "used", "word", "these", "them", "when", "such", "than", "then", "they", "being", "where", "what", "would", "about"]);
@@ -147,6 +141,8 @@ type FactCheckUnitDeps = {
   warmSearch?: (query: string) => void;
   /** THE SOURCE ITSELF: fetch and parse one URL. A hold means nothing may be confirmed and nothing is banked. */
   fetchSource?: (url: string, required?: { structured: boolean }) => Promise<SourceAnswer>; /** A CLAIM WHOSE ANSWER IS THE SOURCE'S OWN STRUCTURE (2026-09-10): read as the source laid out in its sections, so the judge can name a heading as a group instead of quoting the lede. */ structured?: (subject: string) => boolean;
+  readCachedSource?: (url: string) => Promise<{ text: string; fetchedAt: string } | null>;
+  scanSourceChanges?: boolean;
   /** THE PAGE THAT ALREADY CARRIES THIS SUBJECT, named by the requirement that asked for the reading: the winner a comparison found the subject on. It is read FIRST and it is not an authority of its own, only a candidate the ordinary policy admits; `subject` is the proposition it was named for, so a pass that reaches a different claim never spends it. */
   rival?: { subject: string; url: string; urls?: string[]; /** The nominated page's own heading, never transferred to other sources. */ anchor?: string };
   page: { url: string; path: string; body: string; prospective?: string };
@@ -208,6 +204,10 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     || (h.state === "checked" && h.confidence === "confirmed" && unauthorizedReason(h) != null));
   if (obsolete.length > 0 && await reopenObsoleteChecks(tenantId, page.path, obsolete).catch(() => 0) > 0) {
     inventory = inventory.map((h) => (obsolete.includes(h) ? { ...h, state: "owed" as const, rulesVersion: rulesVersionFor(h) } : h));}
+  const changed = d.scanSourceChanges === false ? [] : await FACT_SOURCE.changed(inventory.filter((h) => !d.statementKey || h.statementKey === d.statementKey), d.readCachedSource).catch(() => []);
+  const reopened = changed.length ? await reopenChangedSourceChecks(tenantId, page.path, changed).catch(() => null) : [];
+  if (reopened === null) return fail("store_write_failed", null, "changed source could not be durably archived and reopened");
+  if (reopened.length) inventory = inventory.map((h) => reopened.includes(h.statementKey) ? { ...h, state: "owed" as const, sources: h.sources.map((s) => ({ url: s.url, kind: s.kind, says: "" })), proposed: null } : h);
   const waiting = (h: FactCheck): boolean => h.pageLocator === "missing" || rulesVersionFor(h) === MISSING_ANSWER_RULES_VERSION, seededFirst = (rows: typeof inventory) => [...rows].sort((a, b) => (waiting(b) ? 1 : 0) - (waiting(a) ? 1 : 0)); // and a question this page does not answer outranks its inventory whatever its locator says, because a reopened row keeps the locator it was banked with
   let owed = seededFirst(inventory.filter((h) => h.state === "owed" && (!d.statementKey || h.statementKey === d.statementKey)));
   if (!page.prospective && !d.statementKey && cov.coveredChars < cov.totalChars) {
@@ -283,7 +283,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     evidenceBasis: d.basis, checkedAt: now.toISOString() };
 
   const hostOf = (u: string): string => u.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0]!.toLowerCase(), ownSite = hostOf(page.url ?? ""); // ONE spelling of a host, read by the own-site refusal and by the named page alike
-  const passages: { url: string; kind: SourceKind; text: string; title: string | null; readAt: string; sections: readonly SourceSection[] }[] = [];
+  const passages: { url: string; kind: SourceKind; text: string; title: string | null; readAt: string; readHash: string; sections: readonly SourceSection[] }[] = [];
   let lastHold: ProviderHold = "unavailable", searched = false;
   const attempted = new Set<string>();
   const readSource = async (c: { url: string; kind: SourceKind }): Promise<ProviderHold | null> => {
@@ -292,10 +292,10 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     const got = await d.fetchSource(c.url, { structured: d.structured?.(claim.subject) === true }).catch(() => ({ hold: "unavailable" as const }));
     if ("hold" in got) { lastHold = got.hold; return got.hold; }
     const heading = c.url === d.rival?.url && d.rival.anchor?.trim() ? d.rival.anchor.trim() : undefined; // the winner's own heading, where the requirement named one
-    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, title: got.title ?? null, readAt: got.fetchedAt ?? new Date().toISOString(), sections: got.sections ?? [], text: d.structured?.(claim.subject) === true && (got.sections?.length ?? 0) >= 2 ? sectionDigest(got.sections ?? []) : subjectWindow(got.text, [claim.subject, ...(claim.current.match(/\b\d[\d,.]*\b/g) ?? [])], 6_000, 160, heading) });
+    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, title: got.title ?? null, readAt: got.fetchedAt ?? new Date().toISOString(), readHash: FACT_SOURCE.hash(got.text), sections: got.sections ?? [], text: d.structured?.(claim.subject) === true && (got.sections?.length ?? 0) >= 2 ? sectionDigest(got.sections ?? []) : subjectWindow(got.text, [claim.subject, ...(claim.current.match(/\b\d[\d,.]*\b/g) ?? [])], 6_000, 160, heading) });
     return null; };
-  const named = d.rival && d.rival.subject.trim().toLowerCase() === claim.subject.trim().toLowerCase()
-    ? [...new Set([d.rival.url, ...(d.rival.urls ?? [])])].filter((u) => { const host = hostOf(u); return host && host !== ownSite && !host.endsWith(`.${ownSite}`) && !REJECTED.has(sourceClassOf(host)); }) : [];
+  const named = [...new Set([...next.sources.filter((s) => !s.says && s.url).map((s) => s.url), ...(d.rival && d.rival.subject.trim().toLowerCase() === claim.subject.trim().toLowerCase() ? [d.rival.url, ...(d.rival.urls ?? [])] : [])])]
+    .filter((u) => { const host = hostOf(u); return host && host !== ownSite && !host.endsWith(`.${ownSite}`) && !REJECTED.has(sourceClassOf(host)); });
   const alternative = named.slice(1).find((u) => hostOf(u) !== hostOf(named[0]!)) ?? named[1];
   const readNamed = async (url: string): Promise<FactCheckUnitResult | null> => {
     const hold = await readSource({ url, kind: sourceClassOf(hostOf(url)) });
@@ -388,7 +388,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     const groups = supporters.includes(p) ? (rulings.get(p.url)?.groups ?? []).filter((g) => g.trim() && p.text.includes(g)) : [];
     if (groups.length && !groups.every((g) => says.includes(g))) says = carrying(p, groups) ?? says;
     const excerpts = groups.length > 0 ? sectionExcerpts(p.sections, groups) : [], structuredRead = d.structured?.(claim.subject) === true; // THE SOURCE'S OWN SECTIONS RIDE WITH A GROUPING ANSWER (delivery loop, 2026-09-10): the judge names the groups a source distinguishes from ONE window of at most 600 characters, so the groups banked for the wildlife hub were two qualifiers of one sentence ("mammal species", "bird species") and the writer hired to fill them was handed that sentence and nothing else; fifteen corrective releases then fought the packet gate over a section no material could fill. The words the source keeps under its own headings are the entity material, quoted verbatim per section, and they reach the writer under the fact they belong to. The field is present, empty or not, on every source read under this rule, which is how the seed tells a grouping row read before the sections rode from one read after.
-    const stamp = { url: p.url, kind: p.kind, says, groups: groups.filter((g) => says.includes(g) || excerpts.some((e) => e.heading === g)), ...(groups.length > 0 ? { groupExcerpts: excerpts } : {}), ...(structuredRead ? { sectionsRead: true } : {}), ...(p.title ? { titleContext: p.title, titleContextFrom: "fetched_document" as const } : {}) };
+    const stamp = { url: p.url, kind: p.kind, says, readHash: p.readHash, readAt: p.readAt, groups: groups.filter((g) => says.includes(g) || excerpts.some((e) => e.heading === g)), ...(groups.length > 0 ? { groupExcerpts: excerpts } : {}), ...(structuredRead ? { sectionsRead: true } : {}), ...(p.title ? { titleContext: p.title, titleContextFrom: "fetched_document" as const } : {}) };
     if (!says || !proposedNow || !supporters.includes(p)) return stamp;
     const ctx = ctxOf(p, says);
     const r = rulings.get(p.url) ?? rulings.get(vouchedAs.get(p.url) ?? "");
@@ -466,15 +466,15 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
     if (STOREFRONT_PATH.test(page.path) || attempts >= ATTEMPTS_PER_PASS || Date.now() >= d.deadlineAt) { if (STOREFRONT_PATH.test(page.path)) continue; break; } // a product page has no facts to check (/product-page/faravahar-shirt inventoried eleven prices and a return policy)
     const body = await page.loadBody().catch(() => "");
     if (!body.trim() && !page.prospective) continue;
-    opened += 1;
+    opened += 1; let scannedSources = false;
     while (attempts < ATTEMPTS_PER_PASS && Date.now() < d.deadlineAt) {
       if (d.renew && !(await d.renew().catch(() => false)))
         return { status: banked > 0 ? "advanced" : "failed", banked, bankedPages: [...bankedPages], pagesComplete, attempts, failure: "lease_lost", reason: "the lease was lost, so nothing further was researched" };
       attempts += 1; // EVERY attempt counts: banked, failed and waiting alike.
       const out = await runFactCheckUnit({ tenantId: d.tenantId, now: new Date(), basis: d.basis, deadlineAt: d.deadlineAt,
-        statementKey: d.target?.statementKey, held: held.filter((h) => h.page === page.path), page: { url: page.url, path: page.path, body, prospective: page.prospective }, skip: setAside,
+        statementKey: d.target?.statementKey, scanSourceChanges: !scannedSources, held: held.filter((h) => h.page === page.path), page: { url: page.url, path: page.path, body, prospective: page.prospective }, skip: setAside,
         read: d.read, searchSources: d.searchSources, warmSearch: d.warmSearch, fetchSource: d.fetchSource, ...(d.rival ? { rival: d.rival } : {}), ...(d.structured ? { structured: d.structured } : {}),
-        readCoverage: () => d.readCoverage(page.path), writeCoverage: (cov) => d.writeCoverage(page.path, cov) });
+        readCoverage: () => d.readCoverage(page.path), writeCoverage: (cov) => d.writeCoverage(page.path, cov) }); scannedSources = true;
       // A CLAIM THAT WILL NOT RESOLVE IS SET ASIDE, NOT THE WHOLE PASS. Ending on any failed unit is right for a spent budget or an outage, which repeat; wrong for a per-claim failure, because the owed order is stable so it returned to the head every pass. Live: `fetch_refused` at $0 on five passes while 167 others were never reached once. Set aside for THIS pass only; it is owed again on the next.
       if (!d.target && out.status === "failed" && out.attempted && PER_CLAIM.has(out.failure ?? "")) {
         setAside.add(out.attempted); lastPerClaim = { failure: out.failure!, reason: out.reason ?? "" }; continue; }
