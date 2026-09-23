@@ -26,7 +26,8 @@ vi.mock("@/domains/decision", () => ({
   unsettledCause: () => null,
   countLedgerLifecycle: () => ({ measuring: 0, decided: 0 }),
   loadProposalQueue: async () => ({ ranked: [], ready: [], toDo: [], research: [], implementedPendingVerification: 0, demotedStaleBasis: 0 }),
-  readQueuePage: () => (calls.hangQueue ? new Promise(() => {}) : Promise.resolve({ rows: [], laneById: {}, total: 0, nextRank: 0, release: null, more: false, dropped: 0 })),
+  loadChangeProposals: () => (calls.hangQueue ? new Promise(() => {}) : Promise.resolve(new Map([[SAVED_ROW.id, SAVED_ROW]]))),
+  confirmedVersion: () => "same",
   publishCustomerRelease: async () => "rel",}));
 const SAVED_ROW = vi.hoisted(() => ({ id: "t::/wolf::existing_edit::missing_description", tenantId: "t", kind: "existing_edit", pagePath: "/wolf", pageUrl: "https://iranopedia.com/wolf", pageLabel: "Wolf", primaryQuery: "persian wolf", opportunityType: "Capture clicks", changeFamily: "meta", status: "ready", basis: "b1", modeledOn: "backed",
   recommendedChange: { kind: "existing_edit", field: "meta", before: "Old.", after: "The saved, committed description from the last release." }, whyItMatters: "w", estimatedEffortMinutes: 3, riskLevel: "low", confidence: "high", limitations: [], evidence: { query: "persian wolf", hints: [], evidenceRefCount: 1 }, impactScore: 5, upsidePerMonth: null, publish: "manual", createdAt: new Date().toISOString() }));
@@ -61,8 +62,7 @@ describe("a struggling source costs one read, and a list already in hand beats a
     calls.failSurface = 2;
     const view = await loadChangesView(); expect(calls.surface, "memory beats a second attempt: one failed read, then the remembered list, never a second read while a copy is in hand").toBe(1); expect(view.releaseFromMemory, "a remembered list is not a first-ever load").toBe(true); expect(view.releaseUnreadable ?? false).toBe(false); expect(view.surfaceComputedAt).toBe(SURFACE.computedAt);
   }, 15_000);
-  /** THE SAVED RELEASE IS THE FIRST PAINT (operator, 2026-09-01). A valid committed release existed while the live queue joins, slowed by post-batch research, exceeded the section's one deadline: the operator's own finished work timed out into "This section could not load". The joins now carry their own budget inside the section's; a join that never resolves paints the release's saved rows instead of the error. */
-  it("paints the saved release rows inside the section budget while the live queue join hangs forever", async () => {
+  it("paints the saved release inside the section budget while current-row validation hangs", async () => {
     calls.serveRows = true; calls.basis = "b1"; calls.hangQueue = true;
     const { loadChangesView } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data");
     const t0 = Date.now(); const view = await loadChangesView(); expect([view.proposals.map((p) => p.pagePath), Date.now() - t0 < 6_000], "the saved rows paint, inside the budget, with the queue read still hanging").toEqual([["/wolf"], true]); expect((view.ready[0]?.recommendedChange as { after?: string })?.after, "the exact committed copy is what paints").toBe("The saved, committed description from the last release.");

@@ -367,7 +367,7 @@ export async function publishCustomerRelease(args: { tenantId: string; expectedP
 export { readQueuePage, queueLaneCounts } from "./queue-paging";
 
 /** Every proposal this account currently holds, keyed by id: the canonical current rows plus historical rows for ids the canonical table never held. THE CURRENT QUEUE IS NOT CAPPED. It used to stop at the first 500 rows, so an account with more current work than that silently lost the rest on every read that decides what is current, ranking included; the rows are PAGED here until the account is exhausted. `historyLimit` bounds HISTORY only, because history is not work. Fail-soft: a missing table shows history rather than  claiming this account has no changes at all. */
-export async function loadChangeProposals(tenantId: string, opts: { failClosed?: boolean } = {}): Promise<Map<string, ChangeProposal>> {
+export async function loadChangeProposals(tenantId: string, opts: { failClosed?: boolean; canonicalOnly?: true } = {}): Promise<Map<string, ChangeProposal>> {
   const out = new Map<string, ChangeProposal>(); if (!tenantId) return out;
   const sb = getSupabaseAdmin(); let canonical = false;
   try {
@@ -387,7 +387,7 @@ export async function loadChangeProposals(tenantId: string, opts: { failClosed?:
       if (!last || page.length < QUEUE_PAGE) break; // a short page is the end of this account's current work
       after = last.id;
     }
-    if (canonical) for (const [id, proposal] of await strandedHandovers(tenantId, out, opts.failClosed === true)) out.set(id, proposal);
+    if (canonical && !opts.canonicalOnly) for (const [id, proposal] of await strandedHandovers(tenantId, out, opts.failClosed === true)) out.set(id, proposal);
   } catch (e) { log.error("[proposal-store] canonical read threw", { tenantId, error: e instanceof Error ? e.message : String(e) }); if (opts.failClosed) throw e; }
   // THE CURRENT QUEUE IS THE CANONICAL TABLE AND NOTHING ELSE (falsifier, 2026-09-02). The pre-canonical table was read here for ids the canonical table never held, and six July new_page rows with no basis lived only there: no surface could ever reach them, every door withheld them, and they still inflated this account's counts by six. History is history, and `loadChangeProposal` still answers for one named legacy id, which is a lookup rather than a queue.
   return out;

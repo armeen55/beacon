@@ -9,7 +9,7 @@ import "server-only";
 import { cache } from "react";
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
-import { actionableProposalFailures, loadProposalQueue, openHold, queueLaneCounts, readAiCaseDispositions, readQueuePage, resolveCurrentBasis } from "@/domains/decision";
+import { actionableProposalFailures, confirmedVersion, loadChangeProposals, loadProposalQueue, openHold, readAiCaseDispositions, readQueuePage, resolveCurrentBasis } from "@/domains/decision";
 import type { AiCaseFile } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import { loadProofLedgerCached } from "@/domains/measurement";
@@ -23,7 +23,7 @@ import { loadWithDeadline } from "@/lib/load-with-deadline";
 type ChangesSummary = { todo: number; ready: number; research: number; implemented: number; measuring: number; results: number };
 
 export type ChangesView = {
-  /** THE ONE GLOBAL ORDER, every lane interleaved by worth: computed by the build, COMMITTED by the release in one transaction with the surface blob. Absent on cached reads. */
+  /** THE ONE GLOBAL ORDER, every lane interleaved by worth: committed with the surface and used to reconcile off-page retirements. */
   stampRows?: ReadonlyArray<{ id: string; lane: "ready" | "todo" | "research" }>;
   /** The ranked pre-ship queue, cut to ONE page. `summary` carries the true totals, counted in the database. */
   proposals: ChangeProposal[];
@@ -109,7 +109,7 @@ export function releasedQueueCursors(manifest: CustomerSurface["manifest"], view
  *  ranked queue, the detail page and the mutations ask, so a release can never serve what those doors refuse: right account, current bar,
  *  still waiting on you, a receipt that still resolves, readings that still stand. Comparing the release only against ITSELF was the hole,
  *  because a uniformly stale release looks perfectly consistent. A basis I cannot read withholds everything. */
-export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string; currentBasis: string | null }): ChangesView {
+export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string; currentBasis: string | null; currentRows?: ReadonlyMap<string, ChangeProposal> }): ChangesView {
   const currentBasis = ctx.currentBasis;
   if (currentBasis == null) return { ...view, proposals: [], ready: [], toDo: [], research: [], laneById: {},
     summary: { ...view.summary, ready: 0, todo: 0, research: 0 }, basisUnreadable: true,
@@ -117,7 +117,14 @@ export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string;
   // Ready has its own page and can sit below the first global page. Recheck every
   // lane the release carries, not only that global slice.
   const all = new Map([...view.proposals, ...view.ready, ...view.toDo, ...(view.research ?? [])].map((p) => [p.id, p]));
-  const standing = new Set([...all.values()].filter((p) => actionableProposalFailures(p, ctx).length === 0).map((p) => p.id));
+  const standing = new Set([...all.values()].filter((p) => {
+    if (actionableProposalFailures(p, ctx).length > 0) return false;
+    if (!ctx.currentRows) return true;
+    const current = ctx.currentRows.get(p.id);
+    return !!current && operatorUiPolicy.isManualEditProofWork(current) && current.status === p.status && current.researchOnly === p.researchOnly
+      && confirmedVersion(current) === confirmedVersion(p) && actionableProposalFailures(current, ctx).length === 0
+      && openHold(current).lane === openHold(p).lane && (p.status !== "ready" || openHold(current).defects.length === 0);
+  }).map((p) => p.id));
   // A PHOTOGRAPH IS RE-SORTED, NEVER EMPTIED. A blob published before a gate tightened can be carrying a row in
   // the wrong lane, so every surviving row is put back through the ONE hold: nothing is dropped for being
   // unfinished, it is shown where it belongs and the count follows the list.
@@ -140,8 +147,17 @@ export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string;
     ...research.map((p) => [p.id, "research" as const] as const),
   ]);
   for (const [id, from] of oldLane) { const to = newLane.get(id); if (to === from) continue; counts[from] = Math.max(0, counts[from] - 1); if (to) counts[to] += 1; }
+  // The release can carry only the first Ready/To do page. A retirement beyond it still lowers the whole-tenant count.
+  if (ctx.currentRows) for (const row of view.stampRows ?? []) {
+    if (oldLane.has(row.id)) continue;
+    const current: ChangeProposal | undefined = ctx.currentRows.get(row.id);
+    const hold: ReturnType<typeof openHold> | undefined = current ? openHold(current) : undefined;
+    const lane = hold?.lane === "research" ? "research" : current?.status === "ready" && hold?.defects.length === 0 ? "ready" : "todo";
+    if (!current || !operatorUiPolicy.isManualEditProofWork(current) || actionableProposalFailures(current, ctx).length > 0) counts[row.lane] = Math.max(0, counts[row.lane] - 1);
+    else if (lane !== row.lane) { counts[row.lane] = Math.max(0, counts[row.lane] - 1); counts[lane] += 1; }
+  }
   // MAX, never a sum: an old-rule release counted rows it also listed, so adding inflates.
-  const setAside = Math.max(view.demotedStaleBasis, all.size - standing.size);
+  const setAside = Math.max(view.demotedStaleBasis, [...all.values()].filter((p) => actionableProposalFailures(p, ctx).length > 0).length);
   const firstPage = view.proposals.filter((p) => standing.has(p.id));
   const shown = new Set(ready.map((p) => p.id));
   return { ...view, proposals: [...ready, ...firstPage.filter((p) => !shown.has(p.id))], ready, toDo, research, aiCases: view.aiCases ?? { state: "unavailable" },
@@ -166,6 +182,8 @@ export const loadChangesView = cache(async (): Promise<ChangesView> => loadChang
  *  resumes; `refreshed` is set ONLY when the ranking they were paging is gone, and they get the fresh FIRST page and the sentence why. */
 export type ChangesPage = {
   rows: ChangeProposal[]; laneById: Record<string, "ready" | "todo" | "research">; total: number; cursor: number; releaseId: string | null; refreshed: string | null;
+  /** The saved release is still current, but its live rank stamps are incomplete; keep the caller's cards and cursor. */
+  pending?: string;
   /** Whether the database read a FULL raw page: the only honest basis for offering another press. */ more: boolean;
   /** Changes THIS page was stamped for and then refused. The screen takes them off its own count, so a refusal sitting on page nineteen
    *  lowers the number the operator reads instead of inflating it. */ dropped: number;
@@ -183,53 +201,41 @@ export async function readChangesPage(
   const asked = await readQueuePage(tenantId, lane, basis, cursor, CHANGES_PAGE_SIZE, operatorUiPolicy.isManualEditProofWork);
   const moved = releaseId != null && asked.release != null && releaseId !== asked.release;
   const page = moved ? await readQueuePage(tenantId, lane, basis, 0, CHANGES_PAGE_SIZE, operatorUiPolicy.isManualEditProofWork) : asked;
+  if (releaseId && !moved) {
+    const pending = (why: string): ChangesPage => ({ rows: [], laneById: {}, total: 0, cursor, releaseId, refreshed: null, more: true, dropped: 0, pending: why });
+    if (asked.release !== releaseId) return pending("The saved ranking is updating. Your changes remain above; try Show more again after it refreshes.");
+    const [saved, current] = await Promise.all([readCustomerSurface(tenantId), loadChangeProposals(tenantId, { failClosed: true, canonicalOnly: true })]).catch(() => [null, null] as const);
+    if (!saved || saved.releaseId !== releaseId || !saved.manifest || !current) return pending("The saved ranking could not be checked just now. Your changes remain above; try Show more again.");
+    const standing = (row: { id: string; lane: "ready" | "todo" | "research" }) => {
+      const p = current.get(row.id);
+      return (lane === "all" || row.lane === lane) && !!p && actionableProposalFailures(p, { tenantId, currentBasis: basis }).length === 0
+        && operatorUiPolicy.isManualEditProofWork(p) && (lane !== "ready" || p.status === "ready" && p.researchOnly !== true);
+    };
+    const ids = saved.manifest.filter(standing).map((r) => r.id);
+    const slice = saved.manifest.slice(Math.max(0, cursor), page.nextRank).filter(standing).map((r) => r.id);
+    const exactStamp = page.rows.every((p) => { const rank = page.rankById[p.id], row = saved.manifest?.[rank - 1];
+      return Number.isInteger(rank) && rank > cursor && row?.id === p.id && row.lane === page.stampedLaneById[p.id]; });
+    if (ids.length !== page.total || !exactStamp || JSON.stringify(slice) !== JSON.stringify(page.rows.map((r) => r.id)))
+      return pending("The saved ranking is updating. Your changes remain above; try Show more again after it refreshes.");
+  }
   return { rows: page.rows, laneById: page.laneById, total: page.total, cursor: page.nextRank, releaseId: page.release, more: page.more, dropped: page.dropped,
     refreshed: moved ? "The list moved under you while you were reading it, so here is the fresh first page." : null };
 }
 
-/** THE FIRST SCREEN IS NOT THE WHOLE QUEUE. The release carries the receipt, the lifecycle counts and the reason a lane is empty; the ROWS
- *  and the true lane totals come from the persisted ranking, one bounded page each. With no ranking stamped yet the release's own first
- *  page is served, never an empty screen. */
+/** One release supplies the first screen. Current canonical rows may withhold a retired or changed copy, but a rank stamp cleared during
+ *  research never erases a still-current Ready change. Show more reads the live ranking with its release cursor. */
 async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
   const t0 = Date.now();
   const view = await readReleasedChanges(tenantId);
-  // THE SAVED RELEASE IS THE FIRST PAINT, AND THE LIVE JOINS ARE AN ENHANCEMENT WITH A BUDGET (operator,
-  // 2026-09-01). These joins used to run unbounded inside the section's one 5s deadline, so a research cycle
-  // slowing the store made a VALID saved release time out into "This section could not load": the operator's own
-  // finished work, in hand, hidden behind a spinner. The joins now get exactly the budget the release read left
-  // behind; when they exceed it or throw, the release's own saved first page, lanes and counts paint instead.
-  // NO FLOOR (operator, 2026-09-01): a release read that already spent the budget paints the release; an 800 ms floor spent on joins after a slow read is exactly how a valid release in hand missed the section's deadline.
+  if (!view.surfaceVersion || view.basisUnreadable) return view;
+  // Read canonical current rows once for status and exact version. The previous live rank/count overlay could
+  // replace a committed 1/19/157 release with 0/18/121 while a research pass cleared 38 stamps before the next
+  // release. This check only removes work whose saved copy is no longer current; it never adopts partial ranks.
   const joinBudget = Math.max(0, 4_400 - (Date.now() - t0));
-  const joined = await loadWithDeadline((async (): Promise<ChangesView | null> => {
-    const basis = await currentBasisFast(tenantId);
-    if (basis == null) return null;
-    // ONE PAGE OF THE ONE GLOBAL ORDER, research included: the stamped rank is the only order any surface
-    // shows, and the stamped lane rides each row as the control fact (Codex, 2026-08-21).
-    const page = await readQueuePage(tenantId, "all", basis, 0, CHANGES_PAGE_SIZE, operatorUiPolicy.isManualEditProofWork);
-    // No ranking stamped: serve the release's own page, and COUNT ONLY WHAT I CAN SERVE, so the screen never offers a "show more" that has nothing behind it.
-    if (page.release == null) return { ...view, summary: { ...view.summary, ready: view.ready.length, todo: view.toDo.length } };
-    // FINISHED WORK CAN NEVER FALL OFF THE FIRST PAGE (operator, 2026-08-30). The global page is the window onto
-    // internal work; the ready lane is fetched by ITSELF, because this page's contract is finished changes first
-    // whatever their global rank. Live: per-entry worth ranked seven corrections below a hundred internal rows and
-    // the Ready section served empty under a headline of seven, with the finished work behind a button.
-    const readyPage = await readQueuePage(tenantId, "ready", basis, 0, CHANGES_PAGE_SIZE, operatorUiPolicy.isManualEditProofWork);
-    const counts = await queueLaneCounts(tenantId, page.release, basis, operatorUiPolicy.isManualEditProofWork);
-    // THE READY LANE NEVER SHOWS FEWER CARDS THAN IT COUNTS (operator, 2026-09-01), AND TODAY NEVER OFFERS A CARD THE LIST DOES NOT SHOW (operator, 2026-09-06): while a rebuild re-stamps ranks, the lane page can answer empty against a count of one, so the screen said "no finished change" over "Show 1 more" while Today handed over that same change's copy off the release. The release's own saved ready rows now join the RANKING, stamped ready, so one map serves the count, the cards and Today's top item until the stamps catch up.
-    const held = readyPage.rows.length === 0 && counts.ready > 0 ? view.ready : [];
-    const seen = new Set([...held, ...readyPage.rows].map((r) => r.id));
-    const rows = [...held, ...readyPage.rows, ...page.rows.filter((r) => !seen.has(r.id))];
-    const laneById = { ...page.laneById, ...readyPage.laneById, ...Object.fromEntries(held.map((r) => [r.id, "ready" as const])) };
-    const lane = (l: "ready" | "todo" | "research") => rows.filter((p) => laneById[p.id] === l);
-    return { ...view, proposals: rows, laneById,
-      ready: lane("ready"), toDo: lane("todo"), research: lane("research").length > 0 ? lane("research") : view.research,
-      // THE READY COUNT IS THE ROWS SERVED WHEN THE LANE IS EXHAUSTED: the database counts stamps, and a stamp can outlive the row it stamped between releases.
-      summary: { ...view.summary, ready: readyPage.more ? counts.ready : lane("ready").length, todo: counts.todo, research: counts.research }, surfaceVersion: page.release,
-      // AN EMPTY READY LANE ALWAYS SAYS SO (journey review, 2026-09-06): the release's own hint is null whenever the release had Ready rows, and the last of them can leave the lane before the next rebuild, so the live lane re-derives the sentence rather than painting a blank box.
-      readyZeroHint: lane("ready").length === 0 ? (view.readyZeroHint ?? setAsideHint(counts.todo + counts.research)) : null,
-      queueCursor: { all: page.nextRank, ready: readyPage.nextRank }, queueMore: { all: page.more, ready: readyPage.more }, queueTotal: page.total };
-  })(), joinBudget).catch(() => null);
-  if (joined == null || joined.timedOut || joined.data == null) return view; // the saved truth paints; the fresh joins land on the next visit or the next rebuild
-  return joined.data;
+  const current = await loadWithDeadline(loadChangeProposals(tenantId, { failClosed: true, canonicalOnly: true }), joinBudget).catch(() => null);
+  if (!current || current.timedOut) return view;
+  const basis = await currentBasisFast(tenantId);
+  return basis == null ? view : withCurrentBasisOnly(view, { tenantId, currentBasis: basis, currentRows: current.data });
 }
 
 /** THE RELEASE BLOB READ IS THE ONE THAT MUST NOT HANG. When it exceeded the section's whole 5s deadline the screen printed a retry
@@ -293,6 +299,7 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
     if (isCustomerSurfaceStale(customer.computedAt, Date.now())) scheduleReleaseRebuild("background-refresh");
     return withCurrentBasisOnly({
       ...customer.changes,
+      stampRows: customer.manifest ?? customer.changes.stampRows,
       queueCursor: customer.manifest?.length ? releasedQueueCursors(customer.manifest, customer.changes) : customer.changes.queueCursor,
       // THE RELEASE'S OWN LANES ARE ITS STAMPS (operator walk, 2026-09-16 00:00Z): the saved release carries `ready`, `toDo` and `research` but no `laneById`, the live join is the only writer of stamps, and the client fails closed to "todo" for an unstamped row, so whenever the join ran out of budget the screen painted "Ready now: 8 finished changes" over an empty box. The lanes the release published are the server's own servability verdict and stamp the rows they hold.
       laneById: customer.changes.laneById ?? Object.fromEntries([...(customer.changes.ready ?? []).map((p) => [p.id, "ready" as const]), ...(customer.changes.toDo ?? []).map((p) => [p.id, "todo" as const]), ...(customer.changes.research ?? []).map((p) => [p.id, "research" as const])]),

@@ -216,10 +216,8 @@ async function loadTodayViewWithSwr(tenantId: string): Promise<TodayComposite> {
 
   if (customer) {
     if (isCustomerSurfaceStale(customer.computedAt, Date.now())) scheduleReleaseRebuild();
-    // ONE READ, THE SAME ONE CHANGES USES. Serving Today's slice off the stored release let it count a change the operator had just put
-    // aside and offer a fix whose link 404'd, because a blob has no way to say "put aside" and no way to know a stamp landed while its own
-    // write did not. The counts, the ready fixes and the release id now all come from the database-gated lane Changes reads, so a dismissal
-    // lands on both surfaces on the very next render; only what the PRODUCTION pass concluded is still carried on the blob.
+    // ONE READ, THE SAME ONE CHANGES USES. The committed release supplies rows and counts; a bounded canonical
+    // status/version check removes a dismissed or changed copy on both surfaces without adopting partial rank stamps.
     const view = await loadChangesView().catch(() => null);
     return {
       ...customer.today,

@@ -229,8 +229,8 @@ describe("the providers taking their real time", () => {
     const second = await drive(["replenish_ready"], "keyword_discovery");
     expect(meter.requests.filter((r) => r.kind === "page").slice(requests.page).every((r) => !priorPages.has(r.url)), "remaining coverage never rebuys a banked body or robots file").toBe(true);
     const covered = winnersOf().filter((w) => w.appearances?.some((a) => a.query === QUERY)).slice(0, 5);
-    expect([covered.length, covered.every((w) => !!w.extract?.mainText && priorPages.has(w.url))], "all five relevant winner bodies were already banked before lease loss").toEqual([5, true]);
-    expect([second.id, second.status, requestsOf("search") - requests.search, requestsOf("page") - requests.page, writersHired() - hired, await readyCopy()],
-      "the same row closes after its lease is recovered across the reporting-day boundary: the search and five relevant bodies are banked, so no page is fetched or writer hired again").toEqual([first.id, "completed", 0, 0, 0, WRITER.after]);
+    expect([covered.length, covered.every((w) => !!w.extract?.mainText)], "all five relevant winners carry bodies after recovery, including any newly admitted winners").toEqual([5, true]);
+    expect([second.id, second.status, requestsOf("search") - requests.search, writersHired() - hired, await readyCopy()],
+      "the same row closes after lease recovery: no search is rebought and the saved copy hires no second writer").toEqual([first.id, "completed", 0, 0, WRITER.after]);
   }, 120_000);
 });

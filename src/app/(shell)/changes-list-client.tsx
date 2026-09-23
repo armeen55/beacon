@@ -196,6 +196,7 @@ export function ChangesListClient({ view, initialPicked = [] }: { view: ChangesV
           <button type="button" disabled={loadingMore} data-show-more="true"
             onClick={() => startLoadMore(async () => {
               const res = await loadMoreChangesAction({ lane: "ready", cursor: at, releaseId: release });
+              if (res.pending) { say(res.pending); return; }
               setRelease(res.releaseId);
               setAt(res.cursor);
               setCanMore(res.more);

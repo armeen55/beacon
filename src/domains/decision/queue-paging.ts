@@ -16,8 +16,8 @@ const escaped = (value: string): string => value.replace(/[\\%_]/g, "\\$&");
 /** One DB page of the stamped ranking. A later material write clears its stamp
  * atomically, so neither a changed proposal nor a source hold consumes a slot. */
 export async function readQueuePage(tenantId: string, lane: Lane | "all", basis: string, afterRank: number, limit: number,
-  eligible?: (p: ChangeProposal) => boolean): Promise<{ rows: ChangeProposal[]; laneById: Record<string, Lane>; total: number; dropped: number; release: string | null; nextRank: number; more: boolean }> {
-  const at = Math.max(0, Math.floor(afterRank)), nothing = { rows: [], laneById: {}, total: 0, dropped: 0, release: null, nextRank: at, more: false };
+  eligible?: (p: ChangeProposal) => boolean): Promise<{ rows: ChangeProposal[]; laneById: Record<string, Lane>; rankById: Record<string, number>; stampedLaneById: Record<string, string>; total: number; dropped: number; release: string | null; nextRank: number; more: boolean }> {
+  const at = Math.max(0, Math.floor(afterRank)), nothing = { rows: [], laneById: {}, rankById: {}, stampedLaneById: {}, total: 0, dropped: 0, release: null, nextRank: at, more: false };
   try {
     const sb = getSupabaseAdmin(), { data: head } = await sb.from("change_proposals").select("queue_lane")
       .eq("tenant_id", tenantId).gt("queue_rank", 0).order("queue_rank", { ascending: true }).limit(1);
@@ -38,6 +38,7 @@ export async function readQueuePage(tenantId: string, lane: Lane | "all", basis:
       .filter((r): r is { p: ChangeProposal; rank: number; stamped: string } => !!r.p && actionableProposalFailures(r.p, { tenantId, currentBasis: basis }).length === 0 && (eligible?.(r.p) ?? true) && (lane !== "ready" || laneOfRow(r.p, r.stamped) === "ready"));
     const rows = kept.map(r => r.p), fresh = new Map(rankProposals(rows).map(p => [p.id, p]));
     return { rows: rows.map(p => fresh.get(p.id) ?? p), laneById: Object.fromEntries(kept.map(r => [r.p.id, laneOfRow(r.p, r.stamped)])),
+      rankById: Object.fromEntries(kept.map(r => [r.p.id, r.rank])), stampedLaneById: Object.fromEntries(kept.map(r => [r.p.id, r.stamped])),
       total: Math.max(rows.length, (counted.count ?? rows.length) - (read.length - rows.length)), dropped: read.length - rows.length,
       release, nextRank: read.at(-1)?.queue_rank ?? at, more: read.length === limit };
   } catch (e) {

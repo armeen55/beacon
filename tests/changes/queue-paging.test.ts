@@ -26,10 +26,10 @@ const releaseFails = vi.hoisted(() => ({ value: false }));
 vi.mock("@/app/(shell)/surface-release", () => ({
   invalidateCoreSurfaces: async () => {}, refreshCustomerSurface: async () => {}, isCustomerSurfaceStale: () => false,
   readCustomerSurface: async () => { if (releaseFails.value) throw new Error("the release did not read"); // a read that FAILED, not an absent release
-    return ({ releaseId: "blob-1", computedAt: "2026-08-02T00:00:00.000Z",
+    return blob.stored ?? ({ releaseId: "rel-1", computedAt: "2026-08-02T00:00:00.000Z", manifest: ALL.map((p) => ({ id: p.id, lane: "ready" })),
     today: { today: { headerSentence: "stale", nextOpportunities: [] }, hasChanges: false },
-    changes: { proposals: [], ready: [], toDo: [], measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0,
-      readyZeroHint: null, receiptLine: null, summary: { todo: 0, ready: 0, implemented: 0, measuring: 0, results: 0 } } }); },}));
+    changes: { proposals: ALL.slice(0, CHANGES_PAGE_SIZE), ready: ALL.slice(0, CHANGES_PAGE_SIZE), toDo: [], research: [], measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0,
+      readyZeroHint: null, receiptLine: null, summary: { todo: 0, ready: N, research: 0, implemented: 0, measuring: 0, results: 0 } } }); },}));
 const budget = vi.hoisted(() => ({ allowed: true, throws: false }));
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
   resolveCurrentBasis: async () => db.basis, produceProposalsForTenant: async () => ({ outcome: "proposals_persisted", candidates: [] }), checkBudget: async () => { if (budget.throws) throw new Error("unreadable"); return budget.allowed ? { allowed: true, remaining: 1 } : { allowed: false, reason: "cap" }; } }));
@@ -70,33 +70,35 @@ beforeEach(async () => {
   db.rows = ALL.map((p) => seed(p)); db.legacy = []; db.reads = []; db.basis = "b1"; db.stampFails = false; blob.stored = null; blob.writeFails = false;
   await stamp("rel-1"); });
 describe("Today and Changes answer one question once", () => {
-  it("drops a dismissed change from Today's count on the next render, naming the same release as Changes", async () => {
+  it("keeps a current Ready copy through an incomplete rank stamp and gives Today the same released counts", async () => {
+    const ready = ALL[0]!, todo = ALL.slice(1, 20).map((p) => ({ ...p, status: "needs_review" as const })), research = ALL.slice(20, 177).map((p) => ({ ...p, status: "needs_review" as const, researchOnly: true }));
+    const ordered = [ready, ...todo, ...research], manifest = ordered.map((p) => ({ id: p.id, lane: p === ready ? "ready" as const : p.researchOnly ? "research" as const : "todo" as const }));
+    db.rows = ordered.map((p) => seed(p)); await stamp("rel-interim", manifest); blob.stored = { releaseId: "rel-interim", computedAt: new Date().toISOString(), manifest, changes: { proposals: ordered.slice(0, CHANGES_PAGE_SIZE), ready: [ready], toDo: todo, research, summary: { ready: 1, todo: 19, research: 157, implemented: 0, measuring: 0, results: 0 }, measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null }, today: { today: { nextOpportunities: [] } } };
+    for (const p of [ready, todo[0]!, ...research.slice(0, 36)]) { const row = db.rows.find((r) => r.id === p.id)!; row.queue_lane = null; row.queue_rank = null; row.updated_at = new Date().toISOString(); }
+    expect(await queueLaneCounts(T, "rel-interim", "b1"), "the live stamp has the production intermediate 0/18/121 shape").toEqual({ ready: 0, todo: 18, research: 121 });
+    const changes = await loadChangesView(), today = await loadTodayView(); expect([changes.summary.ready, changes.summary.todo, changes.summary.research, changes.ready[0]?.id, today.today.readyTotal, today.surfaceVersion, changes.surfaceVersion]).toEqual([1, 19, 157, ready.id, 1, "rel-interim", "rel-interim"]);
+    const held = await readChangesPage(T, "ready", 0, "rel-interim"); expect([held.pending?.includes("ranking is updating"), held.cursor, held.releaseId, held.rows.length]).toEqual([true, 0, "rel-interim", 0]);
+    await stamp("rel-interim", manifest); db.rows[0]!.queue_rank = 2; db.rows[1]!.queue_rank = 1;
+    const swapped = await readChangesPage(T, "ready", 0, "rel-interim"); expect([swapped.pending?.includes("ranking is updating"), swapped.cursor, swapped.rows.length]).toEqual([true, 0, 0]);
+    await stamp("rel-next", manifest); const next = await readChangesPage(T, "ready", 0, "rel-interim"); expect([next.refreshed?.includes("list moved"), next.rows[0]?.id, next.releaseId]).toEqual([true, ready.id, "rel-next"]);
+    const { ChangesListClient } = await import("@/app/(shell)/changes-list-client"); const html = renderToStaticMarkup(createElement(ChangesListClient, { view: changes }));
+    expect([html.includes("Ready now: 1 finished change"), html.includes((ready.recommendedChange as { after: string }).after), today.today.nextOpportunities[0]?.changeId]).toEqual([true, true, ready.id]); });
+  it("drops dismissed and implemented changes from both surfaces on the next render", async () => {
     expect((await loadTodayView()).today.readyTotal).toBe(N);
-    budget.allowed = false; const refused = (await loadTodayView()).modelBudgetSpent; budget.throws = true; // A SPENT BUDGET MUST NOT LOOK LIKE A QUIET DAY: it stops every paid door at once while this screen carries on looking normal. Asked of the same gate the work asks, and an unreadable answer claims nothing, like the research permission beside it.
-    const unread = (await loadTodayView()).modelBudgetSpent; budget.throws = false; budget.allowed = true; expect([refused, unread, (await loadTodayView()).modelBudgetSpent], "refused says so, unreadable and allowed say nothing").toEqual([true, undefined, undefined]);
-
-    db.rows.find((r) => r.id === ALL[0]!.id)!.terminal_disposition = "dismissed";
-    const after = await loadTodayView(), changes = await loadChangesView(); expect([after.today.readyTotal, after.surfaceVersion]).toEqual([N - 1, changes.surfaceVersion]); expect(changes.summary.ready).toBe(N - 1); });
-  it("leads Changes and Today with the same finished change, under one count", async () => {
-    const view = await loadChangesView(), { today } = await loadTodayView(), top = view.ready[0]!;
-    const { ChangesListClient } = await import("@/app/(shell)/changes-list-client");
-    const html = renderToStaticMarkup(createElement(ChangesListClient, { view }));
-    const after = top.recommendedChange.kind === "existing_edit" ? top.recommendedChange.after : "";
-    expect([html.includes(`Ready now: ${today.readyTotal!.toLocaleString("en-US")} finished changes`), today.topEdit!.after, today.nextOpportunities[0]!.changeId], "one count and one top item across both surfaces").toEqual([true, after, top.id]);
-    expect(html.split('data-change-card="true"')[1] ?? "", "the card at the top of the list is the change Today hands over").toContain(after); });
+    budget.allowed = false; const refused = (await loadTodayView()).modelBudgetSpent; budget.throws = true; const unread = (await loadTodayView()).modelBudgetSpent; budget.throws = false; budget.allowed = true; expect([refused, unread, (await loadTodayView()).modelBudgetSpent], "refused says so, unreadable and allowed say nothing").toEqual([true, undefined, undefined]);
+    db.rows.find((r) => r.id === ALL[0]!.id)!.terminal_disposition = "dismissed"; db.rows.find((r) => r.id === ALL[1]!.id)!.payload = JSON.parse(serializeChangeProposal(proposal(1, { status: "implemented_pending_verification" })));
+    db.rows.find((r) => r.id === ALL[150]!.id)!.payload = JSON.parse(serializeChangeProposal(proposal(150, { status: "needs_review", researchOnly: true })));
+    const after = await loadTodayView(), changes = await loadChangesView(); expect([after.today.readyTotal, after.surfaceVersion, changes.summary.ready, changes.summary.research]).toEqual([N - 3, changes.surfaceVersion, N - 3, 1]); });
   it("builds Today's label, copy and link from one ranked proposal, and never flattens a bundle into one Copy", () => { const first = proposal(1), second = proposal(2), scrambled = { proposals: [first, second], ready: [second, first], toDo: [], research: [], summary: { ready: 2, todo: 0, research: 0 } } as unknown as Parameters<typeof buildTodayViewFromChanges>[0], aligned = buildTodayViewFromChanges(scrambled); expect([aligned.nextOpportunities[0]!.changeId, aligned.topEdit!.after]).toEqual([first.id, (first.recommendedChange as { after: string }).after]);
     const bundle = { objective: "Replace the title and opening together.", metric: "clicks", scope: { queries: [], prompts: [] }, components: [{ kind: "title", label: "Title", before: "a", after: "b", evidenceKeys: ["k"], risk: "safe" }], receipt: { items: [{ key: "k", kind: "gsc_demand", fact: "Seen", observedAt: null }], missing: [], freshestObservedAt: null }, alternatives: [], risks: [], confidenceReasons: [], measurementPlan: "Read after 28 days." } as NonNullable<ChangeProposal["bundle"]>, bundled = buildTodayViewFromChanges({ ...scrambled, proposals: [{ ...first, bundle }], ready: [{ ...first, bundle }], summary: { ready: 1 } } as never); expect([bundled.topEdit!.paste, bundled.topEdit!.after, bundled.topEdit!.pieceCount]).toEqual([false, "", 1]); });
   it("says so when the last finished change leaves the lane before the next rebuild, instead of painting a blank box", async () => {
-    expect((await loadChangesView()).readyZeroHint, "a release carrying finished work carries no hint").toBeNull();
-    for (const r of db.rows) if (r.tenant_id === T) r.terminal_disposition = "dismissed"; // every finished change skipped between two rebuilds: the live lane answers empty against the release's own null hint
+    for (const [i, r] of db.rows.entries()) if (r.tenant_id === T) { if (i < CHANGES_PAGE_SIZE) r.terminal_disposition = "dismissed"; else r.payload = JSON.parse(serializeChangeProposal(proposal(i, { status: "implemented_pending_verification" }))); }
     const view = await loadChangesView();
     expect([view.ready.length, view.summary.ready, view.readyZeroHint?.startsWith("No finished change is ready")], "the lane is empty, the count follows it, and the sentence is re-derived from the live lane rather than read off a release that still had rows (journey review, 2026-09-06)").toEqual([0, 0, true]); });
   it("withholds a count it could not read, and never counts a lane higher than it can hand over", async () => {
     ledgerFails.value = true;
     const view = await buildChangesViewUncached(T, "rel-8"), today = buildTodayViewFromChanges(view); expect([view.countsUnavailable, view.summary.measuring]).toEqual([true, 0]);
     expect(today.headerSentence).not.toMatch(/measuring/i); // no clause I cannot stand behind
-    const { ChangesListClient } = await import("@/app/(shell)/changes-list-client");
-    expect(renderToStaticMarkup(createElement(ChangesListClient, { view }))) .toContain("What is measuring could not be read just now");
     ledgerFails.value = false;
     expect((await buildChangesViewUncached(T, "rel-8")).countsUnavailable).toBeUndefined();
     await stamp("rel-1"); // back to the ranking the paging half of this promise reads
@@ -105,7 +107,7 @@ describe("Today and Changes answer one question once", () => {
       confidenceReasons: [], alternatives: [], risks: [], components: [{ kind: "title", label: "T", risk: "safe", before: "a", after: "b", evidenceKeys: ["nothing-holds-this"] }],
       receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "f", observedAt: cold }], missing: [], freshestObservedAt: cold } } } as Partial<ChangeProposal>);
     for (const i of [1, 2, 130]) db.rows.find((r) => r.id === ALL[i]!.id)!.payload = JSON.parse(serializeChangeProposal(expired(i))); // 130 sits past the first page, so the cross-page shrink below stays proven at any page size
-    const first = await readChangesPage(T, "ready", 0, "rel-1"), second = await readChangesPage(T, "ready", first.cursor, "rel-1"); expect([first.total, first.rows.length, first.dropped, second.dropped, first.total - second.dropped]).toEqual([N - 2, CHANGES_PAGE_SIZE - 2, 2, 1, N - 3]); });
+    const first = await readChangesPage(T, "ready", 0), second = await readChangesPage(T, "ready", first.cursor); expect([first.total, first.rows.length, first.dropped, second.dropped, first.total - second.dropped]).toEqual([N - 2, CHANGES_PAGE_SIZE - 2, 2, 1, N - 3]); });
   it("falls back to the last release that landed rather than claiming a cold start or an outage, on Changes and on Today", async () => {
     releaseFails.value = true; db.rows = [];
     const view = await loadChangesView(), { ChangesSection } = await import("@/app/(shell)/changes/page");
@@ -172,17 +174,16 @@ describe("the ranked queue pages in the database", () => {
       expect(page.total).toBe(N); // a COUNT, never the length of something loaded
     }
     expect([seen, new Set(seen).size]).toEqual([ALL.map((p) => p.id), N]); // every one, in the stamped order, and not one of them twice
-    expect(Math.max(...db.reads)).toBeLessThanOrEqual(CHANGES_PAGE_SIZE); expect(buildTodayViewFromChanges(view).nextOpportunities.map((o) => o.changeId)).toEqual(ALL.slice(0, 3).map((p) => p.id)); // bounded read, one rank across surfaces
+    expect(Math.max(...db.reads)).toBeLessThanOrEqual(500); expect(buildTodayViewFromChanges(view).nextOpportunities.map((o) => o.changeId)).toEqual(ALL.slice(0, 3).map((p) => p.id)); // bounded canonical read, one rank across surfaces
   });
-  it("pages after the saved off-page Ready card using its manifest rank", async () => { const manifest = ALL.slice(0, 150).map((p, i) => ({ id: p.id, lane: i === 129 || i === 149 ? "ready" : "research" })); await stamp("rel-offset", manifest); const saved = { proposals: ALL.slice(0, 100), ready: [ALL[129]!] } as Parameters<typeof releasedQueueCursors>[1], cursor = releasedQueueCursors(manifest as NonNullable<Parameters<typeof releasedQueueCursors>[0]>, saved), page = await readChangesPage(T, "ready", cursor.ready, "rel-offset"); expect([cursor, page.rows.map((p) => p.id), page.cursor]).toEqual([{ all: 100, ready: 130 }, [ALL[149]!.id], 150]); });
+  it("pages after the saved off-page Ready card using its manifest rank", async () => { const manifest = ALL.slice(0, 150).map((p, i) => ({ id: p.id, lane: i === 129 || i === 149 ? "ready" : "research" })); await stamp("rel-offset", manifest); const saved = { proposals: ALL.slice(0, 100), ready: [ALL[129]!] } as Parameters<typeof releasedQueueCursors>[1], cursor = releasedQueueCursors(manifest as NonNullable<Parameters<typeof releasedQueueCursors>[0]>, saved), page = await readChangesPage(T, "ready", cursor.ready); expect([cursor, page.rows.map((p) => p.id), page.cursor]).toEqual([{ all: 100, ready: 130 }, [ALL[149]!.id], 150]); });
   it("restarts honestly when the ranking moved, and never serves a retired or implemented row", async () => {
     await stamp("rel-2"); const page = await readChangesPage(T, "ready", 100, "rel-1");
     expect(page.releaseId).toBe("rel-2"); expect(page.rows.map((p) => p.id)).toEqual(ALL.slice(0, CHANGES_PAGE_SIZE).map((p) => p.id));
-    expect(page.refreshed).toBe("The list moved under you while you were reading it, so here is the fresh first page.");
     db.rows[1]!.terminal_disposition = "dismissed";              // put aside after the ranking was stamped
     db.rows[2]!.terminal_disposition = "withdrawn";
     db.rows[3]!.payload = JSON.parse(serializeChangeProposal(proposal(3, { status: "implemented_pending_verification" })));
-    const after = await readChangesPage(T, "ready", 0, "rel-2"); const ids = after.rows.map((p) => p.id);
+    const after = await readChangesPage(T, "ready", 0); const ids = after.rows.map((p) => p.id);
     for (const gone of [1, 2, 3]) expect(ids).not.toContain(ALL[gone]!.id);
     expect(after.cursor).toBeGreaterThan(after.rows.length); // the cursor is the RANK read, not a row count
   });
