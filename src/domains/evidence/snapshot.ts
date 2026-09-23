@@ -585,7 +585,7 @@ export function hashSnapshot(snapshot: Omit<EvidenceSnapshot, "evidenceHash">): 
   return createHash("sha256").update(JSON.stringify(stable)).digest("hex").slice(0, 16);
 }
 
-const materialContent = (c: OwnedPageContent | null) => c ? [c.revision ?? null, c.title, c.metaDescription, c.h1, c.h2, c.outline, [...c.schemaTypes].sort(), c.faqCount, c.wordCount, c.internalLinks, c.versionState ?? null, c.extractionCertainty ?? null, c.finalUrl ?? null, c.canonicalUrl ?? null, c.robotsMeta ?? null, c.hasCanonicalMismatch ?? null] : null;
+const materialContent = (c: OwnedPageContent | null) => c ? [c.revision ?? null, c.title, c.metaDescription, c.h1, c.h2, c.outline, [...(c.schemaTypes ?? [])].sort(), c.faqCount, c.wordCount, c.internalLinks, c.versionState ?? null, c.extractionCertainty ?? null, c.finalUrl ?? null, c.canonicalUrl ?? null, c.robotsMeta ?? null, c.hasCanonicalMismatch ?? null] : null;
 const materialExtract = (x: EvidenceSnapshot["research"]["winningPages"][number]["extract"]) => x ? [
   x.title, x.h1, x.wordCount, x.headings, x.faqCount ?? null, x.metaDescription ?? null, x.openingSample ?? null, x.entityNames ?? null,
   x.hasList ?? null, x.hasTable ?? null, x.internalLinkCount ?? null, x.externalLinkCount ?? null, x.mainText ?? null,
@@ -593,24 +593,24 @@ const materialExtract = (x: EvidenceSnapshot["research"]["winningPages"][number]
 
 /** Job-scoped identity: affected owned revisions and exact-query winning material, never unrelated account drift
  * or capture clocks. Unknown and partial captures retain their actual scope, not fabricated complete evidence. */
-export function jobEvidenceHash(snapshot: Pick<EvidenceSnapshot, "ownedPages" | "research">, pageKeys: readonly string[], primaryQuery: string | readonly string[]): string {
+export function jobEvidenceHash(snapshot: Pick<EvidenceSnapshot, "ownedPages" | "research">, pageKeys: readonly string[], primaryQuery: string | readonly string[], materialOnly = false, checkedMaterial?: unknown): string {
   const keys = new Set(pageKeys.map((k) => canonicalUrlKey(k)).filter(Boolean));
   const pages = snapshot.ownedPages.filter((p) => keys.has(canonicalUrlKey(p.url)))
     .map((p) => [canonicalUrlKey(p.url),
       materialContent(p.content),
-      p.search ? [p.search.clicks90d, p.search.impressions90d, p.search.position90d] : null,
-      p.engagement ? [p.engagement.conversions28d, p.engagement.revenueUsd] : null,
-      p.friction ? [p.friction.frictionScore] : null, p.aiCitations.count])
+      materialOnly ? null : p.search ? [p.search.clicks90d, p.search.impressions90d, p.search.position90d] : null,
+      materialOnly ? null : p.engagement ? [p.engagement.conversions28d, p.engagement.revenueUsd] : null,
+      materialOnly ? null : p.friction ? [p.friction.frictionScore] : null, materialOnly ? null : p.aiCitations?.count ?? null])
     .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
   const grouped = typeof primaryQuery !== "string", queries = [...new Set((typeof primaryQuery === "string" ? [primaryQuery] : primaryQuery).map(canonicalQueryKey).filter(Boolean))].sort();
-  const serp = snapshot.research.serpEvidence.filter((s) => queries.includes(canonicalQueryKey(s.query)))
-    .map((s) => [...(grouped ? [canonicalQueryKey(s.query)] : []), [...s.organic].sort((a, b) => a.rank - b.rank || a.url.localeCompare(b.url)).map((o) => [o.rank, o.url, ...(grouped ? [o.title ?? null] : [])]),
-      [...s.aiOverview].map((c) => c.url).sort(), [...s.aiMode].map((c) => c.url).sort()])
+  const serp = (snapshot.research.serpEvidence ?? []).filter((s) => queries.includes(canonicalQueryKey(s.query)))
+    .map((s) => [...(grouped ? [canonicalQueryKey(s.query)] : []), [...(s.organic ?? [])].sort((a, b) => materialOnly ? a.url.localeCompare(b.url) : a.rank - b.rank || a.url.localeCompare(b.url)).map((o) => [...(materialOnly ? [] : [o.rank]), o.url, ...(grouped || materialOnly ? [o.title ?? null] : [])]),
+      [...(s.aiOverview ?? [])].map((c) => c.url).sort(), [...(s.aiMode ?? [])].map((c) => c.url).sort()])
     .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
   const winners = jobWinners(snapshot.research, primaryQuery).slice(0, 5) // The comparison, pattern reader and drafting packet each read at most the first five ranked/cited publishers. A sixth later capture is new account evidence, but it is not an input to this job and must not re-identify finished copy that never saw it.
-    .map((w) => [canonicalUrlKey(w.url), materialExtract(w.extract), ...(grouped ? [[...new Set((w.appearances ?? []).filter((a) => queries.includes(canonicalQueryKey(a.query ?? a.promptText ?? ""))).map((a) => JSON.stringify([a.kind, canonicalQueryKey(a.query ?? a.promptText ?? ""), a.rank, a.engine, a.promptId, a.promptVersion ?? null, a.modelServed, a.observationMode ?? null, a.kind === "ai_answer" ? a.reportingDay ?? a.observedAt.slice(0, 10) : null])))].sort()] : [])])
+    .map((w) => [canonicalUrlKey(w.url), materialExtract(w.extract), ...(grouped ? [[...new Set((w.appearances ?? []).filter((a) => queries.includes(canonicalQueryKey(a.query ?? a.promptText ?? ""))).map((a) => JSON.stringify([a.kind, canonicalQueryKey(a.query ?? a.promptText ?? ""), materialOnly ? null : a.rank, a.engine, a.promptId, a.promptVersion ?? null, a.modelServed, a.observationMode ?? null, materialOnly ? null : a.kind === "ai_answer" ? a.reportingDay ?? a.observedAt.slice(0, 10) : null])))].sort()] : [])])
     .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
-  return createHash("sha256").update(JSON.stringify({ pages, ...(grouped ? { queries } : {}), serp, winners })).digest("hex").slice(0, 16);
+  return createHash("sha256").update(JSON.stringify({ pages, ...(grouped ? { queries } : {}), serp, winners, ...(checkedMaterial === undefined ? {} : { checkedMaterial }) })).digest("hex").slice(0, 16);
 }
 
 /** THE PAGES ACQUIRED FOR ONE JOB'S OWN SEARCH, by the two ways a page is ever acquired for it: it ranks on that

@@ -54,7 +54,7 @@ export type StructuredDraftResult<T> =
   | { status: "off" }
   | { status: "blocked_budget"; reason: string }
   /** `failure` is WHOSE failure it was, typed (gateway.ts's LlmFailure); `errors`/`reason` are the same facts as prose, for a log line and nothing else. */
-  | { status: "validation_failed"; reason: string; errors: string[]; failure: LlmFailure; costUsd: number; retried: boolean; /** EXACT network attempts made for this logical operation, counted at the gateway call site, never inferred (Codex, 2026-08-23). */ attempts?: number }
+  | { status: "validation_failed"; reason: string; errors: string[]; failure: LlmFailure; costUsd: number; retried: boolean; /** EXACT network attempts made for this logical operation, counted at the gateway call site, never inferred (Codex, 2026-08-23). */ attempts?: number; settledInvalidOutput?: true }
   | {
       status: "drafted";
       kind: StructuredDraftKind;
@@ -509,7 +509,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   const sourceTextCache = new Map<string, Promise<{ ok: boolean; text: string; finalUrl?: string; blocked?: boolean }>>();
   const verifyNowIso = (req.now ?? new Date()).toISOString();
 
-  let totalCost = 0, networkAttempts = 0;
+  let totalCost = 0, networkAttempts = 0, invalidBodies = 0;
   let lastProvenance: LlmProvenance | undefined;
   // WHOSE FAILURE THE LAST ATTEMPT WAS. It defaults to (and returns to) `schema_invalid`, because every rejection below this line is one I make about a body that DID come back.
   let failure: LlmFailure = "schema_invalid";
@@ -565,7 +565,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     failure = "schema_invalid"; // it answered, so nothing below is the transport's fault any more
 
     const checked = validateDraftValue(req, schema, out.value, ledger, nowYear);
-    if ("errors" in checked) { errors.push(...checked.errors); lastFailureWasTemplated = false; continue; }
+    if ("errors" in checked) { invalidBodies += 1; errors.push(...checked.errors); lastFailureWasTemplated = false; continue; }
     const result = { data: checked.data };
 
     // R16 de-templating guard: a validated draft whose customer-facing text is a near-copy (>70 percent 3-gram overlap) of a recent same-family output gets ONE variation retry; a second near-copy ships FLAGGED ("reads like a repeat") for the draft-quality gate to demote - style never fails closed.
@@ -619,7 +619,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   }
 
   log.warn("[structured-drafter] fail-closed", { kind: req.kind, failure, errors: errors.slice(0, 6) });
-  return { status: "validation_failed", reason: errors[0] ?? "unknown", errors, failure, costUsd: totalCost, retried: true, attempts: networkAttempts };
+  return { status: "validation_failed", reason: errors[0] ?? "unknown", errors, failure, costUsd: totalCost, retried: true, attempts: networkAttempts, ...(invalidBodies === 2 && networkAttempts >= 2 ? { settledInvalidOutput: true as const } : {}) };
 }
 
 // ── intent-aware drafting (C) ───────────────────────────────────────────────── The searcher's dominant intent decides the ANSWER TYPE. A "when" query must be answered with a date, not a definition (the chaharshanbe failure). This directive is injected into the prompt so the LLM writes the right kind of answer. Intent strings mirror answer-intent.ts (kept as a loose string to avoid an llm -> experiments domain import). Empty string when unknown = no constraint.

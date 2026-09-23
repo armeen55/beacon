@@ -343,7 +343,7 @@ const ObligationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("evidence"), need: z.object({ kind: z.enum(["serp", "page_source", "competitor_page", "factual_source", "semantic_review"]),
     finding: FindingSchema.optional(), query: z.string(), url: z.string().optional(), reasonCode: z.string().min(1), missingTopic: z.string().optional(), topic: z.object({ key: z.string().regex(/^topic:.+/), label: z.string().min(1) }).optional(), rivalUrl: z.string().optional(), rivalUrls: z.array(z.string()).optional(), proposalId: z.string().optional(), unlocks: z.object({ proposalId: z.string().min(1), step: z.enum(["draft", "sections", "redraft", "review", "settle"]) }).optional() }) }),
   z.object({ kind: z.literal("review") }), z.object({ kind: z.literal("operator"), decision: z.literal("safety_confirmation") }),
-  z.object({ kind: z.literal("terminal"), reason: z.string().min(1), holdCode: z.literal("bank_reconciliation").optional() })]) as z.ZodType<Obligation>;
+  z.object({ kind: z.literal("terminal"), reason: z.string().min(1), holdCode: z.enum(["bank_reconciliation", "settled_invalid_output"]).optional(), materialKey: z.string().min(1).optional(), sourceMaterialHash: z.string().min(1).optional() })]) as z.ZodType<Obligation>;
 const KIND_SCHEMA = z.enum(["title", "meta", "h1", "opening_answer", "section", "internal_links", "source_pack",
   "paragraph_correction", "section_add", "section_remove", "section_rewrite", "restructure",
   "full_rewrite", "factual_correction", "source_update", "entity_expansion", "table_or_list_add",
