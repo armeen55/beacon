@@ -303,7 +303,9 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
       queueCursor: customer.manifest?.length ? releasedQueueCursors(customer.manifest, customer.changes) : customer.changes.queueCursor,
       // THE RELEASE'S OWN LANES ARE ITS STAMPS (operator walk, 2026-09-16 00:00Z): the saved release carries `ready`, `toDo` and `research` but no `laneById`, the live join is the only writer of stamps, and the client fails closed to "todo" for an unstamped row, so whenever the join ran out of budget the screen painted "Ready now: 8 finished changes" over an empty box. The lanes the release published are the server's own servability verdict and stamp the rows they hold.
       laneById: customer.changes.laneById ?? Object.fromEntries([...(customer.changes.ready ?? []).map((p) => [p.id, "ready" as const]), ...(customer.changes.toDo ?? []).map((p) => [p.id, "todo" as const]), ...(customer.changes.research ?? []).map((p) => [p.id, "research" as const])]),
-      surfaceComputedAt: sanitizeSurfaceComputedAt(customer.computedAt),
+      // A stored-only freshness check may advance computedAt without changing this release's ranking.
+      surfaceComputedAt: customer.releaseId.startsWith(`${tenantId}:`)
+        ? sanitizeSurfaceComputedAt(customer.releaseId.slice(tenantId.length + 1)) : null,
       surfaceBuilding: false,
       surfaceVersion: customer.releaseId,
       ...(read.fromMemory ? { releaseFromMemory: true } : {}),

@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactElement } from "react";
 const calls = vi.hoisted(() => ({ ledger: 0, evidence: 0, surface: 0, failSurface: 0, hangQueue: false, basis: null as string | null, serveRows: false }));
 const SURFACE = vi.hoisted(() => ({
-  schemaVersion: 2 as const, releaseId: "t::r1", tenantId: "t",
+  schemaVersion: 2 as const, releaseId: `t:${new Date(Date.now() - 90 * 60_000).toISOString()}`, tenantId: "t",
   computedAt: new Date(Date.now() - 22 * 60_000).toISOString(),
   changes: { proposals: [], ready: [], toDo: [], research: [], summary: { todo: 0, ready: 0, research: 0, implemented: 0, measuring: 0, results: 0 },
     measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null },
@@ -60,7 +60,7 @@ describe("a struggling source costs one read, and a list already in hand beats a
     await loadChangesView();
     calls.surface = 0;
     calls.failSurface = 2;
-    const view = await loadChangesView(); expect(calls.surface, "memory beats a second attempt: one failed read, then the remembered list, never a second read while a copy is in hand").toBe(1); expect(view.releaseFromMemory, "a remembered list is not a first-ever load").toBe(true); expect(view.releaseUnreadable ?? false).toBe(false); expect(view.surfaceComputedAt).toBe(SURFACE.computedAt);
+    const view = await loadChangesView(); expect(calls.surface, "memory beats a second attempt: one failed read, then the remembered list, never a second read while a copy is in hand").toBe(1); expect(view.releaseFromMemory, "a remembered list is not a first-ever load").toBe(true); expect(view.releaseUnreadable ?? false).toBe(false); expect(view.surfaceComputedAt).toBe(SURFACE.releaseId.slice(2));
   }, 15_000);
   it("paints the saved release inside the section budget while current-row validation hangs", async () => {
     calls.serveRows = true; calls.basis = "b1"; calls.hangQueue = true;
