@@ -135,8 +135,8 @@ describe("the owed results page, bought once and finished for nothing", () => {
     const run = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need()] });
     expect([state.posts > 0, meter.paidUsd > 0], "the task is posted and the money moves at the post, which is where the provider charges").toEqual([true, true]);
     expect(new Set(acquisitions(run).filter((a) => a.query === QUERY).map((a) => `${a.kind}|${a.outcome}`)), "the need is stamped on the run row as bought and not yet read, never as a silence")
-      .toEqual(new Set(["serp|not_read", "semantic_review|not_read"])); // Seeded body copy now owes current contextual acceptance as well as its missing results page.
-    expect(acquisitions(run).filter((a) => a.query === QUERY && a.kind === "serp").every((a) => a.detail.includes("waiting")), "and the results-page receipt says the provider is still working on it (the review receipt the row newly owes reports its own reading)").toBe(true);
+      .toEqual(new Set(["serp|not_read"])); // The seeded wc8/d8 review is stale against the current d9 basis.
+    expect(acquisitions(run).filter((a) => a.query === QUERY && a.kind === "serp").every((a) => a.detail.includes("waiting")), "and the results-page receipt says the provider is still working on it").toBe(true);
   });
 
   it("3 and 4: a later drive finishes it for nothing, the search lands on file, and the collection is not a second purchase", async () => {
@@ -403,8 +403,8 @@ describe("the section the winner carries, read where it starts", () => {
         subjects: [{ url: RIVAL, sameEntity: true, language: "English", script: null, why: "the article covers the people this subject is about" }] } }, body);
     const need = { key: `${HUB}::body::${QUERY}`, kind: "factual_source", query: `${SUBJECT} ${QUERY}`, url: `https://${SITE}${HUB}`, missingTopic: SUBJECT, rivalUrl: RIVAL, rank: 1,
       reasonCode: "missing_information", reason: `nothing checked on file answers "${SUBJECT}"`, workKey: `${HUB}::body::${QUERY}::wc5::e1`, unlocks: { proposalId: `${T}::${HUB}::existing_edit::demand_recovery`, step: "draft" } };
-    const run = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need] });
-    const judged = reasoningAsked.filter((a) => a.kind === "fact_claim_judgement");
+    const free = await defaultSteps.acquireEvidence(T, { ...need, kind: "competitor_page", query: QUERY, url: RIVAL }, basis, 90_000); expect(free.acquired, "the canonical winner reader banks the public source before the fact check").toBe(true);
+    const run = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need] }), judged = reasoningAsked.filter((a) => a.kind === "fact_claim_judgement");
     const ask = judged[0]?.ask ?? "", intros = ask.split(INTRO_LINE).length - 1;
     expect([state.parsed, judged.length, ask.includes(SAYS), ask.includes(`${SUBJECT} ${SAYS}`), intros > 0 && intros < 20],
       "the winner the requirement named is the one page read; the judge is asked once; its passage opens on the heading the requirement named with the words under it, carrying only the tail of the introduction the search's words are densest in; the free crawl already on file carries the section, so no paid parse is bought").toEqual([[], 1, true, true, true]);

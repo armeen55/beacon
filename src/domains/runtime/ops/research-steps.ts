@@ -345,12 +345,18 @@ export const defaultSteps: ResearchCycleSteps & {
       case "semantic_review": {
         if (!need.proposalId) return { acquired: false, detail: "a review requirement names no change, so there is nothing to read" }; // ONE ROW, BY ITS OWN ID: reading the whole account's queue to find one change is an egress bill for a lookup
         const { loadChangeProposal, saveChangeProposal } = await import("@/domains/decision/proposal-store");
-        const { reviewFinishedCopy } = await import("@/domains/decision/drafted-copy"); const { unreviewed } = await import("@/domains/decision/proof");
-        const row = await loadChangeProposal(tenantId, need.proposalId).catch(() => null);
+        const { reviewFinishedCopy } = await import("@/domains/decision/drafted-copy"); const { unreviewed, reviewFits, REVIEW_CONTRACT } = await import("@/domains/decision/proof");
+        const row = await loadChangeProposal(tenantId, need.proposalId, { canonicalOnly: true }).catch(() => null);
         if (!row || row.tenantId !== tenantId || row.id !== need.proposalId) return { acquired: false, detail: `no scoped change on file answers to ${need.proposalId}, so there is nothing to read` };
+        const currentBasis = await import("@/domains/decision/load-proposals").then((m) => m.resolveCurrentBasis(tenantId)).catch(() => null);
+        const key = row.workKey?.trim() ?? "", owed = (await import("@/domains/decision/obligation")).nextObligation(row), r = row.semanticReview;
+        const { COPY_RULES } = await import("@/domains/decision/copy-sanitize");
+        const progress = r && reviewFits(row, r.of) && r.version === REVIEW_CONTRACT && COPY_RULES.accepted(r.editor) ? COPY_RULES.reviewProgress(row) : [];
+        const exactKey = progress.length ? `${key}::read:${(await import("node:crypto")).createHash("sha256").update(JSON.stringify([r!.of, progress])).digest("hex")}` : key;
+        if (!basis || !currentBasis?.startsWith(`${basis}::d`) || row.basis !== currentBasis || !["needs_review", "ready"].includes(row.status) || !key || need.workKey !== exactKey || !(owed?.kind === "review" || owed?.kind === "evidence" && owed.need.kind === "semantic_review")) return { acquired: false, attempted: false, detail: `the exact current review owner or evidence basis could not be confirmed for ${row.id}, so no evaluator was called` };
         const read = await reviewFinishedCopy(row, { tenantId, proposalWorkKey: need.workKey, now: new Date(), stopBy: Math.min(review?.stopBy ?? Infinity, Date.now() + Math.max(0, budgetMs)), ...(review?.attempts ? { attempts: review.attempts } : {}) }).catch((e: unknown) => ({ row: null, detail: e instanceof Error ? e.message : String(e) }));
         if (!read.row) return { acquired: false, detail: `reading the sources behind ${row.id}: ${read.detail}` }; // a provider that could not answer leaves the row exactly as it stands
-        const saved = await saveChangeProposal(read.row).catch(() => "failed" as const);
+        const saved = await saveChangeProposal(read.row, undefined, undefined, row).catch(() => "failed" as const);
         return { acquired: saved === "saved" || saved === "unchanged", unlocked: (saved === "saved" || saved === "unchanged") && unreviewed(read.row) === null, detail: `review of ${row.id}: ${read.detail} (${saved})` };
       }
       default: { const impossible: never = need.kind; return { acquired: false, detail: `no acquisition handler exists for ${String(impossible)}` }; }
