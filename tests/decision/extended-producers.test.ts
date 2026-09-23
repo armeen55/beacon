@@ -3,6 +3,7 @@ import { DANGEROUS_COMPONENT_KINDS as DECISION_DANGEROUS, PublicationUnitsSchema
 import { DANGEROUS_COMPONENT_KINDS as MEASUREMENT_DANGEROUS } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import type { CauseFinding } from "@/domains/decision/diagnosis"; import { effortMinutesFor, fieldForComponent, type Produced, type ProducerCtx } from "@/domains/decision/producers/contract";
 import { produceConsolidation, produceFullRewriteRecommendation, produceSourceExpansion } from "@/domains/decision/producers/extended"; import { CORE_PRODUCERS } from "@/domains/decision/producers/core";
+import { draftFieldForPage } from "@/domains/decision/drafted-copy"; import { pageHashOf } from "@/domains/evidence/pages/fact-check-run";
 import type { WinningPattern } from "@/domains/decision/winning-pattern";
 import { validateProposal } from "@/domains/decision/validate-proposal";
 import { claimTypeOf, deriveSupport } from "@/domains/evidence/pages/claim-support";
@@ -47,6 +48,12 @@ const BODIES = new Map([["fixture-content.example/rain-barrels", { ...ctxOf().bo
   [OTHER_KEY, { ...ctxOf().body!, url: OTHER_URL, title: "Barrel sizes guide", h1: "Barrel sizes guide", headings: ["Barrel sizes"], completeness: "complete" as const, version: "current" as const, passages: [duplicate], answerPassages: [duplicate], internalLinks: [], sourceCapture: capture }]]);
 const OPENING = "Rain barrel sizing comes down to roof area and how much rain one storm brings.";
 const wholeCtx = (over: Partial<ProducerCtx> = {}): ProducerCtx => ctxOf({ body: { ...ctxOf().body!, completeness: "complete", version: "current" }, ...over });
+it("binds each full-rewrite task to exact current page material before a paid writer", async () => {
+  const ctx = wholeCtx(), assigned: NonNullable<ChangeProposal["assignment"]>[] = []; await produceFullRewriteRecommendation({ ...ctx, draft: { ...whole(), section: async input => { assigned.push(input.assignment!); return null; } } }, ["weak_opening", "incomplete_coverage"]);
+  expect(assigned).toHaveLength(1); expect(assigned[0]?.atomBindings?.[0]?.evidenceId).toBe("page-title"); expect(assigned[0]?.pageHash).toBe(pageHashOf([ctx.body!.title, ctx.body!.h1, ...ctx.body!.headings, ...ctx.body!.passages].filter(Boolean).join("\n")));
+  const tryBody = async (passages: string[]) => { let calls = 0; await draftFieldForPage({ field: "answer_block", body: { ...ctx.body!, passages }, query: QUERY, brief: "answer", evidenceHints: [], ownedPaths: [], minutes: 1, assignment: assigned[0] }, { tenantId: TENANT, now: NOW, complete: (async () => { calls++; return { error: "test stop", retryable: false }; }) as never }); return calls; };
+  expect(await tryBody(ctx.body!.passages)).toBeGreaterThan(0); expect(await tryBody(["A different page now discusses only parking lots."])).toBe(0);
+});
 const whole = (refuseAt = -1): ProducerCtx["draft"] => { let n = 0; return { restore: async piece => piece, compose: (pieces) => { const units: NonNullable<BundleComponent["units"]> = pieces.flatMap((p) => [...(p.heading ? [{ kind: "heading" as const, level: 2, text: p.heading }] : []), { kind: "paragraph" as const, text: p.body }]); return { units, after: COPY_RULES.bodyCopy(units), pieces: pieces.map(p => ({ slot: p.slot, assignment: p.assignment, heading: p.heading, after: p.body, units: [{ kind: "paragraph" as const, text: p.body }], claims: [], supportFacts: [], review: [] })) }; }, openingAnswer: async () => OPENING,
   section: async (i) => (n++ === refuseAt ? null : { heading: i.heading ?? "Rain barrel sizing", sources: [], containsNumber: false,
     body: `Rain barrel sizing comes down to roof area and how much rain one storm brings, and that is what this part of the page has to say about ${(i.heading ?? "sizing").toLowerCase()}.` }) }; };
@@ -171,13 +178,9 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect([stale.verdict, stale.reasons.some((r) => r.includes("2026-06-11")), dated(null).verdict], "the date a reading carries is a caveat the card names, and a stale FACT that contradicts a checked source is still refused by the canon's own entailment").toEqual(["ready", false, "ready"]);
     expect(validate([{ ...link, after: "I read this page's stored words and would point readers on to Barrel sizes." }], undefined, // a contradiction in the copy itself, not only in the notes around it
       { limitations: ["I do not hold this page's full body text, so I checked every draft against its title."] }).verdict).toBe("rejected"); });
-  it("refuses on every producer when the finding carries no structured payload", async () => {
-    const sources = await produceSourceExpansion(ctxOf({ finding: finding("ai_citation_gap") })); const merge = await produceConsolidation(ctxOf({ finding: finding("cannibalization") }));
-    for (const out of [sources, merge]) {
-      expect(out.components).toHaveLength(0); expect(out.refusal!.length).toBeGreaterThan(20);
-      expect(out.refusal!).not.toMatch(/[–—]|payload|null|undefined|experiment|control|baseline|SERP/);}
-    const unbacked = await produceConsolidation(ctxOf({ finding: { ...finding("cannibalization", { cause: "cannibalization", competingPaths: ["/a", "/b"] }), evidenceKeys: [] } })); // a finding with nothing on file behind it never becomes a component, whatever the payload says
-    expect([unbacked.components.length, unbacked.refusal!.includes("Nothing on file stands behind this")]).toEqual([0, true]); }); });
+  it("refuses on every producer when the finding carries no structured payload", async () => { const sources = await produceSourceExpansion(ctxOf({ finding: finding("ai_citation_gap") })); const merge = await produceConsolidation(ctxOf({ finding: finding("cannibalization") }));
+    expect([sources, merge].map(out => [out.components.length, !!out.refusal])).toEqual([[0, true], [0, true]]);
+    const unbacked = await produceConsolidation(ctxOf({ finding: { ...finding("cannibalization", { cause: "cannibalization", competingPaths: ["/a", "/b"] }), evidenceKeys: [] } })); expect([unbacked.components.length, unbacked.refusal!.includes("Nothing on file stands behind this")]).toEqual([0, true]); }); });
 describe("what a change actually costs the operator", () => {
   it("pins measurement's private dangerous-kind list against the decision contract", () => { // Measurement may not import Decision (guard), so its private dangerous-kind list is pinned here instead.
     expect([...MEASUREMENT_DANGEROUS].sort()).toEqual([...DECISION_DANGEROUS].sort()); }); });

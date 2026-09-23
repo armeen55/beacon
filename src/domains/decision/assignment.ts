@@ -1,4 +1,5 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import { FURNITURE_LABEL, topicTokens } from "@/domains/evidence/relevance-gate";
 import { EDITOR_SHARED, type EditorField, type SourcePacket } from "./drafted-copy";
 import { editorialStandard } from "./proof"; import { COPY_RULES } from "./copy-sanitize";
@@ -31,7 +32,7 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     intent: [...new Set([...(packet.comparison?.queries ?? []), packet.trackedQuestion ?? "", ...(packet.demand.unanswered ?? [])])].filter((x): x is string => !!x).slice(0, 6),
     // The atom names the exact qualified evidence entry, not a position in the
     // fact-only list. A page-copy atom used to survive as an id with no words.
-    facts: bound.map((id) => ({ id, says: packet.evidence[id] ?? "" })),
+    facts: bound.map((id) => ({ id, says: packet.evidence[id] ?? "" })), ...(!WIDTH[field] ? { atomBindings: atoms.filter(a => need?.requiredAtomKeys.includes(a.key) && !!packet.evidence[a.evidenceId]?.trim()).map(a => ({ key: a.key, evidenceId: a.evidenceId, hash: createHash("sha256").update(packet.evidence[a.evidenceId]!.replace(/\s+/g, " ").trim()).digest("hex") })) } : {}),
     observations: (packet.comparison?.winners ?? []).flatMap((w) => w.observations.slice(0, 2).map((o) => ({ publisher: w.publisher, publisherClass: w.publisherClass, kind: o.kind, text: o.text, quote: o.quote }))).slice(0, 12),
     keep: (packet.comparison?.keep ?? []).slice(0, 4),
     ...(rewrite?.replaces?.trim() ? { replaces: rewrite.replaces.trim() } : {}),

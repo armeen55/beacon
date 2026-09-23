@@ -9,7 +9,7 @@
  * component cites the finding's own receipt keys. PURE apart from the drafting calls handed in on the context.
  */
 
-import { topicTokens } from "@/domains/evidence/relevance-gate";
+import { topicTokens } from "@/domains/evidence/relevance-gate"; import { pageHashOf } from "@/domains/evidence/pages/fact-check-run";
 import { authorizedCorrections, readFactChecks } from "@/domains/evidence/pages/fact-checks";
 import { claimTypeOf, supportFailure } from "@/domains/evidence/pages/claim-support";
 import { classifyResult } from "@/domains/evidence/serp-shape"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
@@ -343,9 +343,12 @@ export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes:
     ...(ctx.body?.openingSample ? [`The page opens: ${ctx.body.openingSample}`] : []), ...(ctx.body?.cardTexts ?? []).slice(0, 4)];
   const planned = covers, before = ctx.body.passages.join("\n\n"), slots = [0, ...planned.map((_, i) => i + 1)];
   const identity = createHash("sha256").update(JSON.stringify([ctx.tenantId, canonicalUrlKey(ctx.page.url), ctx.primary, before, ctx.page, ctx.body.headings, ctx.body.entityNames, ctx.body.internalLinks, ...(ctx.body.sourceCapture ? [["original_main_content", ctx.body.sourceCapture.version, ctx.body.sourceCapture.complete, ctx.body.sourceCapture.mainHtml]] : []), pattern.fingerprint, planned, [...structural].sort(), ctx.draftContext ?? null])).digest("hex");
+  const sourcePageHash = pageHashOf([ctx.body.title, ctx.body.h1, ...ctx.body.headings, ...ctx.body.passages].filter(Boolean).join("\n"));
+  const sourceId = ctx.body.title?.trim() ? "page-title" : ctx.body.h1?.trim() ? "page-h1" : "page-copy-1";
+  const sourceText = sourceId === "page-title" ? ctx.body.title! : sourceId === "page-h1" ? ctx.body.h1! : ctx.body.passages[0]!;
   const taskFor = (slot: number): NonNullable<ChangeProposal["assignment"]> => {
     const subject = slot === 0 ? ctx.primary : planned[slot - 1]!;
-    const deliveryMode = slot === 0 ? "inline" as const : "headed" as const; return { page: ctx.body!.url, basis: identity, standard: "restructuring", gapKind: "full_rewrite_piece", propositions: [subject], intent: [ctx.primary], informationNeed: { question: subject, requiredAtomKeys: [`${identity}::${slot}`], polarity: "supports", voice: "publisher", deliveryMode }, deliveryMode,
+    const deliveryMode = slot === 0 ? "inline" as const : "headed" as const; return { page: ctx.body!.url, basis: identity, pageHash: sourcePageHash, atomBindings: [{ key: `${identity}::${slot}`, evidenceId: sourceId, hash: createHash("sha256").update(sourceText.replace(/\s+/g, " ").trim()).digest("hex") }], standard: "restructuring", gapKind: "full_rewrite_piece", propositions: [subject], intent: [ctx.primary], informationNeed: { question: subject, requiredAtomKeys: [`${identity}::${slot}`], polarity: "supports", voice: "publisher", deliveryMode }, deliveryMode,
       diagnosedGap: `This page is being rebuilt as ${shape}. Complete ${slot === 0 ? "the opening" : `the section about ${subject}`}; ${wrongs.join("; ")}.`,
       treatment: slot === 0 ? "answer_block" : "section", shape: slot === 0 ? "direct_answer" : "section", anchor: ctx.body!.h1 ?? ctx.body!.title,
       mustLeadWith: `the supported answer or distinction about ${subject}, with enough subject and scope to stand on its own`, opening: "Teach the subject directly in the owning publisher's voice.",

@@ -131,7 +131,7 @@ it("reloads the exact qualified page-copy and fact sentences bound to a reader t
   const p = proposal({ id: `${T}::${PAGE}::existing_edit::section`, status: "needs_review", researchOnly: true, changeFamily: "section", recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: "Write the supported answer." }, assignment: assignment! });
   expect(await saveChangeProposal(p)).toBe("saved");
   const reloaded = await loadChangeProposal(T, p.id);
-  expect(reloaded?.assignment?.facts).toEqual(assignment?.facts);
+  expect([reloaded?.assignment?.facts, reloaded?.assignment?.atomBindings]).toEqual([assignment?.facts, assignment?.atomBindings]);
   expect(reloaded?.assignment?.facts?.every((fact) => fact.says.length > 0)).toBe(true);
 });
 it("does not create an assignment when a required atom lost its evidence text", async () => {
