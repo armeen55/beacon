@@ -19,7 +19,7 @@ vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await o
 vi.mock("@/domains/evidence/pages/fact-check-run", async (orig) => { const real = await orig<typeof import("@/domains/evidence/pages/fact-check-run")>(); return { ...real, pageHashOf: (body: string) => body.startsWith("Persian female names\nAfsaneh means Goddess, divine and strong.") ? checks.live : real.pageHashOf(body) }; });
 import { FACTUAL_DEFECTS } from "@/domains/decision/producers/factual-defects";
 import { loadChangeProposal, saveChangeProposal } from "@/domains/decision/proposal-store";
-import { openHold } from "@/domains/decision/completeness";
+import { openHold, preferFinished } from "@/domains/decision/completeness";
 import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
 import { supabaseFake } from "../helpers/supabase-fake";
 import type { ChangeProposal } from "@/domains/decision/contracts";
@@ -35,20 +35,13 @@ const snapshot = { scope: { site: "x.example" }, ownedPages: [{ url: PAGE, searc
 /** EVERY FIXTURE EARNS ITS ARTIFACTS THE REAL WAY: each source's quote goes through the same deterministic derivation production runs, so a quote that genuinely carries its claim is supported and one that does not is refused. Nothing is hand-signed. */
 type Src = { url: string; kind: string; says: string; titleContext?: string; support?: unknown };
 const bless = (row: Record<string, unknown>): Record<string, unknown> => ({ ...row,
-  sources: (row.sources as Src[]).map((s) => { const a = deriveSupport({ tenantId: "t", page: String(row.page),
-    statementKey: String(row.statementKey), pageLocator: (row.pageLocator as string | null) ?? null,
-    subject: String(row.subject), claimKind: claimTypeOf(String(row.subject), String(row.current), (row.pageLocator as string | null) ?? null),
-    current: String(row.current), proposed: String(row.proposed ?? ""), url: s.url, kind: s.kind as never,
-    quote: s.says, titleContext: s.titleContext ?? null }); return a ? { ...s, support: a } : s; }) });
-const check = (over: Record<string, unknown> = {}) => bless({
-  page: "/persian-female-first-names", statementKey: String(over.subject ?? "Afsaneh").toLowerCase(),
-  pageContentHash: LIVE_HASH, evidenceBasis: "basis_x::d9", state: "checked", rulesVersion: VERIFICATION_RULES_VERSION,
-  sourceReadAt: "2026-08-17T00:00:00.000Z", pageLocator: null, subject: "Afsaneh", current: "Goddess, divine and strong.",
-  proposed: "Legend, myth, fable in Persian.", language: "Persian", literal: "legend", usage: null,
-  sources: [{ url: "https://www.behindthename.com/name/afsaneh", kind: "dictionary", says: "the name Afsaneh means legend, myth or fable in Persian" },
-    { url: "https://en.wiktionary.org/wiki/افسانه", kind: "dictionary", says: "fable" }],
-  agreement: "multiple_agree", confidence: "confirmed", verdict: "page_wrong", alsoAt: [], note: "",
-  checkedAt: "2026-08-17T00:00:00.000Z", ...over });
+  sources: (row.sources as Src[]).map((s) => { const a = deriveSupport({ tenantId: "t", page: String(row.page), statementKey: String(row.statementKey), pageLocator: (row.pageLocator as string | null) ?? null,
+    subject: String(row.subject), claimKind: claimTypeOf(String(row.subject), String(row.current), (row.pageLocator as string | null) ?? null), current: String(row.current), proposed: String(row.proposed ?? ""), url: s.url, kind: s.kind as never,
+    quote: s.says, titleContext: s.titleContext ?? null }); return a ? { ...s, support: a } : s; }) }); const check = (over: Record<string, unknown> = {}) => bless({
+  page: "/persian-female-first-names", statementKey: String(over.subject ?? "Afsaneh").toLowerCase(), pageContentHash: LIVE_HASH, evidenceBasis: "basis_x::d9", state: "checked", rulesVersion: VERIFICATION_RULES_VERSION,
+  sourceReadAt: "2026-08-17T00:00:00.000Z", pageLocator: null, subject: "Afsaneh", current: "Goddess, divine and strong.", proposed: "Legend, myth, fable in Persian.", language: "Persian", literal: "legend", usage: null,
+  sources: [{ url: "https://www.behindthename.com/name/afsaneh", kind: "dictionary", says: "the name Afsaneh means legend, myth or fable in Persian" }, { url: "https://en.wiktionary.org/wiki/افسانه", kind: "dictionary", says: "fable" }],
+  agreement: "multiple_agree", confidence: "confirmed", verdict: "page_wrong", alsoAt: [], note: "", checkedAt: "2026-08-17T00:00:00.000Z", ...over });
 import { mutationFootprint, footprintsOverlap } from "@/domains/decision/mutation-footprint";
 import { wordingOnlySuspicion } from "@/domains/decision/proof";
 /** PHASE 0 TRUTH, corrected (operator, 2026-08-30): a bag of words is a SUSPICION for the reviewer, never a proof. Only the literally identical skips deterministically; "fear of God" versus "God's fear" shares tokens without sharing meaning, so the suspected card MINTS and is held for the one reviewer's materiality ruling. */
@@ -103,7 +96,7 @@ describe("a page's own statements against their sources", () => {
     expect((card!.recommendedChange as { where?: string }).where).toContain('The "Afsaneh" entry'); expect((card!.recommendedChange as { where?: string }).where).toContain("the FAQ answer on this page");
     expect(card!.supportFacts?.map((f) => f.id)).toEqual(["fact-1", "fact-2"]); expect(card!.supportFacts?.[0]!.fact).toContain('behindthename.com/name/afsaneh says: "the name Afsaneh means legend, myth or fable in Persian"');
     expect(card!.claims?.[0]!.supportedBy).toEqual(["fact-1", "fact-2"]);
-    expect(card!.status, "Beacon's own reviewer has not read it yet, so it is not offered as finished").toBe("needs_review"); checks.rows = [check({ subject: "Example Director", current: "Age: Born August 29, 1941", proposed: "Born July 29, 1941", sources: [{url:"https://en.wikipedia.org/example",kind:"encyclopedia",says:"Example Director was born July 29, 1941."}] })]; const [dated] = (await factualDefectCards({tenantId:"t",snapshot,now:NOW})).cards; expect(dated?.recommendedChange).toMatchObject({before:"Age: Born August 29, 1941",after:"Age: Born July 29, 1941"}); expect(dated?.claims?.[0]?.text).toMatch(/^Example Director: Born July 29, 1941/); });
+    expect(card!.status, "Beacon's own reviewer has not read it yet, so it is not offered as finished").toBe("needs_review"); checks.rows = [check({ subject: "Example Director", current: "Age: Born August 29, 1941", proposed: "Born July 29, 1941", sources: [{url:"https://en.wikipedia.org/example",kind:"encyclopedia",says:"Example Director was born July 29, 1941."}] })]; const [dated] = (await factualDefectCards({tenantId:"t",snapshot,now:NOW})).cards; expect(dated?.recommendedChange).toMatchObject({before:"Age: Born August 29, 1941",after:"Age: Born July 29, 1941"}); expect(dated?.claims?.[0]?.text).toMatch(/^Example Director: Born July 29, 1941/); expect([card?.causeFinding?.explanation, dated?.causeFinding?.explanation]).toEqual([expect.stringContaining("meaning of Afsaneh"), expect.stringContaining("date for Example Director")]); expect(`${dated?.whyItMatters} ${dated?.causeFinding?.explanation}`).not.toMatch(/a meaning|\. about|wrong meaning/); expect(dated?.whyItMatters).toContain("Age: Born August 29, 1941"); const old = { ...dated!, status: "ready" as const, whyItMatters: "Old awkward diagnosis", causeFinding: { ...dated!.causeFinding!, explanation: "Old meaning-only diagnosis" } }; const refreshed = preferFinished(dated!, old); expect([refreshed.status, refreshed.whyItMatters, refreshed.causeFinding?.explanation]).toEqual(["ready", dated!.whyItMatters, dated!.causeFinding?.explanation]); });
   it("a hypothesis or a homograph derivation never authorizes a flat replacement", async () => {
     const src = (says: string) => [{ url: "https://en.wikipedia.org/x", kind: "encyclopedia", says }];
     checks.rows = [check({ subject: "Maryam", proposed: "beloved", sources: src('The name may have originated from the root mr "love; beloved"') }),
@@ -176,8 +169,8 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
       check({ subject: "Mahsa", verdict: "page_imprecise", current: "Meaning:Like the moon.", proposed: "Like the moon", sources: [{ url: "https://en.wikipedia.org/n", kind: "encyclopedia", says: 'The name has the meaning "like the moon"', titleContext: "Mahsa" }] })]; // THE SAME-FETCH TITLE IDENTIFIES THE ANAPHORIC PASSAGE: the live Mahsa shape, supportable only because the fetched document's own title names her while the sentence says "the name".
     const by = new Map((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards.map((c) => [c.id.split("fact-")[1]!, c]));
     const say = (k: string) => [by.get(k)!.opportunityType, (by.get(k)!.claims ?? [])[0]!.text, by.get(k)!.whyItMatters].join(" | ");
-    expect(say("leila"), "page_wrong contradicts").toContain("contradict"); expect(say("leila")).toContain("Correct what"); // A REAL FALSEHOOD KEEPS DIRECT LANGUAGE.
-    expect(say("noor"), "page_imprecise sharpens").toContain("Sharpen what"); expect(by.get("noor")!.claims?.[0]?.text).toBe("Noor means Light"); // The sourced claim is only the supported assertion; the correction record retains the predecessor.
+    expect(say("leila"), "page_wrong contradicts").toContain("contradict"); expect(by.get("leila")!.opportunityType).toBe("Correct the meaning of Leila");
+    expect(by.get("noor")!.opportunityType).toBe("Sharpen the meaning of Noor"); expect(by.get("noor")!.claims?.[0]?.text).toBe("Noor means Light"); // The sourced claim is only the supported assertion; the correction record retains the predecessor.
     const CARRIER = new Set(["the", "and", "not", "its", "for", "with", "from", "that", "this", "was", "are"]); // ANCHORED TO ITS OWN EVIDENCE: `staleCopyReasons` refuses a claim overlapping its cited evidence by under a quarter, and a version leading with the page's current wording pushed two live corrections out of Ready reading "argues from support nobody banked".
     const words = (t: string) => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !CARRIER.has(w));
     for (const k of ["leila", "noor", "mahsa"]) { const card = by.get(k)!, mine = words((card.claims ?? [])[0]!.text);

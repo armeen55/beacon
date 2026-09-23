@@ -293,24 +293,23 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
         const before = replacedSpanOf(c), after = composedReplacement(before, c.proposed!);
         // THE CARD SAYS WHICH OF THE THREE IT IS, read from the stored verdict and never from the copy itself.
         const treat = treatmentOf(c.verdict, before, after);
-        // A QUOTED SENTENCE KEEPS ITS OWN STOP AND GETS NO SECOND ONE: the page's line ends in a full stop, so
-        // `reads "${before}".` rendered `reads "A warrior or conqueror.".` on every card that quotes a sentence.
-        const q = (t: string): string => `"${t}"${/[.!?]["')\]]?\s*$/.test(t) ? "" : "."}`;
-        const act = treat === "replace" ? `Correct what ${path} says about ${c.subject}`
-          : treat === "narrow" ? `Sharpen what ${path} says about ${c.subject}`
-            : `Repair the formatting of what ${path} says about ${c.subject}`;
+        const quoteBefore = `"${before.trim().replace(/[.!?]+$/, "")}"`;
         // A lexical meaning and a date/quantity are different claims; lead with the supported value in either case.
-        const supported = claimTypeOf(c.subject, c.current, c.pageLocator) === "word_meaning" ? `${c.subject} means ${c.proposed}` : `${c.subject}: ${c.proposed}`;
+        const kind = claimTypeOf(c.subject, c.current, c.pageLocator), supported = kind === "word_meaning" ? `${c.subject} means ${c.proposed}` : `${c.subject}: ${c.proposed}`;
+        const subjectClaim = kind === "word_meaning" || kind === "definition" && c.literal != null ? `meaning of ${c.subject}` : kind === "date_or_event" ? `date for ${c.subject}` : kind === "quantity" ? `figure for ${c.subject}` : `statement about ${c.subject}`;
+        const act = treat === "replace" ? `Correct the ${subjectClaim}`
+          : treat === "narrow" ? `Sharpen the ${subjectClaim}`
+            : `Repair the formatting of the ${subjectClaim}`;
         // Sources support the published assertion; the before/after and preservation record explain the correction.
         const claimText = supported;
         const kept = treat === "replace" ? "the sources on file contradict this wording"
           : treat === "narrow" ? "the sources on file put this wording more precisely"
-            : "the supported meaning is unchanged and only its formatting is repaired";
+            : "the supported fact is unchanged and only its formatting is repaired";
         const matters = treat === "repair"
-          ? `${path} carries the supported meaning of ${c.subject} with broken formatting, so readers see ${q(before)} The meaning does not change and the line reads correctly once it is repaired.`
+          ? `The ${subjectClaim} on ${path} is supported but has broken formatting: ${quoteBefore}. The fact does not change when the line is repaired.`
           : treat === "narrow"
-            ? `${path} tells readers ${q(before)} about ${c.subject}, and its own sources of record put it more precisely. A sharper line is easier to trust than a loose one.`
-            : `${path} tells readers ${q(before)} about ${c.subject}, and its own sources of record contradict that. A page that states what its sources deny is harder to trust than one that says less.`;
+            ? `The ${subjectClaim} on ${path} currently reads ${quoteBefore}; its sources of record support a more precise statement. A sharper line is easier to trust than a loose one.`
+            : `The ${subjectClaim} on ${path} currently reads ${quoteBefore}; its sources of record contradict that statement. A page that states what its sources deny is harder to trust than one that says less.`;
         // THE EXACT PASSAGES, ONE SUPPORT PER QUOTED SOURCE. The card used to carry one summary sentence naming
         // urls, so the paid reviewer was asked "is it consistent with the quoted source" over no quote at all,
         // and the proof receipt could show a reader nothing a source actually said. A source whose banked quote
@@ -340,11 +339,11 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
             ?? COPY_RULES.reviewHolds.correction,
             "The page's own words were treated as evidence of what it says, never as proof they are true."],
           causeFinding: { cause: "factual_error", action: "section", evidenceKeys: ["fact-1"],
-            explanation: treat === "replace" ? `${path} states a meaning for ${c.subject} that an independent source of record contradicts, and a supported replacement is on file.`
-              : treat === "narrow" ? `${path} states a meaning for ${c.subject} more broadly than its own sources of record support, and the supported wording is on file.`
-                : `${path} carries the supported meaning of ${c.subject} with broken formatting, and the repaired wording is on file.`,
+            explanation: treat === "replace" ? `${path} states the ${subjectClaim} incorrectly; an independent source of record supports the replacement on file.`
+              : treat === "narrow" ? `${path} states the ${subjectClaim} more broadly than its sources support; the precise wording is on file.`
+                : `${path} carries the supported ${subjectClaim} with broken formatting; the repaired wording is on file.`,
             competingExplanations: [{ cause: "no_problem", reason: `${n(rows.filter((r) => r.verdict === "page_correct").length)} of ${n(rows.length)} checked statements on this page are correct, so the page is not wholesale wrong.` }],
-            notConsidered: [{ cause: "ranking_loss", missing: "whether this wrong meaning costs the page positions is a separate question with separate evidence, and nothing here ties the two together." }],
+            notConsidered: [{ cause: "ranking_loss", missing: "whether this incorrect statement costs the page positions is a separate question with separate evidence, and nothing here ties the two together." }],
             falsifier: `If the next check run finds ${path} already carries the corrected wording, this retires itself.` },
           diagnosisCause: "factual_error",
           evidence: { query: `${path} factual accuracy`, hints: support.map((s) => s.fact), evidenceRefCount: support.length },
