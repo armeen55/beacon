@@ -24,12 +24,12 @@ function harness(fetchBody: unknown, over: Record<string, unknown> = {}) {
   return { deps: deps as unknown as Record<string, unknown>, calls, task: () => calls.fetch.filter((u) => !u.endsWith("/models")) };}
 describe("exact task-status taxonomy (docs.dataforseo.com/v3/appendix/errors)", () => {
   it("stores full HTML under the paid Instant Pages receipt and replays it without another paid call", async () => {
-    const url = "https://site.example/library", id = "07201459-1535-0275-0000-b1297fdec539", html = '<html><head><title>Library</title></head><body><main><h1>Library</h1><p>Loaded after JavaScript.</p></main></body></html>';
-    const paid: ProviderEnvelope = { status_code: 20000, cost: 0.0015, tasks: [{ id, status_code: 20000, cost: 0.0015, result: [{ crawl_progress: "finished", items: [{ status_code: 200, url, fetch_time: "2026-07-25 12:00:00 +00:00", meta: { content: { plain_text_word_count: 4 }, htags: { h1: ["Library"] } } }] }] }] };
-    const raw = { status_code: 20000, cost: 0, tasks: [{ id, status_code: 20000, cost: 0, data: { url }, result: [{ crawl_progress: "in_progress", items: { html } }] }] };
+    const url = "https://iranopedia.com/famous-iranian-comedians", redirected = "https://www.iranopedia.com/famous-iranian-comedians", id = "09230907-1979-0275-0000-58f54a1e8770", html = '<html><head><title>Comedians</title></head><body><main><h1>Comedians</h1><p>Loaded after JavaScript.</p></main></body></html>';
+    const paid: ProviderEnvelope = { status_code: 20000, cost: 0.0015, tasks: [{ id, status_code: 20000, cost: 0.0015, result: [{ crawl_progress: "finished", items: [{ status_code: 200, url: redirected, fetch_time: "2026-09-23 09:07:30 +00:00", meta: { content: { plain_text_word_count: 4 }, htags: { h1: ["Comedians"] } } }] }] }] };
+    const raw = { status_code: 20000, cost: 0, tasks: [{ id, status_code: 20000, cost: 0, data: { url: redirected }, result: [{ crawl_progress: "in_progress", items: { html } }] }] };
     const h = harness(paid, { rawBody: raw }), first = await providerCall("onpage_rendered_html", { url: `${url}#section` }, IDS, h.deps);
     expect(first.state).toBe("ok"); expect(h.task()).toEqual([`${BASE}on_page/instant_pages`, `${BASE}on_page/raw_html`]); expect(h.calls.bodies).toEqual([[{ url, enable_javascript: true, enable_xhr: true, return_despite_timeout: false, accept_language: "en", ip_pool_for_scan: "us", store_raw_html: true }], [{ id, url }]]);
-    if (first.state !== "ok") throw new Error(first.state); expect(parseCapability("onpage_rendered_html", first.envelope)).toEqual({ html, url, httpStatus: 200, capturedAt: NOW.toISOString() });
+    if (first.state !== "ok") throw new Error(first.state); expect(parseCapability("onpage_rendered_html", first.envelope)).toEqual({ html, url: redirected, httpStatus: 200, capturedAt: "2026-09-23T09:07:30.000Z" });
     const stored = h.calls.writes.findLast((w) => (w.payload as ProviderEnvelope | undefined)?.tasks?.[0]?.id === id)?.payload as ProviderEnvelope; expect(stored?.tasks?.[0]?.cost).toBe(0.0015); expect(parseCapability("onpage_rendered_html", stored)?.html).toBe(html);
     const ready = async (payload: ProviderEnvelope) => ({ outcome: "ready", payload, providerTaskId: id, modelServed: null, readyAt: NOW.toISOString(), costUsd: 0.0015 }); const replay = harness(paid, { rawBody: raw, claimEvidenceFetch: async () => ready(stored), spend: atomicSpend({ reserve: async () => { throw new Error("paid reserve on hit"); } }) });
     expect((await runWithoutSpending(() => providerCall("onpage_rendered_html", { url }, IDS, replay.deps))).state).toBe("hit"); expect(replay.task()).toEqual([]);
@@ -39,19 +39,20 @@ describe("exact task-status taxonomy (docs.dataforseo.com/v3/appendix/errors)", 
     expect(await providerCall("onpage_rendered_html", { url }, IDS, timed.deps)).toMatchObject({ state: "error", disposition: "quarantined" }); expect(ambiguous).toHaveBeenCalled(); expect(release).not.toHaveBeenCalled();
   });
   it("refuses wrong page, task, charge, status or HTML while retaining the paid receipt", async () => {
-    const url = "https://site.example/library", id = "07201459-1535-0275-0000-b1297fdec539";
+    const url = "https://site.example/library?next=/", id = "07201459-1535-0275-0000-b1297fdec539";
     const paid: ProviderEnvelope = { status_code: 20000, cost: 0.0015, tasks: [{ id, status_code: 20000, cost: 0.0015, result: [{ crawl_progress: "finished", items: [{ status_code: 200, url, fetch_time: "2026-07-25 12:00:00 +00:00", meta: { content: { plain_text_word_count: 4 }, htags: { h1: ["Library"] } } }] }] }] };
     const raw = { status_code: 20000, cost: 0, tasks: [{ id, status_code: 20000, cost: 0, data: { url }, result: [{ items: { html: "<html><body>Library</body></html>" } }] }] };
     const ready = async () => ({ outcome: "ready", payload: paid, providerTaskId: id, modelServed: null, readyAt: NOW.toISOString(), costUsd: 0.0015 });
     let stopReceipt: Record<string, unknown> | null = null;
-    for (const bad of [{ ...raw, cost: 0.01, tasks: [{ ...raw.tasks[0], cost: 0.02 }] }, { ...raw, tasks: [{ ...raw.tasks[0], id: "other-task" }] }, { ...raw, tasks: [{ ...raw.tasks[0], data: { url: "https://wrong.example/" } }] }, { ...raw, tasks: [{ ...raw.tasks[0], status_code: 40401 }] }, { ...raw, tasks: [{ ...raw.tasks[0], result: [{ items: { html: "" } }] }] }]) {
+    for (const bad of [{ ...raw, cost: 0.01, tasks: [{ ...raw.tasks[0], cost: 0.02 }] }, { ...raw, tasks: [{ ...raw.tasks[0], id: "other-task" }] }, { ...raw, tasks: [{ ...raw.tasks[0], data: { url: "https://wrong.example/" } }] }, { ...raw, tasks: [{ ...raw.tasks[0], data: { url: "https://site.example/library/?next=/" } }] }, { ...raw, tasks: [{ ...raw.tasks[0], data: { url: "https://site.example/library?next=" } }] }, { ...raw, tasks: [{ ...raw.tasks[0], status_code: 40401 }] }, { ...raw, tasks: [{ ...raw.tasks[0], result: [{ items: { html: "" } }] }] }]) {
       const h = harness(paid, { rawBody: bad, claimEvidenceFetch: ready });
       expect((await providerCall("onpage_rendered_html", { url }, IDS, h.deps)).state).toBe("error"); expect(h.task()).toEqual([`${BASE}on_page/raw_html`]);
       if (bad.cost > 0) { stopReceipt = h.calls.upserts[0]!; expect([h.calls.writes[0]?.error_detail, stopReceipt.payload]).toEqual([`raw_html_charge:0.02:task:${id}`, { tenantId: "t", taskId: id, cacheKey: expect.any(String), reportedChargeUsd: 0.02 }]); }
       else expect(h.calls.writes).toEqual([]);
     }
-    const wrong = harness(paid, { rawBody: raw, claimEvidenceFetch: async () => ({ ...await ready(), payload: { ...paid, tasks: [{ ...paid.tasks![0], result: [{ crawl_progress: "finished", items: [{ status_code: 200, url: "https://wrong.example/", fetch_time: "2026-07-25 12:00:00 +00:00", meta: { content: { plain_text_word_count: 4 }, htags: { h1: ["Library"] } } }] }] }] } }) });
-    expect((await providerCall("onpage_rendered_html", { url }, IDS, wrong.deps)).state).toBe("error"); expect(wrong.task()).toEqual([]);
+    for (const wrongUrl of ["https://wrong.example/", "https://site.example/library/?next=/", "https://site.example/library?next="]) {
+      const wrong = harness(paid, { rawBody: raw, claimEvidenceFetch: async () => ({ ...await ready(), payload: { ...paid, tasks: [{ ...paid.tasks![0], result: [{ crawl_progress: "finished", items: [{ status_code: 200, url: wrongUrl, fetch_time: "2026-07-25 12:00:00 +00:00", meta: { content: { plain_text_word_count: 4 }, htags: { h1: ["Library"] } } }] }] }] } }) });
+      expect((await providerCall("onpage_rendered_html", { url }, IDS, wrong.deps)).state).toBe("error"); expect(wrong.task()).toEqual([]); }
     const stop = harness(paid, { cacheRead: async () => stopReceipt }); expect((await providerCall("onpage_rendered_html", { url, revision: "later" }, IDS, stop.deps)).state).toBe("capped"); expect(stop.task()).toEqual([]);
     expect((await providerCall("onpage_rendered_html", { url, revision: "other-tenant" }, { tenantId: "another", unitKey: "u" }, stop.deps)).state).toBe("capped"); expect(stop.task()).toEqual([]);
     const shell = '<html><body><main><h1>Library</h1><h2>One</h2><p>' + 'shell '.repeat(70) + '</p></main></body></html>';

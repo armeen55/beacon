@@ -301,7 +301,6 @@ function selectResolution(models: Record<string, unknown>[]): EngineModelResolut
   if (!model) return null;
   return { model, method: post(chosen) ? "standard" : "live", webSearch: web(chosen) };
 }
-
 function resultBlock(env: ProviderEnvelope): { result0: Record<string, unknown> | null; items: Record<string, unknown>[] } {
   const result = env.tasks?.[0]?.result;
   const result0 = (Array.isArray(result) ? (result[0] as Record<string, unknown> | undefined) : (result as Record<string, unknown> | undefined)) ?? null;
@@ -423,7 +422,7 @@ async function hydrateRendered(result: Extract<CachedCallResult, { state: "ok" |
   const env = result.envelope, task = env.tasks?.[0], { result0, items } = resultBlock(env), item = items[0];
   if (env.status_code !== 20000 || env.tasks?.length !== 1 || task?.status_code !== 20000 || !task.id
     || !/^[\w-]{16,80}$/.test(task.id) || result0?.crawl_progress !== "finished" || item?.status_code !== 200
-    || typeof item.url !== "string" || canonicalUrl(item.url) !== url || typeof item.fetch_time !== "string"
+    || typeof item.url !== "string" || !sameRenderedPage(item.url, url) || typeof item.fetch_time !== "string"
     || !Number.isFinite(Date.parse(item.fetch_time))) return { state: "error", cacheKey: result.cacheKey, disposition: "blocked", detail: "The paid page receipt did not prove the requested page and capture time." };
   if (parseCapability("onpage_rendered_html", env)) return result;
   const d = resolveDeps(deps);
@@ -450,7 +449,7 @@ async function hydrateRendered(result: Extract<CachedCallResult, { state: "ok" |
   }
   if (!raw.ok || body?.status_code !== 20000 || body?.cost !== 0 || body.tasks?.length !== 1 || freeTask?.id !== task.id
     || freeTask.status_code !== 20000 || freeTask.cost !== 0 || freeTask.data?.id && freeTask.data.id !== task.id
-    || freeTask.data?.url && canonicalUrl(freeTask.data.url) !== url || typeof html !== "string" || !html.trim() || html.length > 2_000_000)
+    || freeTask.data?.url && !sameRenderedPage(freeTask.data.url, url) || typeof html !== "string" || !html.trim() || html.length > 2_000_000)
     return { state: "error", cacheKey: result.cacheKey, disposition: "retry_free", detail: "The free raw HTML read did not match the paid page task, reported a charge, or had no complete HTML. The paid request remains saved." };
   const hydrated = { ...env, tasks: [{ ...task, result: [{ ...result0, items: [{ ...item, rendered_html: html }, ...items.slice(1)] }] }] };
   if (!parseCapability("onpage_rendered_html", hydrated)) {
@@ -496,4 +495,5 @@ function brandTitles(v: unknown): string[] | null {
 }
 function hostname(url: string): string { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } }
 export function canonicalUrl(url: string): string { try { const u = new URL(url); u.hash = ""; return u.toString(); } catch { return url.trim(); } }
+function sameRenderedPage(actual: string, requested: string): boolean { try { const a = new URL(actual), b = new URL(requested); a.hostname = a.hostname.replace(/^www\./i, ""); b.hostname = b.hostname.replace(/^www\./i, ""); a.hash = b.hash = ""; return /^https?:$/.test(a.protocol) && a.toString() === b.toString(); } catch { return false; } }
 function sha256(s: string): string { return createHash("sha256").update(s).digest("hex"); }
