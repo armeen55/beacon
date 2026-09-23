@@ -9,11 +9,12 @@ import "server-only";
  *  typed next step (producers/contract's DraftResolution). */
 
 import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
-import { canonicalUrlKey, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
+import { canonicalUrlKey, jobWinners, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { comparisonTopics, jobComparison } from "@/domains/evidence/comparison";
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { ChangeProposal } from "./contracts"; import { COPY_RULES } from "./copy-sanitize";
 import type { DraftResolution, EvidenceRequirement } from "./producers/contract";
+import type { Obligation } from "./obligation";
 
 const GAIN_LINES = new Set<string>();
 const GAIN_TEXT = { SAME_WORDS: `${COPY_RULES.refusal.repeats}, so it hands the reader the same words twice under a new heading: add what the page does not carry, or nothing is owed here`,
@@ -128,7 +129,14 @@ const surviving = (passages: readonly string[], before: string | null): string =
   const whole = passages.join(" "), replaced = (before ?? "").trim(); if (replaced.length < 20) return "";
   const cut = whole.indexOf(replaced.slice(0, 60)); return cut >= 0 ? whole.slice(cut + replaced.length) : "";
 };
+const causalNeed = (card: ChangeProposal, page: OwnedPageEvidence, research: EvidenceSnapshot["research"], gap: { owed?: Obligation; why?: string } | null): { obligation: Obligation; reason: string } | null => {
+  if (!/^why\b/i.test(card.primaryQuery) || !gap?.owed) return null;
+  if (gap.owed.kind === "terminal") return { obligation: gap.owed, reason: gap.why ?? gap.owed.reason };
+  if (gap.owed.kind !== "evidence") return null;
+  const candidate = gap.owed.need.kind === "factual_source" ? jobWinners(research, card.primaryQuery).find((w) => w.extract?.mainText && canonicalUrlKey(w.url) !== canonicalUrlKey(page.url)) : null;
+  return { obligation: { kind: "evidence", need: { ...gap.owed.need, proposalId: card.id, ...(gap.owed.need.kind === "factual_source" ? { missingTopic: card.primaryQuery } : {}), ...(candidate ? { rivalUrl: candidate.url } : {}) } }, reason: gap.why ?? "The causal answer still owes the exact source ladder." };
+};
 /** ONE public surface for what a draft's gain outcome IS and what to do about it: the refusal lines and their identity
  *  set, the deterministic next-step ladder, and the duplication reading a replacement is held to. One symbol, because
  *  every caller that needs one of these needs the others in the same breath. */
-export const GAIN = { ...GAIN_TEXT, LINES: GAIN_LINES, MIN_ABSORBED, resolution: gainResolution, absorption, surviving } as const;
+export const GAIN = { ...GAIN_TEXT, LINES: GAIN_LINES, MIN_ABSORBED, resolution: gainResolution, absorption, surviving, causalNeed } as const;
