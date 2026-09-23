@@ -236,10 +236,10 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const others = Math.max(0, (today.readyTotal ?? 0) - (edit ? 1 : 0));
   // THE NEXT TWO IN LINE, AS A SHORT LIST (Product Truth: at most three next changes), every one of them finished.
   const upNext = top ? today.nextOpportunities.filter((o) => o.changeId !== top.changeId).slice(0, 2) : [];
-  // WHAT IS STILL BEING WRITTEN, CHECKED OR RESEARCHED, one sentence with the database's counts, the same sentence Changes prints.
+  // These are outstanding queue states, not proof that a writing or research pass is running now.
   const written = today.preparing?.written ?? 0, researching = today.preparing?.researching ?? 0;
-  const preparingLine = written > 0 || researching > 0 ? `${[written > 0 ? `${written.toLocaleString("en-US")} ${written === 1 ? "change is" : "changes are"} being written and checked` : null,
-    researching > 0 ? `${researching.toLocaleString("en-US")} ${researching === 1 ? "opportunity is" : "opportunities are"} being researched` : null].filter(Boolean).join(", and ")}. They move up here on their own.` : null;
+  const preparingLine = written > 0 || researching > 0 ? `${[written > 0 ? `${written.toLocaleString("en-US")} ${written === 1 ? "change has" : "changes have"} draft copy but ${written === 1 ? "is" : "are"} not ready to apply` : null,
+    researching > 0 ? `${researching.toLocaleString("en-US")} ${researching === 1 ? "opportunity does" : "opportunities do"} not yet have a finished change` : null].filter(Boolean).join(", and ")}.` : null;
   const winLine = lastWinLine(ledgerRows, nowMs);
   const week = weekStrip(ledgerRows, nowMs);
 
@@ -316,7 +316,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       ) : (
         /* ZERO FINISHED CHANGES IS AN HONEST DAY, SAID PLAINLY, with the one status line that says what is still moving and no card. */
         <div className="rounded-2xl border border-dashed border-border bg-surface-raised p-5 text-[13px] leading-relaxed text-muted-foreground" data-no-finished-change="true">
-          <p>No finished change is ready today. The next one lands here the moment the exact work is written.</p>
+          <p>No finished change is ready today. When Beacon finishes a change, it appears here.</p>
           {preparingLine ? <p className="mt-1 tabular-nums" data-lane-preparing="true">{preparingLine}</p> : null}
         </div>
       )}

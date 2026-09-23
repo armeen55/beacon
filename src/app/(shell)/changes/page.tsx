@@ -7,7 +7,6 @@ import { requireReadyAccount } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
 import { PageHeader } from "@/components/data/page-header";
 import { loadChangesView, type ChangesView } from "../changes-data";
-import { RESEARCH_CADENCE } from "./types";
 import { ChangesListClient } from "../changes-list-client";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { checkedAgoLabel } from "@/components/data/receipt-line";
@@ -126,7 +125,7 @@ export default async function WorklistPage() {
           operator to go and write the edit, so it says what the queue now guarantees. Unfinished work is counted, never ranked. */}
       <PageHeader
         title="Changes"
-        description={`Only finished changes are listed, each with the exact work to make, best first. What is still being written or researched is counted under them; most of it moves up on its own, the rest asks you first. Make a change, mark it done, and the page is measured. ${RESEARCH_CADENCE}`}
+        description="Finished changes come first with the exact work to apply. Unfinished changes and research are counted below. Apply a finished change manually, then mark it done so Beacon can verify and measure it."
       />
       <Suspense fallback={<ChangesListFallback />}>
         <ChangesSection />

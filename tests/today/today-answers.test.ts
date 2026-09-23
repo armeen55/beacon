@@ -1,4 +1,3 @@
-/** Real Today rendering: qualified wins, losses, zeros and unconfirmed history all remain readable. */
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactElement } from "react";
@@ -12,7 +11,7 @@ vi.mock("@/components/today/data-sources-strip", () => ({ countConnectedDataSour
 vi.mock("@/components/today/refresh-my-data-button", () => ({ RefreshMyDataButton: () => null }));
 vi.mock("@/app/(shell)/scoreboard-section", () => ({ ScoreboardSection: () => null }));
 vi.mock("@/app/(shell)/today-gate-data", () => ({ loadTodayV2GateData: async () => ({ unreadable: false, isDemoMode: false, firstReading: { isFirstReading: false, context: {} } }) }));
-vi.mock("@/app/(shell)/today-view-data", () => ({ loadTodayView: async () => ({ today: { headerSentence: "One finished change is waiting.", nextOpportunities: [], readyTotal: 0 }, hasChanges: true }) }));
+vi.mock("@/app/(shell)/today-view-data", () => ({ loadTodayView: async () => ({ today: { headerSentence: "One finished change is waiting.", nextOpportunities: [], readyTotal: 0, preparing: { written: 19, researching: 90 } }, hasChanges: true, researchPaused: true }) }));
 vi.mock("@/lib/perf-trace", () => ({ createPerfTrace: () => ({ time: async (_n: string, f: () => unknown) => f(), flush: () => {} }), readPerfTraceIdFromHeaders: async () => null }));
 vi.mock("@/lib/load-with-deadline", () => ({ loadWithDeadline: async (p: Promise<unknown>) => ({ timedOut: false, data: await p }), valueWithDeadline: async (p: Promise<unknown>) => p }));
 
@@ -40,12 +39,12 @@ describe("Today says whether the last recorded change worked", () => {
       [row({ windows: win(-12) }), /Beverly hills finished 12 clicks behind/],
       [row({ windows: win(0) }), /Beverly hills finished level/],
       [row({ verification: null }), /live page has not confirmed the change yet, so it is not counted as a win/],
-    ] as const) { LEDGER.rows = [input]; const html = await today(); expect(html).toMatch(expected); expect(html).not.toContain("/california-persian-cities/beverly-hills earned"); }
+      [row({ verification: null, windows: win(-12) }), /read 12 clicks behind.*live page has not confirmed/],
+    ] as const) { LEDGER.rows = [input]; const html = await today(); expect(html).toMatch(expected); expect(html).not.toContain("/california-persian-cities/beverly-hills earned"); expect(html).toContain("19 changes have draft copy but are not ready to apply, and 90 opportunities do not yet have a finished change."); expect(html).toContain("Research is paused, so no new opportunity is being worked on"); }
     LEDGER.rows = []; expect(await today()).not.toContain("Your last change to");
   });
 });
 
-/** AND THE CARD THE OPERATOR OPENS BEFORE PASTING SAYS WHAT A LINE STANDS ON, IN WORDS (measured on a live account, 2026-09-05). "Stands on" printed the whole banked entry behind every cited id: 157 of 409 banked facts run past 400 characters and 142 past 800, the longest is 1,000, and 90 of 171 rows handed the operator a raw chunk of their own page's body, climate readings and bridge names included, under the one heading that is supposed to make a draft checkable. Across the account's 350 rendered claim lines that is 347,094 characters of evidence text, and the worst single line is 5,074. */
 describe("the card says what a line stands on in words a person can check", () => {
   const card = (over: Record<string, unknown>) => ({ id: "tenant-one::/p::existing_edit::x", tenantId: "tenant-one", kind: "existing_edit", pagePath: "/p", pageUrl: "https://alpha.example/p", pageLabel: "P",
     primaryQuery: "tide pool safety", opportunityType: "Capture clicks", changeFamily: "section", status: "needs_review",

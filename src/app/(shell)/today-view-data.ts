@@ -164,7 +164,7 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
     : waiting
       ? `No finished change is ready today. Some of your pages could not be read, so they get another try on ${retryDay(waiting)}.`
       // A ROW IS SERVED WHATEVER THE BAR SAYS (owner's editorial policy, 2026-09-06): the release keeps every row the account holds, so an unreadable bar no longer empties the queue and Today no longer explains an emptied one.
-      : "No finished change is ready today. The next one lands here the moment the exact work is written.";
+      : "No finished change is ready today. When Beacon finishes a change, it appears here.";
   return { headerSentence, nextOpportunities: ready, ...(topEdit ? { topEdit } : {}), ...rest };
 }
 

@@ -226,13 +226,12 @@ export function ChangesListClient({ view, initialPicked = [] }: { view: ChangesV
         </section>
       ) : null}
 
-      {/* STILL BEING WRITTEN, CHECKED OR RESEARCHED: one sentence with the counts, never a card and never a tally of internal
-          states. The detail page of a held row stays reachable by its address (Today links there); this list never renders it. */}
+      {/* Outstanding queue counts say nothing about whether a pass is running; the pause notice above gives that status. */}
       {writtenCount > 0 || researchingCount > 0 ? (
         <p className="text-[13px] leading-relaxed tabular-nums text-muted-foreground" data-lane-preparing="true">
-          {[writtenCount > 0 ? `${writtenCount.toLocaleString("en-US")} ${writtenCount === 1 ? "change is" : "changes are"} being written and checked` : null,
-            researchingCount > 0 ? `${researchingCount.toLocaleString("en-US")} ${researchingCount === 1 ? "opportunity is" : "opportunities are"} being researched` : null]
-            .filter(Boolean).join(", and ")}. They move up here on their own.
+          {[writtenCount > 0 ? `${writtenCount.toLocaleString("en-US")} ${writtenCount === 1 ? "change has" : "changes have"} draft copy but ${writtenCount === 1 ? "is" : "are"} not ready to apply` : null,
+            researchingCount > 0 ? `${researchingCount.toLocaleString("en-US")} ${researchingCount === 1 ? "opportunity does" : "opportunities do"} not yet have a finished change` : null]
+            .filter(Boolean).join(", and ")}.
         </p>
       ) : null}
 

@@ -20,7 +20,7 @@ vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...(await orig<Record<s
     q.maybeSingle = async () => ({ data: null, error: null }); q.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => answer().then(res, rej);
     return q; } }) }));
 describe("Today renders, and tells the truth about its own queue", () => {
-  it.each([["@/app/(shell)/page", ["max-w-3xl", 'aria-label="Loading today"']], ["@/app/(shell)/changes/page", ["Changes", "Only finished changes are listed"]],
+  it.each([["@/app/(shell)/page", ["max-w-3xl", 'aria-label="Loading today"']], ["@/app/(shell)/changes/page", ["Changes", "Finished changes come first"]],
     ["@/app/(shell)/results/page", ["Results", "7, 14 and 28 days"]]] as const)("renders the %s frame without throwing", async (mod, claims) => {
     const { default: Page } = await import(mod) as { default: (a?: unknown) => Promise<ReactElement> }; const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
     for (const claim of claims) expect(html).toContain(claim); }, 15_000);
@@ -44,7 +44,7 @@ describe("Today renders, and tells the truth about its own queue", () => {
     const fallback = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) })); expect(fallback).not.toContain("could not be read just now");
     DB.ledgerError = null; }, 15_000);
   const readyView = (n: number, measuring: number) => ({ ready: Array.from({ length: n }, (_, i) => ({ id: `t::/p${i}::existing_edit::title`, pagePath: `/p${i}`, pageUrl: null, pageLabel: `P${i}`, primaryQuery: "q", opportunityType: "Sharpen the title", limitations: [], recommendedChange: { kind: "existing_edit", field: "title" } })), toDo: [], measuringCountCanonical: measuring } as unknown as import("@/app/(shell)/changes-data").ChangesView);
-  const NO_WORK = "No finished change is ready today. The next one lands here the moment the exact work is written.";
+  const NO_WORK = "No finished change is ready today. When Beacon finishes a change, it appears here.";
   it("counts every finished change, previews three, and says no finished change is ready when there are none", async () => { // EVERY CHANGE THE HEADER COUNTS IS FINISHED WORK, three of them are previewed, and an empty day says which empty it is: a quiet queue is not a quiet account and not a report either, and an unfinished opportunity is a status count, never an edit.
     const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data"); const view = buildTodayViewFromChanges(readyView(12, 3));
     const empty = { ready: [], toDo: [], measuringCountCanonical: 0, proposals: [] } as unknown as import("@/app/(shell)/changes-data").ChangesView;
