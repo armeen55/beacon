@@ -33,7 +33,7 @@ describe("what a stale source is allowed to open on its own", () => {
 }); // ───────── syncSucceeded, the positive freshness gate (audit-3 #5) ─────────
 describe("syncSucceeded (audit-3 #5)", () => {
   it("treats { synced: true } as success and { synced: false } as failure with reason", () => {
-    expect(syncSucceeded({ synced: true, rows_upserted: 12 })).toEqual({ ok: true }); const v = syncSucceeded({ synced: false, reason: "no_token" }); expect([v.ok, v.ok ? null : v.reason]).toEqual([false, "no_token"]); });
+    expect(syncSucceeded({ synced: true, rows_upserted: 12 })).toEqual({ ok: true }); expect(syncSucceeded({ synced: true, truncated: true }).ok).toBe(false); const v = syncSucceeded({ synced: false, reason: "no_token" }); expect([v.ok, v.ok ? null : v.reason]).toEqual([false, "no_token"]); });
   it("regression: the old { ok: false } shape and unrecognized shapes are NOT success", () => {
     expect([syncSucceeded({ ok: false }).ok, syncSucceeded({}).ok, syncSucceeded(null).ok, syncSucceeded("synced").ok]).toEqual([false, false, false, false]); });}); // ───────── Clarity Data Export parser ─────────
 const CLARITY_SAMPLE = [{ metricName: "Traffic", information: [{ totalSessionCount: "120", Url: "https://x.com/a" }, { totalSessionCount: "40", Url: "https://x.com/b" }] },

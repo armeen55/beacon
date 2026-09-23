@@ -377,6 +377,7 @@ const FAILED_REASON_COPY: Record<string, string> = {
 function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
   const r = (result ?? {}) as {
     synced?: boolean;
+    truncated?: boolean;
     reason?: string;
     rows_upserted?: number;
     rows?: number;
@@ -384,6 +385,13 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
     days?: number;
     citation_rows?: number;
   };
+  if (r.truncated || r.reason === "partial_report") {
+    const n = r.rows_upserted ?? 0;
+    return { ok: false, error: `${n.toLocaleString()} traffic row${n === 1 ? "" : "s"} saved, but Google Analytics returned an incomplete report. Freshness was not advanced; use Sync now to retry.` };
+  }
+  if (r.reason === "partial_report_held") {
+    return { ok: false, error: "The last Analytics report was incomplete. Automatic retries are paused; use Sync now after checking the property." };
+  }
   if (r.synced) {
     const bits: string[] = [];
     // #88 (2026-06-14), a successful sync that returned zero rows is an OK state, not a failure: the engine ran fine and there's simply nothing yet, distinct from an auth/API error (which fails below).
@@ -528,7 +536,7 @@ export async function syncGscNow(): Promise<ConnectorSyncNowResult> {
 export async function syncGa4Now(): Promise<ConnectorSyncNowResult> {
   return runConnectorSyncNow(
     "syncGa4Now",
-    (tenantId) => syncGa4UrlTrafficForTenant({ tenantId }),
+    (tenantId) => syncGa4UrlTrafficForTenant({ tenantId, manualRetry: true }),
     "google_ga4",
   );
 }
@@ -564,7 +572,7 @@ const REFRESH_ALL_SOURCES: ReadonlyArray<{
   {
     provider: "google_ga4",
     label: "Visitors (Google Analytics)",
-    run: (tenantId) => syncGa4UrlTrafficForTenant({ tenantId }),
+    run: (tenantId) => syncGa4UrlTrafficForTenant({ tenantId, manualRetry: true }),
     freshnessProvider: "google_ga4",
   },
   {

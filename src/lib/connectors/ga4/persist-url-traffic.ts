@@ -28,8 +28,7 @@ import "server-only";
  *   testing. A watermark, not a rewrite (2026-09-14): a cold start pulls
  *   the full 420 day retention window once; every later sync pulls from
  *   the newest stored date minus 7 days (GA4 restates recent days) to
- *   today, so an hourly sync moves tens of rows, not ~27,000. The revenue
- *   report shares the same window.
+ *   today, so an hourly sync moves tens of rows, not ~27,000.
  *
  * 9.A2γ.1 page-path normalization (added 2026-05-19):
  *   GA4's `pagePath` dimension is path-only (`/services/whole-home-
@@ -55,9 +54,9 @@ import "server-only";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 import { getTenant, websiteOf } from "@/domains/account";
-import { runGa4RevenueReport, runGa4UrlTrafficReport } from "./data-api";
+import { runGa4UrlTrafficReport } from "./data-api";
 import { normalizeGa4PagePathToFullUrl } from "./normalize-page-path";
-import type { Ga4FailReason, Ga4RevenueRow, Ga4UrlTrafficRow } from "./types";
+import type { Ga4FailReason, Ga4UrlTrafficRow } from "./types";
 
 const TABLE = "ga4_url_traffic";
 
@@ -116,24 +115,6 @@ type PersistGa4UrlTrafficFailReason =
   | "persist_failed"
   | "invalid_args";
 
-/**
- * Per-run revenue enrichment status (2026-06-26). Revenue is fetched best-effort
- * AFTER traffic; a revenue failure NEVER fails the traffic persist (operator
- * rule). `synced` true means revenue columns + revenue_synced_at were written;
- * false means revenue stayed UNKNOWN (columns omitted, prior values preserved).
- */
-export type Ga4RevenuePersistStatus = {
-  synced: boolean;
-  /** fail reason when synced=false (e.g. "revenue_unavailable", "api_error"). */
-  reason?: string;
-  /** count of upserted rows that carried > 0 revenue (purchase or total). */
-  rows_with_revenue: number;
-  /** property reporting currency, when known. */
-  currency: string | null;
-  /** true when the revenue report itself was a partial (paginated) pull. */
-  truncated?: boolean;
-};
-
 /** Discriminated result; callers branch on `ok`. */
 type PersistGa4UrlTrafficResult =
   | {
@@ -146,8 +127,6 @@ type PersistGa4UrlTrafficResult =
        *  failed — the stored rows are a PARTIAL day. Threaded up so the sync +
        *  cron can flag it instead of silently treating partial as complete. */
       truncated?: boolean;
-      /** 2026-06-26: revenue enrichment outcome (best-effort; never gates ok). */
-      revenue?: Ga4RevenuePersistStatus;
     }
   | {
       ok: false;
@@ -275,30 +254,6 @@ export async function persistGa4UrlTraffic(
 
   const nowIso = new Date().toISOString();
 
-  // ── Revenue enrichment (2026-06-26) — BEST-EFFORT, after traffic. A revenue
-  // failure must NEVER fail the traffic persist. Keyed by RAW (date, pagePath)
-  // to match the traffic rows before URL normalization. When the revenue call
-  // succeeds, EVERY traffic row gets revenue columns + revenue_synced_at (a page
-  // with no revenue row = an OBSERVED 0, since the property tracks revenue). When
-  // it fails, the revenue columns are OMITTED entirely so the upsert can't wipe
-  // a prior run's revenue (PostgREST only updates columns present in the payload).
-  const revenueReport = await runGa4RevenueReport({ tenantId, propertyId, startDate, endDate });
-  let revenueStatus: Ga4RevenuePersistStatus;
-  let revByKey: Map<string, Ga4RevenueRow> | null = null;
-  if (revenueReport.ok) {
-    revByKey = new Map<string, Ga4RevenueRow>();
-    for (const r of revenueReport.rows) revByKey.set(`${r.date}\u0000${r.url}`, r);
-    revenueStatus = {
-      synced: true,
-      rows_with_revenue: 0, // filled below as rows are built
-      currency: revenueReport.currency,
-      ...(revenueReport.truncated ? { truncated: true } : {}),
-    };
-  } else {
-    revenueStatus = { synced: false, reason: revenueReport.reason, rows_with_revenue: 0, currency: null };
-  }
-
-  let rowsWithRevenue = 0;
   const upsertRows = report.rows.map((row: Ga4UrlTrafficRow) => {
     const base: Record<string, unknown> = {
       tenant_id: tenantId,
@@ -311,29 +266,8 @@ export async function persistGa4UrlTraffic(
       raw: row,
       updated_at: nowIso,
     };
-    if (revByKey != null) {
-      const rev = revByKey.get(`${row.date}\u0000${row.url}`);
-      // Revenue call succeeded → this page's revenue is KNOWN. Absent from the
-      // revenue rows = no purchases that day = OBSERVED 0 (not unknown).
-      const total = rev?.totalRevenue ?? 0;
-      const purchase = rev?.purchaseRevenue ?? 0;
-      const txns = rev?.transactions ?? 0;
-      if (purchase > 0 || total > 0) rowsWithRevenue += 1;
-      base.total_revenue = total;
-      base.purchase_revenue = purchase;
-      base.transactions = txns;
-      base.revenue_currency = revenueStatus.currency;
-      base.revenue_source =
-        rev?.purchaseRevenue != null
-          ? "ga4_purchase_revenue"
-          : rev?.totalRevenue != null
-            ? "ga4_total_revenue"
-            : null;
-      base.revenue_synced_at = nowIso;
-    }
     return base;
   });
-  revenueStatus.rows_with_revenue = rowsWithRevenue;
 
   // Chunked upsert (2026-07-20). One giant statement tripped the Postgres
   // statement timeout under the on-use path's concurrency; small batches each
@@ -369,15 +303,6 @@ export async function persistGa4UrlTraffic(
     rowsUpserted += batch.length;
   }
 
-  // Honest operator signal: revenue fetch worked but the property reported NO
-  // revenue anywhere in the window → likely no ecommerce configured.
-  if (revenueStatus.synced && rowsWithRevenue === 0) {
-    log.warn("[persist-ga4-url-traffic] GA4 property reported no revenue in window (no ecommerce?)", {
-      tenantId,
-      property: propertyId,
-    });
-  }
-
   return {
     ok: true,
     rows_fetched: rowsFetched,
@@ -385,7 +310,6 @@ export async function persistGa4UrlTraffic(
     startDate,
     endDate,
     ...(report.truncated ? { truncated: true } : {}),
-    revenue: revenueStatus,
   };
 }
 

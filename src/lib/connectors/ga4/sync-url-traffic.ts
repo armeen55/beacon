@@ -42,35 +42,26 @@ import {
   deriveSyncFailureEscalation,
   listRecentRefreshRuns,
 } from "@/domains/runtime/ops/refresh-runs-store";
-import { latestDataDateForSource } from "@/domains/runtime/ops/source-data-date";
 
 import {
   computeRefreshDateRange,
   persistGa4UrlTraffic,
-  type Ga4RevenuePersistStatus,
 } from "./persist-url-traffic";
 
 type Ga4SyncResult =
   | { synced: false; reason: string }
+  | { synced: false; reason: "partial_report"; truncated: true; property: string; rows_fetched: number; rows_upserted: number }
   | {
       synced: true;
       property: string;
       rows_fetched: number;
       rows_upserted: number;
-      /** audit-3 #7: true when GA4 runReport returned a PARTIAL result
-       *  (GA4_MAX_PAGES ceiling or a later page failed). The data is stored
-       *  but incomplete — surfaced so the cron summary doesn't read as a clean
-       *  full pull. */
-      truncated?: boolean;
-      /** 2026-06-26: revenue enrichment outcome. Traffic syncing succeeds
-       *  regardless; this reports whether revenue was also captured (synced),
-       *  was unavailable, or failed — so the cron summary is honest. */
-      revenue?: Ga4RevenuePersistStatus;
     };
 
 export async function syncGa4UrlTrafficForTenant(args: {
   tenantId: string;
   now?: Date;
+  manualRetry?: boolean;
 }): Promise<Ga4SyncResult> {
   const { tenantId } = args;
   const now = args.now ?? new Date();
@@ -84,8 +75,25 @@ export async function syncGa4UrlTrafficForTenant(args: {
     return { synced: false, reason: "no_property" };
   }
 
-  // Watermark: the newest stored date decides the window (null = cold start = the one full pull). The reader is fail-soft, so an unreadable table costs one full pull, never a skipped sync.
-  const { startDate, endDate } = computeRefreshDateRange(await latestDataDateForSource(tenantId, "ga4"), now);
+  // A capped report can return the same paid prefix forever. Pause automatic
+  // requests after a partial; an explicit manual retry may test recovery.
+  let history;
+  try {
+    history = await listRecentRefreshRuns(tenantId, { source: "ga4", limit: 200, strict: true });
+  } catch {
+    return { synced: false, reason: "refresh_history_unavailable" };
+  }
+  const latestFullIndex = history.findIndex((run) => run.result === "ok");
+  const unresolvedRuns = latestFullIndex < 0 ? history : history.slice(0, latestFullIndex);
+  if (!args.manualRetry && unresolvedRuns.some((run) => run.result === "partial" && run.failure_category?.startsWith("partial_report"))) {
+    return { synced: false, reason: "partial_report_held" };
+  }
+
+  // A partial pull can write a recent row while omitting older rows on a later page.
+  // Anchor the watermark to the last complete sync; no complete sync means
+  // replay the cold window. Never let partial rows advance this boundary.
+  const watermark = history.find((run) => run.result === "ok")?.latest_data_date ?? null;
+  const { startDate, endDate } = computeRefreshDateRange(watermark, now);
 
   const result = await persistGa4UrlTraffic({
     tenantId,
@@ -113,36 +121,22 @@ export async function syncGa4UrlTrafficForTenant(args: {
     await escalateGa4SyncFailureIfPersistent(tenantId, now);
     return { synced: false, reason: result.reason };
   }
-  // Auth proved good (data fetched + persisted) → clear any prior marker so
-  // the strip drops back to a plain "connected" ✓. Fail-soft.
-  await clearGa4AuthFailure(tenantId);
-  // audit-3 #7: a truncated pull stored a PARTIAL day. Log loudly so a silently
-  // incomplete GA4 day is visible in the nightly log (mirrors the GSC path),
-  // and thread the flag up so the cron result is honest.
   if (result.truncated) {
+    // Fetched rows prove the grant is alive, but not that the report is complete.
+    try { await updateConnectorToken("google_ga4", { auth_failed_at: null }, tenantId); } catch { /* receipt remains partial */ }
     log.warn("[ga4-sync] GA4 report truncated; stored a PARTIAL result", {
       tenantId,
       property: propertyId,
       rows_fetched: result.rows_fetched,
     });
+    return { synced: false, reason: "partial_report", truncated: true, property: propertyId, rows_fetched: result.rows_fetched, rows_upserted: result.rows_upserted };
   }
-  // Revenue is best-effort: traffic synced regardless. Log when revenue could
-  // NOT be captured so the operator sees WHY page-value falls back to
-  // conversions (e.g. revenue_unavailable = property has no ecommerce).
-  if (result.revenue && !result.revenue.synced) {
-    log.warn("[ga4-sync] traffic synced but revenue NOT captured; using conversion fallback", {
-      tenantId,
-      property: propertyId,
-      reason: result.revenue.reason,
-    });
-  }
+  await clearGa4AuthFailure(tenantId);
   return {
     synced: true,
     property: propertyId,
     rows_fetched: result.rows_fetched,
     rows_upserted: result.rows_upserted,
-    ...(result.truncated ? { truncated: true } : {}),
-    ...(result.revenue ? { revenue: result.revenue } : {}),
   };
 }
 

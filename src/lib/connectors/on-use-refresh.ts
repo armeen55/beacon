@@ -4,7 +4,7 @@ import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-searc
 import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffic";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
 import { recordSourceRefresh } from "@/domains/runtime/ops/record-source-refresh";
-import type { RefreshSource, RefreshTrigger } from "@/domains/runtime/ops/refresh-runs-store";
+import { listRecentRefreshRuns, type RefreshSource, type RefreshTrigger } from "@/domains/runtime/ops/refresh-runs-store";
 import {
   AUTO_REFRESH_STALE_HOURS,
   isStale,
@@ -62,7 +62,8 @@ export function syncSucceeded(value: unknown): { ok: true } | { ok: false; reaso
     typeof value === "object" &&
     value !== null &&
     "synced" in value &&
-    (value as { synced?: unknown }).synced === true
+    (value as { synced?: unknown }).synced === true &&
+    (value as { truncated?: unknown }).truncated !== true
   ) {
     return { ok: true };
   }
@@ -179,12 +180,24 @@ export async function autoRefreshStaleConnectorsForTenant(
     }),
   );
   // A source that refused its last pull (Clarity's retry_after, 24h after a quota or token refusal) is not owed another attempt until that instant passes.
-  const stale = infos.filter(
+  let stale = infos.filter(
     ({ source, info }) =>
       info?.status === "connected" &&
       isStale(info.last_synced_at, AUTO_REFRESH_STALE_HOURS[source.provider], now) &&
       !(info.retry_after != null && Date.parse(info.retry_after) > now.getTime()),
   );
+  if (stale.some(({ source }) => source.provider === "google_ga4")) {
+    try {
+      const runs = await listRecentRefreshRuns(tenantId, { source: "ga4", limit: 200, strict: true });
+      const lastFull = runs.findIndex((run) => run.result === "ok");
+      if ((lastFull < 0 ? runs : runs.slice(0, lastFull)).some((run) => run.result === "partial" && run.failure_category?.startsWith("partial_report"))) {
+        stale = stale.filter(({ source }) => source.provider !== "google_ga4");
+      }
+    } catch {
+      // An unreadable history is not permission to repeat a capped report.
+      stale = stale.filter(({ source }) => source.provider !== "google_ga4");
+    }
+  }
   if (stale.length === 0) return [];
 
   const startedAt = new Date().toISOString();

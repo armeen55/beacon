@@ -34,8 +34,8 @@ export type RefreshSource = "gsc" | "ga4" | "clarity";
 /** What kicked off the refresh. All three converge on recordRefreshRun. */
 export type RefreshTrigger = "cron" | "manual" | "on-use";
 
-/** Honest per-source outcome. `partial` = it claimed success but delivered no
- *  new data; `failed` = it did not sync. */
+/** Honest per-source outcome. `partial` = usable rows with incomplete coverage;
+ *  `failed` = it did not sync. */
 export type RefreshResult = "ok" | "partial" | "failed";
 
 type RefreshRunInput = {
@@ -132,6 +132,14 @@ export function classifyRefreshOutcome(
   source: RefreshSource,
   value: unknown,
 ): { result: RefreshResult; rowsPersisted: number | null; failureCategory: string | null } {
+  if (source === "ga4" && typeof value === "object" && value !== null &&
+      "reason" in value && (value as { reason?: unknown }).reason === "partial_report") {
+    return { result: "partial", rowsPersisted: rowsPersistedOf(source, value), failureCategory: "partial_report" };
+  }
+  if (source === "ga4" && typeof value === "object" && value !== null &&
+      "reason" in value && (value as { reason?: unknown }).reason === "partial_report_held") {
+    return { result: "partial", rowsPersisted: null, failureCategory: "partial_report_held" };
+  }
   const synced =
     typeof value === "object" &&
     value !== null &&
@@ -322,13 +330,14 @@ function mapRow(r: Record<string, unknown>): RefreshRunRow {
  *  Fail-soft -> []. Supabase first, file mirror fallback. */
 export async function listRecentRefreshRuns(
   tenantId: string,
-  opts: { source?: RefreshSource; limit?: number } = {},
+  opts: { source?: RefreshSource; limit?: number; strict?: boolean } = {},
 ): Promise<RefreshRunRow[]> {
   const limit = opts.limit ?? 50;
   let admin;
   try {
     admin = getSupabaseAdmin();
   } catch {
+    if (opts.strict) throw new Error("refresh history unavailable");
     return filterFileRows(await readFile(), tenantId, opts.source, limit);
   }
   try {
@@ -341,6 +350,7 @@ export async function listRecentRefreshRuns(
     if (opts.source != null) q = q.eq("source", opts.source);
     const { data, error } = await q;
     if (error != null) {
+      if (opts.strict) throw new Error("refresh history unavailable");
       if (isMissingTable(error)) {
         return filterFileRows(await readFile(), tenantId, opts.source, limit);
       }
@@ -352,6 +362,7 @@ export async function listRecentRefreshRuns(
     }
     return ((data ?? []) as Array<Record<string, unknown>>).map(mapRow);
   } catch (e) {
+    if (opts.strict) throw e;
     log.warn("[refresh-runs-store] list threw", {
       tenantId,
       error: e instanceof Error ? e.message : String(e),
@@ -385,4 +396,3 @@ export async function latestRefreshBySource(
   }
   return out;
 }
-
