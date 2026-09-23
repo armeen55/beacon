@@ -49,7 +49,7 @@ export function ChangesListClient({ view, initialPicked = [] }: { view: ChangesV
   };
   const [more, setMore] = useState<ChangeProposal[]>([]);
   const [moreLanes, setMoreLanes] = useState<Record<string, Lane>>({});
-  const [at, setAt] = useState<number>(view.queueCursor?.ready ?? view.queueCursor?.all ?? view.proposals.length); // the finished lane's own cursor: its Show more continues the READY lane, never the global page
+  const [at, setAt] = useState<number>(view.queueCursor?.ready ?? 0); // a missing old-release cursor starts at zero; it never borrows the global page position
   const [release, setRelease] = useState<string | null>(view.surfaceVersion ?? null);
   const [canMore, setCanMore] = useState<boolean>(true);
   const [moved, setMoved] = useState<{ note: string; total: number } | null>(null);
@@ -62,7 +62,7 @@ export function ChangesListClient({ view, initialPicked = [] }: { view: ChangesV
   const [loadingMore, startLoadMore] = useTransition();
   const [workFilter, setWorkFilter] = useState<WorkFilter>(() => params.get("type") || "all");
   const [search, setSearch] = useState(() => params.get("q") || "");
-  const raw = useMemo(() => (moved ? more : [...view.proposals, ...more]), [moved, more, view]);
+  const raw = useMemo(() => [...new Map((moved ? more : [...view.proposals, ...more]).map((p) => [p.id, p])).values()], [moved, more, view]);
   // THE STAMPED LANE IS THE ONE SOURCE of what a card may offer; a row the stamp does not know asks the SAME servability verdict every other surface asks, never the raw status: `p.status === "ready"` here was the one reader that could render Ready with no hold consulted at all.
   const laneOf = useMemo(() => (p: ChangeProposal): Lane => {
     const stamped = moreLanes[p.id] ?? view.laneById?.[p.id]; if (stamped) return stamped;

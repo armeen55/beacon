@@ -43,7 +43,7 @@ const ledgerFails = vi.hoisted(() => ({ value: false }));
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
   loadProofLedgerCached: async () => { if (ledgerFails.value) throw new Error("the ledger did not read"); return []; } }));
 import { renderToStaticMarkup } from "react-dom/server"; import { createElement } from "react";
-import { readChangesPage, loadChangesView, buildChangesViewUncached } from "@/app/(shell)/changes-data";
+import { readChangesPage, loadChangesView, buildChangesViewUncached, releasedQueueCursors } from "@/app/(shell)/changes-data";
 import { buildTodayViewFromChanges, loadTodayView } from "@/app/(shell)/today-view-data";
 import { readQueuePage, loadChangeProposals, publishCustomerRelease, queueLaneCounts } from "@/domains/decision/proposal-store";
 import { actionableProposalFailures, deliverableGaps } from "@/domains/decision"; import operatorUiPolicy from "@/app/(shell)/changes/types";
@@ -172,9 +172,9 @@ describe("the ranked queue pages in the database", () => {
       expect(page.total).toBe(N); // a COUNT, never the length of something loaded
     }
     expect([seen, new Set(seen).size]).toEqual([ALL.map((p) => p.id), N]); // every one, in the stamped order, and not one of them twice
-    expect(Math.max(...db.reads)).toBeLessThanOrEqual(CHANGES_PAGE_SIZE); // never an unbounded read
-    expect(buildTodayViewFromChanges(view).nextOpportunities.map((o) => o.changeId)).toEqual(ALL.slice(0, 3).map((p) => p.id));
+    expect(Math.max(...db.reads)).toBeLessThanOrEqual(CHANGES_PAGE_SIZE); expect(buildTodayViewFromChanges(view).nextOpportunities.map((o) => o.changeId)).toEqual(ALL.slice(0, 3).map((p) => p.id)); // bounded read, one rank across surfaces
   });
+  it("pages after the saved off-page Ready card using its manifest rank", async () => { const manifest = ALL.slice(0, 150).map((p, i) => ({ id: p.id, lane: i === 129 || i === 149 ? "ready" : "research" })); await stamp("rel-offset", manifest); const saved = { proposals: ALL.slice(0, 100), ready: [ALL[129]!] } as Parameters<typeof releasedQueueCursors>[1], cursor = releasedQueueCursors(manifest as NonNullable<Parameters<typeof releasedQueueCursors>[0]>, saved), page = await readChangesPage(T, "ready", cursor.ready, "rel-offset"); expect([cursor, page.rows.map((p) => p.id), page.cursor]).toEqual([{ all: 100, ready: 130 }, [ALL[149]!.id], 150]); });
   it("restarts honestly when the ranking moved, and never serves a retired or implemented row", async () => {
     await stamp("rel-2"); const page = await readChangesPage(T, "ready", 100, "rel-1");
     expect(page.releaseId).toBe("rel-2"); expect(page.rows.map((p) => p.id)).toEqual(ALL.slice(0, CHANGES_PAGE_SIZE).map((p) => p.id));

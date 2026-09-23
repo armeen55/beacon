@@ -98,31 +98,58 @@ function setAsideHint(open = 0): string {
     : "No finished change is ready yet. The next one lands here when the exact work is written.";
 }
 
+/** The release manifest is the database's stamped order (one-based ordinality). */
+export function releasedQueueCursors(manifest: CustomerSurface["manifest"], view: ChangesView): { all: number; ready: number } {
+  const ranks = new Map((manifest ?? []).map((row, i) => [row.id, i + 1]));
+  return { all: ranks.get(view.proposals.at(-1)?.id ?? "") ?? 0,
+    ready: Math.max(0, ...view.ready.map((p) => ranks.get(p.id) ?? 0)) };
+}
+
 /** A STORED release is a photograph, and the bar may have moved since it was taken. Every row is put through the SAME one verdict the
  *  ranked queue, the detail page and the mutations ask, so a release can never serve what those doors refuse: right account, current bar,
  *  still waiting on you, a receipt that still resolves, readings that still stand. Comparing the release only against ITSELF was the hole,
  *  because a uniformly stale release looks perfectly consistent. A basis I cannot read withholds everything. */
 export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string; currentBasis: string | null }): ChangesView {
   const currentBasis = ctx.currentBasis;
-  const standing = view.proposals.filter((p) => actionableProposalFailures(p, ctx).length === 0);
-  if (standing.length === view.proposals.length && currentBasis != null) return view;
+  if (currentBasis == null) return { ...view, proposals: [], ready: [], toDo: [], research: [], laneById: {},
+    summary: { ...view.summary, ready: 0, todo: 0, research: 0 }, basisUnreadable: true,
+    readyZeroHint: setAsideHint() };
+  // Ready has its own page and can sit below the first global page. Recheck every
+  // lane the release carries, not only that global slice.
+  const all = new Map([...view.proposals, ...view.ready, ...view.toDo, ...(view.research ?? [])].map((p) => [p.id, p]));
+  const standing = new Set([...all.values()].filter((p) => actionableProposalFailures(p, ctx).length === 0).map((p) => p.id));
   // A PHOTOGRAPH IS RE-SORTED, NEVER EMPTIED. A blob published before a gate tightened can be carrying a row in
   // the wrong lane, so every surviving row is put back through the ONE hold: nothing is dropped for being
   // unfinished, it is shown where it belongs and the count follows the list.
-  const id = new Set(standing.map((p) => p.id));
-  const kept = [...view.ready, ...view.toDo, ...(view.research ?? [])].filter((p) => id.has(p.id));
+  const kept = [...view.ready, ...view.toDo, ...(view.research ?? [])].filter((p) => standing.has(p.id));
   const research = kept.filter((p) => openHold(p).lane === "research");
   // THE SAME READY PREDICATE load-proposals applies: status, an open review lane and NO DEFECT under the one verdict (journey review, 2026-09-06: this read `blocking`, which is drawn from the hard arms alone, beside a second name for the same value, so a row held by a typed fault could re-sort into the released ready lane while the queue refused it).
   const ready = kept.filter((p) => p.status === "ready" && openHold(p).lane === "review" && openHold(p).defects.length === 0);
   const toDo = kept.filter((p) => !research.includes(p) && !ready.includes(p));
+  // Totals cover the whole tenant; lane arrays may carry only their first page.
+  // Move or remove only rows this release actually exposed to the recheck.
+  const oldLane = new Map<string, "ready" | "todo" | "research">([
+    ...view.ready.map((p) => [p.id, "ready" as const] as const),
+    ...view.toDo.map((p) => [p.id, "todo" as const] as const),
+    ...(view.research ?? []).map((p) => [p.id, "research" as const] as const),
+  ]);
+  const counts = { ready: view.summary.ready, todo: view.summary.todo, research: view.summary.research };
+  const newLane = new Map<string, "ready" | "todo" | "research">([
+    ...ready.map((p) => [p.id, "ready" as const] as const),
+    ...toDo.map((p) => [p.id, "todo" as const] as const),
+    ...research.map((p) => [p.id, "research" as const] as const),
+  ]);
+  for (const [id, from] of oldLane) { const to = newLane.get(id); if (to === from) continue; counts[from] = Math.max(0, counts[from] - 1); if (to) counts[to] += 1; }
   // MAX, never a sum: an old-rule release counted rows it also listed, so adding inflates.
-  const setAside = Math.max(view.demotedStaleBasis, view.proposals.length - standing.length);
-  return { ...view, proposals: standing, ready, toDo, research, aiCases: view.aiCases ?? { state: "unavailable" },
+  const setAside = Math.max(view.demotedStaleBasis, all.size - standing.size);
+  const firstPage = view.proposals.filter((p) => standing.has(p.id));
+  const shown = new Set(ready.map((p) => p.id));
+  return { ...view, proposals: [...ready, ...firstPage.filter((p) => !shown.has(p.id))], ready, toDo, research, aiCases: view.aiCases ?? { state: "unavailable" },
     // THE STAMPED LANES FOLLOW THE RE-SORT (operator walk, 2026-09-16 00:00Z): the client reads a row's lane off `laneById` and fails closed to "todo" for a row the stamp does not know, so a remembered release re-sorted here painted "Ready now: 8 finished changes" over an empty box and a "Show 8 more" button, with every finished card hidden.
     laneById: Object.fromEntries([...ready.map((p) => [p.id, "ready" as const]), ...toDo.map((p) => [p.id, "todo" as const]), ...research.map((p) => [p.id, "research" as const])]),
-    summary: { ...view.summary, ready: ready.length, todo: toDo.length, research: research.length },
+    summary: { ...view.summary, ...counts },
     demotedStaleBasis: setAside, basisUnreadable: currentBasis == null,
-    readyZeroHint: ready.length === 0 ? setAsideHint(toDo.length + research.length) : view.readyZeroHint };
+    readyZeroHint: counts.ready === 0 ? setAsideHint(counts.todo + counts.research) : null };
 }
 
 const EMPTY_CHANGES_VIEW: ChangesView = {
@@ -266,6 +293,7 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
     if (isCustomerSurfaceStale(customer.computedAt, Date.now())) scheduleReleaseRebuild("background-refresh");
     return withCurrentBasisOnly({
       ...customer.changes,
+      queueCursor: customer.manifest?.length ? releasedQueueCursors(customer.manifest, customer.changes) : customer.changes.queueCursor,
       // THE RELEASE'S OWN LANES ARE ITS STAMPS (operator walk, 2026-09-16 00:00Z): the saved release carries `ready`, `toDo` and `research` but no `laneById`, the live join is the only writer of stamps, and the client fails closed to "todo" for an unstamped row, so whenever the join ran out of budget the screen painted "Ready now: 8 finished changes" over an empty box. The lanes the release published are the server's own servability verdict and stamp the rows they hold.
       laneById: customer.changes.laneById ?? Object.fromEntries([...(customer.changes.ready ?? []).map((p) => [p.id, "ready" as const]), ...(customer.changes.toDo ?? []).map((p) => [p.id, "todo" as const]), ...(customer.changes.research ?? []).map((p) => [p.id, "research" as const])]),
       surfaceComputedAt: sanitizeSurfaceComputedAt(customer.computedAt),
