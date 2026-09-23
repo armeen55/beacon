@@ -342,12 +342,12 @@ async function readLegacy(tenantId: string, limit: number, id?: string): Promise
 /** WHETHER THIS ROW IS RETIRED AND HOW, asked on its own so the mark-done press decides BEFORE a shipment is written whether a retirement was reconciliation's (the operator may finish it) or the operator's own. */
 export const proposalDisposition = async (tenantId: string, id: string): Promise<TerminalDisposition | null> => !tenantId || !id ? null : (await rowById(tenantId, id).catch(() => null))?.terminal_disposition ?? null;
 
-export async function loadChangeProposal(tenantId: string, id: string, opts: { retired?: "include" } = {}): Promise<ChangeProposal | null> {
+export async function loadChangeProposal(tenantId: string, id: string, opts: { retired?: "include"; canonicalOnly?: true } = {}): Promise<ChangeProposal | null> {
   if (!tenantId || !id) return null;
   try {
     const row = await rowById(tenantId, id);
     if (row) return row.terminal_disposition == null || opts.retired === "include" ? decode(row.payload) : null;
-    return decode((await readLegacy(tenantId, 1, id))[0]?.content ?? null);
+    return opts.canonicalOnly ? null : decode((await readLegacy(tenantId, 1, id))[0]?.content ?? null);
   } catch (e) { log.error("[proposal-store] load threw", { id, error: e instanceof Error ? e.message : String(e) }); return null; }
 }
 

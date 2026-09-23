@@ -33,7 +33,6 @@ const snapshot = (s: (typeof SITES)[number], titles: readonly string[]): Evidenc
   research: { ...emptyResearchEvidence(), serpEvidence: [{ query: s.q, observedAt: "2026-09-05T00:00:00.000Z", organic: titles.map((title, i) => ({ rank: i + 1, domain: `rival-${i + 1}.example`, url: `https://rival-${i + 1}.example/x`, title })), aiOverview: [], aiMode: [], paa: [], related: [] }] } as never,
   ownedPages: [owned(s)] as never,
 } as never);
-
 /** The producer's own card, byte for byte the shape demand-recovery mints (producers/demand-recovery.ts:141). */
 const card = (s: (typeof SITES)[number], over: Partial<ChangeProposal> = {}): ChangeProposal => ({
   id: `${s.t}::${s.page}::existing_edit::demand_recovery`, tenantId: s.t, kind: "existing_edit", pagePath: s.page,
@@ -77,6 +76,8 @@ describe("the reading a settled row owes, through the pass that writes the row",
     expect([kept.obligation, (out.paid.evidenceOwed ?? []).map((n) => [n.kind, n.query, n.reasonCode])],
       "the row on file says which reading it is waiting on, and that reading reaches the one list the runtime's buy loops read")
       .toEqual([{ kind: "evidence", need: { kind: "competitor_page", query: s.q, reasonCode: "no_winner_to_read" } }, [...(s.unresolved ? [["page_source", s.q, "acquire_page_source"]] : []), ["competitor_page", s.q, "no_winner_to_read"]]]);
+    if (s.unresolved) { const owed = out.paid.evidenceOwed?.find((n) => n.kind === "page_source"), owner = store.rows.get(owed?.unlocks?.proposalId ?? ""); expect([owed?.unlocks, owner?.workKey, owner?.basis, owner?.obligation]).toEqual([{ proposalId: `${s.t}::${s.page}-two::existing_edit::ai_answer_gap`, step: "draft" }, owed?.workKey, "basis_rv2::d9", { kind: "evidence", need: { kind: "page_source", query: s.q, url: owed?.url, reasonCode: "acquire_page_source" } }]); }
+    else { const owed = out.paid.evidenceOwed?.find((n) => n.kind === "competitor_page"), owner = store.rows.get(owed?.unlocks?.proposalId ?? ""); expect([owed?.workKey, owner?.workKey, owner?.basis, owner?.obligation]).toEqual([owner?.workKey, owed?.workKey, "basis_rv2::d9", { kind: "evidence", need: { kind: "competitor_page", query: s.q, reasonCode: "no_winner_to_read" } }]); }
   });
 
   it.each(SITES)("$t: and two passes over the same evidence leave the row saying the same thing", async (s) => {

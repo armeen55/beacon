@@ -194,7 +194,6 @@ describe("a phase that throws after real work landed", () => {
     seedRun({ status: "paused", current_phase: "publish_surface", progress: { plan: { units: ["publish_surfaces"] } } });
     await runResearchCycle(T, { now, deadlineMs: 60_000, steps });
     const run = runs[runs.length - 1]!;
-
     expect([run.status, run.last_error?.phase], "the publication failing pauses the pass at its own phase with a bounded reason").toEqual(["paused", "publish_surface"]);
     expect(winnersOf().filter((w) => (w.extract?.mainText ?? "").length > 0).length, "and not one reading the earlier drive paid attention to is lost").toBe(readBefore);
   });
@@ -229,8 +228,9 @@ describe("the providers taking their real time", () => {
     advance(RR.RESEARCH_RUN_LEASE_SECONDS * 1000 + 1_000); script.latency = undefined; // the dead instance's lease runs out on its own, and the next tick claims the row
     const second = await drive(["replenish_ready"], "keyword_discovery");
     expect(meter.requests.filter((r) => r.kind === "page").slice(requests.page).every((r) => !priorPages.has(r.url)), "remaining coverage never rebuys a banked body or robots file").toBe(true);
+    const covered = winnersOf().filter((w) => w.appearances?.some((a) => a.query === QUERY)).slice(0, 5);
+    expect([covered.length, covered.every((w) => !!w.extract?.mainText && priorPages.has(w.url))], "all five relevant winner bodies were already banked before lease loss").toEqual([5, true]);
     expect([second.id, second.status, requestsOf("search") - requests.search, requestsOf("page") - requests.page, writersHired() - hired, await readyCopy()],
-      "the same row is resumed at the phase the lease was lost in and finished: no results page or previously read rival is bought again; four first-time HTTP requests finish the remaining top-five coverage and the landed copy needs no writer").toEqual([first.id, "completed", 0, 4, 0, WRITER.after]);
+      "the same row closes after its lease is recovered across the reporting-day boundary: the search and five relevant bodies are banked, so no page is fetched or writer hired again").toEqual([first.id, "completed", 0, 0, 0, WRITER.after]);
   }, 120_000);
-
 });
