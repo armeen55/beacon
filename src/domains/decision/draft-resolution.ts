@@ -141,9 +141,9 @@ const causalNeed = (card: ChangeProposal, page: OwnedPageEvidence, research: Evi
 /** A legacy meta redraft cannot describe a page whose only saved words are stale chrome. A fresh complete
  * capture can still be genuinely thin; then the existing body-and-meta evidence gates decide what to write. */
 const metaSource = (card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null | undefined, now: Date): EvidenceRequirement | null =>
-  card.recommendedChange.kind === "existing_edit" && card.recommendedChange.field === "meta" && (page.content?.wordCount ?? 0) < 40
+  card.recommendedChange.kind === "existing_edit" && card.recommendedChange.field === "meta" && ((page.content?.wordCount ?? 0) < 40 || (card.obligation?.kind === "redraft" && !!card.recommendedChange.before?.trim()))
   && !(body?.completeness === "complete" && body.version === "current" && isCurrent("owned_page", body.fetchedAt, now.getTime()))
-    ? { kind: "page_source", query: card.primaryQuery, url: card.pageUrl ?? page.url, proposalId: card.id, ownerVersion: confirmedVersion(card), reasonCode: "thin_meta_page_source_owed" } : null;
+    ? { kind: "page_source", query: card.primaryQuery, url: card.pageUrl ?? page.url, proposalId: card.id, ownerVersion: confirmedVersion(card), reasonCode: (page.content?.wordCount ?? 0) < 40 ? "thin_meta_page_source_owed" : "meta_page_source_owed" } : null;
 /** ONE public surface for what a draft's gain outcome IS and what to do about it: the refusal lines and their identity
  *  set, the deterministic next-step ladder, and the duplication reading a replacement is held to. One symbol, because
  *  every caller that needs one of these needs the others in the same breath. */

@@ -77,7 +77,7 @@ async function buyComparison(d: ResolvedDeps, state: FunnelState, want: FunnelIn
  *  held a week; a site that simply did not answer me is retried tomorrow. Without this memory the same dead URL was refetched on every single pass forever, because "403" and "not tried yet" looked alike. */
 const RETRY_MS: Record<WinnerReadOutcome["state"], number> = { robots_blocked: 30 * 86_400_000, provider_unavailable: 7 * 86_400_000, temporarily_unavailable: 86_400_000 };
 const readOutcomeAt = <S extends WinnerReadOutcome["state"]>(state: S, at: number) => ({ state, attemptedAt: new Date(at).toISOString(), retryAfter: new Date(at + RETRY_MS[state]).toISOString() });
-type OwnedRead = { held: OwnedPageReadOutcome[]; pause: string | null; acquired: boolean; attempted?: false };
+type OwnedRead = { held: OwnedPageReadOutcome[]; pause: string | null; acquired: boolean; attempted?: false; code?: "unchanged_incomplete" };
 const OWNED_WRITE_PAUSE = "The page was read, but its contents could not be saved, so it is not counted as read yet. The next visit will read it again.";
 
 /** A named debt settles only against the canonical durable capture, not a fetch or a stage transition. */
@@ -87,9 +87,11 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
   const authorizedRetry = PROOF_SPEND.activeFor(tenantId) === true && PROOF_SPEND.externalClosed(tenantId, { capability: "onpage_rendered_html", url: absolute }) === false;
   const due = (t: string): boolean => { const ms = Date.parse(t); return !Number.isFinite(ms) || now >= ms; };
   for (const o of held) { const k = canonicalUrlKey(o.url); if (due(o.retryAfter) || seen.has(k) || (authorizedRetry && k === key && o.state === "temporarily_unavailable")) continue; seen.add(k); kept.push(o); }
-  let captureProblem = false, priorWords = 0, unresolvedHash: string | null = null, latestCapture: Record<string, unknown> | null = null;
+  let captureProblem = false, readFailed = false, priorWords = 0, unresolvedHash: string | null = null, latestCapture: Record<string, unknown> | null = null;
   const settled = async (): Promise<boolean> => {
-    const body = await d.readOwnedBodies(tenantId, [url]).then((m) => m.get(key) ?? null).catch(() => null);
+    const misses = new Map<string, "no_capture" | "read_failed">(), rows = await d.readOwnedBodies(tenantId, [url], misses).catch(() => null), body = rows?.get(key) ?? null;
+    readFailed = !rows || misses.get(key) === "read_failed" || (!body && misses.get(key) !== "no_capture");
+    if (readFailed) return false;
     latestCapture = body?.captureStates?.find((row) => row.id === body.latestCaptureId) ?? null;
     captureProblem ||= body?.version === "stale_known_good" || body?.completeness === "partial";
     if (body && captureProblem) {
@@ -101,6 +103,7 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
       && isCurrent("owned_page", body.fetchedAt, d.now(), bustedAt);
   };
   if (await settled()) return { held: kept.filter((o) => canonicalUrlKey(o.url) !== key), pause: null, acquired: true };
+  if (readFailed) return { held: [{ url, ...readOutcomeAt("temporarily_unavailable", now) }, ...kept], pause: "The saved page capture could not be read; no source provider was called.", acquired: false, attempted: false };
   // Retry protection belongs to each URL. Ten unrelated failures cannot deny
   // an eleventh page, and admitting it must not evict an active hold.
   const heldForKey = kept.find((o) => canonicalUrlKey(o.url) === key);
@@ -114,40 +117,50 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
       || !Object.hasOwn(saved, "title") || !Object.hasOwn(saved, "h1") || !Object.hasOwn(saved, "meta_description")
       || capture?.version !== 1 || typeof capture.mainHtml !== "string" || !Array.isArray(capture.jsonLd))
       return { held: kept, pause: null, acquired: false, attempted: false };
-    let attempted = false;
+    let attempted = false, unchangedIncomplete = false;
     try { await renderUnreadOwnedPages(tenantId, 1, { url: absolute, deps: d, profile, deadline, bustedAt,
       rawSnapshot: saved as PageSnapshot, bankedAfter: heldForKey.attemptedAt,
+      onUnchangedIncomplete: () => { unchangedIncomplete = true; },
       onRead: (r, raw) => { attempted = raw.state === "hit" || raw.state === "ok" || raw.state === "error" && ["retry_free", "quarantined"].includes(raw.disposition); track(state, r); } }); }
-    catch { return { held: kept, pause: null, acquired: false, attempted: false }; }
+    catch { return attempted ? remember("temporarily_unavailable", RETRY_MS.provider_unavailable) : { held: kept, pause: null, acquired: false, attempted: false }; }
     if (await settled()) return { held: kept.filter((o) => canonicalUrlKey(o.url) !== key), pause: null, acquired: true };
+    if (readFailed) return { ...remember("temporarily_unavailable"), ...(attempted ? {} : { attempted: false as const }), pause: "The saved page capture could not be read after acquisition." };
+    if (unchangedIncomplete) return { held: kept, pause: null, acquired: false, ...(attempted ? {} : { attempted: false as const }), code: "unchanged_incomplete" };
     return attempted ? remember("temporarily_unavailable", RETRY_MS.provider_unavailable) : { held: kept, pause: null, acquired: false, attempted: false };
   }
   let res;
   try { res = await d.fetchPage(absolute, new Map(), { timeoutMs: Math.max(1, Math.min(10_000, (deadline - d.now()) / 2)) }); }
-  catch { return remember("temporarily_unavailable"); }
-  if (!res.ok) return remember(res.reason === "robots_blocked" ? "robots_blocked" : "temporarily_unavailable");
-  if (res.finalUrl && canonicalUrlKey(res.finalUrl) !== key) return remember("temporarily_unavailable");
+  catch { return { ...remember("temporarily_unavailable"), attempted: false }; }
+  if (!res.ok) return { ...remember(res.reason === "robots_blocked" ? "robots_blocked" : "temporarily_unavailable"), attempted: false };
+  if (res.finalUrl && canonicalUrlKey(res.finalUrl) !== key) return { ...remember("temporarily_unavailable"), attempted: false };
   const snapshot = extractPageSnapshot(res.html, absolute, pageIdFor(key), tenantId, res.status, profile ?? undefined, res.finalUrl);
   const latest = latestCapture as Record<string, unknown> | null, source = latest?.content_capture as typeof snapshot.content_capture;
   const unchanged = captureProblem && latest?.content_hash === snapshot.content_hash && latest.title === snapshot.title && latest.h1 === snapshot.h1
     && latest.meta_description === snapshot.meta_description && source?.mainHtml === snapshot.content_capture?.mainHtml
-    && JSON.stringify(source?.jsonLd) === JSON.stringify(snapshot.content_capture?.jsonLd);
+    && JSON.stringify(source?.jsonLd) === JSON.stringify(snapshot.content_capture?.jsonLd)
+    && source?.sourceRevision === snapshot.content_capture?.sourceRevision;
+  if (source?.sourceRevision === snapshot.content_capture?.sourceRevision && source?.renderedAttempt && snapshot.content_capture)
+    snapshot.content_capture.renderedAttempt = source.renderedAttempt;
   // Repeating the same raw shell does not corroborate a known missing rendered body.
   if (captureProblem && snapshot.content_capture && (snapshot.content_hash === unresolvedHash || (priorWords >= 100 && snapshot.word_count * 5 < priorWords * 3))) {
     snapshot.content_capture.complete = false; snapshot.extraction_certainty = "uncertain";
   }
   try { if (!unchanged) await d.writeOwnedPage(snapshot, tenantId); }
-  catch { return { ...remember("temporarily_unavailable"), pause: OWNED_WRITE_PAUSE }; }
+  catch { return { ...remember("temporarily_unavailable"), attempted: false, pause: OWNED_WRITE_PAUSE }; }
   if (await settled()) return { held: kept.filter((o) => canonicalUrlKey(o.url) !== key), pause: null, acquired: true };
+  if (readFailed) return { ...remember("temporarily_unavailable"), attempted: false, pause: "The saved page capture could not be read after the free fetch." };
   if (deadline - d.now() < 50_000) return { held: kept, pause: null, acquired: false, attempted: false };
-  let attempted = false;
+  let attempted = false, unchangedIncomplete = false;
   try {
-    await renderUnreadOwnedPages(tenantId, 1, { url: absolute, deps: d, profile, deadline, bustedAt, rawSnapshot: snapshot, onRead: (r, raw) => {
+    await renderUnreadOwnedPages(tenantId, 1, { url: absolute, deps: d, profile, deadline, bustedAt, rawSnapshot: snapshot,
+      onUnchangedIncomplete: () => { unchangedIncomplete = true; }, onRead: (r, raw) => {
       attempted = raw.state !== "capped" && raw.state !== "not_configured" && raw.state !== "waiting" && !(raw.state === "error" && ["none", "daily_limit"].includes(raw.disposition));
       track(state, r);
     } });
   } catch { return { ...remember("temporarily_unavailable", RETRY_MS.provider_unavailable), pause: "The rendered page could not be acquired or saved; the capture remains unresolved." }; }
   if (await settled()) return { held: kept.filter((o) => canonicalUrlKey(o.url) !== key), pause: null, acquired: true };
+  if (readFailed) return { ...remember("temporarily_unavailable"), ...(attempted ? {} : { attempted: false as const }), pause: "The rendered page capture could not be read back." };
+  if (unchangedIncomplete) return { ...remember("temporarily_unavailable", RETRY_MS.provider_unavailable), ...(attempted ? {} : { attempted: false as const }), code: "unchanged_incomplete" };
   return attempted ? remember("temporarily_unavailable", RETRY_MS.provider_unavailable) : { held: kept, pause: null, acquired: false, attempted: false };
 }
 
@@ -172,7 +185,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
         const owned = await readOwnedPage(d, tenantId, state.ownedReads ?? [], ownedUrl, deadline, profile, ownedBustedAt, state);
         state.ownedReads = owned.held;
         await save(d, tenantId, basis, state, ctx);
-        return { status: owned.acquired ? "done" : "failed", cursor: null, ...(owned.attempted === false ? { attempted: false as const } : {}),
+        return { status: owned.acquired ? "done" : "failed", cursor: null, ...(owned.attempted === false ? { attempted: false as const } : {}), ...(owned.code ? { code: owned.code } : {}),
           progress: { cacheHits: state.cycle.cacheHits, spendUsd: round(state.cycle.spentUsd) },
           detail: owned.pause ?? (owned.acquired ? "The requested page has a current complete capture on file." : "The requested page still lacks a current complete capture; its retry remains on file.") };
       }

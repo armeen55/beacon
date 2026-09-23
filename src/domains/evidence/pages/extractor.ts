@@ -276,6 +276,10 @@ export function extractPageSnapshot(
   captureRoom -= heldMain.length;
   const heldJsonLd = jsonLd.filter((block) => { if (block.length > captureRoom) return false; captureRoom -= block.length; return true; });
   const contentCapture = { version: 1 as const, mainHtml: heldMain, jsonLd: heldJsonLd, complete: !clientShell && heldMain === mainHtml && heldJsonLd.length === jsonLd.length };
+  // Source revision includes observed client assets, so an unchanged shell cannot fund repeated rendered tasks.
+  const assets = $("script[src],link[rel=stylesheet][href],link[rel=modulepreload][href]").toArray()
+    .map((el) => $(el).attr("src") ?? $(el).attr("href") ?? "").filter(Boolean);
+  const sourceRevision = hash(JSON.stringify([title, metaDescription, mainHtml, jsonLd, assets]));
   let faqRoom = BODY_TEXT_CEILING;
   for (const f of faqs) if (f.answer_text !== undefined) {
     const answer = f.answer_text;
@@ -353,7 +357,7 @@ export function extractPageSnapshot(
     // absent column means a pre-2026-08-03 sample-era row, so writing undefined here made a
     // genuinely empty page indistinguishable from one we never held whole.
     body_text: bodyTextHeld,
-    content_capture: contentCapture,
+    content_capture: { ...contentCapture, sourceRevision },
     body_paragraph_sample:
       bodyParagraphSample.length > 0 ? bodyParagraphSample : undefined,
     card_texts: cardTexts.length > 0 ? cardTexts : undefined,

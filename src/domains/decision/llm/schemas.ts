@@ -73,6 +73,8 @@ const AtomicEditDraftSchema = z.object({
   placementId: z.string().max(400).default(""),
   naturalHeading: z.string().max(160).nullable().default(null),
   claims: z.array(z.object({ text: z.string().min(1).max(400), supportedBy: z.array(z.string().min(1).max(80)).max(8).default([]) })).max(10).default([]),
+  preservation: z.array(z.object({ text: z.string().min(1), disposition: z.enum(["kept", "corrected", "removed", "moved"]),
+    why: z.string().optional(), to: z.string().optional(), basis: z.enum(["duplicate_of", "replaced_by", "unsupported", "obsolete", "owner_confirmed"]).optional(), by: z.array(z.string()).optional() })).default([]),
   implementationMinutes: z.number().int().min(0).max(600).default(0),
   ...base,
 });
@@ -80,9 +82,6 @@ const BodyEditDraftSchema = AtomicEditDraftSchema.omit({ before: true, after: tr
   field: z.enum(["answer_block", "section"]),
   units: PublicationUnitsSchema,
   claims: z.array(AtomicEditDraftSchema.shape.claims.unwrap().element).default([]),
-  preservation: z.array(z.object({ text: z.string().min(1), disposition: z.enum(["kept", "corrected", "removed", "moved"]),
-    why: z.string().optional(), to: z.string().optional(),
-    basis: z.enum(["duplicate_of", "replaced_by", "unsupported", "obsolete", "owner_confirmed"]).optional(), by: z.array(z.string()).optional() })).default([]),
 });
 export type AtomicEditDraft = z.infer<typeof AtomicEditDraftSchema> & Pick<import("../contracts").ChangeProposal, "preservation"> & { units?: z.infer<typeof PublicationUnitsSchema> };
 

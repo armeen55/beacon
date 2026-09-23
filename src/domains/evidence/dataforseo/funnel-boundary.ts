@@ -278,7 +278,7 @@ export type FunnelUnitOutcome = {
    *  conflict: the research notes moved underneath this writer, so NOTHING was
    *  persisted and these counters are a stale snapshot (the per-run receipt reads
    *  zero). Runtime decides on this CODE and never parses the customer copy. */
-  code?: "state_conflict";
+  code?: "state_conflict" | "unchanged_incomplete";
 };
 
 /** Runtime injects the account's CURRENT onboarding basis into the cursor as

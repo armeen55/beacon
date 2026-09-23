@@ -131,7 +131,8 @@ export type PageSnapshot = {
    *  snapshots, which is exactly what marks them as sample-era captures. */
   body_text?: string;
   /** Observed source markup and JSON-LD, never publication copy or rendered-visibility certification. */
-  content_capture?: { version: 1; mainHtml: string; jsonLd: string[]; complete: boolean };
+  content_capture?: { version: 1; mainHtml: string; jsonLd: string[]; complete: boolean; sourceRevision?: string;
+    renderedAttempt?: { sourceRevision: string; revision: string; cacheKey: string; taskId: string; outcome: "unchanged_incomplete" } };
   /** Ordered main-content excerpt, pulled from <main>/<article> (fallback:
    *  <body> minus <nav>/<footer>/<header>/<aside>). Cap 20 entries x 300
    *  chars each (~6k chars total, N19 2026-07-02, was 10x300/~3k under

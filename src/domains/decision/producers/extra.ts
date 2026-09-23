@@ -115,7 +115,7 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
 /** THE FINDING A SWEEP CARD ALREADY MADE, SAID IN THE LADDER'S OWN WORDS (operator, 2026-09-04). Thirty-two live descriptions were minted off a named defect in the page's own line and carried no cause at all: the detail page printed "No cause is named for it yet" over a finding the card's own headline states, and the wording gate went on holding every replacement "until a diagnosis names what is wrong with the current description" while that diagnosis sat unsaid in the same object. NO NEW VOCABULARY, because none is needed: a description missing or repeated across siblings IS the line Google displays for the page, a page missing what every winner covers IS incomplete coverage, and a page nothing links to IS where a reader gets sent next. `evidenceKeys` name the readings the card was actually made from. */
 const structural = (cause: CauseFinding["cause"], action: CauseFinding["action"], evidenceKeys: string[], explanation: string, falsifier: string): CauseFinding => ({ cause, action, evidenceKeys, competingExplanations: [], notConsidered: [], explanation, falsifier });
 /** 3. THE THREE DEFECTS WORTH A SWEEP, ONE CARD PER PAGE. A card that fixes one page and then says "repeat on nine more" cannot be done in one sitting, marked done, or measured, so each page with the defect gets its own card and figures and the class total rides along as context. */
-function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, expectedCtrAt: (position: number) => number, bodies: ReadonlyMap<string, OwnedPageBody>): Draft[] {
+function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, expectedCtrAt: (position: number) => number, bodies: ReadonlyMap<string, OwnedPageBody>, now: Date): Draft[] {
   const impressions = (p: OwnedPageEvidence): number => p.search?.impressions90d ?? 0; /** A ZERO SUPPRESSES THE CLAUSE THAT RANKS IT (rendered app, 2026-09-05). A live description read "20 pages carry the same templated description ... and /california-persian-cities/berkeley is the busiest of them at 0 impressions in 90 days", which calls a page the busiest and then prints the figure that says it is not. A superlative is a claim about a figure, so where the figure is zero the claim is dropped and the sentence that survives is the one the evidence carries. */ const ranked = (p: OwnedPageEvidence): string => impressions(p) > 0 ? `, and ${pathOf(p.url)} is the busiest of them at ${count(impressions(p), "impression")} in 90 days` : "";
   const rank = (list: OwnedPageEvidence[]): OwnedPageEvidence[] => [...list].sort((a, b) => impressions(b) - impressions(a) || pathOf(a.url).localeCompare(pathOf(b.url)));
   const byIdentity = new Map<string, OwnedPageEvidence>();
@@ -129,7 +129,24 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     return shops.some((d) => STORE_FIRST.test(d)) || shops.length >= 2;
   };
   const out: Draft[] = [];
-  const noMeta = rank(pages.filter((p) => !p.content?.metaDescription?.trim() && (p.content?.wordCount ?? 0) >= READABLE_WORDS)); /* A PAGE WITH NO READABLE WORDS CANNOT BE DESCRIBED (2026-09-17): /persian-kabobs/joojeh-kabob holds seven words of chrome ("top of page < Back Joojeh Kabob Previous Next"), and the writer was paid twice to describe it, producing "the page names Joojeh Kabob, with no added description"; it joins the unread pages below until a rendered read lands */
+  const wrongSubject = (p: OwnedPageEvidence): { before: string; named: string; actual: string } | null => {
+    const b = bodies.get(canonicalUrlKey(p.url));
+    if (!b || b.version !== "current" || b.completeness !== "complete" || b.sourceCapture?.complete !== true || !isCurrent("owned_page", b.fetchedAt, now.getTime())) return null;
+    const actual = (b.h1 ?? "").replace(/\s*\([^)]*\).*/, "").trim(), title = (b.title ?? "").toLowerCase(), before = (b.metaDescription ?? "").trim();
+    const named = /^([^:]{5,80}):/.exec(before)?.[1]?.replace(/\s+(?:in|of|for)\s+.+$/i, "").trim() ?? "";
+    const words = (s: string): string[] => s.toLowerCase().match(/[a-z]{3,}/g) ?? [], a = words(actual), n = words(named), bodyText = b.passages.join(" ").toLowerCase();
+    return a.length >= 2 && n.length >= 2 && a.at(-1) === n.at(-1) && a[0] !== n[0] && title.includes(actual.toLowerCase()) && bodyText.includes(actual.toLowerCase()) && !bodyText.includes(named.toLowerCase()) && !bodyText.includes(n[0]!) ? { before, named, actual } : null;
+  };
+  const wrong = new Map(rank(pages).flatMap((p) => { const proof = wrongSubject(p); return proof ? [[canonicalUrlKey(p.url), proof] as const] : []; }));
+  for (const p of rank(pages.filter((p) => wrong.has(canonicalUrlKey(p.url))))) { const proof = wrong.get(canonicalUrlKey(p.url))!;
+    out.push({ page: p, slug: "missing_description", field: "meta", query: topQueryOf(p), before: proof.before,
+      headline: `Correct the search description that names ${proof.named} instead of ${proof.actual}`,
+      after: `Replace the exact current description with one standalone sentence about ${proof.actual}, using only facts in this page's complete article.`,
+      why: `The current description names ${proof.named}, but this page's title, heading and article name ${proof.actual}; ${count(impressions(p), "search impression")} in 90 days may show that mismatch.`,
+      steps: [], hints: [proof.before, `Current article heading: ${proof.actual}`], minutes: 2, confidence: "high", refs: 2, impact: null,
+      limitation: "The replacement may describe only the current article; the wrong subject's claims and any old proposed copy are not evidence.",
+      cause: structural("ctr_snippet", "meta", [RECEIPT.copy], `The description names ${proof.named} while the current article is about ${proof.actual}.`, `A current complete article that actually covers ${proof.named} would not justify this correction.`) }); }
+  const noMeta = rank(pages.filter((p) => !wrong.has(canonicalUrlKey(p.url)) && !p.content?.metaDescription?.trim() && (p.content?.wordCount ?? 0) >= READABLE_WORDS)); /* A PAGE WITH NO READABLE WORDS CANNOT BE DESCRIBED (2026-09-17): /persian-kabobs/joojeh-kabob holds seven words of chrome ("top of page < Back Joojeh Kabob Previous Next"), and the writer was paid twice to describe it, producing "the page names Joojeh Kabob, with no added description"; it joins the unread pages below until a rendered read lands */
   for (const p of noMeta) out.push({
     page: p, slug: "missing_description", field: "meta", query: topQueryOf(p),
     headline: "A search description of this page's own, where Google is writing one for it today", before: null,
@@ -150,7 +167,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     if (skeleton.length > 40) boilerplate.set(skeleton, [...(boilerplate.get(skeleton) ?? []), p]);
   }
   const templated = [...boilerplate.values()].filter((g) => g.length >= 5);
-  for (const p of rank(templated.flat())) { // the meter is DELETED (operator, 2026-08-30): every page sharing the template gets its card
+  for (const p of rank(templated.flat()).filter((p) => !wrong.has(canonicalUrlKey(p.url)))) { // the meter is DELETED (operator, 2026-08-30): every page sharing the template gets its card
     const family = templated.find((g) => g.includes(p))!.length;
     out.push({
       page: p, slug: "missing_description", field: "meta", query: topQueryOf(p), minutes: 3, confidence: "low", refs: family, impact: recoverableClicks(p, expectedCtrAt),
@@ -290,7 +307,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
     .then((m) => m.loadGscQueryUniverse(tenantId, now)).catch(() => null);
   const cases = await aiCaseCards(bank, snapshot, pages, weak, earned, children, u, tenantId, input.units ?? [], windowObs, now, input.persist !== false, meter, universe?.keys ?? null, written, input.focusPage);
   const drafts = [...cases.drafts,
-    ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt, currentBodies), ...unansweredCards(snapshot, pages, expectedCtrAt, { bodies: currentBodies, misses, facts, written, basis: input.basis ?? null, tenantId })]; // LAST, so an AI case about the same question keeps it: one question is one card
+    ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt, currentBodies, now), ...unansweredCards(snapshot, pages, expectedCtrAt, { bodies: currentBodies, misses, facts, written, basis: input.basis ?? null, tenantId })]; // LAST, so an AI case about the same question keeps it: one question is one card
   const out: ChangeProposal[] = [];
   const answered = new Set<string>();
   for (const d of drafts) {

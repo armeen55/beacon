@@ -34,7 +34,7 @@ function preservationShortfall(p: PreservationRow, qualified: boolean, losses: r
     } return rootIsComponent ? null : preservationShortfall({ ...p, bundle: undefined, preservation: rootLedger, editor: p.editor ? { ...p.editor, preservation: p.editor.preservation?.filter((r) => !r.of) } : undefined }, qualified, losses, publication);
   }
   const c = p.recommendedChange; if (c.kind !== "existing_edit" || !c.before?.trim() || renderedText(c.before) === renderedText(c.after)) return null;
-  const body = c.field === "section" || c.field === "answer_block", { units, ledger, byRecord, cites, lands } = unitLedger(p, qualified, publication);
+  const body = c.field === "section" || c.field === "answer_block", due = body ? [] : losses.length ? losses : materialLosses({ ...p, pagePath: "" }), { units, ledger, byRecord, cites, lands } = unitLedger(p, qualified, publication, due);
   if (body && units.length <= 1 && p.changeFamily === "factual_correction") return null; /* A ONE-LINE CORRECTION OWES NO PER-UNIT LEDGER (Stage 3, 2026-09-14): the before is one unit and the replacement is its disposition, proved by the claim ruling against the fact ids it names; a title, a description and a heading owe none either, only the earning words `losses` carries */
   const entryFor = (text: string) => { const entries = ledger.filter((u) => renderedText(u.text) === renderedText(text)); return entries.length === 1 ? entries[0] : undefined; };
   const unverified = (u: Unit): string | null => {
@@ -51,13 +51,13 @@ function preservationShortfall(p: PreservationRow, qualified: boolean, losses: r
     return proved ? null : "removes material without a basis this door can check";
   };
   for (const u of ledger) { const bad = unverified(u); if (bad) return `it ${bad}: "${u.text.slice(0, 60)}"`; }
-  const required = body ? units.filter(losable) : losses.filter(losable);
+  const required = body ? units.filter(losable) : due.filter(losable);
   for (const text of required) if (!carriesUnit(text, c.after)) { const entry = entryFor(text), bad = entry ? unverified(entry) : "neither says it nor accounts for it: every original unit needs its own preservation disposition"; if (bad) return `it replaces a passage saying "${text.slice(0, 60)}" and ${bad}`; }
   return body && (c.where ?? "").includes("absorbs the duplicated entries") && !ledger.length ? "it says it absorbs the entries below it without naming one of them" : null;
 }
 /** WHAT THE RECORD ALONE PROVES ABOUT EACH LEDGER ENTRY, shared by the door that refuses and the prompt that asks: null when proved (a literal keep, a move or a duplicate removal whose destination carries the exact words, an owner-confirmed removal, a correction on a correction row that names its facts), a refusal in the reader's words, or RULING when only the reviewer can say (a nonliteral keep, a correction, a removal that stands on a fact). The reviewer is then asked for exactly that residue and nothing else. */
-function unitLedger(p: PreservationRow, qualified: boolean, publication: readonly BundleComponent[]) {
-  const c = p.recommendedChange as Extract<ChangeProposal["recommendedChange"], { kind: "existing_edit" }>, units = COPY_RULES.originalUnits(c.before ?? ""), ledger = p.preservation ?? [], banked = new Set((p.supportFacts ?? []).map((f) => f.id));
+function unitLedger(p: PreservationRow, qualified: boolean, publication: readonly BundleComponent[], losses: readonly string[] = []) {
+  const c = p.recommendedChange as Extract<ChangeProposal["recommendedChange"], { kind: "existing_edit" }>, units = [...new Set([...COPY_RULES.originalUnits(c.before ?? ""), ...losses])], ledger = p.preservation ?? [], banked = new Set((p.supportFacts ?? []).map((f) => f.id));
   const cites = (u: { by?: readonly string[] }): boolean => !!u.by?.length && u.by.every((id) => banked.has(id) && !COPY_RULES.briefing.test(id));
   const placeOf = (u: { to?: string }) => { const places = COPY_RULES.destinations([u], publication).filter(({ part }) => COPY_RULES.bodyKinds.has(part.kind)); return places.length === 1 ? places[0]!.part : null; };
   const lands = (u: { text: string; to?: string }, quote: string): boolean => { const part = placeOf(u); if (!part) return false;
@@ -72,7 +72,7 @@ function unitLedger(p: PreservationRow, qualified: boolean, publication: readonl
   return { units, ledger, byRecord, cites, lands };
 }
 /** THE UNITS THE REVIEWER MUST RULE ON, numbered in the prompt: every ledger entry the record cannot prove or refuse by itself. Empty means the reviewer owes no preservation ruling at all. */
-const preservationResidue = (p: PreservationRow, publication: readonly BundleComponent[] = []): Unit[] => { const c = p.recommendedChange; if (c.kind !== "existing_edit" || !c.before?.trim() || (c.field !== "section" && c.field !== "answer_block")) return []; const { units, ledger, byRecord } = unitLedger(p, true, publication); return units.length <= 1 && p.changeFamily === "factual_correction" ? [] : ledger.filter((u) => byRecord(u) === RULING); };
+const preservationResidue = (p: PreservationRow, publication: readonly BundleComponent[] = []): Unit[] => { const c = p.recommendedChange; if (c.kind !== "existing_edit" || !c.before?.trim()) return []; const body = c.field === "section" || c.field === "answer_block", { units, ledger, byRecord } = unitLedger(p, true, publication, body ? [] : materialLosses({ ...p, pagePath: "" })); return body && units.length <= 1 && p.changeFamily === "factual_correction" ? [] : ledger.filter((u) => byRecord(u) === RULING); };
 
 const UUID = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\.\.\.)?\b/i;
 

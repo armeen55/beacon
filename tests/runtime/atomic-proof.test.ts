@@ -9,8 +9,8 @@ type Deps = NonNullable<Parameters<typeof atomicProof.finishPage>[1]>;
 const template = { id: input.proposalId, tenantId, basis: "basis", pageUrl: "kiln.example/studio-kilns", primaryQuery: "studio kilns", workKey: "kiln-work", status: "needs_review", changeFamily: "answer_block", limitations: [], recommendedChange: { kind: "existing_edit", field: "section", after: "original" } } as unknown as ChangeProposal;
 const produced = (rows: ChangeProposal[]) => ({ proposals: rows, outcome: "proposals_persisted", paid: { receipts: [], evidenceOwed: [] }, held: [] }) as unknown as Awaited<ReturnType<typeof produceProposalsForTenant>>;
 describe("one paused page proof uses canonical production without renewing its budget", () => {
-  it.each(["ready", "authorized", "authorized_used", "malformed_authorization", "provider_missing", "old_ready", "foreign", "wrong_site", "capture_failed", "no_wire", "ambiguous", "unqualified", "admission_used", "boxed", "unreadable", "failed_gsc", "failed_pages", "failed_snapshot", "source_ready", "source_unused", "source_failed", "source_mismatch", "source_foreign", "source_deadline", "source_repeat", "source_paused", "source_providerheld", "source_work_changed"])("reports %s from durable readback and keeps paid admission", async (outcome) => {
-    const candidate = structuredClone(template), ready = { ...candidate, status: "ready" } as ChangeProposal;
+  it.each(["ready", "meta_ready", "authorized", "authorized_used", "malformed_authorization", "provider_missing", "old_ready", "foreign", "wrong_site", "capture_failed", "no_wire", "ambiguous", "unqualified", "admission_used", "boxed", "unreadable", "failed_gsc", "failed_pages", "failed_snapshot", "source_ready", "source_unused", "source_failed", "source_mismatch", "source_foreign", "source_deadline", "source_repeat", "source_paused", "source_providerheld", "source_work_changed"])("reports %s from durable readback and keeps paid admission", async (outcome) => {
+    const candidate = structuredClone(template); if (outcome === "meta_ready") Object.assign(candidate, { changeFamily: "meta", recommendedChange: { kind: "existing_edit", field: "meta", before: "Wrong subject", after: "Right subject" } }); const ready = { ...candidate, status: "ready" } as ChangeProposal;
     const source = outcome.startsWith("source_"), rivalUrl = "https://authority.example/kilns";
     const need = { kind: "factual_source" as const, key: DRAFT_BUDGET.keyOf(candidate), query: candidate.primaryQuery, url, proposalId: candidate.id, unlocks: { proposalId: candidate.id, step: "draft" as const }, workKey: candidate.workKey!, reason: "missing comparison", reasonCode: "source_support_unconfirmed" as const, missingTopic: "kiln insulation", rivalUrl, rivalUrls: [rivalUrl], delivery: "existing_page_edit" as const };
     let paid = 0, clock = Date.now(), acquired = 0, admitted = false;
@@ -32,7 +32,7 @@ describe("one paused page proof uses canonical production without renewing its b
       return { acquired: outcome !== "capture_failed", detail: "canonical capture" };
     });
     const produce = vi.fn<NonNullable<Deps["produce"]>>(async (_t, options = {}) => {
-      expect([options.focusPage, options.deliveryScope, options.maxDrafts]).toEqual([url, "existing_page_edits", 1]);
+      expect([options.focusPage, options.preferred, options.deliveryScope, options.maxDrafts]).toEqual([url, { proposalId: candidate.id, workKey: candidate.workKey, strict: true }, "existing_page_edits", 1]);
       paid += 1;
       expect([options.maxCalls, options.aeoDiagnoses, options.persist]).toEqual([paid === 1 ? 8 : 6, paid === 1 ? 1 : 0, true]);
       expect(PROOF_SPEND.authorize(tenantId, "model", 0.1)).toBe(false);
@@ -60,7 +60,7 @@ describe("one paused page proof uses canonical production without renewing its b
       acceptable: (row) => row?.status === "ready", bodies: async () => new Map(), clock: () => clock,
       acquire, produce,
       spend: { reserve, claimTransmission: claim, release, reconcile } as unknown as NonNullable<Parameters<typeof atomicProof.finishPage>[1]>["spend"],
-    };
+    }; if (outcome === "meta_ready") delete deps.substantive;
     const withAuth = ["authorized", "authorized_used"].includes(outcome), result = await atomicProof.finishPage({ ...input, ...(withAuth ? { authorizationId: AUTH } : outcome === "malformed_authorization" ? { authorizationId: "not-a-uuid" } : {}) }, deps);
     if (outcome === "authorized") { paid = 0; const replay = await atomicProof.finishPage({ ...input, authorizationId: AUTH }, deps); expect([replay.reason, reserve.mock.calls.length, produce.mock.calls.length]).toEqual(["proof_admission_replayed", 2, 1]); }
     if (source) {
@@ -71,7 +71,7 @@ describe("one paused page proof uses canonical production without renewing its b
       expect(result.evidenceOwed).toHaveLength(outcome === "source_ready" ? 0 : 1);
       expect(reconcile).toHaveBeenCalledTimes(1); expect(release).not.toHaveBeenCalled(); return;
     }
-    expect(result.success).toBe(outcome === "ready" || outcome === "authorized");
+    expect(result.success).toBe(["ready", "meta_ready", "authorized"].includes(outcome));
     expect(produce).toHaveBeenCalledTimes(["wrong_site", "capture_failed", "no_wire", "ambiguous", "admission_used", "authorized_used", "malformed_authorization", "provider_missing", "boxed", "unreadable"].includes(outcome) || outcome.startsWith("failed_") ? 0 : 1);
     if (["admission_used", "authorized_used", "malformed_authorization", "provider_missing", "boxed", "wrong_site", "unreadable"].includes(outcome) || outcome.startsWith("failed_")) {
       expect(acquire).not.toHaveBeenCalled(); expect(claim).not.toHaveBeenCalled();

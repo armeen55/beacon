@@ -1,5 +1,6 @@
 import "server-only";
 import { syncPageSnapshots } from "@/lib/persistence/dual-write";
+import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 
 /** funnel/shared: the injected deps and boundary plumbing every executor reuses. The registry owns provider paths, costs and models, so this file
  *  carries no endpoint, cost or model map: executors name a CAPABILITY, hand the boundary a public input and parse the typed envelope back. State
@@ -65,6 +66,8 @@ export type FunnelDeps = {
   writeOwnedPage?: (snapshot: PageSnapshot, tenantId: string) => Promise<void>;
   /** THE canonical read back of that same row, so a body I already hold is never re-fetched from the customer's website. */
   readOwnedBodies?: typeof loadOwnedPageBodies;
+  /** Durable negative receipt, scoped to one owned page and observed source revision. A failed read must throw before any paid fallback. */
+  readIncompleteAttempt?: (tenantId: string, pageId: string, sourceRevision: string, revision: string) => Promise<(NonNullable<NonNullable<PageSnapshot["content_capture"]>["renderedAttempt"]> & { fetchedAt: string }) | null>;
   keywordIdeas?: (seeds: string[], ids: { tenantId: string; unitKey: string }) => Promise<CachedCallResult[]>;
   loadState?: (tenantId: string, basisTag: string) => Promise<LoadedFunnelState>;
   saveState?: (tenantId: string, basisTag: string, state: FunnelState, expectedRowVersion: number) => Promise<number | null>;
@@ -91,6 +94,16 @@ export function resolveDeps(deps: FunnelDeps) {
     fetchPage: deps.fetchPage ?? fetchPageHtml,
     writeOwnedPage: deps.writeOwnedPage ?? ((snapshot: PageSnapshot, tenantId: string) => syncPageSnapshots([snapshot], tenantId)),
     readOwnedBodies: deps.readOwnedBodies ?? loadOwnedPageBodies,
+    readIncompleteAttempt: deps.readIncompleteAttempt ?? (async (tenantId: string, pageId: string, sourceRevision: string, revision: string) => {
+      const { data, error } = await getSupabaseAdmin().from("page_snapshots").select("id,fetched_at,content_capture")
+        .eq("tenant_id", tenantId).eq("page_id", pageId).contains("content_capture", { renderedAttempt: { sourceRevision, revision, outcome: "unchanged_incomplete" } })
+        .order("fetched_at", { ascending: false }).limit(1);
+      if (error || !Array.isArray(data)) throw new Error(`incomplete rendered receipt could not be read: ${error?.message ?? "unknown result"}`);
+      const marker = (data[0]?.content_capture as PageSnapshot["content_capture"] | undefined)?.renderedAttempt;
+      if (data.length && (!marker?.cacheKey || !marker.taskId || marker.sourceRevision !== sourceRevision || marker.revision !== revision || marker.outcome !== "unchanged_incomplete" || typeof data[0]?.fetched_at !== "string"))
+        throw new Error("incomplete rendered receipt is malformed");
+      return marker ? { ...marker, fetchedAt: data[0]!.fetched_at as string } : null;
+    }),
     loadState: deps.loadState ?? loadFunnelState,
     saveState: deps.saveState ?? saveFunnelState,
     now: deps.now ?? Date.now,

@@ -68,7 +68,7 @@ async function run(input: Input, deps: Deps = DEPS) {
 }
 const PAGE_DEPS = { ...DEPS, produce: produceProposalsForTenant, acquire: defaultSteps.acquireEvidence, list: loadChangeProposals, snapshot: loadEvidenceSnapshot,
   bodies: loadOwnedPageBodies, account: getTenant, basis: defaultSteps.currentBasis, clock: Date.now,
-  substantive: (row: ChangeProposal) => writerKindOf(row) === "answer" && row.changeFamily !== "factual_correction" };
+  substantive: (row: ChangeProposal) => writerKindOf(row) === "answer" && row.changeFamily !== "factual_correction" || writerKindOf(row) === "description" && row.recommendedChange.kind === "existing_edit" && row.recommendedChange.field === "meta" };
 type PageInput = Omit<Input, "now"> & { maxDataForSeoCalls: number; maxDataForSeoUsd: number; authorizationId?: string };
 
 async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS> = {}) {
@@ -101,7 +101,7 @@ async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS>
     target.hash = ""; page = target.href;
   } catch { return result(false, "candidate_is_not_owned_page"); }
   const pageKey = canonicalUrlKey(page), samePage = (p: ChangeProposal) => p.tenantId === tenantId && canonicalUrlKey(p.pageUrl ?? "") === pageKey;
-  const base = { focusPage: page, deliveryScope: "existing_page_edits" as const, produce: true, maxDrafts: 1, stopBy };
+  const base = { focusPage: page, preferred: { proposalId: row.id, workKey: row.workKey!, strict: true as const }, deliveryScope: "existing_page_edits" as const, produce: true, maxDrafts: 1, stopBy };
   const snapshot = await runWithoutSpending(() => d.snapshot(tenantId)).catch(() => null);
   if (!snapshot || snapshot.sources.some((s) => (s.source === "gsc" || s.source === "wix") && s.status === "failed")) return result(false, "saved_evidence_unreadable");
   const savedRows = await d.list(tenantId, { failClosed: true }).catch(() => null);
@@ -133,7 +133,7 @@ async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS>
           output = await d.produce(tenantId, { ...base, shared, persist: true, maxCalls: Math.max(0, 8 - (PROOF_SPEND.meter(tenantId)?.modelCalls ?? 8)), aeoDiagnoses });
           receipts.push(...output.paid.receipts);
           if (output.persisted > 0) for (const key of shared.keys()) if (key.startsWith("proposals:") || key.startsWith("cards:")) shared.delete(key);
-          for (const proposal of output.proposals.filter((p) => samePage(p) && d.substantive(p) && already.get(p.id) !== d.version(p))) {
+          for (const proposal of output.proposals.filter((p) => p.id === proposalId && samePage(p) && d.substantive(p) && already.get(p.id) !== d.version(p))) {
             const saved = await d.load(tenantId, proposal.id);
             if (saved && samePage(saved) && saved.basis === currentBasis && d.substantive(saved) && d.acceptable(saved)) { stored = saved; success = true; break; }
           }

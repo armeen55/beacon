@@ -8,6 +8,8 @@ export type SupabaseFakeOptions = { rows: (table: string) => Row[]; error?: (tab
   /** Every SELECT this fake runs, so a test can prove a reader asked for a BOUNDED page and never the lot. */
   onSelect?: (table: string, read: { max: number; head: boolean; cols: string; inBytes: number }) => void };
 export function supabaseFake(o: SupabaseFakeOptions) {
+  const contains = (have: unknown, want: unknown): boolean => want !== null && typeof want === "object" && !Array.isArray(want)
+    ? Object.entries(want).every(([k, v]) => contains((have as Row | null)?.[k], v)) : Object.is(have, want);
   const same = o.same ?? ((stored: Row, sent: Row) => stored.id === sent.id);
   const from = (table = "") => {
     const tests: ((r: Row) => boolean)[] = [];
@@ -47,6 +49,7 @@ export function supabaseFake(o: SupabaseFakeOptions) {
       order: (c: string, x?: { ascending?: boolean }) => { orders.push([c, x?.ascending !== false]); return q; },
       limit: (n: number) => { max = n; return q; }, range: (a: number, z: number) => { first = a; max = z - a + 1; return q; },
       eq: (c: string, v: unknown) => where((r) => (r[c] ?? null) === v), is: (c: string, v: unknown) => where((r) => (r[c] ?? null) === v),
+      contains: (c: string, v: Record<string, unknown>) => where((r) => contains(r[c], v)),
       not: (c: string, op: string, v: unknown) => op === "is" ? where((r) => (r[c] ?? null) !== v) : q,
       in: (c: string, vs: readonly unknown[]) => {
         inBytes += new URLSearchParams({ [c]: `in.(${vs.map((v) => JSON.stringify(v)).join(",")})` }).toString().length;

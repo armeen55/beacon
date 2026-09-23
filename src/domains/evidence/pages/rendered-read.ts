@@ -47,7 +47,7 @@ async function unreadOwnedPages(tenantId: string, d: ResolvedDeps, cap: number):
 /** A provider DOM is evidence only after canonical extraction and durable readback. No text-to-HTML fabrication. */
 export async function renderUnreadOwnedPages(tenantId: string, cap = RENDERED_READS_PER_PASS, options: {
   url?: string; deps?: FunnelDeps; profile?: BusinessProfile | null; deadline?: number; bustedAt?: string | null; bankedAfter?: string;
-  rawSnapshot?: PageSnapshot; onRead?: (result: Interp, raw: CachedCallResult) => void;
+  rawSnapshot?: PageSnapshot; onRead?: (result: Interp, raw: CachedCallResult) => void; onUnchangedIncomplete?: () => void;
 } = {}): Promise<number> {
   if (cap <= 0) return 0;
   const d = resolveDeps(options.deps ?? {}), deadline = options.deadline ?? d.now() + 90_000;
@@ -59,7 +59,8 @@ export async function renderUnreadOwnedPages(tenantId: string, cap = RENDERED_RE
   let landed = 0;
   for (const url of targets) {
     if (deadline - d.now() < 50_000) break;
-    const key = canonicalUrlKey(url), before = (await d.readOwnedBodies(tenantId, [url])).get(key);
+    const key = canonicalUrlKey(url), beforeMisses = new Map<string, "no_capture" | "read_failed">(), beforeRows = await d.readOwnedBodies(tenantId, [url], beforeMisses), before = beforeRows.get(key);
+    if (beforeMisses.get(key) === "read_failed" || (!before && beforeMisses.get(key) !== "no_capture")) throw new Error("owned page capture could not be read before rendered acquisition");
     if (before?.version === "current" && before.completeness === "complete" && before.contentHash
       && isCurrent("owned_page", before.fetchedAt, d.now(), options.bustedAt)) continue;
     // Bulk recovery must also honor current robots; exact debt already performed this permitted raw read.
@@ -72,7 +73,16 @@ export async function renderUnreadOwnedPages(tenantId: string, cap = RENDERED_RE
       rawSnapshot = extractPageSnapshot(raw.html, url, pageIdFor(key), tenantId, raw.status, profile ?? undefined, raw.finalUrl);
     }
     if (deadline - d.now() < 50_000) break;
-    const revision = sha16(JSON.stringify([options.bustedAt ?? null, rawSnapshot.content_hash, rawSnapshot.title, rawSnapshot.meta_description, rawSnapshot.h1, rawSnapshot.content_capture?.mainHtml, rawSnapshot.content_capture?.jsonLd]));
+    const legacyRevision = sha16(JSON.stringify([options.bustedAt ?? null, rawSnapshot.content_hash, rawSnapshot.title, rawSnapshot.meta_description, rawSnapshot.h1, rawSnapshot.content_capture?.mainHtml, rawSnapshot.content_capture?.jsonLd]));
+    const sourceRevision = rawSnapshot.content_capture?.sourceRevision ?? legacyRevision;
+    const revision = rawSnapshot.content_capture?.sourceRevision ? sha16(JSON.stringify([options.bustedAt ?? null, sourceRevision])) : legacyRevision;
+    const latest = before?.captureStates?.find((row) => row.id === before.latestCaptureId) as PageSnapshot | undefined;
+    const prior = await d.readIncompleteAttempt(tenantId, pageIdFor(key), sourceRevision, revision);
+    const resolvedLater = prior && latest && Date.parse(latest.fetched_at) > Date.parse(prior.fetchedAt)
+      && latest.content_capture?.complete === true && before?.completeness === "complete";
+    if (prior?.outcome === "unchanged_incomplete" && !resolvedLater && prior.cacheKey && prior.taskId) {
+      options.onUnchangedIncomplete?.(); await hold(url); continue;
+    }
     const raw = await d.callProvider("onpage_rendered_html", { url, revision }, { tenantId, unitKey: `rendered:${key}`, ...(options.bankedAfter ? { bankedAfter: options.bankedAfter } : {}) }), r = interp(raw);
     options.onRead?.(r, raw);
     if (r.kind !== "evidence") { await hold(url); break; }
@@ -83,15 +93,24 @@ export async function renderUnreadOwnedPages(tenantId: string, cap = RENDERED_RE
     snap.fetched_at = got.capturedAt;
     const priorWords = before?.vocabulary.trim().split(/\s+/).filter(Boolean).length ?? 0;
     const collapsed = priorWords >= 100 && snap.word_count * 5 < priorWords * 3;
-    const latest = before?.captureStates?.find((row) => row.id === before.latestCaptureId);
     const unresolvedHash = typeof latest?.content_hash === "string" ? latest.content_hash : before?.version === "current" && before.completeness === "partial" ? before.contentHash : null;
     const unchangedPartial = (before?.version === "stale_known_good" || before?.completeness === "partial") && snap.content_hash === unresolvedHash;
     if ((collapsed || unchangedPartial) && snap.content_capture) { snap.content_capture.complete = false; snap.extraction_certainty = "uncertain"; }
+    if (snap.content_capture) snap.content_capture.sourceRevision = sourceRevision;
+    const taskId = raw.state === "ok" || raw.state === "hit" ? raw.envelope.tasks?.[0]?.id : null;
+    if (snap.content_capture && !snap.content_capture.complete && typeof taskId === "string" && raw.cacheKey)
+      snap.content_capture.renderedAttempt = { sourceRevision, revision, cacheKey: raw.cacheKey, taskId, outcome: "unchanged_incomplete" };
     snap.structural_warnings = [...(snap.structural_warnings ?? []), `rendered_read: Raw HTML corroborated against paid Instant Pages metadata; retry after ${new Date(Date.parse(got.capturedAt) + freshnessMsFor("owned_page")).toISOString()}`];
     try { await d.writeOwnedPage(snap, tenantId); } catch (e) { await hold(url); throw e; }
-    const after = (await d.readOwnedBodies(tenantId, [url])).get(key);
+    const afterMisses = new Map<string, "no_capture" | "read_failed">(), afterRows = await d.readOwnedBodies(tenantId, [url], afterMisses), after = afterRows.get(key);
+    if (afterMisses.get(key) === "read_failed" || !after) throw new Error("rendered capture readback failed");
     if (after?.version === "current" && after.completeness === "complete" && after.contentHash === snap.content_hash) landed += 1;
-    else { await hold(url); break; }
+    else {
+      const saved = after?.captureStates?.find((row) => row.id === after.latestCaptureId) as PageSnapshot | undefined;
+      if (snap.content_capture?.renderedAttempt && JSON.stringify(saved?.content_capture?.renderedAttempt) === JSON.stringify(snap.content_capture.renderedAttempt))
+        options.onUnchangedIncomplete?.();
+      await hold(url); break;
+    }
     log.info("[rendered-read] requested page capture qualified", { tenantId, url });
   }
   return landed;
