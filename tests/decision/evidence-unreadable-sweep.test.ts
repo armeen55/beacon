@@ -70,10 +70,7 @@ const openCard = (suffix: string): ChangeProposal => ({
 beforeEach(() => { env.rpc = {}; env.calls = []; env.snapshot = null; env.schemaBody = undefined; env.store = new Map(); env.withdrawn = []; env.aiWindow = []; env.dispositions = new Map(); env.upserts = 0; proposalReads.current = true; proposalReads.terminal = true; });
 describe("a search read that did not answer", () => {
   it.each(["current", "terminal"] as const)("spends zero when the %s proposal ledger cannot be read", async (which) => {
-    env.snapshot = snapshotWith("fresh"); proposalReads[which] = false;
-    const complete = vi.fn(async () => { throw new Error("no provider is allowed"); });
-    const out = await produceProposalsForTenant(TENANT, { complete, maxDrafts: 20 });
-    expect([out.outcome, out.paid.funded.length, out.paid.attemptUnitsSpent, complete.mock.calls.length, env.wrote.length]).toEqual(["evidence_unreadable", 0, 0, 0, 0]);
+    env.snapshot = snapshotWith("fresh"); proposalReads[which] = false; const complete = vi.fn(async () => { throw new Error("no provider is allowed"); }); const out = await produceProposalsForTenant(TENANT, { complete, maxDrafts: 20 }); expect([out.outcome, out.paid.funded.length, out.paid.attemptUnitsSpent, complete.mock.calls.length, env.wrote.length]).toEqual(["evidence_unreadable", 0, 0, 0, 0]);
   });
   it("keeps a legacy schema-only card held even after the visible answer is read, because schema and page copy must ship together", async () => {
     const markup = JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: { "@type": "Question", name: "When do seals rest?", acceptedAnswer: { "@type": "Answer", text: "Seals rest at low tide." } } });
@@ -147,12 +144,8 @@ describe("the sweep only retires what a producer that FINISHED rewrote", () => {
     const need = (back?.obligation as { need?: { proposalId?: string; unlocks?: { proposalId: string; step: string } } } | undefined)?.need;
     expect([need?.proposalId, need?.unlocks], "and the store keeps both through a write: a zod object strips what it does not declare, and this one declares them").toEqual([written.id, { proposalId: written.id, step: "draft" }]); });
   it("writes nothing at all when it is told not to persist", async () => {
-    env.snapshot = snapshotWith("fresh"); env.aiWindow = "fail";
-    const stale = openCard("title"), theirs = openCard("ai_answer_gap");
-    env.store = new Map([[stale.id, stale], [theirs.id, theirs]]);
-    env.wrote = []; env.withdrawn = [];
-    await produceProposalsForTenant(TENANT, { persist: false });
-    expect({ wrote: env.wrote, withdrawn: env.withdrawn }).toEqual({ wrote: [], withdrawn: [] }); }); // The pass directly above this one, identical but for the flag, withdraws `stale`. This one must do nothing at all.
+    env.snapshot = snapshotWith("fresh"); env.aiWindow = "fail"; const stale = openCard("title"), theirs = openCard("ai_answer_gap"); env.store = new Map([[stale.id, stale], [theirs.id, theirs]]); env.wrote = []; env.withdrawn = [];
+    await produceProposalsForTenant(TENANT, { persist: false }); expect({ wrote: env.wrote, withdrawn: env.withdrawn }).toEqual({ wrote: [], withdrawn: [] }); }); // The pass directly above this one, identical but for the flag, withdraws `stale`. This one must do nothing at all.
   it("hands back exactly the payload persistence would keep", async () => {
     const shape = (p: ChangeProposal) => ({ id: p.id, rc: p.recommendedChange, steps: p.operatorSteps, claims: p.claims, support: (p.supportFacts ?? []).map((f) => f.id),
       workKey: p.workKey, status: p.status, pieces: (p.bundle?.components ?? []).map((c) => [c.kind, c.page, c.where, c.after]) });
@@ -197,6 +190,12 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
         storedAnswer("pC", "shiraz day trips", [{ url: "https://rival.example/trips", domain: "rival.example", title: "Shiraz day trips" }])] }), aiAnswersUnread: false });};
   const coldExtras = async () => { vi.resetModules(); return import("@/domains/decision/producers/extra"); };
   const runExtras = async (snapshot: unknown) => (await coldExtras()).extraQueueCards({ tenantId: TENANT, snapshot: snapshot as never, now: new Date("2026-08-20T09:00:00Z"), reads: { left: 0 } });
+  it("routes a complete seven-word page to source proof while partial or stale capture still owes a read", async () => {
+    const src = <T,>(payload: T) => ({ status: "fresh" as const, lastSyncedAt: null, payload }), page = { ...wixPage("/a", "Joojeh Kabob", ["Joojeh Kabob", "Ingredients", "Method"]), h2: ["Ingredients", "Method"], wordCount: 7, metaDescription: null }, snapshot = buildEvidenceSnapshot({ scope: { tenantId: TENANT, site: "fixture.example", builtAt: "2026-08-20T00:00:00.000Z" }, gsc: src([{ url: page.url, clicks90d: 5, impressions90d: 500, ctr90d: .01, position90d: 12, topQueries: [{ query: "joojeh kabob recipe", impressions: 300, clicks: 3, position: 12 }] }]), wix: src([page]), ga4: src([]), clarity: src([]), dataforseo: src([]), research: src(emptyResearchEvidence()), aiAnswersUnread: false });
+    const body = { url: page.url, title: page.title, h1: page.h1, metaDescription: null, headings: page.outline, passages: ["Joojeh Kabob", "Ingredients", "Method"], answerPassages: [], vocabulary: "Joojeh Kabob Ingredients Method", openingSample: null, cardTexts: [], faqs: [], entityNames: [], internalLinks: [], fetchedAt: "2026-08-20T00:00:00.000Z", contentHash: "thin-complete", version: "current", completeness: "complete", sourceCapture: { version: 1, complete: true, mainHtml: "<main><h1>Joojeh Kabob</h1><h2>Ingredients</h2><h2>Method</h2></main>", jsonLd: [] } }; env.schemaBody = body;
+    const whole = await runExtras(snapshot); expect(whole.cards.some((p) => p.id.endsWith("::thin_page"))).toBe(false); expect(whole.cards.find((p) => p.id.includes("missing_answer"))?.obligation).toEqual({ kind: "evidence", need: expect.objectContaining({ kind: "serp", reasonCode: "thin_page_answer_unconfirmed" }) }); const { demandOf } = await import("@/domains/decision/drafted-copy"), { substantiveGapOf } = await import("@/domains/decision/diagnosis"), demand = demandOf(snapshot.ownedPages[0]!, body as never, [], null, TENANT, snapshot); expect(substantiveGapOf({}, { ...demand, facts: [{ id: "fact-1", fact: "Joojeh Kabob is Iranian food." }] })?.owed?.kind).toBe("evidence"); expect(substantiveGapOf({}, { ...demand, facts: [{ id: "fact-1", fact: "A Joojeh Kabob recipe uses chicken and saffron." }] })?.owed).toBeUndefined();
+    for (const changed of [{ ...body, completeness: "partial" }, { ...body, fetchedAt: "2026-07-01T00:00:00Z" }]) { env.schemaBody = changed; const read = await runExtras(snapshot); expect(read.cards.find((p) => p.id.endsWith("::thin_page"))?.obligation).toEqual({ kind: "evidence", need: expect.objectContaining({ kind: "page_source" }) }); expect(read.cards.some((p) => p.id.includes("missing_answer") && p.obligation?.kind === "draft")).toBe(false); }
+  });
   it("holds the AI families out of the sweep and files no verdict when the window read fails, while its finished families still answer", async () => {
     env.aiWindow = "fail";
     const run = await runExtras(aiSnapshot()); expect(run.families).not.toContain("ai_answer_gap");

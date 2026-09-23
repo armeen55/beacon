@@ -16,6 +16,15 @@ vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => supabaseF
 }) }));
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context"; import { pageContains } from "@/domains/evidence/pages/page-version";
 describe("one rule decides which capture is the page", () => {
+  it("holds a Joojeh-style client shell while allowing a genuinely short complete page", async () => {
+    const url = "https://iranopedia.com/persian-kabobs/joojeh-kabob";
+    const shell = extractPageSnapshot(`<main><h1>Joojeh Kabob</h1>${"<h2>\u200b</h2>".repeat(10)}<a>Previous</a><a>Next</a></main>`, url, "joojeh", "t");
+    db.rows = [shell]; const held = (await loadOwnedPageBodies("t", [url])).get("iranopedia.com/persian-kabobs/joojeh-kabob")!;
+    expect([shell.extraction_certainty, shell.content_capture?.complete, held.completeness, pageContains(held, "marinade")]).toEqual(["uncertain", false, "partial", "unknown"]);
+    const concise = extractPageSnapshot(`<main><h1>Hours</h1>${"<h2>\u200b</h2>".repeat(10)}<p>Open daily for visitors.</p></main>`, url, "hours", "t");
+    db.rows = [concise]; const complete = (await loadOwnedPageBodies("t", [url])).get("iranopedia.com/persian-kabobs/joojeh-kabob")!;
+    expect([concise.extraction_certainty, concise.content_capture?.complete, complete.completeness]).toEqual(["uncertain", true, "complete"]);
+  });
   it("a heading locates an answer but only page prose can satisfy the reader task", async () => {
     const url = "https://fixture-revision.example/people";
     const read = async (prose: string) => {

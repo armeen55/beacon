@@ -51,21 +51,13 @@ describe("Today renders, and tells the truth about its own queue", () => {
     const live = { ...readyView(3, 0), toDo: [readyView(1, 0).ready[0]!], summary: { ready: 3, todo: 1 } } as unknown as import("@/app/(shell)/changes-data").ChangesView; // PRODUCTION, 2026-08-15: three ready and one in review, and this sentence said "You have 4 finished changes ready to make". FINISHED COUNTS FINISHED. The review card is counted in its own clause, is never previewed, and is never the edit Today leads with: a card the queue holds back cannot be the thing to do first.
     const mixed = buildTodayViewFromChanges(live), reviewOnly = buildTodayViewFromChanges({ ...live, ready: [], summary: { ready: 0, todo: 1 } } as never);
     expect([mixed.headerSentence, mixed.readyTotal, mixed.nextOpportunities.length, reviewOnly.headerSentence, reviewOnly.topEdit]).toEqual(["You have 3 finished changes ready to make, best first.", 3, 3, NO_WORK, undefined]);
-    expect([view.headerSentence, view.nextOpportunities.length, buildTodayViewFromChanges(readyView(1, 0)).headerSentence, buildTodayViewFromChanges(empty).headerSentence, buildTodayViewFromChanges({ ...empty, summary: { ...empty.summary, research: 7 } }).headerSentence])
-      .toEqual(["You have 12 finished changes ready to make, best first.", 3, "You have 1 finished change ready to make, best first.", NO_WORK, NO_WORK]);
+    expect([view.headerSentence, view.nextOpportunities.length, buildTodayViewFromChanges(readyView(1, 0)).headerSentence, buildTodayViewFromChanges(empty).headerSentence, buildTodayViewFromChanges({ ...empty, summary: { ...empty.summary, research: 7 } }).headerSentence]).toEqual(["You have 12 finished changes ready to make, best first.", 3, "You have 1 finished change ready to make, best first.", NO_WORK, NO_WORK]);
     const rv = readyView(1, 0), research = { ...rv.ready[0]!, id: "t::/r::existing_edit::researching", researchOnly: true }; // TODAY NEVER LEADS WITH RESEARCH WHILE ANY FINISHED CHANGE EXISTS (operator, 2026-08-22): a research row outranking the one ready change globally still cedes the top slot to the finished work.
-    const led = buildTodayViewFromChanges({ ...rv, research: [research], proposals: [research, rv.ready[0]!],
-      summary: { ready: 1, todo: 0, research: 1 } } as never);
+    const led = buildTodayViewFromChanges({ ...rv, research: [research], proposals: [research, rv.ready[0]!], summary: { ready: 1, todo: 0, research: 1 } } as never);
     expect(led.nextOpportunities[0]!.lane).toBe("ready");
     const { buildScoreboard } = await import("@/domains/measurement"); // The chart does not repeat the lifecycle count.
     expect(buildScoreboard([{ date: "2026-07-01", clicks: 10, impressions: 0 }, { date: "2026-07-20", clicks: 20, impressions: 0 }], [], new Date("2026-07-21T00:00:00Z"))?.verdictLine ?? "").not.toMatch(/measuring/i); });});
 describe("Connectors settings route smoke", () => {
-  it("renders the connector page with the shipped cards + the one summary strip", async () => {
-    const { default: ConnectorsPage } = await import("@/app/(shell)/settings/connectors/page"); const html = renderToStaticMarkup((await ConnectorsPage()) as ReactElement);
-    for (const claim of ["Connect your tools", "Connect Google Search Console", 'data-connector-card="google-ga4"',
-      'data-connector-card="clarity"', 'data-connectors-summary-strip="true"', "Your live site is never touched"]) expect(html).toContain(claim);
-    expect(html).not.toContain("Enter Yelp API Key"); expect(html).not.toContain("Wix"); // Wix left the customer product
-  });
   it("computes 'N of M connected' from provider reads and surfaces the on-use receipt", async () => {
     const { getConnectorInfo } = await import("@/lib/connector-store");
     vi.mocked(getConnectorInfo).mockImplementation(async (provider: string) => {

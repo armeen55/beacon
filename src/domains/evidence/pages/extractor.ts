@@ -62,7 +62,7 @@ export function extractPageSnapshot(
   const h1Nodes = contentRoot.find("h1"), h3Nodes = contentRoot.find("h3");
   const h1 = h1Nodes.first().text().trim() || null;
   const h1Count = h1Nodes.length;
-  const headingTexts = (tag: string): string[] => contentRoot.find(tag).toArray().map((el) => $content(el).text().trim()).filter(Boolean);
+  const headingTexts = (tag: string): string[] => contentRoot.find(tag).toArray().map((el) => normalizeExtractedText($content(el).text())).filter(Boolean);
   const h2List = headingTexts("h2");
   const h3Count = h3Nodes.length;
   const h3List = headingTexts("h3").slice(0, 30).map((text) => text.slice(0, 200));
@@ -262,6 +262,12 @@ export function extractPageSnapshot(
   const flat = contentRoot.text().replace(/\s+/g, " ").trim();
   const wordCount = flat ? flat.split(/\s+/).length : 0;
   const bodyText = flat;
+  const ghostHeadings = contentRoot.find("h1,h2,h3,h4,h5,h6").toArray().filter((el) => {
+    const text = $content(el).text(); return !!text.trim() && !normalizeExtractedText(text);
+  }).length;
+  const readableProse = contentRoot.find("p,li,blockquote,dd,figcaption").toArray().some((el) => normalizeExtractedText($content(el).text()).split(/\s+/).filter(Boolean).length >= 4);
+  const clientShell = ghostHeadings >= 3 && !readableProse && normalizeExtractedText(flat).split(/\s+/).filter(Boolean).length < 50;
+  if (clientShell) structuralWarnings.push(`client_rendered_placeholders: ${ghostHeadings} headings contain no readable words; the visible page may have more content than this HTML.`);
   // Store the shared main-content projection with an explicit truncation warning.
   const bodyTextHeld = bodyText.slice(0, BODY_TEXT_CEILING);
   // A cut HTML string would invent repaired structure on parsing. Hold whole payload parts or mark missing.
@@ -269,7 +275,7 @@ export function extractPageSnapshot(
   const heldMain = mainHtml.length <= captureRoom ? mainHtml : "";
   captureRoom -= heldMain.length;
   const heldJsonLd = jsonLd.filter((block) => { if (block.length > captureRoom) return false; captureRoom -= block.length; return true; });
-  const contentCapture = { version: 1 as const, mainHtml: heldMain, jsonLd: heldJsonLd, complete: heldMain === mainHtml && heldJsonLd.length === jsonLd.length };
+  const contentCapture = { version: 1 as const, mainHtml: heldMain, jsonLd: heldJsonLd, complete: !clientShell && heldMain === mainHtml && heldJsonLd.length === jsonLd.length };
   let faqRoom = BODY_TEXT_CEILING;
   for (const f of faqs) if (f.answer_text !== undefined) {
     const answer = f.answer_text;

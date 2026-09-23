@@ -11,8 +11,10 @@ import "server-only";
 import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
 import { canonicalUrlKey, jobWinners, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { comparisonTopics, jobComparison } from "@/domains/evidence/comparison";
+import { isCurrent } from "@/domains/evidence/freshness";
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { ChangeProposal } from "./contracts"; import { COPY_RULES } from "./copy-sanitize";
+import { confirmedVersion } from "./completeness";
 import type { DraftResolution, EvidenceRequirement } from "./producers/contract";
 import type { Obligation } from "./obligation";
 
@@ -136,7 +138,13 @@ const causalNeed = (card: ChangeProposal, page: OwnedPageEvidence, research: Evi
   const candidate = gap.owed.need.kind === "factual_source" ? jobWinners(research, card.primaryQuery).find((w) => w.extract?.mainText && canonicalUrlKey(w.url) !== canonicalUrlKey(page.url)) : null;
   return { obligation: { kind: "evidence", need: { ...gap.owed.need, proposalId: card.id, ...(gap.owed.need.kind === "factual_source" ? { missingTopic: card.primaryQuery } : {}), ...(candidate ? { rivalUrl: candidate.url } : {}) } }, reason: gap.why ?? "The causal answer still owes the exact source ladder." };
 };
+/** A legacy meta redraft cannot describe a page whose only saved words are stale chrome. A fresh complete
+ * capture can still be genuinely thin; then the existing body-and-meta evidence gates decide what to write. */
+const metaSource = (card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null | undefined, now: Date): EvidenceRequirement | null =>
+  card.recommendedChange.kind === "existing_edit" && card.recommendedChange.field === "meta" && (page.content?.wordCount ?? 0) < 40
+  && !(body?.completeness === "complete" && body.version === "current" && isCurrent("owned_page", body.fetchedAt, now.getTime()))
+    ? { kind: "page_source", query: card.primaryQuery, url: card.pageUrl ?? page.url, proposalId: card.id, ownerVersion: confirmedVersion(card), reasonCode: "thin_meta_page_source_owed" } : null;
 /** ONE public surface for what a draft's gain outcome IS and what to do about it: the refusal lines and their identity
  *  set, the deterministic next-step ladder, and the duplication reading a replacement is held to. One symbol, because
  *  every caller that needs one of these needs the others in the same breath. */
-export const GAIN = { ...GAIN_TEXT, LINES: GAIN_LINES, MIN_ABSORBED, resolution: gainResolution, absorption, surviving, causalNeed } as const;
+export const GAIN = { ...GAIN_TEXT, LINES: GAIN_LINES, MIN_ABSORBED, resolution: gainResolution, absorption, surviving, causalNeed, metaSource } as const;

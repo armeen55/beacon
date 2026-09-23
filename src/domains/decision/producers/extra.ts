@@ -6,6 +6,7 @@ import { canonicalQueryKey, domainOf, topicTokens } from "@/domains/evidence/rel
 import { canonicalPairOf, readAiObservations } from "@/domains/evidence/ai-visibility/ai-observations";
 import { pageHashOf } from "@/domains/evidence/pages/fact-check-run"; import { authorizedCorrections, readFactChecks, type FactCheck } from "@/domains/evidence/pages/fact-checks";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence, type OwnedQuerySignal } from "@/domains/evidence/snapshot";
+import { isCurrent } from "@/domains/evidence/freshness";
 import { defaultExpectedCtrAt, type TenantCtrCurve } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import { substantiveGapOf, type CauseFinding } from "@/domains/decision/diagnosis";
@@ -114,7 +115,7 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
 /** THE FINDING A SWEEP CARD ALREADY MADE, SAID IN THE LADDER'S OWN WORDS (operator, 2026-09-04). Thirty-two live descriptions were minted off a named defect in the page's own line and carried no cause at all: the detail page printed "No cause is named for it yet" over a finding the card's own headline states, and the wording gate went on holding every replacement "until a diagnosis names what is wrong with the current description" while that diagnosis sat unsaid in the same object. NO NEW VOCABULARY, because none is needed: a description missing or repeated across siblings IS the line Google displays for the page, a page missing what every winner covers IS incomplete coverage, and a page nothing links to IS where a reader gets sent next. `evidenceKeys` name the readings the card was actually made from. */
 const structural = (cause: CauseFinding["cause"], action: CauseFinding["action"], evidenceKeys: string[], explanation: string, falsifier: string): CauseFinding => ({ cause, action, evidenceKeys, competingExplanations: [], notConsidered: [], explanation, falsifier });
 /** 3. THE THREE DEFECTS WORTH A SWEEP, ONE CARD PER PAGE. A card that fixes one page and then says "repeat on nine more" cannot be done in one sitting, marked done, or measured, so each page with the defect gets its own card and figures and the class total rides along as context. */
-function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, expectedCtrAt: (position: number) => number): Draft[] {
+function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, expectedCtrAt: (position: number) => number, bodies: ReadonlyMap<string, OwnedPageBody>): Draft[] {
   const impressions = (p: OwnedPageEvidence): number => p.search?.impressions90d ?? 0; /** A ZERO SUPPRESSES THE CLAUSE THAT RANKS IT (rendered app, 2026-09-05). A live description read "20 pages carry the same templated description ... and /california-persian-cities/berkeley is the busiest of them at 0 impressions in 90 days", which calls a page the busiest and then prints the figure that says it is not. A superlative is a claim about a figure, so where the figure is zero the claim is dropped and the sentence that survives is the one the evidence carries. */ const ranked = (p: OwnedPageEvidence): string => impressions(p) > 0 ? `, and ${pathOf(p.url)} is the busiest of them at ${count(impressions(p), "impression")} in 90 days` : "";
   const rank = (list: OwnedPageEvidence[]): OwnedPageEvidence[] => [...list].sort((a, b) => impressions(b) - impressions(a) || pathOf(a.url).localeCompare(pathOf(b.url)));
   const byIdentity = new Map<string, OwnedPageEvidence>();
@@ -187,6 +188,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     return subject.size > 0 && (s.organic ?? []).filter((o) => topicTokens(o.title ?? "").some((t) => subject.has(t))).length >= 2;
   };
   const gapsOf = (p: OwnedPageEvidence): string[] => winnersAgreeOn(snapshot, p);
+  const currentWhole = (p: OwnedPageEvidence): boolean => { const body = bodies.get(canonicalUrlKey(p.url)); return body?.completeness === "complete" && body.version === "current"; };
   const expandable = rank(pages.filter((p) => (p.content?.wordCount ?? 0) > 0 && impressions(p) > 0 && winnersOnFile(p)))
     .map((p) => ({ p, gaps: gapsOf(p) })).filter((x) => x.gaps.length > 0);
   for (const { p, gaps } of expandable) {
@@ -205,7 +207,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
       limitation: "The missing subjects are read off the stored results page and the winners' own headings as last read; a subject added to the page since that read is not counted here.", cause: structural("incomplete_coverage", "section", [RECEIPT.copy, RECEIPT.pattern], `Every page winning "${topQueryOf(p)}" covers ${named.map((g) => `"${g}"`).join(", ")} and ${pathOf(p.url)} does not, on ${count(impressions(p), "impression")} in 90 days.`, `If ${pathOf(p.url)} is found covering ${named.map((g) => `"${g}"`).join(", ")} the next time its headings are read, nothing is missing here.`),
     });
   }
-  const unread = rank(pages.filter((p) => (p.content?.wordCount ?? 0) < READABLE_WORDS && impressions(p) > 0));
+  const unread = rank(pages.filter((p) => (p.content?.wordCount ?? 0) < READABLE_WORDS && impressions(p) > 0 && !currentWhole(p)));
   for (const p of unread) {
     out.push({
       page: p, slug: "thin_page", field: "section", query: topQueryOf(p),
@@ -218,6 +220,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
       minutes: 0, confidence: "low", refs: 2, impact: null,
       limitation: "Nothing here is yours to do: the rendered read runs on the next research pass and this card updates itself.",
       next: "A rendered read captures the page's real words on the next research pass, without touching the page.",
+      obligation: { kind: "evidence", need: { kind: "page_source", query: topQueryOf(p), url: p.url, reasonCode: "acquire_page_source" } },
     });
   }
   return out;
@@ -277,6 +280,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   const u = await pageUnderstanding(tenantId, eligible, { now, openPaths: new Set(rows.map((p) => (p.pagePath ?? "").toLowerCase())), ...(input.reads ? { reads: input.reads } : {}) });
   const bank: { query: string; refusedPages?: string[] }[] = [];
   const misses = new Map<string, "no_capture" | "read_failed">(), bodies = await loadOwnedPageBodies(tenantId, pages.map((p) => p.url), misses).catch(() => { for (const p of pages) misses.set(canonicalUrlKey(p.url), "read_failed"); return new Map<string, OwnedPageBody>(); }); // WHY A PAGE HAS NO WORDS HERE, typed by the reader itself: a read that threw makes every page UNKNOWN rather than wordless, and an unknown page mints nothing at all
+  const currentBodies = new Map([...bodies].filter(([, body]) => isCurrent("owned_page", body.fetchedAt, now.getTime())));
   const facts = new Map<string, FactCheck[]>(); for (const f of input.checked === null ? [] : input.checked ?? await readFactChecks(tenantId).catch(() => [])) facts.set(f.page, [...(facts.get(f.page) ?? []), f]);
   const links = await linkCards(tenantId, pages, weak, u, expectedCtrAt, bodies);
   const day = (d: Date): string => d.toISOString().slice(0, 10);
@@ -286,7 +290,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
     .then((m) => m.loadGscQueryUniverse(tenantId, now)).catch(() => null);
   const cases = await aiCaseCards(bank, snapshot, pages, weak, earned, children, u, tenantId, input.units ?? [], windowObs, now, input.persist !== false, meter, universe?.keys ?? null, written, input.focusPage);
   const drafts = [...cases.drafts,
-    ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt), ...unansweredCards(snapshot, pages, expectedCtrAt, { bodies, misses, facts, written, basis: input.basis ?? null, tenantId })]; // LAST, so an AI case about the same question keeps it: one question is one card
+    ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt, currentBodies), ...unansweredCards(snapshot, pages, expectedCtrAt, { bodies: currentBodies, misses, facts, written, basis: input.basis ?? null, tenantId })]; // LAST, so an AI case about the same question keeps it: one question is one card
   const out: ChangeProposal[] = [];
   const answered = new Set<string>();
   for (const d of drafts) {
