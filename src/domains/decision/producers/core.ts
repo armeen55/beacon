@@ -259,7 +259,7 @@ const technical: Producer = async (ctx) => {
     if (address) return refuse(`${address.evidence} Name the address that replaced it and the forward gets written. Until then it stays out of the queue.`);
     return refuse(`The problem on this page is named and the replacement wording is not written yet, so an instruction is not handed over dressed as a change. The exact ${held === 1 ? "line" : "lines"} lands here the moment it passes its own checks.`);
   }
-  return { components: technicalComponents(keep, ctx.primary), refusal: null };
+  return { components: technicalComponents(keep, ctx.primary, findings), refusal: null };
 };
 
 /** The faults with nothing exact behind them yet: a copy fault with no replacement wording, a dead address

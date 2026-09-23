@@ -242,12 +242,13 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const live = await roundTrip(earned[0]!);
     expect(live.semanticReview!.claims, "the reviewer's own mapping survived the store").toEqual([{ i: 0, by: ["fact-1"], entailed: true }]);
     expect([live.status, openHold(live).blocking], "and it is still offered").toEqual(["ready", null]);
+    const replay = await roundTrip({ ...earned[0]!, status: "needs_review", limitations: ["Beacon's own sense review has not read this correction yet, so it waits for that reading rather than for the operator to do Beacon's checking."] }); expect([replay.status, replay.obligation, replay.semanticReview?.of]).toEqual(["ready", undefined, copyKey(replay)]);
     for (const [what, broken] of [ // The same path refuses each defective receipt, and the store will not keep `ready` on any of them.
       ["a receipt banked under an earlier contract", { ...earned[0]!, semanticReview: { ...earned[0]!.semanticReview!, version: 3 } }], // LITERALLY 2: the prompt, schema, packet, validation and persistence all changed after v2, so a receipt banked under the broken implementation must not be able to look current.
       ["a mapping naming evidence the claim does not", { ...earned[0]!, semanticReview: { ...earned[0]!.semanticReview!, claims: [{ i: 0, by: ["fact-9"], entailed: true }] } }],
       ["a reading written for other words", { ...earned[0]!, semanticReview: { ...earned[0]!.semanticReview!, of: `${copyKey(earned[0]!)}x` } }]] as const) {
       const held2 = await roundTrip(broken as ChangeProposal);
-      expect([held2.status !== "ready", openHold(held2).blocking != null], what).toEqual([true, true]);}
+      expect([held2.status !== "ready", openHold(held2).blocking != null, held2.obligation?.kind], what).toEqual([true, true, "review"]);}
     const dead = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: async () => ({ status: "refused" as const }) }); // A REVIEW THAT DID NOT COME BACK DRAFTED (refused, failed, thrown: one branch answers them all) BANKS NOTHING, fabricates no receipt, and loses no card.
     expect(dead.filter((c) => c.status === "ready" || c.semanticReview), "no reading, no receipt").toEqual([]);
     expect(dead, "no reading moves nothing").toBe(cards); // AND THE SAME ARRAY COMES BACK: a fresh copy read as "moved" upstream, so a failing pass persisted these unreviewed copies over a banked paid review and erased it. Identity is the no-rewrite receipt.

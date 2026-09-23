@@ -8,7 +8,7 @@
  * where it sends people) or from the page capture (its title, its heading, its canonical, its robots tag, the links it carries). Nothing is fetched, nothing is inferred, and an absent field is UNKNOWN rather
  * than a fault: `canonical_url` and `h1` accuse a page only when the capture genuinely holds them.
  *
- * PURE and deterministic: same rows in, byte-identical findings out, in address order. server-only is deliberately absent so the reader is testable on fixtures built from the stores' own shapes.
+ * PURE and deterministic: same rows in, byte-identical ranked findings out. server-only is deliberately absent so the reader is testable on fixtures built from the stores' own shapes.
  */
 
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
@@ -41,10 +41,7 @@ type CapturedPage = { url: string; title?: string | null; h1?: string | null; ca
   has_canonical_mismatch?: boolean | null; robots_meta?: string | null; internal_links?: readonly string[] };
 
 type TechnicalHeld = { inventory?: readonly InventoryRow[]; pages?: readonly CapturedPage[]; /** HOW MUCH IS RIDING ON ONE ADDRESS, from the caller that holds the account's own numbers. Absent is zero everywhere, which is the ordering this function had before it was asked. */ demandOf?: (url: string) => number };
-const SEVERITY: readonly TechnicalKind[] = ["non_200", "robots_noindex", "broken_internal_link", "redirect_chain", "canonical_conflict", "canonical_missing", "sitemap_omission", "orphaned_page", "missing_h1", "duplicate_title", "duplicate_h1"]; // WHAT A FAULT COSTS A READER, high to low, so the twelve that survive the cut are the twelve worth a morning rather than the twelve nearest the start of the alphabet: a page nobody can reach at all outranks a page with two headings the same.
-
-/** One page's worth of findings is a morning's work; past this it is a project, not a change. */
-const MAX_FINDINGS = 12;
+const SEVERITY: readonly TechnicalKind[] = ["non_200", "robots_noindex", "broken_internal_link", "redirect_chain", "canonical_conflict", "canonical_missing", "sitemap_omission", "orphaned_page", "missing_h1", "duplicate_title", "duplicate_h1"]; // A page nobody can reach at all outranks a page with two headings the same.
 /** Under this many pages whose links I hold, "nothing points at it" is my own blind spot, not an orphan. */
 const MIN_LINK_GRAPH = 2;
 const SITEMAP: ReadonlySet<string> = new Set(["sitemap", "robots_sitemap"]);
@@ -58,10 +55,10 @@ const addressOf = (u: string): string => canonicalUrlKey(u).toLowerCase().replac
 const oneEach = <T extends { url: string }>(xs: readonly T[]): T[] => [...xs.reduce((m, x) => { const k = addressOf(x.url), had = m.get(k); return had && (canonicalUrlKey(x.url) !== k || canonicalUrlKey(had.url) === k) ? m : m.set(k, x); }, new Map<string, T>()).values()];
 
 /**
- * Every fault this account's own rows prove, in address order. Deterministic, free, and empty whenever nothing is held: an account with no inventory and no capture gets no findings rather than a clean bill.
+ * Every fault this account's own rows prove, in severity and demand order. Deterministic, free, and empty whenever nothing is held: an account with no inventory and no capture gets no findings rather than a clean bill.
  */
 export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
-  const rows = oneEach((held.inventory ?? []).filter((r) => !!r?.url?.trim())); // ONE ROW PER ADDRESS before any rule reads them: an alias that doubles every fault on a page fills the twelve on its own and deletes a real page from the list.
+  const rows = oneEach((held.inventory ?? []).filter((r) => !!r?.url?.trim())); // ONE ROW PER ADDRESS before any rule reads them: aliases never multiply one fault.
   const pages = oneEach((held.pages ?? []).filter((p) => !!p?.url?.trim())); // and the same for the capture: upstream collapses www and scheme, never path case or an index file.
   const out: TechnicalFinding[] = [];
   const add = (url: string, kind: TechnicalKind, exactFix: string, evidence: string, exact: string | null = null, redirectTo?: string): void => { out.push({ url, kind, exactFix, evidence, exact, ...(redirectTo ? { redirectTo } : {}) }); };
@@ -183,9 +180,9 @@ export function readTechnicalFindings(held: TechnicalHeld): TechnicalFinding[] {
       `Not one of the ${graph.length} pages of yours whose links are on file points at ${at(r.url)}, so a reader can only reach it from search.`,
       anchor);
   }
-  // ORDERED BY WHAT IT IS WORTH FIXING BEFORE ANYTHING IS CUT, never by address (measured, 2026-09-05): sorted alphabetically and cut at twelve, this account's 218 captured pages returned twelve findings that all began with a, b or c, so a fault on any page later in the alphabet was invisible for ever. Severity first, then the audience the caller measured, and the address only to break a genuine tie so the same inputs always produce the same twelve.
+  // Preserve every proved fault. Severity and measured demand rank them; the address only breaks a tie.
   const rank = (k: TechnicalKind): number => (SEVERITY.indexOf(k) + 1 || SEVERITY.length + 1), riding = (u: string): number => held.demandOf?.(u) ?? 0;
-  return out.sort((a, b) => rank(a.kind) - rank(b.kind) || riding(b.url) - riding(a.url) || at(a.url).localeCompare(at(b.url)) || a.kind.localeCompare(b.kind)).slice(0, MAX_FINDINGS);
+  return out.sort((a, b) => rank(a.kind) - rank(b.kind) || riding(b.url) - riding(a.url) || at(a.url).localeCompare(at(b.url)) || a.kind.localeCompare(b.kind));
 }
 
 /** THE LEVER EACH FAULT IS, in the component vocabulary that already exists. Moving an address, hiding a
@@ -212,13 +209,16 @@ export const technicalKey = (i: number): string => `tech${i + 1}`;
 
 /** PURE: the findings, as exact components. Each answers the component gate on its own: where it lands,
  *  what it achieves, why it moves the fault, and what I will read afterwards. */
-export function technicalComponents(findings: readonly TechnicalFinding[], query: string): BundleComponent[] {
-  return findings.map((f, i) => {
+export function technicalComponents(findings: readonly TechnicalFinding[], query: string, receiptFindings: readonly TechnicalFinding[] = findings): BundleComponent[] {
+  const receiptIndex = new Map(receiptFindings.map((f, i) => [f, i]));
+  return findings.map((f) => {
+    const key = receiptIndex.get(f);
+    if (key == null) throw new Error("Technical finding has no matching receipt");
     const lever = LEVER[f.kind];
     // A FIELD CHANGE CARRIES THE FIELD'S OWN NEW VALUE, never a sentence about it: that value is what the operator pastes and it is what the live check reads back off the page afterwards. Everything else is
     // a structural instruction, where the sentence IS the change.
     const after = (lever.kind === "title" || lever.kind === "h1" || lever.kind === "meta") && f.exact ? f.exact : f.exactFix;
-    return { kind: lever.kind, label: lever.label, before: null, after, evidenceKeys: [technicalKey(i)],
+    return { kind: lever.kind, label: lever.label, before: null, after, evidenceKeys: [technicalKey(key)],
       // THE DESTINATION TRAVELS AS AN ADDRESS, never inside a sentence: the first url-shaped word in the instruction is the address being MOVED, and the live check graded a correct forward against it.
       ...(f.redirectTo ? { redirectTo: f.redirectTo } : {}),
       risk: lever.risk, where: `${at(f.url)}, and how it is served rather than the words on it`,
