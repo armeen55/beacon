@@ -6,7 +6,7 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { assertRowsScopedToTenant } from "@/lib/persistence/dual-write";
 import { log } from "@/lib/logger";
 import { serializeChangeProposal, deserializeChangeProposal, type ChangeProposal } from "./contracts";
-import { rankProposals } from "./rank-proposals";
+import { QUEUE_PAGE, QUEUE_CEILING } from "./queue-paging";
 import { confirmedVersion, deliverableGaps, GATE_WORDS, openHold, preferFinished } from "./completeness";
 import { nextObligation } from "./obligation";
 import { actionableProposalFailures, validateProposal, canonTextOf } from "./validate-proposal";
@@ -360,84 +360,7 @@ export async function publishCustomerRelease(args: { tenantId: string; expectedP
   return String(data ?? args.release);
 }
 
-/** ONE BOUNDED PAGE of the live ranking, cut in the database and never in memory. `total` is a COUNT taken without loading the queue; `release` names the ranking these rows came from, so paging a replaced order is told rather than fed a different one. `nextRank` is the last rank actually READ, never a row count: a dismissal leaves a hole, and counting rows through it would serve the change after it twice. */
-export async function readQueuePage(
-  tenantId: string, lane: "ready" | "todo" | "research" | "all", basis: string, afterRank: number, limit: number,
-): Promise<{ rows: ChangeProposal[]; laneById: Record<string, "ready" | "todo" | "research">; total: number; dropped: number; release: string | null; nextRank: number; more: boolean }> {
-  const at = Math.max(0, Math.floor(afterRank));
-  const nothing = { rows: [], laneById: {}, total: 0, dropped: 0, release: null, nextRank: at, more: false };
-  try {
-    const sb = getSupabaseAdmin();
-    // Both lanes of one ranking share a release, so rank 1 of either names the ranking that is live.
-    const { data: head } = await sb.from(TABLE).select("queue_lane").eq("tenant_id", tenantId).eq("queue_rank", 1).limit(2);
-    const release = ((head ?? []) as Array<{ queue_lane: string | null }>)
-      .map((r) => (r.queue_lane ?? "").split("::")[0] ?? "").find((s) => s.length > 0) ?? null;
-    if (release == null) return nothing;
-    // EVERY FILTER THE QUEUE OWES IS ASKED HERE; nothing is filtered after the fact. The ACCOUNT half of the basis gates in the database, the ::dN half belongs to the checks below, and LIKE wildcards are escaped. AND THE READY LANE ASKS THE ROW, NOT ONLY THE STAMP (live, 2026-09-04): at 06:45Z five cards were still being served as ready seven minutes after the store had demoted all five, because a release stamps the lane and nothing clears that stamp when the row moves. The paint below already re-asks the row; the read itself did not, so the demoted rows were fetched, counted and offered. Both halves are required: the stamp says which ranking a row belongs to, the status says what it IS.
-    const accountBasis = basis.replace(/::d\d+$/, "").replace(/[\\%_]/g, "\\$&");
-    const scoped = (cols: string, count?: { count: "exact"; head: true }) => {
-      const q = sb.from(TABLE).select(cols, count).eq("tenant_id", tenantId).like("basis", `${accountBasis}%`).is("terminal_disposition", null);
-      if (lane === "all") return q.like("queue_lane", `${release.replace(/[\%_]/g, "\$&")}::%`);
-      const stamped = q.eq("queue_lane", `${release}::${lane}`); return lane === "ready" ? stamped.eq("status", "ready") : stamped;
-    };
-    const [counted, page] = await Promise.all([
-      scoped("id", { count: "exact", head: true }),
-      scoped(`${CANON_COLUMNS}, queue_rank, queue_lane`).gt("queue_rank", at)
-        .order("queue_rank", { ascending: true }).order("id", { ascending: true }).limit(limit),
-    ]);
-    if (page.error) throw new Error(page.error.message);
-    const read = (page.data ?? []) as unknown as Array<CanonRow & { queue_rank: number; queue_lane: string | null }>;
-    const rows: ChangeProposal[] = [];
-    // THE STAMPED LANE IS THE ONE SOURCE of what controls a row carries.
-    const laneById: Record<string, "ready" | "todo" | "research"> = {};
-    // THE SAME ANSWER THE FIRST SCREEN GIVES. Position, lane and basis are stamped once and read for weeks, so a change whose own receipt stopped resolving kept paging out of a ranking taken when it still did.
-    for (const r of read) {
-      if (r.terminal_disposition != null) continue;
-      const p = decode(r.payload);
-      if (p && (lane !== "ready" || laneOfRow(p, "ready") === "ready") && actionableProposalFailures(p, { tenantId, currentBasis: basis }).length === 0) {
-        rows.push(p);
-        // A STAMP NEVER OUTRANKS THE ROW IT STAMPS (operator, 2026-09-02): a release stamped a finished description "ready", a later pass re-minted the row as a brief, and the lane read the stamp and painted the brief as finished work with a Mark done button.
-        laneById[p.id] = laneOfRow(p, (r.queue_lane ?? "").split("::")[1]);
-      }
-    }
-    // A RECEIPT FROM RULES THAT NO LONGER DECIDE IS NOT AN EXPLANATION. The ORDER is recomputed at every release and stamped on the row, but the receipt beside it rides in the payload, written when the row was last saved and never again. Live on this account: 12 of 31 rows still carried a `treatment` factor worth -45 that was deleted on 2026-08-26, so opening "How this was worked out" on a 2 minute change worth 98 clicks read back "rewriting a line of metadata is the kind of change that has lost here", and the factors shown summed to -15.57 while the rank it actually holds comes from +29.43. The first screen never showed this because that path ranks as it builds; every LANE view comes through here, which is how the operator works. So the rows are re-ranked as they are read and each one carries today's reasoning. The stored ORDER is left exactly as it is: this replaces the explanation, never the position.
-    const fresh = new Map(rankProposals(rows).map((p) => [p.id, p]));
-    const explained = rows.map((p) => fresh.get(p.id) ?? p);
-    // `more` is what the DATABASE said, never count arithmetic: a short raw page means the lane is exhausted. The count is what the lane holds LESS what this page just refused, never the raw stamp: offering to show more of a number that includes changes I will not hand over is a promise the next press cannot keep. `dropped` carries this page.s refusals on, so the caller takes DEEPER ones off the same count as it learns of them. No scan: I only ever subtract what I have actually read.
-    return { rows: explained, laneById, dropped: read.length - rows.length, release,
-      total: Math.max(rows.length, (counted.count ?? rows.length) - (read.length - rows.length)),
-      nextRank: read[read.length - 1]?.queue_rank ?? at, more: read.length === limit };
-  } catch (e) {
-    log.error("[proposal-store] the queue page did not read", { tenantId, lane, error: e instanceof Error ? e.message : String(e) });
-    return nothing;
-  }
-}
-
-/** THE LANE COUNTS OF THE LIVE RANKING, counted THE WAY THE LANES ARE PAINTED. Counting the stamped `queue_lane` column reported ready 2 / todo 23 / research 94 while every page of the same ranking rendered 1 / 23 / 95: a release stamped a row ready, a later pass re-minted it as a brief, and only the paint asked the row. A STAMP NEVER OUTRANKS THE ROW IT STAMPS, here as well, so the same rule decides both (readQueuePage's own classifier). Bounded by the release's own stamped set and fail-soft to zeros. */
-export async function queueLaneCounts(tenantId: string, release: string, basis: string): Promise<{ ready: number; todo: number; research: number }> {
-  const accountBasis = basis.replace(/::d\d+$/, "").replace(/[\\%_]/g, "\\$&"), out = { ready: 0, todo: 0, research: 0 };
-  try { // ONE BOUNDED PAGE PER REQUEST, cursored on the id exactly as the queue read is: counting the lanes may never become the unbounded read this store spent a migration removing.
-    let after: string | null = null; const counted = new Set<string>(); // by ID, so a page boundary can never count one row twice
-    for (let guard = 0; guard * LANE_COUNT_PAGE < QUEUE_CEILING; guard += 1) {
-      let q = getSupabaseAdmin().from(TABLE).select("id, payload, queue_lane")
-        .eq("tenant_id", tenantId).like("queue_lane", `${release.replace(/[\\%_]/g, "\\$&")}::%`).like("basis", `${accountBasis}%`).is("terminal_disposition", null);
-      if (after) q = q.gt("id", after);
-      const { data, error } = await q.order("id", { ascending: true }).limit(LANE_COUNT_PAGE);
-      if (error) return out;
-      const page = (data ?? []) as Array<{ id: string; payload: unknown; queue_lane: string | null }>;
-      for (const r of page) { if (counted.has(r.id)) continue; counted.add(r.id); const p = decode(r.payload); if (p) out[laneOfRow(p, (r.queue_lane ?? "").split("::")[1])] += 1; }
-      if (page.length < LANE_COUNT_PAGE) break;
-      after = page[page.length - 1]!.id; }
-    return out;
-  } catch { return out; }
-}
-const LANE_COUNT_PAGE = 100;
-/** THE ONE LANE RULE, read by the page and by the counts so they can never disagree: the row's own state decides both ways and the stamp only sorts the review rows. */
-const laneOfRow = (p: ChangeProposal, stamped: string | undefined): "ready" | "todo" | "research" =>
-  p.status === "ready" && p.researchOnly !== true ? "ready" : p.researchOnly === true ? "research" : stamped === "research" ? "research" : "todo";
-
-/** ONE bounded page of the canonical current rows, and the ceiling on a whole account. */
-const QUEUE_PAGE = 500, QUEUE_CEILING = 20_000;
+export { readQueuePage, queueLaneCounts } from "./queue-paging";
 
 /** Every proposal this account currently holds, keyed by id: the canonical current rows plus historical rows for ids the canonical table never held. THE CURRENT QUEUE IS NOT CAPPED. It used to stop at the first 500 rows, so an account with more current work than that silently lost the rest on every read that decides what is current, ranking included; the rows are PAGED here until the account is exhausted. `historyLimit` bounds HISTORY only, because history is not work. Fail-soft: a missing table shows history rather than  claiming this account has no changes at all. */
 export async function loadChangeProposals(tenantId: string, opts: { failClosed?: boolean } = {}): Promise<Map<string, ChangeProposal>> {

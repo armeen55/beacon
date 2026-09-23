@@ -131,7 +131,7 @@ export type RankedProposalQueue = {
 export async function loadProposalQueue(
   tenantId: string,
   /** `now` is a SEAM, not a setting: the age of a change's own readings is judged against it, so a caller with a fixed clock reads the same queue every time it asks. Production passes nothing and gets the real moment, exactly as before. */
-  deps: { currentBasis?: string | null; now?: Date; deliveryScope?: Parameters<typeof DRAFT_BUDGET.scopeAllows>[0] } = {},
+  deps: { currentBasis?: string | null; now?: Date; deliveryScope?: Parameters<typeof DRAFT_BUDGET.scopeAllows>[0]; eligible?: (p: ChangeProposal) => boolean } = {},
 ): Promise<RankedProposalQueue> {
   const now = deps.now ?? new Date();
   const currentBasis =
@@ -139,9 +139,9 @@ export async function loadProposalQueue(
   const byId = await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>());
   // THE PROVING SCOPE IS AN ADMISSION BOUNDARY, NOT A DISPLAY FILTER. Apply it before overlap, ranking,
   // lane partitioning or counts so private whole-page history cannot suppress, outrank or paginate a bounded edit.
-  // `all_changes` remains an explicit future phase; no row is deleted or rewritten by either answer.
+  // `all_changes` includes earned new pages; the operator predicate still excludes unsafe historical work.
   const deliveryScope = deps.deliveryScope ?? "all_changes";
-  const scoped = [...byId.values()].filter((p) => DRAFT_BUDGET.scopeAllows(deliveryScope, DRAFT_BUDGET.deliveryOf(p)));
+  const scoped = [...byId.values()].filter((p) => DRAFT_BUDGET.scopeAllows(deliveryScope, DRAFT_BUDGET.deliveryOf(p)) && (deps.eligible?.(p) ?? true));
   const live = scoped.filter((p) => p.status !== "implemented_pending_verification");
   // Your queue is CURRENT WORK ONLY. A proposal enters it only when I can show it was drafted under the basis this account holds right now. An older basis, no basis at all, and a current basis I could not read all SET THE ROW ASIDE. Unreadable fails closed: being unable to read the basis is not proof anything is current, it is proof I cannot tell, so I show you nothing rather than guess. A set-aside row keeps its words, its status and its history: no stored row is rewritten or deleted, it just stops presenting as work waiting on you, and it is counted below so I can say so. A NEW PAGE PASSES THE SAME BAR TWICE. Under generation 6 a page brief may be work again, but only one built to today's evidence contract: the earned verdict it came from, an outline, and every piece tracing to a receipt item. A brief carrying none of that is an older idea however current its basis looks, and reviving the ones that turned a rival's example question into an article is the worst thing this queue could do, so it is refused here and still COUNTED below. AND EVERY DEEP CHANGE PASSES ITS OWN RECEIPT AT READ TIME. A stored bundle whose claims stopped resolving kept rendering exactly as written until something re-selected its page, so the screen is the safety net: a row that cannot show its work is withheld here whatever the producer pass has had a chance to do.
   const standing = live.filter((p) => actionableProposalFailures(p, { tenantId, currentBasis, now }).length === 0

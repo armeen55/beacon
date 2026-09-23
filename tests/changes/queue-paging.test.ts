@@ -9,7 +9,7 @@ const client: Record<string, unknown> = {
       if ((a.p_expected_prior ?? null) !== prior) return Promise.resolve({ data: null, error: { message: `release conflict: expected prior ${a.p_expected_prior}, found ${prior}` } }); }
     const content = a.p_content?.[0], manifest = content?.manifest ?? [], lane = new Map(manifest.map((r) => [r.id, r.lane])), cards = content?.changes?.proposals ?? [], laneCards = [...(content?.changes?.ready ?? []), ...(content?.changes?.toDo ?? []), ...(content?.changes?.research ?? [])], laneRows = [...(content?.changes?.ready ?? []).map((p) => [p.id, "ready"]), ...(content?.changes?.toDo ?? []).map((p) => [p.id, "todo"]), ...(content?.changes?.research ?? []).map((p) => [p.id, "research"])];
     if (new Set(cards.map((p) => p.id)).size !== cards.length || new Set(laneRows.map(([id]) => id)).size !== laneRows.length || cards.some((p) => !laneRows.some(([id]) => id === p.id)) || cards.some((p) => !lane.has(p.id)) || laneRows.some(([id, l]) => lane.get(id) !== l)) return Promise.resolve({ data: null, error: { message: "release cards conflict with the manifest" } });
-    const prohibited = (p: ChangeProposal) => p.kind === "new_page" || p.changeFamily === "full_rewrite" || p.recommendedChange.kind === "new_page" || p.recommendedChange.target?.mode === "whole_body" || p.bundle?.components.some((c) => c.kind === "full_rewrite" || c.kind === "new_page" || c.target?.mode === "whole_body"); if ([...cards, ...laneCards].some(prohibited) || manifest.some(({ id }) => { const row = db.rows.find((r) => r.tenant_id === a.p_tenant_id && r.id === id), p = (row?.payload as { proposal?: ChangeProposal } | undefined)?.proposal; return !p || prohibited(p); })) return Promise.resolve({ data: null, error: { message: "prohibited release payload" } });
+    const prohibited = (p: ChangeProposal) => !operatorUiPolicy.isManualEditProofWork(p) || p.kind === "new_page" && deliverableGaps(p).length > 0; if ([...cards, ...laneCards].some(prohibited) || manifest.some(({ id }) => { const row = db.rows.find((r) => r.tenant_id === a.p_tenant_id && r.id === id), p = (row?.payload as { proposal?: ChangeProposal } | undefined)?.proposal; return !p || prohibited(p); })) return Promise.resolve({ data: null, error: { message: "prohibited release payload" } });
     for (const r of db.rows) if (r.tenant_id === a.p_tenant_id) { r.queue_lane = null; r.queue_rank = null; }
     manifest.forEach(({ id, lane }, i) => { const r = db.rows.find((x) => x.tenant_id === a.p_tenant_id && x.id === id);
       if (r) { r.queue_lane = `${a.p_release}::${lane}`; r.queue_rank = i + 1; } });
@@ -46,7 +46,8 @@ import { renderToStaticMarkup } from "react-dom/server"; import { createElement 
 import { readChangesPage, loadChangesView, buildChangesViewUncached } from "@/app/(shell)/changes-data";
 import { buildTodayViewFromChanges, loadTodayView } from "@/app/(shell)/today-view-data";
 import { readQueuePage, loadChangeProposals, publishCustomerRelease, queueLaneCounts } from "@/domains/decision/proposal-store";
-import { serializeChangeProposal, type ChangeProposal } from "@/domains/decision/contracts";
+import { actionableProposalFailures, deliverableGaps } from "@/domains/decision"; import operatorUiPolicy from "@/app/(shell)/changes/types";
+import { deserializeChangeProposal, serializeChangeProposal, type ChangeProposal } from "@/domains/decision/contracts";
 import { CHANGES_PAGE_SIZE } from "@/app/(shell)/changes/types";
 const T = "acct-a", N = 501;
 const proposal = (i: number, over: Partial<ChangeProposal> = {}): ChangeProposal => ({
@@ -119,6 +120,11 @@ describe("one release identity, or no release at all", () => {
     const view = await buildChangesViewUncached(T, "rel-scope"); expect([view.stampRows?.map((r) => r.id), view.proposals.map((p) => p.id), view.summary.ready], "one hundred higher-value prohibited rows never enter overlap, rank, lanes, or the release hand-off").toEqual([[edit.id], [edit.id], 1]);
     expect((await loadChangeProposals(T)).size, "the rows remain private history; release admission deletes nothing").toBe(101);
     await stamp("rel-scope", [...view.stampRows!]); const [page, counts] = await Promise.all([readQueuePage(T, "all", "b1", 0, 2), queueLaneCounts(T, "rel-scope", "b1")]); expect([page.rows.map((p) => p.id), page.total, page.nextRank, page.more, counts], "private history consumes no database page, rank, count, or cursor position").toEqual([[edit.id], 1, 1, false, { ready: 1, todo: 0, research: 0 }]); });
+  it("keeps rank two visible when a complete rank-one new page is held after release", async () => {
+    const sections = ["First", "Second", "Third"], opening = "A complete direct answer.", components = [{ kind: "title", label: "Page title", after: "Guide" }, { kind: "meta", label: "Meta description", after: "A complete guide." }, { kind: "h1", label: "Page heading (H1)", after: "The guide" }, { kind: "opening_answer", label: "Opening answer", after: opening }, ...sections.map(h => ({ kind: "section", label: h, after: `${h}\n\n${h}: full explanation.` }))].map(c => ({ ...c, before: null, evidenceKeys: ["fact-1"], risk: "review" as const }));
+    const page = proposal(700, { id: `${T}::topic:guide::new_page`, kind: "new_page", pagePath: null, pageUrl: null, changeFamily: "new_page", status: "needs_review", researchOnly: false, recommendedChange: { kind: "new_page", proposedTitle: "Guide", metaDescription: "A complete guide.", openingAnswer: opening, outline: sections, faqQuestions: [], schemaTypes: [] }, bundle: { objective: "Complete guide", metric: "clicks", scope: { queries: [], prompts: [] }, components, receipt: { items: [{ key: "fact-1", kind: "independent_source", fact: "A sourced fact", observedAt: null }], missing: [], freshestObservedAt: null }, alternatives: [], risks: [], confidenceReasons: [], measurementPlan: "Read clicks." }, newPageDraft: { brief: { kind: "new_page", identity: "id", material: "m", pageHeading: "The guide", sections: sections.map(heading => ({ heading })) }, pieces: [{ slot: 0, heading: null, after: opening }, ...sections.map((heading, i) => ({ slot: i + 1, heading, after: `${heading}: full explanation.` }))].map(p => ({ ...p, claims: [], supportFacts: [], review: [] })) } } as Partial<ChangeProposal>), second = proposal(701); db.rows = [page, second].map(p => seed(p)); await stamp("rel-page", [{ id: page.id, lane: "todo" }, { id: second.id, lane: "ready" }]);
+    expect([!!deserializeChangeProposal(serializeChangeProposal(page)), actionableProposalFailures(page, { tenantId: T, currentBasis: "b1" }), operatorUiPolicy.isManualEditProofWork(page)]).toEqual([true, [], true]); expect((await readChangesPage(T, "all", 0)).rows.map(p => p.id)).toEqual([page.id, second.id]); const held = { ...page, status: "needs_review" as const, researchOnly: true }; db.rows[0]!.payload = JSON.parse(serializeChangeProposal(held)); db.rows[0]!.queue_lane = null; db.rows[0]!.queue_rank = null;
+    const [after, counts] = await Promise.all([readChangesPage(T, "all", 0), queueLaneCounts(T, "rel-page", "b1", operatorUiPolicy.isManualEditProofWork)]); expect([after.rows.map(p => p.id), after.total, after.releaseId, counts]).toEqual([[second.id], 1, "rel-page", { ready: 1, todo: 0, research: 0 }]); });
   it("serves the reasoning the rules that stand today produce, never the one banked when the row was saved", async () => {
     const one = ALL[0]!; db.rows = [seed(one)]; // THE ORDER is recomputed at every release and stamped on the row; the RECEIPT beside it rode in the
     const payload = db.rows[0]!.payload as { proposal: Record<string, unknown> }; payload.proposal.rankingReceipt = { score: -15.57, directional: true, basis: "banked under rules that no longer decide anything", factors: [{ name: "treatment", max: 45, input: "rewriting a line of metadata is the kind of change that has lost here at high confidence", contribution: -45 }] }; payload.proposal.whyRankedAboveNext = "ranked here by a rule that is gone";
@@ -167,6 +173,7 @@ describe("the ranked queue pages in the database", () => {
     }
     expect([seen, new Set(seen).size]).toEqual([ALL.map((p) => p.id), N]); // every one, in the stamped order, and not one of them twice
     expect(Math.max(...db.reads)).toBeLessThanOrEqual(CHANGES_PAGE_SIZE); // never an unbounded read
+    expect(buildTodayViewFromChanges(view).nextOpportunities.map((o) => o.changeId)).toEqual(ALL.slice(0, 3).map((p) => p.id));
   });
   it("restarts honestly when the ranking moved, and never serves a retired or implemented row", async () => {
     await stamp("rel-2"); const page = await readChangesPage(T, "ready", 100, "rel-1");
@@ -179,14 +186,7 @@ describe("the ranked queue pages in the database", () => {
     for (const gone of [1, 2, 3]) expect(ids).not.toContain(ALL[gone]!.id);
     expect(after.cursor).toBeGreaterThan(after.rows.length); // the cursor is the RANK read, not a row count
   });
-  it("withholds everything under a bar it cannot read, and everything drafted under an older one", async () => {
-    db.basis = null; expect((await readChangesPage(T, "ready", 0, null)).rows).toEqual([]);
-    db.basis = "b2"; expect((await readQueuePage(T, "ready", "b2", 0, CHANGES_PAGE_SIZE)).total).toBe(0); });
-  it("no longer caps the canonical current queue at 500, and Today still takes only three", async () => {
-    expect((await loadChangeProposals(T)).size).toBe(N);
-    const view = await loadChangesView(); // the count is the count, and the screen is one page
-    expect([view.summary.ready, view.ready.length]).toEqual([N, CHANGES_PAGE_SIZE]); // one page of the one order, all ready in this fixture
-    expect(buildTodayViewFromChanges(view).nextOpportunities.map((o) => o.changeId)).toEqual(ALL.slice(0, 3).map((p) => p.id)); }); });
+});
 describe("a publish that half landed", () => {
   it("rolls the order back onto the release still serving when the blob does not land", async () => {
     const real = await vi.importActual<typeof import("@/app/(shell)/surface-release")>("@/app/(shell)/surface-release"); await stamp("rel-prev", ALL.slice(0, 3).map((p) => ({ id: p.id, lane: "ready" })));

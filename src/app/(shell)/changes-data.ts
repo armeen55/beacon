@@ -17,7 +17,7 @@ import { countLedgerLifecycle, splitLedgerLifecycle } from "@/domains/decision";
 import { buildReceiptLine } from "@/components/data/receipt-line";
 import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import { readCustomerSurface, isCustomerSurfaceStale, type CustomerSurface } from "./surface-release";
-import { CHANGES_PAGE_SIZE } from "./changes/types";
+import operatorUiPolicy, { CHANGES_PAGE_SIZE } from "./changes/types";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 
 type ChangesSummary = { todo: number; ready: number; research: number; implemented: number; measuring: number; results: number };
@@ -153,9 +153,9 @@ export async function readChangesPage(
   const basis = await resolveCurrentBasis(tenantId).catch(() => null);
   // A bar I cannot read is not proof anything is current, so I show nothing rather than yesterday's work.
   if (basis == null) return { rows: [], laneById: {}, total: 0, cursor: 0, releaseId: null, refreshed: null, more: false, dropped: 0 };
-  const asked = await readQueuePage(tenantId, lane, basis, cursor, CHANGES_PAGE_SIZE);
+  const asked = await readQueuePage(tenantId, lane, basis, cursor, CHANGES_PAGE_SIZE, operatorUiPolicy.isManualEditProofWork);
   const moved = releaseId != null && asked.release != null && releaseId !== asked.release;
-  const page = moved ? await readQueuePage(tenantId, lane, basis, 0, CHANGES_PAGE_SIZE) : asked;
+  const page = moved ? await readQueuePage(tenantId, lane, basis, 0, CHANGES_PAGE_SIZE, operatorUiPolicy.isManualEditProofWork) : asked;
   return { rows: page.rows, laneById: page.laneById, total: page.total, cursor: page.nextRank, releaseId: page.release, more: page.more, dropped: page.dropped,
     refreshed: moved ? "The list moved under you while you were reading it, so here is the fresh first page." : null };
 }
@@ -178,15 +178,15 @@ async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
     if (basis == null) return null;
     // ONE PAGE OF THE ONE GLOBAL ORDER, research included: the stamped rank is the only order any surface
     // shows, and the stamped lane rides each row as the control fact (Codex, 2026-08-21).
-    const page = await readQueuePage(tenantId, "all", basis, 0, CHANGES_PAGE_SIZE);
+    const page = await readQueuePage(tenantId, "all", basis, 0, CHANGES_PAGE_SIZE, operatorUiPolicy.isManualEditProofWork);
     // No ranking stamped: serve the release's own page, and COUNT ONLY WHAT I CAN SERVE, so the screen never offers a "show more" that has nothing behind it.
     if (page.release == null) return { ...view, summary: { ...view.summary, ready: view.ready.length, todo: view.toDo.length } };
     // FINISHED WORK CAN NEVER FALL OFF THE FIRST PAGE (operator, 2026-08-30). The global page is the window onto
     // internal work; the ready lane is fetched by ITSELF, because this page's contract is finished changes first
     // whatever their global rank. Live: per-entry worth ranked seven corrections below a hundred internal rows and
     // the Ready section served empty under a headline of seven, with the finished work behind a button.
-    const readyPage = await readQueuePage(tenantId, "ready", basis, 0, CHANGES_PAGE_SIZE);
-    const counts = await queueLaneCounts(tenantId, page.release, basis);
+    const readyPage = await readQueuePage(tenantId, "ready", basis, 0, CHANGES_PAGE_SIZE, operatorUiPolicy.isManualEditProofWork);
+    const counts = await queueLaneCounts(tenantId, page.release, basis, operatorUiPolicy.isManualEditProofWork);
     // THE READY LANE NEVER SHOWS FEWER CARDS THAN IT COUNTS (operator, 2026-09-01), AND TODAY NEVER OFFERS A CARD THE LIST DOES NOT SHOW (operator, 2026-09-06): while a rebuild re-stamps ranks, the lane page can answer empty against a count of one, so the screen said "no finished change" over "Show 1 more" while Today handed over that same change's copy off the release. The release's own saved ready rows now join the RANKING, stamped ready, so one map serves the count, the cards and Today's top item until the stamps catch up.
     const held = readyPage.rows.length === 0 && counts.ready > 0 ? view.ready : [];
     const seen = new Set([...held, ...readyPage.rows].map((r) => r.id));
@@ -290,7 +290,7 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
   // ranking built against a bar it is no longer filtering on.
   const currentBasis = await resolveCurrentBasis(tenantId).catch(() => null);
   const [queue, ledger, aiCases] = await Promise.all([
-    loadProposalQueue(tenantId, { currentBasis, deliveryScope: "existing_page_edits" }).catch(() => ({ ranked: [], ready: [], toDo: [], research: [], implementedPendingVerification: 0, demotedStaleBasis: 0, basisUnreadable: true })),
+    loadProposalQueue(tenantId, { currentBasis, deliveryScope: "all_changes", eligible: operatorUiPolicy.isManualEditProofWork }).catch(() => ({ ranked: [], ready: [], toDo: [], research: [], implementedPendingVerification: 0, demotedStaleBasis: 0, basisUnreadable: true })),
     // A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER: swallowing the error printed "0 measuring, 0 results" during an outage, which reads
     // as "nothing you shipped is being watched" and is a lie they cannot check.
     loadProofLedgerCached(tenantId).then((rows) => ({ rows, read: true })).catch(() => ({ rows: [] as Awaited<ReturnType<typeof loadProofLedgerCached>>, read: false })),

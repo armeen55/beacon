@@ -35,10 +35,11 @@ function isDangerousComponent(c: BundleComponent): boolean {
     || (c.kind === "factual_correction" && HIGH_STAKES_CLAIM.test(`${c.before ?? ""} ${c.after}`));
 }
 
-/** The manual proving phase serves only bounded edits to an existing page. One predicate guards every
- * presentation and action door, including old stored rows created before the phase narrowed. */
+/** The operator queue serves implementable existing edits and complete new pages. One predicate guards
+ * presentation and action doors, including older unsafe whole-body rows. */
 function isManualEditProofWork(p: ChangeProposal): boolean {
-  if (p.kind === "new_page" || p.recommendedChange.kind === "new_page" || p.changeFamily === "full_rewrite") return false;
+  if (p.kind === "new_page") return p.researchOnly !== true && p.recommendedChange.kind === "new_page" && !!p.bundle && p.bundle.components.filter(c => c.kind === "section").length === p.recommendedChange.outline.length;
+  if (p.recommendedChange.kind === "new_page" || p.changeFamily === "full_rewrite") return false;
   if (p.recommendedChange.target?.mode === "whole_body") return false;
   return !(p.bundle?.components ?? []).some((c) => c.kind === "new_page" || c.kind === "full_rewrite" || c.target?.mode === "whole_body");
 }
