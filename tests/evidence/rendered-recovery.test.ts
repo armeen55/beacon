@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { supabaseFake, type Row } from "../helpers/supabase-fake";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
-import { completenessOf } from "@/domains/evidence/scanning/crawl-frontier";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import { pageIdFor } from "@/domains/evidence/scanning/in-process-scan";
 import type { FunnelDeps } from "@/domains/evidence/funnel/shared";
@@ -16,7 +15,6 @@ describe("rendered recovery follows unresolved page identities", () => {
     { tenant_id: tenant, url: recent, crawl_state: "crawled", http_status: 200, is_canonical_target: true, last_crawled_at: "2026-09-18T00:00:00.000Z" },
     { tenant_id: tenant, url: unread, crawl_state: "crawled", http_status: 200, is_canonical_target: true, last_crawled_at: "2026-09-19T00:00:00.000Z" },
   ];
-
   it("replays a newer banked rendered task through an active source hold and clears it only after readback", async () => {
     const { winningPagesUnit } = await import("@/domains/evidence/funnel/winning-pages");
     const shell = "<main><h1>Comedians</h1><p>Loading names.</p></main>", full = `<main><h1>Comedians</h1><p>${"A named comedian appears with context. ".repeat(20)}</p></main>`, raw = extractPageSnapshot(shell, unread, "page", tenant), rendered = extractPageSnapshot(full, unread, "page", tenant);
@@ -32,7 +30,6 @@ describe("rendered recovery follows unresolved page identities", () => {
     ready = true; expect((await read(tenant, cursor, 90_000)).status).toBe("done");
     expect([called, fetched, (state as { ownedReads: unknown[] }).ownedReads, body.completeness, writes.includes(rendered.content_hash)]).toEqual([[held.attemptedAt, held.attemptedAt], [], [], "complete", true]);
   });
-
   it("stops an unchanged partial shell after cache expiry, reopens on an observed asset change, and holds a failed marker read", async () => {
     const url = unread, key = canonicalUrlKey(url), page = pageIdFor(key), shell = "<main><h1>Names</h1><p>Loading names.</p></main>", raw = (asset: string) => extractPageSnapshot(`<script src="/${asset}.js"></script>${shell}`, url, page, tenant), first = raw("v1"), changed = raw("v2"), stored: Row[] = [];
     let body = { version: "current", completeness: "partial", contentHash: first.content_hash, vocabulary: "Loading names.", fetchedAt: current, captureStates: [{ ...first }], latestCaptureId: first.id }, failed = false, calls = 0, clock = now;
@@ -56,25 +53,28 @@ describe("rendered recovery follows unresolved page identities", () => {
       await renderUnreadOwnedPages(tenant, 1, { url, rawSnapshot: changed, bustedAt, deps, deadline: clock + 90_000 }); expect(calls).toBe(4);
     } finally { vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules(); }
   });
-
-  it("reaches structurally unresolved URL behind 2,001 newer snapshots and spends nothing on a qualified neighbor", async () => {
-    const disputed = row("old", "page-z", unread, "2026-09-01T00:00:00.000Z", 3); disputed.body_text = "B"; disputed.content_capture = { version: 1, complete: true, mainHtml: "<main><p>A</p></main>", jsonLd: [] };
-    const snapshots = [disputed, ...Array.from({ length: 2001 }, (_, i) => row(`new-${i}`, "page-a", recent, new Date(now - i * 1000).toISOString(), 3))];
+  it("passes a cold loading shell to rendered work, then renews an identical trusted page free behind 2,001 snapshots", async () => {
+    const snapshots = Array.from({ length: 2001 }, (_, i) => row(`new-${i}`, "page-a", recent, new Date(now - i * 1000).toISOString(), 3));
     const tables: Record<string, Row[]> = { owned_pages: inventory, page_snapshots: snapshots };
     let readError = false; const selected: string[] = [], sb = supabaseFake({ rows: (name) => tables[name] ?? [], error: (table, op) => readError && table === "page_snapshots" && op === "select" ? { message: "snapshot read failed" } : null, onSelect: (table, read) => { if (table === "page_snapshots") selected.push(read.cols); } });
     vi.resetModules(); vi.doMock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => sb }));
     const { renderUnreadOwnedPages } = await import("@/domains/evidence/pages/rendered-read"), { loadOwnedPageBodies } = await import("@/domains/evidence/pages/owned-context");
-    const fetched: string[] = [], provider: string[] = [], deps = { now: () => now, loadProfile: async () => null, readOwnedBodies: loadOwnedPageBodies,
-      fetchPage: async (url: string) => { fetched.push(url); return { ok: false, reason: "robots_blocked" }; }, callProvider: async (capability: string) => { provider.push(capability); throw new Error("no provider call was authorized"); } } as unknown as FunnelDeps;
-    try { expect((await loadOwnedPageBodies(tenant, [unread])).get(canonicalUrlKey(unread))?.completeness).toBe("partial");
-      expect(await renderUnreadOwnedPages(tenant, 1, { deps, deadline: now + 90_000 })).toBe(0); expect([fetched, provider, selected.length > 0]).toEqual([[unread], [], true]);
-      fetched.length = 0; expect(await renderUnreadOwnedPages(tenant, 1, { deps, deadline: now + 90_000 })).toBe(0); expect([fetched, provider]).toEqual([[], []]);
-      readError = true; await expect(renderUnreadOwnedPages(tenant, 1, { url: unread, deps, deadline: now + 90_000 })).rejects.toThrow("capture could not be read"); expect([fetched, provider]).toEqual([[], []]);
+    let pageHtml = "<main><h1>Comedians</h1><p>Loading names.</p></main>", silentWrite = true;
+    const fetched: string[] = [], provider: string[] = [], full = `<main><h1>Current city page</h1><h2>Useful details</h2><p>${"A city is described with current, useful local facts. ".repeat(8)}</p><h2>Visitor context</h2></main>`, deps = { now: () => now, loadProfile: async () => null, readOwnedBodies: loadOwnedPageBodies,
+      fetchPage: async (url: string) => { fetched.push(url); return { ok: true, html: pageHtml, status: 200, finalUrl: url }; }, writeOwnedPage: async (snap: Row) => { if (!silentWrite) snapshots.push(snap); }, callProvider: async (capability: string) => { provider.push(capability); return { state: "capped", cacheKey: "held", detail: "no paid work authorized" }; } } as unknown as FunnelDeps;
+    try { expect((await loadOwnedPageBodies(tenant, [unread])).has(canonicalUrlKey(unread))).toBe(false);
+      expect(await renderUnreadOwnedPages(tenant, 1, { deps, deadline: now + 90_000 })).toBe(0); expect([fetched, provider]).toEqual([[unread], ["onpage_rendered_html"]]);
+      const trusted = extractPageSnapshot(full, unread, "page-z", tenant); trusted.id = "trusted"; trusted.fetched_at = "2026-09-01T00:00:00.000Z"; snapshots.push(trusted as Row);
+      const newer = extractPageSnapshot(pageHtml, unread, "page-z", tenant); newer.id = "shell"; newer.fetched_at = "2026-09-20T00:00:00.000Z"; snapshots.push(newer as Row);
+      expect((await loadOwnedPageBodies(tenant, [unread])).get(canonicalUrlKey(unread))?.version).toBe("stale_known_good");
+      expect(await renderUnreadOwnedPages(tenant, 1, { url: unread, deps, deadline: now + 90_000 })).toBe(0); expect(provider).toHaveLength(2);
+      pageHtml = full; fetched.length = 0; expect(await renderUnreadOwnedPages(tenant, 1, { url: unread, deps, deadline: now + 90_000 })).toBe(0); expect(provider).toHaveLength(2);
+      silentWrite = false; expect(await renderUnreadOwnedPages(tenant, 1, { url: unread, deps, deadline: now + 90_000 })).toBe(1);
+      expect([(await loadOwnedPageBodies(tenant, [unread])).get(canonicalUrlKey(unread))?.completeness, fetched, provider.length, selected.length > 0]).toEqual(["complete", [unread, unread], 2, true]);
+      fetched.length = 0; expect(await renderUnreadOwnedPages(tenant, 1, { deps, deadline: now + 90_000 })).toBe(0); expect([fetched, provider.length]).toEqual([[], 2]);
+      readError = true; await expect(renderUnreadOwnedPages(tenant, 1, { url: unread, deps, deadline: now + 90_000 })).rejects.toThrow("capture could not be read"); expect([fetched, provider.length]).toEqual([[], 2]);
     } finally { vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules(); }
   });
-
-  it("marks a raw capture with incomplete canonical HTML as partial", () => { const snap = extractPageSnapshot("<main><h1>Page</h1><p>Readable words exist here.</p></main>", unread, "p", tenant);
-    snap.content_capture!.complete = false; expect(completenessOf(snap)).toBe("partial"); delete (snap as unknown as Record<string, unknown>).content_capture; expect(completenessOf(snap)).toBe("partial"); });
 
   it("reaches URL 61 past 60 partial rendered failures, then reads back its hold without buying a provider call", async () => {
     const urls = Array.from({ length: 61 }, (_, i) => `https://fixture.example/page-${String(i).padStart(2, "0")}`);

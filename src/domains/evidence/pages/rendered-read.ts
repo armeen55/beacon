@@ -69,8 +69,25 @@ export async function renderUnreadOwnedPages(tenantId: string, cap = RENDERED_RE
       const raw = await d.fetchPage(url, new Map(), { timeoutMs: Math.max(1, Math.min(10_000, (deadline - d.now()) / 2)) })
         .catch(() => null);
       if (!raw) { await hold(url); continue; }
-      if (!raw.ok || (raw.finalUrl && canonicalUrlKey(raw.finalUrl) !== key)) { await hold(url); continue; }
+      if (!raw.ok || raw.status !== 200 || (raw.finalUrl && canonicalUrlKey(raw.finalUrl) !== key)) { await hold(url); continue; }
       rawSnapshot = extractPageSnapshot(raw.html, url, pageIdFor(key), tenantId, raw.status, profile ?? undefined, raw.finalUrl);
+      const prior = before?.sourceCapture, current = rawSnapshot.content_capture;
+      // A cold syntactically complete HTML document can still be a JavaScript loading shell.
+      // Free renewal is earned only by re-observing every material part of a trusted complete capture.
+      const sameTrusted = (before?.version === "current" || before?.version === "stale_known_good") && before.completeness === "complete"
+        && prior?.complete && !!prior.sourceRevision && current?.complete && current.sourceRevision === prior.sourceRevision
+        && current.mainHtml === prior.mainHtml && JSON.stringify(current.jsonLd) === JSON.stringify(prior.jsonLd)
+        && rawSnapshot.extraction_certainty === "confirmed" && rawSnapshot.content_hash === before.contentHash
+        && rawSnapshot.title === before.title && rawSnapshot.h1 === before.h1 && rawSnapshot.meta_description === before.metaDescription;
+      if (sameTrusted) {
+        try { await d.writeOwnedPage(rawSnapshot, tenantId); } catch (e) { await hold(url); throw e; }
+        const misses = new Map<string, "no_capture" | "read_failed">(), rows = await d.readOwnedBodies(tenantId, [url], misses), saved = rows.get(key);
+        if (misses.get(key) === "read_failed" || !saved) { await hold(url); throw new Error("raw capture readback failed"); }
+        if (saved.version === "current" && saved.completeness === "complete" && saved.captureId === rawSnapshot.id
+          && saved.contentHash === rawSnapshot.content_hash && isCurrent("owned_page", saved.fetchedAt, d.now(), options.bustedAt)) landed += 1;
+        else await hold(url);
+        continue;
+      }
     }
     if (deadline - d.now() < 50_000) break;
     const legacyRevision = sha16(JSON.stringify([options.bustedAt ?? null, rawSnapshot.content_hash, rawSnapshot.title, rawSnapshot.meta_description, rawSnapshot.h1, rawSnapshot.content_capture?.mainHtml, rawSnapshot.content_capture?.jsonLd]));
