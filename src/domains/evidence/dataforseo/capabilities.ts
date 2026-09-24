@@ -179,7 +179,7 @@ export const capabilityAskable = (capability: string): boolean => Object.hasOwn(
 export async function providerCall<K extends CapabilityKey>(
   capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string; runId?: string; caseKey?: string; promptId?: string; bankedAfter?: string }, deps: FunnelBoundaryDeps = {},
 ): Promise<CachedCallResult> {
-  const proof = PROOF_SPEND.externalClosed(ids.tenantId, { capability, url: String((input as { url?: string }).url ?? "") });
+  const proof = PROOF_SPEND.externalClosed(ids.tenantId, { capability, url: String((input as { url?: string; keyword?: string }).url ?? (input as { keyword?: string }).keyword ?? "") });
   const paused = proof === true || proof == null && await spendingClosed(ids.tenantId);
   const peek = (deps as { creditPeek?: typeof CREDIT_BREAKER.peek }).creditPeek ?? CREDIT_BREAKER.peek; // AND NO PAID POST WHILE THE MODEL DOOR IS HELD (2026-09-14): research bought with no credit to reason on it is money spent on a queue nobody can read. The free GET collects never pass here.
   const rawStop = capability === "onpage_rendered_html" ? await resolveDeps(deps).cacheRead(RAW_STOP_KEY).catch(() => "unreadable" as const) : null;

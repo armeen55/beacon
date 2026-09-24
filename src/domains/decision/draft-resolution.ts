@@ -123,7 +123,7 @@ function gainResolution(judge: DraftResolution, snapshot: EvidenceSnapshot, card
   const finalNo = new Set((snapshot.research?.winningPages ?? []).filter((w) => !w.extract && w.readOutcome?.state === "robots_blocked").map((w) => canonicalUrlKey(w.url)));
   const unread = serpRow.organic.filter((o) => canonicalUrlKey(o.url) !== canonicalUrlKey(page.url)).slice(0, 5).find((o) => !extracts.has(canonicalUrlKey(o.url)) && !finalNo.has(canonicalUrlKey(o.url))) ?? null;
   if (unread) return { resolution: "acquire_competitor_page", need: { kind: "competitor_page", query: q, url: unread.url, reasonCode: "winner_unread" } };
-  if (facts.length === 0 || judge === "acquire_factual_source") return { resolution: "acquire_factual_source", need: { kind: "factual_source", query: q, url: page.url, reasonCode: "facts_owed" } };
+  if ((facts.length === 0 || judge === "acquire_factual_source") && /^(why|what|how|when|where|who)\b/i.test(q)) return { resolution: "acquire_factual_source", need: { kind: "factual_source", query: q, url: page.url, missingTopic: q, reasonCode: "facts_owed" } };
   return { resolution: "no_valid_treatment" };
 }
 /** THE PAGE'S OWN WORDS THAT WOULD STILL STAND UNDER AN EDIT: everything after the passage it replaces. Empty where nothing is replaced or the body is not on file, so the duplication reading above asks nothing rather than guessing. PURE. */

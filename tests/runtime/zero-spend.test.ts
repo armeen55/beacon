@@ -57,6 +57,7 @@ describe("inside a no-spend scope nothing is bought, and nothing pretends it fai
         expect(() => PROOF_SPEND.run(tenant, 8, 2, () => {})).toThrow();
         const clock = vi.spyOn(Date, "now").mockReturnValueOnce(stopBy); expect(PROOF_SPEND.authorize(tenant, "model", 0.01)).toBe(true); clock.mockRestore();
       });
+      await PROOF_SPEND.withExternalTargets(tenant, [{ capability: "serp_organic", url: "why does the flag repeat" }], async () => { expect(PROOF_SPEND.admitSearchResults(tenant, "why does the flag repeat", [source.url])).toBe(true); expect(PROOF_SPEND.externalClosed(tenant, source)).toBe(false); expect(PROOF_SPEND.externalClosed(tenant, { ...source, url: "https://other.example/flag" })).toBe(true); });
       expect([PROOF_SPEND.externalClosed(tenant, source), PROOF_SPEND.meter(tenant)]).toEqual([true, { modelCalls: 2, modelReservedUsd: 1.8, externalCalls: 2, externalReservedUsd: 0.35 }]);
     }, { maxExternalCalls: 2, maxExternalUsd: 0.4, allowedExternal: [capture], stopBy });
   });});

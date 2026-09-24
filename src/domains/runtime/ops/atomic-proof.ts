@@ -4,6 +4,7 @@ import { confirmedVersion, deliverableGaps } from "@/domains/decision/completene
 import type { ChangeProposal } from "@/domains/decision/contracts"; import { PROOF_SPEND, runWithoutSpending } from "@/lib/spend-scope"; import { researchPermission } from "./due-work";
 import spendReservations, { runWithProposalWorkKey } from "@/lib/cost/spend-reservations";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
+import { resolveCurrentBasis } from "@/domains/decision/load-proposals";
 import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
@@ -67,7 +68,7 @@ async function run(input: Input, deps: Deps = DEPS) {
   } catch { return finish(false, "proof_execution_failed", row, budget?.meterOf(key) ?? null); }
 }
 const PAGE_DEPS = { ...DEPS, produce: produceProposalsForTenant, acquire: defaultSteps.acquireEvidence, list: loadChangeProposals, snapshot: loadEvidenceSnapshot,
-  bodies: loadOwnedPageBodies, account: getTenant, basis: defaultSteps.currentBasis, clock: Date.now,
+  bodies: loadOwnedPageBodies, account: getTenant, basis: defaultSteps.currentBasis, current: resolveCurrentBasis, clock: Date.now,
   substantive: (row: ChangeProposal) => writerKindOf(row) === "answer" && row.changeFamily !== "factual_correction" || writerKindOf(row) === "description" && row.recommendedChange.kind === "existing_edit" && row.recommendedChange.field === "meta" || writerKindOf(row) === "link" && row.recommendedChange.kind === "existing_edit" && !!row.recommendedChange.linkTo };
 type PageInput = Omit<Input, "now"> & { maxDataForSeoCalls: number; maxDataForSeoUsd: number; authorizationId?: string }; const sameDocument = (a: string, b: string): boolean => { try { const x = new URL(a.startsWith("/") ? a : /^https?:\/\//i.test(a) ? a : `https://${a}`, b), y = new URL(b); return x.protocol === y.protocol && x.port === y.port && x.hostname.replace(/^www\./, "") === y.hostname.replace(/^www\./, "") && x.pathname === y.pathname && x.search === y.search; } catch { return false; } };
 
@@ -148,15 +149,18 @@ async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS>
             && !n.topic && n.workKey?.trim() && n.proposalId && n.proposalId === n.unlocks?.proposalId
             && DRAFT_BUDGET.scopeAllows("existing_page_edits", DRAFT_BUDGET.requirementDelivery(n)));
           const owing = need ? await d.load(tenantId, need.proposalId!) : null, obligation = owing ? d.obligation(owing) : null;
-          const fields = ["kind", "query", "url", "reasonCode", "missingTopic", "topic", "finding", "proposalId", "rivalUrl", "rivalUrls"] as const;
+          const fields = ["kind", "query", "url", "reasonCode", "missingTopic", "ownerVersion", "delivery", "topic", "finding", "proposalId", "rivalUrl", "rivalUrls"] as const;
           if (need && owing && owing.id === need.proposalId && samePage(owing) && owing.basis === currentBasis && owing.status === "needs_review"
             && owing.workKey === need.workKey && DRAFT_BUDGET.keyOf(owing) === need.key && obligation?.kind === "evidence"
             && fields.every((key) => JSON.stringify(need[key]) === JSON.stringify(obligation.need[key]))) {
             const urls = [...new Set([need.rivalUrl, ...(need.rivalUrls ?? [])].filter((u): u is string => !!u))];
             const targets = urls.slice(0, 2).map((url) => ({ capability: "onpage_content_parsing", url }));
-            if (targets.length > 0 && d.clock() < stopBy && await d.permission(tenantId) === "paused") {
-              const got = await PROOF_SPEND.withExternalTargets(tenantId, targets, () => runWithProposalWorkKey(need.workKey, () => d.acquire(tenantId,
-                { ...need, rivalUrl: targets[0]!.url, rivalUrls: targets.map((t) => t.url) }, accountBasis, Math.min(90_000, stopBy - d.clock()), undefined, "existing_page_edits")));
+            if (!need.missingTopic?.trim() && !need.finding?.statementKey?.trim()) { reason = "factual_source_exact_claim_missing"; return; }
+            if (await d.basis(tenantId) !== accountBasis || await d.current(tenantId) !== currentBasis || need.ownerVersion && (await d.bodies(tenantId, [page])).get(pageKey)?.contentHash !== need.ownerVersion) { reason = "factual_source_owner_version_changed"; return; }
+            if (d.clock() < stopBy && await d.permission(tenantId) === "paused") {
+              const acquire = () => runWithProposalWorkKey(need.workKey, () => d.acquire(tenantId,
+                { ...need, ...(targets[0] ? { rivalUrl: targets[0].url, rivalUrls: targets.map((t) => t.url) } : {}) }, accountBasis, Math.min(90_000, stopBy - d.clock()), undefined, "existing_page_edits"));
+              const got = targets.length ? await PROOF_SPEND.withExternalTargets(tenantId, targets, acquire) : await acquire();
               acquisition = got; reason = `factual_source_owed:${got.detail}`;
               await defaultSteps.resumeAcquired(got, need.kind, (...parts) => { for (const key of shared.keys()) if (parts.some((part) => key.startsWith(`${part}:`))) shared.delete(key); }, async () => {
                 reason = "source_banked_but_drafting_deferred";

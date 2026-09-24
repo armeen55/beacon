@@ -137,7 +137,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     return { state: "capped", cacheKey, detail: transmission === "work_retired" ? "The operator retired this exact work before the provider call. No provider call was made." : transmission === "run_inactive" ? "The research run no longer owns its lease. No provider call was made." : transmission === "stale_day" ? "The reporting day changed before the provider call. No provider call was made, and a fresh reservation is used next time." : "The spending door closed before this request reached the provider. No provider call was made." };
   }
   if (transmission !== "claimed") return holdUncertain(d, r.mode, cacheKey, now, attemptId, "This paid request already started and remains unresolved, so it was not sent again.");
-  if (PROOF_SPEND.authorize(r.tenantId, "external", r.estCostUsd, { capability: r.capability ?? "", url: String(r.publicInput.url ?? "") }) === true) {
+  if (PROOF_SPEND.authorize(r.tenantId, "external", r.estCostUsd, { capability: r.capability ?? "", url: String(r.publicInput.url ?? r.publicInput.keyword ?? "") }) === true) {
     if (await d.spend.release(attemptId, true).catch(() => false)) await releaseClaim(d, cacheKey, now, "proof_ceiling");
     else await holdUncertain(d, r.mode, cacheKey, now, attemptId, "The proof did not call the provider, but its reservation could not be released safely.");
     return { state: "capped", cacheKey, detail: "The bounded proof does not authorize this provider request." };

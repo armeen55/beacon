@@ -10,6 +10,9 @@ const proofSpend = new AsyncLocalStorage<ProofAllowance>();
 const targetUrl = (value: string): string | null => {
   try { const url = new URL(value); if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return null; url.hash = ""; return url.toString(); } catch { return null; }
 };
+const targetIdentity = (target: ExternalTarget): string | null => target.capability === "serp_organic"
+  ? (/^[^\x00-\x1f\x7f]{3,200}$/.test(target.url.trim()) && !/^https?:\/\//i.test(target.url.trim()) ? target.url.trim().replace(/\s+/g, " ").toLowerCase() : null)
+  : ["onpage_rendered_html", "onpage_content_parsing"].includes(target.capability) ? targetUrl(target.url) : null;
 export function runWithoutSpending<T>(fn: () => T): T { return noSpend.run(true, fn); }
 
 export const PROOF_SPEND = {
@@ -17,21 +20,28 @@ export const PROOF_SPEND = {
     if (proofSpend.getStore() || !tenantId || !Number.isInteger(maxCalls) || maxCalls < 1 || !Number.isFinite(maxUsd) || maxUsd <= 0
       || !Number.isInteger(policy.maxExternalCalls) || policy.maxExternalCalls < 0 || !Number.isFinite(policy.maxExternalUsd) || policy.maxExternalUsd < 0
       || policy.maxExternalCalls > 0 && (policy.maxExternalUsd <= 0 || !policy.allowedExternal?.length) || policy.stopBy != null && !Number.isFinite(policy.stopBy)
-      || policy.allowedExternal?.some((target) => !["onpage_rendered_html", "onpage_content_parsing"].includes(target.capability) || !targetUrl(target.url))) throw new Error("invalid proof spending ceiling");
+      || policy.allowedExternal?.some((target) => !targetIdentity(target))) throw new Error("invalid proof spending ceiling");
     return proofSpend.run({ tenantId, maxCalls, maxUsd, policy: { ...policy, allowedExternal: policy.allowedExternal?.map((target) => ({ ...target })) },
       meter: { modelCalls: 0, modelReservedUsd: 0, externalCalls: 0, externalReservedUsd: 0 } }, fn);
   },
   withExternalTargets<T>(tenantId: string, targets: ExternalTarget[], fn: () => T): T {
     const held = proofSpend.getStore();
-    if (!held || held.tenantId !== tenantId || targets.some((target) => target.capability !== "onpage_content_parsing" || !targetUrl(target.url))) throw new Error("invalid proof source scope");
+    if (!held || held.tenantId !== tenantId || targets.some((target) => !["onpage_content_parsing", "serp_organic"].includes(target.capability) || !targetIdentity(target))) throw new Error("invalid proof source scope");
     return proofSpend.run({ ...held, policy: { ...held.policy, allowedExternal: [...(held.policy.allowedExternal ?? []), ...targets.map((target) => ({ ...target }))] } }, fn);
+  },
+  admitSearchResults(tenantId: string, query: string, urls: string[]): boolean {
+    const held = proofSpend.getStore();
+    if (!held || held.tenantId !== tenantId || PROOF_SPEND.externalClosed(tenantId, { capability: "serp_organic", url: query }) !== false
+      || urls.length > 20 || urls.some((url) => !targetUrl(url))) return false;
+    held.policy.allowedExternal = [...(held.policy.allowedExternal ?? []), ...urls.map((url) => ({ capability: "onpage_content_parsing", url }))];
+    return true;
   },
   activeFor(tenantId: string): boolean | null { if (noSpend.getStore() === true) return false; const held = proofSpend.getStore(); return held ? held.tenantId === tenantId : null; },
   externalClosed(tenantId: string, target?: ExternalTarget): boolean | null {
     if (noSpend.getStore() === true) return true;
     const held = proofSpend.getStore(); if (!held) return null;
-    return held.tenantId !== tenantId || !target || !["onpage_rendered_html", "onpage_content_parsing"].includes(target.capability)
-      || !held.policy.allowedExternal?.some((allowed) => allowed.capability === target.capability && targetUrl(allowed.url) === targetUrl(target.url));
+    return held.tenantId !== tenantId || !target || !targetIdentity(target)
+      || !held.policy.allowedExternal?.some((allowed) => allowed.capability === target.capability && targetIdentity(allowed) === targetIdentity(target));
   },
   authorize(tenantId: string, channel: "model" | "external", projectedUsd = 0, target?: ExternalTarget): boolean | null {
     if (noSpend.getStore() === true) return true;
