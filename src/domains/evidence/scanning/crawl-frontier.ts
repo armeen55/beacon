@@ -391,7 +391,6 @@ export async function runCrawlBatch(args: {
     const snapshots: PageSnapshot[] = [];
     const pages: PageEntity[] = [];
     const newFacts: CrawlPageFact[] = [];
-    let crawled = 0;
     let failed = 0;
     let attempts = 0;
     const nowIso = new Date(now()).toISOString();
@@ -449,14 +448,6 @@ export async function runCrawlBatch(args: {
         metadata: { source: "cold_start_frontier" },
         tenant_id: args.tenantId,
       });
-      crawled++;
-      await recordCrawled(args.tenantId, n.url, {
-        httpStatus: res.status,
-        contentHash: snap.content_hash,
-        completeness: completenessOf(snap),
-        isCanonicalTarget: !snap.has_canonical_mismatch,
-        redirectsTo: res.finalUrl && res.finalUrl !== n.url ? res.finalUrl : null,
-      }, new Date(now())).catch(() => false);
 
       // The page's own internal links are discovery too: they go to the inventory AND the queue.
       const hrefs = (snap.internal_links ?? []).map((l) => l.href);
@@ -475,7 +466,7 @@ export async function runCrawlBatch(args: {
       }
     }
 
-    // Persist the registry FIRST (snapshots join to it), then advance the cursor. Neither write is optional.
+    // Persist registry and snapshots before marking inventory crawled; only then advance the cursor.
     const notPersisted = (kind: string, e: unknown): CrawlBatchResult => ({
       ran: true, status: "in_progress", crawled: 0, failed,
       totalCrawled: state.pages_crawled, remaining: state.frontier.length, complete: false,
@@ -486,6 +477,14 @@ export async function runCrawlBatch(args: {
       catch (e) { return notPersisted("pages_registry_write_failed", e); }
       try { await syncSnapshotsImpl(snapshots, args.tenantId); }
       catch (e) { return notPersisted("snapshot_write_failed", e); }
+      for (const snap of snapshots) {
+        const marked = await recordCrawled(args.tenantId, snap.url, {
+          httpStatus: snap.http_status, contentHash: snap.content_hash, completeness: completenessOf(snap),
+          isCanonicalTarget: !snap.has_canonical_mismatch,
+          redirectsTo: snap.final_url && snap.final_url !== snap.url ? snap.final_url : null,
+        }, new Date(now())).catch(() => false);
+        if (!marked) return notPersisted("inventory_write_failed", snap.url);
+      }
     }
 
     // A DRAINED WORKING SET IS NOT A FINISHED SITE, and neither is a spent pass. Completion asks the
@@ -516,7 +515,7 @@ export async function runCrawlBatch(args: {
       frontier: passSpent ? [] : frontier,
       visited: passSpent ? [] : [...visited],
       discovery_cursor: 0, discovery: checkpoint,
-      pages_crawled: state.pages_crawled + crawled,
+      pages_crawled: state.pages_crawled + snapshots.length,
       pages_failed: state.pages_failed + failed,
       updated_at: updatedIso,
       last_batch_at: updatedIso,
@@ -528,7 +527,7 @@ export async function runCrawlBatch(args: {
     return {
       ran: true,
       status: next.status,
-      crawled,
+      crawled: snapshots.length,
       failed,
       totalCrawled: next.pages_crawled,
       remaining: next.frontier.length,

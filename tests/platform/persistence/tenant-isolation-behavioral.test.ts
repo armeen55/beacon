@@ -1,4 +1,3 @@
-/** PLATFORM - tenant isolation + write durability: repo facade scoping, dual-write validation before I/O, the fail-closed write contract, and the canonical Account/BusinessProfile + lifecycle promises. Structural pushdown lives in the foundation guard, not source scans. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("server-only", () => ({})); vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "8.8.8.8", family: 4 }] }));
 const mem = vi.hoisted(() => ({ upsert: null as null | ((table: string, rows: unknown[]) => { data: unknown[] | null; error: { message: string } | null }) }));
@@ -69,17 +68,18 @@ describe("a canonical write that did not land never reads as done", () => {
       await expect(dualWriteUpsertScoped("results", [], "id", TENANT)).resolves.toBeUndefined();
     } finally { mem.upsert = null; }
     expect(seen).toEqual(["results"]); });
-  it("a crawled page whose snapshot write failed stays unvisited, so the next batch reads it again", async () => {
-    const { runCrawlBatch } = await import("@/domains/evidence/scanning/crawl-frontier"); const html = "<html><head><title>A page</title></head><body><h1>A page</h1><p>Some words on the page.</p></body></html>";
-    const fetchImpl = (async (u: string) => new Response(String(u).endsWith("/robots.txt") ? "" : html, { status: String(u).endsWith("/robots.txt") ? 404 : 200, headers: { "content-type": String(u).endsWith("/robots.txt") ? "text/plain" : "text/html" } })) as typeof fetch;
-    const ISO = "2026-07-31T00:00:00.000Z";
-    const state = { tenant_id: TENANT, domain: "own.example", status: "in_progress", frontier: ["https://own.example/a"], visited: [], pages_crawled: 0,
-      pages_failed: 0, page_cap: 10, source: "homepage", started_at: ISO, updated_at: ISO, last_batch_at: null, batches_run: 0, page_facts: [] } as CrawlFrontierState;
-    const saved: CrawlFrontierState[] = [];
-    const out = await runCrawlBatch({ tenantId: TENANT, deps: { fetchImpl, sleep: async () => {},
-      loadState: async () => ({ ...state }), saveState: async (s) => { saved.push(s); },
-      syncPagesImpl: async () => {}, syncPageSnapshotsImpl: async () => { throw new Error("the snapshot rows were rejected"); } } });
-    expect([out.status, out.crawled, out.complete, saved.length]).toEqual(["in_progress", 0, false, 0]); expect(out.detail).toMatch(/^snapshot_write_failed:/); });});
+  it("refills and retries a page until registry, snapshot, and inventory writes all land", async () => {
+    const { runCrawlBatch } = await import("@/domains/evidence/scanning/crawl-frontier"); const url = "https://own.example/a", ISO = "2026-07-31T00:00:00.000Z", html = "<html><body><main><h1>A page</h1><p>Some words on the page.</p></main></body></html>";
+    let phase: "registry" | "snapshot" | "inventory" | "ok" = "registry", inventoried = false, fetches = 0; const writes: string[] = [];
+    const fetchImpl = (async (u: string) => { if (!String(u).endsWith("robots.txt")) fetches++; return new Response(String(u).endsWith("robots.txt") ? "" : html, { status: String(u).endsWith("robots.txt") ? 404 : 200, headers: { "content-type": "text/html" } }); }) as typeof fetch;
+    const initial = { tenant_id: TENANT, domain: "own.example", status: "in_progress", frontier: [], visited: [], pages_crawled: 0,
+      pages_failed: 0, page_cap: 10, source: "homepage", started_at: ISO, updated_at: ISO, last_batch_at: null, batches_run: 0, page_facts: [] } as CrawlFrontierState; let saved = initial;
+    const deps = { fetchImpl, sleep: async () => {}, now: () => Date.parse(ISO), loadState: async () => saved, saveState: async (s: CrawlFrontierState) => { saved = s; },
+      pickCandidates: async () => inventoried ? [] : [url], readInventoryImpl: async () => [], syncPagesImpl: async () => { writes.push("registry"); if (phase === "registry") throw new Error("registry rejected"); },
+      syncPageSnapshotsImpl: async () => { writes.push("snapshot"); if (phase === "snapshot") throw new Error("snapshot rejected"); }, recordCrawled: async (tenant: string, readUrl: string) => { expect([tenant, readUrl]).toEqual([TENANT, url]); writes.push("inventory"); if (phase === "inventory") return false; inventoried = true; return true; } };
+    for (const [failure, expected] of [["registry", ["registry"]], ["snapshot", ["registry", "snapshot"]], ["inventory", ["registry", "snapshot", "inventory"]]] as const) {
+      phase = failure; writes.length = 0; const out = await runCrawlBatch({ tenantId: TENANT, deps }); expect([out.status, out.crawled, out.complete, inventoried, saved, writes]).toEqual(["in_progress", 0, false, false, initial, expected]); }
+    phase = "ok"; writes.length = 0; const done = await runCrawlBatch({ tenantId: TENANT, deps }); expect([done.status, done.crawled, done.complete, inventoried, saved.pages_crawled, fetches, writes]).toEqual(["complete", 1, true, true, 1, 4, ["registry", "snapshot", "inventory"]]); });});
 describe("an unset DATA_SOURCE means Supabase, in every module that asks", () => {
   it("answers Supabase when nothing is set, and files only on an explicit ask", async () => {
     const { usesSupabase } = await import("@/lib/persistence/repositories"); const held = process.env.DATA_SOURCE;
