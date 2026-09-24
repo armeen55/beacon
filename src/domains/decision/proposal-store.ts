@@ -46,13 +46,13 @@ const rowFor = (p: ChangeProposal, ident: Identity, version: number): Record<str
 
 /** Set (or, on a rollback, clear) one row's disposition. Fail-closed: a write that changed no row fails. WHY IT WAS RETIRED IS WRITTEN WITH IT. A withdrawal is permanent in practice (the skip set feeds off it and a save under the same basis is refused), and every one of them looked identical afterwards, so the night a sweep took the operator's open cards there was nothing on the rows to tell them apart from the ones a safety gate had genuinely refused. Pre-migration the write retries without the column rather than  failing the retirement itself. */
 async function setDisposition(tenantId: string, id: string, disposition: TerminalDisposition, supersededBy: string | null,
-  reason: string | null = null, expected?: CanonRow): Promise<boolean> {
+  reason: string | null = null, expected?: CanonRow, expectedCapture?: Record<string, unknown>): Promise<boolean> {
   const held = expected ?? await rowById(tenantId, id).catch(() => null);
   if (!held || held.terminal_disposition != null || held.status === "implemented_pending_verification") return false;
-  const { data, error } = await getSupabaseAdmin().rpc("retire_change_proposal", {
+  const { data, error } = await getSupabaseAdmin().rpc(expectedCapture ? "retire_change_proposal_guarded" : "retire_change_proposal", {
     p_tenant_id: tenantId, p_id: id, p_expected_version: held.proposal_version,
     p_expected_status: String(held.status), p_disposition: disposition,
-    p_superseded_by: supersededBy, p_reason: reason,
+    p_superseded_by: supersededBy, p_reason: reason, ...(expectedCapture ? { p_expected_capture: expectedCapture } : {}),
   });
   if (error || data !== true) { log.error("[proposal-store] disposition write did not land", { id, disposition, error: error?.message ?? "stale row" }); return false; }
   return true;}
@@ -237,11 +237,11 @@ export async function answerReviewedProposal(tenantId: string, id: string, versi
 }
 
 /** BEACON'S OWN RETRACTION. A draft a safety gate refused is not queued work and not a rejection the operator has to read: it lands as history under the disposition that says I took it back. Fail-soft. */
-export async function withdrawChangeProposal(proposal: ChangeProposal, reason?: string): Promise<"retired" | "blocked" | "failed"> { if (proposal.status === "implemented_pending_verification") { log.warn("[proposal-store] a change the operator applied is never withdrawn by a producer; the shipment stands and measurement continues", { tenantId: proposal.tenantId, id: proposal.id }); return "blocked"; } // THE OPERATOR'S APPLIED CHANGE STANDS (operator, 2026-09-02): the factual-defects producer withdrew the Hamid correction, one of the six changes applied on September 1, because its fact evidence moved
+export async function withdrawChangeProposal(proposal: ChangeProposal, reason?: string, expectedCapture?: Record<string, unknown>): Promise<"retired" | "blocked" | "failed"> { if (proposal.status === "implemented_pending_verification") { log.warn("[proposal-store] a change the operator applied is never withdrawn by a producer; the shipment stands and measurement continues", { tenantId: proposal.tenantId, id: proposal.id }); return "blocked"; } // THE OPERATOR'S APPLIED CHANGE STANDS (operator, 2026-09-02): the factual-defects producer withdrew the Hamid correction, one of the six changes applied on September 1, because its fact evidence moved
   let held: CanonRow | null; try { held = await rowById(proposal.tenantId, proposal.id, true); } catch { return "failed"; }
   if (held) { const exact = decode(held.payload); if (held.terminal_disposition != null || held.status === "implemented_pending_verification" || !exact || serializeChangeProposal(exact) !== serializeChangeProposal(proposal)) return "blocked"; }
   else { let savedRow: ChangeProposal | null = null; const saved = await saveChangeProposal(proposal, NO_HANDOVER, row => { savedRow = row; }, undefined, true); if (saved === "failed" || saved === "blocked") return saved; if (saved === "refused" || !savedRow) return "blocked"; try { held = await rowById(proposal.tenantId, proposal.id, true); } catch { return "failed"; } const exact = held && decode(held.payload), normalized = decode(JSON.parse(serializeChangeProposal(savedRow)) as unknown); if (!held || held.terminal_disposition != null || !exact || !normalized || serializeChangeProposal(exact) !== serializeChangeProposal(normalized)) return "blocked"; }
-  if (await setDisposition(proposal.tenantId, proposal.id, "withdrawn", null, reason ?? null, held)) return "retired";
+  if (await setDisposition(proposal.tenantId, proposal.id, "withdrawn", null, reason ?? null, held, expectedCapture)) return "retired";
   try { const current = await rowById(proposal.tenantId, proposal.id, true); return !current || current.terminal_disposition != null || current.status === "implemented_pending_verification" || current.proposal_version !== held.proposal_version ? "blocked" : "failed"; }
   catch { return "failed"; }
 }
