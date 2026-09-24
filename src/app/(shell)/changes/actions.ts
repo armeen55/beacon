@@ -8,7 +8,7 @@ import { log } from "@/lib/logger";
 import { currentTenantId } from "@/lib/tenant-context";
 import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
 import { actionableProposalFailures, answerReviewedProposal, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, dismissChangeProposal, openHold, unsettledCause,
-  implementationGuard, loadChangeProposal, resolveCurrentBasis, sameComponentId, treatmentSignatureOf,
+  implementationGuard, loadChangeProposal, nextObligation, resolveCurrentBasis, sameComponentId, treatmentSignatureOf,
   type ChangeProposal } from "@/domains/decision";
 import { getTenant } from "@/domains/account";
 import { captureChangeMeta, loadShippedChanges, objectiveOfStage, recordShipment, verifyShipmentNow, type MeasurementState } from "@/domains/measurement";
@@ -380,14 +380,15 @@ export async function finishOneProposalAction(args: { proposalId: string; prepar
   const tenantId = await currentTenantId();
   try {
     if (args.prepare === true) {
-      const result = await atomicProof.finishPage({ tenantId, proposalId: args.proposalId, currentBasis: await resolveCurrentBasis(tenantId), maxOpenAiCalls: 8, maxOpenAiUsd: 2, maxDataForSeoCalls: 3, maxDataForSeoUsd: 0.4, ...(args.authorizationId !== undefined ? { authorizationId: args.authorizationId } : {}) });
+      const currentBasis = await resolveCurrentBasis(tenantId);
+      const result = await atomicProof.finishPage({ tenantId, proposalId: args.proposalId, currentBasis, maxOpenAiCalls: 8, maxOpenAiUsd: 2, maxDataForSeoCalls: 3, maxDataForSeoUsd: 0.4, ...(args.authorizationId !== undefined ? { authorizationId: args.authorizationId } : {}) });
       const a = result.allowance, receipt = a ? ` Authorized request ceilings: OpenAI $${a.modelReservedUsd.toFixed(4)}, DataForSEO $${a.externalReservedUsd.toFixed(4)}. These are reservations, not invoices.` : " No paid request was authorized.";
       await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout");
       if (result.success) return { success: true, note: `A finished edit on this page is ready in Changes. Nothing was published.${receipt}` };
       if (result.reason === "openai_not_configured_in_this_runtime") return { success: false, error: "The writing service is not configured in this runtime. No finishing attempt or paid request was used." };
       if (["proof_admission_replayed", "proof_admission_resumed"].includes(result.reason)) return { success: false, error: "This page version already used its finishing attempt. No new provider request was authorized. Its saved work and receipts remain intact; research stays paused." };
-      const owed = result.evidenceOwed?.find((need) => need.proposalId === result.proposalId || need.unlocks?.proposalId === result.proposalId);
-      const refusal = result.preferredRetiredReason === "missing" ? "The current page plan no longer includes this exact edit."
+      const saved = result.preferredRetiredReason === "missing" ? await loadChangeProposal(tenantId, args.proposalId, { canonicalOnly: true }).catch(() => null) : null, savedStep = currentBasis && saved?.id === args.proposalId && saved.tenantId === tenantId && saved.basis === currentBasis && saved.status === "needs_review" ? nextObligation(saved) : null, owed = result.preferredRetiredReason === "missing" ? savedStep?.kind === "evidence" ? savedStep.need : null : result.evidenceOwed?.find((need) => need.proposalId === result.proposalId || need.unlocks?.proposalId === result.proposalId);
+      const refusal = result.preferredRetiredReason === "missing" ? owed ? "The exact edit still needs its named evidence before writing can finish." : "The current page plan no longer includes this exact edit."
         : result.preferredRetiredReason === "blocked" ? "The exact edit is held by a current evidence or safety requirement."
         : result.preferredRetiredReason === "settled" ? "This exact work was already settled on unchanged evidence."
         : result.preferredRetiredReason === "out_of_scope" ? "This edit now needs whole-page delivery, which this focused action cannot finish."
