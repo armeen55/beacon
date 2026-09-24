@@ -54,6 +54,7 @@ export function extractPageSnapshot(
   }).remove();
   const mains = $content("main").filter((_, el) => $content(el).parents("main").length === 0), articles = $content("article");
   const contentRoot = mains.length ? mains : articles.length === 1 ? articles : $content("body");
+  contentRoot.find("[data-testid],[data-motion-part]").addBack().removeAttr("data-testid").removeAttr("data-motion-part");
   contentRoot.find("br, p, div, section, article, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, pre, table, caption, tr, th, td, figure, figcaption, details, summary").each((_, el) => { $content(el).before(" ").after(" "); });
   const mainHtml = $content.html(contentRoot);
   capture?.(mainHtml);
@@ -259,15 +260,14 @@ export function extractPageSnapshot(
   const ghostHeadings = contentRoot.find("h1,h2,h3,h4,h5,h6").toArray().filter((el) => {
     const text = $content(el).text(); return !!text.trim() && !normalizeExtractedText(text);
   }).length;
-  const readableProse = contentRoot.find("p,li,blockquote,dd,figcaption").toArray().some((el) => normalizeExtractedText($content(el).text()).split(/\s+/).filter(Boolean).length >= 4);
-  const clientShell = ghostHeadings >= 3 && !readableProse && normalizeExtractedText(flat).split(/\s+/).filter(Boolean).length < 50;
+  const readableProse = contentRoot.find("p,blockquote,dd,figcaption").toArray().some((el) => normalizeExtractedText($content(el).text()).split(/\s+/).filter(Boolean).length >= 4);
+  const clientShell = ghostHeadings >= 3 && !readableProse;
   if (clientShell) structuralWarnings.push(`client_rendered_placeholders: ${ghostHeadings} headings contain no readable words; the visible page may have more content than this HTML.`);
   // Store the shared main-content projection with an explicit truncation warning.
   const bodyTextHeld = bodyText.slice(0, BODY_TEXT_CEILING);
   // A cut HTML string would invent repaired structure on parsing. Hold whole payload parts or mark missing.
-  let captureRoom = BODY_TEXT_CEILING;
-  const heldMain = mainHtml.length <= captureRoom ? mainHtml : "";
-  captureRoom -= heldMain.length;
+  const heldMain = mainHtml.length <= BODY_TEXT_CEILING ? mainHtml : "";
+  let captureRoom = BODY_TEXT_CEILING - heldMain.length;
   const heldJsonLd = jsonLd.filter((block) => { if (block.length > captureRoom) return false; captureRoom -= block.length; return true; });
   const contentCapture = { version: 1 as const, mainHtml: heldMain, jsonLd: heldJsonLd, complete: !clientShell && heldMain === mainHtml && heldJsonLd.length === jsonLd.length };
   // Source revision includes observed client assets, so an unchanged shell cannot fund repeated rendered tasks.
@@ -309,7 +309,7 @@ export function extractPageSnapshot(
   // so a client-rendered page with zero extracted words graded "confirmed" (the 500-surname page stored
   // as blank while ranking position 4.9): markup in the head proves nothing about the body a reader sees.
   const hasBodyContent = wordCount > 50;
-  const extractionCertainty: "confirmed" | "uncertain" = hasBodyContent ? "confirmed" : "uncertain";
+  const extractionCertainty: "confirmed" | "uncertain" = hasBodyContent && !clientShell ? "confirmed" : "uncertain";
 
   return {
     id: `snap-${pageId}-${Date.now()}`,

@@ -41,8 +41,7 @@ const DELETE_KIND: Record<string, string> = { section_remove: "Delete section", 
 function actionWordOf(p: ChangeProposal): string {
   const c = p.recommendedChange;
   if (c.kind === "new_page") return "Create";
-  if (c.linkMode === "in_place") return "Link";
-  return c.before ? "Replace" : "Add";
+  return c.linkMode === "in_place" || !c.before ? "Add" : "Replace";
 }
 function categoryOf(p: ChangeProposal, isNew: boolean, parts: number): string {
   if (isNew) return "Create page";
@@ -251,9 +250,9 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
               {proposal.recommendedChange.kind === "existing_edit" && proposal.recommendedChange.linkMode === "in_place" ? null : <CopyButton text={after} units={units} link={link} onToast={onToast}
                 label={`Copy ${targetWordOf(proposal)} · ${effortLabel(proposal.estimatedEffortMinutes)}`} />}
             </div>
-            {before ? (
+            {before && !(proposal.recommendedChange.kind === "existing_edit" && proposal.recommendedChange.linkMode === "in_place") ? (
               <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-[13px] leading-relaxed text-foreground" data-find-line="true">
-                <span className="font-semibold">Find this on the page: </span><span className={proposal.recommendedChange.kind === "existing_edit" && proposal.recommendedChange.linkMode === "in_place" ? "" : "line-through decoration-foreground/40"}>{before}</span>
+                <span className="font-semibold">Find this on the page: </span><span className="line-through decoration-foreground/40">{before}</span>
               </p>
             ) : null /* NOTHING IS CLAIMED ABOUT A FIELD NOBODY HANDED OVER. A null `before` means the row did
                  not carry the old words, never that the page has none. The adds-new-copy fact now lives on the

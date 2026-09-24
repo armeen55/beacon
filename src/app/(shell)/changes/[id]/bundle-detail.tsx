@@ -392,10 +392,6 @@ function ComponentCard({
   );
 }
 
-/** THE ONE-LAYER DETAIL for a card with no deep bundle: the same edit the list shows, said in full on its own
- *  page. Before this, a live bundleless row REDIRECTED back to /changes, and once the queue became mostly
- *  suggestion and sweep cards, every "See the change" press bounced. Steps render as steps, a pasteable line
- *  keeps its Copy press, and Mark done and Skip work here exactly as they do on the list. */
 export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: ChangeProposal; returnTo?: string }) {
   const c = proposal.recommendedChange;
   const after = (c.kind === "new_page" ? c.proposedTitle : c.after ?? "").trim();
@@ -435,7 +431,7 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
         </div>
       ) : after ? (
         <div className="space-y-1">
-          {before ? <p className="text-[13px] text-muted-foreground">{c.kind === "existing_edit" && c.linkMode === "in_place" ? "Find this paragraph:" : "Now:"} <span className={c.kind === "existing_edit" && c.linkMode === "in_place" ? "" : "line-through"}>{before}</span></p> : null}
+          {before && !(c.kind === "existing_edit" && c.linkMode === "in_place") ? <p className="text-[13px] text-muted-foreground">Now: <span className="line-through">{before}</span></p> : null}
           {c.kind === "existing_edit" && c.linkMode === "in_place" ? <p className="text-[13px] text-muted-foreground">Select only “{c.anchorText}” and link those words to {c.linkTo}. Keep the paragraph’s wording and all other content.</p> : null}
           <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
             <div className="min-w-0 flex-1 text-[15px] leading-relaxed text-foreground"><PublicationCopy text={after} units={units} link={link} /></div>
@@ -445,11 +441,11 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
         </div>
       ) : null}
       <p className="text-[14px] leading-relaxed text-foreground">{proposal.whyItMatters}</p>
-      {/* THE RETIREMENT RECEIPT: what was tried for this change and what refused it. "An earlier FINISHED version" was untrue of the case this round adds, a draft a door refused before it was ever finished, and a bare "Attempt 0" is what the recovery path's own count reads on 27 of the 44 live rows carrying a receipt (measured 2026-09-05), so the count is printed only where there is one. */}
       {tried && tried.after.trim() && !hold1.settledPriorReceipt ? (
-        <p className="text-[12px] leading-relaxed text-muted-foreground" data-previous-copy="true">
-          One earlier version of this change was retired{(tried.attempts ?? 0) >= 1 ? ` on attempt ${tried.attempts}` : ""}. Why: {tried.retiredBecause.replace(/\.?$/, ".")} Its words: &ldquo;{tried.after.slice(0, 220)}&rdquo;
-        </p>
+        <details className="text-[12px] leading-relaxed text-muted-foreground" data-previous-copy="true">
+          <summary className="cursor-pointer">Earlier rejected draft</summary>
+          <p>Retired{(tried.attempts ?? 0) >= 1 ? ` on attempt ${tried.attempts}` : ""}: {tried.retiredBecause.replace(/\.?$/, ".")} Its words: &ldquo;{tried.after.slice(0, 220)}&rdquo;</p>
+        </details>
       ) : null}
       {checks.length > 0 ? (
         <div className="space-y-1">
@@ -459,8 +455,11 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
       ) : null}{/* Atomic edits owe the same diagnosis, alternatives, falsifier and ranking receipt as deep bundles. */}<Investigation proposal={proposal} seen={new Set(checks.map(normFact))} />
       {(proposal.claims ?? []).length > 0 ? (
         <div className="space-y-1">
-          <Heading>What each line stands on</Heading>
-          <EvidenceLines items={(proposal.claims ?? []).map((c) => ({ readings: [], text: `${c.text.replace(/[.\s]+$/, "")}. Stands on: ${[...new Set([...c.supportedBy].map((id) => { const f = (proposal.supportFacts ?? []).find((x) => x.id === id), said = (f?.fact ?? "").trim(), sources = (f?.sources ?? []).map((s) => `${s.kind} source ${s.url}`).join(", "); return /^(?:page-|target-section|section-after|draft-so-far)/.test(id) ? "the words already on this page" : !said ? `${id} (the words behind this were not banked with the copy)` : `"${(/^[\s\S]{40,220}?[.!?]["'”’]?(?=\s|$)/.exec(said)?.[0] ?? said.slice(0, 220)).trim()}"${sources ? ` (${sources})` : ""}`; }))].join(", ")}` }))} />
+          <Heading>{c.kind === "existing_edit" && c.linkMode === "in_place" ? "Why this link fits" : "What each line stands on"}</Heading>
+          {c.kind === "existing_edit" && c.linkMode === "in_place" ? <p className="text-[13px] text-muted-foreground">The selected words are on the current page, and the destination article uses matching terms. This link adds no historical wording.</p> : null}
+          <details className="text-[13px] text-muted-foreground" open={!(c.kind === "existing_edit" && c.linkMode === "in_place")}><summary className="cursor-pointer">Inspect captured wording</summary>
+            <EvidenceLines items={(proposal.claims ?? []).map((c) => ({ readings: [], text: `${c.text.replace(/[.\s]+$/, "")}. Stands on: ${[...new Set([...c.supportedBy].map((id) => { const f = (proposal.supportFacts ?? []).find((x) => x.id === id), said = (f?.fact ?? "").trim(), sources = (f?.sources ?? []).map((s) => `${s.kind} source ${s.url}`).join(", "); return /^(?:page-|target-section|section-after|draft-so-far)/.test(id) ? "the words already on this page" : !said ? `${id} (the words behind this were not banked with the copy)` : `"${(/^[\s\S]{40,220}?[.!?]["'”’]?(?=\s|$)/.exec(said)?.[0] ?? said.slice(0, 220)).trim()}"${sources ? ` (${sources})` : ""}`; }))].join(", ")}` }))} />
+          </details>
         </div>
       ) : null}
       {held && !research ? <p className="text-[13px] leading-relaxed text-foreground" data-held-reason="true">{held}{waitingOn(proposal) ?? ""}</p> : null}

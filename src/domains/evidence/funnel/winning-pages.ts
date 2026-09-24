@@ -1,4 +1,5 @@
 import "server-only";
+import { load as cheerioLoad } from "cheerio";
 /** Rank appearances, acquire bounded winner/owned reads, then compare under a renewed lease; failures retain retry dates. */
 import { log } from "@/lib/logger";
 import { PROOF_SPEND } from "@/lib/spend-scope";
@@ -148,11 +149,12 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
     && confirmedLegacy.page_id === snapshot.page_id && confirmedLegacy.content_hash === snapshot.content_hash
     && confirmedLegacy.title === snapshot.title && confirmedLegacy.h1 === snapshot.h1 && confirmedLegacy.meta_description === snapshot.meta_description
     && confirmedLegacy.body_text === snapshot.body_text && confirmedLegacy.word_count === snapshot.word_count;
+  const recoveredOverflow = source?.complete === false && source.mainHtml === "" && snapshot.content_capture?.complete === true && snapshot.extraction_certainty === "confirmed" && snapshot.word_count >= 250 && !collapsed && latest?.body_text === snapshot.body_text && snapshot.content_hash === unresolvedHash && /^<main[\s>]/i.test(snapshot.content_capture.mainHtml) && new Set(snapshot.h2_list.filter((h) => !/^(?:related|recommended|shop|product|collection|browse|you may also like)\b/i.test(h))).size >= 5 && ((html) => { const $main = cheerioLoad(html); return $main("main p,main blockquote").toArray().filter((p) => !$main(p).closest('[class*="product"],[class*="related"],[class*="commerce"],[class*="repeater"]').length && $main(p).text().trim().split(/\s+/).length >= 25).length >= 5; })(snapshot.content_capture.mainHtml);
   const unchanged = !legacyAgrees && captureProblem && sameSource && (source?.complete === false || snapshot.extraction_certainty !== "confirmed" || collapsed);
   if (source?.sourceRevision === snapshot.content_capture?.sourceRevision && source?.renderedAttempt && snapshot.content_capture)
     snapshot.content_capture.renderedAttempt = source.renderedAttempt;
   // A complete DOM matching an older confirmed text-only read repairs a poisoned partial; a shell alone cannot.
-  if (captureProblem && snapshot.content_capture && !legacyAgrees && (source && snapshot.content_hash === unresolvedHash && (source.complete === false || !sameSource) || collapsed)) {
+  if (captureProblem && snapshot.content_capture && !legacyAgrees && !recoveredOverflow && (source && snapshot.content_hash === unresolvedHash && (source.complete === false || !sameSource) || collapsed)) {
     snapshot.content_capture.complete = false; snapshot.extraction_certainty = "uncertain";
   }
   try { if (!unchanged) await d.writeOwnedPage(snapshot, tenantId); }

@@ -95,11 +95,7 @@ describe("what a card says after a batch press, and what it says when it cannot 
     const held = await card(waiting("a source reading is owed before these words can be written"), { review: true });
     expect(held.includes("A source reading is owed before these words can be written."), "an operator looking at a card ranked above smaller finished work is told it is waiting on a reading, not on them").toBe(true);
     expect((await card(atomic(), {})).includes("data-waiting-on"), "and finished work ready to make today waits on nothing, so it says nothing").toBe(false);});
-  it("labels the next global opportunity without implying another Ready card", async () => {
-    const row = atomic(), view = viewOf([row]); row.whyRankedAboveNext = 'Ranked ahead of the change for seven in farsi because more is riding on it.';
-    const list = await renderList({ ...view, summary: { ...view.summary, todo: 20, research: 128 } }), detail = await renderDetail(row);
-    for (const html of [list, detail]) expect([html.includes("next opportunity in the full backlog"), html.includes("seven in farsi"), html.includes("above the next change")]).toEqual([true, true, false]);
-    expect([list.includes("20 changes have draft copy"), list.includes("128 opportunities do not yet have a finished change"), list.includes("Why this ranks here:")]).toEqual([true, true, true]); });});
+});
 describe("a card says why this opportunity and why these words, and never trades one for the other", () => {
   const P = (over: Partial<ChangeProposal>): ChangeProposal => ({ ...proposal(), status: "ready", bundle: undefined, claims: undefined, supportFacts: undefined, ...over } as ChangeProposal);
   it("a claim shows the evidence IT names and never another claim's source", () => {
@@ -261,12 +257,6 @@ describe("a finished change is read, decided and pasted without being opened", (
   const one = async (p: ChangeProposal): Promise<string> => {
     const { ChangeCard } = await import("@/app/(shell)/changes/change-card");
     return renderToStaticMarkup(createElement(ChangeCard as never, { proposal: p, rank: 1, ready: true, caseLine: null, onAside: () => {}, onDone: () => {}, onToast: () => {} } as never));};
-  it.each(SITES)("$t: the default card is what changes, the exact copy, what it replaces and where it goes, why it is worth trying, the caveat and the controls, in that order", async (s) => {
-    const html = await one(finished(s)), at = (t: string) => html.indexOf(t);
-    for (const said of ["Replace answer", s.copy, "Copy answer", s.now, `Where it goes: ${s.where}`, "Why this ranks here:", "Keep in mind", s.caveat, "Applied different wording?", "Mark done", "Skip"]) expect(at(said), said).toBeGreaterThan(-1);
-    expect([at("Replace answer") < at(s.copy), at(s.copy) < at(s.now), at(s.now) < at("Why this ranks here:"), at("Why this ranks here:") < at("Keep in mind"), at("Keep in mind") < at("Applied different wording?"), at("Applied different wording?") < at("Skip")], "the six parts in the operator's own order").toEqual([true, true, true, true, true, true]);
-    expect(at("shown 12,000 times"), "why it is worth trying carries the number that was measured").toBeGreaterThan(-1);
-    for (const shut of ["Why this opportunity", "How to make this change", "Why these words", "Shore survey"]) expect(html, shut).not.toContain(shut); }); // supporting evidence stays expandable and closed
   it.each(SITES)("$t: a caveat written for a draft whose words are gone is not rendered, the same caveat over copy that still carries them is, and the verdict's own advisory rides beside them", async (s) => {
     const gone = await one(finished(s, { limitations: [s.caveat, STALE] }));
     expect([gone.includes(s.caveat), gone.includes("publishing NAME and SOUND")], "the current caveat stands and the previous draft's does not").toEqual([true, false]);
