@@ -120,7 +120,7 @@ type ProposalConfidence = "high" | "medium" | "low";
 
 /** The exact change: `existing_edit` carries a precise before/after field rewrite, `new_page` a build brief. */
 export type RecommendedChange =
-  | { kind: "existing_edit"; field: "title" | "meta" | "h1" | "answer_block" | "section" | "schema"; before: string | null; after: string; units?: PublicationUnits; target?: PublicationTarget; where?: string | null; linkTo?: string | null; anchorText?: string | null }
+  | { kind: "existing_edit"; field: "title" | "meta" | "h1" | "answer_block" | "section" | "schema"; before: string | null; after: string; units?: PublicationUnits; target?: PublicationTarget; where?: string | null; linkTo?: string | null; anchorText?: string | null; linkMode?: "in_place"; linkSourceHash?: string }
   | { kind: "new_page"; proposedTitle: string; metaDescription: string; openingAnswer: string; outline: string[]; faqQuestions: string[]; schemaTypes: string[] };
 
 /** A compact, frozen copy of what grounded this proposal, never a live handle: enough for the operator to see why Beacon recommends it and for the validator to re-run on load. `evidenceRefCount` is the draft's. */
@@ -329,7 +329,7 @@ const FindingSchema = z.object({ tenantId: z.string().min(1), page: z.string().m
 const SupportFactSchema = z.object({ id: z.string().min(1), fact: z.string().min(1), finding: FindingSchema.optional(), sources: z.array(z.object({ url: z.string().min(1), kind: z.string().min(1) })).optional() });
 const RecommendedChangeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("existing_edit"), field: z.enum(["title", "meta", "h1", "answer_block", "section", "schema"]),
-    before: z.string().nullable(), after: z.string().min(1), units: PublicationUnitsSchema.optional(), target: PublicationTargetSchema.optional(), where: z.string().nullable().optional(), linkTo: z.string().nullable().optional(), anchorText: z.string().nullable().optional() }),
+    before: z.string().nullable(), after: z.string().min(1), units: PublicationUnitsSchema.optional(), target: PublicationTargetSchema.optional(), where: z.string().nullable().optional(), linkTo: z.string().nullable().optional(), anchorText: z.string().nullable().optional(), linkMode: z.literal("in_place").optional(), linkSourceHash: z.string().optional() }),
   z.object({ kind: z.literal("new_page"), proposedTitle: z.string().min(1), metaDescription: z.string().min(1),
     openingAnswer: z.string().min(1), outline: z.array(z.string()), faqQuestions: z.array(z.string()),
     schemaTypes: z.array(z.string()) }),

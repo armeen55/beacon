@@ -122,7 +122,7 @@ function publicationMatch(component: VerifiableShipment["components"][number], l
   if (anchors.length > 1) return judged("unverifiable", "The saved target matches multiple content blocks; placement cannot be certified without disambiguating that target.", "applied_wording_missing");
   const at = anchors[0], end = at == null ? -1 : target.anchorKind === "heading" ? blocks.findIndex((b, i) => i > at && heading(b) && Number(b.tag[1]) <= Number(blocks[at]!.tag[1])) : at + 1;
   const boundary = end < 0 ? blocks.length : end;
-  const positioned = starts.filter((i) => at != null && (target.mode === "after_section" ? end < 0 ? i + units.length === blocks.length : i === boundary : target.mode === "replace" ? i > at && i + units.length <= boundary : i === at + 1));
+  const positioned = starts.filter((i) => at != null && (target.mode === "after_section" ? end < 0 ? i + units.length === blocks.length : i === boundary : target.mode === "replace" ? /^(internal_links|internal_link_add)$/.test(component.kind) && component.before === component.after && target.anchorKind === "passage" ? i === at : i > at && i + units.length <= boundary : i === at + 1));
   if (!positioned.length) return live.blind ? judged("unverifiable", "The complete publication structure could not be read.", "rendered_content_gap") : judged("not_verified", "The complete saved headings, paragraphs and lists were not found together in their recorded placement.", "not_published_yet");
   if (/^(internal_links|internal_link_add)$/.test(component.kind)) {
     if (!component.redirectTo || !component.anchorAfter) return judged("unverifiable", "The publication names no exact link destination or anchor words.", "applied_wording_missing");

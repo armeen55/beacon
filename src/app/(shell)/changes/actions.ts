@@ -189,6 +189,7 @@ export async function markProposalImplementedAction(args: {
       return { success: false, error: "That change could not be found or was rewritten since you saw it. Open Changes again before recording." };
     }
     if (confirmedVersion(stored) !== args.expectedVersion) return { success: false, error: "This change has been rewritten since you saw it. Open it again and record only the version you applied." };
+    if (stored.recommendedChange.kind === "existing_edit" && stored.recommendedChange.linkMode === "in_place" && args.appliedText?.trim()) return { success: false, error: "This link changes only the exact existing words. Remove the different wording before recording it." };
     if (!operatorUiPolicy.isManualEditProofWork(stored)) return { success: false, error: "Whole-page work is outside the current manual-edit proof, so it cannot be recorded here." };
     if (stored.status !== "implemented_pending_verification"
       && actionableProposalFailures(stored, { tenantId, currentBasis: basis }).length > 0) {

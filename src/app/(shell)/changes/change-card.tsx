@@ -41,6 +41,7 @@ const DELETE_KIND: Record<string, string> = { section_remove: "Delete section", 
 function actionWordOf(p: ChangeProposal): string {
   const c = p.recommendedChange;
   if (c.kind === "new_page") return "Create";
+  if (c.linkMode === "in_place") return "Link";
   return c.before ? "Replace" : "Add";
 }
 function categoryOf(p: ChangeProposal, isNew: boolean, parts: number): string {
@@ -72,6 +73,7 @@ function untouchedOf(p: ChangeProposal): string | null {
     case "h1": return "Only this heading changes. The text under it stays as it is.";
     case "schema": return "Only this page's structured data changes. Its visible text and unrelated markup stay as they are.";
     case "section": case "answer_block":
+      if (c.linkMode === "in_place") return "Only the link changes. Every word and all other content stays.";
       return c.before ? "Only this passage changes. Everything around it stays." : "This adds new copy. Nothing on the page is deleted.";
     default: return null;
   }
@@ -82,6 +84,7 @@ function doLineOf(p: ChangeProposal): string {
   const c = p.recommendedChange;
   if (c.kind === "new_page") return "Do this: create a new page and paste its pieces from this change's own page. Nothing existing is touched.";
   if (c.kind !== "existing_edit") return "Do this: open the change for its exact steps.";
+  if (c.linkMode === "in_place") return `Do this: find the exact paragraph below and link only the underlined words to ${c.linkTo}. Keep every word as it is.`;
   if (c.linkTo) return `Do this: paste the sentence below onto the page, and make the underlined words a link to ${c.linkTo}. Nothing is deleted.`;
   if (c.field === "meta") return c.before ? "Do this: open the page's SEO settings and replace the current meta description with the line below." : "Do this: open the page's SEO settings and set the meta description to the line below.";
   if (c.field === "title") return "Do this: replace the page title in your page editor with the line below. The visible heading is untouched.";
@@ -148,7 +151,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
     ...(caveat ? [caveat] : []), ...(YEAR_QUERY.test(proposal.primaryQuery) ? [YEAR_NOTE] : [])], verdict.settledPriorReceipt);
   const worth = [proof.ranksHere, ...(body ? body.split(/(?<=[.!?])\s+/).filter((sentence) => !saysAgain(sentence, proof.ranksHere ?? "")) : [])].filter(Boolean).join(" "); /* a sentence the receipt already says in other words is not said twice (operator walk, 2026-09-16: "Only 1 page of this site links to ... today" printed back to back) */
   const waiting = ((w: string) => (w ? `${w[0]!.toUpperCase()}${w.slice(1)}.` : null))((proposal.rankingReceipt?.factors ?? []).find((f) => f.name === "readiness")?.input?.trim() ?? "");
-  const placement = proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.where ?? null : null;
+  const placement = proposal.recommendedChange.kind === "existing_edit" && proposal.recommendedChange.linkMode !== "in_place" ? proposal.recommendedChange.where ?? null : null;
   const units = proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.units : undefined;
   const link = proposal.recommendedChange.kind === "existing_edit" && proposal.recommendedChange.linkTo ? { href: proposal.recommendedChange.linkTo, anchor: proposal.recommendedChange.anchorText ?? "", pageUrl: proposal.pageUrl } : null;
   const livePageHref = operatorUiPolicy.livePageHref(proposal.pageUrl);
@@ -243,19 +246,14 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
             <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
               {/* LINE BREAKS ARE PART OF THE DELIVERABLE: a list-shaped answer renders one item per line. */}
               <div className="min-w-0 flex-1 text-[14px] leading-relaxed text-foreground">
-                <p className="text-muted-foreground">{isNew ? `Page ${field}:` : before == null ? "Add:" : "Change to:"}</p><PublicationCopy text={after} units={units} link={link} />{/* an addition adds; "Change to:" over copy that replaces nothing read as a replacement (walk of 2026-09-16) */}
+                <p className="text-muted-foreground">{proposal.recommendedChange.kind === "existing_edit" && proposal.recommendedChange.linkMode === "in_place" ? "Link the underlined words in this existing paragraph:" : isNew ? `Page ${field}:` : before == null ? "Add:" : "Change to:"}</p><PublicationCopy text={after} units={units} link={link} />{/* an addition adds; "Change to:" over copy that replaces nothing read as a replacement (walk of 2026-09-16) */}
               </div>
-              {/* THE BUTTON NAMES THE REAL OBJECT: "Copy new section" on a title, and "Copy draft" anywhere,
-                  both made the operator re-read the card to learn what they were holding. */}
-              <CopyButton text={after} units={units} link={link} onToast={onToast}
-                label={`Copy ${targetWordOf(proposal)} · ${effortLabel(proposal.estimatedEffortMinutes)}`} />
+              {proposal.recommendedChange.kind === "existing_edit" && proposal.recommendedChange.linkMode === "in_place" ? null : <CopyButton text={after} units={units} link={link} onToast={onToast}
+                label={`Copy ${targetWordOf(proposal)} · ${effortLabel(proposal.estimatedEffortMinutes)}`} />}
             </div>
             {before ? (
-              /* THE OLD WORDS ARE A SEARCH TARGET, NOT A FOOTNOTE (operator, 2026-09-10): "for the name change
-                 I didn't even know what I was doing". The operator finds this exact line on the live page first,
-                 so the card hands it over in its own box, struck through, after the copy the order pin puts first. */
               <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-[13px] leading-relaxed text-foreground" data-find-line="true">
-                <span className="font-semibold">Find this on the page: </span><span className="line-through decoration-foreground/40">{before}</span>
+                <span className="font-semibold">Find this on the page: </span><span className={proposal.recommendedChange.kind === "existing_edit" && proposal.recommendedChange.linkMode === "in_place" ? "" : "line-through decoration-foreground/40"}>{before}</span>
               </p>
             ) : null /* NOTHING IS CLAIMED ABOUT A FIELD NOBODY HANDED OVER. A null `before` means the row did
                  not carry the old words, never that the page has none. The adds-new-copy fact now lives on the
@@ -412,7 +410,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
               for each where it applies rather than refusing the press afterwards. EVERY BUNDLE OF TWO OR MORE PIECES GETS
               THE PICKER (audit 3.9): a bundle past the inline limit got a bare Mark done, so one press recorded every piece
               as applied when the operator had pasted one. */}
-          {review ? null : parts > INLINE_PIECES ? <span className="text-[12px] text-muted-foreground">Open the change to record only the pieces you actually applied.</span> : <MarkImplemented proposalId={proposal.id} expectedVersion={confirmedVersion(proposal)} newPage={isNew} onRecorded={recordDone}
+          {review ? null : parts > INLINE_PIECES ? <span className="text-[12px] text-muted-foreground">Open the change to record only the pieces you actually applied.</span> : <MarkImplemented proposalId={proposal.id} expectedVersion={confirmedVersion(proposal)} newPage={isNew} inPlaceLink={proposal.recommendedChange.kind === "existing_edit" && proposal.recommendedChange.linkMode === "in_place"} onRecorded={recordDone}
             components={parts > 1 || held.length > 0 ? piecesOf(bundle) : undefined} />}
           <button type="button" data-set-aside="true" onClick={() => onAside(proposal.id)}
             className="inline-flex min-h-11 items-center text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">

@@ -313,6 +313,7 @@ async function rowById(tenantId: string, id: string, failClosed = false): Promis
 export async function implementationGuard(tenantId: string, id: string, version: string): Promise<{ proposal: ChangeProposal; rowVersion: number; payload: unknown } | null> {
   if (!tenantId || !id.startsWith(`${tenantId}::`) || !version) return null;
   const row = await rowById(tenantId, id, true), proposal = row && !row.terminal_disposition ? decode(row.payload) : null;
+  if (proposal?.recommendedChange.kind === "existing_edit" && proposal.recommendedChange.linkMode === "in_place") { const bodies = await loadOwnedPageBodies(tenantId, publicationUrls(proposal)).catch(() => new Map<string, OwnedPageBody>()); if (staleCopyReasons(proposal, bodies, [], null, true).length) return null; }
   return proposal && confirmedVersion(proposal) === version ? { proposal, rowVersion: row!.proposal_version, payload: row!.payload } : null;
 }
 

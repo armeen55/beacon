@@ -46,6 +46,8 @@ const schemaChange = (): ChangeProposal => { const p = change("Add a visible ans
   return p; };
 const press = async (p: ChangeProposal) => { stored.proposal = p;
   return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, expectedVersion: confirmedVersion(p) }); };
+it("rejects altered wording for a link in place before any Shipment is written", async () => {
+  const p = linkChange(); p.recommendedChange = { ...p.recommendedChange, linkMode: "in_place", linkSourceHash: "current-capture" } as ChangeProposal["recommendedChange"]; stored.proposal = p; const result = await (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, expectedVersion: confirmedVersion(p), appliedText: "A different paragraph." }); expect([result.success, result.error?.includes("exact existing words"), led.records.length]).toEqual([false, true, 0]); });
 beforeEach(() => { led.records = []; led.breakWrite = false; led.noRecordId = false; stored.disposition = null; stored.byId = null; stored.tenant = "t"; surf.rebuilds = 0; led.flip.mockReset(); led.flip.mockResolvedValue(true); }); // the rebuild count is reset with every other fixture, so no assertion about it depends on the test before it
 describe("many at once is one trip, and still one shipment each", () => {
   it("records twenty changes on one press and rebuilds the surfaces once, not twenty times", async () => {

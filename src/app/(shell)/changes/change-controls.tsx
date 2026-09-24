@@ -255,7 +255,7 @@ export function ReviewAnswer({ proposalId, version, approvable }: { proposalId: 
 }
 
 /** Record only selected pieces of the displayed version; new pages and risky moves require their additional facts. */
-export function MarkImplemented({ proposalId, expectedVersion, label: idle = "Mark done", components, newPage = false, onRecorded }: {
+export function MarkImplemented({ proposalId, expectedVersion, label: idle = "Mark done", components, newPage = false, inPlaceLink = false, onRecorded }: {
   proposalId: string;
   expectedVersion: string;
   label?: string;
@@ -267,6 +267,7 @@ export function MarkImplemented({ proposalId, expectedVersion, label: idle = "Ma
   components?: { id: string; kind: string; label: string; dependsOn?: readonly string[]; moves?: boolean; recorded?: boolean }[];
   /** A page that did not exist has no address until they publish it, so the address has to be given here. */
   newPage?: boolean;
+  inPlaceLink?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [state, setState] = useState<{ done: boolean; error: string | null; note: string | null; queued?: boolean }>({ done: false, error: null, note: null });
@@ -354,14 +355,14 @@ export function MarkImplemented({ proposalId, expectedVersion, label: idle = "Ma
           <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
           Confirmed: this moves or hides a page, and what it does to the site above has been read.
         </label>) : null}
-      <div className="space-y-1.5" data-operator-note="true">
+      {!inPlaceLink ? <div className="space-y-1.5" data-operator-note="true">
         <label className="block text-[12px] text-muted-foreground" htmlFor={`note-${proposalId}`}>
           Applied different wording? Paste the exact words that are on the page. Both are kept, and the page is read for yours.
         </label>
         <textarea id={`note-${proposalId}`} rows={3} value={ownWording} onChange={(e) => setOwnWording(e.target.value)}
           placeholder="Optional: the exact wording now on the page"
           className="w-full resize-y rounded-md border border-border bg-surface-inset px-3 py-2 text-[12px] text-foreground" />
-      </div>
+      </div> : null}
 
       <div className="flex flex-wrap items-center gap-3">
         <button type="button" onClick={onClick} disabled={pending || state.done || nothingPicked || addressOwed || (movesPage && !confirmed)}

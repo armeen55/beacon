@@ -435,12 +435,13 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
         </div>
       ) : after ? (
         <div className="space-y-1">
-          {before ? <p className="text-[13px] text-muted-foreground">Now: <span className="line-through">{before}</span></p> : null}
+          {before ? <p className="text-[13px] text-muted-foreground">{c.kind === "existing_edit" && c.linkMode === "in_place" ? "Find this paragraph:" : "Now:"} <span className={c.kind === "existing_edit" && c.linkMode === "in_place" ? "" : "line-through"}>{before}</span></p> : null}
+          {c.kind === "existing_edit" && c.linkMode === "in_place" ? <p className="text-[13px] text-muted-foreground">Select only “{c.anchorText}” and link those words to {c.linkTo}. Keep the paragraph’s wording and all other content.</p> : null}
           <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
             <div className="min-w-0 flex-1 text-[15px] leading-relaxed text-foreground"><PublicationCopy text={after} units={units} link={link} /></div>
-            {research || held ? null : <CopyButton text={after} units={units} link={link} label="Copy" />}
+            {research || held || c.kind === "existing_edit" && c.linkMode === "in_place" ? null : <CopyButton text={after} units={units} link={link} label="Copy" />}
           </div>
-          {c.kind === "existing_edit" && c.where ? <p className="text-[13px] text-muted-foreground">Where it goes: {c.where}</p> : null}
+          {c.kind === "existing_edit" && c.linkMode !== "in_place" && c.where ? <p className="text-[13px] text-muted-foreground">Where it goes: {c.where}</p> : null}
         </div>
       ) : null}
       <p className="text-[14px] leading-relaxed text-foreground">{proposal.whyItMatters}</p>
@@ -464,7 +465,7 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
       ) : null}
       {held && !research ? <p className="text-[13px] leading-relaxed text-foreground" data-held-reason="true">{held}{waitingOn(proposal) ?? ""}</p> : null}
       <div className="flex flex-wrap items-center gap-3">
-        {research || held ? null : <MarkImplemented proposalId={proposal.id} expectedVersion={confirmedVersion(proposal)} />}
+        {research || held ? null : <MarkImplemented proposalId={proposal.id} expectedVersion={confirmedVersion(proposal)} inPlaceLink={c.kind === "existing_edit" && c.linkMode === "in_place"} />}
         <SetAsideChange proposalId={proposal.id} finishable={canFinish(proposal)} prepare={nextObligation(proposal)?.kind !== "review" || proposal.recommendedChange.kind === "existing_edit" && !!proposal.recommendedChange.linkTo} />
       </div>
     </div>

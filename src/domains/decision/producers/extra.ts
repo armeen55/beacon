@@ -2,7 +2,7 @@
 import "server-only";
 import { getRepository } from "@/lib/persistence/repositories";
 import { log } from "@/lib/logger";
-import { canonicalQueryKey, domainOf, topicTokens } from "@/domains/evidence/relevance-gate";
+import { canonicalQueryKey, domainOf, FURNITURE_LABEL, topicTokens } from "@/domains/evidence/relevance-gate";
 import { canonicalPairOf, readAiObservations } from "@/domains/evidence/ai-visibility/ai-observations";
 import { pageHashOf } from "@/domains/evidence/pages/fact-check-run"; import { authorizedCorrections, readFactChecks, type FactCheck } from "@/domains/evidence/pages/fact-checks";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence, type OwnedQuerySignal } from "@/domains/evidence/snapshot";
@@ -15,7 +15,8 @@ import { loadChangeProposals } from "../proposal-store";
 import { footprintKey, mutationFootprint } from "../mutation-footprint";
 import proposalSeats from "../proposal-seats";
 import { RECEIPT } from "../diagnose";
-import { demandOf, placementCandidatesOf, winnersAgreeOn } from "../drafted-copy";
+import { demandOf, winnersAgreeOn } from "../drafted-copy";
+import { articlePassages } from "../in-place-link";
 import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { GAIN } from "../draft-resolution";
 import { selectPageVersion } from "@/domains/evidence/pages/page-version";
@@ -80,7 +81,8 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
   const out: Draft[] = [];
   for (const from of strongest) {
     const links = linksByPage.get(canonicalUrlKey(from.url))!;
-    const spots = placementCandidatesOf(bodies.get(canonicalUrlKey(from.url)) ?? null, 500).filter((c) => c.kind === "sentence").map((c) => new Set(subjectWords(c.exactText, weak)));
+    const sentences = articlePassages(bodies.get(canonicalUrlKey(from.url))).flatMap((p) => p.split(/(?<=[.!?])\s+/)).map(s => s.trim()).filter(s => s.length >= 12 && s.length <= 220 && !FURNITURE_LABEL.test(s));
+    const spots = sentences.filter(s => sentences.filter(other => other.toLowerCase() === s.toLowerCase()).length === 1).map(s => new Set(subjectWords(s, weak)));
     const own = new Set(subjectWords(`${from.content?.title ?? ""} ${from.content?.h1 ?? ""}`, weak)); // the source's own subject: a word both pages are about ("flag", "empire") places nothing
     const belongs = async (to: OwnedPageEvidence, anchor: string): Promise<boolean> => {
       const [dest, src] = [await u.of(to), await u.of(from)];

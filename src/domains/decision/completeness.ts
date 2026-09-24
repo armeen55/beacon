@@ -58,7 +58,7 @@ export function deliverableGaps(p: ChangeProposal): string[] {
   if (noCopy(c.after)) gaps.push("it carries no copy");
   else if (notFinal(c.after)) gaps.push("it describes the work instead of being it");
   else if (glued(c.after)) gaps.push("its label runs straight into the words after it, so it would paste as one glued phrase");
-  else if (typeof c.before === "string" && c.before.trim() !== "" && COPY_RULES.flat(c.after) === COPY_RULES.flat(c.before)) gaps.push("it changes nothing: the new words are the words the page already carries");
+  else if (typeof c.before === "string" && c.before.trim() !== "" && COPY_RULES.flat(c.after) === COPY_RULES.flat(c.before) && !(c.linkMode === "in_place" && c.linkTo && c.anchorText && c.target?.mode === "replace")) gaps.push("it changes nothing: the new words are the words the page already carries");
   const placed = (t: string | null | undefined): boolean => !!t && t.trim().length >= 12 && !notFinal(t);
   if (parts.some((part) => (part.kind === "full_rewrite" || part.target?.mode === "whole_body") && (part.kind !== "full_rewrite" || !part.before?.trim() || !part.units?.length || part.target?.mode !== "whole_body"))) gaps.push("the whole-page replacement lacks its full-rewrite kind, complete original body, publication structure or explicit body scope");
   const said = p.bundle?.dispositions ?? [];
@@ -281,7 +281,7 @@ export function confirmedVersion(p: ChangeProposal): string {
   const sorted = <T>(xs: readonly T[] | undefined): T[] => [...xs ?? []].sort((x, y) => JSON.stringify(x).localeCompare(JSON.stringify(y))); // A DOOR MAY REFUSE A CHANGE; IT MAY NEVER CRASH ON ONE: the one verdict is asked of every stored row at every door now, so a legacy bundle missing an array a fresh mint always carries is stamped, never thrown on top of the operator.
   // Confirmation pins the basis and every rendered sentence, even when copy preservation keeps words.
   const material = [p.basis ?? null, p.riskLevel, copyIdentity(p), p.diagnosisCause ?? null, sorted(p.limitations.filter((l) => !OWED_NOTE.test(l))), p.operatorSteps ?? [],
-    c.kind === "existing_edit" ? [c.field, c.before, c.after, c.where ?? null] : [c.proposedTitle, c.metaDescription, c.openingAnswer, c.outline, c.faqQuestions, c.schemaTypes],
+    c.kind === "existing_edit" ? [c.field, c.before, c.after, c.where ?? null, c.linkMode ?? null, c.linkSourceHash ?? null] : [c.proposedTitle, c.metaDescription, c.openingAnswer, c.outline, c.faqQuestions, c.schemaTypes],
     (p.claims ?? []).map((x) => [x.text, [...x.supportedBy].sort()]), sorted((p.supportFacts ?? []).map((x) => [x.id, x.fact, x.finding ? [x.finding.tenantId, x.finding.page, x.finding.statementKey] : null, sorted((x.sources ?? []).map((s) => [s.url, s.kind]))])), p.informationGain ?? null, p.preservation ?? null, ...(p.preservationNotes ? [["preservation_notes", p.preservationNotes]] : []),
     f ? [f.cause, f.action, sorted(f.evidenceKeys), f.payload ?? null, f.explanation, f.falsifier, sorted(f.competingExplanations.map((x) => [x.cause, x.reason, x.fired ?? null])), sorted(f.notConsidered.map((x) => [x.cause, x.missing]))] : null,
     b ? [b.objective, b.metric, b.measurementPlan, sorted(b.risks), sorted(b.receipt?.missing), sorted(b.confidenceReasons), sorted((b.alternatives ?? []).map((x) => [x.option, x.reason])),

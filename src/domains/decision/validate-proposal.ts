@@ -328,7 +328,7 @@ export function validateProposal(
 ): ProposalValidation {
   const change = proposal.recommendedChange;
   if (proposal.researchOnly === true && change.kind === "existing_edit") return { verdict: "needs_review", qualityStatus: "useful_but_needs_review", reasons: ["the exact copy is not written yet, so there is nothing here for the canon to read"], factViolations: [], corrections: [], safetyFlags: [], limitations: [], confidence: "low" }; // A BRIEF IS NOT OPERATOR COPY (D-036; operator, 2026-09-02): a research row's `after` is the INSTRUCTION for the work, and pointing the copy gates at it rejected 79 of 90 briefs as thin, generic or off-topic writing, which is a verdict about words nobody has written. The canon abstains and the row waits for the draft it is owed. A new-page BRIEF keeps its own gate (evaluateNewPageBrief) and is deliberately not covered here.
-  const texts = operatorFacingText(proposal), query = proposal.primaryQuery;
+  const inPlace = change.kind === "existing_edit" && change.linkMode === "in_place", texts = operatorFacingText(proposal).filter(t => !inPlace || t !== change.after), query = proposal.primaryQuery;
   // Structured data uses its own gate instead of prose quality rules.
   const schema = change.kind === "existing_edit" && change.field === "schema" ? schemaFailures(proposal, change, opts) : null;
 
@@ -365,6 +365,9 @@ export function validateProposal(
       ? { status: "malformed", reasons: schema.failures, copyAllowed: false, canRegenerate: true, confidence: "low" }
       : schema.need ? { status: "useful_but_needs_review", reasons: [`The current complete HTML question and answer for "${schema.need.query}" are not confirmed. Capture this page before changing or approving its schema.`], copyAllowed: false, canRegenerate: false, confidence: "low" }
       : { status: "ready", reasons: [], copyAllowed: true, canRegenerate: true, confidence: "medium" };
+  } else if (inPlace && change.kind === "existing_edit") {
+    const shape = change.before === change.after && !!change.before && !!change.linkTo && !!change.anchorText && !!change.linkSourceHash && change.before.split(change.anchorText).length === 2 && change.units?.length === 1 && change.units[0]?.kind === "paragraph" && change.units[0].text === change.after && change.target?.mode === "replace" && change.target.anchorKind === "passage" && change.target.anchor === change.after;
+    quality = shape ? { status: "ready", reasons: [], copyAllowed: true, canRegenerate: false, confidence: "medium" } : { status: "malformed", reasons: ["The exact existing paragraph, link words, destination or source version is missing."], copyAllowed: false, canRegenerate: false, confidence: "low" };
   } else if (change.kind === "existing_edit") {
     quality = evaluateTitleMetaQuality({
       before: change.before,
