@@ -31,7 +31,6 @@ const packetOf = (s: Site, over: Partial<SourcePacket> = {}): SourcePacket => ({
       observations: [{ kind: "answers", text: `${s.winner} states what this page does not.`, quote: s.quote }] }] },
   ...over,
 } as SourcePacket);
-
 describe("what one assignment carries", () => {
   for (const s of SITES) {
     it(`${s.t}: a body row carries all eight things the work needs, and the reader's task is the whole intent group`, () => {
@@ -39,7 +38,6 @@ describe("what one assignment carries", () => {
       expect(deliverableFailures({ actionType: "answer_block", targetUrl: s.url, placementAnchor: s.passage, beforeText: s.passage, finalCopy: s.says, naturalHeading: null, claims: [{ text: s.says, supportedBy: ["fact-1"] }], supportFacts: [], evidenceIdsUsed: ["fact-1"], uncertaintyOrOmitted: [], implementationMinutes: 2, measurementTarget: s.queries[0] }, { ...packetOf(s), assignment: a }), "a contextual addition may never acquire deletion scope from the writer").toContain("this assignment adds copy and deletes nothing, but the draft replaces existing words");
       expect([a.intent.includes(s.queries[0]!), a.intent.includes(s.queries[1]!)], "the reader's task is every phrasing of the group, never the one string the card was minted under").toEqual([true, true]);
     });
-
     it(`${s.t}: a summary field is judged by the summary standard and a body row is not`, () => {
       const summary = assignmentOf(packetOf(s), null, "meta", "find a source the prior attempt asked for")!, body = assignmentOf(packetOf(s), null, "answer_block", "find a source the prior attempt asked for")!; expect([summary.standard, body.standard, summary.owed, body.owed, ASSIGNMENT_EDITOR.lines({ ...summary, owed: "historical source request" }).some((l) => l.includes("STILL OWES"))],
         "the standard is chosen once; a summary neither banks nor reprints settled source instructions, while body correction debt remains available").toEqual(["summary", "missing_answer", undefined, "find a source the prior attempt asked for", false]);
@@ -51,17 +49,20 @@ describe("what one assignment carries", () => {
       expect(assignmentOf(packetOf(s), null, "answer_block")?.informationNeed?.requiredAtomKeys).toEqual(["atom-1"]);
     });
   }
-
   it("a rewritten acquisition subject remains bound to the original information atom", () => {
     const s = SITES[0]!, rewritten = "seasonal access rules for the eastern seal nursery", key = "original-missing-topic";
     const a = assignmentOf(packetOf(s, { gap: { kind: "missing_answer", propositions: [rewritten] }, informationNeed: { question: s.queries[0]!, requiredAtomKeys: [key], polarity: "supports", voice: "publisher", deliveryMode: "inline" }, answerAtoms: [{ key, evidenceId: "fact-1", polarity: "supports", voice: "publisher" }] }), null, "answer_block")!;
     expect([a.propositions, a.facts, a.shape, a.deliveryMode, a.format.includes("without an outer heading")], "the acquired wording may change while its producer-issued atom identity and fixed delivery remain exact").toEqual([[rewritten], [{ id: "fact-1", says: packetOf(s).evidence["fact-1"] }], "inline_addition", "inline", true]);
   });
-
   it("requires the original material for a saved structural assignment before starting a writer", async () => {
     const s = SITES[0]!, key = `restructure:${s.queries[0]}`, need = { question: s.prop, requiredAtomKeys: [key], polarity: "supports" as const, voice: "publisher" as const, deliveryMode: "headed" as const }, original = assignmentOf(packetOf(s, { gap: { kind: "weak_extractability", propositions: [s.prop] }, informationNeed: need, answerAtoms: [{ key, evidenceId: "page-copy-1", polarity: "supports", voice: "publisher" }] }), null, "answer_block")!;
     const tryPage = async (passage: string | string[], assignment = original, complete = true) => { const calls: string[] = [], passages = Array.isArray(passage) ? passage : [passage]; await draftFieldForPage({ field: "answer_block", body: { url: s.url, title: s.title, h1: s.h1, metaDescription: null, headings: [s.head], passages, vocabulary: passages.join(" "), completeness: complete ? "complete" : "partial", version: "current" } as never, query: s.queries[0]!, brief: "answer", evidenceHints: [], ownedPaths: [], minutes: 1, assignment }, { tenantId: s.t, now: new Date("2026-09-19T00:00:00Z"), complete: (async () => (calls.push("writer"), { error: "test transport stop", retryable: false })) as never }); return calls.length; };
     expect(await tryPage(s.passage)).toBeGreaterThan(0); expect(await tryPage(["A new unrelated opening.", s.passage])).toBeGreaterThan(0); expect(await tryPage("The new page talks only about unrelated harbor restaurants and parking lots.")).toBe(0);
+    const passages = [...Array.from({ length: 8 }, (_, i) => `Unrelated harbour background paragraph ${i + 1} about distant boats and weather.`), s.says];
+    const keys = passages.map((_, i) => `atom-${i + 1}`), evidence = Object.fromEntries(passages.map((text, i) => [`page-copy-${i + 1}`, text]));
+    const over = { evidence, informationNeed: { ...need, requiredAtomKeys: keys }, answerAtoms: keys.map((key, i) => ({ key, evidenceId: `page-copy-${i + 1}`, polarity: "supports" as const, voice: "publisher" as const })) };
+    const late = assignmentOf(packetOf(s, over), null, "answer_block")!; expect([late.facts?.some(f => f.id === "page-copy-9"), late.atomBindings?.length, ASSIGNMENT_EDITOR.lines(late).find(line => line.startsWith("SUPPORTING FACTS"))?.includes("page-copy-9 says")]).toEqual([true, 9, true]);
+    expect(assignmentOf(packetOf(s, { ...over, evidence: { ...evidence, "page-copy-9": "" } }), null, "answer_block")).toBeNull();
     expect(await tryPage(s.passage, { ...original, informationNeed: { ...need, requiredAtomKeys: ["unknown"] } })).toBe(0); expect(await tryPage("The unrelated replacement gives no seal facts.", { ...original, atomBindings: undefined, basis: "a".repeat(64) })).toBe(0); expect(await tryPage(s.passage, original, false)).toBe(0);
     expect(await tryPage(s.passage, { ...original, gapKind: "full_rewrite_piece", basis: "a".repeat(64), informationNeed: { ...need, requiredAtomKeys: [`${"a".repeat(64)}::0`] }, atomBindings: undefined })).toBe(0);
   });

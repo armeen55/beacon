@@ -24,14 +24,14 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     : "missing_answer";
   const need = packet.informationNeed, atoms = packet.answerAtoms ?? [], complete = !!need && need.requiredAtomKeys.length > 0 && need.requiredAtomKeys.every((key) => { const found = atoms.filter((a) => a.key === key); return found.length > 0 && found.every((a) => a.polarity === need.polarity && a.voice === need.voice && !!packet.evidence[a.evidenceId]?.trim()); });
   if (!WIDTH[field] && !complete) return null;
-  const bound = (WIDTH[field] ? facts : [...new Set(atoms.filter((a) => need!.requiredAtomKeys.includes(a.key)).map((a) => a.evidenceId))]).slice(0, 8);
+  const briefTerms = new Set(topicTokens([need?.question ?? "", ...props].join(" ")));
+  const bound = WIDTH[field] ? facts.slice(0, 8) : [...new Set(atoms.filter((a) => need!.requiredAtomKeys.includes(a.key)).map((a) => a.evidenceId))].map((id, i) => ({ id, i, score: topicTokens(packet.evidence[id] ?? "").filter((w) => briefTerms.has(w)).length })).sort((a, b) => b.score - a.score || a.i - b.i).slice(0, 8).map((x) => x.id);
   const base = { page: packet.targetUrl, standard, gapKind: kind,
     ...(need ? { informationNeed: { ...need, requiredAtomKeys: [...need.requiredAtomKeys] }, deliveryMode: need.deliveryMode } : {}),
     ...((packet.reading?.sells ?? []).length > 0 ? { sells: [...packet.reading!.sells] } : {}),
     propositions: props, diagnosedGap: gap,
     intent: [...new Set([...(packet.comparison?.queries ?? []), packet.trackedQuestion ?? "", ...(packet.demand.unanswered ?? [])])].filter((x): x is string => !!x).slice(0, 6),
-    // The atom names the exact qualified evidence entry, not a position in the
-    // fact-only list. A page-copy atom used to survive as an id with no words.
+    // The brief ranks qualified excerpts; the bindings retain every exact source atom.
     facts: bound.map((id) => ({ id, says: packet.evidence[id] ?? "" })), ...(!WIDTH[field] ? { atomBindings: atoms.filter(a => need?.requiredAtomKeys.includes(a.key) && !!packet.evidence[a.evidenceId]?.trim()).map(a => ({ key: a.key, evidenceId: a.evidenceId, hash: createHash("sha256").update(packet.evidence[a.evidenceId]!.replace(/\s+/g, " ").trim()).digest("hex") })) } : {}),
     observations: (packet.comparison?.winners ?? []).flatMap((w) => w.observations.slice(0, 2).map((o) => ({ publisher: w.publisher, publisherClass: w.publisherClass, kind: o.kind, text: o.text, quote: o.quote }))).slice(0, 12),
     keep: (packet.comparison?.keep ?? []).slice(0, 4),
