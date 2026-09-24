@@ -31,9 +31,9 @@ const glued = (t: string): boolean => { const lv = labelOf(t); return !!lv && lv
 export function deliverableGaps(p: ChangeProposal): string[] {
   const gaps: string[] = [];
   const rewrite = COPY_RULES.pieceDebt(p); if (rewrite === null) gaps.push("the banked rewrite has an invalid plan or piece record"); else if (rewrite) gaps.push(`${rewrite} planned rewrite pieces have no copy written`); if (p.researchOnly === true) gaps.push(rewrite !== undefined ? "the rewrite is not yet qualified as complete publishable work" : p.kind === "new_page" && p.newPageDraft?.pieces.length ? "the new page is not yet qualified as complete publishable work" : "nothing has been written for it yet");
-  const parts = p.bundle?.components ?? [];
+  const c = p.recommendedChange, parts = p.bundle?.components ?? [];
+  if ((c.kind === "existing_edit" && c.units && COPY_RULES.duplicateHeadings(c.units)) || parts.some((part) => part.units && COPY_RULES.duplicateHeadings(part.units))) gaps.push("adjacent headings repeat the same words, so this copy is not ready to paste");
   if (p.bundle && parts.length === 0 || parts.some((part) => noCopy(part.after) || notFinal(part.after))) gaps.push("a bundle component has no finished copy");
-  const c = p.recommendedChange;
   if (p.researchOnly !== true) { const numeric = COPY_RULES.newMetaQuantityGap(p), external = COPY_RULES.newExternalAuthorityGap(p); if (numeric) gaps.push(numeric); if (external) gaps.push(external.reason); }
   if (c.kind === "new_page") {
     for (const [what, text] of [["title", c.proposedTitle], ["description", c.metaDescription], ["opening", c.openingAnswer]] as const) {
@@ -154,7 +154,6 @@ export function openHold(p: ChangeProposal, also: { found?: readonly string[] } 
 
 /** WHY THIS CHANGE MAY NOT BE HANDED OVER AS READY, or null when it may: the first hard defect of the ONE verdict above, which is what every caller of this name already asked it for. It used to be a second refusal chain of its own (a split settled on only some of its pages, a lever that misses the diagnosed cause), and both of those are advisories now, so the name survives as the kernel's one-word reader of the verdict rather than as a second vocabulary beside it. The SAFETY confirmation answers to the operator and is never returned here. */
 export const unsettledCause = (p: ChangeProposal): string | null => openHold(p).defects[0] ?? null; // the FIRST DEFECT of the one verdict, typed faults and receipt findings included (journey review, 2026-09-06): `blocking` is drawn from the hard arms alone, so a screen reading it offered an approve press on a row the store then refused for its typed fault
-
 
 /** Query leadership can rotate within one semantic demand unit without changing its job. */
 const slotOf = (f: string): string => (f === "answer_block" || f === "section" ? "body" : f); /** WHICH SLOT A FIELD WRITES, the field half of mutation-footprint's own table: `answer_block` and `section` are two names for ONE body edit and land on the same words. Read as the raw field, a brief minted `answer_block` and the finished section the writer handed back for that very brief were two kinds of change, so every re-mint retired the finished copy with "the kind of change moved" and put the brief back on the row: twice in one live drive (2026-09-03), both receipts still saying produced. */
