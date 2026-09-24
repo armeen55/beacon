@@ -228,14 +228,14 @@ async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
   const t0 = Date.now();
   const view = await readReleasedChanges(tenantId);
   if (!view.surfaceVersion || view.basisUnreadable) return view;
-  // Read canonical current rows once for status and exact version. The previous live rank/count overlay could
-  // replace a committed 1/19/157 release with 0/18/121 while a research pass cleared 38 stamps before the next
-  // release. This check only removes work whose saved copy is no longer current; it never adopts partial ranks.
+  // A verification can move between releases; Results reads these same persisted rows and counter.
   const joinBudget = Math.max(0, 4_400 - (Date.now() - t0));
-  const current = await loadWithDeadline(loadChangeProposals(tenantId, { failClosed: true, canonicalOnly: true }), joinBudget).catch(() => null);
-  if (!current || current.timedOut) return view;
+  const [current, ledger] = await Promise.all([loadWithDeadline(loadChangeProposals(tenantId, { failClosed: true, canonicalOnly: true }), joinBudget).catch(() => null), loadWithDeadline(loadProofLedgerCached(tenantId), Math.min(joinBudget, 700)).catch(() => null)]);
+  const counts = ledger && !ledger.timedOut ? countLedgerLifecycle(ledger.data) : null;
+  const live = counts ? { ...view, summary: { ...view.summary, measuring: counts.measuring, results: counts.decided }, measuringCountCanonical: counts.measuring, waitingLiveCountCanonical: counts.waiting, blockedCountCanonical: counts.blocked, decidedCountCanonical: counts.decided, wonCountCanonical: counts.won, countsUnavailable: false } : { ...view, countsUnavailable: true };
+  if (!current || current.timedOut) return live;
   const basis = await currentBasisFast(tenantId);
-  return basis == null ? view : withCurrentBasisOnly(view, { tenantId, currentBasis: basis, currentRows: current.data });
+  return basis == null ? live : withCurrentBasisOnly(live, { tenantId, currentBasis: basis, currentRows: current.data });
 }
 
 /** THE RELEASE BLOB READ IS THE ONE THAT MUST NOT HANG. When it exceeded the section's whole 5s deadline the screen printed a retry

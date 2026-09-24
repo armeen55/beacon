@@ -39,9 +39,9 @@ const blob = vi.hoisted(() => ({ stored: null as unknown, writeFails: false }));
 vi.mock("@/lib/persistence/json-store", async () => ({ ...(await vi.importActual<typeof import("@/lib/persistence/json-store")>("@/lib/persistence/json-store")),
   readStore: async (name: string) => (name === "customer-surface" && blob.stored ? [blob.stored] : []),
   writeStore: async () => { if (blob.writeFails) throw new Error("the release blob did not land"); } }));
-const ledgerFails = vi.hoisted(() => ({ value: false }));
+const ledgerFails = vi.hoisted(() => ({ value: false, hangs: false, rows: [] as unknown[] }));
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
-  loadProofLedgerCached: async () => { if (ledgerFails.value) throw new Error("the ledger did not read"); return []; } }));
+  loadProofLedgerCached: async () => { if (ledgerFails.value) throw new Error("the ledger did not read"); if (ledgerFails.hangs) return new Promise<never>(() => {}); return ledgerFails.rows; } }));
 import { renderToStaticMarkup } from "react-dom/server"; import { createElement } from "react";
 import { readChangesPage, loadChangesView, buildChangesViewUncached, releasedQueueCursors } from "@/app/(shell)/changes-data";
 import { buildTodayViewFromChanges, loadTodayView } from "@/app/(shell)/today-view-data";
@@ -66,10 +66,10 @@ const ALL = Array.from({ length: N }, (_, i) => proposal(i));
 async function stamp(release: string, rows: Array<{ id: string; lane: string }> = ALL.map((p) => ({ id: p.id, lane: "ready" }))) {
   for (const r of db.rows) if (r.tenant_id === T) { r.queue_lane = null; r.queue_rank = null; }
   rows.forEach((x, i) => { const r = db.rows.find((y) => y.tenant_id === T && y.id === x.id); if (r) { r.queue_lane = `${release}::${x.lane}`; r.queue_rank = i + 1; } });}
-beforeEach(async () => {
-  db.rows = ALL.map((p) => seed(p)); db.legacy = []; db.reads = []; db.basis = "b1"; db.stampFails = false; blob.stored = null; blob.writeFails = false;
-  await stamp("rel-1"); });
+beforeEach(async () => { db.rows = ALL.map((p) => seed(p)); db.legacy = []; db.reads = []; db.basis = "b1"; db.stampFails = false; blob.stored = null; blob.writeFails = false; ledgerFails.value = false; ledgerFails.hangs = false; ledgerFails.rows = []; await stamp("rel-1"); });
 describe("Today and Changes answer one question once", () => {
+  it("serves the saved Ready list within the optional ledger deadline when that read hangs", async () => { ledgerFails.hangs = true; const start = Date.now(), view = await loadChangesView(); expect([view.ready.length, view.countsUnavailable, Date.now() - start < 2_000]).toEqual([CHANGES_PAGE_SIZE, true, true]); });
+  it("reads a later live-check verdict from the persisted ledger without changing the saved rank", async () => { const one = ALL[0]!, ago = new Date(Date.now() - 3 * 86_400_000).toISOString(), row = (id: string, status: string | null) => ({ id, page: `https://fixture.example/${id}`, path: `/${id}`, actionType: "title", after: "A complete title", shippedAt: ago, implementedAt: ago, windows: [], verification: status ? { status, checkedAt: ago, checks: 3, reason: "address_mismatch", recheckAfter: null, components: [] } : null }); db.rows = [seed(one)]; await stamp("rel-live", [{ id: one.id, lane: "ready" }]); blob.stored = { releaseId: "rel-live", computedAt: new Date().toISOString(), manifest: [{ id: one.id, lane: "ready" }], changes: { proposals: [one], ready: [one], toDo: [], research: [], summary: { ready: 1, todo: 0, research: 0, implemented: 0, measuring: 2, results: 0 }, measuringCountCanonical: 2, waitingLiveCountCanonical: 2, blockedCountCanonical: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null } }; ledgerFails.rows = [row("waiting", null), row("now-blocked", "blocked")]; const view = await loadChangesView(); expect([view.summary.ready, view.measuringCountCanonical, view.waitingLiveCountCanonical, view.blockedCountCanonical, view.surfaceVersion]).toEqual([1, 1, 1, 1, "rel-live"]); const { ChangesListClient } = await import("@/app/(shell)/changes-list-client"); expect(renderToStaticMarkup(createElement(ChangesListClient, { view }))).toContain("1 waiting on a live check · 1 change could not be verified"); });
   it("keeps a current Ready copy through an incomplete rank stamp and gives Today the same released counts", async () => {
     const ready = ALL[0]!, todo = ALL.slice(1, 20).map((p) => ({ ...p, status: "needs_review" as const })), research = ALL.slice(20, 177).map((p) => ({ ...p, status: "needs_review" as const, researchOnly: true }));
     const ordered = [ready, ...todo, ...research], manifest = ordered.map((p) => ({ id: p.id, lane: p === ready ? "ready" as const : p.researchOnly ? "research" as const : "todo" as const }));
@@ -97,7 +97,7 @@ describe("Today and Changes answer one question once", () => {
     expect([view.ready.length, view.summary.ready, view.readyZeroHint?.startsWith("No finished change is ready")], "the lane is empty, the count follows it, and the sentence is re-derived from the live lane rather than read off a release that still had rows (journey review, 2026-09-06)").toEqual([0, 0, true]); });
   it("withholds a count it could not read, and never counts a lane higher than it can hand over", async () => {
     ledgerFails.value = true;
-    const view = await buildChangesViewUncached(T, "rel-8"), today = buildTodayViewFromChanges(view); expect([view.countsUnavailable, view.summary.measuring]).toEqual([true, 0]);
+    const view = await buildChangesViewUncached(T, "rel-8"), today = buildTodayViewFromChanges(view), released = await loadChangesView(); expect([view.countsUnavailable, view.summary.measuring, released.countsUnavailable]).toEqual([true, 0, true]);
     expect(today.headerSentence).not.toMatch(/measuring/i); // no clause I cannot stand behind
     ledgerFails.value = false;
     expect((await buildChangesViewUncached(T, "rel-8")).countsUnavailable).toBeUndefined();

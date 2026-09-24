@@ -1,6 +1,6 @@
 /** CHANGES. The ranked queue explains its own order, and a change detail hands over the whole investigation, the pieces picker and the override. Every test name states the promise it pins. Fixtures only. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1")); afterEach(() => vi.unstubAllEnvs());
+beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1")); afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 import { renderToStaticMarkup } from "react-dom/server"; import { createElement, type ReactElement } from "react";
 import type { CauseFinding, ChangeProposal, RankedProposalQueue } from "@/domains/decision";
 import { proofOf, unreviewed } from "@/domains/decision/proof";
@@ -114,11 +114,11 @@ describe("a card says why this opportunity and why these words, and never trades
     expect(JSON.stringify(r)).not.toContain("agree"); });
   it("body narration owes contextual acceptance rather than an arranging-verb rejection", async () => {
     const { reviewFinishedCopy } = await import("@/domains/decision/drafted-copy");
-    const { openHold } = await import("@/domains/decision/completeness");
+    const { openHold } = await import("@/domains/decision/completeness"), reader = await import("@/domains/evidence/pages/owned-context"), { canonicalUrlKey } = await import("@/domains/evidence/snapshot"); vi.spyOn(reader, "loadOwnedPageBodies").mockImplementation(async (_tenant, urls) => new Map(urls.map(url => [canonicalUrlKey(url), { url, title: "Anzali", h1: "Anzali", metaDescription: null, headings: ["About Anzali"], passages: ["Anzali is a port city on Iran’s Caspian Sea coast."], vocabulary: "Anzali Caspian Sea", cardTexts: [], faqs: [], entityNames: [], internalLinks: [], fetchedAt: new Date().toISOString(), completeness: "complete", version: "current", contentHash: "anzali-current" }])) as never);
     for (const linkTo of [undefined]) for (const [after, acceptable] of [["Common phrases are listed here with pronunciations shown beside each.", false], ["The article groups its entries by profession.", false], ["This page talks about the subject according to this page.", false], ["Anzali sits beside the Caspian Sea.", true]] as const) {
       const by = linkTo ? "fact-1" : "page-copy-1", p = { ...proposal(), assignment: undefined, bundle: undefined, recommendedChange: { kind: "existing_edit", field: "section", before: null, after, linkTo, where: "At the end of the main article" }, claims: [{ text: after, supportedBy: [by] }], supportFacts: [{ id: by, fact: after }] } as ChangeProposal; // a linked section STATING A CHECKED FACT owes the reading; one citing only the destination's own words does not (audit, 2026-09-14)
       expect([unreviewed(p) != null, linkTo ? unreviewed({ ...p, claims: [{ text: after, supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: after }] }) : "n/a"]).toEqual([true, linkTo ? null : "n/a"]);
-      const r = await reviewFinishedCopy(p, { tenantId: p.tenantId, now: new Date(), judge: (async () => ({ pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: acceptable, notes: "Judge publisher role in context.", claims: [{ i: 0, by: [by], entailed: true }] })) as never });
+      const r = await reviewFinishedCopy(p, { tenantId: p.tenantId, now: new Date(), judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: acceptable, notes: "Judge publisher role in context.", claims: d.claims.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })) })) as never });
       expect(r.row && openHold(r.row).defects.length === 0).toBe(acceptable);
     }
     const { staleCopyReasons } = await import("@/domains/decision/drafted-copy"), after = "Shoma is the deferential or formal you, and to is the familiar or intimate you.\n- shoma: deferential or formal you";
