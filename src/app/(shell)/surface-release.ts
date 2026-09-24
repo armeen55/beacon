@@ -243,7 +243,7 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
     await readStore<CustomerSurface>(STORE, [], { tenantId, forceRefresh: true }).catch(() => undefined);
     return surface;
     };
-    return rebuildOnly ? runWithoutSpending(build) : build();
+    return await (rebuildOnly ? runWithoutSpending(build) : build());
     } finally {
       // Released with this build's own token: a rebuild that outlived its TTL comes back to somebody else's
       // live hold, and its late release must change nothing.

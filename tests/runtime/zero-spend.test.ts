@@ -88,20 +88,19 @@ describe("a paused account rebuilds its surface and buys nothing, whatever the c
     expect([paused.tenantId, zero.tenantId, produced, doors]).toEqual(["tenant-fx", "tenant-other", 0, ["blocked_budget", "capped", "blocked_budget", "capped"]]);
     expect(fetchSpy).not.toHaveBeenCalled(); expect(calls.releases).toContain("surface-claims:hold-1");
     for (const id of ["@/lib/persistence/json-store", "@/lib/tenant-context", "@/domains/runtime", "@/domains/decision", "@/domains/measurement", "@/domains/evidence", "@/app/(shell)/changes-data", "@/app/(shell)/today-view-data"]) vi.doUnmock(id); vi.resetModules();});
-  it("hands a second instance the release on file instead of building twice", async () => {
-    vi.resetModules(); calls.claims.length = 0; calls.releases.length = 0;
-    const held = [{ schemaVersion: 2, tenantId: "tenant-fx", computedAt: "2026-08-20T00:00:00.000Z",
-      changes: { proposals: [] }, today: { today: {}, hasChanges: false } }];
-    let built = 0;
-    vi.doMock("@/lib/persistence/json-store", () => storeMock(false, held));
-    vi.doMock("@/domains/runtime", () => ({ researchPermission: async () => "running" as const }));
-    vi.doMock("@/domains/decision", () => ({
-      produceProposalsForTenant: async () => { built += 1; return { proposals: [], outcome: "no_actionable_candidate", persisted: 0 }; },
-      reconcileImplementedWithoutShipment: async () => undefined,}));
-    const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release"); const out = await refreshCustomerSurface("tenant-fx");
-    expect(built).toBe(0); // the other dispatcher owns the build
-    expect(out).toBe(held[0]); // this one serves what is already published
-    vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/runtime"); vi.doUnmock("@/domains/decision"); vi.resetModules();});});
+  it("serves a cross-instance holder and keeps its own claim through a slow release", async () => {
+    vi.resetModules(); calls.claims.length = 0; calls.releases.length = 0; let grant = false, entered!: () => void, finish!: () => void, built = 0;
+    const held = [{ schemaVersion: 2, tenantId: "tenant-fx", computedAt: "2026-08-20T00:00:00.000Z", changes: { proposals: [] }, today: { today: {}, hasChanges: false } }], begun = new Promise<void>((r) => { entered = r; }), gate = new Promise<void>((r) => { finish = r; });
+    vi.doMock("@/lib/persistence/json-store", () => ({ readStore: async () => held, claimScope: async (name: string) => (calls.claims.push(name), grant ? "hold-1" : null), releaseScope: async (name: string, _key: string, owner: string) => { calls.releases.push(`${name}:${owner}`); } }));
+    vi.doMock("@/lib/tenant-context", async (real) => ({ ...(await real() as object), slugForTenantId: async (id: string) => id }));
+    vi.doMock("@/domains/runtime", () => ({ researchPermission: async () => "paused" as const }));
+    vi.doMock("@/domains/decision", () => ({ produceProposalsForTenant: async () => { throw Error("stored-only release bought work"); }, reconcileImplementedWithoutShipment: async () => undefined, publishCustomerRelease: async (x: { release: string }) => { built++; entered(); await gate; return x.release; } }));
+    vi.doMock("@/domains/measurement", () => ({ loadShippedChangesForTenant: async () => [] })); vi.doMock("@/domains/evidence", () => ({ loadGscDecaySignalsForTenant: async () => new Map(), loadGscPageSignalsForTenant: async () => new Map() }));
+    vi.doMock("@/app/(shell)/changes-data", () => ({ buildChangesViewUncached: async () => ({ proposals: [], stampRows: [] }) })); vi.doMock("@/app/(shell)/today-view-data", () => ({ buildTodayCompositeFromChanges: async () => ({ headline: "Stored truth" }) }));
+    const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release"); expect(await refreshCustomerSurface("tenant-fx", { maxDrafts: 0 })).toBe(held[0]);
+    grant = true; const first = refreshCustomerSurface("tenant-fx", { maxDrafts: 0 }); await begun; const second = refreshCustomerSurface("tenant-fx", { maxDrafts: 0 });
+    expect([built, calls.claims, calls.releases]).toEqual([1, ["surface-claims", "surface-claims"], []]); finish(); await Promise.all([first, second]); expect(calls.releases).toEqual(["surface-claims:hold-1"]);
+    for (const id of ["@/lib/persistence/json-store", "@/lib/tenant-context", "@/domains/runtime", "@/domains/decision", "@/domains/measurement", "@/domains/evidence", "@/app/(shell)/changes-data", "@/app/(shell)/today-view-data"]) vi.doUnmock(id); vi.resetModules();});});
 describe("the funded proof can touch exactly one stored candidate", () => {
   const id = "tenant-fx::/one::existing_edit::answer", stale = "it did not pass the re-read of a stored change against the rules that stand today: the reading on file was made under an older review contract, so it is read again before these words are offered", row = { id, tenantId: "tenant-fx", basis: "basis-current::d9", status: "needs_review", researchOnly: false, impactScore: 7, obligation: { kind: "review" }, faults: [stale], limitations: [stale] };
   const drive = async (readbackStatus: string, startStatus = "needs_review", permissions = ["paused"], saveResult = "saved", authorized = false, reviewRefresh = false) => { const events: string[] = []; let stored = { ...row, status: startStatus }, pi = 0;
