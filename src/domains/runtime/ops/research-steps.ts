@@ -1,6 +1,7 @@
 import "server-only"; import { AEO_BAR } from "@/domains/decision/accept-worthy";
 import { claimIdentity } from "@/domains/evidence/pages/fact-check-run";
 import { PROOF_SPEND } from "@/lib/spend-scope";
+import { isSafeRedirectHopUrl } from "@/lib/net/safe-source-fetch";
 import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/on-use-refresh";
 import { keywordDiscoveryUnit, promptObservationUnit, serpAnalysisUnit, winningPagesUnit, type FunnelUnitOutcome } from "@/domains/evidence";
 import { loadFunnelState, saveFunnelState, type FunnelState } from "@/domains/evidence/funnel/state";
@@ -308,16 +309,14 @@ export const defaultSteps: ResearchCycleSteps & {
         const prop = known ? { subject: known.subject, url: need.topic?.key ?? need.url! } : need.missingTopic?.trim() && (need.url || need.topic) ? { subject: need.topic || need.reasonCode === "external_claim_unconfirmed" ? need.missingTopic.trim() : propositionOf(need.missingTopic.trim(), need.query), url: need.topic?.key ?? need.url! } : null;
         if (!prop) return deferred("this factual reading names no exact proposition, so no page fact may be researched in its place");
         const atomKey = need.finding?.statementKey ?? (need.missingTopic?.trim() ? claimIdentity(need.missingTopic.trim(), "", "missing") : undefined);
-        let current: Awaited<ReturnType<typeof seedProposition>> = null;
-        if (prop) {
-          current = await seedProposition(tenantId, prop.url, prop.subject, need.topic, basis, need.finding, atomKey).catch((e) => { log.warn("[research-run] the proposition could not be inventoried", { tenantId, url: prop.url, error: e instanceof Error ? e.message : String(e) }); return null; });
-          if (!current) return { acquired: false, detail: `the proposition could not be qualified at the current owner version for ${prop.url}, so nothing was researched` };
-          const already = await propositionState(tenantId, prop.url, prop.subject, current, need.finding, atomKey).catch(() => null);
-          if (already?.researched) return { acquired: true, unlocked: already.usable, detail: `no source was bought for ${prop.url}: the answer to "${prop.subject}" is ${already.why}` };
-        }
+        const current = await seedProposition(tenantId, prop.url, prop.subject, need.topic, basis, need.finding, atomKey).catch((e) => { log.warn("[research-run] the proposition could not be inventoried", { tenantId, url: prop.url, error: e instanceof Error ? e.message : String(e) }); return null; });
+        if (!current) return { acquired: false, detail: `the proposition could not be qualified at the current owner version for ${prop.url}, so nothing was researched` };
+        const already = await propositionState(tenantId, prop.url, prop.subject, current, need.finding, atomKey).catch(() => null);
+        if (already?.researched) return { acquired: true, unlocked: already.usable, detail: `no source was bought for ${prop.url}: the answer to "${prop.subject}" is ${already.why}` };
         const read = () => factCheckPass(tenantId, budgetMs, undefined, prop.url, undefined, (need.rivalUrl ?? need.rivalUrls?.[0])?.trim() ? { subject: prop.subject, url: (need.rivalUrl ?? need.rivalUrls![0]!).trim(), urls: need.rivalUrls, anchor: need.missingTopic?.trim() || prop.subject } : undefined, prop.subject, need.topic ? { ...need.topic, basis } : undefined, need.finding, atomKey);
-        const out = PROOF_SPEND.activeFor(tenantId) === true && !need.rivalUrl && !need.rivalUrls?.length
-          ? await PROOF_SPEND.withExternalTargets(tenantId, [{ capability: "serp_organic", url: current!.searchQuery }], read) : await read();
+        if (PROOF_SPEND.activeFor(tenantId) === true && current.nominee !== undefined && (!current.nominee || need.rivalUrl != null && need.rivalUrl.trim() !== current.nominee || need.rivalUrls != null && (need.rivalUrls.length !== 1 || need.rivalUrls[0]?.trim() !== current.nominee))) return deferred("the disputed fact has no one safe saved source at this owner version");
+        const out = PROOF_SPEND.activeFor(tenantId) === true && (current.nominee || !need.rivalUrl && !need.rivalUrls?.length)
+          ? await PROOF_SPEND.withExternalTargets(tenantId, current.nominee ? [{ capability: "onpage_content_parsing", url: current.nominee }] : [{ capability: "serp_organic", url: current.searchQuery }], read) : await read();
         const settled = prop && current ? await propositionState(tenantId, prop.url, prop.subject, current, need.finding, atomKey).catch(() => null) : null;
         const said = `${out.status}${out.failure ? ` (${out.failure})` : ""}, ${out.banked} banked`; // the failure rides in the detail, so a credit hold is read by the drive as nothing asked rather than an attempt spent
         if (settled) return { acquired: settled.researched, unlocked: settled.usable, detail: `fact check of ${prop!.url}: ${said}; the answer to "${prop!.subject}" is ${settled.why}` };
@@ -384,9 +383,8 @@ export const defaultSteps: ResearchCycleSteps & {
   },
 };
 const owedOneSectionRead = (c: { state: string; subject: string; sources: readonly { groups?: readonly string[]; groupExcerpts?: readonly unknown[]; sectionsRead?: boolean }[] }): boolean => c.state === "checked" && c.subject.endsWith(AEO_BAR.groupingQuestion) && c.sources.length > 0 && !c.sources.some((x) => x.sectionsRead === true || (x.groupExcerpts?.length ?? 0) > 0); /* A GROUPING ANSWER BANKED BEFORE THE SOURCE'S SECTIONS RODE WITH IT IS READ ONCE MORE (2026-09-10): the wildlife hub's grouping row holds two group names and one sentence, and every writer hired on it wrote two empty headings; the row is reopened exactly once: a source read as its sections carries the mark whatever the judge answered, so the row never enters here again, whatever the clock says. */ const ANCHORED_READ_SINCE = Date.parse("2026-09-07T05:00:00Z"), owedOneAnchoredRead = (c: { state: string; verdict: string; sourceReadAt: string | null; checkedAt: string }): boolean => c.state === "checked" && c.verdict === "undecidable" && c.sourceReadAt == null && (Date.parse(c.checkedAt) || 0) < ANCHORED_READ_SINCE; // ONE READ UNDER THE ANCHOR FOR EVERY ROW JUDGED BEFORE THE ANCHOR EXISTED (journey review, 2026-09-07): a missing subject judged undecidable whose passages never carried it (the window opened on the page introduction) was settled for good, so the requirement owed a fact for ever and hired no writer. Rows checked before this release get exactly one read where the winner's own heading starts; a row checked after it never enters this branch, so a researched answer on file still costs nothing to reuse.
-/** Reopen the exact known statement only while its wording/locator still belong to the current owner; otherwise
- * inventory a genuinely new missing proposition. Return the observed body/basis scope that settlement must read back. */
-async function seedProposition(tenantId: string, pageUrl: string, proposition: string, topic?: EvidenceRequirement["topic"], currentBasis?: string, finding?: EvidenceRequirement["finding"], atomKey?: string): Promise<{ pageContentHash: string | null; evidenceBasis: string | null; searchQuery: string } | null> {
+/** Reopen the exact known statement only under its current owner, and return the scope settlement must read back. */
+async function seedProposition(tenantId: string, pageUrl: string, proposition: string, topic?: EvidenceRequirement["topic"], currentBasis?: string, finding?: EvidenceRequirement["finding"], atomKey?: string): Promise<{ pageContentHash: string | null; evidenceBasis: string | null; searchQuery: string; nominee?: string } | null> {
   const [facts, { claimIdentity, pageHashOf, claimTypeOf, sourceQueryFor }, { loadOwnedPageBodies }, { resolveCurrentBasis }] = await Promise.all([
     import("@/domains/evidence/pages/fact-checks"), import("@/domains/evidence/pages/fact-check-run"),
     import("@/domains/evidence/pages/owned-context"), import("@/domains/decision/load-proposals")]);
@@ -398,6 +396,7 @@ async function seedProposition(tenantId: string, pageUrl: string, proposition: s
   const path = topic?.key ?? pathOf(pageUrl), hash = topic ? null : pageHashOf(body), key = finding?.statementKey ?? atomKey ?? claimIdentity(proposition, "", "missing"), current = { pageContentHash: hash, evidenceBasis: basis };
   const held = await facts.readFactChecks(tenantId, path).catch(() => [] as Awaited<ReturnType<typeof facts.readFactChecks>>);
   const mine = held.find((h) => h.statementKey === key), unread = !!mine && (owedOneAnchoredRead(mine) || owedOneSectionRead(mine)), astray = !!mine && mine.state === "checked" && mine.verdict === "undecidable" && !!mine.proposed?.trim(), rulesMoved = !!mine && mine.state === "checked" && mine.rulesVersion !== facts.rulesVersionFor(mine); // A CHECKED ROW HOLDING AN UNDECIDED STATEMENT ANSWERED A DIFFERENT SUBJECT (reviewer, 2026-09-02): live, "are there cobras in iran" came back "Iran has AH-1 Cobra attack helicopters." with the judge's own note saying the sources do not address snakes. ONCE: a re-researched row banks its statement only under `page_correct`, so this holds for rows banked before that rule and never again. AND A ROW JUDGED UNDER RULES SINCE REPLACED FOR ITS SHAPE IS NOT RESEARCHED AT THIS VERSION AT ALL: every question-shaped row checked before the rules that judge a missing answer moved reads as satisfied here, so nothing would ever re-judge it.
+  if (PROOF_SPEND.activeFor(tenantId) === true && mine?.note.startsWith("Owed again: source support disputed;") && (mine.pageContentHash !== hash || mine.evidenceBasis !== basis)) return null;
   if (finding && (!mine || (mine.current.trim() && !body.includes(mine.current.trim())) || (mine.pageLocator && mine.pageLocator !== "missing" && !body.split("\n").includes(mine.pageLocator)))) return null;
   if (topic && mine?.current.trim()) return null;
   const scopeMoved = !!topic && !!mine && mine.evidenceBasis !== basis; // a topic row is scoped to its basis; a URL row is scoped to its page and is reopened only when that page moved
@@ -408,9 +407,10 @@ async function seedProposition(tenantId: string, pageUrl: string, proposition: s
     if (n0 <= 0) return null;
   } else if (!mine) await facts.recordOwedClaims(tenantId, path, [{ statementKey: key, subject: proposition, current: "", locator: "missing" }], hash, basis).catch(() => -1);
   const after = await facts.readFactChecks(tenantId, path).catch(() => [] as Awaited<ReturnType<typeof facts.readFactChecks>>);
-  const target = after.find((h) => h.statementKey === key && h.state === "owed" && h.pageContentHash === hash && h.evidenceBasis === basis);
+  const target = after.find((h) => h.page === path && h.statementKey === key && h.subject === proposition && h.state === "owed" && h.pageContentHash === hash && h.evidenceBasis === basis);
   const own = topic?.label ?? [...new Set(body.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 2))].join(" ").split(/\s+/).slice(0, 8).join(" ");
-  return target ? { ...current, searchQuery: sourceQueryFor(claimTypeOf(target.subject, target.current, target.pageLocator), target.subject, target.current, own) } : null;
+  const nominee = target?.note.startsWith("Owed again: source support disputed;") ? target.sources.length === 1 && !target.sources[0]?.says.trim() && isSafeRedirectHopUrl(target.sources[0].url) ? target.sources[0].url : "" : undefined;
+  return target ? { ...current, searchQuery: sourceQueryFor(claimTypeOf(target.subject, target.current, target.pageLocator), target.subject, target.current, own), nominee } : null;
 }
 
 /** Read back the exact researched proposition through the canonical copy-authorization rule. */
