@@ -87,7 +87,7 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
   const authorizedRetry = !freeOnly && PROOF_SPEND.activeFor(tenantId) === true && PROOF_SPEND.externalClosed(tenantId, { capability: "onpage_rendered_html", url: absolute }) === false;
   const due = (t: string): boolean => { const ms = Date.parse(t); return !Number.isFinite(ms) || now >= ms; };
   for (const o of held) { const k = canonicalUrlKey(o.url); if (due(o.retryAfter) || seen.has(k) || (authorizedRetry && k === key && o.state === "temporarily_unavailable")) continue; seen.add(k); kept.push(o); }
-  let captureProblem = false, readFailed = false, priorWords = 0, unresolvedHash: string | null = null, latestCapture: Record<string, unknown> | null = null;
+  let captureProblem = false, readFailed = false, priorWords = 0, unresolvedHash: string | null = null, latestCapture: Record<string, unknown> | null = null, legacy: Partial<PageSnapshot> | null = null;
   const settled = async (captureId?: string): Promise<boolean> => {
     const misses = new Map<string, "no_capture" | "read_failed">(), rows = await d.readOwnedBodies(tenantId, [url], misses).catch(() => null), body = rows?.get(key) ?? null;
     readFailed = !rows || misses.get(key) === "read_failed" || (!body && misses.get(key) !== "no_capture");
@@ -98,6 +98,7 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
       priorWords = Math.max(priorWords, body.vocabulary.trim().split(/\s+/).filter(Boolean).length);
       const latest = body.captureStates?.find((row) => row.id === body.latestCaptureId);
       unresolvedHash = typeof latest?.content_hash === "string" ? latest.content_hash : body.contentHash;
+      legacy = (body.captureStates ?? []).find((row) => row.content_capture == null && row.extraction_certainty === "confirmed" && typeof row.body_text === "string") as Partial<PageSnapshot> | undefined ?? null;
     }
     return body?.version === "current" && sameFinal(body.finalUrl, absolute) && body.completeness === "complete" && !!body.contentHash && (!captureId || body.captureId === captureId)
       && isCurrent("owned_page", body.fetchedAt, d.now(), bustedAt);
@@ -141,11 +142,17 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
     && latest.meta_description === snapshot.meta_description && source?.mainHtml === snapshot.content_capture?.mainHtml
     && JSON.stringify(source?.jsonLd) === JSON.stringify(snapshot.content_capture?.jsonLd)
     && source?.sourceRevision === snapshot.content_capture?.sourceRevision;
-  const unchanged = captureProblem && sameSource && (source?.complete === false || snapshot.extraction_certainty !== "confirmed" || collapsed);
+  const confirmedLegacy = legacy as Partial<PageSnapshot> | null;
+  const legacyAgrees = sameSource && !collapsed && snapshot.extraction_certainty === "confirmed" && snapshot.content_capture?.complete === true
+    && confirmedLegacy?.url != null && canonicalUrlKey(confirmedLegacy.url) === key && sameFinal(confirmedLegacy.final_url ?? confirmedLegacy.url, absolute)
+    && confirmedLegacy.page_id === snapshot.page_id && confirmedLegacy.content_hash === snapshot.content_hash
+    && confirmedLegacy.title === snapshot.title && confirmedLegacy.h1 === snapshot.h1 && confirmedLegacy.meta_description === snapshot.meta_description
+    && confirmedLegacy.body_text === snapshot.body_text && confirmedLegacy.word_count === snapshot.word_count;
+  const unchanged = !legacyAgrees && captureProblem && sameSource && (source?.complete === false || snapshot.extraction_certainty !== "confirmed" || collapsed);
   if (source?.sourceRevision === snapshot.content_capture?.sourceRevision && source?.renderedAttempt && snapshot.content_capture)
     snapshot.content_capture.renderedAttempt = source.renderedAttempt;
-  // A same-hash structured recapture can repair legacy text; a known partial shell cannot corroborate itself.
-  if (captureProblem && snapshot.content_capture && (source && snapshot.content_hash === unresolvedHash && (source.complete === false || !sameSource) || collapsed)) {
+  // A complete DOM matching an older confirmed text-only read repairs a poisoned partial; a shell alone cannot.
+  if (captureProblem && snapshot.content_capture && !legacyAgrees && (source && snapshot.content_hash === unresolvedHash && (source.complete === false || !sameSource) || collapsed)) {
     snapshot.content_capture.complete = false; snapshot.extraction_certainty = "uncertain";
   }
   try { if (!unchanged) await d.writeOwnedPage(snapshot, tenantId); }
