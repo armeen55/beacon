@@ -915,11 +915,11 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     vi.stubEnv("CRON_SECRET", "s3cret"); ROUTE.receipt = R({ claimed: 2, attempted: 2, succeeded: 2 }); const res = await post({ authorization: "Bearer s3cret" }); expect(res.status).toBe(200);
     expect(await res.json()).toEqual(R({ claimed: 2, attempted: 2, succeeded: 2 })); // counts only: no token, no tenant, no secret
     vi.unstubAllEnvs(); });
-  it("admits exactly one due account per invocation and drives it through the real cycle", async () => {
-    const rows = freshRepo(); const log: string[] = []; const receipt = await dispatch(healthySteps(log));
+  it("collects already-paid tasks before admitting one due account and drives it through the real cycle", async () => {
+    const rows = freshRepo(); const log: string[] = []; const receipt = await dispatch({ ...healthySteps(log), collectBought: async (budgetMs) => (log.push(`collect:${budgetMs}`), { pending: 1, ready: 1 }) });
     expect(receipt).toEqual(R({ claimed: 1, attempted: 1, succeeded: 1 }));
-    expect(Object.keys(receipt).sort()).toEqual(["attempted", "claimed", "failed", "leaseHeldUntil", "paused", "released", "remaining", "succeeded"]); // no token, no tenant, no secret
-    expect(log).toEqual(["refresh", "backfill", "crawl", "publish"]); expect(rows.map((r) => [r.tenant_id, r.status, r.cycle_key.slice(-10)])).toEqual([[T, "completed", today()]]); });
+    expect(log).toEqual(["collect:20000", "refresh", "backfill", "crawl", "collect:45000", "publish"]); expect(rows.map((r) => [r.tenant_id, r.status, r.cycle_key.slice(-10)])).toEqual([[T, "completed", today()]]);
+    freshRepo(); expect(await dispatch({ collectBought: async () => { throw new Error("free GET failed"); } })).toEqual(R({ claimed: 1, attempted: 1, succeeded: 1 })); });
   it("tells a failure apart from a drive, hands the failed account's lease back, and names the expiry when it cannot", async () => {
     const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); // one candidate, so one outcome is the whole answer
     expect(await dispatch({ currentBasis: async () => { throw new Error("the cycle fell over"); } }))  // Basis resolution sits OUTSIDE the cycle's own phase recovery, so a throw here is a throw the dispatch sees.
@@ -997,11 +997,11 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     await RR.patchRunProgress(T, visit!.id, { dispatch: { at: future, reason: "future_due", plan: [], attempts: 0 } }); NOW += 3 * 3600_000 - 1; expect((await dispatch({ dueWork: due })).claimed).toBe(0); NOW += 1; expect((await dispatch({ dueWork: due })).claimed).toBe(1); expect(rows[2]!.status).toBe("completed");
   });
   it("preserves the drive floor and publication reserve before and after a claim", async () => {
-    const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); rows.push(mk({ id: "a", status: "paused" })); const spend = (budgetMs: number, stepMs = 0) => { let reading = 0;
-      return runDueAccounts({ now: () => new Date(NOW + reading++ * stepMs), budgetMs, steps: { ...BENIGN, ...NO_PHASE } }); };
+    const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); rows.push(mk({ id: "a", status: "paused" })); const collected: number[] = []; const spend = (budgetMs: number, stepMs = 0) => { let reading = 0;
+      return runDueAccounts({ now: () => new Date(NOW + reading++ * stepMs), budgetMs, steps: { ...BENIGN, ...NO_PHASE, collectBought: async (ms) => (collected.push(ms), { pending: 0, ready: 0 }) } }); };
     for (const ms of [31_000, 69_000, 79_000]) expect(await spend(ms)).toEqual(R());
-    expect([rows[0]!.status, rows[0]!.lease_owner]).toEqual(["paused", null]); expect(await spend(100_000, 20_000)).toEqual(R({ claimed: 1, paused: 1, remaining: 1 }));
-    expect([rows[0]!.status, rows[0]!.lease_owner]).toEqual(["paused", null]); }); // handed back, never left leased
+    expect([rows[0]!.status, rows[0]!.lease_owner, collected]).toEqual(["paused", null, []]); expect(await spend(100_000, 20_000)).toEqual(R({ claimed: 1, paused: 1, remaining: 1 }));
+    expect([rows[0]!.status, rows[0]!.lease_owner]).toEqual(["paused", null]); await spend(100_000); expect(collected).toEqual([10_000]); }); // handed back; the free check leaves ten seconds beyond the drive and publication floors
   it("keeps back enough of the dispatch for the customer's release, so research can never eat the publish", async () => {
     freshRepo(); setAccountStatus(U, "pending_onboarding"); const given: number[] = [];
     const watch: Partial<ResearchCycleSteps> = { dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers"] }),

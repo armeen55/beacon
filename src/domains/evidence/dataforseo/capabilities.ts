@@ -244,8 +244,8 @@ export async function keywordIdeasBatched(
   }
   return out;
 }
-export async function collectCapability(cacheKey: string, deps: FunnelBoundaryDeps = {}): Promise<CachedCallResult> {
-  return collectResolvedTask(cacheKey, { getPath: getPathForEndpoint, tasksReadyPath: tasksReadyForEndpoint, ttlMsFor: ttlMsForEndpoint }, deps);
+export async function collectCapability(cacheKey: string, deps: FunnelBoundaryDeps = {}, stopBy = Date.now() + 10_000): Promise<CachedCallResult> {
+  return collectResolvedTask(cacheKey, { getPath: getPathForEndpoint, tasksReadyPath: tasksReadyForEndpoint, ttlMsFor: ttlMsForEndpoint }, deps, stopBy);
 }
 const ttlMsForEndpoint = (endpoint: string): number | null => (endpoint.endsWith("/task_post") ? DAY : null);
 function getPathForEndpoint(endpoint: string, id: string): string | null {

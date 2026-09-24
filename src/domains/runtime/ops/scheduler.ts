@@ -69,11 +69,10 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
     }
   };
   if (endsAt - nowFn().getTime() < MIN_ACCOUNT_SLICE_MS + PUBLISH_RESERVE_MS) return receipt();
+  const collectionBudget = Math.min(20_000, Math.max(0, endsAt - nowFn().getTime() - MIN_ACCOUNT_SLICE_MS - PUBLISH_RESERVE_MS - 10_000));
+  if (collectionBudget > 0) await steps.collectBought(collectionBudget).catch((error) => log.warn("[research-run] paid task collection failed before tenant admission", { error: error instanceof Error ? error.message.slice(0, 160) : String(error) }));
   const run = (await claimDueRuns(ownerToken, 1))[0];
-  if (run == null) {
-    await steps.collectBought(Math.min(20_000, Math.max(0, endsAt - nowFn().getTime())));
-    return receipt();
-  }
+  if (run == null) return receipt();
   claimed = 1;
   const left = endsAt - nowFn().getTime();
   if (left < MIN_ACCOUNT_SLICE_MS + PUBLISH_RESERVE_MS) {

@@ -233,7 +233,7 @@ async function projectStoredLiveResult(
 export async function collectResolvedTask(
   cacheKey: string,
   paths: { getPath: (endpoint: string, id: string) => string | null; tasksReadyPath: (endpoint: string) => string | null; ttlMsFor: (endpoint: string) => number | null },
-  deps: FunnelBoundaryDeps = {},
+  deps: FunnelBoundaryDeps = {}, stopBy = Date.now() + 10_000,
 ): Promise<CachedCallResult> {
   const d = resolveDeps(deps);
   const now = d.now();
@@ -268,7 +268,7 @@ export async function collectResolvedTask(
     if (taskId) await d.cacheWrite(cacheKey, { provider_task_id: taskId, next_poll_at: row.next_poll_at ?? now.toISOString() }).catch(() => {});
   }
   if (!taskId && row.quarantined_at) {
-    taskId = await recoverQuarantined(d, cacheKey, row.spend_attempt_id ?? cacheKey, paths.tasksReadyPath(row.endpoint), now);
+    taskId = await recoverQuarantined(d, cacheKey, row.spend_attempt_id ?? cacheKey, paths.tasksReadyPath(row.endpoint), now, stopBy);
     if (!taskId) return { state: "error", cacheKey, disposition: "quarantined", detail: "This one is paused because what the provider did with it could not be confirmed. It is held and checked against the provider's free finished-task list, and never paid for twice." };
   }
   if (!taskId) return { state: "waiting", cacheKey, providerTaskId: null, costUsd: 0, detail: "Another run is already fetching this. Its result is picked up when it lands." };
@@ -276,9 +276,9 @@ export async function collectResolvedTask(
   if (!Number.isFinite(recordedAt)) await d.cacheWrite(cacheKey, { posted_at: now.toISOString() }).catch(() => {});
   const deadlineDue = now.getTime() - postedAt >= PROVIDER_TASK_MAX_MS;
   if (!deadlineDue && row.next_poll_at && Date.parse(row.next_poll_at) > now.getTime()) return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: "The provider task is waiting for its stored collection time." };
-  const getPath = paths.getPath(row.endpoint, taskId);
-  if (!getPath) return { state: "error", cacheKey, disposition: "none", detail: "There is no way to collect this task, so it starts fresh." };
-  const transport = await runDataForSeoTransport({ url: `${API_BASE}/${getPath}`, payload: [], env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence-collect", method: "GET" });
+  const getPath = paths.getPath(row.endpoint, taskId); if (!getPath) return { state: "error", cacheKey, disposition: "none", detail: "There is no way to collect this task, so it starts fresh." };
+  const remaining = stopBy - Date.now(); if (remaining <= 0) return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: "The saved collection window ended before the free provider check." };
+  const transport = await runDataForSeoTransport({ url: `${API_BASE}/${getPath}`, payload: [], env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence-collect", method: "GET", timeoutMs: Math.min(10_000, remaining) });
   const pollAttempts = Math.max(0, Number(row.poll_attempts) || 0) + 1;
   await d.cacheWrite(cacheKey, { updated_at: now.toISOString(), poll_attempts: pollAttempts,
     next_poll_at: new Date(now.getTime() + Math.min(MAX_TASK_POLL_MS, FIRST_TASK_POLL_MS * 2 ** Math.min(pollAttempts - 1, 12))).toISOString() }).catch(() => {});
@@ -392,26 +392,26 @@ async function holdRow(d: CachedCallDeps, cacheKey: string, now: Date, reason: s
   } catch { return false; }
 }
 
-async function recoverQuarantined(d: CachedCallDeps, cacheKey: string, attemptTag: string, tasksReadyPath: string | null, now: Date): Promise<string | null> {
+async function recoverQuarantined(d: CachedCallDeps, cacheKey: string, attemptTag: string, tasksReadyPath: string | null, now: Date, stopBy: number): Promise<string | null> {
   if (!tasksReadyPath) return null;
-  const byTag = await memoListing(d, tasksReadyPath, now.getTime());
+  const byTag = await memoListing(d, tasksReadyPath, now.getTime(), stopBy);
   const found = byTag.get(attemptTag);
   if (!found) return null;
   try { await d.cacheWrite(cacheKey, { status: "pending", provider_task_id: found, quarantined_at: null, error_detail: null, fetch_claimed_until: null, expires_at: new Date(now.getTime() + TASK_RETENTION_MS).toISOString(), next_poll_at: now.toISOString(), poll_attempts: 0 }); } catch { return null; }
   return found;
 }
 const listingBuckets = new Map<string, { at: number; byTag: Promise<Map<string, string>> }>();
-function memoListing(d: CachedCallDeps, path: string, nowMs: number): Promise<Map<string, string>> {
-  const bucket = listingBuckets.get(path);
+function memoListing(d: CachedCallDeps, path: string, nowMs: number, stopBy: number): Promise<Map<string, string>> {
+  if (Date.now() >= stopBy) return Promise.resolve(new Map()); const bucket = listingBuckets.get(path);
   if (bucket && nowMs >= bucket.at && nowMs - bucket.at < LISTING_MEMO_MS) return bucket.byTag;
   if (listingBuckets.size >= 8) listingBuckets.clear();
-  const byTag = fetchTasksReady(d, path);
+  const byTag = fetchTasksReady(d, path, stopBy);
   listingBuckets.set(path, { at: nowMs, byTag });
   return byTag;
 }
-async function fetchTasksReady(d: CachedCallDeps, path: string): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
-  const t = await runDataForSeoTransport({ url: `${API_BASE}/${path}`, payload: [], env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence-recover", method: "GET" });
+async function fetchTasksReady(d: CachedCallDeps, path: string, stopBy: number): Promise<Map<string, string>> {
+  const out = new Map<string, string>(); if (Date.now() >= stopBy) return out;
+  const t = await runDataForSeoTransport({ url: `${API_BASE}/${path}`, payload: [], env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence-recover", method: "GET", timeoutMs: Math.min(10_000, Math.max(1, stopBy - Date.now())) });
   if (!t.ok) return out;
   const tasks = (t.body as { tasks?: unknown })?.tasks;
   for (const task of Array.isArray(tasks) ? (tasks as Record<string, unknown>[]) : []) {

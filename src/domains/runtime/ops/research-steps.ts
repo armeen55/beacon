@@ -350,7 +350,7 @@ export const defaultSteps: ResearchCycleSteps & {
       if (keys.length === 0) return { pending: 0, ready: 0 };
       const { collectCapability } = await import("@/domains/evidence/dataforseo/capabilities");
       let ready = 0;
-      for (const key of keys) { if (Date.now() >= endsAt) break; const got = (await collectCapability(key).catch(() => null))?.state; if (got === "ok" || got === "hit") ready += 1; } /* THE RECEIPT COUNTS WHAT LANDED ON THIS PASS (measured on the harness, 2026-09-06): a task this collection finishes answers `ok` and only a row that was ALREADY ready answers `hit`, so `ready` read 0 in exactly the case the collection did its job, and the run row said two pages were still pending when both had just come back. Either answer is a page now on file; nothing else is. */
+      for (const key of keys) { if (Date.now() >= endsAt) break; const got = (await collectCapability(key, {}, endsAt).catch(() => null))?.state; if (got === "ok" || got === "hit") ready += 1; } /* THE RECEIPT COUNTS WHAT LANDED ON THIS PASS (measured on the harness, 2026-09-06): a task this collection finishes answers `ok` and only a row that was ALREADY ready answers `hit`, so `ready` read 0 in exactly the case the collection did its job, and the run row said two pages were still pending when both had just come back. Either answer is a page now on file; nothing else is. */
       log.info("[research-run] tasks already paid for were checked for free", { pending: keys.length, ready });
       return { pending: keys.length, ready };
     } catch (e) { log.warn("[research-run] the free task collection could not run", { error: e instanceof Error ? e.message.slice(0, 160) : String(e) }); return { pending: 0, ready: 0 }; } },

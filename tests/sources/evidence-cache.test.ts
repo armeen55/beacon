@@ -144,6 +144,9 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
       expect([res.state === "error" && res.disposition, g.calls.fetch, g.calls.reserve, g.calls.writes, res.state === "error" && res.detail.includes("50100")]).toEqual(["blocked", [], [], [], true]); // refunded already: nothing to collect, nothing to buy
     } });});
 describe("Standard tasks - free resumption and the STRUCTURED dispositions", () => {
+  it("aborts a stalled free GET within its remaining collection time and keeps the paid task pending", async () => {
+    let request: RequestInit | undefined; const g = makeDeps({ cacheRead: row(), fetchImpl: vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => { request = init; init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true }); })) as unknown as typeof fetch });
+    const out = await collectResolvedTask("k", PATHS, g.deps, Date.now() + 500); expect([out.state, request?.method, request?.body, request?.signal?.aborted, g.calls.reserve, g.calls.writes.some((w) => w.status === "ready")]).toEqual(["waiting", "GET", undefined, true, [], false]); });
   it("posts once, persists the task id, and returns durable waiting with the provider cost exactly once", async () => {
     const { deps, calls } = makeDeps(); deps.fetchImpl = postAccepted(calls); const res = await runResolvedCall(taskCall(), deps);
     expect([res.state, res.state === "waiting" && res.providerTaskId, res.state === "waiting" && res.costUsd, calls.fetch.length, calls.writes.some((w) => w.provider_task_id === "task-123" && typeof w.next_poll_at === "string")]).toEqual(["waiting", "task-123", 0.006, 1, true]); // the actual cost, once, with the id and first poll time persisted

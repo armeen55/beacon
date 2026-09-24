@@ -18,9 +18,6 @@ describe("the shared transport core", () => {
     const bad = await runDataForSeoTransport({ url: "https://x/v3/e", payload: [], env: ENV, fetchImpl: (async () => new Response("x", { status: 500 })) as never });
     expect(bad).toEqual({ ok: false, status: 500, message: "http 500" });
     const threw = await runDataForSeoTransport({ url: "https://x/v3/e", payload: [], env: ENV, fetchImpl: (async () => { throw new Error("net down"); }) as never }); expect(threw.ok).toBe(false); });
-  it("GET mode sends no body (the free Standard task_get path)", async () => {
-    let captured: RequestInit | undefined; const fetchImpl = vi.fn(async (_u: string, init?: RequestInit) => { captured = init; return new Response("{}", { status: 200 }); });
-    await runDataForSeoTransport({ url: "https://x/v3/task_get/1", payload: [], env: ENV, fetchImpl: fetchImpl as never, method: "GET" }); expect(captured?.method).toBe("GET"); expect(captured?.body).toBeUndefined(); });
   it("reads the exact credential account for free and never calls an empty balance ready", async () => { const body = (balance: number) => ({ status_code: 20000, tasks: [{ status_code: 20000, result: [{ money: { balance } }] }] }); expect(await DATAFORSEO_READINESS.read(ENV, (async () => new Response(JSON.stringify(body(2)), { status: 200 })) as never)).toEqual({ state: "ready", balanceUsd: 2 }); expect(await DATAFORSEO_READINESS.read(ENV, (async () => new Response(JSON.stringify(body(0)), { status: 200 })) as never)).toEqual({ state: "held", code: 40210, reason: "credit_exhausted" }); expect(await DATAFORSEO_READINESS.read(ENV, (async () => new Response(JSON.stringify({ status_code: 40203 }), { status: 402 })) as never)).toEqual({ state: "held", code: 40203, reason: "cost_limit" }); });
 });
 describe("free task collection admission", () => {
