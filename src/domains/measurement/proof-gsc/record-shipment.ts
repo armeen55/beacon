@@ -18,9 +18,7 @@ import { isDeepStrictEqual } from "node:util";
  * press finds the row already on file and hands back the same id with nothing rewritten: the stamp,
  * the starting numbers and the live check all stand exactly as they were.
  *
- * ORDERING. This writes the Shipment. The caller flips the proposal AFTERWARDS, never before: a
- * crash between the two leaves a Shipment nobody flipped, which the next press heals, where the
- * reverse leaves a change marked done that nothing on earth is measuring.
+ * Manual proposal recording uses one database transaction for the Shipment and proposal status.
  */
 
 
@@ -39,7 +37,7 @@ type ShipmentComponent = NonNullable<ShippedChangeRecord["componentsApplied"]>[n
 
 /** THE FROZEN RETURN. The id of the row that now holds this implementation, and whether a fair
  *  comparison exists for it. `measurement` is never an error: the row is on file in every case. */
-export type RecordedShipment = { shipmentId: string; measurement: MeasurementState };
+export type RecordedShipment = { shipmentId: string; measurement: MeasurementState; proposalImplemented?: boolean };
 
 /** The facts about one implementation, all of them from the caller. Measurement reads no proposal. */
 type ShipmentFacts = {
@@ -131,6 +129,7 @@ function returnHeld(held: ShippedChangeRecord, f: ShipmentFacts): RecordedShipme
 async function write(
   f: ShipmentFacts,
   extra: { measurement: MeasurementState; controlPages: string[]; controlsReceipt: ControlReceipt[] | null; preChangeHashUnavailable: boolean },
+  proposal?: { rowVersion: number; payload: unknown; complete: boolean; priorShipmentIds?: string[]; componentIds?: string[] },
 ): Promise<RecordedShipment> {
   const now = f.now ?? new Date();
   const stamp = f.implementedAt ?? now.toISOString();
@@ -156,15 +155,15 @@ async function write(
   const measurement: MeasurementState = record.measurementState === "measurement_unavailable" || extra.measurement === "measuring" && record.shipmentBaseline == null
     ? "measurement_unavailable" : extra.measurement;
   record.measurementState = measurement;
-  if (!await insertShippedChangeOnce(record, f.tenantId, f.invalidate !== false)) {
+  if (!await insertShippedChangeOnce(record, f.tenantId, f.invalidate !== false, proposal)) {
     const held = await heldShipment(f); if (!held) throw new Error("The Shipment identity was occupied but could not be read back");
-    return returnHeld(held, f);
+    return { ...returnHeld(held, f), proposalImplemented: proposal?.complete === true };
   }
   if (measurement !== extra.measurement || measurement !== "measuring") {
     log.info("[shipment] recorded, and the comparison it can carry", {
       tenant: f.tenantId, id: record.id, measurement });
   }
-  return { shipmentId: record.id, measurement };
+  return { shipmentId: record.id, measurement, proposalImplemented: proposal?.complete === true };
 }
 
 /**
@@ -174,15 +173,17 @@ async function write(
  */
 export async function recordShipment(facts: ShipmentFacts, opts?: { /** THE BATCH'S ONE LEDGER READ, handed through so a twenty-card press reads the ledger once instead of twenty-one times. The duplicate check stays exactly as strict: the preload IS the ledger, read by the same loader moments earlier. */ preloadedLedger?: readonly ShippedChangeRecord[];
   /** THE BATCH'S ONE READ OF THE OPEN CHANGES, for the comparison set's contamination rule; without it every row re-read the whole proposal store. */ openPaths?: readonly string[];
-  /** FALSE = the caller invalidates the saved surfaces once for the whole batch. */ invalidate?: boolean }): Promise<RecordedShipment> {
+  /** FALSE = the caller invalidates the saved surfaces once for the whole batch. */ invalidate?: boolean;
+  proposal?: { rowVersion: number; payload: unknown; complete: boolean; priorShipmentIds?: string[]; componentIds?: string[] } }): Promise<RecordedShipment> {
   const held = await heldShipment(facts, opts?.preloadedLedger);
   if (held != null) {
+    if (opts?.proposal) await insertShippedChangeOnce(held, facts.tenantId, false, opts.proposal);
     log.info("[shipment] this exact change is already recorded, so its record was left alone", {
       tenant: facts.tenantId, proposalId: facts.proposalId, shipment: held.id });
-    return returnHeld(held, facts);
+    return { ...returnHeld(held, facts), proposalImplemented: opts?.proposal?.complete === true };
   }
   const now = facts.now ?? new Date();
   const { controlPages, controlsReceipt, measurement } =
     await comparisonFor(facts.tenantId, facts.page, facts.implementedAt ?? now.toISOString(), now, { ledger: opts?.preloadedLedger, open: opts?.openPaths });
-  return write({ ...facts, invalidate: opts?.invalidate, openPaths: opts?.openPaths, ledger: opts?.preloadedLedger }, { measurement, controlPages, controlsReceipt, preChangeHashUnavailable: false });
+  return write({ ...facts, invalidate: opts?.invalidate, openPaths: opts?.openPaths, ledger: opts?.preloadedLedger }, { measurement, controlPages, controlsReceipt, preChangeHashUnavailable: false }, opts?.proposal);
 }

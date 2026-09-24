@@ -12,9 +12,10 @@ vi.mock("@/domains/account/lifecycle", () => ({ requireReadyAccount: vi.fn(async
   resolveAccountAccess: vi.fn(async () => ({ kind: "ready", account: { status: "active" } })), AccountUnavailableError: class extends Error {} }));
 vi.mock("@/lib/tenant-context", async () => ({ ...(await vi.importActual<typeof import("@/lib/tenant-context")>("@/lib/tenant-context")),
   currentTenantId: vi.fn(async () => "t") }));
-vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
-  loadChangeProposal: vi.fn(), resolveCurrentBasis: vi.fn(), transitionProposalToImplemented: vi.fn(async () => true), saveChangeProposal: vi.fn(async () => "saved"),
-  answerReviewedProposal: vi.fn(async () => ({ status: "promoted" as const })) }));
+vi.mock("@/domains/decision", async () => { const loadChangeProposal = vi.fn(); return { ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
+  loadChangeProposal, implementationGuard: async (t: string, id: string, v: string) => { const p = await loadChangeProposal(t, id) as ChangeProposal | null;
+    return p?.tenantId === t && p.id === id && versionOf(p) === v ? { proposal: p, rowVersion: 1, payload: p } : null; },
+  resolveCurrentBasis: vi.fn(), saveChangeProposal: vi.fn(async () => "saved"), answerReviewedProposal: vi.fn(async () => ({ status: "promoted" as const })) }; });
 vi.mock("@/app/(shell)/changes-data", async () => ({ ...(await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data")),
   loadChangesView: vi.fn() }));
 const publish = vi.hoisted(() => ({ allowed: true }));
@@ -25,10 +26,10 @@ const { proofRun, prepareRun } = vi.hoisted(() => ({ proofRun: vi.fn(), prepareR
 vi.mock("@/domains/runtime", async () => ({ ...(await vi.importActual<typeof import("@/domains/runtime")>("@/domains/runtime")), researchPermission: async () => "paused", atomicProof: { run: proofRun, finishPage: prepareRun } }));
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
   loadShippedChanges: async () => shipped.held, captureChangeMeta: async () => null, loadProofLedgerPersisted: async () => shipped.held,
-  recordShipment: async (r: unknown) => { const f = r as { proposalId: string; proposalVersion: string };
+  recordShipment: async (r: unknown, opts?: { proposal?: { complete: boolean } }) => { const f = r as { proposalId: string; proposalVersion: string };
     const held = shipped.held.find((x) => x.proposalId === f.proposalId && x.proposalVersion === f.proposalVersion); // the REAL door's idempotency, mirrored: same proposal and version answers the row already on file and writes nothing
-    if (held) return { shipmentId: held.id, measurement: held.measurementState ?? "measuring" };
-    shipped.records.push(r); return { shipmentId: "rec-1", measurement: "measuring" }; } }));
+    if (held) return { shipmentId: held.id, measurement: held.measurementState ?? "measuring", proposalImplemented: opts?.proposal?.complete === true };
+    shipped.records.push(r); return { shipmentId: "rec-1", measurement: "measuring", proposalImplemented: opts?.proposal?.complete === true }; } }));
 const NOW = "basis_now::d4", AUTH = "4b926534-2d8f-4ad8-a84b-15137b8aa007", EXACT = "Iranian Comedians: the 12 names people actually search for";
 const ID = "t::/famous-iranian-comedians::existing_edit::bundle";
 const SEEN = new Date(Date.now() - 2 * 86_400_000).toISOString();
@@ -81,17 +82,6 @@ describe("a direct link renders only what the ranked list would, and always land
     const { bundle: _b, ...atomic } = bundled(NOW), undated = { ...bundled(NOW), createdAt: cold, bundle: { ...b, receipt: { items: [{ ...item, observedAt: null }], missing: [], freshestObservedAt: null } } } as ChangeProposal;
     const unresolved = { ...bundled(NOW), bundle: { ...b, components: [{ ...b.components[0]!, evidenceKeys: ["nothing-holds-this"] }] } } as ChangeProposal;
     expect([failures(bundled(NOW), ctx).length, failures({ ...atomic, createdAt: cold } as ChangeProposal, ctx).length, failures(undated, ctx).length, failures(unresolved, ctx).length > 0], "REPLACES the thirty day freshness window (owner's editorial policy, 2026-09-06): an atomic row drafted forty days ago and a receipt with no date on it are both work, and the card names the date; a piece pointing at evidence the receipt never carried is still a defect that holds it").toEqual([0, 0, 0, true]); });
-  it("renders live work with nothing to unpack as its own page, and gives a put-aside change the put-aside screen", async () => {
-    const { bundle: _b, ...flat } = bundled(NOW); // live and actionable with no second layer: it gets the one-layer page
-    expect(await link(flat as ChangeProposal)).toContain("data-simple-detail");
-    expect(await link(null, bundled(NOW))).toContain("This idea was set aside"); // history, not a page that never was
-  });
-  it("a ready row the hold blocks exposes neither Copy nor Mark done on its direct link", async () => {
-    const { bundle: _b2, ...flat } = bundled(NOW);
-    const held = { ...flat, limitations: [...(flat.limitations ?? []), "This claim carries no source yet, so it is held for review until one is on file."] } as ChangeProposal; const page = await link(held); expect(page).not.toContain(">Copy<");
-    expect(page).not.toContain("Mark done");
-    expect(page).toContain("held"); // the reason renders where the controls were
-  });
   it("refuses a receipt that no longer resolves, and holds a page-mover until the operator confirms it here", async () => {
     shipped.records = [];
     const b = bundled(NOW).bundle!; const mark = async (p: ChangeProposal, args: Record<string, unknown> = {}) => { await link(p); return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, expectedVersion: versionOf(p), ...args }); }; const broken = { ...bundled(NOW), bundle: { ...b, components: [{ ...b.components[0]!, evidenceKeys: ["nothing-holds-this"] }] } } as ChangeProposal; expect([(await mark(broken)).success, shipped.records.length]).toEqual([false, 0]);
@@ -213,41 +203,38 @@ describe("bulk Mark Done is one batch, durable before acknowledged", () => {
     whyItMatters: "w", estimatedEffortMinutes: 3, riskLevel: "low", confidence: "high", limitations: [], evidence: { query: "q", hints: [], evidenceRefCount: 1 }, impactScore: 5, upsidePerMonth: null, publish: "manual", createdAt: SEEN, ...over } as unknown as ChangeProposal);
   const wire = async (rows: Map<string, ChangeProposal>, ledger: unknown[]) => {
     vi.resetModules(); surfaceCalls.n = 0; shipped.records = []; shipped.held = ledger as never;
-    const transition = vi.fn(async () => true);
     let ledgerReads = 0;
     vi.doMock("next/server", async () => ({ ...(await vi.importActual<typeof import("next/server")>("next/server")), after: (fn: () => unknown) => { void Promise.resolve().then(fn as never); } }));
     vi.doMock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async () => { surfaceCalls.n += 1; } }));
     vi.doMock("@/domains/runtime", async () => ({ ...(await vi.importActual<typeof import("@/domains/runtime")>("@/domains/runtime")), ensureResearchRunOnVisit: () => {} }));
     vi.doMock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
-      loadChangeProposals: async () => rows, proposalDisposition: async () => null, loadChangeProposal: async () => null,
-      resolveCurrentBasis: async () => NOW, transitionProposalToImplemented: transition }));
+      loadChangeProposals: async () => rows, proposalDisposition: async () => null, loadChangeProposal: async (_t: string, id: string) => rows.get(id) ?? null,
+      resolveCurrentBasis: async () => NOW, implementationGuard: async (t: string, id: string, v: string) => { const p = rows.get(id);
+        return p?.tenantId === t && versionOf(p) === v ? { proposal: structuredClone(p), rowVersion: 1, payload: structuredClone(p) } : null; } }));
     vi.doMock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
       loadShippedChanges: async () => { ledgerReads += 1; return shipped.held; }, captureChangeMeta: async () => null,
-      recordShipment: async (r: unknown) => { const f = r as { proposalId: string; proposalVersion: string };
+      recordShipment: async (r: unknown, opts?: { proposal?: { rowVersion: number; payload: ChangeProposal; complete: boolean } }) => { const f = r as { proposalId: string; proposalVersion: string }, guard = opts?.proposal, row = rows.get(f.proposalId);
+        if (!guard || !row || row.tenantId !== (r as { tenantId: string }).tenantId || guard.rowVersion !== 1
+          || versionOf(row) !== versionOf(guard.payload) || !["ready", "implemented_pending_verification"].includes(row.status)) throw new Error("stale atomic recording");
         const held = (shipped.held as Array<{ id: string; proposalId: string; proposalVersion: string; measurementState?: string }>).find((x) => x.proposalId === f.proposalId && x.proposalVersion === f.proposalVersion);
-        if (held) return { shipmentId: held.id, measurement: held.measurementState ?? "measuring" }; // the REAL door's (proposal, version) idempotency, mirrored: nothing is rewritten
-        shipped.records.push(r); return { shipmentId: `rec-${shipped.records.length}`, measurement: "measuring" }; } }));
-    const { markManyImplementedAction } = await import("@/app/(shell)/changes/actions");
-    return { markManyImplementedAction, transition, reads: () => ledgerReads };
+        if (row.status === "implemented_pending_verification" && !held) throw new Error("stale atomic recording");
+        if (guard.complete) row.status = "implemented_pending_verification";
+        if (held) return { shipmentId: held.id, measurement: held.measurementState ?? "measuring", proposalImplemented: guard.complete };
+        shipped.records.push(r); return { shipmentId: `rec-${shipped.records.length}`, measurement: "measuring", proposalImplemented: guard.complete }; } }));
+    return { markManyImplementedAction: (await import("@/app/(shell)/changes/actions")).markManyImplementedAction, reads: () => ledgerReads };
   };
   it("records a deduped batch with one ledger read, one Shipment per success, per-id results, and no per-row rebuild", async () => {
     const rows = new Map(["a", "b", "c"].map((k) => { const r = readyRow(`t::/${k}::existing_edit::missing_description`); return [r.id, r] as const; }));
-    const { markManyImplementedAction, transition, reads } = await wire(rows, []);
+    const { markManyImplementedAction, reads } = await wire(rows, []);
     const ids = [...rows.keys()];
     const res = await markManyImplementedAction({ proposals: [...ids, ids[0]!].map((id) => ({ id, expectedVersion: versionOf(rows.get(id)!) })) }); // a duplicated input id is one press
     expect([res.success, res.done, res.already, res.failed.length], "three recorded, none failed, the duplicate deduped").toEqual([true, 3, 0, 0]);
     expect(res.results.map((r) => r.outcome), "per-id results say what each row became").toEqual(["recorded", "recorded", "recorded"]);
     expect(res.results.every((r) => !!r.shipmentId), "every success names its Shipment").toBe(true);
-    expect([shipped.records.length, reads(), transition.mock.calls.length], "one Shipment per success, ONE ledger read for the whole batch, one flip per success").toEqual([3, 1, 3]);
-    expect(surfaceCalls.n, "one surface refresh for the whole batch, never one per row").toBe(1); });
-  it("replays idempotently, heals a crash between Shipment and flip, and one failed row rolls back nothing", async () => {
-    const a = readyRow("t::/a::existing_edit::missing_description"), b = readyRow("t::/b::existing_edit::missing_description", { status: "needs_review" });
-    const rows = new Map([a, b].map((r) => [r.id, r] as const));
-    const { markManyImplementedAction } = await wire(rows, []);
-    const first = await markManyImplementedAction({ proposals: [a, b].map((p) => ({ id: p.id, expectedVersion: versionOf(p) })) });
-    expect([first.done, first.failed.length, first.failed[0]?.id], "the review row fails alone; the ready row records").toEqual([1, 1, b.id]);
-    const written = shipped.records.at(-1) as { proposalVersion: string }; // CRASH HEAL: the Shipment landed but the flip did not. The retry finds the SAME Shipment through the door's own (proposal, version) idempotency, writes nothing new, and completes the flip it owes.
-    const healed = await wire(rows, [{ id: "rec-1", proposalId: a.id, proposalVersion: written.proposalVersion, componentsApplied: [{ id: null }], measurementState: "measuring" }]);
-    const retry = await healed.markManyImplementedAction({ proposals: [{ id: a.id, expectedVersion: versionOf(a) }] });
-    expect([retry.results[0]!.outcome, retry.results[0]!.shipmentId, shipped.records.length, healed.transition.mock.calls.length], "the retry heals the flip through the SAME Shipment, writes no duplicate, and flips once").toEqual(["recorded", "rec-1", 0, 1]); });
+    expect([shipped.records.length, reads(), [...rows.values()].every((r) => r.status === "implemented_pending_verification")], "one Shipment per success, ONE ledger read for the whole batch, each proposal settled with its record").toEqual([3, 1, true]);
+    expect(surfaceCalls.n, "one surface refresh for the whole batch, never one per row").toBe(1);
+    const written = shipped.records as Array<{ proposalId: string; proposalVersion: string; componentsApplied: unknown[] }>;
+    const replay = await wire(rows, written.map((r, i) => ({ ...r, id: `rec-${i + 1}`, implementedAt: SEEN })));
+    const retry = await replay.markManyImplementedAction({ proposals: ids.map((id) => ({ id, expectedVersion: versionOf(rows.get(id)!) })) });
+    expect([retry.done, retry.already, shipped.records.length]).toEqual([0, 3, 0]); });
 });

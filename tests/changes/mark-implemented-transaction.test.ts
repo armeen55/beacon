@@ -11,19 +11,20 @@ const surf = vi.hoisted(() => ({ rebuilds: 0 }));
 vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async () => { surf.rebuilds += 1; } }));
 vi.mock("@/domains/account", () => ({ getTenant: async () => ({ id: "t", domain: "site.example" }) }));
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
-  loadChangeProposal: async (_t: string, id: string) => stored.byId?.get(id) ?? stored.proposal, proposalDisposition: async () => stored.disposition, resolveCurrentBasis: async () => "basis_now::d4", transitionProposalToImplemented: led.flip }));
+  loadChangeProposal: async (_t: string, id: string) => stored.byId?.get(id) ?? stored.proposal, proposalDisposition: async () => stored.disposition, resolveCurrentBasis: async () => "basis_now::d4", implementationGuard: async (t: string, id: string, version: string) => { const p = (stored.byId?.get(id) ?? stored.proposal) as ChangeProposal | null; return p && p.tenantId === t && stored.disposition == null && confirmedVersion(p) === version ? { proposal: p, rowVersion: 1, payload: p } : null; } }));
 vi.mock("next/server", async () => ({ ...(await vi.importActual<Record<string, unknown>>("next/server")), after: (fn: () => unknown) => { void fn(); } }));
 vi.mock("@/domains/runtime", () => ({ ensureResearchRunOnVisit: () => {} })); // the bulk press re-arms research after the response through a dynamic import; resolved from the mock cache so the import never lands after the test environment is torn down // production runs in a request scope; here after() executes inline so the exact scheduled shipment is observable
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
   verifyShipmentNow: async (_t: string, id: string) => { led.verified.push(id); return 1; },
   loadShippedChanges: async () => led.records, captureChangeMeta: async () => null,
-  recordShipment: async (f: Omit<Rec, "id"> & { path: string }) => {
+  recordShipment: async (f: Omit<Rec, "id"> & { path: string }, o?: { proposal?: { complete: boolean } }) => {
     if (led.breakWrite) throw new Error("relation shipped_change_proof does not exist");
     if (led.noRecordId) return { shipmentId: "", measurement: "measuring" }; // the reading could not be started, so no row can be named
+    if (o?.proposal && !(await led.flip())) throw new Error("atomic proposal changed");
     const held = led.records.find((r) => r.proposalVersion === f.proposalVersion);
-    if (held) return { shipmentId: held.id, measurement: "measuring" };
+    if (held) return { shipmentId: held.id, measurement: "measuring", proposalImplemented: o?.proposal?.complete === true };
     led.records.push({ ...f, id: `rec-${led.records.length + 1}`, implementedAt: new Date().toISOString() }); // THE REAL STORE STAMPS `implementedAt` AT THE PRESS, so the fixture does too: the next press reads this ledger back to count what is already being measured on the same page.
-    return { shipmentId: led.records[led.records.length - 1]!.id, measurement: "measuring" }; } }));
+    return { shipmentId: led.records[led.records.length - 1]!.id, measurement: "measuring", proposalImplemented: o?.proposal?.complete === true }; } }));
 const SEEN = new Date(Date.now() - 2 * 86_400_000).toISOString();
 const AFTER = "Iranian comedians: the 12 names people actually search for";
 const change = (after = AFTER): ChangeProposal => ({
@@ -94,6 +95,15 @@ describe("a partial batch failure is visible per change and retryable without du
     const retry = await mark(batch([good.id, held.id, unfinished.id]));
     expect([retry.done, retry.already, retry.failed.length, led.records.length], "pressing the whole batch again records nothing twice: the one that landed answers as already measuring and the two refusals are unchanged").toEqual([0, 1, 2, 1]); });});
 describe("nothing is marked done that no record stands behind", () => {
+  it("rechecking a partial press preserves the remaining work", async () => {
+    const p = change(), extra = { kind: "meta", label: "Description", risk: "safe", before: null, after: "A complete description", evidenceKeys: ["k1"] };
+    p.bundle!.components.push(extra as never); stored.proposal = p;
+    const id = componentIdOf(p.bundle!.components[0]!, 0);
+    const mark = () => import("@/app/(shell)/changes/actions").then(({ markProposalImplementedAction }) =>
+      markProposalImplementedAction({ proposalId: p.id, expectedVersion: confirmedVersion(p), componentIds: [id] }));
+    const first = await mark(), again = await mark();
+    expect([first.success, again.success, led.records.length, again.note?.includes("other 1")]).toEqual([true, true, 1, true]);
+  });
   it("refuses a copied version after the saved copy changes, before any shipment or status flip", async () => {
     const shown = { ...change("Copy the operator actually saw"), supportFacts: [{ id: "k1", fact: "A supported fact", sources: [{ url: "https://source.example/old", kind: "publisher" }] }] } as ChangeProposal, rewritten = change("A later saved rewrite"); stored.proposal = rewritten; stored.byId = new Map([[shown.id, rewritten]]);
     const { markProposalImplementedAction, markManyImplementedAction } = await import("@/app/(shell)/changes/actions"), intent = { id: shown.id, expectedVersion: confirmedVersion(shown) };
@@ -131,7 +141,7 @@ describe("nothing is marked done that no record stands behind", () => {
     await press(change("Redrafted words for that very same change"));
     expect(led.records[2]!.treatmentStamp!.overlapAtShip, "a redraft of their own change is not a second change crowding the page").toBe(1); });
   it("has no bare flip on the facade at all: the one door demands the record that is measuring the change", async () => {
-    const facade = await vi.importActual<Record<string, unknown>>("@/domains/decision"); expect(Object.keys(facade)).not.toContain("markProposalImplemented"); expect([typeof facade.transitionProposalToImplemented, typeof facade.reconcileImplementedWithoutShipment]).toEqual(["function", "function"]); });
+    const facade = await vi.importActual<Record<string, unknown>>("@/domains/decision"); expect(Object.keys(facade)).not.toContain("markProposalImplemented"); expect([typeof facade.implementationGuard, typeof facade.reconcileImplementedWithoutShipment]).toEqual(["function", "function"]); });
   it("refuses to record unfinished work as done, whatever a stale screen sends", async () => {
     const research = await press({ ...change(), researchOnly: true } as ChangeProposal); // full copy on the row, so only the typed fact can be refusing it
     const errand = await press({ ...change(), researchOnly: true, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Write a description of about 150 characters that names this page's subject." } } as ChangeProposal);
@@ -153,12 +163,13 @@ describe("nothing is marked done that no record stands behind", () => {
     led.breakWrite = true;
     const res = await press(change()); expect([res.success, led.records.length, led.flip.mock.calls.length]).toEqual([false, 0, 0]);
     expect(res.error).not.toMatch(/relation|shipped_change_proof|supabase/i); }); // a table name is not an answer to a customer
-  it("a crash AFTER the record lands heals on the next press: one record, and the change then closes", async () => {
-    led.flip.mockRejectedValueOnce(new Error("relation change_proposals does not exist"));
+  it("a stale transition leaves neither Shipment nor completed status", async () => {
+    led.flip.mockRejectedValueOnce(new Error("proposal was retired during the press"));
     expect((await press(change())).success).toBe(false);
-    expect(led.records).toHaveLength(1); // the record is durable, and it is what the retry finds
+    expect(led.records).toHaveLength(0);
     expect((await press(change())).success).toBe(true);
-    expect([led.records.length, led.flip.mock.calls.length, led.flip.mock.calls[1]![2]]).toEqual([1, 2, "rec-1"]); }); // no second record, and the flip lands carrying it
+    expect(led.records).toHaveLength(1);
+  });
 });
 
 const SITES = [

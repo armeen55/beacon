@@ -1,13 +1,9 @@
 import "server-only";
 import { cache } from "react";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { currentTenantId } from "@/lib/tenant-context";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { log } from "@/lib/logger";
-import { getDataDir } from "@/lib/tenant";
-import { getTenant } from "@/domains/account/tenants/store";
 import type { ShipmentObjective } from "../shipment-ai-outcome";
 import type { GscProofConfidence, GscProofVerdict, MeasurementState, ProofBaseline, ProofWindowResult, TreatmentSignature } from "./types";
 import type { PinnedRead } from "./pinned-read";
@@ -246,23 +242,6 @@ async function readFile(): Promise<ShippedChangeRecord[]> {
 
 const writeFile = (records: ShippedChangeRecord[]): Promise<void> => writeStore<ShippedChangeRecord>(STORE, records);
 
-async function resolveSlugForTenant(tenantId: string): Promise<string | null> {
-  const tenant = await getTenant(tenantId), envId = process.env.BEACON_TENANT_ID, envSlug = process.env.BEACON_TENANT_SLUG;
-  return tenant ? tenant.slug : envId && envSlug && envId === tenantId ? envSlug : null;
-}
-
-async function readShippedChangesFileForTenant(tenantId: string): Promise<ShippedChangeRecord[]> {
-  const slug = await resolveSlugForTenant(tenantId);
-  if (slug == null) return [];
-  const filePath = join(getDataDir(slug), `${STORE}.json`);
-  if (!existsSync(filePath)) return [];
-  try {
-    const parsed = JSON.parse(readFileSync(filePath, "utf-8"));
-    return Array.isArray(parsed) ? (parsed as ShippedChangeRecord[]) : [];
-  } catch (err) {
-    log.warn("shipped-change-store: tenant ledger file unreadable/corrupt; treating as empty", { tenant: tenantId, store: STORE, file: filePath, error: err instanceof Error ? err.message : String(err) });
-    return []; }
-}
 /** All shipped-change records for the ambient tenant, newest ship first. Request-cached. */
 export const loadShippedChanges = cache(loadShippedChangesUncached);
 
@@ -279,9 +258,7 @@ async function loadShippedChangesUncached(): Promise<ShippedChangeRecord[]> {
 /** Tenant-EXPLICIT ledger read (background/after() scope where ambient is wrong). */
 export async function loadShippedChangesForTenant(tenantId: string): Promise<ShippedChangeRecord[]> {
   if (!tenantId) return [];
-  let admin;
-  try { admin = getSupabaseAdmin(); } catch { return sortNewest(await readShippedChangesFileForTenant(tenantId)); }
-  return queryTenantLedger(admin, tenantId, () => readShippedChangesFileForTenant(tenantId));
+  return queryTenantLedger(getSupabaseAdmin(), tenantId, async () => { throw new Error("The tenant Shipment ledger is unavailable"); });
 }
 
 async function queryTenantLedger(
@@ -375,13 +352,23 @@ export async function upsertShippedChange(record: ShippedChangeRecord, tenantId?
 }
 
 /** The canonical recording door inserts once. A concurrent retry may lose the PK race, but can never rewrite the first stamp, baseline, or live receipt. */
-export async function insertShippedChangeOnce(record: ShippedChangeRecord, tenantId: string, invalidate = true): Promise<boolean> {
+export async function insertShippedChangeOnce(record: ShippedChangeRecord, tenantId: string, invalidate = true,
+  proposal?: { rowVersion: number; payload: unknown; complete: boolean; priorShipmentIds?: string[]; componentIds?: string[] }): Promise<boolean> {
   if (!tenantId || !record.proposalId || !record.proposalVersion || !record.implementedAt) throw new Error("A Shipment needs its tenant, event, version, and actual instant");
-  const { data, error } = await getSupabaseAdmin().from(TABLE)
-    .upsert(recordToRow(tenantId, record), { onConflict: "tenant_id,id", ignoreDuplicates: true }).select("id");
+  const { data, error } = proposal
+    ? await getSupabaseAdmin().rpc("record_change_implementation", { p_tenant_id: tenantId, p_proposal_id: record.proposalId,
+      p_expected_row_version: proposal.rowVersion, p_expected_payload: proposal.payload,
+      p_shipment: recordToRow(tenantId, record), p_complete: proposal.complete,
+      p_prior_shipment_ids: proposal.priorShipmentIds ?? [], p_component_ids: proposal.componentIds ?? [] })
+    : await getSupabaseAdmin().from(TABLE).upsert(recordToRow(tenantId, record), { onConflict: "tenant_id,id", ignoreDuplicates: true }).select("id");
   if (error) throw new Error(`shipped-change-store: insert failed: ${error.message}`);
-  if (!data?.length) return false;
-  await mirrorFile(record);
+  if (proposal ? data !== "inserted" && data !== "already" : !data?.length) {
+    if (proposal && data !== "blocked" && data !== "stale") throw new Error("shipped-change-store: atomic recording returned no result");
+    if (proposal) throw new Error("The selected proposal changed before its Shipment was recorded");
+    return false;
+  }
+  if (proposal && data === "already") return false;
+  if (!proposal) await mirrorFile(record);
   if (invalidate) await invalidateResultsSurfaceSafe();
   return true;
 }

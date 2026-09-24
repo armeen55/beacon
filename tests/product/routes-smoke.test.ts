@@ -36,8 +36,8 @@ describe("Today renders, and tells the truth about its own queue", () => {
     const { default: Page } = await import("@/app/(shell)/results/page") as { default: (a?: unknown) => Promise<ReactElement> };
     DB.ledgerError = { code: "PGRST301", message: "JWT expired" }; // The failure enters where it really enters: Supabase hands the ledger table back an error, three layers under the page.
     const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) })); expect(html).toContain("Your measured changes could not be read just now, so none is not the answer."); expect(html).not.toContain("No changes are being measured yet");
-    DB.ledgerError = { code: "PGRST205", message: "Could not find the table in the schema cache" }; // AND THE MISSING-TABLE CASE IS STILL A VALID EMPTY: the file fallback is how a pre-migration deploy reads, not an outage.
-    const fallback = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) })); expect(fallback).not.toContain("could not be read just now");
+    DB.ledgerError = { code: "PGRST205", message: "Could not find the table in the schema cache" }; // No durable table means no trustworthy empty answer.
+    const missing = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) })); expect(missing).toContain("could not be read just now");
     DB.ledgerError = null; }, 15_000);
   const readyView = (n: number, measuring: number) => ({ ready: Array.from({ length: n }, (_, i) => ({ id: `t::/p${i}::existing_edit::title`, pagePath: `/p${i}`, pageUrl: null, pageLabel: `P${i}`, primaryQuery: "q", opportunityType: "Sharpen the title", limitations: [], recommendedChange: { kind: "existing_edit", field: "title" } })), toDo: [], measuringCountCanonical: measuring } as unknown as import("@/app/(shell)/changes-data").ChangesView);
   const NO_WORK = "No finished change is ready today. When Beacon finishes a change, it appears here.";

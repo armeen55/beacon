@@ -12,14 +12,14 @@ const { ownerFlag, mocks } = vi.hoisted(() => ({
     topPagesByDemand: vi.fn(),
     loadChangeProposal: vi.fn(),
     recordShipment: vi.fn(),
-    transitionProposalToImplemented: vi.fn(),
+    implementationGuard: vi.fn(),
     resolveCurrentBasis: vi.fn(),},}));
 vi.mock("@/lib/auth/can-publish", () => ({
   isAccountOwner: async () => ownerFlag.value,
   canPublishForCurrentTenant: async () => ownerFlag.value,}));
 vi.mock("@/domains/decision", async () => ({
   loadPageSurgeonContext: mocks.loadPageSurgeonContext, topPagesByDemand: mocks.topPagesByDemand,
-  loadChangeProposal: mocks.loadChangeProposal, proposalDisposition: async () => null, transitionProposalToImplemented: mocks.transitionProposalToImplemented,
+  loadChangeProposal: mocks.loadChangeProposal, proposalDisposition: async () => null, implementationGuard: mocks.implementationGuard,
   resolveCurrentBasis: mocks.resolveCurrentBasis,
   actionableProposalFailures: (await vi.importActual<typeof import("@/domains/decision/validate-proposal")>("@/domains/decision/validate-proposal")).actionableProposalFailures,
   openHold: (await vi.importActual<typeof import("@/domains/decision/completeness")>("@/domains/decision/completeness")).openHold, // the REAL one servability verdict, exactly as production gates the press
@@ -71,11 +71,11 @@ beforeEach(() => {
   mocks.captureChangeMeta.mockResolvedValue({
     canonPage: "https://x.test/cities", path: "/cities", before: "old", after: "new", targetQueries: ["cities in iran"],
     headlineAction: "title", contentHash: "hash-before",});
-  mocks.recordShipment.mockResolvedValue({ shipmentId: "shp_1", measurement: "measuring" });
+  mocks.recordShipment.mockResolvedValue({ shipmentId: "shp_1", measurement: "measuring", proposalImplemented: true });
   mocks.loadShippedChanges.mockResolvedValue([]);
   mocks.resolveCurrentBasis.mockResolvedValue(BASIS);
   mocks.loadChangeProposal.mockResolvedValue(proposal());
-  mocks.transitionProposalToImplemented.mockResolvedValue(true);});
+  mocks.implementationGuard.mockImplementation(async (_t: string, _id: string, v: string) => { const p = await mocks.loadChangeProposal(); return p && v === "fixture-version" ? { proposal: p, rowVersion: 1, payload: p } : null; });});
 describe("external work uses the same Shipment contract", () => {
   it("requires the owner and refuses a foreign host before a matching-path capture can rewrite it", async () => {
     ownerFlag.value = false; expect((await external()).success).toBe(false); ownerFlag.value = true;
@@ -115,29 +115,29 @@ const PRESS = { proposalId: PROPOSAL_ID, expectedVersion: "fixture-version", des
 describe("markProposalImplementedAction, the shipment transaction", () => {
   const facts = (i = 0) => mocks.recordShipment.mock.calls[i]![0];
   it("writes the shipment BEFORE it flips the change", async () => {
-    expect((await markProposalImplementedAction({ ...PRESS })).success).toBe(true); expect([mocks.recordShipment.mock.calls.length, mocks.transitionProposalToImplemented.mock.calls.length]).toEqual([1, 1]);
-    expect(mocks.recordShipment.mock.invocationCallOrder[0]).toBeLessThan(mocks.transitionProposalToImplemented.mock.invocationCallOrder[0]);
+    expect((await markProposalImplementedAction({ ...PRESS })).success).toBe(true); expect([mocks.recordShipment.mock.calls.length, mocks.implementationGuard.mock.calls.length]).toEqual([1, 1]);
+    expect(mocks.implementationGuard.mock.invocationCallOrder[0]).toBeLessThan(mocks.recordShipment.mock.invocationCallOrder[0]);
     expect([facts().proposalId, facts().basis, facts().preChangeContentHash, facts().componentsApplied.map((c: { kind: string }) => c.kind)])
       .toEqual([PROPOSAL_ID, BASIS, "hash-before", ["title", "opening_answer"]]);
     expect(/line Google shows/.test(facts().bundleHypothesis)).toBe(true);
-    expect(mocks.transitionProposalToImplemented.mock.calls[0]![2]).toBe("shp_1");});
+    expect(mocks.recordShipment.mock.calls[0]![1].proposal).toMatchObject({ rowVersion: 1, complete: true });});
   it.each([
     ["a selection I do not recognize", { componentIds: ["bogus"] }],
     ["a selection with nothing in it", { componentIds: [] as string[] }],
   ])("%s is refused before anything is written", async (_name, over) => {
-    expect((await markProposalImplementedAction({ proposalId: PROPOSAL_ID, expectedVersion: PRESS.expectedVersion, ...over })).success).toBe(false); expect([mocks.recordShipment.mock.calls.length, mocks.transitionProposalToImplemented.mock.calls.length]).toEqual([0, 0]);});
+    expect((await markProposalImplementedAction({ proposalId: PROPOSAL_ID, expectedVersion: PRESS.expectedVersion, ...over })).success).toBe(false); expect(mocks.recordShipment).not.toHaveBeenCalled();});
   it("a change still in review is refused however it is pressed", async () => {
     mocks.loadChangeProposal.mockResolvedValue(proposal({ status: "needs_review", riskLevel: "high",
       bundle: { ...(proposal().bundle as object), components: [{ kind: "title", label: "Page title", after: "Nowruz Traditions and the Haft-Seen Table", risk: "dangerous", evidenceKeys: ["k1"] }] } }));
     const res = await markProposalImplementedAction({ ...PRESS }); expect([res.success, res.error]).toEqual([false, "This change is still being reviewed, so it cannot be marked done yet. Open Changes for the work that is ready to make today."]);
-    expect([mocks.recordShipment.mock.calls.length, mocks.transitionProposalToImplemented.mock.calls.length]).toEqual([0, 0]);});
+    expect(mocks.recordShipment).not.toHaveBeenCalled();});
   it.each([
     ["insufficient_comparison", "Too few pages on your site can be fairly compared"],
     ["measurement_unavailable", "Your search data could not be read just now"],
   ])("records the work whatever the data can support, and says so: %s", async (state, said) => {
-    mocks.recordShipment.mockResolvedValue({ shipmentId: "shp_1", measurement: state });
+    mocks.recordShipment.mockResolvedValue({ shipmentId: "shp_1", measurement: state, proposalImplemented: true });
     const res = await markProposalImplementedAction({ ...PRESS }); expect([res.success, res.note?.startsWith("Recorded."), res.note?.includes(said)]).toEqual([true, true, true]);
-    expect(mocks.transitionProposalToImplemented).toHaveBeenCalledOnce(); // the change is done, and the reading is a separate fact
+    expect(mocks.recordShipment).toHaveBeenCalledOnce(); // the change is done, and the reading is a separate fact
   });
   /** P1-1 + P1-2. The remainder came off THIS press, so press two of three said "the other 2" with one left; and the picker pre-ticks everything with no memory of what is already recorded, so a partial press followed by the default full press wrote a SECOND record measuring the same component twice. The server owes both answers whatever the screen sends: the true remainder, and a wanted set with everything already on file taken out of it. */
   it("names the true remainder, and can never record one piece twice", async () => {
@@ -151,15 +151,15 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
       return res; };
     expect((await press({ componentIds: [componentIdOf(parts[0]!, 0)] })).note).toContain("The other 2"); expect((await press({ componentIds: [componentIdOf(parts[1]!, 1)] })).note).toContain("The other 1");
     expect((await press()).success).toBe(true); expect(facts().componentsApplied.map((c: { id: string }) => c.id.split(":").slice(0, 2).join(":"))).toEqual(["2:opening_answer"]);
-    expect(mocks.transitionProposalToImplemented).toHaveBeenCalledOnce(); const again = await press();
-    expect([again.success, again.note]).toEqual([true, "Every piece of this change is already on file and being measured. There is nothing left for you to record here."]); expect(mocks.recordShipment).not.toHaveBeenCalled();
+    expect(mocks.recordShipment).toHaveBeenCalledOnce(); const again = await press();
+    expect([again.success, again.note]).toEqual([true, "Every piece of this change is already on file and being measured. There is nothing left for you to record here."]); expect(mocks.recordShipment).toHaveBeenCalledOnce(); // the held row is rechecked atomically without a new Shipment
     held.length = 0;
     const once = (await press({ componentIds: [componentIdOf(parts[0]!, 0)] }), facts());
     held.length = 0;
     await press({ componentIds: [componentIdOf(parts[0]!, 0), componentIdOf(parts[0]!, 0)] }); expect([facts().proposalVersion, facts().componentsApplied]).toEqual([once.proposalVersion, once.componentsApplied]);});
   it("never hands a customer a backend error", async () => { // P1-13: a Supabase relation name is not an answer
-    mocks.transitionProposalToImplemented.mockRejectedValue(new Error("relation change_proposals does not exist"));
-    expect(await markProposalImplementedAction({ ...PRESS })).toEqual({ success: false, retryable: true, error: "That could not be recorded just now. Press it again in a moment." });});
+    mocks.recordShipment.mockRejectedValue(new Error("relation change_proposals does not exist"));
+    expect(await markProposalImplementedAction({ ...PRESS })).toEqual({ success: false, retryable: true, error: "Measuring this change could not start, so it is not recorded as done. Press it again in a moment." });});
   it("keeps the operator's own applied wording on the record beside the prepared one, and never lets a press stand in for a reading", async () => {
     await markProposalImplementedAction({ ...PRESS, appliedText: "The words that are on my page." });
     expect([facts().operatorNote, facts().componentsApplied.map((c: { appliedAfter?: string }) => c.appliedAfter), facts().after, "verification" in facts()], "a press recording SEVERAL pieces cannot say which one their line landed on, so it stays on the row, no piece claims it, and the prepared wording is untouched").toEqual(["The words that are on my page.", [undefined, undefined], "Nowruz Traditions and the Haft-Seen Table", false]);
@@ -171,7 +171,7 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
     ["a press by someone who may not publish", () => { ownerFlag.value = false; }],
   ])("%s is refused before anything is written", async (_name, arrange) => {
     arrange();
-    expect((await markProposalImplementedAction({ ...PRESS })).success).toBe(false); expect([mocks.recordShipment.mock.calls.length, mocks.transitionProposalToImplemented.mock.calls.length]).toEqual([0, 0]);});});
+    expect((await markProposalImplementedAction({ ...PRESS })).success).toBe(false); expect(mocks.recordShipment).not.toHaveBeenCalled();});});
 describe("a complete new page is one recorded publication", () => {
   const sections = ["When it runs", "Where to watch"], opening = "The kite festival runs the first weekend of April.";
   const page = () => proposal({ kind: "new_page", informationGain: { adds: "the page answers an uncovered reader task", by: ["fact-1"], pageWhole: true }, pagePath: null, pageUrl: null, recommendedChange: { kind: "new_page", proposedTitle: "Kite festival guide", metaDescription: "A guide to the kite festival dates, viewing places, and what visitors can expect.", openingAnswer: opening, outline: sections, faqQuestions: [], schemaTypes: [] },

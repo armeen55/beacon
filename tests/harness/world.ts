@@ -173,10 +173,29 @@ function rpcCall(fn: string, args: Record<string, unknown>): Record<string, unkn
         withdrawn_reason: args.p_reason ?? null });
       return { data: row != null, error: null };
     }
-    if (fn === "transition_change_proposal_implemented") {
+    if (fn === "record_change_implementation") {
       const row = table("change_proposals").find((r) => r.id === args.p_proposal_id && r.tenant_id === args.p_tenant_id);
-      if (row) Object.assign(row, { status: "implemented_pending_verification", payload: args.p_payload });
-      return { data: row ? "implemented" : "stale", error: null };
+      const ship = args.p_shipment as Row, expected = args.p_expected_payload as Row;
+      const parts = ((row?.payload as { proposal?: { bundle?: { components?: Row[] } } })?.proposal?.bundle?.components ?? []);
+      const applied = ship.components_applied as Array<{ id?: string; before?: string; after?: string }>;
+      const ids = args.p_component_ids as string[];
+      const change = (expected.proposal as Row)?.recommendedChange as Row | undefined;
+      const covered = new Set(applied.map((c) => c.id)); // Strict fixture: only current-press pieces count; SQL also checks validated prior rows.
+      const matches = parts.length ? applied.every((part) => { const i = ids.indexOf(part.id ?? "");
+        return i >= 0 && part.after === parts[i]?.after && (part.before ?? null) === (parts[i]?.before ?? null); })
+        : applied.length === 1 && applied[0]?.id == null && applied[0]?.after === change?.after
+          && (applied[0]?.before ?? null) === (change?.before ?? null);
+      if (!row || row.status !== "ready" || row.terminal_disposition != null || row.proposal_version !== args.p_expected_row_version
+        || JSON.stringify(row.payload) !== JSON.stringify(expected) || ship.tenant_id !== args.p_tenant_id || ship.proposal_id !== args.p_proposal_id
+        || !Array.isArray(applied) || !Array.isArray(ids) || parts.length !== ids.length || !matches
+        || parts.length === 0 && args.p_complete !== true
+        || args.p_complete === true && parts.some((_, i) => !covered.has(ids[i])))
+        return { data: "stale", error: null };
+      const held = table("shipped_change_proof").some((r) => r.tenant_id === ship.tenant_id && r.id === ship.id);
+      if (!held) table("shipped_change_proof").push({ ...ship });
+      if (args.p_complete === true) { row.status = "implemented_pending_verification";
+        row.payload = { ...expected, proposal: { ...(expected.proposal as Row), status: row.status } }; }
+      return { data: held ? "already" : "inserted", error: null };
     }
     if (fn === "publish_customer_release") return { data: true, error: null };
     const rows = tables.has(fn) ? table(fn) : null;

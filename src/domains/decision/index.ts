@@ -35,17 +35,15 @@ export type { RankedProposalQueue } from "./load-proposals";
 export { loadProposalQueue, settledByRows,
   stockOf } from "./load-proposals";
 
-// Proposal persistence. THERE IS NO BARE STATUS FLIP ON THIS FACADE: `transitionProposalToImplemented` demands
-// the id of the Shipment already measuring the change, so "done" can only ever be reached through the
-// orchestrated mark-implemented transaction, and `reconcileImplementedWithoutShipment` reverts any row that
-// somehow reads done with no record behind it.
+// Proposal persistence. The Measurement recording RPC owns the implemented transition;
+// `reconcileImplementedWithoutShipment` repairs any historic row without a Shipment.
 export {
   saveChangeProposal,
   answerReviewedProposal,
   loadChangeProposal,
+  implementationGuard,
   proposalDisposition,
   loadChangeProposals,
-  transitionProposalToImplemented,
   dismissChangeProposal,
   queueLaneCounts,
   readQueuePage,

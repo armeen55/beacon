@@ -90,7 +90,7 @@ const db = vi.hoisted(() => {
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client }));
 const said = vi.hoisted(() => ({ errors: [] as string[] }));
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: (msg: string, detail?: unknown) => { said.errors.push(msg); if (detail) said.errors.push(JSON.stringify(detail)); } } }));
-import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, answerReviewedProposal, preflightReviewedProposal, saveChangeProposal, transitionProposalToImplemented, withdrawChangeProposal } from "@/domains/decision/proposal-store"; import { loadProposalQueue } from "@/domains/decision/load-proposals";
+import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, answerReviewedProposal, preflightReviewedProposal, saveChangeProposal, implementationGuard, withdrawChangeProposal } from "@/domains/decision/proposal-store"; import { loadProposalQueue } from "@/domains/decision/load-proposals";
 import { confirmedVersion, openHold } from "@/domains/decision/completeness"; import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof"; import { COPY_RULES } from "@/domains/decision/copy-sanitize"; import { nextObligation } from "@/domains/decision/obligation";
 import { reconcileImplementedWithoutShipment } from "@/domains/decision/implemented-repair"; import { validateProposal } from "@/domains/decision/validate-proposal";
 import { componentIdOf, sameComponentId, deserializeChangeProposal, serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts"; import { supabaseFake, type Row } from "../helpers/supabase-fake";
@@ -280,7 +280,7 @@ describe("canonical proposal persistence", () => { const currentBody = async (at
     expect([...(await loadChangeProposals(T)).keys()]).toEqual([proposal().id]); });
   it("never retires a change the operator already acted on: a newer draft for that hypothesis is refused and the applied row keeps its place", async () => {
     expect(await saveChangeProposal(proposal())).toBe("saved");
-    seedShipment("shp_seed", proposal().id); expect(await transitionProposalToImplemented(T, proposal().id, "shp_seed", "sv-1", confirmedVersion((await loadChangeProposal(T, proposal().id))!))).toBe(true); // done is reachable only through the transaction
+    db.state.rows[0]!.status = "implemented_pending_verification"; // an already-applied row cannot be overwritten by a new draft
     expect(await saveChangeProposal(deep())).toBe("blocked"); // the same page, the same family, a fresh idea
     expect(await saveChangeProposal(proposal({ status: "needs_review", confidence: "low", limitations: ["a rule added today refuses this"] })), "and a save on the row's OWN id never walks a shipped change back to a draft").toBe("blocked");
     expect(db.state.rows).toHaveLength(1);
@@ -355,32 +355,15 @@ describe("done is only ever reached with a record behind it", () => {
   const done = (over: Partial<ChangeProposal> = {}) => seed({ status: "implemented_pending_verification", ...over });
   const storedNow = (row: Record<string, unknown>) => deserializeChangeProposal(JSON.stringify(row.payload));
   const version = () => confirmedVersion(storedNow(db.state.rows[0]!)!);
-  it("refuses the flip with no record named, and lands it with one", async () => {
-    const row = seed();
-    expect([await transitionProposalToImplemented(T, DONE_ID, "  ", "  ", version()), row.status]).toEqual([false, "ready"]); // nothing moved, so the change is still theirs to do
-    seedShipment("rec-1", DONE_ID); expect([await transitionProposalToImplemented(T, DONE_ID, "rec-1", "sv-1", version()), db.state.rows[0]!.status]).toEqual([true, "implemented_pending_verification"]); });
-  it("refuses a real shipment belonging to another proposal or applied-copy version", async () => {
-    seed(); seedShipment("rec-other", `${DONE_ID}-other`, "sv-other");
-    expect([await transitionProposalToImplemented(T, DONE_ID, "rec-other", "sv-other", version()), db.state.rows[0]!.status]).toEqual([false, "ready"]);
-    db.state.shipments[0]!.proposal_id = DONE_ID;
-    expect([await transitionProposalToImplemented(T, DONE_ID, "rec-other", "sv-wrong", version()), db.state.rows[0]!.status]).toEqual([false, "ready"]); });
-  it("never clears a terminal withdrawal or dismissal, even for a matching shipment", async () => {
-    Object.assign(seed(), { terminal_disposition: "withdrawn", withdrawn_reason: "evidence moved" });
-    seedShipment("rec-1", DONE_ID); expect([await transitionProposalToImplemented(T, DONE_ID, "rec-1", "sv-1", version()), db.state.rows[0]!.status, db.state.rows[0]!.terminal_disposition]).toEqual([false, "ready", "withdrawn"]);
-    Object.assign(seed(), { terminal_disposition: "dismissed" });
-    seedShipment("rec-2", DONE_ID); expect([await transitionProposalToImplemented(T, DONE_ID, "rec-2", "sv-1", version()), db.state.rows[0]!.terminal_disposition]).toEqual([false, "dismissed"]); });
-  it("does not overwrite a newer proposal version that lands after the operator read the card", async () => {
-    const before = seed(), expected = version();
-    db.state.race = () => { const at = db.state.rows.indexOf(before); db.state.rows[at] = { ...before, proposal_version: 2,
-      status: "needs_review", payload: JSON.parse(serializeChangeProposal({ ...proposal(), status: "needs_review",
-        recommendedChange: { ...proposal().recommendedChange, after: "A newer rewrite" } } as ChangeProposal)) }; };
-    seedShipment("rec-1", DONE_ID); expect(await transitionProposalToImplemented(T, DONE_ID, "rec-1", "sv-1", expected)).toBe(false);
-    expect([db.state.rows[0]!.proposal_version, db.state.rows[0]!.status,
-      (deserializeChangeProposal(JSON.stringify(db.state.rows[0]!.payload))!.recommendedChange as { after: string }).after])
-      .toEqual([2, "needs_review", "A newer rewrite"]);
+  it("binds recording to the stored owner, payload and numeric row version", async () => {
+    const row = seed(), expected = version(), guard = await implementationGuard(T, DONE_ID, expected);
+    expect(guard).toMatchObject({ rowVersion: 1, payload: row.payload });
+    expect(await implementationGuard("other", DONE_ID, expected)).toBeNull();
+    row.proposal_version = 2; row.payload = JSON.parse(serializeChangeProposal(proposal({ recommendedChange: { ...proposal().recommendedChange, after: "A newer title" } } as ChangeProposal)));
+    expect(await implementationGuard(T, DONE_ID, expected)).toBeNull();
+    row.terminal_disposition = "withdrawn";
+    expect(await implementationGuard(T, DONE_ID, confirmedVersion(storedNow(row)!))).toBeNull();
   });
-  it("refuses a redraft saved after the old Shipment but before the transition reads the proposal", async () => { const old = seed(), expected = version(); seedShipment("rec-1", DONE_ID);
-    db.state.rows[0] = { ...old, proposal_version: 2, payload: JSON.parse(serializeChangeProposal(proposal({ recommendedChange: { ...proposal().recommendedChange, after: "A newer saved title" } } as ChangeProposal))) }; expect([await transitionProposalToImplemented(T, DONE_ID, "rec-1", "sv-1", expected), db.state.rows[0]!.status, db.state.shipments.length]).toEqual([false, "ready", 1]); });
   it("sends a change marked done with no record back to the queue carrying the one sentence that says so", async () => {
     const row = done(); expect(await reconcileImplementedWithoutShipment(T, new Set<string>())).toEqual([SENTENCE]);
     expect([row.status, row.queue_lane, row.queue_rank]).toEqual(["needs_review", null, null]); // back in the queue, and it earns its position again

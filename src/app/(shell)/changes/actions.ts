@@ -7,8 +7,8 @@ import { after } from "next/server";
 import { log } from "@/lib/logger";
 import { currentTenantId } from "@/lib/tenant-context";
 import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
-import { proposalDisposition, actionableProposalFailures, answerReviewedProposal, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, dismissChangeProposal, openHold, unsettledCause,
-  loadChangeProposal, resolveCurrentBasis, sameComponentId, transitionProposalToImplemented, treatmentSignatureOf,
+import { actionableProposalFailures, answerReviewedProposal, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, dismissChangeProposal, openHold, unsettledCause,
+  implementationGuard, loadChangeProposal, resolveCurrentBasis, sameComponentId, treatmentSignatureOf,
   type ChangeProposal } from "@/domains/decision";
 import { getTenant } from "@/domains/account";
 import { captureChangeMeta, loadShippedChanges, objectiveOfStage, recordShipment, verifyShipmentNow, type MeasurementState } from "@/domains/measurement";
@@ -19,7 +19,7 @@ import operatorUiPolicy from "./types";
 
 type MarkProposalImplementedResponse = { success: boolean; error?: string; note?: string; retryable?: boolean; providerCalls?: number; costUsd?: number };
 
-type Shipped = { ok: true; complete: boolean; recorded: number; remaining: number; shipmentId: string; shipmentVersion: string; measurement: MeasurementState };
+type Shipped = { ok: true; complete: boolean; recorded: number; remaining: number; shipmentId: string; shipmentVersion: string; measurement: MeasurementState; atomic?: boolean };
 
 /** The exact version applied: its copy, its components, the basis it was drafted under AND THE PIECES THIS PRESS ACTUALLY APPLIED. Deliberately EXCLUDES status, so the flip that follows cannot change the id and a retry lands on the same record. Applying a different subset later is a DIFFERENT thing to measure, so it gets its own record instead of being silently swallowed by the first one. */
 function shippedVersionOf(p: ChangeProposal, appliedIds: readonly string[], liveUrl?: string, appliedText?: string | null): string {
@@ -82,7 +82,7 @@ function overlapAtShip(ledger: ReadonlyArray<{ id: string; proposalId: string | 
 
 /** Write the Shipment for one proposal. Idempotent: the id is derived from the proposal and the version applied, so a retry keeps the stamp and the starting numbers already on file, and the caller flips nothing when it did not land. A SECOND PRESS DOES NOTHING AT ALL: rebuilding the record erased the live check back to null, moved the ship date to today and recomputed the starting numbers over a window that now included days AFTER the change, so pressing twice quietly flattered its own result. */
 async function recordImplementation(tenantId: string, proposal: ChangeProposal,
-  opts: { appliedIds: readonly string[]; appliedText?: string | null; liveUrl?: string; preloadedLedger?: Awaited<ReturnType<typeof loadShippedChanges>>; openPaths?: readonly string[]; invalidate?: boolean },
+  opts: { appliedIds: readonly string[]; appliedText?: string | null; liveUrl?: string; guard: { rowVersion: number; payload: unknown }; preloadedLedger?: Awaited<ReturnType<typeof loadShippedChanges>>; openPaths?: readonly string[]; invalidate?: boolean },
 ): Promise<Shipped | { ok: false; error: string; retryable: true }> {
   const bundleIds = (proposal.bundle?.components ?? []).map(componentIdOf);
   const pageRef = (opts.liveUrl ?? proposal.pageUrl ?? proposal.pagePath ?? "").trim();
@@ -104,15 +104,23 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
       if (sameComponentId(c.id ?? "", current.id ?? "", [{ ...c, before: c.before === undefined && r.componentsApplied?.length === 1 ? r.before : c.before, page: c.page ?? r.page }, current])
         && (!opts.appliedText || selected.length !== 1 || !selected.includes(current) || (c.appliedAfter ?? c.after) === opts.appliedText)) { if (current.id) already.add(current.id); previous = r; }
     const fresh = selected.filter((c) => c.id && !already.has(c.id)).map((c) => c.id!);
-    const state = (recorded: number, shipmentId: string | null, shipmentVersion: string | null, measurement: MeasurementState): Shipped | { ok: false; error: string; retryable: true } => {
+    const state = (recorded: number, shipmentId: string | null, shipmentVersion: string | null, measurement: MeasurementState, atomic = false): Shipped | { ok: false; error: string; retryable: true } => {
       const left = bundleIds.filter((id) => !already.has(id) && !(recorded > 0 && fresh.includes(id)));
       if (!shipmentId || !shipmentVersion) {
         log.error("markProposalImplemented: no record could be named for this press, so nothing was flipped", { proposalId: proposal.id });
         return { ok: false, retryable: true, error: "Measuring this change could not start, so it is not recorded as done. Press it again in a moment." };
       }
-      return { ok: true, complete: left.length === 0, recorded, remaining: left.length, shipmentId, shipmentVersion, measurement };
+      return { ok: true, complete: left.length === 0, recorded, remaining: left.length, shipmentId, shipmentVersion, measurement, atomic };
     };
-    if (fresh.length === 0 && previous) return state(0, previous.id, previous.proposalVersion, previous.measurementState ?? "measuring");
+    if (fresh.length === 0 && previous) {
+      const landed = await recordShipment({ ...previous, tenantId, proposalId: proposal.id, proposalVersion: previous.proposalVersion!,
+        basis: previous.basis ?? null, caseId: previous.caseId ?? null, bundleHypothesis: previous.bundleHypothesis ?? "",
+        componentsApplied: previous.componentsApplied ?? [], targetQueries: previous.targetQueries ?? [],
+        before: previous.before ?? null, after: previous.after ?? null, implementedAt: previous.implementedAt ?? undefined },
+      { preloadedLedger: ledger, proposal: { ...opts.guard, complete: bundleIds.every((id) => already.has(id)),
+        priorShipmentIds: mine.map((r) => r.id), componentIds: bundleIds }, invalidate: false });
+      return state(0, landed.shipmentId, previous.proposalVersion, landed.measurement, landed.proposalImplemented === true);
+    }
     const version = shippedVersionOf(proposal, fresh, opts.liveUrl, selected.length === 1 ? opts.appliedText : null);
     const picked = bundleIds.length > 0 ? all.filter((c) => c.id != null && fresh.includes(c.id)) : all;
     const componentsApplied = opts.appliedText && picked.length === 1 ? [{ ...picked[0]!, appliedAfter: opts.appliedText, appliedUnits: null, appliedTarget: null }] : picked;
@@ -137,8 +145,9 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
       treatmentStamp: { signature: treatmentSignatureOf(proposal), overlapAtShip: overlapAtShip(ledger, proposal, pageRef) },
       preChangeContentHash: meta?.contentHash ?? null,
       operatorNote: opts.appliedText ?? null,
-    }, opts.preloadedLedger ? { preloadedLedger: opts.preloadedLedger, openPaths: opts.openPaths, invalidate: opts.invalidate } : undefined);
-    return state(bundleIds.length ? fresh.length : 1, landed.shipmentId, version, landed.measurement);
+    }, { preloadedLedger: opts.preloadedLedger, openPaths: opts.openPaths, invalidate: opts.invalidate,
+      proposal: { ...opts.guard, complete: bundleIds.every(id => already.has(id) || fresh.includes(id)), priorShipmentIds: mine.map((r) => r.id), componentIds: bundleIds } });
+    return state(bundleIds.length ? fresh.length : 1, landed.shipmentId, version, landed.measurement, landed.proposalImplemented === true);
   } catch (err) {
     log.error("markProposalImplemented: the shipment did not land, so nothing was flipped", {
       proposalId: proposal.id, error: err instanceof Error ? err.message : String(err),
@@ -174,10 +183,10 @@ export async function markProposalImplementedAction(args: {
   const tenantId = await currentTenantId();
   try {
     const basis = await resolveCurrentBasis(tenantId).catch(() => null);
-    const disposition = await proposalDisposition(tenantId, args.proposalId).catch(() => null);
-    const stored = disposition == null ? await loadChangeProposal(tenantId, args.proposalId).catch(() => null) : null;
+    const guard = await implementationGuard(tenantId, args.proposalId, args.expectedVersion);
+    const stored = guard?.proposal ?? null;
     if (stored == null) {
-      return { success: false, error: "That change could not be found, so it was not marked implemented." };
+      return { success: false, error: "That change could not be found or was rewritten since you saw it. Open Changes again before recording." };
     }
     if (confirmedVersion(stored) !== args.expectedVersion) return { success: false, error: "This change has been rewritten since you saw it. Open it again and record only the version you applied." };
     if (!operatorUiPolicy.isManualEditProofWork(stored)) return { success: false, error: "Whole-page work is outside the current manual-edit proof, so it cannot be recorded here." };
@@ -221,7 +230,7 @@ export async function markProposalImplementedAction(args: {
       if ("error" in checked) return { success: false, error: checked.error };
       liveUrl = checked.url;
     }
-    const shipment = await recordImplementation(tenantId, stored, { appliedIds, appliedText: args.appliedText, liveUrl });
+    const shipment = await recordImplementation(tenantId, stored, { appliedIds, appliedText: args.appliedText, liveUrl, guard: guard! });
     if (!shipment.ok) return { success: false, retryable: true, error: shipment.error };
     const n = shipment.recorded, left = shipment.remaining;
     const one = (a: string, b: string) => (left === 1 ? a : b);
@@ -234,10 +243,7 @@ export async function markProposalImplementedAction(args: {
         : "Those pieces were already on file and are being measured.";
       return { success: true, note: `${landed} The other ${left} ${one("is", "are")} still on your list: tick ${one("it", "them")} here when you apply ${one("it", "them")}.` };
     }
-    const ok = await transitionProposalToImplemented(tenantId, args.proposalId, shipment.shipmentId, shipment.shipmentVersion, args.expectedVersion, liveUrl);
-    if (!ok) {
-      return { success: false, error: "That change could not be found, so it was not marked implemented." };
-    }
+    if (!shipment.atomic) return { success: false, retryable: true, error: "The implementation record did not finish its proposal transition. Press it again in a moment." };
     if (!args.deferSurfaces) { await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout"); }
     after(() => verifyShipmentNow(tenantId, shipment.shipmentId, { readSerp: async () => null }).catch(() => 0)); // ANSWERED IN MINUTES from the owned page; paid display evidence waits for the leased drive
     log.info("Action completed", { action, durationMs: Date.now() - t0, params: { proposalId: args.proposalId } });
@@ -266,9 +272,9 @@ export async function markManyImplementedAction(args: { proposals: { id: string;
   const openPaths = [...stored.values()].filter((p) => p.status === "ready" || p.status === "implemented_pending_verification").map((p) => p.pagePath ?? "").filter((p) => p.length > 0);
   const recordOne = async (id: string): Promise<(typeof results)[number]> => {
     try {
-      const disposition = await proposalDisposition(tenantId, id).catch(() => null);
-      const row = disposition == null ? stored.get(id) ?? await loadChangeProposal(tenantId, id).catch(() => null) : null;
-      if (!row) return { id, outcome: "failed", error: "That change could not be found." };
+      const guard = await implementationGuard(tenantId, id, wanted.get(id)!);
+      const row = guard?.proposal ?? null;
+      if (!row) return { id, outcome: "failed", error: "That change could not be found or was rewritten since you selected it." };
       if (confirmedVersion(row) !== wanted.get(id)) return { id, outcome: "failed", error: "This change has been rewritten since you selected it. Open it again before recording." };
       if (!operatorUiPolicy.isManualEditProofWork(row)) return { id, outcome: "failed", error: "Whole-page work is outside the current manual-edit proof." };
       if (!operatorUiPolicy.isBulkRecordable(row)) return { id, outcome: "failed", error: "This change has several pieces or needs confirmation, so record it from its own change page." };
@@ -281,11 +287,10 @@ export async function markManyImplementedAction(args: { proposals: { id: string;
       if (row.status !== "ready" && row.status !== "implemented_pending_verification") return { id, outcome: "failed", error: "This change is still being reviewed." };
       if (dangerousComponents(row.bundle?.components ?? []).length > 0) return { id, outcome: "failed", error: "This one moves or hides a page, so it needs its own confirmed press on the change itself." };
       const appliedIds = (row.bundle?.components ?? []).map(componentIdOf);
-      const shipment = await recordImplementation(tenantId, row, { appliedIds, preloadedLedger: ledger, openPaths, invalidate: false }); // NO SHARED WORDING ON A BATCH: one line of the operator's own words cannot be the version applied to twenty different changes, so the batch records the prepared wording and a different version is recorded on the change itself
+      const shipment = await recordImplementation(tenantId, row, { appliedIds, guard: guard!, preloadedLedger: ledger, openPaths, invalidate: false }); // NO SHARED WORDING ON A BATCH: one line of the operator's own words cannot be the version applied to twenty different changes, so the batch records the prepared wording and a different version is recorded on the change itself
       if (!shipment.ok) return { id, outcome: "failed", error: shipment.error };
       const alreadyDone = row.status === "implemented_pending_verification" || (shipment.recorded === 0 && (row.bundle?.components ?? []).length > 0); // an atomic row records zero COMPONENT ids by construction; only a bundle with nothing fresh is genuinely already on file
-      const ok = row.status === "implemented_pending_verification" ? true : await transitionProposalToImplemented(tenantId, id, shipment.shipmentId, shipment.shipmentVersion, wanted.get(id)!);
-      if (!ok) return { id, outcome: "failed", error: "The change could not be marked done. Press it again in a moment." };
+      if (!shipment.atomic) return { id, outcome: "failed", error: "The change could not be marked done. Press it again in a moment." };
       return { id, outcome: alreadyDone ? "already" : "recorded", shipmentId: shipment.shipmentId, note: alreadyDone ? "Already recorded. Open Results for its current verification and measurement state." : operatorUiPolicy.measurementAcknowledgement(shipment.measurement) };
     } catch (err) {
       log.error("markManyImplemented: one row failed", { id, error: err instanceof Error ? err.message : String(err) });
