@@ -18,7 +18,7 @@ export type OwnedPageBody = {
   metaDescription: string | null;
   headings: string[];
   passages: string[];
-  answerPassages?: string[];
+  answerPassages?: string[]; tableRows?: { heading: string; headers: string[]; cells: string[] }[];
   passageMeta?: { id: string; heading: string | null }[];
   openingSample: string | null;
   vocabulary: string;
@@ -95,14 +95,13 @@ function bodyOf(row: Row): OwnedPageBody {
   const title = cap(row.title, MAX_TITLE_CHARS), h1 = cap(row.h1, MAX_ITEM_CHARS);
   const parsed = (() => { try { return sourceCapture?.mainHtml && /<[a-z][\w-]*(?:\s[^<>]*)?>/i.test(sourceCapture.mainHtml) ? load(sourceCapture.mainHtml) : undefined; } catch { return undefined; } })();
   const source = parsed && typeof row.body_text === "string" && parsed.root().text().replace(/\s+/g, " ").trim() === row.body_text.trim() ? parsed : undefined;
-  const linkedParagraphs: NonNullable<OwnedPageBody["linkedParagraphs"]> = [];
-  const capturedLinks: NonNullable<OwnedPageBody["capturedLinks"]> = [];
+  const linkedParagraphs: NonNullable<OwnedPageBody["linkedParagraphs"]> = [], capturedLinks: NonNullable<OwnedPageBody["capturedLinks"]> = [], tableRows: NonNullable<OwnedPageBody["tableRows"]> = [];
   if (source && sourceCapture?.complete) {
-    const nodes = source("p,a,h1,h2,h3,h4,h5,h6").toArray(), flat = (s: string) => s.replace(/\s+/g, " ").trim();
+    const nodes = source("p,a,h1,h2,h3,h4,h5,h6,table").toArray(), flat = (s: string) => s.replace(/\s+/g, " ").trim(); let heading = "";
     source("a[href]").each((_i, node) => { const href = source(node).attr("href"), anchor = flat(source(node).text()); if (href && anchor) capturedLinks.push({ href, anchor }); });
     for (let i = 0; i < nodes.length; i += 1) {
-      if (nodes[i]!.tagName !== "p") continue;
-      const text = flat(source(nodes[i]).text()), links: { href: string; anchor: string }[] = [];
+      const node = nodes[i]!; if (/^h[1-6]$/.test(node.tagName)) { heading = flat(source(node).text()).slice(0, MAX_ITEM_CHARS); continue; } if (node.tagName === "table") { const rows = source(node).find("tr").toArray().slice(0, 101), headers = rows[0] ? source(rows[0]).children("th").toArray().slice(0, 8).map((cell) => flat(source(cell).text()).slice(0, 120)) : []; if (headers.length >= 2) for (const row of rows.slice(1)) { if (tableRows.length >= 100) break; const cells = source(row).children("td").toArray().slice(0, 8).map((cell) => flat(source(cell).text()).slice(0, 120)); if (cells.length === headers.length) tableRows.push({ heading, headers, cells }); } continue; }
+      if (node.tagName !== "p") continue; const text = flat(source(node).text()), links: { href: string; anchor: string }[] = [];
       if (!text) continue;
       for (const node of nodes.slice(i + 1)) {
         if (node.tagName !== "a" || source(node).closest("p").length) break;
@@ -155,7 +154,7 @@ function bodyOf(row: Row): OwnedPageBody {
   return {
     url: typeof row.url === "string" ? row.url : "",
     title, h1, metaDescription: cap(row.meta_description, MAX_META_CHARS), headings, passages, answerPassages, passageMeta: units.slice(0, passages.length).map(({ id, heading }) => ({ id, heading })),
-    openingSample: cap(answerPassages.slice(0, MAX_OPENING_PARAGRAPHS).join(" ").replace(/\s+/g, " "), MAX_OPENING_CHARS),
+    openingSample: cap(answerPassages.slice(0, MAX_OPENING_PARAGRAPHS).join(" ").replace(/\s+/g, " "), MAX_OPENING_CHARS), tableRows,
     vocabulary: full, cardTexts, faqs, entityNames, internalLinks, ...(linkedParagraphs.length ? { linkedParagraphs } : {}), ...(capturedLinks.length ? { capturedLinks } : {}), ...(sourceCapture ? { sourceCapture } : {}),
     fetchedAt: typeof row.fetched_at === "string" ? row.fetched_at : null,
     completeness: sampled ? "sample_only" : truncated ? "partial" : "complete",
