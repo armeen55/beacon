@@ -16,6 +16,15 @@ vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => supabaseF
 }) }));
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context"; import { pageContains } from "@/domains/evidence/pages/page-version";
 describe("one rule decides which capture is the page", () => {
+  it("retains a populated Wix roster during prehydration without admitting hidden lists", async () => {
+    const url = "https://iranopedia.com/famous-iranian-singers", card = (name: string) => `<div class="wixui-repeater__item"><h2>${name}</h2><p>${name} recorded influential Persian songs and performed for audiences worldwide.</p></div>`;
+    const list = (style: string, items: number, cards: string) => `<div class="wixui-repeater"><fluid-columns-repeater role="list" items="${items}" style="${style}">${cards}</fluid-columns-repeater></div>`;
+    const capture = (roster: string) => extractPageSnapshot(`<main><h1>Famous Iranian Singers</h1>${roster}</main>`, url, "singers", "t");
+    const names = card("Googoosh") + card("Vigen"), complete = capture(list("visibility:hidden", 2, names)); db.rows = [complete];
+    const held = (await loadOwnedPageBodies("t", [url])).get("iranopedia.com/famous-iranian-singers")!;
+    expect([complete.content_capture?.complete, complete.body_text?.includes("Googoosh"), complete.body_text?.includes("Vigen"), held.completeness, held.vocabulary.includes("Vigen")]).toEqual([true, true, true, "complete", true]);
+    for (const hidden of [list("visibility:hidden", 3, names), list("display:none", 2, names), `<div style="visibility:hidden">${names}</div>`]) expect(capture(hidden).body_text).not.toContain("Googoosh");
+  });
   it("keeps a captured paragraph distinct from its adjacent link even beyond the summary link cap", async () => {
     const url = "https://iranopedia.com/traditions", prose = 'Nowruz marks spring and the first day of the Iranian calendar. The word "Nowruz" combines "now," meaning new, and "ruz," meaning day. Families display Haft-Seen, dance, and share music during the celebration. The table has seven symbolic items whose names begin with the Persian letter S, and each item represents part of life or nature.';
     db.rows = [extractPageSnapshot(`<main><h1>Persian Holidays</h1>${'<a href="/other">Other</a>'.repeat(15)}<h2>Nowruz</h2><div id="wix-column"><div><div><div class="wixui-rich-text"><p>${prose}</p></div></div></div><div><div><div><a href="/nowruz" aria-label="Learn More">Learn More</a></div></div></div></div><h2>Yalda</h2><p>Yalda is celebrated on the longest night of the year.</p></main>`, url, "traditions", "t")];

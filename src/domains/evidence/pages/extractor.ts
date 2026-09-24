@@ -45,7 +45,13 @@ export function extractPageSnapshot(
   const $content = cheerioLoad(html);
   $content("nav, footer, aside, script, style, noscript, svg, iframe, template, [hidden], [aria-hidden=true]").remove();
   $content("header").filter((_, el) => !$content(el).parents("main, article").length).remove();
-  $content("[style]").filter((_, el) => /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important\s*)?(?:;|$)/i.test($content(el).attr("style") ?? "")).remove();
+  $content("[style]").filter((_, el) => {
+    const node = $content(el), style = node.attr("style") ?? "", cards = node.children(".wixui-repeater__item");
+    const wixList = node.is("fluid-columns-repeater[role=list]") && node.parents(".wixui-repeater").length > 0
+      && /^\s*visibility\s*:\s*hidden\s*;?\s*$/i.test(style) && cards.length > 0 && cards.length === Number(node.attr("items"))
+      && cards.toArray().every((card) => normalizeExtractedText($content(card).text()).split(/\s+/).length >= 5);
+    return !wixList && /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important\s*)?(?:;|$)/i.test(style);
+  }).remove();
   const mains = $content("main").filter((_, el) => $content(el).parents("main").length === 0), articles = $content("article");
   const contentRoot = mains.length ? mains : articles.length === 1 ? articles : $content("body");
   contentRoot.find("br, p, div, section, article, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, pre, table, caption, tr, th, td, figure, figcaption, details, summary").each((_, el) => { $content(el).before(" ").after(" "); });
@@ -162,47 +168,35 @@ export function extractPageSnapshot(
     .map((n) => typeof n.name === "string" ? n.name.trim() : "").filter((n) => n.length >= 3 && n.length <= 100).slice(0, 20);
 
   // Paragraphs, cards, FAQ pairs and held body share the same pruned main-content root.
-  const bodyParagraphSample: string[] = [];
   const cardTexts: string[] = [];
   const MAX_PARAGRAPHS = 20;
   const MAX_PARAGRAPH_CHARS = 300;
   const MIN_PARAGRAPH_WORDS = 8;
-  {
-    const $clone = $content;
-
-    // Legacy samples are projections only; the source capture retains actual boundaries and links.
-    const meaningful = (text: string) => text.split(/\s+/).filter(Boolean).length >= MIN_PARAGRAPH_WORDS;
-    const samples = (selector: string, leaves = false): string[] => {
-      const out: string[] = [];
-      contentRoot.find(selector).each((_, el) => {
-        if (out.length >= MAX_PARAGRAPHS) return false;
-        if (leaves && $clone(el).children().length) return;
-        const text = normalizeExtractedText($clone(el).text());
-        if (meaningful(text) && (!leaves || !out.includes(text))) out.push(text);
-      });
-      return out;
-    };
-    const paragraphs = samples("p"), sample = paragraphs.length ? paragraphs : samples("div, span, li, dd, blockquote, figcaption", true);
-    bodyParagraphSample.push(...sample.map((text) => text.slice(0, MAX_PARAGRAPH_CHARS)));
-
-    // Card / tile / item texts: <li>, <article>, or elements whose class
-    // matches a card-pattern regex. Restricted to the content root.
-    const CARD_CLASS_RE = /\b(card|tile|item|neighborhood|service|offering)\b/i;
-    contentRoot.find("li, article, [class]").each((_, el) => {
-      if (cardTexts.length >= 20) return;
-      const tag = (el as unknown as { tagName: string }).tagName?.toLowerCase();
-      const className = ($clone(el).attr("class") ?? "").toString();
-      const isCard =
-        tag === "li" ||
-        tag === "article" ||
-        CARD_CLASS_RE.test(className);
-      if (!isCard) return;
-      const text = normalizeExtractedText($clone(el).text());
-      // Skip items that are basically empty or just contain a link label.
-      if (text.length < 8) return;
-      cardTexts.push(text.slice(0, 120));
+  // Legacy samples are projections only; the source capture retains actual boundaries and links.
+  const meaningful = (text: string) => text.split(/\s+/).filter(Boolean).length >= MIN_PARAGRAPH_WORDS;
+  const samples = (selector: string, leaves = false): string[] => {
+    const out: string[] = [];
+    contentRoot.find(selector).each((_, el) => {
+      if (out.length >= MAX_PARAGRAPHS) return false;
+      if (leaves && $content(el).children().length) return;
+      const text = normalizeExtractedText($content(el).text());
+      if (meaningful(text) && (!leaves || !out.includes(text))) out.push(text);
     });
-  }
+    return out;
+  };
+  const paragraphs = samples("p"), sample = paragraphs.length ? paragraphs : samples("div, span, li, dd, blockquote, figcaption", true);
+  const bodyParagraphSample = sample.map((text) => text.slice(0, MAX_PARAGRAPH_CHARS));
+
+  // Card / tile / item texts: <li>, <article>, or elements whose class
+  // matches a card-pattern regex. Restricted to the content root.
+  contentRoot.find("li, article, [class]").each((_, el) => {
+    if (cardTexts.length >= 20) return;
+    if (!$content(el).is("li, article") && !/\b(card|tile|item|neighborhood|service|offering)\b/i.test($content(el).attr("class") ?? "")) return;
+    const text = normalizeExtractedText($content(el).text());
+    // Skip items that are basically empty or just contain a link label.
+    if (text.length < 8) return;
+    cardTexts.push(text.slice(0, 120));
+  });
 
   // ── Links ──
   // Classify by RESOLVED HOST, not a substring match. `href.includes(pageDomain)`
