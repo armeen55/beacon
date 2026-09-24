@@ -132,7 +132,7 @@ async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS>
             const saved = await d.load(tenantId, proposal.id);
             if (saved && samePage(saved) && saved.basis === currentBasis && d.substantive(saved) && d.acceptable(saved)) { stored = saved; success = true; break; }
           }
-          reason = success ? "stored_ready_substantive_and_complete" : "no_new_ready_substantive_edit";
+          reason = success ? "stored_ready_substantive_and_complete" : output.outcome === "evidence_unreadable" ? "saved_evidence_unreadable" : "no_new_ready_substantive_edit";
           return output;
         };
         const first = await produce(1);
