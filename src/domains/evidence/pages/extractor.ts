@@ -191,7 +191,7 @@ export function extractPageSnapshot(
   // matches a card-pattern regex. Restricted to the content root.
   contentRoot.find("li, article, [class]").each((_, el) => {
     if (cardTexts.length >= 20) return;
-    if (!$content(el).is("li, article") && !/\b(card|tile|item|neighborhood|service|offering)\b/i.test($content(el).attr("class") ?? "")) return;
+    if (!$content(el).is("li, article, fluid-columns-repeater[role=list] > .wixui-repeater__item") && !/\b(card|tile|item|neighborhood|service|offering)\b/i.test($content(el).attr("class") ?? "")) return;
     const text = normalizeExtractedText($content(el).text());
     // Skip items that are basically empty or just contain a link label.
     if (text.length < 8) return;
