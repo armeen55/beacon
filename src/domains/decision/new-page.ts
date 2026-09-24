@@ -68,7 +68,7 @@ export async function produceNewPage(input: Input): Promise<Result> {
     if (keys.some(k => !allowed.has(k)) || new Set(brief.sections.map(s => COPY_RULES.flat(s.heading))).size !== brief.sections.length || brief.sections.some(s => !s.evidenceKeys.length)) return { row: null, detail: "The brief cites absent source findings or repeats a section; no page bank was created." };
   }
   const identity = JSON.stringify([tenantId, idPart, basis, material, brief.sections]), old = bank ? COPY_RULES.newPagePieces(bank) : new Map<number, NonNullable<ChangeProposal["newPageDraft"]>["pieces"][number]>();
-  if (!old || bank && bank.brief.identity !== identity && !rebound) return holdSource("The banked sections no longer match their source-bound brief; preserved without another purchase.", false);
+  if (!old || bank && (bank.brief.identity !== identity && !rebound || [...old.values()].some(p => !p.assignment || !COPY_RULES.accepted(p.editor) || p.reviewOf !== COPY_RULES.pieceKey(p) || !p.claims.length || p.claims.some(c => !c.supportedBy.some(id => oldIndex?.some(f => f.id === id)))))) return holdSource("The banked sections no longer match their source-bound brief or cite only an unpublished draft; preserved without another purchase.", false);
   const pieces = new Map(old), repair = oldRepair, correcting = new Map<number, string>();
   if (repair) {
     if (repair.resolution === "acquire_factual_source" && !rebound) return fresh.length && oldIndex?.length === sourceFacts.length && swapAt < 0 ? { row: prior, detail: "Every source slot is cited; the new finding cannot replace one without losing another claim's support." } : { row: prior, need: repair.targets[0]?.instruction ?? topic.label, detail: "The whole-page reviewer named a factual claim whose source is still owed." };
@@ -107,19 +107,19 @@ export async function produceNewPage(input: Input): Promise<Result> {
   for (const slot of [0, ...brief.sections.map((_, i) => i + 1)]) {
     if (pieces.has(slot)) continue;
     if (input.stopBy != null && Date.now() >= input.stopBy || attempts.left < 1) break;
-    const heading = slot === 0 ? null : brief.sections[slot - 1]!.heading, task = heading ?? topic.label, previous = [...pieces.values()].sort((a, b) => a.slot! - b.slot!);
-    const assignment = { page: owner, basis: identity, standard: "missing_answer" as const, gapKind: "new_page_piece", propositions: [task], intent: [topic.label],
-      informationNeed: { question: task, requiredAtomKeys: facts.map(f => f.statementKey), polarity: "supports" as const, voice: "publisher" as const, deliveryMode: slot === 0 ? "inline" as const : "headed" as const },
+    const heading = slot === 0 ? null : brief.sections[slot - 1]!.heading, task = heading ?? topic.label, previous = [...pieces.values()].sort((a, b) => a.slot! - b.slot!), keys = [...new Set([...(slot === 0 ? brief.headKeys : brief.sections[slot - 1]!.evidenceKeys), ...(correcting.has(slot) ? factIndex.slice(oldIndex?.length ?? 0).map(f => f.id) : [])])], assigned = factIndex.filter(f => keys.includes(f.id));
+    const assignment = { page: owner, basis: identity, standard: "missing_answer" as const, gapKind: "new_page_piece", propositions: [task, ...(slot ? [brief.sections[slot - 1]!.covers] : [])], intent: [topic.label], facts: assigned.map(f => ({ id: f.id, says: f.fact })),
+      informationNeed: { question: task, requiredAtomKeys: assigned.map(f => f.finding), polarity: "supports" as const, voice: "publisher" as const, deliveryMode: slot === 0 ? "inline" as const : "headed" as const },
       deliveryMode: slot === 0 ? "inline" as const : "headed" as const, diagnosedGap: correcting.get(slot) ?? (slot === 0 ? `Answer ${topic.label} directly.` : brief.sections[slot - 1]!.covers),
       treatment: slot === 0 ? "answer_block" as const : "section" as const, shape: slot === 0 ? "direct_answer" as const : "section" as const, anchor: heading ?? brief.proposedTitle,
       mustLeadWith: `The supported answer about ${task}.`, opening: "Teach the subject in the publisher's voice.", format: slot === 0 ? "A direct opening answer without a heading." : "A complete section under this heading.",
       pageContext: [], forbidden: [], rivals: [], briefing: [], mayReuse: "Use only the supplied claim-support facts, never the unpublished draft as support.", mustPreserve: "Nothing is published yet.",
-      mustNotRepeat: `Do not repeat another section. The page plans: ${brief.sections.map(s => s.heading).join("; ")}.${correcting.has(slot) ? ` The refused copy was: ${old.get(slot)?.after ?? ""}` : ""}`, placement: "additive" as const,
-      completionTest: `A reader can use the answer about ${task} without unwritten sections.` };
+      mustNotRepeat: `Do not repeat this saved copy: ${previous.map(p => p.after).join(" ").slice(0, 1400)}.${correcting.has(slot) ? ` The refused copy was: ${old.get(slot)?.after ?? ""}` : ""}`, placement: "additive" as const,
+      completionTest: `Answer ${task}${slot ? `, specifically ${brief.sections[slot - 1]!.covers}` : ""}, with distinct information supported by the assigned facts; no later section is assumed written.` };
     const piece = await draftFieldForPage({ field: "answer_block", body: fakeBody(snapshot.scope.site!, idPart, brief.proposedTitle, brief.pageHeading, previous, now), query: topic.label, topic: owner,
-      unpublished: true, checked: input.checked, basis, brief: assignment.diagnosedGap, evidenceHints: [], ownedPaths: snapshot.ownedPages.map(p => p.url), minutes: 15,
+      unpublished: true, checked: facts, allowedFactIds: keys, basis, brief: assignment.diagnosedGap, evidenceHints: [], ownedPaths: snapshot.ownedPages.map(p => p.url), minutes: 15,
       assignment, delivery: slot === 0 ? "opening" : undefined }, { tenantId, now, attempts, stopBy: input.stopBy, complete: input.complete, bypassCache: input.bypassCache, bannedTerms: input.bannedTerms });
-    if (!piece || !COPY_RULES.accepted(piece.editor) || !piece.claims.length || slot > 0 && COPY_RULES.flat(piece.heading ?? "") !== COPY_RULES.flat(heading ?? "") || correcting.has(slot) && COPY_RULES.flat(piece.after) === COPY_RULES.flat(old.get(slot)?.after ?? "")) break;
+    if (!piece || !COPY_RULES.accepted(piece.editor) || !piece.claims.length || piece.claims.some(c => !c.supportedBy.some(id => keys.includes(id))) || slot === 0 && (piece.heading != null || piece.units?.some(u => u.kind === "heading")) || slot > 0 && COPY_RULES.flat(piece.heading ?? "") !== COPY_RULES.flat(heading ?? "") || previous.some(p => COPY_RULES.flat(p.after) === COPY_RULES.flat(piece.after)) || correcting.has(slot) && COPY_RULES.flat(piece.after) === COPY_RULES.flat(old.get(slot)?.after ?? "")) break;
     pieces.set(slot, { ...piece, slot, heading }); correcting.delete(slot);
     if (!await input.save(row(false))) return { row: prior, detail: "A written piece could not be saved; later pieces were not bought." };
   }

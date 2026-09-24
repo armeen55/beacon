@@ -82,9 +82,9 @@ const OWNED_WRITE_PAUSE = "The page was read, but its contents could not be save
 
 /** A named debt settles only against the canonical durable capture, not a fetch or a stage transition. */
 async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageReadOutcome[], url: string,
-  deadline: number, profile: BusinessProfile | null, bustedAt: string | null, state: FunnelState): Promise<OwnedRead> {
+  deadline: number, profile: BusinessProfile | null, bustedAt: string | null, state: FunnelState, freeOnly = false): Promise<OwnedRead> {
   const now = d.now(), key = canonicalUrlKey(url), kept: OwnedPageReadOutcome[] = [], seen = new Set<string>(), absolute = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-  const authorizedRetry = PROOF_SPEND.activeFor(tenantId) === true && PROOF_SPEND.externalClosed(tenantId, { capability: "onpage_rendered_html", url: absolute }) === false;
+  const authorizedRetry = !freeOnly && PROOF_SPEND.activeFor(tenantId) === true && PROOF_SPEND.externalClosed(tenantId, { capability: "onpage_rendered_html", url: absolute }) === false;
   const due = (t: string): boolean => { const ms = Date.parse(t); return !Number.isFinite(ms) || now >= ms; };
   for (const o of held) { const k = canonicalUrlKey(o.url); if (due(o.retryAfter) || seen.has(k) || (authorizedRetry && k === key && o.state === "temporarily_unavailable")) continue; seen.add(k); kept.push(o); }
   let captureProblem = false, readFailed = false, priorWords = 0, unresolvedHash: string | null = null, latestCapture: Record<string, unknown> | null = null;
@@ -112,6 +112,7 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
     held: [{ url, ...readOutcomeAt(state, now), retryAfter: new Date(now + retryMs).toISOString() }, ...kept], pause: null, acquired: false,
   });
   if (heldForKey) {
+    if (freeOnly) return { held: kept, pause: null, acquired: false, attempted: false };
     const saved = latestCapture as Partial<PageSnapshot> | null, capture = saved?.content_capture;
     if (heldForKey.state === "robots_blocked" || !saved || typeof saved.content_hash !== "string"
       || !Object.hasOwn(saved, "title") || !Object.hasOwn(saved, "h1") || !Object.hasOwn(saved, "meta_description")
@@ -149,7 +150,7 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
   catch { return { ...remember("temporarily_unavailable"), attempted: false, pause: OWNED_WRITE_PAUSE }; }
   if (await settled()) return { held: kept.filter((o) => canonicalUrlKey(o.url) !== key), pause: null, acquired: true };
   if (readFailed) return { ...remember("temporarily_unavailable"), attempted: false, pause: "The saved page capture could not be read after the free fetch." };
-  if (deadline - d.now() < 50_000) return { held: kept, pause: null, acquired: false, attempted: false };
+  if (freeOnly || deadline - d.now() < 50_000) return { held: kept, pause: null, acquired: false, attempted: false };
   let attempted = false, unchangedIncomplete = false;
   try {
     await renderUnreadOwnedPages(tenantId, 1, { url: absolute, deps: d, profile, deadline, bustedAt, rawSnapshot: snapshot,
@@ -171,7 +172,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
   return async (tenantId, cursor, budgetMs) => {
     const basis = basisFromCursor(cursor);
     if (!basis) return { status: "failed", cursor, progress: {}, detail: NO_BASIS_DETAIL };
-    const shortRead = budgetMs < 40_000, deadline = d.now() + Math.max(1000, budgetMs), ids = { tenantId, unitKey: `winning:${tenantId}` };
+    const shortRead = budgetMs < 40_000, freeOnly = (cursor as { freeOnly?: boolean } | null)?.freeOnly === true, deadline = d.now() + Math.max(1000, budgetMs), ids = { tenantId, unitKey: `winning:${tenantId}` };
     const loaded = await d.loadState(tenantId, basis), state = loaded.state;
     beginCycle(state, cursor, ids.unitKey);
     const ctx: SaveCtx = { rowVersion: loaded.rowVersion }, nowIso = new Date(d.now()).toISOString();
@@ -182,7 +183,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
         const account = await d.getAccount(tenantId).catch(() => null);
         if (!account?.domain || rootDomain(ownedUrl) !== rootDomain(account.domain)) return { status: "failed", attempted: false, cursor: null, progress: {}, detail: "The requested page does not belong to this account's website." };
         const profile = await d.loadProfile(tenantId).catch(() => null);
-        const owned = await readOwnedPage(d, tenantId, state.ownedReads ?? [], ownedUrl, deadline, profile, ownedBustedAt, state);
+        const owned = await readOwnedPage(d, tenantId, state.ownedReads ?? [], ownedUrl, deadline, profile, ownedBustedAt, state, freeOnly);
         state.ownedReads = owned.held;
         await save(d, tenantId, basis, state, ctx);
         return { status: owned.acquired ? "done" : "failed", cursor: null, ...(owned.attempted === false ? { attempted: false as const } : {}), ...(owned.code ? { code: owned.code } : {}),
@@ -191,6 +192,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
       }
       // The caller renews the run lease between persisted readings and this comparison stage.
       if ((cursor as { stage?: string } | null)?.stage === "compare") {
+        if (freeOnly && intersection) return { status: "waiting", cursor: { stage: "compare" }, progress: { cacheHits: state.cycle.cacheHits, spendUsd: round(state.cycle.spentUsd) }, detail: "The saved winner comparison remains owed after the paid-work hold." };
         const bought = intersection ? await buyComparison(d, state, intersection, ids, nowIso) : null;
         if (bought) { state.pageComparisons = [bought, ...state.pageComparisons.filter((c) => c.topicKey !== bought.topicKey)].slice(0, MAX_COMPARISONS);
           await save(d, tenantId, basis, state, ctx); }
@@ -240,7 +242,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
             // The publisher's OWN answer is final: a robots denial is NEVER sent through a provider.
             } else if (res.reason === "robots_blocked") outcome = readOutcomeAt("robots_blocked", d.now());
             // An ordinary refusal or timeout earns exactly ONE paid read of the body, US/English, on the same money core, cache identity and cap as every other call, and only while this cycle's own paid ceiling is unspent.
-            else if (shortRead || paidReads >= MAX_PAID_BODY_READS) outcome = readOutcomeAt("temporarily_unavailable", d.now());
+            else if (shortRead || freeOnly || paidReads >= MAX_PAID_BODY_READS) outcome = readOutcomeAt("temporarily_unavailable", d.now());
             else {
               paidReads += 1;
               const r = interp(await d.callProvider("onpage_content_parsing", { url: c.url }, ids)); track(state, r);
@@ -270,7 +272,7 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
         .sort((a, b) => (b.extract?.fetchedAt ?? "").localeCompare(a.extract?.fetchedAt ?? "")).slice(0, readingsBound), keptKeys = new Set(kept.map((w) => canonicalUrlKey(w.url)));
       state.winningPages = [...pages, ...kept, ...rest.filter((w) => !keptKeys.has(canonicalUrlKey(w.url)) && w.readOutcome
         && d.now() < Date.parse(w.readOutcome.retryAfter)).map((w) => ({ ...w, extract: null, appearances: [] })).slice(0, WINNER_READ_BUDGET * 2)];
-      const owned = ownedUrl && !shortRead ? await readOwnedPage(d, tenantId, state.ownedReads ?? [], ownedUrl, deadline, profile, ownedBustedAt, state) : null;
+      const owned = ownedUrl && !shortRead ? await readOwnedPage(d, tenantId, state.ownedReads ?? [], ownedUrl, deadline, profile, ownedBustedAt, state, freeOnly) : null;
       if (owned) state.ownedReads = owned.held;
       // Optimistic funnel persistence is separate from the caller's renewed ResearchRun lease.
       await save(d, tenantId, basis, state, ctx);

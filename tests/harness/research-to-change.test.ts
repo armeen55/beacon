@@ -267,7 +267,6 @@ describe("three opportunities waiting on their own results page", () => {
 
   it("13: three results pages are posted on one drive and collected on the next, the winner reads follow on that same drive, and the row whose last dependency landed is drafted before the drive ends", async () => {
     const OTHERS = PAGES.slice(1);
-    seedSearchHistory(OTHERS.map((p) => ({ path: p.path, query: p.query })));
     await seedSiblings(OTHERS);
     seedResearchState(basis, { serps: [], winningPages: [] });
     const state = { ready: false, posted: [] as string[] }; script.search = threeTasks(state);
@@ -276,12 +275,13 @@ describe("three opportunities waiting on their own results page", () => {
     const posted = [...new Set(acquisitions(one).filter((a) => mine(a) && a.kind === "serp" && a.detail.includes("waiting")).map((a) => a.key))].sort();
     expect([posted, acquisitions(one).filter((a) => a.outcome === "deferred").length],
       "all three results pages are posted on the one drive, each receipt saying the provider is still working on it, and no reading is put off to a later drive").toEqual([keys, 0]);
-    const postsAfterOne = PAGES.map((p) => state.posted.filter((q) => q === p.query).length);
+    const postsAfterOne = PAGES.map((p) => state.posted.filter((q) => q === p.query).length), dfsAtPost = spentOn("dataforseo");
     state.ready = true; advance(30 * 60_000);
     const promoted: { proposalId: string; workKey: string }[] = []; const two = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owedAfter(one, owed) }, 200_000, (p) => { if (p) promoted.push(p); });
     expect([PAGES.map((p) => state.posted.filter((q) => q === p.query).length), postsAfterOne, acquisitions(two).filter((a) => a.outcome === "deferred").length],
       "the drive that finishes them posts none of them again, and none of them is put off: each named results page is posted once and collected with a free follow-up").toEqual([postsAfterOne, [1, 1, 1], 0]);
     const onFile = new Set(serpsOf().filter((x) => x.status === "done").map((x) => x.query));
+    expect(spentOn("dataforseo"), "collecting posted results and reading their public winners adds no DataForSEO charge").toBe(dfsAtPost);
     expect(PAGES.map((p) => onFile.has(p.query)), "all three searches are on file after that one drive, having cost nothing beyond the posts the drive before them paid for").toEqual([true, true, true]);
     const readFor = (q: string): boolean => winnersOf().some((w) => (w.appearances ?? []).some((a) => a.query === q) && (w.extract?.mainText ?? "").length > 0);
     expect(PAGES.map((p) => readFor(p.query)), "and the winner reads the three collections unlocked follow on the SAME drive, so no page waits another half hour for the reading its comparison needs").toEqual([true, true, true]);
@@ -311,10 +311,8 @@ describe("three opportunities waiting on their own results page", () => {
     const progress = retired.progress as { replenish?: { awakened?: string[]; outcomes?: { preferred?: { retiredReason?: string } } } };
     expect([progress.replenish?.awakened ?? [], progress.replenish?.outcomes?.preferred?.retiredReason]).toEqual([[], "missing"]);
   });
-
   it("14: the free collections its hub rows are waiting on are finished in front of the walk, the row those collections unlocked is written on that same drive, and eleven lower-ranked readings take the room behind the walk", async () => {
     const OTHERS = PAGES.slice(1);
-    seedSearchHistory(OTHERS.map((p) => ({ path: p.path, query: p.query })));
     await seedSiblings(OTHERS);
     seedResearchState(basis, { serps: [], winningPages: [] });
     const state = { ready: false, posted: [] as string[] }; script.search = threeTasks(state);
@@ -336,8 +334,13 @@ describe("three opportunities waiting on their own results page", () => {
     expect([...(await loadChangeProposals(T)).values()].filter((r) => (r.pagePath ?? "") === HUB).map((r) => r.status),
       "so the copy the hub row was waiting for reaches the store on that drive, where the eleven purchases in front of the walk used to take its turn").toEqual(["ready"]);
   });
+  it("keeps free winner reading after a zero-output paid walk without buying another writer or page provider", async () => {
+    const OTHERS = PAGES.slice(1); seedSearchHistory(OTHERS.map((p) => ({ path: p.path, query: p.query }))); await seedSiblings(OTHERS); seedResearchState(basis, { serps: [], winningPages: [] });
+    const state = { ready: false, posted: [] as string[] }; script.search = threeTasks(state); const owed = PAGES.map((p, i) => owedSerp(p, [58, 63, 66][i]!)); const first = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owed }); const dfs = spentOn("dataforseo"), reasoner = script.reasoning!, pageRead = script.page!; logs.length = 0; script.reasoning = (body) => (logs.push(`reasoning-request:${(body as { text?: { format?: { name?: string } } }).text?.format?.name}`), reasoner(body)); script.page = (url) => (url.includes("ref1.example") && logs.push("winner-fetch"), pageRead(url));
+    state.ready = true; advance(30 * 60_000); const stopped = { day: first.cycle_key.slice(-10), lanes: { walk: String((await dueWork(T, now())).evidenceVersion ?? "") } }, open = runs.find((r) => r.status !== "completed"); if (open) open.progress = { ...open.progress, zeroOutput: stopped }; await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owedAfter(first, owed), zeroOutput: stopped });
+    expect([logs.includes("winner-fetch"), PAGES.map((p) => winnersOf().some((w) => w.appearances?.some((a) => a.query === p.query) && !!w.extract?.mainText)), logs.some((l) => l.startsWith("reasoning-request")), spentOn("dataforseo")]).toEqual([true, [true, true, true], false, dfs]);
+  });
 });
-
 /** THE SUBJECT A WINNER COVERS AND THIS PAGE DOES NOT (campaign, 2026-09-06). The ladder files that subject as the row's next dependency and names the winner it found it on. Production then seeded the bare label, searched it as
  *  written, read nothing that answers it and never opened the winner at all: "fact check of the hub page: failed, 0 banked; the answer is still owed", twice, after which the row owed an input nothing could supply. On the captured
  *  rows the same shape: the hub's outline names three kinds of people, the page winning its search names a fourth, and that fourth is what the row is waiting on. */
@@ -410,10 +413,7 @@ describe("the section the winner carries, read where it starts", () => {
       "the winner the requirement named is the one page read; the judge is asked once; its passage opens on the heading the requirement named with the words under it, carrying only the tail of the introduction the search's words are densest in; the free crawl already on file carries the section, so no paid parse is bought").toEqual([[], 1, true, true, true]);
     expect(acquisitions(run).filter((a) => a.kind === "factual_source").map((a) => a.outcome), "and the reading lands as usable evidence on the first attempt").toEqual(["unlocked"]);
   });
-
-
 });
-
 describe("the grouping answer already on file", () => {
   const SUBJECT = "Scientists", RIVAL = "https://en.wikipedia.org/wiki/List_of_Iranians", SAYS = "Famous Iranians who worked as scientists are listed here by the field each of them worked in, with the years they worked.";
   const withSections = (state: { ready: boolean; posts: number; parsed: string[] }) => (path: string, payload: unknown) => {

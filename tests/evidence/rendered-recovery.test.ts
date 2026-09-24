@@ -23,7 +23,7 @@ describe("rendered recovery follows unresolved page identities", () => {
       writeOwnedPage: async (snap: typeof raw) => { writes.push(snap.content_hash); body = { ...body, contentHash: snap.content_hash, completeness: snap.content_capture?.complete ? "complete" : "partial", fetchedAt: snap.fetched_at, finalUrl: snap.final_url, captureStates: [{ ...snap }], latestCaptureId: snap.id }; },
       callProvider: async (_cap: string, _ask: unknown, ids: { bankedAfter?: string }) => { called.push(ids.bankedAfter ?? "none"); return ready ? { state: "hit", envelope: {}, cacheKey: "saved-task", costUsd: 0 } : { state: "capped", cacheKey: "saved-task", detail: "no newer receipt" }; },
       parse: () => ({ url: unread, html: full, httpStatus: 200, capturedAt: current }) } as unknown as FunnelDeps;
-    const read = winningPagesUnit(deps, [], null, unread, null, null, true), cursor = { basis: "basis", runId: "run" };
+    const read = winningPagesUnit(deps, [], null, unread, null, null, true), cursor = { basis: "basis", runId: "run" }; expect((await read(tenant, { ...cursor, freeOnly: true }, 90_000)).status).toBe("failed"); expect([called, fetched, writes]).toEqual([[], [], []]);
     expect((await read(tenant, cursor, 90_000)).status).toBe("failed"); expect([called, (state as { ownedReads: unknown[] }).ownedReads]).toEqual([[held.attemptedAt], [held]]);
     ready = true; expect((await read(tenant, cursor, 90_000)).status).toBe("done");
     expect([called, fetched, (state as { ownedReads: unknown[] }).ownedReads, body.completeness, writes.includes(rendered.content_hash)]).toEqual([[held.attemptedAt, held.attemptedAt], [], [], "complete", true]);

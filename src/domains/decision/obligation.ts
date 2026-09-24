@@ -1,22 +1,11 @@
-/** decision/obligation: THE ONE TYPED NEXT STEP a stored change owes, derived from typed fields alone.
- *
- * Rows carried final copy and no typed next step, so the machine worked out what to do by reading English:
- * a lowercase first letter meant "a gate wrote this", a phrase list meant "this hold was withdrawn", and a
- * semantic review that was owed was filed as a factual_source acquisition, which sent the runtime to buy
- * facts instead of taking the reading nobody had taken. Every one of those is a rule about spelling, so
- * rewording a caveat silently changed what Beacon went and did next.
- *
- * WHAT THIS MAY READ: typed fields only (status, researchOnly, faults, previousCopy, obligation, the one
- * servability verdict's typed `need`/`safetyHold`, the reviewer's own answer, and `deliverableGaps` for the
- * two things only it knows: whether a deliverable is unwritten, and how many sections a new page still owes).
- * It never reads limitations, whyItMatters or research.next: those are display text for a person.
- *
- * PURE: no I/O, no clock, no model. Client-safe, so the same answer reaches a card and the producer.
- */
+/** One client-safe next action for a saved change, derived from its typed record and
+ * current acceptance checks. Display prose never decides what work to buy. */
 
 import { deliverableGaps, openHold } from "./completeness";
 import { unreviewed, copyKey } from "./proof";
 import { COPY_RULES } from "./copy-sanitize";
+import { fieldForComponent } from "./producers/contract";
+import { canonicalUrlKey } from "@/domains/evidence/relevance-gate";
 import type { ChangeProposal } from "./contracts";
 import type { EvidenceRequirement } from "./producers/contract";
 
@@ -86,12 +75,15 @@ export function nextObligation(p: ChangeProposal): Obligation | null {
   const records = !markup && (p.claims ?? []).length === 0 && gaps.length === 0
     && [...(p.faults ?? []), ...p.limitations].some((f) => NO_RECORD.test(f)); // the STORE's own finding that this row's record was lost, never a fresh guess: a row that never carried claims is not a row that lost them
   const ownRecord = [p.copyStamp ?? "", p.recommendedChange.kind === "existing_edit" ? p.recommendedChange.before ?? "" : "", ...(p.supportFacts ?? []).filter((x) => /^page-/.test(x.id)).map((x) => x.fact)].join(" ").toLowerCase(); // the row's OWN record of the page, typed: what the page said when it was last read, the line this change replaces, and the passages the row banked as the page's // AND AN OBJECTION THE OWNER JUDGES FOR THEMSELVES IS NOT A DEBT AT ALL (owner's editorial policy, 2026-09-06): the one readiness verdict partitions this row's own faults, so a sentence it files as an advisory buys no corrective draft and can never spend an attempt or settle a row; only a defect Beacon owes reaches the rungs below.
-  const supportOwed = hold.defects.some((f) => SUPPORT_OWED.test(f)), faults = (p.faults ?? []).filter((f) => hold.defects.includes(f) && !COPY_RULES.reviewHold(f) && f !== owedReview && !(owedReview != null && (f.endsWith(`: ${owedReview}`) || COPY_RULES.supersededEditorFinding(f))) /* raw or composed by the sweep, a review-hold sentence is a reading, never a paid rewrite, whatever sentence the live verdict composes today (audit, 2026-09-14): a stale composed fault survived while owedReview was null or a different sentence and minted a paid redraft */
+  const supportOwed = hold.defects.some((f) => SUPPORT_OWED.test(f)), faults = (p.faults ?? []).filter((f) => hold.defects.includes(f) && !COPY_RULES.externalAuthorityFinding(f) && !COPY_RULES.reviewHold(f) && f !== owedReview && !(owedReview != null && (f.endsWith(`: ${owedReview}`) || COPY_RULES.supersededEditorFinding(f))) /* raw or composed by the sweep, a review-hold sentence is a reading, never a paid rewrite, whatever sentence the live verdict composes today (audit, 2026-09-14): a stale composed fault survived while owedReview was null or a different sentence and minted a paid redraft */
     && (!markup || /^this structured data/i.test(f)) && !NO_RECORD.test(f) && !SUPPORT_OWED.test(f) && !(supportOwed && /cites a source that is not attached to it/.test(f)) /* the unattached-source sentence composed beside an unobserved quotation is that same missing reading, not a second fault */
     && !((w) => w != null && ownRecord.includes(w.toLowerCase()))(PROMISED.exec(f)?.[1])); // the record sentence is never a statement about the words: it is answered by the reading below while the record is missing, and by the record itself once that reading has rebuilt it
   // A REFUSED REVIEW IS NOT BOUGHT AGAIN THE SAME DAY (falsifier, 2026-09-02). Review outranked redraft, so /farsi-numbers, whose paid reviewer refused it at 02:56Z and again at 03:08Z with the same objection sitting on the row as a typed fault, still answered `review` and the runtime paid the evaluator every drive. A reading is for copy with no KNOWN defect; a row that carries one owes the corrective draft first, and the reading is owed again only once the words have moved.
-  if (faults.length > 0) return redraft(faults[0]!);
+  const copyFault = faults.find(f => !COPY_RULES.preservationFinding(f)); if (copyFault) return redraft(copyFault);
   if (supportOwed) return { kind: "evidence", need: { kind: "page_source", query: p.primaryQuery, url: p.pageUrl ?? p.pagePath ?? "", proposalId: p.id, reasonCode: "source_support_unconfirmed" } }; /* SUPPORT STILL OWED IS A READING TO TAKE, NEVER A REDRAFT (production, 2026-09-15): three Ready link rows whose page quotations the new heading-scoped read no longer matched were sent to a paid rewrite of words no gate faulted; the words stand, the page is read again, and the review re-qualifies the quotation */
+  const unsupportedMetric = p.researchOnly === true ? null : COPY_RULES.newMetaQuantityGap(p); if (unsupportedMetric) return redraft(unsupportedMetric); // A stale semantic review cannot repair the source gap that blocks release.
+  const external = p.researchOnly === true ? null : COPY_RULES.newExternalAuthorityGap(p); if (external && p.recommendedChange.kind === "existing_edit") { const pieces = (p.bundle?.components ?? []).filter(part => part.after.toLowerCase().includes(external.phrase.toLowerCase())), root = pieces.length === 1 && fieldForComponent(pieces[0]!.kind) === p.recommendedChange.field && pieces[0]!.after === p.recommendedChange.after && (!pieces[0]!.page || pieces[0]!.page === p.pagePath || !!p.pageUrl && canonicalUrlKey(pieces[0]!.page) === canonicalUrlKey(p.pageUrl)); if (pieces.length > 1 || pieces.length === 1 && !root || !(p.claims ?? []).some(c => c.text.toLowerCase().includes(external.phrase.toLowerCase()))) return redraft(`${external.reason}; revise the unsupported wording or bind the exact source to its publication component`); return { kind: "evidence", need: { kind: "factual_source", query: p.primaryQuery, url: p.pageUrl ?? p.pagePath ?? "", proposalId: p.id, missingTopic: external.proposition, reasonCode: "external_claim_unconfirmed", delivery: "existing_page_edit" } }; }
+  if (faults.length > 0) return redraft(faults[0]!);
   if (owedReview != null || records || hold.defects.some(COPY_RULES.reviewHold)) return { kind: "review" }; // a reading outranks a blocker nobody faulted: a row held for a look owes the look, never a paid rewrite (restored, audit 2026-09-14); a stale review-hold sentence still holding the row is cleared by the reading it names
   // AND FINAL COPY MAY NOT SIT BEHIND A BLOCKER NOBODY OWNS (falsifier, 2026-09-02). A section held on "nothing on file says what a reader gains from it" owed nothing typed, so the $0 replay skipped it for ever while the one servability verdict went on refusing it. Whatever still blocks these exact words is the instruction the next draft writes against; the safety confirmation is the operator's and already returned above.
   return hold.blocking ? redraft(hold.blocking) : null;

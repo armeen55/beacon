@@ -328,7 +328,7 @@ export const defaultSteps: ResearchCycleSteps & {
         const known = need.finding ? (await import("@/domains/evidence/pages/fact-checks").then(m => m.readFactChecks(tenantId, need.finding!.page)).catch(() => [])).find(f => f.page === need.finding!.page && f.statementKey === need.finding!.statementKey) : null;
         if (need.finding && !known?.subject.trim()) return { acquired: false, detail: "the known statement is not inventoried for this owner; discovery cannot replace it" };
         if (need.topic && (need.url || !need.topic.key.startsWith("topic:") || !need.topic.label.trim() || (!known && !need.missingTopic?.trim()))) return { acquired: false, detail: "the prospective factual requirement has ambiguous or missing scope" };
-        const prop = known ? { subject: known.subject, url: need.topic?.key ?? need.url! } : need.missingTopic?.trim() && (need.url || need.topic) ? { subject: need.topic ? need.missingTopic.trim() : propositionOf(need.missingTopic.trim(), need.query), url: need.topic?.key ?? need.url! } : null;
+        const prop = known ? { subject: known.subject, url: need.topic?.key ?? need.url! } : need.missingTopic?.trim() && (need.url || need.topic) ? { subject: need.topic || need.reasonCode === "external_claim_unconfirmed" ? need.missingTopic.trim() : propositionOf(need.missingTopic.trim(), need.query), url: need.topic?.key ?? need.url! } : null;
         const atomKey = need.finding?.statementKey ?? (need.missingTopic?.trim() ? claimIdentity(need.missingTopic.trim(), "", "missing") : undefined);
         let current: Awaited<ReturnType<typeof seedProposition>> = null;
         if (prop) {
