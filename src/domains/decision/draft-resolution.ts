@@ -158,4 +158,5 @@ const wrongSubject = (page: OwnedPageEvidence, body: OwnedPageBody | null | unde
 /** ONE public surface for what a draft's gain outcome IS and what to do about it: the refusal lines and their identity
  *  set, the deterministic next-step ladder, and the duplication reading a replacement is held to. One symbol, because
  *  every caller that needs one of these needs the others in the same breath. */
-export const GAIN = { ...GAIN_TEXT, LINES: GAIN_LINES, MIN_ABSORBED, resolution: gainResolution, absorption, surviving, causalNeed, metaSource, wrongSubject } as const;
+const causalAnswer = (answer: string, question: string): boolean => /^why\b/i.test(question) && answer.split(/[.!?]+/).some((sentence) => /\b(because|commemorat\w*|symboli[sz]\w*|signif\w*|represent\w*|to mark|in hono[u]?r of|in reference to|reminiscent of)\b/i.test(sentence) && (question.match(/\d+/g) ?? []).every((number) => new RegExp(`\\b${number}\\b`).test(sentence)));
+export const GAIN = { ...GAIN_TEXT, LINES: GAIN_LINES, MIN_ABSORBED, resolution: gainResolution, absorption, surviving, causalNeed, causalAnswer, metaSource, wrongSubject } as const;
