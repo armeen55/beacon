@@ -11,7 +11,7 @@ import type { CachedCallResult } from "@/domains/evidence/dataforseo/funnel-boun
 import type { PageSnapshot } from "./types";
 
 /** Bulk crawl recovery and exact page-source debt share the same rendered acquisition and snapshot writer. */
-const RENDERED_READS_PER_PASS = 60, INVENTORY_PAGE = 100, RETRY_MS = 86_400_000;
+const RENDERED_READS_PER_PASS = 60, INVENTORY_PAGE = 100, RETRY_MS = 86_400_000; const sameFinal = (a: string | null | undefined, b: string): boolean => { try { const x = new URL(a ?? ""), y = new URL(b); return x.protocol === y.protocol && x.port === y.port && x.hostname.replace(/^www\./, "") === y.hostname.replace(/^www\./, "") && x.pathname === y.pathname && x.search === y.search; } catch { return false; } };
 async function holdUnresolved(tenantId: string, url: string, now: number): Promise<void> {
   const { data, error } = await getSupabaseAdmin().from("owned_pages").update({ blocked_until: new Date(now + RETRY_MS).toISOString(), updated_at: new Date(now).toISOString() })
     .eq("tenant_id", tenantId).eq("url", url).select("url");
@@ -35,7 +35,7 @@ async function unreadOwnedPages(tenantId: string, d: ResolvedDeps, cap: number):
       if (!key || seen.has(key)) continue;
       seen.add(key);
       if (miss === "read_failed" || (!body && miss !== "no_capture")) throw new Error("owned-page body read was incomplete");
-      if (!(body?.version === "current" && body.completeness === "complete" && body.contentHash
+      if (!(body?.version === "current" && sameFinal(body.finalUrl, url) && body.completeness === "complete" && body.contentHash
         && isCurrent("owned_page", body.fetchedAt, d.now()))) picked.push(url);
       if (picked.length >= cap) break;
     }
@@ -61,15 +61,16 @@ export async function renderUnreadOwnedPages(tenantId: string, cap = RENDERED_RE
     if (deadline - d.now() < 50_000) break;
     const key = canonicalUrlKey(url), beforeMisses = new Map<string, "no_capture" | "read_failed">(), beforeRows = await d.readOwnedBodies(tenantId, [url], beforeMisses), before = beforeRows.get(key);
     if (beforeMisses.get(key) === "read_failed" || (!before && beforeMisses.get(key) !== "no_capture")) throw new Error("owned page capture could not be read before rendered acquisition");
-    if (before?.version === "current" && before.completeness === "complete" && before.contentHash
+    if (before?.version === "current" && sameFinal(before.finalUrl, url) && before.completeness === "complete" && before.contentHash
       && isCurrent("owned_page", before.fetchedAt, d.now(), options.bustedAt)) continue;
     // Bulk recovery must also honor current robots; exact debt already performed this permitted raw read.
     let rawSnapshot = options.rawSnapshot;
+    if (rawSnapshot && !sameFinal(rawSnapshot.final_url, url)) { await hold(url); continue; }
     if (!rawSnapshot) {
       const raw = await d.fetchPage(url, new Map(), { timeoutMs: Math.max(1, Math.min(10_000, (deadline - d.now()) / 2)) })
         .catch(() => null);
       if (!raw) { await hold(url); continue; }
-      if (!raw.ok || raw.status !== 200 || (raw.finalUrl && canonicalUrlKey(raw.finalUrl) !== key)) { await hold(url); continue; }
+      if (!raw.ok || raw.status !== 200 || (raw.finalUrl && !sameFinal(raw.finalUrl, url))) { await hold(url); continue; }
       rawSnapshot = extractPageSnapshot(raw.html, url, pageIdFor(key), tenantId, raw.status, profile ?? undefined, raw.finalUrl);
       const prior = before?.sourceCapture, current = rawSnapshot.content_capture;
       // A cold syntactically complete HTML document can still be a JavaScript loading shell.
@@ -104,7 +105,7 @@ export async function renderUnreadOwnedPages(tenantId: string, cap = RENDERED_RE
     options.onRead?.(r, raw);
     if (r.kind !== "evidence") { await hold(url); break; }
     const got = d.parse("onpage_rendered_html", r.payload as never);
-    if (!got || canonicalUrlKey(got.url) !== key || got.httpStatus !== 200 || !isCurrent("owned_page", got.capturedAt, d.now(), options.bustedAt)) { await hold(url); break; }
+    if (!got || !sameFinal(got.url, url) || got.httpStatus !== 200 || !isCurrent("owned_page", got.capturedAt, d.now(), options.bustedAt)) { await hold(url); break; }
     const snap = extractPageSnapshot(got.html, url, pageIdFor(key), tenantId, got.httpStatus, profile ?? undefined, got.url);
     snap.id = `snap-${pageIdFor(key)}-rendered-${Date.parse(got.capturedAt)}`;
     snap.fetched_at = got.capturedAt;

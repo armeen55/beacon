@@ -12,7 +12,7 @@ import { sectionsFrom } from "@/domains/evidence/funnel/research-evidence";
 
 /** Saved page body with version, coverage, and source structure. */
 export type OwnedPageBody = {
-  pageId?: string; captureId?: string; latestCaptureId?: string; captureStates?: Record<string, unknown>[]; url: string;
+  pageId?: string; captureId?: string; latestCaptureId?: string; captureStates?: Record<string, unknown>[]; url: string; finalUrl?: string | null;
   title: string | null;
   h1: string | null;
   metaDescription: string | null;
@@ -48,7 +48,7 @@ const MAX_PASSAGES = 200, MAX_PASSAGE_CHARS = 1_000;
 const MAX_OPENING_CHARS = 1200, MAX_OPENING_PARAGRAPHS = 8;
 const MAX_TITLE_CHARS = 200, MAX_META_CHARS = 320, MAX_ITEM_CHARS = 300;
 const MAX_HEADINGS = 60, MAX_FAQS = 20, MAX_ENTITIES = 12, MAX_LINKS = 12;
-const COLUMNS = "id, page_id, url, title, h1, meta_description, fetched_at, word_count, h2_list, h3_list, faqs, body_text, body_paragraph_sample, card_texts, schema_entity_names, internal_links, content_hash, extraction_certainty, content_capture";
+const COLUMNS = "id, page_id, url, final_url, title, h1, meta_description, fetched_at, word_count, h2_list, h3_list, faqs, body_text, body_paragraph_sample, card_texts, schema_entity_names, internal_links, content_hash, extraction_certainty, content_capture";
 
 type Row = Partial<Record<keyof PageSnapshot, unknown>> & Pick<Partial<PageSnapshot>, "url" | "fetched_at">;
 
@@ -193,7 +193,7 @@ export async function loadOwnedPageBodies(tenantId: string, urls: string[], miss
     const v = selectPageVersion(rows, (r) => ({ fetchedAt: typeof r.fetched_at === "string" ? r.fetched_at : null, words: typeof r.word_count === "number" && r.word_count > 0 ? r.word_count : typeof r.body_text === "string" ? r.body_text.trim().split(/\s+/).filter(Boolean).length : 0, bodyHeld: typeof r.body_text === "string", certainty: typeof r.extraction_certainty === "string" ? r.extraction_certainty : null, contentIdentity: typeof r.content_hash === "string" ? r.content_hash : null }));
     if (!v.content) continue;
     const body = bodyOf(v.content), newestAt = v.conflict && typeof (v.current as Row | null)?.fetched_at === "string" ? ((v.current as Row).fetched_at as string) : null;
-    out.set(key, { ...body, pageId: typeof v.content.page_id === "string" ? v.content.page_id : undefined, captureId: typeof v.content.id === "string" ? v.content.id : undefined, latestCaptureId: typeof v.current?.id === "string" ? v.current.id : undefined, captureStates: rows, version: v.state, newestAt, ...(v.conflict ? { heldNote: `${body.heldNote} ${v.conflictKind === "collapse" ? `The newest read of this page, ${newestAt?.slice(0, 10) ?? "recently"}, captured sharply less content than the preceding trusted read; one more agreeing capture is required before treating that apparent deletion as current.` : `The newest read of this page, ${newestAt?.slice(0, 10) ?? "recently"}, captured no words Beacon can trust.`} These are the words captured ${body.fetchedAt?.slice(0, 10) ?? "earlier"}. They prove what the page said then, never what it lacks now.` } : {}) });
+    out.set(key, { ...body, finalUrl: typeof v.content.final_url === "string" ? v.content.final_url : null, pageId: typeof v.content.page_id === "string" ? v.content.page_id : undefined, captureId: typeof v.content.id === "string" ? v.content.id : undefined, latestCaptureId: typeof v.current?.id === "string" ? v.current.id : undefined, captureStates: rows, version: v.state, newestAt, ...(v.conflict ? { heldNote: `${body.heldNote} ${v.conflictKind === "collapse" ? `The newest read of this page, ${newestAt?.slice(0, 10) ?? "recently"}, captured sharply less content than the preceding trusted read; one more agreeing capture is required before treating that apparent deletion as current.` : `The newest read of this page, ${newestAt?.slice(0, 10) ?? "recently"}, captured no words Beacon can trust.`} These are the words captured ${body.fetchedAt?.slice(0, 10) ?? "earlier"}. They prove what the page said then, never what it lacks now.` } : {}) });
   }
   if (misses) for (const key of wanted) if (!out.has(key)) misses.set(key, failed.has(key) ? "read_failed" : "no_capture");
   return out;

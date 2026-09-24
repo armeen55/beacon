@@ -18,7 +18,7 @@ describe("acquireEvidence is exhaustive over the requirement union", () => {
     vi.doMock("@/lib/cost/credit-breaker", async (a) => { const mod = await a<{ CREDIT_BREAKER: Record<string, unknown> }>(); return { ...mod, CREDIT_BREAKER: { ...mod.CREDIT_BREAKER, peek: async () => "held" } }; });
     try {
       const { defaultSteps: steps } = await import("@/domains/runtime/ops/research-steps");
-      const fresh = { version: "current", contentHash: "capture-hash", completeness: "complete", fetchedAt: new Date().toISOString(), faqs: [] };
+      const fresh = { version: "current", finalUrl: url, contentHash: "capture-hash", completeness: "complete", fetchedAt: new Date().toISOString(), faqs: [] };
       for (const [capture, acquired] of [[null, false], [{ ...fresh, completeness: "partial" }, false], [{ ...fresh, version: "stale_known_good" }, false], [{ ...fresh, fetchedAt: "2000-01-01" }, false], [fresh, true]] as const) {
         body = capture; expect((await steps.acquireEvidence("t1", need, "b", 25_000)).acquired).toBe(acquired);
       }

@@ -4,7 +4,7 @@ import { confirmedVersion, deliverableGaps } from "@/domains/decision/completene
 import type { ChangeProposal } from "@/domains/decision/contracts"; import { PROOF_SPEND, runWithoutSpending } from "@/lib/spend-scope"; import { researchPermission } from "./due-work";
 import spendReservations, { runWithProposalWorkKey } from "@/lib/cost/spend-reservations";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
-import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
+import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { isCurrent } from "@/domains/evidence/freshness";
@@ -68,15 +68,13 @@ async function run(input: Input, deps: Deps = DEPS) {
 }
 const PAGE_DEPS = { ...DEPS, produce: produceProposalsForTenant, acquire: defaultSteps.acquireEvidence, list: loadChangeProposals, snapshot: loadEvidenceSnapshot,
   bodies: loadOwnedPageBodies, account: getTenant, basis: defaultSteps.currentBasis, clock: Date.now,
-  substantive: (row: ChangeProposal) => writerKindOf(row) === "answer" && row.changeFamily !== "factual_correction" || writerKindOf(row) === "description" && row.recommendedChange.kind === "existing_edit" && row.recommendedChange.field === "meta" };
-type PageInput = Omit<Input, "now"> & { maxDataForSeoCalls: number; maxDataForSeoUsd: number; authorizationId?: string };
+  substantive: (row: ChangeProposal) => writerKindOf(row) === "answer" && row.changeFamily !== "factual_correction" || writerKindOf(row) === "description" && row.recommendedChange.kind === "existing_edit" && row.recommendedChange.field === "meta" || writerKindOf(row) === "link" && row.recommendedChange.kind === "existing_edit" && !!row.recommendedChange.linkTo };
+type PageInput = Omit<Input, "now"> & { maxDataForSeoCalls: number; maxDataForSeoUsd: number; authorizationId?: string }; const sameDocument = (a: string, b: string): boolean => { try { const x = new URL(a.startsWith("/") ? a : /^https?:\/\//i.test(a) ? a : `https://${a}`, b), y = new URL(b); return x.protocol === y.protocol && x.port === y.port && x.hostname.replace(/^www\./, "") === y.hostname.replace(/^www\./, "") && x.pathname === y.pathname && x.search === y.search; } catch { return false; } };
 
 async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS> = {}) {
-  const d = { ...PAGE_DEPS, ...overrides }, { tenantId, proposalId, currentBasis } = input;
-  const deadline = d.clock() + 240_000, stopBy = deadline - 100_000;
+  const d = { ...PAGE_DEPS, ...overrides }, { tenantId, proposalId, currentBasis } = input, stopBy = d.clock() + 140_000;
   let stored: ChangeProposal | null = null, captured = false, allowance: ReturnType<typeof PROOF_SPEND.meter> = null;
-  let output: Awaited<ReturnType<typeof produceProposalsForTenant>> | null = null;
-  let acquisition: Awaited<ReturnType<typeof defaultSteps.acquireEvidence>> | null = null;
+  let output: Awaited<ReturnType<typeof produceProposalsForTenant>> | null = null, acquisition: Awaited<ReturnType<typeof defaultSteps.acquireEvidence>> | null = null;
   const receipts: Awaited<ReturnType<typeof produceProposalsForTenant>>["paid"]["receipts"][number][] = [], shared = new Map<string, unknown>();
   const result = (success: boolean, reason: string) => ({ success, proposalId: stored?.id ?? proposalId, reason, stored, captured, allowance, acquisition,
     preferredRetiredReason: output?.paid.preferredRetiredReason, preferredOutcome: output?.paid.receipts.find((r) => r.family === "editor" && !!output?.paid.preferredWorkKey && r.workKey === output?.paid.preferredWorkKey)?.outcome ?? null,
@@ -91,22 +89,22 @@ async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS>
   if (!row || row.tenantId !== tenantId || row.id !== proposalId || row.basis !== currentBasis
     || d.delivery(row) !== "existing_page_edit" || row.status !== "needs_review" || !row.pageUrl || !row.workKey?.trim()) return result(false, "candidate_is_not_current_unfinished_page_work");
   stored = row;
-  const accountBasis = await d.basis(tenantId).catch(() => null);
-  if (!accountBasis) return result(false, "account_basis_unavailable");
-  const account = await d.account(tenantId).catch(() => null); let page: string;
-  try {
+  const accountBasis = await d.basis(tenantId).catch(() => null); if (!accountBasis) return result(false, "account_basis_unavailable");
+  const account = await d.account(tenantId).catch(() => null); let page: string; try {
     if (!account?.domain) return result(false, "owned_website_unavailable");
     const absolute = (value: string) => /^https?:\/\//i.test(value) ? value : `https://${value}`;
     const origin = new URL(absolute(account.domain)), target = new URL(row.pageUrl.startsWith("/") ? row.pageUrl : absolute(row.pageUrl), origin);
-    if (!["http:", "https:"].includes(target.protocol) || target.username || target.password || canonicalUrlKey(target.origin) !== canonicalUrlKey(origin.origin)) return result(false, "candidate_is_not_owned_page");
+    if (!["http:", "https:"].includes(target.protocol) || target.username || target.password || !sameDocument(target.origin, origin.origin)) return result(false, "candidate_is_not_owned_page");
     target.hash = ""; page = target.href;
   } catch { return result(false, "candidate_is_not_owned_page"); }
-  const pageKey = canonicalUrlKey(page), samePage = (p: ChangeProposal) => p.tenantId === tenantId && canonicalUrlKey(p.pageUrl ?? "") === pageKey;
+  const pageKey = canonicalUrlKey(page), samePage = (p: ChangeProposal) => p.tenantId === tenantId && !!p.pageUrl && sameDocument(p.pageUrl, page);
   const base = { focusPage: page, preferred: { proposalId: row.id, workKey: row.workKey!, strict: true as const }, deliveryScope: "existing_page_edits" as const, produce: true, maxDrafts: 1, stopBy };
   const snapshot = await runWithoutSpending(() => d.snapshot(tenantId)).catch(() => null);
   if (!snapshot || snapshot.sources.some((s) => (s.source === "gsc" || s.source === "wix") && s.status === "failed")) return result(false, "saved_evidence_unreadable");
-  const savedRows = await d.list(tenantId, { failClosed: true }).catch(() => null);
-  if (!savedRows) return result(false, "saved_proposals_unreadable");
+  const link = row.recommendedChange.kind === "existing_edit" ? row.recommendedChange.linkTo : null; let destination: string | null = null; try { if (link) { const target = new URL(link, page); target.hash = ""; destination = target.href; } } catch { return result(false, "link_destination_is_not_a_distinct_owned_page"); }
+  const dest = destination ? new URL(destination) : null, sourceOrigin = new URL(page), sameOrigin = (a: URL, b: URL) => a.protocol === b.protocol && a.port === b.port && a.hostname.replace(/^www\./, "") === b.hostname.replace(/^www\./, "");
+  if (dest && (!["http:", "https:"].includes(dest.protocol) || dest.username || dest.password || !sameOrigin(dest, sourceOrigin) || dest.pathname === sourceOrigin.pathname || !snapshot.ownedPages.some((p) => { try { const owned = new URL(/^https?:\/\//i.test(p.url) ? p.url : `https://${p.url}`); return sameOrigin(owned, dest) && owned.pathname === dest.pathname && owned.search === dest.search; } catch { return false; } }))) return result(false, "link_destination_is_not_a_distinct_owned_page");
+  const savedRows = await d.list(tenantId, { failClosed: true }).catch(() => null); if (!savedRows) return result(false, "saved_proposals_unreadable");
   const already = new Map([...savedRows.values()].filter((p) => samePage(p) && d.substantive(p) && d.acceptable(p)).map((p) => [p.id, d.version(p)]));
   if (d.clock() >= stopBy || await d.permission(tenantId) !== "paused") return result(false, "proof_preparation_deferred");
   const admissionKey = `page-proof-v3::${tenantId}::${pageKey}::${currentBasis}${input.authorizationId ? `::operator:${input.authorizationId.toLowerCase()}` : ""}`;
@@ -119,16 +117,11 @@ async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS>
     await PROOF_SPEND.run(tenantId, 8, 2, async () => {
       try {
         if (await d.permission(tenantId) !== "paused") { reason = "research_pause_changed_before_capture"; return; }
-        const body = (await d.bodies(tenantId, [page])).get(pageKey);
-        captured = body?.version === "current" && body.completeness === "complete" && !!body.contentHash && isCurrent("owned_page", body.fetchedAt, d.clock());
-        if (!captured) {
-          const acquired = await runWithProposalWorkKey(row.workKey, () => d.acquire(tenantId, {
-            kind: "page_source", url: page, query: row.primaryQuery, reasonCode: "owned_page_capture_unqualified", workKey: row.workKey!,
-          }, accountBasis, Math.min(75_000, Math.max(0, stopBy - d.clock())), undefined, "existing_page_edits"));
-          captured = acquired.acquired;
-          if (!captured) { reason = `owned_capture_owed:${acquired.detail}`; return; }
-        }
-        if (d.clock() >= stopBy || await d.permission(tenantId) !== "paused") { reason = "captured_but_drafting_deferred"; return; }
+        const pages = destination ? [page, destination] : [page], bodies = await d.bodies(tenantId, pages), qualified = (body: OwnedPageBody | null | undefined, url: string) => !!body?.finalUrl && sameDocument(body.url, url) && sameDocument(body.finalUrl, url) && body.version === "current" && body.completeness === "complete" && !!body.contentHash && isCurrent("owned_page", body.fetchedAt, d.clock());
+        for (const url of pages) { if (qualified(bodies.get(canonicalUrlKey(url)), url)) continue;
+          const acquired = await runWithProposalWorkKey(row.workKey, () => d.acquire(tenantId, { kind: "page_source", url, query: row.primaryQuery, reasonCode: "owned_page_capture_unqualified", workKey: row.workKey! }, accountBasis, Math.min(75_000, Math.max(0, stopBy - d.clock())), undefined, "existing_page_edits")); const readback = acquired.acquired ? (await d.bodies(tenantId, [url])).get(canonicalUrlKey(url)) : null;
+          if (!qualified(readback, url)) { reason = `owned_capture_owed:${acquired.detail}`; return; } }
+        captured = true; if (d.clock() >= stopBy || await d.permission(tenantId) !== "paused") { reason = "captured_but_drafting_deferred"; return; }
         const produce = async (aeoDiagnoses: number) => {
           if (d.clock() >= stopBy || await d.permission(tenantId) !== "paused") return;
           output = await d.produce(tenantId, { ...base, shared, persist: true, maxCalls: Math.max(0, 8 - (PROOF_SPEND.meter(tenantId)?.modelCalls ?? 8)), aeoDiagnoses });
@@ -142,6 +135,13 @@ async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS>
           return output;
         };
         const first = await produce(1);
+        if (!success && destination && first && first.outcome !== "evidence_unreadable" && first.outcome !== "persistence_failed" && !first.paid.receipts.some((r) => ["provider_blocked", "cost_blocked", "retryable_blocked"].includes(r.outcome) && r.providerCalls > 0)) { const need = first.paid.evidenceOwed?.find((n) => n.kind === "semantic_review" && n.proposalId === proposalId && n.workKey?.trim() && DRAFT_BUDGET.scopeAllows("existing_page_edits", DRAFT_BUDGET.requirementDelivery(n)));
+          const owing = need ? await d.load(tenantId, proposalId) : null, obligation = owing ? d.obligation(owing) : null;
+          if (need && owing && samePage(owing) && owing.basis === currentBasis && owing.status === "needs_review" && (obligation?.kind === "review" || obligation?.kind === "evidence" && obligation.need.kind === "semantic_review") && d.clock() < stopBy && await d.permission(tenantId) === "paused") {
+            acquisition = await runWithProposalWorkKey(need.workKey!, () => d.acquire(tenantId, need, accountBasis, Math.min(80_000, stopBy - d.clock()), undefined, "existing_page_edits")); const reviewed = acquisition.acquired && acquisition.unlocked ? await d.load(tenantId, proposalId) : null;
+            if (reviewed && samePage(reviewed) && reviewed.basis === currentBasis && d.reviewAuthorized(reviewed) && await d.permission(tenantId) === "paused") {
+              const promoted = await d.promote(tenantId, proposalId, d.version(reviewed), currentBasis, { kind: "promote", at: new Date(d.clock()).toISOString() }); stored = await d.load(tenantId, proposalId); success = promoted.status === "promoted" && d.acceptable(stored); reason = success ? "stored_ready_substantive_and_complete" : `promotion_${promoted.status}${promoted.refusal ? `:${promoted.refusal}` : ""}`;
+            } else reason = `semantic_review_owed:${acquisition.detail}`; } }
         if (!success && first && first.outcome !== "evidence_unreadable" && first.outcome !== "persistence_failed"
           && !first.paid.receipts.some((r) => ["provider_blocked", "cost_blocked", "retryable_blocked"].includes(r.outcome) && r.providerCalls > 0)) {
           const need = first.paid.evidenceOwed?.find((n) => n.kind === "factual_source" && n.url && canonicalUrlKey(n.url) === pageKey
@@ -167,11 +167,10 @@ async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS>
         }
         if (await d.permission(tenantId) !== "paused") { success = false; reason = "research_pause_changed_after_execution"; }
       } finally { allowance = PROOF_SPEND.meter(tenantId); }
-    }, { maxExternalCalls: 3, maxExternalUsd: 0.4, allowedExternal: [{ capability: "onpage_rendered_html", url: page }], stopBy });
+    }, { maxExternalCalls: 3, maxExternalUsd: 0.4, allowedExternal: [page, ...(destination ? [destination] : [])].map((url) => ({ capability: "onpage_rendered_html", url })), stopBy });
   } catch { reason = "proof_execution_failed"; }
   // A crashed/ambiguous authorized call consumes admission. Only a positively observed zero-call scope releases it.
-  const used = allowance as ReturnType<typeof PROOF_SPEND.meter>;
-  const noCalls = used != null && used.modelCalls === 0 && used.externalCalls === 0;
+  const used = allowance as ReturnType<typeof PROOF_SPEND.meter>, noCalls = used != null && used.modelCalls === 0 && used.externalCalls === 0;
   const recorded = noCalls && !success ? await d.spend.release(admission.attemptId, true).catch(() => false)
     : await d.spend.reconcile(admission.attemptId, 0, null, "provider_reported", { success, reason, allowance, acquisition }).catch(() => false);
   return result(success, recorded ? reason : "proof_admission_receipt_missing");

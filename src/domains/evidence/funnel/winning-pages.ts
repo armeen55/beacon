@@ -78,7 +78,7 @@ async function buyComparison(d: ResolvedDeps, state: FunnelState, want: FunnelIn
 const RETRY_MS: Record<WinnerReadOutcome["state"], number> = { robots_blocked: 30 * 86_400_000, provider_unavailable: 7 * 86_400_000, temporarily_unavailable: 86_400_000 };
 const readOutcomeAt = <S extends WinnerReadOutcome["state"]>(state: S, at: number) => ({ state, attemptedAt: new Date(at).toISOString(), retryAfter: new Date(at + RETRY_MS[state]).toISOString() });
 type OwnedRead = { held: OwnedPageReadOutcome[]; pause: string | null; acquired: boolean; attempted?: false; code?: "unchanged_incomplete" };
-const OWNED_WRITE_PAUSE = "The page was read, but its contents could not be saved, so it is not counted as read yet. The next visit will read it again.";
+const OWNED_WRITE_PAUSE = "The page was read, but its contents could not be saved, so it is not counted as read yet. The next visit will read it again."; const sameFinal = (a: string | null | undefined, b: string): boolean => { try { const x = new URL(a ?? ""), y = new URL(b); return x.protocol === y.protocol && x.port === y.port && x.hostname.replace(/^www\./, "") === y.hostname.replace(/^www\./, "") && x.pathname === y.pathname && x.search === y.search; } catch { return false; } };
 
 /** A named debt settles only against the canonical durable capture, not a fetch or a stage transition. */
 async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageReadOutcome[], url: string,
@@ -99,7 +99,7 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
       const latest = body.captureStates?.find((row) => row.id === body.latestCaptureId);
       unresolvedHash = typeof latest?.content_hash === "string" ? latest.content_hash : body.contentHash;
     }
-    return body?.version === "current" && body.completeness === "complete" && !!body.contentHash
+    return body?.version === "current" && sameFinal(body.finalUrl, absolute) && body.completeness === "complete" && !!body.contentHash
       && isCurrent("owned_page", body.fetchedAt, d.now(), bustedAt);
   };
   if (await settled()) return { held: kept.filter((o) => canonicalUrlKey(o.url) !== key), pause: null, acquired: true };
@@ -132,7 +132,7 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
   try { res = await d.fetchPage(absolute, new Map(), { timeoutMs: Math.max(1, Math.min(10_000, (deadline - d.now()) / 2)) }); }
   catch { return { ...remember("temporarily_unavailable"), attempted: false }; }
   if (!res.ok) return { ...remember(res.reason === "robots_blocked" ? "robots_blocked" : "temporarily_unavailable"), attempted: false };
-  if (res.finalUrl && canonicalUrlKey(res.finalUrl) !== key) return { ...remember("temporarily_unavailable"), attempted: false };
+  if (res.finalUrl && !sameFinal(res.finalUrl, absolute)) return { ...remember("temporarily_unavailable"), attempted: false };
   const snapshot = extractPageSnapshot(res.html, absolute, pageIdFor(key), tenantId, res.status, profile ?? undefined, res.finalUrl);
   const latest = latestCapture as Record<string, unknown> | null, source = latest?.content_capture as typeof snapshot.content_capture;
   const unchanged = captureProblem && latest?.content_hash === snapshot.content_hash && latest.title === snapshot.title && latest.h1 === snapshot.h1

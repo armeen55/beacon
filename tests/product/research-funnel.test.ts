@@ -349,7 +349,7 @@ expect([paid, ["no.com", "h8.com", "h9.com"].map((h) => [row(h).extract, row(h).
     expect([calls, one.peek("tx", BASIS)!.pageComparisons]).toEqual([0, []]); }); // one page is not a comparison: refused before the money, and nothing stored
 }); describe("research funnel - the ONE page of the account's OWN a run may read", () => {
   const U = "own.com/nowruz", ABS = `https://${U}`, DAY = 86_400_000, at = (ms: number) => new Date(ms).toISOString();
-  const captured = (now: number) => ({ fetchedAt: at(now), contentHash: "held-content", version: "current" as string, completeness: "complete" as string, vocabulary: "The page's held content" });
+  const captured = (now: number) => ({ fetchedAt: at(now), finalUrl: ABS, contentHash: "held-content", version: "current" as string, completeness: "complete" as string, vocabulary: "The page's held content" });
   const page = { ok: true, html: "<html><body><h1>Nowruz</h1><p>How a nowruz table is set out.</p></body></html>", status: 200 }; const seeded = (ownedReads: FunnelState["ownedReads"]) => { const s = emptyFunnelState("to", BASIS); s.ownedReads = ownedReads; return memStore(s); };
   const hold = (url: string, state: "robots_blocked" | "temporarily_unavailable", ms: number) => ({ url, state, attemptedAt: at(NOW), retryAfter: at(NOW + ms) });
   const run = async (store: ReturnType<typeof memStore>, now: number, answer: unknown, ownedUrl: string | null = U, tenant = "to", over: Partial<FunnelDeps> = {}, bodies = new Map<string, ReturnType<typeof captured>>(), budgetMs = 25_000) => { const tried: string[] = [], saved: string[][] = [], paid: string[] = [];
