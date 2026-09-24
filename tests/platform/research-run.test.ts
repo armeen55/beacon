@@ -1105,8 +1105,8 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     expect((await dueWork(T, new Date(NOW), shut)).due).toEqual([]); // exhausted under version 7, and it stays shut while that is the question
     expect((await dueWork(T, new Date(NOW), { ...shut, evidenceVersion: async () => 8 })).due).toContain("replenish_ready"); }); // version 8 arrives the same day and those same pages are owed again
   it("says UNREADABLE rather than empty when ANY durable signal cannot be read, so a caller never mistakes a failed read for a healthy idle", async () => {
-    const blind = await dueWork(T, new Date(NOW), { ...base, run: async () => { throw new Error("db down"); } }); expect([blind.readable, blind.due]).toEqual([false, []]);
-    const noPlan = await dueWork(T, new Date(NOW), { ...base, checks: async () => null }); expect(noPlan.readable).toBe(false);
+    for (const lost of [{ run: async () => { throw new Error("db down"); } }, { checks: async () => null }, { factDebt: async () => null }]) {
+      const work = await dueWork(T, new Date(NOW), { ...base, ...lost }); expect([work.readable, work.due]).toEqual([false, []]); }
     const down = async () => { throw new Error("down"); }; // EVERY signal, not just the two: a swallowed read answered 200 with an empty due list over a day it could not judge. An individually EMPTY signal is untouched by that, which is what `base` is
     for (const k of ["staleSources", "basis", "evidenceVersion", "surfaceStale", "debt", "pagesToCrawl", "answersToAnalyze", "analysisFingerprint", "consumedAnalyses", "factDebt", "readyStock", "creditHeld", "searchHeld"] as const) expect([k, (await dueWork(T, new Date(NOW), { ...base, [k]: down })).readable]).toEqual([k, false]);
     expect((await dueWork(T, new Date(NOW), base)).readable).toBe(true); expect((await dueWork("", new Date(NOW), base)).readable).toBe(false); }); // no tenant, no answer, no I/O
