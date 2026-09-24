@@ -9,7 +9,7 @@ import "server-only";
  *  typed next step (producers/contract's DraftResolution). */
 
 import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
-import { canonicalUrlKey, jobWinners, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
+import { canonicalUrlKey, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { comparisonTopics, jobComparison } from "@/domains/evidence/comparison";
 import { isCurrent } from "@/domains/evidence/freshness";
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
@@ -131,12 +131,14 @@ const surviving = (passages: readonly string[], before: string | null): string =
   const whole = passages.join(" "), replaced = (before ?? "").trim(); if (replaced.length < 20) return "";
   const cut = whole.indexOf(replaced.slice(0, 60)); return cut >= 0 ? whole.slice(cut + replaced.length) : "";
 };
-const causalNeed = (card: ChangeProposal, page: OwnedPageEvidence, research: EvidenceSnapshot["research"], gap: { owed?: Obligation; why?: string } | null): { obligation: Obligation; reason: string } | null => {
-  if (!/^why\b/i.test(card.primaryQuery) || !gap?.owed) return null;
-  if (gap.owed.kind === "terminal") return { obligation: gap.owed, reason: gap.why ?? gap.owed.reason };
-  if (gap.owed.kind !== "evidence") return null;
-  const candidate = gap.owed.need.kind === "factual_source" ? jobWinners(research, card.primaryQuery).find((w) => w.extract?.mainText && canonicalUrlKey(w.url) !== canonicalUrlKey(page.url)) : null;
-  return { obligation: { kind: "evidence", need: { ...gap.owed.need, proposalId: card.id, ...(gap.owed.need.kind === "factual_source" ? { missingTopic: card.primaryQuery } : {}), ...(candidate ? { rivalUrl: candidate.url } : {}) } }, reason: gap.why ?? "The causal answer still owes the exact source ladder." };
+/** A why answer needs a current owned page and a checked explanation. An old draft or winner can name a question, never support its answer. */
+const causalNeed = (card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null, now: Date, qualified: boolean, gap: { owed?: Obligation; why?: string } | null): { obligation: Obligation; reason: string } | null => {
+  if (!/^why\b/i.test(card.primaryQuery) || card.kind !== "existing_edit" || card.recommendedChange.kind !== "existing_edit" || !["section", "answer_block"].includes(card.recommendedChange.field)) return null;
+  if (gap?.owed?.kind === "terminal") return { obligation: gap.owed, reason: gap.why ?? gap.owed.reason };
+  const owner = card.pageUrl ?? card.pagePath ?? "";
+  if (!body || body.version !== "current" || body.completeness !== "complete" || body.sourceCapture?.complete !== true || !body.contentHash || !isCurrent("owned_page", body.fetchedAt, now.getTime()) || canonicalUrlKey(body.url) !== canonicalUrlKey(page.url) || canonicalUrlKey(owner) !== canonicalUrlKey(page.url) || body.finalUrl && canonicalUrlKey(body.finalUrl) !== canonicalUrlKey(page.url) || page.content?.revision?.content_hash && page.content.revision.content_hash !== body.contentHash) return { obligation: { kind: "evidence", need: { kind: "page_source", query: card.primaryQuery, url: page.url, proposalId: card.id, reasonCode: "acquire_page_source" } }, reason: "A complete current page read is owed before the causal answer can be judged." };
+  if (qualified) return null;
+  return { obligation: { kind: "evidence", need: { kind: "factual_source", query: card.primaryQuery, url: page.url, proposalId: card.id, missingTopic: card.primaryQuery, ownerVersion: body.contentHash, reasonCode: "causal_answer_source_unconfirmed", delivery: "existing_page_edit" } }, reason: "The current page names the observation but a checked source for its cause is owed before writing." };
 };
 /** A legacy meta redraft cannot describe a page whose only saved words are stale chrome. A fresh complete
  * capture can still be genuinely thin; then the existing body-and-meta evidence gates decide what to write. */
