@@ -340,7 +340,7 @@ function executionLine(p: ShipmentPresentation): string {
   const applied = p.implementedAt == null ? "Marked done before the day it was applied was recorded" : `Applied on ${day ?? "the day it was recorded"}${own}`;
   const v = p.verification, why = v?.reason ? WHY_UNCONFIRMED[v.reason] : null;
   const checked = v == null ? "It has not been read on the live page yet."
-    : v.status === "verified" || v.status === "partially_verified" ? `${v.status === "partially_verified" ? "Part of it was confirmed" : "Confirmed"} on the page on ${monthDayLabel(v.checkedAt) ?? "the day it was read"}.`
+    : v.status === "verified" && !liveConfirmed(p) ? `An earlier live check on ${monthDayLabel(v.checkedAt) ?? "the day it was read"} needs recheck under today's standard.` : v.status === "verified" || v.status === "partially_verified" ? `${v.status === "partially_verified" ? "Part of it was confirmed" : "Confirmed"} on the page on ${monthDayLabel(v.checkedAt) ?? "the day it was read"}.`
       : why ? `${why}.` : v.status === "not_found" ? "Not found on the page." : "It could not be read on the page.";
   const again = p.read.cleanUntil ? ` The page changed again on ${monthDayLabel(p.read.cleanUntil) ?? "a later day"}.` : "";
   return `${applied}. ${checked}${again}`;

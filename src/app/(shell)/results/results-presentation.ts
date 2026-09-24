@@ -176,7 +176,7 @@ function timelineLines(p: ShipmentPresentation): Array<{ label: string; done: bo
   const done = lastClosed(p.read), next = p.read.windows.find((w) => w.state !== "closed");
   const out = [
     { label: marked ? `Marked done ${marked}` : "Marked done, date not kept", done: true },
-    p.verification && checked ? { label: `Live page checked ${checked}`, done: true }
+    p.verification && checked ? { label: p.verification.status === "verified" && !liveConfirmed(p) ? `Earlier live check ${checked}; needs recheck` : `Live page checked ${checked}`, done: p.verification.status !== "verified" || liveConfirmed(p) }
       : { label: p.implementedAt == null ? "Live page never checked; predates verification" : "Live page not read yet", done: false },
   ];
   // ON THE PAGE IS NOT THE SAME AS ON GOOGLE, so the results-page reading stored beside the page components (kind "google_display", measurement/verify-shipment.ts) gets its own line. Never a position, only what Google puts on screen.
@@ -203,7 +203,7 @@ function chipOf(p: ShipmentPresentation): { text: string; amber: boolean } | nul
   const v = p.verification;
   // A ROW WITH NO STAMP WEARS ITS STATE WORD ON THE COLLAPSED LINE: the direction cell shows a number, so the chip is where the one vocabulary lands.
   if (!v) return { text: stateWord(p), amber: false };
-  if (v.status === "verified" && v.reason == null) return null;
+  if (v.status === "verified" && (!liveConfirmed(p) || v.reason == null)) return liveConfirmed(p) ? null : { text: "Earlier live check needs recheck", amber: false };
   // A RECHECK STILL SCHEDULED MEANS THE VERDICT IS NOT IN (operator, 2026-08-29): work is marked done in the editor and the site publishes later, so an early read seeing the old page is the publish lag, not their wording winning. Only a FINAL differs says whose words the page kept.
   if (v.recheckAfter != null) return { text: "Waiting for your publish. The page is checked again soon.", amber: false };
   if (v.status === "partially_verified") return { text: "Part of it is live", amber: false };
