@@ -97,14 +97,14 @@ const newMetaQuantityGap = (p: Pick<ChangeProposal, "recommendedChange" | "claim
   const supported = (key: string): boolean => (p.claims ?? []).some((claim) => metaQuantities(claim.text).includes(key) && claim.supportedBy.some((id) => /^fact-\d+$/.test(id) && (p.supportFacts ?? []).some((fact) => fact.id === id && [...fact.fact.matchAll(/(?:(scholarly|dictionary|encyclopedia|reference|news|publisher)\s+)?(https?:\/\/[^\s"']+)\s+says:?\s*"([^"]+)"/g)].some((m) => { const kind = fact.sources?.find((s) => s.url === m[2])?.kind ?? m[1] ?? ""; if (!/^(scholarly|dictionary|encyclopedia|reference|news)$/.test(kind)) return false; let host = ""; try { host = new URL(m[2]!).hostname.replace(/^www\./, ""); } catch { return false; } return !!own && !!host && host !== own && !host.endsWith(`.${own}`) && !own.endsWith(`.${host}`) && metaQuantities(m[3]!).includes(key) && subjectOverlap(claim.text, m[3]!); }))));
   return asserted.some((key) => !supported(key)) ? "a world metric in this description has no matching claim-level checked source; the page's own heading or body cannot confirm it" : null;
 };
-/** The page itself can split a writer's whole-line wrong-subject disposition into the exact lost units. This proposes a ledger; the reviewer still owes one verified ruling per unit. */
 function accountWrongSubjectMeta(d: { actionType: string; beforeText: string | null; finalCopy: string; preservation?: ChangeProposal["preservation"]; supportFacts: NonNullable<ChangeProposal["supportFacts"]>; evidenceIdsUsed: readonly string[] }, packet: SourcePacket, proof: { before: string; named: string; actual: string }): void {
   if (d.actionType !== "meta" || d.beforeText !== proof.before || packet.metaDescription !== proof.before || !flat(d.finalCopy).includes(flat(proof.actual))) return;
-  const merged = d.preservation?.length === 1 ? d.preservation[0] : null;
-  if (!merged || renderedText(merged.text) !== renderedText(proof.before) || merged.disposition !== "removed" || !["unsupported", "replaced_by"].includes(merged.basis ?? "")) return;
-  const losses = materialLosses({ recommendedChange: { kind: "existing_edit", field: "meta", before: proof.before, after: d.finalCopy }, pageUrl: packet.targetUrl, pagePath: "" });
+  const losses = materialLosses({ recommendedChange: { kind: "existing_edit", field: "meta", before: proof.before, after: d.finalCopy }, pageUrl: packet.targetUrl, pagePath: "" }), merged = d.preservation?.length === 1 ? d.preservation[0] : null, whole = merged && renderedText(merged.text) === renderedText(proof.before);
+  const named = merged && losses.length === 1 && /^"[^"]+"$/.test(losses[0]!) && renderedText(merged.text) === renderedText(losses[0]!.slice(1, -1)) && renderedText(proof.before).includes(renderedText(merged.text)) && !renderedText(proof.before).includes(renderedText(losses[0]!));
+  if (!merged || merged.disposition !== "removed" || !(whole && ["unsupported", "replaced_by"].includes(merged.basis ?? "") || named && merged.basis === "unsupported" && !merged.to && !!merged.by?.length && !packet.truncated)) return;
   const actual = flat(proof.actual), own = Object.entries(packet.evidence).filter(([id, fact]) => /^page-(?:h1|copy-\d+)$/.test(id) && flat(fact).includes(actual));
-  if (!losses.length || !own.some(([id]) => id === "page-h1") || !own.some(([id]) => /^page-copy-/.test(id))) return;
+  if (!losses.length || !own.some(([id]) => id === "page-h1") || !own.some(([id]) => /^page-copy-/.test(id)) || named && !merged.by?.some((id) => own.some(([source]) => source === id && /^page-copy-\d+$/.test(source)))) return;
+  if (named) { d.preservation = [{ ...merged, text: losses[0]! }]; return; }
   const by = own.map(([id]) => id), recorded = new Set(d.supportFacts.map((f) => f.id));
   d.supportFacts = [...d.supportFacts, ...own.filter(([id]) => !recorded.has(id)).map(([id, fact]) => ({ id, fact }))];
   d.evidenceIdsUsed = [...new Set([...d.evidenceIdsUsed, ...by])];

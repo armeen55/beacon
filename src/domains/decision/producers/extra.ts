@@ -135,7 +135,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     out.push({ page: p, slug: "missing_description", field: "meta", query: topQueryOf(p), before: proof.before,
       headline: `Correct the search description that names ${proof.named} instead of ${proof.actual}`,
       after: `Replace the exact current description with one standalone sentence about ${proof.actual}, using only facts on this complete page.`,
-      why: `The current description names ${proof.named}, but this page's title, heading and copy name ${proof.actual}. The page had ${count(impressions(p), "search impression")} in 90 days, so readers may see the mismatch.`,
+      why: `The current description names ${proof.named}, but this page's title, heading and copy name ${proof.actual}. ${impressions(p) > 0 ? `The page had ${count(impressions(p), "search impression")} in 90 days, so readers may see the mismatch.` : ""}`.trim(),
       steps: [], hints: [proof.before, `Current page heading: ${proof.actual}`], minutes: 2, confidence: "high", refs: 2, impact: null,
       limitation: "The replacement may describe only the current page; the wrong subject's claims and any old proposed copy are not evidence.",
       cause: structural("ctr_snippet", "meta", [RECEIPT.copy], `The description names ${proof.named} while the current page is about ${proof.actual}.`, `A current complete page that actually covers ${proof.named} would not justify this correction.`) }); }

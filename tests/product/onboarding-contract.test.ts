@@ -91,6 +91,10 @@ function confirmedProfile(id: string, facts: Record<string, any> = {}): Business
   return p;}
 function seedPending(w: ReturnType<typeof makeWorld>, id: string, over: Partial<TenantRow> = {}) {
   w.tenants.set(id, { status: "pending_onboarding", domain: "", growth_goal: null, tos: null, ...over });}
+function pendingWorld(over: Partial<TenantRow> = {}, id = A) {
+  const w = makeWorld(); seedPending(w, id, over);
+  return w;
+}
 function seedConfirmedProfile(w: ReturnType<typeof makeWorld>, id: string) { w.profiles.set(id, confirmedProfile(id)); }
 /** N extra live core questions under a basis nobody holds any more: exactly what a Settings edit or an old goal leaves behind. */
 const seedCore = (w: ReturnType<typeof makeWorld>, id: string, n: number) => { for (let i = 0; i < n; i += 1) w.prompts.push({ id: `seeded-${w.prompts.length}`, tenant_id: id,
@@ -125,8 +129,7 @@ const B = "tenant-bbbb2222";
 const activeCore = (w: ReturnType<typeof makeWorld>, id: string) => w.prompts.filter((p) => p.tenant_id === id && p.is_active && p.tags.includes("core_v1"));
 describe("onboarding contract (Slice 5)", () => {
   it("1. submitWebsite normalizes + persists the domain, writes no prompts or paid checks, and never leaks across accounts", async () => {
-    const w = makeWorld();
-    seedPending(w, A); seedPending(w, B);
+    const w = pendingWorld(); seedPending(w, B);
     expect((await submitWebsite(A, "https://www.acme.com/pricing", w.deps)).ok).toBe(true);
     expect(w.tenants.get(A)!.domain).toBe("acme.com"); // normalized, www + path stripped
     expect(w.prompts.length).toBe(0); // no tracked_prompts written during website submit
@@ -134,8 +137,7 @@ describe("onboarding contract (Slice 5)", () => {
     expect(w.tenants.get(B)!.domain).toBe(""); expect(sB.website.domain).toBe(""); expect(sB.goal).toBeNull(); // no bleed
   });
   it("2. inferProfile keeps model provenance + rejects any sourceUrl outside the crawl, and a refused model falls back to a deterministic profile that still advances", async () => {
-    const w = makeWorld();
-    seedPending(w, A, { domain: "acme.test" }); seedCrawl(w, A);
+    const w = pendingWorld({ domain: "acme.test" }); seedCrawl(w, A);
     const r = await inferProfile(A, { ...w.deps, complete: completeInfer(["https://acme.test/", "https://evil.test/steal"]) }); const p = w.profiles.get(A)!;
     expect([r.status, p.name.origin, p.offerings.value.includes("rug cleaning"), p.name.sourceUrls]).toEqual(["inferred", "inferred", true, ["https://acme.test/"]]); // the outside URL is stripped
     const ladder = async (slow: number, failure: "client_timeout" | "provider_refused" = "client_timeout") => { let asks = 0; const w2 = makeWorld();
@@ -144,8 +146,7 @@ describe("onboarding contract (Slice 5)", () => {
     expect([await ladder(1), await ladder(2), await ladder(1, "provider_refused")]).toEqual([["site_model", 2], ["site_read", 2], ["site_read", 1]]); // only a receiptless deadline earns the re-ask; a refusal carried a receipt and settles first time
   });
   it("3. the goal vocabulary is closed and a single field edit never confirms the whole profile", async () => {
-    const w = makeWorld();
-    seedPending(w, A, { domain: "acme.com" });
+    const w = pendingWorld({ domain: "acme.com" });
     expect((await saveGoal(A, "balanced", w.deps)).ok && w.tenants.get(A)!.growth_goal).toBe("balanced");
     expect((await saveGoal(A, "aggressive" as any, w.deps)).ok).toBe(false); // vocabulary is closed
     const p = emptyBusinessProfile(A); p.name = { value: "Acme", origin: "inferred", confidence: 0.5, sourceUrls: [] }; w.profiles.set(A, p);
@@ -154,8 +155,7 @@ describe("onboarding contract (Slice 5)", () => {
     expect(s.profile.confirmed).toBe(false); expect(s.currentStep).toBe(3); // one confirmed field != all sections; still on confirm
   });
   it("4. a natural-language patch persists nothing on preview, is stripped to the business whitelist on apply, and confirms only the patched field", async () => {
-    const w = makeWorld();
-    seedPending(w, A, { domain: "acme.com" }); seedConfirmedProfile(w, A); w.profiles.get(A)!.offerings.origin = "inferred";
+    const w = pendingWorld({ domain: "acme.com" }); seedConfirmedProfile(w, A); w.profiles.get(A)!.offerings.origin = "inferred";
     const patchModel: CompleteFn = async () => ({ value: { changeSummary: "Add law firms.", name: null, businessType: null, siteArchetype: null, offerings: null, audiences: ["law firms"], customerProblems: null, geographicScope: null, differentiators: null, trustClaims: null, topicsToOwn: null, topicsToExclude: null, constraints: null, trustedSourceDomains: null, competitors: null } });
     expect((await proposeProfilePatch(A, "we also serve law firms", { ...w.deps, complete: patchModel })).ok).toBe(true);
     expect(w.profiles.get(A)!.audiences.value).toEqual(["homeowners"]); // preview persisted NOTHING
@@ -163,8 +163,7 @@ describe("onboarding contract (Slice 5)", () => {
     const after = w.profiles.get(A)! as any; // whitelist holds; a confirmed patch confirms ONLY what it patched
     expect(after.audiences.value).toEqual(["law firms"]); expect(after.accountId).toBe(A); expect(after.domain).toBeUndefined(); expect(after.offerings.origin).toBe("inferred");});
   it("5. candidate generation yields ~100 unique prompts in 5-10 groups covering all seven intents with exactly 50 recommended, inactive, canonical-id, current-basis, four-engine, and a retry never duplicates", async () => {
-    const w = makeWorld();
-    seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
+    const w = pendingWorld({ domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
     const r = await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates }); expect(r.ok && r.candidateCount).toBeGreaterThanOrEqual(60); expect(r.ok && r.recommendedCount).toBe(50);
     const rows = w.prompts.filter((p) => p.tenant_id === A);
     expect(new Set(rows.map((p) => p.intent_type)).size).toBe(7); // all seven intent families
@@ -175,8 +174,7 @@ describe("onboarding contract (Slice 5)", () => {
     expect(w.prompts.filter((p) => p.tenant_id === A).length).toBe(before); // no duplicate rows
   });
   it("6. approval is declarative over the current-basis candidates: default 50, include/edit/add/remove work, foreign ids are rejected, the 20..50 setup window holds server side, and it never accumulates", async () => {
-    const w = makeWorld();
-    seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
+    const w = pendingWorld({ domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
     await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates }); expect((await approvePrompts(A, { useRecommendedDefault: true }, w.deps)).ok && activeCore(w, A).length).toBe(50);
     expect((await approvePrompts(A, { approvedIds: ["prompt-deadbeefdeadbeef"] }, w.deps)).ok).toBe(false); // foreign id rejected, never kept
     const src = w.prompts.find((p) => p.tenant_id === A)!;
@@ -192,16 +190,14 @@ describe("onboarding contract (Slice 5)", () => {
     expect(activeCore(w, A).length).toBe(50); // never accumulates past the bound
   });
   it("6b. a thin candidate pool bends the setup floor server side: sixteen questions approve sixteen, eleven do not", async () => {
-    const w = makeWorld();
-    seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
+    const w = pendingWorld({ domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
     await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates }); const cands = w.prompts.filter((p) => p.tenant_id === A && p.tags.includes("candidate_v1"));
     for (const p of cands.slice(16)) w.prompts.splice(w.prompts.indexOf(p), 1);
     const ids = cands.slice(0, 16).map((p) => p.id);
     expect((await approvePrompts(A, { approvedIds: ids.slice(0, 11) }, w.deps)).ok).toBe(false); // under the bent floor of sixteen
     expect((await approvePrompts(A, { approvedIds: ids }, w.deps)).ok && activeCore(w, A).length).toBe(16);});
   it("7. activation is blocked until website + confirmed profile + goal + approved prompts + TOS, never schedules on a block, is double-click safe, and schedules exactly one research run", async () => {
-    const w = makeWorld();
-    seedPending(w, A, { domain: "acme.com" }); // missing profile + goal + prompts
+    const w = pendingWorld({ domain: "acme.com" }); // missing profile + goal + prompts
     expect((await activateAccount(A, true, w.deps)).ok).toBe(false);
     expect(w.scheduled).toEqual([]); // a blocked activation does no work
     seedConfirmedProfile(w, A); w.tenants.get(A)!.growth_goal = "balanced";
@@ -213,8 +209,7 @@ describe("onboarding contract (Slice 5)", () => {
     expect(w.scheduled).toEqual([A]); // idempotent: no second schedule
   });
   it("8. changing to a NEW website clears the goal, deactivates the old prompts, resets the profile, force-restarts the crawl, and drops readiness back to step 2", async () => {
-    const w = makeWorld();
-    seedPending(w, A, { domain: "acme.com", growth_goal: "grow" }); seedConfirmedProfile(w, A);
+    const w = pendingWorld({ domain: "acme.com", growth_goal: "grow" }); seedConfirmedProfile(w, A);
     await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates }); await approvePrompts(A, { useRecommendedDefault: true }, w.deps);
     expect(activeCore(w, A).length).toBe(50); let forced = false;
     const deps = { ...w.deps, startCrawl: (async (a: any) => { forced = a.force === true; return { status: "in_progress", discovered: 3 }; }) as any }; expect((await submitWebsite(A, "newsite.com", deps)).ok).toBe(true);
@@ -226,8 +221,7 @@ describe("onboarding contract (Slice 5)", () => {
     expect(s.profile.confirmed).toBe(false); expect(s.currentStep).toBe(2); // profile reset, readiness resumes at inference
   });
   it("9. a research-affecting change strands the approved set on the old basis: it vanishes from the projection, a stale-basis core row never activates, and only a regenerated new-basis set activates", async () => {
-    const w = makeWorld();
-    seedPending(w, A, { domain: "acme.com", growth_goal: "grow" }); seedConfirmedProfile(w, A);
+    const w = pendingWorld({ domain: "acme.com", growth_goal: "grow" }); seedConfirmedProfile(w, A);
     await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates }); await approvePrompts(A, { useRecommendedDefault: true }, w.deps);
     const basisXids = activeCore(w, A).map((p) => p.id); expect(basisXids.length).toBe(50);
     await saveGoal(A, "balanced", w.deps); // the goal is a basis input
@@ -241,21 +235,18 @@ describe("onboarding contract (Slice 5)", () => {
     expect(w.prompts.filter((p) => p.tenant_id === A && p.is_active).length).toBe(50); // approval sweeps ALL other-basis actives: never 100
   });
   it("10. the deterministic fallback yields honest per-family prompts with NO numbered filler, and a thin profile yields fewer without junk", async () => {
-    const w = makeWorld();
-    seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
+    const w = pendingWorld({ domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
     expect((await generatePromptCandidates(A, { ...w.deps, complete: completeRefuse })).ok).toBe(true); const rows = w.prompts.filter((p) => p.tenant_id === A);
     expect(rows.length).toBeGreaterThanOrEqual(10);
     expect(new Set(rows.map((p) => p.intent_type)).size).toBeGreaterThanOrEqual(5); // several real families from real facts
     expect(rows.some((p) => /\s\d+$/.test(p.text))).toBe(false); // never padded with a trailing number
-    const w2 = makeWorld();
-    seedPending(w2, B, { domain: "thin.com", growth_goal: "balanced" });
+    const w2 = pendingWorld({ domain: "thin.com", growth_goal: "balanced" }, B);
     w2.profiles.set(B, confirmedProfile(B, { name: "Thin", offerings: ["one thing"], audiences: [], customerProblems: [], geographicScope: [], differentiators: [], trustClaims: [], topicsToOwn: [] }));
     expect((await generatePromptCandidates(B, { ...w2.deps, complete: completeRefuse })).ok).toBe(true); const thinRows = w2.prompts.filter((p) => p.tenant_id === B);
     expect(thinRows.length).toBeLessThan(rows.length); expect(thinRows.some((p) => /\s\d+$/.test(p.text))).toBe(false); // fewer, still no filler
   });
   it("11. the $2 pre-activation cap: at/over the cap and an unreadable ledger both refuse the model and continue deterministically, and reserve-then-reconcile is conservative under failure + concurrency", async () => {
-    const w = makeWorld();
-    seedPending(w, A, { domain: "acme.test" }); seedCrawl(w, A);
+    const w = pendingWorld({ domain: "acme.test" }); seedCrawl(w, A);
     ledger = { usd: 2.5, has: true }; // already over the $2 cap
     expect((await inferProfile(A, { ...w.deps, complete: completeInfer(["https://acme.test/"]) })).source).toBe("site_read"); // no model call
     w.profiles.delete(A); ledger = { usd: 0, has: false }; ledgerThrows = true; // ledger unreadable => fail closed
@@ -274,9 +265,7 @@ describe("onboarding contract (Slice 5)", () => {
     const r1 = await reserve("concurrent-1"), r2 = await reserve("concurrent-2");
     expect([r1.outcome, r2.outcome].filter((x) => x === "reserved").length).toBe(1);});
   it("12. an already-active account is never mutated by onboarding commands", async () => {
-    const w = makeWorld();
-    seedPending(w, A, { status: "active", domain: "live.com", growth_goal: "grow" });
-    seedConfirmedProfile(w, A);
+    const w = pendingWorld({ status: "active", domain: "live.com", growth_goal: "grow" }); seedConfirmedProfile(w, A);
     expect((await submitWebsite(A, "changed.com", w.deps)).ok).toBe(false); expect((await saveGoal(A, "recover", w.deps)).ok).toBe(false);
     const t = w.tenants.get(A)!; expect(t.domain).toBe("live.com"); expect(t.growth_goal).toBe("grow");});
   it("13. a live account is never stranded: approval cannot sweep it, kept wording keeps its id, a rewording versions itself, legacy rows are untouched, bounds hold, and both projections agree", async () => {
@@ -321,9 +310,9 @@ describe("setup and settings surfaces (Phase 8)", () => {
     const win = (await loadOnboardingState(A, w.deps)).findings.firstWin!; expect(win.action).toBe("Add a meta description"); expect(win.plainWhy).toContain("(200 words)");});
   /** PHASE 6E.1 + 6E.2 + P1-1. Being ACTIVE is a status, not proof of setup, and the whole activation contract gates now. The opposite error is worse: a profile read that failed comes back EMPTY, indistinguishable from never filled in, so treating that as a gap would bounce a fully onboarded customer into onboarding over a five  second outage. */
   it("asks a RUNNING account only for what it cannot run without, and a PENDING one for the whole activation contract", async () => {
-    const w = makeWorld(); const acct = (over: Record<string, unknown> = {}) => ({ status: "active", domain: "acme.com", growth_goal: "grow", tos_accepted_at: "2026-07-24T00:00:00.000Z", ...over });
+    const w = pendingWorld({ domain: "acme.com", growth_goal: "grow" }); const acct = (over: Record<string, unknown> = {}) => ({ status: "active", domain: "acme.com", growth_goal: "grow", tos_accepted_at: "2026-07-24T00:00:00.000Z", ...over });
     const live = async (over: Record<string, unknown> = {}) => setupGap(A, acct(over) as any, w.deps);
-    seedPending(w, A, { domain: "acme.com", growth_goal: "grow" }); seedConfirmedProfile(w, A);
+    seedConfirmedProfile(w, A);
     await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC }); await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps);
     w.tenants.get(A)!.status = "active"; w.tenants.get(A)!.tos = "2026-07-24T00:00:00.000Z"; // setup finished, the account is live
     expect(await live()).toBeNull(); // set up: the product renders, nothing resumes
@@ -347,8 +336,7 @@ describe("setup and settings surfaces (Phase 8)", () => {
     await expect(setupGap(A, acct() as any, { ...w.deps, store: { ...w.deps.store!, readPrompts: async () => { throw new Error("prompts unreadable"); } } })).rejects.toThrow(); });
   /** P0-5. The product guard sent an ACTIVE account with a real setup gap to /onboard, /onboard rendered it, and every mutation there refused it and redirected home, which sent it straight back: a loop with no way out. */
   it("lets an ACTIVE account finish the step it is actually missing, and never activates it a second time", async () => {
-    const w = makeWorld();
-    seedPending(w, A, { domain: "acme.com", growth_goal: "grow" }); seedConfirmedProfile(w, A);
+    const w = pendingWorld({ domain: "acme.com", growth_goal: "grow" }); seedConfirmedProfile(w, A);
     await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC }); await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps);
     const gap = async () => { const t = w.tenants.get(A)!; return setupGap(A, { status: t.status, domain: t.domain, growth_goal: t.growth_goal, tos_accepted_at: t.tos } as any, w.deps); };
     expect([(await activateAccount(A, true, w.deps)).ok, w.tenants.get(A)!.status, w.scheduled.length]).toEqual([true, "active", 1]);
