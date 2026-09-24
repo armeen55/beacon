@@ -99,7 +99,7 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
     .map((kind) => ({ kind, items: bundle.receipt.items.filter((i) => i.kind === kind && i.fact.trim().length > 0)
       .flatMap((item) => fresh(seen, [`${item.fact}${seenLabel(item.observedAt)}`]).map((text) => ({ text, readings: item.kind === "ai_observation" ? [...(item.observationIds ?? []), ...(item.observationId ? [item.observationId] : [])] : [], sources: item.sources }))) }))
     .filter((g) => g.items.length > 0);
-  const missing = fresh(seen, cardCaveats(proposal, bundle.receipt.missing)); // the SAME filter the card reads, so a bundle's caveats cannot differ by screen
+  const missing = fresh(seen, cardCaveats(proposal, bundle.receipt.missing, openHold(proposal).settledPriorReceipt)); // the SAME filter the card reads, so a bundle's caveats cannot differ by screen
   return (
     <div className="max-w-3xl space-y-5">
       <Link href={returnTo} className="inline-flex min-h-11 items-center text-[13px] text-muted-foreground hover:text-foreground">
@@ -408,7 +408,7 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
     ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet."
     : unsettledCause(proposal); // the SAME one verdict the list lanes by, so a direct link can never out-offer the queue
   const checks = proposal.evidence?.hints ?? [];
-  const brief = (proposal.opportunityType || "").trim().replace(/_/g, " "), edit = proposal.recommendedChange, caveats = cardCaveats(proposal, hold1.caveats), tried = proposal.previousCopy, livePageHref = operatorUiPolicy.livePageHref(proposal.pageUrl); // THE HOLD ANSWERS BOTH HALVES (measured, 2026-09-05): filtering the row's raw limitations against the hold's reasons alone still served "its copy carries no record of what it stands on" on /california-persian-cities/fremont, the one sentence that verdict had just DISPROVED from the row's own claims and support facts. What a person should keep in mind is now the same function's answer, so no gate sentence reaches a customer as their own caveat and the typed fault and the obligation still say what is owed.
+  const brief = (proposal.opportunityType || "").trim().replace(/_/g, " "), edit = proposal.recommendedChange, caveats = cardCaveats(proposal, hold1.caveats, hold1.settledPriorReceipt), tried = proposal.previousCopy, livePageHref = operatorUiPolicy.livePageHref(proposal.pageUrl); // THE HOLD ANSWERS BOTH HALVES (measured, 2026-09-05): filtering the row's raw limitations against the hold's reasons alone still served "its copy carries no record of what it stands on" on /california-persian-cities/fremont, the one sentence that verdict had just DISPROVED from the row's own claims and support facts. What a person should keep in mind is now the same function's answer, so no gate sentence reaches a customer as their own caveat and the typed fault and the obligation still say what is owed.
   const action = (/(^|\s)\//.test(brief) ? "" : brief) || (edit.kind === "new_page" ? `Build a new page that answers "${proposal.primaryQuery}"` : `Update the ${({ title: "page title", meta: "meta description", h1: "page headline", answer_block: "answer at the top of the page", section: "section", schema: "structured data" } as Record<string, string>)[edit.field] ?? "page"} to sharpen it for "${proposal.primaryQuery}"`); // never the bland shrug: the operator reads the page name and then what is being done to it
   return (
     <div className="max-w-3xl space-y-5" data-simple-detail="true">
@@ -445,7 +445,7 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
       ) : null}
       <p className="text-[14px] leading-relaxed text-foreground">{proposal.whyItMatters}</p>
       {/* THE RETIREMENT RECEIPT: what was tried for this change and what refused it. "An earlier FINISHED version" was untrue of the case this round adds, a draft a door refused before it was ever finished, and a bare "Attempt 0" is what the recovery path's own count reads on 27 of the 44 live rows carrying a receipt (measured 2026-09-05), so the count is printed only where there is one. */}
-      {tried && tried.after.trim() ? (
+      {tried && tried.after.trim() && !hold1.settledPriorReceipt ? (
         <p className="text-[12px] leading-relaxed text-muted-foreground" data-previous-copy="true">
           One earlier version of this change was retired{(tried.attempts ?? 0) >= 1 ? ` on attempt ${tried.attempts}` : ""}. Why: {tried.retiredBecause.replace(/\.?$/, ".")} Its words: &ldquo;{tried.after.slice(0, 220)}&rdquo;
         </p>

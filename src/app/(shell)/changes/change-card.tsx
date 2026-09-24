@@ -145,7 +145,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   const verdict = openHold(proposal);
   const hold = review && verdict.safetyHold && !verdict.faulted ? verdict : null;
   const caveats = cardCaveats(proposal, [...verdict.caveats, ...proof.limits.filter((l) => !proposal.limitations.includes(l)),
-    ...(caveat ? [caveat] : []), ...(YEAR_QUERY.test(proposal.primaryQuery) ? [YEAR_NOTE] : [])]);
+    ...(caveat ? [caveat] : []), ...(YEAR_QUERY.test(proposal.primaryQuery) ? [YEAR_NOTE] : [])], verdict.settledPriorReceipt);
   const worth = [proof.ranksHere, ...(body ? body.split(/(?<=[.!?])\s+/).filter((sentence) => !saysAgain(sentence, proof.ranksHere ?? "")) : [])].filter(Boolean).join(" "); /* a sentence the receipt already says in other words is not said twice (operator walk, 2026-09-16: "Only 1 page of this site links to ... today" printed back to back) */
   const waiting = ((w: string) => (w ? `${w[0]!.toUpperCase()}${w.slice(1)}.` : null))((proposal.rankingReceipt?.factors ?? []).find((f) => f.name === "readiness")?.input?.trim() ?? "");
   const placement = proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.where ?? null : null;

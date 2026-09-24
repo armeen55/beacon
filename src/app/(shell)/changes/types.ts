@@ -106,18 +106,10 @@ export function pageLabel(path: string | null | undefined): string {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : last;
 }
 
-/** WHAT A PERSON SHOULD KEEP IN MIND ABOUT THE WORDS ON OFFER, decided ONCE for the list and the detail
- *  (operator, 2026-09-06: "Remove stale caveats from previous drafts and contradictory boilerplate"). The list
- *  printed the row's RAW limitations and the detail printed the hold's filtered caveats, so one row said two
- *  different things on two screens. TWO MECHANICAL TESTS, no reading of prose: a caveat naming a BLANK (an
- *  all-caps token a writer leaves for the operator to fill, "publishing NAME and SOUND") stands only while the
- *  copy still carries that blank, because once the words moved on it is a caveat about a draft that is gone;
- *  and a caveat saying there is nothing to paste never rides copy there is something to paste. The readiness
- *  verdict's own `advisories` ride with them wherever the row carries them, and a row banked before that field
- *  existed reads as none, so nothing here depends on the field arriving. */
+/** The list and detail share one caveat projection. Retired draft notes disappear only when an exact, accepted current link review supersedes that same copy; producer caveats remain. */
 const BLANK = /\b[A-Z]{4,}\b/g; // four letters up, so a three letter acronym in an ordinary sentence is never read as a slot in the copy
 const DENIES_COPY = /ready to paste|has not been written|is not written yet|is still owed/i;
-export function cardCaveats(p: ChangeProposal & { advisories?: unknown }, filtered: readonly string[]): string[] {
+export function cardCaveats(p: ChangeProposal & { advisories?: unknown }, filtered: readonly string[], settledLink = false): string[] {
   const c = p.recommendedChange;
   const copy = [c.kind === "new_page" ? `${c.proposedTitle} ${c.metaDescription} ${c.openingAnswer}` : `${c.after} ${c.where ?? ""}`,
     ...(p.bundle?.components ?? []).map((x) => `${x.after} ${x.where ?? ""}`)].join(" ");
@@ -125,6 +117,7 @@ export function cardCaveats(p: ChangeProposal & { advisories?: unknown }, filter
     ? String((a as Record<string, unknown>).note ?? (a as Record<string, unknown>).sentence ?? (a as Record<string, unknown>).text ?? "") : "");
   const rows = [...(Array.isArray(p.advisories) ? p.advisories : []).map(said), ...filtered];
   return [...new Set(rows.map((s) => s.trim()).filter(Boolean))]
+    .filter((s) => !settledLink || !(p.draftNotes ?? []).some((note) => note.trim() === s))
     .filter((s) => !(copy.trim().length > 0 && DENIES_COPY.test(s)))
     .filter((s) => (s.match(BLANK) ?? []).every((t) => copy.includes(t)));
 }
