@@ -46,11 +46,13 @@ describe("the owned-page inventory: what the site says it has, and what my read 
     const out = await discover({ "https://own.com/sitemap.xml": urlset(Array.from({ length: MAX_DISCOVERED_URLS + 3 }, (_, i) => `https://own.com/p${i}`)) }); expect([out.pages.length, out.truncated, out.pages[0]!.via]).toEqual([MAX_DISCOVERED_URLS, 3, "sitemap"]);
     db.missing = "owned_pages"; // the pre-migration window is never reported as an empty website
     expect([await upsertDiscovery(T, [{ url: "/a", via: "sitemap" }]), await readInventory(T)]).toEqual([0, []]); });
-  it("preserves first_seen across rediscovery and never undoes what the crawl learned", async () => {
+  it("preserves crawl truth across rediscovery and fairly renews it at seven days", async () => {
     await upsertDiscovery(T, [{ url: "https://own.com/a", via: "sitemap" }]); const firstSeen = (await readInventory(T))[0]!.first_seen;
     await markCrawled(T, "https://own.com/a", { httpStatus: 200, contentHash: "h1", completeness: "complete" }, NOW);
     await new Promise((r) => setTimeout(r, 2)); expect(await upsertDiscovery(T, [{ url: "https://own.com/a", via: "nav" }])).toBe(1); const row = (await readInventory(T))[0]!;
-    expect([row.first_seen, row.crawl_state, row.content_hash, row.last_seen_in_discovery > firstSeen]).toEqual([firstSeen, "crawled", "h1", true]); });
+    expect([row.first_seen, row.crawl_state, row.content_hash, row.last_seen_in_discovery > firstSeen, await nextCrawlCandidates(T, 1, at(6.9)), await nextCrawlCandidates(T, 1, at(8))]).toEqual([firstSeen, "crawled", "h1", true, [], ["https://own.com/a"]]);
+    await upsertDiscovery(T, [{ url: "https://own.com/new", via: "sitemap" }, { url: "https://own.com/held", via: "nav" }]); await markBlocked(T, "https://own.com/held", 403, NOW);
+    expect([await nextCrawlCandidates(T, 1, at(8)), await nextCrawlCandidates(T, 1, at(9)), await nextCrawlCandidates(T, 1, at(10))]).toEqual([["https://own.com/held"], ["https://own.com/new"], ["https://own.com/a"]]); });
   it("gives a refusal a bounded retry date, holds the page back until it passes, and backs off further each time", async () => {
     await upsertDiscovery(T, [{ url: "https://own.com/locked", via: "sitemap" }, { url: "https://own.com/gone", via: "sitemap" }]); await markBlocked(T, "https://own.com/locked", 403, NOW); await markBlocked(T, "https://own.com/gone", 404, NOW);
     const locked = () => readInventory(T).then((rs) => rs.find((r) => r.url.endsWith("/locked"))!); expect([(await locked()).crawl_state, (await locked()).completeness, (await locked()).blocked_until]).toEqual(["blocked", "blocked", at(1).toISOString()]);

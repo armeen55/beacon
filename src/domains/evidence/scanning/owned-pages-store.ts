@@ -50,8 +50,6 @@ const MAX_UPSERT = 5_000;
 const CHUNK = 500;
 /** No single inventory read may return more than this. */
 const MAX_INVENTORY_PAGE = 500;
-/** A crawled page is worth re-reading after this long. */
-const STALE_AFTER_MS = 30 * 86_400_000;
 const DAY_MS = 86_400_000;
 
 const COLUMNS =
@@ -148,11 +146,7 @@ export async function readInventory(
   }
 }
 
-/**
- * The next URLs worth reading, in priority order: never-crawled first, then the ones whose read has
- * gone stale, then blocked pages whose retry date has passed. `gone` and `unsupported` are never
- * candidates, and a blocked page is NEVER returned before its blocked_until. Bounded by `limit`.
- */
+/** Rotate due crawl classes while renewing source evidence at its canonical seven-day clock. */
 export async function nextCrawlCandidates(
   tenantId: string,
   limit: number,
@@ -162,7 +156,7 @@ export async function nextCrawlCandidates(
   if (!tenantId?.trim()) return [];
   const want = Math.max(1, Math.min(limit, MAX_INVENTORY_PAGE));
   const nowIso = now.toISOString();
-  const staleBefore = new Date(now.getTime() - STALE_AFTER_MS).toISOString();
+  const staleBefore = new Date(now.getTime() - 7 * DAY_MS).toISOString();
   try {
     const admin = getSupabaseAdmin();
     const out: string[] = [];
@@ -178,11 +172,13 @@ export async function nextCrawlCandidates(
         if (r.url && !out.includes(r.url)) out.push(r.url);
       }
     };
-    await take((q) => q.eq("crawl_state", "uncrawled").order("first_seen", { ascending: true }));
-    await take((q) =>
-      q.eq("crawl_state", "crawled").lt("last_crawled_at", staleBefore).order("last_crawled_at", { ascending: true }));
-    await take((q) =>
-      q.eq("crawl_state", "blocked").lte("blocked_until", nowIso).order("blocked_until", { ascending: true }));
+    const categories = [
+      (q: ReturnType<typeof buildBase>) => q.eq("crawl_state", "uncrawled").order("first_seen", { ascending: true }),
+      (q: ReturnType<typeof buildBase>) => q.eq("crawl_state", "crawled").lt("last_crawled_at", staleBefore).order("last_crawled_at", { ascending: true }),
+      (q: ReturnType<typeof buildBase>) => q.eq("crawl_state", "blocked").lte("blocked_until", nowIso).order("blocked_until", { ascending: true }),
+    ];
+    const first = Math.floor(Date.parse(`${reportingDay(now)}T12:00:00Z`) / DAY_MS) % categories.length;
+    for (let i = 0; i < categories.length; i++) await take(categories[(first + i) % categories.length]!);
     return out.slice(0, want);
   } catch (e) {
     failClosed("read", tenantId, e);

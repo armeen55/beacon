@@ -88,7 +88,7 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
   const due = (t: string): boolean => { const ms = Date.parse(t); return !Number.isFinite(ms) || now >= ms; };
   for (const o of held) { const k = canonicalUrlKey(o.url); if (due(o.retryAfter) || seen.has(k) || (authorizedRetry && k === key && o.state === "temporarily_unavailable")) continue; seen.add(k); kept.push(o); }
   let captureProblem = false, readFailed = false, priorWords = 0, unresolvedHash: string | null = null, latestCapture: Record<string, unknown> | null = null;
-  const settled = async (): Promise<boolean> => {
+  const settled = async (captureId?: string): Promise<boolean> => {
     const misses = new Map<string, "no_capture" | "read_failed">(), rows = await d.readOwnedBodies(tenantId, [url], misses).catch(() => null), body = rows?.get(key) ?? null;
     readFailed = !rows || misses.get(key) === "read_failed" || (!body && misses.get(key) !== "no_capture");
     if (readFailed) return false;
@@ -99,7 +99,7 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
       const latest = body.captureStates?.find((row) => row.id === body.latestCaptureId);
       unresolvedHash = typeof latest?.content_hash === "string" ? latest.content_hash : body.contentHash;
     }
-    return body?.version === "current" && sameFinal(body.finalUrl, absolute) && body.completeness === "complete" && !!body.contentHash
+    return body?.version === "current" && sameFinal(body.finalUrl, absolute) && body.completeness === "complete" && !!body.contentHash && (!captureId || body.captureId === captureId)
       && isCurrent("owned_page", body.fetchedAt, d.now(), bustedAt);
   };
   if (await settled()) return { held: kept.filter((o) => canonicalUrlKey(o.url) !== key), pause: null, acquired: true };
@@ -136,19 +136,21 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
   if (res.finalUrl && !sameFinal(res.finalUrl, absolute)) return { ...remember("temporarily_unavailable"), attempted: false };
   const snapshot = extractPageSnapshot(res.html, absolute, pageIdFor(key), tenantId, res.status, profile ?? undefined, res.finalUrl);
   const latest = latestCapture as Record<string, unknown> | null, source = latest?.content_capture as typeof snapshot.content_capture;
-  const unchanged = captureProblem && latest?.content_hash === snapshot.content_hash && latest.title === snapshot.title && latest.h1 === snapshot.h1
+  const collapsed = priorWords >= 100 && snapshot.word_count * 5 < priorWords * 3;
+  const sameSource = !!source?.sourceRevision && latest?.content_hash === snapshot.content_hash && latest.title === snapshot.title && latest.h1 === snapshot.h1
     && latest.meta_description === snapshot.meta_description && source?.mainHtml === snapshot.content_capture?.mainHtml
     && JSON.stringify(source?.jsonLd) === JSON.stringify(snapshot.content_capture?.jsonLd)
     && source?.sourceRevision === snapshot.content_capture?.sourceRevision;
+  const unchanged = captureProblem && sameSource && (source?.complete === false || snapshot.extraction_certainty !== "confirmed" || collapsed);
   if (source?.sourceRevision === snapshot.content_capture?.sourceRevision && source?.renderedAttempt && snapshot.content_capture)
     snapshot.content_capture.renderedAttempt = source.renderedAttempt;
-  // Repeating the same raw shell does not corroborate a known missing rendered body.
-  if (captureProblem && snapshot.content_capture && (snapshot.content_hash === unresolvedHash || (priorWords >= 100 && snapshot.word_count * 5 < priorWords * 3))) {
+  // A same-hash structured recapture can repair legacy text; a known partial shell cannot corroborate itself.
+  if (captureProblem && snapshot.content_capture && (source && snapshot.content_hash === unresolvedHash && (source.complete === false || !sameSource) || collapsed)) {
     snapshot.content_capture.complete = false; snapshot.extraction_certainty = "uncertain";
   }
   try { if (!unchanged) await d.writeOwnedPage(snapshot, tenantId); }
   catch { return { ...remember("temporarily_unavailable"), attempted: false, pause: OWNED_WRITE_PAUSE }; }
-  if (await settled()) return { held: kept.filter((o) => canonicalUrlKey(o.url) !== key), pause: null, acquired: true };
+  if (await settled(captureProblem && !unchanged ? snapshot.id : undefined)) return { held: kept.filter((o) => canonicalUrlKey(o.url) !== key), pause: null, acquired: true };
   if (readFailed) return { ...remember("temporarily_unavailable"), attempted: false, pause: "The saved page capture could not be read after the free fetch." };
   if (freeOnly || deadline - d.now() < 50_000) return { held: kept, pause: null, acquired: false, attempted: false };
   let attempted = false, unchangedIncomplete = false;

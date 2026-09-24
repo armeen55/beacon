@@ -390,9 +390,9 @@ expect([paid, ["no.com", "h8.com", "h9.com"].map((h) => [row(h).extract, row(h).
     vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(NOW);
     const shell = `<html><main><h1>Textiles</h1><p>${"intro ".repeat(65)}</p></main></html>`;
     const full = `<html><main><h1>Textiles</h1>${Array.from({ length: 27 }, (_, i) => `<section><h2>Weave ${i}</h2><p>A distinct regional textile with its own materials and documented design characteristics.</p></section>`).join("")}</main></html>`;
-    const baseline = { ...extractPageSnapshot(shell.replace("intro ".repeat(65), "original ".repeat(123)), ABS, "page", "to"), id: "baseline", fetched_at: at(NOW - 3 * DAY) };
-    const latest = { ...extractPageSnapshot(shell, ABS, "page", "to"), id: "shell", fetched_at: at(NOW - DAY) };
-    if (outcome === "partial") latest.content_capture!.complete = false;
+    const baseline = { ...extractPageSnapshot(outcome === "complete" ? full : shell.replace("intro ".repeat(65), "original ".repeat(123)), ABS, "page", "to"), id: "baseline", fetched_at: at(NOW - 3 * DAY) };
+    const latest = { ...extractPageSnapshot(outcome === "repaired_raw" ? full : shell, ABS, "page", "to"), id: "shell", fetched_at: at(NOW - DAY) };
+    if (outcome === "partial") latest.body_text = latest.body_text!.replace("intro intro", "intro  intro"); else if (outcome === "repaired_raw") latest.content_capture = undefined;
     const rows = outcome === "partial" ? [latest] : [baseline, latest], writes: typeof rows = [], provider = vi.fn(), store = seeded([]);
     const spy = vi.spyOn(repository, "selectedSnapshots").mockImplementation(async (tenant) => { expect(tenant).toBe("to"); return rows as never; });
     const deferred = ["paused", "unconfigured", "waiting"].includes(outcome), cache = new Map<string, CachedCallResult>(); let transports = 0;
@@ -411,8 +411,9 @@ expect([paid, ["no.com", "h8.com", "h9.com"].map((h) => [row(h).extract, row(h).
       }) as FunnelDeps["callProvider"],
     };
     try {
-      const first = await run(store, NOW, { ...page, html: outcome === "repaired_raw" ? full : shell }, U, "to", outcome === "conflict" ? { ...deps, saveState: async () => null } : deps, new Map(), 60_000);
-      if (outcome === "repaired_raw") { expect([first.out.status, provider.mock.calls, writes.length]).toEqual(["done", [], 1]); return; }
+      const first = await run(store, NOW, { ...page, html: ["complete", "repaired_raw"].includes(outcome) ? full : outcome === "partial" ? `<script src='/changed.js'></script>${shell}` : shell }, U, "to", outcome === "conflict" ? { ...deps, saveState: async () => null } : deps, new Map(), 60_000);
+      if (["complete", "repaired_raw"].includes(outcome)) { const saved = (await loadOwnedPageBodies("to", [ABS])).get(U); expect([first.out.status, provider.mock.calls, writes.length, saved?.completeness, saved?.captureId === writes[0]?.id, saved?.contentHash === (outcome === "complete" ? baseline : latest).content_hash]).toEqual(["done", [], 1, "complete", true, true]); return; }
+      if (outcome === "partial") expect([writes[0]?.content_capture?.complete, writes[0]?.content_hash, writes[0]?.content_capture?.sourceRevision === latest.content_capture?.sourceRevision]).toEqual([false, latest.content_hash, false]);
       expect(provider.mock.calls).toEqual([["onpage_rendered_html", { url: ABS, revision: expect.any(String) }]]);
       if (outcome === "conflict") {
         await run(store, NOW + 2, { ...page, html: shell }, U, "to", deps, new Map(), 60_000);
@@ -423,11 +424,8 @@ expect([paid, ["no.com", "h8.com", "h9.com"].map((h) => [row(h).extract, row(h).
         const next = await run(store, NOW + 2, page, U, "to", deps, new Map(), 60_000);
         expect([next.out.status, provider.mock.calls.length]).toEqual(["done", 2]); return;
       }
-      expect(first.out.status).toBe(outcome === "complete" ? "done" : "failed");
-      const body = (await loadOwnedPageBodies("to", [ABS])).get(U)!;
-      if (outcome === "complete") expect([body.version, body.completeness, body.fetchedAt, body.vocabulary.includes("Weave 26")]).toEqual(["current", "complete", at(NOW + 1), true]);
-      else expect([first.held[0]?.state, first.held[0]?.retryAfter]).toEqual(["temporarily_unavailable", at(NOW + 7 * DAY)]);
-      if (outcome === "cached_old") expect(body.version).toBe("stale_known_good");
+      expect([first.held[0]?.state, first.held[0]?.retryAfter]).toEqual(["temporarily_unavailable", at(NOW + 7 * DAY)]);
+      if (outcome === "cached_old") expect((await loadOwnedPageBodies("to", [ABS])).get(U)?.version).toBe("stale_known_good");
       expect(store.peek("to", BASIS)!.cycle.spentUsd).toBe(outcome === "refused" ? 0 : 0.01);
       const again = await run(store, NOW + 2, page, U, "to", deps);
       expect([again.tried, provider.mock.calls.length]).toEqual([[], 1]);
