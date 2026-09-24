@@ -154,7 +154,7 @@ describe("the owed results page, bought once and finished for nothing", () => {
       "and the drive that lands the results page goes straight on to read the pages that win it").toBe(true);
     expect(serpsOf().filter((s) => s.query === QUERY && s.status === "done").length, "the results page is on file for the row's own search").toBe(1);
     expect((second.progress as { collected?: { pending: number; ready: number } }).collected, "and the drive's own receipt counts the page that landed, so a collection that worked never reads as zero")
-      .toEqual({ pending: 2, ready: 2 });
+      .toEqual({ pending: 1, ready: 1 });
   });
 });
 
@@ -280,7 +280,7 @@ describe("three opportunities waiting on their own results page", () => {
     state.ready = true; advance(30 * 60_000);
     const promoted: { proposalId: string; workKey: string }[] = []; const two = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owedAfter(one, owed) }, 200_000, (p) => { if (p) promoted.push(p); });
     expect([PAGES.map((p) => state.posted.filter((q) => q === p.query).length), postsAfterOne, acquisitions(two).filter((a) => a.outcome === "deferred").length],
-      "the drive that finishes them posts none of them again, and none of them is put off: one search is two posted tasks, the results page and the answer above it, each charged at the post and collected with a free follow-up").toEqual([postsAfterOne, [2, 2, 2], 0]);
+      "the drive that finishes them posts none of them again, and none of them is put off: each named results page is posted once and collected with a free follow-up").toEqual([postsAfterOne, [1, 1, 1], 0]);
     const onFile = new Set(serpsOf().filter((x) => x.status === "done").map((x) => x.query));
     expect(PAGES.map((p) => onFile.has(p.query)), "all three searches are on file after that one drive, having cost nothing beyond the posts the drive before them paid for").toEqual([true, true, true]);
     const readFor = (q: string): boolean => winnersOf().some((w) => (w.appearances ?? []).some((a) => a.query === q) && (w.extract?.mainText ?? "").length > 0);

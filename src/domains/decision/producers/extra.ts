@@ -134,11 +134,11 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   for (const p of rank(pages.filter((p) => wrong.has(canonicalUrlKey(p.url))))) { const proof = wrong.get(canonicalUrlKey(p.url))!;
     out.push({ page: p, slug: "missing_description", field: "meta", query: topQueryOf(p), before: proof.before,
       headline: `Correct the search description that names ${proof.named} instead of ${proof.actual}`,
-      after: `Replace the exact current description with one standalone sentence about ${proof.actual}, using only facts in this page's complete article.`,
-      why: `The current description names ${proof.named}, but this page's title, heading and article name ${proof.actual}; ${count(impressions(p), "search impression")} in 90 days may show that mismatch.`,
-      steps: [], hints: [proof.before, `Current article heading: ${proof.actual}`], minutes: 2, confidence: "high", refs: 2, impact: null,
-      limitation: "The replacement may describe only the current article; the wrong subject's claims and any old proposed copy are not evidence.",
-      cause: structural("ctr_snippet", "meta", [RECEIPT.copy], `The description names ${proof.named} while the current article is about ${proof.actual}.`, `A current complete article that actually covers ${proof.named} would not justify this correction.`) }); }
+      after: `Replace the exact current description with one standalone sentence about ${proof.actual}, using only facts on this complete page.`,
+      why: `The current description names ${proof.named}, but this page's title, heading and copy name ${proof.actual}. The page had ${count(impressions(p), "search impression")} in 90 days, so readers may see the mismatch.`,
+      steps: [], hints: [proof.before, `Current page heading: ${proof.actual}`], minutes: 2, confidence: "high", refs: 2, impact: null,
+      limitation: "The replacement may describe only the current page; the wrong subject's claims and any old proposed copy are not evidence.",
+      cause: structural("ctr_snippet", "meta", [RECEIPT.copy], `The description names ${proof.named} while the current page is about ${proof.actual}.`, `A current complete page that actually covers ${proof.named} would not justify this correction.`) }); }
   const noMeta = rank(pages.filter((p) => !wrong.has(canonicalUrlKey(p.url)) && !p.content?.metaDescription?.trim() && (p.content?.wordCount ?? 0) >= READABLE_WORDS)); /* A PAGE WITH NO READABLE WORDS CANNOT BE DESCRIBED (2026-09-17): /persian-kabobs/joojeh-kabob holds seven words of chrome ("top of page < Back Joojeh Kabob Previous Next"), and the writer was paid twice to describe it, producing "the page names Joojeh Kabob, with no added description"; it joins the unread pages below until a rendered read lands */
   for (const p of noMeta) out.push({
     page: p, slug: "missing_description", field: "meta", query: topQueryOf(p),

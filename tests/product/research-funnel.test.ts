@@ -161,17 +161,15 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
     const deps: FunnelDeps = { ...store.deps, ...serpBase, callProvider: async (cap: CapabilityKey, input) => { if (cap === "serp_organic") posts += 1; return waiting(`ck-${(input as { keyword: string }).keyword}`); },
       collectTask: async () => { collects += 1; return ok(serp([{ rank: 1, domain: "a.com", url: "https://a.com/x", title: "A" }])); } };
     const r1 = await serpAnalysisUnit(deps)("ts", cur(), 60_000); expect(r1.status).toBe("waiting"); expect(posts).toBe(1); // only the week-old look is due; the fresh one is never bought again
-    const kept = store.peek("ts", BASIS)!.serps; expect(kept.queries.map((q) => q.query)).toEqual(["a query", "b query", "dropped query"]); // a paid page still current rides along behind the agenda (2026-09-02: eight bought pages vanished here); a stale one is pruned
-    expect(kept.analyzed).toBe(1); // an old completion can never satisfy a due query
+    const kept = store.peek("ts", BASIS)!.serps; expect([kept.queries.map((q) => q.query), kept.analyzed]).toEqual([["a query", "b query", "dropped query"], 1]); // a paid current page survives, while an obsolete stale one and its old completion do not
     const r2 = await serpAnalysisUnit(deps)("ts", cur(), 60_000); expect(posts).toBe(1); expect(collects).toBeGreaterThanOrEqual(1); expect(r2.status).toBe("done"); // resumed for free, never reposted
   });
   it("buys every search the wide agenda names and the whole exact-SERP allowance still sits inside the funnel's $3.00 day", async () => {
     const store = memStore(retainedState([])); let posts = 0, aiMode = 0; const priced = (c: number): CachedCallResult => ({ state: "ok", envelope: serp([]) as never, costUsd: c, cacheKey: "ck", modelServed: null });
     const many = Array.from({ length: 200 }, (_, i) => ({ query: `owned search ${String(i).padStart(3, "0")}`, impressions: 500 - i, declining: true }));
     const out = await serpAnalysisUnit({ ...store.deps, ...serpBase, loadPageQueries: async () => many, callProvider: async (cap: CapabilityKey) => (cap === "serp_organic" ? (posts += 1, priced(0.0021)) : (aiMode += 1, priced(0.01))) })("ts", cur(), 60_000);
-    const spent = store.peek("ts", BASIS)!.cycle.spentUsd, ceiling = 120 * 0.0021 + 5 * 0.01; // the widest cycle this unit can buy, in reserved dollars
-    expect([posts, aiMode, out.status]).toEqual([36, 5, "done"]); // thirty six first-party searches in one pass, where the flat stop bought twelve
-    expect([spent <= ceiling, ceiling <= 3.0]).toEqual([true, true]); }); // the whole allowance is a tenth of the funnel's day, so the raise is never what stops a cycle
+    const spent = store.peek("ts", BASIS)!.cycle.spentUsd; // the actual fake-provider receipt, including AI Mode
+    expect([posts, aiMode, out.status, spent <= 120 * 0.0021 + 5 * 0.01]).toEqual([36, 5, "done", true]); }); // the static arithmetic that this estimate is below $3 needs no test
   it("keeps every row, its words, the answer box, the PAA answers and the overview the look paid for, projects them all, tells an outstanding overview from a reported none, and buys the overview only on a search that was named", async () => {
     const store = memStore(retainedState([])); const asked: Record<string, unknown>[] = [];
     const full: ParsedSerp = { ...serp(Array.from({ length: 20 }, (_v, i) => ({ rank: i + 1, domain: `d${i}.com`, url: `https://d${i}.com/x`, title: `T${i}`, snippet: `what d${i} says` }))),
@@ -191,22 +189,24 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
     const answered = { ...serp([{ rank: 1, domain: "a.com", url: "https://a.com/x", title: "A" }]), tasks: [{ result: [{ keyword: "a different search entirely" }] }] }; // the provider echoes the keyword it actually ran on its own result block
     const out = await serpAnalysisUnit({ ...store.deps, ...serpBase, loadPageQueries: async () => [{ query: "boys baby names", impressions: 900 }], callProvider: async () => ok(answered) })("ts", cur(), 60_000); spy.mockRestore(); const st = store.peek("ts", BASIS)!;
     expect([st.serps.queries[0], projectFunnelEvidence(st, NOW).serpEvidence, said.some((l) => l.includes("serp identity mismatch")), out.detail]).toEqual([{ query: "boys baby names", cacheKey: null, status: "failed", source: "keyword", observedAt: new Date(NOW).toISOString(), identityMismatch: { asked: "boys baby names", served: "a different search entirely" } }, [], true, "1 search came back for a different phrase than the one asked, so it was left out and will be checked again."]); }); // held as unavailable coverage, both strings on the row, loudly logged, and never joined to evidence
-  it("stops the whole batch the moment the provider says today's limit is reached, and leaves the rest genuinely owed", async () => {
-    const store = memStore(retainedState([])); let calls = 0; const many = Array.from({ length: 60 }, (_, i) => ({ query: `owned search ${String(i).padStart(2, "0")}`, impressions: 500 - i }));
-    const out = await serpAnalysisUnit({ ...store.deps, ...serpBase, loadPageQueries: async () => many, callProvider: async () => { calls += 1; return { state: "error", cacheKey: null, disposition: "daily_limit", detail: "I reached today's research spending limit." } as CachedCallResult; } })("ts", cur(), 60_000);
-    expect([calls, out.status, out.detail]).toEqual([1, "failed", "I reached today's research spending limit."]); // ONE refusal, not thirty six identical ones
-    expect(store.peek("ts", BASIS)!.serps.queries.every((s) => s.status === "pending")).toBe(true); }); // owed, so tomorrow's pass buys them with a fresh limit
+  it.each(["agenda", "exact"] as const)("stops after one daily-limit refusal on the %s SERP path", async (mode) => {
+    const seed = retainedState([]), asked: Array<{ cap: CapabilityKey; input: unknown }> = [];
+    if (mode === "exact") seed.serps.queries = [{ query: "exact search", cacheKey: null, status: "done" }]; const store = memStore(seed); // an undated exact completion is owed again
+    const out = await serpAnalysisUnit({ ...store.deps, ...serpBase, loadPageQueries: async () => Array.from({ length: 60 }, (_, i) => ({ query: `owned search ${String(i).padStart(2, "0")}`, impressions: 500 - i })), callProvider: async (cap, input) => { asked.push({ cap, input }); return { state: "error", cacheKey: null, disposition: "daily_limit", detail: "I reached today's research spending limit." } as CachedCallResult; } }, mode === "exact" ? ["exact search"] : [], mode)("ts", cur(), 60_000);
+    expect([out.status, out.detail, asked]).toEqual(["failed", "I reached today's research spending limit.", [{ cap: "serp_organic", input: { keyword: mode === "exact" ? "exact search" : "owned search 00" } }]]);
+    expect(store.peek("ts", BASIS)!.serps.queries.every((s) => s.status === "pending")).toBe(true); });
   it("spends NOTHING when every trusted starting point is unreadable, and keeps the research already saved", async () => { const store = memStore(retainedState(["a query"])); let calls = 0;
     const out = await serpAnalysisUnit({ ...store.deps, ...serpBase, loadProfile: async () => { throw new Error("records down"); }, loadPageQueries: async () => null, callProvider: async () => { calls += 1; return waiting("ck"); } })("ts", cur(), 60_000);
     expect([out.status, calls, out.detail]).toEqual(["failed", 0, "No trusted starting point could be read this pass, so nothing was spent. The next visit will try again."]); // a failed read is never "you have nothing"
     expect(store.peek("ts", BASIS)!.discovery.retained).toHaveLength(1); }); // prior saved research untouched
-  it("recovers an expired search exactly once, then obeys the cache boundary's durable refusal", async () => { const seed = retainedState(["a query"]); seed.serps.queries = [{ query: "a query", cacheKey: "ck-old", status: "posted" }]; const store = memStore(seed); let posts = 0, collects = 0;
-    const deps: FunnelDeps = { ...store.deps, ...serpBase, collectTask: async () => err(++collects === 1 ? "repost_once" : "blocked"), callProvider: async (cap: CapabilityKey) => { if (cap === "serp_organic") posts += 1; return waiting("ck-new"); } };
-    const r1 = await serpAnalysisUnit(deps)("ts", cur(), 60_000); expect(r1.status).toBe("waiting"); expect(posts).toBe(1); // exactly ONE clean repost
-    expect(store.peek("ts", BASIS)!.serps.queries[0]).toMatchObject({ status: "posted", cacheKey: "ck-new" }); const r2 = await serpAnalysisUnit(deps)("ts", cur(), 60_000);
-    expect(posts).toBe(1); expect(store.peek("ts", BASIS)!.serps.queries[0]!.status).toBe("posted");
-    expect(r2.status).toBe("failed"); expect(r2.detail).toBeTruthy(); // explicit unavailable coverage, never silence
-  });
+  it.each(["agenda", "exact"] as const)("resumes a posted %s SERP through collection and cache refusal without duplicate work", async (mode) => {
+    const seed = retainedState(["a query"]); seed.serps.queries = [...(mode === "exact" ? [{ query: "query a", cacheKey: "ck-reversed", status: "posted" as const }] : []), { query: "a query", cacheKey: "ck-old", status: "posted" }, ...(mode === "exact" ? [{ query: "unrelated pending", cacheKey: null, status: "pending" as const }, { query: "unrelated posted", cacheKey: "ck-other", status: "posted" as const }] : [])];
+    const store = memStore(seed); let posts = 0, collects = 0;
+    const deps: FunnelDeps = { ...store.deps, ...serpBase, collectTask: async () => mode === "exact" ? (++collects === 1 ? waiting("ck-old") : ok(serp([{ rank: 1, domain: "a.com", url: "https://a.com/x", title: "A" }]))) : err(++collects === 1 ? "repost_once" : "blocked"), callProvider: async (cap: CapabilityKey) => { if (cap === "serp_organic") posts += 1; return waiting("ck-new"); } };
+    const unit = serpAnalysisUnit(deps, mode === "exact" ? ["a query"] : [], mode), r1 = await unit("ts", cur(), 60_000);
+    expect([r1.status, posts]).toEqual(["waiting", mode === "exact" ? 0 : 1]); expect(store.peek("ts", BASIS)!.serps.queries[0]).toMatchObject({ status: "posted", cacheKey: mode === "exact" ? "ck-old" : "ck-new" });
+    const r2 = await unit("ts", cur(), 60_000); expect([r2.status, posts, !!r2.detail, store.peek("ts", BASIS)!.serps.queries[0]!.status]).toEqual([mode === "exact" ? "done" : "failed", mode === "exact" ? 0 : 1, mode !== "exact", mode === "exact" ? "done" : "posted"]);
+    if (mode === "exact") expect(store.peek("ts", BASIS)!.serps.queries).toMatchObject([{ query: "a query", status: "done" }, ...seed.serps.queries.filter((s) => s.query !== "a query")]); });
   it("a blocked refusal outranks the done arithmetic and stops the batch; a quarantined one only names the gap", async () => {
     const seed = retainedState(["a query", "b query"]); const fresh = new Date(NOW).toISOString(); seed.serps.queries = [{ query: "a query", cacheKey: null, status: "done", observedAt: fresh }, { query: "b query", cacheKey: null, status: "done", observedAt: fresh }];
     seed.serps.analyzed = 2; const run = async (disposition: FailureDisposition) => { const s = memStore(seed); let calls = 0; // both looks landed: analyzed + unavailable would otherwise satisfy done

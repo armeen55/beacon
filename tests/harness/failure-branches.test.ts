@@ -178,7 +178,7 @@ describe("two opportunities needing one reading", () => {
     expect(new Set(forSearch.map((a) => a.key)).size, "and the receipts name different rows, which is what makes one reading two obligations").toBeGreaterThan(1);
     expect(forSearch.some((a) => a.detail.startsWith("served by the purchase this drive already made")),
       "the second row reads the first row's answer instead of buying the same search again").toBe(true);
-    expect(state.posts, "so the results page is posted once, whatever the number of rows waiting on it").toBe(2);
+    expect(state.posts, "the named results page is posted once, whatever the number of rows waiting on it").toBe(1);
   });
 });
 

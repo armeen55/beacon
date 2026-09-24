@@ -6,6 +6,7 @@ import { loadFunnelState, saveFunnelState, type FunnelState } from "@/domains/ev
 import { pageExtractFromRecord, type ResearchCase } from "@/domains/evidence/funnel/research-evidence";
 import { applySynthesis } from "@/domains/evidence/case-identity";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
+import { normalizeKeyword } from "@/domains/evidence/funnel/normalize";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader"; import { projectFunnelEvidence } from "@/domains/evidence/funnel/observe";
 import { renderUnreadOwnedPages } from "@/domains/evidence/pages/rendered-read";
 import { isCurrent } from "@/domains/evidence/freshness";
@@ -299,8 +300,8 @@ export const defaultSteps: ResearchCycleSteps & {
     const landed = (out: unknown): boolean => unitStatus(out) === "done" || unitStatus(out) === "advanced"; // stage one of winning-pages persists its reads and answers `advanced`; both words mean the write landed
     switch (need.kind) {
       case "serp": {
-        const out = await serpAnalysisUnit({}, [need.query])(tenantId, unitCursor, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) })); // LANDED MEANS ON FILE (live 2026-09-02): the unit answers done for its whole agenda, and eight "done" readings were on no row, so the page itself is read back under the basis before it counts
-        const key = canonicalQueryKey(need.query), landed = (await loadFunnelState(tenantId, basis).catch(() => null))?.state.serps.queries.some((q) => canonicalQueryKey(q.query) === key && q.status === "done") === true; /* AND THE STORE IS THE WHOLE ANSWER (measured on the harness, 2026-09-06): the unit answers for its own agenda, so the first of three owed pages bought on one drive came back `advanced` with more searches still to make, its page was on file, and the row was told the reading had not landed. It was then re-owed, re-bought and counted an attempt against itself for a page it already had. What decides is what the basis carries; `waiting` is unchanged, because a posted page is not on file. */
+        const out = await serpAnalysisUnit({}, [need.query], "exact")(tenantId, unitCursor, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) })); // The owed-evidence door may post only its one named query; the broad scheduled agenda still uses the same unit's default mode.
+        const key = normalizeKeyword(need.query), landed = (await loadFunnelState(tenantId, basis).catch(() => null))?.state.serps.queries.some((q) => normalizeKeyword(q.query) === key && q.status === "done" && !q.identityMismatch && isCurrent("serp_hot", q.observedAt, Date.now())) === true; /* Read back the exact current result under this basis; reversed-token results and old done rows cannot satisfy the named ask. */
         log.info("[research-run] the exact reading a refused candidate named", { tenantId, kind: need.kind, query: need.query, status: unitStatus(out), landed, basis }); return { acquired: landed, ...(unitStatus(out) === "waiting" ? { posted: true as const } : {}), detail: `results page for "${need.query}": ${landed ? "done" : unitStatus(out) === "done" ? `not on file under ${basis} after the unit finished` : unitStatus(out)}` }; /* WAITING IS THE POST, TYPED AND NEVER READ OUT OF THE SENTENCE: the unit answers `waiting` while any search it asked for is posted and pending, and the collection behind it is a free GET the next drive makes. This is the one requirement kind that can answer it; the winner read and the source check either land or fail. */
       }
       case "competitor_page": {

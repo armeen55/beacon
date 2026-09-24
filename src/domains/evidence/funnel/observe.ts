@@ -315,40 +315,43 @@ const SERP_AGENDA_CAP = 120, SERP_POSTS_PER_PASS = 120, SERP_ROWS_KEPT = 160;
 const SERP_ROWS_BOUGHT = 20;
 
 /** `priorityQueries`: plain strings from the caller (Evidence never reads Decision), the exact searches an open investigation cannot close without. Empty is honest and leaves the agenda exactly as it was. */
-export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[] = []): FunnelUnitFn {
+export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[] = [], mode: "agenda" | "exact" = "agenda"): FunnelUnitFn {
   const d = resolveDeps(deps);
   return async (tenantId, cursor, budgetMs) => {
     const basis = basisFromCursor(cursor);
     if (!basis) return { status: "failed", cursor, progress: {}, detail: NO_BASIS_DETAIL };
+    const exact = mode === "exact" && priorityQueries.length === 1 ? normalizeKeyword(priorityQueries[0] ?? "") : null;
+    if (mode === "exact" && !exact) return { status: "failed", cursor, progress: {}, detail: "An exact results-page request must name one search." };
     const unitKey = `serps:${tenantId}`, ids = { tenantId, unitKey }, deadline = d.now() + Math.max(1000, budgetMs);
     const loaded = await d.loadState(tenantId, basis), state = loaded.state;
     beginCycle(state, cursor, unitKey);
     const ctx: SaveCtx = { rowVersion: loaded.rowVersion }, retained = state.discovery.retained;
     // PRUNE to the CURRENT chosen set: an obsolete query can never satisfy a new one. The agenda is DECISION-scoped, never volume-ranked (my own page
     // queries, my tracked questions, every confirmed theme, then bounded exploration), and every trusted query is bought in the customer's own words.
-    const profile = await d.loadProfile(tenantId).catch(() => null);
+    const profile = exact ? null : await d.loadProfile(tenantId).catch(() => null);
     const themes = profile ? [...profile.offerings.value, ...profile.topicsToOwn.value, ...profile.customerProblems.value] : [];
     const byPrompt = new Map<string, { text: string; fanOutQueries: string[] }>();
     const toDay = reportingDay(d.now()), fromDay = new Date(Date.parse(`${toDay}T12:00:00Z`) - 27 * 86_400_000).toISOString().slice(0, 10);
     let observations;
-    try { observations = await d.loadCanonicalObservations(tenantId, { fromDay, toDay }); }
+    try { observations = exact ? [] : await d.loadCanonicalObservations(tenantId, { fromDay, toDay }); }
     catch { return { status: "failed", cursor, progress: serpProgress(state), detail: "Stored AI evidence could not be read, so nothing was spent and saved research was preserved." }; }
     for (const p of observations) { const row = byPrompt.get(p.promptId) ?? { text: "", fanOutQueries: [] }; if (!row.text) row.text = p.promptText; row.fanOutQueries.push(...(p.fanOutQueries ?? [])); byPrompt.set(p.promptId, row); }
     const prompts = [...byPrompt.entries()].map(([promptId, p]) => ({ ...p, promptId })).filter((p) => p.text || p.fanOutQueries.length > 0);
-    const pageQueries = await d.loadPageQueries(tenantId).catch(() => null);
+    const pageQueries = exact ? [] : await d.loadPageQueries(tenantId).catch(() => null);
     // FAIL BEFORE SPEND: no readable business basics, no readable page queries and no tracked questions means I have
     // NO trusted starting point, so I buy nothing this pass and leave the research already saved exactly as it is.
-    if (profile === null && pageQueries === null && prompts.length === 0) return { status: "failed", cursor, progress: serpProgress(state), detail: "No trusted starting point could be read this pass, so nothing was spent. The next visit will try again." };
+    if (!exact && profile === null && pageQueries === null && prompts.length === 0) return { status: "failed", cursor, progress: serpProgress(state), detail: "No trusted starting point could be read this pass, so nothing was spent. The next visit will try again." };
     const agenda = selectSerpAgenda({ retained, themes, prompts, pageQueries: pageQueries ?? [], priorityQueries }, SERP_AGENDA_CAP);
-    const chosen = agenda.queries; // an empty researched set no longer blocks the phase: my own page queries are checked verbatim, researched or not
+    const chosen = exact ? [exact] : agenda.queries; // the owed-evidence call uses its one named search; broad phase keeps the ranked agenda
     if (chosen.length === 0) return { status: "failed", cursor, progress: serpProgress(state), detail: "No researched keywords are ready to check in search yet." };
     // Internal progress truth only: what I could not defend and what the provider would refuse. Never customer copy.
     if (agenda.uncoveredThemes.length > 0 || agenda.skipped.length > 0) log.info("[research-funnel] serp agenda gaps", { tenantId, uncoveredThemes: agenda.uncoveredThemes, skipped: agenda.skipped });
-    const byQ = new Map(state.serps.queries.map((s) => [s.query, s])), top5 = new Set(chosen.slice(0, 5));
+    const byQ = new Map(state.serps.queries.map((s) => [s.query, s])), top5 = new Set(exact ? [] : chosen.slice(0, 5));
+    const same = exact ? state.serps.queries.filter((s) => normalizeKeyword(s.query) === exact) : [], selected = same.find((s) => s.status === "posted") ?? same.find((s) => s.query === exact) ?? same[0];
     // WHO ASKED FOR THIS SEARCH rides the row from the moment it enters the agenda: a results page can then name
     // the question behind it instead of being matched back to one by its words, which no longer says WHICH question.
-    const serps: FunnelSerp[] = chosen.map((q) => { const row = byQ.get(q) ?? { query: q, cacheKey: null, status: "pending" as const };
-      const parent = agenda.parents[q]; return { ...row, ...(agenda.sources[q] ? { source: agenda.sources[q] } : {}), ...(parent ? { parentPromptId: parent } : {}) }; });
+    const serps: FunnelSerp[] = chosen.map((q) => { const row = (exact ? selected : byQ.get(q)) ?? { query: q, cacheKey: null, status: "pending" as const };
+      const parent = agenda.parents[q]; return { ...row, query: q, ...(agenda.sources[q] ? { source: agenda.sources[q] } : {}), ...(parent ? { parentPromptId: parent } : {}) }; });
     const nowIso = () => new Date(d.now()).toISOString(), parseSerp = (payload: unknown) => d.parse("serp_organic", payload as never) as ParsedSerp | null;
     // A DAILY-LIMIT REFUSAL STOPS THE BATCH, exactly as it does on the AI-answer loops above: the provider answers 40203 the same way to every call it will take today, so carrying on asked it up to a hundred and four more times for a hundred and four identical refusals. A stopped row is still `pending`, which IS the owed state, so nothing is lost and nothing is re-bought: tomorrow's pass takes the same searches with a fresh limit.
     let failedDetail: string | null = null, blockedDetail: string | null = null, limitDetail: string | null = null;
@@ -357,8 +360,8 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
     const hot = new Set((priorityQueries ?? []).map((q) => canonicalQueryKey(normalizeKeyword(q))).filter(Boolean));
     // A look older than ITS OWN window is DUE (done OR exhausted-failed): it re-enters with a fresh per-incident budget and its AI Mode observation re-opens, so nothing freezes forever.
     for (const s of serps) {
-      if ((s.status !== "done" && s.status !== "failed") || !s.observedAt) continue;
-      if (isCurrent(hot.has(canonicalQueryKey(s.query)) ? "serp_hot" : "serp_cold", s.observedAt, d.now())) continue;
+      if ((s.status !== "done" && s.status !== "failed") || (!s.observedAt && !exact)) continue;
+      if (s.observedAt && isCurrent(hot.has(canonicalQueryKey(s.query)) ? "serp_hot" : "serp_cold", s.observedAt, d.now())) continue;
       s.status = "pending"; s.cacheKey = null; s.identityMismatch = undefined;
       s.aiMode = undefined; s.aiModeCacheKey = null; s.aiModeReposted = undefined; s.aiModeFailed = undefined;
     }
@@ -400,7 +403,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
         if (s.status === "pending") {
           // THE OVERVIEW IS BOUGHT ONLY WHERE IT IS READ. `load_async_ai_overview` costs $0.0006 a request (refunded when the search has no async overview), so it rides exactly the searches an open investigation or a
           // funded row named, which is the same `hot` set the daily freshness window is granted to, and never the broad discovery agenda.
-          const r = interp(await d.callProvider("serp_organic", { keyword: s.query, ...(hot.has(canonicalQueryKey(s.query)) ? { loadAiOverview: true } : {}) }, ids)); track(state, r);
+          const r = interp(await d.callProvider("serp_organic", { keyword: s.query, ...(!exact && hot.has(canonicalQueryKey(s.query)) ? { loadAiOverview: true } : {}) }, ids)); track(state, r);
           if (r.kind === "waiting") { s.status = "posted"; s.cacheKey = r.cacheKey; }
           else if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed, nowIso(), r.payload, tenantId); }
           else if (r.kind === "failed") {
@@ -429,8 +432,8 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
 
       // CARRY THE PAID RECEIPTS, NOT JUST THE AGENDA. A posted task's cacheKey lives ONLY on this row: rebuilding the list from the current agenda dropped any posted query that churned out of it, and the paid task sat pending in the cache with nothing ever able to collect it until the 30 day expiry recycled the money. A dropped row that is still `posted` rides along until it is collected, exactly as winning-pages carries unexpired read outcomes.
       const kept = new Set(serps.map((s) => s.query));
-      const carried = state.serps.queries.filter((s) => !kept.has(s.query) && ((s.status === "posted" && s.cacheKey != null) || (s.status === "done" && !!s.observedAt && isCurrent("serp_hot", s.observedAt, d.now())))); // AND A PAID PAGE THAT IS STILL CURRENT (live 2026-09-02): a results page bought for one owed row was pruned by the next phase run because its agenda no longer named the query, so eight readings vanished before the replay could use them
-      state.serps.queries = [...serps, ...carried].slice(0, SERP_ROWS_KEPT + carried.length); state.serps.analyzed = serps.filter((s) => s.status === "done").length;
+      const carried = state.serps.queries.filter((s) => exact ? s !== selected : !kept.has(s.query) && ((s.status === "posted" && s.cacheKey != null) || (s.status === "done" && !!s.observedAt && isCurrent("serp_hot", s.observedAt, d.now())))); // exact continuation preserves unrelated pending, posted and complete rows; broad phase retains its existing pruning rule
+      state.serps.queries = [...serps, ...carried].slice(0, SERP_ROWS_KEPT + carried.length); const selectedDone = serps.filter((s) => s.status === "done").length; state.serps.analyzed = exact ? state.serps.queries.filter((s) => s.status === "done" && isCurrent("serp_cold", s.observedAt, d.now())).length : selectedDone;
       await save(d, tenantId, basis, state, ctx);
       if (blockedDetail) return { status: "failed", cursor, progress: serpProgress(state), detail: blockedDetail }; // a held refusal OUTRANKS the done arithmetic and every unavailable count
       if (limitDetail) return { status: "failed", cursor, progress: serpProgress(state), detail: limitDetail }; // today's ceiling: everything already collected is saved, the rest stays owed and costs nothing to resume
@@ -443,7 +446,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
       if (mismatched > 0) failedDetail = `${mismatched} ${mismatched === 1 ? "search" : "searches"} came back for a different phrase than the one asked, so ${mismatched === 1 ? "it was" : "they were"} left out and will be checked again.`;
       // done = every CURRENT query freshly analyzed or explicitly unavailable, one real look minimum, no AI Mode live; unavailable is surfaced.
       let status: FunnelUnitOutcome["status"];
-      if (state.serps.analyzed > 0 && state.serps.analyzed + unavailable >= chosen.length && !aiModeInFlight) { status = "done";
+      if (selectedDone > 0 && selectedDone + unavailable >= chosen.length && !aiModeInFlight) { status = "done";
         // A NAMED MISMATCH OUTRANKS BOTH counts below: it already says what happened, and reporting it as a provider outage would be the wrong claim.
         if (mismatched === 0 && unavailable > 0) failedDetail = `${unavailable} searches were unavailable from the provider; the rest are in.`;
         else if (mismatched === 0 && aiModeMissing > 0) failedDetail = `${aiModeMissing} AI Mode looks were unavailable from the provider; the search results themselves are in.`; }

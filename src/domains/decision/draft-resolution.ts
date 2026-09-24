@@ -145,11 +145,13 @@ const metaSource = (card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPa
   && !(body?.completeness === "complete" && body.version === "current" && isCurrent("owned_page", body.fetchedAt, now.getTime()))
     ? { kind: "page_source", query: card.primaryQuery, url: card.pageUrl ?? page.url, proposalId: card.id, ownerVersion: confirmedVersion(card), reasonCode: (page.content?.wordCount ?? 0) < 40 ? "thin_meta_page_source_owed" : "meta_page_source_owed" } : null;
 const wrongSubject = (page: OwnedPageEvidence, body: OwnedPageBody | null | undefined, now: Date): { before: string; named: string; actual: string } | null => {
-  if (!body || body.version !== "current" || body.completeness !== "complete" || body.sourceCapture?.complete !== true || !isCurrent("owned_page", body.fetchedAt, now.getTime())) return null;
-  const actual = (body.h1 ?? "").replace(/\s*\([^)]*\).*/, "").trim(), title = (body.title ?? "").toLowerCase(), before = (body.metaDescription ?? "").trim();
-  const named = /^([^:]{5,80}):/.exec(before)?.[1]?.replace(/\s+(?:in|of|for)\s+.+$/i, "").trim() ?? "";
-  const words = (s: string): string[] => s.toLowerCase().match(/[a-z]{3,}/g) ?? [], a = words(actual), n = words(named), bodyText = body.passages.join(" ").toLowerCase();
-  return a.length >= 2 && n.length >= 2 && a.at(-1) === n.at(-1) && a[0] !== n[0] && title.includes(actual.toLowerCase()) && bodyText.includes(actual.toLowerCase()) && !bodyText.includes(named.toLowerCase()) && !bodyText.includes(n[0]!) && canonicalUrlKey(page.url) === canonicalUrlKey(body.url) ? { before, named, actual } : null;
+  if (!body || body.version !== "current" || body.completeness !== "complete" || body.sourceCapture?.complete !== true || !isCurrent("owned_page", body.fetchedAt, now.getTime()) || canonicalUrlKey(page.url) !== canonicalUrlKey(body.url)) return null;
+  const actual = (body.h1 ?? "").replace(/\s*\([^)]*\).*/, "").trim(), title = (body.title ?? "").toLowerCase(), before = (body.metaDescription ?? "").trim(), text = body.passages.join(" ").toLowerCase();
+  const words = (s: string): string[] => (s.toLowerCase().match(/[a-z]{3,}/g) ?? []).map((word) => word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word), a = words(actual), t = words(title), b = words(text), m = words(before);
+  const colon = /^([^:]{5,80}):/.exec(before)?.[1]?.replace(/\s+(?:in|of|for)\s+.+$/i, "").trim() ?? "", example = /\blike\s+([^.,;]+?)(?=\s+(?:for|with|made|to)\s|[,.;]|$)/i.exec(before)?.[1]?.trim() ?? "", c = words(colon), e = words(example);
+  const wrongColon = c.length >= 2 && a.at(-1) === c.at(-1) && a[0] !== c[0] && title.includes(actual.toLowerCase()) && text.includes(actual.toLowerCase()) && !text.includes(colon.toLowerCase()) && !text.includes(c[0]!);
+  const wrongExample = !colon && a.filter((word) => t.includes(word) && b.includes(word) && !m.includes(word)).length >= 2 && e.filter((word) => !t.includes(word) && !b.includes(word)).length >= 3;
+  return a.length >= 2 && (wrongColon || wrongExample) ? { before, named: wrongColon ? colon : example, actual } : null;
 };
 /** ONE public surface for what a draft's gain outcome IS and what to do about it: the refusal lines and their identity
  *  set, the deterministic next-step ladder, and the duplication reading a replacement is held to. One symbol, because
