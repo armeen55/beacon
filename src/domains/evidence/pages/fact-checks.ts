@@ -9,6 +9,7 @@ import { asksAQuestion, AUTHORITATIVE_KIND, GLOSS_STOP, supportShortfall } from 
 import type { ClaimSupport } from "./claim-support";
 import { log } from "@/lib/logger";
 import { createHash } from "node:crypto";
+import { isSafeRedirectHopUrl } from "@/lib/net/safe-source-fetch";
 
 const TABLE = "page_source_facts";
 
@@ -232,11 +233,12 @@ export async function reopenObsoleteChecks(tenantId: string, page: string, stale
 }
 
 /** Archive the exact checked row before conditionally reopening it. A concurrent recheck wins the CAS. */
-export async function reopenChangedSourceChecks(tenantId: string, page: string, changed: readonly FactCheck[]): Promise<string[]> {
-  if (!changed.length) return [];
+export async function reopenChangedSourceChecks(tenantId: string, page: string, changed: readonly FactCheck[], dispute?: { url: string; reason: string; ownerHash: string; basis: string }): Promise<string[]> {
+  if (!changed.length || dispute && (changed.length !== 1 || changed[0]?.page !== page || changed[0]?.state !== "checked" || changed[0]?.pageContentHash !== dispute.ownerHash || changed[0]?.evidenceBasis !== dispute.basis || !isSafeRedirectHopUrl(dispute.url) || !dispute.reason.trim() || dispute.reason.length > 160)) return [];
+  if (dispute && !(await readFactChecks(tenantId, page)).some((f) => f.statementKey === changed[0]!.statementKey && f.state === "checked" && JSON.stringify(f) === JSON.stringify(changed[0]))) return [];
   const at = new Date().toISOString(), db = getSupabaseAdmin();
   const history = changed.map((g) => ({ tenant_id: tenantId, page_key: page,
-    statement_key: `${g.statementKey}~src${createHash("sha256").update(JSON.stringify([g.checkedAt, g.sources])).digest("hex").slice(0, 16)}`,
+    statement_key: `${g.statementKey}~src${createHash("sha256").update(JSON.stringify(g)).digest("hex").slice(0, 16)}`,
     subject: g.subject, current_wording: g.current, proposed: g.proposed, literal: g.literal, usage: g.usage,
     sources: g.sources, agreement: g.agreement, confidence: g.confidence, verdict: g.verdict,
     also_at: g.alsoAt, note: g.note, page_content_hash: g.pageContentHash, page_locator: g.pageLocator,
@@ -246,25 +248,24 @@ export async function reopenChangedSourceChecks(tenantId: string, page: string, 
   if (archiveError) throw new Error(`[fact-checks] changed source history did not land: ${archiveError.message}`);
   const reopened: string[] = [];
   for (const g of changed) {
-    const { data, error } = await db.from(TABLE).update({ proposed: null, literal: null, usage: null, sources: g.sources.map((s) => ({ url: s.url, kind: s.kind, says: "" })), source_url: null, source_quote: null,
+    let q = db.from(TABLE).update({ proposed: null, literal: null, usage: null, sources: dispute ? [{ url: dispute.url, kind: "publisher", says: "" }] : g.sources.map((s) => ({ url: s.url, kind: s.kind, says: "" })), source_url: null, source_quote: null,
       source_class: null, agreement: "none_found", confidence: "unsupported", verdict: "undecidable", source_read_at: null,
-      note: "Owed again: a newer saved reading changed a source this finding relied on.", claim_state: "owed", checked_at: at, updated_at: at })
-      .eq("tenant_id", tenantId).eq("page_key", page).eq("statement_key", g.statementKey).eq("claim_state", "checked").eq("checked_at", g.checkedAt).select("statement_key");
+      note: dispute ? `Owed again: source support disputed; ${dispute.reason.trim()}` : "Owed again: a newer saved reading changed a source this finding relied on.", claim_state: "owed", checked_at: at, updated_at: at })
+      .eq("tenant_id", tenantId).eq("page_key", page).eq("statement_key", g.statementKey).eq("claim_state", "checked").eq("checked_at", g.checkedAt);
+    if (dispute) {
+      q = q.eq("sources", JSON.stringify(g.sources)).eq("also_at", JSON.stringify(g.alsoAt)).eq("confidence", g.confidence).eq("verdict", g.verdict).eq("agreement", g.agreement).eq("note", g.note).eq("rules_version", g.rulesVersion).eq("subject", g.subject).eq("current_wording", g.current);
+      for (const [field, value] of Object.entries({ proposed: g.proposed, literal: g.literal, usage: g.usage, source_read_at: g.sourceReadAt, page_content_hash: g.pageContentHash, evidence_basis: g.evidenceBasis, page_locator: g.pageLocator })) q = value == null ? q.is(field, null) : q.eq(field, value);
+    }
+    const { data, error } = await q.select("statement_key");
     if (error) throw new Error(`[fact-checks] changed source could not reopen its finding: ${error.message}`);
     reopened.push(...(data ?? []).map((row) => row.statement_key as string));
   }
   return reopened;
 }
 
-/** PURE: the checks that may authorize replacing published words./** PURE: the checks that may authorize replacing published words. Confirmed, contradicting the page, carrying
- *  a replacement, at least one source of real authority, AND A RECORD THAT THE SOURCE WAS ACTUALLY READ.
- *
- *  THE READ IS THE WHOLE POINT (Codex, 2026-08-18). Without `sourceReadAt` the row says an authority exists,
- *  not that anybody opened it, and the migration that created this table says in its own words that such a row
- *  may not authorize replacement. It was authorizing 40 of them into a live customer card. A row researched
- *  outside the runtime is real work and still cannot attest to itself here: it stays a finding until the
- *  engine reads its source and says so. `current` binds the row to the page version and basis it was checked
- *  against, so a stale fact can never sit beside its own replacement as a second live instruction. */
+/** PURE: a correction needs confirmed replacement words, qualified source authority, and proof that source
+ *  was read. An unread authority is a finding, not publication support. The page version and evidence basis
+ *  must still match, so stale evidence cannot authorize current copy. */
 /** A QUOTE THAT ONLY HYPOTHESIZES DOES NOT AUTHORIZE A FLAT REPLACEMENT. Wikipedia's Maryam passage says the
  *  name "may have originated... possibly derivative of the root mr", and the flat "Beloved." shipped on it was
  *  really standing on one ordinary baby-name site: a hypothesis plus an ordinary publisher is a finding, never

@@ -48,7 +48,7 @@ export function supabaseFake(o: SupabaseFakeOptions) {
       upsert: (r: Row | Row[], x?: { ignoreDuplicates?: boolean }) => { op = "upsert"; sent = Array.isArray(r) ? r : [r]; skipDup = x?.ignoreDuplicates === true; return q; },
       order: (c: string, x?: { ascending?: boolean }) => { orders.push([c, x?.ascending !== false]); return q; },
       limit: (n: number) => { max = n; return q; }, range: (a: number, z: number) => { first = a; max = z - a + 1; return q; },
-      eq: (c: string, v: unknown) => where((r) => (r[c] ?? null) === v), is: (c: string, v: unknown) => where((r) => (r[c] ?? null) === v),
+      eq: (c: string, v: unknown) => where((r) => (r[c] ?? null) === v || typeof v === "string" && r[c] != null && JSON.stringify(r[c]) === v), is: (c: string, v: unknown) => where((r) => (r[c] ?? null) === v),
       contains: (c: string, v: Record<string, unknown>) => where((r) => contains(r[c], v)),
       not: (c: string, op: string, v: unknown) => op === "is" ? where((r) => (r[c] ?? null) !== v) : q,
       in: (c: string, vs: readonly unknown[]) => {

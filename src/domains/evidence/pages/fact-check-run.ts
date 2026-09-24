@@ -9,7 +9,6 @@ export { claimTypeOf } from "./claim-support";
 const EMPTY_ROW = { proposed: null, literal: null, usage: null, sources: [], agreement: "none_found" as const, confidence: "unsupported" as const, verdict: "undecidable" as const, alsoAt: [], note: "", sourceReadAt: null };
 /** How many candidate sources one claim weighs, and how many it will actually fetch. */
 const CANDIDATES = 6, FETCH_PER_CLAIM = 2;
-/** A call is only started when this much of the deadline remains, so its result can always be persisted. */
 const RESERVE_MS = 8_000;
 const EXTRACT_CHUNK = 3_000;
 /** The most statements one extraction may return (`FactClaimExtractionSchema`). Read here so the cursor can tell a chunk that was READ from one that merely filled up. */
@@ -120,9 +119,7 @@ type UnitFailure = "no_page_body" | "lease_exhausted" | "inventory_write_failed"
   | "lease_lost" | "source_quality_unresolved"
   | `extraction_${ProviderHold}` | `search_${ProviderHold}` | `fetch_${ProviderHold}` | `judge_${ProviderHold}`;
 
-/** A search answer: readable results or a TYPED provider hold. Only the readable shape may settle a claim. */
 type SearchAnswer = { organic: { domain: string; url: string; title: string | null }[] } | { hold: ProviderHold };
-/** A source read: the page's words or a TYPED hold. A hold never clears the claim. */
 type SourceAnswer = { text: string; title?: string | null; sections?: readonly SourceSection[]; fetchedAt?: string } | { hold: ProviderHold }; type SourceSection = { heading: string | null; text: string };
 
 /** WHERE THE PAGE STANDS, read back from the persisted inventory rather than carried in a lease. */
@@ -294,13 +291,15 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     const heading = c.url === d.rival?.url && d.rival.anchor?.trim() ? d.rival.anchor.trim() : undefined; // the winner's own heading, where the requirement named one
     if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, title: got.title ?? null, readAt: got.fetchedAt ?? new Date().toISOString(), readHash: FACT_SOURCE.hash(got.text), sections: got.sections ?? [], text: d.structured?.(claim.subject) === true && (got.sections?.length ?? 0) >= 2 ? sectionDigest(got.sections ?? []) : subjectWindow(got.text, [claim.subject, ...(claim.current.match(/\b\d[\d,.]*\b/g) ?? [])], 6_000, 160, heading) });
     return null; };
-  const named = [...new Set([...next.sources.filter((s) => !s.says && s.url).map((s) => s.url), ...(d.rival && d.rival.subject.trim().toLowerCase() === claim.subject.trim().toLowerCase() ? [d.rival.url, ...(d.rival.urls ?? [])] : [])])]
+  const disputed = next.note.startsWith("Owed again: source support disputed;"), named = [...new Set([...next.sources.filter((s) => !s.says && s.url).map((s) => s.url), ...(!disputed && d.rival && d.rival.subject.trim().toLowerCase() === claim.subject.trim().toLowerCase() ? [d.rival.url, ...(d.rival.urls ?? [])] : [])])]
     .filter((u) => { const host = hostOf(u); return host && host !== ownSite && !host.endsWith(`.${ownSite}`) && !REJECTED.has(sourceClassOf(host)); });
+  if (disputed && (named.length !== 1 || named[0] !== next.sources[0]?.url)) return fail("fetch_refused", cursor, "the disputed claim has no one safe exact nominated source", next.statementKey);
   const alternative = named.slice(1).find((u) => hostOf(u) !== hostOf(named[0]!)) ?? named[1];
   const readNamed = async (url: string): Promise<FactCheckUnitResult | null> => {
     const hold = await readSource({ url, kind: sourceClassOf(hostOf(url)) });
     return hold === "capped" || hold === "waiting" ? fail(`fetch_${hold}`, cursor, `the named source is ${hold}, so this claim is still owed`, next.statementKey) : null; };
-  if (named[0]) { const stopped = await readNamed(named[0]); if (stopped) return stopped; }
+  if (named[0]) { const stopped = await readNamed(named[0]); if (stopped) return stopped;
+    if (!passages.length && disputed) return fail(`fetch_${lastHold}`, cursor, "the disputed claim's nominated source was not readable; no former source or new search may stand in for it", next.statementKey); }
   const search = async (): Promise<FactCheckUnitResult | null> => {
     searched = true;
     if (!d.searchSources || !enough(d.deadlineAt, 15_000)) return fail("lease_exhausted", cursor, "no lease left to look for sources");
@@ -426,7 +425,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   let result = await judge();
   if ("status" in result) return result;
   // A readable named page is not settled evidence until the existing support contract accepts it.
-  if (!searched && attempted.size < FETCH_PER_CLAIM && !(result.current && result.confidence === "confirmed" && result.verdict === "page_correct")
+  if (!disputed && !searched && attempted.size < FETCH_PER_CLAIM && !(result.current && result.confidence === "confirmed" && result.verdict === "page_correct")
     && authorizedCorrections([result], page.prospective ? undefined : { pageContentHash: hash, evidenceBasis: d.basis, body: page.body }, tenantId).length === 0) {
     const before = passages.length, stopped = alternative && !attempted.has(alternative) ? await readNamed(alternative) : await search();
     if (stopped) return stopped;

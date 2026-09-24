@@ -1,6 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { supabaseFake, type Row } from "../helpers/supabase-fake";
 const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], owed: [] as Record<string, unknown>[], superseded: [] as string[],
-  reopened: [] as string[], cov: null as Record<string, unknown> | null, writeFails: false }));
+  reopened: [] as string[], facts: [] as Record<string, unknown>[], race: false, cov: null as Record<string, unknown> | null, writeFails: false }));
+vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => supabaseFake({ rows: () => db.facts, same: (a: Row, b: Row) => a.tenant_id === b.tenant_id && a.page_key === b.page_key && a.statement_key === b.statement_key,
+  clash: (sent: Row, rows: Row[]) => { if (db.race && String(sent.statement_key).includes("~src")) { const live = rows.find((r) => r.statement_key === "k"); if (live) live.sources = [{ url: "https://new.example/x", kind: "publisher", says: "new" }]; } return null; } }) }));
 vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {
   const real = await orig<typeof import("@/domains/evidence/pages/fact-checks")>(); return { ...real,
     recordFactChecks: async (_t: string, _p: string, checks: Record<string, unknown>[]) => {
@@ -21,7 +24,9 @@ const CLAIMS = { statements: [{ subject: "Afsaneh", current: "Goddess", locator:
 const SOURCE = { organic: [{ domain: "en.wiktionary.org", url: "https://en.wiktionary.org/x", title: "Afsaneh" }] }; const PASSAGE = "Persian افسانه: tale, story, fable, legend, myth."; const coverage = () => ({ readCoverage: async () => db.cov as InventoryCoverage | null, writeCoverage: async (c: InventoryCoverage) => { db.cov = c as unknown as Record<string, unknown>; return true; } }); const unit = (over: Record<string, unknown>) => runFactCheckUnit({ tenantId: "t", now: NOW, basis: "b1", deadlineAt: Date.now() + 600_000, page: PAGE, read: reader({ claims: CLAIMS, judge: CONFIRMS }), searchSources: async () => SOURCE, fetchSource: async () => ({ text: PASSAGE }), ...coverage(), ...over } as never);
 const row = (over: Partial<FactCheck>): FactCheck => ({ page: "/names", statementKey: "k", subject: "Afsaneh", current: "Goddess", proposed: null, literal: null, usage: null, sources: [], agreement: "none_found",
   confidence: "unsupported", verdict: "undecidable", alsoAt: [], note: "", pageContentHash: pageHashOf(PAGE.body), pageLocator: null, sourceReadAt: null, state: "owed", rulesVersion: VERIFICATION_RULES_VERSION, evidenceBasis: "b1", checkedAt: NOW.toISOString(), ...over });
-const reset = () => { db.rows = []; db.owed = []; db.superseded = []; db.reopened = []; db.cov = null; db.writeFails = false; };
+const reset = () => { db.rows = []; db.owed = []; db.superseded = []; db.reopened = []; db.facts = []; db.race = false; db.cov = null; db.writeFails = false; };
+const pass = (over: Partial<Parameters<typeof runFactCheckPass>[0]>) => runFactCheckPass({ tenantId: "t", basis: "b1", deadlineAt: Date.now() + 600_000, pages: [], held: [], refreshHeld: async () => null,
+  readCoverage: async () => null, writeCoverage: async () => true, read: reader({ claims: CLAIMS, judge: CONFIRMS }), searchSources: async () => SOURCE, fetchSource: async () => ({ text: PASSAGE }), ...over } as never);
 describe("the search is the proposition", () => {
   it("the real Ahvaz claim searches the claim, and the type shapes but never erases the assertion", () => {
     const subject = "Ahvaz, Iran", current = "Ahvaz, Iran holds the record for hottest day ever in Asia at 54 °C (129 °F)"; expect(claimTypeOf(subject, current)).toBe("quantity"); // a record temperature is not a definition
@@ -69,27 +74,23 @@ describe("a missing proposition is researched, never graded", () => { beforeEach
     expect(db.rows.map((r) => r.statementKey), "AND A QUESTION THE PAGE DOES NOT ANSWER IS RESEARCHED BEFORE THE PAGE'S OWN INVENTORY, by the row's shape and not by the locator an acquisition seeded it with, which a reopened row does not keep: live, three reopened questions waited while a hub's Quick Facts were checked").toEqual(["missing#1"]);
     db.rows = []; await unit({ held: [missing], read: judge("undecidable") }); const astray = db.rows.find((r) => r.statementKey === "missing#1")!;
     expect([astray.state, astray.proposed, astray.confidence], "and a statement the judge would not say answers the question is banked as no statement at all, so a confirmed undecidable row can no longer exist").toEqual(["checked", null, "likely"]); });
-  it("banks the source's own sections under a grouping answer, the apparatus of a reference work left out, and none where the judge named no group", async () => {
-    const url = "https://en.wikipedia.org/wiki/Wildlife_of_Iran", quote = "As of 2001, 20 of Iran's mammal species and 14 bird species were endangered.", groups = ["mammal species", "bird species"];
-    const sections = [{ heading: "History", text: "Iran's fauna was described by travellers from the tenth century onward, and the first surveys of it were made in 1920. " }, { heading: "Fauna", text: "The mammals of Iran include the Asiatic cheetah, the Persian leopard, the brown bear and the wild goat. Birds include the Caspian snowcock and the see-see partridge. " }, { heading: "Endangered", text: `${quote} The Asiatic cheetah survives only in the central deserts. ` }, { heading: "References", text: "1. Firouz, E. (2005). The Complete Fauna of Iran. I.B. Tauris. 2. Ziaie, H. (2008). A Field Guide to the Mammals of Iran. " }];
-    const run = async (named: string[]) => { reset(); await unit({ held: [row({ statementKey: "groups", subject: "iran animals Which groups does the source distinguish?", current: "", pageLocator: "missing" })], read: reader({ claims: { statements: [] }, judge: { verdict: "page_correct", proposed: quote, confidence: "confirmed", supporting: [{ url, quote, groups: named }], subjects: [{ url, sameEntity: true, language: "English", script: null, why: "animals" }] } }), searchSources: async () => ({ organic: [{ domain: "en.wikipedia.org", url, title: "Wildlife of Iran" }] }), fetchSource: async () => ({ text: sections.map((x) => `${x.heading}\n${x.text}`).join("\n"), title: "Wildlife of Iran", sections }) }); return (db.rows.find((r) => r.statementKey === "groups") as unknown as FactCheck).sources[0]!; };
-    const grouped = await run(groups), bare = await run([]);
-    expect([grouped.groups, grouped.groupExcerpts?.map((e) => e.heading), grouped.groupExcerpts?.[0]?.says.startsWith("As of 2001, 20 of Iran's mammal species"), grouped.groupExcerpts?.some((e) => e.says.includes("Asiatic cheetah, the Persian leopard")), bare.groupExcerpts],
-      "the section quoting the groups comes first and the one naming the mammals and the birds next, the survey that carries none of the group words is left out while two sections carry them, the reference list is apparatus and never rides, each excerpt is the section's own opening words, and a judge that named no group banks no excerpt").toEqual([groups, ["Endangered", "Fauna"], true, true, undefined]);
-  });
-  it("reads a grouping claim as the source's own sections, keeps a heading the judge names as a group even when the quote cannot hold it, marks the read, and the packet gate counts that group", async () => {
-    const url = "https://en.wikipedia.org/wiki/Wildlife_of_Iran", seen: string[] = [];
-    const sections = [{ heading: "Wildlife of Iran", text: "The wildlife of Iran include the fauna and flora of Iran. " }, { heading: "Fauna", text: "The mammals of Iran include the Asiatic cheetah, the Persian leopard, the brown bear and the wild goat. Birds include the Caspian snowcock. " }, { heading: "Endangered", text: "As of 2001, 20 of Iran's mammal species and 14 bird species were endangered. The Asiatic cheetah survives only in the central deserts. " }, { heading: "References", text: "1. Firouz, E. (2005). The Complete Fauna of Iran. I.B. Tauris. 2. Ziaie, H. (2008). " }];
-    const quote = "As of 2001, 20 of Iran's mammal species and 14 bird species were endangered.", judge = { verdict: "page_correct", proposed: quote, confidence: "confirmed", supporting: [{ url, quote, groups: ["Fauna", "Endangered"] }], subjects: [{ url, sameEntity: true, language: "English", script: null, why: "animals" }] };
-    const base = reader({ claims: { statements: [] }, judge }), read = (input: Parameters<typeof base>[0]) => { seen.push(JSON.stringify(input)); return base(input); };
-    reset(); await unit({ held: [row({ statementKey: "groups", subject: "iran animals Which groups does the source distinguish?", current: "", pageLocator: "missing" })], read, structured: () => true, searchSources: async () => ({ organic: [{ domain: "en.wikipedia.org", url, title: "Wildlife of Iran" }] }), fetchSource: async () => ({ text: sections.map((x) => `${x.heading}\n${x.text}`).join("\n"), title: "Wildlife of Iran", sections }) });
-    const banked = (db.rows.find((r) => r.statementKey === "groups") as unknown as FactCheck).sources[0]!, { AEO_BAR } = await import("@/domains/decision/accept-worthy");
-    expect([seen.some((t) => t.includes("Fauna\\nThe mammals of Iran") && t.includes("Endangered\\nAs of 2001") && !t.includes("References\\n1. Firouz")), banked.groups, banked.says, banked.groupExcerpts?.map((e) => e.heading), banked.sectionsRead, AEO_BAR.hasGrouping([banked])],
-      "the judge is handed the source as its headings above their words with the reference list left out; the heading the quote cannot hold stays a group because the words under it are banked beside it (the lede rides last, since it names the fauna); the read is marked; and the packet gate counts both groups").toEqual([true, ["Fauna", "Endangered"], quote, ["Endangered", "Fauna", "Wildlife of Iran"], true, ["Fauna", "Endangered"]]);
+  it("banks source sections under named groups, omits apparatus, and gives the judge those words", async () => {
+    const url = "https://en.wikipedia.org/wiki/Wildlife_of_Iran", quote = "As of 2001, 20 of Iran's mammal species and 14 bird species were endangered.";
+    const sections = [{ heading: "Wildlife of Iran", text: "The wildlife of Iran include the fauna and flora of Iran. " }, { heading: "Fauna", text: "The mammals of Iran include the Asiatic cheetah, the Persian leopard, the brown bear and the wild goat. Birds include the Caspian snowcock. " }, { heading: "Endangered", text: `${quote} The Asiatic cheetah survives only in the central deserts. ` }, { heading: "References", text: "1. Firouz, E. (2005). The Complete Fauna of Iran. I.B. Tauris. 2. Ziaie, H. (2008). " }];
+    const run = async (groups: string[], structured = false) => { reset(); const seen: string[] = [], judge = { verdict: "page_correct", proposed: quote, confidence: "confirmed", supporting: [{ url, quote, groups }], subjects: [{ url, sameEntity: true, language: "English", script: null, why: "animals" }] }, base = reader({ claims: { statements: [] }, judge });
+      await unit({ held: [row({ statementKey: "groups", subject: "iran animals Which groups does the source distinguish?", current: "", pageLocator: "missing" })], read: (input: Parameters<typeof base>[0]) => { seen.push(JSON.stringify(input)); return base(input); }, structured: () => structured, searchSources: async () => ({ organic: [{ domain: "en.wikipedia.org", url, title: "Wildlife of Iran" }] }), fetchSource: async () => ({ text: sections.map((x) => `${x.heading}\n${x.text}`).join("\n"), title: "Wildlife of Iran", sections }) });
+      return { seen, source: (db.rows.find((r) => r.statementKey === "groups") as unknown as FactCheck).sources[0]! }; };
+    const headings = await run(["Fauna", "Endangered"], true), { AEO_BAR } = await import("@/domains/decision/accept-worthy");
+    expect([headings.seen.some((t) => t.includes("Fauna\\nThe mammals of Iran") && t.includes("Endangered\\nAs of 2001") && !t.includes("References\\n1. Firouz")), headings.source.groups, headings.source.says, headings.source.groupExcerpts?.map((e) => e.heading), headings.source.sectionsRead, AEO_BAR.hasGrouping([headings.source])]).toEqual([true, ["Fauna", "Endangered"], quote, ["Endangered", "Fauna", "Wildlife of Iran"], true, ["Fauna", "Endangered"]]);
+    const nouns = (await run(["mammal species", "bird species"])).source, bare = (await run([])).source;
+    expect([nouns.groups, nouns.groupExcerpts?.map((e) => e.heading), nouns.groupExcerpts?.[0]?.says.startsWith(quote), nouns.groupExcerpts?.some((e) => e.says.includes("Asiatic cheetah, the Persian leopard")), bare.groupExcerpts]).toEqual([["mammal species", "bird species"], ["Endangered", "Fauna"], true, true, undefined]);
   });
   it("banks the carrying window of the fetched document, and the judge's own quote when nothing carries", async () => {
     const PROP = "Before 1979, Iran used a tricolour flag of green, white, and red with the Lion and Sun emblem at the center; it remained in use until the 1979 Islamic Revolution", CARRIES = "Before 1979 the flag of Iran was a tricolour of green, white and red charged at the center with the Lion and Sun emblem of the Islamic state.";
     const JUDGED = "Following the 1979 Islamic Revolution, the Iranian flag was changed into its current form.", FLAG = "https://en.wikipedia.org/wiki/Flag_of_Iran", PARA = "The Iranian flag used before the 1979 Islamic Revolution featured the Lion and Sun emblem.";
+    const gap = (proposed: string, quote: string): SupportContext => ({ tenantId: "t", page: PAGE.path, statementKey: "gap#1", pageLocator: "missing", subject: "iran flag before 1979", claimKind: "date_or_event", current: "", proposed, url: FLAG, kind: "encyclopedia", quote, titleContext: null });
+    const history = "The Lion and Sun emblem was charged on the centre band of the green, white and red tricolour that Iran flew until the revolution of 1979.", one = "Before the 1979 revolution, Iran's flag was a green, white and red tricolour bearing the Lion and Sun emblem.", composite = `${one} It was replaced after the revolution by the current flag of the Islamic Republic, which carries the Takbir twenty-two times.`;
+    expect([!!deriveSupport(gap(PROP, CARRIES)), !!deriveSupport(gap(one, history)), deriveSupport(gap(composite, history))]).toEqual([true, true, null]);
     const judge = { verdict: "page_correct", proposed: PROP, confidence: "confirmed", note: "The passages support the pre-1979 flag's colors, emblem, and replacement.", supporting: [{ url: FLAG, quote: JUDGED }], subjects: [{ url: FLAG, sameEntity: true, language: "English", script: null, why: "the article is this flag's own" }] };
     const run = async (text: string, over: Partial<FactCheck> = {}) => { reset(); db.cov = { pageContentHash: pageHashOf(PAGE.body), coveredChars: PAGE.body.length, totalChars: PAGE.body.length };
       await unit({ held: [row({ statementKey: "gap#1", subject: "iran flag before 1979", current: "", pageLocator: "missing", ...over })], read: reader({ claims: { statements: [] }, judge }),
@@ -117,6 +118,14 @@ describe("a missing proposition is researched, never graded", () => { beforeEach
     expect(banked.confidence).toBe(success ? mode === "first" ? "likely" : "confirmed" : "unsupported");
     const again = await unit({ held: [banked], ...seam });
     expect([again.status, db.rows.length, fetched.length, judge.mock.calls.length]).toEqual(["done", 1, mode === "first" || mode === "empty" ? 1 : 2, mode === "first" || mode === "empty" ? 1 : 2]);
+  });
+  it.each(["readable", "empty", "rejected"])("a disputed %s nominee never falls back to the challenged source or SERP", async (mode) => {
+    const nominee = mode === "rejected" ? "https://reddit.com/r/iran" : "https://persian-computing.org/archives/ISIRI/ISIRI-1.html", old = "https://en.wikipedia.org/wiki/Flag_of_Iran", fetched: string[] = [];
+    db.cov = { pageContentHash: pageHashOf(PAGE.body), coveredChars: PAGE.body.length, totalChars: PAGE.body.length };
+    const claim = row({ state: "owed", current: "", subject: "Why is the Takbir repeated 22 times?", statementKey: "why#1", pageLocator: "missing", note: "Owed again: source support disputed; old quote omitted its caveat", sources: [{ url: nominee, kind: "publisher", says: "" }] });
+    const search = vi.fn(async () => SOURCE), judge = vi.fn(async () => ({ value: { verdict: "undecidable", proposed: "", confidence: "unsupported", supporting: [] } }));
+    const out = await unit({ held: [claim], statementKey: claim.statementKey, rival: { subject: claim.subject, url: old }, searchSources: search, read: judge, fetchSource: async (url: string) => { fetched.push(url); return { text: mode === "empty" ? "" : "This source mentions the flag, but gives no reason for 22." }; } });
+    expect([out.status, out.failure, fetched, search.mock.calls.length, judge.mock.calls.length]).toEqual([mode === "readable" ? "advanced" : "failed", mode === "rejected" ? "fetch_refused" : mode === "empty" ? "fetch_unavailable" : undefined, mode === "rejected" ? [] : [nominee], 0, mode === "readable" ? 1 : 0]);
   }); });
 describe("every failure is typed and leaves the claim owed", () => { beforeEach(reset);
   it.each(["fetch", "judge"])("a named-source %s hold stops before fallback spending", async (stage) => {
@@ -189,25 +198,19 @@ describe("coverage, duplicates and diversity", () => { beforeEach(reset);
 describe("one pass, one global claim allowance", () => { beforeEach(reset);
   it("three eligible pages cannot exceed the global attempt allowance", async () => {
     let units = 0; const pages = ["/a", "/b", "/c"].map((p) => ({ url: `https://x.example${p}`, path: p, loadBody: async () => `${p} page body.` }));
-    const out = await runFactCheckPass({ tenantId: "t", basis: "b1", deadlineAt: Date.now() + 600_000, pages, held: [],
-      refreshHeld: async () => null, readCoverage: async () => null, writeCoverage: async () => true,
+    const out = await pass({ pages,
       read: async (i: { kind: string }) => ({ value: (i.kind === "fact_claim_extraction"
         ? (units += 1, { statements: Array.from({ length: 2 * ATTEMPTS_PER_PASS }, (_, n) => ({ subject: `S${units}${n}`, current: `claim ${units} ${n}`, locator: `L${n}` })) })
-        : CONFIRMS) as Record<string, unknown> }),
-      searchSources: async () => SOURCE, fetchSource: async () => ({ text: PASSAGE }) });
+        : CONFIRMS) as Record<string, unknown> }) });
     expect(out.attempts).toBe(ATTEMPTS_PER_PASS); }); // the allowance TOTAL, never per page: the fixture offers double it
   it("an account whose pages have no stored words owes nothing here, and never pauses a fresh account", async () => {
-    const out = await runFactCheckPass({ tenantId: "t", basis: "b1", deadlineAt: Date.now() + 600_000, held: [],
-      pages: [{ url: "https://x.example/new", path: "/new", loadBody: async () => "" }],
-      refreshHeld: async () => null, readCoverage: async () => null, writeCoverage: async () => true,
-      read: reader({ claims: CLAIMS, judge: CONFIRMS }), searchSources: async () => SOURCE, fetchSource: async () => ({ text: PASSAGE }) });
+    const out = await pass({ pages: [{ url: "https://x.example/new", path: "/new", loadBody: async () => "" }] });
     expect([out.status, out.attempts, out.failure]).toEqual(["done", 0, undefined]); });
   it("a failed unit ends the pass with its typed identity instead of burning the allowance", async () => {
-    const out = await runFactCheckPass({ tenantId: "t", basis: "b1", deadlineAt: Date.now() + 600_000,
+    const out = await pass({
       pages: [{ url: "https://x.example/a", path: "/a", loadBody: async () => "A body." }],
       held: [row({ page: "/a", pageContentHash: pageHashOf("A body.") })],
-      refreshHeld: async () => null, readCoverage: async () => null, writeCoverage: async () => true,
-      read: reader({ claims: CLAIMS, judge: CONFIRMS }), searchSources: async () => ({ hold: "capped" }), fetchSource: async () => ({ text: PASSAGE }) });
+      searchSources: async () => ({ hold: "capped" }) });
     expect([out.status, out.failure, out.attempts]).toEqual(["failed", "search_capped", 1]); });});
 describe("what may authorize replacing published words", () => { beforeEach(reset);
   it("verifies each quote in its OWN source, so a misattributed quote supports nothing", async () => {
@@ -305,18 +308,18 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
       current: `${subject} means something`, pageContentHash: pageHashOf(body) }));
     db.cov = { pageContentHash: pageHashOf(body), coveredChars: body.length, totalChars: body.length } as never;
     const asked: string[] = [];
-    const out = await runFactCheckPass({ tenantId: "t", basis: "b1", deadlineAt: Date.now() + 600_000, held: owed,
+    const out = await pass({ held: owed,
       pages: [{ url: PAGE.url, path: PAGE.path, loadBody: async () => body }],
-      refreshHeld: async () => null, readCoverage: async () => db.cov as never, writeCoverage: async () => true,
+      readCoverage: async () => db.cov as never,
       read: reader({ claims: { statements: [] }, judge: CONFIRMS }),
       searchSources: async (query: string) => { asked.push(query); return SOURCE; },
-      fetchSource: async () => ({ hold: "refused" as const }) } as never);
+      fetchSource: async () => ({ hold: "refused" as const }) });
     const subjects = new Set(["alpha", "beta", "gamma", "delta"].filter((n) => asked.some((q) => q.toLowerCase().includes(n))));
     expect(subjects.size, `only reached ${JSON.stringify([...subjects])} of the owed claims across ${asked.length} searches`).toBeGreaterThanOrEqual(3);
     expect(out.attempts).toBeGreaterThanOrEqual(3); expect(out.failure).not.toBe("lease_exhausted");
     expect(out.failure).toBe("fetch_refused");
     const waited: string[] = []; // A POSTED SEARCH IS THE MOST SELF-RESOLVING PER-CLAIM CONDITION THERE IS: the provider takes the task and hands it back on a free follow-up, so ending the pass on it posts ONE task per pass and leaves every other owed claim untouched (live on /persian-male-names: 167 owed, one attempt per pass).
-    const wait = await runFactCheckPass({ tenantId: "t", basis: "b1", deadlineAt: Date.now() + 600_000, held: owed, pages: [{ url: PAGE.url, path: PAGE.path, loadBody: async () => body }], refreshHeld: async () => null, readCoverage: async () => db.cov as never, writeCoverage: async () => true, read: reader({ claims: { statements: [] }, judge: CONFIRMS }), searchSources: async (query: string) => { waited.push(query); return { hold: "waiting" as const }; }, fetchSource: async () => ({ hold: "refused" as const }) } as never);
+    const wait = await pass({ held: owed, pages: [{ url: PAGE.url, path: PAGE.path, loadBody: async () => body }], readCoverage: async () => db.cov as never, read: reader({ claims: { statements: [] }, judge: CONFIRMS }), searchSources: async (query: string) => { waited.push(query); return { hold: "waiting" as const }; }, fetchSource: async () => ({ hold: "refused" as const }) });
     expect([waited.length >= 3, wait.attempts >= 3], "a waiting search posts for the next claim too, instead of ending the pass").toEqual([true, true]); });
   it("a source nobody read, a stale page version and replaced rules each authorize nothing", async () => {
     const { authorizedCorrections } = await import("@/domains/evidence/pages/fact-checks");
@@ -372,6 +375,18 @@ describe("a checked finding follows only its own newer saved source", () => { be
     expect([FACT_SOURCE.usable({ mainText: "", openingSample: "shell", headings: ["Afsaneh"], truncated: false }, stamp), FACT_SOURCE.usable({ mainText: "body", sections: [{ heading: "only", text: "body" }], truncated: false }, stamp, true)]).toEqual([false, false]);
     const grouped = { ...a, sources: [{ ...a.sources[0]!, readHash: FACT_SOURCE.hash("Afsaneh\nold"), sectionsRead: true }] }; expect([(await FACT_SOURCE.changed([grouped], async () => ({ text: "old", fetchedAt: stamp, structured: false }))).length, (await FACT_SOURCE.changed([grouped], async () => ({ text: "Afsaneh\nchanged", fetchedAt: stamp, structured: true }))).length]).toEqual([0, 1]);
     const changed = await unit({ ...base, held: [a, { ...b, state: "owed" }], readCachedSource: async (url: string) => ({ text: url === a.sources[0]!.url ? "new relevant support" : "other", fetchedAt: stamp }) }); let fetches = 0; const replay = await unit({ ...base, deadlineAt: Date.now() + 600_000, held: [{ ...a, state: "owed", sources: [{ url: a.sources[0]!.url, kind: "dictionary", says: "" }] }, b], read: reader({ judge: CONFIRMS }), fetchSource: async () => (fetches++, { text: PASSAGE, fetchedAt: stamp }) }); expect([changed.status, replay.status, db.reopened, providers, fetches]).toEqual(["failed", "advanced", ["k"], 0, 1]);
+  }); });
+describe("one disputed source reopens only its checked owner", () => { beforeEach(reset);
+  it("archives the old reading, targets one nominee, and loses a concurrent source CAS", async () => {
+    const real = await vi.importActual<typeof import("@/domains/evidence/pages/fact-checks")>("@/domains/evidence/pages/fact-checks"), old = row({ state: "checked", proposed: "Afsaneh means legend", confidence: "confirmed", verdict: "page_correct", note: "checked", sourceReadAt: NOW.toISOString(), sources: [{ url: "https://en.wikipedia.org/wiki/Afsaneh", kind: "encyclopedia", says: "old source" }] });
+    const seed = () => { db.facts = [{ tenant_id: "t", page_key: old.page, statement_key: old.statementKey, subject: old.subject, current_wording: old.current, proposed: old.proposed, literal: old.literal, usage: old.usage, sources: old.sources, also_at: old.alsoAt, agreement: old.agreement, confidence: old.confidence, verdict: old.verdict, note: old.note, page_content_hash: old.pageContentHash, page_locator: old.pageLocator, source_read_at: old.sourceReadAt, evidence_basis: old.evidenceBasis, rules_version: old.rulesVersion, claim_state: old.state, checked_at: old.checkedAt }]; };
+    const nominee = "https://persian-computing.org/archives/ISIRI/ISIRI-1.html", dispute = { url: nominee, reason: "the prior citation omits a caveat", ownerHash: old.pageContentHash!, basis: "b1" }; seed(); const saved = (await real.readFactChecks("t", old.page))[0]!;
+    expect([await real.reopenChangedSourceChecks("other", old.page, [saved], dispute), await real.reopenChangedSourceChecks("t", "/other", [saved], dispute), await real.reopenChangedSourceChecks("t", old.page, [saved], { ...dispute, ownerHash: "stale" }), db.facts.length]).toEqual([[], [], [], 1]);
+    db.race = true; expect(await real.reopenChangedSourceChecks("t", old.page, [saved], dispute)).toEqual([]); expect([db.facts.find((r) => r.statement_key === "k")?.claim_state, db.facts.filter((r) => String(r.statement_key).includes("~src")).length]).toEqual(["checked", 1]);
+    db.race = false; seed(); expect(await real.reopenChangedSourceChecks("t", old.page, [saved], dispute)).toEqual(["k"]);
+    const live = (await real.readFactChecks("t", old.page)).find((f) => f.statementKey === "k")!, history = db.facts.find((r) => String(r.statement_key).includes("~src"))!;
+    expect([live.state, live.sources, live.proposed, history.claim_state, history.sources, history.proposed, history.note, history.source_read_at, history.page_content_hash, history.evidence_basis, history.checked_at, await real.reopenChangedSourceChecks("t", old.page, [saved], dispute)]).toEqual(["owed", [{ url: nominee, kind: "publisher", says: "" }], null, "superseded", old.sources, old.proposed, old.note, old.sourceReadAt, old.pageContentHash, old.evidenceBasis, old.checkedAt, []]);
+    seed(); db.facts[0]!.note = null; db.facts[0]!.rules_version = null; expect(await real.reopenChangedSourceChecks("t", old.page, [(await real.readFactChecks("t", old.page))[0]!])).toEqual(["k"]);
   }); });
 describe("the live 54 C Ahvaz results page", () => { beforeEach(reset); // the organic results the already-paid SERP returned, in order
   const LIVE = { organic: [["www.washingtonpost.com", "washingtonpost.com/a"], ["mashable.com", "mashable.com/a"],
@@ -450,40 +465,24 @@ describe("a source supports a claim only when its own passage says so", () => {
       proposed: "Meaning: Night or dark.", url: "https://en.wikipedia.org/wiki/Leila_(name)" };
     const SCATTER: SupportContext = { ...base, quote: 'Noor Inayat Khan was an operator. Nur al-Din means "light".' }; const DELIGHT: SupportContext = { ...base, quote: 'The name Noor means "delight"' };
     const SEA: SupportContext = { ...base, subject: "Darya", statementKey: "darya", proposed: "Meaning: Sea.", quote: 'The name Darya means "sea"' }; const SEARCH: SupportContext = { ...SEA, quote: 'The name Darya means "search"' };
-    const cases: Array<[string, UnsupportedReason | null]> = [ ["noor explicit", verdict(base)], // THE LIVE THREE, as their own banked quotes actually read on 2026-08-29.
-      ["mahsa says 'the name', never Mahsa", verdict(mahsaCtx, { supportSpan: MAHSA, subjectSpan: "The name", relationSpan: "meaning", meaningSpans: ["like the moon"] })],
-      ["laila is not Leila, and edit distance is not evidence", verdict(leilaCtx, { supportSpan: LAILA, subjectSpan: "Laila", relationSpan: "means", meaningSpans: ["night", "dark"] })],
-      ["mahsa with same source title", supportFailure(signed({ ...mahsaCtx, titleContext: "Mahsa" }, { supportSpan: MAHSA, subjectSpan: "Mahsa", subjectFrom: "title", relationSpan: "meaning", meaningSpans: ["like the moon"] }), { ...mahsaCtx, titleContext: "Mahsa" })], // The same anaphoric passage DOES carry, when the same source read banked a title naming the subject.
-      ["a title that never names the subject", supportFailure(signed({ ...mahsaCtx, titleContext: "Persian given names" }, { supportSpan: MAHSA, subjectSpan: "Mahsa", subjectFrom: "title", relationSpan: "meaning", meaningSpans: ["like the moon"] }), { ...mahsaCtx, titleContext: "Persian given names" })],
-      ["a meaning span nobody wrote in this passage", verdict(base, { meaningSpans: ["moon"] })],
-      ["spans real, but not the words the proposal needs", verdict(base, { meaningSpans: ["name"] })],
-      ["a relation the passage never states", verdict({ ...base, quote: "Noor Inayat Khan was a wartime radio operator." }, { supportSpan: "Noor Inayat Khan was a wartime radio operator.", relationSpan: "was", meaningSpans: ["light"] })],
-      ["an empty quote", verdict({ ...base, quote: "" }, { supportSpan: "", subjectSpan: "Noor", meaningSpans: ["light"] })],
-      ["a source that ruled itself unsupported", verdict(base, { supported: false, reason: "subject_absent" })],
-      ["support assembled from two unrelated sentences", supportFailure(signed(SCATTER, { supportSpan: 'Noor means "light"', subjectSpan: "Noor", relationSpan: "means", meaningSpans: ["light"] }), SCATTER)], // SEMANTIC REASSEMBLY, the failure the whole contract exists to stop: "Noor", "means" and "light" are each genuinely in this quote, but only across two sentences about different people, and the carrying sentence has to be STITCHED to exist. v1 accepted exactly this.
-      ["a proposal whose word is only a substring of the passage's", supportFailure(signed(DELIGHT, { supportSpan: 'The name Noor means "delight"', meaningSpans: ["delight"] }), DELIGHT)],
-      ["a three letter gloss the passage carries", supportFailure(signed(SEA, { supportSpan: 'The name Darya means "sea"', subjectSpan: "Darya", meaningSpans: ["sea"] }), SEA)],
-      ["a three letter gloss the passage only looks like it carries", supportFailure(signed(SEARCH, { supportSpan: 'The name Darya means "search"', subjectSpan: "Darya", meaningSpans: ["search"] }), SEARCH)],
-      ["the same artifact offered for another tenant", supportFailure(signed(base), { ...base, tenantId: "other" })],
+    const cases: Array<[string, UnsupportedReason | null, UnsupportedReason | null]> = [ ["noor explicit", verdict(base), null], // THE LIVE THREE, as their own banked quotes actually read on 2026-08-29.
+      ["mahsa says 'the name', never Mahsa", verdict(mahsaCtx, { supportSpan: MAHSA, subjectSpan: "The name", relationSpan: "meaning", meaningSpans: ["like the moon"] }), "subject_absent"],
+      ["laila is not Leila, and edit distance is not evidence", verdict(leilaCtx, { supportSpan: LAILA, subjectSpan: "Laila", relationSpan: "means", meaningSpans: ["night", "dark"] }), "subject_absent"],
+      ["mahsa with same source title", supportFailure(signed({ ...mahsaCtx, titleContext: "Mahsa" }, { supportSpan: MAHSA, subjectSpan: "Mahsa", subjectFrom: "title", relationSpan: "meaning", meaningSpans: ["like the moon"] }), { ...mahsaCtx, titleContext: "Mahsa" }), null], // The same anaphoric passage DOES carry, when the same source read banked a title naming the subject.
+      ["a title that never names the subject", supportFailure(signed({ ...mahsaCtx, titleContext: "Persian given names" }, { supportSpan: MAHSA, subjectSpan: "Mahsa", subjectFrom: "title", relationSpan: "meaning", meaningSpans: ["like the moon"] }), { ...mahsaCtx, titleContext: "Persian given names" }), "subject_absent"],
+      ["a meaning span nobody wrote in this passage", verdict(base, { meaningSpans: ["moon"] }), "span_not_verbatim"],
+      ["spans real, but not the words the proposal needs", verdict(base, { meaningSpans: ["name"] }), "meaning_absent"],
+      ["a relation the passage never states", verdict({ ...base, quote: "Noor Inayat Khan was a wartime radio operator." }, { supportSpan: "Noor Inayat Khan was a wartime radio operator.", relationSpan: "was", meaningSpans: ["light"] }), "relation_absent"],
+      ["an empty quote", verdict({ ...base, quote: "" }, { supportSpan: "", subjectSpan: "Noor", meaningSpans: ["light"] }), "empty_quote"],
+      ["a source that ruled itself unsupported", verdict(base, { supported: false, reason: "subject_absent" }), "subject_absent"],
+      ["support assembled from two unrelated sentences", supportFailure(signed(SCATTER, { supportSpan: 'Noor means "light"', subjectSpan: "Noor", relationSpan: "means", meaningSpans: ["light"] }), SCATTER), "not_localized"], // SEMANTIC REASSEMBLY, the failure the whole contract exists to stop: "Noor", "means" and "light" are each genuinely in this quote, but only across two sentences about different people, and the carrying sentence has to be STITCHED to exist. v1 accepted exactly this.
+      ["a proposal whose word is only a substring of the passage's", supportFailure(signed(DELIGHT, { supportSpan: 'The name Noor means "delight"', meaningSpans: ["delight"] }), DELIGHT), "meaning_absent"],
+      ["a three letter gloss the passage carries", supportFailure(signed(SEA, { supportSpan: 'The name Darya means "sea"', subjectSpan: "Darya", meaningSpans: ["sea"] }), SEA), null],
+      ["a three letter gloss the passage only looks like it carries", supportFailure(signed(SEARCH, { supportSpan: 'The name Darya means "search"', subjectSpan: "Darya", meaningSpans: ["search"] }), SEARCH), "meaning_absent"],
+      ["the same artifact offered for another tenant", supportFailure(signed(base), { ...base, tenantId: "other" }), "stale"],
     ];
-    expect(cases).toEqual([
-      ["noor explicit", null], ["mahsa says 'the name', never Mahsa", "subject_absent"], ["laila is not Leila, and edit distance is not evidence", "subject_absent"],
-      ["mahsa with same source title", null], ["a title that never names the subject", "subject_absent"], ["a meaning span nobody wrote in this passage", "span_not_verbatim"],
-      ["spans real, but not the words the proposal needs", "meaning_absent"], ["a relation the passage never states", "relation_absent"],
-      ["an empty quote", "empty_quote"], ["a source that ruled itself unsupported", "subject_absent"], ["support assembled from two unrelated sentences", "not_localized"],
-      ["a proposal whose word is only a substring of the passage's", "meaning_absent"], ["a three letter gloss the passage carries", null],
-      ["a three letter gloss the passage only looks like it carries", "meaning_absent"], ["the same artifact offered for another tenant", "stale"],
-    ]);
+    for (const [name, actual, expected] of cases) expect(actual, name).toBe(expected);
   });
-  it("carries a proposition the page lacks on content share, leaves the gloss and the correction on the headword rule, and signs the two apart", () => {
-    const PROP = "Before 1979, Iran used a tricolour flag of green, white, and red with the Lion and Sun emblem at the center; it remained in use until the 1979 Islamic Revolution", CARRIES = "Before 1979 the flag of Iran was a tricolour of green, white and red charged at the center with the Lion and Sun emblem of the Islamic state.";
-    const gap = (over: Partial<SupportContext> = {}): SupportContext => ({ ...base, statementKey: "flag", subject: "iran flag before 1979", claimKind: "date_or_event", current: "", proposed: PROP, url: "https://en.wikipedia.org/wiki/Flag_of_Iran", quote: CARRIES, ...over });
-    const carried = deriveSupport(gap()), thin = gap({ quote: "Following the 1979 Islamic Revolution, the national banner was changed into its current form." }), AZADEH = 'Azadeh means free, free-minded; also noble, stated less precisely as "Meaning:Free, independent, or liberated."', REPLACEMENT = "Following the 1979 Islamic Revolution, the Iranian flag was changed into its current form. The national flag of the Islamic Republic of Iran is a horizontal tricolour of green, white and red with the national emblem centred on the white band."; // the thin quote carries two of the eleven distinguishing stems, a passage about the change alone; REPLACEMENT is THE FLAG THAT REPLACED THE ONE BEING CLAIMED, live on Flag_of_Iran and banked as confirmed support for it (reviewer, 2026-09-02), six of whose shared words are vocabulary any passage about either flag carries
-    expect([!!carried, carried?.supportSpan === CARRIES, carried?.meaningSpans.length, supportFailure(carried, gap()), deriveSupport(gap({ quote: REPLACEMENT, proposed: PROP.replace("1979 Islamic Revolution", "1979 revolution") })), deriveSupport(gap({ quote: REPLACEMENT }))?.meaningSpans.length], "7 of the 10 words the question does NOT supply, so the whole banked passage is the span and the artifact validates under the rule that minted it; the passage about the flag that REPLACED it carries five of nine and is refused, and the residual is named here: end the same proposal on the Islamic Revolution and its own vocabulary lifts that window to exactly six of ten, the bar itself").toEqual([true, true, 7, null, null, 6]);
-    expect([deriveSupport(thin), supportFailure({ ...carried!, identity: supportIdentity(thin), supportSpan: thin.quote, subjectSpan: "Islamic", meaningSpans: ["Islamic"] }, thin)], "and a passage naming the revolution alone carries nothing").toEqual([null, "proposition_absent"]);
-    expect([deriveSupport(gap({ proposed: "tale, story, fable" })), deriveSupport(gap({ subject: "kire khar meaning", proposed: "Kire khar is a crude Persian insult." })), deriveSupport(gap({ subject: AZADEH, proposed: "Azadeh is a Persian female given name meaning free or free-minded, and also someone noble.", quote: "Azadeh is a Persian female given name meaning free or free-minded, and also someone noble." })), supportIdentity(gap({ subject: AZADEH }))], "a three word gloss the passage never carries is not support; a name with a gloss for a subject is a headword row that never takes this route at all, however long the gloss is; and its identity carries no marker, so the four live name rows keep the artifacts, the authorization and the Ready card they already have").toEqual([null, null, null, "899889f8ff3b70e9202dd6e7828882d75bef887c4aee4e4dd89d742f2308b88a"]);
-    const HISTORY = "The Lion and Sun emblem was charged on the centre band of the green, white and red tricolour that Iran flew until the revolution of 1979.", ONE = "Before the 1979 revolution, Iran's flag was a green, white and red tricolour bearing the Lion and Sun emblem.", BOTH = `${ONE} It was replaced after the revolution by the current flag of the Islamic Republic, which carries the Takbir twenty-two times.`; expect([!!deriveSupport(gap({ proposed: ONE, quote: HISTORY })), deriveSupport(gap({ proposed: BOTH, quote: HISTORY }))], "ONE PASSAGE CARRIES THE ANSWER, at the 0.6 bar this contract keeps: the History sentence carries six of the seven words the question does not supply, and the composite the live judge assembled from two sources carries six of sixteen, because the half about what replaced the flag is in no passage at all").toEqual([true, null]);
-    expect([verdict(base), supportIdentity(base), supportIdentity(gap())], "MUTATION: drop the marker and the second hash moves back onto the first rule; a correction's is pinned byte for byte, so no banked correction artifact goes stale").toEqual([null, "32aadde8e93bfc1337c2f54bcd4f4f86f605d7a4798901fd40466c2a7a55ec13", "cd4c65c0a308528e07650fc3329a04f9a22019a74c0767666a0b45076f205893"]); });
   it("retires itself the moment any input it was signed over moves", () => {
     const good = signed(base); const moved: Array<[string, Partial<SupportContext>]> = [["the proposed wording", { proposed: "Meaning: Radiance." }], ["the quote", { quote: 'The name Noor means "lamp"' }],
       ["the source", { url: "https://example.org/other" }], ["the title context", { titleContext: "Noor" }], ["the claim it was written for", { statementKey: "mahsa", subject: "Mahsa" }]];
