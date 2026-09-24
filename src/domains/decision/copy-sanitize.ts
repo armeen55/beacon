@@ -100,14 +100,14 @@ const newMetaQuantityGap = (p: Pick<ChangeProposal, "recommendedChange" | "claim
 function accountWrongSubjectMeta(d: { actionType: string; beforeText: string | null; finalCopy: string; preservation?: ChangeProposal["preservation"]; supportFacts: NonNullable<ChangeProposal["supportFacts"]>; evidenceIdsUsed: readonly string[] }, packet: SourcePacket, proof: { before: string; named: string; actual: string }): void {
   if (d.actionType !== "meta" || d.beforeText !== proof.before || packet.metaDescription !== proof.before || !flat(d.finalCopy).includes(flat(proof.actual))) return;
   const losses = materialLosses({ recommendedChange: { kind: "existing_edit", field: "meta", before: proof.before, after: d.finalCopy }, pageUrl: packet.targetUrl, pagePath: "" }), merged = d.preservation?.length === 1 ? d.preservation[0] : null, whole = merged && renderedText(merged.text) === renderedText(proof.before);
-  const named = merged && losses.length === 1 && /^"[^"]+"$/.test(losses[0]!) && renderedText(merged.text) === renderedText(losses[0]!.slice(1, -1)) && renderedText(proof.before).includes(renderedText(merged.text)) && !renderedText(proof.before).includes(renderedText(losses[0]!));
+  const named = merged && losses.length === 1 && /^"[^"]+"$/.test(losses[0]!) && renderedText(merged.text) === renderedText(losses[0]!.slice(1, -1)) && renderedText(proof.before).includes(renderedText(merged.text)) && !renderedText(proof.before).includes(renderedText(losses[0]!)) && merged.by?.every((id) => /^page-(?:h1|copy-\d+)$/.test(id) && !!packet.evidence[id]);
   if (!merged || merged.disposition !== "removed" || !(whole && ["unsupported", "replaced_by"].includes(merged.basis ?? "") || named && merged.basis === "unsupported" && !merged.to && !!merged.by?.length && !packet.truncated)) return;
   const actual = flat(proof.actual), own = Object.entries(packet.evidence).filter(([id, fact]) => /^page-(?:h1|copy-\d+)$/.test(id) && flat(fact).includes(actual));
   if (!losses.length || !own.some(([id]) => id === "page-h1") || !own.some(([id]) => /^page-copy-/.test(id)) || named && !merged.by?.some((id) => own.some(([source]) => source === id && /^page-copy-\d+$/.test(source)))) return;
-  if (named) { d.preservation = [{ ...merged, text: losses[0]! }]; return; }
-  const by = own.map(([id]) => id), recorded = new Set(d.supportFacts.map((f) => f.id));
-  d.supportFacts = [...d.supportFacts, ...own.filter(([id]) => !recorded.has(id)).map(([id, fact]) => ({ id, fact }))];
+  const by = [...new Set([...own.map(([id]) => id), ...(named ? merged.by ?? [] : [])])], recorded = new Set(d.supportFacts.map((f) => f.id));
+  d.supportFacts = [...d.supportFacts, ...by.filter((id) => !recorded.has(id)).map((id) => ({ id, fact: packet.evidence[id]! }))];
   d.evidenceIdsUsed = [...new Set([...d.evidenceIdsUsed, ...by])];
+  if (named) { d.preservation = [{ ...merged, text: losses[0]!, by }]; return; }
   d.preservation = losses.map((text) => ({ text, disposition: "removed", basis: "unsupported", by, why: `The complete current article identifies ${proof.actual}; this old description instead concerns ${proof.named}.` }));
 }
 
