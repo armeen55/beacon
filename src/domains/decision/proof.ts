@@ -317,7 +317,7 @@ export function evidenceShortfall(p: ChangeProposal): string | null { // ONE AUT
   }
   return preservationShortfall(p);
 }
-const preservationShortfall = (p: ChangeProposal, publication?: readonly BundleComponent[]): string | null => COPY_RULES.preservation({ ...p, editor: p.semanticReview?.editor }, reviewFits(p, p.semanticReview?.of), COPY_RULES.materialLosses(p).map((text) => text.replace(/^the (?:link|figure) /, "")), publication);
+const preservationShortfall = (p: ChangeProposal, publication?: readonly BundleComponent[]): string | null => COPY_RULES.preservation({ ...p, editor: p.semanticReview?.editor }, reviewFits(p, p.semanticReview?.of), COPY_RULES.materialLosses(p), publication);
 
 export function mechanicalRepair(before: string, after: string): boolean {
   return COPY_RULES.renderedText(before).length > 0 && COPY_RULES.renderedText(before) === COPY_RULES.renderedText(after);
