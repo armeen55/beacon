@@ -74,23 +74,23 @@ describe("a page carries as many changes as it has searches it never answers", (
     const prior = card(s, "epoch", "what is shab e yalda", { status: "ready", researchOnly: false, mutationScope: "topic", demandImpressions90d: 103, diagnosisCause: "incomplete_coverage", causeFinding: finding as never, copyStamp: "page-1", factIdentity: "facts-1", workKey: "job-1", assignment: old, limitations: ["old 103"], claims: [{ text: "Shabe Yalda is a winter-solstice celebration.", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "Shabe Yalda is a winter-solstice celebration." }], recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Shabe Yalda is a winter-solstice celebration.", where: "After the opening paragraph" } });
     const incoming = { ...prior, primaryQuery: "what is shab-e yalda", assignment: current, limitations: ["current 103"] }, stable = preferFinished(incoming, prior), movedDemand = preferFinished({ ...incoming, demandImpressions90d: 104, limitations: ["current 104"] }, prior), movedDiagnosis = preferFinished({ ...incoming, causeFinding: { ...finding, action: "rewrite the section" } as never }, prior); expect([stable.assignment, stable.limitations, movedDemand.assignment, movedDemand.limitations, movedDiagnosis.assignment, movedDiagnosis.limitations]).toEqual([old, ["old 103"], old, ["old 103"], current, ["current 103"]]);
   });
-  it.each(SITES)("$t: reads the second search this page never answers, with its own verdict and its own owed step", (s) => {
-    const demand = demandOf(page(s, [[s.big, 900], [s.small, 300]]), body(s) as never, [], null, s.t);
-    const lead = substantiveGapOf({}, demand as never), behind = substantiveGapOf({}, demand as never, canon(lead?.query ?? ""));
-    const alone = substantiveGapOf({}, demandOf(page(s, [[s.big, 900]]), body(s) as never, [], null, s.t) as never), asked = (g: typeof lead): unknown => (g?.owed as { need?: { query?: string } } | undefined)?.need?.query;
-    expect([lead?.kind, lead?.query, asked(lead), behind?.kind, behind?.query, asked(behind), JSON.stringify(alone) === JSON.stringify(lead)],
-      "the biggest unanswered search is read exactly as it always was, the next one behind it is its own missing answer about ITS OWN search rather than the first one, and each owed step carries the exact question its downstream operator must answer")
-      .toEqual(["missing_answer", s.big, s.big, "missing_answer", s.small, s.small, true]);
-    expect([behind?.propositions[0]?.includes(s.small), behind?.propositions[0] === lead?.propositions[0]],
-      "the second change is about the second search in its own words, never the first search said again").toEqual([true, false]);
+  it("recognizes complete captured phrase answers but not a teaser, missing value, qualifier or search operator", async () => {
+    const s = { ...SITES[0]!, path: "/phrase-guide", title: "Basic Persian Phrases and Greetings" }, address = url(s);
+    const html = (goodbye: string, morning = "صبح بخیر (Sobh Bekheir)") => `<main><h1>${s.title}</h1><p>${"This guide will show hello and goodbye in Persian. ".repeat(9)}</p><h2>How to say hi/hello in Persian</h2><p>سلام (Salaam)</p><h2>How to say goodbye in Persian</h2><p>${goodbye}</p><h2>How to say good morning in Persian</h2><p>${morning}</p></main>`;
+    const [{ extractPageSnapshot }, { loadOwnedPageBodies }] = await Promise.all([import("@/domains/evidence/pages/extractor"), import("@/domains/evidence/pages/owned-context")]);
+    const captured = async (markup: string) => { db.rows = [extractPageSnapshot(markup, address, "page-phrase", s.t) as Row]; return [...(await loadOwnedPageBodies(s.t, [address])).values()][0]!; };
+    const complete = await captured(html("خداحافظ (Khodahafez)")), missing = await captured(html("Coming soon.", "Coming soon.")), moved = await captured(html("").replace("</main>", "<h2>Other phrases</h2><p>خداحافظ (Khodahafez)</p></main>")), farewellOnly = await captured(html("خداحافظ (Khodahafez)", ""));
+    const at = (q: string, b = complete) => { const p = page(s, [[q, 900]]); return substantiveGapOf({}, demandOf(p, b, [], null, s.t, snapshot(s, [p])) as never)?.kind ?? null; };
+    expect([at("farsi greetings"), at("farsi goodbye in"), at("site:www.example.com"), at("which mountain is tallest"), at("persian phrases")]).toEqual([null, null, null, "missing_answer", "false_page_promise"]);
+    expect([at("formal farsi greetings"), at("farsi goodbye in", missing), at("farsi greetings", missing), at("farsi goodbye in", moved), at("farsi greetings", farewellOnly), at("farsi goodbye in", { ...complete, completeness: "partial" })]).toEqual(["missing_answer", "missing_answer", "missing_answer", "missing_answer", "missing_answer", "unknown_capture"]);
   });
   it.each(SITES)("$t: offers two changes for two unanswered searches, and one change where there is one", async (s) => {
     const two = await mintFor(s, [[s.big, 900], [s.small, 300]]), one = await mintFor(s, [[s.big, 900]]);
     expect([two.map((c) => seatStem(c.id)), two.map((c) => c.primaryQuery), one.map((c) => seatStem(c.id)), one.map((c) => c.primaryQuery)],
       "the page's biggest unanswered search keeps the address it always had, the next one opens at its own, and a page with one unanswered search still offers exactly one change under the old address")
       .toEqual([[idOf(s), idOf(s, `@${canon(s.small)}`)], [s.big, s.small], [idOf(s)], [s.big]]);
-    expect([new Set(two.map((c) => footprintKey(c))).size, two.map((c) => footprintKey(c).includes("::body::")), two.map((c) => c.changeFamily)],
-      "two answers to two questions write two different things, so neither can quietly retire the other, and both are the same kind of work").toEqual([2, [true, true], ["answer_block", "answer_block"]]);
+    expect([new Set(two.map((c) => footprintKey(c))).size, two.map((c) => footprintKey(c).includes("::body::")), two.map((c) => c.changeFamily), two.map((c) => (c.obligation as { need?: { query?: string } } | undefined)?.need?.query), two.map((c) => c.whyItMatters.includes(c.primaryQuery)), one[0]?.workKey === two[0]?.workKey],
+      "two answers keep distinct search propositions and owed readings; one search keeps the same first job").toEqual([2, [true, true], ["answer_block", "answer_block"], [s.big, s.small], [true, true], true]);
   });
   it("reads a five-letter spelling of the page's own subject as the subject, so no answer is bought to define an Iranian singer as an Iranian singer", async () => {
     const singers = { ...SITES[0]!, t: "tenant-one", path: "/famous-iranian-singers", title: "Famous Iranian Singers", passage: "These famous Iranian singers have left a lasting impact on Persian music, blending traditional and modern styles, making them some of the most popular Iranian (Persian) singers of all time." };
