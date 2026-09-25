@@ -4,7 +4,6 @@ import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem 
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { ConfirmDangerous, CopyButton, PublicationCopy, MarkImplemented, SetAsideChange } from "../change-controls";
 import operatorUiPolicy, { cardCaveats, pageLabel } from "../types";
-
 function Heading({ children }: { children: React.ReactNode }) {
   return <h2 className="text-[14px] font-semibold text-foreground">{children}</h2>;
 }
@@ -400,7 +399,7 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
   const steps = (proposal.operatorSteps ?? []).map((s) => s.replace(/^\d+[.)]\s*/, "").trim()).filter(Boolean);
   const research = proposal.researchOnly === true || deliverableGaps(proposal).length > 0;
   const hold1 = openHold(proposal);
-  const held = proposal.status !== "ready"
+  const held = proposal.status !== "ready" || research
     ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet."
     : unsettledCause(proposal); // the SAME one verdict the list lanes by, so a direct link can never out-offer the queue
   const checks = proposal.evidence?.hints ?? [];
@@ -449,15 +448,15 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
       ) : null}
       {checks.length > 0 ? (
         <div className="space-y-1">
-          <Heading>What was checked</Heading>
+          <Heading>{held ? "Research saved with this unfinished draft" : "What was checked"}</Heading>
           <Bullets items={[...checks]} />
         </div>
       ) : null}{/* Atomic edits owe the same diagnosis, alternatives, falsifier and ranking receipt as deep bundles. */}<Investigation proposal={proposal} seen={new Set(checks.map(normFact))} />
       {(proposal.claims ?? []).length > 0 ? (
         <div className="space-y-1">
-          <Heading>{c.kind === "existing_edit" && c.linkMode === "in_place" ? "Why this link fits" : "What each line stands on"}</Heading>
-          {c.kind === "existing_edit" && c.linkMode === "in_place" ? <p className="text-[13px] text-muted-foreground">The selected words are on the current page, and the destination article uses matching terms. This link adds no historical wording.</p> : null}
-          <details className="text-[13px] text-muted-foreground" open={!(c.kind === "existing_edit" && c.linkMode === "in_place")}><summary className="cursor-pointer">Inspect captured wording</summary>
+          <Heading>{held ? "Sources saved with this unfinished draft" : c.kind === "existing_edit" && c.linkMode === "in_place" ? "Why this link fits" : "What each line stands on"}</Heading>
+          {!held && c.kind === "existing_edit" && c.linkMode === "in_place" ? <p className="text-[13px] text-muted-foreground">The selected words are on the current page, and the destination article uses matching terms. This link adds no historical wording.</p> : null}
+          <details className="text-[13px] text-muted-foreground" data-held-support={held ? true : undefined} open={!held && !(c.kind === "existing_edit" && c.linkMode === "in_place")}><summary className="cursor-pointer">{held ? "Inspect saved wording and sources; change still under review" : "Inspect captured wording"}</summary>
             <EvidenceLines items={(proposal.claims ?? []).map((c) => ({ readings: [], text: `${c.text.replace(/[.\s]+$/, "")}. Stands on: ${[...new Set([...c.supportedBy].map((id) => { const f = (proposal.supportFacts ?? []).find((x) => x.id === id), said = (f?.fact ?? "").trim(), sources = (f?.sources ?? []).map((s) => `${s.kind} source ${s.url}`).join(", "); return /^(?:page-|target-section|section-after|draft-so-far)/.test(id) ? "the words already on this page" : !said ? `${id} (the words behind this were not banked with the copy)` : `"${(/^[\s\S]{40,220}?[.!?]["'”’]?(?=\s|$)/.exec(said)?.[0] ?? said.slice(0, 220)).trim()}"${sources ? ` (${sources})` : ""}`; }))].join(", ")}` }))} />
           </details>
         </div>

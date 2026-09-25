@@ -119,5 +119,6 @@ export function cardCaveats(p: ChangeProposal & { advisories?: unknown }, filter
   return [...new Set(rows.map((s) => s.trim()).filter(Boolean))]
     .filter((s) => !settledLink || !(p.draftNotes ?? []).some((note) => note.trim() === s))
     .filter((s) => !(copy.trim().length > 0 && DENIES_COPY.test(s)))
+    .map((s) => (p.status !== "ready" || p.researchOnly === true || p.obligation != null) && /^Backed by (?:\d+ checked sources?|a reading|readings)/i.test(s) ? "This unfinished draft cites saved source material; Beacon is checking whether it still supports these words." : s)
     .filter((s) => (s.match(BLANK) ?? []).every((t) => copy.includes(t)));
 }
