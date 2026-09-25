@@ -1,11 +1,6 @@
 import "server-only";
 
-/** changes-data: the server loader for the canonical Changes list, backed entirely by the Decision kernel. The ranked queue is the
- *  account's persisted, re-validated `ChangeProposal`s, and it is PAGED IN THE DATABASE off the position stamped on each row when the
- *  ranking was built: the release carries one page and the counts. THE FIVE STAGES THE OPERATOR IS SHOWN: To do (needs_review), Ready
- *  (ready), Implemented (they say it is done and I have not read their page yet, counted here and never queued), then Measuring and
- *  Results, which are DERIVED from the shipment ledger and never stored as a status, so the two can never disagree (the ONE-COUNT RULE).
- *  READ-ONLY + fail-soft; production runs in the background release build. Publishing stays MANUAL. */
+/** Canonical persisted Changes release: ranked, paged proposals plus ledger-derived lifecycle counts. Manual publishing only. */
 import { cache } from "react";
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
@@ -69,6 +64,7 @@ export type ChangesView = {
   surfaceComputedAt?: string | null;
   /** True only on a cold first-ever render (background build just scheduled). */
   surfaceBuilding?: boolean;
+  surfaceRefreshPending?: boolean;
   /** Atomic customer release id shared with Today. */
   surfaceVersion?: string | null;
   /** Where each lane's NEXT page resumes: the last RANK on this screen, never its row count. A change put aside since the ranking was
@@ -105,10 +101,7 @@ export function releasedQueueCursors(manifest: CustomerSurface["manifest"], view
     ready: Math.max(0, ...view.ready.map((p) => ranks.get(p.id) ?? 0)) };
 }
 
-/** A STORED release is a photograph, and the bar may have moved since it was taken. Every row is put through the SAME one verdict the
- *  ranked queue, the detail page and the mutations ask, so a release can never serve what those doors refuse: right account, current bar,
- *  still waiting on you, a receipt that still resolves, readings that still stand. Comparing the release only against ITSELF was the hole,
- *  because a uniformly stale release looks perfectly consistent. A basis I cannot read withholds everything. */
+/** Revalidate the release against the current basis and proposal rows; an unreadable basis fails closed. */
 export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string; currentBasis: string | null; currentRows?: ReadonlyMap<string, ChangeProposal> }): ChangesView {
   const currentBasis = ctx.currentBasis;
   if (currentBasis == null) return { ...view, proposals: [], ready: [], toDo: [], research: [], laneById: {},
@@ -238,15 +231,10 @@ async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
   return basis == null ? live : withCurrentBasisOnly(live, { tenantId, currentBasis: basis, currentRows: current.data });
 }
 
-/** THE RELEASE BLOB READ IS THE ONE THAT MUST NOT HANG. When it exceeded the section's whole 5s deadline the screen printed a retry
- *  spinner over a list it had already served minutes earlier. It gets its own short deadline and ONE warm retry, and the last release this
- *  process read successfully is kept per account so a second failure serves that list with its age instead of a spinner. In-process only:
- *  every instance warms its own copy, which is exactly the scope of a fallback that must cost no read. */
+/** A bounded release read serves the last good in-process release on failure; cold reads get one retry. */
 const RELEASE_READ_DEADLINE_MS = 2_000;
 const lastGoodRelease = new Map<string, CustomerSurface>();
-/** THE BASIS FOR A READ IS REMEMBERED FOR A MINUTE (operator, 2026-09-01): a saved release waited on an uncached account read plus a profile
- *  read before it could paint, on every visit. The basis moves only when the website, profile or goal changes; a minute of memory costs
- *  nothing a customer can see, a rebuild re-resolves it live, and a null is never remembered. Process-local, like the remembered release. */
+/** Remember a successfully read basis for one minute; never cache null. */
 const BASIS_MEMORY_MS = 60_000;
 const rememberedBasis = new Map<string, { value: string; at: number }>();
 async function currentBasisFast(tenantId: string): Promise<string | null> {
@@ -258,11 +246,7 @@ async function currentBasisFast(tenantId: string): Promise<string | null> {
   return value ?? held?.value ?? null;
 }
 
-/** MEMORY BEATS A SECOND ATTEMPT (operator, 2026-09-01). The old shape spent two 2.5s attempts BEFORE looking at
- *  the copy this process already held, so a slow store burned the section's whole 5s budget on reads whose answer
- *  was already in hand and the operator got a spinner over a list that existed. One bounded attempt; a failure
- *  with a remembered release serves the remembered release immediately; the second attempt is only for the
- *  process that remembers nothing yet. */
+/** On a failed read, serve remembered truth before attempting another database read. */
 async function readReleaseTwice(tenantId: string): Promise<{ s: CustomerSurface | null; ok: boolean; fromMemory: boolean }> {
   const attempt = async () => loadWithDeadline(readCustomerSurface(tenantId), RELEASE_READ_DEADLINE_MS).catch(() => null);
   const first = await attempt();
@@ -278,8 +262,7 @@ async function readReleaseTwice(tenantId: string): Promise<{ s: CustomerSurface 
   return { s: null, ok: false, fromMemory: false };
 }
 
-/** The released Changes state for this account, basis-checked, scheduling the ONE background rebuild when the release is stale or missing.
- */
+/** Serve the saved release first and schedule its one stored-only rebuild when stale. */
 async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
   const scheduleReleaseRebuild = (action: string) =>
     after(async () => {
@@ -291,12 +274,12 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
 
   const read = await readReleaseTwice(tenantId);
   const customer = read.s;
-  // Shape guard (CORE 100K kernel cutover): a blob written by the pre-kernel changes-data has no `proposals` array. Ignore a stale-shaped
-  // release and rebuild rather than crash on `view.proposals`.
+  // Ignore a pre-kernel release missing proposals and rebuild it.
   const changesShapeOk =
     customer != null && Array.isArray((customer.changes as ChangesView | undefined)?.proposals);
   if (customer && changesShapeOk) {
-    if (isCustomerSurfaceStale(customer.computedAt, Date.now())) scheduleReleaseRebuild("background-refresh");
+    const stale = !read.fromMemory && isCustomerSurfaceStale(customer.computedAt, Date.now());
+    if (stale) scheduleReleaseRebuild("background-refresh");
     return withCurrentBasisOnly({
       ...customer.changes,
       stampRows: customer.manifest ?? customer.changes.stampRows,
@@ -307,6 +290,7 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
       surfaceComputedAt: customer.releaseId.startsWith(`${tenantId}:`)
         ? sanitizeSurfaceComputedAt(customer.releaseId.slice(tenantId.length + 1)) : null,
       surfaceBuilding: false,
+      surfaceRefreshPending: stale,
       surfaceVersion: customer.releaseId,
       ...(read.fromMemory ? { releaseFromMemory: true } : {}),
     }, { tenantId, currentBasis: await currentBasisFast(tenantId) });
@@ -323,16 +307,13 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
 /** THE heavy build body, called from refreshCustomerSurface AFTER proposal production has persisted this tenant's proposals. Reads the
  *  persisted proposal queue + the proof ledger; runs no LLM itself. Tenant passed explicitly. */
 export async function buildChangesViewUncached(tenantId: string, releaseId: string): Promise<ChangesView> {
-  // ONE basis per release: the queue, the ranking stamp and every page cut from it answer to the same bar, so the list can never page a
-  // ranking built against a bar it is no longer filtering on.
+  // One basis per release keeps queue, ranking and page cuts aligned.
   const currentBasis = await resolveCurrentBasis(tenantId).catch(() => null);
   const [queue, ledger, aiCases] = await Promise.all([
     loadProposalQueue(tenantId, { currentBasis, deliveryScope: "all_changes", eligible: operatorUiPolicy.isManualEditProofWork }).catch(() => ({ ranked: [], ready: [], toDo: [], research: [], implementedPendingVerification: 0, demotedStaleBasis: 0, basisUnreadable: true })),
-    // A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER: swallowing the error printed "0 measuring, 0 results" during an outage, which reads
-    // as "nothing you shipped is being watched" and is a lie they cannot check.
+    // A failed ledger read must not claim zero measured work.
     loadProofLedgerCached(tenantId).then((rows) => ({ rows, read: true })).catch(() => ({ rows: [] as Awaited<ReturnType<typeof loadProofLedgerCached>>, read: false })),
-    // THE ONE CASE FILE, read here exactly as Visibility reads it, so a change and the search it answers can
-    // never carry two different verdicts on two screens.
+    // Share the Visibility case verdict.
     readAiCaseDispositions(tenantId),
   ]);
 
@@ -347,9 +328,7 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
     results: ledgerCounts.decided,
   };
 
-  // THE EMPTY READY LANE SAYS WHICH EMPTY IT IS, over a screen that still shows every draft and every
-  // opportunity underneath it: zero ready is never zero work in view. ONE SENTENCE, ONE SOURCE: the last arm
-  // used to spell `setAsideHint()`'s own words out a second time, so two copies of one sentence could drift.
+  // The empty Ready lane distinguishes completed work from open work using the shared hint.
   const openNow = queue.toDo.length + queue.research.length;
   const readyZeroHint = queue.ready.length > 0 ? null
     : openNow === 0 && summary.measuring > 0

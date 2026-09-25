@@ -4,7 +4,7 @@ beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1")); afterEach(()
 vi.mock("@/domains/decision/proposal-store", () => ({ loadChangeProposals: async () => store.rows }));
 vi.mock("@/domains/measurement/proof-gsc/load-ledger", () => ({ loadProofLedgerCached: async () => null }));
 import { deliverableGaps, openHold, preferFinished } from "@/domains/decision/completeness";
-import { loadProposalQueue } from "@/domains/decision/load-proposals";
+import { loadProposalQueue } from "@/domains/decision/load-proposals"; import { nextObligation } from "@/domains/decision/obligation";
 import { REVIEW_CONTRACT, copyKey, evidenceShortfall, mechanicalRepair, proofOf } from "@/domains/decision/proof";
 import { unauthorizedReason } from "@/domains/evidence/pages/fact-checks";
 import { componentIdOf } from "@/domains/decision/contracts"; import type { ChangeProposal } from "@/domains/decision/contracts";
@@ -24,7 +24,7 @@ const bind = (p: ChangeProposal): ChangeProposal => ({ ...p, semanticReview: { e
 describe("the proof burden matches the promise, at the one door every surface reads", () => {
   it("scales the evidence each treatment owes, and refuses the promise the evidence never made", async () => {
     const typo = row("typo", edit("meta", "Learn all about the Kerman Rug , where it's from.", "Learn all about the Kerman Rug, where it's from.")); // 1. A MARK-ONLY REPAIR IS ITS OWN EVIDENCE: no diagnosis, no results page, and the receipt certifies the marks alone, never the sentence around them.
-    expect(evidenceShortfall(typo)).toBeNull(); expect(openHold(typo).blocking).toBeNull(); expect(proofOf(typo).limits.join(" ")).toContain("not certified as the best copy");
+    expect(evidenceShortfall(typo)).toBeNull(); expect(openHold(typo).blocking).toBeNull(); const held = { ...typo, limitations: ["HELD: This is a draft worth finishing rather than finished work."] }; expect([openHold(held).blocking, nextObligation(held)?.kind, openHold(typo).defects.length]).toEqual([held.limitations[0], "redraft", 0]); expect(proofOf(typo).limits.join(" ")).toContain("not certified as the best copy");
     for (const [b, a] of [["form", "from"], ["angel", "glean"], ["trial", "trail"], ["there", "three"], ["teh", "the"], ["founded 1979", "founded 1980"], // ONLY RENDERING A READER CANNOT SEE MAY PROVE ITSELF. Same-letter anagrams self-authorized, and then so did anything whose letters matched once spaces and marks were stripped: word boundaries and marks ARE meaning.
       ["nowhere", "now here"], ["resign", "re-sign"], ["well", "we'll"], ["therapist", "the rapist"], ["learn more", "learnmore"], ["lets eat grandma", "let's eat, Grandma"], ["its history", "it's history"],
       ["Polish culture", "polish culture"], ["US policy", "us policy"], ["March 5", "march 5"], ["Alice defeated Bob", "Bob defeated Alice"],

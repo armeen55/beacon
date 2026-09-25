@@ -1,8 +1,8 @@
 /** A SLOW READ IS NOT AN OUTAGE, AND A RETRY IS NOT A SECOND CONNECTION. Two promises this screen makes when its sources are struggling: every lane read runs once per account per process no matter how many requests race into it (the retry that used to pile a second read onto a starved pool), and a release blob that will not answer serves the last list this process actually read, with its age, instead of a retry spinner over a list the operator already had. One good read to remember, then two failures in a row. ORDER MATTERS HERE: this case must run before anything remembers a release, because "nothing to fall back to" is exactly the state it pins. THE LEDGER AND DECAY LANES LEFT THIS SCREEN (operator, 2026-08-21): Results owns measurement and the watched pages, so a Changes visit no longer buys either read at all, which is the strongest form of the one-read promise the two deleted pins here used to hold. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { ReactElement } from "react";
-const calls = vi.hoisted(() => ({ ledger: 0, evidence: 0, surface: 0, failSurface: 0, hangQueue: false, basis: null as string | null, serveRows: false }));
+import { createRoot } from "react-dom/client"; import { act, createElement, type ReactElement } from "react"; import { createRequire } from "node:module";
+const calls = vi.hoisted(() => ({ ledger: 0, evidence: 0, surface: 0, failSurface: 0, hangQueue: false, basis: null as string | null, serveRows: false, nextRows: false, stale: false, claimHeld: false, rebuilds: 0, repaints: 0 }));
 const SURFACE = vi.hoisted(() => ({
   schemaVersion: 2 as const, releaseId: `t:${new Date(Date.now() - 90 * 60_000).toISOString()}`, tenantId: "t",
   computedAt: new Date(Date.now() - 22 * 60_000).toISOString(),
@@ -10,7 +10,7 @@ const SURFACE = vi.hoisted(() => ({
     measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null },
   today: { today: {} },}));
 vi.mock("next/navigation", () => ({ redirect: (u: string) => { throw new Error(`NEXT_REDIRECT:${u}`); },
-  usePathname: () => "/changes", useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
+  usePathname: () => "/changes", useRouter: () => ({ refresh: () => { calls.repaints += 1; }, push: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
 vi.mock("next/server", async () => ({ ...(await vi.importActual<typeof import("next/server")>("next/server")), after: (fn: () => unknown) => { void fn; } }));
 vi.mock("@/lib/tenant-context", async () => ({ ...(await vi.importActual<typeof import("@/lib/tenant-context")>("@/lib/tenant-context")),
   currentTenantId: vi.fn(async () => "t") }));
@@ -36,18 +36,16 @@ vi.mock("@/app/(shell)/surface-release", () => ({
     calls.surface += 1;
     if (calls.failSurface > 0) { calls.failSurface -= 1; throw new Error("release read failed"); }
     return calls.serveRows ? { ...SURFACE, changes: { ...SURFACE.changes, proposals: [SAVED_ROW], ready: [SAVED_ROW], summary: { ...SURFACE.changes.summary, ready: 1 } } } : SURFACE;}),
-  isCustomerSurfaceStale: () => false,
-  refreshCustomerSurface: async () => SURFACE,}));
+  isCustomerSurfaceStale: () => calls.stale,
+  refreshCustomerSurface: async () => { calls.rebuilds += 1; if (!calls.claimHeld) { calls.stale = false; calls.serveRows = calls.nextRows; } return SURFACE; },}));
 vi.mock("@/app/(shell)/changes-data", async () => ({
   ...(await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data")),
   loadChangesView: vi.fn(async () => ({ proposals: [], ready: [], toDo: [], research: [],
     summary: { todo: 0, ready: 0, research: 0, implemented: 0, measuring: 0, results: 0 }, measuringCountCanonical: 0,
     demotedStaleBasis: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null, surfaceBuilding: false })),}));
-async function renderSection(): Promise<string> {
-  const { ChangesSection } = await import("@/app/(shell)/changes/page");
-  return renderToStaticMarkup((await ChangesSection()) as ReactElement);}
+async function renderSection(): Promise<string> { const { ChangesSection } = await import("@/app/(shell)/changes/page"); return renderToStaticMarkup((await ChangesSection()) as ReactElement); }
 describe("a struggling source costs one read, and a list already in hand beats a spinner", () => {
-  beforeEach(() => { calls.ledger = 0; calls.evidence = 0; calls.surface = 0; calls.failSurface = 0; });
+  beforeEach(() => { calls.ledger = 0; calls.evidence = 0; calls.surface = 0; calls.failSurface = 0; calls.stale = false; calls.claimHeld = false; calls.rebuilds = 0; });
   it("a Changes visit buys no ledger read and no decay read of its own", async () => {
     await Promise.all([renderSection(), renderSection()]); expect([calls.ledger, calls.evidence]).toEqual([0, 0]);});
   it("with nothing remembered yet, an unreadable release still refuses to claim a first-ever build", async () => {
@@ -55,17 +53,17 @@ describe("a struggling source costs one read, and a list already in hand beats a
     const { loadChangesView } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data"); const view = await loadChangesView();
     expect([view.releaseUnreadable, view.surfaceBuilding, view.releaseFromMemory]).toEqual([true, false, undefined]);
   }, 15_000);
-  it("a release that will not answer twice serves the last list this process read, labelled with its age", async () => {
-    const { loadChangesView } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data");
-    await loadChangesView();
-    calls.surface = 0;
-    calls.failSurface = 2;
+  it("serves the saved lane immediately, then the same free release moves Ready in either direction", async () => { const { loadChangesView } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data"), { refreshStaleChangesAction } = await import("@/app/(shell)/changes/actions"); calls.basis = "b1"; for (const [before, after] of [[false, true], [true, false]]) { calls.serveRows = before; calls.nextRows = after; calls.stale = true; const saved = await loadChangesView(); expect([saved.summary.ready, saved.surfaceRefreshPending]).toEqual([before ? 1 : 0, true]); expect(await refreshStaleChangesAction(saved.surfaceVersion!)).toBe(true); const fresh = await loadChangesView(); expect([fresh.summary.ready, fresh.surfaceRefreshPending, calls.rebuilds]).toEqual([after ? 1 : 0, false, before ? 2 : 1]); } calls.basis = null; });
+  it("never reports freshness from another instance's still-held rebuild, then accepts its completed release", async () => { const { refreshStaleChangesAction } = await import("@/app/(shell)/changes/actions"); calls.stale = true; calls.claimHeld = true; expect(await refreshStaleChangesAction(SURFACE.releaseId)).toBe(false); calls.claimHeld = false; calls.nextRows = true; expect(await refreshStaleChangesAction(SURFACE.releaseId)).toBe(true); expect([calls.rebuilds, calls.serveRows]).toEqual([2, true]); });
+  it("keeps the saved list visible, then repaints after a held claim completes at the final wake", async () => { const { JSDOM } = createRequire(import.meta.url)("jsdom"), dom = new JSDOM("<div id='root'></div>", { url: "https://beacon.test/changes" }); vi.stubGlobal("window", dom.window); vi.stubGlobal("document", dom.window.document); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const wakes = new Map<number, () => void>(), original = dom.window.setTimeout.bind(dom.window); dom.window.setTimeout = ((fn: () => void, ms: number) => { if (ms >= 5_000) { wakes.set(ms, fn); return ms; } return original(fn, ms); }) as typeof dom.window.setTimeout;
+    const root = createRoot(dom.window.document.getElementById("root")); calls.stale = true; calls.claimHeld = true; calls.serveRows = false; calls.nextRows = false; calls.basis = "b1"; try { const { loadChangesView } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data"), { ChangesListClient } = await import("@/app/(shell)/changes-list-client"); const view = await loadChangesView(); expect([view.surfaceRefreshPending, view.summary.ready]).toEqual([true, 0]); await act(async () => root.render(createElement(ChangesListClient, { view })));
+      expect(dom.window.document.body.textContent).toContain("No finished change"); await new Promise((r) => setTimeout(r, 2_600)); await act(async () => {}); expect([calls.repaints, calls.rebuilds]).toEqual([0, 1]); const final = [...wakes].find(([ms]) => ms >= 300_000)?.[1]; expect(final).toBeDefined(); calls.claimHeld = false; calls.nextRows = true; await act(async () => { final!(); await Promise.resolve(); }); expect([calls.repaints, calls.rebuilds, calls.serveRows]).toEqual([1, 2, true]); const fresh = await loadChangesView(); expect(fresh.summary.ready).toBe(1);
+    } finally { await act(async () => root.unmount()); dom.window.close(); vi.unstubAllGlobals(); calls.basis = null; } }, 10_000);
+  it("a release that will not answer twice serves the last list this process read, labelled with its age", async () => { const { loadChangesView } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data"); await loadChangesView(); calls.surface = 0; calls.failSurface = 2;
     const view = await loadChangesView(); expect(calls.surface, "memory beats a second attempt: one failed read, then the remembered list, never a second read while a copy is in hand").toBe(1); expect(view.releaseFromMemory, "a remembered list is not a first-ever load").toBe(true); expect(view.releaseUnreadable ?? false).toBe(false); expect(view.surfaceComputedAt).toBe(SURFACE.releaseId.slice(2));
   }, 15_000);
-  it("paints the saved release inside the section budget while current-row validation hangs", async () => {
-    calls.serveRows = true; calls.basis = "b1"; calls.hangQueue = true;
-    const { loadChangesView } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data");
+  it("paints the saved release inside the section budget while current-row validation hangs", async () => { calls.serveRows = true; calls.basis = "b1"; calls.hangQueue = true; const { loadChangesView } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data");
     const t0 = Date.now(); const view = await loadChangesView(); expect([view.proposals.map((p) => p.pagePath), Date.now() - t0 < 6_000], "the saved rows paint, inside the budget, with the queue read still hanging").toEqual([["/wolf"], true]); expect((view.ready[0]?.recommendedChange as { after?: string })?.after, "the exact committed copy is what paints").toBe("The saved, committed description from the last release.");
-    calls.hangQueue = false; calls.serveRows = false; calls.basis = null;
-    expect((await renderSection()).includes('data-delay-reset="true"'), "success clears the path's escalation").toBe(true); // AND A SUCCESSFUL SECTION RENDER CARRIES THE RESET MARKER, so a prior HonestDelay escalation on this path cannot poison the next good render.
+    calls.hangQueue = false; calls.serveRows = false; calls.basis = null; expect((await renderSection()).includes('data-delay-reset="true"'), "success clears the path's escalation").toBe(true);
   }, 15_000);});

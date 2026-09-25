@@ -60,10 +60,10 @@ export type CustomerSurface = {
   visibility?: { google: { windowNowEnd: string; pages: ReleaseDecayRow[]; queries: ReleaseQueryRow[] } };
 };
 
-export async function readCustomerSurface(tenantId: string): Promise<CustomerSurface | null> {
+export async function readCustomerSurface(tenantId: string, opts: { forceRefresh?: boolean } = {}): Promise<CustomerSurface | null> {
   // A READ THAT FAILED IS NOT AN ABSENT RELEASE. Swallowing it here made every caller see "no release yet",
   // which Today and Changes both paint as a cold start. It THROWS now; each caller decides what that means.
-  const rows = await readStore<CustomerSurface>(STORE, [], { tenantId });
+  const rows = await readStore<CustomerSurface>(STORE, [], { tenantId, forceRefresh: opts.forceRefresh });
   const row = rows[0];
   if (!row || row.schemaVersion !== 2 || row.tenantId !== tenantId || !row.changes || !row.today) return null;
   return row;

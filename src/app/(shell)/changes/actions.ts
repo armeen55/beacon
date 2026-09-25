@@ -13,7 +13,7 @@ import { actionableProposalFailures, answerReviewedProposal, componentIdOf, conf
 import { getTenant } from "@/domains/account";
 import { captureChangeMeta, loadShippedChanges, objectiveOfStage, recordShipment, verifyShipmentNow, type MeasurementState } from "@/domains/measurement";
 import { atomicProof } from "@/domains/runtime";
-import { invalidateCoreSurfaces } from "../surface-release";
+import { invalidateCoreSurfaces, isCustomerSurfaceStale, readCustomerSurface, refreshCustomerSurface } from "../surface-release";
 import { readChangesPage, type ChangesPage } from "../changes-data";
 import operatorUiPolicy from "./types";
 
@@ -431,6 +431,16 @@ export async function loadMoreChangesAction(args: {
   const page = await readChangesPage(await currentTenantId(), args.lane, args.cursor, args.releaseId ?? null);
   const rows = page.rows.filter(operatorUiPolicy.isManualEditProofWork);
   return { ...page, rows, dropped: page.dropped + page.rows.length - rows.length };
+}
+
+/** One $0 stored-only release completion for a stale list already painted; a claimed rebuild gets one fresh reread, never a loop. */
+export async function refreshStaleChangesAction(expectedRelease: string): Promise<boolean> {
+  const tenantId = await currentTenantId(); if (!expectedRelease.startsWith(`${tenantId}:`)) return false;
+  const started = Date.now(), fresh = (s: Awaited<ReturnType<typeof readCustomerSurface>>) => !!s && !isCustomerSurfaceStale(s.computedAt, Date.now());
+  try { const now = await readCustomerSurface(tenantId, { forceRefresh: true }); if (fresh(now)) return true; if (!now) return false;
+    const built = await refreshCustomerSurface(tenantId, { maxDrafts: 0 }); if (fresh(built)) return true;
+    const remaining = 2_500 - (Date.now() - started); if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining)); return fresh(await readCustomerSurface(tenantId, { forceRefresh: true }));
+  } catch { return false; }
 }
 
 /** THE operator's "put this aside": the one terminal disposition that means exactly that, dismissed. Not a rejection by Beacon and not a lifecycle stage, so the change keeps its status, stops being the current answer, and the store refuses to re-draft that hypothesis until the evidence moves. ONLY WORK STILL WAITING ON THEM: a change already marked implemented is being measured, and is refused in their own words. */

@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { ChangesView } from "./changes-data";
 import type { ChangeProposal } from "@/domains/decision";
 import { ChangeCard } from "./changes/change-card";
 import { confirmedVersion, openHold } from "@/domains/decision/completeness";
-import { dismissProposalAction, loadMoreChangesAction, markManyImplementedAction } from "./changes/actions";
+import { dismissProposalAction, loadMoreChangesAction, markManyImplementedAction, refreshStaleChangesAction } from "./changes/actions";
 import operatorUiPolicy, { CHANGES_PAGE_SIZE } from "./changes/types";
 
 type Lane = "ready" | "todo" | "research";
@@ -42,6 +42,17 @@ const bulkSelectionOf = (picked: readonly string[], shown: readonly string[]) =>
 
 export function ChangesListClient({ view, initialPicked = [] }: { view: ChangesView; initialPicked?: string[] }) {
   const params = useSearchParams();
+  const router = useRouter();
+  const pendingRefresh = useRef<{ release: string; promise: Promise<boolean> } | null>(null);
+  useEffect(() => { if (!view.surfaceRefreshPending || !view.surfaceVersion) return; const release = view.surfaceVersion, key = `beacon:changes-release-refresh:${release}`;
+    let firstAt = 0, finalAt = 0; try { const saved = JSON.parse(window.sessionStorage.getItem(key) ?? "null") as { firstAt?: number; finalAt?: number } | null; firstAt = saved?.firstAt ?? 0; finalAt = saved?.finalAt ?? 0; if (finalAt && Date.now() - finalAt >= 300_000) firstAt = finalAt = 0; } catch { return; }
+    const timers = new Set<number>(); let active = true; const repaint = () => { if (active && window.location.pathname === "/changes") router.refresh(); };
+    const settle = (promise: Promise<boolean>, final: boolean) => { void promise.then((fresh) => { if (!active) return; if (fresh) repaint(); else if (!final) timers.add(window.setTimeout(repaint, 5_000)); }).catch(() => { if (active && !final) timers.add(window.setTimeout(repaint, 5_000)); }).finally(() => { if (!final && pendingRefresh.current?.promise === promise) pendingRefresh.current = null; }); };
+    if (!firstAt) { firstAt = Date.now(); window.sessionStorage.setItem(key, JSON.stringify({ firstAt })); pendingRefresh.current = { release, promise: refreshStaleChangesAction(release) }; }
+    if (pendingRefresh.current?.release === release) settle(pendingRefresh.current.promise, false);
+    if (!finalAt) timers.add(window.setTimeout(() => { window.sessionStorage.setItem(key, JSON.stringify({ firstAt, finalAt: Date.now() })); settle(refreshStaleChangesAction(release), true); }, Math.max(0, firstAt + 305_000 - Date.now())));
+    return () => { active = false; for (const timer of timers) window.clearTimeout(timer); };
+  }, [router, view.surfaceRefreshPending, view.surfaceVersion]);
   const caseLineOf = (p: ChangeProposal): string | null => {
     const key = p.aiScope?.caseKey;
     if (!key || view.aiCases.state !== "read") return null;
