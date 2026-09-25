@@ -7,8 +7,7 @@ import { FACT_SOURCE } from "./fact-source-identity";
 import { SUPPORT_ARTIFACT_VERSION, supportIdentity, supportFailure, unsupportedArtifact, deriveSupport, claimTypeOf, AUTHORITATIVE_KIND as AUTHORITATIVE, type ClaimSupport, type ClaimType, type SupportContext } from "./claim-support";
 export { claimTypeOf } from "./claim-support";
 const EMPTY_ROW = { proposed: null, literal: null, usage: null, sources: [], agreement: "none_found" as const, confidence: "unsupported" as const, verdict: "undecidable" as const, alsoAt: [], note: "", sourceReadAt: null };
-/** How many candidate sources one claim weighs, and how many it will actually fetch. */
-const CANDIDATES = 6, FETCH_PER_CLAIM = 2;
+const CANDIDATES = 6, FETCH_PER_CLAIM = 2; // per claim
 const RESERVE_MS = 8_000;
 const EXTRACT_CHUNK = 3_000;
 /** The most statements one extraction may return (`FactClaimExtractionSchema`). Read here so the cursor can tell a chunk that was READ from one that merely filled up. */
@@ -20,9 +19,7 @@ const DICTIONARY = /(^|\.)(wiktionary\.org|merriam-webster\.com|oed\.com|dehkhod
 const ENCYCLOPEDIA = /(^|\.)(wikipedia\.org|britannica\.com|encyclopedia\.com)$/i;
 const REFERENCE = /(^|\.)(behindthename\.com|nameberry\.com|ethnologue\.com|statista\.com|census\.gov)$/i;
 const BABYNAME = /(baby|names?)[-.]?(names?|meaning|central|nology)|(^|\.)(momjunction|pampers|thebump|babycenter|parents)\./i;
-/** USER-GENERATED AND VIDEO, named explicitly. This is the reject list; everything not on it is a publisher. */
 const COMMUNITY = /(^|\.)(youtube\.com|youtu\.be|tiktok\.com|instagram\.com|facebook\.com|x\.com|twitter\.com|reddit\.com|quora\.com|pinterest\.com|medium\.com|substack\.com|tumblr\.com|blogspot\.com|wordpress\.com|linkedin\.com|vimeo\.com|dailymotion\.com|answers\.com|stackexchange\.com|stackoverflow\.com|fandom\.com|wikihow\.com)$/i;
-/** CREDIBLE JOURNALISTIC PUBLISHERS. Two independent ones may support a confirmation; one supports `likely`. */
 const NEWS = /(^|\.)(washingtonpost|nytimes|wsj|bbc|cnn|cnbc|reuters|apnews|theguardian|guardian|aljazeera|newarab|alaraby|npr|time|forbes|wired|axios|bloomberg|ft|economist|independent|telegraph|dw|france24|euronews|abcnews|nbcnews|cbsnews|usatoday|latimes|newsweek|mashable|globalcitizen|scientificamerican|nationalgeographic|livescience|weather|accuweather|smithsonianmag|phys)\.(com|org|net|co\.uk|uk|de|fr|qa)$/i;
 function sourceClassOf(domain: string): SourceKind {
   const d = domain.replace(/^www\./, "").toLowerCase();
@@ -35,11 +32,9 @@ function sourceClassOf(domain: string): SourceKind {
   if (NEWS.test(d)) return "news";
   return "publisher"; // unknown, ordinary: worth reading, never enough on its own
 }
-/** How much of a proposed replacement its sources must carry before it may replace published words. */ const SUPPORTED_SHARE = 0.6;
-/** TWO INDEPENDENT ones may carry a confirmation between them; one carries `likely` and no more. */
-const CREDIBLE = new Set<SourceKind>(["news"]);
-/** Never read at all: user-generated, video and baby-name mills. */
-const REJECTED = new Set<SourceKind>(["community", "babyname"]);
+const SUPPORTED_SHARE = 0.6; // replacement wording must be carried by the read source
+const CREDIBLE = new Set<SourceKind>(["news"]); // two independent sources can confirm
+const REJECTED = new Set<SourceKind>(["community", "babyname"]); // never read
 export const pageHashOf = sha16;
 const STOP = new Set(["the", "and", "for", "with", "that", "this", "from", "its", "are", "was", "were", "has", "have", "had", "holds", "hold", "held", "also", "ever", "been", "not", "which", "their", "there", "into", "over",
   "meaning", "means", "name", "used", "word", "these", "them", "when", "such", "than", "then", "they", "being", "where", "what", "would", "about"]);
@@ -183,7 +178,12 @@ function askedWindow(text: string, subject: string, max: number): string {
     for (const w of said[i]!) held.set(w, (held.get(w) ?? 0) + 1);
     while (at[i]! + sents[i]!.length - at[from]! > max && from < i) { for (const w of said[from]!) { const n = held.get(w)! - 1; if (n > 0) held.set(w, n); else held.delete(w); } from += 1; }
     if (held.size > best.n) best = { at: at[from]!, n: held.size }; }
-  return best.n === 0 ? text.slice(0, max) : text.slice(best.at, best.at + max); }
+  if (best.n === 0) return text.slice(0, max);
+  const edge = best.at + max, crossing = sents.findIndex((s, i) => at[i]! < edge && at[i]! + s.length > edge);
+  if (crossing < 0) return text.slice(best.at, edge);
+  const complete = at[crossing]! + sents[crossing]!.length, end = complete - edge <= 320 ? complete : at[crossing]!; if (end <= best.at) return text.slice(best.at, edge);
+  const start = at.find((i) => i >= Math.max(best.at, end - max) && i < end);
+  return text.slice(start ?? best.at, Math.min(end, (start ?? best.at) + max)); }
 const fail = (failure: UnitFailure, cursor: FactCheckCursor | null, reason: string, attempted?: string): FactCheckUnitResult =>
   ({ status: "failed", banked: 0, cursor, failure, reason, ...(attempted ? { attempted } : {}) });
 
