@@ -65,7 +65,7 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
   const railLed = (x: string): boolean => EDITOR_SHARED.FURNITURE_RUN.test(x) || x.split(/\s+/).slice(0, 12).some((_, i, w) => FURNITURE_LABEL.test(w.slice(0, i + 1).join(" ")));
   const unhead = (x: string): string => { const h = heads.find((y) => x.toLowerCase().startsWith(y.toLowerCase())); return h ? x.slice(h.length).trim() : x; };
   const block = (x: string): string | null => { if (!reanchor || !packet.placementBlockFor) return EDITOR_SHARED.placeable(x) ? x : null; const direct = EDITOR_SHARED.placeable(x) ? packet.placementBlockFor(x) : null; if (direct) return EDITOR_SHARED.placeable(direct) ? direct : x;
-    const words = x.split(/\s+/); for (let i = Math.max(0, words.length - 24); i <= words.length - 8; i++) { const suffix = words.slice(i).join(" "); if (!EDITOR_SHARED.placeable(suffix)) continue; const hit = packet.placementBlockFor(suffix); if (hit && EDITOR_SHARED.placeable(hit) && topicTokens(hit).filter((w) => wanted.has(w)).length >= 2) return hit; }
+    const words = x.split(/\s+/); for (let i = Math.max(0, words.length - 24); i <= words.length - 8; i++) { const suffix = words.slice(i).join(" "); if (!EDITOR_SHARED.placeable(suffix)) continue; const hit = packet.placementBlockFor(suffix); if (hit && topicTokens(suffix).filter((w) => wanted.has(w)).length >= 2) return EDITOR_SHARED.placeable(hit) ? hit : suffix; }
     return null; };
   const relevant = sentences.map(unhead)
     .filter((x) => x.length >= 20 && /[.!?]$/.test(x) && (reanchor || EDITOR_SHARED.placeable(x)) && !EDITOR_SHARED.BREADCRUMB.test(x) && !railLed(x))
