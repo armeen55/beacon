@@ -82,8 +82,8 @@ describe("page identification is not absence evidence", () => {
     expect([refreshed.reason, refreshed.job?.promise, "missing" in (refreshed.job ?? {}), s2.calls()]).toEqual(["read", READING.promise, false, 1]); });
   it.each(["tenant-one", "tenant-two"])("hands the writer the evidenced diagnosis and conversion actions, never the old metadata guess [%s]", async (tenant) => {
     vi.resetModules(); const url = "https://mysite.example/hand-loom", asked: string[] = [];
-    const body = { url, title: "The Hand Loom", h1: "The Hand Loom", metaDescription: null, vocabulary: "", headings: ["What a hand loom is"], completeness: "complete" as const,
-      passages: ["A hand loom is a frame a weaver works by hand rather than by machine.", "Every piece in the collection ships within a week."] };
+    const body = { url, title: "The Hand Loom", h1: "The Hand Loom", metaDescription: null, vocabulary: "", headings: ["What a hand loom is"], completeness: "complete" as const, version: "current" as const,
+      passages: ["A hand loom is a frame a weaver works by hand rather than by machine.", "Every piece in the collection ships within a week."], sourceCapture: { complete: true, mainHtml: "<main><h1>The Hand Loom</h1><h2>What a hand loom is</h2><p>A hand loom is a frame a weaver works by hand rather than by machine.</p><p>Every piece in the collection ships within a week.</p></main>" } };
     const reading = { job: "j", pageType: "product" as const, audience: "a", topics: ["hand loom", "wool frame", "weaving"], commercial: true,
       promise: "a hand loom to buy and the story behind it", missing: "what a buyer should look at to tell one loom from another", sells: ["Add to basket", "Request a shipping quote"] };
     vi.doMock("@/domains/decision/producers/page-understanding", async (orig) => ({ ...(await orig<Record<string, unknown>>()), pageStore: { read: async () => new Map([[canonicalUrlKey(url), reading]]), save: async () => true, cursor: async () => null } }));

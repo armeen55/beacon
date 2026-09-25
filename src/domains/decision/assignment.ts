@@ -6,7 +6,7 @@ import { editorialStandard } from "./proof"; import { COPY_RULES } from "./copy-
 import type { ChangeProposal } from "./contracts";
 type Assignment = NonNullable<ChangeProposal["assignment"]>;
 const WIDTH: Readonly<Record<string, { px: number; chars: number }>> = { title: { px: 600, chars: 60 }, meta: { px: 920, chars: COPY_RULES.descriptionChars }, h1: { px: 920, chars: 70 } };
-export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; heading?: string | null } | null, field: EditorField, owed: string | null = null): Assignment | null => {
+export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; heading?: string | null } | null, field: EditorField, owed: string | null = null, reanchor = false): Assignment | null => {
   const props = packet.gap?.propositions ?? [];
   const gap = props.length > 0 ? props.join("; ") : (packet.diagnosedProblem?.trim() ?? "");
   // a link sentence keeps its own anchor contract, which names the destination and the exact spot
@@ -64,14 +64,17 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
   const heads = packet.headings.map((h) => h.replace(/\s+/g, " ").trim()).filter(Boolean).sort((a, b) => b.length - a.length);
   const railLed = (x: string): boolean => EDITOR_SHARED.FURNITURE_RUN.test(x) || x.split(/\s+/).slice(0, 12).some((_, i, w) => FURNITURE_LABEL.test(w.slice(0, i + 1).join(" ")));
   const unhead = (x: string): string => { const h = heads.find((y) => x.toLowerCase().startsWith(y.toLowerCase())); return h ? x.slice(h.length).trim() : x; };
+  const block = (x: string): string | null => { if (!reanchor || !packet.placementBlockFor) return EDITOR_SHARED.placeable(x) ? x : null; const direct = EDITOR_SHARED.placeable(x) ? packet.placementBlockFor(x) : null; if (direct) return EDITOR_SHARED.placeable(direct) ? direct : x;
+    const words = x.split(/\s+/); for (let i = Math.max(0, words.length - 24); i <= words.length - 8; i++) { const suffix = words.slice(i).join(" "); if (!EDITOR_SHARED.placeable(suffix)) continue; const hit = packet.placementBlockFor(suffix); if (hit && EDITOR_SHARED.placeable(hit) && topicTokens(hit).filter((w) => wanted.has(w)).length >= 2) return hit; }
+    return null; };
   const relevant = sentences.map(unhead)
-    .filter((x) => x.length >= 20 && /[.!?]$/.test(x) && EDITOR_SHARED.placeable(x) && !EDITOR_SHARED.BREADCRUMB.test(x) && !railLed(x))
+    .filter((x) => x.length >= 20 && /[.!?]$/.test(x) && (reanchor || EDITOR_SHARED.placeable(x)) && !EDITOR_SHARED.BREADCRUMB.test(x) && !railLed(x))
     .map((x) => ({ x, n: topicTokens(x).filter((w) => wanted.has(w)).length }))
     .filter((y) => y.n > 0).sort((a, b) => b.n - a.n)[0] ?? null;
   const heading = [packet.h1, packet.title, ...packet.headings].find(EDITOR_SHARED.placeable) ?? null;
   const shape = rewrite || need?.deliveryMode === "replacement" ? "exact_replacement" as const : need?.deliveryMode === "inline" ? "inline_addition" as const : "section" as const;
   const anchor = shape === "exact_replacement" ? rewrite?.heading ?? heading
-    : relevant?.x ?? heading;
+    : relevant ? block(relevant.x) : heading;
   const defining = /^(?:what|who)\s+(?:is|are|was|were)\b|\b(?:meanings?|definitions?)\b/i.test(props[0] ?? "");
   const entity = (props[0] ?? "").replace(/^(?:what|who)\s+(?:is|are|was|were)\s+(?:an?|the)?\s*/i, "").replace(/\s*\b(?:meanings?|definitions?)\b\s*$/i, "").replace(/\s*\([^)]*\)\s*$/, "").replace(/\?+$/, "").trim();
   const plural = /s$/i.test(entity.split(/\s+/).at(-1) ?? "");
