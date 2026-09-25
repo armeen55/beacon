@@ -108,12 +108,12 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
     expect([[r1.state, r2.state].sort(), calls.fetch.length, pending?.state === "waiting" && pending.costUsd]).toEqual([["ok", "waiting"], 1, 0]); // a bare pending claim charges nothing
   });
   it("no un-paid path (cap / reserve-throw / breaker / not_configured) ever touches the network", async () => {
-    const spy = vi.fn(), states = []; const cap = makeDeps({}, "refuse"), rerr = makeDeps({}, "throw");
-    const brk = makeDeps({ breaker: async () => ({ tripped: true, reason: "ceiling reached" }) }), nc = makeDeps({ env: {} as NodeJS.ProcessEnv, claimEvidenceFetch: spy as never });
+    const spy = vi.fn(), missRead = vi.fn(async () => null), states = []; const cap = makeDeps({}, "refuse"), rerr = makeDeps({}, "throw");
+    const brk = makeDeps({ breaker: async () => ({ tripped: true, reason: "ceiling reached" }) }), nc = makeDeps({ env: {} as NodeJS.ProcessEnv, claimEvidenceFetch: spy as never, cacheRead: missRead });
     for (const g of [cap, rerr, brk, nc]) { states.push((await runResolvedCall(resolved(), g.deps)).state); expect(g.calls.fetch).toHaveLength(0); }
     expect(states).toEqual(["capped", "error", "capped", "not_configured"]);
     expect([brk.calls.reserve, brk.calls.adjust, nc.calls.reserve]).toEqual([[0.01], [-0.01], []]); // the receipt inbox precedes the breaker; a new reservation is returned untouched
-    expect(spy).not.toHaveBeenCalled(); // not_configured never even claims
+    expect([spy.mock.calls.length, missRead.mock.calls.length, nc.calls.writes.length]).toEqual([0, 1, 0]); const exact = resolved(), saved = makeDeps({ env: {} as NodeJS.ProcessEnv, claimEvidenceFetch: spy as never, cacheRead: row({ cache_key: exact.cacheKey, endpoint: exact.postPath, status: "ready", payload: liveOk(0.0021), expires_at: FUTURE }) }); const hit = await runResolvedCall(exact, saved.deps); expect([hit.state, hit.state === "hit" && hit.envelope.tasks?.[0]?.result, saved.calls.fetch.length, saved.calls.reserve.length, saved.calls.writes.length, spy.mock.calls.length]).toEqual(["hit", [{ rank: 1 }], 0, 0, 0, 0]); // read-only hit or miss: no lease, reservation, write, or provider
   });
   it("cache identity has NO tenant input and splits on location / model", async () => {
     const a = identityCacheKey(resolved()), others = [identityCacheKey(resolved({ locationCode: 2826 })), identityCacheKey(resolved({ modelRequested: "gpt-4o" }))];

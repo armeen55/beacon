@@ -64,7 +64,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
   const cacheKey = r.cacheKey;
   const now = d.now();
   const paths = { getPath: (_e: string, id: string) => r.getPath?.(id) ?? null, tasksReadyPath: () => r.tasksReadyPath, ttlMsFor: () => r.ttlMs };
-  if (!isDataForSeoConfigured(d.env)) return { state: "not_configured", cacheKey, detail: "DataForSEO not configured" };
+  if (!isDataForSeoConfigured(d.env)) { try { const saved = await d.cacheRead(cacheKey); if (saved?.cache_key === cacheKey && saved.endpoint === r.postPath && saved.status === "ready" && saved.payload != null && Date.parse(saved.expires_at) > now.getTime()) return { state: "hit", envelope: saved.payload as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: saved.model_served }; } catch { return { state: "error", cacheKey, disposition: "none", detail: "Saved evidence could not be read; no provider call was made." }; } return { state: "not_configured", cacheKey, detail: "DataForSEO not configured" }; }
   let claim: EvidenceCacheClaim;
   try {
     claim = await d.claimEvidenceFetch({
