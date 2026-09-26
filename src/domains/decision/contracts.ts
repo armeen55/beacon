@@ -325,7 +325,7 @@ export type ChangeProposal = {
   publish: "manual";
   createdAt: string;
 };
-const FindingSchema = z.object({ tenantId: z.string().min(1), page: z.string().min(1), statementKey: z.string().min(1) });
+const FindingSchema = z.object({ tenantId: z.string().min(1), page: z.string().min(1), statementKey: z.string().min(1), sourceVersion: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional() });
 const SupportFactSchema = z.object({ id: z.string().min(1), fact: z.string().min(1), finding: FindingSchema.optional(), sources: z.array(z.object({ url: z.string().min(1), kind: z.string().min(1) })).optional() });
 const RecommendedChangeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("existing_edit"), field: z.enum(["title", "meta", "h1", "answer_block", "section", "schema"]),

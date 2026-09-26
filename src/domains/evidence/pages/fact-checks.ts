@@ -58,7 +58,7 @@ export type FactCheck = {
   /** The verification rules that produced this verdict. Older than current = not current evidence. */
   rulesVersion: number;
   evidenceBasis: string | null;
-  checkedAt: string;
+  checkedAt: string; sourceVersion?: number;
 };
 
 export const statementKeyOf = (subject: string): string => subject.trim().toLowerCase().replace(/\s+/g, " ");
@@ -84,7 +84,7 @@ const decode = (r: Row): FactCheck => ({
   state: (r.claim_state as ClaimState) ?? "checked",
   rulesVersion: typeof r.rules_version === "number" ? r.rules_version : 1,
   evidenceBasis: (r.evidence_basis as string | null) ?? null,
-  checkedAt: String(r.checked_at ?? ""),
+  checkedAt: String(r.checked_at ?? ""), ...(Number.isSafeInteger(r.source_version) && Number(r.source_version) > 0 ? { sourceVersion: Number(r.source_version) } : {}),
 });
 
 /** Page below PostgREST's response cap; any failed batch refuses the entire reading. */

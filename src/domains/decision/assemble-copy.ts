@@ -13,7 +13,7 @@ export function assembleCopy(components: readonly BundleComponent[], pieces: rea
   for (const { index, copy } of pieces) {
     const ids = new Map<string, string>();
     for (const fact of copy.supportFacts) {
-      const identity = JSON.stringify([fact.id, fact.fact, (fact.sources ?? []).map((s) => [s.url, s.kind]).sort(), ...(fact.finding ? [[fact.finding.tenantId, fact.finding.page, fact.finding.statementKey]] : [])]);
+      const identity = JSON.stringify([fact.id, fact.fact, (fact.sources ?? []).map((s) => [s.url, s.kind]).sort(), ...(fact.finding ? [[fact.finding.tenantId, fact.finding.page, fact.finding.statementKey, ...(fact.finding.sourceVersion != null ? [fact.finding.sourceVersion] : [])]] : [])]);
       let id = identities.get(identity);
       if (!id) {
         id = fact.id;

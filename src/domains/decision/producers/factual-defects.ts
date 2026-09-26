@@ -315,7 +315,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
         // and the proof receipt could show a reader nothing a source actually said. A source whose banked quote
         // is empty was never read into evidence here and never counts toward how many sources stand under this.
         const quoted = c.sources.filter((s) => s.says.trim() !== "").slice(0, 3)
-          .map((s, j) => ({ id: `fact-${j + 1}`, fact: `${s.kind} ${s.url} says: "${s.says.trim()}"` }));
+          .map((s, j) => ({ id: `fact-${j + 1}`, fact: `${s.kind} ${s.url} says: "${s.says.trim()}"`, finding: { tenantId, page: c.page, statementKey: c.statementKey, ...(c.sourceVersion != null ? { sourceVersion: c.sourceVersion } : {}) }, sources: [{ url: s.url, kind: s.kind }] }));
         const support = quoted.length > 0
           ? quoted : [{ id: "fact-1", fact: `${c.sources[0]?.kind ?? "The source"} ${c.sources[0]?.url ?? ""} was read and gives ${c.proposed}.` }];
         cards.push({

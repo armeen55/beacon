@@ -21,7 +21,7 @@ const LEGACY_TABLE = "move_drafts", LEGACY_KIND = "change_proposal";
 /** Why this row is no longer the current answer. Never a status: the stages say where the change stands, this says whether anyone is still being asked. `withdrawn` is Beacon taking a draft back. */
 type TerminalDisposition = "dismissed" | "withdrawn" | "superseded" | "settled";
 /** saved = a new version is durable. unchanged = the stored row already says this. refused = retired under this basis, evidence unmoved. blocked = it is being measured. failed = the write did not land. */
-type SaveResult = "saved" | "unchanged" | "refused" | "blocked" | "failed";
+type SaveResult = "saved" | "unchanged" | "refused" | "blocked" | "failed"; const changedSource = (error: { code?: string; message?: string } | null | undefined, result?: unknown): boolean => error ? error.code === "23514" && error.message === "source_changed" : result === "source_changed";
 /** WHY this change exists, on its own column so the reasoning reads without unpacking the whole proposal. Never a second source of truth: every field here is copied off the payload below it. */
 const decisionReceipt = (p: ChangeProposal): Record<string, unknown> => ({
   cause: p.diagnosisCause ?? null, why_it_matters: p.whyItMatters, confidence: p.confidence, limitations: p.limitations,
@@ -178,7 +178,7 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
         log.error("[proposal-store] the supersession function is not installed; the draft was not saved", { tenantId: proposal.tenantId, id: proposal.id, code: error.code, error: error.message }); return "failed"; }
       if (error || handoverResult !== "saved") {
         log.error("[proposal-store] atomic supersession did not land, the stored change is unchanged", { tenantId: proposal.tenantId, id: proposal.id, answer: handoverResult ?? null, error: error?.message ?? null });
-        return handoverResult === "blocked" || handoverResult === "seat_taken" || handoverResult === "stale_page" ? "blocked" : "failed"; }
+        return changedSource(error, handoverResult) || handoverResult === "blocked" || handoverResult === "seat_taken" || handoverResult === "stale_page" ? "blocked" : "failed"; }
       keep?.(proposal); return "saved";
     }
     const row = rowFor(proposal, ident, version);
@@ -194,7 +194,7 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     if (saveError || saved !== "saved") {
       log.error("[proposal-store] compare-and-set save did not land; a newer lifecycle decision stands", {
         tenantId: proposal.tenantId, id: proposal.id, answer: saved ?? null, error: saveError?.message ?? null });
-      return saved === "blocked" || saved === "stale_page" || saved === "research_resumed" ? "blocked" : "failed"; }
+      return changedSource(saveError, saved) || saved === "blocked" || saved === "stale_page" || saved === "research_resumed" ? "blocked" : "failed"; }
     keep?.(proposal); return "saved";
   } catch (e) { log.error("[proposal-store] save threw", { id: proposal.id, error: e instanceof Error ? e.message : String(e) }); return "failed"; }
 }
@@ -231,8 +231,8 @@ export async function answerReviewedProposal(tenantId: string, id: string, versi
       p_tenant_id: tenantId, p_id: id, p_expected_version: row.proposal_version,
       p_expected_payload: row.payload, p_payload: payload, p_status: promoted.status, ...(promoted.status === "ready" ? { p_expected_captures: checked?.captures ?? [] } : {}),
     });
-    if (error) { log.error("[proposal-store] the operator's answer did not land", { tenantId, id, error: error.message }); return { status: "failed" }; }
-    return data === "page_changed" ? { status: "refused", refusal: COPY_RULES.pageState.whole } : { status: data === "answered" ? "promoted" : "stale" };
+    if (error) { log.error("[proposal-store] the operator's answer did not land", { tenantId, id, error: error.message }); return changedSource(error, data) ? { status: "refused", refusal: "The checked factual source changed before Ready was committed; all stored copy is preserved." } : { status: "failed" }; }
+    return changedSource(null, data) ? { status: "refused", refusal: "The checked factual source changed before Ready was committed; all stored copy is preserved." } : data === "page_changed" ? { status: "refused", refusal: COPY_RULES.pageState.whole } : { status: data === "answered" ? "promoted" : "stale" };
   } catch (e) { log.error("[proposal-store] answering a reviewed change threw", { id, error: e instanceof Error ? e.message : String(e) }); return { status: "failed" }; }
 }
 
