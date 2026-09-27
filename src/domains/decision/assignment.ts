@@ -56,7 +56,7 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
     placement: "field" as const,
     completionTest: `a searcher reading this line alone knows what this page answers and why to open it rather than the ${packet.demand.preserve.length > 0 ? "pages already ranking above it" : "next result"}`,
   };
-  const lead = (packet.checkedSentences ?? []).map((t) => t.trim()).filter(Boolean);
+  reanchor ||= packet.unpublished !== true && !!packet.placementBlockFor; const lead = (packet.checkedSentences ?? []).map((t) => t.trim()).filter(Boolean);
   const passages = ids.filter((id) => /^page-copy-/.test(id)).map((id) => packet.evidence[id] ?? "");
   const qStems = new Set(topicTokens(packet.trackedQuestion ?? ""));
   const sentences = passages.flatMap((t) => t.split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim())).filter(Boolean);
@@ -65,7 +65,7 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
   const railLed = (x: string): boolean => EDITOR_SHARED.FURNITURE_RUN.test(x) || x.split(/\s+/).slice(0, 12).some((_, i, w) => FURNITURE_LABEL.test(w.slice(0, i + 1).join(" ")));
   const unhead = (x: string): string => { const h = heads.find((y) => x.toLowerCase().startsWith(y.toLowerCase())); return h ? x.slice(h.length).trim() : x; };
   const block = (x: string): string | null => { if (!reanchor || !packet.placementBlockFor) return EDITOR_SHARED.placeable(x) ? x : null; const direct = EDITOR_SHARED.placeable(x) ? packet.placementBlockFor(x) : null; if (direct) return EDITOR_SHARED.placeable(direct) ? direct : x;
-    const words = x.split(/\s+/); for (let i = Math.max(0, words.length - 24); i <= words.length - 8; i++) { const suffix = words.slice(i).join(" "); if (!EDITOR_SHARED.placeable(suffix)) continue; const hit = packet.placementBlockFor(suffix); if (hit && topicTokens(suffix).filter((w) => wanted.has(w)).length >= 2) return EDITOR_SHARED.placeable(hit) ? hit : suffix; }
+    const words = x.split(/\s+/), windows = [...Array.from({ length: Math.max(0, Math.min(24, words.length) - 7) }, (_, i) => words.slice(Math.max(0, words.length - 24) + i)), ...Array.from({ length: Math.max(0, Math.min(24, words.length) - 7) }, (_, i) => words.slice(0, Math.min(24, words.length) - i))]; for (const window of windows) { const anchor = window.join(" "); if (!EDITOR_SHARED.placeable(anchor)) continue; const hit = packet.placementBlockFor(anchor); if (hit && topicTokens(anchor).filter((w) => wanted.has(w)).length >= 2) return EDITOR_SHARED.placeable(hit) ? hit : anchor; }
     return null; };
   const relevant = sentences.map(unhead)
     .filter((x) => x.length >= 20 && /[.!?]$/.test(x) && (reanchor || EDITOR_SHARED.placeable(x)) && !EDITOR_SHARED.BREADCRUMB.test(x) && !railLed(x))

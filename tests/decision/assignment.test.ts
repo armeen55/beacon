@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { deliverableFailures, draftFieldForPage } from "@/domains/decision/drafted-copy";
-import { ASSIGNMENT_EDITOR, assignmentOf } from "@/domains/decision/assignment";
+import { ASSIGNMENT_EDITOR, assignmentOf } from "@/domains/decision/assignment"; import LINK_PLACEMENT from "@/domains/decision/in-place-link";
 import type { SourcePacket } from "@/domains/decision/drafted-copy";
 
 const SITES = [
@@ -49,10 +49,10 @@ describe("what one assignment carries", () => {
       expect(assignmentOf(packetOf(s), null, "answer_block")?.informationNeed?.requiredAtomKeys).toEqual(["atom-1"]);
     });
   }
-  it("a rewritten acquisition subject remains bound to the original information atom", () => {
-    const s = SITES[0]!, rewritten = "seasonal access rules for the eastern seal nursery", key = "original-missing-topic";
-    const a = assignmentOf(packetOf(s, { gap: { kind: "missing_answer", propositions: [rewritten] }, informationNeed: { question: s.queries[0]!, requiredAtomKeys: [key], polarity: "supports", voice: "publisher", deliveryMode: "inline" }, answerAtoms: [{ key, evidenceId: "fact-1", polarity: "supports", voice: "publisher" }] }), null, "answer_block")!;
-    expect([a.propositions, a.facts, a.shape, a.deliveryMode, a.format.includes("without an outer heading")], "the acquired wording may change while its producer-issued atom identity and fixed delivery remain exact").toEqual([[rewritten], [{ id: "fact-1", says: packetOf(s).evidence["fact-1"] }], "inline_addition", "inline", true]);
+  it("an evidence-unlocked body assignment names one current source block and keeps its original information atom", () => {
+    const s = SITES[0]!, rewritten = "seasonal access rules for the eastern seal nursery", key = "original-missing-topic", joined = `Historical evolution ${s.passage}`, paragraph = `${s.passage} ${s.says.slice(0, -1)}, along with ${s.prop}.`, html = `<main><p>Historical evolution</p><div class="wixui-rich-text"><p>${paragraph}</p></div></main>`, resolver = (mainHtml = html, version = "current", completeness = "complete") => (anchor: string) => LINK_PLACEMENT.exactBlock({ sourceCapture: { complete: true, mainHtml }, version, completeness } as never, anchor);
+    const p = packetOf(s, { evidence: { ...packetOf(s).evidence, "page-copy-1": `${joined} ${paragraph}` }, placementBlockFor: resolver(), gap: { kind: "missing_answer", propositions: [rewritten] }, informationNeed: { question: s.queries[0]!, requiredAtomKeys: [key], polarity: "supports", voice: "publisher", deliveryMode: "inline" }, answerAtoms: [{ key, evidenceId: "fact-1", polarity: "supports", voice: "publisher" }] }), a = assignmentOf(p, null, "answer_block", "the earlier checked source owed this answer", false)!;
+    expect([a.propositions, a.facts, a.shape, a.deliveryMode, a.format.includes("without an outer heading"), p.placementBlockFor!(a.anchor!), a.anchor === joined, a.owed]).toEqual([[rewritten], [{ id: "fact-1", says: packetOf(s).evidence["fact-1"] }], "inline_addition", "inline", true, paragraph, false, "the earlier checked source owed this answer"]); expect([resolver()(joined), assignmentOf({ ...p, placementBlockFor: resolver(`<p>${paragraph}</p><p>${paragraph}</p>`) }, null, "answer_block")?.anchor, assignmentOf({ ...p, placementBlockFor: resolver("") }, null, "answer_block")?.anchor, assignmentOf({ ...p, placementBlockFor: resolver(html, "stale") }, null, "answer_block")?.anchor, assignmentOf({ ...p, placementBlockFor: resolver(html, "current", "partial") }, null, "answer_block")?.anchor, assignmentOf({ ...p, unpublished: true }, null, "answer_block")?.anchor, assignmentOf({ ...p, placementBlockFor: undefined }, null, "answer_block")?.anchor, assignmentOf(p, null, "meta")?.anchor]).toEqual([null, null, null, null, null, joined, joined, undefined]);
   });
   it("requires the original material for a saved structural assignment before starting a writer", async () => {
     const s = SITES[0]!, key = `restructure:${s.queries[0]}`, need = { question: s.prop, requiredAtomKeys: [key], polarity: "supports" as const, voice: "publisher" as const, deliveryMode: "headed" as const }, original = assignmentOf(packetOf(s, { gap: { kind: "weak_extractability", propositions: [s.prop] }, informationNeed: need, answerAtoms: [{ key, evidenceId: "page-copy-1", polarity: "supports", voice: "publisher" }] }), null, "answer_block")!;

@@ -102,10 +102,10 @@ const baseTopicTokens = (text: string | null | undefined, opts?: { keepRepeats?:
     // ASKED BEFORE THE STEM AND AFTER IT. The stem runs first, so "famous" became "famou" and walked past a
     // list that names it: a universal word survived as a subject because of how it is spelled.
     if (GENERIC.has(t)) continue;
-    // crude singularize: names→name, numbers→number, snacks→snack, cities→city
     if (t.endsWith("ies") && t.length > 4) t = t.slice(0, -3) + "y";
     else if (t.endsWith("ses") && t.length > 4) t = t.slice(0, -2);
     else if (t.endsWith("s") && !t.endsWith("ss") && t.length > 3) t = t.slice(0, -1);
+    if (t.endsWith("se") && t.length > 3) t = t.slice(0, -1);
     if (GENERIC.has(t)) continue;
     out.push(t);
   }
