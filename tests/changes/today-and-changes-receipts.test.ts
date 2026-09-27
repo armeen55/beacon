@@ -91,9 +91,9 @@ describe("what a card says after a batch press, and what it says when it cannot 
     for (const html of [cardHtml, detailHtml]) expect([html.match(/data-linked-component="true"/g)?.length, html.includes("ticking either selects or clears both"), html.includes('href="https://site.example/nowruz-guide"')]).toEqual([2, true, true]);
   });
   it("prints what a change is waiting on where the change is, and prints nothing of the sort on work that is ready to make", async () => {
-    const waiting = (input: string) => proposal({ status: "needs_review", riskLevel: "low", rankingReceipt: { ...proposal().rankingReceipt!, factors: [...proposal().rankingReceipt!.factors, { name: "readiness", input, contribution: 0, max: 0 }] } });
-    const held = await card(waiting("a source reading is owed before these words can be written"), { review: true });
-    expect(held.includes("A source reading is owed before these words can be written."), "an operator looking at a card ranked above smaller finished work is told it is waiting on a reading, not on them").toBe(true);
+    const waiting = (input: string) => ({ ...atomic(), status: "needs_review", obligation: { kind: "evidence", need: { kind: "factual_source", query: "when is Nowruz", url: "https://site.example/nowruz-guide", reasonCode: "source_support_unconfirmed" } }, rankingReceipt: { ...proposal().rankingReceipt!, factors: [...proposal().rankingReceipt!.factors, { name: "readiness", input, contribution: 0, max: 0 }] } } as ChangeProposal);
+    const held = await card(waiting("these words need a corrective draft"), { review: true });
+    expect([held.includes("Beacon will check a source for the missing claim before writing it."), held.includes("These words need a corrective draft."), (await card(proposal(), { review: true })).includes("Review the safety decision before this change can proceed.")], "a held card names the current reading owed without obsolete ranking instructions, while dangerous work still owes the safety decision").toEqual([true, false, true]);
     expect((await card(atomic(), {})).includes("data-waiting-on"), "and finished work ready to make today waits on nothing, so it says nothing").toBe(false);});
 });
 describe("a card says why this opportunity and why these words, and never trades one for the other", () => {

@@ -87,7 +87,15 @@ function livePageHref(value: string | null | undefined, pageUrl?: string | null)
   const candidate = /^[^:/?#]+\.[^:/?#]+(?::\d+)?(?:[/?#]|$)/.test(raw) ? `https://${raw}` : raw, base = pageUrl ? livePageHref(pageUrl) : null;
   try { const parsed = new URL(candidate, base ?? undefined); return /^(?:http|https):$/.test(parsed.protocol) && !parsed.username && !parsed.password ? parsed.toString() : null; } catch { return null; }
 }
-const operatorUiPolicy = { isManualEditProofWork, isBulkRecordable, isPasteableComponent, linkedComponentIds, measurementAcknowledgement, livePageHref };
+function nextStep(owed: ChangeProposal["obligation"] | null): string | null {
+  if (owed?.kind === "evidence") return ({ serp: "Beacon will read the search results before deciding what this page needs.", page_source: "Beacon will read the current page before writing against it.", competitor_page: "Beacon will read the relevant winning page before deciding what is missing.", factual_source: "Beacon will check a source for the missing claim before writing it.", semantic_review: "Beacon will check the finished copy against its saved sources." } as const)[owed.need.kind];
+  if (owed?.kind === "redraft") return `Beacon will revise the saved copy: ${owed.instruction}`;
+  if (owed?.kind === "terminal") return owed.reason;
+  if (owed?.kind === "operator") return "Review the safety decision before this change can proceed.";
+  if (owed?.kind === "review") return "Beacon will review the finished copy and its sources.";
+  return owed ? "Beacon will finish and check the publication copy before it can be applied." : null;
+}
+const operatorUiPolicy = { isManualEditProofWork, isBulkRecordable, isPasteableComponent, linkedComponentIds, measurementAcknowledgement, livePageHref, nextStep };
 export default operatorUiPolicy;
 
 /** A PAGE ADDRESS, READ THE WAY A PERSON SAYS IT. Every change surface printed the raw slug as its headline

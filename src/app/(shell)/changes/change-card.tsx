@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Pill, type PillIntent } from "@/components/ui/pill";
 import { componentIdOf, dangerousComponents } from "@/domains/decision/contracts";
 import { proofOf, reviewFits } from "@/domains/decision/proof";
+import { nextObligation } from "@/domains/decision/obligation";
 import { citedPublishers, confirmedVersion, openHold } from "@/domains/decision/completeness";
 import type { ChangeBundle, ChangeProposal } from "@/domains/decision";
 import operatorUiPolicy, { cardCaveats, pageLabel } from "./types";
@@ -149,7 +150,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   const caveats = cardCaveats(proposal, [...verdict.caveats, ...proof.limits.filter((l) => !proposal.limitations.includes(l)),
     ...(caveat ? [caveat] : []), ...(YEAR_QUERY.test(proposal.primaryQuery) ? [YEAR_NOTE] : [])], verdict.settledPriorReceipt);
   const worth = [proof.ranksHere, ...(body ? body.split(/(?<=[.!?])\s+/).filter((sentence) => !saysAgain(sentence, proof.ranksHere ?? "")) : [])].filter(Boolean).join(" "); /* a sentence the receipt already says in other words is not said twice (operator walk, 2026-09-16: "Only 1 page of this site links to ... today" printed back to back) */
-  const waiting = ((w: string) => (w ? `${w[0]!.toUpperCase()}${w.slice(1)}.` : null))((proposal.rankingReceipt?.factors ?? []).find((f) => f.name === "readiness")?.input?.trim() ?? "");
+  const waiting = operatorUiPolicy.nextStep(nextObligation(proposal));
   const placement = proposal.recommendedChange.kind === "existing_edit" && proposal.recommendedChange.linkMode !== "in_place" ? proposal.recommendedChange.where ?? null : null;
   const units = proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.units : undefined;
   const link = proposal.recommendedChange.kind === "existing_edit" && proposal.recommendedChange.linkTo ? { href: proposal.recommendedChange.linkTo, anchor: proposal.recommendedChange.anchorText ?? "", pageUrl: proposal.pageUrl } : null;

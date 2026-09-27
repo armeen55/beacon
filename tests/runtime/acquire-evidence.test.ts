@@ -98,8 +98,8 @@ describe("acquireEvidence is exhaustive over the requirement union", () => {
       says: "Repair methods for vellum binding begin by humidifying the skin and pressing the board flat again." },
   ] as const;
   const world = async (s: typeof SITES[number], source: string, rivalText: string | null, prospective = false, stale = false, rivalUrls?: string[]) => {
-    vi.resetModules(); const raw: Record<string, unknown>[] = [], reads: string[] = [], asked: string[] = [], ownedReads: string[] = [];
-    const body = [s.title, s.h1, s.body].join("\n"), TEXT: Record<string, string> = { [s.found]: s.says, ...(rivalText == null ? {} : { [s.rival]: rivalText }) };
+    vi.resetModules(); const raw: Record<string, unknown>[] = [], reads: string[] = [], asked: string[] = [], ownedReads: string[] = [], decision = { basis: "b1::d9" as string | null, reads: [] as string[] };
+    const body = [s.title, s.h1, s.body].join("\n"), TEXT: Record<string, string> = { [s.found]: s.says, ...(rivalText == null ? {} : { [s.rival]: rivalText }) }; vi.doMock("@/domains/decision/load-proposals", async a => ({ ...(await a<Record<string, unknown>>()), resolveCurrentBasis: async (t: string) => (decision.reads.push(t), t === s.t ? decision.basis : null) }));
     const { supabaseFake } = await import("../helpers/supabase-fake");
     vi.doMock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => supabaseFake({ rows: (t) => t === "page_source_facts" ? raw : [], same: (a, b) => ["tenant_id", "page_key", "statement_key"].every((k) => a[k] === b[k]) }) }));
     vi.doMock("@/domains/evidence/snapshot-loader", async (a) => ({ ...(await a<Record<string, unknown>>()), loadEvidenceSnapshot: async () => ({ ownedPages: prospective ? [] : [{ url: `https://${s.host}${s.path}`, search: { impressions90d: 900, topQueries: [] } }], research: {}, sources: [], scope: { tenantId: s.t, site: s.host } }) }));
@@ -112,23 +112,23 @@ describe("acquireEvidence is exhaustive over the requirement union", () => {
     const { defaultSteps: steps } = await import("@/domains/runtime/ops/research-steps"), facts = await import("@/domains/evidence/pages/fact-checks");
     const need: EvidenceRequirement & { workKey: string } = { kind: "factual_source", reasonCode: "missing_information", query: `${s.topic} ${s.search}`, ...(prospective ? { topic: { key: `topic:${s.search}`, label: s.search }, missingTopic: `${s.search} ${s.topic}` } : { url: `https://${s.host}${s.path}`, missingTopic: s.topic }), rivalUrl: s.rival, rivalUrls, workKey: "test-work" };
     const got = await steps.acquireEvidence(s.t, need, "b1", 120_000), ROWS = await facts.readFactChecks(s.t);
-    const done = () => { for (const m of ["@/lib/persistence/supabase", "@/domains/evidence/pages/fact-checks", "@/domains/evidence/snapshot-loader", "@/domains/evidence/pages/owned-context", "@/domains/evidence/dataforseo/capabilities", "@/domains/decision/llm/structured-drafter"]) vi.doUnmock(m); vi.resetModules(); };
-    return { got, ROWS, raw, reads, asked, ownedReads, need, steps, facts, done };
+    const done = () => { for (const m of ["@/lib/persistence/supabase", "@/domains/evidence/pages/fact-checks", "@/domains/evidence/snapshot-loader", "@/domains/evidence/pages/owned-context", "@/domains/evidence/dataforseo/capabilities", "@/domains/decision/llm/structured-drafter", "@/domains/decision/load-proposals"]) vi.doUnmock(m); vi.resetModules(); };
+    return { got, ROWS, raw, reads, asked, ownedReads, need, steps, facts, decision, done };
   };
   it.each(SITES)("banks and reuses an exact prospective topic with no owned page or fabricated body hash [$t]", async (s) => {
     const w = await world(s, s.rival, s.says, true);
     try {
-      const row = w.ROWS[0]!;
-      expect([row.page, row.subject, row.pageContentHash, row.evidenceBasis, row.proposed, row.sources[0]?.support?.supported]).toEqual([w.need.topic!.key, `${s.search} ${s.topic}`, null, "b1", s.says, true]);
-      expect([w.got.acquired, w.got.unlocked, w.ownedReads, w.asked.some((u) => u.startsWith("fact_claim_extraction")), w.asked[0]?.includes(`Its intended topic: ${s.search}`)]).toEqual([true, true, [], false, true]);
+      const row = w.ROWS[0]!, { produceNewPage } = await import("@/domains/decision/new-page"), pageInput = { tenantId: s.t, snapshot: { scope: { tenantId: s.t, site: s.host }, ownedPages: [] }, coverage: { investigation: { key: s.search, label: s.search, queries: [s.search] }, decision: { verdict: "create_new", pattern: { fingerprint: "read-pattern" }, missing: [], ownedUrls: [], evidenceKeys: ["exact-query"], alternativesRuledOut: ["adjacent pages do not answer this reader task"], evidence: [] } }, basis: "b1::d9", checked: w.ROWS, now: new Date(), attempts: { left: 0 }, workKey: "page-work", save: async () => { throw Error("no page should be saved in an unfunded qualification probe"); } } as unknown as Parameters<typeof produceNewPage>[0]; const fit = await produceNewPage(pageInput), old = await produceNewPage({ ...pageInput, checked: w.ROWS.map(f => ({ ...f, evidenceBasis: "b1" })) }), foreign = await produceNewPage({ ...pageInput, checked: await w.facts.readFactChecks("another-tenant"), tenantId: "another-tenant" }); expect([fit.need, fit.detail, old.need, foreign.need]).toEqual([undefined, "The funded turn ended before the page brief could start.", s.search, s.search]);
+      expect([row.page, row.subject, row.pageContentHash, row.evidenceBasis, row.proposed, row.sources[0]?.support?.supported]).toEqual([w.need.topic!.key, `${s.search} ${s.topic}`, null, "b1::d9", s.says, true]);
+      expect([w.got.acquired, w.got.unlocked, w.decision.reads, w.ownedReads, w.asked.some((u) => u.startsWith("fact_claim_extraction")), w.asked[0]?.includes(`Its intended topic: ${s.search}`)]).toEqual([true, true, [s.t], [], false, true]);
       const calls = [...w.reads], again = await w.steps.acquireEvidence(s.t, w.need, "b1", 120_000);
       expect([again.acquired, again.unlocked, w.reads, w.raw.length, (await w.facts.readFactChecks("another-tenant")).length]).toEqual([true, true, calls, 1, 0]);
       w.raw[0]!.evidence_basis = "old-basis";
       const refreshed = await w.steps.acquireEvidence(s.t, w.need, "b1", 120_000);
-      expect([refreshed.unlocked, (await w.facts.readFactChecks(s.t))[0]?.evidenceBasis, w.raw.length, w.reads.length]).toEqual([true, "b1", 1, calls.length + 1]);
+      expect([refreshed.unlocked, (await w.facts.readFactChecks(s.t))[0]?.evidenceBasis, w.raw.length, w.reads.length]).toEqual([true, "b1::d9", 1, calls.length + 1]);
       const before = w.reads.length;
       for (const bad of [{ ...w.need, url: `https://${s.host}/wrong` }, { ...w.need, topic: { key: "/owned-page", label: s.search } }, { ...w.need, missingTopic: undefined }]) expect((await w.steps.acquireEvidence(s.t, bad, "b1", 120_000)).acquired).toBe(false);
-      expect(w.reads.length).toBe(before);
+      const saved = JSON.stringify(w.raw), callsBefore = JSON.stringify([w.reads, w.asked]); for (const moved of [null, "foreign::d9", "b1::d10"]) { w.decision.basis = moved; expect(await w.steps.acquireEvidence(s.t, w.need, moved === "b1::d10" ? "b1::d9" : "b1", 120_000)).toMatchObject({ acquired: false, attempted: false }); } w.decision.basis = "b1::d9"; expect(await w.steps.acquireEvidence("another-tenant", w.need, "b1", 120_000)).toMatchObject({ acquired: false, attempted: false }); expect([JSON.stringify(w.raw), JSON.stringify([w.reads, w.asked]), w.reads.length]).toEqual([saved, callsBefore, before]);
     } finally { w.done(); }
   });
   it.each(SITES)("refuses to buy facts against a stale owned-page capture [$t]", async (s) => { const w = await world(s, s.found, null, false, true); try { const pass = await w.steps.factCheck(s.t, 120_000); expect([w.got.acquired, pass.banked, w.raw.length, w.reads.length, w.ownedReads.length], "a stale known-good body is for display continuity, not targeted or ordinary factual-source inventory and paid search").toEqual([false, 0, 0, 0, 2]); } finally { w.done(); } });

@@ -82,13 +82,13 @@ const atomicRows = (p: ChangeProposal): ChangeProposal[] => {
     const path = value.startsWith("/") ? value : `/${value.replace(/^\/+/, "")}`; if (!baseUrl) return { path, url: p.pageUrl };
     try { return { path: path.replace(/\/+$/, "") || "/", url: new URL(path, baseUrl).toString() }; } catch { return { path, url: p.pageUrl }; } };
   return groups.map((indices) => {
-    const parts = indices.map((i) => components[i]!), oldIds = new Set(indices.map((i) => ids[i]!)), page = pageOf(parts[0]!.page), bundle = { ...p.bundle!, objective: parts[0]!.objective ?? p.bundle!.objective,
-      components: parts, plan: p.bundle!.plan ? { ...p.bundle!.plan, entries: p.bundle!.plan.entries.filter((_, i) => indices.includes(i)) } : undefined,
+    const parts = indices.map((i) => components[i]!), oldIds = new Set(indices.map((i) => ids[i]!)), localId = (of: string): string => { const at = indices.indexOf(ids.indexOf(of)); return at < 0 ? of : componentIdOf(parts[at]!, at); }, page = pageOf(parts[0]!.page), bundle = { ...p.bundle!, objective: parts[0]!.objective ?? p.bundle!.objective,
+      components: parts.map((c) => c.derivation ? { ...c, derivation: { ...c.derivation, dependsOn: c.derivation.dependsOn.map((d) => ({ ...d, componentId: localId(d.componentId) })) } } : c), plan: p.bundle!.plan ? { ...p.bundle!.plan, entries: p.bundle!.plan.entries.filter((_, i) => indices.includes(i)) } : undefined,
       receipt: { ...p.bundle!.receipt, items: p.bundle!.receipt.items.filter((item) => parts.some((c) => c.evidenceKeys.includes(item.key))) } };
     const recommendedChange = { kind: "existing_edit" as const, field: fieldForComponent(parts[0]!.kind), before: parts[0]!.before, after: parts[0]!.after,
       ...(parts[0]!.units ? { units: parts[0]!.units } : {}), ...(parts[0]!.target ? { target: parts[0]!.target } : {}), ...(parts[0]!.where ? { where: parts[0]!.where } : {}),
       ...(parts[0]!.redirectTo ? { linkTo: parts[0]!.redirectTo } : {}), ...(parts[0]!.anchorAfter ? { anchorText: parts[0]!.anchorAfter } : {}) };
-    const family = actionFamilyOf({ kind: "existing_edit", bundle, recommendedChange }), localId = (of: string): string => { const at = indices.indexOf(ids.indexOf(of)); return at < 0 ? of : componentIdOf(parts[at]!, at); }, claims0 = (p.claims ?? []).map((claim, i) => ({ claim, i })).filter(({ claim }) => !claim.of || oldIds.has(claim.of));
+    const family = actionFamilyOf({ kind: "existing_edit", bundle, recommendedChange }), claims0 = (p.claims ?? []).map((claim, i) => ({ claim, i })).filter(({ claim }) => !claim.of || oldIds.has(claim.of));
     const claims = claims0.map(({ claim }) => ({ ...claim, ...(claim.of ? { of: localId(claim.of) } : {}) }));
     const used = new Set(claims.flatMap((claim) => claim.supportedBy)), supportFacts = (p.supportFacts ?? []).filter((fact) => used.has(fact.id)), reviewClaims = p.semanticReview?.claims.flatMap((r) => { const i = claims0.findIndex((x) => x.i === r.i); return i < 0 ? [] : [{ ...r, i }]; }) ?? [];
     const discriminator = parts.map((c) => `${c.kind}-${terminalText(c.where ?? c.label).replace(/ /g, "-").slice(0, 36)}`).join("+");

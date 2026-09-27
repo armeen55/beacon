@@ -22,16 +22,6 @@ const EVIDENCE_GROUP: Record<BundleEvidenceItem["kind"], string> = {
 };
 const EVIDENCE_ORDER = Object.keys(EVIDENCE_GROUP) as BundleEvidenceItem["kind"][];
 const canFinish = (p: ChangeProposal): boolean => p.recommendedChange.kind === "existing_edit" && (p.status === "needs_review" || p.status === "ready" && nextObligation(p)?.kind === "review") && (["draft", "redraft", "review", "evidence"].includes(nextObligation(p)?.kind ?? "") || nextObligation(p)?.kind === "sections" && p.recommendedChange.field === "meta" && p.newPageDraft?.brief.kind === "body_meta" && p.changeFamily !== "full_rewrite" && p.recommendedChange.target?.mode !== "whole_body" && !p.bundle);
-const researchNext = (p: ChangeProposal): string => {
-  const owed = nextObligation(p);
-  if (owed?.kind === "evidence") return ({ serp: "Beacon will read the search results before deciding what this page needs.", page_source: "Beacon will read the current page before writing against it.", competitor_page: "Beacon will read the relevant winning page before deciding what is missing.", factual_source: "Beacon will check a source for the missing claim before writing it.", semantic_review: "Beacon will check the finished copy against its saved sources." } as const)[owed.need.kind];
-  if (owed?.kind === "redraft") return `Beacon will revise the saved copy: ${owed.instruction}`;
-  if (owed?.kind === "terminal") return owed.reason;
-  if (owed?.kind === "operator") return "Review the safety decision before this change can proceed.";
-  if (owed?.kind === "review") return "Beacon will review the finished copy and its sources.";
-  if (owed?.kind === "sections" || owed?.kind === "draft") return "Beacon will finish and check the publication copy before it can be applied.";
-  return p.research?.next?.trim() || "Beacon will recheck this change before it can be applied.";
-};
 
 function seenLabel(observedAt: string | null): string {
   const day = monthDayLabel(observedAt);
@@ -83,7 +73,7 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
   const facts = new Map(bundle.receipt.items.map((i) => [i.key, i]));
   const chips = [...bundle.scope.queries, ...bundle.scope.prompts];
   const isNew = proposal.kind === "new_page", livePageHref = operatorUiPolicy.livePageHref(proposal.pageUrl);
-  const research = proposal.researchOnly === true || deliverableGaps(proposal).length > 0;
+  const research = proposal.researchOnly === true || deliverableGaps(proposal).length > 0, currentNext = operatorUiPolicy.nextStep(nextObligation(proposal));
   const held = proposal.status !== "ready" ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet."
     : unsettledCause(proposal); // the first defect of the one verdict, typed faults included (journey review, 2026-09-06): `blocking` restated by a second name
   const confirmable = !research && proposal.status === "needs_review" && dangerousComponents(bundle.components).length > 0 && deliverableGaps(proposal).length === 0 && unsettledCause(proposal) == null ? confirmedVersion(proposal) : null;
@@ -199,7 +189,7 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
       </section>
 
       <section className="space-y-3 rounded-2xl border border-border bg-surface-raised p-5">
-        {research || held ? <p className="text-[13px] leading-relaxed text-foreground">{held ?? "This copy is still being prepared, so nothing here is ready to paste or mark done."}{waitingOn(proposal) ?? ""}</p> : <MarkImplemented
+        {research || held ? <p className="text-[13px] leading-relaxed text-foreground">{held ?? "This copy is still being prepared, so nothing here is ready to paste or mark done."}{currentNext ? ` ${currentNext}` : ""}</p> : <MarkImplemented
           proposalId={proposal.id}
           expectedVersion={confirmedVersion(proposal)}
           newPage={isNew}
@@ -207,7 +197,7 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
             ...(c.derivation ? { dependsOn: c.derivation.dependsOn.map((dependency) => dependency.componentId) } : {}),
             moves: dangerousComponents([c]).length > 0, recorded: [...recorded].some((r) => sameComponentId(r, componentIdOf(c, i))) }))}
         />}
-        {research ? <p className="text-[13px] leading-relaxed text-foreground" data-research-next="true">Next: {researchNext(proposal)}</p> : null}
+        {research ? <p className="text-[13px] leading-relaxed text-foreground" data-research-next="true">Next: {currentNext || proposal.research?.next?.trim() || "Beacon will recheck this change before it can be applied."}</p> : null}
         {research || held ? null : <p className="text-[12px] text-muted-foreground">After you make it, the page is checked and the measurement starts from what is found.</p>}
         {confirmable ? <ConfirmDangerous proposalId={proposal.id} version={confirmable} /> : null}
         <SetAsideChange proposalId={proposal.id} finishable={canFinish(proposal) && !confirmable} prepare={nextObligation(proposal)?.kind !== "review" || proposal.status !== "ready" && proposal.recommendedChange.kind === "existing_edit" && !!proposal.recommendedChange.linkTo} />
@@ -225,7 +215,6 @@ function weightWord(contribution: number, max: number): string {
   return share >= 0.66 ? "a strong push" : share >= 0.33 ? "a fair push" : "a small push";
 }
 
-/** WHAT THIS CHANGE IS WAITING ON BEFORE ANYBODY CAN DO IT, read off the row's own typed next step and printed where the change is, never only inside the ranking receipt behind an expander: a change ranked above smaller finished work reads as an order somebody could work straight through until it says what it waits for. */ const waitingOn = (p: ChangeProposal): string | null => ((w: string) => (w ? ` ${w[0]!.toUpperCase()}${w.slice(1)}.` : null))((p.rankingReceipt?.factors ?? []).find((f) => f.name === "readiness")?.input?.trim() ?? "");
 /** LAYER 2: THE INVESTIGATION, behind one expander. All four parts come off the cause ladder: the named
  * cause and its explanation, what else was weighed and why each lost, the falsifier, and what was never
  * weighed because its evidence is not on file ("not considered" is a finding, never a silence). The ranking
@@ -235,7 +224,7 @@ function Investigation({ proposal, seen }: { proposal: ChangeProposal; seen: Set
   const receipt = proposal.rankingReceipt;
   const hints = fresh(seen, proposal.evidence?.hints ?? []);
   const unbound = (proposal.impactScore != null || proposal.demandImpressions90d != null) && !attributionOf(proposal, new Date());
-  const factors = unbound ? [] : (receipt?.factors ?? []).filter((f) => (f.input ?? "").trim().length > 0);
+  const factors = unbound ? [] : (receipt?.factors ?? []).filter((f) => f.name !== "readiness" && (f.input ?? "").trim().length > 0);
   if (!finding && !receipt) return null;
   return (
     <details className="rounded-2xl border border-border bg-surface-raised p-5" data-investigation="true">
@@ -281,7 +270,6 @@ function Investigation({ proposal, seen }: { proposal: ChangeProposal; seen: Set
           <div className="space-y-1">
             <p className="text-[12px] font-semibold text-foreground">Why this one ranks where it does</p>
             {factors.length > 0 ? <ul className="space-y-1 text-[13px] leading-relaxed text-muted-foreground">
-              {/* A LABEL IS NOT A SCORE: readiness contributes nothing on purpose, so "(did not move this one either way)" after the sentence saying what the change waits on read as a shrug about the dependency. */}
               {factors.map((f, i) => <li key={i} className="tabular-nums">{f.input}{f.max === 0 ? "" : ` (${weightWord(f.contribution, f.max)})`}</li>)}
             </ul> : null}
             <p className="text-[12px] leading-relaxed text-muted-foreground">{unbound ? "No attributable click figure backs this saved ranking receipt. The change remains directional until its reader-task demand is checked again." : receipt.basis}</p>
@@ -397,7 +385,7 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
   const before = c.kind === "new_page" ? null : (c.before ?? "").trim() || null;
   const units = c.kind === "existing_edit" ? c.units : undefined, link = c.kind === "existing_edit" && c.linkTo ? { href: c.linkTo, anchor: c.anchorText ?? "", pageUrl: proposal.pageUrl } : null;
   const steps = (proposal.operatorSteps ?? []).map((s) => s.replace(/^\d+[.)]\s*/, "").trim()).filter(Boolean);
-  const research = proposal.researchOnly === true || deliverableGaps(proposal).length > 0;
+  const research = proposal.researchOnly === true || deliverableGaps(proposal).length > 0, currentNext = operatorUiPolicy.nextStep(nextObligation(proposal));
   const hold1 = openHold(proposal);
   const held = proposal.status !== "ready" || research
     ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet."
@@ -419,7 +407,7 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
       {caveats.length > 0 ? <div className="space-y-1"><Heading>What to keep in mind</Heading><Bullets items={caveats} /></div> : null}
       {research ? (
         <div className="space-y-1" data-research-next="true"><Heading>What Beacon does next</Heading>
-          <p className="text-[14px] leading-relaxed text-foreground">{researchNext(proposal)}</p>
+          <p className="text-[14px] leading-relaxed text-foreground">{currentNext || proposal.research?.next?.trim() || "Beacon will recheck this change before it can be applied."}</p>
         </div>
       ) : steps.length > 0 && !after ? (
         <div className="space-y-1">
@@ -461,7 +449,7 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
           </details>
         </div>
       ) : null}
-      {held && !research ? <p className="text-[13px] leading-relaxed text-foreground" data-held-reason="true">{held}{waitingOn(proposal) ?? ""}</p> : null}
+      {held && !research ? <p className="text-[13px] leading-relaxed text-foreground" data-held-reason="true">{held}{currentNext ? ` ${currentNext}` : ""}</p> : null}
       <div className="flex flex-wrap items-center gap-3">
         {research || held ? null : <MarkImplemented proposalId={proposal.id} expectedVersion={confirmedVersion(proposal)} inPlaceLink={c.kind === "existing_edit" && c.linkMode === "in_place"} />}
         <SetAsideChange proposalId={proposal.id} finishable={canFinish(proposal)} prepare={nextObligation(proposal)?.kind !== "review" || proposal.status !== "ready" && proposal.recommendedChange.kind === "existing_edit" && !!proposal.recommendedChange.linkTo} />
