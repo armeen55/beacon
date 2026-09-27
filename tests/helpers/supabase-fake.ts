@@ -116,7 +116,7 @@ export function sourceFactsRpc(rows: Row[], args: Record<string, unknown>): { da
     const incoming = sourceShape(item), expected = incoming.source_version, found = pending.findIndex(r => r.tenant_id === args.p_tenant && r.page_key === args.p_page && r.statement_key === incoming.statement_key), prior = found < 0 ? null : sourceShape(pending[found]!);
     if (incoming.tenant_id !== args.p_tenant || incoming.page_key !== args.p_page || typeof incoming.statement_key !== "string" || !incoming.statement_key.trim() || incoming.statement_key.startsWith("#") || typeof incoming.subject !== "string" || !incoming.subject.trim() || incoming.current_wording == null || !["owed", "checked", "superseded"].includes(String(incoming.claim_state)) || expected != null && (!Number.isSafeInteger(expected) || Number(expected) <= 0)) return fail("22023", "invalid source save ownership or revision");
     if (prior) {
-      if (expected == null || expected !== prior.source_version) return fail("40001", "source revision changed");
+      if (expected == null || expected !== prior.source_version) return fail("PT409", "source revision changed");
       incoming.superseded_at = incoming.claim_state === "superseded" ? prior.superseded_at ?? at : null;
       const material = (r: Row) => Object.fromEntries(Object.entries(r).filter(([key]) => !["source_version", "checked_at", "updated_at"].includes(key)));
       if (isDeepStrictEqual(material(incoming), material(prior))) { result.push({ statement_key: prior.statement_key, source_version: prior.source_version }); continue; }
@@ -124,7 +124,7 @@ export function sourceFactsRpc(rows: Row[], args: Record<string, unknown>): { da
       if (pending.some(r => r.tenant_id === archive.tenant_id && r.page_key === archive.page_key && r.statement_key === archive.statement_key)) return fail("23505", "source archive identity exists");
       pending.push(sourceInsert(pending, archive)); pending[found] = sourceInsert(pending, { ...incoming, checked_at: incoming.checked_at ?? at, updated_at: at });
     } else {
-      if (expected != null) return fail("40001", "source revision absent");
+      if (expected != null) return fail("PT409", "source revision absent");
       pending.push(sourceInsert(pending, { ...incoming, checked_at: incoming.checked_at ?? at, updated_at: at, superseded_at: incoming.claim_state === "superseded" ? at : null }));
     }
     const saved = pending.find(r => r.tenant_id === args.p_tenant && r.page_key === args.p_page && r.statement_key === incoming.statement_key)!;
