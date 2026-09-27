@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1")); afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
-import { renderToStaticMarkup } from "react-dom/server"; import { createElement, type ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server"; import { createRoot } from "react-dom/client"; import { act, createElement, type ReactElement } from "react"; import { createRequire } from "node:module";
 import type { CauseFinding, ChangeProposal, RankedProposalQueue } from "@/domains/decision";
 import { proofOf, unreviewed } from "@/domains/decision/proof";
 import type { ChangesView } from "@/app/(shell)/changes-data";
@@ -64,10 +64,10 @@ async function renderDetail(p: ChangeProposal): Promise<string> {
   vi.mocked(resolveCurrentBasis).mockResolvedValue(p.basis ?? null);
   const { default: Page } = await import("@/app/(shell)/changes/[id]/page");
   return renderToStaticMarkup(await Page({ params: Promise.resolve({ id: encodeURIComponent(p.id) }) }) as ReactElement);}
-describe("what a card says after a batch press, and what it says when it cannot be done today", () => {
   const card = async (p: ChangeProposal, over: Record<string, unknown> = {}) => {
     const { ChangeCard } = await import("@/app/(shell)/changes/change-card");
     return renderToStaticMarkup(createElement(ChangeCard, { proposal: p, rank: 1, ready: p.status === "ready", onAside: () => {}, onDone: () => {}, onToast: () => {}, ...over } as never));};
+describe("what a card says after a batch press, and what it says when it cannot be done today", () => {
   it("flips a card the batch recorded to its own done line, and gives a card the batch refused that card's own reason with the press still on it", async () => {
     const recorded = await card(atomic(), { recorded: true });
     expect([recorded.includes("Recorded. Open Results"), recorded.includes("Mark done"), recorded.includes("Copy")], "a card recorded by the batch below the list never keeps offering the work as still owed").toEqual([true, false, false]);
@@ -179,11 +179,13 @@ describe("a card says why this opportunity and why these words, and never trades
 
 describe("a ranked card explains itself without being opened", () => {
   beforeEach(() => vi.clearAllMocks());
-  it("the clipboard carries real HTML and plain words: no # or - markers, and a link change leaves as an anchor", async () => { // audit 3.9: the plain half was Markdown and the fallback said "Copied Markdown"
-    const { clipboardPayload } = await import("@/app/(shell)/changes/change-controls"), units = [{ kind: "heading" as const, level: 2, text: "Which items belong?" }, { kind: "paragraph" as const, text: "See the full haft-seen list for each one." }, { kind: "unordered_list" as const, items: ["Wash the cloth.", "Arrange the items."] }];
-    const { html, plain } = clipboardPayload("ignored", units, { href: "/haft-seen", anchor: "full haft-seen list", pageUrl: "www.own.test/nowruz" }); for (const href of ["javascript:alert(1)", "data:text/html,unsafe", "/unresolved"]) expect(clipboardPayload("Open source", undefined, { href, anchor: "source" }).html).toBe("<p>Open source</p>");
-    expect([html, plain, plain.includes("#"), plain.includes("- "), clipboardPayload("Only a title", undefined).plain]).toEqual(['<h2>Which items belong?</h2><p>See the <a href="https://www.own.test/haft-seen">full haft-seen list</a> for each one.</p><ul><li>Wash the cloth.</li><li>Arrange the items.</li></ul>',
-      "Which items belong?\n\nSee the full haft-seen list for each one.\n\n\u2022 Wash the cloth.\n\u2022 Arrange the items.", false, false, "Only a title"]); });
+  it.each(["noop", "reject", "missing", "plain-failure"])("copies the complete publication text before a %s rich clipboard, retaining safe markup", async (mode) => { const { CopyButton, clipboardPayload } = await import("@/app/(shell)/changes/change-controls"), units = [{ kind: "heading" as const, level: 2, text: "Which items belong?" }, { kind: "paragraph" as const, text: "See the full haft-seen list for each one." }, { kind: "unordered_list" as const, items: ["Wash the cloth.", "Arrange the items."] }], link = { href: "/haft-seen", anchor: "full haft-seen list", pageUrl: "www.own.test/nowruz" };
+    const { JSDOM } = createRequire(import.meta.url)("jsdom"), dom = new JSDOM("<div id='root'></div>"); vi.stubGlobal("window", dom.window); vi.stubGlobal("document", dom.window.document); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); const root = createRoot(dom.window.document.getElementById("root")), toast = vi.fn(), calls: string[] = []; let stored = "old SQL";
+    vi.stubGlobal("navigator", { clipboard: { writeText: async (text: string) => { calls.push("plain"); if (mode === "plain-failure") throw new Error("denied"); stored = text; }, write: mode === "missing" ? undefined : async () => { calls.push("rich"); if (mode === "reject") throw new Error("rich unavailable"); } } }); vi.stubGlobal("ClipboardItem", class { constructor(readonly data: Record<string, Blob>) {} }); vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try { await act(async () => root.render(createElement(CopyButton, { text: "ignored", units, link, label: "Copy", onToast: toast }))); await act(async () => (dom.window.document.querySelector("button") as HTMLButtonElement).click());
+      expect([stored, calls, dom.window.document.querySelector("button")?.textContent, toast.mock.calls.at(-1)?.[0]]).toEqual([mode === "plain-failure" ? "old SQL" : "Which items belong?\n\nSee the full haft-seen list for each one.\n\n• Wash the cloth.\n• Arrange the items.", mode === "plain-failure" || mode === "missing" ? ["plain"] : ["plain", "rich"], mode === "plain-failure" ? "Copy it by hand" : "Copied", mode === "plain-failure" ? "Your clipboard could not be reached, so please copy it by hand." : "Copied"]);
+      expect([clipboardPayload("ignored", units, link).html, ...["javascript:alert(1)", "data:text/html,unsafe", "/unresolved"].map(href => clipboardPayload("Open source", undefined, { href, anchor: "source" }).html), clipboardPayload("Only a title").plain]).toEqual(['<h2>Which items belong?</h2><p>See the <a href="https://www.own.test/haft-seen">full haft-seen list</a> for each one.</p><ul><li>Wash the cloth.</li><li>Arrange the items.</li></ul>', "<p>Open source</p>", "<p>Open source</p>", "<p>Open source</p>", "Only a title"]);
+    } finally { await act(async () => root.unmount()); vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); dom.window.close(); } });
 
   it("cannot submit a bulk selection hidden by the current view", async () => { const row = atomic(), { ChangesListClient } = await import("@/app/(shell)/changes-list-client");
     const html = renderToStaticMarkup(createElement(ChangesListClient, { view: viewOf([row]), initialPicked: [row.id, "hidden"] }));
@@ -254,9 +256,7 @@ describe("a finished change is read, decided and pasted without being opened", (
     impactScore: 41, demandImpressions90d: 12000, impactAttribution: { page: `https://alpha.example${s.path}`, query: s.q, members: [s.q], clicks28d: 41, impressions90d: 12000, sourceDay: new Date().toISOString().slice(0, 10) }, upsidePerMonth: null, basis: "basis_now::d4", publish: "manual", createdAt: "2026-09-01T00:00:00.000Z",
     claims: [{ text: "The rocks stay slick for hours after the tide turns.", supportedBy: ["fact-1"] }],
     supportFacts: [{ id: "fact-1", fact: "Shore survey: falls cluster in the two hours after the turn." }], ...over } as unknown as ChangeProposal);
-  const one = async (p: ChangeProposal): Promise<string> => {
-    const { ChangeCard } = await import("@/app/(shell)/changes/change-card");
-    return renderToStaticMarkup(createElement(ChangeCard as never, { proposal: p, rank: 1, ready: true, caseLine: null, onAside: () => {}, onDone: () => {}, onToast: () => {} } as never));};
+  const one = (p: ChangeProposal): Promise<string> => card(p, { ready: true, caseLine: null });
   it.each(SITES)("$t: a caveat written for a draft whose words are gone is not rendered, the same caveat over copy that still carries them is, and the verdict's own advisory rides beside them", async (s) => {
     const gone = await one(finished(s, { limitations: [s.caveat, STALE] }));
     expect([gone.includes(s.caveat), gone.includes("publishing NAME and SOUND")], "the current caveat stands and the previous draft's does not").toEqual([true, false]);

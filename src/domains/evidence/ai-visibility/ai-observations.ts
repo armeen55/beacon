@@ -144,10 +144,8 @@ function narrowRow(r: Record<string, unknown>, wantJourney: boolean): AiObservat
 /** THE LIST PROJECTION for a surface paging a day's readings: everything EXCEPT the one genuinely heavy column. A screen of whole AI answers is the shape that has timed a statement out here before, so `answer_text` is read only by the drill-down below, which asks for one row by id. */
 const LIST_COLUMNS = "id,tenant_id,site,prompt_id,prompt_version,prompt_text,engine,model_requested,model_served,observation_mode,reporting_day,sample_slot,requested_at,completed_at,cache_key,cost_usd,status,failure_reason,answer_hash,journey,analysis,analysis_hash";
 
-/** THE FAN-OUT PROJECTION: the identity plus ONLY the three journey lists the fan-out evidence reads. Never
- *  the answer text, never the analysis, so a 28-day window is a fraction of the full rows and one read powers
- *  the whole Query fan-outs view (see ai-visibility/fanout-evidence). */
-const FANOUT_COLUMNS = "id,tenant_id,site,prompt_id,prompt_version,prompt_text,engine,model_served,observation_mode,reporting_day,sample_slot,status,requested_at,fans:journey->fan_outs,cited:journey->cited_sources,retrieved:journey->retrieved_results";
+/** Dated funnel reads retain canonical identity, provider dates and complete journey values, without unused answer text or analysis. */
+const FANOUT_COLUMNS = "id,tenant_id,site,prompt_id,prompt_version,prompt_text,engine,model_requested,model_served,observation_mode,reporting_day,sample_slot,status,requested_at,completed_at,cache_key,answer_hash,analysis_hash,fans:journey->fan_outs,cited:journey->cited_sources,retrieved:journey->retrieved_results,brands:journey->brand_mentions,web:journey->web_search_reported";
 
 /** THE LEANEST PROJECTION, for asking WHETHER the readings have moved rather than what they say: the identity, the day, whether an answer is in hand, and the two settlement stamps. Never the answer text, never the journey, never the analysis body, so fingerprinting a whole account costs a few bytes a row. */
 const STAMP_COLUMNS = "id,prompt_id,prompt_version,engine,reporting_day,requested_at,status,answer_hash,analysis_hash";
@@ -210,8 +208,8 @@ export async function readAiObservations(
     const narrow = opts.projection === "overview" || opts.projection === "outcome" || opts.projection === "scoped";
     const page = (narrow ? ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => narrowRow(r, opts.projection === "overview" || opts.projection === "scoped"))
       : opts.projection === "fanout" ? ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => {
-        const { fans, cited, retrieved, ...rest } = r; // the three aliased journey lists, rebuilt in place
-        return { ...rest, journey: { fan_outs: fans ?? null, cited_sources: cited ?? null, retrieved_results: retrieved ?? null, brand_mentions: null, web_search_reported: null }, analysis: null, analysis_hash: null };
+        const { fans, cited, retrieved, brands, web, ...rest } = r; // Journey values retain null versus an observed empty list.
+        return { ...rest, journey: { fan_outs: fans ?? null, cited_sources: cited ?? null, retrieved_results: retrieved ?? null, brand_mentions: brands ?? null, web_search_reported: web ?? null }, analysis: null };
       })
       : (data ?? [])) as unknown as AiObservationRecord[];
     rows.push(...page);
@@ -245,9 +243,9 @@ class CanonicalReadFailure extends Error {}
  * An explicit date range retains history instead of collapsing each pair to its latest answer.
  */
 export async function readCanonicalPairObservations(
-  tenantId: string, opts: { prompts?: readonly { id: string; version: number }[]; fromDay?: string; toDay?: string } = {},
+  tenantId: string, opts: { prompts?: readonly { id: string; version: number }[]; fromDay?: string; toDay?: string; projection?: "list" | "fanout" } = {},
 ): Promise<CanonicalPairObservation[]> {
-  return (await walkCanonicalPairs(tenantId, opts, "list")).map(canonicalPairOf);
+  return (await walkCanonicalPairs(tenantId, opts, opts.projection ?? "list")).map(canonicalPairOf);
 }
 
 /**
@@ -269,7 +267,7 @@ export async function readCanonicalAnalysisStamps(
  *  has its newest useful row. Everything that decides WHICH rows are the account's evidence lives here and
  *  nowhere else, so no second implementation can ever read a different window of the same account. */
 async function walkCanonicalPairs(
-  tenantId: string, opts: { prompts?: readonly { id: string; version: number }[]; fromDay?: string; toDay?: string }, projection: "list" | "stamp",
+  tenantId: string, opts: { prompts?: readonly { id: string; version: number }[]; fromDay?: string; toDay?: string }, projection: "list" | "stamp" | "fanout",
 ): Promise<AiObservationRecord[]> {
   try {
     // Account owns the tracked set and Account is a lower kernel, so this is a plain static import in the legal

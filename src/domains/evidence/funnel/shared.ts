@@ -49,7 +49,7 @@ export type FunnelDeps = {
    *  null = the READ FAILED; [] = the account genuinely has none yet. */
   loadPageQueries?: (tenantId: string) => Promise<SerpAgendaPageQuery[] | null>;
   /** Canonical current-version evidence: latest per pair by default, complete within an explicit range. Failed reads throw; no purchases or analysis. */
-  loadCanonicalObservations?: (tenantId: string, range?: { fromDay: string; toDay: string }) => Promise<CanonicalPairObservation[]>;
+  loadCanonicalObservations?: (tenantId: string, range?: { fromDay: string; toDay: string; projection?: "fanout" }) => Promise<CanonicalPairObservation[]>;
   /** Test seam for winning-page citation-target resolution (defaults to the real
    *  redirect-only resolver in competitor-intel/polite-fetch). */
   resolveCitations?: (appearances: ResearchWinningAppearance[], fetchImpl?: typeof fetch, deadlineMs?: number) => Promise<ResearchWinningAppearance[]>;

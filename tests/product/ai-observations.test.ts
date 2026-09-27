@@ -1,10 +1,8 @@
-/** PRODUCT - FULL-FIDELITY AI OBSERVATION CAPTURE. Three tracked questions across four engines are driven through the REAL prompt-observation unit, the REAL registry parsers over the REAL provider envelope fixtures, and the REAL fail-closed writer, with only Postgres itself faked. Pins the canonical identity, slot semantics, the whole answer and the whole journey, honest statuses, tenant isolation, and the prompt_answer_observations row as a DERIVED projection. Zero network, zero provider spend. /*/
 import { describe, it, expect, vi, beforeEach } from "vitest";
 const db = vi.hoisted(() => ({ written: [] as { table: string; row: Record<string, unknown> }[], read: [] as Record<string, unknown>[], updated: null as Record<string, unknown> | null, matched: [] as { id: string }[], error: null as { message: string } | null, filters: {} as Record<string, unknown>, selected: [] as string[], pages: [] as string[], onPage: null as ((n: number) => void) | null }));
-/** The ONE fake: Postgres. Every writer, every guard and every projection above it is the real one. It answers a KEYSET page the way the real client does: the rows strictly past the cursor, IN THE ORDER THE CALLER ASKED FOR, cut to the asked limit. A reader that asks for one page and calls it the whole history is caught here, so is one that re-numbers its window by offset while rows are being inserted underneath it, and so is one that pages a table without a unique tiebreaker in its own ORDER BY. */
 vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...((await orig()) as object), getSupabaseAdmin: () => ({ from: (table: string) => fakeTable(table) }) }));
 function fakeTable(table: string) {
-  let max: number | null = null, after: { at: string; id: string } | null = null;
+  let max: number | null = null, after: { at: string; id: string } | null = null, columns = "*";
   const orders: { col: string; asc: boolean }[] = [];
   const sorted = (rows: Record<string, unknown>[]) => [...rows].sort((a, b) => {
     for (const { col, asc } of orders) { const c = String(a[col] ?? "").localeCompare(String(b[col] ?? "")); if (c !== 0) return asc ? c : -c; }
@@ -13,7 +11,7 @@ function fakeTable(table: string) {
   const where: Record<string, unknown> = {}; // every eq the caller built is APPLIED, so a dropped scope clause is caught here
   const bounds: Record<string, { lower?: string; upper?: string }> = {};
   const q: Record<string, unknown> = {
-    select: (cols?: string) => { db.selected.push(cols ?? ""); return q; },
+    select: (cols?: string) => { columns = cols ?? "*"; db.selected.push(columns); return q; },
     eq: (c: string, v: unknown) => { db.filters[c] = v; where[c] = v; return q; },
     order: (col: string, o?: { ascending?: boolean }) => { orders.push({ col, asc: o?.ascending !== false }); return q; },
     limit: (n: number) => { max = n; return q; },
@@ -28,7 +26,8 @@ function fakeTable(table: string) {
       const ordered = sorted(mine); const cursor = after;
       const past = cursor ? ordered.filter((r) => { const at = String(r.requested_at ?? ""); return at < cursor.at || (at === cursor.at && String(r.id) < cursor.id); }) : ordered; const page = max == null ? past : past.slice(0, max);
       if (table === "ai_observations") { db.pages.push(`${cursor ? `${cursor.at}|${cursor.id}` : "start"}+${page.length}`); db.onPage?.(db.pages.length); } // only this table's own reads are counted, so a page count means what it says
-      return res({ data: page, error: db.error });},};
+      const projected = (row: Record<string, unknown>) => Object.fromEntries(columns.split(",").map(column => { const [alias, path] = column.split(":"); const value = (path ?? alias!).split("->").reduce<unknown>((v, key) => v && typeof v === "object" ? (v as Record<string, unknown>)[key] : null, row); return [alias, value ?? null]; }));
+      return res({ data: columns === "*" ? page : page.map(projected), error: db.error });},};
   return q;}
 const gsc = vi.hoisted(() => ({ pages: new Map<string, unknown>(), decay: new Map<string, unknown>() }));
 vi.mock("@/domains/evidence/readers/gsc-page-signals", () => ({ loadGscPageSignalsForTenant: async () => { if (gsc.pages instanceof Error) throw gsc.pages; return gsc.pages; },
@@ -157,11 +156,9 @@ describe("re-analysis reads what was already bought", () => {
     db.matched = [];
     await expect(persistAnswerAnalysis(TENANT, "obs_missing", { mentioned: false }, "hash-2")).rejects.toThrow(/matched no row/); // a lost verdict never reads as a saved one
   });
-  /** One stored row per index, each with its own ask stamp, newest last so the ids and the stamps disagree about order exactly as they do in production. */
   const stored = (n: number, from = 0) => Array.from({ length: n }, (_, i) => ({ id: `obs_${String(from + i).padStart(5, "0")}`,
     tenant_id: TENANT, reporting_day: DAY, sample_slot: 0, status: "observed",
     requested_at: new Date(Date.parse(`${DAY}T00:00:00.000Z`) + (from + i) * 1000).toISOString() }));
-  /** A NAMED RANGE COMES BACK WHOLE, ONCE EACH, AND WITHOUT THE ANSWERS RIDING ALONG. 35 questions x 4 engines x 28 days is 3,920 rows: one capped query returned the newest 2,000, so a report that claimed 28 days was built from about 14 and every total under it was short. Two rows stamped the same millisecond on a page edge come back either way round without a unique tiebreaker in the ORDER BY, and the cursor then walks straight past one. And `answer_text` plus `journey` over a 56 day window is megabytes an account a visit, the exact shape that has timed a statement out on this table before. */
   it("walks a whole range by cursor, reads every stored row exactly once across a same-instant page edge, and asks for only the columns it reads", async () => {
     db.read = stored(3920);
     const rows = await readAiObservations(TENANT, { fromDay: "2026-07-01", toDay: "2026-07-28", slot: 0 });
@@ -239,7 +236,6 @@ describe("retrieved is not the same claim as not cited", () => {
     const once = retrievedNotCitedLinks(loaded.state.prompts.pairs[0]!.retrievedResults, pair.citations); expect(once.map((r) => r.url)).toEqual(["https://rival.example/a"]);
     expect(retrievedNotCitedLinks(once, pair.citations)).toEqual(once); // deriving again takes nothing more away
   });});
-/** THE SNAPSHOT'S AI EVIDENCE IS THE WHOLE CANONICAL RECORD. The funnel's working state carries ONE 20 pair window, so projecting it told every decision that an account holding 35 questions across 4 engines had a single answer, and the legacy projection read beside it carried no fan-outs and no readings at all. Everything below runs the REAL loader and the REAL pure assembler over the faked Postgres above; no provider is reachable from any of it. */
 describe("the snapshot reads the canonical answer set, never the working window", () => {
   const PROMPTS = Array.from({ length: 35 }, (_, i) => ({ id: `p${i}`, version: 2 })), DAY2 = "2026-07-22";
   const stored = (promptId: string, engine: string, over: Record<string, unknown> = {}) => ({
@@ -247,7 +243,6 @@ describe("the snapshot reads the canonical answer set, never the working window"
     observation_mode: engine === "chatgpt" ? "consumer_search" : "standardized_response", reporting_day: DAY, sample_slot: 0, requested_at: `${DAY}T09:00:00.000Z`,
     completed_at: `${DAY}T09:05:00.000Z`, status: "observed", answer_hash: "h1", analysis: null, analysis_hash: null,
     journey: { fan_outs: [`${promptId} fan`], cited_sources: null, retrieved_results: null, brand_mentions: null, web_search_reported: true }, ...over });
-  /** One whole day (35 questions x 4 engines) landed across the several 20 pair windows a day's run walks, beside all the funnel state keeps by the end of it: the last pair of the last window. */
   const wholeDay = () => PROMPTS.flatMap((p, i) => ENGINES.map((e) => stored(p.id, e, { requested_at: `${DAY}T0${Math.floor(i / 12)}:00:00.000Z` })));
   const lastWindow = (): FunnelState => { const s = emptyFunnelState(TENANT, BASIS); s.prompts.pairs = [{ promptId: "p34", promptText: "question p34",
     engine: "perplexity", mode: "standardized_response", cacheKey: null, status: "done", observedAt: `${DAY}T09:05:00.000Z` } as FunnelPair]; return s; };
@@ -271,14 +266,20 @@ describe("the snapshot reads the canonical answer set, never the working window"
     expect([by.get("p0"), by.get("p1"), by.get("p2"), by.get("p3"), by.get("p4")]).toEqual([read, null, null, null, null]); // a refusal is never sold as a reading, and text is not a reading at all
   });
   it("reads only the questions I watch now at the version I watch them at, and keeps the newest reading of a pair once", async () => {
-    db.read = [stored("p0", "chatgpt"), stored("p1", "chatgpt", { prompt_version: 1 }), stored("dropped", "chatgpt"), stored("p0", "chatgpt", { id: "obs_new", reporting_day: DAY2, completed_at: `${DAY2}T09:05:00.000Z` }),
+    db.read = [stored("p0", "chatgpt"), stored("p1", "chatgpt", { prompt_version: 1 }), stored("dropped", "chatgpt"), stored("p0", "chatgpt", { id: "obs_new", reporting_day: DAY2, completed_at: `${DAY2}T09:05:00.000Z`, journey: {fan_outs:[],cited_sources:[],retrieved_results:[],brand_mentions:[],web_search_reported:false} }),
       stored("p2", "chatgpt", { id: "obs_slot1", sample_slot: 1 }), // a DELIBERATE second sample of a pair is a different reading, never today's answer
       stored("p3", "chatgpt", { id: "obs_failed", status: "failed" }), stored("p4", "chatgpt", { id: "obs_nohash", answer_hash: null })]; // and nothing without an answer in hand
     expect((await snapshotOf()).research.aiObservations.map((o) => [o.observationId, o.reportingDay])).toEqual([["obs_new", DAY2]]); // a retired question, a superseded version and yesterday's copy all stay out
     db.read.push(stored("p0", "chatgpt", { id: "obs_other_tenant", tenant_id: OTHER }), stored("p0", "chatgpt", { id: "obs_outside", reporting_day: "2026-07-20" }));
     const history = await readCanonicalPairObservations(TENANT, { fromDay: DAY, toDay: DAY2 });
     expect(history.map((o) => [o.observationId, o.reportingDay]).sort()).toEqual([["obs_new", DAY2], ["obs_p0_chatgpt", DAY]]);
-    db.error = { message: "read interrupted" }; await expect(readCanonicalPairObservations(TENANT, { fromDay: DAY, toDay: DAY2 })).rejects.toThrow(/canonical read failed/);
+    db.read.push(...older(1000)); db.read[db.read.length-1]!.requested_at = db.read[db.read.length-2]!.requested_at; db.pages = []; db.selected = [];
+    const full = await resolveDeps({}).loadCanonicalObservations(TENANT, {fromDay: DAY, toDay: DAY2}), pages = [...db.pages]; db.pages = [];
+    const lean = await resolveDeps({}).loadCanonicalObservations(TENANT, {fromDay: DAY, toDay: DAY2, projection: "fanout"}), required = (rows: typeof full) => rows.map(({analysis: _unused, ...seen}) => seen);
+    expect([lean.length, new Set(lean.map(r => r.observationId)).size, db.pages]).toEqual([1002,1002,pages]); expect(required(lean)).toEqual(required(full));
+    expect(lean.find(r => r.observationId === "obs_new")!.citations).toEqual([]); expect(lean.find(r => r.observationId === "obs_p0_chatgpt")!.citations).toBeNull();
+    expect(db.selected.at(-1)).not.toMatch(/(?:^|,)(?:analysis|journey|answer_text)(?:,|$)/); db.error = { message: "read interrupted" };
+    await expect(resolveDeps({}).loadCanonicalObservations(TENANT, {fromDay: DAY, toDay: DAY2, projection: "fanout"})).rejects.toThrow(/canonical read failed/);
   });
   it("says a read that failed failed, and keeps that a different claim from an account with nothing stored", async () => {
     db.read = wholeDay(); db.error = { message: "connection lost" }; // 140 answers on file and Postgres unreachable
@@ -296,7 +297,6 @@ describe("the snapshot reads the canonical answer set, never the working window"
     const snap = await snapshotOf(), cited = snap.ownedPages.find((p) => p.url === `${SITE}/kite-guide`)!.aiCitations; expect([cited.count, cited.distinctPrompts, cited.engines]).toEqual([3, 3, ["chatgpt", "gemini"]]);
     expect([snap.competitors.length, snap.competitors[0]!.domain, snap.sources.find((s) => s.source === "native_ai")!.status, snap.questionDemand.length]).toEqual([15, "rival.example", "fresh", 30]); // 41 credited addresses and 40 questions both come back bounded, most cited first, and a fragment too short to be a question never enters
     expect(snap.questionDemand[0]).toEqual({ question: "when do kite festivals start", weight: 2, sourcePrompts: ["question p0", "question p1"], source: "native_ai", coverageStatus: "unanswered" });});
-  /** ONE PAGE IS NOT A HISTORY. 1,000 rows is under three days at 140 readings a day, so a pair whose newest useful answer is any older sat past the edge of that one page and left every decision silently, as if it never existed. */
   const older = (n: number, promptId = "p0") => Array.from({ length: n }, (_, i) => stored(promptId, "chatgpt", { id: `obs_f${String(i).padStart(4, "0")}`, requested_at: new Date(Date.parse(`${DAY}T01:00:00.000Z`) + (i + 1) * 1000).toISOString() }));
   it("pages past the newest 1,000 rows to reach a pair whose latest answer is older, and stops the moment every pair is resolved", async () => {
     db.read = [...older(1000), stored("p1", "chatgpt", { id: "obs_deep", requested_at: `${DAY}T00:00:00.000Z` })]; // p1's only answer sits on page two

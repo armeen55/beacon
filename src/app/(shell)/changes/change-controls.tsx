@@ -127,11 +127,11 @@ export function CopyButton({ text, units, link = null, label, onToast }: { text:
   const [said, setSaid] = useState<string | null>(null);
   const say = (s: string, ms: number) => { setSaid(s); setTimeout(() => setSaid(null), ms); };
   const copy = async () => {
-    if (!navigator.clipboard) throw new Error("Clipboard unavailable");
     const { html, plain } = clipboardPayload(text, units, link);
-    if (typeof ClipboardItem === "undefined" || !navigator.clipboard.write) { await navigator.clipboard.writeText(plain); return "Copied"; }
-    await navigator.clipboard.write([new ClipboardItem({ "text/plain": new Blob([plain], { type: "text/plain" }), "text/html": new Blob([html], { type: "text/html" }) })]);
-    return units?.some((u) => u.kind !== "paragraph") ? "Copied with its structure" : "Copied";
+    await navigator.clipboard.writeText(plain);
+    if (typeof ClipboardItem === "undefined" || !navigator.clipboard.write) return "Copied";
+    try { await navigator.clipboard.write([new ClipboardItem({ "text/plain": new Blob([plain], { type: "text/plain" }), "text/html": new Blob([html], { type: "text/html" }) })]); } catch { return "Copied"; }
+    return "Copied";
   };
   return (
     <button type="button" data-copy-after="true" aria-live="polite"

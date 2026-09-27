@@ -327,7 +327,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
     const byPrompt = new Map<string, { text: string; fanOutQueries: string[] }>();
     const toDay = reportingDay(d.now()), fromDay = new Date(Date.parse(`${toDay}T12:00:00Z`) - 27 * 86_400_000).toISOString().slice(0, 10);
     let observations;
-    try { observations = exact ? [] : await d.loadCanonicalObservations(tenantId, { fromDay, toDay }); }
+    try { observations = exact ? [] : await d.loadCanonicalObservations(tenantId, { fromDay, toDay, projection: "fanout" }); }
     catch { return { status: "failed", cursor, progress: serpProgress(state), detail: "Stored AI evidence could not be read, so nothing was spent and saved research was preserved." }; }
     for (const p of observations) { const row = byPrompt.get(p.promptId) ?? { text: "", fanOutQueries: [] }; if (!row.text) row.text = p.promptText; row.fanOutQueries.push(...(p.fanOutQueries ?? [])); byPrompt.set(p.promptId, row); }
     const prompts = [...byPrompt.entries()].map(([promptId, p]) => ({ ...p, promptId })).filter((p) => p.text || p.fanOutQueries.length > 0);
