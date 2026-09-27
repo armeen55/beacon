@@ -8,7 +8,7 @@ import { PROOF_SPEND, spendingClosed } from "@/lib/spend-scope";
 import { assertPaidCallAllowed, globalMonthlyCapUsd } from "@/lib/cost/cost-breaker";
 import { CREDIT_BREAKER } from "@/lib/cost/credit-breaker";
 import spendReservations from "@/lib/cost/spend-reservations";
-import type { PromptId } from "./prompt-registry";
+import { PROMPT_REGISTRY, type PromptId } from "./prompt-registry";
 import {
   classifyResponsesEnvelope,
   normalizeStructuredValue,
@@ -48,7 +48,7 @@ type SpendReservationContext = {
   lifetimeCapUsd?: number | null;
 };
 
-type ReservationImpl = Pick<typeof spendReservations, "reserve" | "claimTransmission" | "markAmbiguous" | "release" | "reconcile">;
+type ReservationImpl = Pick<typeof spendReservations, "reserve" | "claimTransmission" | "markAmbiguous" | "release" | "reconcile"> & Partial<Pick<typeof spendReservations, "read">>;
 async function reconcileRetried(write: () => Promise<boolean>): Promise<boolean> {
   for (let attempt = 0; attempt < 3; attempt += 1) { try { if (await write()) return true; } catch { /* retry the idempotent RPC */ } }
   return false;
@@ -286,12 +286,23 @@ async function interpretEnvelope(
 /**
  * THE OpenAI structured-generation transport over the Responses API. Enforces the guard order in the module doc, converts the Zod schema to a strict JSON Schema, and returns a typed outcome. Never throws.
  */
+const requestBodyOf = (args: StructuredCallArgs, converted: Exclude<ReturnType<typeof strictJsonSchemaFor>, { unsupported: string }>): Record<string, unknown> => ({ model: args.model, instructions: args.instructions, input: args.input, max_output_tokens: args.maxOutputTokens,
+  text: { format: { type: "json_schema", name: converted.name, schema: converted.schema, strict: true } }, ...(isReasoningModel(args.model) ? { reasoning: { effort: "low" } } : {}) });
+const replay = async (args: StructuredCallArgs, row: { resultPayload?: unknown; accountedUsd?: number | null; accountingBasis?: string | null }, id: GatewayIdentity): Promise<StructuredCallOutcome> => {
+  const json = row.resultPayload, fields = readProvenanceFields(json); if (json == null) return { httpAttempts: 0, kind: "error", reason: "stored_provider_result_incomplete", timedOut: false };
+  return interpretEnvelope(json, { tenantId: args.tenantId, responseId: fields.responseId, requestedModel: args.model, servedModel: fields.servedModel, status: fields.status, createdAt: fields.createdAt, inputTokens: fields.inputTokens, outputTokens: fields.outputTokens,
+    costUsd: 0, accountedCostUsd: row.accountedUsd ?? null, costBasis: row.accountingBasis === "reservation_estimate" ? "reservation_estimate" : "usage_estimate", retryCount: 0 }, args.zodSchema, id, 0);
+};
 export async function openAIStructuredResponse(args: StructuredCallArgs): Promise<StructuredCallOutcome> {
   // Account identity is required BEFORE any check: no spend, provenance, or ledger row may be unattributable. A caller that cannot name its account is a bug, not
   // a license for a global call - fail closed with no cost, no network.
   const tenantId = (args.tenantId ?? "").trim();
   if (!tenantId) return { httpAttempts: 0, kind: "invalid_response", reason: "missing_tenant" };
-  // A normal paused call stops here; a named proof is charged against its private allowance below.
+  // Exact reconciled material is read before spend gates; a miss grants nothing.
+  if (args.spend?.proposalWorkKey?.startsWith(`review::${tenantId}::`) && ["draft.editor_judgement", "draft.page_acceptance"].includes(args.promptId) && args.promptVersion === PROMPT_REGISTRY[args.promptId]) { try {
+    const converted = strictJsonSchemaFor(args.zodSchema, args.schemaName); if (!("unsupported" in converted)) { const requestFingerprint = createHash("sha256").update(`${OPENAI_RESPONSES_API}\n${JSON.stringify(requestBodyOf(args, converted))}`).digest("hex"), row = await (args.reservationImpl ?? spendReservations).read?.({ tenantId, platform: args.spend.platform, purpose: args.spend.purpose, logicalKey: args.spend.logicalKey, proposalWorkKey: args.spend.proposalWorkKey, requestFingerprint });
+      if (row?.state === "reconciled" && row.resultPayload != null) return replay(args, row, { tenantId, promptId: args.promptId, promptVersion: args.promptVersion, action: args.action }); }
+  } catch { /* An unreadable receipt cannot authorize transmission. */ } }
   const proof = PROOF_SPEND.activeFor(tenantId);
   if (proof === false || proof == null && await spendingClosed(tenantId)) return { httpAttempts: 0, kind: "blocked_budget", reason: "research is paused for this account, so nothing is bought on this pass" };
   const id: GatewayIdentity = {
@@ -300,7 +311,6 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
     action: args.action,
     tenantId,
   };
-  const reasoning = isReasoningModel(args.model);
 
   // 1. Tally every reach to the LLM transport (page-GET zero-LLM invariant).
   perfCountExternal("llm", args.model || undefined);
@@ -334,15 +344,7 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
     return { httpAttempts: 0, kind: "invalid_response", reason: `unsupported_schema: ${converted.unsupported}` };
   }
 
-  const requestBody: Record<string, unknown> = {
-    model: args.model,
-    instructions: args.instructions,
-    input: args.input,
-    max_output_tokens: args.maxOutputTokens,
-    text: { format: { type: "json_schema", name: converted.name, schema: converted.schema, strict: true } },
-  };
-  // 7. Reasoning effort default (only for reasoning models; older models reject it).
-  if (reasoning) requestBody.reasoning = { effort: "low" };
+  const requestBody = requestBodyOf(args, converted);
 
   // ONE durable spend lifecycle. The byte count is a conservative input-token ceiling; caller projections may
   // raise it, never lower it. The exact request identity resumes only its own unresolved operation for this day.
@@ -368,17 +370,7 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   // transmitted/ambiguous attempt may already have been charged; a new 402/429
   // says nothing about that earlier transmission and must not erase its hold.
   const zeroCostCanStillBeProven = reservation.state === "reserved";
-  if (reservation.outcome === "replayed") {
-    const json = reservation.resultPayload;
-    const fields = readProvenanceFields(json);
-    if (json == null) return { httpAttempts: 0, kind: "error", reason: "stored_provider_result_incomplete", timedOut: false };
-    const provenance: LlmProvenance = { tenantId, responseId: fields.responseId, requestedModel: args.model,
-      servedModel: fields.servedModel, status: fields.status, createdAt: fields.createdAt,
-      inputTokens: fields.inputTokens, outputTokens: fields.outputTokens,
-      costUsd: 0, accountedCostUsd: reservation.accountedUsd ?? null,
-      costBasis: reservation.accountingBasis === "reservation_estimate" ? "reservation_estimate" : "usage_estimate", retryCount: 0 };
-    return interpretEnvelope(json, provenance, args.zodSchema, id, 0);
-  }
+  if (reservation.outcome === "replayed") return replay(args, reservation, id);
 
   // 6. Reasoning timeout floor.
   const timeoutMs = effectiveTimeoutMs(args.model, args.timeoutMs);

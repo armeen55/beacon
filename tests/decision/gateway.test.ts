@@ -1,21 +1,19 @@
-/** Strict OpenAI Responses gateway: fail-closed-before-network (breaker, budget, unsupported schema, missing tenant), exact request contract (Responses fields present, Chat-Completions fields absent), and every envelope outcome. */
 import { describe, it, expect, vi } from "vitest";
 import { z } from "zod";
 import {
   openAIStructuredResponse, effectiveTimeoutMs, isReasoningModel, estimateCost, strictJsonSchemaFor, llmFailureOf,
   type StructuredCallArgs, type CostBreakerImpl,
 } from "@/domains/decision/llm/gateway";
+import { createHash } from "node:crypto"; import { PROOF_SPEND, runWithoutSpending } from "@/lib/spend-scope"; import { PROMPT_REGISTRY } from "@/domains/decision/llm/prompt-registry"; import * as persistence from "@/lib/persistence/supabase";
 import { decideCreditBreaker } from "@/lib/cost/credit-breaker";
 import { SCHEMA_BY_KIND } from "@/domains/decision/llm/schemas";
 const SCHEMA = z.object({ title: z.string(), note: z.string().optional(), score: z.number().nullable() }); // note = optional-not-nullable (provider null must be stripped); score = genuinely nullable (null kept).
-/** A completed Responses envelope carrying `structuredText` as the output_text. */
 function completedEnvelope(structuredText: string, over: Record<string, unknown> = {}) {
   return {
     id: "resp_abc123", model: "gpt-5-mini", status: "completed", created_at: 1_753_000_000,
     output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: structuredText }] }],
     output_text: structuredText, usage: { input_tokens: 1200, output_tokens: 300 }, ...over,};}
 type FetchCapture = { calls: number; url: string | null; body: any; requestIds: string[] };
-/** A fake fetch that records the call and returns the given envelope/status. */
 function fakeFetch(envelope: unknown, opts: { ok?: boolean; status?: number; throwErr?: Error; notJson?: boolean; retryAfter?: string } = {}): { impl: typeof fetch; capture: FetchCapture } {
   const capture: FetchCapture = { calls: 0, url: null, body: null, requestIds: [] };
   const impl = (async (url: string, init: RequestInit) => {
@@ -33,7 +31,8 @@ function baseArgs(over: Partial<StructuredCallArgs> = {}): StructuredCallArgs {
     maxOutputTokens: 512, timeoutMs: 30_000, tenantId: "tenant-fixture", spend: { platform: "adjudicator-openai", purpose: "bulk", logicalKey: "gateway-test", estimatedUsd: 0.02, monthlyCapUsd: 250 }, reservationImpl: lifecycle().impl, ...over,};}
 const allowBreaker: CostBreakerImpl = { check: async () => ({ tripped: false }) };
 const lifecycle = () => { let state: "reserved" | "transmitted" | "ambiguous" = "reserved"; const seen: string[] = []; return { seen, impl: { reserve: async () => (seen.push("reserve"), { outcome: state === "reserved" ? "reserved" as const : "resumed" as const, attemptId: "a1", attemptOrdinal: 1, state, reportingDay: "2026-09-19", estimatedUsd: 0.02, actualUsd: null, providerTaskId: null }), claimTransmission: async () => (seen.push("claim"), state === "reserved" ? (state = "transmitted", "claimed" as const) : "already_started" as const), markAmbiguous: async () => (seen.push("ambiguous"), state = "ambiguous", true), release: async (_id: string, proven?: boolean) => (seen.push(`release:${proven === true}`), true), reconcile: async () => (seen.push("reconcile"), true) } }; };
-/** EVERY drafter schema the registry holds converts, and converts FULLY STRICT: every object additionalProperties:false with every property required, recursively, through anyOf branches and array items. A schema that drifts out of strict fails only LIVE, as an invalid_response the operator pays for. */
+const storedResult = (json: unknown, accountedUsd: number, accountingBasis: "usage_estimate" | "reservation_estimate" = "usage_estimate") => ({ outcome: "replayed" as const, attemptId: "a1", attemptOrdinal: 1,
+  state: "reconciled" as const, reportingDay: "2026-09-19", estimatedUsd: .02, accountedUsd, providerTaskId: "resp_abc123", accountingBasis, resultPayload: json });
 function assertFullyStrict(n: Record<string, unknown>, at: string): void {
   if (Array.isArray(n.anyOf)) return void (n.anyOf as Record<string, unknown>[]).forEach((v, i) => assertFullyStrict(v, `${at}|${i}`));
   if (n.type === "array" && n.items && typeof n.items === "object") return assertFullyStrict(n.items as Record<string, unknown>, `${at}[]`);
@@ -77,37 +76,32 @@ describe("openAIStructuredResponse — envelope outcomes", () => {
     expect([p.inputTokens, p.outputTokens, p.costUsd, p.retryCount, life.seen]).toEqual([1200, 300, estimateCost("gpt-5-mini", 1200, 300), 0, ["reserve", "claim", "reconcile"]]); });
   it("replays a transactionally stored provider result without touching the wire", async () => {
     const json = completedEnvelope(JSON.stringify({ title: "Recovered", score: null })), life = lifecycle(), wire = fakeFetch(json);
-    const reservationImpl = { ...life.impl, reserve: async () => ({ outcome: "replayed" as const, attemptId: "a1", attemptOrdinal: 1,
-      state: "reconciled" as const, reportingDay: "2026-09-19", estimatedUsd: 0.02,
-      accountedUsd: 0.001, providerTaskId: "resp_abc123", accountingBasis: "usage_estimate" as const, resultPayload: json }) };
+    const reservationImpl = { ...life.impl, reserve: async () => storedResult(json, .001) };
     const out = await openAIStructuredResponse(baseArgs({ fetchImpl: wire.impl, reservationImpl }));
     expect([out.kind, out.httpAttempts, wire.capture.calls, out.kind === "ok" && (out.value as { title: string }).title,
       out.kind === "ok" && out.provenance.costBasis, out.kind === "ok" && out.provenance.costUsd,
       out.kind === "ok" && out.provenance.accountedCostUsd]).toEqual(["ok", 0, 0, "Recovered", "usage_estimate", 0, 0.001]);
+    const args = baseArgs({ promptId: "draft.editor_judgement", promptVersion: PROMPT_REGISTRY["draft.editor_judgement"], spend: { ...baseArgs().spend, proposalWorkKey: "review::tenant-fixture::copy::material" }, fetchImpl: wire.impl }); delete args.reservationImpl;
+    const converted = strictJsonSchemaFor(args.zodSchema, args.schemaName); if ("unsupported" in converted) throw Error("Fixture schema invalid");
+    const body = { model: args.model, instructions: args.instructions, input: args.input, max_output_tokens: args.maxOutputTokens, text: { format: { type: "json_schema", name: converted.name, schema: converted.schema, strict: true } }, reasoning: { effort: "low" } }, original = { tenant_id: args.tenantId, platform: args.spend.platform, purpose: args.spend.purpose, logical_key: args.spend.logicalKey, proposal_work_key: args.spend.proposalWorkKey, request_fingerprint: createHash("sha256").update(`https://api.openai.com/v1/responses\n${JSON.stringify(body)}`).digest("hex"), state: "reconciled", result_payload: json, accounted_usd: .001, accounting_basis: "usage_estimate" };
+    let held = { ...original }, error = false; const queries: Array<[string, unknown]> = [], admin = vi.spyOn(persistence, "getSupabaseAdmin").mockImplementation(() => ({ from: (table: string) => {
+      expect(table).toBe("spend_reservations"); const filters: Array<(r: typeof held) => boolean> = [], q = { select: () => q, eq: (k: string, v: unknown) => (queries.push([k, v]), filters.push(r => r[k as keyof typeof held] === v), q), is: (k: string, v: unknown) => q.eq(k, v), in: (k: string, vs: unknown[]) => (filters.push(r => vs.includes(r[k as keyof typeof held])), q), order: () => q, limit: () => q, maybeSingle: async () => ({ data: filters.every(f => f(held)) ? held : null, error: error ? { message: "Unavailable" } : null }) }; return q; } }) as never);
+    try { const recovered = await runWithoutSpending(() => openAIStructuredResponse(args)); expect([recovered.kind, recovered.httpAttempts, recovered.kind === "ok" && recovered.value, wire.capture.calls]).toEqual(["ok", 0, { title: "Recovered", score: null }, 0]);
+      const liveCache = await PROOF_SPEND.run(args.tenantId, 1, .05, () => openAIStructuredResponse({ ...args, costBreakerImpl: { check: async () => { throw Error("Paid gate reached"); } } })); expect([liveCache.kind, liveCache.httpAttempts, wire.capture.calls]).toEqual(["ok", 0, 0]);
+      expect(queries).toEqual(expect.arrayContaining([["tenant_id", args.tenantId], ["logical_key", args.spend.logicalKey], ["proposal_work_key", args.spend.proposalWorkKey], ["request_fingerprint", original.request_fingerprint], ["state", "reconciled"]]));
+      for (const over of [{ tenant_id: "foreign" }, { proposal_work_key: "other-role" }, { request_fingerprint: "changed-material" }, { state: "ambiguous" }, { result_payload: null }]) { held = { ...original, ...over } as typeof held; const miss = await runWithoutSpending(() => openAIStructuredResponse(args)); expect([miss.kind, miss.httpAttempts, wire.capture.calls]).toEqual(["blocked_budget", 0, 0]); }
+      held = { ...original }; error = true; expect((await runWithoutSpending(() => openAIStructuredResponse(args))).kind).toBe("blocked_budget"); error = false; expect((await runWithoutSpending(() => openAIStructuredResponse({ ...args, promptVersion: args.promptVersion - 1 }))).kind).toBe("blocked_budget");
+    } finally { admin.mockRestore(); }
   });
-  it("keeps valid fresh and stored output when usage is partial, accounting at the reservation estimate", async () => {
-    const partial = completedEnvelope(JSON.stringify({ title: "Partial", score: null }), { usage: { input_tokens: 1200 } });
-    const freshLife = lifecycle(), freshWire = fakeFetch(partial);
-    const fresh = await openAIStructuredResponse(baseArgs({ fetchImpl: freshWire.impl, reservationImpl: freshLife.impl }));
-    const replayLife = lifecycle();
-    const replay = await openAIStructuredResponse(baseArgs({ fetchImpl: fakeFetch(partial).impl, reservationImpl: { ...replayLife.impl,
-      reserve: async () => ({ outcome: "replayed" as const, attemptId: "a1", attemptOrdinal: 1,
-        state: "reconciled" as const, reportingDay: "2026-09-19", estimatedUsd: 0.02,
-        accountedUsd: 0.02, providerTaskId: "resp_abc123", accountingBasis: "reservation_estimate" as const,
-        resultPayload: partial }) } }));
-    expect([fresh.kind, fresh.httpAttempts, fresh.kind === "ok" && fresh.provenance.costBasis, freshLife.seen,
-      replay.kind, replay.httpAttempts, replay.kind === "ok" && replay.provenance.costBasis])
-      .toEqual(["ok", 1, "reservation_estimate", ["reserve", "claim", "reconcile"], "ok", 0, "reservation_estimate"]);
-  });
-  it.each([{ input_tokens: -1, output_tokens: 300 }, { input_tokens: 1200.5, output_tokens: 300 },
+  it.each([{ input_tokens: 1200 }, { input_tokens: -1, output_tokens: 300 }, { input_tokens: 1200.5, output_tokens: 300 },
     { input_tokens: 1200, output_tokens: -1 }, { input_tokens: 1200, output_tokens: 2.5 }])
-  ("retains valid output and falls back to the reserved amount when usage is malformed: %j", async (usage) => {
-    const life = lifecycle(), out = await openAIStructuredResponse(baseArgs({
-      fetchImpl: fakeFetch(completedEnvelope(JSON.stringify({ title: "Bad receipt", score: null }), { usage })).impl,
-      reservationImpl: life.impl,
-    }));
-    expect([out.kind, out.kind === "ok" && out.provenance.costBasis, life.seen]).toEqual([
-      "ok", "reservation_estimate", ["reserve", "claim", "reconcile"]]);
+  ("keeps fresh and stored output with partial or malformed usage, accounting at the reservation estimate: %j", async (usage) => {
+    const json = completedEnvelope(JSON.stringify({ title: "Partial", score: null }), { usage }), life = lifecycle(), wire = fakeFetch(json);
+    const fresh = await openAIStructuredResponse(baseArgs({ fetchImpl: wire.impl, reservationImpl: life.impl }));
+    const stored = await openAIStructuredResponse(baseArgs({ fetchImpl: wire.impl, reservationImpl: { ...lifecycle().impl, reserve: async () => storedResult(json, .02, "reservation_estimate") } }));
+    expect([fresh.kind, fresh.httpAttempts, fresh.kind === "ok" && fresh.provenance.costBasis, life.seen,
+      stored.kind, stored.httpAttempts, stored.kind === "ok" && stored.provenance.costBasis, stored.kind === "ok" && stored.provenance.accountedCostUsd, wire.capture.calls])
+      .toEqual(["ok", 1, "reservation_estimate", ["reserve", "claim", "reconcile"], "ok", 0, "reservation_estimate", .02, 1]);
   });
   it("returns refusal (no value) when the message carries a refusal part", async () => {
     const env = completedEnvelope("ignored");
@@ -136,7 +130,6 @@ describe("openAIStructuredResponse — envelope outcomes", () => {
   it("floors reasoning-model timeouts to 90s and leaves others alone", () => {
     expect([isReasoningModel("gpt-5-mini"), isReasoningModel("gpt-4o-mini")]).toEqual([true, false]);
     expect([effectiveTimeoutMs("gpt-5-mini", 1_000), effectiveTimeoutMs("gpt-5-mini", 120_000), effectiveTimeoutMs("gpt-4o-mini", 1_000)]).toEqual([90_000, 120_000, 1_000]); });});
-/** A REFUSED CALL IS NOT A PURCHASE, AND AN EMPTY ACCOUNT STOPS ITSELF. The transport threw the provider's error body away and handed back a bare status, so a throttle and an exhausted balance were one event to every caller, and the drafter then billed an ESTIMATE for a call that had bought nothing. */
 describe("openAIStructuredResponse: what a failed call says, and what it stops", () => {
   const credit = (stop: "clear" | "held" | "probe_due" = "clear") => { const seen: string[] = []; return { seen, impl: { peek: async () => stop, claimProbe: async () => (seen.push("claim"), true), trip: async () => { seen.push("trip"); }, clear: async () => { seen.push("clear"); } } }; };
   const body = (over: Record<string, unknown>) => ({ error: { message: "You are rate limited. Email sales@example.com and quote org-9 to raise it.", ...over } });
@@ -168,7 +161,6 @@ describe("openAIStructuredResponse: what a failed call says, and what it stops",
     const stopped = credit("held"), held = fakeFetch(completedEnvelope("{}")), refused = await call({ creditBreakerImpl: stopped.impl, fetchImpl: held.impl });
     expect([refused.kind, held.capture.calls, stopped.seen, refused.kind === "blocked_credit" && refused.reason.includes("account access is unavailable")]).toEqual(["blocked_credit", 0, [], true]); // every caller inherits the stop, and a HELD account claims no probe and reaches no network
     const back = credit(), through = fakeFetch(completedEnvelope(JSON.stringify({ title: "T", score: null }))).impl; expect([(await call({ creditBreakerImpl: back.impl, fetchImpl: through })).kind, back.seen]).toEqual(["ok", ["clear"]]); });
-  /** A REQUEST THAT NEVER LEFT IS NOT A PROVIDER CALL (Codex, 2026-08-23). The count used to be made by the  caller one line BEFORE this door, so research being paused, an empty balance, a refused budget or a schema  this transport cannot convert were all reported to the operator as charged calls. The only honest place to  count is either side of the fetch, so the outcome carries it and every pre-network refusal carries zero. */
   it("reports zero requests for every refusal decided before the network, and one once the request is on the wire", async () => {
     const never = fakeFetch(completedEnvelope("{}"));
     const held = await call({ creditBreakerImpl: credit("held").impl, fetchImpl: never.impl });
@@ -184,7 +176,6 @@ describe("openAIStructuredResponse: what a failed call says, and what it stops",
     const t = { trippedAt: "2026-08-04T12:00:00.000Z", probeAt: null }, at = (iso: string) => new Date(iso); // one probe, fifteen minutes after the stop, and the stamp restarts the wait
     expect([decideCreditBreaker(null, at("2026-08-04T12:00:00.000Z")), decideCreditBreaker(t, at("2026-08-04T12:14:00.000Z")), decideCreditBreaker(t, at("2026-08-04T12:15:00.000Z")), decideCreditBreaker({ ...t, probeAt: "2026-08-04T12:15:00.000Z" }, at("2026-08-04T12:20:00.000Z"))])
       .toEqual([{ active: false, probe: false }, { active: true, probe: false }, { active: false, probe: true }, { active: true, probe: false }]); });});
-/** THE COMPOSITION, NOT THE LAYERS (Codex, 2026-08-22). The live receipt: probeAt advanced at 18:00 UTC and the OpenAI ledger never moved, because the guards in FRONT of the call consumed the probe the cooldown had just granted and the call behind them then read the fresh stamp and refused itself, so a tripped account could never recover through a replenish drive. Real modules end to end here: the real ledger-backed breaker over one real row, the real guard both the replenish drive and the producer ask (`creditBreakerHeld`), and the real transport. Only Supabase and the wire stand in. The drive's own accounting is proved where it belongs, against the REAL producer, in the runtime and kernel suites. */
 describe("a due probe is spent on the provider call itself, never on a guard in front of it", () => {
   const T = "tenant-fixture", ROW = { creditBreaker: null as unknown };
   const realBreaker = async () => { vi.resetModules();

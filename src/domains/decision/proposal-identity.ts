@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash } from "node:crypto"; import { PROMPT_REGISTRY } from "./llm/prompt-registry";
 
 import { componentIdOf, deserializeChangeProposal, serializeChangeProposal, type BundleComponentKind, type ChangeProposal } from "./contracts";
 import { footprintKey } from "./mutation-footprint";
@@ -110,7 +110,8 @@ const reviewWorkKey = (p: ChangeProposal, captures: ChangeProposal["reviewedCapt
   if (findings.some(f => f == null)) return null;
   const r = p.semanticReview; let progress: number[] = [];
   try { if (r?.version === REVIEW_CONTRACT && reviewFits(p, r.of)) progress = COPY_RULES.accepted(r.editor) && COPY_RULES.sameCaptures(p.reviewedCaptures, captures) ? COPY_RULES.reviewProgress(p) : r.parts?.length && COPY_RULES.reviewParts(p).length ? COPY_RULES.reviewSubjects(p).subjects.flatMap(({ one, indices }) => { const seen = r.parts?.filter(part => part.key === createHash("sha256").update(copyKey(one)).digest("hex")) ?? []; return seen.length === 1 && COPY_RULES.accepted(seen[0]!.review.editor) && unreviewed({ ...one, semanticReview: seen[0]!.review }) == null && COPY_RULES.sameCaptures(one.reviewedCaptures, frames.filter(c => COPY_RULES.captureUrls(one).some(url => COPY_RULES.captureAddress(url) === COPY_RULES.captureAddress(c.url)))) ? indices.map(x => x.n) : []; }) : []; } catch { return null; }
-  return `review::${p.tenantId}::${p.id}::${createHash("sha256").update(COPY_RULES.recordKey([copyKey({ ...p, reviewedCaptures: undefined }), p.basis, material, findings.sort(), REVIEW_CONTRACT, progress])).digest("hex")}`;
+  const prompt = p.recommendedChange.kind === "new_page" ? "draft.page_acceptance" : "draft.editor_judgement", version = PROMPT_REGISTRY[prompt]; // Established editor9/page3 roles retain their exact legacy digest; a changed wire contract earns a distinct role.
+  return `review::${p.tenantId}::${p.id}::${createHash("sha256").update(COPY_RULES.recordKey([copyKey({ ...p, reviewedCaptures: undefined }), p.basis, material, findings.sort(), REVIEW_CONTRACT, progress, ...(version === (prompt === "draft.page_acceptance" ? 3 : 9) ? [] : [[prompt, version]])])).digest("hex")}`;
 };
 
 const proposalIdentity = { actionFamilyOf, identityOf, atomicRows, retiredPolicyOf, reviewWorkKey,

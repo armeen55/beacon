@@ -333,7 +333,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       {/* THE PAUSE SWITCH IS A FACT ABOUT THIS ACCOUNT, said where the work is with the control that turns it back on. Nothing here may promise a nightly round while it is off. */}
       {composite.researchPaused ? (
         <p className="text-[13px] leading-relaxed text-muted-foreground" data-research-paused="true">
-          Research is paused, so no new opportunity is being worked on and nothing new lands here until it is back on.{" "}
+          Scheduled research is paused. You can still finish an individual saved change.{" "}
           <Link href="/settings" className="font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">Turn research back on</Link>
         </p>
       ) : null}

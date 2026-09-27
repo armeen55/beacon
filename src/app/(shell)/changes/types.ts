@@ -14,7 +14,7 @@ import type { BundleComponent, ChangeProposal } from "@/domains/decision";
 export const CHANGES_PAGE_SIZE = 100;
 /** THE ONE CADENCE SENTENCE, the same on Today, Changes and Results (audit 3.9, 2026-09-14): three different
  *  descriptions of when research runs were shown to the customer (once a day, during signed-in visits, no schedule). */
-export const RESEARCH_CADENCE = "Research runs on its own every day; a visit only resumes it.";
+export const RESEARCH_CADENCE = "Research runs daily while enabled. Saved changes can still be finished individually while paused.";
 
 /** One acknowledgement for list, detail and batch paths. It names only the measurement state the Shipment
  * actually stored and computes the healthy-path date from the implementation stamp. */

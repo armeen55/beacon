@@ -112,16 +112,18 @@ export const researchRunSpendUsd = async (runId: string): Promise<number | null>
 
 const spendReservations = {
   reserve,
-  read: async (attemptId: string): Promise<{ state: string; providerTaskId: string | null;
+  read: async (identity: string | { tenantId: string; platform: Platform; purpose: string; logicalKey?: string; proposalWorkKey?: string | null; requestFingerprint?: string }): Promise<{ state: string; providerTaskId: string | null; proposalWorkKey?: string | null;
     estimatedUsd?: number | null; accountedUsd?: number | null; accountingBasis?: string | null; resultPayload?: unknown | null } | null> => {
-    if (!attemptId.trim()) return null;
-    const { data, error } = await getSupabaseAdmin().from("spend_reservations").select("state,provider_task_id,estimated_usd,accounted_usd,accounting_basis,result_payload").eq("attempt_id", attemptId).maybeSingle();
-    if (error || data == null) return null;
-    return { state: String(data.state), providerTaskId: typeof data.provider_task_id === "string" ? data.provider_task_id : null,
-      estimatedUsd: data.estimated_usd == null ? null : Number(data.estimated_usd),
-      accountedUsd: data.accounted_usd == null ? null : Number(data.accounted_usd),
-      accountingBasis: typeof data.accounting_basis === "string" ? data.accounting_basis : null,
-      resultPayload: data.result_payload ?? null };
+    if (typeof identity === "string" ? !identity.trim() : !identity.tenantId.trim() || !identity.purpose.trim() || !identity.logicalKey?.trim() && !identity.proposalWorkKey?.trim()) return null;
+    let query = getSupabaseAdmin().from("spend_reservations").select("state,proposal_work_key,provider_task_id,estimated_usd,accounted_usd,accounting_basis,result_payload");
+    if (typeof identity === "string") query = query.eq("attempt_id", identity);
+    else { query = query.eq("tenant_id", identity.tenantId).eq("platform", identity.platform).eq("purpose", identity.purpose).in("state", identity.logicalKey ? ["reserved", "transmitted", "ambiguous", "reconciled"] : ["transmitted", "ambiguous", "reconciled"]);
+      if (identity.logicalKey) query = query.eq("logical_key", identity.logicalKey); if (identity.proposalWorkKey !== undefined) query = identity.proposalWorkKey == null ? query.is("proposal_work_key", null) : query.eq("proposal_work_key", identity.proposalWorkKey);
+      if (identity.requestFingerprint) query = query.eq("request_fingerprint", identity.requestFingerprint).eq("state", "reconciled"); query = query.order("reporting_day", { ascending: false }).order("attempt_ordinal", { ascending: false }).limit(1); }
+    const { data, error } = await query.maybeSingle(); if (error && typeof identity !== "string") throw Error("Exact spend receipt is unreadable"); if (error || data == null) return null;
+    return { state: String(data.state), proposalWorkKey: data.proposal_work_key ?? null, providerTaskId: typeof data.provider_task_id === "string" ? data.provider_task_id : null,
+      estimatedUsd: data.estimated_usd == null ? null : Number(data.estimated_usd), accountedUsd: data.accounted_usd == null ? null : Number(data.accounted_usd),
+      accountingBasis: typeof data.accounting_basis === "string" ? data.accounting_basis : null, resultPayload: data.result_payload ?? null };
   },
   setCohortHold: (tenantId: string, holdUsd: number) => {
     if (!tenantId.trim() || !finiteNonnegative(holdUsd)) return Promise.resolve(false);

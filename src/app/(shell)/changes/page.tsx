@@ -21,12 +21,9 @@ import { researchPermission } from "@/domains/runtime";
  *  strand a Suspense fallback or hold the HTTP stream open. */
 const MAIN_LIST_DEADLINE_MS = 5_000;
 
-/** THE PAUSE, SAID WHERE THE EMPTY QUEUE IS READ, never only as a drawer label at the bottom. "The next one is
- *  lands here when the exact work is written" implies work in progress; while research is off
- *  nothing will be written, so the reader gets that fact at the top with the control that turns it back on. Today's
- *  own sentence and link, so the two surfaces cannot drift. */
+/** Pause stops scheduled research; explicit individual work remains available. */
 const PausedLine = ({ paused }: { paused: boolean }) => (!paused ? null : (
-  <span data-changes-paused="true"> Research is paused, so no new opportunity is being worked on and nothing new lands here until it is back on.{" "}
+  <span data-changes-paused="true"> Scheduled research is paused. You can still finish an individual saved change.{" "}
     <Link href="/settings" className="font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">Turn research back on</Link></span>));
 
 /** THE RANKED QUEUE SLOT: the queue, or the honest reason there is nothing in it. The ONLY part of the screen an
