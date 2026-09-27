@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 beforeEach(() => vi.stubEnv("NEXT_PUBLIC_BEACON_AEO_PACKET", "1")); afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 import { renderToStaticMarkup } from "react-dom/server"; import { createRoot } from "react-dom/client"; import { act, createElement, type ReactElement } from "react"; import { createRequire } from "node:module";
 import type { CauseFinding, ChangeProposal, RankedProposalQueue } from "@/domains/decision";
-import { proofOf, unreviewed } from "@/domains/decision/proof";
+import { proofOf, unreviewed } from "@/domains/decision/proof"; import { reviewFinishedCopy } from "@/domains/decision/drafted-copy"; import { ChangeCard } from "@/app/(shell)/changes/change-card"; import { ChangesListClient } from "@/app/(shell)/changes-list-client";
 import type { ChangesView } from "@/app/(shell)/changes-data";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => { const redirected = (u: string) => { throw new Error(`NEXT_REDIRECT:${u}`); };
@@ -56,7 +56,6 @@ const viewOf = (rows: ChangeProposal[]): ChangesView => ({
   measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null,
   surfaceComputedAt: "2026-07-31T00:00:00.000Z", surfaceBuilding: false });
 async function renderList(view: ChangesView): Promise<string> {
-  const { ChangesListClient } = await import("@/app/(shell)/changes-list-client");
   return renderToStaticMarkup(createElement(ChangesListClient, { view }));}
 async function renderDetail(p: ChangeProposal): Promise<string> {
   const { loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");
@@ -65,7 +64,6 @@ async function renderDetail(p: ChangeProposal): Promise<string> {
   const { default: Page } = await import("@/app/(shell)/changes/[id]/page");
   return renderToStaticMarkup(await Page({ params: Promise.resolve({ id: encodeURIComponent(p.id) }) }) as ReactElement);}
   const card = async (p: ChangeProposal, over: Record<string, unknown> = {}) => {
-    const { ChangeCard } = await import("@/app/(shell)/changes/change-card");
     return renderToStaticMarkup(createElement(ChangeCard, { proposal: p, rank: 1, ready: p.status === "ready", onAside: () => {}, onDone: () => {}, onToast: () => {}, ...over } as never));};
 describe("what a card says after a batch press, and what it says when it cannot be done today", () => {
   it("flips a card the batch recorded to its own done line, and gives a card the batch refused that card's own reason with the press still on it", async () => {
@@ -109,12 +107,12 @@ describe("a card says why this opportunity and why these words, and never trades
     expect(r.limits).toContain("Two sources give different dates for the 1980 change.");
     expect(JSON.stringify(r)).not.toContain("agree"); });
   it("body narration owes contextual acceptance rather than an arranging-verb rejection", async () => {
-    const { reviewFinishedCopy } = await import("@/domains/decision/drafted-copy");
-    const { openHold } = await import("@/domains/decision/completeness"), reader = await import("@/domains/evidence/pages/owned-context"), { canonicalUrlKey } = await import("@/domains/evidence/snapshot"); vi.spyOn(reader, "loadOwnedPageBodies").mockImplementation(async (_tenant, urls) => new Map(urls.map(url => [canonicalUrlKey(url), { ...captures("t", url)[0], url, title: "Anzali", h1: "Anzali", metaDescription: null, headings: ["About Anzali"], passages: ["Anzali is a port city on Iran’s Caspian Sea coast."], vocabulary: "Anzali Caspian Sea", cardTexts: [], faqs: [], entityNames: [], internalLinks: [], fetchedAt: new Date().toISOString(), completeness: "complete", version: "current", contentHash: "anzali-current", finalUrl: url, sourceCapture: { version: 1, complete: true, mainHtml: "<main><h1>Anzali</h1><h2>About Anzali</h2><p>Anzali is a port city on Iran’s Caspian Sea coast.</p></main>", jsonLd: [], sourceRevision: "0123456789abcdef" } }])) as never);
+    const now = new Date();
+    const { openHold } = await import("@/domains/decision/completeness"), reader = await import("@/domains/evidence/pages/owned-context"), { canonicalUrlKey } = await import("@/domains/evidence/snapshot"); vi.spyOn(reader, "loadOwnedPageBodies").mockImplementation(async (_tenant, urls) => new Map(urls.map(url => [canonicalUrlKey(url), { ...captures("t", url)[0], url, title: "Anzali", h1: "Anzali", metaDescription: null, headings: ["About Anzali"], passages: ["Anzali is a port city on Iran’s Caspian Sea coast."], vocabulary: "Anzali Caspian Sea", cardTexts: [], faqs: [], entityNames: [], internalLinks: [], fetchedAt: now.toISOString(), completeness: "complete", version: "current", contentHash: "anzali-current", finalUrl: url, sourceCapture: { version: 1, complete: true, mainHtml: "<main><h1>Anzali</h1><h2>About Anzali</h2><p>Anzali is a port city on Iran’s Caspian Sea coast.</p></main>", jsonLd: [], sourceRevision: "0123456789abcdef" } }])) as never);
     for (const linkTo of [undefined]) for (const [after, acceptable] of [["Common phrases are listed here with pronunciations shown beside each.", false], ["The article groups its entries by profession.", false], ["This page talks about the subject according to this page.", false], ["Anzali sits beside the Caspian Sea.", true]] as const) {
       const by = linkTo ? "fact-1" : "page-copy-1", p = { ...proposal(), assignment: undefined, bundle: undefined, recommendedChange: { kind: "existing_edit", field: "section", before: null, after, linkTo, where: "At the end of the main article" }, claims: [{ text: after, supportedBy: [by] }], supportFacts: [{ id: by, fact: after }] } as ChangeProposal; // a linked section STATING A CHECKED FACT owes the reading; one citing only the destination's own words does not (audit, 2026-09-14)
       expect([unreviewed(p) != null, linkTo ? unreviewed({ ...p, claims: [{ text: after, supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: after }] }) : "n/a"]).toEqual([true, linkTo ? null : "n/a"]);
-      const r = await reviewFinishedCopy(p, { tenantId: p.tenantId, now: new Date(), judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: acceptable, notes: "Judge publisher role in context.", claims: d.claims.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })) })) as never });
+      const r = await reviewFinishedCopy(p, { tenantId: p.tenantId, now, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: acceptable, notes: "Judge publisher role in context.", claims: d.claims.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })) })) as never });
       expect(r.row != null && openHold(r.row).defects.length === 0, r.detail).toBe(acceptable);
     }
     const { staleCopyReasons } = await import("@/domains/decision/drafted-copy"), after = "Shoma is the deferential or formal you, and to is the familiar or intimate you.\n- shoma: deferential or formal you";

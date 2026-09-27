@@ -160,7 +160,7 @@ function weekStrip(rows: Awaited<ReturnType<typeof loadProofLedgerCached>>, nowM
   const settled = b.won.length + b.learned.length;
   return {
     made: {
-      label: "made", value: made.length > 0 ? `${made.length} ${made.length === 1 ? "change" : "changes"} this week` : "No changes this week",
+      label: "implemented", value: made.length > 0 ? `${made.length} ${made.length === 1 ? "change" : "changes"} marked implemented this week` : "No changes marked implemented this week",
       sub: [live > 0 ? `${live} confirmed live and measuring` : "", flight.length - live > 0 ? `${flight.length - live} waiting on a live check` : "", b.blocked.length > 0 ? `${b.blocked.length} ${b.blocked.length === 1 ? "change could" : "changes could"} not be verified` : ""].filter(Boolean).join(", ") || "nothing measuring right now",
       pages: pagesHover(made),
     },

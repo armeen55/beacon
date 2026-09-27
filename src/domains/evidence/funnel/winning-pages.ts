@@ -172,7 +172,6 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
   if (unchangedIncomplete) return { ...remember("temporarily_unavailable", RETRY_MS.provider_unavailable), ...(attempted ? {} : { attempted: false as const }), code: "unchanged_incomplete" };
   return attempted ? remember("temporarily_unavailable", RETRY_MS.provider_unavailable) : { held: kept, pause: null, acquired: false, attempted: false };
 }
-
 /** Read winners before comparing them under a renewed lease. Short turns persist one public reading and resume. */
 export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[] = [], intersection: FunnelIntersectionAsk | null = null, ownedUrl: string | null = null, ownedBustedAt: string | null = null, competitorUrl: string | null = null, ownedOnly = false): FunnelUnitFn {
   const d = resolveDeps(deps);
@@ -198,7 +197,6 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
           progress: { cacheHits: state.cycle.cacheHits, spendUsd: round(state.cycle.spentUsd) },
           detail: owned.pause ?? (owned.acquired ? "The requested page has a current complete capture on file." : "The requested page still lacks a current complete capture; its retry remains on file.") };
       }
-      // The caller renews the run lease between persisted readings and this comparison stage.
       if ((cursor as { stage?: string } | null)?.stage === "compare") {
         if (freeOnly && intersection) return { status: "waiting", cursor: { stage: "compare" }, progress: { cacheHits: state.cycle.cacheHits, spendUsd: round(state.cycle.spentUsd) }, detail: "The saved winner comparison remains owed after the paid-work hold." };
         const bought = intersection ? await buyComparison(d, state, intersection, ids, nowIso) : null;
@@ -210,7 +208,8 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
       const ownDomain = account?.domain ? rootDomain(account.domain) : null;
       if (competitorUrl && (!ownDomain || state.tenantId !== tenantId || state.basisTag !== basis)) return { status: "failed", cursor, progress: {}, detail: "The named source has no current account-scoped research bank." };
       const matches = (a: ResearchWinningAppearance) => [a.citedUrl, a.viaUrl].some((u) => !!u && canonicalUrlKey(u) === canonicalUrlKey(competitorUrl ?? "")) && priorityQueries.some((q) => canonicalQueryKey(q) === canonicalQueryKey(a.query ?? a.promptText ?? ""));
-      const named = competitorUrl ? rankWinningPages(collectAppearances(state, nowIso, []).filter((a) => matches(a) && state.serps.queries.some((q) => q.observedAt === a.observedAt && canonicalQueryKey(q.query) === canonicalQueryKey(a.query ?? "")) && isCurrent("serp_cold", a.observedAt, d.now()) && Date.parse(a.observedAt) <= d.now()), ownDomain, 1)[0] : null;
+      const targetSerps = competitorUrl ? collectAppearances(state, nowIso, []).filter((a) => [a.citedUrl, a.viaUrl].some(u => !!u && canonicalUrlKey(u) === canonicalUrlKey(competitorUrl)) && state.serps.queries.some((q) => q.observedAt === a.observedAt && canonicalQueryKey(q.query) === canonicalQueryKey(a.query ?? "")) && isCurrent("serp_cold", a.observedAt, d.now()) && Date.parse(a.observedAt) <= d.now()) : [];
+      const named = targetSerps.some(matches) ? rankWinningPages(targetSerps, ownDomain, 1)[0] : null;
       const toDay = reportingDay(d.now()), fromDay = new Date(Date.parse(`${toDay}T12:00:00Z`) - 27 * 86_400_000).toISOString().slice(0, 10);
       const observations = named ? [] : await d.loadCanonicalObservations(tenantId, { fromDay, toDay }).catch(() => null);
       if (observations === null) return { status: "failed", cursor, progress: {}, detail: "Stored AI evidence could not be read, so nothing was spent and saved research was preserved." };
@@ -272,7 +271,8 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
         else if (!fetchable) continue;
         else if (c.ownerQuery && !substituted.has(c.ownerQuery)) { const sub = (bench.get(c.ownerQuery) ?? []).find((b) => !readPublishers.has(publisherHost(b.url)));
           if (sub) { substituted.add(c.ownerQuery); queue.splice(focusEnd, 0, sub); focusEnd += 1; } }
-        pages.push({ url: c.url, domain: c.domain, ...facetsOf(c.appearances), appearances: c.appearances, extract: extract && (extract === was?.extract ? extract : heldInRow(extract)), readOutcome: outcome });
+        const appearances = named ? [...new Map([...c.appearances, ...(was?.appearances ?? [])].map(a => [JSON.stringify(Object.entries(a).sort(([x], [y]) => x.localeCompare(y))), a])).values()] : c.appearances;
+        pages.push({ url: c.url, domain: c.domain, ...facetsOf(appearances), appearances, extract: extract && (extract === was?.extract ? extract : heldInRow(extract)), readOutcome: outcome });
       }
       for (const c of queue.slice(processed)) { const was = prior.get(canonicalUrlKey(c.url)); if (was) pages.push(was); }
       // Preserve live readings outside the ranked window and unexpired failure holds.

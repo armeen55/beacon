@@ -19,11 +19,11 @@ export default defineConfig({
   },
   test: {
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx", "src/**/*.test.ts", "src/**/*.test.tsx"],
-    /** Four isolated workers cut the hermetic full gate from ~239s to ~77s.
-     * Route/store tests stay isolated by Vitest worker process; paid/live creds
-     * remain blank below, so parallelism cannot fan out external calls. */
+    /** Four workers by default; a one-worker run reduces pressure on a busy host.
+     * Store isolation, all assertions and deadlines stay unchanged; paid/live
+     * credentials remain blank below for either worker count. */
     fileParallelism: true,
-    maxWorkers: 4,
+    maxWorkers: process.env.BEACON_TEST_WORKERS === "1" ? 1 : 4,
     testTimeout: 30_000,
     /** Hydrates the synthetic fixture tree into the per-run data directory above; the operator's real `.data/` is never read or written. */
     globalSetup: ["tests/setup/global-fixture-hydrate.ts"],

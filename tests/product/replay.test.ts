@@ -25,7 +25,7 @@ import { projectFunnelEvidence, promptObservationUnit, serpAnalysisUnit } from "
 import type { FunnelDeps } from "@/domains/evidence/funnel/shared";
 import type { FunnelResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
 import { buildTopicInvestigations } from "@/domains/evidence/topic-investigation";
-import { readCoverage } from "@/domains/decision/coverage-pass";
+import { readCoverage } from "@/domains/decision/coverage-pass"; import { log } from "@/lib/logger";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
 import { serializeChangeProposal, deserializeChangeProposal, type ChangeProposal } from "@/domains/decision/contracts"; import { copyKey, unreviewed } from "@/domains/decision/proof"; import { openHold } from "@/domains/decision/completeness"; import { proposeExistingPageChange } from "@/domains/decision/propose"; import { candidatesToEvidenceInputs } from "@/domains/decision/opportunities"; import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
@@ -221,7 +221,7 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     expect(lost.res.paid.receipts.some((r) => r.outcome === "not_reached" && (r.why ?? "").includes("proposal store rejected"))).toBe(true);
     expect(lost.asked.some((a) => a.includes(SECOND_QUERY))).toBe(false); // persistence cannot keep the result, so the second purchase never starts
   });
-  it("a Ready inventory of 14, 40, 100 or 500 changes nothing: the pass still buys every real opportunity it holds", async () => {
+  it("a Ready inventory of 14, 40, 100 or 500 changes nothing: the pass still buys every real opportunity it holds", async () => { const writeInfo = log.info, infoSpy = vi.spyOn(log, "info").mockImplementation((message, context) => { if (message !== "[produce-proposals] row re-read against the rules that stand today") writeInfo(message, context); }); try {
     const { evidence } = await replayFunnel();
     const prior = await drive(evidence, []); // The operator's acceptance fixture (2026-08-30). Ready = 0 is the drive above. Here the store already holds an inventory far past the old alarm floor at pass start, cloned from a genuinely landed row, and the pass must buy exactly as at zero.
     const base = prior.landed[0]!;
@@ -231,4 +231,4 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
       expect(out.res.paid.receipts.find((r) => r.key === "/kite-festival-guide" || r.key.startsWith("/kite-festival-guide::"))?.outcome, `at ${n} the strongest page was still bought`).toBe("produced"); // The seeds sit on pages this site does not have, so the sweep retires them as obsolete: a TYPED per-candidate reason, which stays legal. Quantity acting on the real work below is what must never happen.
       expect(out.res.paid.receipts.find((r) => r.key === "/lantern-release-guide" || r.key.startsWith("/lantern-release-guide::"))?.outcome, `at ${n} the weaker page was still bought too`).toBe("produced");
       expect(out.asked.some((a) => a.includes(SECOND_QUERY)), `at ${n} the second page's draft was really asked for`).toBe(true); }
-  }); });
+  } finally { infoSpy.mockRestore(); } }); });

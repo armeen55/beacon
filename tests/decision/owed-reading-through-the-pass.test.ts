@@ -15,7 +15,7 @@ vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await o
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "acct-reef", domain: "acct-reef.example", growth_goal: null }), basisTag: () => "basis_rv2" }));
 import { emptyResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
 import { shapeBackingOf, topicSourceFacts } from "@/domains/decision/drafted-copy"; import { DRAFT_BUDGET } from "@/domains/decision/draft-budget"; import { COPY_RULES } from "@/domains/decision/copy-sanitize"; import { claimIdentity, pageHashOf } from "@/domains/evidence/pages/fact-check-run"; import { claimTypeOf, deriveSupport } from "@/domains/evidence/pages/claim-support"; import { canonicalUrlKey } from "@/domains/evidence/snapshot"; import { authorizedCorrections, rulesVersionFor, type FactCheck } from "@/domains/evidence/pages/fact-checks";
-import { nextObligation } from "@/domains/decision/obligation";
+import { nextObligation } from "@/domains/decision/obligation"; const [{ produceProposalsForTenant: run }, recovery, extra] = await Promise.all([import("@/domains/decision/produce-proposals"), import("@/domains/decision/producers/demand-recovery"), import("@/domains/decision/producers/extra")]);
 const NOW = new Date("2026-09-06T09:00:00.000Z");
 const SITES = [
   { t: "acct-reef", page: "/tide-pool-guide", q: "tide pool safety", lead: ["Tide pool safety for families", "Tide pool safety rules", "Tide pool safety and the rocks"] },
@@ -42,13 +42,12 @@ const card = (s: (typeof SITES)[number], over: Partial<ChangeProposal> = {}): Ch
   evidence: { query: s.q, hints: [], evidenceRefCount: 1 }, impactScore: 400, upsidePerMonth: null,
   basis: "basis_rv2", publish: "manual", createdAt: NOW.toISOString(), copyStamp: "Guide|Guide||What to bring", ...over });
 const drive = async (s: (typeof SITES)[number], titles: readonly string[], unresolved = false, recoveryComplete = true) => {
-  vi.resetModules();
-  vi.doMock("@/domains/decision/producers/demand-recovery", () => ({ demandRecoveryCards: async () => ({ cards: recoveryComplete ? [card(s, unresolved ? { diagnosisCause: "no_problem", causeFinding: { ...card(s).causeFinding!, cause: "no_problem", action: null }, treatment: undefined, obligation: { kind: "evidence", need: { kind: "competitor_page", query: s.q, reasonCode: "no_winner_to_read" } } } : {})] : [], complete: recoveryComplete, window: { earlyDays: 400, earlyFrom: null, earlyTo: null }, losses: [] }) }));
+  const recoverySpy = vi.spyOn(recovery, "demandRecoveryCards").mockImplementation(async () => ({ cards: recoveryComplete ? [card(s, unresolved ? { diagnosisCause: "no_problem", causeFinding: { ...card(s).causeFinding!, cause: "no_problem", action: null }, treatment: undefined, obligation: { kind: "evidence", need: { kind: "competitor_page", query: s.q, reasonCode: "no_winner_to_read" } } } : {})] : [], complete: recoveryComplete, window: { earlyDays: 400, earlyFrom: null, earlyTo: null }, losses: [] } as never));
   const other = card(s, { id: `${s.t}::${s.page}-two::existing_edit::ai_answer_gap`, pagePath: unresolved ? s.page : `${s.page}-two`, pageUrl: `https://${s.t}.example${s.page}${unresolved ? "" : "-two"}`, primaryQuery: `${s.q} at night`, winnersOnFile: undefined, obligation: undefined, impactScore: 10 });
-  vi.doMock("@/domains/decision/producers/extra", () => ({ extraQueuePass: async () => ({ run: { cards: [other], complete: true, held: [], needsOwnPage: [], families: ["ai_answer_gap"] }, unitLoad: null }) }));
-  const { produceProposalsForTenant: run } = await import("@/domains/decision/produce-proposals");
+  const extraSpy = vi.spyOn(extra, "extraQueuePass").mockImplementation(async () => ({ run: { cards: [other], complete: true, held: [], needsOwnPage: [], families: ["ai_answer_gap"] }, unitLoad: null } as never));
   env.snap = snapshot(s, titles);
-  return run(s.t, { now: NOW, bypassCache: true, produce: true, maxDrafts: unresolved ? 8 : 0, maxCalls: 20, persist: true, complete: async () => { env.calls++; return { value: {} }; } } as never);
+  try { return await run(s.t, { now: NOW, bypassCache: true, produce: true, maxDrafts: unresolved ? 8 : 0, maxCalls: 20, persist: true, complete: async () => { env.calls++; return { value: {} }; } } as never); }
+  finally { recoverySpy.mockRestore(); extraSpy.mockRestore(); }
 };
 beforeEach(() => { store.rows.clear(); env.calls = 0; env.saves = 0; env.checked = []; env.bodies = null; env.race = false; });
 describe("the reading a settled row owes, through the pass that writes the row", () => {

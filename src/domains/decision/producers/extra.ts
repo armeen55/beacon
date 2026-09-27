@@ -18,11 +18,10 @@ import { RECEIPT } from "../diagnose";
 import { demandOf, winnersAgreeOn } from "../drafted-copy";
 import { articlePassages } from "../in-place-link";
 import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
-import { GAIN } from "../draft-resolution";
+import { GAIN } from "../draft-resolution"; import { COPY_RULES } from "../copy-sanitize";
 import { selectPageVersion } from "@/domains/evidence/pages/page-version";
 import { count, labelOf, mint, pathOf, plain,
   STOREFRONT, subjectWords, type Draft, type Understanding } from "./page-fit";
-
 /** Past MAX_HEADING_WORDS a heading is a paragraph wrapped in a heading tag, saying nothing about what it answers. */
 const MAX_HEADING_WORDS = 12;
 /** A page worth linking to sits inside striking distance and is genuinely being seen. No count meter (operator, 2026-08-30, "i dont want any limits"): every page with the defect gets its card; the evidence floors stay the only quality gates. */
@@ -45,18 +44,15 @@ const earnedWords = (p: OwnedPageEvidence, weak: ReadonlySet<string>): Set<strin
 const identityOf = (p: OwnedPageEvidence): string =>
   canonicalUrlKey(p.content?.finalUrl || p.content?.canonicalUrl || p.url);
 import { aeoMeter, aiCaseCards, type AeoMeter } from "./ai-cases";
-
 /** What this producer did, whether it FINISHED, and what it refused to guess at: completeness is stated per family, so a dead source holds only its own out of the sweep, and `held` puts refusals on the receipt. */
 type ExtraQueueRun = { cards: ChangeProposal[]; complete: boolean; families: string[]; held: { pageUrl: string; reason: string }[]; answerCaptures?: ReadonlyMap<string, Record<string, unknown>>; aeoHold?: ReadonlySet<string>; aeoSpend?: { funded: number; attempted: number; givenBack: number; left: number }; needsOwnPage: { query: string; refusedPages?: string[] }[] };
 import { linkFit, pageUnderstanding } from "./page-job";
-/** What this producer did, whether it FINISHED, and what it refused to guess at. `complete` is true only when the queue on file was read AND every source these producers judge on answered: "none this pass" and "I could not look" are the same length and opposite facts, and the sweep behind this producer withdraws every card in a family it believes was rewritten in full. `families` names the ones that DID finish, so a dead source holds only its own out of that sweep. `held` puts refusals on the receipt. */
 function recoverableClicks(p: OwnedPageEvidence, expectedCtrAt: (position: number) => number): number | null {
   const q = [...(p.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0];
   if (!q || q.position == null || q.impressions < MIN_IMPRESSIONS) return null;
   const n = Math.round((expectedCtrAt(q.position) - Math.min(1, q.clicks / Math.max(1, q.impressions))) * q.impressions * TO_28_DAYS);
   return n > 0 ? n : null;
 }
-/** ONE card, in the ONE shape the store files and every surface renders. */
 /** 2. THE LINKS THE STRONGEST PAGES NEVER PASS ON: the three pages that earn the most clicks, and the near miss pages they never link to. Off the stored link graph, so the absence of a link is a fact here. */
 /** How many links one source page may donate in one pass: distinct destinations, each its own card and footprint. */
 const LINKS_PER_SOURCE = 3;
@@ -313,7 +309,11 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
     const mutationKey = footprintKey(card), id = proposalSeats.seatFor(card.id, mutationKey, seats);
     if (id !== card.id) card = { ...card, id };
     const prints = [...mutationFootprint(card)];
-    if (prints.some((k) => taken.has(k)) && !mine.has(card.id)) continue;
+    if (prints.some((k) => taken.has(k)) && !mine.has(card.id)) {
+      const owner = COPY_RULES.captureAddress(card.pageUrl ?? ""), page = pages.find(p => owner != null && COPY_RULES.captureAddress(p.url) === owner), body = currentBodies.get(canonicalUrlKey(page?.url ?? "")), overlaps = rows.filter(r => [...mutationFootprint(r)].some(k => prints.includes(k)));
+      const missingMeta = /::existing_edit::missing_description(?:@[^:]*)?$/.test(card.id) && card.recommendedChange.kind === "existing_edit" && card.recommendedChange.field === "meta" && card.recommendedChange.before == null && prints.length === 1 && !!input.basis && !!page?.content && page.content.metaDescription == null && body?.tenantId === tenantId && !!body.contentHash && COPY_RULES.captureProof(body, now.getTime()).length > 0 && COPY_RULES.captureAddress(body.url) === owner && body.metaDescription == null && (!page.content.revision?.content_hash || page.content.revision.content_hash === body.contentHash);
+      if (!missingMeta || !overlaps.length || overlaps.some(r => r.tenantId !== tenantId || r.basis !== input.basis || COPY_RULES.captureAddress(r.pageUrl ?? "") !== owner || r.status !== "needs_review" || r.riskLevel !== "low" || r.approval || r.confirmedVersion || r.redraftRequested || r.bundle || r.newPageDraft || r.obligation?.kind !== "terminal" || r.obligation.reason !== COPY_RULES.metaPredecessorGone || r.obligation.holdCode || [...(r.faults ?? []), ...r.limitations].some(why => why.startsWith("HELD:")) || [...mutationFootprint(r)].length !== 1 || r.recommendedChange.kind !== "existing_edit" || r.recommendedChange.field !== "meta" || !r.recommendedChange.before?.trim())) continue;
+    }
     for (const k of prints) taken.add(k);
     for (const k of asks) answered.add(k);
     seats.push({ id: card.id, mutationKey });

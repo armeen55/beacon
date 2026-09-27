@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server"; import { createRoot } f
 import type { ChangeProposal } from "@/domains/decision";
 import { confirmedVersion as versionOf } from "@/domains/decision/completeness";
 import { actionableProposalFailures as failures } from "@/domains/decision/validate-proposal";
-import type { ChangesView } from "@/app/(shell)/changes-data";
+import type { ChangesView } from "@/app/(shell)/changes-data"; import ChangeDetailPage from "@/app/(shell)/changes/[id]/page";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => { const redirected = (u: string) => { throw new Error(`NEXT_REDIRECT:${u}`); };
   return { redirect: redirected, permanentRedirect: redirected, notFound: () => { throw new Error("NEXT_NOT_FOUND"); },
@@ -47,7 +47,7 @@ const bundled = (basis: string, id = ID): ChangeProposal => ({
 const emptyView = (demotedStaleBasis: number): ChangesView => ({ proposals: [], ready: [], toDo: [], research: [], aiCases: { state: "read" as const, rows: [] },
   summary: { todo: 0, ready: 0, research: 0, implemented: 0, measuring: 0, results: 0 }, measuringCountCanonical: 0, demotedStaleBasis, decidedCountCanonical: 0,
   readyZeroHint: null, receiptLine: null, surfaceComputedAt: "2026-07-27T00:00:00.000Z", surfaceBuilding: false });
-const renderDetail = async (): Promise<string> => renderToStaticMarkup(await (await import("@/app/(shell)/changes/[id]/page")).default({ params: Promise.resolve({ id: encodeURIComponent(ID) }) }) as ReactElement);
+const renderDetail = async (): Promise<string> => renderToStaticMarkup(await ChangeDetailPage({ params: Promise.resolve({ id: encodeURIComponent(ID) }) }) as ReactElement);
 async function renderChanges(view: ChangesView): Promise<string> {
   vi.mocked((await import("@/app/(shell)/changes-data")).loadChangesView).mockResolvedValue(view);
   return renderToStaticMarkup(await (await import("@/app/(shell)/changes/page")).ChangesSection() as ReactElement);}
