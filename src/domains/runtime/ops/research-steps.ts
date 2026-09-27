@@ -4,7 +4,7 @@ import { PROOF_SPEND } from "@/lib/spend-scope";
 import { isSafeRedirectHopUrl } from "@/lib/net/safe-source-fetch";
 import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/on-use-refresh";
 import { keywordDiscoveryUnit, promptObservationUnit, serpAnalysisUnit, winningPagesUnit, type FunnelUnitOutcome } from "@/domains/evidence";
-import { loadFunnelState, saveFunnelState, type FunnelState } from "@/domains/evidence/funnel/state";
+import { loadFunnelState, saveFunnelState, emptyFunnelState, type FunnelState } from "@/domains/evidence/funnel/state";
 import { pageExtractFromRecord, type ResearchCase } from "@/domains/evidence/funnel/research-evidence";
 import { applySynthesis } from "@/domains/evidence/case-identity";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
@@ -460,10 +460,10 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
         if (r?.status === "drafted") return { value: r.value as Record<string, unknown> };
         return { hold: r?.status === "blocked_budget" || (r?.status === "validation_failed" && r.failure === "credit_exhausted") ? "capped" as const : r?.status === "validation_failed" ? "refused" as const : "unavailable" as const }; // a door that trips mid-pass is an account-wide stop, never this claim's refusal
       };
-      const { providerCall, parseCapability, collectCapability } = await import("@/domains/evidence/dataforseo/capabilities"), { readPublicPageExtract } = await import("@/domains/evidence/dataforseo/page-extract-cache");
-      // A POSTED TASK IS COLLECTED, NEVER LEFT PENDING, and a provider hold keeps its NAME: capped, waiting and transport failure are different debts and the unit types each one (Codex, 2026-08-18).
+      const { providerCall, parseCapability, collectCapability } = await import("@/domains/evidence/dataforseo/capabilities"), { readPublicPageExtract } = await import("@/domains/evidence/dataforseo/page-extract-cache"), { loadResearchState } = await import("@/domains/evidence/funnel/state-repo");
+      let winnerState: ReturnType<typeof loadResearchState<FunnelState>> | undefined, sourceReadFailed = false; // One scoped read per fact pass; retained bodies never refresh their source date.
       const bought = async (cap: "serp_organic" | "onpage_content_parsing", input: Record<string, unknown>, key: string) => {
-        if (Date.now() >= deadlineAt) return null;
+        if (sourceReadFailed || Date.now() >= deadlineAt) return null;
         let call = await providerCall(cap, input as never, { tenantId, unitKey: `fact-check:${key}` }).catch(() => null);
         for (let n = 0; call?.state === "waiting" && call.cacheKey && n < 3 && Date.now() + 8_000 < deadlineAt; n += 1) {
           if (n > 0) await new Promise((done) => setTimeout(done, n * 1_000));
@@ -490,11 +490,10 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
           if (parsed?.organic && PROOF_SPEND.activeFor(tenantId) === true && !PROOF_SPEND.admitSearchResults(tenantId, query, parsed.organic.map((o) => o.url).filter((url) => { try { return ["http:", "https:"].includes(new URL(url).protocol); } catch { return false; } }))) return { hold: "capped" as const };
           return parsed?.organic ? { organic: parsed.organic } : { hold: "refused" as const };
         },
-        // THE PARSER'S OWN SHAPE: bodyText, openingSample and headings.
         fetchSource: async (url, required) => {
-          const cached = await readPublicPageExtract(url).catch(() => null);
-          const held = cached ? pageExtractFromRecord(cached.extract) : null, at = Date.parse(cached?.fetchedAt ?? "");
-          const r = held?.truncated === false && held.mainText?.trim() && Number.isFinite(at) && at <= Date.now() && (!required?.structured || (held.sections?.length ?? 0) >= 2) ? { parsed: held, fetchedAt: cached!.fetchedAt } : await bought("onpage_content_parsing", { url }, `src:${url}`.slice(0, 80));
+          const cached = await readPublicPageExtract(url).catch(() => null), usable = (h: ReturnType<typeof pageExtractFromRecord> | null, when: string | null | undefined): boolean => !!h && h.truncated === false && !!h.mainText?.trim() && Date.parse(when ?? "") <= Date.now() && isCurrent("winner_extract", when, Date.now()) && (!required?.structured || (h.sections?.length ?? 0) >= 2); let held = cached ? pageExtractFromRecord(cached.extract) : null, fetchedAt = cached && Object.hasOwn(cached.extract, "fetchedAt") ? held?.fetchedAt ?? undefined : cached?.fetchedAt;
+          if (!usable(held, fetchedAt)) { if (!basis) { sourceReadFailed = true; return { hold: "unavailable" as const }; } const rawBasis = basis.replace(/::d\d+$/, ""); winnerState ??= loadResearchState<FunnelState>(tenantId, rawBasis); const saved = await winnerState.catch(() => null); if (!saved || !(saved.rowVersion > 0) || !saved.state || saved.state.schemaVersion !== emptyFunnelState(tenantId, rawBasis).schemaVersion || saved.state.tenantId !== tenantId || saved.state.basisTag !== rawBasis || !Array.isArray(saved.state.winningPages) || saved.state.winningPages.some(w => !w || typeof w.url !== "string" || w.extract != null && (typeof w.extract !== "object" || Array.isArray(w.extract)))) { sourceReadFailed = true; return { hold: "unavailable" as const }; } const matches = saved.state.winningPages.filter(w => sameFinal(w.url, url)); if (matches.length > 1) { sourceReadFailed = true; return { hold: "refused" as const }; } held = matches[0]?.extract ? pageExtractFromRecord(matches[0].extract as unknown as Record<string, unknown>) : null; fetchedAt = held?.fetchedAt ?? undefined; }
+          const r = usable(held, fetchedAt) ? { parsed: held, fetchedAt } : await bought("onpage_content_parsing", { url }, `src:${url}`.slice(0, 80));
           if (r == null || "hold" in r) return { hold: r?.hold ?? "unavailable" };
           const parsed = r.parsed as { title?: string | null; mainText?: string | null; bodyText?: string | null; openingSample?: string | null; headings?: string[]; sections?: { heading: string | null; text: string }[] } | null;
           const text = parsed ? (await import("@/domains/evidence/pages/fact-source-identity")).FACT_SOURCE.text(parsed) : "";
