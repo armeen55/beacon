@@ -138,19 +138,10 @@ async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS>
           reason = success ? "stored_ready_substantive_and_complete" : output.outcome === "evidence_unreadable" ? "saved_evidence_unreadable" : "no_new_ready_substantive_edit";
           return output;
         };
-        const first = await produce(1);
-        if (!success && destination && first && first.outcome !== "evidence_unreadable" && first.outcome !== "persistence_failed" && !first.paid.receipts.some((r) => ["provider_blocked", "cost_blocked", "retryable_blocked"].includes(r.outcome) && r.providerCalls > 0)) { const need = first.paid.evidenceOwed?.find((n) => n.kind === "semantic_review" && n.proposalId === proposalId && n.workKey?.trim() && DRAFT_BUDGET.scopeAllows("existing_page_edits", DRAFT_BUDGET.requirementDelivery(n)));
-          const owing = need ? await d.load(tenantId, proposalId) : null, obligation = owing ? d.obligation(owing) : null;
-          if (need && owing && samePage(owing) && owing.basis === currentBasis && owing.status === "needs_review" && (obligation?.kind === "review" || obligation?.kind === "evidence" && obligation.need.kind === "semantic_review") && d.clock() < stopBy && await d.permission(tenantId) === "paused") {
-            acquisition = await runWithProposalWorkKey(need.workKey!, () => d.acquire(tenantId, need, accountBasis, Math.min(80_000, stopBy - d.clock()), undefined, "existing_page_edits")); const reviewed = acquisition.acquired && acquisition.unlocked ? await d.load(tenantId, proposalId) : null;
-            if (reviewed && samePage(reviewed) && reviewed.basis === currentBasis && d.reviewAuthorized(reviewed) && await d.permission(tenantId) === "paused") {
-              const promoted = await d.promote(tenantId, proposalId, d.version(reviewed), currentBasis, { kind: "promote", at: new Date(d.clock()).toISOString() }); stored = await d.load(tenantId, proposalId); success = promoted.status === "promoted" && d.acceptable(stored); reason = success ? "stored_ready_substantive_and_complete" : `promotion_${promoted.status}${promoted.refusal ? `:${promoted.refusal}` : ""}`;
-            } else reason = `semantic_review_owed:${acquisition.detail}`; } }
-        if (!success && first && first.outcome !== "evidence_unreadable" && first.outcome !== "persistence_failed"
-          && !first.paid.receipts.some((r) => ["provider_blocked", "cost_blocked", "retryable_blocked"].includes(r.outcome) && r.providerCalls > 0)) {
-          const need = first.paid.evidenceOwed?.find((n) => n.kind === "factual_source" && n.url && canonicalUrlKey(n.url) === pageKey
-            && !n.topic && n.workKey?.trim() && n.proposalId && n.proposalId === n.unlocks?.proposalId
-            && DRAFT_BUDGET.scopeAllows("existing_page_edits", DRAFT_BUDGET.requirementDelivery(n)));
+        const eligibleFactual = (need: NonNullable<Awaited<ReturnType<typeof d.produce>>["paid"]["evidenceOwed"]>[number]) => need.kind === "factual_source" && !!need.url && canonicalUrlKey(need.url) === pageKey && !need.topic && !!need.workKey?.trim() && !!need.proposalId && need.proposalId === need.unlocks?.proposalId && DRAFT_BUDGET.scopeAllows("existing_page_edits", DRAFT_BUDGET.requirementDelivery(need));
+        const acquireFactual = async (need: NonNullable<Awaited<ReturnType<typeof d.produce>>["paid"]["evidenceOwed"]>[number]) => {
+          reason = "factual_source_exact_obligation_changed";
+          if (!eligibleFactual(need)) return null;
           const owing = need ? await d.load(tenantId, need.proposalId!) : null, obligation = owing ? d.obligation(owing) : null;
           const fields = ["kind", "query", "url", "reasonCode", "missingTopic", "ownerVersion", "delivery", "topic", "finding", "proposalId", "rivalUrl", "rivalUrls"] as const;
           if (need && owing && owing.id === need.proposalId && samePage(owing) && owing.basis === currentBasis && owing.status === "needs_review"
@@ -158,19 +149,33 @@ async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS>
             && fields.every((key) => JSON.stringify(need[key]) === JSON.stringify(obligation.need[key]))) {
             const urls = [...new Set([need.rivalUrl, ...(need.rivalUrls ?? [])].filter((u): u is string => !!u))];
             const targets = urls.slice(0, 2).map((url) => ({ capability: "onpage_content_parsing", url }));
-            if (!need.missingTopic?.trim() && !need.finding?.statementKey?.trim()) { reason = "factual_source_exact_claim_missing"; return; }
-            if (await d.basis(tenantId) !== accountBasis || await d.current(tenantId) !== currentBasis || need.ownerVersion && (await d.bodies(tenantId, [page])).get(pageKey)?.contentHash !== need.ownerVersion) { reason = "factual_source_owner_version_changed"; return; }
+            if (!need.missingTopic?.trim() && !need.finding?.statementKey?.trim()) { reason = "factual_source_exact_claim_missing"; return null; }
+            if (await d.basis(tenantId) !== accountBasis || await d.current(tenantId) !== currentBasis || need.ownerVersion && (await d.bodies(tenantId, [page])).get(pageKey)?.contentHash !== need.ownerVersion) { reason = "factual_source_owner_version_changed"; return null; }
             if (d.clock() < stopBy && await d.permission(tenantId) === "paused") {
               const acquire = () => runWithProposalWorkKey(need.workKey, () => d.acquire(tenantId,
                 { ...need, ...(targets[0] ? { rivalUrl: targets[0].url, rivalUrls: targets.map((t) => t.url) } : {}) }, accountBasis, Math.min(90_000, stopBy - d.clock()), undefined, "existing_page_edits"));
               const got = targets.length ? await PROOF_SPEND.withExternalTargets(tenantId, targets, acquire) : await acquire();
               acquisition = got; reason = `factual_source_owed:${got.detail}`;
-              await defaultSteps.resumeAcquired(got, need.kind, (...parts) => { for (const key of shared.keys()) if (parts.some((part) => key.startsWith(`${part}:`))) shared.delete(key); }, async () => {
+              return defaultSteps.resumeAcquired(got, need.kind, (...parts) => { for (const key of shared.keys()) if (parts.some((part) => key.startsWith(`${part}:`))) shared.delete(key); }, async () => {
                 reason = "source_banked_but_drafting_deferred";
                 return produce(0);
               });
             }
           }
+          return null;
+        };
+        const obligation = d.obligation(row), pending = obligation?.kind === "evidence" && obligation.need.kind === "factual_source" ? { ...obligation.need, key: DRAFT_BUDGET.keyOf(row), workKey: row.workKey!, proposalId: row.id, unlocks: { proposalId: row.id, step: "review" as const }, reason: obligation.need.reasonCode } : null;
+        const first = pending ? await acquireFactual(pending) : await produce(1); if (pending && !first) return;
+        if (!success && destination && first && first.outcome !== "evidence_unreadable" && first.outcome !== "persistence_failed" && !first.paid.receipts.some((r) => ["provider_blocked", "cost_blocked", "retryable_blocked"].includes(r.outcome) && r.providerCalls > 0)) { const need = first.paid.evidenceOwed?.find((n) => n.kind === "semantic_review" && n.proposalId === proposalId && n.workKey?.trim() && DRAFT_BUDGET.scopeAllows("existing_page_edits", DRAFT_BUDGET.requirementDelivery(n)));
+          const owing = need ? await d.load(tenantId, proposalId) : null, obligation = owing ? d.obligation(owing) : null;
+          if (need && owing && samePage(owing) && owing.basis === currentBasis && owing.status === "needs_review" && (obligation?.kind === "review" || obligation?.kind === "evidence" && obligation.need.kind === "semantic_review") && d.clock() < stopBy && await d.permission(tenantId) === "paused") {
+            acquisition = await runWithProposalWorkKey(need.workKey!, () => d.acquire(tenantId, need, accountBasis, Math.min(80_000, stopBy - d.clock()), undefined, "existing_page_edits")); const reviewed = acquisition.acquired && acquisition.unlocked ? await d.load(tenantId, proposalId) : null;
+            if (reviewed && samePage(reviewed) && reviewed.basis === currentBasis && d.reviewAuthorized(reviewed) && await d.permission(tenantId) === "paused") {
+              const promoted = await d.promote(tenantId, proposalId, d.version(reviewed), currentBasis, { kind: "promote", at: new Date(d.clock()).toISOString() }); stored = await d.load(tenantId, proposalId); success = promoted.status === "promoted" && d.acceptable(stored); reason = success ? "stored_ready_substantive_and_complete" : `promotion_${promoted.status}${promoted.refusal ? `:${promoted.refusal}` : ""}`;
+            } else reason = `semantic_review_owed:${acquisition.detail}`; } }
+        if (!success && !pending && first && first.outcome !== "evidence_unreadable" && first.outcome !== "persistence_failed"
+          && !first.paid.receipts.some(r => ["provider_blocked", "cost_blocked", "retryable_blocked"].includes(r.outcome) && r.providerCalls > 0)) {
+          const need = first.paid.evidenceOwed?.find(eligibleFactual); if (need) await acquireFactual(need);
         }
         if (await d.permission(tenantId) !== "paused") { success = false; reason = "research_pause_changed_after_execution"; }
       } finally { allowance = PROOF_SPEND.meter(tenantId); }

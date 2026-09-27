@@ -200,7 +200,7 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
         {research ? <p className="text-[13px] leading-relaxed text-foreground" data-research-next="true">Next: {currentNext || proposal.research?.next?.trim() || "Beacon will recheck this change before it can be applied."}</p> : null}
         {research || held ? null : <p className="text-[12px] text-muted-foreground">After you make it, the page is checked and the measurement starts from what is found.</p>}
         {confirmable ? <ConfirmDangerous proposalId={proposal.id} version={confirmable} /> : null}
-        <SetAsideChange proposalId={proposal.id} finishable={canFinish(proposal) && !confirmable} prepare={nextObligation(proposal)?.kind !== "review"} />
+        <SetAsideChange proposalId={proposal.id} displayedVersion={confirmedVersion(proposal)} finishable={canFinish(proposal) && !confirmable} prepare={nextObligation(proposal)?.kind !== "review"} />
       </section>
     </div>
   );
@@ -452,7 +452,7 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
       {held && !research ? <p className="text-[13px] leading-relaxed text-foreground" data-held-reason="true">{held}{currentNext ? ` ${currentNext}` : ""}</p> : null}
       <div className="flex flex-wrap items-center gap-3">
         {research || held ? null : <MarkImplemented proposalId={proposal.id} expectedVersion={confirmedVersion(proposal)} inPlaceLink={c.kind === "existing_edit" && c.linkMode === "in_place"} />}
-        <SetAsideChange proposalId={proposal.id} finishable={canFinish(proposal)} prepare={nextObligation(proposal)?.kind !== "review"} />
+        <SetAsideChange proposalId={proposal.id} displayedVersion={confirmedVersion(proposal)} finishable={canFinish(proposal)} prepare={nextObligation(proposal)?.kind !== "review"} />
       </div>
     </div>
   );

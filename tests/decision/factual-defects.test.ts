@@ -6,7 +6,6 @@ vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {
   const real = await orig<typeof import("@/domains/evidence/pages/fact-checks")>();
   return { ...real, readFactChecks: async () => checks.rows };});
 const store = vi.hoisted(() => ({ rows: [] as { id: string }[], withdrew: [] as string[], why: [] as string[], bodyFails: false }));
-/** THE REAL PERSISTENCE DOOR, behind the shared fake: saveChangeProposal and loadChangeProposal below are production. */
 const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], client: {} as Record<string, unknown> }));
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client }));
 vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<typeof import("@/domains/decision/proposal-store")>()),
@@ -19,7 +18,7 @@ vi.mock("@/domains/evidence/pages/fact-check-run", async (orig) => { const real 
 import { FACTUAL_DEFECTS } from "@/domains/decision/producers/factual-defects";
 import { loadChangeProposal, saveChangeProposal } from "@/domains/decision/proposal-store";
 import { openHold, preferFinished } from "@/domains/decision/completeness";
-import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
+import { REVIEW_CONTRACT, copyKey, wordingOnlySuspicion } from "@/domains/decision/proof";
 import { supabaseFake } from "../helpers/supabase-fake";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 Object.assign(db.client, supabaseFake({ rows: () => db.rows, insertDefaults: () => ({ created_at: "2026-07-01T00:00:00.000Z" }), proposalRpc: true }));
@@ -29,21 +28,17 @@ import { claimTypeOf, deriveSupport } from "@/domains/evidence/pages/claim-suppo
 import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
 const NOW = new Date("2026-08-17T00:00:00.000Z");
 const PAGE = "https://x.example/persian-female-first-names";
-const LIVE_HASH = checks.live;
 const snapshot = { scope: { site: "x.example" }, ownedPages: [{ url: PAGE, search: { impressions90d: 100 } }] } as unknown as EvidenceSnapshot;
-/** EVERY FIXTURE EARNS ITS ARTIFACTS THE REAL WAY: each source's quote goes through the same deterministic derivation production runs, so a quote that genuinely carries its claim is supported and one that does not is refused. Nothing is hand-signed. */
 type Src = { url: string; kind: string; says: string; titleContext?: string; support?: unknown };
 const bless = (row: Record<string, unknown>): Record<string, unknown> => ({ ...row,
   sources: (row.sources as Src[]).map((s) => { const a = deriveSupport({ tenantId: "t", page: String(row.page), statementKey: String(row.statementKey), pageLocator: (row.pageLocator as string | null) ?? null,
     subject: String(row.subject), claimKind: claimTypeOf(String(row.subject), String(row.current), (row.pageLocator as string | null) ?? null), current: String(row.current), proposed: String(row.proposed ?? ""), url: s.url, kind: s.kind as never,
     quote: s.says, titleContext: s.titleContext ?? null }); return a ? { ...s, support: a } : s; }) }); const check = (over: Record<string, unknown> = {}) => bless({
-  page: "/persian-female-first-names", statementKey: String(over.subject ?? "Afsaneh").toLowerCase(), pageContentHash: LIVE_HASH, evidenceBasis: "basis_x::d9", state: "checked", rulesVersion: VERIFICATION_RULES_VERSION,
+  page: "/persian-female-first-names", statementKey: String(over.subject ?? "Afsaneh").toLowerCase(), pageContentHash: checks.live, evidenceBasis: "basis_x::d9", state: "checked", rulesVersion: VERIFICATION_RULES_VERSION,
   sourceReadAt: "2026-08-17T00:00:00.000Z", pageLocator: null, subject: "Afsaneh", current: "Goddess, divine and strong.", proposed: "Legend, myth, fable in Persian.", language: "Persian", literal: "legend", usage: null,
   sources: [{ url: "https://www.behindthename.com/name/afsaneh", kind: "dictionary", says: "the name Afsaneh means legend, myth or fable in Persian" }, { url: "https://en.wiktionary.org/wiki/افسانه", kind: "dictionary", says: "fable" }],
   agreement: "multiple_agree", confidence: "confirmed", verdict: "page_wrong", alsoAt: [], note: "", checkedAt: "2026-08-17T00:00:00.000Z", ...over });
 import { mutationFootprint, footprintsOverlap } from "@/domains/decision/mutation-footprint";
-import { wordingOnlySuspicion } from "@/domains/decision/proof";
-/** PHASE 0 TRUTH, corrected (operator, 2026-08-30): a bag of words is a SUSPICION for the reviewer, never a proof. Only the literally identical skips deterministically; "fear of God" versus "God's fear" shares tokens without sharing meaning, so the suspected card MINTS and is held for the one reviewer's materiality ruling. */
 it("keeps the judge's semicolon, holds the suspected no-op for the reviewer, and skips only the literally identical", async () => {
   checks.rows = [check({ proposed: "free, free-minded; also noble", verdict: "page_imprecise", sources: [{ url: "https://en.wiktionary.org/wiki/x", kind: "dictionary", says: "the name Afsaneh means free, free-minded; also noble" }] }), check({ subject: "Yadollah", statementKey: "yadollah", current: "Hand of God", proposed: "God's hand", verdict: "page_imprecise", sources: [{ url: "https://en.wikipedia.org/wiki/Yadollah", kind: "encyclopedia", says: "the name Yadollah means God's hand" }] }),
     check({ subject: "Roshan", statementKey: "roshan", current: "Meaning: Light.", proposed: "Light", verdict: "page_imprecise", sources: [{ url: "https://en.wiktionary.org/wiki/r", kind: "dictionary", says: "the name Roshan means light" }] })];
@@ -55,12 +50,17 @@ const many = (n: number) => Array.from({ length: n }, (_, i) =>
     sources: [{ url: `https://en.wiktionary.org/w${i}`, kind: "dictionary", says: `Name${i} means right gloss ${i}` }] }));
 describe("a page's own statements against their sources", () => {
   beforeEach(() => { checks.rows = []; store.rows = []; store.withdrew = []; store.why = []; store.bodyFails = false; });
-  it("a correction whose evidence stopped being current is withdrawn, and a page nobody could read is left alone", async () => {
+  it("only the correction's checked claim can retire it; unknown evidence and unread pages stay held", async () => {
     const live = "t::/persian-female-first-names::existing_edit::fact-afsaneh@new-seat#mutation", dead = "t::/persian-female-first-names::existing_edit::fact-darya@new-seat#mutation", applied = "t::/persian-female-first-names::existing_edit::fact-hamid@new-seat#mutation";
-    checks.rows = [check()]; const [base] = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards; const stored = (id: string, subject = "Afsaneh", status = "needs_review") => ({ ...base!, id, status, recommendedChange: { ...base!.recommendedChange, where: `The "${subject}" entry` } });
+    checks.rows = [check()]; const [base] = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards; const stored = (id: string, subject = "Afsaneh", status = "needs_review") => ({ ...base!, id, status, supportFacts: base!.supportFacts?.map(f => ({...f,finding: f.finding ? {...f.finding,statementKey: subject.toLowerCase()} : undefined})), recommendedChange: { ...base!.recommendedChange, where: `The "${subject}" entry` } });
     store.rows = [stored(live), stored(dead, "Darya"), stored(applied, "Hamid", "implemented_pending_verification"), stored("t::/other::existing_edit::fact-elsewhere"), stored(`${dead}@unreadable`, "")];
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
-    expect(store.withdrew, "a correction the operator already applied is never taken back, whatever its evidence does (the Hamid correction, 2026-09-02)").toEqual([dead]);
+    expect(store.withdrew, "a correction the operator already applied is never taken back, whatever its evidence does (the Hamid correction, 2026-09-02)").toEqual([]);
+    for (const mode of ["owed", "missing", "foreign", "ambiguous", "checked"] as const) {
+      const exact = check({ statementKey: "afsaneh", state: mode === "owed" ? "owed" : "checked", sources: [] }), sibling = check({ statementKey: "afsaneh#film", sources: [] }), row = stored(live);
+      checks.rows = mode === "missing" ? [sibling] : [exact, sibling]; if (mode === "foreign" || mode === "ambiguous") row.supportFacts = row.supportFacts?.map(f => ({ ...f, finding: mode === "foreign" && f.finding ? { ...f.finding, tenantId: "foreign" } : undefined })); store.rows = [row]; store.withdrew = []; store.why = [];
+      const copy = JSON.stringify(row); await factualDefectCards({ tenantId: "t", snapshot, now: NOW }); expect([store.withdrew, JSON.stringify(row)]).toEqual([mode === "checked" ? [live] : [], copy]);
+    }
     const LIFT = "The name comes from Old French jessemin, from Persian yasamin and nothing else besides";
     checks.rows = [check({ subject: "Afsaneh", proposed: LIFT, sources: [{ url: "https://en.wiktionary.org/j", kind: "dictionary", says: LIFT }] }),
       check({ subject: "Afsaneh", state: "superseded", proposed: "Nothing any quote carries" })];
@@ -85,7 +85,6 @@ describe("a page's own statements against their sources", () => {
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(cards).toHaveLength(40); expect(new Set(cards.map((c) => c.id)).size, "each correction owns its own row").toBe(40); expect(new Set(cards.map((c) => [...mutationFootprint(c)].join("|"))).size).toBe(40); expect(footprintsOverlap(cards[0]!, cards[1]!)).toBe(false);
     expect(cards.every((c) => c.bundle === undefined)).toBe(true); expect(cards.every((c) => !/batch/i.test(c.opportunityType))).toBe(true);
-    /* ONE IMPACT UNIT (audit, 2026-09-14): a correction's impactScore is the page's 28-day clicks in this entry's share of the page's demand, never impressions divided by 100. */
     const sized = { ...snapshot, ownedPages: [{ url: PAGE, search: { impressions90d: 900, clicks90d: 90, topQueries: [{ query: "name0 meaning", impressions: 300, clicks: 30, position: 5 }] } }] } as unknown as EvidenceSnapshot; checks.rows = many(1);
     expect((await factualDefectCards({ tenantId: "t", snapshot: sized, now: NOW })).cards[0]?.impactScore, "90 clicks in 90 days, a third of the page's demand on this entry, over 28 days").toBe(Math.round(90 * (300 / 900) * 28 / 90)); });
   it("gives every correction its exact current wording, its replacement, its place and its source", async () => {
@@ -149,7 +148,6 @@ describe("a page's own statements against their sources", () => {
     checks.rows = [check({ subject: "Aaa", agreement: "single_source", alsoAt: [], sources: carry("Aaa") }), check({ subject: "Zzz", agreement: "multiple_agree", alsoAt: ["the FAQ"], sources: carry("Zzz") })];
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(cards[0]!.opportunityType).toContain("Zzz"); });
-  /** A NARROWER SOURCE IS NOT A FALSE PAGE (operator, 2026-08-31). Live this asked the operator to spend two minutes turning "Spring, symbolizing renewal and growth" into "Spring", plus three more like it: correct, sourced, and strictly worse for the reader. Only a contradiction may take words away now. */
   it("a source that merely says less never asks the operator to make the page thinner", async () => {
     const src = (n: string, says: string) => [{ url: `https://en.wiktionary.org/${n}`, kind: "dictionary", says }];
     checks.rows = [check({ subject: "Bahar", statementKey: "bahar", current: "Meaning:Spring, symbolizing renewal and growth.", proposed: "Spring", verdict: "page_imprecise", sources: src("b", "the name Bahar means spring") }),
@@ -282,7 +280,6 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const kinds = (k: string) => openHold(by.get(k)!).advisories.map((a) => a.kind).filter((x) => x === "single_source");
     expect([kinds("leila"), kinds("noor"), openHold(by.get("noor")!).defects.some((d) => /publisher|second/i.test(d))], "REPLACES the second-source ask: two quoted publishers say nothing, one says how many stand behind it, and a source COUNT holds neither back").toEqual([[], ["single_source"], false]); });
 
-  /** THE RULE IS ABOUT MECHANICAL MISTAKES, AND ONLY THOSE. The page owns its label, its terminology and its voice; what it does not own is a missing space, and what Beacon must never do is reformat an address, a clock time or another script on the way past. */
   it("holds a glued label whoever wrote it, and leaves a url, a time, Persian and prose colons exactly as the page had them", async () => {
     const q1 = (says: string) => [{ url: "https://en.wikipedia.org/y", kind: "encyclopedia", says }];
     checks.rows = [check({ subject: "Noor", current: "Meaning:Bright, radiant, or glowing.", proposed: "light", sources: q1('The name Noor means "light"') }),

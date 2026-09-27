@@ -259,7 +259,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
         // ONLY THE LITERALLY IDENTICAL SKIPS DETERMINISTICALLY (operator, 2026-08-30): a bag of words is a SUSPICION, not a proof, because "fear of God" and "God's fear" reduce to the same tokens without meaning the same thing. A suspected wording-only change mints and is held until the ONE reviewer rules its materiality; the composed output equalling the span byte for byte is the only thing settled without asking.
         if (composedReplacement(span0, c.proposed!) === span0) {
           log.info("[factual-defects] the composed replacement is identical to the page's own line, so no card is minted", { tenantId, subject: c.subject });
-          noOpWhy.set(`${path.toLowerCase()}::fact-${slugOf(c.subject) || ""}`, "the composed replacement is identical to the page's own line, so there is nothing to change");
+          noOpWhy.set(`${path.toLowerCase()}::${c.statementKey}`, "the composed replacement is identical to the page's own line, so there is nothing to change");
           continue;
         }
         // A NARROWER SOURCE IS NOT A FALSE PAGE (operator, 2026-08-31). A `page_imprecise` verdict whose
@@ -271,7 +271,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
         // still mints; only "the cited source happens to say less" stops being customer work.
         if (onlyRemovesContext(span0, composedReplacement(span0, c.proposed!)) && c.verdict !== "page_wrong") {
           log.info("[factual-defects] the replacement only removes context its source did not repeat, so no card is minted", { tenantId, subject: c.subject });
-          noOpWhy.set(`${path.toLowerCase()}::fact-${slugOf(c.subject) || ""}`, "the proposed wording only drops detail the page already carried, and nothing on file says that detail is wrong, so there is nothing worth changing");
+          noOpWhy.set(`${path.toLowerCase()}::${c.statementKey}`, "the proposed wording only drops detail the page already carried, and nothing on file says that detail is wrong, so there is nothing worth changing");
           continue;
         }
         // A SECOND PLACE, OR NO SECOND PLACE. Live, `also_at` held exactly the row's own locator on every
@@ -351,40 +351,19 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
     const { footprintKey } = await import("@/domains/decision/mutation-footprint");
     const judged = new Set([...pageHashes.keys()].map((k) => pathOf(owned.get(k)!.url).toLowerCase()));
     const emitted = new Set(cards.map(footprintKey));
-    // THE WITHDRAWAL SAYS THE REAL REASON when the row itself can name one: "evidence no longer current" told
-    // the operator nothing about a quote that never carried the published words.
-    // ONLY THE CLAIM'S CURRENT ROW MAY SAY WHY IT WAS WITHDRAWN. A subject keeps its superseded history under
-    // the same slug, so reading every row let an OLD version's refusal be reported as this one's: the live
-    // Jasmine card was withdrawn saying its quote did not carry the wording, when the quote carries it exactly
-    // and the real refusal is that the proposal restates the quote. No receipt invents a cause, including a
-    // true one belonging to a different reading.
-    const why = noOpWhy; // seeded by the mint's own no-op skips, so the sweep withdraws them WITH the named reason instead of the fail-closed keep
-    for (const [key, rows] of byPage) { const pg = owned.get(key); if (!pg) continue;
-      for (const r of rows) { if (r.state !== "checked" || r.current.trim() === "" || r.rulesVersion !== rulesVersionFor(r)) continue; // A ROW WITH NO CURRENT WORDING NAMES NO WITHDRAWAL (reviewer, 2026-09-02): it mints no card, and a reason in this map is what turns an unminted card from KEPT into withdrawn, so a question row sharing a correction's 48-character slug prefix would take that correction's card down. It contributed null before the missing-answer refusal existed and it contributes null now.
-        const reason = (!r.proposed?.trim() ? "the check proposes no wording beyond the subject's own name, so there is no correction to make" : null) ?? unauthorizedReason(r) ?? supportShortfall(r, tenantId); /* A ROW THAT PROPOSES NOTHING IS NAMED HERE, NOT LEFT FOR EVER (production 2026-09-17): the reader nulls a proposal that only says the subject back (rule of 2026-09-05), the authorization rule answers null for a row with no proposal because that is not what it grades, and the sweep read both nulls as "no reason", so the Caspian Red Deer card sat KEPT with a warning on every drive for ten days */ if (reason) why.set(`${pathOf(pg.url).toLowerCase()}::fact-${slugOf(r.subject) || ""}`, reason); } }
     const { loadChangeProposals, withdrawChangeProposal } = await import("@/domains/decision/proposal-store");
-    // A LIVE CHECKED ROW UNDER CURRENT RULES, per subject slug: the one state in which the generic "evidence no
-    // longer current" sentence is provably FALSE. Seven authorized corrections were withdrawn through that exact
-    // branch at 03:32Z on 2026-08-30 while their checked rows stood confirmed, by a pass nothing could later
-    // reconstruct. A card may now be withdrawn only WITH a named reason, or when its claim genuinely has no
-    // current checked row left; an unexplained miss keeps the card and says so out loud, because silently
-    // destroying finished work is the one failure this producer has already committed twice.
-    const liveChecked = new Set<string>();
-    for (const [key, rows] of byPage) { const pg = owned.get(key); if (!pg) continue;
-      for (const r of rows) if (r.state === "checked" && (r.current.trim() === "" || r.rulesVersion === rulesVersionFor(r))) liveChecked.add(`${pathOf(pg.url).toLowerCase()}::fact-${slugOf(r.subject) || ""}`); } // a row with no current wording vouches exactly as it did before the rules a missing answer is judged under moved, so no card changes hands on a slug collision either way
     for (const p of (await loadChangeProposals(tenantId).catch(() => null))?.values() ?? []) {
       const id = p.id.split("::"), subject = subjectOf(p);
       // A PAGE WHOSE BODY DID NOT LOAD IS NOT A PAGE WHOSE CORRECTIONS DIED. `authorizedCorrections` compares a
       // page hash, so without one every correction on the site reads as unauthorized at once.
       if (!id[3]?.startsWith("fact-") || !subject || !judged.has(id[1] ?? "") || p.status === "implemented_pending_verification" || emitted.has(footprintKey(p))) continue; // applied or unidentifiable work is never this producer's to take back
-      const slug = `${id[1] ?? ""}::fact-${slugOf(subject)}`, said = why.get(slug);
-      if (!said && liveChecked.has(slug)) {
-        log.warn("[factual-defects] a correction went unminted with NO named reason while its checked row stands; the card is KEPT and this pass is the anomaly", { tenantId, id: p.id });
-        continue;
-      }
-      const withdrawal = await withdrawChangeProposal(p, said
-        ? `Withdrawn: ${said}. The claim stays a finding until a source quote genuinely carries it.`
-        : "The evidence behind this correction is no longer current, so the correction is withdrawn rather than left standing on it.").catch(() => "failed" as const);
+      const refs = [...(p.supportFacts ?? []).flatMap(f => f.finding ? [f.finding] : []), ...(p.obligation?.kind === "evidence" && p.obligation.need.finding ? [p.obligation.need.finding] : [])];
+      const owned = checks.filter(c => c.page === id[1] && c.subject === subject && c.state !== "superseded");
+      const exact = refs.length ? refs.every(f => f.tenantId === tenantId && f.page === id[1] && f.statementKey === refs[0]!.statementKey) ? owned.find(c => c.statementKey === refs[0]!.statementKey) : null : owned.length === 1 ? owned[0] : null;
+      if (!exact || exact.state !== "checked" || !exact.current.trim() || exact.rulesVersion !== rulesVersionFor(exact)) continue;
+      const said = noOpWhy.get(`${id[1]}::${exact.statementKey}`) ?? (!exact.proposed?.trim() ? "the check proposes no wording beyond the subject's own name, so there is no correction to make" : null) ?? unauthorizedReason(exact) ?? supportShortfall(exact, tenantId);
+      if (!said) { log.warn("[factual-defects] the exact checked claim has no refusal; its unminted correction is kept", { tenantId, id: p.id }); continue; }
+      const withdrawal = await withdrawChangeProposal(p, `Withdrawn: ${said}. The claim stays a finding until a source quote genuinely carries it.`).catch(() => "failed" as const);
       if (withdrawal === "retired") log.info("[factual-defects] a correction lost its evidence and was withdrawn", { tenantId, id: p.id });
       else log.warn("[factual-defects] the stale correction could not be withdrawn", { tenantId, id: p.id, withdrawal });
     }

@@ -325,15 +325,14 @@ async function readLegacy(tenantId: string, limit: number, id?: string): Promise
   } catch { return []; }
 }
 
-/** Load one proposal by id. History is NOT served as current unless the caller asks for it: a change put aside a moment ago must read as history, never as a page that never existed. Fail-soft to null. */
 /** WHETHER THIS ROW IS RETIRED AND HOW, asked on its own so the mark-done press decides BEFORE a shipment is written whether a retirement was reconciliation's (the operator may finish it) or the operator's own. */
 export const proposalDisposition = async (tenantId: string, id: string): Promise<TerminalDisposition | null> => !tenantId || !id ? null : (await rowById(tenantId, id).catch(() => null))?.terminal_disposition ?? null;
 
-export async function loadChangeProposal(tenantId: string, id: string, opts: { retired?: "include"; canonicalOnly?: true } = {}): Promise<ChangeProposal | null> {
+export async function loadChangeProposal(tenantId: string, id: string, opts: { retired?: "include"; canonicalOnly?: true; canonicalRow?: (row: Pick<CanonRow, "proposal_version" | "terminal_disposition" | "withdrawn_reason" | "superseded_by">) => void } = {}): Promise<ChangeProposal | null> {
   if (!tenantId || !id) return null;
   try {
     const row = await rowById(tenantId, id);
-    if (row) return row.terminal_disposition == null || opts.retired === "include" ? decode(row.payload) : null;
+    if (row) { opts.canonicalRow?.({ proposal_version: row.proposal_version, terminal_disposition: row.terminal_disposition, withdrawn_reason: row.withdrawn_reason, superseded_by: row.superseded_by }); return row.terminal_disposition == null || opts.retired === "include" ? decode(row.payload) : null; }
     return opts.canonicalOnly ? null : decode((await readLegacy(tenantId, 1, id))[0]?.content ?? null);
   } catch (e) { log.error("[proposal-store] load threw", { id, error: e instanceof Error ? e.message : String(e) }); return null; }
 }

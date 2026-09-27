@@ -139,10 +139,17 @@ export function CopyButton({ text, units, link = null, label, onToast }: { text:
 }
 
 /** Explicit preparation or version-bound dismissal; global preparation never skips a selected proposal. */
-export function SetAsideChange({ proposalId = "", finishable = false, prepare = false, prepareNext = false, onFinished }: { proposalId?: string; finishable?: boolean; prepare?: boolean; prepareNext?: boolean; onFinished?: () => void }) {
+export function SetAsideChange({ proposalId = "", finishable = false, prepare = false, prepareNext = false, displayedVersion, historyOnly = false, onFinished }: { proposalId?: string; finishable?: boolean; prepare?: boolean; prepareNext?: boolean; displayedVersion?: string; historyOnly?: boolean; onFinished?: () => void }) {
   const [pending, startTransition] = useTransition();
   const [state, setState] = useState<{ done: boolean; asked: boolean; finished: string | null; error: string | null }>({ done: false, asked: false, finished: null, error: null });
 
+  const [receipt, setReceipt] = useState<{ proposalId: string; displayedVersion: string; message: string; success: boolean } | null>(null);
+  useEffect(() => {
+    const read = () => { try { const saved = JSON.parse(window.sessionStorage.getItem(`beacon.finish-one.${proposalId}`) ?? "null"); setReceipt(saved?.proposalId === proposalId && typeof saved.displayedVersion === "string" && !!saved.displayedVersion && typeof saved.message === "string" && typeof saved.success === "boolean" ? saved : null); } catch { setReceipt(null); } };
+    read(); window.addEventListener("beacon-finish-result", read); return () => window.removeEventListener("beacon-finish-result", read);
+  }, [proposalId]);
+  const lastAction = receipt ? <aside data-last-action="true" className="space-y-1 text-[12px]"><p>Last action response. Version displayed when started: {receipt.displayedVersion}.</p><p className="whitespace-pre-wrap">{receipt.message}</p></aside> : null;
+  if (historyOnly) return lastAction;
   if (state.finished) return <p className="text-[13px] font-semibold text-foreground" data-finish-one-done="true">{state.finished}</p>;
   if (state.done) {
     return (
@@ -157,16 +164,17 @@ export function SetAsideChange({ proposalId = "", finishable = false, prepare = 
         {finishable ? <button type="button" disabled={pending} data-finish-one="true"
           onClick={() => { const authorizationId = prepare && !prepareNext ? crypto.randomUUID() : undefined;
             startTransition(async () => { const res = await finishOneProposalAction(prepareNext ? { prepareNext: true } : { proposalId, ...(prepare ? { prepare: true, authorizationId } : {}) }).catch(() => null);
+            const message = res?.success ? res.note ?? "Finished. This change is ready to copy." : res?.error ?? (prepareNext ? "No finished change was confirmed. Saved work remains intact." : "This change could not be finished just now.");
+            if (proposalId && displayedVersion) { try { window.sessionStorage.setItem(`beacon.finish-one.${proposalId}`, JSON.stringify({ proposalId, displayedVersion, message, success: res?.success === true })); window.dispatchEvent(new window.Event("beacon-finish-result")); } catch { /* The current response remains visible when browser storage is unavailable. */ } }
             if (res?.success) onFinished?.();
-            setState((s) => ({ ...s, finished: res?.success ? res.note ?? "Finished. This change is ready to copy." : null,
-              error: res?.success ? null : res?.error ?? (prepareNext ? "No finished change was confirmed. Saved work remains intact." : "This change could not be finished just now.") })); }); }}
+            setState((s) => ({ ...s, finished: res?.success ? message : null, error: res?.success ? null : message })); }); }}
           className="min-h-11 rounded-md bg-accent-primary px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-60">
           {pending ? "Preparing the change…" : prepareNext ? "Prepare next change" : prepare ? "Prepare best edit on this page" : "Finish this one"}
         </button> : null}
         {finishable ? <span className="text-[12px] text-muted-foreground">{prepareNext ? "Uses saved research to prepare the strongest next change, including a new page when justified. Up to $1; DataForSEO $0. Unfinished work stays saved. Research stays paused." : prepare ? "Each attempt reuses saved evidence; up to $2 OpenAI and $0.40 DataForSEO. Unfinished work and previous receipts stay saved. Research stays paused." : "Free page and evidence checks run first. Only if they pass: one OpenAI review, capped at $0.05. DataForSEO $0. Research stays paused."}</span> : null}
         {!prepareNext ? <button type="button" data-set-aside="true" onClick={() => setState((s) => ({ ...s, asked: true, error: null }))}
           className="inline-flex min-h-11 items-center text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">Skip</button> : null}
-        {state.error ? <span className="text-[12px] text-red-500">{state.error}</span> : null}
+        {state.error ? <span className="text-[12px] text-red-500">{state.error}</span> : finishable && !receipt?.success && receipt?.displayedVersion === displayedVersion ? lastAction : null}
       </div>
     );
   }

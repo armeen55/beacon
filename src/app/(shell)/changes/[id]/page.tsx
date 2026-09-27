@@ -10,20 +10,17 @@ import {
 } from "@/lib/perf-trace";
 import { loadProofLedgerPersisted } from "@/domains/measurement";
 import { findProofForChange, proofResultHref } from "@/domains/measurement";
-import { actionableProposalFailures, componentIdOf, loadChangeProposal, resolveCurrentBasis, sameComponentId } from "@/domains/decision";
+import { actionableProposalFailures, componentIdOf, loadChangeProposal, openHold, resolveCurrentBasis, sameComponentId } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import operatorUiPolicy, { pageLabel } from "../types";
 import { BundleDetail, SimpleDetail } from "./bundle-detail";
+import { SetAsideChange } from "../change-controls";
+type StoredDetail = Parameters<NonNullable<NonNullable<Parameters<typeof loadChangeProposal>[2]>["canonicalRow"]>>[0];
 
 // Force dynamic render so every request runs the fresh-repo-read pattern below. Matches /changes.
 export const dynamic = "force-dynamic";
 
-/**
- * `/changes/[id]`. A current-basis proposal carrying a bundle renders its two-layer detail; a set-aside one
- * renders a single honest page; anything else resolves the changelog entry and redirects to Results, which
- * owns the measurement truth, without inventing an outcome.
- */
 export default async function ChangeDetailPage({
   params,
   searchParams,
@@ -46,7 +43,8 @@ export default async function ChangeDetailPage({
     if (access.kind === "suspended") redirect("/");
 
     // One bounded row read and the current basis keep a direct link aligned with the ranked queue.
-    const [proposal, basis] = await Promise.all([loadChangeProposal(tenantId, id), resolveCurrentBasis(tenantId)]);
+    let canonical: StoredDetail | undefined; const inspect = (row: StoredDetail) => { canonical = row; };
+    const [proposal, basis] = await Promise.all([loadChangeProposal(tenantId, id, { canonicalRow: inspect }), resolveCurrentBasis(tenantId)]);
     const inProof = proposal != null && operatorUiPolicy.isManualEditProofWork(proposal);
     const found = proposal && inProof && actionableProposalFailures(proposal, { tenantId, currentBasis: basis }).length === 0 ? proposal : null;
     // Already-recorded components are disabled in the picker; the server remains idempotent if this read fails.
@@ -59,22 +57,23 @@ export default async function ChangeDetailPage({
       }));
       return <BundleDetail proposal={found} bundle={found.bundle} recorded={recorded} returnTo={returnTo} />;
     }
-    // LIVE WORK WITH NOTHING TO UNPACK still gets its own page: once the queue became mostly suggestion and
-    // sweep cards, the old redirect-to-the-list here bounced every "See the change" press straight back.
     if (found) return <SimpleDetail proposal={found} returnTo={returnTo} />;
     if (proposal && !inProof) return <OutsideProofDetail />;
-    const stored = proposal ?? (await loadChangeProposal(tenantId, id, { retired: "include" }).catch(() => null));
-    // A CHANGE ALREADY RECORDED IS NOT A MISSING PAGE. Pressing Mark done and reopening this address fell all
-    // the way through to the changelog lookup and rendered the framework's unstyled 404, which is the worst
-    // possible answer to "did my action work". It now says what was done, when, and when the reading lands.
+    const stored = proposal ?? (await loadChangeProposal(tenantId, id, { retired: "include", canonicalOnly: true, canonicalRow: inspect }).catch(() => null));
     if (stored?.status === "implemented_pending_verification") {
       const row = (await loadProofLedgerPersisted(tenantId).catch(() => [])).find((r) => r.proposalId === stored.id);
       return <DoneDetail proposal={stored} markedAt={row?.implementedAt ?? row?.shippedAt ?? null} measurementState={row?.measurementState ?? null} />;
     }
-    if (stored != null) return <SetAsideDetail unreadable={basis == null} />;
+    if (stored != null) {
+      const archived = stored.id === id && stored.tenantId === tenantId && canonical?.terminal_disposition != null && canonical.proposal_version > 0 ? stored : null;
+      let successor: { id: string; version: number } | null = null;
+      if (archived && canonical?.superseded_by && canonical.superseded_by !== id && canonical.superseded_by.startsWith(`${tenantId}::`)) {
+        let next: StoredDetail | undefined; const current = await loadChangeProposal(tenantId, canonical.superseded_by, { canonicalOnly: true, canonicalRow: row => { next = row; } }).catch(() => null);
+        if (current?.id === canonical.superseded_by && next?.terminal_disposition == null && next && next.proposal_version > 0 && current.status === "ready" && operatorUiPolicy.isManualEditProofWork(current) && actionableProposalFailures(current, { tenantId, currentBasis: basis }).length === 0 && !openHold(current).faulted && !openHold(current).blocking) successor = { id: current.id, version: next.proposal_version };
+      }
+      return <SetAsideDetail unreadable={basis == null} proposal={archived} canonical={canonical} successor={successor} />;
+    }
 
-    // Fresh per-request repo read: a module-level array hydrated at lambda cold start made entries
-    // written by another lambda invisible here, and the page rendered notFound.
     const repository = getRepository().forTenant(tenantId);
     let freshChangelogEntries: ChangelogEntry[];
     try {
@@ -86,9 +85,6 @@ export default async function ChangeDetailPage({
     const entry = freshChangelogEntries.find((c) => c.id === id);
     if (!entry) notFound();
 
-    // Results owns the measurement truth. A tracked change deep-links to its
-    // exact proof card (including compound-package semantics); an older
-    // untracked changelog row lands on Results without inventing an outcome.
     const proofLedger = await loadProofLedgerPersisted(tenantId).catch(() => []);
     const canonicalProof = findProofForChange(entry, proofLedger);
     redirect(canonicalProof ? proofResultHref(canonicalProof) : "/results");
@@ -105,24 +101,20 @@ function OutsideProofDetail() {
   </section></div>;
 }
 
-/** The honest end of a stale direct link: no exact copy, no before and after, and
- *  no way to record work I no longer stand behind. One decision, one way back. */
-function SetAsideDetail({ unreadable }: { unreadable: boolean }) {
-  return (
-    <div className="max-w-3xl">
-      <section className="space-y-2 rounded-2xl border border-border bg-surface-raised p-5">
-        <h2 className="text-[14px] font-semibold text-foreground">{unreadable ? "This one cannot be shown right now" : "This idea was set aside"}</h2>
-        <p className="text-[13px] leading-relaxed text-muted-foreground">
-          {unreadable
-            ? "Which of your saved ideas still hold could not be confirmed just now, so no unbacked copy is handed over. The check runs again on its own, and every change that stands is ranked on Changes."
-            : "This one was skipped, or it is no longer offered, so no copy is handed over from here. Your pages are still being checked, and every change that stands is ranked on Changes."}
-        </p>
-        <Link href="/changes" className="inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2">
-          See the work that stands now
-        </Link>
-      </section>
-    </div>
-  );
+function SetAsideDetail({ unreadable, proposal, canonical, successor }: { unreadable: boolean; proposal: ChangeProposal | null; canonical?: StoredDetail; successor: { id: string; version: number } | null }) {
+  const pieces = proposal?.bundle?.components ?? (proposal ? [{ kind: proposal.recommendedChange.kind, before: proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.before : null, after: proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.after : proposal.recommendedChange.openingAnswer }] : []);
+  return <div className="max-w-3xl"><section className="space-y-3 rounded-2xl border border-border bg-surface-raised p-5">
+    <h2 className="text-[14px] font-semibold text-foreground">{unreadable ? "This one cannot be shown right now" : "This idea was set aside"}</h2>
+    <p className="text-[13px] leading-relaxed text-muted-foreground">{proposal ? `Archived version ${canonical?.proposal_version}. Its draft is retained for inspection and cannot be applied from here.` : unreadable ? "Current saved work could not be confirmed. No unbacked copy is offered." : "This idea is no longer offered. Changes shows the work that stands now."}</p>
+    {proposal && canonical?.withdrawn_reason ? <div data-retirement-reason="true"><p className="text-[12px] text-muted-foreground">Historical reason recorded when this version was set aside:</p><p className="text-[13px] leading-relaxed">{canonical.withdrawn_reason}</p></div> : null}
+    {proposal ? <><SetAsideChange proposalId={proposal.id} historyOnly /><details data-archived-copy="true"><summary className="text-[13px] font-semibold">Inspect historical draft (not ready to apply)</summary>
+      <p className="mt-3 text-[12px]">{proposal.pageUrl ?? proposal.pagePath}{proposal.recommendedChange.kind === "existing_edit" && proposal.recommendedChange.where ? ` — ${proposal.recommendedChange.where}` : ""}</p>
+      {pieces.map((piece, i) => <div key={i} className="mt-3 space-y-2 text-[13px]"><p>{piece.kind}</p>{piece.before ? <p>Was: {piece.before}</p> : null}<pre className="whitespace-pre-wrap font-sans">{piece.after}</pre></div>)}
+      {(proposal.supportFacts ?? []).map(fact => <p key={fact.id} className="mt-3 text-[12px]">{fact.fact}{fact.sources?.map(source => ` ${source.url}`).join("")}</p>)}
+    </details></> : null}
+    {successor ? <Link data-successor="true" href={`/changes/${encodeURIComponent(successor.id)}`} className="text-[13px] text-accent-primary underline">See the current replacement, version {successor.version}</Link> : null}
+    <Link href="/changes" className="inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2">See the work that stands now</Link>
+  </section></div>;
 }
 
 /** WHAT WAS DONE AND WHEN THE ANSWER COMES, for a change already recorded. No copy to paste, no control to press
