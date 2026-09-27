@@ -192,11 +192,11 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   if (page.prospective ? !d.statementKey || !d.basis : !page.body.trim()) return fail("no_page_body", null, "no stored words or scoped prospective proposition to research");
   const hash = page.prospective ? null : pageHashOf(page.body), own = page.prospective ?? [...new Set(page.body.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 2))].join(" ").split(/\s+/).slice(0, 8).join(" ");
   const mine = (d.held ?? []).filter((h) => h.page === page.path), body = page.body.toLowerCase(), stands = (current: string): boolean => current.trim() === "" || body.includes(current.trim().toLowerCase());
-  let inventory = mine.filter((h) => (h.pageContentHash === hash || (!page.prospective && stands(h.current))) && h.state !== "superseded" && (!page.prospective || (h.current.trim() === "" && h.evidenceBasis === d.basis)));
+  let inventory = mine.filter((h) => (!d.statementKey || h.statementKey === d.statementKey) && (h.pageContentHash === hash || (!page.prospective && stands(h.current))) && h.state !== "superseded" && (!page.prospective || (h.current.trim() === "" && h.evidenceBasis === d.basis)));
   const refreshInventory = async (keys: readonly string[]): Promise<boolean> => {
     const fresh = await readFactChecks(tenantId, page.path).catch(() => null);
     if (!fresh || keys.some((k) => !fresh.some((h) => h.page === page.path && h.statementKey === k && h.state === "owed" && Number.isSafeInteger(h.sourceVersion) && h.sourceVersion! > 0))) return false;
-    inventory = fresh.filter((h) => h.page === page.path && (h.pageContentHash === hash || (!page.prospective && stands(h.current))) && h.state !== "superseded" && (!page.prospective || h.current.trim() === "" && h.evidenceBasis === d.basis));
+    inventory = fresh.filter((h) => h.page === page.path && (!d.statementKey || h.statementKey === d.statementKey) && (h.pageContentHash === hash || (!page.prospective && stands(h.current))) && h.state !== "superseded" && (!page.prospective || h.current.trim() === "" && h.evidenceBasis === d.basis));
     return keys.every((k) => inventory.some((h) => h.statementKey === k));
   };
   const covRead = !page.prospective && d.readCoverage ? await d.readCoverage().catch(() => null) : null;

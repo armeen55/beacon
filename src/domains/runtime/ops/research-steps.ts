@@ -35,15 +35,11 @@ type OwedReading = EvidenceRequirement & { key: string; reason: string; workKey:
 type AcquisitionNeedBase = Pick<EvidenceRequirement, "kind" | "query" | "url" | "missingTopic" | "topic" | "finding" | "rivalUrl" | "rivalUrls" | "proposalId" | "ownerVersion" | "delivery"> & Partial<Pick<EvidenceRequirement, "reasonCode">>;
 type ProposalAcquisitionNeed = AcquisitionNeedBase & { workKey: string; key?: string; unlocks?: { proposalId: string } };
 const pathOf = (u: string): string => { try { return new URL(u.startsWith("http") ? u : `https://${u}`).pathname.replace(/\/+$/, "") || "/"; } catch { return u; } }; const sameFinal = (a: string | null | undefined, b: string): boolean => { try { const x = new URL(a ?? ""), y = new URL(b); return x.protocol === y.protocol && x.port === y.port && x.hostname.replace(/^www\./, "") === y.hostname.replace(/^www\./, "") && x.pathname === y.pathname && x.search === y.search; } catch { return false; } };
-/** THE MISSING SUBJECT, CARRIED IN THE FRAME THE SEARCH GIVES IT, and built HERE so the seed, the state read and the receipt name one proposition (campaign, 2026-09-06). A subject lifted off a rival's outline is a label ("Artists"), not something a reader asks: the fact engine searched it as written, read nothing that answers it, and the row then owed an input nothing could supply. The proposition is the search this gap is about with the subject's own words after it: the search's words the subject does not itself carry, bounded, then the subject whole. Built from the tokens already on the requirement and never from a phrase written here, so it holds for any account; a requirement whose search IS its subject is byte for byte what it was, and the page's own subject still leads the query and the judge's question inside the fact engine. PURE. */
 const propositionOf = (topic: string, search: string): string => { if (topic === "grouping criteria and selection boundary") topic = AEO_BAR.groupingQuestion; const bare = (w: string): string => w.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ""), words = (t: string): string[] => t.trim().split(/\s+/).filter(Boolean), its = new Set(words(topic).map(bare));
   return [...words(search).filter((w) => bare(w) !== "" && !its.has(bare(w))).slice(0, 8), ...words(topic)].join(" ") || topic.trim(); };
 const BENIGN_BACKFILL_SKIPS = new Set(["not_started", "already_complete", "no_synced_property", "no_cursor"]);
-/** Bounded rotating account recovery probe; the existing scheduler owns it. */
 const FREE_COLLECT_PER_RUN = 8;
-/** How many banked claims one drive derives missing source support for, at $0 and from quotes already on file. Bounded because it is a backfill of standing inventory, not the pass's own work. */
 const SUPPORT_BACKFILL_PER_DRIVE = 12;
-/** Source identities let retries union successes without double counting. */
 type RefreshSourcesResult = { attempted: number; succeeded: string[]; failures: Array<{ provider: string; detail: string }> };
 type BackfillChunkResult = { kind: "advanced"; complete?: boolean; daysPulled?: number } | { kind: "no_work" };
 export type ResearchCycleSteps = {
@@ -61,19 +57,15 @@ export type ResearchCycleSteps = {
   currentBasis: (tenantId: string) => Promise<string | null>;
   reconcileCases: (tenantId: string, basis: string, plan: CaseReconcilePlan) => Promise<void>;
   publishSurface: (tenantId: string, attemptKey: string) => Promise<void>;
-  factCheck: (tenantId: string, budgetMs: number, renew?: () => Promise<boolean>, /** THE PAGE THAT OPENS THE PASS: the highest-ranked open source need, so a drive checks the page whose funded work is waiting rather than the audience's most-read one. Null keeps the rotation order. */ firstPage?: string | null, /** The drive's working context: this phase runs before the walk and reads the same account, so it shares that read rather than making a second one. */ shared?: Map<string, unknown>)
+  factCheck: (tenantId: string, budgetMs: number, renew?: () => Promise<boolean>, /** THE PAGE THAT OPENS THE PASS: the highest-ranked open source need, so a drive checks the page whose funded work is waiting rather than the audience's most-read one. Null keeps the rotation order. */ firstPage?: string | null, /** The drive's working context: this phase runs before the walk and reads the same account, so it shares that read rather than making a second one. */ shared?: Map<string, unknown>, finding?: EvidenceRequirement["finding"])
     => Promise<{ status: "advanced" | "done" | "failed"; banked: number; /** The pages this pass banked evidence ON, so a drive can hire the writer that was waiting on one of them in the same turn. */ bankedPages: string[]; pagesComplete: number; failure?: string; reason?: string }>;
   surfaceStale: (tenantId: string, nowMs: number) => Promise<boolean>;
-  /** Read new answers within the remaining deadline and return attempted/settled receipts. */
   analyzeAnswers: (tenantId: string, reportingDay: string, budgetMs: number) => Promise<{ attempted: number; settled: number; refused: number; read: number; outcomes: Record<string, number>; /** Calls that genuinely returned and were paid for; absent from a seam that does not meter. */ billed?: number }>;
   verifyShipments: (tenantId: string, now: Date) => Promise<number>;
   measureShipments: (tenantId: string, now: Date) => Promise<number>;
   dueWork: (tenantId: string, now: Date) => Promise<DueWork>;
-  /** TODAY'S WHOLE-DAY STANDING off the canonical planner: settled of intended, and how the settled ones landed. Null = I could not read it, which is never "the day is finished". Free. */
   dayStanding: (tenantId: string, reportingDay: string) => Promise<DueWork["checks"] | null>;
   evidenceVersion: (tenantId: string, basis: string) => Promise<number | null>;
-  /** FINISH STORED OPPORTUNITIES THROUGH THE ONE CANONICAL PRODUCER before this cycle buys exploratory evidence. The count on the receipt is the LOW-STOCK ALARM ONLY (operator, 2026-08-30): `deficit` reports how far the stock sits under the alarm floor and sizes NOTHING; the buy runs the whole declared manifest to the pass's own money and time bounds, whatever the count. null = the count could not be read, which defers nothing and claims nothing. `seen` is the day's own memory: the manifest it was working through and the pages it has already spent on. */
-  /** THE STORED WORK WAITING ON A READING FOR ONE OF THESE PAGES, named by its own funding key. $0 and bounded: one read of rows already on file, no provider and no model. A day closed `candidates_exhausted` remembers no unsettled job and owes no reading BY CONSTRUCTION, so when a fact lands after it this is the only thing left that can say whose work it was for. */
   researchOwed: (tenantId: string, pages: readonly string[]) => Promise<string[]>;
   replenishReady: (tenantId: string, now: Date, seen?: { deliveryScope?: Parameters<typeof DRAFT_BUDGET.scopeAllows>[0]; /** The pass's paid AEO diagnosis purse, decided by the caller's shift (2026-09-11: 200 per pass every ten minutes was the invisible dollar-forty an hour). */ aeoDiagnoses?: number; jobs?: Readonly<Record<string, JobMemory>>; /** How many charged calls this DRIVE has already spent on earlier walks. The ceiling is one pass, and a drive may run several walks (the stock walk, one per acquired reading, and the one a banked fact wakes), so a drive that reports its spend gets the REMAINDER of the one ceiling instead of a fresh one. */ callsSpent?: number; callsLimit?: number;
     /** Exact acquired obligation; Decision resolves its current work identity after rebuilding the manifest. */ preferred?: { proposalId: string; workKey: string; strict?: true };
@@ -376,8 +368,7 @@ export const defaultSteps: ResearchCycleSteps & {
   async measureShipments(tenantId, now) { return settleDueMeasurements(tenantId, { now }); },
   // publishCustomerSurfaces PROPAGATES failure (no internal swallow): a throw pauses publish_surface and the previously saved surface stays visible.
   async publishSurface(tenantId) { await publishCustomerSurfaces(tenantId); },
-  // THE PAGE THIS ACCOUNT IS MOST SHOWN FOR, checked against the sources for its own subjects. One page a pass, statements it has not already checked at this version of the page, and every finding banked as a row of its own. Fail-soft by construction: the answer is a count and a reason, never a thrown run. ONE CLAIM, ON A PAGE CHOSEN BY WHAT IS ACTUALLY OWED. Rotation is the point: the first version always took the single most-shown page, so once that page was exhausted every later pass took it again and page two was unreachable (Codex, 2026-08-18). A page is eligible while it has claims not yet current at its CURRENT content hash; the account's oldest-covered eligible page goes first. Fail-soft: a count and a reason.
-  async factCheck(tenantId, budgetMs, renew, firstPage, shared) { return factCheckPass(tenantId, budgetMs, renew, firstPage ?? null, shared); },
+  async factCheck(tenantId, budgetMs, renew, firstPage, shared, finding) { return factCheckPass(tenantId, budgetMs, renew, firstPage ?? null, shared, undefined, undefined, undefined, finding); },
   async surfaceStale(tenantId, nowMs) {
     const { readCustomerSurface, isCustomerSurfaceStale } = await import("@/app/(shell)/surface-release");
     const surface = await readCustomerSurface(tenantId).catch(() => null);
@@ -429,22 +420,23 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
     try {
       const creditHeld = Date.now() < deadlineAt && await import("@/domains/decision/llm/gateway").then((m) => m.creditBreakerHeld(tenantId)).catch(() => true);
       if (Date.now() >= deadlineAt || creditHeld) return { status: "failed", banked: 0, bankedPages: [], pagesComplete: 0, failure: creditHeld ? "credit_held" : "deadline", reason: creditHeld ? "the model provider's credit is spent, so no claim was judged this pass; it resumes when a call goes through" : "the factual-reading deadline has passed, so its evidence remains owed" };
-      const [{ runFactCheckPass, claimIdentity }, facts, { loadEvidenceSnapshot }, { loadOwnedPageBodies }] = await Promise.all([
+      const [{ runFactCheckPass, claimIdentity, pageHashOf }, facts, { loadEvidenceSnapshot }, { loadOwnedPageBodies }] = await Promise.all([
         import("@/domains/evidence/pages/fact-check-run"), import("@/domains/evidence/pages/fact-checks"),
         import("@/domains/evidence/snapshot-loader"), import("@/domains/evidence/pages/owned-context"),
       ]);
       const snapshot = await loadEvidenceSnapshot(tenantId, shared ? { shared } : {});
       if (topic && (snapshot.scope.tenantId !== tenantId || !snapshot.scope.site)) return { status: "failed", banked: 0, bankedPages: [], pagesComplete: 0, reason: "the prospective research has no verified website scope" };
-      const held = await facts.readFactChecks(tenantId);
+      const exact = finding !== undefined && !proposition, refused = { status: "failed" as const, banked: 0, bankedPages: [], pagesComplete: 0, failure: "source_target_changed", reason: "the exact finding, current owner capture, source nomination or evidence basis could not be verified; no source was researched" };
+      if (exact && (!finding || finding.tenantId !== tenantId || typeof finding.page !== "string" || !finding.page.startsWith("/") || /[?#]/.test(finding.page) || typeof finding.statementKey !== "string" || !finding.statementKey.trim() || !Number.isSafeInteger(finding.sourceVersion) || finding.sourceVersion! <= 0 || snapshot.scope.tenantId !== tenantId || !snapshot.scope.site)) return refused;
+      let held = (await facts.readFactChecks(tenantId, finding?.page)).filter(h => !finding || h.page === finding.page && h.statementKey === finding.statementKey);
       const qd = new Map<string, number>();
       for (const p of snapshot.ownedPages) for (const q of p.search?.topQueries ?? []) for (const w of q.query.toLowerCase().split(/\s+/)) if (w.length > 2) qd.set(w, (qd.get(w) ?? 0) + q.impressions);
       const sdm = (t: string): number => Math.max(0, ...t.toLowerCase().split(/\s+/).filter((w) => w.length > 2).map((w) => qd.get(w) ?? 0));
       held.sort((a, b) => sdm(b.subject) - sdm(a.subject));
       const coverage = new Map<string, number>();
       for (const h of held) coverage.set(h.page, Math.min(coverage.get(h.page) ?? Infinity, Date.parse(h.checkedAt) || 0));
-      // FINISH WHAT IS ALREADY BOUGHT FIRST: a page holding owed claims outranks an unopened one. THEN DEMAND OUTRANKS ROTATION (operator, 2026-08-30): the wave spent most of its $0.60 judging low-value claims because oldest-coverage rotation came before audience, so the audience the account actually has decides next and rotation only breaks the tie. Nothing is dropped: every owed claim stays owed and typed exhaustion still reaches the tail. A NAMED TARGET OUTRANKS EVERYTHING: an acquisition runs for one page's owed claims.
       const owedPage = new Set(held.filter((h) => h.state === "owed").map((h) => h.page)), askedPage = new Set(held.filter((h) => h.state === "owed" && facts.rulesVersionFor(h) === facts.MISSING_ANSWER_RULES_VERSION).map((h) => h.page)); // A MISSING ANSWER IS A CUSTOMER WAITING FOR AN ANSWER BLOCK, INVENTORY IS THE PAGE TALKING TO ITSELF (live, 0c2059ec): three question rows reopened and the drive spent every unit on one hub's "Quick Facts" claims, because holding owed claims at all was the whole tie-break.
-      const want = topic?.key ?? (firstPage ? pathOf(firstPage) : null), named = (u: string): number => (want != null && pathOf(u) === want ? 1 : 0);
+      const want = topic?.key ?? (exact ? finding!.page : firstPage ? pathOf(firstPage) : null), named = (u: string): number => (want != null && pathOf(u) === want ? 1 : 0);
       const ranked = [...snapshot.ownedPages]
         .sort((a, b) => named(b.url) - named(a.url)
           || (askedPage.has(pathOf(b.url)) ? 1 : 0) - (askedPage.has(pathOf(a.url)) ? 1 : 0)
@@ -452,6 +444,17 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
           || (b.search?.impressions90d ?? 0) - (a.search?.impressions90d ?? 0)
           || (coverage.get(pathOf(a.url)) ?? -1) - (coverage.get(pathOf(b.url)) ?? -1));
       const basis = topic?.basis ?? await import("@/domains/decision/load-proposals").then((m) => m.resolveCurrentBasis(tenantId)).catch(() => null);
+      let sourceBody: Awaited<ReturnType<typeof loadOwnedPageBodies>> | undefined;
+      if (exact) {
+        const { COPY_RULES } = await import("@/domains/decision/copy-sanitize"), owners = ranked.filter(p => pathOf(p.url) === want), mine = held.filter(h => h.page === want && h.statementKey === finding!.statementKey && h.state !== "superseded");
+        if (!basis || owners.length !== 1 || mine.length !== 1 || mine[0]!.sourceVersion !== finding!.sourceVersion || mine[0]!.evidenceBasis !== basis || !["owed", "checked"].includes(mine[0]!.state) || COPY_RULES.captureAddress(new URL("/", owners[0]!.url).href) !== COPY_RULES.captureAddress(snapshot.scope.site) || firstPage != null && COPY_RULES.captureAddress(firstPage) !== COPY_RULES.captureAddress(owners[0]!.url)) return refused;
+        const b = (sourceBody = await loadOwnedPageBodies(tenantId, [owners[0]!.url])).get(canonicalUrlKey(owners[0]!.url)), row = mine[0]!, unit = row.current.trim(), words = b ? [b.title, b.h1, ...b.headings, ...b.passages].filter(Boolean).join("\n") : "", regions = b ? sectionsFrom(b.passages.join("\n"), {}, b.sourceCapture) : [], hits = regions.filter(r => unit && r.text.includes(unit));
+        if (!b || b.tenantId !== tenantId || !COPY_RULES.captureProof(b).length || COPY_RULES.captureAddress(b.url) !== COPY_RULES.captureAddress(owners[0]!.url) || row.pageContentHash !== pageHashOf(words) || !unit || regions.filter(r => r.heading === row.subject).length !== 1 || hits.length !== 1 || hits[0]!.heading !== row.subject || hits[0]!.text.split(unit).length !== 2 || b.passages.filter((text, i) => text.includes(unit) && b.passageMeta?.[i]?.heading === row.subject).length !== 1 || Date.now() >= deadlineAt) return refused;
+        if (row.state === "checked") return facts.authorizedCorrections([row], undefined, tenantId).length ? { status: "done", banked: 0, bankedPages: [], pagesComplete: 0, reason: "the exact current finding is already qualified; no source was researched" } : refused;
+        const nominee = row.sources.find(s => isSafeRedirectHopUrl(s.url) && !new URL(s.url).hostname.replace(/^www\./, "").endsWith(`.${new URL(b.url).hostname.replace(/^www\./, "")}`) && new URL(s.url).hostname.replace(/^www\./, "") !== new URL(b.url).hostname.replace(/^www\./, ""))?.url;
+        if (!nominee || row.sources.some(s => !s.says.trim() && s.url !== nominee) || row.note.startsWith("Owed again: source support disputed;") && (row.sources.length !== 1 || row.sources[0]!.says.trim())) return refused;
+        held = mine; rival = { subject: row.subject, url: nominee, anchor: row.subject };
+      }
       const { callStructuredLLM } = await import("@/domains/decision/llm/structured-drafter");
       const read = async (input: { kind: "fact_claim_extraction" | "fact_claim_judgement"; system: string; user: string; grounded: string; projectedCostUsd: number; maxTokens: number }) => {
         const left = deadlineAt - Date.now();
@@ -476,13 +479,13 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
       };
       const out = await runFactCheckPass({
         tenantId, basis, deadlineAt, held, renew, read, ...(rival ? { rival } : {}), structured: (subject: string) => subject.endsWith(AEO_BAR.groupingQuestion),
-        ...(want && proposition ? { target: { page: want, statementKey: finding?.statementKey ?? atomKey ?? claimIdentity(proposition, "", "missing") } } : {}),
+        ...(want && (proposition || exact) ? { target: { page: want, statementKey: finding?.statementKey ?? atomKey ?? claimIdentity(proposition!, "", "missing") } } : {}),
         pages: topic ? [{ url: `https://${snapshot.scope.site}`, path: topic.key, prospective: topic.label, loadBody: async () => "" }] : ranked.map((p) => ({ url: p.url, path: pathOf(p.url), loadBody: async () => {
-          const bodies = await loadOwnedPageBodies(tenantId, [p.url]).catch(() => null);
+          const bodies = sourceBody ?? await loadOwnedPageBodies(tenantId, [p.url]).catch(() => null);
           const b = bodies?.get?.(canonicalUrlKey(p.url)); // the same canonical key: an absolute owned-page address read back nothing here, so every page was skipped for having no stored words and the pass banked nothing on a store holding hundreds
           return b?.version === "current" && !!b.contentHash ? [b.title, b.h1, ...b.headings, ...b.passages].filter(Boolean).join("\n") : "";
         } })),
-        refreshHeld: (page) => facts.readFactChecks(tenantId, page).catch(() => null),
+        refreshHeld: (page) => facts.readFactChecks(tenantId, page).then(rows => finding ? rows.filter(h => h.page === finding.page && h.statementKey === finding.statementKey) : rows).catch(() => null),
         readCoverage: (page) => facts.readInventoryCoverage(tenantId, page).catch(() => null),
         writeCoverage: (page, cov) => facts.recordInventoryCoverage(tenantId, page, cov),
         searchSources: async (query) => {
@@ -502,15 +505,11 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
           return text.trim() ? { text, title: parsed?.title ?? null, sections: parsed?.sections ?? [], ...("fetchedAt" in r ? { fetchedAt: r.fetchedAt } : {}) } : { hold: "refused" as const }; // the FETCHED document's own title rides along: it identifies the subject of an anaphoric passage, which a SERP title or slug never can
         },
       });
-      // Derive claim support from banked quotes at $0, bounded per drive. Unsupported quotes stay banked with their reason.
       const sectionsOwed = held.filter((h) => owedOneSectionRead(h)).slice(0, SUPPORT_BACKFILL_PER_DRIVE); const owedSupport = held.filter((h) => h.state === "checked" && !sectionsOwed.includes(h) && h.sources.some((s) => s.says.trim() !== "" && s.support == null)).slice(0, SUPPORT_BACKFILL_PER_DRIVE); // THE GROUPING ROWS BANKED BEFORE THE SECTIONS RODE ARE DECIDED FIRST (independent review, 2026-09-10): the support backfill below would otherwise take such a row for its missing artifact and rebank it checked in the same pass this slice reopens it.
-      // AND THE MISSING-INFORMATION ROWS WHOSE ARTIFACTS WERE JUDGED BY THE HEADWORD RULE. A row that corrects nothing is supported by PROPOSITION CARRIAGE, so its banked artifacts were decided under a question that never applied to it and are stale by identity; they are re-derived here at $0, and a row still below confirmed is handed back to the fact pass once so the proposition rule may settle it. Its own slice, so this never crowds out the rows that carry no artifact at all.
-      /* A READING THE CONSUMER CAN ALREADY USE IS NEVER RE-OWED AND NEVER RE-BOUGHT (round-three reviewer, 2026-09-05). Both predicates below asked `confidence !== "confirmed"`, which was the whole-account bar before the evidence bar became proportional to what a treatment risks: an ADDITIVE answer a reader undoes by deleting it is now accepted at `likely`, so a row the writer may already stand on was reopened here, and reopening buys fresh research. The bar is not mirrored as a grade, it is ASKED of the one door that decides it (`authorizedCorrections`), so the money and the copy can never drift apart again; the call is one in-memory read of the row already in hand and costs nothing. */
       const usable = (h: (typeof held)[number]): boolean => facts.authorizedCorrections([h], undefined, tenantId).length > 0;
       const gap = (h: (typeof held)[number]): boolean => h.current.trim() === "" && !!h.proposed?.trim(), stale = (h: (typeof held)[number]): boolean => h.current.trim() === "" && (h.rulesVersion !== facts.rulesVersionFor(h) || (!usable(h) && !!h.proposed?.trim() && h.sources.length > 0 && h.sources.every((s) => s.says.trim() === "") && !h.note.includes("the passage behind this answer was not found"))); // a row whose every source banked an empty quote lost its answer to the verbatim test and is worth one more unit now that the bank searches the passage the judge read; ONCE, so a row whose note already carries those words (claim-support.ts guards on them, fact-check-run.ts banks them) never takes one of the twelve free slots again
       const gapSupport = held.filter((h) => h.state === "checked" && gap(h) && !owedSupport.includes(h) && !sectionsOwed.includes(h)
         && h.sources.some((s) => s.says.trim() !== "" && s.support != null)).slice(0, SUPPORT_BACKFILL_PER_DRIVE);
-      // Reopen answers judged under obsolete rules once so the current claim rule can evaluate them.
       const rulesMoved = held.filter((h) => h.state === "checked" && stale(h) && !owedSupport.includes(h) && !gapSupport.includes(h) && !sectionsOwed.includes(h)).slice(0, SUPPORT_BACKFILL_PER_DRIVE); for (const pg of new Set(sectionsOwed.map((h) => h.page))) if (Date.now() < deadlineAt) await facts.reopenObsoleteChecks(tenantId, pg, sectionsOwed.filter((h) => h.page === pg), "Reopened: the words the source keeps under its own headings are read once for this grouping answer.").catch(() => 0); // THE GROUPING ROWS BANKED BEFORE THE SECTIONS RODE, REOPENED FROM THE PASS ITSELF (independent review, 2026-09-10): the seed above is reached only through a writer that owes a grouping, and the wildlife hub's row already holds two groups, so nothing would ever have reopened it; its own slice, bounded like the others, and every row it feeds is read once more at its turn.
       const targets = [...owedSupport, ...gapSupport, ...rulesMoved].map((h) => ({ page: h.page, statementKey: h.statementKey,
         onUnsupported: gap(h) && !usable(h) ? "reopen" as const : "bank" as const, ...(stale(h) ? { rulesStale: true } : {}) })); // THE FLAG IS THE ROW'S OWN, NEVER THE SLICE IT ARRIVED IN (live, 0c2059ec): the flag row carries two current artifacts, so slice 2 took it, reported already_current and the third slice then subtracted it for ever. Every selected row is asked the same question.

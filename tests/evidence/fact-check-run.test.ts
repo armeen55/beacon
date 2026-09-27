@@ -346,15 +346,15 @@ describe("a verdict from obsolete rules is not current evidence", () => { before
     for (const must of ["Afshin", "warrior", "conqueror", "meaning", "etymology"]) expect(query).toContain(must);
   });
   it("re-opens the live Ahvaz check produced under the old subject-only query, and leaves a current one settled", async () => {
-    const AHVAZ = "Ahvaz, Iran holds the record for hottest day ever in Asia at 54 °C (129 °F)", page = { url: "https://x.example/ahvaz", path: "/ahvaz", body: `${AHVAZ} And more.` };
-    const done = { pageContentHash: pageHashOf(page.body), coveredChars: page.body.length, totalChars: page.body.length }; db.cov = done;
+    const AHVAZ = "Ahvaz, Iran holds the record for hottest day ever in Asia at 54 °C (129 °F)", page = { url: "https://x.example/ahvaz", path: "/ahvaz", body: `${AHVAZ} And more.` }, done = { pageContentHash: pageHashOf(page.body), coveredChars: page.body.length, totalChars: page.body.length }; db.cov = done;
     const old = row({ page: "/ahvaz", statementKey: "ahvaz, iran#fdbdbbc407", subject: "Ahvaz, Iran", current: AHVAZ,
       pageContentHash: pageHashOf(page.body), state: "checked", rulesVersion: 1, sourceReadAt: NOW.toISOString() });
-    let asked = ""; const out = await unit({ page, held: [old], searchSources: async (q: string) => { asked = q; return SOURCE; } });
+    const facts = await import("@/domains/evidence/pages/fact-checks"); vi.spyOn(facts, "readFactChecks").mockImplementation(async () => [...db.inventory, row({ ...old, statementKey: "other-source", rulesVersion: 4, state: "owed" })] as FactCheck[]);
+    let asked = ""; const out = await unit({ page, held: [old, { ...old, statementKey: "obsolete-sibling", subject: "Other record" }], statementKey: old.statementKey, searchSources: async (q: string) => { asked = q; return SOURCE; } });
     expect([db.reopened, out.status]).toEqual([["ahvaz, iran#fdbdbbc407"], "advanced"]); // archived, owed, researched
     for (const must of ["Ahvaz", "54", "°C", "Asia", "hottest"]) expect(asked).toContain(must);
-    expect([asked.includes("definition reference"), (db.rows[0] as FactCheck).rulesVersion, (db.rows[0] as FactCheck).sourceVersion]).toEqual([false, VERIFICATION_RULES_VERSION, 2]);
-    reset(); db.cov = done; let searches = 0;
+    expect([asked.includes("definition reference"), (db.rows[0] as FactCheck).rulesVersion, (db.rows[0] as FactCheck).sourceVersion, out.cursor?.total]).toEqual([false, VERIFICATION_RULES_VERSION, 2, 1]);
+    vi.restoreAllMocks(); reset(); db.cov = done; let searches = 0;
     const settled = await unit({ page, held: [{ ...old, rulesVersion: VERIFICATION_RULES_VERSION }],
       searchSources: async () => { searches += 1; return SOURCE; } });
     expect([db.reopened, searches, settled.status]).toEqual([[], 0, "done"]); }); });
