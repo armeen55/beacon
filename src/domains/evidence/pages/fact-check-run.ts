@@ -1,12 +1,11 @@
 import "server-only";
 import { createHash } from "node:crypto"; import { FURNITURE_LABEL } from "@/domains/evidence/relevance-gate"; import { sha16 } from "@/domains/evidence/funnel/shared";
 import { log } from "@/lib/logger";
-import { recordFactChecks, recordOwedClaims, reopenObsoleteChecks, reopenChangedSourceChecks, supersedeStaleFacts, statementKeyOf,
+import { recordFactChecks, readFactChecks, recordOwedClaims, reopenObsoleteChecks, reopenChangedSourceChecks, supersedeStaleFacts, statementKeyOf,
   MISSING_ANSWER_RULES_VERSION, rulesVersionFor, unauthorizedReason, authorizedCorrections, type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
 import { FACT_SOURCE } from "./fact-source-identity";
 import { SUPPORT_ARTIFACT_VERSION, supportIdentity, supportFailure, unsupportedArtifact, deriveSupport, claimTypeOf, AUTHORITATIVE_KIND as AUTHORITATIVE, type ClaimSupport, type ClaimType, type SupportContext } from "./claim-support";
 export { claimTypeOf } from "./claim-support";
-const EMPTY_ROW = { proposed: null, literal: null, usage: null, sources: [], agreement: "none_found" as const, confidence: "unsupported" as const, verdict: "undecidable" as const, alsoAt: [], note: "", sourceReadAt: null };
 const CANDIDATES = 6, FETCH_PER_CLAIM = 2; // per claim
 const RESERVE_MS = 8_000;
 const EXTRACT_CHUNK = 3_000;
@@ -194,17 +193,23 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const hash = page.prospective ? null : pageHashOf(page.body), own = page.prospective ?? [...new Set(page.body.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 2))].join(" ").split(/\s+/).slice(0, 8).join(" ");
   const mine = (d.held ?? []).filter((h) => h.page === page.path), body = page.body.toLowerCase(), stands = (current: string): boolean => current.trim() === "" || body.includes(current.trim().toLowerCase());
   let inventory = mine.filter((h) => (h.pageContentHash === hash || (!page.prospective && stands(h.current))) && h.state !== "superseded" && (!page.prospective || (h.current.trim() === "" && h.evidenceBasis === d.basis)));
+  const refreshInventory = async (keys: readonly string[]): Promise<boolean> => {
+    const fresh = await readFactChecks(tenantId, page.path).catch(() => null);
+    if (!fresh || keys.some((k) => !fresh.some((h) => h.page === page.path && h.statementKey === k && h.state === "owed" && Number.isSafeInteger(h.sourceVersion) && h.sourceVersion! > 0))) return false;
+    inventory = fresh.filter((h) => h.page === page.path && (h.pageContentHash === hash || (!page.prospective && stands(h.current))) && h.state !== "superseded" && (!page.prospective || h.current.trim() === "" && h.evidenceBasis === d.basis));
+    return keys.every((k) => inventory.some((h) => h.statementKey === k));
+  };
   const covRead = !page.prospective && d.readCoverage ? await d.readCoverage().catch(() => null) : null;
   let cov = covRead && covRead.pageContentHash === hash
     ? covRead : { pageContentHash: hash, coveredChars: 0, totalChars: page.body.length };
   const obsolete = inventory.filter((h) => (h.state === "checked" && h.rulesVersion !== rulesVersionFor(h))
     || (h.state === "checked" && h.confidence === "confirmed" && unauthorizedReason(h) != null));
-  if (obsolete.length > 0 && await reopenObsoleteChecks(tenantId, page.path, obsolete).catch(() => 0) > 0) {
-    inventory = inventory.map((h) => (obsolete.includes(h) ? { ...h, state: "owed" as const, rulesVersion: rulesVersionFor(h) } : h));}
+  const oldReopened = obsolete.length ? await reopenObsoleteChecks(tenantId, page.path, obsolete).catch(() => null) : 0;
+  if (oldReopened !== obsolete.length || oldReopened > 0 && !await refreshInventory(obsolete.map((h) => h.statementKey))) return fail("store_write_failed", null, "obsolete inventory could not be durably reopened and read back");
   const changed = d.scanSourceChanges === false ? [] : await FACT_SOURCE.changed(inventory.filter((h) => !d.statementKey || h.statementKey === d.statementKey), d.readCachedSource).catch(() => []);
   const reopened = changed.length ? await reopenChangedSourceChecks(tenantId, page.path, changed).catch(() => null) : [];
-  if (reopened === null) return fail("store_write_failed", null, "changed source could not be durably archived and reopened");
-  if (reopened.length) inventory = inventory.map((h) => reopened.includes(h.statementKey) ? { ...h, state: "owed" as const, sources: h.sources.map((s) => ({ url: s.url, kind: s.kind, says: "" })), proposed: null } : h);
+  if (reopened === null || reopened.length !== changed.length || new Set(reopened).size !== changed.length || changed.some((h) => !reopened.includes(h.statementKey))) return fail("store_write_failed", null, "changed source could not be durably archived and reopened");
+  if (reopened.length && !await refreshInventory(reopened)) return fail("store_write_failed", null, "changed source inventory revision could not be read back");
   const waiting = (h: FactCheck): boolean => h.pageLocator === "missing" || rulesVersionFor(h) === MISSING_ANSWER_RULES_VERSION, seededFirst = (rows: typeof inventory) => [...rows].sort((a, b) => (waiting(b) ? 1 : 0) - (waiting(a) ? 1 : 0)); // and a question this page does not answer outranks its inventory whatever its locator says, because a reopened row keeps the locator it was banked with
   let owed = seededFirst(inventory.filter((h) => h.state === "owed" && (!d.statementKey || h.statementKey === d.statementKey)));
   if (!page.prospective && !d.statementKey && cov.coveredChars < cov.totalChars) {
@@ -228,10 +233,8 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
       .filter((c, i, all) => all.findIndex((x) => x.statementKey === c.statementKey) === i) .filter((c, i, all) => all.findIndex((x) => x.prop === c.prop) === i)
       .filter((c) => !knownIds.has(c.statementKey) && !knownProps.has(c.prop) && !COMMERCE_CLAIM.test(`${c.subject} ${c.current}`));
     if (cov.coveredChars === 0) {
-      // THE PAGE MOVED ON: whatever objects to wording this version no longer carries becomes history now rather than a second live instruction beside its own replacement.
       await supersedeStaleFacts(tenantId, page.path, hash!, stands)
         .catch((e) => { log.warn("[fact-check] stale claims could not be retired", { tenantId, page: page.path, error: String(e) }); return 0; });}
-    // THE INVENTORY AND ITS COVERAGE ARE THE CURSOR, stored BEFORE one claim is researched. A write that did not land is a failed unit: researching against an inventory nobody stored is how page two was lost.
     const wrote = claims.length === 0 ? 0 : await recordOwedClaims(tenantId, page.path, claims, hash, d.basis).catch(() => -1);
     if (wrote < 0) return fail("inventory_write_failed", null, "the page's claim inventory could not be stored, so nothing was researched");
     // A CAPPED EXTRACTION HAS NOT READ ITS CHUNK, IT HAS FILLED UP: one oversized chunk once swallowed a cursor now advances only to the end of the last statement read, found by its own wording, and nothing is re-banked because both filters above dedupe. MEASURED ON WHAT CAME BACK, never on what survived that dedupe: a chunk returning exactly the cap and then losing rows read as "not capped".
@@ -241,9 +244,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     cov = { pageContentHash: hash, coveredChars: Math.min(cov.coveredChars + read, page.body.length), totalChars: page.body.length };
     if (d.writeCoverage && !(await d.writeCoverage({ ...cov, pageContentHash: hash! }).catch(() => false)))
       return fail("inventory_write_failed", null, "the section's coverage could not be stored, so it would be read and paid for again");
-    inventory = [...inventory, ...claims.map((c) => ({ ...EMPTY_ROW, page: page.path, statementKey: c.statementKey, rulesVersion: rulesVersionFor(c),
-      subject: c.subject, current: c.current, pageLocator: c.locator, pageContentHash: hash, evidenceBasis: d.basis,
-      state: "owed" as const, checkedAt: now.toISOString() }))];
+    if (wrote > 0 && !await refreshInventory(claims.map((c) => c.statementKey))) return fail("inventory_write_failed", null, "stored inventory revision could not be read back; claims remain owed");
     owed = seededFirst(inventory.filter((h) => h.state === "owed")); // a freshly inventoried section may not bury it either
   }
   // 2. THE NEXT OWED CLAIM WHOSE PROPOSITION IS NOT ALREADY SETTLED. A duplicate of a checked fact is superseded for free, never researched and paid for again.
@@ -263,6 +264,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     return covered
       ? { status: "done", banked: 0, cursor: { ...progress, pageComplete: true }, reason: "every claim on this page version is current and the whole stored body was inventoried" }
       : { status: "advanced", banked: 0, cursor: { ...progress, pageComplete: false }, reason: `inventoried through character ${cov.coveredChars} of ${cov.totalChars}; more of the page remains` };}
+  if (!Number.isSafeInteger(next.sourceVersion) || next.sourceVersion! <= 0) return fail("store_write_failed", null, "the owed finding has no current stored revision");
   const claim = { subject: next.subject, current: next.current, locator: next.pageLocator };
   const cursor: FactCheckCursor = { ...progress, pageComplete: false };
   const advance: FactCheckCursor = { ...progress, checked: progress.checked + 1, pageComplete: covered && inventory.filter((h) => h.state === "owed").length === 1 };
@@ -271,10 +273,9 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const bank = async (row: FactCheck): Promise<FactCheckUnitResult> => {
     const banked = await recordFactChecks(tenantId, page.path, [row]);
     log.info("[fact-check] one claim researched", { tenantId, page: page.path, subject: claim.subject, type, confidence: row.confidence, banked });
-    // A WRITE THAT DID NOT LAND IS A FAILED UNIT: advancing past a claim nothing stored would skip it forever.
     return banked > 0 ? { status: "advanced", banked, cursor: advance }
       : fail("store_write_failed", cursor, "the result could not be stored, so this claim is still owed");};
-  const base = { page: page.path, statementKey: next.statementKey, state: "checked" as const, rulesVersion: rulesVersionFor(claim), subject: claim.subject, current: claim.current,
+  const base = { page: page.path, statementKey: next.statementKey, sourceVersion: next.sourceVersion, state: "checked" as const, rulesVersion: rulesVersionFor(claim), subject: claim.subject, current: claim.current,
     literal: null, usage: null, alsoAt: claim.locator ? [claim.locator] : [],
     pageContentHash: hash, pageLocator: claim.locator, sourceReadAt: null as string | null,
     evidenceBasis: d.basis, checkedAt: now.toISOString() };

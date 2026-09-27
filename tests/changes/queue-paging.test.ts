@@ -15,8 +15,8 @@ const client: Record<string, unknown> = {
       if (r) { r.queue_lane = `${a.p_release}::${lane}`; r.queue_rank = i + 1; } });
     if (name === "publish_customer_release") blob.stored = (a.p_content ?? [null])[0];
     return Promise.resolve({ data: a.p_release ?? null, error: null });},};
-Object.assign(client, supabaseFake({ rows: (t) => (t === "change_proposals" ? db.rows : db.legacy),
-  onSelect: (t, r) => { if (t === "change_proposals" && !r.head) db.reads.push(r.max); } }));
+Object.assign(client, { from: supabaseFake({ rows: (t) => (t === "change_proposals" ? db.rows : db.legacy),
+  onSelect: (t, r) => { if (t === "change_proposals" && !r.head) db.reads.push(r.max); } }).from });
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => client }));
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } }));
 vi.mock("next/server", () => ({ after: () => {} }));

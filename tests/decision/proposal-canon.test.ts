@@ -94,14 +94,14 @@ import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, answerR
 import { confirmedVersion, openHold } from "@/domains/decision/completeness"; import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof"; import { COPY_RULES } from "@/domains/decision/copy-sanitize"; import { nextObligation } from "@/domains/decision/obligation";
 import { reconcileImplementedWithoutShipment } from "@/domains/decision/implemented-repair"; import { validateProposal } from "@/domains/decision/validate-proposal";
 import { componentIdOf, sameComponentId, deserializeChangeProposal, serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts"; import { supabaseFake, type Row } from "../helpers/supabase-fake";
-Object.assign(db.client, supabaseFake({
+Object.assign(db.client, { from: supabaseFake({
   rows: (t) => (t === "change_proposals" ? db.state.rows : db.state.legacy),
   error: (t) => (t === "change_proposals" && db.state.missing ? { code: "PGRST205", message: "table not found in schema cache" } : null),
   landsNothing: () => db.state.breakWrite, insertDefaults: () => ({ created_at: "2026-07-01T00:00:00.000Z" }),
   onSelect: () => { db.state.selectCount += 1; if (db.state.raceOnSelect != null && db.state.selectCount !== db.state.raceOnSelect) return; const r = db.state.race; db.state.race = null; r?.(); },
   clash: (row, rows) => (rows.some((r) => r.id !== row.id && r.terminal_disposition == null
     && ["tenant_id", "case_id", "page_key", "action_family"].every((c) => r[c] === row[c]))
-    ? { message: "duplicate key value violates unique constraint ux_change_proposals_current" } : null),}));
+    ? { message: "duplicate key value violates unique constraint ux_change_proposals_current" } : null),}).from });
 const T = "acct-a", PAGE = "/nowruz-guide";
 const bundle = (kind: ChangeBundle["components"][number]["kind"], after = "Nowruz Traditions and the Haft-Seen Table"): ChangeBundle => ({
   objective: "Say what the searcher asked for in the line Google shows.", metric: "clicks on this page for this search",

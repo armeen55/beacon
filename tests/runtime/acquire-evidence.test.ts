@@ -124,10 +124,10 @@ describe("acquireEvidence is exhaustive over the requirement union", () => {
       expect([row.page, row.subject, row.pageContentHash, row.evidenceBasis, row.proposed, row.sources[0]?.support?.supported]).toEqual([w.need.topic!.key, `${s.search} ${s.topic}`, null, "b1::d9", s.says, true]);
       expect([w.got.acquired, w.got.unlocked, w.decision.reads, w.ownedReads, w.asked.some((u) => u.startsWith("fact_claim_extraction")), w.asked[0]?.includes(`Its intended topic: ${s.search}`), w.reads, row.sourceReadAt, row.sources[0]?.says]).toEqual([true, true, [s.t], [], false, true, [], (STATE.retained as { winningPages: { extract: { fetchedAt: string } }[] }).winningPages[0]!.extract.fetchedAt, s.says]);
       const calls = [...w.reads], again = await w.steps.acquireEvidence(s.t, w.need, "b1", 120_000);
-      expect([again.acquired, again.unlocked, w.reads, w.raw.length, (await w.facts.readFactChecks("another-tenant")).length]).toEqual([true, true, calls, 1, 0]);
+      expect([again.acquired, again.unlocked, w.reads, w.raw.length, (await w.facts.readFactChecks("another-tenant")).length]).toEqual([true, true, calls, 2, 0]);
       w.raw[0]!.evidence_basis = "old-basis";
       const refreshed = await w.steps.acquireEvidence(s.t, w.need, "b1", 120_000);
-      expect([refreshed.unlocked, (await w.facts.readFactChecks(s.t))[0]?.evidenceBasis, w.raw.length, w.reads.length]).toEqual([true, "b1::d9", 1, calls.length]);
+      expect([refreshed.unlocked, (await w.facts.readFactChecks(s.t))[0]?.evidenceBasis, w.raw.length, w.reads.length]).toEqual([true, "b1::d9", 4, calls.length]);
       const before = w.reads.length;
       for (const bad of [{ ...w.need, url: `https://${s.host}/wrong` }, { ...w.need, topic: { key: "/owned-page", label: s.search } }, { ...w.need, missingTopic: undefined }]) expect((await w.steps.acquireEvidence(s.t, bad, "b1", 120_000)).acquired).toBe(false);
       const saved = JSON.stringify(w.raw), callsBefore = JSON.stringify([w.reads, w.asked]); for (const moved of [null, "foreign::d9", "b1::d10"]) { w.decision.basis = moved; expect(await w.steps.acquireEvidence(s.t, w.need, moved === "b1::d10" ? "b1::d9" : "b1", 120_000)).toMatchObject({ acquired: false, attempted: false }); } w.decision.basis = "b1::d9"; expect(await w.steps.acquireEvidence("another-tenant", w.need, "b1", 120_000)).toMatchObject({ acquired: false, attempted: false }); expect([JSON.stringify(w.raw), JSON.stringify([w.reads, w.asked]), w.reads.length]).toEqual([saved, callsBefore, before]);

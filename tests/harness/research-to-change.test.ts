@@ -93,9 +93,6 @@ beforeEach(async () => {
 });
 afterEach(() => vi.useRealTimers());
 
-/** Give the stored ranking-loss row one checked publisher fact and a useful opening that preserves every
- * existing passage. The separate section-family proof below owns the stronger claim that a competitive
- * pattern authorizes a headed section; this runtime sequence must not pretend an opening is a section. */
 async function authorizeGroundedOpening(): Promise<{ after: string; claims: { text: string; supportedBy: string[] }[] }> {
   const url = `https://${SITE}${HUB}`, owner = (await loadOwnedPageBodies(T, [url])).get(canonicalUrlKey(url))!, evidenceBasis = await resolveCurrentBasis(T), at = now().toISOString();
   await recordFactChecks(T, HUB, [{ page: HUB, statementKey: claimIdentity(SECTION.subject, "", "missing"), subject: SECTION.subject, current: "", proposed: SECTION.says, literal: null, usage: null,
@@ -341,9 +338,6 @@ describe("three opportunities waiting on their own results page", () => {
     expect([logs.includes("winner-fetch"), PAGES.map((p) => winnersOf().some((w) => w.appearances?.some((a) => a.query === p.query) && !!w.extract?.mainText)), logs.some((l) => l.startsWith("reasoning-request")), spentOn("dataforseo")]).toEqual([true, [true, true, true], false, dfs]);
   });
 });
-/** THE SUBJECT A WINNER COVERS AND THIS PAGE DOES NOT (campaign, 2026-09-06). The ladder files that subject as the row's next dependency and names the winner it found it on. Production then seeded the bare label, searched it as
- *  written, read nothing that answers it and never opened the winner at all: "fact check of the hub page: failed, 0 banked; the answer is still owed", twice, after which the row owed an input nothing could supply. On the captured
- *  rows the same shape: the hub's outline names three kinds of people, the page winning its search names a fourth, and that fourth is what the row is waiting on. */
 describe("the subject the winning page carries and this page does not", () => {
   const SUBJECT = "Scientists", RIVAL = "https://en.wikipedia.org/wiki/List_of_Iranians";
   const SAYS = "Famous Iranians who worked as scientists are listed here by the field each of them worked in, with the years they worked.";
@@ -367,9 +361,10 @@ describe("the subject the winning page carries and this page does not", () => {
     const need = { kind: "factual_source" as const, query: `${SUBJECT} ${QUERY}`, url, missingTopic: SUBJECT, rivalUrl: RIVAL, reasonCode: "source_support_unconfirmed", finding: { tenantId: T, page: HUB, statementKey: key }, workKey: "harness-fact-work" };
     const first = await defaultSteps.acquireEvidence(T, need, evidenceBasis, 90_000);
     const held = await readFactChecks(T), original = held.find(f => f.statementKey === key);
-    expect([first.acquired, original?.state, original?.subject, original?.current, original?.pageLocator, original?.statementKey, held.length],
+    expect([first.acquired, original?.state, original?.subject, original?.current, original?.pageLocator, original?.statementKey, held.filter(f => f.state !== "superseded").length],
       "Only the originating statement settles; no empty-current or query-expanded replacement is invented.").toEqual([true, "checked", SUBJECT, current, locator, key, 1]);
     expect(first.unlocked).toBe(mode !== "published");
+    expect(held.filter(f => f.state === "superseded").every(f => f.statementKey.startsWith(`${key}~src`) && f.page === HUB)).toBe(true);
     expect([original?.pageContentHash, original?.evidenceBasis, original?.rulesVersion, original?.sourceReadAt != null]).toEqual([hash, evidenceBasis, rulesVersionFor({ subject: SUBJECT, current }), true]);
     expect([state.parsed.length, mode === "cached" ? original?.sourceReadAt : sourceAt], "A complete dated source is reused without parsing; partial or expired evidence cannot masquerade as that complete read, and cached source age is not reset.").toEqual([mode === "cached" ? 0 : 1, sourceAt]);
     const count = reasoningAsked.length, parsed = [...state.parsed], posts = state.posts;
@@ -429,7 +424,7 @@ describe("the grouping answer already on file", () => {
         subjects: [{ url: RIVAL, sameEntity: true, language: "English", script: null, why: "the article covers the people this subject is about" }] } }, body);
     const { AEO_BAR } = await import("@/domains/decision/accept-worthy"), subject = `${QUERY} ${AEO_BAR.groupingQuestion}`;
     const owner = (await loadOwnedPageBodies(T, [`https://${SITE}${HUB}`])).get(canonicalUrlKey(`https://${SITE}${HUB}`))!, version = pageHashOf([owner.title, owner.h1, ...(owner.headings ?? []), ...(owner.passages ?? [])].filter(Boolean).join("\n"));
-    table("page_source_facts").push({ tenant_id: T, page_key: HUB, statement_key: claimIdentity(subject, "", "missing"), subject, current_wording: "", proposed: SAYS, sources: [{ url: RIVAL, kind: "encyclopedia", says: `${SUBJECT} ${SAYS}`, groups: [SUBJECT] }], agreement: "single_source", confidence: "confirmed", verdict: "page_correct", also_at: [], note: "banked before the sections rode",
+    table("page_source_facts").push({ tenant_id: T, page_key: HUB, source_version: 51, statement_key: claimIdentity(subject, "", "missing"), subject, current_wording: "", proposed: SAYS, sources: [{ url: RIVAL, kind: "encyclopedia", says: `${SUBJECT} ${SAYS}`, groups: [SUBJECT] }], agreement: "single_source", confidence: "confirmed", verdict: "page_correct", also_at: [], note: "banked before the sections rode",
       page_content_hash: version, page_locator: "missing", source_read_at: "2026-09-09T12:00:00.000Z", claim_state: "checked", rules_version: rulesVersionFor({ subject, current: "" }), evidence_basis: await resolveCurrentBasis(T), checked_at: "2026-09-09T12:00:00.000Z", superseded_at: null });
     await drive(["check_page_facts"], "fact_check");
     const reopened = (await readFactChecks(T)).find((h) => h.subject === subject);

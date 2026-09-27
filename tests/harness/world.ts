@@ -1,5 +1,5 @@
 /** In-memory account, clock and scripted transport around real production phases/stores. Fixtures replace account identity; scripted model approvals do not prove live copy quality. */
-import { readFileSync } from "node:fs";
+import { readFileSync } from "node:fs"; import { sourceFactsRpc, sourceInsert } from "../helpers/supabase-fake";
 import { join } from "node:path"; import { isDeepStrictEqual } from "node:util"; import { COPY_RULES } from "@/domains/decision/copy-sanitize";
 import { reportingDay } from "@/lib/reporting-day";
 export type Row = Record<string, unknown>;
@@ -9,7 +9,6 @@ const FIX = join(process.cwd(), "tests", "fixtures", "harness");
 export const fixture = <V>(name: string): V => JSON.parse(readFileSync(join(FIX, name), "utf8")) as V;
 export type FixtureSerp = { query: string; status: string; source: string; cacheKey?: string; observedAt?: string; organic?: unknown[] };
 export type FixtureWinner = { url: string; domain: string; appearances?: { query?: string }[]; extract?: { mainText?: string | null; truncated?: boolean | null } | null; readOutcome?: { state?: string; retryAfter?: string } | null };
-/** Start at wall time because production deadlines use it; advance explicitly between simulated drives. */
 export const clock = { ms: Date.now() };
 export const now = (): Date => new Date(clock.ms);
 export const advance = (ms: number): number => (clock.ms += ms);
@@ -19,11 +18,9 @@ export const meter = { requests: [] as { kind: "search" | "reasoning" | "page"; 
 export const requestsOf = (kind: "search" | "reasoning" | "page"): number => meter.requests.filter((r) => r.kind === kind).length;
 export const tables = new Map<string, Row[]>();
 export const table = (name: string): Row[] => { if (!tables.has(name)) tables.set(name, []); return tables.get(name)!; };
-/** Spend is account-wide in production, but every receipt keeps its platform. Tests asking whether DataForSEO charged must never accidentally count an OpenAI editor call. */
 export const spentOn = (platform: string): number => table("spend_reservations")
   .filter((r) => r.platform === platform && !["released", "failed"].includes(String(r.state)))
   .reduce((sum, r) => sum + Number(r.state === "reconciled" ? r.actual_usd ?? r.estimated_usd ?? 0 : r.estimated_usd ?? 0), 0);
-/** PostgREST JSON-path projection, including aliases and text extraction. */
 function jsonPath(row: Row, path: string): unknown {
   const [head, ...rest] = path.split(/->>?/);
   let v: unknown = row[head!.trim()];
@@ -42,12 +39,11 @@ function project(row: Row, cols: string): Row {
   }
   return out;
 }
-/** Shared fake PostgREST state: writes from one production step are visible to the next. */
 export function client(): Record<string, unknown> {
   const from = (name: string) => {
     const tests: ((r: Row) => boolean)[] = [];
     let op: "select" | "update" | "upsert" | "insert" | "delete" = "select";
-    let patch: Row = {}, sent: Row[] = [], cols = "", first = 0, max = Number.MAX_SAFE_INTEGER, counting = false, head = false;
+    let skipDup = false, patch: Row = {}, sent: Row[] = [], cols = "", first = 0, max = Number.MAX_SAFE_INTEGER, counting = false, head = false;
     const orders: [string, boolean][] = [];
     const rows = () => table(name);
     const where = (t: (r: Row) => boolean) => { tests.push(t); return q; };
@@ -63,7 +59,7 @@ export function client(): Record<string, unknown> {
       }
       for (const row of sent) {
         const at = op === "upsert" ? rows().findIndex((r) => sameRow(name, r, row)) : -1; if (name === "page_snapshots") { const prior = at >= 0 ? rows()[at] : rows().filter(r => r.tenant_id === row.tenant_id && COPY_RULES.captureAddress(String(r.url)) === COPY_RULES.captureAddress(String(row.url))).sort((a,b) => String(b.fetched_at).localeCompare(String(a.fetched_at)) || String(b.id).localeCompare(String(a.id)))[0], excluded = new Set(["capture_version","fetched_at","updated_at","created_at", ...(at < 0 ? ["id"] : [])]), material = (r: Row) => Object.fromEntries(Object.entries(r).filter(([key]) => !excluded.has(key))); row.capture_version = prior && isDeepStrictEqual(material(prior), material(row)) ? prior.capture_version : Math.max(0, ...rows().map(r => Number(r.capture_version ?? 0))) + 1; }
-        if (at >= 0) rows()[at] = { ...rows()[at], ...row }; else rows().push({ ...row });
+        if (at >= 0) { if (!skipDup) rows()[at] = { ...rows()[at], ...row }; } else rows().push(name === "page_source_facts" ? sourceInsert(rows(), row) : { ...row });
       }
       return { data: sent.map((r) => project(r, cols || "*")), error: null };
     };
@@ -71,7 +67,7 @@ export function client(): Record<string, unknown> {
       select: (c?: string, x?: { count?: string; head?: boolean }) => { cols = c ?? ""; counting = x?.count != null; head = x?.head === true; return q; },
       insert: (r: Row | Row[]) => { op = "insert"; sent = Array.isArray(r) ? r : [r]; return q; },
       update: (p: Row) => { op = "update"; patch = p; return q; },
-      upsert: (r: Row | Row[]) => { op = "upsert"; sent = Array.isArray(r) ? r : [r]; return q; },
+      upsert: (r: Row | Row[], opts?: { ignoreDuplicates?: boolean }) => { op = "upsert"; sent = Array.isArray(r) ? r : [r]; skipDup = opts?.ignoreDuplicates === true; return q; },
       delete: () => { op = "delete"; return q; },
       order: (c: string, x?: { ascending?: boolean }) => { orders.push([c, x?.ascending !== false]); return q; },
       limit: (n: number) => { max = n; return q; },
@@ -96,7 +92,6 @@ export function client(): Record<string, unknown> {
   };
   return { from, rpc: (fn: string, args: Record<string, unknown>) => rpcCall(fn, args) };
 }
-/** The identity an upsert lands on, per table: the same unique index the migration declares. */
 function sameRow(name: string, stored: Row, sent: Row): boolean {
   if (name === "evidence_cache") return stored.cache_key === sent.cache_key;
   if (name === "research_state") return stored.tenant_id === sent.tenant_id && stored.basis_tag === sent.basis_tag;
@@ -106,13 +101,12 @@ function sameRow(name: string, stored: Row, sent: Row): boolean {
 }
 /** EVERY RPC THE DRIVE REACHES, and the ones it does not are named loudly rather than answered with a quiet null. */
 const rpcSeen: string[] = [];
-/** Every line the runtime logged this arm, so a branch that answers only in a log can still be asserted. */
 export const logs: string[] = [];
-/** An RPC answers as a chainable PostgREST builder, because the heavy aggregate reads page and time-bound their own statements. */
 function rpcCall(fn: string, args: Record<string, unknown>): Record<string, unknown> {
   rpcSeen.push(fn);
   let first = 0, max = Number.MAX_SAFE_INTEGER;
   const answer = (): { data: unknown; error: { message: string; code?: string } | null } => {
+    if (fn === "save_page_source_facts_revision_cas") return sourceFactsRpc(table("page_source_facts"), args);
     if (fn === "claim_evidence_fetch") return { data: [claimEvidence(args)], error: null };
     if (fn === "reserve_spend") {
       const amount = Number(args.p_estimated_usd ?? 0), rows = table("spend_reservations");
@@ -210,7 +204,6 @@ function rpcCall(fn: string, args: Record<string, unknown>): Record<string, unkn
   };
   return q;
 }
-/** The one ceiling the harness enforces, so "the spending cap refused this call" is a branch a test can ask for rather than wait for. */
 export const money = { cap: 5 };
 /** claim_evidence_fetch, modelled on its migration: a fresh ready row is served as `ready` at $0, a live pending claim answers `pending`, anything else
  *  hands the caller the claim and a row to write into. THE CACHE HIT AND THE PAID REQUEST ARE DECIDED HERE, which is why the meter can be trusted. */
@@ -342,7 +335,6 @@ export function runRepo(): unknown {
   };
 }
 
-/** Confirmed business-profile fixture required by research admission. */
 const confirmed = <V>(value: V) => ({ value, origin: "operator_confirmed", confidence: null, sourceUrls: [] });
 const profileRow = (): Row => ({ id: T, data: {
   accountId: T, schemaVersion: 2, updatedAt: "2026-01-01T00:00:00.000Z",
@@ -354,7 +346,6 @@ const profileRow = (): Row => ({ id: T, data: {
   trustedSourceDomains: confirmed([]), competitors: confirmed([]),
 } });
 
-/** The research document as one basis row: the searches on file and the winners banked under them, straight off the capture. */
 export function seedResearchState(basis: string, over: Partial<Record<"serps" | "winningPages" | "cases", unknown>> = {}): Row {
   const serps = (over.serps ?? fixture<FixtureSerp[]>("serps.json")) as FixtureSerp[];
   const winners = (over.winningPages ?? fixture<FixtureWinner[]>("winners.json")) as FixtureWinner[];
@@ -371,7 +362,6 @@ export function seedResearchState(basis: string, over: Partial<Record<"serps" | 
   return row;
 }
 
-/** Current and preceding page/query performance in the aggregate readers' shape. */
 export function seedSearchHistory(pages: readonly { path: string; query: string; clicksNow?: number; clicksPrior?: number }[]): void {
   for (const p of pages) {
     const url = `https://${SITE}${p.path}`, now = p.clicksNow ?? 6, prior = p.clicksPrior ?? 90;
@@ -381,7 +371,6 @@ export function seedSearchHistory(pages: readonly { path: string; query: string;
   }
 }
 
-/** THE ACCOUNT'S OWN PAGES as the crawl banks them, so the writer has words of its own to write against and the diagnosis has passages to read. */
 export async function seedOwnedPages(pages: readonly { path: string; title: string; h1: string; meta: string; h2: readonly string[]; body: string }[]): Promise<void> {
   const { extractPageSnapshot } = await import("@/domains/evidence/pages/extractor");
   for (const p of pages) {
@@ -394,8 +383,6 @@ export async function seedOwnedPages(pages: readonly { path: string; title: stri
   }
 }
 
-/** Minimal schema-shaped scripted value; `by` overrides named properties. */
-/** The words a scripted answer carries where the caller named none: long enough for a minimum-length rule, plain enough to carry no claim. */
 const FILLER = "This sentence stands in for words a writer would supply.";
 function valueFromSchema(schema: unknown, by: Record<string, unknown> = {}, name = ""): unknown {
   const s = (schema ?? {}) as { type?: string; enum?: unknown[]; properties?: Record<string, unknown>; items?: unknown; anyOf?: unknown[]; minItems?: number; maxItems?: number };
@@ -414,7 +401,6 @@ function valueFromSchema(schema: unknown, by: Record<string, unknown> = {}, name
   return FILLER.repeat(Math.ceil(Math.max(min, 1) / FILLER.length)).slice(0, Math.max(min, Math.min(max, FILLER.length)));
 }
 
-/** Scripted gateway envelope keyed by schema name; null simulates an incomplete response. */
 export function reasoningReply(byKind: Record<string, Record<string, unknown> | null>, body: unknown): { status?: number; body: unknown } {
   const req = body as { text?: { format?: { name?: unknown; schema?: unknown } } };
   const kind = String(req?.text?.format?.name ?? "");
@@ -425,7 +411,6 @@ export function reasoningReply(byKind: Record<string, Record<string, unknown> | 
   const value = valueFromSchema(req?.text?.format?.schema, words ?? {});
   return { body: { id: "resp-1", status: "completed", model: "gpt-5-mini", usage, output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(value) }] }] } };
 }
-/** EVERY REASONING CALL THIS ARM MADE, in order, with the request that was sent: an arm can then ask what the writer was handed and whether the reading of those words saw the same material. */
 export const reasoningAsked: { kind: string; ask: string }[] = [];
 
 /** Scripted hub answer using packet IDs; real deterministic delivery checks still run. */
@@ -443,19 +428,16 @@ export const SECTION = { subject: "Scientists", says: "Iranian scientists rememb
 export const SECTION_WRITER = { ...WRITER, naturalHeading: SECTION.subject, preservation: [], rationale: "Every winner gives scientists a section of their own and this page names none, so one is added from the checked reading.", after: `${SECTION.says} ${HUB_BODY[4]}`,
   claims: [{ text: SECTION.says, supportedBy: ["fact-1"] }, { text: HUB_BODY[4]!, supportedBy: ["page-copy-1"] }] };
 export const SECTION_JUDGE = { ...JUDGE, claims: [0, 1].map((i) => ({ i, by: SECTION_WRITER.claims[i]!.supportedBy, entailed: true })), notes: "The page now names its scientists under their own heading, on the reading that carries them.", preservation: [] };
-/** THE HUB PAGE AS THE CRAWL BANKS IT, with the three sections the writer's claims cite. */
 export const HUB_PAGE = { path: "/famous-iranians", title: "Most Famous Iranians and Persians of All Time", h1: "Famous and Influential Iranian People",
   meta: "Explore the most famous Iranians and Persians in history.", h2: ["Famous Iranian Poets", "Famous Iranian Athletes", "Famous Iranian Actors"],
   body: HUB_BODY.join("\n") };
 
-/** THE STALLED HUB OPPORTUNITIES exactly as the store holds them, with the account's identity replaced. `pick` selects by page. */
 export function seedProposals(pick?: (row: Row) => boolean): Row[] {
   const rows = fixture<Row[]>("hub-rows.json").filter((r) => (pick ? pick(r) : true));
   for (const r of rows) table("change_proposals").push({ ...r });
   return rows;
 }
 
-/** Reset the whole world between arms: the tables, the clock, the meter and the script. */
 export function reset(): void {
   tables.clear(); rpcSeen.length = 0; runs.length = 0; logs.length = 0; reasoningAsked.length = 0;
   meter.requests.length = 0; meter.paidUsd = 0; meter.reserved.length = 0; meter.hits.length = 0; meter.answered.length = 0;

@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 /** ONE in-memory Postgres for the tests that each hand-rolled the same chainable query engine over an array of rows: filters, order, limit/range, update, upsert, thenable. What one file needs differently rides in as an option: `rows` picks the array behind a table name, `error` is the failure a table hands back instead of running, `same` is the identity an upsert lands on (the id by default), `clash` is a unique index the write must not violate, `insertDefaults` are the columns a fresh INSERT gets and an update never touches, `landsNothing` is the write Postgres accepts and stores nothing for. Anything a file's fake does that is not here stays in that file. */
 export type Row = Record<string, unknown>;
 type Err = { code?: string; message: string } | null;
@@ -38,7 +39,7 @@ export function supabaseFake(o: SupabaseFakeOptions) {
         if (clash) return { data: null, error: clash };
         const at = rows().findIndex((r) => same(r, row));
         if (at >= 0) { if (!skipDup) { rows()[at] = { ...rows()[at], ...row }; returned.push({ id: row.id }); } continue; }
-        rows().push({ ...o.insertDefaults?.(), ...row }); returned.push({ id: row.id });}
+        rows().push(table === "page_source_facts" ? sourceInsert(rows(), { ...o.insertDefaults?.(), ...row }) : { ...o.insertDefaults?.(), ...row }); returned.push({ id: row.id });}
       return { data: returned, error: null };};
     const where = (t: (r: Row) => boolean) => { tests.push(t); return q; };
     const q: Record<string, unknown> = {
@@ -67,7 +68,11 @@ export function supabaseFake(o: SupabaseFakeOptions) {
         return due ? where((r) => r.blocked_until == null || Date.parse(String(r.blocked_until)) <= Date.parse(due[1]!)) : m ? where((r) => String(r[m[1]!] ?? "") < m[2]! || (String(r[m[1]!] ?? "") === m[2]! && String(r.id) < m[3]!)) : q; },
       then: (resolve: (v: unknown) => void) => resolve(run()),};
     return q;};
-  return o.proposalRpc ? { from, rpc: proposalStoreRpc(() => o.rows("change_proposals")) } : { from };}
+  return { from, rpc: async (name: string, args: Record<string, unknown>) => {
+    if (name !== "save_page_source_facts_revision_cas") return o.proposalRpc ? proposalStoreRpc(() => o.rows("change_proposals"))(name, args) : { data: false, error: null };
+    const error = o.error?.("page_source_facts", "upsert");
+    return error ? { data: null, error } : sourceFactsRpc(o.rows("page_source_facts"), args);
+  } };}
 
 /** The narrow proposal-store RPC boundary, for tests whose subject is the Decision contract rather than SQL.
  * It deliberately mutates the same row array as `supabaseFake`, so a successful RPC is observable on the next
@@ -97,4 +102,33 @@ export function proposalStoreRpc(rows: () => Row[]) {
     }
     return { data: false, error: null };
   };
+}
+
+const sourceColumns = "page_content_hash proposed literal usage source_url source_quote source_class page_locator source_read_at evidence_basis superseded_at rules_version checked_at updated_at source_version".split(" ");
+const sourceShape = (row: Row): Row => ({ ...Object.fromEntries(sourceColumns.map(key => [key, null])), ...row });
+export const sourceInsert = (rows: Row[], row: Row): Row => sourceShape({ ...row, source_version: Math.max(0, ...rows.map(r => Number(r.source_version ?? 0))) + 1 });
+/** Atomic existing-table CAS: full prior history, absent-only inserts, and all-or-none revision receipts. */
+export function sourceFactsRpc(rows: Row[], args: Record<string, unknown>): { data: unknown; error: Err } {
+  const pending = structuredClone(rows), items = args.p_rows as Row[], at = new Date().toISOString(), result: Row[] = [];
+  const fail = (code: string, message: string) => ({ data: null, error: { code, message } });
+  if (typeof args.p_tenant !== "string" || !args.p_tenant.trim() || typeof args.p_page !== "string" || !args.p_page.trim() || !Array.isArray(items) || !items.length || items.length > 500 || new Set(items.map(r => r.statement_key)).size !== items.length) return fail("22023", "invalid source save scope");
+  for (const item of [...items].sort((a, b) => String(a.statement_key).localeCompare(String(b.statement_key)))) {
+    const incoming = sourceShape(item), expected = incoming.source_version, found = pending.findIndex(r => r.tenant_id === args.p_tenant && r.page_key === args.p_page && r.statement_key === incoming.statement_key), prior = found < 0 ? null : sourceShape(pending[found]!);
+    if (incoming.tenant_id !== args.p_tenant || incoming.page_key !== args.p_page || typeof incoming.statement_key !== "string" || !incoming.statement_key.trim() || incoming.statement_key.startsWith("#") || typeof incoming.subject !== "string" || !incoming.subject.trim() || incoming.current_wording == null || !["owed", "checked", "superseded"].includes(String(incoming.claim_state)) || expected != null && (!Number.isSafeInteger(expected) || Number(expected) <= 0)) return fail("22023", "invalid source save ownership or revision");
+    if (prior) {
+      if (expected == null || expected !== prior.source_version) return fail("40001", "source revision changed");
+      incoming.superseded_at = incoming.claim_state === "superseded" ? prior.superseded_at ?? at : null;
+      const material = (r: Row) => Object.fromEntries(Object.entries(r).filter(([key]) => !["source_version", "checked_at", "updated_at"].includes(key)));
+      if (isDeepStrictEqual(material(incoming), material(prior))) { result.push({ statement_key: prior.statement_key, source_version: prior.source_version }); continue; }
+      const archive: Row = { ...prior, statement_key: `${prior.statement_key}~src${prior.source_version}`, claim_state: "superseded", superseded_at: at, updated_at: at };
+      if (pending.some(r => r.tenant_id === archive.tenant_id && r.page_key === archive.page_key && r.statement_key === archive.statement_key)) return fail("23505", "source archive identity exists");
+      pending.push(sourceInsert(pending, archive)); pending[found] = sourceInsert(pending, { ...incoming, checked_at: incoming.checked_at ?? at, updated_at: at });
+    } else {
+      if (expected != null) return fail("40001", "source revision absent");
+      pending.push(sourceInsert(pending, { ...incoming, checked_at: incoming.checked_at ?? at, updated_at: at, superseded_at: incoming.claim_state === "superseded" ? at : null }));
+    }
+    const saved = pending.find(r => r.tenant_id === args.p_tenant && r.page_key === args.p_page && r.statement_key === incoming.statement_key)!;
+    result.push({ statement_key: saved.statement_key, source_version: saved.source_version });
+  }
+  rows.splice(0, rows.length, ...pending); return { data: result, error: null };
 }
