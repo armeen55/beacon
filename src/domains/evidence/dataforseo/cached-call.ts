@@ -247,7 +247,7 @@ export async function collectResolvedTask(
     if (row.cache_key !== cacheKey || row.endpoint !== "serp/google/organic/task_post" || !replay.tenantId || row.provenance?.tenantId != null && row.provenance.tenantId !== replay.tenantId || !row.provider_task_id || task?.id !== row.provider_task_id || topStatus(row.payload) !== 20000 || task?.status_code !== 20000 || !query || keyword !== query || !(replay.maxAgeMs > 0 && replay.maxAgeMs <= 7 * DAY_MS)) return { state: "error", cacheKey, disposition: "none", detail: "Saved search evidence does not match this account, task, query, or freshness window; no provider call was made." };
     const observedAt = typeof result?.datetime === "string" && /(?:Z|[+-]\d{2}:\d{2})$/.test(result.datetime) ? Date.parse(result.datetime) : NaN;
     if (!Number.isFinite(observedAt) || observedAt > now.getTime()) return { state: "error", cacheKey, disposition: "none", detail: "Saved search evidence has no valid provider observation date; no provider call was made." };
-    if (now.getTime() - observedAt <= replay.maxAgeMs) return { state: "hit", envelope: row.payload as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: row.model_served };
+    return { state: "hit", envelope: row.payload as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: row.model_served }; // Completed evidence keeps its date; the caller owns currentness and due refresh.
   } else if (row.status === "ready" && row.payload != null && Date.parse(row.expires_at) > now.getTime()) return { state: "hit", envelope: row.payload as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: row.model_served };
   const refused = blockedReason(row);
   if (refused) return blockedResult(cacheKey, refused);

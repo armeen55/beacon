@@ -349,16 +349,15 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
     const nowIso = () => new Date(d.now()).toISOString(), parseSerp = (payload: unknown) => d.parse("serp_organic", payload as never) as ParsedSerp | null;
     // A DAILY-LIMIT REFUSAL STOPS THE BATCH, exactly as it does on the AI-answer loops above: the provider answers 40203 the same way to every call it will take today, so carrying on asked it up to a hundred and four more times for a hundred and four identical refusals. A stopped row is still `pending`, which IS the owed state, so nothing is lost and nothing is re-bought: tomorrow's pass takes the same searches with a fresh limit.
     let failedDetail: string | null = null, blockedDetail: string | null = null, limitDetail: string | null = null;
-    // HOT VERSUS COLD, and the plan is what tells them apart: a search a frozen case is stuck on is checked DAILY, because the whole run is waiting on it,
-    // and every other search keeps the weekly window. One constant for both meant a case diagnosed this morning sat on yesterday's look for six more days.
     const hot = new Set((priorityQueries ?? []).map((q) => canonicalQueryKey(normalizeKeyword(q))).filter(Boolean));
-    // A look older than ITS OWN window is DUE (done OR exhausted-failed): it re-enters with a fresh per-incident budget and its AI Mode observation re-opens, so nothing freezes forever.
-    for (const s of serps) {
-      if ((s.status !== "done" && s.status !== "failed") || (!s.observedAt && !exact)) continue;
-      if (s.observedAt && isCurrent(hot.has(canonicalQueryKey(s.query)) ? "serp_hot" : "serp_cold", s.observedAt, d.now())) continue;
+    // Historical words survive; due results never enter current projections or poll their completed task.
+    const reopenDue = (s: FunnelSerp) => {
+      if ((s.status !== "done" && s.status !== "failed") || (!s.observedAt && !exact)) return;
+      if (s.observedAt && isCurrent(hot.has(canonicalQueryKey(s.query)) ? "serp_hot" : "serp_cold", s.observedAt, d.now())) return;
       s.status = "pending"; s.cacheKey = null; s.identityMismatch = undefined;
       s.aiMode = undefined; s.aiModeCacheKey = null; s.aiModeReposted = undefined; s.aiModeFailed = undefined;
-    }
+    };
+    for (const s of serps) reopenDue(s);
 
     try {
       // 1) collect posted organic + AI Mode tasks (never repost a live key)
@@ -366,7 +365,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
         if (blockedDetail || limitDetail || d.now() > deadline) break;
         if (s.status === "posted" && s.cacheKey) {
           const r = interp(await d.collectTask(s.cacheKey, { tenantId, query: s.query, maxAgeMs: freshnessMsFor(hot.has(canonicalQueryKey(s.query)) ? "serp_hot" : "serp_cold") })); track(state, r);
-          if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed, nowIso(), r.payload, tenantId); }
+          if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) { applySerp(s, parsed, nowIso(), r.payload, tenantId); reopenDue(s); } }
           else if (r.kind === "failed") {
             // daily_limit and blocked both STOP the batch (the row stays posted, so its collect is still free tomorrow); everything else stays posted, free.
             if (r.disposition === "daily_limit") limitDetail = r.detail ?? null;
@@ -399,7 +398,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
           // funded row named, which is the same `hot` set the daily freshness window is granted to, and never the broad discovery agenda.
           const r = interp(await d.callProvider("serp_organic", { keyword: s.query, ...(!exact && hot.has(canonicalQueryKey(s.query)) ? { loadAiOverview: true } : {}) }, ids)); track(state, r);
           if (r.kind === "waiting") { s.status = "posted"; s.cacheKey = r.cacheKey; }
-          else if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed, nowIso(), r.payload, tenantId); }
+          else if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) { applySerp(s, parsed, nowIso(), r.payload, tenantId); reopenDue(s); } }
           else if (r.kind === "failed") {
             // daily_limit and blocked are the stops; quarantined = explicit unavailable coverage; the rest continue.
             if (r.disposition === "daily_limit") limitDetail = r.detail ?? null;

@@ -88,11 +88,12 @@ const decode = (r: Row): FactCheck => ({
 });
 
 /** Page below PostgREST's response cap; any failed batch refuses the entire reading. */
-export async function readFactChecks(tenantId: string, page?: string): Promise<FactCheck[]> {
+export async function readFactChecks(tenantId: string, page?: string | readonly string[]): Promise<FactCheck[]> {
+  if (page !== undefined && (typeof page === "string" ? !page.trim() : !Array.isArray(page) || !page.length || page.some(owner => typeof owner !== "string" || !owner.trim()))) throw Error("Factual evidence requires a nonempty owner scope.");
   const rows: Row[] = [], width = 500;
   for (let start = 0; ; start += width) {
     let q = getSupabaseAdmin().from(TABLE).select("*").eq("tenant_id", tenantId);
-    if (page) q = q.eq("page_key", page);
+    if (page) q = typeof page === "string" ? q.eq("page_key", page) : q.in("page_key", [...new Set(page)]);
     const { data, error } = await q.order("statement_key", { ascending: true }).order("page_key", { ascending: true }).range(start, start + width - 1);
     if (error || !Array.isArray(data)) throw new Error(`[fact-checks] read failed: ${error?.message ?? "missing batch"}`);
     rows.push(...(data as Row[])); if (data.length < width) break;
@@ -347,16 +348,8 @@ type CorrectionCandidate = { subject: string; current: string; proposed: string 
   /** `support` is this source's own artifact ruling on THIS claim, absent where none was ever derived. */
   sources: readonly { kind: SourceKind; says: string; groups?: string[]; support?: ClaimSupport }[] };
 
-/** WHY A CORRECTION MAY NOT BE PUBLISHED, in one typed sentence, or null. THE ONE AUTHORIZATION RULE, asked by
- *  the evidence run before it banks and by the card door before it offers, so a refusal, a withdrawal and a
- *  confidence can never drift apart.
- *
- *  EVERY MATERIAL WORD COMES FROM THE AUTHORITATIVE SET, NOT MERELY ONE OF THEM. Authority and wording were
- *  asked independently, then bound only by "an authoritative source contributed something", which live left
- *  Parisa publishing "beautiful like a fairy" while its encyclopedia said only "fairy-like" and "beautiful"
- *  came from a baby-name publisher alone. An ordinary source may CORROBORATE wording the authoritative quotes
- *  already carry; it may never supply a word of it. That is the whole boundary: it decides which sources may
- *  speak, never what their words mean, and semantic reassembly stays the paid reviewer's residual. */
+/** One source-authority verdict serves evidence banking and publication; every material correction word must come from qualified authoritative quotes.
+ * Ordinary sources may corroborate those words; provenance never replaces the semantic review. */
 export function unauthorizedReason(c: CorrectionCandidate): string | null {
   const qualified = c.sources.filter((s) => s.says.trim() !== "" && !HEDGED.test(s.says) && !definesOtherName(s.says, c.subject)), additive = c.current.trim() === "";
   /* AND THE AUTHORITY IT OWES IS PROPORTIONAL TO WHAT IT RISKS (operator, 2026-09-01, stated for sections at decision/completeness's `openHold`: an addition owes ONE publisher, a replacement owes two). A CORRECTION replaces words the page publishes, so every material word of it may be supplied only by an authoritative KIND, which is the Parisa boundary above. A MISSING ANSWER adds a sentence the page does not carry and a reader undoes by deleting it, so it also stands on a publisher that was READ and whose own stored passage is shown to entail this exact claim, which is the strongest thing this codebase can know about a source and is stronger than its kind. Measured on the acceptance account (2026-09-05): the pre-1979 flag answer is quote-bound to a publisher that was fetched, while the encyclopedia beside it banked an empty passage, so the kind test alone refused a reading nothing else was wrong with. No publisher list lives here or anywhere: a host earns this by having been read and by carrying the claim. */ const authoritative = qualified.filter((s) => AUTHORITATIVE_KIND.has(s.kind) || (additive && s.support?.supported === true));
