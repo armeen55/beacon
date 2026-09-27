@@ -39,7 +39,7 @@ describe("Today says whether the last recorded change worked", () => {
       [row({ windows: win(0) }), /Beverly hills finished level/],
       [row({ verification: null }), /live page has not confirmed the change yet, so it is not counted as a win/],
       [row({ verification: null, windows: win(-12) }), /read 12 clicks behind.*live page has not confirmed/],
-    ] as const) { LEDGER.rows = [input]; const html = await today(); expect(html).toMatch(expected); expect(html).not.toContain("/california-persian-cities/beverly-hills earned"); expect(html).toContain("19 changes have draft copy but are not ready to apply, and 90 opportunities do not yet have a finished change."); expect(html).toMatch(/Scheduled research is paused[^<]*individual saved change/); }
+    ] as const) { LEDGER.rows = [input]; const html = await today(); expect(html).toMatch(expected); expect(html).not.toContain("/california-persian-cities/beverly-hills earned"); expect(html).toContain("19 changes need more work before they are ready to apply, and 90 opportunities do not yet have a finished change."); expect(html).toMatch(/Scheduled research is paused[^<]*individual saved change/); }
     LEDGER.rows = []; expect(await today()).not.toContain("Your last change to");
   });
 });

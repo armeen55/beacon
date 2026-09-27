@@ -66,10 +66,13 @@ export default async function ChangeDetailPage({
     }
     if (stored != null) {
       const archived = stored.id === id && stored.tenantId === tenantId && canonical?.terminal_disposition != null && canonical.proposal_version > 0 ? stored : null;
-      let successor: { id: string; version: number } | null = null;
-      if (archived && canonical?.superseded_by && canonical.superseded_by !== id && canonical.superseded_by.startsWith(`${tenantId}::`)) {
+      let successor: { id: string; version: number; ready: boolean } | null = null;
+      if (archived && canonical?.terminal_disposition === "superseded" && canonical.superseded_by && canonical.superseded_by !== id && canonical.superseded_by.startsWith(`${tenantId}::`)) {
         let next: StoredDetail | undefined; const current = await loadChangeProposal(tenantId, canonical.superseded_by, { canonicalOnly: true, canonicalRow: row => { next = row; } }).catch(() => null);
-        if (current?.id === canonical.superseded_by && next?.terminal_disposition == null && next && next.proposal_version > 0 && current.status === "ready" && operatorUiPolicy.isManualEditProofWork(current) && actionableProposalFailures(current, { tenantId, currentBasis: basis }).length === 0 && !openHold(current).faulted && !openHold(current).blocking) successor = { id: current.id, version: next.proposal_version };
+        const ready = current?.status === "ready" && actionableProposalFailures(current, { tenantId, currentBasis: basis }).length === 0 && !openHold(current).faulted && !openHold(current).blocking;
+        const priorMeta = operatorUiPolicy.isMetaPredecessor(archived);
+        const unfinished = priorMeta && current?.status === "needs_review" && current.researchOnly === true && current.obligation?.kind === "draft" && current.recommendedChange.kind === "existing_edit" && current.recommendedChange.field === "meta" && current.recommendedChange.before == null && current.pagePath === archived.pagePath && actionableProposalFailures(current, { tenantId, currentBasis: basis }).length === 0;
+        if (current?.id === canonical.superseded_by && next?.terminal_disposition == null && next && next.proposal_version > 0 && operatorUiPolicy.isManualEditProofWork(current) && (ready || unfinished)) successor = { id: current.id, version: next.proposal_version, ready: !!ready };
       }
       return <SetAsideDetail unreadable={basis == null} proposal={archived} canonical={canonical} successor={successor} />;
     }
@@ -101,7 +104,7 @@ function OutsideProofDetail() {
   </section></div>;
 }
 
-function SetAsideDetail({ unreadable, proposal, canonical, successor }: { unreadable: boolean; proposal: ChangeProposal | null; canonical?: StoredDetail; successor: { id: string; version: number } | null }) {
+function SetAsideDetail({ unreadable, proposal, canonical, successor }: { unreadable: boolean; proposal: ChangeProposal | null; canonical?: StoredDetail; successor: { id: string; version: number; ready: boolean } | null }) {
   const pieces = proposal?.bundle?.components ?? (proposal ? [{ kind: proposal.recommendedChange.kind, before: proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.before : null, after: proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.after : proposal.recommendedChange.openingAnswer }] : []);
   return <div className="max-w-3xl"><section className="space-y-3 rounded-2xl border border-border bg-surface-raised p-5">
     <h2 className="text-[14px] font-semibold text-foreground">{unreadable ? "This one cannot be shown right now" : "This idea was set aside"}</h2>
@@ -112,7 +115,7 @@ function SetAsideDetail({ unreadable, proposal, canonical, successor }: { unread
       {pieces.map((piece, i) => <div key={i} className="mt-3 space-y-2 text-[13px]"><p>{piece.kind}</p>{piece.before ? <p>Was: {piece.before}</p> : null}<pre className="whitespace-pre-wrap font-sans">{piece.after}</pre></div>)}
       {(proposal.supportFacts ?? []).map(fact => <p key={fact.id} className="mt-3 text-[12px]">{fact.fact}{fact.sources?.map(source => ` ${source.url}`).join("")}</p>)}
     </details></> : null}
-    {successor ? <Link data-successor="true" href={`/changes/${encodeURIComponent(successor.id)}`} className="text-[13px] text-accent-primary underline">See the current replacement, version {successor.version}</Link> : null}
+    {successor ? <Link data-successor="true" href={`/changes/${encodeURIComponent(successor.id)}`} className="text-[13px] text-accent-primary underline">{successor.ready ? "See the current replacement" : "Continue preparing the current change"}, version {successor.version}</Link> : null}
     <Link href="/changes" className="inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2">See the work that stands now</Link>
   </section></div>;
 }

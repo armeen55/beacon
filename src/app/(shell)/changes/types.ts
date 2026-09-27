@@ -44,6 +44,11 @@ function isManualEditProofWork(p: ChangeProposal): boolean {
   return !(p.bundle?.components ?? []).some((c) => c.kind === "new_page" || c.kind === "full_rewrite" || c.target?.mode === "whole_body");
 }
 
+function isMetaPredecessor(p: ChangeProposal): boolean {
+  return p.status === "needs_review" && p.riskLevel === "low" && p.obligation?.kind === "terminal" && p.obligation.reason === "The current meta description differs from the exact line this edit would replace; requalify the current page."
+    && p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "meta" && !!p.recommendedChange.before?.trim() && !p.bundle && !p.approval && !p.confirmedVersion;
+}
+
 /** Bulk recording carries no per-piece selection or destructive confirmation. It is therefore valid only
  * for one nondestructive existing-page deliverable; every bundle is recorded from its own detail. */
 function isBulkRecordable(p: ChangeProposal): boolean {
@@ -95,7 +100,7 @@ function nextStep(owed: ChangeProposal["obligation"] | null): string | null {
   if (owed?.kind === "review") return "Beacon will review the finished copy and its sources.";
   return owed ? "Beacon will finish and check the publication copy before it can be applied." : null;
 }
-const operatorUiPolicy = { isManualEditProofWork, isBulkRecordable, isPasteableComponent, linkedComponentIds, measurementAcknowledgement, livePageHref, nextStep };
+const operatorUiPolicy = { isManualEditProofWork, isMetaPredecessor, isBulkRecordable, isPasteableComponent, linkedComponentIds, measurementAcknowledgement, livePageHref, nextStep };
 export default operatorUiPolicy;
 
 /** A PAGE ADDRESS, READ THE WAY A PERSON SAYS IT. Every change surface printed the raw slug as its headline

@@ -242,7 +242,7 @@ export function ChangesListClient({ view, initialPicked = [], researchPaused = f
       {/* Outstanding queue counts say nothing about whether a pass is running; the pause notice above gives that status. */}
       {writtenCount > 0 || researchingCount > 0 ? (
         <div className="space-y-2 text-[13px] leading-relaxed tabular-nums text-muted-foreground" data-lane-preparing="true">
-          {[writtenCount > 0 ? `${writtenCount.toLocaleString("en-US")} ${writtenCount === 1 ? "change has" : "changes have"} draft copy but ${writtenCount === 1 ? "is" : "are"} not ready to apply` : null,
+          {[writtenCount > 0 ? `${writtenCount.toLocaleString("en-US")} ${writtenCount === 1 ? "change needs" : "changes need"} more work before ${writtenCount === 1 ? "it is" : "they are"} ready to apply` : null,
             researchingCount > 0 ? `${researchingCount.toLocaleString("en-US")} ${researchingCount === 1 ? "opportunity does" : "opportunities do"} not yet have a finished change` : null]
             .filter(Boolean).join(", and ")}.
           {researchPaused ? <SetAsideChange finishable prepareNext onFinished={() => router.refresh()} /> : null}

@@ -14,7 +14,7 @@ import {
   dualWriteUpsertScoped,
   GLOBAL_TABLES,
   tenantizeRows,
-  syncImportRuns,
+  syncPages,
 } from "@/lib/persistence/dual-write";
 const TENANT = "tenant-fixture-local";
 const OTHER = "tenant-other";
@@ -99,8 +99,8 @@ describe("an unset DATA_SOURCE means Supabase, in every module that asks", () =>
     } finally { if (held === undefined) delete process.env.DATA_SOURCE; else process.env.DATA_SOURCE = held; vi.doUnmock("@/lib/persistence/repositories"); vi.resetModules(); }});});
 describe("Tier A sync* helpers stay tenant-wired", () => {
   it("runtime: a representative Tier A helper rejects a cross-tenant row and an empty tenantId", async () => {
-    await expect(syncImportRuns([{ id: "r1", tenant_id: OTHER } as unknown as Parameters<typeof syncImportRuns>[0][number]], TENANT)).rejects.toThrow(/tenant mismatch/);
-    await expect(syncImportRuns([{ id: "r1", tenant_id: "" } as unknown as Parameters<typeof syncImportRuns>[0][number]], "")).rejects.toThrow(/tenantId must be a non-empty string/);});});
+    await expect(syncPages([{ id: "r1", tenant_id: OTHER } as unknown as Parameters<typeof syncPages>[0][number]], TENANT)).rejects.toThrow(/tenant mismatch/);
+    await expect(syncPages([{ id: "r1", tenant_id: "" } as unknown as Parameters<typeof syncPages>[0][number]], "")).rejects.toThrow(/tenantId must be a non-empty string/);});});
 describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
   const NEW_USER = { userId: "12345678-abcd-abcd-abcd-1234567890ab", email: "owner@gmail.com" };
   it("provisions through one guarded RPC and refuses an unexpected owner receipt", async () => {

@@ -21,7 +21,7 @@ const EVIDENCE_GROUP: Record<BundleEvidenceItem["kind"], string> = {
   internal_link: "Links across your own site",
 };
 const EVIDENCE_ORDER = Object.keys(EVIDENCE_GROUP) as BundleEvidenceItem["kind"][];
-const canFinish = (p: ChangeProposal): boolean => p.recommendedChange.kind === "existing_edit" && (p.status === "needs_review" || p.status === "ready" && nextObligation(p)?.kind === "review") && (["draft", "redraft", "review", "evidence"].includes(nextObligation(p)?.kind ?? "") || nextObligation(p)?.kind === "sections" && p.recommendedChange.field === "meta" && p.newPageDraft?.brief.kind === "body_meta" && p.changeFamily !== "full_rewrite" && p.recommendedChange.target?.mode !== "whole_body" && !p.bundle);
+const canFinish = (p: ChangeProposal): boolean => operatorUiPolicy.isMetaPredecessor(p) || p.recommendedChange.kind === "existing_edit" && (p.status === "needs_review" || p.status === "ready" && nextObligation(p)?.kind === "review") && (["draft", "redraft", "review", "evidence"].includes(nextObligation(p)?.kind ?? "") || nextObligation(p)?.kind === "sections" && p.recommendedChange.field === "meta" && p.newPageDraft?.brief.kind === "body_meta" && p.changeFamily !== "full_rewrite" && p.recommendedChange.target?.mode !== "whole_body" && !p.bundle);
 
 function seenLabel(observedAt: string | null): string {
   const day = monthDayLabel(observedAt);

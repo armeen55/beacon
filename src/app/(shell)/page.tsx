@@ -238,7 +238,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const upNext = top ? today.nextOpportunities.filter((o) => o.changeId !== top.changeId).slice(0, 2) : [];
   // These are outstanding queue states, not proof that a writing or research pass is running now.
   const written = today.preparing?.written ?? 0, researching = today.preparing?.researching ?? 0;
-  const preparingLine = written > 0 || researching > 0 ? `${[written > 0 ? `${written.toLocaleString("en-US")} ${written === 1 ? "change has" : "changes have"} draft copy but ${written === 1 ? "is" : "are"} not ready to apply` : null,
+  const preparingLine = written > 0 || researching > 0 ? `${[written > 0 ? `${written.toLocaleString("en-US")} ${written === 1 ? "change needs" : "changes need"} more work before ${written === 1 ? "it is" : "they are"} ready to apply` : null,
     researching > 0 ? `${researching.toLocaleString("en-US")} ${researching === 1 ? "opportunity does" : "opportunities do"} not yet have a finished change` : null].filter(Boolean).join(", and ")}.` : null;
   const winLine = lastWinLine(ledgerRows, nowMs);
   const week = weekStrip(ledgerRows, nowMs);

@@ -390,7 +390,9 @@ export async function finishOneProposalAction(args: { prepareNext: true; proposa
     }
     if (args.prepare === true) {
       const currentBasis = await resolveCurrentBasis(tenantId);
-      const result = await atomicProof.finishPage({ tenantId, proposalId: args.proposalId, currentBasis, maxOpenAiCalls: 8, maxOpenAiUsd: 2, maxDataForSeoCalls: 3, maxDataForSeoUsd: 0.4, ...(args.authorizationId !== undefined ? { authorizationId: args.authorizationId } : {}) });
+      const successor = await atomicProof.currentMetaSuccessor(tenantId, args.proposalId, currentBasis);
+      if (!successor) return { success: false, error: "We could not confirm this page's current description work or its exact replacement, so no paid finishing attempt started." };
+      const result = await atomicProof.finishPage({ tenantId, proposalId: successor, currentBasis, maxOpenAiCalls: 8, maxOpenAiUsd: 2, maxDataForSeoCalls: 3, maxDataForSeoUsd: 0.4, ...(args.authorizationId !== undefined ? { authorizationId: args.authorizationId } : {}) });
       const a = result.allowance, receipt = a ? ` Authorized request ceilings: OpenAI $${a.modelReservedUsd.toFixed(4)}, DataForSEO $${a.externalReservedUsd.toFixed(4)}. These are reservations, not invoices.` : " No paid request was authorized.";
       await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout");
       if (result.success) return { success: true, note: `A finished edit on this page is ready in Changes. Nothing was published.${receipt}` };

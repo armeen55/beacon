@@ -187,5 +187,37 @@ async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS>
     : await d.spend.reconcile(admission.attemptId, 0, null, "provider_reported", { success, reason, allowance, acquisition }).catch(() => false);
   return result(success, recorded ? reason : "proof_admission_receipt_missing");
 }
-const atomicProof = { run, finishPage, prepareNext: (input: { tenantId: string; currentBasis: string | null; eligible: (p: ChangeProposal) => boolean }) => runResearchCycle(input.tenantId, { manualDelivery: { currentBasis: input.currentBasis, eligible: input.eligible } }) };
+/** A legacy description edit whose exact predecessor disappeared is historical work. The focused $0 producer owns the new hypothesis and its atomic handover; this action only follows the successor it actually saved. */
+async function currentMetaSuccessor(tenantId: string, oldId: string, basis: string | null, overrides: Partial<typeof PAGE_DEPS> = {}): Promise<string | null> {
+  const d = { ...PAGE_DEPS, ...overrides };
+  const prior: { row: { proposal_version: number; terminal_disposition: string | null; superseded_by: string | null } | null } = { row: null };
+  const old = await d.load(tenantId, oldId, { canonicalOnly: true, retired: "include", canonicalRow: row => { prior.row = row; } });
+  const change = old?.recommendedChange;
+  if (old?.obligation?.kind !== "terminal" || old.obligation.reason !== COPY_RULES.metaPredecessorGone
+    || change?.kind !== "existing_edit" || change.field !== "meta") return oldId;
+  if (!basis || !oldId.startsWith(`${tenantId}::`) || await d.permission(tenantId) !== "paused") return null;
+  if (!old || old.id !== oldId || old.tenantId !== tenantId || old.basis !== basis || old.status !== "needs_review" || old.riskLevel !== "low"
+    || !prior.row?.proposal_version || ![null, "superseded"].includes(prior.row.terminal_disposition) || old.approval || old.confirmedVersion || old.redraftRequested || old.bundle || old.newPageDraft
+    || old.obligation.holdCode || !change.before?.trim() || !old.pageUrl || !old.pagePath) return null;
+  const successorId = `${tenantId}::${old.pagePath}::existing_edit::missing_description`;
+  if (prior.row.terminal_disposition === "superseded" && prior.row.superseded_by !== successorId) return null;
+  if (prior.row.terminal_disposition === null) await runWithoutSpending(() => d.produce(tenantId, { now: new Date(), focusPage: old.pageUrl!, produce: true, zeroSpend: true, persist: true,
+    maxDrafts: 0, maxCalls: 0, aeoDiagnoses: 0, deliveryScope: "existing_page_edits", stopBy: Date.now() + 110_000 }));
+  const retired: typeof prior = { row: null }, current: typeof prior = { row: null };
+  const [oldAfter, successor, stillBasis, stillPaused] = await Promise.all([
+    d.load(tenantId, oldId, { canonicalOnly: true, retired: "include", canonicalRow: row => { retired.row = row; } }),
+    d.load(tenantId, successorId, { canonicalOnly: true, canonicalRow: row => { current.row = row; } }),
+    d.current(tenantId), d.permission(tenantId),
+  ]);
+  const next = successor?.recommendedChange;
+  if (retired.row?.proposal_version !== prior.row.proposal_version || retired.row?.terminal_disposition !== "superseded"
+    || retired.row.superseded_by !== successorId || JSON.stringify(oldAfter) !== JSON.stringify(old) || current.row?.proposal_version !== prior.row.proposal_version + 1
+    || current.row?.terminal_disposition != null || successor?.id !== successorId || successor.tenantId !== tenantId || successor.basis !== basis || successor.status !== "needs_review"
+    || successor.researchOnly !== true || !successor.workKey?.trim() || successor.obligation?.kind !== "draft" || successor.approval || successor.confirmedVersion || successor.redraftRequested
+    || next?.kind !== "existing_edit" || next.field !== "meta" || next.before !== null || !successor.pageUrl || !sameDocument(successor.pageUrl, old.pageUrl!) || successor.pagePath !== old.pagePath
+    || stillBasis !== basis || stillPaused !== "paused") return null;
+  return successorId;
+}
+
+const atomicProof = { run, finishPage, currentMetaSuccessor, prepareNext: (input: { tenantId: string; currentBasis: string | null; eligible: (p: ChangeProposal) => boolean }) => runResearchCycle(input.tenantId, { manualDelivery: { currentBasis: input.currentBasis, eligible: input.eligible } }) };
 export default atomicProof;
