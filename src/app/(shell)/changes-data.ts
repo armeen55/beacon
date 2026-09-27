@@ -4,7 +4,7 @@ import "server-only";
 import { cache } from "react";
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
-import { actionableProposalFailures, confirmedVersion, loadChangeProposals, loadProposalQueue, openHold, readAiCaseDispositions, readQueuePage, resolveCurrentBasis } from "@/domains/decision";
+import { actionableProposalFailures, loadChangeProposals, loadProposalQueue, openHold, readAiCaseDispositions, readQueuePage, resolveCurrentBasis } from "@/domains/decision";
 import type { AiCaseFile } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import { loadProofLedgerCached } from "@/domains/measurement";
@@ -109,19 +109,13 @@ export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string;
     readyZeroHint: setAsideHint() };
   // Ready has its own page and can sit below the first global page. Recheck every
   // lane the release carries, not only that global slice.
-  const all = new Map([...view.proposals, ...view.ready, ...view.toDo, ...(view.research ?? [])].map((p) => [p.id, p]));
-  const standing = new Set([...all.values()].filter((p) => {
-    if (actionableProposalFailures(p, ctx).length > 0) return false;
-    if (!ctx.currentRows) return true;
-    const current = ctx.currentRows.get(p.id);
-    return !!current && operatorUiPolicy.isManualEditProofWork(current) && current.status === p.status && current.researchOnly === p.researchOnly
-      && confirmedVersion(current) === confirmedVersion(p) && actionableProposalFailures(current, ctx).length === 0
-      && openHold(current).lane === openHold(p).lane;
-  }).map((p) => p.id));
+  const all = new Map([...view.proposals, ...view.ready, ...view.toDo, ...(view.research ?? [])].map((p) => [p.id, ctx.currentRows ? ctx.currentRows.get(p.id) : p]));
+  const standing = new Set([...all].filter(([id, p]) => !!p && p.id === id && operatorUiPolicy.isManualEditProofWork(p)
+    && actionableProposalFailures(p, ctx).length === 0).map(([id]) => id));
   // A PHOTOGRAPH IS RE-SORTED, NEVER EMPTIED. A blob published before a gate tightened can be carrying a row in
   // the wrong lane, so every surviving row is put back through the ONE hold: nothing is dropped for being
   // unfinished, it is shown where it belongs and the count follows the list.
-  const kept = [...view.ready, ...view.toDo, ...(view.research ?? [])].filter((p) => standing.has(p.id));
+  const kept = [...view.ready, ...view.toDo, ...(view.research ?? [])].filter((p) => standing.has(p.id)).map((p) => all.get(p.id)!);
   const research = kept.filter((p) => openHold(p).lane === "research");
   // THE SAME READY PREDICATE load-proposals applies: status, an open review lane and NO DEFECT under the one verdict (journey review, 2026-09-06: this read `blocking`, which is drawn from the hard arms alone, beside a second name for the same value, so a row held by a typed fault could re-sort into the released ready lane while the queue refused it).
   const ready = kept.filter((p) => p.status === "ready" && openHold(p).lane === "review" && openHold(p).defects.length === 0);
@@ -146,12 +140,12 @@ export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string;
     const current: ChangeProposal | undefined = ctx.currentRows.get(row.id);
     const hold: ReturnType<typeof openHold> | undefined = current ? openHold(current) : undefined;
     const lane = hold?.lane === "research" ? "research" : current?.status === "ready" && hold?.defects.length === 0 ? "ready" : "todo";
-    if (!current || !operatorUiPolicy.isManualEditProofWork(current) || actionableProposalFailures(current, ctx).length > 0) counts[row.lane] = Math.max(0, counts[row.lane] - 1);
+    if (!current || current.id !== row.id || !operatorUiPolicy.isManualEditProofWork(current) || actionableProposalFailures(current, ctx).length > 0) counts[row.lane] = Math.max(0, counts[row.lane] - 1);
     else if (lane !== row.lane) { counts[row.lane] = Math.max(0, counts[row.lane] - 1); counts[lane] += 1; }
   }
   // MAX, never a sum: an old-rule release counted rows it also listed, so adding inflates.
-  const setAside = Math.max(view.demotedStaleBasis, [...all.values()].filter((p) => actionableProposalFailures(p, ctx).length > 0).length);
-  const firstPage = view.proposals.filter((p) => standing.has(p.id));
+  const setAside = Math.max(view.demotedStaleBasis, [...all.values()].filter((p) => !!p && actionableProposalFailures(p, ctx).length > 0).length);
+  const firstPage = view.proposals.filter((p) => standing.has(p.id)).map((p) => all.get(p.id)!);
   const shown = new Set(ready.map((p) => p.id));
   return { ...view, proposals: [...ready, ...firstPage.filter((p) => !shown.has(p.id))], ready, toDo, research, aiCases: view.aiCases ?? { state: "unavailable" },
     // THE STAMPED LANES FOLLOW THE RE-SORT (operator walk, 2026-09-16 00:00Z): the client reads a row's lane off `laneById` and fails closed to "todo" for a row the stamp does not know, so a remembered release re-sorted here painted "Ready now: 8 finished changes" over an empty box and a "Show 8 more" button, with every finished card hidden.
@@ -215,7 +209,7 @@ export async function readChangesPage(
     refreshed: moved ? "The list moved under you while you were reading it, so here is the fresh first page." : null };
 }
 
-/** One release supplies the first screen. Current canonical rows may withhold a retired or changed copy, but a rank stamp cleared during
+/** One release supplies the first screen. Current canonical rows replace the same released IDs; retired copies are withheld, but a rank stamp cleared during
  *  research never erases a still-current Ready change. Show more reads the live ranking with its release cursor. */
 async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
   const t0 = Date.now();

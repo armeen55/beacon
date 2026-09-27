@@ -93,23 +93,22 @@ function topEditOf(p: ChangeProposal): TodayView["topEdit"] {
   if (c.kind === "new_page") {
     return { action: `Build a new page that answers "${p.primaryQuery}"`, lead: "", before: null, after: "", paste: false, ...context };
   }
-  const field = c.field === "meta" ? "meta description" : c.field.replace(/_/g, " ");
+  const field = c.field === "meta" ? "meta description" : c.field.replace(/_/g, " "), inPlace = c.linkMode === "in_place";
   if (String(p.kind) === "consolidation" || p.changeFamily === "consolidation") {
     return { action: recommendationOf(p), lead: "", before: null, after: "", paste: false, ...context };
   }
   return {
     // THE PAGE, SAID THE WAY A PERSON SAYS IT (audit 3.9): the headline printed the raw path, and Changes already reads the same path through pageLabel.
     action: c.linkTo ? `Add a link on ${p.pagePath ? pageLabel(p.pagePath) : p.pageLabel}` : c.field === "schema" ? `${c.before ? "Replace the structured data on" : "Add structured data to"} ${p.pagePath ? pageLabel(p.pagePath) : p.pageLabel}` : c.before == null && (c.field === "section" || c.field === "answer_block") ? `Add a paragraph to ${p.pagePath ? pageLabel(p.pagePath) : p.pageLabel}` : `Change the ${field} on ${p.pagePath ? pageLabel(p.pagePath) : p.pageLabel}`, // the verb the Changes card uses: a link is added, a paragraph is added, markup is added or replaced (operator walk, 2026-09-16: "Change the section on Samanid empire flag" for an added link)
-    lead: c.before == null ? "Add: " : "Change to: ", /* an addition adds; "Change to:" over a sentence that replaces nothing read as a replacement (walk of 2026-09-16) */
+    lead: inPlace ? "Link the underlined words in this existing paragraph: " : c.before == null ? "Add: " : "Change to: ",
     ...(c.field === "schema" ? { markup: "This is code for the page head, not visible text. It tells Google which questions this page answers, in Google's own format." } : {}),
-    before: (c.before ?? "").trim() || null,
+    before: inPlace ? null : (c.before ?? "").trim() || null,
     after,
-    paste: true,
+    paste: !inPlace,
     ...context,
     ...(c.units ? { units: c.units } : {}),
     ...(c.linkTo ? { link: { href: c.linkTo, anchor: c.anchorText ?? "" } } : {}),
-    // WHERE IT GOES rides the one card the operator is steered to first: the Changes card has always carried it, and the Today card, the single card most operators act from, omitted it, so body copy arrived with no place to put it (blind customer review, 2026-08-25).
-    ...((c.where ?? "").trim() ? { where: c.where!.trim() } : {}),
+    ...(inPlace ? { where: `Select only “${c.anchorText}” and link those words to ${c.linkTo}. Keep the paragraph’s wording and all other content.` } : (c.where ?? "").trim() ? { where: c.where!.trim() } : {}),
   };
 }
 
