@@ -200,7 +200,7 @@ async function reviewFactualCards(cards: readonly ChangeProposal[], wiring: { te
 }
 
 /** Every page whose banked checks contradict it, as one card each, at $0. Guarded like every producer: a read that fails narrows the pass and sweeps nothing. Beacon's own sense review is a separate ranked candidate. */
-async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date; checked?: readonly FactCheck[] | null }): Promise<FactualDefectRun> {
+async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date; checked?: readonly FactCheck[] | null; bodyReads?: Parameters<typeof loadOwnedPageBodies>[3] }): Promise<FactualDefectRun> {
   const { tenantId, snapshot, now } = input;
   const noOpWhy = new Map<string, string>();
   try {
@@ -221,15 +221,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
     if (candidateUrls.length > 0) {
       const [{ loadOwnedPageBodies }, { pageHashOf }] = await Promise.all([
         import("@/domains/evidence/pages/owned-context"), import("@/domains/evidence/pages/fact-check-run")]);
-      // THE LOADER REFUSES AN OVER-WIDE ASK WHOLESALE (its bound is seven pages), and an account's checks
-      // crossed that width live (2026-08-30: asked 8, max 7, empty map, zero hashes, zero cards from 777
-      // banked checks). Batches within the bound read every page; a page whose body still fails to load is
-      // simply never judged, which is the sweep's own fail-safe.
-      const bodies = new Map<string, Awaited<ReturnType<typeof loadOwnedPageBodies>> extends Map<string, infer V> ? V : never>();
-      for (let i = 0; i < candidateUrls.length; i += 7) {
-        const part = await loadOwnedPageBodies(tenantId, candidateUrls.slice(i, i + 7)).catch(() => null);
-        for (const [k, v] of part ?? []) bodies.set(k, v);
-      }
+      const bodies = await loadOwnedPageBodies(tenantId, candidateUrls, undefined, input.bodyReads).catch(() => new Map());
       for (const url of candidateUrls) {
         // THE LOADER'S MAP IS CANONICALLY KEYED, and this read spelled the key raw, so it missed every body,
         // every page hash stayed unset, and the currency gate below refused all 777 banked checks at once
