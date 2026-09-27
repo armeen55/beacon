@@ -1,5 +1,5 @@
 import "server-only";
-import { reviewFinishedCopy, writerKindOf } from "@/domains/decision/drafted-copy"; import { REVIEW_CONTRACT, reviewFits, unreviewed } from "@/domains/decision/proof"; import { COPY_RULES } from "@/domains/decision/copy-sanitize";
+import { EDITOR_SHARED, reviewFinishedCopy, writerKindOf } from "@/domains/decision/drafted-copy"; import { REVIEW_CONTRACT, reviewFits, unreviewed } from "@/domains/decision/proof"; import { COPY_RULES } from "@/domains/decision/copy-sanitize";
 import { confirmedVersion, deliverableGaps } from "@/domains/decision/completeness"; import { DRAFT_BUDGET } from "@/domains/decision/draft-budget"; import { nextObligation } from "@/domains/decision/obligation"; import { answerReviewedProposal, saveChangeProposal, loadChangeProposal, loadChangeProposals, preflightReviewedProposal } from "@/domains/decision/proposal-store";
 import type { ChangeProposal } from "@/domains/decision/contracts"; import { PROOF_SPEND, runWithoutSpending } from "@/lib/spend-scope"; import { researchPermission } from "./due-work";
 import spendReservations, { runWithProposalWorkKey } from "@/lib/cost/spend-reservations";
@@ -23,7 +23,7 @@ async function run(input: Input, deps: Deps = DEPS) {
   if (!tenantId || !currentBasis || !proposalId.startsWith(`${tenantId}::`) || maxOpenAiCalls !== 1
     || !Number.isFinite(maxOpenAiUsd) || maxOpenAiUsd <= 0 || maxOpenAiUsd > 0.05) return refuse("invalid_identity_or_ceiling");
   if (await deps.permission(tenantId) !== "paused") return refuse("research_must_remain_paused");
-  const row = await deps.load(tenantId, proposalId);
+  let row = await deps.load(tenantId, proposalId);
   if (!row || row.id !== proposalId || row.tenantId !== tenantId) return refuse("stored_candidate_not_found");
   if (row.basis !== currentBasis) return refuse("candidate_basis_is_not_current", row);
   if (deps.delivery(row) !== "existing_page_edit" || !["needs_review", "ready"].includes(row.status)) return refuse("candidate_is_not_one_unfinished_manual_edit", row);
@@ -49,6 +49,7 @@ async function run(input: Input, deps: Deps = DEPS) {
       : { success: false as const, proposalId, reason: recorded ? reason : zeroCallFailure ? "admission_receipt_not_released" : "admission_receipt_not_reconciled", stored, meter };
   };
   if (await deps.permission(tenantId) !== "paused") return finish(false, "research_pause_changed_before_review", row, null, true);
+  const owned = await EDITOR_SHARED.prepareReview(row, preflight, { saveChangeProposal: deps.save, loadChangeProposal: deps.load }).catch(() => null); if (!owned) return finish(false, "exact_review_ownership_not_saved", await deps.load(tenantId, proposalId), null, true); row = owned.row;
   const key = DRAFT_BUDGET.keyOf(row); let budget: ReturnType<typeof DRAFT_BUDGET.plan> | undefined;
   try {
   budget = DRAFT_BUDGET.plan({ candidates: 1, calls: 1,
@@ -56,11 +57,11 @@ async function run(input: Input, deps: Deps = DEPS) {
       calls: 1, delivery: "existing_page_edit" }] });
   const attempts = budget.draw(key, 1); if (!attempts) return finish(false, "proof_review_allowance_unavailable", row, budget.meterOf(key), true);
   const reviewed = await PROOF_SPEND.run(tenantId, maxOpenAiCalls, maxOpenAiUsd,
-    () => deps.review(row, { tenantId, now, bypassCache: true, attempts, proposalWorkKey: row.workKey }));
+    () => deps.review(row, { tenantId, now, bypassCache: true, attempts, proposalWorkKey: row!.workKey, reviewContext: owned.context }));
   const meter = budget.meterOf(key), proposed = reviewed.row && reviewed.row.id === proposalId && reviewed.row.tenantId === tenantId ? reviewed.row : null;
   if (!proposed) return finish(false, "review_did_not_return_the_exact_candidate", row, meter);
   if (await deps.permission(tenantId) !== "paused") return finish(false, "research_pause_changed_before_persist");
-  const candidate: ChangeProposal = { ...proposed, status: "ready", obligation: undefined }, qualified = deps.reviewAuthorized(candidate) && deps.acceptable(candidate), saved = row.status === "ready" ? await deps.save(qualified ? candidate : { ...proposed, status: "needs_review" }, undefined, undefined, row) : null;
+  const candidate: ChangeProposal = { ...proposed, status: "ready", obligation: undefined }, qualified = deps.reviewAuthorized(candidate) && deps.acceptable(candidate), saved = await deps.save(qualified ? candidate : { ...proposed, status: "needs_review" }, undefined, undefined, row);
   const promoted: Awaited<ReturnType<Deps["promote"]>> = saved ? { status: saved === "saved" ? qualified ? "promoted" : "refused" : saved === "blocked" || saved === "unchanged" ? "stale" : saved } : await deps.promote(tenantId, proposalId, deps.version(row), currentBasis, { kind: "promote", at: now.toISOString() }, proposed), stored = await deps.load(tenantId, proposalId);
   if (await deps.permission(tenantId) !== "paused") return finish(false, "research_pause_changed_after_persist", stored, meter);
   if (promoted.status !== "promoted") return finish(false, `promotion_${promoted.status}${promoted.refusal ? `:${promoted.refusal}` : ""}`, stored, meter);

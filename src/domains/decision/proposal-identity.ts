@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { componentIdOf, deserializeChangeProposal, serializeChangeProposal, type BundleComponentKind, type ChangeProposal } from "./contracts";
 import { footprintKey } from "./mutation-footprint";
 import { effortMinutesFor, fieldForComponent } from "./producers/contract";
-import { copyKey } from "./proof";
+import { copyKey, REVIEW_CONTRACT, reviewFits, unreviewed } from "./proof"; import { COPY_RULES } from "./copy-sanitize"; import type { FactCheck } from "@/domains/evidence/pages/fact-checks";
 
 type ActionFamily = "title-family" | "section-family" | "links-family" | "technical-family" | "consolidation" | "accuracy-family" | "new_page";
 const RETIRED_FAMILY_POLICIES = [{ family: "legacy_faq_schema", reason: "the old standalone FAQ generator was retired; future schema work must keep its own evidence and provenance", matches: (row: ChangeProposal) => row.id.split("::").at(-1)?.split("@")[0] === "faq_schema" }] as const;
@@ -102,7 +102,18 @@ const atomicRows = (p: ChangeProposal): ChangeProposal[] => {
   });
 };
 
-const proposalIdentity = { actionFamilyOf, identityOf, atomicRows, retiredPolicyOf,
+const reviewWorkKey = (p: ChangeProposal, captures: ChangeProposal["reviewedCaptures"], checked: readonly FactCheck[] = []): string | null => {
+  const urls = COPY_RULES.captureUrls(p), frames = captures ?? [], material = frames.map(c => [c.tenantId, COPY_RULES.captureAddress(c.url), c.pageId, c.captureVersion, c.sourceRevision ?? null]).sort();
+  if (!p.tenantId || !p.basis || !p.workKey || frames.some(c => c.tenantId !== p.tenantId || !urls.some(url => COPY_RULES.captureAddress(url) === COPY_RULES.captureAddress(c.url))) || urls.some(url => !COPY_RULES.captureAddress(url) || frames.filter(c => c.tenantId === p.tenantId && COPY_RULES.captureAddress(c.url) === COPY_RULES.captureAddress(url) && c.pageId && c.captureId && c.captureId === c.latestCaptureId && Number.isSafeInteger(c.captureVersion) && c.captureVersion > 0).length !== 1)) return null;
+  const ids = new Set([...(p.claims ?? []).flatMap(c => c.supportedBy), ...(p.preservation ?? []).flatMap(c => c.by ?? []), ...(p.informationGain?.by ?? []), ...(p.bundle?.components ?? []).flatMap(c => c.evidenceKeys)]);
+  const findings = [...ids].filter(id => /^fact-/.test(id)).map(id => { const bank = (p.supportFacts ?? []).filter(f => f.id === id), f = bank[0]; if (bank.length !== 1 || !f) return null; const rows = checked.filter(c => f.finding?.tenantId === p.tenantId && c.page === f.finding.page && c.statementKey === f.finding.statementKey && c.state === "checked" && Number.isSafeInteger(c.sourceVersion) && c.sourceVersion! > 0); return rows.length === 1 && (f.finding?.sourceVersion == null || f.finding.sourceVersion === rows[0]!.sourceVersion) ? [p.tenantId, rows[0]!.page, rows[0]!.statementKey, rows[0]!.sourceVersion] : null; });
+  if (findings.some(f => f == null)) return null;
+  const r = p.semanticReview; let progress: number[] = [];
+  try { if (r?.version === REVIEW_CONTRACT && reviewFits(p, r.of)) progress = COPY_RULES.accepted(r.editor) && COPY_RULES.sameCaptures(p.reviewedCaptures, captures) ? COPY_RULES.reviewProgress(p) : r.parts?.length && COPY_RULES.reviewParts(p).length ? COPY_RULES.reviewSubjects(p).subjects.flatMap(({ one, indices }) => { const seen = r.parts?.filter(part => part.key === createHash("sha256").update(copyKey(one)).digest("hex")) ?? []; return seen.length === 1 && COPY_RULES.accepted(seen[0]!.review.editor) && unreviewed({ ...one, semanticReview: seen[0]!.review }) == null && COPY_RULES.sameCaptures(one.reviewedCaptures, frames.filter(c => COPY_RULES.captureUrls(one).some(url => COPY_RULES.captureAddress(url) === COPY_RULES.captureAddress(c.url)))) ? indices.map(x => x.n) : []; }) : []; } catch { return null; }
+  return `review::${p.tenantId}::${p.id}::${createHash("sha256").update(COPY_RULES.recordKey([copyKey({ ...p, reviewedCaptures: undefined }), p.basis, material, findings.sort(), REVIEW_CONTRACT, progress])).digest("hex")}`;
+};
+
+const proposalIdentity = { actionFamilyOf, identityOf, atomicRows, retiredPolicyOf, reviewWorkKey,
   NO_FIELD_KIND: new Set<string>(["anchor_text", "internal_link_add", "internal_link_remove", "table_or_list_add", "schema", "canonical", "redirect", "noindex", "navigation"]),
   terminalProposalFingerprint, proposalFingerprint };
 export default proposalIdentity;

@@ -36,11 +36,11 @@ const advance = (ms: number): number => { const at = advanceWorld(ms); vi.setSys
 const HUB = "/famous-iranians", QUERY = "famous iranians", FORUM = "reddit.com";
 const serpFor = (q: string): FixtureSerp[] => fixture<FixtureSerp[]>("serps.json").filter((s) => s.query === q);
 
-function searchScript(state: { ready: boolean; posts: number }) {
+function searchScript(state: { ready: boolean; posts: number }) { const providerObservedAt = now().toISOString();
   return (path: string) => {
     if (path.endsWith("task_post")) { state.posts += 1; return { body: { status_code: 20000, tasks: [{ id: "task-1", status_code: 20100, status_message: "Task Created.", cost: 0.0006 }] } }; }
     if (path.includes("task_get")) return { body: { status_code: 20000, cost: 0, tasks: [{ id: "task-1", status_code: state.ready ? 20000 : 40602, status_message: state.ready ? "Ok." : "Task in Queue.",
-      result: state.ready ? [{ keyword: QUERY, items: [
+      result: state.ready ? [{ keyword: QUERY, datetime: providerObservedAt, items: [
         { type: "organic", rank_absolute: 1, domain: "en.wikipedia.org", url: "https://en.wikipedia.org/wiki/List_of_Iranians", title: "List of Iranians" },
         { type: "organic", rank_absolute: 2, domain: "history.example", url: "https://history.example/famous-iranians", title: "Famous Iranians Through History" },
         { type: "organic", rank_absolute: 3, domain: "culture.example", url: "https://culture.example/people-from-iran", title: "People From Iran" },
@@ -252,13 +252,13 @@ describe("three opportunities waiting on their own results page", () => {
   const PAGES = [{ path: HUB, query: QUERY, h2: ["Famous Iranian Poets", "Famous Iranian Athletes", "Famous Iranian Actors"] },
     { path: "/persian-male-names", query: "iranian male names", h2: ["Names from poetry", "Names from history", "Names in use today"] },
     { path: "/persian-female-first-names", query: "girl iranian names", h2: ["Names from poetry", "Names from history", "Names in use today"] }] as const;
-  const threeTasks = (state: { ready: boolean; posted: string[] }) => { const byId = new Map<string, string>();
+  const threeTasks = (state: { ready: boolean; posted: string[] }) => { const byId = new Map<string, string>(), providerObservedAt = now().toISOString();
     return (path: string, payload: unknown) => {
       const asked = String(((payload as { keyword?: unknown }[] | null)?.[0]?.keyword) ?? "");
       if (path.endsWith("task_post")) { state.posted.push(asked); const id = `task-${state.posted.length}`; byId.set(id, asked); return { body: { status_code: 20000, tasks: [{ id, status_code: 20100, status_message: "Task Created.", cost: 0.0006 }] } }; }
       if (path.includes("task_get")) { const id = path.split("/").pop() ?? "", q = byId.get(id) ?? "";
         return { body: { status_code: 20000, cost: 0, tasks: [{ id, status_code: state.ready ? 20000 : 40602, status_message: state.ready ? "Ok." : "Task in Queue.",
-          result: state.ready ? [{ keyword: q, items: [1, 2, 3].map((n) => ({ type: "organic", rank_absolute: n, domain: `ref${n}.example`, url: `https://ref${n}.example/${q.replace(/\s+/g, "-")}`, title: `${q} on ref${n}` })) }] : null }] } }; }
+          result: state.ready ? [{ keyword: q, datetime: providerObservedAt, items: [1, 2, 3].map((n) => ({ type: "organic", rank_absolute: n, domain: `ref${n}.example`, url: `https://ref${n}.example/${q.replace(/\s+/g, "-")}`, title: `${q} on ref${n}` })) }] : null }] } }; }
       return { body: { status_code: 20000, cost: 0.01, tasks: [{ status_code: 20000, result: [{ items: [{ keyword: asked, search_volume: 1200, competition: 0.3, keyword_info: { search_volume: 1200, competition: 0.3 } }] }] }] } }; }; };
   const seedSiblings = (of: readonly typeof PAGES[number][]): Promise<void> => seedOwnedPages(of.map((p) => ({ path: p.path, title: `Persian and Iranian ${p.query}`, h1: `Persian and Iranian ${p.query}`, meta: `A named list for ${p.query}.`, h2: [...p.h2],
     body: ["Iran has produced writers, athletes and performers whose work travelled far beyond its borders.", "The poets section lists three poets with a short line on each.", "The athletes section lists wrestlers and weightlifters who won world titles.", "The actors section lists screen performers who worked at home and abroad.", "Each entry gives a name, a period and one sentence about why the person is remembered."].join("\n") })));

@@ -35,7 +35,7 @@ type EvidenceCacheRow = {
   spend_attempt_id?: string | null;
   cost_usd: number; expires_at: string; ready_at?: string | null; posted_at?: string | null;
   quarantined_at?: string | null;
-  error_detail?: string | null;
+  error_detail?: string | null; provenance?: { tenantId?: string };
   next_poll_at?: string | null;
   poll_attempts?: number;
 };
@@ -203,7 +203,6 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
   if (!saved) return holdUncertain(d, r.mode, cacheKey, now, attemptId, "This paid answer could not be saved after three tries, so it was paused instead of purchased again.");
   return { state: "ok", envelope: (live.payload ?? {}) as ProviderEnvelope, costUsd: actual, cacheKey, modelServed: live.modelServed, modelRequested: r.modelRequested };
 }
-
 async function projectStoredLiveResult(
   d: CachedCallDeps,
   r: ResolvedCall,
@@ -229,7 +228,6 @@ async function projectStoredLiveResult(
   return { state: "hit", envelope: (live.payload ?? {}) as ProviderEnvelope, costUsd: 0,
     cacheKey, modelServed: live.modelServed };
 }
-
 export async function collectResolvedTask(
   cacheKey: string,
   paths: { getPath: (endpoint: string, id: string) => string | null; tasksReadyPath: (endpoint: string) => string | null; ttlMsFor: (endpoint: string) => number | null },
@@ -242,7 +240,15 @@ export async function collectResolvedTask(
     return { state: "error", cacheKey, disposition: "none", detail: "The fetch records could not be read, so the provider is not called until they can be." };
   }
   if (!row) return { state: "error", cacheKey, disposition: "none", detail: "No provider task is on record here, so this one starts fresh." };
-  if (row.status === "ready" && row.payload != null && Date.parse(row.expires_at) > now.getTime()) return { state: "hit", envelope: (row.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: row.model_served };
+  const replay = deps.serpReplay as { tenantId: string; query: string; maxAgeMs: number } | undefined;
+  if (row.status === "ready" && row.payload != null && replay) {
+    const task = firstTask(row.payload), result = Array.isArray(task?.result) ? task.result[0] as Record<string, unknown> | undefined : undefined;
+    const keyword = typeof result?.keyword === "string" ? result.keyword.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim() : null, query = replay.query?.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+    if (row.cache_key !== cacheKey || row.endpoint !== "serp/google/organic/task_post" || !replay.tenantId || row.provenance?.tenantId != null && row.provenance.tenantId !== replay.tenantId || !row.provider_task_id || task?.id !== row.provider_task_id || topStatus(row.payload) !== 20000 || task?.status_code !== 20000 || !query || keyword !== query || !(replay.maxAgeMs > 0 && replay.maxAgeMs <= 7 * DAY_MS)) return { state: "error", cacheKey, disposition: "none", detail: "Saved search evidence does not match this account, task, query, or freshness window; no provider call was made." };
+    const observedAt = typeof result?.datetime === "string" && /(?:Z|[+-]\d{2}:\d{2})$/.test(result.datetime) ? Date.parse(result.datetime) : NaN;
+    if (!Number.isFinite(observedAt) || observedAt > now.getTime()) return { state: "error", cacheKey, disposition: "none", detail: "Saved search evidence has no valid provider observation date; no provider call was made." };
+    if (now.getTime() - observedAt <= replay.maxAgeMs) return { state: "hit", envelope: row.payload as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: row.model_served };
+  } else if (row.status === "ready" && row.payload != null && Date.parse(row.expires_at) > now.getTime()) return { state: "hit", envelope: row.payload as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: row.model_served };
   const refused = blockedReason(row);
   if (refused) return blockedResult(cacheKey, refused);
   if (row.error_detail?.startsWith("unavailable:")) return unavailableResult(cacheKey);
@@ -322,7 +328,6 @@ export async function collectResolvedTask(
   if (!saved) return { state: "error", cacheKey, disposition: "none", detail: "The result was collected but could not be saved, so it is collected again for free rather than lost." };
   return { state: "ok", envelope: (live.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: live.modelServed };
 }
-
 async function holdUncertain(d: CachedCallDeps, mode: "live" | "task", cacheKey: string, now: Date, attemptId: string, lead: string, providerTaskId?: string): Promise<CachedCallResult> {
   await d.spend.markAmbiguous(attemptId, providerTaskId).catch(() => false);
   const held = await holdRow(d, cacheKey, now, "uncertain:unconfirmed provider call");
@@ -333,7 +338,6 @@ async function holdUncertain(d: CachedCallDeps, mode: "live" | "task", cacheKey:
     ? { state: "error", cacheKey, disposition: "quarantined", detail: `${lead} ${way}` }
     : { state: "error", cacheKey, disposition: "none", detail: `${lead} That pause could not be recorded either, so it is held for a few minutes before the next look.` };
 }
-
 async function applyPaidRejection(d: CachedCallDeps, r: ResolvedCall, body: unknown, providerCost: number | null, now: Date, attemptId: string, lead: string): Promise<CachedCallResult> {
   const taskCode = firstTask(body)?.status_code;
   const code = typeof taskCode === "number" ? taskCode : topStatus(body);
@@ -352,7 +356,6 @@ async function applyPaidRejection(d: CachedCallDeps, r: ResolvedCall, body: unkn
   if (!(await holdRow(d, r.cacheKey, now, `blocked:${shown}`))) return { state: "error", cacheKey: r.cacheKey, disposition: "none", detail: "The provider refused this request and the refusal could not be recorded. It is held briefly and noted properly on the next pass." };
   return blockedResult(r.cacheKey, shown);
 }
-
 function blockedReason(row: { error_detail?: string | null } | null | undefined): string | null {
   const detail = row?.error_detail;
   return typeof detail === "string" && detail.startsWith("blocked:") ? detail.slice(8, 120) : null;
@@ -375,12 +378,10 @@ async function settleDeniedRepost(d: CachedCallDeps, cacheKey: string): Promise<
   if (!latest?.provider_task_id && latest?.error_detail?.startsWith("dead_task:")) return { state: "error", cacheKey, disposition: "repost_once", detail: "Another collector already authorized the one clean retry." };
   return { state: "error", cacheKey, disposition: "retry_free", detail: "The task could not be settled safely. Its identity stays on file and is checked again for free." };
 }
-
 async function writeRetried(d: CachedCallDeps, cacheKey: string, patch: Record<string, unknown>): Promise<boolean> {
   for (let attempt = 0; attempt < 3; attempt++) try { await d.cacheWrite(cacheKey, patch); return true; } catch { /* free to try again */ }
   return false;
 }
-
 async function holdRow(d: CachedCallDeps, cacheKey: string, now: Date, reason: string): Promise<boolean> {
   try {
     await d.cacheWrite(cacheKey, {
@@ -391,7 +392,6 @@ async function holdRow(d: CachedCallDeps, cacheKey: string, now: Date, reason: s
     return true;
   } catch { return false; }
 }
-
 async function recoverQuarantined(d: CachedCallDeps, cacheKey: string, attemptTag: string, tasksReadyPath: string | null, now: Date, stopBy: number): Promise<string | null> {
   if (!tasksReadyPath) return null;
   const byTag = await memoListing(d, tasksReadyPath, now.getTime(), stopBy);

@@ -71,15 +71,12 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
       .toEqual(["ok", 0.004, ["reconcile", 0.004, null]]);
   });
   it("an identical repeat is a zero-network, zero-cost hit", async () => {
-    const { deps, calls } = makeDeps({ claimEvidenceFetch: claim("ready", { payload: [{ rank: 1 }] }) });
-    expect([(await runResolvedCall(resolved(), deps)).state, calls.fetch.length, calls.reserve.length]).toEqual(["hit", 0, 0]); // a hit is typed costUsd: 0
+    const { deps, calls } = makeDeps({ claimEvidenceFetch: claim("ready", { payload: [{ rank: 1 }] }) }); expect([(await runResolvedCall(resolved(), deps)).state, calls.fetch.length, calls.reserve.length]).toEqual(["hit", 0, 0]); // a hit is typed costUsd: 0
   });
   it("stores the full paid LIVE envelope in the spend receipt before projecting it to cache", async () => {
     const g = makeDeps();
-    const reconcile = vi.fn(async () => true);
-    (g.deps.spend as CachedCallDeps["spend"]).reconcile = reconcile;
-    const out = await runResolvedCall(resolved(), g.deps);
-    expect(out.state).toBe("ok");
+    const reconcile = vi.fn(async () => true); (g.deps.spend as CachedCallDeps["spend"]).reconcile = reconcile;
+    const out = await runResolvedCall(resolved(), g.deps); expect(out.state).toBe("ok");
     expect(reconcile).toHaveBeenCalledWith("a1", 0.0021, null, "provider_reported", liveOk(0.0021));
   });
   it("rebuilds LIVE and final Standard cache rows from a replayed paid envelope despite a closed breaker", async () => {
@@ -93,8 +90,7 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
       expect(out.state === "hit" && out.envelope.tasks?.[0]?.result).toEqual([{ rank: 3 }]); }
   });
   it("repairs a quarantined LIVE cache projection from its reconciled spend receipt at zero cost", async () => {
-    const body = liveOk(0.0021, [{ rank: 4 }]);
-    const g = makeDeps({ claimEvidenceFetch: claim("pending"), cacheRead: row({ endpoint: `${SERP}/live/advanced`,
+    const body = liveOk(0.0021, [{ rank: 4 }]); const g = makeDeps({ claimEvidenceFetch: claim("pending"), cacheRead: row({ endpoint: `${SERP}/live/advanced`,
       provider_task_id: null, spend_attempt_id: "a1", quarantined_at: NOW.toISOString(), error_detail: "uncertain:cache write failed" }) });
     (g.deps.spend as CachedCallDeps["spend"]).read = async () => ({ state: "reconciled", providerTaskId: null,
       accountedUsd: 0.0021, accountingBasis: "provider_reported", resultPayload: body });
@@ -144,6 +140,13 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
       expect([res.state === "error" && res.disposition, g.calls.fetch, g.calls.reserve, g.calls.writes, res.state === "error" && res.detail.includes("50100")]).toEqual(["blocked", [], [], [], true]); // refunded already: nothing to collect, nothing to buy
     } });});
 describe("Standard tasks - free resumption and the STRUCTURED dispositions", () => {
+  it("reuses an exact paid cold SERP without renewing expiry, rejects identity/date debt, and retains hot/default refresh", async () => {
+    const query = "difference between farsi and persian", key = "dfs2_dd93953d90a0905225c2a1e2973c07b16b18128f", id = "09230750-1979-0066-0000-1d3f9c317941", now = new Date("2026-09-27T04:08:29.058Z"), body = liveOk(0.00105, [{ keyword: query, datetime: "2026-09-23 07:52:08 +00:00", items: [] }]); body.tasks[0]!.id = id;
+    const saved = { cache_key: key, status: "ready", provider_task_id: id, payload: body, expires_at: "2026-09-24T09:30:03.428Z", posted_at: "2026-09-23T07:50:24.239Z" }, replay = { tenantId: "tenant-a", query, maxAgeMs: 7 * 86_400_000 };
+    const g = makeDeps({ env: {} as NodeJS.ProcessEnv, now: () => now, cacheRead: row(saved) }); const hit = await collectResolvedTask(key, PATHS, { ...g.deps, serpReplay: replay }); expect([hit.state, hit.state === "hit" && hit.envelope, g.calls.fetch, g.calls.reserve, g.calls.writes]).toEqual(["hit", body, [], [], []]);
+    for (const change of [{ cache_key: "foreign-key" }, { provider_task_id: "wrong-task" }, { provenance: { tenantId: "foreign-tenant" } }, ...[undefined, "invalid", "2026-09-28 07:52:08 +00:00"].map(datetime => ({ payload: { ...body, tasks: [{ ...body.tasks[0], result: [{ keyword: query, datetime }] }] } })), { payload: { ...body, tasks: [{ ...body.tasks[0], result: [{ keyword: "persian wedding traditions", datetime: "2026-09-23 07:52:08 +00:00" }] }] } }]) { const bad = makeDeps({ now: () => now, cacheRead: row({ ...saved, ...change }) }); const out = await collectResolvedTask(key, PATHS, { ...bad.deps, serpReplay: replay }); expect([out.state, bad.calls.fetch, bad.calls.reserve, bad.calls.writes]).toEqual(["error", [], [], []]); }
+    for (const policy of [undefined, { ...replay, maxAgeMs: 86_400_000 }, replay]) { const stale = makeDeps({ now: () => policy === replay ? new Date(now.getTime() + 7 * 86_400_000) : now, cacheRead: row(saved) }); stale.deps.fetchImpl = fetcher(stale.calls, () => inBody(40601)); const out = await collectResolvedTask(key, PATHS, { ...stale.deps, serpReplay: policy }); expect([out.state, stale.calls.fetch.length, stale.calls.reserve]).toEqual(["error", 1, []]); }
+  });
   it("aborts a stalled free GET within its remaining collection time and keeps the paid task pending", async () => {
     let request: RequestInit | undefined; const g = makeDeps({ cacheRead: row(), fetchImpl: vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => { request = init; init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true }); })) as unknown as typeof fetch });
     const out = await collectResolvedTask("k", PATHS, g.deps, Date.now() + 500); expect([out.state, request?.method, request?.body, request?.signal?.aborted, g.calls.reserve, g.calls.writes.some((w) => w.status === "ready")]).toEqual(["waiting", "GET", undefined, true, [], false]); });
@@ -159,10 +162,8 @@ describe("Standard tasks - free resumption and the STRUCTURED dispositions", () 
     expect([due.calls.fetch.length, wake.poll_attempts, Date.parse(String(wake.next_poll_at)) > NOW.getTime()]).toEqual([1, 3, true]);
   });
   it("records a Standard POST charge as an advance, not the final task price", async () => {
-    const g = makeDeps(); g.deps.fetchImpl = postAccepted(g.calls); const reconcile = vi.fn(async () => true);
-    (g.deps.spend as CachedCallDeps["spend"]).reconcile = reconcile;
-    expect((await runResolvedCall(taskCall(), g.deps)).state).toBe("waiting");
-    expect(reconcile).toHaveBeenCalledWith("a1", 0.006, "task-123", "provider_advance");
+    const g = makeDeps(); g.deps.fetchImpl = postAccepted(g.calls); const reconcile = vi.fn(async () => true); (g.deps.spend as CachedCallDeps["spend"]).reconcile = reconcile;
+    expect((await runResolvedCall(taskCall(), g.deps)).state).toBe("waiting"); expect(reconcile).toHaveBeenCalledWith("a1", 0.006, "task-123", "provider_advance");
   });
   it.each([0.003, 0.02])("adjusts a Standard advance to the final task receipt, including refund/overage %s", async (finalCost) => {
     const body = liveOk(finalCost), g = makeDeps({ cacheRead: row({ spend_attempt_id: "a1", cost_usd: 0.006, posted_at: new Date(NOW.getTime() - 72 * 3_600_000).toISOString(), next_poll_at: FUTURE }) });
@@ -170,8 +171,7 @@ describe("Standard tasks - free resumption and the STRUCTURED dispositions", () 
     const reconcile = vi.fn(async () => true); (g.deps.spend as CachedCallDeps["spend"]).reconcile = reconcile;
     g.deps.fetchImpl = fetcher(g.calls, () => body);
     expect((await collectResolvedTask("k", PATHS, g.deps)).state).toBe("ok");
-    expect(reconcile).toHaveBeenCalledTimes(1);
-    expect(reconcile).toHaveBeenCalledWith("a1", finalCost, "task-9", "provider_reported", body);
+    expect(reconcile).toHaveBeenCalledTimes(1); expect(reconcile).toHaveBeenCalledWith("a1", finalCost, "task-9", "provider_reported", body);
   });
   it("rebuilds a Standard cache row from the reconciled full envelope before another GET", async () => {
     const body = liveOk(0.007, [{ rank: 7 }]), g = makeDeps({ cacheRead: row({ spend_attempt_id: "a1", quarantined_at: NOW.toISOString() }) });

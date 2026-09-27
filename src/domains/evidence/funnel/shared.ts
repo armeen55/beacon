@@ -39,7 +39,7 @@ import { loadFunnelState, saveFunnelState, type FunnelPair, type FunnelState, ty
 
 export type FunnelDeps = {
   callProvider?: <K extends CapabilityKey>(capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string; bankedAfter?: string }) => Promise<CachedCallResult>;
-  collectTask?: (cacheKey: string) => Promise<CachedCallResult>;
+  collectTask?: (cacheKey: string, serpReplay?: { tenantId: string; query: string; maxAgeMs: number }) => Promise<CachedCallResult>;
   parse?: typeof parseCapability;
   readPageExtract?: typeof readPublicPageExtract;
   writePageExtract?: typeof writePublicPageExtract;
@@ -80,7 +80,7 @@ export function resolveDeps(deps: FunnelDeps) {
   return {
     callProvider: deps.callProvider ?? providerCall,
     keywordIdeas: deps.keywordIdeas ?? ((seeds: string[], ids: { tenantId: string; unitKey: string }) => keywordIdeasBatched(seeds, ids)),
-    collectTask: deps.collectTask ?? ((k: string) => collectCapability(k)),
+    collectTask: deps.collectTask ?? ((k: string, serpReplay?: { tenantId: string; query: string; maxAgeMs: number }) => collectCapability(k, { serpReplay })),
     parse: deps.parse ?? parseCapability,
     readPageExtract: deps.readPageExtract ?? readPublicPageExtract,
     writePageExtract: deps.writePageExtract ?? writePublicPageExtract,

@@ -11,7 +11,7 @@ import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { normalizeKeyword, owedWinnerReads, selectSerpAgenda } from "./normalize";
 import { type FunnelPair, type FunnelSerp, type FunnelState } from "./state";
 import { type FunnelResearchEvidence, type ObservationMode, type ResearchEngine } from "./research-evidence";
-import { isCurrent } from "@/domains/evidence/freshness";
+import { freshnessMsFor, isCurrent } from "@/domains/evidence/freshness";
 import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, type Interp, modeOf, NO_BASIS_DETAIL, pauseDetail, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
 // blocked = a HELD refusal at zero further spend; it ALWAYS pauses the run, so prefer the boundary's own detail.
 const blockedNote = (r: Interp) => r.detail || pauseDetail("blocked", "");
@@ -272,18 +272,14 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
 // ── B4: SERP analysis ───────────────────────────────────────────────────────
 const refs = (parsed: ParsedSerp | null) => (parsed?.aiOverview?.references ?? []).map((r) => ({ url: r.url, domain: r.domain, title: r.title }));
 
-/** THE SEARCH THE PROVIDER SAYS IT RAN, off the envelope it sent back: the SERP result block echoes the ask
- *  (tasks[0].result[0].keyword) and the task carries the same string on its stored data. The typed ParsedSerp keeps only the results, so the echo is read here from the envelope itself. null = this payload echoed
- *  nothing, which is never proof of a match and is never treated as one. */
+/** Canonical served-query echo; missing echo is unknown. */
 function echoedKeyword(payload: unknown): string | null {
   const task = (payload as { tasks?: { data?: { keyword?: unknown }; result?: { keyword?: unknown }[] }[] } | null)?.tasks?.[0];
   const echo = (Array.isArray(task?.result) ? task.result[0]?.keyword : undefined) ?? task?.data?.keyword;
   return typeof echo === "string" && echo.trim() ? echo : null;
 }
 
-/** A LANDING IS ACCEPTED ONLY WHERE THE PROVIDER ANSWERED THE SEARCH THAT WAS ASKED. The keyword it echoes is
- *  compared under the SAME normalization the ask was sent in; a mismatch is named on the row, held as unavailable coverage and kept out of evidence rather than stored as this search's own results page. An
- *  envelope that echoes NOTHING is not a mismatch: it is a match nobody can prove, so the results stand and what is verified is only what the response itself carries (its rows and its status). */
+/** Provider query identity and observation time survive collection; undated evidence never becomes fresh. */
 function applySerp(s: FunnelSerp, parsed: ParsedSerp, nowIso: string, payload: unknown, tenantId: string): void {
   const echo = echoedKeyword(payload), served = echo ? normalizeKeyword(echo) : null;
   if (served && served !== normalizeKeyword(s.query)) {
@@ -292,9 +288,10 @@ function applySerp(s: FunnelSerp, parsed: ParsedSerp, nowIso: string, payload: u
     return;
   }
   s.identityMismatch = undefined; // a clean landing closes an earlier mismatch on this row
-  s.status = "done"; s.observedAt = nowIso; s.aiOverview = refs(parsed); s.related = parsed.relatedSearches.slice(0, 20);
-  // EVERY ROW THIS LOOK PAID FOR IS KEPT, AND WHAT EACH ONE SAYS WITH IT. The request buys SERP_DEPTH results and the provider bills per ten, so slicing at ten threw away half of every purchase and every owned position past
-  // nine; keeping ranks and urls alone threw away the words the results actually show, which is the only part a diagnosis can read a missing proposition out of. Every string arrives bounded from the parser.
+  const datetime = (payload as { tasks?: { result?: { datetime?: unknown }[] }[] } | null)?.tasks?.[0]?.result?.[0]?.datetime;
+  const at = typeof datetime === "string" && /(?:Z|[+-]\d{2}:\d{2})$/.test(datetime) ? Date.parse(datetime) : NaN;
+  s.status = "done"; s.observedAt = Number.isFinite(at) && at <= Date.parse(nowIso) ? new Date(at).toISOString() : undefined; s.aiOverview = refs(parsed); s.related = parsed.relatedSearches.slice(0, 20);
+  // Keep every purchased result and its publication words.
   s.organic = parsed.organic.slice(0, SERP_ROWS_BOUGHT).map((o) => ({ rank: o.rank, url: o.url, domain: o.domain, title: o.title, snippet: o.snippet })); // a landed look closes the incident
   s.paa = parsed.paaQuestions.map((q) => ({ question: q.question, answeringDomain: q.answeringDomain, answer: q.answer }));
   // AND THE REST OF WHAT THE PAGE ALREADY CARRIED: its block list, its answer box with the answer in it, and the overview's own words. EACH IS WRITTEN ONLY WHERE THE PAYLOAD ACTUALLY SPOKE, so a response with no block
@@ -306,10 +303,7 @@ function applySerp(s: FunnelSerp, parsed: ParsedSerp, nowIso: string, payload: u
 
 const serpProgress = (s: FunnelState): FunnelCounters => ({ serpsAnalyzed: s.serps.analyzed, cacheHits: s.cycle.cacheHits, spendUsd: round(s.cycle.spentUsd) });
 
-/** HOW MANY RESULTS PAGES ONE CYCLE MAY READ, with the cost math stated once so it is checkable against the files that hold each number. It was 40 agenda slots and 40 posts a pass, so an account with twenty two pages losing clicks waited a week before I had even LOOKED at the searches those pages live on.
- *  THE REAL CEILING IS 104, NOT 120. SERP_AGENDA_CAP is the cap the portfolios fill INTO, and the last one stops short of it on purpose: normalize.ts fills researched keywords to 80% of the cap (96 at 120) and then allows exploration a flat +8, so a full portfolio can name at most 104 searches. 120 is headroom, never a number this unit reaches.
- *  RESERVED COST AT THAT CEILING (reservations sit ABOVE the charge; reconcile drops every one to actual): 104 organic results pages x $0.0021 = $0.2184, plus 5 AI Mode looks x $0.0100 = $0.0500, so one cycle's whole exact-SERP allowance reserves $0.2684, against $0.1340 for the old 40 slots. Both per-call prices are serp_organic / serp_ai_mode estCostUsd in dataforseo/capabilities.ts.
- *  THE TWO CEILINGS THAT ACTUALLY REFUSE A CALL are elsewhere and neither moved: the per-account, per-platform MONTHLY cap (DEFAULT_MONTHLY_CAP_USD = $250 in dataforseo/client.ts, checked atomically by reserve_spend before every call, answering `capped`), and the PROVIDER's own daily cost limit (error 40203, arriving as the `daily_limit` disposition that stops the batch below). This constant is a work bound, not a money bound. CACHE DISCIPLINE IS UNCHANGED and is what makes the raise nearly free in practice: a query still inside its freshness window is never re-posted (serp_hot daily for a search the frozen plan is stuck on, serp_cold weekly for the rest), so a settled agenda replays at $0 and only genuinely due queries reach a provider. Every per-call reservation, disposition and repost rule below is untouched: this raises a bound, it removes none. */
+/** Bounded agenda and pass size; paid admission remains the canonical spend gate. */
 const SERP_AGENDA_CAP = 120, SERP_POSTS_PER_PASS = 120, SERP_ROWS_KEPT = 160;
 /** HOW MANY ORGANIC ROWS ONE LOOK KEEPS, which is every row the request bought: capabilities.ts asks for SERP_DEPTH (20) and DataForSEO bills per ten results, so half of every results page was paid for and dropped. */
 const SERP_ROWS_BOUGHT = 20;
@@ -371,7 +365,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
       for (const s of serps) {
         if (blockedDetail || limitDetail || d.now() > deadline) break;
         if (s.status === "posted" && s.cacheKey) {
-          const r = interp(await d.collectTask(s.cacheKey)); track(state, r);
+          const r = interp(await d.collectTask(s.cacheKey, { tenantId, query: s.query, maxAgeMs: freshnessMsFor(hot.has(canonicalQueryKey(s.query)) ? "serp_hot" : "serp_cold") })); track(state, r);
           if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) applySerp(s, parsed, nowIso(), r.payload, tenantId); }
           else if (r.kind === "failed") {
             // daily_limit and blocked both STOP the batch (the row stays posted, so its collect is still free tomorrow); everything else stays posted, free.
@@ -432,8 +426,8 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
 
       // CARRY THE PAID RECEIPTS, NOT JUST THE AGENDA. A posted task's cacheKey lives ONLY on this row: rebuilding the list from the current agenda dropped any posted query that churned out of it, and the paid task sat pending in the cache with nothing ever able to collect it until the 30 day expiry recycled the money. A dropped row that is still `posted` rides along until it is collected, exactly as winning-pages carries unexpired read outcomes.
       const kept = new Set(serps.map((s) => s.query));
-      const carried = state.serps.queries.filter((s) => exact ? s !== selected : !kept.has(s.query) && ((s.status === "posted" && s.cacheKey != null) || (s.status === "done" && !!s.observedAt && isCurrent("serp_hot", s.observedAt, d.now())))); // exact continuation preserves unrelated pending, posted and complete rows; broad phase retains its existing pruning rule
-      state.serps.queries = [...serps, ...carried].slice(0, SERP_ROWS_KEPT + carried.length); const selectedDone = serps.filter((s) => s.status === "done").length; state.serps.analyzed = exact ? state.serps.queries.filter((s) => s.status === "done" && isCurrent("serp_cold", s.observedAt, d.now())).length : selectedDone;
+      const carried = state.serps.queries.filter((s) => exact ? s !== selected : !kept.has(s.query) && ((s.status === "posted" && s.cacheKey != null) || (s.status === "done" && !!s.observedAt && isCurrent(hot.has(canonicalQueryKey(s.query)) ? "serp_hot" : "serp_cold", s.observedAt, d.now())))); // exact continuation preserves unrelated pending, posted and complete rows; broad phase retains its existing pruning rule
+      state.serps.queries = [...serps, ...carried].slice(0, SERP_ROWS_KEPT + carried.length); const selectedDone = serps.filter((s) => s.status === "done" && isCurrent(hot.has(canonicalQueryKey(s.query)) ? "serp_hot" : "serp_cold", s.observedAt, d.now())).length; state.serps.analyzed = exact ? state.serps.queries.filter((s) => s.status === "done" && isCurrent("serp_cold", s.observedAt, d.now())).length : selectedDone;
       await save(d, tenantId, basis, state, ctx);
       if (blockedDetail) return { status: "failed", cursor, progress: serpProgress(state), detail: blockedDetail }; // a held refusal OUTRANKS the done arithmetic and every unavailable count
       if (limitDetail) return { status: "failed", cursor, progress: serpProgress(state), detail: limitDetail }; // today's ceiling: everything already collected is saved, the rest stays owed and costs nothing to resume

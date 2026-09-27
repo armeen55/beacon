@@ -96,7 +96,7 @@ const replayProvider: NonNullable<FunnelDeps["callProvider"]> = async (cap: Capa
   const kw = (input as { keyword?: string }).keyword ?? "";
   if (cap === "llm_scraper_chatgpt") return evidenceOf(fx.scraperAnswer(), "ck-scraper");
   if (cap.startsWith("llm_")) return evidenceOf(fx.llmAnswer({ model: cap }), `ck-${cap}`);
-  if (cap.startsWith("serp_")) return evidenceOf(fx.serpOrganic({ keyword: kw }), `ck-serp-${kw}`);
+  if (cap.startsWith("serp_")) { const envelope = fx.serpOrganic({ keyword: kw }); (envelope.tasks![0]!.result as Record<string, unknown>[])[0]!.datetime = fx.OBSERVED_AT; return evidenceOf(envelope, `ck-serp-${kw}`); }
   return evidenceOf(fx.keywordBatch([{}, { keyword: WINNER_QUERY, volume: 900, intent: "commercial" }, { keyword: "kite festival food", volume: 480 }]), `ck-${cap}`);};
 async function replayFunnel(): Promise<{ evidence: FunnelResearchEvidence; statuses: string[]; observed: AiObservationRecord[] }> {
   const store = fx.memFunnelStore();
@@ -122,7 +122,7 @@ describe("the replay drives the REAL funnel executors, not a mock of them", () =
     const gap = evidence.retainedKeywords.find((k) => k.query === GAP_QUERY)!;
     expect([gap.searchVolume, gap.intent, gap.difficulty, gap.competitionLevel]).toEqual([2400, "informational", 31, "low"]); // bought once, carried whole
     expect(Object.keys(gap)).not.toContain("monthlySearches"); // the paid twelve-month trend survives the parser and stops at the funnel row
-    const serp = evidence.serpEvidence.find((s) => s.query === GAP_QUERY)!; expect([serp.organic.find((o) => o.domain === SITE)!.rank, serp.paa.length, serp.related.length, serp.aiOverview.length]).toEqual([6, 2, 3, 2]);
+    const serp = evidence.serpEvidence.find((s) => s.query === GAP_QUERY)!; expect(serp.observedAt).toBe(fx.OBSERVED_AT); expect([serp.organic.find((o) => o.domain === SITE)!.rank, serp.paa.length, serp.related.length, serp.aiOverview.length]).toEqual([6, 2, 3, 2]);
     expect(evidence.winningPages.map((w) => [w.extract !== null, w.readOutcome?.state ?? null])).toEqual([[true, null], [false, "robots_blocked"]]); // a body in hand, and one honestly refused
     expect(evidence.receipt.retained).toBeGreaterThan(0);});
   it("stores the consumer answer WHOLE: the full text, the journey, the receipt and the identity of what it was read from", async () => {
