@@ -1,6 +1,6 @@
 import "server-only";
 import { EDITOR_SHARED, reviewFinishedCopy, writerKindOf } from "@/domains/decision/drafted-copy"; import { REVIEW_CONTRACT, reviewFits, unreviewed } from "@/domains/decision/proof"; import { COPY_RULES } from "@/domains/decision/copy-sanitize";
-import { confirmedVersion, deliverableGaps } from "@/domains/decision/completeness"; import { DRAFT_BUDGET } from "@/domains/decision/draft-budget"; import { nextObligation } from "@/domains/decision/obligation"; import { answerReviewedProposal, saveChangeProposal, loadChangeProposal, loadChangeProposals, preflightReviewedProposal } from "@/domains/decision/proposal-store";
+import { PROMPT_REGISTRY } from "@/domains/decision/llm/prompt-registry"; import { confirmedVersion, deliverableGaps } from "@/domains/decision/completeness"; import { DRAFT_BUDGET } from "@/domains/decision/draft-budget"; import { nextObligation } from "@/domains/decision/obligation"; import { answerReviewedProposal, saveChangeProposal, loadChangeProposal, loadChangeProposals, preflightReviewedProposal } from "@/domains/decision/proposal-store";
 import type { ChangeProposal } from "@/domains/decision/contracts"; import { PROOF_SPEND, runWithoutSpending } from "@/lib/spend-scope"; import { researchPermission } from "./due-work";
 import spendReservations, { runWithProposalWorkKey } from "@/lib/cost/spend-reservations";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
@@ -33,7 +33,7 @@ async function run(input: Input, deps: Deps = DEPS) {
   if (preflight.reason) return refuse(`candidate_preflight:${preflight.reason}`, row);
   if (row.status === "needs_review" && deps.reviewAuthorized(row) && !preflight.reviewRefresh) { if (await deps.permission(tenantId) !== "paused") return refuse("accepted_review_could_not_be_settled", row); const promoted = await deps.promote(tenantId, proposalId, deps.version(row), currentBasis, { kind: "promote", at: now.toISOString() }), stored = await deps.load(tenantId, proposalId); return promoted.status === "promoted" && deps.acceptable(stored) ? { success: true as const, proposalId, reason: "stored_ready_from_current_review", stored, meter: { ops: 0, providerCalls: 0, costUsd: 0 } } : refuse(`promotion_${promoted.status}${promoted.refusal ? `:${promoted.refusal}` : ""}`, stored); }
   if (!deps.providerConfigured()) return refuse("openai_not_configured_in_this_runtime", row);
-  const admissionKey = `atomic-proof-v2::${tenantId}::${proposalId}::${deps.version(row)}`;
+  const admissionKey = `atomic-proof-v2::${tenantId}::${proposalId}::${deps.version(row)}::draft.editor_judgement:v${PROMPT_REGISTRY["draft.editor_judgement"]}`;
   const admission = await deps.spend.reserve({ tenantId, platform: "other", purpose: "atomic_proof_admission", logicalKey: admissionKey,
     requestFingerprint: admissionKey, estimatedUsd: 0, recoveryKind: "none" }).catch(() => null);
   if (!admission) return refuse("proof_admission_unavailable", row);
