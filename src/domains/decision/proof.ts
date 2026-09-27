@@ -90,14 +90,7 @@ function demandClause(p: ChangeProposal, now: Date): string | null {
  *  exists, and disappears with it. */
 export function proofOf(p: ChangeProposal, now = new Date()): ProofReceipt {
   const demand = demandClause(p, now);
-  // The diagnosed defect, in the diagnosis's own typed words. Skipped when the demand clause is the AI one,
-  // which already said the cause: "assistants read this page and quoted somebody else" IS retrieved_not_cited,
-  // and saying it twice reads as two findings.
   const explained = !p.aiImpact?.stage && p.causeFinding?.explanation ? sentence(p.causeFinding.explanation) : null;
-  // A RANKING IS AN ORDER, NEVER A FORECAST. `directional` is the ranker's own flag for "measured shortfall,
-  // no cause named yet", and it is the one clause that must survive when nothing else is known. It is silent
-  // once a cause HAS been named, in either of the two ways one can be: an AI stage is a finding, so a card
-  // saying assistants read this page and quoted somebody else may not also say nothing explains it.
   const named = explained ?? p.aiImpact?.stage ?? null;
   const markup = p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "schema";
   const order = markup ? "Structured data claims no traffic of its own, so it is ordered after every change that does." /* the audience above is the page's, never the markup's (walk of 2026-09-16) */
@@ -105,17 +98,12 @@ export function proofOf(p: ChangeProposal, now = new Date()): ProofReceipt {
     ? "This is the order to work in, not a promise about size or recovered clicks." : null;
   const ranksHere = [demand, explained ?? order].filter(Boolean).join(" ") || null;
 
-  // WHY THIS ACTION, said only by something that actually chose it: a bundle states its own objective, and a
-  // diagnosis that named a treatment names it here. Attention evidence chooses nothing, so a card with neither
-  // says nothing, which is the whole point: impressions justify looking, never a particular kind of edit.
   const ACTION_PHRASE: Record<string, string> = { title: "a title change", meta: "a description change", opening_answer: "an opening answer",
     section: "a section change", full_page: "a full page rewrite", new_page: "a new page", consolidate: "consolidating the competing pages", watch: "watching before acting" };
   const diagnosedAction = p.causeFinding?.action ? ACTION_PHRASE[p.causeFinding.action] ?? null : null;
   const whyAction = p.bundle?.objective
     ?? (diagnosedAction ? sentence(`The diagnosis that named this cause also named the treatment: ${diagnosedAction}`) : null);
 
-  // WHAT ELSE WAS WEIGHED, in the record's own written reason. The competing cause's internal slug never
-  // prints; a bundle's recorded alternative names its option outright.
   const alt = p.bundle?.alternatives?.[0] ?? null;
   const competing = p.causeFinding?.competingExplanations?.[0] ?? null;
   const alternative = alt ? sentence(`Considered instead: ${alt.option}. It lost because ${alt.reason}`)
@@ -236,7 +224,7 @@ export function wordingOnlySuspicion(p: Pick<ChangeProposal, "recommendedChange"
   return toks(before) === toks(after);
 }
 export function unreviewed(p: ChangeProposal, publication?: readonly BundleComponent[], ledger = true): string | null { /* `ledger` false asks only whether the READING stands for these words; the preservation record is a hold of its own, and a paid reading over words with a short ledger still outranks an unreviewed re-mint */
-  const claims = p.claims ?? [], r = p.semanticReview; if (p.recommendedChange.kind === "existing_edit" && /^(title|h1|meta|answer_block|section|schema)$/.test(p.recommendedChange.field) && (!p.reviewedCaptures?.length || p.reviewedCaptures.some(c => c.tenantId !== p.tenantId || !COPY_RULES.captureAddress(c.url) || c.captureId !== c.latestCaptureId) || new Set(p.reviewedCaptures.map(c => COPY_RULES.captureAddress(c.url))).size !== p.reviewedCaptures.length || COPY_RULES.captureUrls(p).some(url => !p.reviewedCaptures?.some(c => COPY_RULES.captureAddress(c.url) === COPY_RULES.captureAddress(url))))) return COPY_RULES.reviewHolds.capture;
+  const claims = p.claims ?? [], r = p.semanticReview; if (p.recommendedChange.kind === "existing_edit" && /^(title|h1|meta|answer_block|section|schema)$/.test(p.recommendedChange.field) && ([...(p.faults ?? []), ...p.limitations].some(why => why === COPY_RULES.reviewHolds.capture || why.endsWith(`: ${COPY_RULES.reviewHolds.capture}`)) || !p.reviewedCaptures?.length || p.reviewedCaptures.some(c => c.tenantId !== p.tenantId || !COPY_RULES.captureAddress(c.url) || c.captureId !== c.latestCaptureId) || new Set(p.reviewedCaptures.map(c => COPY_RULES.captureAddress(c.url))).size !== p.reviewedCaptures.length || COPY_RULES.captureUrls(p).some(url => !p.reviewedCaptures?.some(c => COPY_RULES.captureAddress(c.url) === COPY_RULES.captureAddress(url))))) return COPY_RULES.reviewHolds.capture;
   if (p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "schema") return null;
   const needsEditor = p.assignment != null || p.kind === "new_page" || p.changeFamily !== "factual_correction" && p.recommendedChange.kind === "existing_edit" && /^(answer_block|section)$/.test(p.recommendedChange.field) && !(p.recommendedChange.linkTo && !claims.some((c) => c.supportedBy.some((id) => id.startsWith("fact-")))) /* a link whose claims cite only the destination's own words (page and owned-page ids) asserts nothing about the world and owes no editor reading; a linked section that states a checked fact does (audit, 2026-09-14) */
     || (p.bundle?.components ?? []).some((part) => SUBSTANTIVE.has(part.kind) && !/^(paragraph_correction|factual_correction)$/.test(part.kind))
@@ -252,10 +240,8 @@ export function unreviewed(p: ChangeProposal, publication?: readonly BundleCompo
   if (r.claims.length !== claims.length) return "the reading did not rule on every claim this change makes, and silence about one of them is not a pass";
   return claims.every((c, i) => COPY_RULES.ruling(c, r.claims, i) != null) ? (ledger ? preservationShortfall(p, publication) : null) : "a claim here was not shown to follow from the exact sources it names";
 }
-/** WHAT A CLAIM MAY NEVER STAND ON ALONE, and what counts as real authority for one. A rival's page, a winner read side by side and a results-page line say what OTHER sites cover and how the winning answer is shaped: that is why a piece of work is worth doing and it is never proof that a sentence is true. `fact-*` is a checked statement with a source that was actually read, and `owned-page-*` is another page of this account, which is the one comparison a page cannot make about itself. Ids, never prose, so no rewording of a briefing line can promote it to a source. */
 const BRIEFING = COPY_RULES.briefing;
 const QUALIFIED = /^fact-|^owned-page/;
-/** THE PIECES OF A BUNDLE THAT PUT WORDS ON THE PAGE, and therefore owe a claim-to-source authorization of their own. A link, a canonical, a redirect and a technical repair assert nothing about the world, so they are deliberately absent: the bypass in completeness stays for exactly them. */
 const SUBSTANTIVE = COPY_RULES.bodyKinds;
 
 function unauthorizedComponent(p: ChangeProposal): string | null {

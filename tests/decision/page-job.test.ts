@@ -1,4 +1,3 @@
-/** THE PAGE JOB: one DURABLE sentence saying what a page is for, why a missing one is missing, how the whole site gets reached over passes, and the fit checks that read it. Each pin states what a job may change about a decision and what a MISSING one  may never change: nothing a caller cannot name a reason for. Fixtures only, zero network, zero database. */
 import { describe, it, expect, vi } from "vitest";
 const budget = vi.hoisted(() => ({ allowed: true }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ recordSpend: async () => {},
@@ -139,7 +138,6 @@ describe("what a job changes, and what a missing one may never change", () => {
     const horse = job({ url: "https://mysite.example/caspian-horse", topics: ["caspian horse", "horse breed"], job: "Describes the Caspian horse breed of Iran.", audience: "horse lovers" }); // THE CASPIAN HORSE CLASS: the horse page covers the anchor perfectly, and the names page sharing not one of its subjects still may not link to it. A link is a claim two pages share a subject, read BOTH ways.
     const names = job({ url: "https://mysite.example/persian-male-names", topics: ["persian male names", "baby names"], job: "Lists Persian male first names with meanings.", audience: "parents" });
     expect(linkFit(horse, names, ["caspian", "horse"])).toBe("off_topic"); expect([linkFit(null, stranger, ["farsi"]), linkFit(target, null, ["farsi"])]).toEqual(["unknown", "unknown"]);});});
-
 /** THE FAMILY IS THE WHOLE FAMILY (measured, 2026-09-05). A rule whose verdict depends on a page's template siblings was asked of whichever siblings the caller happened to be holding, so /california-persian-cities/beverly-hills was promoted in the hosted pass of 05:03:57Z and its sibling refused by the same rule one second later. The window is not evidence; the family is. */
 describe("a verdict that depends on the template siblings is one verdict, whatever order they arrive in", () => {
   const SHELL = "Everything worth knowing about this one is gathered here, with the notes and the details that go with it. The list below is kept up to date by hand, and every entry on it carries the same short summary as the entry above. Nothing on this list is written for one entry more than for another.";
