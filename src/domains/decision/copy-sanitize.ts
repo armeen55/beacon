@@ -43,12 +43,12 @@ function preservationShortfall(p: PreservationRow, qualified: boolean, losses: r
     if (readings.length === 0 && u.disposition === "moved") return "moves material to a destination that does not carry it";
     if (readings.length === 0 && u.disposition === "kept") return "says it keeps material the new copy no longer carries"; /* a literal keep is checked on the words alone; only a nonliteral keep needs the reviewer to quote the survivor */
     if (!qualified || readings.length !== 1 || !r?.verified || r.disposition !== u.disposition || r.to !== (u.to ?? null)) return "has no verified per-unit preservation ruling for these exact words, source evidence and destination";
-    if (r.by.some((id) => !(u.by ?? []).includes(id) || !cites({ by: [id] }) )) return "cites evidence outside this unit's own supporting facts";
-    if (u.disposition === "kept") return r.after && carriesUnit(r.after, c.after) ? null : "says it keeps material the new copy no longer carries";
-    if (u.disposition === "corrected") return cites(u) && r.by.length > 0 && r.after && carriesUnit(r.after, c.after) ? null : "corrects material without a source-supported delivered replacement";
-    if (u.disposition === "moved") return r.after && lands(u, r.after) ? null : "moves material to a destination that does not carry it";
-    const proved = u.basis === "duplicate_of" || u.basis === "replaced_by" ? !!r.after && lands(u, r.after) : u.basis === "owner_confirmed" ? !!p.confirmedVersion : (u.basis === "obsolete" || u.basis === "unsupported") && cites(u) && r.by.length > 0;
-    return proved ? null : "removes material without a basis this door can check";
+    const material = u.disposition === "kept" ? r.after && carriesUnit(r.after, c.after) ? null : "says it keeps material the new copy no longer carries"
+      : u.disposition === "corrected" ? cites(u) && r.by.length > 0 && r.after && carriesUnit(r.after, c.after) ? null : "corrects material without a source-supported delivered replacement"
+      : u.disposition === "moved" ? r.after && lands(u, r.after) ? null : "moves material to a destination that does not carry it"
+      : (u.basis === "duplicate_of" || u.basis === "replaced_by" ? !!r.after && lands(u, r.after) : u.basis === "owner_confirmed" ? !!p.confirmedVersion : (u.basis === "obsolete" || u.basis === "unsupported") && cites(u) && r.by.length > 0) ? null : "removes material without a basis this door can check";
+    if (material) return material;
+    return r.by.some((id) => !(u.by ?? []).includes(id) || !cites({ by: [id] })) ? "cites evidence outside this unit's own supporting facts" : null;
   };
   for (const u of ledger) { const bad = unverified(u); if (bad) return `it ${bad}: "${u.text.slice(0, 60)}"`; }
   const required = body ? units.filter(losable) : due.filter(losable);
