@@ -23,7 +23,7 @@ const SITES = [
 ] as const;
 type Site = (typeof SITES)[number];
 
-const bodyOf = (s: Site) => ({ url: s.url, title: s.title, h1: s.h1, metaDescription: null, vocabulary: "", headings: s.heads, passages: s.lines, completeness: "complete" as const, contentHash: "h", fetchedAt: NOW.toISOString() });
+const bodyOf = (s: Site) => ({ tenantId: s.t, url: s.url, finalUrl: s.url, pageId: s.url, captureId: s.url, latestCaptureId: s.url, captureVersion: 1, title: s.title, h1: s.h1, metaDescription: null, vocabulary: "", headings: s.heads, passages: s.lines, completeness: "complete" as const, version: "current" as const, contentHash: "h", fetchedAt: NOW.toISOString(), sourceCapture: { version: 1 as const, complete: true, mainHtml: `<main><h1>${s.h1}</h1>${s.lines.map(x => `<p>${x}</p>`).join("")}</main>`, jsonLd: [] } });
 const TAIL = { evidenceRefs: [{ source: "gsc", detail: "real page demand" }], confidence: "high", risks: [], operatorSteps: ["Replace the field"], proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "untouched pages" } };
 const draft = (s: Site) => ({ field: "meta", before: null, after: s.line, rationale: "The page carries no description of its own.", placementAnchor: s.title, naturalHeading: null, claims: [{ text: s.lines[0]!, supportedBy: ["page-copy-1"] }], ...TAIL });
 const VERDICT = { pageFit: true, usefulAndNatural: true, placementCorrect: true, resolvesDiagnosis: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, contested: false, notes: "it names the tide window and the soles, which the heading alone does not.", resolution: "none", claims: [{ i: 0, by: ["page-copy-1"], entailed: true }] };
@@ -132,7 +132,7 @@ describe("the judging's own attempt", () => {
         complete: (async () => ({ value: draft(s), httpAttempts: 1, provenance: { costUsd: 0.004 } })) as never });
     return { piece, unsettled };
   };
-  const rowOf = (s: Site) => ({ id: `${s.t}::${new URL(s.url).pathname}::existing_edit::missing_description`, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: s.line }, primaryQuery: s.q, estimatedEffortMinutes: 3, limitations: [], claims: [{ text: s.lines[0]!, supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: s.lines[0]! }] });
+  const rowOf = (s: Site) => ({ tenantId: s.t, kind: "existing_edit", pagePath: new URL(s.url).pathname, pageUrl: s.url, id: `${s.t}::${new URL(s.url).pathname}::existing_edit::missing_description`, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: s.line }, primaryQuery: s.q, estimatedEffortMinutes: 3, limitations: [], claims: [{ text: s.lines[0]!, supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: s.lines[0]! }] });
   it.each(SITES)("$t: a judge that never answers costs one attempt a round, and the receipt names only the writing", async (s) => {
     const { key, budget, allowance } = funded(s), before = allowance.left;
     const out = await pass(s, allowance, async () => { throw new Error("the reading never came back"); });
@@ -144,7 +144,7 @@ describe("the judging's own attempt", () => {
     expect([sync.threw, unsettled.has(s.url)], "a reading that never arrived says nothing about the words whichever way it failed, so the card comes back tomorrow rather than taking the whole pass down with it").toEqual([null, true]);
   });
   it.each(SITES)("$t: and the door that reads finished words answers a throw the same way, so a rule asked at one door is asked at both", async (s) => {
-    const out = await reviewFinishedCopy(rowOf(s) as never, { tenantId: s.t, now: NOW, judge: (() => { throw new Error("the reading never came back"); }) as never }).catch((e: unknown) => e);
+    gap.body = bodyOf(s); const out = await reviewFinishedCopy(rowOf(s) as never, { tenantId: s.t, now: NOW, judge: (() => { throw new Error("the reading never came back"); }) as never }).catch((e: unknown) => e);
     expect([out instanceof Error, (out as { row: unknown; detail: string }).detail], "the review lane takes a reading too, so a throw there says the same thing about the words and banks nothing").toEqual([false, "no reading of these words came back, so nothing was banked"]);
   });
   it.each(SITES)("$t: takes nothing and gives nothing back, whether the reading answers, refuses or throws", async (s) => {

@@ -49,11 +49,12 @@ import { readQueuePage, loadChangeProposals, publishCustomerRelease, queueLaneCo
 import { actionableProposalFailures, deliverableGaps } from "@/domains/decision"; import operatorUiPolicy from "@/app/(shell)/changes/types";
 import { deserializeChangeProposal, serializeChangeProposal, type ChangeProposal } from "@/domains/decision/contracts";
 import { CHANGES_PAGE_SIZE } from "@/app/(shell)/changes/types";
+const captures = (tenantId: string, url: string): NonNullable<ChangeProposal["reviewedCaptures"]> => [{ tenantId, url, pageId: `page-${new URL(url).pathname}`, captureId: `snap-${new URL(url).pathname}-1`, latestCaptureId: `snap-${new URL(url).pathname}-1`, captureVersion: 1, sourceRevision: "0123456789abcdef" }];
 const T = "acct-a", N = 501;
 const proposal = (i: number, over: Partial<ChangeProposal> = {}): ChangeProposal => ({
   id: `${T}::/p${i}::existing_edit::title`, tenantId: T, kind: "existing_edit", pagePath: `/p${i}`,
   pageUrl: `https://www.fixture.example/p${i}`, pageLabel: `/p${i}`, primaryQuery: `q${i}`,
-  opportunityType: "Capture clicks", changeFamily: "title", status: "ready",
+  opportunityType: "Capture clicks", changeFamily: "title", status: "ready", reviewedCaptures: captures(T, `https://www.fixture.example/p${i}`),
   recommendedChange: { kind: "existing_edit", field: "title", before: "a", after: `Title ${i}` },
   whyItMatters: "The line Google shows misses the words people search for.", estimatedEffortMinutes: 1,
   riskLevel: "low", confidence: "medium", limitations: [], evidence: { query: `q${i}`, hints: [], evidenceRefCount: 1 },

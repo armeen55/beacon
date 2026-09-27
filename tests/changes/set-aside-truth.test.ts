@@ -30,11 +30,12 @@ vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof
     const held = shipped.held.find((x) => x.proposalId === f.proposalId && x.proposalVersion === f.proposalVersion); // the REAL door's idempotency, mirrored: same proposal and version answers the row already on file and writes nothing
     if (held) return { shipmentId: held.id, measurement: held.measurementState ?? "measuring", proposalImplemented: opts?.proposal?.complete === true };
     shipped.records.push(r); return { shipmentId: "rec-1", measurement: "measuring", proposalImplemented: opts?.proposal?.complete === true }; } }));
+const captures = (tenantId: string, url: string): NonNullable<ChangeProposal["reviewedCaptures"]> => [{ tenantId, url, pageId: `page-${new URL(url).pathname}`, captureId: `snap-${new URL(url).pathname}-1`, latestCaptureId: `snap-${new URL(url).pathname}-1`, captureVersion: 1, sourceRevision: "0123456789abcdef" }];
 const NOW = "basis_now::d4", AUTH = "4b926534-2d8f-4ad8-a84b-15137b8aa007", EXACT = "Iranian Comedians: the 12 names people actually search for";
 const ID = "t::/famous-iranian-comedians::existing_edit::bundle";
 const SEEN = new Date(Date.now() - 2 * 86_400_000).toISOString();
 const bundled = (basis: string, id = ID): ChangeProposal => ({
-  id, tenantId: "t", kind: "existing_edit", pagePath: "/famous-iranian-comedians", pageLabel: "Famous Iranian comedians", primaryQuery: "iranian comedians",
+  id, tenantId: "t", kind: "existing_edit", pagePath: "/famous-iranian-comedians", pageUrl: "https://site.example/famous-iranian-comedians", reviewedCaptures: captures("t", "https://site.example/famous-iranian-comedians"), pageLabel: "Famous Iranian comedians", primaryQuery: "iranian comedians",
   whyItMatters: "This page lost 163 clicks last month.", opportunityType: "Answer the exact search", estimatedEffortMinutes: 6, upsidePerMonth: 163,
   confidence: "high", riskLevel: "low", status: "ready", basis, limitations: [], changeFamily: "title", createdAt: SEEN,
   modeledOn: "the stored results page for this search, whose top titles share this shape", recommendedChange: { kind: "existing_edit", field: "title", before: "Comedians", after: EXACT },
@@ -75,7 +76,7 @@ describe("a direct link renders only what the ranked list would, and always land
     const dated = await link({ ...bundled(NOW), bundle: { ...b, receipt: { items: [{ ...b.receipt.items[0]!, observedAt: cold }], missing: [], freshestObservedAt: cold } } } as ChangeProposal); expect([dated.includes(EXACT), dated.includes("Mark done")], "REPLACES the cold-evidence refusal: the exact work is handed over and the date its readings carry is a caveat on the card").toEqual([true, true]); });
   it("opens the picker on the pieces nobody has recorded yet", async () => {
     const b = bundled(NOW).bundle!;
-    shipped.held = [{ proposalId: ID, page: "/famous-iranian-comedians", componentsApplied: [{ id: "0:title", ...b.components[0] }] }];
+    shipped.held = [{ proposalId: ID, page: "https://site.example/famous-iranian-comedians", componentsApplied: [{ id: "0:title", ...b.components[0] }] }];
     const html = await link({ ...bundled(NOW), bundle: { ...b, components: [b.components[0]!, { ...b.components[0]!, kind: "meta", label: "Description", after: "Twelve comedians span stand-up, television and film, with their best-known performances." }] } } as ChangeProposal); const boxes = [...html.matchAll(/<input type="checkbox"[^>]*>/g)].map((m) => m[0]); shipped.held = []; expect([boxes.length, boxes[0]!.includes("disabled"), boxes.some((x) => x.includes("checked")), html.includes("already recorded")]).toEqual([2, true, false, true]); });
   it("expires no change for the age of its readings, and refuses the one whose piece cites evidence the receipt never carried", () => {
     const cold = new Date(Date.now() - 40 * 86_400_000).toISOString(), ctx = { tenantId: "t", currentBasis: NOW }, b = bundled(NOW).bundle!, item = b.receipt.items[0]!;
@@ -198,7 +199,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
 });
 describe("bulk Mark Done is one batch, durable before acknowledged", () => {
   const readyRow = (id: string, over: Partial<ChangeProposal> = {}): ChangeProposal => ({ id, tenantId: "t", kind: "existing_edit", pagePath: `/${id.split("::")[1] ?? "p"}`.replace("//", "/"), pageUrl: `https://iranopedia.com${`/${id.split("::")[1] ?? "p"}`.replace("//", "/")}`, pageLabel: id, primaryQuery: "q", opportunityType: "Capture clicks",
-    changeFamily: "meta", status: "ready", basis: NOW, modeledOn: 'the results page for "q": 3 ranked titles read, 2 of them leading with "q", and this line leads with it too',
+    changeFamily: "meta", status: "ready", basis: NOW, reviewedCaptures: captures("t", `https://iranopedia.com${`/${id.split("::")[1] ?? "p"}`.replace("//", "/")}`), modeledOn: 'the results page for "q": 3 ranked titles read, 2 of them leading with "q", and this line leads with it too',
     recommendedChange: { kind: "existing_edit", field: "meta", before: "Old.", after: "A finished, specific description of the page, written from its own stored words." },
     whyItMatters: "w", estimatedEffortMinutes: 3, riskLevel: "low", confidence: "high", limitations: [], evidence: { query: "q", hints: [], evidenceRefCount: 1 }, impactScore: 5, upsidePerMonth: null, publish: "manual", createdAt: SEEN, ...over } as unknown as ChangeProposal);
   const wire = async (rows: Map<string, ChangeProposal>, ledger: unknown[]) => {

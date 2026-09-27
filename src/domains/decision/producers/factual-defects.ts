@@ -2,7 +2,7 @@ import "server-only";
 
 /** decision/producers/factual-defects - THE PAGE SAYS SOMETHING UNTRUE, minted from banked research and from nothing else. Written after 165 sourced corrections were injected straight into a stored proposal payload by hand,  overwritten by the next producer pass, and reapplied by hand again (operator, 2026-08-17: the store is persistence, not an authoring interface). Everything here is DETERMINISTIC from evidence/pages/fact-checks: the same banked  checks mint the same bundle on every pass, a check that moves moves the bundle, and a page whose checks all pass mints nothing, which is how the card retires itself once the operator has corrected the page and the next check run  says so. ONLY CONFIRMED CORRECTIONS BECOME WORK. `likely` and `disputed` are real findings and stay in the research lane where they argue for themselves; `unsupported` names its missing source and proposes nothing. A correction  with no scholarly, dictionary or encyclopedia source behind it never reaches a component, because a baby-name page is not authority to overwrite published words. IT IS NOT A RANKING STORY. This cause is `factual_error` and carries  no click figure: whether the wrong meanings also cost the page positions is a separate finding with separate evidence, and merging them would let a correction inherit a loss nothing ties it to. */
 
-import { log } from "@/lib/logger";
+import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context"; import { log } from "@/lib/logger";
 import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { REVIEW_CONTRACT, copyKey, wordingOnlySuspicion } from "@/domains/decision/proof";
 import { labelOf } from "@/domains/decision/completeness"; import { COPY_RULES } from "@/domains/decision/copy-sanitize";
@@ -81,7 +81,7 @@ type FactualDefectRun = { cards: ChangeProposal[]; complete: boolean };
 /** BEACON PERFORMS THE SENSE REVIEW, NEVER THE OPERATOR (operator, 2026-08-22). The bundle sat at needs_review because "nothing has read this for sense yet", which delegated Beacon's own quality control. Batches of ten go to the one  gateway with the exact current statement, replacement, source quote and locator; each component is ruled on ITS OWN INDEX, so one defective replacement holds only itself. A batch that cannot be read (unaffordable, refused, no key)  reviews nothing and the card stays honestly at needs_review with the reason. Cached by content through the gateway, so a repeat pass reviews at $0. */
 const REVIEW_SYSTEM = "You are Beacon's own final sense reviewer of sourced factual corrections about to be offered to a paying customer. For EACH numbered component: judge whether the replacement reads as grammatical natural English a person would publish in place of the current statement, whether it contradicts any OTHER component in this batch, and then rule on EVERY listed claim of that component separately. A claim is entailed ONLY when the passages you are shown under the fact ids that claim names actually carry it; a passage about something else is not support however true it is. Return {\"rulings\":[{\"index\":<component>,\"publish\":<bool>,\"reason\":\"<one sentence>\",\"claims\":[{\"claim\":<the claim number shown>,\"factIds\":[<exactly the fact ids that claim lists>],\"entailed\":<bool>,\"why\":\"<one sentence>\"}]}]}. Rule on every claim shown for a component, once each, naming that claim's own fact ids and no others. A component marked SUSPECTED WORDING-ONLY CHANGE additionally gets \"materialChange\": true only when the replacement genuinely moves the meaning, precision or coverage of the statement; a reordering or possessive swap that keeps the meaning is materialChange false. When in doubt, entailed=false."
 /** WHAT THE REVIEWER IS SHOWN FOR ONE COMPONENT: its exact copy, its canonical claims by index with the exact fact ids each one names, and the exact passage behind every id. The review used to see an anonymous `source:` blob and "claim 0", so it could not name what it had weighed and nothing could check that it had. */
-type ReviewItem = { c: BundleComponent; where: string; claims: readonly { claimIndex: number; text: string; by: readonly string[] }[]; facts: readonly { factId: string; exactPassage: string }[] };
+type ReviewItem = { reviewedCaptures?: ChangeProposal["reviewedCaptures"]; c: BundleComponent; where: string; claims: readonly { claimIndex: number; text: string; by: readonly string[] }[]; facts: readonly { factId: string; exactPassage: string }[] };
 async function reviewComponents(tenantId: string, items: readonly ReviewItem[], now: Date,
   wiring: { attempts?: { left: number; record?: (r: unknown) => void }; complete?: unknown; bypassCache?: boolean }): Promise<{ held: Map<number, string>; passed: Map<number, { i: number; by: string[]; entailed: boolean }[]> } | null> {
   const { callStructuredLLM } = await import("../llm/structured-drafter");
@@ -89,7 +89,7 @@ async function reviewComponents(tenantId: string, items: readonly ReviewItem[], 
   for (let b = 0; b < items.length; b += BATCH) {
     const batch = items.slice(b, b + BATCH);
     if (wiring.attempts && (wiring.attempts.left -= 1) < 0) return null; // an unpaid batch reviews nothing
-    const user = batch.map((it, i) => [`#${i}: on the page now: "${it.c.before ?? ""}"`, `replacement: "${it.c.after}"`, `where: ${it.where}`,
+    const user = batch.map((it, i) => [`#${i}: on the page now: "${it.c.before ?? ""}"`, `replacement: "${it.c.after}"`, `where: ${it.where}`, `Exact reviewed page frame: ${JSON.stringify(it.reviewedCaptures)}`,
       ...(wordingOnlySuspicion({ recommendedChange: { kind: "existing_edit", field: "section", before: it.c.before ?? null, after: it.c.after } } as never) ? ["SUSPECTED WORDING-ONLY CHANGE: rule materialChange for this component."] : []),
       "claims to rule on:", ...it.claims.map((x) => `  claim ${x.claimIndex}: "${x.text}" — must be entailed by exactly these fact ids: ${x.by.join(", ")}`),
       "the exact passage behind each fact id:", ...it.facts.map((f) => `  ${f.factId}: "${f.exactPassage}"`)].join("\n")).join("\n\n")
@@ -160,7 +160,8 @@ async function reviewFactualCards(cards: readonly ChangeProposal[], wiring: { te
   // and the parts it was handed carried no sourcePack, so that question was asked over an empty source line:
   // the one reader between a sourced correction and a paying customer was judging blind. The card's own
   // supportFacts are the exact passages, so they ride along.
-  const parts = cards.map((c): BundleComponent => ({ kind: "factual_correction", label: c.recommendedChange.kind === "existing_edit" ? (c.recommendedChange.where ?? c.pagePath ?? "") : "",
+  const bodies = await loadOwnedPageBodies(wiring.tenantId, cards.flatMap(c => c.pageUrl ?? [])).catch(() => new Map()), current = cards.map(c => ({ ...c, reviewedCaptures: COPY_RULES.captureProof(bodies.get(canonicalUrlKey(c.pageUrl ?? "")), wiring.now.getTime()) }));
+  const parts = current.map((c): BundleComponent => ({ kind: "factual_correction", label: c.recommendedChange.kind === "existing_edit" ? (c.recommendedChange.where ?? c.pagePath ?? "") : "",
     before: c.recommendedChange.kind === "existing_edit" ? c.recommendedChange.before : null,
     after: c.recommendedChange.kind === "existing_edit" ? c.recommendedChange.after : "",
     evidenceKeys: ["fact-1"], risk: "review",
@@ -169,12 +170,12 @@ async function reviewFactualCards(cards: readonly ChangeProposal[], wiring: { te
   if (parts.length === 0) return [...cards];
   const unfit = new Map<number, string>();
   for (const [i, p] of parts.entries()) {
-    const why = unfitToStandIn(p.before, p.after, cards[i]?.recommendedChange.kind === "existing_edit" ? subjectOf(cards[i]!) : "");
+    const why = !current[i]?.reviewedCaptures?.length || COPY_RULES.recordKey(current[i]?.reviewedCaptures) !== COPY_RULES.recordKey(cards[i]?.reviewedCaptures) ? COPY_RULES.pageState.capture : unfitToStandIn(p.before, p.after, cards[i]?.recommendedChange.kind === "existing_edit" ? subjectOf(cards[i]!) : "");
     if (why) unfit.set(i, why);
   }
   // THE PACKET IS BUILT FROM THE CARD, so the reviewer weighs the same canonical claims and passages the row banks.
-  const packet = (i: number): ReviewItem => { const c = cards[i]!, rc = c.recommendedChange;
-    return { c: parts[i]!, where: rc.kind === "existing_edit" ? (rc.where ?? "") : "",
+  const packet = (i: number): ReviewItem => { const c = current[i]!, rc = c.recommendedChange;
+    return { reviewedCaptures: c.reviewedCaptures, c: parts[i]!, where: rc.kind === "existing_edit" ? (rc.where ?? "") : "",
       claims: (c.claims ?? []).map((x, n) => ({ claimIndex: n, text: x.text, by: [...x.supportedBy] })),
       facts: (c.supportFacts ?? []).map((f) => ({ factId: f.id, exactPassage: f.fact })) }; };
   const review = await reviewComponents(wiring.tenantId, parts.map((_, i) => i).filter((i) => !unfit.has(i)).map(packet), wiring.now, wiring).catch(() => null);
@@ -190,8 +191,8 @@ async function reviewFactualCards(cards: readonly ChangeProposal[], wiring: { te
   const offered = parts.map((_, i) => i).filter((i) => !unfit.has(i));
   for (const [j, why] of held ?? []) unfit.set(offered[j]!, why);
   for (const [j, mapping] of review?.passed ?? []) cleared.set(offered[j]!, mapping);
-  return cards.map((c, i) => unfit.has(i)
-    ? { ...c, limitations: [`Held by Beacon's own review: ${unfit.get(i)}`, ...(c.limitations ?? []).filter((l) => !l.startsWith("Beacon's own sense review has not"))] }
+  return current.map((c, i) => unfit.has(i)
+    ? { ...cards[i]!, limitations: [`Held by Beacon's own review: ${unfit.get(i)}`, ...(c.limitations ?? []).filter((l) => !l.startsWith("Beacon's own sense review has not"))] }
     : { ...c, status: "ready" as const,
       ...(cleared.has(i) ? { semanticReview: { of: copyKey(c), version: REVIEW_CONTRACT, claims: cleared.get(i)!, ...((cleared.get(i) as { materialChange?: boolean }).materialChange != null ? { materialChange: (cleared.get(i) as { materialChange?: boolean }).materialChange } : {}) } } : {}), // THE REVIEWER'S OWN RULING, never one rebuilt from the producer's `supportedBy`
       limitations: [...(c.limitations ?? []).filter((l) => !l.startsWith("Beacon's own sense review has not")),
@@ -216,7 +217,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
     // with a live correction meant a page whose corrections ALL lost their evidence was never read, so it was
     // never judged, so its stale cards could never be withdrawn: the one case the withdrawal below exists for.
     const candidateUrls = [...byPage].filter(([k]) => owned.has(k)).map(([k]) => owned.get(k)!.url);
-    const pageHashes = new Map<string, string>(), pageTexts = new Map<string, string>();
+    const pageHashes = new Map<string, string>(), pageTexts = new Map<string, string>(), pageCaptures = new Map<string, ChangeProposal["reviewedCaptures"]>();
     if (candidateUrls.length > 0) {
       const [{ loadOwnedPageBodies }, { pageHashOf }] = await Promise.all([
         import("@/domains/evidence/pages/owned-context"), import("@/domains/evidence/pages/fact-check-run")]);
@@ -234,7 +235,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
         // every page hash stayed unset, and the currency gate below refused all 777 banked checks at once
         // (live, 2026-08-30: four produce passes, cards 0). The gate was armed later than this read was
         // written, which is why the dead join minted for weeks before it starved the queue.
-        const b = bodies?.get?.(canonicalUrlKey(url));
+        const b = bodies?.get?.(canonicalUrlKey(url)); pageCaptures.set(canonicalUrlKey(url), COPY_RULES.captureProof(b, now.getTime()));
         const body = b ? [b.title, b.h1, ...b.headings, ...b.passages].filter(Boolean).join("\n") : "";
         if (body.trim()) { pageHashes.set(canonicalUrlKey(url), pageHashOf(body)); pageTexts.set(canonicalUrlKey(url), body); }
       }
@@ -326,7 +327,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
           recommendedChange: { kind: "existing_edit", field: "section", before, after, where },
           preservation: [{ text: before, disposition: "corrected" as const, by: support.map((s) => s.id), why: kept }], // THE LINE THIS REPLACES IS CORRECTED, NOT DROPPED, said in the one typed ledger every replacement answers to: a correction used to leave the preservation boundary entirely, which made "factual correction" a licence to delete whatever else stood in the line (Codex, 2026-08-28)
           claims: [{ text: claimText, supportedBy: support.map((s) => s.id) }],
-          supportFacts: support,
+          reviewedCaptures: pageCaptures.get(key), supportFacts: support,
           whyItMatters: matters,
           operatorSteps: [`Open the site editor on ${path}`, `Find ${where.replace(/^The /, "the ")}`,
             `Replace "${before}" with "${after}"`, "Mark it done here"],

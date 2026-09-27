@@ -72,7 +72,7 @@ export function visibleFaqs(items: unknown): (FaqItem & { source: Exclude<FaqIte
 
 export type PageSnapshot = {
   id: string;
-  page_id: string;
+  page_id: string; capture_version?: number;
   /** Set by website crawl — links HTML snapshot to `observation-runs.json`. */
   observation_run_id?: string;
   url: string;

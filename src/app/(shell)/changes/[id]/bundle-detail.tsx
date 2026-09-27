@@ -21,7 +21,7 @@ const EVIDENCE_GROUP: Record<BundleEvidenceItem["kind"], string> = {
   internal_link: "Links across your own site",
 };
 const EVIDENCE_ORDER = Object.keys(EVIDENCE_GROUP) as BundleEvidenceItem["kind"][];
-const canFinish = (p: ChangeProposal): boolean => p.recommendedChange.kind === "existing_edit" && p.status === "needs_review" && (["draft", "redraft", "review", "evidence"].includes(nextObligation(p)?.kind ?? "") || nextObligation(p)?.kind === "sections" && p.recommendedChange.field === "meta" && p.newPageDraft?.brief.kind === "body_meta" && p.changeFamily !== "full_rewrite" && p.recommendedChange.target?.mode !== "whole_body" && !p.bundle);
+const canFinish = (p: ChangeProposal): boolean => p.recommendedChange.kind === "existing_edit" && (p.status === "needs_review" || p.status === "ready" && nextObligation(p)?.kind === "review") && (["draft", "redraft", "review", "evidence"].includes(nextObligation(p)?.kind ?? "") || nextObligation(p)?.kind === "sections" && p.recommendedChange.field === "meta" && p.newPageDraft?.brief.kind === "body_meta" && p.changeFamily !== "full_rewrite" && p.recommendedChange.target?.mode !== "whole_body" && !p.bundle);
 const researchNext = (p: ChangeProposal): string => {
   const owed = nextObligation(p);
   if (owed?.kind === "evidence") return ({ serp: "Beacon will read the search results before deciding what this page needs.", page_source: "Beacon will read the current page before writing against it.", competitor_page: "Beacon will read the relevant winning page before deciding what is missing.", factual_source: "Beacon will check a source for the missing claim before writing it.", semantic_review: "Beacon will check the finished copy against its saved sources." } as const)[owed.need.kind];
@@ -210,7 +210,7 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
         {research ? <p className="text-[13px] leading-relaxed text-foreground" data-research-next="true">Next: {researchNext(proposal)}</p> : null}
         {research || held ? null : <p className="text-[12px] text-muted-foreground">After you make it, the page is checked and the measurement starts from what is found.</p>}
         {confirmable ? <ConfirmDangerous proposalId={proposal.id} version={confirmable} /> : null}
-        <SetAsideChange proposalId={proposal.id} finishable={canFinish(proposal) && !confirmable} prepare={nextObligation(proposal)?.kind !== "review" || proposal.recommendedChange.kind === "existing_edit" && !!proposal.recommendedChange.linkTo} />
+        <SetAsideChange proposalId={proposal.id} finishable={canFinish(proposal) && !confirmable} prepare={nextObligation(proposal)?.kind !== "review" || proposal.status !== "ready" && proposal.recommendedChange.kind === "existing_edit" && !!proposal.recommendedChange.linkTo} />
       </section>
     </div>
   );
@@ -464,7 +464,7 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
       {held && !research ? <p className="text-[13px] leading-relaxed text-foreground" data-held-reason="true">{held}{waitingOn(proposal) ?? ""}</p> : null}
       <div className="flex flex-wrap items-center gap-3">
         {research || held ? null : <MarkImplemented proposalId={proposal.id} expectedVersion={confirmedVersion(proposal)} inPlaceLink={c.kind === "existing_edit" && c.linkMode === "in_place"} />}
-        <SetAsideChange proposalId={proposal.id} finishable={canFinish(proposal)} prepare={nextObligation(proposal)?.kind !== "review" || proposal.recommendedChange.kind === "existing_edit" && !!proposal.recommendedChange.linkTo} />
+        <SetAsideChange proposalId={proposal.id} finishable={canFinish(proposal)} prepare={nextObligation(proposal)?.kind !== "review" || proposal.status !== "ready" && proposal.recommendedChange.kind === "existing_edit" && !!proposal.recommendedChange.linkTo} />
       </div>
     </div>
   );

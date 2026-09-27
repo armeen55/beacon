@@ -2,7 +2,7 @@ import type { BundleComponent, ChangeProposal } from "./contracts";
 import { componentIdOf } from "./contracts";
 import { COPY_RULES } from "./copy-sanitize";
 import type { draftFieldForPage } from "./drafted-copy";
-type Piece = Pick<NonNullable<Awaited<ReturnType<typeof draftFieldForPage>>>, "assignment" | "after" | "units" | "target" | "heading" | "claims" | "supportFacts" | "review" | "gain" | "editor" | "reviewOf" | "draftNotes"> & { before?: string | null; preservation?: ChangeProposal["preservation"] };
+type Piece = Pick<NonNullable<Awaited<ReturnType<typeof draftFieldForPage>>>, "assignment" | "after" | "units" | "target" | "heading" | "claims" | "supportFacts" | "review" | "gain" | "editor" | "reviewOf" | "draftNotes" | "reviewedCaptures"> & { before?: string | null; preservation?: ChangeProposal["preservation"] };
 
 /** Writer packet ids are local. Resolve them before combining separately reviewed pieces. */
 export function assembleCopy(components: readonly BundleComponent[], pieces: readonly { index: number; copy: Piece }[]) {
@@ -37,5 +37,5 @@ export function assembleCopy(components: readonly BundleComponent[], pieces: rea
   const hashes = new Set(gains.map((g) => g.bodyHash));
   const gain = gains.length === 0 ? null : { adds: gains.map((g) => g.adds).join(" "), by: [...new Set(gains.flatMap((g) => g.by))], pageWhole: gains.every((g) => g.pageWhole),
     ...(hashes.size === 1 && gains[0]!.bodyHash ? { bodyHash: gains[0]!.bodyHash } : {}), ...(gains.length === 1 && gains[0]!.targetHash ? { targetHash: gains[0]!.targetHash } : {}) };
-  return { claims, review, supportFacts: [...supportFacts.values()], preservation, gain, draftNotes: [...new Set(pieces.flatMap(({ copy }) => copy.draftNotes ?? []))], editor: COPY_RULES.joinedEditor(editors) };
+  return { reviewedCaptures: COPY_RULES.joinedCaptures(pieces.map(({ copy }) => copy.reviewedCaptures)), claims, review, supportFacts: [...supportFacts.values()], preservation, gain, draftNotes: [...new Set(pieces.flatMap(({ copy }) => copy.draftNotes ?? []))], editor: COPY_RULES.joinedEditor(editors) };
 }

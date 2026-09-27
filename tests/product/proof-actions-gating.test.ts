@@ -44,6 +44,7 @@ vi.mock("@/domains/measurement/proof-gsc/shipped-change-store", () => ({
 vi.mock("@/domains/measurement/proof-gsc/record-shipment", () => ({ recordShipment: mocks.recordShipment }));
 import { recordShippedChangeAction, recomputeProofLedgerAction } from "@/app/(shell)/results/actions";
 import { markProposalImplementedAction } from "@/app/(shell)/changes/actions";
+import type { ChangeProposal } from "@/domains/decision/contracts"; const captures = (tenantId: string, url: string): NonNullable<ChangeProposal["reviewedCaptures"]> => [{ tenantId, url, pageId: `page-${new URL(url).pathname}`, captureId: `snap-${new URL(url).pathname}-1`, latestCaptureId: `snap-${new URL(url).pathname}-1`, captureVersion: 1, sourceRevision: "0123456789abcdef" }];
 const BASIS = "basis_today::d6";
 const EVENT = { eventId: "123e4567-e89b-42d3-a456-426614174000", shippedAt: "2026-06-20T20:00:00.000Z", timeZone: "America/Los_Angeles", offsetMinutes: -420 };
 const external = (over: Record<string, unknown> = {}) => recordShippedChangeAction({ ...EVENT, pageUrl: "https://x.test/cities", changeType: "edit_title", before: "old", after: "new", ...over });
@@ -57,7 +58,7 @@ return { ...row, semanticReview: { ...(row.kind === "new_page" ? { scope: "whole
 const proposal = (over: Record<string, unknown> = {}) => authorize({
   id: PROPOSAL_ID, tenantId: "tenant-test", kind: "existing_edit", pagePath: "/nowruz-guide",
   pageUrl: "https://x.test/nowruz-guide", pageLabel: "Nowruz guide", primaryQuery: "nowruz traditions",
-  opportunityType: "Capture clicks", changeFamily: "title", status: "ready", riskLevel: "low", basis: BASIS, publish: "manual", limitations: [],
+  opportunityType: "Capture clicks", changeFamily: "title", status: "ready", reviewedCaptures: captures("tenant-test", "https://x.test/nowruz-guide"), riskLevel: "low", basis: BASIS, publish: "manual", limitations: [],
   recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table" }, modeledOn: "the stored results page for this search, whose top titles share this shape",
   whyItMatters: "The line Google shows misses the words people search for.",
   bundle: { objective: "Say what the searcher asked for in the line Google shows.",
@@ -139,7 +140,6 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
     const res = await markProposalImplementedAction({ ...PRESS }); expect([res.success, res.note?.startsWith("Recorded."), res.note?.includes(said)]).toEqual([true, true, true]);
     expect(mocks.recordShipment).toHaveBeenCalledOnce(); // the change is done, and the reading is a separate fact
   });
-  /** P1-1 + P1-2. The remainder came off THIS press, so press two of three said "the other 2" with one left; and the picker pre-ticks everything with no memory of what is already recorded, so a partial press followed by the default full press wrote a SECOND record measuring the same component twice. The server owes both answers whatever the screen sends: the true remainder, and a wanted set with everything already on file taken out of it. */
   it("names the true remainder, and can never record one piece twice", async () => {
     const part = (kind: string, label: string, after: string) => ({ kind, label, after, risk: "safe", evidenceKeys: ["k1"] });
     const parts = [part("title", "Page title", "a"), part("meta", "Description", "b"), part("opening_answer", "Opening answer", "c")];

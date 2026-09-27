@@ -1,6 +1,6 @@
 import "server-only";
 import { reviewFinishedCopy, writerKindOf } from "@/domains/decision/drafted-copy"; import { REVIEW_CONTRACT, reviewFits, unreviewed } from "@/domains/decision/proof"; import { COPY_RULES } from "@/domains/decision/copy-sanitize";
-import { confirmedVersion, deliverableGaps } from "@/domains/decision/completeness"; import { DRAFT_BUDGET } from "@/domains/decision/draft-budget"; import { nextObligation } from "@/domains/decision/obligation"; import { answerReviewedProposal, loadChangeProposal, loadChangeProposals, preflightReviewedProposal } from "@/domains/decision/proposal-store";
+import { confirmedVersion, deliverableGaps } from "@/domains/decision/completeness"; import { DRAFT_BUDGET } from "@/domains/decision/draft-budget"; import { nextObligation } from "@/domains/decision/obligation"; import { answerReviewedProposal, saveChangeProposal, loadChangeProposal, loadChangeProposals, preflightReviewedProposal } from "@/domains/decision/proposal-store";
 import type { ChangeProposal } from "@/domains/decision/contracts"; import { PROOF_SPEND, runWithoutSpending } from "@/lib/spend-scope"; import { researchPermission } from "./due-work";
 import spendReservations, { runWithProposalWorkKey } from "@/lib/cost/spend-reservations";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
@@ -14,7 +14,7 @@ import { getTenant } from "@/domains/account";
 const acceptable = (row: ChangeProposal | null): boolean => !!row && row.status === "ready" && row.researchOnly !== true
   && deliverableGaps(row).length === 0 && nextObligation(row) === null;
 const DEPS = { permission: researchPermission, load: loadChangeProposal, review: reviewFinishedCopy, promote: answerReviewedProposal, reviewAuthorized: (row: ChangeProposal) => row.semanticReview?.version === REVIEW_CONTRACT && COPY_RULES.accepted(row.semanticReview.editor) && reviewFits(row, row.semanticReview.of) && unreviewed(row) == null,
-  acceptable, obligation: nextObligation, delivery: DRAFT_BUDGET.deliveryOf, version: confirmedVersion, preflight: preflightReviewedProposal,
+  acceptable, save: saveChangeProposal, obligation: nextObligation, delivery: DRAFT_BUDGET.deliveryOf, version: confirmedVersion, preflight: preflightReviewedProposal,
   providerConfigured: () => !!process.env.OPENAI_API_KEY?.trim(), spend: spendReservations };
 type Deps = typeof DEPS; type Input = { tenantId: string; proposalId: string; currentBasis: string | null; maxOpenAiCalls: number; maxOpenAiUsd: number; now?: Date };
 async function run(input: Input, deps: Deps = DEPS) {
@@ -26,12 +26,12 @@ async function run(input: Input, deps: Deps = DEPS) {
   const row = await deps.load(tenantId, proposalId);
   if (!row || row.id !== proposalId || row.tenantId !== tenantId) return refuse("stored_candidate_not_found");
   if (row.basis !== currentBasis) return refuse("candidate_basis_is_not_current", row);
-  if (deps.delivery(row) !== "existing_page_edit" || row.status !== "needs_review") return refuse("candidate_is_not_one_unfinished_manual_edit", row);
+  if (deps.delivery(row) !== "existing_page_edit" || !["needs_review", "ready"].includes(row.status)) return refuse("candidate_is_not_one_unfinished_manual_edit", row);
   const obligation = deps.obligation(row);
   if (obligation?.kind !== "review") return refuse(`candidate_owes_${obligation?.kind ?? "nothing"}`, row);
   const now = input.now ?? new Date(), preflight = await deps.preflight(tenantId, row, currentBasis, now);
   if (preflight.reason) return refuse(`candidate_preflight:${preflight.reason}`, row);
-  if (deps.reviewAuthorized(row) && !preflight.reviewRefresh) { if (await deps.permission(tenantId) !== "paused") return refuse("accepted_review_could_not_be_settled", row); const promoted = await deps.promote(tenantId, proposalId, deps.version(row), currentBasis, { kind: "promote", at: now.toISOString() }), stored = await deps.load(tenantId, proposalId); return promoted.status === "promoted" && deps.acceptable(stored) ? { success: true as const, proposalId, reason: "stored_ready_from_current_review", stored, meter: { ops: 0, providerCalls: 0, costUsd: 0 } } : refuse(`promotion_${promoted.status}${promoted.refusal ? `:${promoted.refusal}` : ""}`, stored); }
+  if (row.status === "needs_review" && deps.reviewAuthorized(row) && !preflight.reviewRefresh) { if (await deps.permission(tenantId) !== "paused") return refuse("accepted_review_could_not_be_settled", row); const promoted = await deps.promote(tenantId, proposalId, deps.version(row), currentBasis, { kind: "promote", at: now.toISOString() }), stored = await deps.load(tenantId, proposalId); return promoted.status === "promoted" && deps.acceptable(stored) ? { success: true as const, proposalId, reason: "stored_ready_from_current_review", stored, meter: { ops: 0, providerCalls: 0, costUsd: 0 } } : refuse(`promotion_${promoted.status}${promoted.refusal ? `:${promoted.refusal}` : ""}`, stored); }
   if (!deps.providerConfigured()) return refuse("openai_not_configured_in_this_runtime", row);
   const admissionKey = `atomic-proof-v2::${tenantId}::${proposalId}::${deps.version(row)}`;
   const admission = await deps.spend.reserve({ tenantId, platform: "other", purpose: "atomic_proof_admission", logicalKey: admissionKey,
@@ -60,7 +60,8 @@ async function run(input: Input, deps: Deps = DEPS) {
   const meter = budget.meterOf(key), proposed = reviewed.row && reviewed.row.id === proposalId && reviewed.row.tenantId === tenantId ? reviewed.row : null;
   if (!proposed) return finish(false, "review_did_not_return_the_exact_candidate", row, meter);
   if (await deps.permission(tenantId) !== "paused") return finish(false, "research_pause_changed_before_persist");
-  const promoted = await deps.promote(tenantId, proposalId, deps.version(row), currentBasis, { kind: "promote", at: now.toISOString() }, proposed), stored = await deps.load(tenantId, proposalId);
+  const candidate: ChangeProposal = { ...proposed, status: "ready", obligation: undefined }, qualified = deps.reviewAuthorized(candidate) && deps.acceptable(candidate), saved = row.status === "ready" ? await deps.save(qualified ? candidate : { ...proposed, status: "needs_review" }, undefined, undefined, row) : null;
+  const promoted: Awaited<ReturnType<Deps["promote"]>> = saved ? { status: saved === "saved" ? qualified ? "promoted" : "refused" : saved === "blocked" || saved === "unchanged" ? "stale" : saved } : await deps.promote(tenantId, proposalId, deps.version(row), currentBasis, { kind: "promote", at: now.toISOString() }, proposed), stored = await deps.load(tenantId, proposalId);
   if (await deps.permission(tenantId) !== "paused") return finish(false, "research_pause_changed_after_persist", stored, meter);
   if (promoted.status !== "promoted") return finish(false, `promotion_${promoted.status}${promoted.refusal ? `:${promoted.refusal}` : ""}`, stored, meter);
   const accepted = deps.acceptable(stored);

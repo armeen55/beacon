@@ -25,12 +25,13 @@ vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof
     if (held) return { shipmentId: held.id, measurement: "measuring", proposalImplemented: o?.proposal?.complete === true };
     led.records.push({ ...f, id: `rec-${led.records.length + 1}`, implementedAt: new Date().toISOString() }); // THE REAL STORE STAMPS `implementedAt` AT THE PRESS, so the fixture does too: the next press reads this ledger back to count what is already being measured on the same page.
     return { shipmentId: led.records[led.records.length - 1]!.id, measurement: "measuring", proposalImplemented: o?.proposal?.complete === true }; } }));
+const captures = (tenantId: string, url: string): NonNullable<ChangeProposal["reviewedCaptures"]> => [{ tenantId, url, pageId: `page-${new URL(url).pathname}`, captureId: `snap-${new URL(url).pathname}-1`, latestCaptureId: `snap-${new URL(url).pathname}-1`, captureVersion: 1, sourceRevision: "0123456789abcdef" }];
 const SEEN = new Date(Date.now() - 2 * 86_400_000).toISOString();
 const AFTER = "Iranian comedians: the 12 names people actually search for";
 const change = (after = AFTER): ChangeProposal => ({
   id: "t::/famous-iranian-comedians::existing_edit::bundle", tenantId: "t", kind: "existing_edit", pagePath: "/famous-iranian-comedians",
   pageUrl: "https://site.example/famous-iranian-comedians", pageLabel: "Famous Iranian comedians", primaryQuery: "iranian comedians", changeFamily: "title",
-  opportunityType: "Answer the exact search", status: "ready", basis: "basis_now::d4", limitations: [], createdAt: SEEN, riskLevel: "low", confidence: "high",
+  opportunityType: "Answer the exact search", status: "ready", reviewedCaptures: captures("t", "https://site.example/famous-iranian-comedians"), basis: "basis_now::d4", limitations: [], createdAt: SEEN, riskLevel: "low", confidence: "high",
   estimatedEffortMinutes: 6, whyItMatters: "This page lost 163 clicks last month.", modeledOn: "the stored results page for this search, whose top titles share this shape", recommendedChange: { kind: "existing_edit", field: "title", before: "Comedians", after },
   bundle: { objective: "Answer the exact question people search", metric: "clicks from that search", measurementPlan: "The next 28 days are compared with the last 28.",
     scope: { queries: ["iranian comedians"], prompts: [] }, confidenceReasons: ["163 clicks lost in 4 weeks"], alternatives: [], risks: [],
@@ -38,7 +39,7 @@ const change = (after = AFTER): ChangeProposal => ({
     receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "163 clicks lost in 4 weeks.", observedAt: SEEN }], missing: [], freshestObservedAt: SEEN } },
 } as unknown as ChangeProposal);
 const linkChange = (): ChangeProposal => { const p = change("One sentence pointing readers to the haft seen page.") as ChangeProposal & { recommendedChange: unknown };
-  p.recommendedChange = { kind: "existing_edit", field: "section", before: null, after: "One sentence pointing readers to the haft seen page.", where: 'In the body copy, with "the haft seen explained" linked to /haft-seen', linkTo: "/haft-seen", anchorText: "the haft seen explained" }; (p.bundle as { components: unknown[] }).components = [{ kind: "internal_link_add", label: "Link to the haft seen page", risk: "safe", before: null, after: "One sentence pointing readers to the haft seen page.", evidenceKeys: ["k1"] }]; return p; };
+  p.reviewedCaptures = [...p.reviewedCaptures!, ...captures("t", "https://site.example/haft-seen")]; p.recommendedChange = { kind: "existing_edit", field: "section", before: null, after: "One sentence pointing readers to the haft seen page.", where: 'In the body copy, with "the haft seen explained" linked to /haft-seen', linkTo: "/haft-seen", anchorText: "the haft seen explained" }; (p.bundle as { components: unknown[] }).components = [{ kind: "internal_link_add", label: "Link to the haft seen page", risk: "safe", before: null, after: "One sentence pointing readers to the haft seen page.", evidenceKeys: ["k1"] }]; return p; };
 const expectedOf = (id: string) => confirmedVersion((stored.byId?.get(id) ?? stored.proposal) as ChangeProposal);
 const batch = (ids: string[]) => ({ proposals: ids.map((id) => ({ id, expectedVersion: expectedOf(id) })) });
 const schemaChange = (): ChangeProposal => { const p = change("Add a visible answer and matching FAQ markup."), section = { ...p.bundle!.components[0]!, label: "Visible FAQ answer" }, dependency = componentIdOf(section, 0), hash = "a".repeat(64);
@@ -58,7 +59,7 @@ describe("many at once is one trip, and still one shipment each", () => {
     surf.rebuilds = 0; led.flip.mockClear();
     const again = await mark(batch(ids)); expect(again.done, "nothing is recorded twice").toBe(0); expect(again.already).toBe(20); });});
 describe("an applied change keeps the suggestion and the version applied side by side", () => {
-  const atomic = (tenant: string, after = AFTER): ChangeProposal => ({ ...change(after), id: `${tenant}::/famous-iranian-comedians::existing_edit::title`, tenantId: tenant, bundle: undefined } as unknown as ChangeProposal);
+  const atomic = (tenant: string, after = AFTER): ChangeProposal => ({ ...change(after), id: `${tenant}::/famous-iranian-comedians::existing_edit::title`, tenantId: tenant, reviewedCaptures: captures(tenant, "https://site.example/famous-iranian-comedians"), bundle: undefined } as unknown as ChangeProposal);
   const facts = () => led.records[led.records.length - 1] as unknown as { componentsApplied: Array<{ label: string; after: string; appliedAfter?: string }>; operatorNote?: string | null; after?: string; implementedAt: string | null };
   it("names the piece off the change, keeps both versions when the operator applied their own wording, and repeats none of it on a second press, on two accounts", async () => {
     for (const [tenant, wording] of [["acct-one", "The line that is really on this page now."], ["acct-two", "A second account's own line, typed by hand."]] as const) {
@@ -180,7 +181,7 @@ const SITES = [
 ];
 type Site = (typeof SITES)[number];
 const card = (s: Site, over: Partial<ChangeProposal> = {}): ChangeProposal => ({ ...change(s.after), id: `${s.t}::${s.path}::existing_edit::title`, tenantId: s.t,
-  pagePath: s.path, pageUrl: `https://${s.t}.example${s.path}`, pageLabel: s.label, primaryQuery: s.q, ...over } as ChangeProposal);
+  pagePath: s.path, pageUrl: `https://${s.t}.example${s.path}`, reviewedCaptures: [...captures(s.t, `https://${s.t}.example${s.path}`), ...captures(s.t, `https://${s.t}.example/other`)], pageLabel: s.label, primaryQuery: s.q, ...over } as ChangeProposal);
 const atomic = (s: Site, over: Partial<ChangeProposal> = {}): ChangeProposal => card(s, { bundle: undefined, ...over } as Partial<ChangeProposal>);
 const pressOn = async (s: Site, p: ChangeProposal, over: Record<string, unknown> = {}) => { stored.tenant = s.t; stored.proposal = p;
   return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, expectedVersion: confirmedVersion(p), ...over }); };

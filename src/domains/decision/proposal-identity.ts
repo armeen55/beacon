@@ -47,7 +47,7 @@ const proposalFingerprint = (p: ChangeProposal): string => {
   const draft = p.newPageDraft ? deserializeChangeProposal(serializeChangeProposal(p))?.newPageDraft ?? p.newPageDraft : null;
   const material = { id: p.id, status: p.status, confidence: p.confidence, basis: p.basis ?? null,
     ...(p.workKey ? { workKey: p.workKey } : {}), change: p.recommendedChange,
-    limitations: p.limitations.filter((l) => !/^The exact .* lands on the next pass/.test(l)), ...(p.draftNotes?.length ? { draftNotes: p.draftNotes } : {}), cause: p.causeFinding ?? null,
+    reviewedCaptures: p.reviewedCaptures, limitations: p.limitations.filter((l) => !/^The exact .* lands on the next pass/.test(l)), ...(p.draftNotes?.length ? { draftNotes: p.draftNotes } : {}), cause: p.causeFinding ?? null,
     components: (p.bundle?.components ?? []).map((c) => [c.kind, c.page ?? null, c.where ?? null, c.before, c.after, c.evidenceKeys, c.risk,
       c.objective ?? null, c.mechanism ?? null, c.anchorAfter ?? null, c.redirectTo ?? null, ...(c.units ? [c.units] : []),
       ...(c.target ? [c.target] : []), ...(c.preserves ? [c.preserves] : []), ...(c.derivation ? [c.derivation] : [])]),

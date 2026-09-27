@@ -1,6 +1,6 @@
 /** In-memory account, clock and scripted transport around real production phases/stores. Fixtures replace account identity; scripted model approvals do not prove live copy quality. */
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join } from "node:path"; import { isDeepStrictEqual } from "node:util"; import { COPY_RULES } from "@/domains/decision/copy-sanitize";
 import { reportingDay } from "@/lib/reporting-day";
 export type Row = Record<string, unknown>;
 export const T = "acct-fixture";
@@ -62,7 +62,7 @@ export function client(): Record<string, unknown> {
         return counting ? { data: head ? null : page, count: hit.length, error: null } : { data: page, error: null };
       }
       for (const row of sent) {
-        const at = op === "upsert" ? rows().findIndex((r) => sameRow(name, r, row)) : -1;
+        const at = op === "upsert" ? rows().findIndex((r) => sameRow(name, r, row)) : -1; if (name === "page_snapshots") { const prior = at >= 0 ? rows()[at] : rows().filter(r => r.tenant_id === row.tenant_id && COPY_RULES.captureAddress(String(r.url)) === COPY_RULES.captureAddress(String(row.url))).sort((a,b) => String(b.fetched_at).localeCompare(String(a.fetched_at)) || String(b.id).localeCompare(String(a.id)))[0], excluded = new Set(["capture_version","fetched_at","updated_at","created_at", ...(at < 0 ? ["id"] : [])]), material = (r: Row) => Object.fromEntries(Object.entries(r).filter(([key]) => !excluded.has(key))); row.capture_version = prior && isDeepStrictEqual(material(prior), material(row)) ? prior.capture_version : Math.max(0, ...rows().map(r => Number(r.capture_version ?? 0))) + 1; }
         if (at >= 0) rows()[at] = { ...rows()[at], ...row }; else rows().push({ ...row });
       }
       return { data: sent.map((r) => project(r, cols || "*")), error: null };
@@ -390,7 +390,7 @@ export async function seedOwnedPages(pages: readonly { path: string; title: stri
     const body = paragraphs.map((line, i) => `${p.h2[i - 1] ? `<h2>${esc(p.h2[i - 1]!)}</h2>` : ""}<p>${esc(line)}</p>`).join("");
     const trailing = p.h2.slice(Math.max(0, paragraphs.length - 1)).map((h) => `<h2>${esc(h)}</h2>`).join("");
     const html = `<html><head><title>${esc(p.title)}</title><meta name="description" content="${esc(p.meta)}"></head><body><main><h1>${esc(p.h1)}</h1>${body}${trailing}</main></body></html>`;
-    table("page_snapshots").push({ ...extractPageSnapshot(html, `https://${SITE}${p.path}`, p.path, T), id: `snap${p.path}`, observation_run_id: "obs-1", fetched_at: new Date(clock.ms - 86_400_000).toISOString() });
+    table("page_snapshots").push({ ...extractPageSnapshot(html, `https://${SITE}${p.path}`, p.path, T), id: `snap${p.path}`, capture_version: table("page_snapshots").length + 1, observation_run_id: "obs-1", fetched_at: new Date(clock.ms - 86_400_000).toISOString() });
   }
 }
 

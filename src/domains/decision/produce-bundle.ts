@@ -1,7 +1,7 @@
 /** Select, build a scoped receipt, diagnose, then draft. Each door uses its own evidence; all input lists are sorted. */ import "server-only";
 
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot"; import { canonicalUrlKey } from "@/domains/evidence/snapshot"; import { jobComparison, type JobComparison } from "@/domains/evidence/comparison";
-import { draftAtomicEditStructured } from "@/domains/decision/llm/structured-drafter"; import { DRAFT_BUDGET } from "./draft-budget"; import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
+import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, ComponentPlan, EvidenceReadiness, RecommendedChange } from "./contracts"; import { confidenceFor, CTR_DEFICIT_SHARE, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction, receiptComposition } from "./contracts"; import { copyKey, evidenceShortfall, REVIEW_CONTRACT } from "./proof";
 import { assembleCopy } from "./assemble-copy";
 import { COPY_RULES } from "./copy-sanitize";
@@ -18,9 +18,7 @@ import { readFactChecks, type FactCheck } from "@/domains/evidence/pages/fact-ch
 import { biggerSearchesLine } from "./suggested-edits"; import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split"; import proposalIdentity from "./proposal-identity"; import { demandOf, draftFieldForPage } from "./drafted-copy";
 import withDerivedFaqSchema from "./derived-schema"; const { actionFamilyOf } = proposalIdentity;
 
-/** `considered` rides a REFUSAL so the levers a producer weighed reach the research card that replaces it: a card saying only what is missing reads as a shrug beside one that also says what was ruled out. */
 type BundleOutcome = { status: "bundled"; proposal: ChangeProposal } | { status: "none"; reason: string; considered?: { option: string; reason: string }[];
-  /** The exact reading this cause cannot be treated without, typed by the producer that discovered it. */
   requirement?: EvidenceRequirement };
 
 type Research = EvidenceSnapshot["research"];
@@ -29,14 +27,12 @@ type SerpEvidence = Research["serpEvidence"][number];
 type Keyword = Research["retainedKeywords"][number];
 
 const norm = (s: string): string => s.trim().toLowerCase(); const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-type OwnedBody = Pick<OwnedPageBody, "openingSample" | "fetchedAt"> & Partial<Omit<OwnedPageBody, "url" | "openingSample" | "fetchedAt">>;
+type OwnedBody = Pick<OwnedPageBody, "openingSample" | "fetchedAt"> & Partial<Omit<OwnedPageBody, "openingSample" | "fetchedAt">>;
 
-/** RECOVERABLE OPPORTUNITY, never gross traffic: per DEMAND UNIT clearing MIN_QUERY_IMPRESSIONS on the unit's combined impressions, the shortfall under what its members' positions earn on THE SAME curve the diagnosis used, past CTR_DEFICIT_SHARE of it. Units, not single rows: an intent spread across many phrasings is ONE audience, and reading it a row at a time hid most of the site's demand from the only path that can act. `at` defaults to the industry table only outside a pass, which holds no fitted curve. */
 type Gap = /** `recoverable` is the shared 28-day horizon every opportunity is sized on; `over90` is the SAME shortfall across the ninety days this gap's own impressions and clicks were read over, carried only so a sentence quoting ninety-day evidence stays internally consistent: "6,000 saw this in 90 days and 90 clicked" may not end on a 28-day figure. */ { query: string; impressions: number; clicks: number; position: number; recoverable: number; over90: number; vocabulary?: string[] };
 const gapsOf = (p: OwnedPageEvidence, at: (position: number) => number = defaultExpectedCtrAt): Gap[] => demandUnitsOf(p.search?.topQueries ?? [], at).flatMap((u) => {
   if (u.impressions < MIN_QUERY_IMPRESSIONS || u.position == null) return [];
   const expected = u.expectedClicks / u.impressions, deficit = expected - u.clicks / u.impressions, recoverable = u.recoverableClicks, over90 = Math.max(0, Math.round(u.expectedClicks - u.clicks)); // READ, never recomputed: one horizon, set where the unit is built
-  // BOTH BARS, because this figure is SUMMED onto a page: a share floor alone let a tail search missing 44 percent of a 1.8 percent position add 16 clicks to a page
   // total, and the card then carried a number its own sentence (written from the one real gap) did not say. A unit joins a page's worth only if it is worth something.
   return deficit < CTR_DEFICIT_SHARE * expected || recoverable < MIN_RECOVERABLE_CLICKS ? [] : [{ query: u.label, impressions: u.impressions, clicks: u.clicks, position: u.position, recoverable, over90, vocabulary: u.vocabulary }];
 }).sort((a, b) => b.recoverable - a.recoverable || byText(a.query, b.query));
@@ -276,8 +272,8 @@ function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date,
   return {
     // THE EDITOR ITSELF, for a page this card does not sit on: same deterministic checks, same judge, that page's own words.
     pageField: async (i) => { if (pending) return null; const piece = await draftFieldForPage({ ...i, ownedPaths }, editor); if (piece) authed.set(piece.after, piece); pending = !!piece && !COPY_RULES.accepted(piece.editor); return piece; },
-    restore: async (piece) => { const accepted = COPY_RULES.accepted(piece.editor); if (!held || !piece.units?.length || piece.after !== COPY_RULES.bodyCopy(piece.units) || !piece.claims.length || piece.claims.some(claim => claim.supportedBy.some(id => piece.supportFacts.filter(fact => fact.id === id).length !== 1)) || accepted && (piece.reviewOf !== COPY_RULES.pieceKey(piece) || piece.review.length !== piece.claims.length || piece.claims.some((claim, i) => !COPY_RULES.ruling(claim, piece.review, i))) || !accepted && (piece.editor != null || piece.reviewOf != null || piece.review.length > 0)) return null; const reviewed = accepted || pending ? piece : await draftFieldForPage({ field: "answer_block", body: held, query: piece.assignment?.intent[0] ?? "", brief: piece.assignment?.diagnosedGap ?? "", evidenceHints: [], saved: piece, delivery: piece.slot === 0 ? "opening" : undefined, assignment: piece.assignment, ownedPaths, minutes: 15, checked, basis: opts.basis ?? null, comparison: compared }, editor); if (!reviewed) return null; const restored = { ...reviewed, slot: piece.slot }; pending ||= !COPY_RULES.accepted(restored.editor); authed.set(address(restored.heading, restored.after, restored.assignment), { ...restored, before: restored.before ?? null, anchor: restored.target?.anchor ?? restored.heading ?? "", minutes: 15 }); return restored; },
-    compose: (pieces) => { const copies = pieces.map((p) => authed.get(address(p.heading, p.body, p.assignment))); if (copies.length === 0 || copies.some((c) => !c?.units)) return null; const units = copies.flatMap((copy, i) => COPY_RULES.publication(copy!, pieces[i]!.heading).units!), after = COPY_RULES.bodyCopy(units), target = { mode: "whole_body" as const, anchorKind: null, anchor: null }, component: BundleComponent = { kind: "full_rewrite", label: "Rebuild this page", before: held?.passages.join("\n\n") ?? null, after, units, target, evidenceKeys: [], risk: "review" }, merged = assembleCopy([component], copies.map((copy) => ({ index: 0, copy: copy! }))); authed.set(after, { ...copies[0]!, heading: null, after, units, target, claims: merged.claims.map((claim) => ({ text: claim.text, supportedBy: claim.supportedBy })), supportFacts: merged.supportFacts, review: merged.review.map((r) => ({ ...r, by: [...r.by] })), gain: merged.gain ? { ...merged.gain, targetHash: undefined } : undefined, preservation: merged.preservation, draftNotes: merged.draftNotes, assignment: undefined, editor: undefined, reviewOf: undefined }); return { after, units, pieces: copies.map((copy, i) => { const { before, heading, after, units, target, assignment, editor, reviewOf, claims, supportFacts, review, gain, preservation, draftNotes } = copy!; return { slot: pieces[i]!.slot, before, heading, after, units, target, assignment, editor, reviewOf, claims, supportFacts, review, gain, preservation, draftNotes }; }) }; },
+    restore: async (piece) => { const accepted = COPY_RULES.accepted(piece.editor); if (!held || !COPY_RULES.sameCaptures(piece.reviewedCaptures, COPY_RULES.captureProof(held, now.getTime())) || !piece.units?.length || piece.after !== COPY_RULES.bodyCopy(piece.units) || !piece.claims.length || piece.claims.some(claim => claim.supportedBy.some(id => piece.supportFacts.filter(fact => fact.id === id).length !== 1)) || accepted && (piece.reviewOf !== COPY_RULES.pieceKey(piece) || piece.review.length !== piece.claims.length || piece.claims.some((claim, i) => !COPY_RULES.ruling(claim, piece.review, i))) || !accepted && (piece.editor != null || piece.reviewOf != null || piece.review.length > 0)) return null; const reviewed = accepted || pending ? piece : await draftFieldForPage({ field: "answer_block", body: held, query: piece.assignment?.intent[0] ?? "", brief: piece.assignment?.diagnosedGap ?? "", evidenceHints: [], saved: piece, delivery: piece.slot === 0 ? "opening" : undefined, assignment: piece.assignment, ownedPaths, minutes: 15, checked, basis: opts.basis ?? null, comparison: compared }, editor); if (!reviewed) return null; const restored = { ...reviewed, slot: piece.slot }; pending ||= !COPY_RULES.accepted(restored.editor); authed.set(address(restored.heading, restored.after, restored.assignment), { ...restored, before: restored.before ?? null, anchor: restored.target?.anchor ?? restored.heading ?? "", minutes: 15 }); return restored; },
+    compose: (pieces) => { const copies = pieces.map((p) => authed.get(address(p.heading, p.body, p.assignment))); if (copies.length === 0 || copies.some((c) => !c?.units)) return null; const units = copies.flatMap((copy, i) => COPY_RULES.publication(copy!, pieces[i]!.heading).units!), after = COPY_RULES.bodyCopy(units), target = { mode: "whole_body" as const, anchorKind: null, anchor: null }, component: BundleComponent = { kind: "full_rewrite", label: "Rebuild this page", before: held?.passages.join("\n\n") ?? null, after, units, target, evidenceKeys: [], risk: "review" }, merged = assembleCopy([component], copies.map((copy) => ({ index: 0, copy: copy! }))); authed.set(after, { ...copies[0]!, reviewedCaptures: merged.reviewedCaptures, heading: null, after, units, target, claims: merged.claims.map((claim) => ({ text: claim.text, supportedBy: claim.supportedBy })), supportFacts: merged.supportFacts, review: merged.review.map((r) => ({ ...r, by: [...r.by] })), gain: merged.gain ? { ...merged.gain, targetHash: undefined } : undefined, preservation: merged.preservation, draftNotes: merged.draftNotes, assignment: undefined, editor: undefined, reviewOf: undefined }); return { after, units, pieces: copies.map((copy, i) => { const { reviewedCaptures, before, heading, after, units, target, assignment, editor, reviewOf, claims, supportFacts, review, gain, preservation, draftNotes } = copy!; return { slot: pieces[i]!.slot, reviewedCaptures, before, heading, after, units, target, assignment, editor, reviewOf, claims, supportFacts, review, gain, preservation, draftNotes }; }) }; },
     section: async (i) => { const r = await write("answer_block", i.query, `${i.brief}${i.heading ? ` Write it under the heading "${i.heading}".` : ""}`, i.evidenceHints, undefined, i.assignment, i.informationNeed, i.standard);
       if (!r) return null; const heading = (r.heading ?? i.heading ?? "").trim(), copy = { ...r, heading }; authed.set(address(heading, r.after, r.assignment), copy); authed.set(`${heading}\n\n${r.after}`, copy); return { heading, body: r.after, units: r.units }; },
     openingAnswer: async (i) => { const r = await write("answer_block", i.query, `Rewrite the first lines of this page so they answer "${i.query}" outright. It currently opens: "${(i.currentValue ?? "nothing on file").slice(0, 400)}".`, i.evidenceHints, "opening", i.assignment, i.informationNeed, i.standard);
@@ -310,14 +306,12 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   const { page, gaps } = pick; const lead = door ? null : gaps[0]!; const queries = queriesOf(page); const content = page.content!;
   const primary = door ? door.evidence.query!.trim() : lead!.query;
   const body = opts.bodyByUrl?.get(canonicalUrlKey(page.url)) ?? null;
-  // THE WHOLE HELD PAGE, built ONCE per page whose words the caller loaded: the ladder judges every absence
-  // against this page's, and a change that moves a section off ANOTHER page of yours reads it here or refuses.
-  const heldOf = (url: string, c: OwnedPageEvidence["content"], b?: OwnedBody): OwnedPageBody | null => !b ? null
-    : { url, title: c?.title ?? null, h1: c?.h1 ?? null, metaDescription: b.metaDescription ?? c?.metaDescription ?? null,
+  const heldOf = (url: string, c: OwnedPageEvidence["content"], b?: OwnedBody): OwnedPageBody | null => !b || b.url && COPY_RULES.captureAddress(b.url) !== COPY_RULES.captureAddress(url) ? null
+    : { url: b.url ?? parseUrl(url)?.href ?? url, title: b.title ?? null, h1: b.h1 ?? null, metaDescription: b.metaDescription ?? null,
       headings: b.headings ?? c?.outline ?? [], passages: b.passages ?? [], ...(b.answerPassages ? { answerPassages: b.answerPassages } : {}), ...(b.passageMeta ? { passageMeta: b.passageMeta } : {}), openingSample: b.openingSample, vocabulary: b.vocabulary ?? "", cardTexts: b.cardTexts ?? [],
       faqs: b.faqs ?? [], entityNames: b.entityNames ?? [], internalLinks: b.internalLinks ?? [], ...(b.linkedParagraphs ? { linkedParagraphs: b.linkedParagraphs } : {}), ...(b.capturedLinks ? { capturedLinks: b.capturedLinks } : {}), fetchedAt: b.fetchedAt,
       completeness: b.completeness ?? "sample_only", contentHash: b.contentHash ?? null, heldNote: b.heldNote ?? "A sample of this page is on file, not the whole page.",
-      version: b.version, newestAt: b.newestAt, ...(b.sourceCapture ? { sourceCapture: b.sourceCapture } : {}) };
+      tenantId: b.tenantId, pageId: b.pageId, captureId: b.captureId, latestCaptureId: b.latestCaptureId, captureVersion: b.captureVersion, finalUrl: b.finalUrl, version: b.version, newestAt: b.newestAt, ...(b.sourceCapture ? { sourceCapture: b.sourceCapture } : {}) };
   const held = heldOf(page.url, content, body ?? undefined);
   const heldBodies = new Map(snapshot.ownedPages.flatMap((p) => {
     const one = heldOf(p.url, p.content, opts.bodyByUrl?.get(canonicalUrlKey(p.url)));
@@ -390,16 +384,12 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     // A DOOR THAT NEVER MEASURED A CLICK MAY NOT CONCLUDE WORDING: re-running the results reading on a door's own label accuses a title on a page nobody proved is losing clicks.
     if (door) return { status: "none", reason: `This page was picked because ${DOOR_MEASURED[door.door]}, and what its line in the results earns was never measured, so what it gets here is coverage of what it is missing, not a new headline. It is read against the pages winning that search on the next pass, and the addition follows.` };
     if (!readyForAction(diagnosis) || diagnosis.action !== "title") return { status: "none", reason: diagnosis.explanation };
-    const before = content.title;
-    // THE TITLE DRAFT IS A CHARGED CALL TOO, and it is the only one this file makes outside `producerDrafts`.
-    if (opts.attempts && (opts.attempts.left -= 1) < 0) return { status: "none", reason: "This pass has spent its whole attempt budget, so no new headline was bought for this page." };
-    const draft = await draftAtomicEditStructured(
-      { query: primary, pageLabel: content.h1 ?? content.title ?? page.url, field: "title", currentValue: before, outline: content.outline, evidenceHints: facts, tenantId },
-      { complete: opts.complete, now, bypassCache: opts.bypassCache, authoritativeSourceDomains: opts.authoritativeSourceDomains },
-    );
-    opts.attempts?.record?.(draft); DRAFT_BUDGET.refundIfNoCallMade(opts.attempts, draft); // real requests and real dollars onto this page's own allowance, and the attempt back when the headline was served from the cache
-    if (draft.status === "drafted") keep({ kind: "title", label: "Page title", before: before ?? null, after: draft.value.after, evidenceKeys: diagnosis.evidenceKeys, risk: "safe" },
-      { kind: "existing_edit", field: "title", before: before ?? null, after: draft.value.after });
+    if (!held || !COPY_RULES.captureProof(held, now.getTime()).some(c => c.tenantId === tenantId)) return { status: "none", reason: COPY_RULES.pageState.capture };
+    // Summary copy uses the same observed capture, allowance and review contract as body copy.
+    const draft = await draftFieldForPage({ field: "title", body: held, query: primary, brief: diagnosis.explanation, evidenceHints: facts, ownedPaths: snapshot.ownedPages.map(p => pathOf(p.url)), minutes: 5, checked, basis: opts.basis ?? null },
+      { tenantId, now, complete: opts.complete, bypassCache: opts.bypassCache, attempts: opts.attempts, bannedTerms: opts.bannedTerms });
+    if (draft) { authed.set(draft.after, draft); keep({ kind: "title", label: "Page title", before: draft.before, after: draft.after, evidenceKeys: diagnosis.evidenceKeys, risk: COPY_RULES.accepted(draft.editor) ? "safe" : "review" },
+      { kind: "existing_edit", field: "title", before: draft.before, after: draft.after }); }
     if (components.length === 0) return { status: "none", reason: "No title for this page passed its own checks, so nothing is handed over rather than filler." };
   } else {
     const slot = CORE_PRODUCERS[finding.cause as Exclude<typeof finding.cause, "ctr_snippet">];
@@ -463,7 +453,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     const copy = authed.get(c.after); return copy ? [{ index, copy }] : [];
   });
   for (const { index, copy } of writtenPieces) Object.assign(components[index]!, COPY_RULES.publication(components[index]!.target?.mode === "replace" ? { ...copy, target: components[index]!.target } : copy, /^(?:section(?:_add)?|table_or_list_add)$/.test(components[index]!.kind) ? copy.heading : null)); /* a rewrite keeps the producer's replace target and publishes its body under the anchor heading, which stays on the page */ // AN ADDED SECTION CARRIES ITS HEADING (Stage 3, 2026-09-14): only `section` kept it, so a `section_add` labelled "Add a section: Scientists" published paste copy with no heading in it
-  const { claims, review, supportFacts, preservation, gain, editor, draftNotes } = assembleCopy(components, writtenPieces);
+  const { reviewedCaptures, claims, review, supportFacts, preservation, gain, editor, draftNotes } = assembleCopy(components, writtenPieces);
   const primaryComponent = components[0]!; // THE FAMILY THIS CHANGE BELONGS TO, worn by the id AND the stamp. The id ended in the literal word "bundle" and the family read "single", so a snippet rewrite and a body rebuild on one page fought over one id and every shipped bundle reached the proof ledger unclassifiable. Both read the store's own derivation now.
   const recommendedChange: RecommendedChange = { kind: "existing_edit", field: fieldForComponent(primaryComponent.kind), before: primaryComponent.before, after: primaryComponent.after, units: primaryComponent.units, target: primaryComponent.target, where: primaryComponent.where };
   const family = actionFamilyOf({ kind: "existing_edit", bundle, recommendedChange });
@@ -484,7 +474,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       evidence: { query: primary, hints: facts.slice(0, 5), evidenceRefCount: receipt.items.length },
       // A SIZE ONLY WHERE ONE IS PROVEN: an unproven door ranks as a direction, never as zero clicks.
       impactScore: pick.gap >= MIN_RECOVERABLE_CLICKS ? Math.round(pick.gap) : null, upsidePerMonth: null, bundle, createdAt: now.toISOString(),
-      ...(claims.length > 0 ? { claims, supportFacts } : {}),
+      reviewedCaptures, ...(wording && writtenPieces[0]?.copy.assignment ? { assignment: writtenPieces[0].copy.assignment } : {}), ...(claims.length > 0 ? { claims, supportFacts } : {}),
       ...(gain ? { informationGain: gain } : {}), ...(preservation.length > 0 ? { preservation } : {}), ...(receipt.aiImpact ? { aiImpact: receipt.aiImpact, aiScope: receipt.aiScope } : {}),
   };
   // THE READING IS STAMPED ON THE FINISHED ROW, never on a draft: copyKey folds the copy, every piece, every claim with the piece it answers for, and the words behind every id, and excludes the reading itself, so the identity comes from the completed proposal without a cycle.
