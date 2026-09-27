@@ -69,7 +69,7 @@ function QueueSlot({ view, researchPaused = false }: { view: ChangesView; resear
             : `Ranked ${rankedAgo}. Refreshes in the background.`}
         </p>
       ) : null}
-      <ChangesListClient view={view} />
+      <ChangesListClient view={view} researchPaused={researchPaused} />
     </div>
   );
 }

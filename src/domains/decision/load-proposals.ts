@@ -131,12 +131,12 @@ export type RankedProposalQueue = {
 export async function loadProposalQueue(
   tenantId: string,
   /** `now` is a SEAM, not a setting: the age of a change's own readings is judged against it, so a caller with a fixed clock reads the same queue every time it asks. Production passes nothing and gets the real moment, exactly as before. */
-  deps: { currentBasis?: string | null; now?: Date; deliveryScope?: Parameters<typeof DRAFT_BUDGET.scopeAllows>[0]; eligible?: (p: ChangeProposal) => boolean } = {},
+  deps: { currentBasis?: string | null; now?: Date; deliveryScope?: Parameters<typeof DRAFT_BUDGET.scopeAllows>[0]; eligible?: (p: ChangeProposal) => boolean; canonical?: ReadonlyMap<string, ChangeProposal> } = {},
 ): Promise<RankedProposalQueue> {
   const now = deps.now ?? new Date();
   const currentBasis =
     deps.currentBasis !== undefined ? deps.currentBasis : await resolveCurrentBasis(tenantId);
-  const byId = await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>());
+  const byId = deps.canonical ?? await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>());
   // THE PROVING SCOPE IS AN ADMISSION BOUNDARY, NOT A DISPLAY FILTER. Apply it before overlap, ranking,
   // lane partitioning or counts so private whole-page history cannot suppress, outrank or paginate a bounded edit.
   // `all_changes` includes earned new pages; the operator predicate still excludes unsafe historical work.

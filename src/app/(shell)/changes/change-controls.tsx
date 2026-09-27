@@ -31,16 +31,14 @@ type PressAnswer = { success: boolean; retryable?: boolean; error?: string };
 
 /** The same success, retry and refusal rule serves a fresh press and offline replay. */
 export const MARK_PRESS = {
-  /** THE PRESS MADE NOW, one answer in, one ending out (a throw is `null`). `queueable` is the caller's own fact: only a
-   *  plain whole-change mark carries nothing this device's queue cannot re-send, so only that one may be kept. */
+  /** Only a plain whole-change mark can be faithfully queued after a transient failure. */
   fresh(answer: PressAnswer | null, opts: { queueable: boolean }): { ending: "recorded" | "queued" | "unrecorded"; said: string | null } {
     if (answer?.success) return { ending: "recorded", said: null };
     const moment = answer == null || answer.retryable === true;
     if (moment && opts.queueable) return { ending: "queued", said: "Saved on this device. It records itself when the connection returns." };
     return { ending: "unrecorded", said: answer?.error ?? (moment ? "It did not save. Check you are signed in, then press it again." : "Something went wrong.") };
   },
-  /** WHAT BECAME OF EVERY PRESS THIS DEVICE WAS HOLDING, over the answers the server gave, in the order they were sent.
-   *  `keep` is the positions still owed, so the caller re-queues exactly those rows. */
+  /** Requeue exactly the still-owed positions from the server answers, in their original order. */
   flush(answers: readonly (PressAnswer | null)[]): { keep: number[]; said: string } {
     const keep: number[] = [], refused: string[] = [];
     let recorded = 0;
@@ -89,8 +87,7 @@ function useMarkQueueFlush(): string | null {
 }
 
 /** One copy control serves Today and Changes; `onToast` is the list's optional echo. */
-/** THE WORDS OF A LINK CHANGE: the address the underlined words point at. The card says "make the underlined words a link",
- *  so the words are underlined on screen and carried as a real anchor on the clipboard. */
+/** Carry the displayed link words and destination together. */
 type CopyLink = { href: string; anchor: string; /** The page the copy lands on: the clipboard's anchor is written absolute off its host, so a pasted link resolves anywhere. */ pageUrl?: string | null } | null;
 /** The anchor words, marked inside one line of copy: `mark` wraps them, and a line that does not carry them is returned whole. */
 const withAnchor = <T,>(line: string, link: CopyLink, plain: (s: string) => T, mark: (s: string) => T): T[] => {
@@ -105,10 +102,7 @@ export function PublicationCopy({ text, units, link = null }: { text: string; un
         : createElement(u.kind === "ordered_list" ? "ol" : "ul", { key: i, className: `pl-6 ${u.kind === "ordered_list" ? "list-decimal" : "list-disc"}` }, u.items.map((item, j) => <li key={j}>{line(item)}</li>))) : <p>{line(text)}</p>}</div>;
 }
 
-/** ONE PAYLOAD FOR EVERY COPY PRESS, on Today and on Changes alike (audit 3.9, 2026-09-14): the rich half is real HTML
- *  (h2 to h6, p, ol, ul, li, and an anchor for a link change), and the plain half is plain words: a heading on its own
- *  line, list items numbered or bulleted, never a # or - marker, because the plain half is what lands in an editor
- *  that takes no HTML, and a page had "## Heading" pasted into it as visible text. */
+/** Shared publication payload: semantic HTML plus plain headings, lists and words without visible Markdown markers. */
 export function clipboardPayload(text: string, units?: BundleComponent["units"], link: CopyLink = null): { html: string; plain: string } {
   const escape = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
   const href = link ? operatorUiPolicy.livePageHref(link.href, link.pageUrl) : null;
@@ -144,10 +138,8 @@ export function CopyButton({ text, units, link = null, label, onToast }: { text:
   );
 }
 
-/** "Skip" is the operator's own dismissal, with the consequence stated before they press it. The
- *  store then refuses to re-draft the same change until the evidence itself moves. The LIST owns the
- *  optimistic version of this control; this two-step one is what the detail page asks. */
-export function SetAsideChange({ proposalId, finishable = false, prepare = false }: { proposalId: string; finishable?: boolean; prepare?: boolean }) {
+/** Explicit preparation or version-bound dismissal; global preparation never skips a selected proposal. */
+export function SetAsideChange({ proposalId = "", finishable = false, prepare = false, prepareNext = false, onFinished }: { proposalId?: string; finishable?: boolean; prepare?: boolean; prepareNext?: boolean; onFinished?: () => void }) {
   const [pending, startTransition] = useTransition();
   const [state, setState] = useState<{ done: boolean; asked: boolean; finished: string | null; error: string | null }>({ done: false, asked: false, finished: null, error: null });
 
@@ -163,16 +155,17 @@ export function SetAsideChange({ proposalId, finishable = false, prepare = false
     return (
       <div className="flex flex-wrap items-center gap-3">
         {finishable ? <button type="button" disabled={pending} data-finish-one="true"
-          onClick={() => { const authorizationId = prepare ? crypto.randomUUID() : undefined;
-            startTransition(async () => { const res = await finishOneProposalAction({ proposalId, ...(prepare ? { prepare: true, authorizationId } : {}) }).catch(() => null);
+          onClick={() => { const authorizationId = prepare && !prepareNext ? crypto.randomUUID() : undefined;
+            startTransition(async () => { const res = await finishOneProposalAction(prepareNext ? { prepareNext: true } : { proposalId, ...(prepare ? { prepare: true, authorizationId } : {}) }).catch(() => null);
+            if (res?.success) onFinished?.();
             setState((s) => ({ ...s, finished: res?.success ? res.note ?? "Finished. This change is ready to copy." : null,
-              error: res?.success ? null : res?.error ?? "This change could not be finished just now." })); }); }}
+              error: res?.success ? null : res?.error ?? (prepareNext ? "No finished change was confirmed. Saved work remains intact." : "This change could not be finished just now.") })); }); }}
           className="min-h-11 rounded-md bg-accent-primary px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-60">
-          {pending ? "Preparing the change…" : prepare ? "Prepare best edit on this page" : "Finish this one"}
+          {pending ? "Preparing the change…" : prepareNext ? "Prepare next change" : prepare ? "Prepare best edit on this page" : "Finish this one"}
         </button> : null}
-        {finishable ? <span className="text-[12px] text-muted-foreground">{prepare ? "Each attempt reuses saved evidence; up to $2 OpenAI and $0.40 DataForSEO. Unfinished work and previous receipts stay saved. Research stays paused." : "Free page and evidence checks run first. Only if they pass: one OpenAI review, capped at $0.05. DataForSEO $0. Research stays paused."}</span> : null}
-        <button type="button" data-set-aside="true" onClick={() => setState((s) => ({ ...s, asked: true, error: null }))}
-          className="inline-flex min-h-11 items-center text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">Skip</button>
+        {finishable ? <span className="text-[12px] text-muted-foreground">{prepareNext ? "Uses saved research to prepare the strongest next change, including a new page when justified. Up to $1; DataForSEO $0. Unfinished work stays saved. Research stays paused." : prepare ? "Each attempt reuses saved evidence; up to $2 OpenAI and $0.40 DataForSEO. Unfinished work and previous receipts stay saved. Research stays paused." : "Free page and evidence checks run first. Only if they pass: one OpenAI review, capped at $0.05. DataForSEO $0. Research stays paused."}</span> : null}
+        {!prepareNext ? <button type="button" data-set-aside="true" onClick={() => setState((s) => ({ ...s, asked: true, error: null }))}
+          className="inline-flex min-h-11 items-center text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">Skip</button> : null}
         {state.error ? <span className="text-[12px] text-red-500">{state.error}</span> : null}
       </div>
     );
@@ -219,11 +212,7 @@ export function ConfirmDangerous({ proposalId, version }: { proposalId: string; 
   );
 }
 
-/** THE TWO ANSWERS A DRAFT CAN GET, beside the words they are about. "Approve as ready" is the operator saying
- *  this wording is good enough to make: it answers EDITORIAL judgement and nothing else, so it is offered only
- *  where the one pure hold rule says a person may answer, and the server re-reads the row and refuses anything
- *  harder by name whatever this screen offers. "Improve this draft" hands it to the next drafting pass and
- *  leaves these words exactly where they are until better ones land. Neither writes to the site. */
+/** Editorial answers preserve the current draft; server checks refuse factual and safety holds. Neither answer publishes. */
 export function ReviewAnswer({ proposalId, version, approvable }: { proposalId: string; version: string; approvable: boolean }) {
   const [pending, startTransition] = useTransition();
   const [state, setState] = useState<{ note: string | null; error: string | null }>({ note: null, error: null });

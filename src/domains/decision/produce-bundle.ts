@@ -4,7 +4,7 @@ import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/do
 import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, ComponentPlan, EvidenceReadiness, RecommendedChange } from "./contracts"; import { confidenceFor, CTR_DEFICIT_SHARE, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction, receiptComposition } from "./contracts"; import { copyKey, evidenceShortfall, REVIEW_CONTRACT } from "./proof";
 import { assembleCopy } from "./assemble-copy";
-import { COPY_RULES } from "./copy-sanitize";
+import { COPY_RULES } from "./copy-sanitize"; import { DRAFT_BUDGET } from "./draft-budget";
 import { technicalKey, type TechnicalFinding } from "./technical-findings";
 import { diagnoseCandidate, ownedResultOf, recurringPattern, RECEIPT, type DiagnosisInput } from "./diagnose";
 import { causeLabel, diagnoseCauses, substantiveGapOf, type CauseFinding } from "./diagnosis";
@@ -198,8 +198,7 @@ const gateShape = (tenantId: string, query: string, change: RecommendedChange): 
   evidence: { query, hints: [], evidenceRefCount: 0 }, impactScore: null, upsidePerMonth: null, publish: "manual", createdAt: "" });
 
 type ProduceBundleOptions = ProposeOptions & {
-  /** Manual proving mode may produce bounded edits but never a whole-body replacement. */
-  deliveryScope?: "existing_page_edits" | "all_changes";
+  deliveryScope?: Parameters<typeof DRAFT_BUDGET.scopeAllows>[0];
   /** THE ACCOUNT'S OWN CLICK CURVE, the same one the diagnosis measured with. Absent = the industry table, which is right only for a caller running outside a pass. */ curve?: { expectedCtrAt: (position: number) => number };
   /** The ONE topic the coverage pass decided: the settled kind of page, what searchers want, and what the winners share. Absent, those causes are not considered. */ coverage?: DecidedTopic | null;
   /** The pages already carrying a change under measurement, so a page still being read is left alone. */ measuringPagePaths?: readonly (string | null)[];
@@ -359,7 +358,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   const heldHeadings = (held?.headings ?? content.outline).map((h) => h.trim()).filter((h) => h.length > 0);
 
   const keep = (c: BundleComponent, change: RecommendedChange): void => {
-    if (opts.deliveryScope === "existing_page_edits" && (c.kind === "full_rewrite" || c.target?.mode === "whole_body")) {
+    if (!DRAFT_BUDGET.scopeAllows(opts.deliveryScope ?? "all_changes", DRAFT_BUDGET.deliveryOf({ changeFamily: c.kind, recommendedChange: { ...change, ...(change.kind === "existing_edit" ? { target: c.target } : {}) } }))) {
       alternatives.push({ option: c.label, reason: "A whole-page replacement is outside the current manual-edit proving phase, so the bounded edit remains visible without generating the full page." });
       return;
     }
@@ -395,6 +394,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     const slot = CORE_PRODUCERS[finding.cause as Exclude<typeof finding.cause, "ctr_snippet">];
     if (typeof slot !== "function") return { status: "none", reason: finding.cause === "no_problem" ? diagnosis.explanation : finding.explanation };
     if (opts.held?.newPageDraft?.brief.kind === "full_rewrite" && (opts.held.tenantId !== tenantId || opts.held.basis !== opts.basis || canonicalUrlKey(opts.held.pageUrl ?? "") !== canonicalUrlKey(page.url))) return { status: "none", reason: "The rewrite bank does not belong to this tenant, basis and page; no work was bought." };
+    if (opts.held?.newPageDraft?.brief.kind === "full_rewrite" && !DRAFT_BUDGET.scopeAllows(opts.deliveryScope ?? "all_changes", "whole_page")) return { status: "none", reason: "Whole-body writing is outside this delivery scope; the saved bank remains intact." };
     const compared = snapshot.research ? jobComparison(snapshot.research, [primary], { url: page.url, text: `${content.title ?? ""} ${(held?.passages ?? []).join(" ")}`, headings: content.outline ?? [], passages: held?.passages ?? [], complete: held?.completeness === "complete" && held.version === "current" }, undefined, receipt.aiScope ? "aeo" : "seo") : null;
     const drafters = producerDrafts(tenantId, opts, now, snapshot.ownedPages.map((p) => pathOf(p.url)), held, heldBodies, authed, checked, compared);
     const ctx: ProducerCtx = { finding, primary, tenantId,
@@ -407,7 +407,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       keep(c, { kind: "existing_edit", field, before: c.before, after: c.after });
     }
     // SMALLER COMPONENTS FIRST, A REBUILD LAST, and NEVER on a split: it is earned by a SECOND cause that FIRED.
-    if (components.length === 0 && finding.cause !== "cannibalization" && opts.deliveryScope !== "existing_page_edits") {
+    if (components.length === 0 && finding.cause !== "cannibalization" && DRAFT_BUDGET.scopeAllows(opts.deliveryScope ?? "all_changes", "whole_page")) {
       const rebuild = produced.draftBank || ctx.draftBank ? produced : await produceFullRewriteRecommendation(ctx, causes);
       if (rebuild.requirement || rebuild.draftBank) produced = rebuild;
       for (const c of rebuild.components) keep(c, { kind: "existing_edit", field: fieldForComponent(c.kind), before: c.before, after: c.after });

@@ -30,21 +30,18 @@ const MAX_PAID_CALLS = 600; /* 60 under the two-drives-a-day era; raised for the
 const DAY_ATTEMPTS = 4; /* 2 under the two-drives-a-day era; under the ten-minute constant cycle (operator, 2026-09-11, most changes ever by morning) two charged failures parked every corrective loop by breakfast while 130 drives idled. Four matches the lifetime redraft cap; charged failures still rank behind untried work, and the dollar ledgers stay the brake. */
 
 type Keyable = Parameters<typeof mutationKeyOf>[0];
-type DeliveryScope = "existing_page_edits" | "all_changes";
-type DeliveryShape = "existing_page_edit" | "whole_page";
-type DeliveryRecord = Partial<Pick<ChangeProposal, "kind" | "changeFamily" | "bundle" | "recommendedChange">>;
-/** ONE DELIVERY-SHAPE ANSWER. Funding, evidence debt and Runtime admission all ask this same predicate, so a
- * whole-page opportunity cannot be held out of drafting and then smuggle its research bill through another door. */
-const deliveryOf = (c: DeliveryRecord): DeliveryShape => c.kind === "new_page" || c.recommendedChange?.kind === "new_page" || c.changeFamily === "full_rewrite"
+type DeliveryScope = "existing_page_edits" | "manual_delivery" | "all_changes";
+type DeliveryShape = "existing_page_edit" | "new_page" | "whole_page";
+type DeliveryRecord = Partial<Pick<ChangeProposal, "kind" | "changeFamily" | "bundle" | "recommendedChange" | "newPageDraft">>;
+/** Funding, evidence debt and Runtime use one delivery shape, including privately banked replacements. */
+const deliveryOf = (c: DeliveryRecord): DeliveryShape => c.newPageDraft?.brief.kind === "full_rewrite" || c.changeFamily === "full_rewrite"
   || (c.recommendedChange?.kind === "existing_edit" && c.recommendedChange.target?.mode === "whole_body")
-  || (c.bundle?.components ?? []).some((part) => part.kind === "new_page" || part.kind === "full_rewrite" || part.target?.mode === "whole_body") ? "whole_page" : "existing_page_edit";
-const scopeAllows = (scope: DeliveryScope, delivery: DeliveryShape): boolean => scope === "all_changes" || delivery === "existing_page_edit";
-/** Old run rows predate the delivery stamp. Fail closed for the legacy identities that can be proved to be
- * creation/full-page work, while ordinary legacy edit debt remains recoverable. */
+  || (c.bundle?.components ?? []).some(part => part.kind === "full_rewrite" || part.target?.mode === "whole_body") ? "whole_page" : c.kind === "new_page" || c.recommendedChange?.kind === "new_page" || (c.bundle?.components ?? []).some(part => part.kind === "new_page") ? "new_page" : "existing_page_edit";
+const scopeAllows = (scope: DeliveryScope, delivery: DeliveryShape): boolean => scope === "all_changes" || delivery === "existing_page_edit" || scope === "manual_delivery" && delivery === "new_page";
+/** Legacy topic/full-rewrite identities qualify the shape before an optional delivery stamp. */
 const requirementDelivery = (need: { delivery?: DeliveryShape; key?: string; workKey?: string; proposalId?: string; unlocks?: { proposalId: string } | null; topic?: { key: string } | null }): DeliveryShape => {
-  if (need.delivery) return need.delivery;
   const ids = [need.key, need.workKey, need.proposalId, need.unlocks?.proposalId, need.topic?.key].filter((v): v is string => !!v).map((v) => v.toLowerCase());
-  return ids.some((v) => v.startsWith("topic:") || v.includes("::new_page::") || v.includes("::full_rewrite::")) ? "whole_page" : "existing_page_edit";
+  return ids.some(v => v.includes("::full_rewrite::")) ? "whole_page" : ids.some(v => v.startsWith("topic:") || v.includes("::new_page::")) ? "new_page" : need.delivery ?? "existing_page_edit";
 };
 /** Funding uses the canonical mutation identity, with page fallback before a card exists. */
 const keyOf = (p: Keyable): string => { try { return mutationKeyOf(p); } catch { return `unknown-page::${(p.id ?? p.primaryQuery ?? "").trim().toLowerCase() || "none"}`; } }; // its OWN name, so two page-less jobs never share one slot // a job with no page at all can never be drawn against and must not take the pass down with it
@@ -65,9 +62,7 @@ const BUNDLE_CALLS_TOTAL = 12;
 
 /** ONE PAID JOB, PRICED BEFORE IT RUNS. `impact` is in ONE unit across every family: the clicks this account could plausibly win back, so a bundle, a new page and a description are comparable at all. `calls` is the whole allowance, already multiplied out. */
 type PaidJob = { key: string; family: string; impact: number; calls: number; treatment?: string;
-  /** The operator is proving copy-and-paste edits before whole-page production is allowed. This is a typed
-   *  eligibility fact, not a family-name guess: research may still discover and rank either shape, while the
-   *  one paid manifest can refuse creation work without hiding the opportunity. */ delivery?: "existing_page_edit" | "whole_page";
+  /** Delivery scope holds unsupported shapes before funding; declaration/ranking still names the opportunity. */ delivery?: DeliveryShape;
   /** THE IDENTITY OF THIS WORK, declared here with the job and read by everything downstream, so nothing recomputes a second one that cannot match the first (Codex, 2026-08-23). */ workKey?: string;
   /** WHY THIS JOB CANNOT BE DONE THIS PASS, in the caller's own words, decided from what was already on file
    *  BEFORE any funding (Codex, 2026-08-23). A page already under measurement, work the operator took back, a

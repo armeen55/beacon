@@ -63,7 +63,7 @@ export type CauseKey = CauseFinding["cause"];
 export type EvidenceRequirement = { kind: "serp" | "page_source" | "competitor_page" | "factual_source" | "semantic_review"; query: string; url?: string; reasonCode: string; finding?: NonNullable<ChangeProposal["supportFacts"]>[number]["finding"];
   /** The customer deliverable this reading can unlock. Fresh debt is always stamped; optional only so run rows
    * written before the proof boundary can be classified once at Runtime admission. */
-  delivery?: "existing_page_edit" | "whole_page";
+  delivery?: "existing_page_edit" | "new_page" | "whole_page";
   /** THE MISSING INFORMATION ITSELF, for a factual_source born from a rival comparison: the topic or question the owned page cannot answer today, phrased as the proposition to research. Acquisition researches THIS, never the page's existing claims, and only a checked fact banked for this topic satisfies the requirement; an unrelated stored fact does not. */
   missingTopic?: string;
   /** A prospective page's factual scope, never an observed owned-page address. */

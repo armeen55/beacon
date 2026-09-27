@@ -1,22 +1,9 @@
-/**
- * Canonical BusinessProfile (Product Truth: structured Business Profile).
- *
- * The confirmed structured truth about one account's business, backed by the
- * tenant-keyed `business_config` JSONB row. Every section carries provenance
- * (origin, confidence, source URLs). The Account row owns identity and the
- * one Website domain; this profile owns the confirmed business name and
- * structured facts. Unmatched historical JSON is preserved verbatim under
- * the inert `legacy` key and is never read as current truth.
- *
- * Cold-start correctness contract:
- *   - production reads are async and Supabase-backed;
- *   - only a successfully loaded row is cached; an empty or failed read is
- *     NEVER memoized as identity, so a later read retries;
- *   - concurrent reads share one in-flight promise per account;
- *   - one account's cache can never serve another account.
- */
+/** Canonical tenant-keyed business_config truth; section provenance is current,
+ * unmatched legacy JSON is inert. Only successful ordinary reads are cached;
+ * concurrent reads share a promise, and invalidation fences late responses. */
 
 import "server-only";
+import { z } from "zod";
 
 type ProfileOrigin = "inferred" | "operator_confirmed" | "legacy";
 
@@ -112,12 +99,7 @@ export function emptyBusinessProfile(accountId: string, now = ""): BusinessProfi
 const strArr = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 
-/**
- * Map a raw `business_config.data` payload to the canonical profile.
- * schemaVersion 2 rows pass through (shape-filled); pre-canonical rows are
- * migrated read-side with origin "legacy" — the same mapping the one-time
- * SQL migration applies, so both paths agree.
- */
+/** Canonical rows are shape-filled; legacy rows use the one-time migration's mapping. */
 export function profileFromRow(accountId: string, raw: Record<string, unknown>): BusinessProfile {
   if (raw.schemaVersion === 2) {
     const empty = emptyBusinessProfile(accountId);
@@ -198,8 +180,7 @@ export function setBusinessProfileRepositoryForTests(repo: BusinessProfileReposi
   repository = repo ?? supabaseRepository;
 }
 
-/** Cache of successfully LOADED profiles only. Missing rows and failures are
- *  never memoized, so cold starts and transient errors retry. */
+/** Missing rows and failures are never cached. */
 const _loaded = new Map<string, BusinessProfile>();
 const _inFlight = new Map<string, Promise<BusinessProfile>>();
 
@@ -216,44 +197,52 @@ export function __resetBusinessProfileCacheForTests(): void {
   _inFlight.clear();
 }
 
-/** Drop ONE account's memoized profile so the next read reloads from the row.
- *  Used when a durable write outside saveBusinessProfile changed the row (the
- *  website-replacement RPC resets the profile), so the cache cannot serve stale
- *  identity. Narrow by design: never clears another account. */
+/** Invalidate only this account after a durable external write. */
 export function invalidateBusinessProfileCache(accountId: string): void {
   _loaded.delete(accountId);
   _inFlight.delete(accountId);
 }
 
-/**
- * THE production profile read. Async, Supabase-backed. Returns the account's
- * canonical profile, or an EMPTY profile (never another business's data)
- * when no row exists or the repository transiently fails — without caching
- * that emptiness as identity.
- */
-export async function loadBusinessProfile(accountId: string): Promise<BusinessProfile> {
+const strings = z.array(z.string()), sectionOf = <T extends z.ZodType>(value: T) => z.object({ value, origin: z.enum(["inferred", "operator_confirmed", "legacy"]), confidence: z.number().nullable(), sourceUrls: strings });
+const firstMention = z.object({ native: z.string(), transliteration: z.boolean(), englishContext: z.boolean() }).nullable();
+const constraints = z.object({ factual: strings, legal: strings, brand: strings, editorial: strings, bannedTerms: strings, firstMention });
+const profileRow = z.object({ accountId: z.string(), schemaVersion: z.literal(2), updatedAt: z.string(),
+  name: sectionOf(z.string()), businessType: sectionOf(z.enum(["local_service", "content_publisher", "ecommerce", "saas", "other"]).nullable()), siteArchetype: sectionOf(z.string().nullable()),
+  offerings: sectionOf(strings), audiences: sectionOf(strings), customerProblems: sectionOf(strings), geographicScope: sectionOf(strings), differentiators: sectionOf(strings), trustClaims: sectionOf(strings),
+  importantPages: sectionOf(strings), topicsToOwn: sectionOf(strings), topicsToExclude: sectionOf(strings), constraints: sectionOf(constraints), trustedSourceDomains: sectionOf(strings),
+  competitors: sectionOf(z.array(z.object({ name: z.string(), evidenceUrls: strings, domain: z.string().optional(), action: z.enum(["pin", "exclude", "correct"]).optional(), kind: z.string().optional() }))), legacy: z.record(z.string(), z.unknown()).optional() });
+const legacyRow = z.object({ name: z.string(), businessType: z.string(), contentSiteMode: z.boolean(), services: strings, serviceTerms: strings, locations: strings, locationTerms: strings,
+  keyPages: strings, contentRules: strings, flaggedTerms: strings, firstMention, authoritativeSourceDomains: strings, primaryCompetitors: strings }).partial();
+/** Strict callers read the row directly; ordinary readers retain fail-soft caching. */
+export async function loadBusinessProfile(accountId: string, options: { failClosed?: true } = {}): Promise<BusinessProfile> {
   if (typeof accountId !== "string" || accountId.length === 0) {
     throw new Error("loadBusinessProfile(): accountId is required.");
   }
-  const cached = _loaded.get(accountId);
+  const cached = !options.failClosed && _loaded.get(accountId);
   if (cached) return cached;
-  const inFlight = _inFlight.get(accountId);
+  const inFlight = !options.failClosed && _inFlight.get(accountId);
   if (inFlight) return inFlight;
-  const p = (async () => {
+  const p: Promise<BusinessProfile> = Promise.resolve().then(async () => {
     try {
       const raw = await repository.load(accountId);
-      if (!raw) return emptyBusinessProfile(accountId);
+      if (!raw) { if (options.failClosed) throw new Error("profile_read_unavailable"); return emptyBusinessProfile(accountId); }
+      if (options.failClosed) {
+        const readable = raw.schemaVersion === 2
+          ? profileRow.safeParse(raw).success && raw.accountId === accountId
+          : (raw.schemaVersion == null || raw.schemaVersion === 1) && legacyRow.safeParse(raw).success && Object.keys(legacyRow.shape).some(key => key in raw);
+        if (!readable) throw new Error("profile_read_unavailable");
+      }
       const profile = profileFromRow(accountId, raw);
-      _loaded.set(accountId, profile);
+      if (!options.failClosed && _inFlight.get(accountId) === p) _loaded.set(accountId, profile);
       return profile;
-    } catch {
-      // Transient failure: fail generic NOW, retry on the next read.
+    } catch (error) {
+      if (options.failClosed) throw error;
       return emptyBusinessProfile(accountId);
     } finally {
-      _inFlight.delete(accountId);
+      if (_inFlight.get(accountId) === p) _inFlight.delete(accountId);
     }
-  })();
-  _inFlight.set(accountId, p);
+  });
+  if (!options.failClosed) _inFlight.set(accountId, p);
   return p;
 }
 

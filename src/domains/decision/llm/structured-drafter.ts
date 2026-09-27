@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { PROOF_SPEND } from "@/lib/spend-scope";
 import { log } from "@/lib/logger";
 import { buildWinnerFewShots, buildWinnerFewShotsWithPattern } from "./winner-memory";
 import type { DraftPatternId } from "./draft-pattern";
@@ -37,8 +38,6 @@ import {
 } from "./schemas";
 
 type SpendReservationContext = StructuredCallArgs["spend"];
-
-
 const MODEL = "gpt-5.4-mini"; // gpt-5-mini failed the claim-coverage contract on four funded passes (2026-08-17): forty refusals, zero survivors. The gates stay; the writer gets stronger.
 
 type FewShotProvenance = {
@@ -558,14 +557,14 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       failure = out.failure ?? "schema_invalid";
       lastFailureWasTemplated = false;
       // Non-retryable (refusal/incomplete/budget/4xx) FAILS CLOSED; a retryable error re-enters the SAME 2-attempt ceiling.
-      if (!out.retryable) break;
+      if ((out.httpAttempts ?? 0) > 0 && PROOF_SPEND.failed(tenantId) || !out.retryable) break;
       continue;
     }
     lastProvenance = out.provenance ? { ...out.provenance, retryCount: attempt } : undefined;
     failure = "schema_invalid"; // it answered, so nothing below is the transport's fault any more
 
     const checked = validateDraftValue(req, schema, out.value, ledger, nowYear);
-    if ("errors" in checked) { invalidBodies += 1; errors.push(...checked.errors); lastFailureWasTemplated = false; continue; }
+    if ("errors" in checked) { invalidBodies += 1; errors.push(...checked.errors); lastFailureWasTemplated = false; if ((out.httpAttempts ?? 0) > 0 && PROOF_SPEND.failed(tenantId)) break; continue; }
     const result = { data: checked.data };
 
     // R16 de-templating guard: a validated draft whose customer-facing text is a near-copy (>70 percent 3-gram overlap) of a recent same-family output gets ONE variation retry; a second near-copy ships FLAGGED ("reads like a repeat") for the draft-quality gate to demote - style never fails closed.

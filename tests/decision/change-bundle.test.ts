@@ -1139,36 +1139,34 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
     expect(b.funded.map((f) => f.key)).toEqual(["/live"]); // and the slot went to the strongest job that can be done
     expect(b.declined.find((d) => d.key === "/measuring")?.reason).toContain("already being measured");
     expect(b.declined.find((d) => d.key === "/next")?.reason).toContain("stronger work filled them"); }); // an ordinary refusal still reads as one
-  it("keeps whole-page opportunities visible but outside the paid line during the manual-edit proving phase", () => {
-    const whole = { ...job("/whole", "deep_bundle", 900, DRAFT_BUDGET.BUNDLE_CALLS), delivery: "whole_page" as const };
-    const page = { ...job("topic:new", "new_page", 800, DRAFT_BUDGET.BUNDLE_CALLS), delivery: "whole_page" as const };
-    const edit = { ...job("/answer::body", "editor", 20), delivery: "existing_page_edit" as const };
-    const proving = DRAFT_BUDGET.plan({ jobs: [whole, page, edit], candidates: 3, calls: 40, deliveryScope: "existing_page_edits" });
-    expect(proving.funded.map((f) => f.key)).toEqual(["/answer::body"]);
-    expect(proving.declared).toEqual(["/answer::body"]);
-    expect(proving.declined.filter((d) => d.key !== "/answer::body").map((d) => d.reason)).toEqual([
-      "whole-page writing is outside the current manual-edit proving phase; the opportunity stays visible and ranked, but this pass cannot buy or generate it",
-      "whole-page writing is outside the current manual-edit proving phase; the opportunity stays visible and ranked, but this pass cannot buy or generate it",
-    ]);
-    expect(DRAFT_BUDGET.plan({ jobs: [whole, page, edit], candidates: 3, calls: 40, deliveryScope: "all_changes" }).funded.map((f) => f.key)).toEqual(["/whole", "topic:new", "/answer::body"]);
+  it("funds bounded edits and earned pages in manual delivery while holding full-body work and its evidence", () => {
+    const whole = { ...job("/whole", "deep_bundle", 900, DRAFT_BUDGET.BUNDLE_CALLS), delivery: "whole_page" as const }, page = { ...job("topic:new", "new_page", 800, DRAFT_BUDGET.BUNDLE_CALLS), delivery: "new_page" as const }, edit = { ...job("/answer::body", "editor", 20), delivery: "existing_page_edit" as const };
+    const jobs = [whole, page, edit], needs = [{ key: page.key, workKey: "topic:new::new_page::brief", delivery: "new_page" as const }, { key: "topic:legacy", delivery: "whole_page" as const }, { key: "/whole::full_rewrite::draft", delivery: "whole_page" as const }, { key: edit.key, delivery: "existing_page_edit" as const }];
+    for (const [scope, funded, debt] of [["existing_page_edits", [edit.key], [edit.key]], ["manual_delivery", [page.key, edit.key], [page.key, "topic:legacy", edit.key]], ["all_changes", jobs.map(j => j.key), needs.map(n => n.key)]] as const) {
+      const plan = DRAFT_BUDGET.plan({ jobs, candidates: 3, calls: 40, deliveryScope: scope });
+      expect(plan.funded.map(f => f.key)).toEqual(funded); expect(plan.declared).toEqual(funded);
+      expect(plan.declined.map(d => d.key)).toEqual(jobs.filter(j => !funded.some(k => k === j.key)).map(j => j.key));
+      expect(plan.declined.every(d => d.reason.includes("the opportunity stays visible and ranked"))).toBe(true);
+      expect(needs.filter(n => DRAFT_BUDGET.scopeAllows(scope, DRAFT_BUDGET.requirementDelivery(n))).map(n => n.key)).toEqual(debt);
+    }
+    expect(DRAFT_BUDGET.requirementDelivery({ key: "topic:legacy" })).toBe("new_page"); expect(DRAFT_BUDGET.deliveryOf({ kind: "new_page" })).toBe("new_page");
   });
-  it("uses the same delivery boundary for fresh and legacy evidence debt, and all_changes restores it", () => {
-    const newPage = { key: "topic:best-rain-barrels", workKey: "topic:best-rain-barrels::new_page::brief", delivery: "whole_page" as const };
-    const legacyNewPage = { key: "topic:legacy-rain-barrels", workKey: "topic:legacy-rain-barrels" };
-    const edit = { key: "/rain-barrels::body::sizing", workKey: "/rain-barrels::existing_edit::section", delivery: "existing_page_edit" as const };
-    const needs = [newPage, legacyNewPage, edit], admitted = (scope: Parameters<typeof DRAFT_BUDGET.scopeAllows>[0]) => needs
-      .filter((need) => DRAFT_BUDGET.scopeAllows(scope, DRAFT_BUDGET.requirementDelivery(need))).map((need) => need.key);
-    expect(admitted("existing_page_edits"), "fresh and legacy creation debt are both held without hiding the lower-ranked edit").toEqual([edit.key]);
-    expect(admitted("all_changes"), "the broader phase deliberately restores every shape").toEqual(needs.map((need) => need.key));
+  it("holds saved full-body banks and the deep fallback before a writer while normal all_changes still attempts the fallback", async () => {
+    const url = "fixture-content.example/rain-barrels", pattern = { publishers: [WIN1, URL2], winners: 2, archetype: "informational_guide", commonHeadings: [{ heading: "Winter maintenance", seenOn: [0, 1] }], commonEntities: [], questionsAnswered: [], ownedGaps: [{ gap: "Winter maintenance", seenOn: [0, 1] }] };
+    const coverage = { investigation: { pageType: "informational_guide", demand: {} }, decision: { ownedUrls: [url], pattern } }, input = snapshot({ research: { ...RESEARCH, serpEvidence: RESEARCH.serpEvidence.map(s => ({ ...s, organic: s.organic.map(o => o.domain === "fixture-content.example" ? { ...o, title: "Rain barrel sizing by roof area" } : o) })) } });
+    const slots = Object.entries(CORE_PRODUCERS), held = prop({ id: `${TENANT}::/rain-barrels::existing_edit::full_rewrite`, workKey: "saved-full-body", basis: "basis_test::d9", status: "needs_review", changeFamily: "full_rewrite", recommendedChange: { kind: "existing_edit", field: "section", target: { mode: "whole_body", anchorKind: null, anchor: null }, before: "Rain barrels collect runoff.", after: "" }, newPageDraft: { brief: { kind: "full_rewrite", owed: [0, 1] }, pieces: [] } }); let calls = 0;
+    const opts = { ...OPTS, basis: "basis_test::d9", coverage, complete: (async () => (calls++, { error: "No provider: scoped fixture transport loss", retryable: false })) as CompleteFn };
+    try { for (const [key] of slots) (CORE_PRODUCERS as Record<string, unknown>)[key] = async () => ({ components: [] });
+      for (const bank of [undefined, held]) { const before = structuredClone(bank); const out = await produceBundleForSnapshot(input, { ...opts, held: bank, deliveryScope: "manual_delivery" } as never); expect(out.status).toBe("none"); expect(calls).toBe(0); expect(bank).toEqual(before); }
+      await produceBundleForSnapshot(input, { ...opts, deliveryScope: "all_changes" } as never); expect(calls).toBeGreaterThan(0);
+    } finally { for (const [key, value] of slots) (CORE_PRODUCERS as Record<string, unknown>)[key] = value; }
   });
   it("does not let a held whole-page job poison a valid manual edit on the same page", () => {
-    const whole = { ...job("/answer", "deep_bundle", 900, DRAFT_BUDGET.BUNDLE_CALLS), delivery: "whole_page" as const };
-    const edit = { ...job("/answer", "editor", 20), delivery: "existing_page_edit" as const };
+    const whole = { ...job("/answer", "deep_bundle", 900, DRAFT_BUDGET.BUNDLE_CALLS), delivery: "whole_page" as const }, edit = { ...job("/answer", "editor", 20), delivery: "existing_page_edit" as const };
     const proving = DRAFT_BUDGET.plan({ jobs: [whole, edit], candidates: 1, calls: 40, deliveryScope: "existing_page_edits" });
     expect(proving.funded.map((f) => [f.key, f.family, f.calls])).toEqual([["/answer", "editor", DRAFT_BUDGET.DELIVERABLE_CALLS]]);
     expect(proving.declared).toEqual(["/answer"]);
-    expect(proving.declined).toEqual([{ key: "/answer", family: "deep_bundle", calls: DRAFT_BUDGET.BUNDLE_CALLS,
-      reason: "whole-page writing is outside the current manual-edit proving phase; the opportunity stays visible and ranked, but this pass cannot buy or generate it" }]);
+    expect(proving.declined).toEqual([{ key: "/answer", family: "deep_bundle", calls: DRAFT_BUDGET.BUNDLE_CALLS, reason: "whole-page writing is outside the current manual-edit proving phase; the opportunity stays visible and ranked, but this pass cannot buy or generate it" }]);
   });
   it("lets a live job outrank a blocked one on the same page, whatever the scores say", () => {
     const b = plan([{ ...job("/p", "field_draft", 90), blocked: "this work was already taken back under this evidence, so it is not offered again" },

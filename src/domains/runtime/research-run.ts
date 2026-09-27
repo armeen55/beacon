@@ -158,7 +158,7 @@ function requireTenant(tenantId: string): string {
 }
 
 /** A fresh, globally-unique owner token for one invocation's lease. */
-export function newOwnerToken(): string { return randomUUID(); }
+export function newOwnerToken(manualDelivery = false): string { return `${manualDelivery ? "manual-delivery:" : ""}${randomUUID()}`; }
 
 /** Stable JSON: object keys sorted recursively, so an identical cursor always hashes to the identical key across retries regardless of insertion order. */
 function stableStringify(value: unknown): string {

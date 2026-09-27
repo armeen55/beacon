@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { ChangesView } from "./changes-data";
 import type { ChangeProposal } from "@/domains/decision";
 import { ChangeCard } from "./changes/change-card";
+import { SetAsideChange } from "./changes/change-controls";
 import { confirmedVersion, openHold } from "@/domains/decision/completeness";
 import { dismissProposalAction, loadMoreChangesAction, markManyImplementedAction, refreshStaleChangesAction } from "./changes/actions";
 import operatorUiPolicy, { CHANGES_PAGE_SIZE } from "./changes/types";
@@ -40,7 +41,7 @@ const bulkSelectionOf = (picked: readonly string[], shown: readonly string[]) =>
   return { hidden, canSubmit: picked.length > 0 && hidden.length === 0 };
 };
 
-export function ChangesListClient({ view, initialPicked = [] }: { view: ChangesView; initialPicked?: string[] }) {
+export function ChangesListClient({ view, initialPicked = [], researchPaused = false }: { view: ChangesView; initialPicked?: string[]; researchPaused?: boolean }) {
   const params = useSearchParams();
   const router = useRouter();
   const pendingRefresh = useRef<{ release: string; promise: Promise<boolean> } | null>(null);
@@ -240,11 +241,12 @@ export function ChangesListClient({ view, initialPicked = [] }: { view: ChangesV
 
       {/* Outstanding queue counts say nothing about whether a pass is running; the pause notice above gives that status. */}
       {writtenCount > 0 || researchingCount > 0 ? (
-        <p className="text-[13px] leading-relaxed tabular-nums text-muted-foreground" data-lane-preparing="true">
+        <div className="space-y-2 text-[13px] leading-relaxed tabular-nums text-muted-foreground" data-lane-preparing="true">
           {[writtenCount > 0 ? `${writtenCount.toLocaleString("en-US")} ${writtenCount === 1 ? "change has" : "changes have"} draft copy but ${writtenCount === 1 ? "is" : "are"} not ready to apply` : null,
             researchingCount > 0 ? `${researchingCount.toLocaleString("en-US")} ${researchingCount === 1 ? "opportunity does" : "opportunities do"} not yet have a finished change` : null]
             .filter(Boolean).join(", and ")}.
-        </p>
+          {researchPaused ? <SetAsideChange finishable prepareNext onFinished={() => router.refresh()} /> : null}
+        </div>
       ) : null}
 
       {/* The one load-more lives under Ready above: finished work pages alone, and internal work never

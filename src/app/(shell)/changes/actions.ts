@@ -17,7 +17,7 @@ import { invalidateCoreSurfaces, isCustomerSurfaceStale, readCustomerSurface, re
 import { readChangesPage, type ChangesPage } from "../changes-data";
 import operatorUiPolicy from "./types";
 
-type MarkProposalImplementedResponse = { success: boolean; error?: string; note?: string; retryable?: boolean; providerCalls?: number; costUsd?: number };
+type MarkProposalImplementedResponse = { success: boolean; error?: string; note?: string; retryable?: boolean; providerCalls?: number; costUsd?: number; readySaved?: number; evidenceOwed?: number; run?: { id: string; status: string } | null; modelRequests?: number; reservedUsd?: number; reason?: string };
 
 type Shipped = { ok: true; complete: boolean; recorded: number; remaining: number; shipmentId: string; shipmentVersion: string; measurement: MeasurementState; atomic?: boolean };
 
@@ -65,10 +65,7 @@ const pageKeyOf = (raw: string): string => { const t = (raw ?? "").trim().toLowe
   if (/^https?:\/\//.test(t)) { try { path = new URL(t).pathname; } catch { path = t; } }
   return path.replace(/\/+$/, "") || "/"; };
 
-/** HOW MANY OTHER CHANGES OF THEIRS WERE ALREADY BEING MEASURED ON THIS PAGE at the moment of the press. PURE, and read off rows the caller
- *  already holds, so it costs nothing: a count per press, never a query per row. DISTINCT PROPOSALS, because one change applied over three
- *  presses is one change and not three; and only inside the 28 day window that is the longest reading Beacon takes, so a change shipped last
- *  spring never marks today's work as crowded. A page nothing can name counts zero rather than counting everything. */
+/** Count distinct other proposals on the known page within 28 days, using the already-loaded ledger. */
 function overlapAtShip(ledger: ReadonlyArray<{ id: string; proposalId: string | null; path: string; page: string; implementedAt: string | null }>, p: ChangeProposal, pageRef: string): number {
   const raw = (pageRef || p.pagePath || "").trim();
   if (!raw) return 0;
@@ -374,11 +371,23 @@ export async function reviewDraftAction(args: { proposalId: string; version: str
   }
 }
 
-export async function finishOneProposalAction(args: { proposalId: string; prepare?: boolean; authorizationId?: string }): Promise<MarkProposalImplementedResponse> {
+export async function finishOneProposalAction(args: { prepareNext: true; proposalId?: never; prepare?: never; authorizationId?: never } | { proposalId: string; prepare?: boolean; authorizationId?: string; prepareNext?: false }): Promise<MarkProposalImplementedResponse> {
   if (!(await canPublishForCurrentTenant())) return { success: false, error: "You do not have permission to finish this change." };
-  if (!args.proposalId) return { success: false, error: "No change was specified." };
+  if (args.prepareNext === true ? "proposalId" in args || "prepare" in args || "authorizationId" in args : !args.proposalId || args.prepareNext !== undefined && args.prepareNext !== false) return { success: false, error: "Choose either the next change or one saved change." };
   const tenantId = await currentTenantId();
   try {
+    if (args.prepareNext === true) {
+      const result = await atomicProof.prepareNext({ tenantId, currentBasis: await resolveCurrentBasis(tenantId), eligible: operatorUiPolicy.isManualEditProofWork });
+      const readySaved = result.readySaved, evidenceOwed = result.run?.progress.evidenceOwed?.length ?? 0;
+      const receipt = { readySaved, evidenceOwed, run: result.run ? { id: result.run.id, status: result.run.status } : null, modelRequests: result.meter?.modelCalls ?? 0, reservedUsd: result.meter?.modelReservedUsd ?? 0, reason: result.reason };
+      const costs = ` Authorized request reservations: $${receipt.reservedUsd.toFixed(4)}; ${receipt.modelRequests} model requests authorized; DataForSEO $0.${result.accountedUsd == null ? " Recorded conservative run total (may include unreconciled reservations; not an invoice) is unavailable." : ` Recorded conservative run total (may include unreconciled reservations; not an invoice): $${result.accountedUsd.toFixed(6)}.`}`;
+      const blocker = ({ account_not_active: "This account is not active.", research_permission_refused: "Scheduled research must be paused for this action.",
+        current_basis_unavailable_or_changed: "The current business profile could not be confirmed.", openai_not_configured_in_this_runtime: "The writing service is unavailable.", claim_unavailable: "The saved work could not be resumed.",
+        no_claim_or_progressable_work: "No eligible work could start.", claim_held_or_daily_pass_ceiling: "Another attempt is active, or today's work limit was reached.", previous_day_closed_current_claim_refused: "The earlier work closed; new work could not start." } as Record<string, string>)[result.reason];
+      await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout");
+      const note = `${result.success && readySaved > 0 ? `${readySaved} finished ${readySaved === 1 ? "change" : "changes"} saved.` : `${blocker ? `${blocker} ` : ""}No new finished change was confirmed. Collected evidence and unfinished copy stay saved.`}${evidenceOwed > 0 ? ` ${evidenceOwed} evidence ${evidenceOwed === 1 ? "requirement remains" : "requirements remain"}.` : ""}${costs} Nothing was published. Research settings were not changed.`;
+      return result.success && readySaved > 0 ? { success: true, ...receipt, note } : { success: false, ...receipt, error: note };
+    }
     if (args.prepare === true) {
       const currentBasis = await resolveCurrentBasis(tenantId);
       const result = await atomicProof.finishPage({ tenantId, proposalId: args.proposalId, currentBasis, maxOpenAiCalls: 8, maxOpenAiUsd: 2, maxDataForSeoCalls: 3, maxDataForSeoUsd: 0.4, ...(args.authorizationId !== undefined ? { authorizationId: args.authorizationId } : {}) });
@@ -420,7 +429,7 @@ export async function finishOneProposalAction(args: { proposalId: string; prepar
     return { success: true, ...receipt, note: `Finished. This exact change is ready to copy. ${receipt.providerCalls} OpenAI call${receipt.providerCalls === 1 ? "" : "s"}, $${receipt.costUsd.toFixed(receipt.costUsd > 0 && receipt.costUsd < 0.01 ? 6 : 2)}; DataForSEO $0.${warning}` };
   } catch (err) {
     log.error("finishOneProposal: failed", { proposalId: args.proposalId, error: err instanceof Error ? err.message : String(err) });
-    return { success: false, error: "This change could not be finished just now. Nothing broader was run." };
+    return { success: false, error: args.prepareNext ? "The next-change run could not be confirmed. Saved work and receipts remain intact." : "This change could not be finished just now. Nothing broader was run." };
   }
 }
 

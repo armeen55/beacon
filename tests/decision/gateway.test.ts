@@ -135,13 +135,9 @@ describe("openAIStructuredResponse: what a failed call says, and what it stops",
   const body = (over: Record<string, unknown>) => ({ error: { message: "You are rate limited. Email sales@example.com and quote org-9 to raise it.", ...over } });
   const call = (over: Partial<StructuredCallArgs>) => openAIStructuredResponse(baseArgs(over));
   it("returns quota and rate refusals to the day while holding a server failure for reconciliation", async () => {
-    const rejected = lifecycle();
-    await call({ reservationImpl: rejected.impl, fetchImpl: fakeFetch(body({ code: "rate_limit_exceeded" }), { ok: false, status: 429 }).impl });
-    expect(rejected.seen).toEqual(["reserve", "claim", "release:true"]);
-
-    const failed = lifecycle();
-    await call({ reservationImpl: failed.impl, fetchImpl: fakeFetch({ error: { code: "server_error" } }, { ok: false, status: 500 }).impl });
-    expect(failed.seen).toEqual(["reserve", "claim", "ambiguous"]);
+    for (const [status, code, receipt] of [[429, "rate_limit_exceeded", "release:true"], [500, "server_error", "ambiguous"]] as const) {
+      const life = lifecycle(); await call({ reservationImpl: life.impl, fetchImpl: fakeFetch(body({ code }), { ok: false, status }).impl });
+      expect(life.seen).toEqual(["reserve", "claim", receipt]); }
   });
   it("never uses a later refusal to erase an earlier ambiguous transmission", async () => {
     const life = lifecycle();
@@ -149,6 +145,10 @@ describe("openAIStructuredResponse: what a failed call says, and what it stops",
     const retryWire = fakeFetch(body({ code: "rate_limit_exceeded" }), { ok: false, status: 429 });
     const retry = await call({ reservationImpl: life.impl, fetchImpl: retryWire.impl });
     expect([retry.kind, retry.httpAttempts, retryWire.capture.calls, life.seen]).toEqual(["blocked_budget", 0, 0, ["reserve", "claim", "ambiguous", "reserve"]]);
+    for (const interruption of ["concurrent transmission", "deadline"] as const) { const held = lifecycle(), untouched = fakeFetch(completedEnvelope("{}")), at = Date.now(), clock = vi.spyOn(Date, "now").mockReturnValue(at); let state = "reserved", proven: boolean | undefined;
+      try { const raced = await PROOF_SPEND.run("tenant-fixture", 24, 1, () => call({ fetchImpl: untouched.impl, reservationImpl: { ...held.impl, release: async (_id, knownZero) => { proven = knownZero; if (knownZero || state === "reserved") state = "released"; return state === "released"; } } }), { maxExternalCalls: 0, maxExternalUsd: 0, stopBy: at + 1, guard: async () => { if (interruption === "deadline") { clock.mockReturnValue(at + 2); return true; } state = "transmitted"; return false; } });
+      expect([raced.kind, raced.httpAttempts, untouched.capture.calls, held.seen, proven, state]).toEqual(["blocked_budget", 0, 0, ["reserve"], false, interruption === "deadline" ? "released" : "transmitted"]);
+      } finally { clock.mockRestore(); } }
   });
   it("names the provider's own code, carries Retry-After, lets no free text out of the door, and holds an empty balance before the network", async () => {
     const c = credit(); // the WHOLE result, twice over: no message, no address, no org id, and a body naming no code claims none

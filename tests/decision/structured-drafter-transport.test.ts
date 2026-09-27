@@ -1,17 +1,14 @@
-/** structured-drafter strict-gateway transport: the seam returns parsed VALUES (no prose recovery), a refusal fails closed with no artifact, retry is bounded and paid for, and a cache hit costs $0. */
 import { describe, it, expect, vi } from "vitest";
+import { PROOF_SPEND } from "@/lib/spend-scope";
 import { callStructuredLLM, draftAtomicEditStructured, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
-import type { CacheImpl, LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
-import { normalizeStructuredValue } from "@/domains/decision/llm/responses-envelope"; import { SCHEMA_BY_KIND } from "@/domains/decision/llm/schemas";
+import type { CacheImpl, LlmCallCacheEntry } from "@/domains/decision/llm/call-cache"; import { normalizeStructuredValue } from "@/domains/decision/llm/responses-envelope"; import { SCHEMA_BY_KIND } from "@/domains/decision/llm/schemas";
 const VALID_ATOMIC_EDIT = { // A schema-valid AtomicEditDraft value (the simplest kind, no source-verify / word-count / superlative machinery in the way of the transport assertions).
   field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen", rationale: "The current title is one word and misses the customs searchers ask about.",
   evidenceRefs: [{ source: "gsc", detail: "strong impressions for nowruz traditions with a low click rate" }], confidence: "high" };
-const REQ = {
-  kind: "atomic_edit" as const, tenantId: "tenant-fixture",
+const REQ = { kind: "atomic_edit" as const, tenantId: "tenant-fixture",
   system: "You improve one on-page field. Return the field, before, after, rationale, evidenceRefs, confidence.",
   user: "Page: Nowruz. Field to edit: title. Current title: Nowruz.",
   grounded: "nowruz traditions persian new year customs haft-seen",};
-/** A `complete` double that replays a queue and counts how many times it ran. */
 function seam(responses: Array<{ value: unknown } | { error: string; retryable: boolean; costUsd?: number }>): { complete: CompleteFn; calls: () => number } {
   let i = 0, calls = 0; const complete: CompleteFn = async () => { calls += 1; return responses[Math.min(i++, responses.length - 1)]!; };
   return { complete, calls: () => calls };}
@@ -56,6 +53,7 @@ describe("structured-drafter strict transport", () => {
     const boom = await callStructuredLLM({ ...REQ, complete: seam([{ error: "network boom", retryable: true }]).complete }); expect(boom.status === "validation_failed" && boom.costUsd).toBe(0); const thrown = vi.fn(async () => { throw new Error("a completion failed before returning its receipt"); }), allowance = { left: 1 }; const missing = await callStructuredLLM({ ...REQ, attempts: allowance, complete: thrown }); expect([thrown.mock.calls.length, allowance.left, missing.status, missing.status === "validation_failed" && missing.failure, missing.status === "validation_failed" && missing.errors]).toEqual([1, 0, "validation_failed", "transient", ["llm_completion did not return an outcome"]]);
     const paid = await callStructuredLLM({ ...REQ, complete: seam([{ error: "incomplete", retryable: false, costUsd: 0.0042 }]).complete }); expect(paid.status === "validation_failed" && paid.costUsd).toBe(0.0042);
     const invalid = await callStructuredLLM({ ...REQ, complete: async () => ({ value: {}, httpAttempts: 1 }) }), mixed = seam([{ value: {} }, { error: "network boom", retryable: false }]), transient = await callStructuredLLM({ ...REQ, complete: async (r) => ({ ...await mixed.complete(r), httpAttempts: 1 }) }); expect([invalid.status === "validation_failed" && invalid.settledInvalidOutput, transient.status === "validation_failed" && transient.settledInvalidOutput, paid.status === "validation_failed" && paid.settledInvalidOutput], "only two paid responses locally rejected by schema/firewall settle; a transport or incomplete response does not").toEqual([true, undefined, undefined]);
+    for (const answer of [{ error: "network", retryable: true, failure: "transient" as const, httpAttempts: 1 }, { value: {}, httpAttempts: 1 }]) { let wires = 0; const stopped = await PROOF_SPEND.run(REQ.tenantId, 24, 1, () => callStructuredLLM({ ...REQ, complete: async () => { expect(PROOF_SPEND.authorize(REQ.tenantId, "model", 0.02)).toBe(false); wires += 1; return answer; } }).then(out => { expect(PROOF_SPEND.authorize(REQ.tenantId, "model", 0.02)).toBe(true); return out; }), { maxExternalCalls: 0, maxExternalUsd: 0, stopOnFailure: true }); expect([wires, stopped.status, stopped.status === "validation_failed" && stopped.attempts]).toEqual([1, "validation_failed", 1]); }
     const again = seam([{ value: {} }, { value: VALID_ATOMIC_EDIT }]); // a rejection CAN recover
     const out = await callStructuredLLM({ ...REQ, complete: again.complete }); expect(out.status === "drafted" && [out.retried, again.calls()]).toEqual([true, 2]);
     const refused = await callStructuredLLM({ ...REQ, complete: seam([{ error: "refusal", retryable: false, costUsd: 0.0123 }]).complete });

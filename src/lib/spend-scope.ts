@@ -3,9 +3,9 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 const noSpend = new AsyncLocalStorage<true>();
 type ExternalTarget = { capability: string; url: string };
-type ProofPolicy = { maxExternalCalls: number; maxExternalUsd: number; allowedExternal?: ExternalTarget[]; stopBy?: number };
+type ProofPolicy = { maxExternalCalls: number; maxExternalUsd: number; allowedExternal?: ExternalTarget[]; stopBy?: number; stopOnFailure?: true; guard?: () => Promise<boolean> };
 type ProofMeter = { modelCalls: number; modelReservedUsd: number; externalCalls: number; externalReservedUsd: number };
-type ProofAllowance = { tenantId: string; maxCalls: number; maxUsd: number; policy: ProofPolicy; meter: ProofMeter };
+type ProofAllowance = { tenantId: string; maxCalls: number; maxUsd: number; policy: ProofPolicy; meter: ProofMeter; stop: { closed: boolean } };
 const proofSpend = new AsyncLocalStorage<ProofAllowance>();
 const targetUrl = (value: string): string | null => {
   try { const url = new URL(value); if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return null; url.hash = ""; return url.toString(); } catch { return null; }
@@ -22,7 +22,7 @@ export const PROOF_SPEND = {
       || policy.maxExternalCalls > 0 && (policy.maxExternalUsd <= 0 || !policy.allowedExternal?.length) || policy.stopBy != null && !Number.isFinite(policy.stopBy)
       || policy.allowedExternal?.some((target) => !targetIdentity(target))) throw new Error("invalid proof spending ceiling");
     return proofSpend.run({ tenantId, maxCalls, maxUsd, policy: { ...policy, allowedExternal: policy.allowedExternal?.map((target) => ({ ...target })) },
-      meter: { modelCalls: 0, modelReservedUsd: 0, externalCalls: 0, externalReservedUsd: 0 } }, fn);
+      stop: { closed: false }, meter: { modelCalls: 0, modelReservedUsd: 0, externalCalls: 0, externalReservedUsd: 0 } }, fn);
   },
   withExternalTargets<T>(tenantId: string, targets: ExternalTarget[], fn: () => T): T {
     const held = proofSpend.getStore();
@@ -48,11 +48,14 @@ export const PROOF_SPEND = {
     const held = proofSpend.getStore(); if (!held) return null;
     const calls = channel === "model" ? "modelCalls" : "externalCalls", usd = channel === "model" ? "modelReservedUsd" : "externalReservedUsd";
     const maxCalls = channel === "model" ? held.maxCalls : held.policy.maxExternalCalls, maxUsd = channel === "model" ? held.maxUsd : held.policy.maxExternalUsd;
-    if (held.tenantId !== tenantId || held.policy.stopBy != null && Date.now() >= held.policy.stopBy || held.meter.externalReservedUsd > held.policy.maxExternalUsd
+    if (held.stop.closed || held.tenantId !== tenantId || held.policy.stopBy != null && Date.now() >= held.policy.stopBy || held.meter.externalReservedUsd > held.policy.maxExternalUsd
       || !Number.isFinite(projectedUsd) || projectedUsd <= 0 || held.meter[calls] >= maxCalls || held.meter[usd] + projectedUsd > maxUsd
       || channel === "external" && PROOF_SPEND.externalClosed(tenantId, target) !== false) return true;
     held.meter[calls] += 1; held.meter[usd] += projectedUsd; return false;
   },
+  async current(tenantId: string): Promise<boolean | null> { const held = proofSpend.getStore(); if (!held) return null; if (held.tenantId !== tenantId || held.policy.guard && !await held.policy.guard().catch(() => false) || held.policy.stopBy != null && Date.now() >= held.policy.stopBy) held.stop.closed = true; return !held.stop.closed; },
+  failed(tenantId: string): boolean { const held = proofSpend.getStore(); if (held?.tenantId === tenantId && held.policy.stopOnFailure) held.stop.closed = true; return held?.tenantId === tenantId && held.stop.closed || false; },
+  remaining(tenantId: string): number | null { const held = proofSpend.getStore(); return noSpend.getStore() === true ? 0 : held ? held.tenantId === tenantId && !held.stop.closed ? Math.max(0, held.maxCalls - held.meter.modelCalls) : 0 : null; },
   meter(tenantId: string): ProofMeter | null { const held = proofSpend.getStore(); return held?.tenantId === tenantId ? { ...held.meter } : null; },
   accountExternal(tenantId: string, estimatedUsd: number, knownUsd: number | null): void {
     const held = proofSpend.getStore();

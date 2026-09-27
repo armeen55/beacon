@@ -380,6 +380,7 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   // prior transmission became ambiguous, repeating the same bytes could buy the
   // same answer twice. Only an attempt that is still durably `reserved` may
   // cross the wire; transmitted/ambiguous work remains held for reconciliation.
+  if (proof === true && await PROOF_SPEND.current(tenantId) === false) { if (zeroCostCanStillBeProven) await reservations.release(attemptId, false).catch(() => false); return { httpAttempts: 0, kind: "blocked_budget", reason: "manual delivery inputs or permission changed before transmission" }; }
   const transmission = reservation.state === "reserved"
     ? await reservations.claimTransmission(attemptId)
     : "already_started" as const;
@@ -416,7 +417,7 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
     await ambiguous();
     const { reason, timedOut } = threwOnTheWire(e, "fetch_failed");
     await reportGatewayFailure(id, timedOut ? "client_timeout" : "network_failed", reason);
-    return { httpAttempts: 1, kind: "error", reason, timedOut };
+    PROOF_SPEND.failed(tenantId); return { httpAttempts: 1, kind: "error", reason, timedOut };
   }
 
   if (!response.ok) {
@@ -437,7 +438,7 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
     const retryMs = retryAfterMs(response.headers?.get?.("retry-after"));
     await reportGatewayFailure(id, `openai_http_${response.status}`, code);
     if (OPENAI_ACCOUNT_HOLDS.has(code ?? "")) await credit.trip(tenantId).catch(() => {});
-    return { httpAttempts: 1, kind: "http_error", status: response.status, ...(code ? { code } : {}), ...(retryMs === undefined ? {} : { retryAfterMs: retryMs }) };
+    PROOF_SPEND.failed(tenantId); return { httpAttempts: 1, kind: "http_error", status: response.status, ...(code ? { code } : {}), ...(retryMs === undefined ? {} : { retryAfterMs: retryMs }) };
   }
   // The provider answered, so the balance is not empty: lift any stop on file before the envelope is even read.
   await credit.clear(tenantId).catch(() => {});
@@ -450,7 +451,7 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
     const { reason, timedOut } = threwOnTheWire(e, "body_read_failed");
     await ambiguous();
     await reportGatewayFailure(id, timedOut ? "client_timeout" : "body_read_failed", reason);
-    return { httpAttempts: 1, kind: "error", reason, timedOut };
+    PROOF_SPEND.failed(tenantId); return { httpAttempts: 1, kind: "error", reason, timedOut };
   }
 
   const fields = readProvenanceFields(json);
@@ -474,8 +475,8 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
     provenance.responseId, costBasis, json)))) {
     await ambiguous();
     await reportGatewayFailure(id, "spend_reconciliation_failed");
-    return { httpAttempts: 1, kind: "error", reason: "spend_reconciliation_failed", timedOut: false };
+    PROOF_SPEND.failed(tenantId); return { httpAttempts: 1, kind: "error", reason: "spend_reconciliation_failed", timedOut: false };
   }
 
-  return interpretEnvelope(json, provenance, args.zodSchema, id, 1);
+  const answer = await interpretEnvelope(json, provenance, args.zodSchema, id, 1); if (answer.kind !== "ok") PROOF_SPEND.failed(tenantId); return answer;
 }

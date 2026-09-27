@@ -9,7 +9,7 @@ import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/page
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { isCurrent } from "@/domains/evidence/freshness";
-import { defaultSteps } from "./research-steps";
+import { defaultSteps } from "./research-steps"; import { runResearchCycle } from "./on-visit-refresh";
 import { getTenant } from "@/domains/account";
 const acceptable = (row: ChangeProposal | null): boolean => !!row && row.status === "ready" && row.researchOnly !== true
   && deliverableGaps(row).length === 0 && nextObligation(row) === null;
@@ -182,5 +182,5 @@ async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS>
     : await d.spend.reconcile(admission.attemptId, 0, null, "provider_reported", { success, reason, allowance, acquisition }).catch(() => false);
   return result(success, recorded ? reason : "proof_admission_receipt_missing");
 }
-const atomicProof = { run, finishPage };
+const atomicProof = { run, finishPage, prepareNext: (input: { tenantId: string; currentBasis: string | null; eligible: (p: ChangeProposal) => boolean }) => runResearchCycle(input.tenantId, { manualDelivery: { currentBasis: input.currentBasis, eligible: input.eligible } }) };
 export default atomicProof;
