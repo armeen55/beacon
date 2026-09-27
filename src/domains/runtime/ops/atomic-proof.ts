@@ -72,7 +72,7 @@ async function run(input: Input, deps: Deps = DEPS) {
 }
 const PAGE_DEPS = { ...DEPS, produce: produceProposalsForTenant, acquire: defaultSteps.acquireEvidence, list: loadChangeProposals, snapshot: loadEvidenceSnapshot,
   bodies: loadOwnedPageBodies, account: getTenant, basis: defaultSteps.currentBasis, current: resolveCurrentBasis, clock: Date.now,
-  substantive: (row: ChangeProposal) => writerKindOf(row) === "answer" && row.changeFamily !== "factual_correction" || writerKindOf(row) === "description" && row.recommendedChange.kind === "existing_edit" && row.recommendedChange.field === "meta" || writerKindOf(row) === "link" && row.recommendedChange.kind === "existing_edit" && !!row.recommendedChange.linkTo };
+  substantive: (row: ChangeProposal) => DRAFT_BUDGET.deliveryOf(row) === "existing_page_edit" && writerKindOf(row) !== null };
 type PageInput = Omit<Input, "now"> & { maxDataForSeoCalls: number; maxDataForSeoUsd: number; authorizationId?: string }; const sameDocument = (a: string, b: string): boolean => { try { const x = new URL(a.startsWith("/") ? a : /^https?:\/\//i.test(a) ? a : `https://${a}`, b), y = new URL(b); return x.protocol === y.protocol && x.port === y.port && x.hostname.replace(/^www\./, "") === y.hostname.replace(/^www\./, "") && x.pathname === y.pathname && x.search === y.search; } catch { return false; } };
 
 async function finishPage(input: PageInput, overrides: Partial<typeof PAGE_DEPS> = {}) {
