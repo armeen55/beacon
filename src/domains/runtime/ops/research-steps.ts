@@ -44,6 +44,7 @@ type RefreshSourcesResult = { attempted: number; succeeded: string[]; failures: 
 type BackfillChunkResult = { kind: "advanced"; complete?: boolean; daysPulled?: number } | { kind: "no_work" };
 export type ResearchCycleSteps = {
   deliveryScope?: Parameters<typeof DRAFT_BUDGET.scopeAllows>[0];
+  factualTarget?: (tenantId: string, stopBy: number, shared?: Map<string, unknown>) => Promise<EvidenceRequirement | null>;
   scopeOwner?: (tenantId: string, need: ProposalAcquisitionNeed, scope: Parameters<typeof DRAFT_BUDGET.scopeAllows>[0]) => Promise<boolean>;
   refreshSources: (tenantId: string, now: Date, attemptKey: string) => Promise<RefreshSourcesResult>;
   backfillChunk: (tenantId: string, now: Date, attemptKey: string) => Promise<BackfillChunkResult>;
@@ -73,26 +74,19 @@ export type ResearchCycleSteps = {
     /** THE DRIVE'S OWN WORKING CONTEXT (evidence/snapshot-loader carries the contract): the reads this drive has already made, reused by every later walk and dropped part by part as the drive's own writes move them. AND `noRoom` IS THE DRIVE'S OWN ARITHMETIC SAYING THIS BOX CANNOT BEGIN A JOB: the walk's free half runs before the first funded job is considered and the box does not cover it, so the pass runs that free half and funds nothing, rather than selecting a whole manifest and filing every job as "the time box ended before this page's turn" (measured on four consecutive unattended drives, 2026-09-05). */ shared?: Map<string, unknown>; noRoom?: boolean; /** HOW THE CALLER READS A WALK ITS OWN BOX CUT OFF (live 13:00Z drive, 2026-09-05). The drive races this step against a timer as a backstop, and when the timer won it abandoned the promise: the day's memory, the waiting list, every receipt and seventeen provider calls worth 0.18 USD were remembered by nothing, so the next drive funded the same order and lost it the same way. The step hands back a way to ask, once, for the answer this walk would give if it stopped now; the caller keeps it and asks at its box. Read-only, free, and typed as the answer this step returns (the caller names that type, which cannot be written here without the declaration referring to itself). */ filed?: (ask: () => unknown) => void },
     /** The wall-clock moment this drive must stop starting paid work. The pass returns normally at it, with receipts, instead of being cut off by a timer and reporting nothing. */ stopBy?: number) => Promise<{ ready: number; deficit: number; persisted: number;
     /** TRUE only when a post-pass re-read PROVES the stock is AT THE TARGET. */ satisfied: boolean;
-    /** HOW THIS DRIVE ENDED, as a machine word. Only two of these four may close a day. `candidates_exhausted` is the one that has to be EARNED: it means every candidate on the current manifest has now been spent on and none of them finished, which is a different fact from "the two I could afford this drive produced nothing" (Codex, 2026-08-22). */
     reason: "made_progress" | "retryable_blocked" | "candidates_exhausted";
     /** THE DAY'S ONE ATTEMPT LEDGER, keyed on the row's own `workKey`: what each job's attempts cost, how the last one ended, and whether anything is left to do for it under this exact evidence. It replaces four page-keyed lists and the manifest fingerprint that reset them; a workKey nobody remembers is new work by construction. */ jobs: Record<string, JobMemory>;
     /** THE ACCOUNT AND EVIDENCE VERSION AN EXHAUSTION WAS EARNED UNDER, present only with `candidates_exhausted`: due-work reopens the day the moment fresh evidence lands, because a manifest settled against yesterday's readings says nothing about today's. */ closedUnder?: string; preferred?: { proposalId: string; workKey: string; currentWorkKey?: string; retiredReason?: "missing" | "blocked" | "settled" | "out_of_scope" };
     /** THE EXACT READINGS funded candidates were refused for, typed: the dispatch executes these instead of parsing a refusal sentence (Codex, 2026-08-23). */ evidenceOwed?: readonly OwedReading[];
     /** THE FUNDED WORK THIS WALK NEVER BEGAN, by `workKey`. It is a queue position and never a verdict: the next walk of this drive, and the next drive after it, take these first. */ waiting?: readonly string[];
-    /** WHAT BECAME OF THE FUNDED WORK. `readySaved` counts CHANGES the operator can act on; `evidenceBanked` counts work that succeeded and is not a change. `receipts` is the COMPLETE per-page record (key, treatment, impact, allowance, exact provider attempts, exact cost, outcome, full reason), durable on the run so a later read reconstructs the dispatch without logs. `ledger` is the adjudicator month total read before and after, beside the metered sum, so the receipt reconciles against real money or names the mismatch itself. */
     outcomes?: { declared?: readonly string[]; readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[];
       /** WHICH OF THE TWO DEADLINE ANSWERS THIS WALK GAVE: `boxed` = the caller stopped waiting and the walk carried on, so these receipts are a snapshot of work still running; `stopped` = the walk itself would not start funded work it could no longer pay for, so nothing is running and that work is the next drive's first; `ran` = it reached the end of what it funded. */ ended?: "boxed" | "stopped" | "ran"; receipts?: unknown[]; preparedMs?: number; ledger?: { before: number; after: number; delta: number; metered: number; unexplained?: number; reconciled: boolean } } } | null>;
 };
-/** What this run still allows the ONE advisory reading. `mark` is the runner's own receipt: the reading is bounded per RUN, never per unit iteration. */
 type CaseReconcilePlan = { planKeys: string[]; maySynthesize: boolean; mark: () => void; /** The drive's working context, so reconciliation reads the account the walk before it already read. */ shared?: Map<string, unknown> };
 
-/** DID THE REGISTRY ACTUALLY MOVE? Compared the way the registry is READ and never the way it happened to be written: the same rows in another order, or one
- *  row's anchors in another order, are the SAME registry, and a raw JSON compare called that a move, saved it, and bought a reading of a file nothing changed. */
 const canonicalRegistry = (rows: readonly ResearchCase[] = []): string => JSON.stringify([...rows].map((c) => ({ id: c.id, anchors: [...c.anchors].sort(), aliasOf: c.aliasOf ?? null, parentId: c.parentId ?? null, pages: (c.pages ?? []).map((p) => `${p.url}|${p.relation}`).sort() })).sort((a, b) => a.id.localeCompare(b.id)));
 const sameRegistry = (before: readonly ResearchCase[] = [], after: readonly ResearchCase[] = []): boolean => canonicalRegistry(before) === canonicalRegistry(after);
 
-/** Fold this account's case identities onto the ones already on file and PERSIST them, or THROW. It used to swallow every failure, so a run whose identities were never written went straight on to freeze a plan and spend against them:
- * the comparison it bought belonged to an id nothing on file agreed with. A losing row version is a failure too, because nothing was saved. Nothing here is a partial success. THEN, and only when the registry actually moved this pass AND this run has not asked yet, ONE advisory semantic reading of it (see decision/case-synthesis). That step is fail-soft by contract: the deterministic identities are already saved, so a reading I could not get, could not trust or could not write is simply absent. */
 async function reconcileCases(tenantId: string, basis: string, plan: CaseReconcilePlan): Promise<void> {
   const saved = await (async () => {
     const snapshot = await loadEvidenceSnapshot(tenantId, plan.shared ? { shared: plan.shared } : {});
@@ -101,20 +95,15 @@ async function reconcileCases(tenantId: string, basis: string, plan: CaseReconci
     if (sameRegistry(loaded.state.cases, cases)) return true; // nothing moved: no save, and nothing to re-read
     const rowVersion = await saveFunnelState(tenantId, basis, { ...loaded.state, cases }, loaded.rowVersion);
     if (rowVersion == null) return false;
-    // The mark goes down BEFORE the reading, so one that came back empty, refused or unusable still spends this run's single attempt.
     if (plan.maySynthesize) { plan.mark(); await refineCases(tenantId, basis, snapshot, cases, { ...loaded.state, cases }, rowVersion, plan.planKeys).catch(() => {}); }
     return true;
   })().catch(() => false);
   if (!saved) throw new Error("Which of your topics are which could not be saved, so nothing was spent on them. The next visit picks this up again.");
 }
 
-/** The ONE semantic pass over the registry that just changed, applied through the SAME identity rules and saved through the SAME path. Everything it proposes is checked before it is applied, and what I refuse is recorded rather than
- *  argued with. A lost row version here changes nothing that is already on file. */
 async function refineCases(tenantId: string, basis: string, snapshot: EvidenceSnapshot, cases: ResearchCase[], state: FunnelState, rowVersion: number, planKeys: string[] = []): Promise<void> {
   const investigations = buildTopicInvestigations(snapshot);
   if (investigations.length < 2) return;
-  // Which of MY OWN pages Google already serves for a case's own searches: the only addresses the reading may name, a lookup over evidence already in hand, so it
-  // fetches nothing and costs nothing. WHICH cases get reviewed when there are more than the reading may hold: the ones this run froze, then the biggest demand.
   const owned = snapshot.ownedPages.map((p) => ({ url: p.url, keys: new Set((p.search?.topQueries ?? []).map((q) => canonicalQueryKey(q.query))) }));
   const synthesis = await synthesizeCases(investigations.map((i) => ({
     id: i.key, label: i.label, queries: i.queries, prompts: i.trackedPrompts.map((p) => p.promptText), groupedBy: i.groupedBy,
@@ -127,13 +116,11 @@ async function refineCases(tenantId: string, basis: string, snapshot: EvidenceSn
   await saveFunnelState(tenantId, basis, { ...state, cases: applied.cases }, rowVersion);
 }
 
-/** WHICH OF MY OWN PAGES GETS READ FIRST. The body store feeds every draft and the draft step refuses a page it has not read whole, so the pages the operator is actually waiting on are the ones losing clicks: a page under investigation whose body I never read produces nothing, however many results pages I buy for it. This does NOT change who is a candidate (the inventory still answers that in its own order, uncrawled then stale then blocked) and it can never add a page the inventory withheld; it only moves the DECLINING ones to the front of the batch that pass will read. One lean Search Console read, $0, and fail-soft: no readable decay is simply the inventory's own order, exactly as before. */
 const crawlKey = (u: string) => u.replace(/^https?:\/\/(www\.)?/i, "").replace(/\/+$/, "").toLowerCase();
 async function decliningPagesFirst(tenantId: string): Promise<typeof nextCrawlCandidates> {
   const decay = await loadGscDecaySignalsForTenant(tenantId).catch(() => null);
   const losing = new Set([...(decay?.values() ?? [])].filter((d) => d.clicksNow < d.clicksPrior).map((d) => crawlKey(d.page)));
   if (losing.size === 0) return nextCrawlCandidates;
-  // BOUND TO THE ACCOUNT THE DECLINE WAS READ FOR: a caller that ever hands this wrapper a different tenant gets the inventory's own order back, never another account's pages ranked over its own. Closing over the outer id alone left that a silent cross-tenant shape.
   return async (t: string, limit: number, now?: Date, opts?: { strict?: boolean }) => { const urls = await nextCrawlCandidates(t, limit, now, opts);
     return t !== tenantId ? urls : [...urls.filter((u) => losing.has(crawlKey(u))), ...urls.filter((u) => !losing.has(crawlKey(u)))]; };
 }
@@ -156,7 +143,6 @@ export const defaultSteps: ResearchCycleSteps & {
     const closedUnder = `${acct ?? ""}::v${version ?? ""}`;
     const read = () => d.loadProposalQueue(tenantId, { currentBasis: basis, deliveryScope: "all_changes" }).catch(() => null); // THE WHOLE QUEUE, READ ONCE: the stock is counted off it (STOCK, never a row count: thin levers fill at most their share of the five, so substantive work keeps funding) and the day's own memory is settled against the rows it holds, which is the same read either way
     const queue = await read();
-    // A QUEUE I COULD NOT READ SETTLES NOTHING: the pass stays owed and the next drive asks again.
     if (queue == null) return null; const before = d.stockOf(queue.ready);
     const jobs: Record<string, JobMemory> = d.settledByRows(seen?.jobs ?? {}, queue, reportingDay(now)); const floor = await readyStockFloor(tenantId).catch(() => READY_STOCK_ALARM); /* THE ROWS ANSWER BEFORE ANYTHING IS FUNDED: a job the caller's box cut off mid-flight lands its row after the box, and the memory takes that row's own answer rather than funding the same work a second time (decision/load-proposals settledByRows). AND THE MOMENT IT MAY SETTLE FROM IS THIS DAY'S OWN START: a drive holds no start of its own here, and the memory it carries is the day's, so a row standing since an earlier day answers for that day and never for this one, while the row a boxed walk landed minutes after the drive before it still settles the work it paid for. */ // the low-stock alarm level: it colors the receipt and nothing else
     const mark = (reason: "made_progress" | "retryable_blocked" | "candidates_exhausted", ready: number, persisted: number,
@@ -168,22 +154,16 @@ export const defaultSteps: ResearchCycleSteps & {
     }
     const { getTenantSpentThisMonthUsd } = await import("@/lib/cost/budget-ledger-supabase");
     const ledgerBefore = await getTenantSpentThisMonthUsd(tenantId, now, "adjudicator-openai").catch(() => null); let ledgerAfter: number | null = null; // read again below, and declared here because the composer above may be asked while the walk is still running
-        // THE WALK IS THE DRIVE'S WHOLE ALLOWANCE, and nothing counts it down but money and time: no shortfall, no target, no "enough". THE TOP-UP NEVER SERVES A CACHED DRAFT, so it always pays for a fresh take.
-    // AND A DRIVE SPENDS ONE CEILING, NOT ONE PER WALK (reviewer, 2026-09-02): `MAX_PAID_CALLS` bounds a PASS, and a drive runs the stock walk, one walk per acquired reading and one more when a banked fact wakes work, so ten fresh ceilings could run under a single deadline. A caller that reports what its earlier walks metered gets the remainder of the one ceiling; a caller that reports nothing gets the ceiling, exactly as before.
-    /** THE ANSWER THIS WALK WOULD GIVE IF IT STOPPED NOW, composed from the pass's own record and nothing else, so the walk that runs to its end and the walk a caller's box cut off are read by ONE piece of arithmetic (live 13:00Z drive, 2026-09-05). A boxed answer settles nothing and closes no day: it carries what was spent, what was begun, what is still owed and what is still waiting, which is exactly what the next drive needs to not fund the same order again. */
     const answerOf = (paid: Awaited<ReturnType<typeof d.produceProposalsForTenant>>["paid"], ready: number, saved: number, boxed: boolean) => { const at: Record<string, JobMemory> = { ...jobs }; /* the memory the rows have already answered, so what a landed row settled is carried onto the run row and never re-opened by this walk's own receipts */
     const count = (o: string) => paid.receipts.filter((r) => r.outcome === o).length;
-    // WHAT THIS WALK SELECTED AND NEVER BEGAN, by the work's own identity. A job the clock or the money never reached is not a job that failed: it is the head of the next walk's queue, in this drive and in the one after it, so funded work cannot be selected for ever and started never (live, twenty-seven of twenty-nine funded rows on one drive, 2026-09-04).
     const waiting = paid.receipts.filter((r) => (r.outcome === "not_reached" || r.outcome === "cost_blocked") && !!r.workKey).map((r) => r.workKey); // every funded unfinished identity survives; the same run already stores all these receipts
     const metered = Number(paid.receipts.reduce((n, r) => n + (r.costUsd ?? 0), 0).toFixed(6));
     const delta = ledgerBefore != null && ledgerAfter != null ? Number((ledgerAfter - ledgerBefore).toFixed(6)) : -1;
     const tally: { declared?: readonly string[]; readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[]; familyRead?: { asked: number; loaded: number }; preparedMs?: number; ended?: "boxed" | "stopped" | "ran"; receipts?: unknown[]; ledger?: { before: number; after: number; delta: number; metered: number; unexplained?: number; reconciled: boolean } } = { familyRead: paid.familyRead, ended: boxed ? "boxed" : paid.receipts.some((r) => r.outcome === "not_reached") ? "stopped" : "ran", /* THE TWO DEADLINE ANSWERS, TOLD APART ON THE ROW (2026-09-05): `boxed` is the CALLER giving up on a walk that is still running, so its receipts are a snapshot and the work goes on; `stopped` is the walk itself refusing to start funded work it could no longer pay for, so nothing is running and the next drive takes that work first. They read as one sentence to an operator otherwise, and the answer to each is different. */ ...(paid.preparedMs != null ? { preparedMs: paid.preparedMs } : {}), /* WHAT THE WALK'S FREE HALF COST THIS PASS, carried onto the run row so the next drive's floor is this account's own measurement and never a constant with a margin */ readySaved: count("produced"), evidenceBanked: count("evidence_banked"), refused: count("deterministic_refusal") + count("already_complete"), blocked: count("retryable_blocked") + count("provider_blocked") + count("cost_blocked"), unreached: count("not_reached") + count("superseded"),
       stuck: [...paid.receipts.filter((r) => r.outcome !== "produced").map((r) => `${r.key}:${r.outcome}${r.why ? `: ${r.why}` : ""}`), ...(paid.declined ?? []).map((d) => `${d.key}:declined: ${d.reason}`)].slice(0, 12), /* BOTH HALVES, ALWAYS (production 05:30Z, 2026-09-11): the either-or here meant a walk with any receipt hid every plan decline, so eight declared jobs vanished from the record and an hour went to finding where; the cap rises with the constant cadence's bigger boards. */ // AND A WALK THAT FUNDED NOTHING SAYS WHY ON THE ROW: with no funded key there is no receipt to carry a reason, and a run row that reports an empty walk with no cause is the same silence the typed outcomes exist to end
       receipts: paid.receipts as unknown[], declared: paid.declared, // the COMPLETE per-page record, durable: logs are not the receipt; the declared list says what the plan even considered
-      // WHAT THE RECEIPTS EXPLAIN, AND WHAT IS LEFT OVER. `metered` is the DRAFTING money the per-page receipts account for; the ledger's delta also carries this pass's page readings and any other adjudicator work in the same window, so demanding they match exactly reported a false mismatch on every pass that read a page. `reconciled` now means the receipts never claim MORE than the ledger saw, and `unexplained` names the rest out loud rather than hiding it (Codex, 2026-08-23).
       ledger: ledgerBefore != null && ledgerAfter != null
         ? { before: ledgerBefore, after: ledgerAfter, delta, metered, unexplained: Number((delta - metered).toFixed(6)), reconciled: delta + 0.005 >= metered } : undefined };
-    // AND THE LEDGER IS WRITTEN FROM THE RECEIPTS THEMSELVES. Three answers SETTLE a job, and only those three: finished work exists, a reading was banked, or one of Beacon's own gates read it against today's evidence and refused. An empty balance, a cap, a timeout, a provider that would not answer, an unusable answer and a job never reached all leave it owed, because none of them proves the next attempt would fail too. PRODUCED SETTLES ONLY WHAT THE STORE CAN STAND BEHIND, and the producer answers that question PER ROW at the end of its own pass: every produced claim is re-read against the row standing on file and refiled `review_saved` when that row is not ready, so a receipt saying `produced` here is a durable Ready row and settles. The stock DELTA that used to decide it here was a fault (reviewer, 2026-09-02): one real landing beside one phantom moved the count, so both settled and neither was named. AND A JOB NOBODY STARTED IS UNSPENT: a receipt with no calls that settled nothing writes no entry at all, so the next continuation ranks it exactly where its impact puts it rather than behind work that has already been tried.
     for (const r of paid.receipts) { const key = r.workKey; if (!key) continue; // work that declares no identity is remembered by nothing, exactly as the plan reads it
       const settled = r.outcome === "produced" || r.outcome === "evidence_banked" || r.outcome === "deterministic_refusal" || r.outcome === "already_complete"; /* review_saved settles only through the stored-row path in load-proposals: a receipt alone cannot prove the row landed, and a phantom the store downgraded must stay owed (P5 pin). An unsettled review_saved job is re-bought at most once more, because the plan declines any identity after two spent attempts (P4), so the same review is never bought a third time under one workKey. */ if (!settled && (r.providerCalls ?? 0) === 0) { const m = at[key]; if (!m?.settled && (r.outcome === "not_reached" || r.outcome === "cost_blocked")) at[key] = { calls: m?.calls ?? 0, last: r.outcome, settled: false }; continue; } // A CAUSAL BLOCK IS NOT A VERDICT (incident, 2026-09-04): money, a provider that would not answer and a job never begun all leave the work owed, and only a finished row or a gate that read it settles it. THE TIMES IT WAS NEVER REACHED ARE NO LONGER COUNTED (measured, 2026-09-05): the count only fed a demotion that could never release, because demoted work is never reached and so only ever waited again; the walk's own `waiting` list carries the queue position, under worth.
       at[key] = { calls: (at[key]?.calls ?? 0) + (settled ? 0 : 1), last: r.outcome, settled }; } // ONE ATTEMPT, not one request: a deliverable is three charged calls, and counting requests would decline a job the plan has funded exactly once
@@ -196,14 +176,11 @@ export const defaultSteps: ResearchCycleSteps & {
     const out = await d.produceProposalsForTenant(tenantId, { now, produce: true, deliveryScope: seen?.deliveryScope ?? "all_changes", aeoDiagnoses: seen?.preferred ? 0 : seen?.aeoDiagnoses, memory: jobs, bypassCache: Object.values(jobs).some((m) => m.calls > 0 && !m.settled), ...(seen?.preferred ? { preferred: seen.preferred } : {}), ...(focusPage ? { focusPage } : {}), ...((seen?.callsLimit != null || seen?.callsSpent) ? { maxCalls: Math.max(0, Math.min(seen?.callsLimit ?? DRAFT_BUDGET.MAX_PAID_CALLS, DRAFT_BUDGET.MAX_PAID_CALLS - (seen?.callsSpent ?? 0))) } : {}), ...(stopBy != null ? { stopBy } : {}), ...(seen?.waiting?.length ? { waiting: seen.waiting } : {}), ...(seen?.shared ? { shared: seen.shared } : {}), ...(seen?.noRoom ? { noRoom: true } : {}), ...(seen?.filed ? { handOver: (ask) => seen.filed?.(() => ((snap) => answerOf(snap.paid, before, snap.persisted, true))(ask())) } : {}) }).catch(() => null); // AND THE CALLER KEEPS A WAY TO READ THIS WALK IF ITS OWN BOX ENDS FIRST: the walk hands one back as soon as it has a record to give, and a drive that times out reads it instead of throwing the whole pass away.
     if (out?.outcome === "persistence_failed" || out?.paid.receipts.some(r => r.persistence === "failed")) PROOF_SPEND.failed(tenantId); ledgerAfter = out ? await getTenantSpentThisMonthUsd(tenantId, now, "adjudicator-openai").catch(() => null) : null;
     if (out && out.held.length > 0) log.info("[research-run] candidates the replenish pass could not finish, each with its reason", { tenantId, held: out.held.slice(0, 6) });
-    // A PASS THAT COULD NOT RUN, COULD NOT READ ITS EVIDENCE, OR COULD NOT SAVE WHAT IT MADE HAS SETTLED NOTHING. It tried nothing it can prove, so nothing is written off and the day stays open.
     if (out == null || out.outcome === "evidence_unreadable" || out.outcome === "persistence_failed") return mark("retryable_blocked", before, 0);
     const after = await read().then((q) => (q ? d.stockOf(q.ready) : null)), persisted = out.persisted;
-    // A COUNT NOBODY COULD READ AFTERWARDS PROVES NOTHING EITHER WAY, least of all that a page is finished with.
     if (after == null) return mark("retryable_blocked", before, persisted);
     return answerOf(out.paid, after, persisted, false); // the walk ran to its own end, so its answer may close the day or report progress
   },
-  // ONE READ OF ROWS ALREADY ON FILE, and never a second store: the ranked queue this account already keeps names every opportunity still being researched, and a row that owes a reading for a page a fact just landed on is exactly the work that fact was bought for. Bounded to twenty, fail-soft to nothing, and it buys nothing at all.
   async researchOwed(tenantId, pages) {
     if (pages.length === 0) return [];
     const on = new Set(pages.map((p) => p.trim().toLowerCase()));
@@ -212,23 +189,19 @@ export const defaultSteps: ResearchCycleSteps & {
     const q = await d.loadProposalQueue(tenantId, { currentBasis: basis }).catch(() => null);
     return q == null ? [] : [...new Set(q.research.map((p) => DRAFT_BUDGET.keyOf(p)))].filter((k) => on.has(k.split("::")[0] ?? "")).slice(0, 20); },
   async refreshSources(tenantId, now) {
-    // autoRefreshStaleConnectorsForTenant is fail-soft PER SOURCE and returns one { ok } result per ATTEMPTED stale source, which is what the refresh_sources contract above is counting. We do NOT .catch here: a THROW means the whole refresh could not run, and the runner must pause rather than record a false "0 sources, all healthy".
     const results = await autoRefreshStaleConnectorsForTenant(tenantId, now);
     return { attempted: results.length, succeeded: results.filter((r) => r.ok).map((r) => String(r.provider)),
       failures: results.filter((r) => !r.ok).map((r) => ({ provider: String(r.provider), detail: String(r.detail).slice(0, 200) })) };
   },
   async backfillChunk(tenantId, now) {
-    // No deadline race: the chunk is bounded by design and its GSC fetch has no AbortSignal, so a race would release the lease while live side-effecting work kept running. ensureDeepBackfill converts a thrown error into { ran:false, reason }, so a non-benign reason here is a real failure.
     const result = await ensureDeepBackfill(tenantId, now);
     if (result.ran) {
       log.info("[research-run] gsc deep backfill chunk advanced", { tenantId, daysPulled: result.daysPulled, complete: result.complete });
       return { kind: "advanced", complete: result.complete, daysPulled: result.daysPulled };
     }
     if (BENIGN_BACKFILL_SKIPS.has(result.reason)) return { kind: "no_work" };
-    // A real failure (auth / quota / network / unexpected) throws so the runner pauses AT gsc_backfill_chunk with the cursor untouched, making the retry the identical window.
     throw new Error(`gsc backfill chunk did not advance: ${result.reason}`.slice(0, 200));
   },
-  // THE ONE PLACE THE WEBSITE GETS READ, AND THE ONE PLACE A CRAWL BEGINS. A render must never crawl, so the resumable frontier is driven here, one bounded batch per pass. Cold start used to fire only from onboarding, so an account that predates it had no frontier at all: every pass asked to CONTINUE one, was told there is none, and called that a healthy no-op forever. A missing frontier is now initialized once, NEVER forced, so an instance that got there first is loaded and continued rather than reset; unreachable is persisted truth and stops here. Fail-soft throughout, and a site already read whole is still a no-op that advances.
   async crawlPages(tenantId, _now, deadline) {
     if (deadline - Date.now() < 50_000) return 0;
     const deps = { pickCandidates: await decliningPagesFirst(tenantId), batchBudgetMs: Math.max(0, deadline - Date.now() - 50_000) };
@@ -247,7 +220,6 @@ export const defaultSteps: ResearchCycleSteps & {
   currentBasis: accountBasis,
   dueWork,
   evidenceVersion: evidenceRowVersion,
-  // RUNTIME IS THE ONLY WRITER OF A CASE IDENTITY, and it writes them BEFORE the plan names one. Evidence resolves the id against what is already on file (evidence/case-identity carries the whole rule and the incident behind it); this persists that answer through the funnel's own save path, and FAILS CLOSED: an unreadable snapshot or row, or a losing row version, pauses this same phase honestly.
   async reconcileCases(tenantId, basis, plan) { await reconcileCases(tenantId, basis, plan); },
   async investigationFocus(tenantId, basis) { return chooseInvestigation(tenantId, basis).catch(() => null); },
   scopeOwner: async (tenantId, need, scope) => {
@@ -356,18 +328,21 @@ export const defaultSteps: ResearchCycleSteps & {
       return winningPagesUnit({}, queries, ask, ownedUrl, bustedAt)(tenantId, cursor, budgetMs);
     }
     if (phase === "prompt_observations") {
-      // THE DAILY PLAN decides what gets asked, and it is the ONLY thing that does: the unit's own weekly stalest-pair sweep is deleted, not merely overridden, because two selectors meant one of them re-asked a question the other had already read today. One canonical reading per question, per engine, per REPORTING day (src/lib/reporting-day.ts is the one timezone contract), core first and oldest-missing-first. A null plan (I could not read what is due) asks NOTHING. The day is the RUN'S own cycle day, not the wall clock, so a run that spans midnight keeps reporting into the day it opened instead of silently splitting itself.
       const day = String(cursor?.cycle ?? "").slice(-10) || reportingDay(Date.now());
       return promptObservationUnit({}, await dueObservations(tenantId, day))(tenantId, cursor, budgetMs);
     }
-    // The plan's own cases ride into discovery, so every keyword is filed under the case it belongs to and the recurring winning domains are bought once per case set.
     return keywordDiscoveryUnit({}, cases)(tenantId, cursor, budgetMs); // the facade export is a deps factory returning the executor
   },
   async analyzeAnswers(tenantId, reportingDay, budgetMs) { return runAnswerAnalyses(tenantId, reportingDay, { budgetMs }); },
   async verifyShipments(tenantId) { return verifyDueShipments(tenantId); },
   async measureShipments(tenantId, now) { return settleDueMeasurements(tenantId, { now }); },
-  // publishCustomerSurfaces PROPAGATES failure (no internal swallow): a throw pauses publish_surface and the previously saved surface stays visible.
   async publishSurface(tenantId) { await publishCustomerSurfaces(tenantId); },
+  async factualTarget(tenantId, stopBy, shared) {
+    const snapshot = await loadEvidenceSnapshot(tenantId, shared ? { shared } : {}), facts = await import("@/domains/evidence/pages/fact-checks"), basis = await import("@/domains/decision/load-proposals").then(m => m.resolveCurrentBasis(tenantId));
+    if (snapshot.scope.tenantId !== tenantId || !snapshot.scope.site || !basis || Date.now() >= stopBy) return null;
+    const owners = [...new Set(snapshot.ownedPages.map(p => pathOf(p.url)))];
+    return owners.length ? (await currentFactualTarget(tenantId, snapshot, await facts.readFactChecks(tenantId, owners), basis, stopBy))?.need ?? null : null;
+  },
   async factCheck(tenantId, budgetMs, renew, firstPage, shared, finding) { return factCheckPass(tenantId, budgetMs, renew, firstPage ?? null, shared, undefined, undefined, undefined, finding); },
   async surfaceStale(tenantId, nowMs) {
     const { readCustomerSurface, isCustomerSurfaceStale } = await import("@/app/(shell)/surface-release");
@@ -415,12 +390,31 @@ async function propositionState(tenantId: string, pageUrl: string, proposition: 
   return { researched: true, usable, why: usable ? "researched, and it stands behind an answer the copy may use" : `researched, and what came back is rated ${mine.confidence} and does not meet the evidence rules copy must stand on` }; // NAMED IN PLAIN WORDS AND NEVER BY A STORED SLUG: this sentence rides the need onto the pass receipt an operator reads
 }
 
+async function currentFactualTarget(tenantId: string, snapshot: EvidenceSnapshot, held: Awaited<ReturnType<typeof import("@/domains/evidence/pages/fact-checks").readFactChecks>>, basis: string | null, stopBy: number, finding?: EvidenceRequirement["finding"], firstPage?: string | null) {
+  const [{ COPY_RULES }, { pageHashOf }, { loadOwnedPageBodies }] = await Promise.all([import("@/domains/decision/copy-sanitize"), import("@/domains/evidence/pages/fact-check-run"), import("@/domains/evidence/pages/owned-context")]);
+  if (!basis || snapshot.scope.tenantId !== tenantId || !snapshot.scope.site || finding && (finding.tenantId !== tenantId || typeof finding.page !== "string" || !finding.page.startsWith("/") || /[?#]/.test(finding.page) || typeof finding.statementKey !== "string" || !finding.statementKey.trim() || !Number.isSafeInteger(finding.sourceVersion) || finding.sourceVersion! <= 0)) return null;
+  const pages = [...snapshot.ownedPages].sort((a, b) => (b.search?.impressions90d ?? 0) - (a.search?.impressions90d ?? 0)), rank = new Map(pages.map((p, i) => [pathOf(p.url), i])), bodies = new Map<string, Awaited<ReturnType<typeof loadOwnedPageBodies>>>();
+  const candidates = held.filter(h => finding ? h.page === finding.page && h.statementKey === finding.statementKey && h.state !== "superseded" : h.state === "owed" && h.current.trim() && h.proposed?.trim() && h.proposed.trim() !== h.current.trim()).sort((a, b) => (rank.get(a.page) ?? Infinity) - (rank.get(b.page) ?? Infinity) || (Date.parse(a.checkedAt) || 0) - (Date.parse(b.checkedAt) || 0));
+  for (const row of candidates) {
+    if (Date.now() >= stopBy) return null;
+    const owners = pages.filter(p => pathOf(p.url) === row.page);
+    if (owners.length !== 1 || held.filter(h => h.page === row.page && h.statementKey === row.statementKey && h.state !== "superseded").length !== 1 || !Number.isSafeInteger(row.sourceVersion) || row.sourceVersion! <= 0 || finding && row.sourceVersion !== finding.sourceVersion || row.evidenceBasis !== basis || !["owed", "checked"].includes(row.state) || COPY_RULES.captureAddress(new URL("/", owners[0]!.url).href) !== COPY_RULES.captureAddress(snapshot.scope.site) || firstPage != null && COPY_RULES.captureAddress(firstPage) !== COPY_RULES.captureAddress(owners[0]!.url)) continue;
+    if (!bodies.has(row.page)) bodies.set(row.page, await loadOwnedPageBodies(tenantId, [owners[0]!.url]));
+    const body = bodies.get(row.page)!.get(canonicalUrlKey(owners[0]!.url)), unit = row.current.trim(), words = body ? [body.title, body.h1, ...body.headings, ...body.passages].filter(Boolean).join("\n") : "", regions = body ? sectionsFrom(body.passages.join("\n"), {}, body.sourceCapture) : [], hits = regions.filter(r => unit && r.text.includes(unit));
+    if (!body || body.tenantId !== tenantId || !COPY_RULES.captureProof(body).length || COPY_RULES.captureAddress(body.url) !== COPY_RULES.captureAddress(owners[0]!.url) || row.pageContentHash !== pageHashOf(words) || !unit || regions.filter(r => r.heading === row.subject).length !== 1 || hits.length !== 1 || hits[0]!.heading !== row.subject || hits[0]!.text.split(unit).length !== 2 || body.passages.filter((text, i) => text.includes(unit) && body.passageMeta?.[i]?.heading === row.subject).length !== 1 || Date.now() >= stopBy) continue;
+    const nominee = row.sources.find(s => isSafeRedirectHopUrl(s.url) && !new URL(s.url).hostname.replace(/^www\./, "").endsWith(`.${new URL(body.url).hostname.replace(/^www\./, "")}`) && new URL(s.url).hostname.replace(/^www\./, "") !== new URL(body.url).hostname.replace(/^www\./, ""))?.url;
+    if (row.state === "owed" && (!nominee || row.sources.some(s => !s.says.trim() && s.url !== nominee) || row.note.startsWith("Owed again: source support disputed;") && (row.sources.length !== 1 || row.sources[0]!.says.trim()))) continue;
+    return { row, body, need: { kind: "factual_source", query: row.subject, url: body.url, reasonCode: "acquire_factual_source", delivery: "existing_page_edit", rivalUrl: nominee, finding: { tenantId, page: row.page, statementKey: row.statementKey, sourceVersion: row.sourceVersion } } satisfies EvidenceRequirement };
+  }
+  return null;
+}
+
 async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => Promise<boolean>) | undefined, firstPage: string | null, shared?: Map<string, unknown>, rival?: { subject: string; url: string; urls?: string[]; anchor?: string }, proposition?: string, topic?: NonNullable<EvidenceRequirement["topic"]> & { basis: string }, finding?: EvidenceRequirement["finding"], atomKey?: string): Promise<{ status: "advanced" | "done" | "failed"; banked: number; bankedPages: string[]; pagesComplete: number; failure?: string; reason?: string }> {
     const deadlineAt = Date.now() + Math.max(0, budgetMs);
     try {
       const creditHeld = Date.now() < deadlineAt && await import("@/domains/decision/llm/gateway").then((m) => m.creditBreakerHeld(tenantId)).catch(() => true);
       if (Date.now() >= deadlineAt || creditHeld) return { status: "failed", banked: 0, bankedPages: [], pagesComplete: 0, failure: creditHeld ? "credit_held" : "deadline", reason: creditHeld ? "the model provider's credit is spent, so no claim was judged this pass; it resumes when a call goes through" : "the factual-reading deadline has passed, so its evidence remains owed" };
-      const [{ runFactCheckPass, claimIdentity, pageHashOf }, facts, { loadEvidenceSnapshot }, { loadOwnedPageBodies }] = await Promise.all([
+      const [{ runFactCheckPass, claimIdentity }, facts, { loadEvidenceSnapshot }, { loadOwnedPageBodies }] = await Promise.all([
         import("@/domains/evidence/pages/fact-check-run"), import("@/domains/evidence/pages/fact-checks"),
         import("@/domains/evidence/snapshot-loader"), import("@/domains/evidence/pages/owned-context"),
       ]);
@@ -446,14 +440,10 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
       const basis = topic?.basis ?? await import("@/domains/decision/load-proposals").then((m) => m.resolveCurrentBasis(tenantId)).catch(() => null);
       let sourceBody: Awaited<ReturnType<typeof loadOwnedPageBodies>> | undefined;
       if (exact) {
-        const { COPY_RULES } = await import("@/domains/decision/copy-sanitize"), owners = ranked.filter(p => pathOf(p.url) === want), mine = held.filter(h => h.page === want && h.statementKey === finding!.statementKey && h.state !== "superseded");
-        if (!basis || owners.length !== 1 || mine.length !== 1 || mine[0]!.sourceVersion !== finding!.sourceVersion || mine[0]!.evidenceBasis !== basis || !["owed", "checked"].includes(mine[0]!.state) || COPY_RULES.captureAddress(new URL("/", owners[0]!.url).href) !== COPY_RULES.captureAddress(snapshot.scope.site) || firstPage != null && COPY_RULES.captureAddress(firstPage) !== COPY_RULES.captureAddress(owners[0]!.url)) return refused;
-        const b = (sourceBody = await loadOwnedPageBodies(tenantId, [owners[0]!.url])).get(canonicalUrlKey(owners[0]!.url)), row = mine[0]!, unit = row.current.trim(), words = b ? [b.title, b.h1, ...b.headings, ...b.passages].filter(Boolean).join("\n") : "", regions = b ? sectionsFrom(b.passages.join("\n"), {}, b.sourceCapture) : [], hits = regions.filter(r => unit && r.text.includes(unit));
-        if (!b || b.tenantId !== tenantId || !COPY_RULES.captureProof(b).length || COPY_RULES.captureAddress(b.url) !== COPY_RULES.captureAddress(owners[0]!.url) || row.pageContentHash !== pageHashOf(words) || !unit || regions.filter(r => r.heading === row.subject).length !== 1 || hits.length !== 1 || hits[0]!.heading !== row.subject || hits[0]!.text.split(unit).length !== 2 || b.passages.filter((text, i) => text.includes(unit) && b.passageMeta?.[i]?.heading === row.subject).length !== 1 || Date.now() >= deadlineAt) return refused;
-        if (row.state === "checked") return facts.authorizedCorrections([row], undefined, tenantId).length ? { status: "done", banked: 0, bankedPages: [], pagesComplete: 0, reason: "the exact current finding is already qualified; no source was researched" } : refused;
-        const nominee = row.sources.find(s => isSafeRedirectHopUrl(s.url) && !new URL(s.url).hostname.replace(/^www\./, "").endsWith(`.${new URL(b.url).hostname.replace(/^www\./, "")}`) && new URL(s.url).hostname.replace(/^www\./, "") !== new URL(b.url).hostname.replace(/^www\./, ""))?.url;
-        if (!nominee || row.sources.some(s => !s.says.trim() && s.url !== nominee) || row.note.startsWith("Owed again: source support disputed;") && (row.sources.length !== 1 || row.sources[0]!.says.trim())) return refused;
-        held = mine; rival = { subject: row.subject, url: nominee, anchor: row.subject };
+        const target = await currentFactualTarget(tenantId, snapshot, held, basis, deadlineAt, finding, firstPage);
+        if (!target) return refused;
+        if (target.row.state === "checked") return facts.authorizedCorrections([target.row], undefined, tenantId).length ? { status: "done", banked: 0, bankedPages: [], pagesComplete: 0, reason: "the exact current finding is already qualified; no source was researched" } : refused;
+        held = [target.row]; sourceBody = new Map([[canonicalUrlKey(target.body.url), target.body]]); rival = { subject: target.row.subject, url: target.need.rivalUrl!, anchor: target.row.subject };
       }
       const { callStructuredLLM } = await import("@/domains/decision/llm/structured-drafter");
       const read = async (input: { kind: "fact_claim_extraction" | "fact_claim_judgement"; system: string; user: string; grounded: string; projectedCostUsd: number; maxTokens: number }) => {
@@ -520,6 +510,10 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
           { rows: (p) => { const held0 = page.get(p) ?? facts.readFactChecks(tenantId, p); page.set(p, held0); return held0; }, rulesVersionFor: facts.rulesVersionFor,
             rebank: (p, rows) => facts.recordFactChecks(tenantId, p, rows), reopen: (p, rows, why) => facts.reopenObsoleteChecks(tenantId, p, rows, why) }).catch(() => []);
         log.info("[research-steps] source support derived for claims already paid for", { tenantId, asked: targets.length, supported: banked.filter((o) => o.action === "banked_supported").length, reopened: banked.filter((o) => o.action === "reopened").length });
+      }
+      if (exact && out.banked > 0) {
+        const current = (await facts.readFactChecks(tenantId, finding!.page)).filter(h => h.page === finding!.page && h.statementKey === finding!.statementKey && h.state === "checked" && Number.isSafeInteger(h.sourceVersion) && h.sourceVersion! > 0 && h.evidenceBasis === basis && h.pageContentHash === held[0]?.pageContentHash);
+        if (current.length !== 1 || facts.authorizedCorrections(current, undefined, tenantId).length !== 1 || !await currentFactualTarget(tenantId, snapshot, current, basis, deadlineAt, { ...finding!, sourceVersion: current[0]!.sourceVersion }, firstPage)) return { status: "failed", banked: out.banked, bankedPages: [], pagesComplete: out.pagesComplete, failure: "source_not_qualified", reason: "The named source reading was saved, but it does not qualify this correction; no writer may spend against it." };
       }
       return { status: out.status, banked: out.banked, bankedPages: out.bankedPages, pagesComplete: out.pagesComplete, failure: out.failure, reason: out.reason };
     } catch (e) {

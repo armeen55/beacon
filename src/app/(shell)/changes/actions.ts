@@ -17,7 +17,7 @@ import { invalidateCoreSurfaces, isCustomerSurfaceStale, readCustomerSurface, re
 import { readChangesPage, type ChangesPage } from "../changes-data";
 import operatorUiPolicy from "./types";
 
-type MarkProposalImplementedResponse = { success: boolean; error?: string; note?: string; retryable?: boolean; providerCalls?: number; costUsd?: number; readySaved?: number; evidenceOwed?: number; run?: { id: string; status: string } | null; modelRequests?: number; reservedUsd?: number; reason?: string };
+type MarkProposalImplementedResponse = { success: boolean; error?: string; note?: string; retryable?: boolean; providerCalls?: number; costUsd?: number; readySaved?: number; evidenceOwed?: number; run?: { id: string; status: string } | null; modelRequests?: number; reservedUsd?: number; sourceRequests?: number; sourceReservedUsd?: number; reason?: string };
 
 type Shipped = { ok: true; complete: boolean; recorded: number; remaining: number; shipmentId: string; shipmentVersion: string; measurement: MeasurementState; atomic?: boolean };
 
@@ -379,8 +379,8 @@ export async function finishOneProposalAction(args: { prepareNext: true; proposa
     if (args.prepareNext === true) {
       const result = await atomicProof.prepareNext({ tenantId, currentBasis: await resolveCurrentBasis(tenantId), eligible: operatorUiPolicy.isManualEditProofWork });
       const readySaved = result.readySaved, evidenceOwed = result.run?.progress.evidenceOwed?.length ?? 0;
-      const receipt = { readySaved, evidenceOwed, run: result.run ? { id: result.run.id, status: result.run.status } : null, modelRequests: result.meter?.modelCalls ?? 0, reservedUsd: result.meter?.modelReservedUsd ?? 0, reason: result.reason };
-      const costs = ` Authorized request reservations: $${receipt.reservedUsd.toFixed(4)}; ${receipt.modelRequests} model requests authorized; DataForSEO $0.${result.accountedUsd == null ? " Recorded conservative run total (may include unreconciled reservations; not an invoice) is unavailable." : ` Recorded conservative run total (may include unreconciled reservations; not an invoice): $${result.accountedUsd.toFixed(6)}.`}`;
+      const receipt = { readySaved, evidenceOwed, run: result.run ? { id: result.run.id, status: result.run.status } : null, modelRequests: result.meter?.modelCalls ?? 0, reservedUsd: (result.meter?.modelReservedUsd ?? 0) + (result.meter?.externalReservedUsd ?? 0), sourceRequests: result.meter?.externalCalls ?? 0, sourceReservedUsd: result.meter?.externalReservedUsd ?? 0, reason: result.reason };
+      const costs = ` Authorized request reservations: $${receipt.reservedUsd.toFixed(4)}; ${receipt.modelRequests} model requests authorized; source-read reservations $${receipt.sourceReservedUsd.toFixed(4)} for ${receipt.sourceRequests} authorized requests.${result.accountedUsd == null ? " Recorded conservative run total (may include unreconciled reservations; not an invoice) is unavailable." : ` Recorded conservative run total (may include unreconciled reservations; not an invoice): $${result.accountedUsd.toFixed(6)}.`}`;
       const blocker = ({ account_not_active: "This account is not active.", research_permission_refused: "Scheduled research must be paused for this action.",
         current_basis_unavailable_or_changed: "The current business profile could not be confirmed.", openai_not_configured_in_this_runtime: "The writing service is unavailable.", claim_unavailable: "The saved work could not be resumed.",
         no_claim_or_progressable_work: "No eligible work could start.", claim_held_or_daily_pass_ceiling: "Another attempt is active, or today's work limit was reached.", previous_day_closed_current_claim_refused: "The earlier work closed; new work could not start." } as Record<string, string>)[result.reason];

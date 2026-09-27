@@ -25,8 +25,7 @@ import type { CanonicalPairObservation } from "./research-evidence";
 
 /** Per cycle: three queries' five-page reserves, one substitute each, and a separate paid-read ceiling. */
 const WINNER_READ_BUDGET = 15, MAX_COMPARISONS = 8, MAX_PAGE_ATTEMPTS = 18, MAX_PAID_BODY_READS = 6;
-/** CONTENT identity, never the address: the same parsed extract in any key order hashes the SAME, and a changed title, heading, opening or body hashes DIFFERENTLY. Banking sha16(url) on the provider path froze
- *  a page's identity at its address forever, so a rewritten page looked unchanged to a store whose whole point is content-hash-aware reuse. fetchedAt is when I looked, not what the page says, so it is excluded. */
+/** Parsed material owns the hash; key order and observation time do not. */
 const extractHash = (x: ResearchPageExtract): string => sha16(JSON.stringify(Object.entries(x).filter(([k, v]) => k !== "fetchedAt" && v !== undefined).sort((a, b) => a[0].localeCompare(b[0]))));
 /** A WINNER CARRIES A READING when its extract holds the page's own words, or says in type that the read happened and found none (`truncated` is written by every read and by no row banked before reading existed). THE one test, asked where a banked row is reused and where the winners are written, so one of them can never call a page read while the other calls it unread. */ const carriesReading = (x: ResearchPageExtract | null | undefined): boolean => !!x && (x.mainText != null || x.truncated != null);
 /** WHAT THE RESEARCH ROW CARRIES OF A READING (Stage 2, 2026-09-14; bounded on review): the cache holds the whole reading up to the crawler's ceiling; the row holds the comparison ceiling of the text and then ONLY the sections whose words lie past that prefix, each cut to the window the comparison opens, the whole row under 16,000 characters a winner, so a deep section reaches the comparison without the row carrying the same words twice. `truncated` is true whenever the row holds less than the page measured, the capture's own cut or the row's. */
@@ -37,8 +36,6 @@ const heldInRow = (x: ResearchPageExtract): ResearchPageExtract => { const held 
 /** A ROW BANKED UNDER THE OLD 12,000 CEILING HOLDS A PREFIX OF A PAGE IT MEASURED WHOLE, and is re-read once, free crawl first, to replace it; a reading at the crawler's own ceiling is never re-read for length. */
 const prefixOnly = (x: ResearchPageExtract | null): boolean => !!x && x.truncated === true && (x.heldChars ?? 0) < (x.totalChars ?? 0) && (x.heldChars ?? 0) < 100_000;
 /** The engines and the real prompt texts of ONE page's OWN appearances, derived wherever a winner row is written so a carried row describes the evidence that names it today rather than the evidence that named it when it was read. */ const facetsOf = (as: ResearchWinningAppearance[]) => ({ engines: [...new Set(as.map((a) => a.engine).filter((e): e is string => !!e))].sort(), examplePrompts: [...new Set(as.map((a) => a.promptText).filter((t): t is string => !!t))].slice(0, 5) });
-
-
 /** SERPs plus dated canonical AI citations. Ranking dedupes modes after redirects resolve. */
 function collectAppearances(state: FunnelState, fallbackIso: string, observations: CanonicalPairObservation[]): ResearchWinningAppearance[] {
   const out: ResearchWinningAppearance[] = [];
@@ -211,11 +208,14 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
       }
       const account = await d.getAccount(tenantId).catch(() => null), profile = await d.loadProfile(tenantId).catch(() => null);
       const ownDomain = account?.domain ? rootDomain(account.domain) : null;
+      if (competitorUrl && (!ownDomain || state.tenantId !== tenantId || state.basisTag !== basis)) return { status: "failed", cursor, progress: {}, detail: "The named source has no current account-scoped research bank." };
+      const matches = (a: ResearchWinningAppearance) => [a.citedUrl, a.viaUrl].some((u) => !!u && canonicalUrlKey(u) === canonicalUrlKey(competitorUrl ?? "")) && priorityQueries.some((q) => canonicalQueryKey(q) === canonicalQueryKey(a.query ?? a.promptText ?? ""));
+      const named = competitorUrl ? rankWinningPages(collectAppearances(state, nowIso, []).filter((a) => matches(a) && state.serps.queries.some((q) => q.observedAt === a.observedAt && canonicalQueryKey(q.query) === canonicalQueryKey(a.query ?? "")) && isCurrent("serp_cold", a.observedAt, d.now()) && Date.parse(a.observedAt) <= d.now()), ownDomain, 1)[0] : null;
       const toDay = reportingDay(d.now()), fromDay = new Date(Date.parse(`${toDay}T12:00:00Z`) - 27 * 86_400_000).toISOString().slice(0, 10);
-      const observations = await d.loadCanonicalObservations(tenantId, { fromDay, toDay }).catch(() => null);
+      const observations = named ? [] : await d.loadCanonicalObservations(tenantId, { fromDay, toDay }).catch(() => null);
       if (observations === null) return { status: "failed", cursor, progress: {}, detail: "Stored AI evidence could not be read, so nothing was spent and saved research was preserved." };
-      const raw = collectAppearances(state, nowIso, observations);
-      const resolved = await Promise.resolve().then(() => resolve(raw, undefined, deadline)).catch(() => raw); // a resolver failure (sync OR async) degrades to raw appearances; the unit deadline bounds it
+      const raw = named ? named.appearances : collectAppearances(state, nowIso, observations);
+      const resolved = named ? raw : await Promise.resolve().then(() => resolve(raw, undefined, deadline)).catch(() => raw);
       const prior = new Map(state.winningPages.map((w) => [canonicalUrlKey(w.url), w])); // the row I already hold for each page: the reading it carries, and what stopped me last time
       /** WHAT THE EVIDENCE ON FILE NAMES RIGHT NOW, under the same top-ten rule the ranking applies and BEFORE any window cuts it: every page this account's own results pages and answers still point at, with the appearances that say so. */ const still = new Map<string, ResearchWinningAppearance[]>();
       for (const a of resolved) { if (a.kind === "serp_organic" && (a.rank == null || a.rank > 20)) continue; /* the twenty rows a look buys, the same cutoff the ranking applies */ const k = canonicalUrlKey(a.citedUrl); if (k) still.set(k, [...(still.get(k) ?? []), a]); }
@@ -224,10 +224,10 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
       const bank = async (url: string, x: ResearchPageExtract) => { await d.writePageExtract(url, x as unknown as Record<string, unknown>, extractHash(x)).catch(() => {}); };
       // A SEARCH THIS ACCOUNT PAID FOR WHOSE PAGES NOTHING HAS EVER RANKED TAKES ITS OWN RESERVE, newest search first and at most three a pass, off THE one selection rule in funnel/normalize. The global order is by ACCUMULATED appearances, so the ten pages of a results page bought this morning carry one each and lose every slot to pages that have been winning for weeks (proved on this file's own starvation pin): the search is paid for, nothing off it is ever read, and the row that owed that reading asks for the same results page again tomorrow. runtime/ops/due-work counts the pages of exactly these searches to make the read due, so a pass opened for that reason discharges what opened it and the receipt can never promise a search this pass will not take. The ORDER is that rule's too: appended behind the focused cases, an owed search fell off the far side of the reserve's own ceiling the moment this account carried forty of them, and the receipt named three pages nobody would open.
       const priority = owedWinnerReads(state.serps.queries, state.winningPages.map((w) => w.url), ownDomain, priorityQueries).queries;
-      const requested = competitorUrl ? rankWinningPages(resolved.filter((a) => [a.citedUrl, a.viaUrl].some((u) => !!u && canonicalUrlKey(u) === canonicalUrlKey(competitorUrl)) && priorityQueries.some((q) => canonicalQueryKey(q) === canonicalQueryKey(a.query ?? a.promptText ?? ""))), ownDomain, 1)[0] : null;
+      const requested = named ?? (competitorUrl ? rankWinningPages(resolved.filter(matches), ownDomain, 1)[0] : null);
       if (competitorUrl && !requested) return { status: "failed", cursor, progress: {}, detail: "The requested competitor page is not backed by this query's stored search or citation evidence; nothing was fetched." };
       // EVERY RANKED CANDIDATE IS RANKED, and the cache is consulted for all of them (Stage 2, 2026-09-14): only the first WINNER_READ_BUDGET of the queue may be fetched, but a page past that slot whose extract sits in the cache is a winner with its reading, not a page the projection drops.
-      const normal = rankWinningPages(resolved, ownDomain, readingsBound, priority), same = (c: typeof normal[number]) => !!requested && canonicalUrlKey(c.url) === canonicalUrlKey(requested.url);
+      const normal = named ? [] : rankWinningPages(resolved, ownDomain, readingsBound, priority), same = (c: typeof normal[number]) => !!requested && canonicalUrlKey(c.url) === canonicalUrlKey(requested.url);
       const ranked = requested ? [{ ...requested, ownerQuery: canonicalQueryKey(requested.appearances[0]?.query ?? requested.appearances[0]?.promptText ?? "") }, ...normal.filter((c) => !same(c))] : normal, bench = new Map<string, typeof ranked>(), substituted = new Set<string>();
       for (const c of ranked) if (c.standby && c.ownerQuery) bench.set(c.ownerQuery, [...(bench.get(c.ownerQuery) ?? []), c]);
       // Interleave focused cases before substitutes and global fill; all share the same attempt/spend ceilings.
@@ -272,16 +272,16 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
         else if (!fetchable) continue;
         else if (c.ownerQuery && !substituted.has(c.ownerQuery)) { const sub = (bench.get(c.ownerQuery) ?? []).find((b) => !readPublishers.has(publisherHost(b.url)));
           if (sub) { substituted.add(c.ownerQuery); queue.splice(focusEnd, 0, sub); focusEnd += 1; } }
-        pages.push({ url: c.url, domain: c.domain, ...facetsOf(c.appearances), appearances: c.appearances, extract: extract && heldInRow(extract), readOutcome: outcome });
+        pages.push({ url: c.url, domain: c.domain, ...facetsOf(c.appearances), appearances: c.appearances, extract: extract && (extract === was?.extract ? extract : heldInRow(extract)), readOutcome: outcome });
       }
-      for (const c of queue.slice(processed)) { const was = prior.get(canonicalUrlKey(c.url)); if (was) pages.push({ ...was, ...facetsOf(c.appearances), appearances: c.appearances, extract: was.extract && heldInRow(was.extract) }); }
+      for (const c of queue.slice(processed)) { const was = prior.get(canonicalUrlKey(c.url)); if (was) pages.push(was); }
       // Preserve live readings outside the ranked window and unexpired failure holds.
-      const banked = new Set(pages.map((p) => canonicalUrlKey(p.url))), rest = state.winningPages.filter((w) => !banked.has(canonicalUrlKey(w.url)));
+      const banked = new Map(pages.map((p) => [canonicalUrlKey(p.url), p])), rest = state.winningPages.filter((w) => !banked.has(canonicalUrlKey(w.url)));
       const agenda = new Set([...state.serps.queries.map((q) => q.query), ...priorityQueries].map((q) => canonicalQueryKey(q)).filter(Boolean)); // A SEARCH BEING RE-BOUGHT IS STILL ON THE AGENDA: its results row carries no organic rows while it is pending, so a winner with a fresh reading for it keeps its row rather than vanishing until the look lands again.
-      const kept = rest.flatMap((w) => { if (!carriesReading(w.extract) || !isCurrent("winner_extract", w.extract?.fetchedAt, d.now())) return []; const live = still.get(canonicalUrlKey(w.url)); if (live) return [{ ...w, ...facetsOf(live), appearances: live }];
+      const kept = named ? [] : rest.flatMap((w) => { if (!carriesReading(w.extract) || !isCurrent("winner_extract", w.extract?.fetchedAt, d.now())) return []; const live = still.get(canonicalUrlKey(w.url)); if (live) return [{ ...w, ...facetsOf(live), appearances: live }];
         return (w.appearances ?? []).some((a) => agenda.has(canonicalQueryKey(a.query ?? a.promptText ?? ""))) ? [w] : []; })
         .sort((a, b) => (b.extract?.fetchedAt ?? "").localeCompare(a.extract?.fetchedAt ?? "")), keptKeys = new Set(kept.map((w) => canonicalUrlKey(w.url)));
-      state.winningPages = [...pages, ...kept, ...rest.filter((w) => !keptKeys.has(canonicalUrlKey(w.url)) && w.readOutcome
+      state.winningPages = named ? [...state.winningPages.map((w) => banked.get(canonicalUrlKey(w.url)) ?? w), ...pages.filter((p) => !prior.has(canonicalUrlKey(p.url)))] : [...pages, ...kept, ...rest.filter((w) => !keptKeys.has(canonicalUrlKey(w.url)) && w.readOutcome
         && d.now() < Date.parse(w.readOutcome.retryAfter)).map((w) => ({ ...w, extract: null, appearances: [] })).slice(0, WINNER_READ_BUDGET * 2)];
       const owned = ownedUrl && !shortRead ? await readOwnedPage(d, tenantId, state.ownedReads ?? [], ownedUrl, deadline, profile, ownedBustedAt, state, freeOnly) : null;
       if (owned) state.ownedReads = owned.held;

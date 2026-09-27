@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { runResolvedCall, collectResolvedTask, identityCacheKey, type CachedCallDeps, type ResolvedCall } from "@/domains/evidence/dataforseo/cached-call";
 import { PROOF_SPEND, runWithoutSpending } from "@/lib/spend-scope";
-/** Every UPDATE matches ZERO rows here, so the production write seam must throw. */
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ from: () => ({ update: () => ({ eq: () => ({ select: async () => ({ data: [], error: null }) }) }) }) }) }));
 const ENV = { DATAFORSEO_AUTH_B64: "abc" } as unknown as NodeJS.ProcessEnv;
 const NOW = new Date("2026-07-25T12:00:00.000Z"); const FUTURE = new Date(NOW.getTime() + 86_400_000).toISOString(); const SERP = "serp/google/organic";
@@ -41,11 +40,22 @@ async function secondVisit(ready: unknown, at: Date = NOW) {
   g.deps.fetchImpl = fetcher(g.calls, (u) => (u.includes("tasks_ready") ? ready : liveOk(0)));
   return { res: await runResolvedCall(taskCall(), g.deps), calls: g.calls };}
 describe("runResolvedCall - the atomic money path, and the paid-response policy (the STATUS decides, never the reported cost alone)", () => {
+  it.each(["reserved", "transmitted", "ambiguous"] as const)("rechecks current manual inputs before claiming a %s source request", async (state) => {
+    const target = { capability: "onpage_content_parsing", url: "https://authority.example/claim" }, request = resolved({ ...target, publicInput: { url: target.url } }), g = makeDeps();
+    const spend = g.deps.spend as CachedCallDeps["spend"], reserve = spend.reserve; spend.reserve = async (args) => ({ ...await reserve(args), state, outcome: state === "reserved" ? "reserved" : "resumed" });
+    let current = true; const write = g.deps.cacheWrite as CachedCallDeps["cacheWrite"]; g.deps.cacheWrite = async (key: string, patch: Record<string, unknown>) => { await write(key, patch); if (patch.spend_attempt_id) current = false; };
+    await PROOF_SPEND.run("tenant-a", 1, 0.1, async () => {
+      const out = await runResolvedCall(request, g.deps);
+      expect([out.state, g.calls.fetch, g.calls.life.some(([kind]) => kind === "claim"), PROOF_SPEND.meter("tenant-a")!.externalCalls]).toEqual([state === "reserved" ? "capped" : "error", [], false, 0]);
+      expect(g.calls.life.filter(([kind]) => kind === "release")).toEqual(state === "reserved" ? [["release", false]] : []);
+      expect(quarantined(g.calls.writes)).toBe(state !== "reserved");
+    }, { maxExternalCalls: 1, maxExternalUsd: 0.05, allowedExternal: [target], guard: async () => current });
+  });
   it.each([false, true])("meters only new proof wires; cache/replay is free and ambiguity=%s retains admission", async (ambiguous) => {
     const target = { capability: "onpage_rendered_html", url: "https://own.example/page" }, request = resolved({ ...target, publicInput: { url: target.url }, estCostUsd: 0.002 });
     await PROOF_SPEND.run("tenant-a", 8, 2, async () => {
       const warm = makeDeps({ claimEvidenceFetch: claim("ready", { payload: liveOk(0.0021) }) });
-      expect((await runResolvedCall(request, warm.deps)).state).toBe("hit"); expect(PROOF_SPEND.meter("tenant-a")!.externalCalls).toBe(0);
+      const hit = await runResolvedCall(request, warm.deps); expect([hit.state, hit.state === "hit" && hit.costUsd, warm.calls.fetch.length, warm.calls.reserve.length, warm.calls.writes.length, PROOF_SPEND.meter("tenant-a")!.externalCalls]).toEqual(["hit", 0, 0, 0, 0, 0]);
       const attempt = makeDeps(ambiguous ? { fetchImpl: throwing() } : {});
       const result = await runResolvedCall(request, attempt.deps);
       expect(result.state).toBe(ambiguous ? "error" : "ok");
@@ -55,9 +65,11 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
     const closed = makeDeps(); expect((await runWithoutSpending(() => runResolvedCall(request, closed.deps))).state).toBe("capped"); expect(closed.calls.fetch).toEqual([]);
   });
   it("a miss takes a pre-call receipt, one network call, one reservation, one reconcile, and caches the FULL envelope", async () => {
-    const { deps, calls } = makeDeps(); const res = await runResolvedCall(resolved(), deps);
+    const { deps, calls } = makeDeps(), spend = deps.spend as CachedCallDeps["spend"], reconcile = vi.fn(spend.reconcile); spend.reconcile = reconcile;
+    const res = await runResolvedCall(resolved(), deps);
     expect([res.state, res.state === "ok" && res.costUsd, calls.fetch.length, calls.reserve, calls.adjust]).toEqual(["ok", 0.0021, 1, [0.01], [0.0021 - 0.01]]); // reserve first, reconcile est -> actual
     expect(calls.life).toEqual([["reserve", expect.stringMatching(/^dataforseo:dfs2_/)], ["claim"], ["reconcile", 0.0021, null]]);
+    expect(reconcile).toHaveBeenCalledWith("a1", 0.0021, null, "provider_reported", liveOk(0.0021));
     expect([res.state === "ok" && res.envelope.status_code, res.state === "ok" && res.envelope.tasks?.[0]?.result]).toEqual([20000, [{ rank: 1 }]]); // ENVELOPE RULE: top kept, parsers still see inside
     const ready = calls.writes.find((w) => w.status === "ready")!;
     expect([typeof calls.writes[0].posted_attempt_at, (ready.payload as { status_code?: number }).status_code, ready.posted_attempt_at]).toEqual(["string", 20000, null]); // receipt BEFORE the network, cleared by the finished call
@@ -68,15 +80,6 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
     const out = await runResolvedCall(resolved(), g.deps);
     expect([out.state, out.state === "ok" && out.costUsd, g.calls.life.at(-1)])
       .toEqual(["ok", 0.004, ["reconcile", 0.004, null]]);
-  });
-  it("an identical repeat is a zero-network, zero-cost hit", async () => {
-    const { deps, calls } = makeDeps({ claimEvidenceFetch: claim("ready", { payload: [{ rank: 1 }] }) }); expect([(await runResolvedCall(resolved(), deps)).state, calls.fetch.length, calls.reserve.length]).toEqual(["hit", 0, 0]); // a hit is typed costUsd: 0
-  });
-  it("stores the full paid LIVE envelope in the spend receipt before projecting it to cache", async () => {
-    const g = makeDeps();
-    const reconcile = vi.fn(async () => true); (g.deps.spend as CachedCallDeps["spend"]).reconcile = reconcile;
-    const out = await runResolvedCall(resolved(), g.deps); expect(out.state).toBe("ok");
-    expect(reconcile).toHaveBeenCalledWith("a1", 0.0021, null, "provider_reported", liveOk(0.0021));
   });
   it("rebuilds LIVE and final Standard cache rows from a replayed paid envelope despite a closed breaker", async () => {
     const body = liveOk(0.0021, [{ rank: 3 }]);

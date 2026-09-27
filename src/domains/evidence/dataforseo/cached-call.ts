@@ -69,7 +69,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
   try {
     claim = await d.claimEvidenceFetch({
       cacheKey, endpoint: r.postPath, endpointVersion: r.endpointVersion, locationCode: r.locationCode,
-      inputHash: sha256(stableStringify(r.publicInput)).slice(0, 40), inputSummary: boundedSummary(r.publicInput),
+      inputHash: sha256(stableStringify(r.publicInput)).slice(0, 40), inputSummary: stableStringify(r.publicInput).slice(0, 200),
       languageCode: r.languageCode, device: r.device, modelRequested: r.modelRequested, claimSeconds: CLAIM_LEASE_SECONDS,
     });
   } catch (err) {
@@ -129,6 +129,11 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     await releaseClaim(d, cacheKey, now, "precall_receipt_failed");
     return { state: "error", cacheKey, disposition: "none", detail: `The pre-call receipt could not be saved (${short(err)}). No provider call was made, and it is tried again.` };
   }
+  if (await PROOF_SPEND.current(r.tenantId) === false) {
+    if (reservation.state !== "reserved" || !await d.spend.release(attemptId, false).catch(() => false)) return holdUncertain(d, r.mode, cacheKey, now, attemptId, "Manual delivery inputs or permission changed; the unresolved reservation remains held without another provider call.");
+    await releaseClaim(d, cacheKey, now, "manual_inputs_changed");
+    return { state: "capped", cacheKey, detail: "Manual delivery inputs or permission changed before transmission. No provider call was made." };
+  }
   const transmission = reservation.state === "reserved"
     ? await d.spend.claimTransmission(attemptId).catch(() => "unavailable" as const)
     : "already_started" as const;
@@ -149,8 +154,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     const cost = readProviderCost(transport.body);
     if (transport.status === 402 && cost === 0 && isPaymentRefusal(transport.body)) { await CREDIT_BREAKER.trip(r.tenantId, {}, "dataforseo").catch(() => {}); if (await d.spend.release(attemptId, true).catch(() => false)) await releaseClaim(d, cacheKey, now, "credit_held"); else await holdUncertain(d, r.mode, cacheKey, now, attemptId, "The provider reported no charge, but the reservation could not be released safely."); return { state: "capped", cacheKey, detail: CREDIT_BREAKER.sentence("dataforseo") }; }
     if (cost === 0) return applyPaidRejection(d, r, transport.body, cost, now, attemptId, `The provider refused this request over HTTP ${transport.status ?? "unknown"} and reported no charge.`);
-    const held = await holdUncertain(d, r.mode, cacheKey, now, attemptId, "Whether the provider took and charged this request could not be confirmed, so it is paused.");
-    return held;
+    return holdUncertain(d, r.mode, cacheKey, now, attemptId, "Whether the provider took and charged this request could not be confirmed, so it is paused.");
   }
   const body = transport.body;
   const providerCost = readProviderCost(body);
@@ -422,7 +426,6 @@ async function fetchTasksReady(d: CachedCallDeps, path: string, stopBy: number):
   return out;
 }
 function tagTaskPayload(payload: unknown[], tag: string): unknown[] {
-  if (payload.length === 0) return [{ tag }];
   const [first, ...rest] = payload;
   return [{ ...(first as Record<string, unknown>), tag }, ...rest];
 }
@@ -457,9 +460,8 @@ function readProviderCost(body: unknown): number | null {
   return reported.length > 0 ? Math.max(...reported) : null;
 }
 function readModelServed(task: Record<string, unknown> | null): string | null {
-  if (!task) return null;
-  const r = (Array.isArray(task.result) ? task.result[0] : task.result) as Record<string, unknown> | undefined;
-  const m = (r?.model_name ?? r?.model ?? task.model) as unknown;
+  const r = (Array.isArray(task?.result) ? task.result[0] : task?.result) as Record<string, unknown> | undefined;
+  const m = (r?.model_name ?? r?.model ?? task?.model) as unknown;
   return typeof m === "string" && m.length > 0 ? m : null;
 }
 function boundEnvelope(body: unknown): ProviderEnvelope {
@@ -487,9 +489,7 @@ function readTaskPosted(body: unknown): { accepted: boolean; taskId: string | nu
   const accepted = topStatus(body) === 20000 && task != null && (code === 20000 || code === 20100) && typeof id === "string" && id.length > 0;
   return { accepted, taskId: accepted ? (id as string) : null };
 }
-
 function short(err: unknown): string { return (err instanceof Error ? err.message : String(err)).slice(0, 120); }
-function boundedSummary(input: Record<string, unknown>): string { return stableStringify(input).slice(0, 200); }
 function sha256(s: string): string { return createHash("sha256").update(s).digest("hex"); }
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";

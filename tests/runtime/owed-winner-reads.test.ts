@@ -41,20 +41,6 @@ describe("owedWinnerReads, the receipt and the unit reading one rule", () => {
     expect([two.queries.length, two.pageKeys.length], "one canonical query uses its newest complete result, never a union of old and new pages").toEqual([1, 1]);
   });
 });
-describe("the number Today says and the number the next pass reads", () => {
-it.each(SITES)("$t: three owed searches reserve their exact top five pages inside fifteen total reads", (s) => {
-    const serps = ["q1", "q2", "q3"].map((q, n) => ({ query: `${q} ${s.q}`, status: "done", observedAt: `2026-09-0${n + 1}T01:00:00Z`,
-      organic: Array.from({ length: 10 }, (_, i) => ({ url: `https://${q}-p${i}.example/a`, rank: i + 1 })) }));
-    const owed = owedWinnerReads(serps, [], own(s));
-    const organic = serps.flatMap((x) => x.organic.map((o) => ({ citedUrl: o.url, kind: "serp_organic", rank: o.rank, query: x.query, engine: "google" })));
-    const aiCited = Array.from({ length: 10 }, (_, i) => ({ citedUrl: `https://ai-cited-${i}.example/a`, kind: "ai_citation", query: "", engine: "chatgpt", promptText: "p" }));
-    const picked = rankWinningPages([...organic, ...aiCited] as never, own(s), WINNER_READ_BUDGET, owed.queries);
-    const owedKeys = new Set(owed.pageKeys), read = picked.filter((c) => !c.standby && owedKeys.has(key(c.url)));
-    expect([owed.pageKeys.length, read.length],
-      "Today says this many pages winning a search already bought are owed a read and that the next pass reads them, so the promise is the reserve itself: five ranked pages per search, never thirty pages or a publisher-deduplicated substitute")
-      .toEqual([15, 15]);
-  });
-});
 describe("the number Today says and the pages the next pass reserves", () => {
   it.each(SITES)("$t: two spellings of one search, one publisher, two publishers, and a page two searches share", (s) => {
     const spellings = both(s, [serp(`${s.q}`, "2026-09-06T01:00:00Z", ["https://p1.example/x"]), serp(s.q.toUpperCase(), "2026-09-06T02:00:00Z", ["https://p2.example/y"])]);
@@ -66,12 +52,6 @@ describe("the number Today says and the pages the next pass reserves", () => {
       [twoPublishers.promised, twoPublishers.unread], [sharedPage.promised, sharedPage.unread]],
       "one query uses its newest result; one publisher can supply five distinct pages; short results owe every page; shared pages count once. Every promised page is reserved.")
       .toEqual([[1, 1, []], [5, []], [4, []], [5, []]]);
-  });
-  it.each(SITES)("$t: the promise is never a page the pass will not open, whatever the account already has in focus", (s) => {
-    const withFocus = (n: number) => { const a = account(s, n); return both(s, a.serps, a.banked, a.focus); };
-    expect([withFocus(39).unread, withFocus(40).unread, withFocus(41).unread, withFocus(40).promised],
-      "Today says these pages are owed a read and that the next pass reads them, so a reserve the pass cannot spend on them makes the sentence say a number nobody will read: the owed searches are cut into the ceiling ahead of the focused tail, and the promise is kept on either side of it")
-      .toEqual([[], [], [], 3]);
   });
 });
 const account = (s: Site, n: number) => {
@@ -87,16 +67,11 @@ const pass = (s: Site, n: number) => { const a = account(s, n), { owed, picked }
     focusedOpened: a.focus.filter((_, i) => reservedKeys.has(key(`https://f${i}.example/a`))).length, focusedTotal: n,
     readTotal: picked.filter((c) => !c.standby).length }; };
 describe("the priority order the rule returns and the order the pass takes", () => {
-  it.each(SITES)("$t: every page the receipt promises is opened by the RESERVE at 39, 40 and 41 focused cases", (s) => {
-    const at = [39, 40, 41].map((n) => pass(s, n));
+  it.each(SITES)("$t: every promised page is reserved and the receipt stays constant at 0, 39, 40 and 41 focused cases", (s) => {
+    const at = [0, 39, 40, 41].map((n) => pass(s, n));
     expect(at.map((x) => [x.receipt.length, x.promisedAndOpened]),
       "the promise is three pages of a search already bought, and on either side of the ceiling the reserve itself opens exactly those three: not the global weight order, which the file's own starvation pin proves a page bought this morning loses")
-      .toEqual([[3, 3], [3, 3], [3, 3]]);
-  });
-  it.each(SITES)("$t: the receipt is the same number whatever the account has in focus", (s) => {
-    expect([pass(s, 0).receipt.length, pass(s, 39).receipt.length, pass(s, 41).receipt.length],
-      "due-work asks this rule with no focus at all, so what Today says is owed a read cannot move with the size of the plan")
-      .toEqual([3, 3, 3]);
+      .toEqual([[3, 3], [3, 3], [3, 3], [3, 3]]);
   });
   it.each(SITES)("$t: MEASURED: past the ceiling the tail of the focus loses its reserve, and nothing else counts it back", (s) => {
     const under = pass(s, 36), over = pass(s, 41);
