@@ -204,8 +204,8 @@ export function projectStatusView(run: ResearchRun | null, nowMs: number): Resea
     pauseReason: interrupted ? INTERRUPTED_REASON
       : state === "paused" && run.last_error?.phase === run.current_phase ? (run.last_error?.message?.trim() || null) : null,
     blocker: (persisted.blocker ?? "").trim() || null, // the drive's own not-started sentence, carried whole so the surface prints the seconds rather than recomputing them
-    // AND THE WALK THE DRIVE STOPPED WAITING FOR, said as its own sentence off the walk's own typed ending (runtime/ops/research-steps): the work carried on, so the next pass picks it up where this one left it rather than beginning it again.
+    // A boxed pass may stop during source preparation, before any publication writer runs.
     waiting: run.progress?.replenish?.outcomes?.ended === "boxed"
-      ? `Writing your changes was still running when this drive's time ran out, so what it had already spent is remembered and the rest is owed again at its own rank. The next pass picks it up there.` : null,
+      ? `This preparation pass reached its time limit. Saved work and spending receipts are kept, and unfinished jobs remain due at their own rank.` : null,
   };
 }

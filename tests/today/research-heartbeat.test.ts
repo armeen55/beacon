@@ -36,11 +36,11 @@ describe("Today says what the last drive left undone", () => {
     RUN.row = run({ current_phase: s.phase, progress: { ...run().progress, ...boxed } });
     const both = (await loadTodayView()).researchLiveness ?? "";
     expect(both, "both facts are said, each in its own sentence, and the one about work still owed comes first").toContain(
-      "Writing your changes was still running when this drive's time ran out, so what it had already spent is remembered and the rest is owed again at its own rank. The next pass picks it up there. Publishing what this day found needs 40 seconds");
+      "This preparation pass reached its time limit. Saved work and spending receipts are kept, and unfinished jobs remain due at their own rank. Publishing what this day found needs 40 seconds");
     RUN.row = run({ current_phase: s.phase, progress: { sourcesRefreshed: 3, funnel: { answersAnalyzed: 10 }, state: { checksDone: 133, checksTotal: 140, checksAnswers: 133 }, ...boxed } });
     const alone = (await loadTodayView()).researchLiveness ?? "";
-    expect([alone.includes("still running when this drive's time ran out"), alone.includes("nothing was started for it")],
-      "and a drive that started everything it planned and only stopped waiting says that alone, with no invented second fact").toEqual([true, false]); });
+    expect([alone.includes("This preparation pass reached its time limit."), alone.includes("nothing was started for it")],
+      "a timed-out preparation preserves the owed work without claiming writing was running or inventing a second fact").toEqual([true, false]); });
   it.each(SITES)("says how many pages winning a search already bought are owed a read, and says nothing where none are, on $t", async (s) => {
     const owed = async (n: number) => { RUN.row = run({ current_phase: s.phase, progress: { ...run().progress, state: { ...(run().progress.state as Record<string, unknown>), winnersUnranked: n } } }); return (await loadTodayView()).researchLiveness ?? ""; };
     const [many, one, none] = [await owed(9), await owed(1), await owed(0)];

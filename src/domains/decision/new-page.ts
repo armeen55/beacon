@@ -2,7 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { authorizedCorrections, type FactCheck } from "@/domains/evidence/pages/fact-checks";
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
-import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
+import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { earnedNewPage } from "./coverage-adjudication";
 import type { DecidedTopic } from "./coverage-pass";
 import { componentIdOf, type BundleComponent, type ChangeProposal } from "./contracts";
@@ -14,27 +14,26 @@ import { DRAFT_BUDGET } from "./draft-budget";
 import { deliverableGaps } from "./completeness";
 import { REVIEW_CONTRACT, copyKey } from "./proof";
 import { validateProposal } from "./validate-proposal";
-
+import type { EvidenceRequirement } from "./producers/contract";
+import { isCurrent } from "@/domains/evidence/freshness";
 type Allowance = { left: number; record?: (value: unknown) => void };
 type Input = { tenantId: string; snapshot: EvidenceSnapshot; coverage: DecidedTopic; basis: string; checked: readonly FactCheck[]; prior?: ChangeProposal | null;
   now: Date; attempts: Allowance; complete?: CompleteFn; bypassCache?: boolean; bannedTerms?: readonly string[]; stopBy?: number; workKey: string;
   save: (row: ChangeProposal) => Promise<boolean> };
-type Result = { row: ChangeProposal | null; need?: string; detail: string };
+type Result = { row: ChangeProposal | null; need?: EvidenceRequirement; detail: string };
 const digest = (value: unknown): string => createHash("sha256").update(COPY_RULES.recordKey(value)).digest("hex");
-const caseId = (topic: string): string => topic.replaceAll("::", "~");
-const sourceKey = (id: string): string => `topic:${id}`;
 const truth = (checks: readonly FactCheck[], tenantId: string, page: string, basis: string): FactCheck[] => authorizedCorrections(checks.filter(c => c.page === page && c.current.trim() === "" && c.pageContentHash === null && c.evidenceBasis === basis), undefined, tenantId)
   .sort((a, b) => a.statementKey.localeCompare(b.statementKey));
 const fakeBody = (site: string, id: string, title: string, h1: string, pieces: readonly NonNullable<ChangeProposal["newPageDraft"]>["pieces"][number][], now: Date): OwnedPageBody => ({
   url: new URL(`/beacon-draft/${encodeURIComponent(id)}`, /^https?:\/\//.test(site) ? site : `https://${site}`).toString(), title, h1, metaDescription: null,
   headings: pieces.map(p => p.heading).filter((h): h is string => !!h), passages: pieces.map(p => p.after), openingSample: pieces.find(p => p.slot === 0)?.after ?? null,
   vocabulary: "", cardTexts: [], faqs: [], entityNames: [], internalLinks: [], fetchedAt: now.toISOString(), completeness: "complete", contentHash: null, heldNote: "Unpublished draft", version: "current" });
-
 export async function produceNewPage(input: Input): Promise<Result> {
   const { tenantId, snapshot, coverage, basis, now, attempts } = input, decision = coverage.decision, topic = coverage.investigation;
   if (!earnedNewPage(decision) || !decision.pattern || !topic.label.trim() || !snapshot.scope.site) return { row: null, detail: "The new-page decision, winning-page reading or account site is incomplete." };
-  const idPart = caseId(topic.key), id = `${tenantId}::${idPart}::new_page`, owner = sourceKey(idPart), prior = input.prior?.id === id && input.prior.tenantId === tenantId && input.prior.kind === "new_page" ? input.prior : null, legacy = input.prior?.id === `${id}::bundle` && input.prior.tenantId === tenantId && input.prior.kind === "new_page" && input.prior.status === "needs_review" && input.prior.primaryQuery === topic.label ? input.prior : null, bank = prior?.newPageDraft, stored = bank && COPY_RULES.newPageSourceBound(bank) ? bank.brief : null;
-  let heldLegacy: ChangeProposal | null = null; const holdSource = async (detail: string, source = true): Promise<Result> => { if (!prior) return { row: heldLegacy, ...(source ? { need: topic.label } : {}), detail }; const held: ChangeProposal = { ...prior, status: "needs_review", researchOnly: true, ...(source ? { semanticReview: undefined } : {}), obligation: source ? { kind: "evidence", need: { kind: "factual_source", topic: { key: owner, label: topic.label }, query: topic.label, missingTopic: topic.label, reasonCode: "new_page_source_owed" } } : { kind: "terminal", reason: detail, holdCode: "bank_reconciliation" } }; return await input.save(held) ? { row: held, ...(source ? { need: topic.label } : {}), detail } : { row: null, ...(source ? { need: topic.label } : {}), detail: `${detail} The safety hold could not be persisted.` }; };
+  const idPart = topic.key.replaceAll("::", "~"), id = `${tenantId}::${idPart}::new_page`, owner = `topic:${idPart}`, prior = input.prior?.id === id && input.prior.tenantId === tenantId && input.prior.kind === "new_page" ? input.prior : null, legacy = input.prior?.id === `${id}::bundle` && input.prior.tenantId === tenantId && input.prior.kind === "new_page" && input.prior.status === "needs_review" && input.prior.primaryQuery === topic.label ? input.prior : null, bank = prior?.newPageDraft, stored = bank && COPY_RULES.newPageSourceBound(bank) ? bank.brief : null;
+  const factualNeed: EvidenceRequirement = { kind: "factual_source", topic: { key: owner, label: topic.label }, query: topic.label, missingTopic: topic.label, reasonCode: "new_page_source_owed", rivalUrls: decision.pattern.brief?.sources.filter(s => s.scope === "complete" && Date.parse(s.freshness ?? "") <= now.getTime() && isCurrent("winner_extract", s.freshness, now.getTime()) && topic.winners.some(w => w.extractState === "current" && canonicalUrlKey(w.url) === canonicalUrlKey(s.url))).map(s => s.url) ?? [] };
+  let heldLegacy: ChangeProposal | null = null; const holdSource = async (detail: string, source = true, need = factualNeed, from = prior): Promise<Result> => { if (!from) return { row: heldLegacy, ...(source ? { need } : {}), detail }; const held: ChangeProposal = { ...from, status: "needs_review", researchOnly: true, ...(source && !(from.newPageDraft?.repair?.of === copyKey(from) && from.newPageDraft.repair.resolution === "acquire_factual_source") ? { semanticReview: undefined } : {}), obligation: source ? { kind: "evidence", need } : { kind: "terminal", reason: detail, holdCode: "bank_reconciliation" } }; return await input.save(held) ? { row: held, ...(source ? { need } : {}), detail } : { row: null, ...(source ? { need } : {}), detail: `${detail} The safety hold could not be persisted.` }; };
   if (input.prior && !prior && !legacy) return { row: null, detail: "A different historical new-page identity is on file; no banked copy was reused." };
   if (legacy) { heldLegacy = { ...legacy, researchOnly: true, obligation: { kind: "terminal", holdCode: "bank_reconciliation", reason: "This historical page lacks a source-bound plan; its copy remains private while current facts start a separate canonical page." } }; if (!await input.save(heldLegacy)) return { row: null, detail: "The historical page could not be held; no replacement was bought." }; }
   if (bank && (!stored || !COPY_RULES.newPagePieces(bank))) return holdSource("The saved page has no source-bound plan; its copy is preserved for reconciliation.", false);
@@ -71,7 +70,7 @@ export async function produceNewPage(input: Input): Promise<Result> {
   const bound = (p: NonNullable<ChangeProposal["newPageDraft"]>["pieces"][number], index: typeof sourceFacts = sourceFacts, basis?: string): boolean => !!p.assignment && p.assignment.page === owner && (COPY_RULES.accepted(p.editor) || (basis ? p.assignment.basis === basis : p.assignment.basis === identity || p.assignment.basis === stored?.identity)) && !!p.assignment.facts?.length && p.assignment.facts.every(f => factIndex.some(current => current.id === f.id && current.fact === f.says)) && !!p.units?.length && p.after === COPY_RULES.bodyCopy(p.units) && p.claims.length > 0 && p.claims.every(c => c.supportedBy.length > 0 && c.supportedBy.every(id => { const current = index.find(f => f.id === id), held = p.supportFacts.filter(f => f.id === id); return !!current && held.length === 1 && COPY_RULES.recordKey(current) === COPY_RULES.recordKey(held[0]); })); if (prior?.obligation?.kind === "terminal" && prior.obligation.holdCode === "bank_reconciliation") return { row: prior, detail: prior.obligation.reason }; if (!old || bank && (bank.brief.identity !== identity && !rebound || [...old.values()].some(p => !bound(p, oldIndex ?? [], String(bank.brief.identity)) || (COPY_RULES.accepted(p.editor) ? p.reviewOf !== COPY_RULES.pieceKey(p) : p.editor != null || p.reviewOf != null || p.review.length > 0)))) return holdSource("The banked sections no longer match their source-bound brief or cite only an unpublished draft; preserved without another purchase.", false);
   const pieces = new Map(old), repair = oldRepair && rebound ? { ...oldRepair, resolution: "use_stored_verified_evidence" as const } : oldRepair, correcting = new Map<number, string>();
   if (repair) {
-    if (repair.resolution === "acquire_factual_source" && !rebound) return fresh.length && oldIndex?.length === sourceFacts.length && swapAt < 0 ? { row: prior, detail: "Every source slot is cited; the new finding cannot replace one without losing another claim's support." } : { row: prior, need: repair.targets[0]?.instruction ?? topic.label, detail: "The whole-page reviewer named a factual claim whose source is still owed." };
+    if (repair.resolution === "acquire_factual_source" && !rebound) return fresh.length && oldIndex?.length === sourceFacts.length && swapAt < 0 ? { row: prior, detail: "Every source slot is cited; the new finding cannot replace one without losing another claim's support." } : await holdSource("The whole-page reviewer named a factual claim whose source is still owed.", true, { ...factualNeed, missingTopic: repair.targets[0]?.instruction ?? topic.label, reasonCode: "new_page_review_source_owed" });
     if (!/^(structural_synthesis|use_stored_verified_evidence)$/.test(repair.resolution) && !rebound || !repair.targets.length) return { row: prior, detail: "The saved whole-page refusal remains on its exact copy; no identical review was bought." };
     if (repair.targets.some(t => t.component < 0 || t.component > brief.sections.length + 3)) return { row: prior, detail: "The saved repair targets no component of this page." };
     if (repair.targets.some(t => t.component < 3)) {
@@ -129,6 +128,7 @@ export async function produceNewPage(input: Input): Promise<Result> {
   const reviewed = await reviewFinishedCopy(assembled, { tenantId, now, attempts, stopBy: input.stopBy, complete: input.complete, bypassCache: input.bypassCache, bannedTerms: input.bannedTerms, checked: input.checked, basis, proposalWorkKey: input.workKey });
   const accepted = reviewed.row?.semanticReview?.version === REVIEW_CONTRACT && reviewed.row.semanticReview.of === copyKey(reviewed.row) && COPY_RULES.accepted(reviewed.row.semanticReview.editor);
   const final = reviewed.row ? { ...reviewed.row, status: accepted && validateProposal(reviewed.row).verdict === "ready" && deliverableGaps(reviewed.row).length === 0 ? "ready" as const : "needs_review" as const } : assembled;
+  if (final.newPageDraft?.repair?.of === copyKey(final) && final.newPageDraft.repair.resolution === "acquire_factual_source") return holdSource(reviewed.detail, true, { ...factualNeed, missingTopic: final.newPageDraft.repair.targets[0]?.instruction ?? topic.label, reasonCode: "new_page_review_source_owed" }, final);
   if (!await input.save(final)) return { row: assembled, detail: "The whole-page review could not be saved; the complete bank remains private." };
   return { row: final, detail: final.status === "ready" ? "A complete source-bound new page and its whole-page review are saved." : reviewed.detail };
 }

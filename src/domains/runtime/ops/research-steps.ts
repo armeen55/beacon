@@ -46,7 +46,6 @@ const SUPPORT_BACKFILL_PER_DRIVE = 12;
 /** Source identities let retries union successes without double counting. */
 type RefreshSourcesResult = { attempted: number; succeeded: string[]; failures: Array<{ provider: string; detail: string }> };
 type BackfillChunkResult = { kind: "advanced"; complete?: boolean; daysPulled?: number } | { kind: "no_work" };
-
 export type ResearchCycleSteps = {
   deliveryScope?: Parameters<typeof DRAFT_BUDGET.scopeAllows>[0];
   scopeOwner?: (tenantId: string, need: ProposalAcquisitionNeed, scope: Parameters<typeof DRAFT_BUDGET.scopeAllows>[0]) => Promise<boolean>;
@@ -92,7 +91,6 @@ export type ResearchCycleSteps = {
     outcomes?: { declared?: readonly string[]; readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[];
       /** WHICH OF THE TWO DEADLINE ANSWERS THIS WALK GAVE: `boxed` = the caller stopped waiting and the walk carried on, so these receipts are a snapshot of work still running; `stopped` = the walk itself would not start funded work it could no longer pay for, so nothing is running and that work is the next drive's first; `ran` = it reached the end of what it funded. */ ended?: "boxed" | "stopped" | "ran"; receipts?: unknown[]; preparedMs?: number; ledger?: { before: number; after: number; delta: number; metered: number; unexplained?: number; reconciled: boolean } } } | null>;
 };
-
 /** What this run still allows the ONE advisory reading. `mark` is the runner's own receipt: the reading is bounded per RUN, never per unit iteration. */
 type CaseReconcilePlan = { planKeys: string[]; maySynthesize: boolean; mark: () => void; /** The drive's working context, so reconciliation reads the account the walk before it already read. */ shared?: Map<string, unknown> };
 
@@ -284,8 +282,11 @@ export const defaultSteps: ResearchCycleSteps & {
         log.info("[research-run] the exact reading a refused candidate named", { tenantId, kind: need.kind, query: need.query, status: unitStatus(out), landed, basis }); return { acquired: landed, ...(unitStatus(out) === "waiting" ? { posted: true as const } : {}), detail: `results page for "${need.query}": ${landed ? "done" : unitStatus(out) === "done" ? `not on file under ${basis} after the unit finished` : unitStatus(out)}` }; /* WAITING IS THE POST, TYPED AND NEVER READ OUT OF THE SENTENCE: the unit answers `waiting` while any search it asked for is posted and pending, and the collection behind it is a free GET the next drive makes. This is the one requirement kind that can answer it; the winner read and the source check either land or fail. */
       }
       case "competitor_page": {
-        const out = await winningPagesUnit({}, [need.query], null, null, null, need.url ?? null)(tenantId, unitCursor, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) })), st = landed(out) ? await loadFunnelState(tenantId, basis).catch(() => null) : null, read = st != null && jobWinners(projectFunnelEvidence(st.state, Date.now()), [need.query]).some((w) => (!need.url || [w.url, ...w.appearances.map((a) => a.viaUrl)].some((u) => !!u && canonicalUrlKey(u) === canonicalUrlKey(need.url!))) && typeof w.extract?.mainText === "string" && w.extract.mainText.trim().length > 0);
-        return { acquired: read, detail: `winning pages for "${need.query}": ${read ? unitStatus(out) : landed(out) ? `no winner of that search carries a reading on file under ${basis} after the unit finished` : unitStatus(out)}` };
+        const patternSource = need.reasonCode === "winning_pattern_complete_source_owed", complete = async (): Promise<boolean | null> => { const st = await loadFunnelState(tenantId, basis).catch(() => null), w = st?.rowVersion && st.state.tenantId === tenantId && st.state.basisTag === basis ? jobWinners(projectFunnelEvidence(st.state, Date.now()), [need.query]).find(w => need.url && canonicalUrlKey(w.url) === canonicalUrlKey(need.url)) : null; if (!w?.extract?.mainText?.trim()) return null; if (w.extract.truncated === false && w.extract.fetchedAt && Date.parse(w.extract.fetchedAt) <= Date.now() && isCurrent("winner_extract", w.extract.fetchedAt, Date.now()) && (w.extract.totalChars == null || w.extract.totalChars === w.extract.mainText.length)) return true;
+          return await import("@/domains/evidence/dataforseo/page-extract-cache").then(m => m.readPublicPageExtract(w.url, undefined, w.extract!)).catch(() => null) != null; };
+        if (patternSource) { const onFile = await complete(); if (onFile == null) return deferred("The exact selected winner is unreadable under this tenant and basis; its complete original remains owed."); if (onFile) return { acquired: true, attempted: false, detail: "The exact selected winner already has a current complete original on file; no source was bought." }; }
+        const out = await winningPagesUnit({}, [need.query], null, null, null, need.url ?? null)(tenantId, unitCursor, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) })), st = landed(out) ? await loadFunnelState(tenantId, basis).catch(() => null) : null, read = st != null && jobWinners(projectFunnelEvidence(st.state, Date.now()), [need.query]).some((w) => (!need.url || [w.url, ...w.appearances.map((a) => a.viaUrl)].some((u) => !!u && canonicalUrlKey(u) === canonicalUrlKey(need.url!))) && typeof w.extract?.mainText === "string" && w.extract.mainText.trim().length > 0) && (!patternSource || await complete() === true);
+        return { acquired: read, detail: `winning pages for "${need.query}": ${read ? unitStatus(out) : patternSource ? "a current complete original of the exact selected winner is still owed" : landed(out) ? `no winner of that search carries a reading on file under ${basis} after the unit finished` : unitStatus(out)}` };
       }
       case "page_source": {
         if (!need.url) return { acquired: false, detail: "a page_source requirement names no page" };
@@ -413,7 +414,6 @@ async function seedProposition(tenantId: string, pageUrl: string, proposition: s
   const nominee = target?.note.startsWith("Owed again: source support disputed;") ? target.sources.length === 1 && !target.sources[0]?.says.trim() && isSafeRedirectHopUrl(target.sources[0].url) ? target.sources[0].url : "" : undefined;
   return target ? { ...current, searchQuery: sourceQueryFor(claimTypeOf(target.subject, target.current, target.pageLocator), target.subject, target.current, own), nominee } : null;
 }
-
 /** Read back the exact researched proposition through the canonical copy-authorization rule. */
 async function propositionState(tenantId: string, pageUrl: string, proposition: string, current: NonNullable<Awaited<ReturnType<typeof seedProposition>>>, finding?: EvidenceRequirement["finding"], atomKey?: string): Promise<{ researched: boolean; usable: boolean; why: string }> {
   const [facts, { claimIdentity }] = await Promise.all([import("@/domains/evidence/pages/fact-checks"), import("@/domains/evidence/pages/fact-check-run")]);
