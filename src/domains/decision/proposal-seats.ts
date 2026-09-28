@@ -3,11 +3,11 @@
 import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { deserializeChangeProposal } from "./contracts";
+import { deserializeChangeProposal, type ChangeProposal } from "./contracts";
 import { footprintKey } from "./mutation-footprint";
 
 type Binding = Readonly<{ id: string; mutationKey: string; status?: string | null;
-  terminalDisposition?: string | null; withdrawnReason?: string | null }>;
+  terminalDisposition?: string | null; withdrawnReason?: string | null; proposal?: ChangeProposal }>;
 
 const digest = (text: string): string => { let h = 0x811c9dc5; for (let i = 0; i < text.length; i += 1) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(36); };
 
@@ -38,7 +38,8 @@ async function loadProposalSeats(tenantId: string, pageKeys: readonly string[]):
       out.push({ id: row.id, mutationKey: decoded ? footprintKey(decoded) : row.mutation_key,
         status: typeof row.status === "string" ? row.status : null,
         terminalDisposition: typeof row.terminal_disposition === "string" ? row.terminal_disposition : null,
-        withdrawnReason: typeof row.withdrawn_reason === "string" ? row.withdrawn_reason : null });
+        withdrawnReason: typeof row.withdrawn_reason === "string" ? row.withdrawn_reason : null,
+        ...(row.terminal_disposition === "withdrawn" && row.withdrawn_reason === "swept: the producer that owns this family rewrote it and did not re-emit this card" && decoded?.id === row.id && decoded.tenantId === tenantId && decoded.status === "needs_review" && decoded.researchOnly === true && /::existing_edit::missing_answer(?:@[^:]*)?$/.test(row.id) ? { proposal: decoded } : {}) });
     }
     if (rows.length < 500) break;
   }
