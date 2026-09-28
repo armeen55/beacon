@@ -6,6 +6,7 @@ import "server-only";
 
 import { basisTag, getTenant, loadBusinessProfile } from "@/domains/account";
 import { owedWinnerReads } from "@/domains/evidence/funnel/normalize";
+import { COMPETITIVE_PATTERN } from "@/domains/evidence/competitive-pattern";
 import { getConnectorInfo } from "@/lib/connector-store";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
@@ -171,16 +172,6 @@ async function winnerRowsOnFile(tenantId: string, basis: string): Promise<Winner
   const d = row.data as { winners: unknown; serps: unknown } | null;
   return { winners: arr(d?.winners), serps: arr(d?.serps), own };
 }
-
-/** PURE. IS THIS WINNER OWED A READ OF THE PAGE ITSELF? A winner banked before the reading existed carries an extract with no words in it at all, and `pageExtractFromRecord` decodes exactly that row as `mainText` null with `truncated` null; a read that honestly found NO words banks `truncated: false`, which IS a reading and is never bought again. The other answer is a retry date: a publisher that refused is waiting, and a date that has passed is owed again. Measured on production 2026-09-06: 20 winners on file, 14 carrying an extract, not one carrying a word, so hub case after hub case settled terminal against pages nothing had ever read. */
-const winnerAwaitsReading = (row: unknown, nowMs: number): boolean => {
-  if (row == null || typeof row !== "object") return false;
-  const w = row as { extract?: { mainText?: unknown; truncated?: unknown } | null; readOutcome?: { retryAfter?: unknown } | null };
-  if (typeof w.extract?.mainText === "string" || typeof w.extract?.truncated === "boolean") return false;
-  const retryAfter = w.readOutcome?.retryAfter; return !(typeof retryAfter === "string" && Date.parse(retryAfter) > nowMs);
-};
-
-/** HOW MANY PAGES THE NEXT WINNING-PAGES PASS OWES A READING FOR, counted through THE one selection rule the pass itself takes its reserve from (funnel/normalize `owedWinnerReads`), never a second copy of it: this counted the pages of every unrepresented results page while the unit reserves for three of them and leaves the rest to the global weight order, which the unit's own starvation pin proves loses, so with four owed searches the receipt promised pages no pass would open. The receipt is the pages of exactly the searches the pass takes, and the RULE ITSELF now returns only what the pass reserves for them (one page per publisher, at most three a search), so the ceiling this file used to clamp with (`WINNERS_PER_PASS`, a hand copy of the unit's own read budget) could never bind and is deleted: a second bound that never fires is a second promise nobody keeps. */
 
 /** The unread probe over BOTH ranges the readback reads: the recent seven days, then EVERYTHING OLDER in one  indexed existence read. The hourly rotation that stood here made each older band reachable roughly one hour  in twenty-six, so an account with only old debt looked quiet on most probes and the pass that would drain it  never opened. Two lean reads, short-circuiting on the first hit. */
 async function probeUnread(ask: (t: string, from: string, to: string) => Promise<boolean>, tenantId: string, _nowMs: number, day: string): Promise<boolean> {
@@ -402,7 +393,7 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   if (active.length > 0) due.push("acquire_case_evidence");
   // A WINNER ON FILE THAT NOTHING HAS READ AS A PAGE IS OWED A READ, whatever the frozen plan is doing: the comparison that settles a body case reads the winners' own words, so an account whose winners were all banked before the reading existed settles case after case as "nothing to say" against pages nobody ever opened. AND SO IS A RESULTS PAGE WHOSE OWN PAGES NOTHING HAS RANKED: bought at the head of this drive, it holds no winner at all, so no winner counts as unread, the read is planned for nobody, and the row that owed it waits for tomorrow.
   // Its OWN unit and deliberately not `acquire_case_evidence`, which costs a results page as well (PHASES_FOR in on-visit-refresh): this pass carries no case and so no focus query, and buying searches out of the broad agenda spends for nothing and can hold the drive in the results-page phase ahead of the read it exists for.
-  const file = winners.value, unreadWinners = file.winners.filter((w) => winnerAwaitsReading(w, nowMs)).length, unrankedPages = owedWinnerReads(file.serps, file.winners.map((w) => String((w as { url?: string } | null)?.url ?? "")), file.own).pageKeys.length;
+  const file = winners.value, readDue = (w: unknown): boolean => COMPETITIVE_PATTERN.readDue(w as Parameters<typeof COMPETITIVE_PATTERN.readDue>[0], nowMs), unreadWinners = file.winners.filter(readDue).length, unrankedPages = owedWinnerReads(file.serps, file.winners.filter(w => !readDue(w)).map((w) => String((w as { url?: string } | null)?.url ?? "")), file.own).pageKeys.length;
   if (unreadWinners + unrankedPages > 0) due.push("read_winner_pages");
   // A CLAIM THE PAGE MAKES AND NOBODY HAS CHECKED IS OWED WORK, and an account that has never checked one owes
   // its first pass. Without this the phase was reachable only on a fresh daily cycle, which is one page's worth

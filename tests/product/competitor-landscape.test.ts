@@ -113,7 +113,7 @@ const ASKED = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), aiObs
 /** A subject I have genuinely finished investigating: a fresh exact look, priced demand I can trace back to how I found it, an engine I asked, and three separate publishers whose pages I have actually read. */
 function COMPLETE(): EvidenceSnapshot {
   const HOSTS = ["rival.example", "second.example", "third.example"];
-  const extract = { title: "Best rain barrel", h1: "Best rain barrel", wordCount: 900, headings: ["Sizes", "Prices"], faqCount: 0, fetchedAt: FRESH };
+  const extract = { title: "Best rain barrel", h1: "Best rain barrel", wordCount: 900, headings: ["Sizes", "Prices"], faqCount: 0, mainText: "Compare rain barrel sizes and prices before choosing one. ".repeat(100), truncated: false, fetchedAt: FRESH };
   return snap({ ...ASKED(),
     retainedKeywords: [{ query: QUERY, searchVolume: 4400, competition: null, competitionLevel: null, difficulty: 30, intent: "commercial", discoveredVia: "gsc" }],
     serpEvidence: [{ query: QUERY, observedAt: FRESH, aiOverview: [], aiMode: [], paa: [], related: [], organic: HOSTS.map((domain, i) => ({ rank: i + 1, domain, url: `https://${domain}/a`, title: "Best rain barrel" })) }],

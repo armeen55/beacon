@@ -18,6 +18,7 @@ import { type FunnelState, type FunnelWinningPage } from "./state";
 import { askIdentity, normalizePageIntersection, parsePageIntersection, type PageIntersectionAsk } from "@/domains/evidence/page-intersection";
 import { publisherHost } from "@/domains/evidence/serp-shape";
 import { mainOf, pageExtractFrom, pageExtractFromRecord, type IntersectionUnavailable, type OwnedPageReadOutcome, type ResearchPageComparison, type ResearchPageExtract, type ResearchWinningAppearance, type WinnerReadOutcome } from "./research-evidence";
+import { COMPETITIVE_PATTERN } from "../competitive-pattern";
 import { isCurrent } from "@/domains/evidence/freshness";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, NO_BASIS_DETAIL, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
@@ -28,13 +29,11 @@ const WINNER_READ_BUDGET = 15, MAX_COMPARISONS = 8, MAX_PAGE_ATTEMPTS = 18, MAX_
 /** Parsed material owns the hash; key order and observation time do not. */
 const extractHash = (x: ResearchPageExtract): string => sha16(JSON.stringify(Object.entries(x).filter(([k, v]) => k !== "fetchedAt" && v !== undefined).sort((a, b) => a[0].localeCompare(b[0]))));
 /** A WINNER CARRIES A READING when its extract holds the page's own words, or says in type that the read happened and found none (`truncated` is written by every read and by no row banked before reading existed). THE one test, asked where a banked row is reused and where the winners are written, so one of them can never call a page read while the other calls it unread. */ const carriesReading = (x: ResearchPageExtract | null | undefined): boolean => !!x && (x.mainText != null || x.truncated != null);
-/** WHAT THE RESEARCH ROW CARRIES OF A READING (Stage 2, 2026-09-14; bounded on review): the cache holds the whole reading up to the crawler's ceiling; the row holds the comparison ceiling of the text and then ONLY the sections whose words lie past that prefix, each cut to the window the comparison opens, the whole row under 16,000 characters a winner, so a deep section reaches the comparison without the row carrying the same words twice. `truncated` is true whenever the row holds less than the page measured, the capture's own cut or the row's. */
+/** Keep the row bounded while recording whether its full cached source was complete. */
 const SECTION_CHARS = 1_200, ROW_CHARS = 16_000;
-const heldInRow = (x: ResearchPageExtract): ResearchPageExtract => { const held = mainOf(x.mainText, x.totalChars ?? 0), sections: NonNullable<ResearchPageExtract["sections"]> = []; let room = ROW_CHARS - (held.heldChars ?? 0);
+const heldInRow = (x: ResearchPageExtract, banked: boolean): ResearchPageExtract => { const held = mainOf(x.mainText, x.totalChars ?? 0), sections: NonNullable<ResearchPageExtract["sections"]> = []; let room = ROW_CHARS - (held.heldChars ?? 0);
   for (const c of x.sections ?? []) { const text = c.text.slice(0, SECTION_CHARS), flat = text.replace(/\s+/g, " ").trim(); if (!flat || (held.mainText ?? "").includes(flat)) continue; if (room < text.length) break; room -= text.length; sections.push({ heading: c.heading, text }); }
-  return { ...x, ...held, truncated: x.truncated === true || held.truncated, ...(x.sections ? { sections } : {}) }; };
-/** A ROW BANKED UNDER THE OLD 12,000 CEILING HOLDS A PREFIX OF A PAGE IT MEASURED WHOLE, and is re-read once, free crawl first, to replace it; a reading at the crawler's own ceiling is never re-read for length. */
-const prefixOnly = (x: ResearchPageExtract | null): boolean => !!x && x.truncated === true && (x.heldChars ?? 0) < (x.totalChars ?? 0) && (x.heldChars ?? 0) < 100_000;
+  return { ...x, ...held, truncated: x.truncated === true || held.truncated, ...(COMPETITIVE_PATTERN.sourceComplete(x) ? { sourceComplete: banked } : x.truncated === false && !x.mainText?.trim() && x.sourceComplete == null ? {} : { sourceComplete: false }), ...(x.sections ? { sections } : {}) }; };
 /** The engines and the real prompt texts of ONE page's OWN appearances, derived wherever a winner row is written so a carried row describes the evidence that names it today rather than the evidence that named it when it was read. */ const facetsOf = (as: ResearchWinningAppearance[]) => ({ engines: [...new Set(as.map((a) => a.engine).filter((e): e is string => !!e))].sort(), examplePrompts: [...new Set(as.map((a) => a.promptText).filter((t): t is string => !!t))].slice(0, 5) });
 /** SERPs plus dated canonical AI citations. Ranking dedupes modes after redirects resolve. */
 function collectAppearances(state: FunnelState, fallbackIso: string, observations: CanonicalPairObservation[]): ResearchWinningAppearance[] {
@@ -220,9 +219,9 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
       for (const a of resolved) { if (a.kind === "serp_organic" && (a.rank == null || a.rank > 20)) continue; /* the twenty rows a look buys, the same cutoff the ranking applies */ const k = canonicalUrlKey(a.citedUrl); if (k) still.set(k, [...(still.get(k) ?? []), a]); }
       /** Bounded ranked acquisition/cache window; relevance and freshness decide which existing readings survive. */ const readingsBound = Math.min(WINNER_READ_BUDGET * 4, Math.max(WINNER_READ_BUDGET * 2, state.serps.queries.filter((q) => q.status === "done").length * PRIORITY_WINNERS_PER_QUERY));
       const robots: Parameters<ResolvedDeps["fetchPage"]>[1] = new Map(), readPublishers = new Set<string>(); // ONE robots.txt read per origin
-      const bank = async (url: string, x: ResearchPageExtract) => { await d.writePageExtract(url, x as unknown as Record<string, unknown>, extractHash(x)).catch(() => {}); };
+      const bank = async (url: string, x: ResearchPageExtract): Promise<boolean> => { try { const hash = extractHash(x); await d.writePageExtract(url, x as unknown as Record<string, unknown>, hash); const saved = await d.readPageExtract(url); return saved?.contentHash === hash && COMPETITIVE_PATTERN.sourceComplete(pageExtractFromRecord(saved.extract)); } catch { return false; } };
       // A SEARCH THIS ACCOUNT PAID FOR WHOSE PAGES NOTHING HAS EVER RANKED TAKES ITS OWN RESERVE, newest search first and at most three a pass, off THE one selection rule in funnel/normalize. The global order is by ACCUMULATED appearances, so the ten pages of a results page bought this morning carry one each and lose every slot to pages that have been winning for weeks (proved on this file's own starvation pin): the search is paid for, nothing off it is ever read, and the row that owed that reading asks for the same results page again tomorrow. runtime/ops/due-work counts the pages of exactly these searches to make the read due, so a pass opened for that reason discharges what opened it and the receipt can never promise a search this pass will not take. The ORDER is that rule's too: appended behind the focused cases, an owed search fell off the far side of the reserve's own ceiling the moment this account carried forty of them, and the receipt named three pages nobody would open.
-      const priority = owedWinnerReads(state.serps.queries, state.winningPages.map((w) => w.url), ownDomain, priorityQueries).queries;
+      const priority = owedWinnerReads(state.serps.queries, state.winningPages.filter(w => !COMPETITIVE_PATTERN.readDue(w, d.now())).map(w => w.url), ownDomain, priorityQueries).queries;
       const requested = named ?? (competitorUrl ? rankWinningPages(resolved.filter(matches), ownDomain, 1)[0] : null);
       if (competitorUrl && !requested) return { status: "failed", cursor, progress: {}, detail: "The requested competitor page is not backed by this query's stored search or citation evidence; nothing was fetched." };
       // EVERY RANKED CANDIDATE IS RANKED, and the cache is consulted for all of them (Stage 2, 2026-09-14): only the first WINNER_READ_BUDGET of the queue may be fetched, but a page past that slot whose extract sits in the cache is a winner with its reading, not a page the projection drops.
@@ -235,30 +234,31 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
         // A short turn reads at most one public page, leaving time to save and no paid fallback; the candidates it never reached keep the rows they had.
         if (shortRead && (attempts > 0 || deadline - d.now() < 25_000)) { processed = i; break; }
         const was = prior.get(canonicalUrlKey(c.url)) ?? null;
-        let extract: ResearchPageExtract | null = null, outcome: WinnerReadOutcome | null = was?.readOutcome ?? null;
+        let extract: ResearchPageExtract | null = null, outcome: WinnerReadOutcome | null = was?.readOutcome ?? null, banked = false;
         // Reuse a cached public extract before any read; never re-read in freshness. Keep the CACHE ROW'S date when the extract predates the field: an undated winner never counts toward a comparison.
         const cached = await d.readPageExtract(c.url).catch(() => null);
         const rec = cached ? pageExtractFromRecord(cached.extract) : was?.extract?.truncated === false && isCurrent("winner_extract", was.extract.fetchedAt, d.now()) ? was.extract : null, legacy = rec ? { ...rec, fetchedAt: rec.fetchedAt ?? cached?.fetchedAt ?? null } : null;
         // Legacy metadata alone is not a reading. An explicitly completed empty reading is reusable, not useful copy evidence.
-        if (carriesReading(legacy) && !(fetchable && prefixOnly(legacy))) { extract = legacy; if (cached) outcome = null; }
+        if (carriesReading(legacy) && !COMPETITIVE_PATTERN.readDue({ extract: legacy, readOutcome: outcome }, d.now())) { extract = legacy; banked = !!cached; if (cached && COMPETITIVE_PATTERN.sourceComplete(legacy)) outcome = null; }
         // A URL whose last read failed keeps that answer until retryAfter and spends no attempt before it.
         else if (fetchable && attempts < MAX_PAGE_ATTEMPTS && d.now() <= deadline && !(outcome && d.now() < Date.parse(outcome.retryAfter))) {
           attempts += 1;
           try {
             const res = await d.fetchPage(c.url, robots, shortRead ? { timeoutMs: 10_000 } : {});
-            if (res.ok) { outcome = null;
+            if (res.ok) {
               extract = pageExtractFrom(extractPageSnapshot(res.html, c.url, `winpage-${sha16(c.url)}`, tenantId, res.status, profile));
-              await bank(c.url, extract);
+              outcome = COMPETITIVE_PATTERN.sourceComplete(extract) ? null : readOutcomeAt("temporarily_unavailable", d.now());
+              banked = await bank(c.url, extract); if (!banked && COMPETITIVE_PATTERN.sourceComplete(extract)) outcome = readOutcomeAt("temporarily_unavailable", d.now());
             // The publisher's OWN answer is final: a robots denial is NEVER sent through a provider.
             } else if (res.reason === "robots_blocked") outcome = readOutcomeAt("robots_blocked", d.now());
             // An ordinary refusal or timeout earns exactly ONE paid read of the body, US/English, on the same money core, cache identity and cap as every other call, and only while this cycle's own paid ceiling is unspent.
-            else if (shortRead || freeOnly || paidReads >= MAX_PAID_BODY_READS) outcome = readOutcomeAt("temporarily_unavailable", d.now());
+            else if (shortRead || freeOnly || paidReads >= MAX_PAID_BODY_READS || was?.extract?.sourceComplete === true) outcome = readOutcomeAt("temporarily_unavailable", d.now());
             else {
               paidReads += 1;
               const r = interp(await d.callProvider("onpage_content_parsing", { url: c.url }, ids)); track(state, r);
               const got = r.kind === "evidence" ? (d.parse("onpage_content_parsing", r.payload as never) as ResearchPageExtract | null) : null;
               // Preserve provider freshness and the WHOLE parsed reading in the cache (the row re-holds it below); an empty parse remains evidence debt.
-              if (got && got.wordCount > 0) { extract = { ...got, mainText: got.mainText ?? null, truncated: got.truncated ?? false, fetchedAt: got.fetchedAt ?? nowIso }; outcome = null; await bank(c.url, extract); }
+              if (got && got.wordCount > 0) { extract = { ...got, mainText: got.mainText ?? null, truncated: got.truncated ?? false, fetchedAt: got.fetchedAt ?? nowIso }; outcome = COMPETITIVE_PATTERN.sourceComplete(extract) ? null : readOutcomeAt("provider_unavailable", d.now()); banked = await bank(c.url, extract); if (!banked && COMPETITIVE_PATTERN.sourceComplete(extract)) outcome = readOutcomeAt("provider_unavailable", d.now()); }
               // A CAP OR A DAILY LIMIT IS NOT THE PAGE'S FAULT. Those cost nothing and read nothing, so stamping the 7 day hold on them froze pages the provider never even looked at, and one cap event stamped every remaining winner. They wait a day.
               else outcome = readOutcomeAt(r.kind === "evidence" ? "provider_unavailable" : "temporarily_unavailable", d.now());
             }
@@ -266,13 +266,14 @@ export function winningPagesUnit(deps: FunnelDeps = {}, priorityQueries: string[
         }
         // Failed re-reads preserve banked words alongside their failure hold.
         if (!extract) extract = [legacy, was?.extract ?? null].find(carriesReading) ?? legacy;
+        if (!cached && extract === was?.extract && extract?.sourceComplete === true && extract.truncated === true) extract = { ...extract, sourceComplete: false };
         // An unreadable ranked page earns one same-query substitute, never unrelated acquisition. A candidate past the fetch slots with nothing on file was never read and is no row.
         if (extract) readPublishers.add(publisherHost(c.url));
         else if (!fetchable) continue;
         else if (c.ownerQuery && !substituted.has(c.ownerQuery)) { const sub = (bench.get(c.ownerQuery) ?? []).find((b) => !readPublishers.has(publisherHost(b.url)));
           if (sub) { substituted.add(c.ownerQuery); queue.splice(focusEnd, 0, sub); focusEnd += 1; } }
         const appearances = named ? [...new Map([...c.appearances, ...(was?.appearances ?? [])].map(a => [JSON.stringify(Object.entries(a).sort(([x], [y]) => x.localeCompare(y))), a])).values()] : c.appearances;
-        pages.push({ url: c.url, domain: c.domain, ...facetsOf(appearances), appearances, extract: extract && (extract === was?.extract ? extract : heldInRow(extract)), readOutcome: outcome });
+        pages.push({ url: c.url, domain: c.domain, ...facetsOf(appearances), appearances, extract: extract && (extract === was?.extract ? extract : heldInRow(extract, banked)), readOutcome: outcome });
       }
       for (const c of queue.slice(processed)) { const was = prior.get(canonicalUrlKey(c.url)); if (was) pages.push(was); }
       // Preserve live readings outside the ranked window and unexpired failure holds.

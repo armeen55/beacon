@@ -139,7 +139,7 @@ export function extractPageFacts(pages: readonly ReadPage[]): PageFacts[] {
       appearances: (p.appearances ?? []).slice(0, 10).map((a) => ({ kind: a.kind, query: a.query ?? a.promptText, rank: a.rank, observedAt: a.observedAt })),
       opening: (x?.openingSample ?? "").trim().slice(0, OPENING_CHARS) || null,
       mainText: typeof x?.mainText === "string" ? x.mainText : null,
-      scope: typeof x?.mainText !== "string" || x.truncated == null ? "unknown" : x.truncated ? "partial" : "complete",
+      scope: typeof x?.mainText !== "string" || x.truncated == null ? "unknown" : x.truncated || (!body && !COMPETITIVE_PATTERN.sourceComplete(p.extract)) ? "partial" : "complete",
       heldChars: x?.heldChars ?? null, totalChars: x?.totalChars ?? null,
       fetchedAt: x?.fetchedAt ?? null, contentHash: x?.contentHash ?? null,
     };

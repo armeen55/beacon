@@ -207,6 +207,8 @@ export type ResearchPageExtract = {
   truncated?: boolean | null;
   heldChars?: number | null;
   totalChars?: number | null;
+  /** The full cached source was complete even when this bounded row holds only its prefix. */
+  sourceComplete?: boolean;
   /** The subheadings under the h2s, and the structured-data types the page declares. */
   h3s?: string[];
   /** THE PAGE'S SECTIONS AS THE PROVIDER PARSED THEM, each heading with the words under it (delivery loop, 2026-09-07). `mainText` joins the passages without their headings, so a reader anchoring on a heading found it only in the trailing heading list and opened its window on the document's tail; the fact pass and the comparison read the section itself here. Absent on a capture that carried no topics. */
@@ -310,10 +312,11 @@ export function pageExtractFromRecord(rec: Record<string, unknown>): ResearchPag
     // A ROW BANKED BEFORE THE READING EXISTED HELD NO WORDS, and that is honest absence: `mainText: null` with
     // `truncated: null` says nothing was captured, which no door may read as a page that carries nothing.
     mainText: str(rec.mainText), truncated: bool(rec.truncated) ?? null, heldChars: num(rec.heldChars) ?? null,
-    totalChars: num(rec.totalChars) ?? null, ...(Array.isArray(rec.h3s) ? { h3s: strings(rec.h3s, 20) } : {}), ...(Array.isArray(rec.schemaTypes) ? { schemaTypes: strings(rec.schemaTypes, 12) } : {}),
+    totalChars: num(rec.totalChars) ?? null, ...(bool(rec.sourceComplete) != null ? { sourceComplete: bool(rec.sourceComplete)! } : {}), ...(Array.isArray(rec.h3s) ? { h3s: strings(rec.h3s, 20) } : {}), ...(Array.isArray(rec.schemaTypes) ? { schemaTypes: strings(rec.schemaTypes, 12) } : {}),
     ...(Array.isArray(rec.sections) ? { sections: rec.sections.filter((s): s is Record<string, unknown> => s != null && typeof s === "object" && typeof s.text === "string").map((s) => ({ heading: str(s.heading), text: s.text as string })) } : {}),
   };
 }
+
 
 /** Why a winner's BODY is not in hand, and the earliest I may spend a read slot on that URL again. A read
  *  outcome NEVER makes a page readable (only `extract` does that) and it never removes the ranked URL:

@@ -32,6 +32,9 @@ const reading = (over: Partial<WinningPatternRead> = {}): WinningPatternRead => 
 const seam = (value: unknown): { complete: CompleteFn; calls: () => number } => { let calls = 0; return { calls: () => calls, complete: async () => { calls += 1; return { httpAttempts: 1, value }; } }; }; // A SEAM ANSWERS FOR THE TRANSPORT EXACTLY AS THE GATEWAY DOES (reviewer, 2026-09-06): it stamps `httpAttempts` 0 before the wire and 1 once it is touched, and a stand-in that reports nothing is saying no request left the process, which is now the one thing that hands an attempt back.
 const memoryCache = (): CacheImpl => { const rows = new Map<string, LlmCallCacheEntry>(); return { read: async (t, k) => rows.get(`${t}|${k}`) ?? null, write: async (t, e) => void rows.set(`${t}|${e.key}`, e), recentTexts: async () => [] }; };
 describe("the held content reaches the funded reader", () => {
+  it("does not count a declared incomplete source as a complete publisher", () => {
+    const read = extractPageFacts([page("partial.example", [CARE], { sourceComplete: false, truncated: false }), page("bounded.example", [CARE], { sourceComplete: true, truncated: true }), page("complete.example", [CARE], { sourceComplete: true, truncated: false })]); expect(read.map((f) => f.scope)).toEqual(["partial", "partial", "complete"]);
+  });
   it("keeps body-only information, capture uncertainty and actual schema observations distinct", async () => {
     const held = extractPageFacts([page("a.example", [CARE], { entityNames: [], schemaTypes: ["FAQPage"] }), page("b.example", [CARE], { schemaTypes: [], truncated: true }), { url: "https://c.example/rugs", extract: pageExtractFrom({ title: "Persian rugs", h1: null, word_count: 900, schema_entity_names: ["Tabriz"] }) }]);
     let shown = "";

@@ -94,10 +94,6 @@ export type WinnerRef = {
 
 // ── documented thresholds ────────────────────────────────────────────────────
 
-/** HOW OLD IS TOO OLD IS NOT THIS FILE'S OPINION. Two constants lived here, one per kind of evidence, and
- *  they were the same two numbers the acquisition side keeps in evidence/freshness: nothing stopped a look
- *  this projection called current from being a look the funnel had already re-bought, or the reverse. Both
- *  are gone; the matrix answers, so there is no second constant left to drift. */
 /** A page type needs this many DISTINCT domains to have classified at all ... */
 const MIN_DOMAIN_VOTES = 3;
 /** ... at least half of them agreeing ... */
@@ -242,7 +238,7 @@ function serpObservedAt(serp: SerpRow, winners: WinRow[]): string | null {
 function winnerStateOf(win: WinRow, builtAt: number): WinnerExtractState {
   const x = win.extract;
   if (!x) return "missing";
-  if (x.wordCount < MIN_READABLE_WORDS || (x.headings.length === 0 && !x.title)) return "unreadable";
+  if (!COMPETITIVE_PATTERN.sourceComplete(x) || x.wordCount < MIN_READABLE_WORDS || (x.headings.length === 0 && !x.title)) return "unreadable";
   const f = freshnessAt(x.fetchedAt ?? null, builtAt, freshnessMsFor("winner_extract"));
   return f === "current" ? "current" : f === "stale" ? "stale" : "undated";
 }

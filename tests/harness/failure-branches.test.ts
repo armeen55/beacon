@@ -1,7 +1,4 @@
-/** THE FAILURE BRANCHES OF THE SAME SEQUENCE, DISCOVERED TOGETHER. Each arm drives the REAL `runResearchCycle` over the REAL `defaultSteps` with one thing
- *  wrong: a cache that already holds the answer, a provider that fails, one that is not configured at all, a spending cap that refuses, a drive with no room
- *  left, and a phase that throws after real work landed. They live beside each other so a repair to one is measured against the others in the same cycle
- *  rather than on the next half-hour tick. */
+/** Failure branches exercise the real runResearchCycle and defaultSteps against saved rows and provider faults. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { publicationDraft } from "../helpers/publication-draft";
 vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "8.8.8.8", family: 4 }] }));
@@ -200,16 +197,14 @@ describe("a phase that throws after real work landed", () => {
   });
 });
 
-/** THE PROVIDERS TAKING THEIR REAL TIME (delivery-loop campaign, 2026-09-07). Every arm above is answered in the same instant, so none of them could ask whether a drive's own arithmetic survives a writer that takes seconds: the walk's stop, its box, the lease and the deadline each read a clock, and on production a written job took 17 to 31 seconds over three calls while the drive's slice was 200 seconds. `script.latency` makes each provider take its time for real, the clock moves with it, and the three arms below are the ones the window change is argued from: a job finishing inside the current slice, a lease lost after the walk ran, and a box ending while the writer is still answering. */
 describe("the providers taking their real time", () => {
   const SLOW = { search: 80, reasoning: 250, page: 60 }; /* the measured provider ratio on a ten-times clock: still real waits, without making suite contention a ten-minute false failure */
   /** A rival that carries a subject the hub page lacks (Scientists), as the publisher serves it: the comparison names it, this same drive reads it, and the walk behind that reading writes. */
   const rivalPage = (url: string) => (url.endsWith("/robots.txt") ? { html: "User-agent: *\nAllow: /", contentType: "text/plain" }
     : { html: `<html><head><title>Famous Iranians, by the work they did</title></head><body><h1>Famous Iranians through history</h1><h2>Poets</h2><h2>Athletes</h2><h2>Scientists</h2><p>${"Famous Iranians are listed here by the work they did, with the years each of them worked and one line on why they are remembered. ".repeat(20)}</p></body></html>` });
   const readyCopy = async (): Promise<string | null> => { const row = [...(await loadChangeProposals(T)).values()].find((r) => (r.pagePath ?? "") === HUB); return row?.status === "ready" && row.recommendedChange.kind === "existing_edit" ? row.recommendedChange.after : null; };
-  type Walk = { jobs?: Record<string, { calls: number; last: string; settled: boolean }>; waiting?: string[]; outcomes?: { ended?: string; receipts?: { key: string; family: string; outcome: string; providerCalls: number }[] } };
+  type Walk = { jobs?: Record<string, { calls: number; last: string; settled: boolean }>; waiting?: string[]; outcomes?: { ended?: string; receipts?: { key: string; family: string; outcome: string; providerCalls: number; workKey: string }[] } };
   const walkOf = (r: RunRow): Walk | undefined => (r.progress as { replenish?: Walk }).replenish, writersHired = (): number => reasoningAsked.filter((a) => a.kind === "body_edit").length;
-  /** A finished row is saved under its publication family while the walk declares the deep-bundle job that produced it. The durable work key bridges those names, so a drive that loses its lease after the row lands resumes without hiring the writer or buying the same readings again. */
   beforeEach(async () => { table("page_snapshots").length = 0; await seedOwnedPages([HUB_PAGE]); script.reasoning = (body) => reasoningReply({ ...REASONING, body_edit: publicationDraft(WRITER), editor_judgement: JUDGE }, body); script.search = healthySearch({ posts: 0 }); script.page = rivalPage; });
 
   it("a substantive body job for the hub row finishes inside the 200 second slice at the measured provider-time ratios, and its copy is on the store", async () => {
@@ -219,19 +214,24 @@ describe("the providers taking their real time", () => {
     expect([took, took < 200_000, Date.now() - began >= took - 100], `the clock moved by exactly the time the providers took (${meter.requests.length} calls), well inside the slice, and the wait was real`).toEqual([scripted, true, true]);
   }, 120_000);
 
-  it("a drive that loses its lease at the write behind a walk that funded and ran the job resumes on the next drive from what the row durably holds, and buys no reading it already has", async () => {
+  it("a lease loss preserves the written row; new winner evidence is reviewed once, then the settled source is reused on the next day", async () => {
     seedResearchState(basis, { serps: serpFor(QUERY) }); script.latency = SLOW;
     interruptOnce("advance", { phase: "keyword_discovery", after: 1 }); // the first write at this phase carries the walk that named the rival's reading; the second, the walk that wrote the job, never lands
     const first = await drive(["replenish_ready"], "keyword_discovery");
     expect([first.status, first.current_phase, first.lease_owner != null, writersHired(), walkOf(first)?.jobs, await readyCopy(), logs.some((l) => l.includes("the lease was lost"))],
       "the writer was hired and its copy landed on the store, then the write carrying that receipt was lost: the row still reads running at the same phase under the dead instance's lease, with no memory of the job").toEqual(["running", "keyword_discovery", true, 1, {}, WRITER.after, true]);
-    const requests = { search: requestsOf("search"), page: requestsOf("page") }, hired = writersHired(), priorPages = new Set(meter.requests.filter((r) => r.kind === "page").map((r) => r.url));
-    advance(RR.RESEARCH_RUN_LEASE_SECONDS * 1000 + 1_000); script.latency = undefined; // the dead instance's lease runs out on its own, and the next tick claims the row
+    const requests = { search: requestsOf("search"), page: requestsOf("page") }, hired = writersHired(), priorPages = new Set(meter.requests.filter((r) => r.kind === "page").map((r) => r.url)); advance(RR.RESEARCH_RUN_LEASE_SECONDS * 1000 + 1_000); script.latency = undefined; // the dead instance's lease expires
     const second = await drive(["replenish_ready"], "keyword_discovery");
     expect(meter.requests.filter((r) => r.kind === "page").slice(requests.page).every((r) => !priorPages.has(r.url)), "remaining coverage never rebuys a banked body or robots file").toBe(true);
-    const covered = winnersOf().filter((w) => w.appearances?.some((a) => a.query === QUERY)).slice(0, 5);
-    expect([covered.length, covered.every((w) => !!w.extract?.mainText)], "all five relevant winners carry bodies after recovery, including any newly admitted winners").toEqual([5, true]);
-    expect([second.id, second.status, requestsOf("search") - requests.search, writersHired() - hired, await readyCopy()],
-      "the same row closes after lease recovery: no search is rebought and the saved copy hires no second writer").toEqual([first.id, "completed", 0, 0, WRITER.after]);
+    const covered = winnersOf().filter((w) => w.appearances?.some((a) => a.query === QUERY)).slice(0, 5); expect([covered.length, covered.every((w) => !!w.extract?.mainText)], "all five relevant winners carry bodies after recovery, including any newly admitted winners").toEqual([5, true]);
+    const secondReceipt = walkOf(second)?.outcomes?.receipts?.find(r => r.family === "deep_bundle"), secondRow = [...(await loadChangeProposals(T)).values()].find(r => r.pagePath === HUB), afterSecond = { writer: writersHired(), search: requestsOf("search"), page: requestsOf("page") };
+    expect([second.id, second.status, requestsOf("search") - requests.search, afterSecond.writer - hired, secondReceipt?.providerCalls, secondRow?.workKey, (secondRow?.claims?.length ?? 0) > 0, (secondRow?.supportFacts?.length ?? 0) > 0, await readyCopy()], "newly admitted winners change the work key, and one current review lands its exact funded identity and provenance").toEqual([first.id, "completed", 0, 1, 2, secondReceipt?.workKey, true, true, WRITER.after]);
+    advance(24 * 60 * 60_000); const third = await drive(["replenish_ready"], "keyword_discovery"), thirdReceipt = walkOf(third)?.outcomes?.receipts?.find(r => r.family === "deep_bundle"), stored = [...(await loadChangeProposals(T)).values()].find(r => r.pagePath === HUB);
+    expect([writersHired() - afterSecond.writer, requestsOf("search") - afterSecond.search, requestsOf("page") - afterSecond.page, thirdReceipt?.providerCalls, stored?.workKey], "the next day's unchanged evidence reuses the accepted row without another writer or provider read").toEqual([0, 0, 0, 0, secondReceipt?.workKey]);
+    const account = await import("@/domains/account"), profile = await account.loadBusinessProfile(T); expect((await account.saveBusinessProfile(T, { name: { ...profile.name, value: "Fixture Account Updated" } })).persisted).toBe(true); const newBasis = await accountBasis(T), research = table("research_state")[0]!; expect(newBasis).not.toBe(basis); research.basis_tag = newBasis; (research.state as { basisTag: string }).basisTag = newBasis!;
+    const beforeBasis = { writer: writersHired(), search: requestsOf("search"), page: requestsOf("page") }; advance(24 * 60 * 60_000); const fourth = await drive(["replenish_ready"], "keyword_discovery"), fourthReceipt = walkOf(fourth)?.outcomes?.receipts?.find(r => r.family === "deep_bundle"), moved = [...(await loadChangeProposals(T)).values()].find(r => r.pagePath === HUB);
+    expect([writersHired() - beforeBasis.writer, requestsOf("search") - beforeBasis.search, fourthReceipt?.providerCalls, moved?.basis, moved?.workKey, (moved?.claims?.length ?? 0) > 0], "a changed account basis earns one fresh review and stores the newly funded source identity").toEqual([1, 0, 2, `${newBasis}::d9`, fourthReceipt?.workKey, true]);
+    const afterBasis = { writer: writersHired(), search: requestsOf("search"), page: requestsOf("page") }; advance(24 * 60 * 60_000); const fifth = await drive(["replenish_ready"], "keyword_discovery"), fifthReceipt = walkOf(fifth)?.outcomes?.receipts?.find(r => r.family === "deep_bundle");
+    expect([writersHired() - afterBasis.writer, requestsOf("search") - afterBasis.search, requestsOf("page") - afterBasis.page, fifthReceipt?.providerCalls, [...(await loadChangeProposals(T)).values()].find(r => r.pagePath === HUB)?.workKey], "the next unchanged day makes no repeat purchase across the former basis boundary").toEqual([0, 0, 0, 0, fourthReceipt?.workKey]);
   }, 120_000);
 });

@@ -5,6 +5,8 @@
  */
 
 import { rootDomain } from "./readers/serp-provider";
+import { isCurrent } from "./freshness";
+import type { ResearchPageExtract, WinnerReadOutcome } from "./funnel/research-evidence";
 
 const MULTI_SUFFIX = /\.(co|com|net|org|gov|edu|ac|or|ne)\.[a-z]{2}$/, MINIMUM = 3, MAXIMUM = 5;
 const identity = (value: string): string => {
@@ -43,5 +45,12 @@ function matrix<T>(
   };
 }
 
+const sourceComplete = (x: Pick<ResearchPageExtract, "mainText" | "sourceComplete" | "truncated"> | null | undefined): boolean => !!x?.mainText?.trim()
+  && (x.sourceComplete === true || x.sourceComplete == null && x.truncated === false);
+const settledEmpty = (x: ResearchPageExtract | null | undefined): boolean => !!x && x.truncated === false && x.sourceComplete == null && !x.mainText?.trim();
+const readDue = (w: { extract?: ResearchPageExtract | null; readOutcome?: WinnerReadOutcome | null } | null | undefined, now: number): boolean =>
+  !!w && !((sourceComplete(w.extract) || settledEmpty(w.extract)) && isCurrent("winner_extract", w.extract?.fetchedAt, now))
+    && !(w.readOutcome?.retryAfter && Date.parse(w.readOutcome.retryAfter) > now);
+
 /** Single internal Evidence seam; consumers cannot invent another publisher or majority rule. */
-export const COMPETITIVE_PATTERN = { minimum: MINIMUM, maximum: MAXIMUM, publisherIdentity: identity, matrix } as const;
+export const COMPETITIVE_PATTERN = { minimum: MINIMUM, maximum: MAXIMUM, publisherIdentity: identity, matrix, sourceComplete, readDue } as const;

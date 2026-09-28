@@ -418,10 +418,11 @@ function assemble(idx: number[], g: Grouped, snapshot: EvidenceSnapshot, key: st
   // A PROMISED DAY THAT HAS ARRIVED IS NOT A HOLD, IT IS DUE. Comparing the stamp against the exact instant
   // kept a page "held until 2026-08-11" in front of an operator standing in 2026-08-11, so the day itself is
   // what is compared, and a day that is over releases the page to be read instead of describing a wait.
-  const unread = winners.filter((w) => w.extractState !== "current");
+  const sourceOf = (w: WinnerRef) => research.winningPages.find((row) => canonicalUrlKey(row.url) === canonicalUrlKey(w.url));
+  const unread = winners.filter((w) => w.extractState !== "current" && (w.extractState !== "unreadable" || COMPETITIVE_PATTERN.readDue({ extract: sourceOf(w)?.extract }, builtAt)));
   const dueIn = (iso: string): number => Math.ceil((Date.parse(`${iso.slice(0, 10)}T00:00:00.000Z`) - builtAt) / 86_400_000);
   const heldUntil = unread.map((w) => w.readOutcome?.retryAfter).filter((r): r is string => !!r && dueIn(r) > 0).sort()[0] ?? null;
-  const readable = unread.find((w) => !w.readOutcome || dueIn(w.readOutcome.retryAfter) <= 0) ?? null;
+  const readable = unread.find((w) => COMPETITIVE_PATTERN.readDue(sourceOf(w), builtAt) && (!w.readOutcome || dueIn(w.readOutcome.retryAfter) <= 0)) ?? null;
   if (heldUntil && !readable) missingEvidence.push(`${unread.length === 1 ? "A winning page could not be read" : `${unread.length} winning pages could not be read`}, so the next attempt is ${dueIn(heldUntil) <= 1 ? "tomorrow" : dueIn(heldUntil) <= 6 ? "later this week" : dueIn(heldUntil) <= 13 ? "next week" : "in a couple of weeks"}. Nothing here is waiting on you.`);
   const nextAcquisition: TopicInvestigation["nextAcquisition"] =
     readable && currentReadableWinners < MIN_WINNERS

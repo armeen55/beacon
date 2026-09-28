@@ -1083,12 +1083,12 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     expect(await due(true)).toEqual(["acquire_case_evidence"]); // the run that froze it is still open and genuinely owes the work
     expect((await dueWork(T, new Date(NOW), { ...base, run: async () => ({ open: false, progress: { decided, focus: parked(NOW - 1), replenish: { day: reportingDay(NOW), jobs: {}, closed: "candidates_exhausted" as const, closedUnder: "b1::v7" } } }) })).due) .toEqual(["acquire_case_evidence"]); });  // And a date I promised that has ARRIVED is owed whether or not a run is open.
   const WINNERS = [
-    { t: "acct-reef", tag: "reef", query: "tide pool anemones", read: { url: "https://tidal-reef.example/anemones", extract: { title: "Anemones", wordCount: 900, mainText: "An anemone anchors to the rock and stings what drifts past it.", truncated: false } },
+    { t: "acct-reef", tag: "reef", query: "tide pool anemones", read: { url: "https://tidal-reef.example/anemones", extract: { title: "Anemones", wordCount: 900, mainText: "An anemone anchors to the rock and stings what drifts past it.", truncated: false, fetchedAt: iso(NOW) } },
       legacy: { url: "https://kelp-reef.example/sea-stars", extract: { title: "Sea stars", wordCount: 800 } },  // banked before the reading existed: no mainText key and no truncated key at all
-      wordless: { url: "https://shore-reef.example/limpets", extract: { title: "Limpets", wordCount: 0, mainText: null, truncated: false } } },  // read, and the page honestly carried no words: a reading, never bought again
-    { t: "acct-loom", tag: "loom", query: "puntadas de bordado", read: { url: "https://hand-loom.example/puntadas", extract: { title: "Puntadas", wordCount: 700, mainText: "La puntada de tallo se usa para los contornos del bordado.", truncated: false } },
+      wordless: { url: "https://shore-reef.example/limpets", extract: { title: "Limpets", wordCount: 0, mainText: null, truncated: false, fetchedAt: iso(NOW) } } },  // read, and the page honestly carried no words: a reading, never bought again
+    { t: "acct-loom", tag: "loom", query: "puntadas de bordado", read: { url: "https://hand-loom.example/puntadas", extract: { title: "Puntadas", wordCount: 700, mainText: "La puntada de tallo se usa para los contornos del bordado.", truncated: false, fetchedAt: iso(NOW) } },
       legacy: { url: "https://taller-loom.example/bastidores", extract: { title: "Bastidores", wordCount: 640 } },
-      wordless: { url: "https://hilos-loom.example/madejas", extract: { title: "Madejas", wordCount: 0, mainText: null, truncated: false } } },
+      wordless: { url: "https://hilos-loom.example/madejas", extract: { title: "Madejas", wordCount: 0, mainText: null, truncated: false, fetchedAt: iso(NOW) } } },
   ];
   const file = (winners: unknown[], serps: unknown[] = []) => async () => ({ ...NO_WINNERS, winners, serps }), bought = (query: string, hosts: string[], status = "done", from = 1, at = "2026-02-04T00:00:00.000Z") => ({ query, status, observedAt: at, organic: hosts.map((h, i) => ({ rank: i + from, url: `https://${h}/p`, domain: h, title: null })) });
   const holdOn = (w: { url: string }, retryAfter: number) => ({ url: w.url, extract: null, readOutcome: { state: "robots_blocked", attemptedAt: iso(NOW - DAY), retryAfter: iso(retryAfter) } });
