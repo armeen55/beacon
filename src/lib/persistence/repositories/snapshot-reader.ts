@@ -1,10 +1,11 @@
 import { getSupabaseAdmin } from "../supabase";
 import type { PageSnapshot } from "@/domains/evidence/pages/types";
 import { selectPageVersion } from "@/domains/evidence/pages/page-version";
+import { canonicalUrlKey } from "@/domains/evidence/relevance-gate";
 
-type Capture = Pick<PageSnapshot, "id" | "page_id" | "fetched_at" | "word_count" | "extraction_certainty" | "content_hash"> & { bodyHeld?: boolean };
+type Capture = Pick<PageSnapshot, "id" | "page_id" | "url" | "fetched_at" | "word_count" | "extraction_certainty" | "content_hash"> & { bodyHeld?: boolean };
 const facts = (s: Capture) => ({ fetchedAt: s.fetched_at, words: s.word_count ?? 0, bodyHeld: s.bodyHeld === true, certainty: s.extraction_certainty ?? null, contentIdentity: s.content_hash }), goodCapture = (s: Capture): boolean => s.extraction_certainty !== "uncertain" && ((s.word_count ?? 0) > 0 || s.bodyHeld === true);
-const identityColumns = "id, page_id, fetched_at, word_count, extraction_certainty, content_hash";
+const identityColumns = "id, page_id, url, fetched_at, word_count, extraction_certainty, content_hash";
 const pageSize = 500, requestBytes = 8000;
 
 /** Shared identity-first read: history never crowds out pages or their trusted bodies. */
@@ -46,8 +47,8 @@ export async function selectedSnapshots<T extends Pick<PageSnapshot, "id" | "fet
     for (const r of observed) if (typeof r.body_text === "string") heldBodies.set(r.id, r.body_text);
     for (const row of rows) {
       row.bodyHeld = heldBodies.has(row.id);
-      const merged = [...(selected.get(row.page_id) ?? []), row].filter((candidate, index, all) => all.findIndex((other) => other.id === candidate.id) === index), v = selectPageVersion(merged, facts), keep = v.current === v.content ? [v.current!] : [v.current!, v.content!];
-      if (options?.retainPreviousTrusted) { const trusted = merged.filter(goodCapture).sort((a, b) => b.fetched_at.localeCompare(a.fetched_at) || b.id.localeCompare(a.id)), current = v.current!, baseline = trusted.find((candidate) => (candidate.word_count ?? 0) >= 100 && (current.word_count ?? 0) * 5 < (candidate.word_count ?? 0) * 3), agreeing = current.content_hash ? trusted.find((candidate) => candidate.id !== current.id && candidate.content_hash === current.content_hash && (!baseline || candidate.fetched_at > baseline.fetched_at)) : undefined; keep.push(...trusted.slice(0, 2), ...(baseline ? [baseline] : []), ...(agreeing ? [agreeing] : [])); }
+      const merged = [...(selected.get(row.page_id) ?? []), row].filter((candidate, index, all) => all.findIndex((other) => other.id === candidate.id) === index), v = selectPageVersion(merged, facts), keep = v.current === v.content ? [v.current!] : [v.current!, v.content!], trusted = merged.filter(goodCapture).sort((a, b) => b.fetched_at.localeCompare(a.fetched_at) || b.id.localeCompare(a.id)), current = v.current!, baseline = trusted.find((candidate) => (candidate.word_count ?? 0) >= 100 && (current.word_count ?? 0) * 5 < (candidate.word_count ?? 0) * 3), agreeing = current.content_hash ? trusted.find((candidate) => candidate.id !== current.id && candidate.fetched_at !== current.fetched_at && candidate.content_hash === current.content_hash && (!baseline || candidate.fetched_at > baseline.fetched_at)) : undefined; if (agreeing) keep.push(agreeing);
+      if (options?.retainPreviousTrusted) keep.push(...trusted.slice(0, 2), ...(baseline ? [baseline] : []));
       selected.set(row.page_id, keep.filter((candidate, index, all) => all.findIndex((other) => other.id === candidate.id) === index));
     }
   };
@@ -75,7 +76,8 @@ export async function selectedSnapshots<T extends Pick<PageSnapshot, "id" | "fet
     }
     afterPage = boundary.page_id;
   }
-  const ids = [...selected.values()].flatMap((rows) => rows.map((r) => r.id));
+  const canonicalOwners = new Map<string, Set<string>>(); for (const [pageId, rows] of selected) { const key = canonicalUrlKey(rows[0]?.url); if (key) canonicalOwners.set(key, (canonicalOwners.get(key) ?? new Set<string>()).add(pageId)); }
+  const ids = [...selected.values()].flatMap((rows) => { if (options?.retainPreviousTrusted) return rows.map((r) => r.id); const v = selectPageVersion(rows, facts), chosen = v.current === v.content ? [v.current!] : [v.current!, v.content!], key = canonicalUrlKey(v.current?.url), witness = (canonicalOwners.get(key)?.size ?? 0) > 1 && v.current?.content_hash ? rows.find((r) => r.id !== v.current!.id && r.fetched_at !== v.current!.fetched_at && r.content_hash === v.current!.content_hash) : undefined; return [...new Set([...chosen, ...(witness ? [witness] : [])].map((r) => r.id))]; });
   const out = await payloads<T>(ids, columns);
   for (const row of out) if (heldBodies.has(row.id)) Object.assign(row, { body_text: heldBodies.get(row.id) });
   return out.sort((a, b) => b.fetched_at.localeCompare(a.fetched_at) || b.id.localeCompare(a.id));

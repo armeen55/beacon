@@ -186,7 +186,7 @@ async function readEvidenceSnapshot(
   for (const row of wixPayload) { const key = canonicalUrlKey(row.url); captures.set(key, [...(captures.get(key) ?? []), row]); }
   const wixByUrl = new Map<string, { url: string } & OwnedPageContent>();
   for (const [key, group] of captures) {
-    const v = selectPageVersion(group, (r) => ({ fetchedAt: r.fetchedAt, words: r.wordCount, bodyHeld: r.bodyCaptured || r.wordCount > 0, certainty: r.extractionCertainty ?? null }));
+    const v = selectPageVersion(group, (r) => ({ fetchedAt: r.fetchedAt, words: r.wordCount, bodyHeld: r.bodyCaptured || r.wordCount > 0, certainty: r.extractionCertainty ?? null, contentIdentity: r.revision?.content_hash }));
     if (v.content) { const { bodyCaptured: _, ...content } = v.content;
       wixByUrl.set(key, { ...content, versionState: v.state, contentAt: v.contentAt, newestAt: v.current?.fetchedAt ?? null }); }
   }
