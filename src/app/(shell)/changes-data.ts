@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { cache } from "react";
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
-import { actionableProposalFailures, loadChangeProposals, loadProposalQueue, openHold, readAiCaseDispositions, readQueuePage, resolveCurrentBasis } from "@/domains/decision";
+import { actionableProposalFailures, loadChangeProposals, loadProposalQueue, nextObligation, openHold, readAiCaseDispositions, readQueuePage, resolveCurrentBasis } from "@/domains/decision";
 import type { AiCaseFile } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import { loadProofLedgerCached } from "@/domains/measurement";
@@ -115,6 +115,9 @@ const releasedRanking = (p: ChangeProposal, view: ChangesView | null, cards: Map
     : current;
 };
 
+const activeQueuedWork = (p: ChangeProposal): boolean => operatorUiPolicy.isManualEditProofWork(p)
+  && !(p.researchOnly === true && p.obligation?.kind === "terminal" && nextObligation(p)?.kind !== "evidence");
+
 /** Revalidate the release against the current basis and proposal rows; an unreadable basis fails closed. */
 export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string; currentBasis: string | null; currentRows?: ReadonlyMap<string, ChangeProposal> }): ChangesView {
   const currentBasis = ctx.currentBasis;
@@ -125,7 +128,7 @@ export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string;
   const cards = releasedCards(view), stamped = new Set(view.stampRows?.map((r) => r.id));
   const all = new Map([...view.proposals, ...view.ready, ...view.toDo, ...(view.research ?? [])].map((p) => { const current = ctx.currentRows?.get(p.id);
     return [p.id, ctx.currentRows ? current && releasedRanking(current, stamped.size === 0 || stamped.has(p.id) ? view : null, cards) : p] as const; }));
-  const standing = new Set([...all].filter(([id, p]) => !!p && p.id === id && operatorUiPolicy.isManualEditProofWork(p)
+  const standing = new Set([...all].filter(([id, p]) => !!p && p.id === id && activeQueuedWork(p)
     && actionableProposalFailures(p, ctx).length === 0).map(([id]) => id));
   // A PHOTOGRAPH IS RE-SORTED, NEVER EMPTIED. A blob published before a gate tightened can be carrying a row in
   // the wrong lane, so every surviving row is put back through the ONE hold: nothing is dropped for being
@@ -154,7 +157,7 @@ export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string;
     const current: ChangeProposal | undefined = ctx.currentRows.get(row.id);
     const hold: ReturnType<typeof openHold> | undefined = current ? openHold(current) : undefined;
     const lane = hold?.lane === "research" ? "research" : current?.status === "ready" && hold?.defects.length === 0 ? "ready" : "todo";
-    if (!current || current.id !== row.id || !operatorUiPolicy.isManualEditProofWork(current) || actionableProposalFailures(current, ctx).length > 0) counts[row.lane] = Math.max(0, counts[row.lane] - 1);
+    if (!current || current.id !== row.id || !activeQueuedWork(current) || actionableProposalFailures(current, ctx).length > 0) counts[row.lane] = Math.max(0, counts[row.lane] - 1);
     else if (lane !== row.lane) { counts[row.lane] = Math.max(0, counts[row.lane] - 1); counts[lane] += 1; }
   }
   // MAX, never a sum: an old-rule release counted rows it also listed, so adding inflates.
@@ -197,9 +200,9 @@ export async function readChangesPage(
   const basis = await resolveCurrentBasis(tenantId).catch(() => null);
   // A bar I cannot read is not proof anything is current, so I show nothing rather than yesterday's work.
   if (basis == null) return { rows: [], laneById: {}, total: 0, cursor: 0, releaseId: null, refreshed: null, more: false, dropped: 0 };
-  const asked = await readQueuePage(tenantId, lane, basis, cursor, CHANGES_PAGE_SIZE, operatorUiPolicy.isManualEditProofWork);
+  const asked = await readQueuePage(tenantId, lane, basis, cursor, CHANGES_PAGE_SIZE, activeQueuedWork);
   const moved = releaseId != null && asked.release != null && releaseId !== asked.release;
-  const page = moved ? await readQueuePage(tenantId, lane, basis, 0, CHANGES_PAGE_SIZE, operatorUiPolicy.isManualEditProofWork) : asked;
+  const page = moved ? await readQueuePage(tenantId, lane, basis, 0, CHANGES_PAGE_SIZE, activeQueuedWork) : asked;
   const effectiveRelease = moved ? page.release : releaseId, start = moved ? 0 : cursor;
   let confirmed: ChangesView | null = null, confirmedTotal: number | null = null, confirmedMore: boolean | null = null;
   if (moved && !effectiveRelease) return { rows: [], laneById: {}, total: 0, cursor, releaseId: releaseId ?? null, refreshed: null, more: true, dropped: 0, pending: "The new ranking could not be checked just now. Your changes remain above; try Show more again." };
@@ -213,7 +216,7 @@ export async function readChangesPage(
     const standing = (row: { id: string; lane: "ready" | "todo" | "research" }) => {
       const p = current.get(row.id);
       return (lane === "all" || row.lane === lane) && !!p && actionableProposalFailures(p, { tenantId, currentBasis: basis }).length === 0
-        && operatorUiPolicy.isManualEditProofWork(p) && (lane !== "ready" || p.status === "ready" && p.researchOnly !== true && openHold(p).defects.length === 0);
+        && activeQueuedWork(p) && (lane !== "ready" || p.status === "ready" && p.researchOnly !== true && openHold(p).defects.length === 0);
     };
     if (saved.manifest.some((r) => { const p = current.get(r.id); return p && standing(r) && !matches(p); })) return pending("The saved ranking is updating. Your changes remain above; try Show more again after it refreshes.");
     const ids = saved.manifest.filter(standing).map((r) => r.id);
@@ -325,7 +328,7 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
   // One basis per release keeps queue, ranking and page cuts aligned.
   const currentBasis = await resolveCurrentBasis(tenantId).catch(() => null);
   const [queue, ledger, aiCases] = await Promise.all([
-    loadProposalQueue(tenantId, { currentBasis, deliveryScope: "all_changes", eligible: operatorUiPolicy.isManualEditProofWork }).catch(() => ({ ranked: [], ready: [], toDo: [], research: [], implementedPendingVerification: 0, demotedStaleBasis: 0, basisUnreadable: true })),
+    loadProposalQueue(tenantId, { currentBasis, deliveryScope: "all_changes", eligible: activeQueuedWork }).catch(() => ({ ranked: [], ready: [], toDo: [], research: [], implementedPendingVerification: 0, demotedStaleBasis: 0, basisUnreadable: true })),
     // A failed ledger read must not claim zero measured work.
     loadProofLedgerCached(tenantId).then((rows) => ({ rows, read: true })).catch(() => ({ rows: [] as Awaited<ReturnType<typeof loadProofLedgerCached>>, read: false })),
     // Share the Visibility case verdict.

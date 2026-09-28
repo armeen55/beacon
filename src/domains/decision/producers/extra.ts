@@ -318,7 +318,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
     const asks = "asked" in d && d.asked ? [canonicalQueryKey(d.query), canonicalQueryKey(d.asked)].filter(Boolean) : [];
     if (asks.some((k) => answered.has(k))) continue;
     let card = "page" in d ? mint(tenantId, d, now) : d;
-    const mutationKey = footprintKey(card), savedSeat = /::existing_edit::missing_answer(?:@[^:]*)?$/.test(card.id) ? [...rows, ...recovered].find((r) => !!input.basis && r.tenantId === tenantId && r.basis === input.basis && r.researchOnly === true && r.status === "needs_review" && r.changeFamily === card.changeFamily && /::existing_edit::missing_answer(?:@[^:]*)?$/.test(r.id) && r.primaryQuery === card.primaryQuery && canonicalUrlKey(r.pageUrl ?? "") === canonicalUrlKey(card.pageUrl ?? "") && footprintKey(r) === mutationKey) : null, id = proposalSeats.seatFor(savedSeat?.id ?? card.id, mutationKey, seats);
+    const mutationKey = footprintKey(card), savedSeat = /::existing_edit::missing_answer(?:@[^:]*)?$/.test(card.id) ? [...rows, ...recovered].find((r) => !!input.basis && r.tenantId === tenantId && r.basis === input.basis && r.researchOnly === true && r.status === "needs_review" && r.changeFamily === card.changeFamily && /::existing_edit::missing_answer(?:@[^:]*)?$/.test(r.id) && r.primaryQuery === card.primaryQuery && canonicalUrlKey(r.pageUrl ?? "") === canonicalUrlKey(card.pageUrl ?? "") && footprintKey(r) === mutationKey) : null, id = proposalSeats.seatFor(savedSeat && rows.some((r) => r.id === savedSeat.id) ? savedSeat.id : card.id, mutationKey, seats);
     if (id !== card.id) card = { ...card, id };
     const prints = [...mutationFootprint(card)];
     if (prints.some((k) => taken.has(k)) && !mine.has(card.id)) {

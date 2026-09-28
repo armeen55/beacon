@@ -7,6 +7,7 @@ import { loadChangeProposals } from "./proposal-store";
 import { rankProposals } from "./rank-proposals";
 import { actionableProposalFailures, validateProposal } from "./validate-proposal";
 import { openHold } from "./completeness";
+import { nextObligation } from "./obligation";
 import { footprintsOverlap, mutationFootprint } from "./mutation-footprint";
 import { DRAFT_BUDGET } from "./draft-budget";
 import type { ChangeProposal } from "./contracts";
@@ -137,19 +138,15 @@ export async function loadProposalQueue(
   const currentBasis =
     deps.currentBasis !== undefined ? deps.currentBasis : await resolveCurrentBasis(tenantId);
   const byId = deps.canonical ?? await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>());
-  // THE PROVING SCOPE IS AN ADMISSION BOUNDARY, NOT A DISPLAY FILTER. Apply it before overlap, ranking,
-  // lane partitioning or counts so private whole-page history cannot suppress, outrank or paginate a bounded edit.
-  // `all_changes` includes earned new pages; the operator predicate still excludes unsafe historical work.
+  // Scope and settled research are excluded before overlap, rank, and counts; saved history stays intact.
   const deliveryScope = deps.deliveryScope ?? "all_changes";
-  const scoped = [...byId.values()].filter((p) => DRAFT_BUDGET.scopeAllows(deliveryScope, DRAFT_BUDGET.deliveryOf(p)) && (deps.eligible?.(p) ?? true));
+  const scoped = [...byId.values()].filter((p) => DRAFT_BUDGET.scopeAllows(deliveryScope, DRAFT_BUDGET.deliveryOf(p)) && (deps.eligible?.(p) ?? true)
+    && !(p.researchOnly === true && p.obligation?.kind === "terminal" && nextObligation(p)?.kind !== "evidence"));
   const live = scoped.filter((p) => p.status !== "implemented_pending_verification");
   // Your queue is CURRENT WORK ONLY. A proposal enters it only when I can show it was drafted under the basis this account holds right now. An older basis, no basis at all, and a current basis I could not read all SET THE ROW ASIDE. Unreadable fails closed: being unable to read the basis is not proof anything is current, it is proof I cannot tell, so I show you nothing rather than guess. A set-aside row keeps its words, its status and its history: no stored row is rewritten or deleted, it just stops presenting as work waiting on you, and it is counted below so I can say so. A NEW PAGE PASSES THE SAME BAR TWICE. Under generation 6 a page brief may be work again, but only one built to today's evidence contract: the earned verdict it came from, an outline, and every piece tracing to a receipt item. A brief carrying none of that is an older idea however current its basis looks, and reviving the ones that turned a rival's example question into an article is the worst thing this queue could do, so it is refused here and still COUNTED below. AND EVERY DEEP CHANGE PASSES ITS OWN RECEIPT AT READ TIME. A stored bundle whose claims stopped resolving kept rendering exactly as written until something re-selected its page, so the screen is the safety net: a row that cannot show its work is withheld here whatever the producer pass has had a chance to do.
   const standing = live.filter((p) => actionableProposalFailures(p, { tenantId, currentBasis, now }).length === 0
     && (p.kind !== "new_page" || validateProposal(p).verdict !== "rejected"));
-  // THE COMPLETENESS BOUNDARY DECIDES THE LANE, NEVER WHETHER THE WORK IS SEEN (operator, 2026-08-15). A row whose
-  // deliverable is not finished used to leave the queue entirely and reach the operator as a number, which buried
-  // genuine opportunities the account had already paid to find. Every standing row is ranked and shown; what the
-  // boundary decides is which of the three lanes it lands in and which controls its card carries.
+  // Every standing obligation is shown; completeness only decides its lane.
   const all = standing;
   // A CHANGE REPLACES ONLY THE WORK IT ACTUALLY OVERWRITES (operator, 2026-08-26). This asked instead whether any OTHER row on the page carried a bundle, and dropped every non-bundle row when one did. Live that hid eight standing rows behind a single table-row bundle, three of them already shown to the operator as Ready: the /farsi-numbers zero explainer, and the Late Safavid linked paragraph and title. One page is not one opportunity, so the question is what each row WRITES: a bundle rewriting a title still takes the plain title rewrite with it, while a table row, a heading, a schema block and a title on one page are four changes and all four stand. READ AFTER the basis filter above, never before it: a row that cannot be presented may not suppress one that can. Richest first, so the bundle that subsumes several atomic cards is the one kept, and ties break on id so the queue is the same on every read. Ranking has not run yet, which is why worth cannot decide it here.
   // FINISHED WORK IS NOT HIDDEN BY UNFINISHED WORK (operator, 2026-08-29). Which of two overlapping rows

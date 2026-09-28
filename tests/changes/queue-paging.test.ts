@@ -46,7 +46,7 @@ import { renderToStaticMarkup } from "react-dom/server"; import { createElement 
 import { readChangesPage, loadChangesView, buildChangesViewUncached, releasedQueueCursors, withCurrentBasisOnly } from "@/app/(shell)/changes-data";
 import { buildTodayViewFromChanges, loadTodayView } from "@/app/(shell)/today-view-data";
 import { readQueuePage, loadChangeProposals, publishCustomerRelease } from "@/domains/decision/proposal-store";
-import { actionableProposalFailures, deliverableGaps } from "@/domains/decision"; import operatorUiPolicy from "@/app/(shell)/changes/types";
+import { actionableProposalFailures, deliverableGaps, nextObligation } from "@/domains/decision"; import operatorUiPolicy from "@/app/(shell)/changes/types";
 import { deserializeChangeProposal, serializeChangeProposal, type ChangeProposal } from "@/domains/decision/contracts";
 import { CHANGES_PAGE_SIZE } from "@/app/(shell)/changes/types";
 const captures = (tenantId: string, url: string): NonNullable<ChangeProposal["reviewedCaptures"]> => [{ tenantId, url, pageId: `page-${new URL(url).pathname}`, captureId: `snap-${new URL(url).pathname}-1`, latestCaptureId: `snap-${new URL(url).pathname}-1`, captureVersion: 1, sourceRevision: "0123456789abcdef" }];
@@ -132,7 +132,6 @@ describe("one release identity, or no release at all", () => {
     const view = await buildChangesViewUncached(T, "rel-1"), fresh = view.proposals[0]!; blob.stored = { releaseId: "rel-1", computedAt: new Date().toISOString(), manifest: view.stampRows, changes: view, today: { today: { nextOpportunities: [] } } };
     const [first, later] = await Promise.all([loadChangesView(), readChangesPage(T, "ready", 0, "rel-1")]); expect([first.ready[0]?.rankingReceipt, later.rows[0]?.rankingReceipt, first.ready[0]?.whyRankedAboveNext, later.rows[0]?.whyRankedAboveNext]).toEqual([fresh.rankingReceipt, fresh.rankingReceipt, fresh.whyRankedAboveNext, fresh.whyRankedAboveNext]);
     db.rows[0]!.payload = JSON.parse(serializeChangeProposal({ ...one, recommendedChange: { kind: "existing_edit", field: "title", before: "a", after: "Changed after release" } })); expect((await readChangesPage(T, "ready", 0, "rel-1")).pending).toContain("ranking is updating"); });
-
   it("builds the one order without touching the live ranking, commits ranking and surface together or not at all, and pages no change whose receipt stopped resolving", async () => {
     const one = ALL[0]!, view = await buildChangesViewUncached(T, "rel-9"); expect([view.surfaceVersion, view.summary.ready, buildTodayViewFromChanges(view).readyTotal]).toEqual(["rel-9", N, N]); expect([(await readQueuePage(T, "ready", "b1", 0, 1)).release, view.stampRows?.length]).toEqual(["rel-1", N]);
     const broken = proposal(0, { bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] }, confidenceReasons: [], alternatives: [], risks: [], receipt: { items: [], missing: [], freshestObservedAt: null }, components: [{ kind: "title", label: "Title", risk: "safe", before: "a", after: "b", evidenceKeys: ["nothing-holds-this"] }] } } as Partial<ChangeProposal>);
@@ -154,14 +153,15 @@ describe("one release identity, or no release at all", () => {
     const todo = { ...args("rel-12", "rel-11"), content: { ...args("rel-12", "rel-11").content, manifest: [{ id: one.id, lane: "todo" as const }], changes: { proposals: [one], ready: [], toDo: [one], research: [] } } }; expect(await publishCustomerRelease(todo)).toBe("rel-12"); await expect(publishCustomerRelease({ ...args("rel-13", "rel-12"), content: { ...args("rel-13", "rel-12").content, manifest: [{ id: one.id, lane: "ready" }, { id: ALL[1]!.id, lane: "ready" }], changes: { proposals: [one], ready: [ALL[1]!], toDo: [], research: [] } } })).rejects.toThrow("conflict with the manifest"); expect(await committed()).toEqual(["rel-12", "rel-12"]);
   }); });
 describe("one global rank across every lane", () => {
-  it("interleaves research and drafts with ready work by worth, and a stamp never outranks the row it stamps", async () => {
-    await stamp("rel-mixed", [{ id: ALL[0]!.id, lane: "research" }, { id: ALL[1]!.id, lane: "ready" }, { id: ALL[2]!.id, lane: "todo" }, { id: ALL[3]!.id, lane: "ready" }]); const page = await readQueuePage(T, "all", "b1", 0, 10);
-    expect(page.rows.map((p) => p.id)).toEqual([ALL[0]!.id, ALL[1]!.id, ALL[2]!.id, ALL[3]!.id]); expect(page.rows.map((p) => page.laneById[p.id])).toEqual(["ready", "ready", "ready", "ready"]); // every fixture row is finished, so every lane is ready whatever the release stamped (operator, 2026-09-02): a stamp outlived its row and painted a brief as finished work
-    db.rows.find((r) => r.id === ALL[0]!.id)!.payload = JSON.parse(serializeChangeProposal(proposal(0, { status: "needs_review", researchOnly: true }))); // a brief still wearing the release's `research` stamp
-    db.rows.find((r) => r.id === ALL[2]!.id)!.payload = JSON.parse(serializeChangeProposal(proposal(2, { status: "needs_review" }))); // a review draft still wearing a `ready` stamp
-    const mixed = await readQueuePage(T, "all", "b1", 0, 10), painted = { ready: 0, todo: 0, research: 0 };
-    for (const p of mixed.rows) painted[mixed.laneById[p.id]!] += 1;
-    expect([painted, mixed.total], "a needs_review row stamped ready counts as todo, and a research row counts as research").toEqual([{ ready: 2, todo: 1, research: 1 }, 4]);
+  it("ranks only active work and rechecks stale lane stamps while retaining settled research history", async () => {
+    const terminal = { kind: "terminal" as const, reason: "no substantive gap named" }, settled = proposal(900, { status: "needs_review", researchOnly: true, obligation: terminal });
+    const aged = proposal(901, { status: "needs_review", researchOnly: true, obligation: terminal, winnersOnFile: "read", createdAt: new Date(Date.now() - 8 * 86_400_000).toISOString() }), reading = proposal(902, { status: "needs_review", researchOnly: true, obligation: terminal, winnersOnFile: "unread" });
+    const draft = proposal(903, { status: "needs_review", researchOnly: true }), ready = proposal(904), review = proposal(905, { status: "needs_review" });
+    const all = [settled, aged, reading, draft, ready, review], manifest = all.map((p, i) => ({ id: p.id, lane: i < 3 ? "research" as const : i === 3 ? "ready" as const : i === 4 ? "todo" as const : "ready" as const })); db.rows = all.map((p) => seed(p)); await stamp("rel-old", manifest);
+    const old = { proposals: all, ready: [draft, review], toDo: [ready], research: [settled, aged, reading], summary: { ready: 2, todo: 1, research: 3, implemented: 0, measuring: 0, results: 0 }, demotedStaleBasis: 0, stampRows: manifest } as unknown as Awaited<ReturnType<typeof buildChangesViewUncached>>; blob.stored = { releaseId: "rel-old", computedAt: new Date().toISOString(), manifest, changes: old, today: { today: { nextOpportunities: [] } } };
+    const joined = withCurrentBasisOnly(old, { tenantId: T, currentBasis: "b1" }), page = await readQueuePage(T, "all", "b1", 0, 10), released = await readChangesPage(T, "all", 0, "rel-old"), visible = [reading.id, draft.id, ready.id, review.id];
+    expect([joined.summary, page.rows.map((p) => p.id), page.rows.map((p) => page.laneById[p.id]), released.total, released.rows.map((p) => p.id)]).toEqual([{ ...old.summary, ready: 1, todo: 1, research: 2 }, visible, ["research", "research", "ready", "todo"], 4, visible]);
+    const built = await buildChangesViewUncached(T, "rel-new"); expect([built.stampRows?.length, built.summary.research, built.demotedStaleBasis, nextObligation(settled)?.kind, nextObligation(aged)?.kind, nextObligation(reading)?.kind, nextObligation(draft)?.kind, db.rows.length]).toEqual([4, 2, 0, "terminal", "draft", "evidence", "draft", 6]);
   });});
 describe("the ranked queue pages in the database", () => {
   it("hands over all 501 changes exactly once, and every request reads one bounded page", async () => {

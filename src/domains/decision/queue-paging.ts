@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 import { deserializeChangeProposal, type ChangeProposal } from "./contracts";
 import { actionableProposalFailures } from "./validate-proposal"; import { openHold } from "./completeness";
+import { nextObligation } from "./obligation";
 
 export const QUEUE_PAGE = 500, QUEUE_CEILING = 20_000;
 type Lane = "ready" | "todo" | "research";
@@ -34,7 +35,7 @@ export async function readQueuePage(tenantId: string, lane: Lane | "all", basis:
     if (page.error) throw new Error(page.error.message);
     const read = (page.data ?? []) as unknown as Array<{ payload: unknown; queue_rank: number; queue_lane: string | null }>;
     const kept = read.map(r => ({ p: decode(r.payload), rank: r.queue_rank, stamped: (r.queue_lane ?? "").split("::")[1] }))
-      .filter((r): r is { p: ChangeProposal; rank: number; stamped: string } => !!r.p && actionableProposalFailures(r.p, { tenantId, currentBasis: basis }).length === 0 && (eligible?.(r.p) ?? true) && (lane !== "ready" || laneOfRow(r.p) === "ready"));
+      .filter((r): r is { p: ChangeProposal; rank: number; stamped: string } => !!r.p && !(r.p.researchOnly === true && r.p.obligation?.kind === "terminal" && nextObligation(r.p)?.kind !== "evidence") && actionableProposalFailures(r.p, { tenantId, currentBasis: basis }).length === 0 && (eligible?.(r.p) ?? true) && (lane !== "ready" || laneOfRow(r.p) === "ready"));
     const rows = kept.map(r => r.p);
     return { rows, laneById: Object.fromEntries(kept.map(r => [r.p.id, laneOfRow(r.p)])),
       rankById: Object.fromEntries(kept.map(r => [r.p.id, r.rank])), stampedLaneById: Object.fromEntries(kept.map(r => [r.p.id, r.stamped])),
