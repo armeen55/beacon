@@ -38,7 +38,7 @@ const snapshot = (s: Site, serpQuery: string, winningPages: unknown[] = []): Evi
   scope: { tenantId: s.t, site: `${s.t}.example`, builtAt: NOW.toISOString() }, aiCitations: { ownedCited: 0, competitorCited: 0, engines: [], rowsScanned: 0 },
   sources: [], competitors: [], keywordDemand: [], questionDemand: [], intentClusters: [], cannibalization: [], contentGaps: [], internalLinkOpportunities: [], evidenceHash: "rv3",
   research: { ...emptyResearchEvidence(), winningPages,
-    serpEvidence: [{ query: serpQuery, observedAt: "2026-09-05T00:00:00.000Z", organic: [1, 2, 3].map((i) => ({ rank: i, domain: `rival-${i}.example`, url: `https://rival-${i}.example/x`, title: `A page about ${serpQuery}` })), aiOverview: [], aiMode: [], paa: [], related: [] }] } as never,
+    serpEvidence: [{ query: serpQuery, observedAt: NOW.toISOString(), organic: [1, 2, 3].map((i) => ({ rank: i, domain: `rival-${i}.example`, url: `https://rival-${i}.example/x`, title: `A page about ${serpQuery}` })), aiOverview: [], aiMode: [], paa: [], related: [] }] } as never,
   ownedPages: [owned(s)] as never } as never);
 
 const card = (s: Site, over: Partial<ChangeProposal> = {}): ChangeProposal => ({

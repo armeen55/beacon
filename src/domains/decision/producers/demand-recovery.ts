@@ -77,7 +77,7 @@ export async function demandRecoveryCards(input: { tenantId: string; snapshot: E
       const comparison = diagnoseCandidate({ query: u.label, ownedUrl: home, organic: serp?.organic ?? null,
         body: false, gscPosition: h.pageRecentPosition });
       const line = `${comparison.explanation} This current comparison does not establish why historical clicks fell; demand, results-page changes and page composition remain separate questions.`;
-      const reading = winnersRead(snapshot.research, u.label);
+      const reading = winnersRead(snapshot.research, u.label, home, now.getTime());
       const phrasings = u.vocabulary.slice(0, 6).map((v) => `"${v}"`).join(", ");
       const windowLine = `${monthOf(historyWindow.earlyFrom)} to ${monthOf(historyWindow.earlyTo)}`, label = pageLabelOf(snapshot, home); /* THE CARD READS AS A PERSON WOULD SAY IT (operator voice; production 2026-09-18): "37 clicks a month were LOST", "about 0 supported as recoverable today" and a raw slug were the headline the moment the history read came back */
       const story = `Searches for ${u.label} brought this site about ${n(h.earlyClicksPerDay * 30)} clicks a month from ${windowLine} and bring about ${n(h.recentClicksPerDay * 30)} now, down ${n(h.lostClicksPerMonth)} a month.`;
