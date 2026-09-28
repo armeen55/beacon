@@ -5,14 +5,7 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 import type { DuePhase } from "./ops/due-work";
 
-/** research-run - the durable Research Run record (Slice 4, 2026-07-24). THE canonical type + repository for a resumable research cycle. At most ONE unfinished (running or paused) run per account
- *  across ALL dates (partial unique index). Two doors claim through claim_research_run: the global daily scheduler (claim_due_research_work, one bounded dispatch for every account whose reporting day
- *  still owes work: src/lib/reporting-day.ts is the ONE timezone contract) and any visit, which recovers and resumes whatever the scheduler left. Both RESUME the one unfinished run regardless of
- *  cycle_key or start date, and start a fresh daily cycle (cycle_key "<tenant>:<day>", at DATABASE time) only when none is open and none completed that day. THE DATABASE LEASE DECIDES WHO ADVANCES A
- *  RUN: a dispatch and a visit racing the same account cannot both proceed. Persistence is a service-role Supabase repository behind an injectable seam (tests inject an in-memory repo modeling the
- *  RPC contract). Every operation requires an explicit tenantId and throws before any I/O when empty. An unavailable claim RPC FAILS CLOSED (null, no background work); the render degrades to "none".
- *  Migrations: 2026-07-24_research_runs.sql (table + RLS), _truth.sql (database-time advance / renew / finish), _claim_semantics.sql (one open run + resume-first claim), 2026-08-02_progress_patch_rpc.sql
- *  (the one atomic progress merge, so two writers cannot erase each other's keys), 2026-08-03_claim_due_research_work.sql (the fleet enumeration + the research-paused switch). */
+/** Durable tenant-scoped Research Runs: one unfinished run per account, database leases, and Supabase persistence behind a test seam. */
 
 // ── Canonical record ───────────────────────────────────────────────────────
 
@@ -209,6 +202,8 @@ export type ResearchRunRepo = {
   patchProgress(input: { tenantId: string; id: string; patch: Record<string, unknown>; increment?: { key: string; day: string } }): Promise<ResearchRunProgress | null>;
   /** Latest run for the tenant by started_at desc, or null. */
   latest(tenantId: string): Promise<ResearchRun | null>;
+  /** Latest other run for a newly claimed row; never scan past an empty successor's debt. */
+  previous(input: { tenantId: string; excludeId: string }): Promise<ResearchRun | null>;
   /** Exact run read for recovery receipts. Optional only for injected legacy test repositories. */
   read?(input: { tenantId: string; id: string }): Promise<ResearchRun | null>;
   /** This account's rows for ONE reporting day, newest first, lean (id + progress): how many passes have already opened today, and what day-scoped state a new one inherits. */
@@ -306,6 +301,12 @@ const supabaseRepo: ResearchRunRepo = {
     if (error != null) throw new Error(error.message ?? String(error));
     return data ? mapRow(data as Record<string, unknown>) : null;
   },
+  async previous({ tenantId, excludeId }) {
+    const { data, error } = await getSupabaseAdmin().from("research_runs").select("*")
+      .eq("tenant_id", tenantId).neq("id", excludeId).order("started_at", { ascending: false }).limit(1).maybeSingle();
+    if (error != null) throw new Error(error.message ?? String(error));
+    return data ? mapRow(data as Record<string, unknown>) : null;
+  },
   async read({ tenantId, id }) {
     const { data, error } = await getSupabaseAdmin().from("research_runs").select("*")
       .eq("tenant_id", tenantId).eq("id", id).maybeSingle();
@@ -328,12 +329,7 @@ export function setResearchRunRepoForTests(next: ResearchRunRepo | null): void {
 
 // ── The reporting day's own memory ─────────────────────────────────────────
 
-/** THE ABSOLUTE RUNAWAY STOP for one account's Pacific day, not a work budget and not any one door's allowance. A pass may open whenever due-work reports genuinely progressable work; this only stops
- *  an account whose due list can never be cleared from opening passes forever. Past the ceiling in one day I say so and open nothing until the day rolls. Each door may carry a SMALLER ceiling of its own (the
- *  visit door does, because every navigation is a chance to open a pass); no door may raise this one. 24 fit the
- *  twice-hourly era and CLOSED THE ACCOUNT AT 01:50Z under the constant ten-minute cadence (operator, 2026-09-10,
- *  constant over cycle): the cron alone opens up to 144 honest passes a day, so the runaway line sits above the
- *  cadence, not inside it, and still catches a loop that opens passes faster than the clock does. */
+/** Absolute safety ceiling for one Pacific reporting day; the door still requires due work. */
 const DAILY_PASS_RUNAWAY_CEILING = 200;
 
 type DayRow = { id: string; progress: ResearchRunProgress };
@@ -372,14 +368,17 @@ async function withDayState(run: ResearchRun, owner: string): Promise<ResearchRu
   const p = run.progress ?? {};
   if (p.decided != null || p.extraSamples != null || p.capped != null || p.synthesisAttempted != null || p.observationRetries != null || p.zeroOutput != null) return run;
   const priors = await repo.sameDay({ tenantId: run.tenant_id, day: run.cycle_key.slice(-10), limit: DAILY_PASS_RUNAWAY_CEILING });
-  return inheritDayState(run, owner, priors);
+  if (priors.some((prior) => prior.id !== run.id)) return inheritDayState(run, owner, priors);
+  if (run.current_phase !== "refresh_sources" || run.phase_cursor != null || Object.keys(p).length !== 0) return run;
+  const previous = await repo.previous({ tenantId: run.tenant_id, excludeId: run.id });
+  if (!previous || previous.cycle_key.slice(-10) === run.cycle_key.slice(-10)) return run;
+  const owed = previous.progress.evidenceOwed?.filter((n) => n.kind === "page_source" && n.unlocks?.beforeMicros === true && !!(n.proposalId || n.unlocks.proposalId) && !!n.workKey?.trim());
+  return owed?.length ? inheritDayState(run, owner, [{ id: previous.id, progress: { evidenceOwed: owed } }]) : run;
 }
 
 // ── Public operations (explicit tenant, fail-closed) ───────────────────────
 
-/** Claim, resume, or start the account's Research Run with our owner token. The database resumes the single unfinished run (any date) before considering a new daily cycle, and computes the daily key
- *  itself. A REFUSAL AND A FAILURE ARE DIFFERENT ANSWERS, and this is the one place that can tell them apart. `null` means the database refused us honestly (a foreign live lease, or a pass already
- *  completed today), which a caller may reason further about. A THROW means the claim could not be made at all, so the caller fails closed: an unavailable database must never read as "today is done". */
+/** Claim the one unfinished run or start today; refusal is null and persistence failure throws. */
 export async function claimRun(tenantId: string, ownerToken: string): Promise<ResearchRun | null> {
   requireTenant(tenantId);
   try {
@@ -392,13 +391,11 @@ export async function claimRun(tenantId: string, ownerToken: string): Promise<Re
   }
 }
 
-/** THE DAILY DISPATCH. Claim up to `limit` accounts that still owe work for their current Pacific day, through the same claim_research_run every visit uses, and hand the caller the runs it now holds the lease on. No
- *  tenant argument by design: this is the one fleet-wide door, reachable only by the service role behind the CRON_SECRET endpoint. AN OUTAGE IS NOT AN EMPTY FLEET. A throw used to be swallowed into an empty list, so a
- *  database that was down, an RPC that was never migrated and a permission that was revoked all read as "nobody owes anything", the endpoint answered 200 with a zero receipt, and cron monitoring recorded a healthy day
- *  on which no account was tracked at all. It now THROWS, and the endpoint answers 503. Zero rows stays what it has always been: a genuine, honest nothing. */
+/** Service-only fleet claim; database failure throws so the scheduler reports failure. */
 export async function claimDueRuns(ownerToken: string, limit: number): Promise<ResearchRun[]> {
   try {
-    return await repo.claimDue({ owner: ownerToken, limit, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS });
+    const claimed = await repo.claimDue({ owner: ownerToken, limit, leaseSeconds: RESEARCH_RUN_LEASE_SECONDS });
+    return await Promise.all(claimed.map((run) => withDayState(run, ownerToken)));
   } catch (error) {
     log.error("[research-run] the daily dispatch could not read what is due; today's tracking did not run", { error: error instanceof Error ? error.message : String(error) });
     throw error instanceof Error ? error : new Error(String(error));

@@ -29,7 +29,7 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } { const
       Object.assign(r, { status: outcome, lease_owner: null, lease_expires_at: null, last_error: outcome === "completed" ? null : errorInfo ?? null,
         ...(typeof spendUsd === "number" ? { spend_usd: spendUsd } : {}), ...(outcome === "completed" ? { current_phase: "done", completed_at: iso() } : {}) }); return true; },
     async patchProgress({ tenantId, id, patch }) { const r = find(id, tenantId); if (!r) return null; r.progress = { ...r.progress, ...patch } as RR.ResearchRunProgress; return r.progress; },
-    async latest(t) { const m = rows.filter((r) => r.tenant_id === t).at(-1); return m ? { ...m } : null; },
+    async latest(t) { const m = rows.filter((r) => r.tenant_id === t).at(-1); return m ? { ...m } : null; }, async previous({ tenantId, excludeId }) { const m = rows.filter((r) => r.tenant_id === tenantId && r.id !== excludeId).at(-1); return m ? { ...m } : null; },
     async sameDay() { return []; } }; return { repo, rows }; }
 const freshRepo = (): RR.ResearchRun[] => { const { repo, rows } = memRepo(); RR.setResearchRunRepoForTests(repo); return rows; };
 const NO_CHECKS = { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0 };
