@@ -8,12 +8,14 @@ import { monthDayLabel } from "@/components/data/receipt-line";
 import { learningFromShipments, isMature as kernelIsMature } from "@/domains/measurement";
 import type { ControlReceipt, KernelRead, MeasurementState, ShipmentObjective, ShipmentVerification, treatmentLearning } from "@/domains/measurement";
 import { RESULT_LINES } from "./results-lines";
-const { AI_MOVE, WHY_UNCONFIRMED, aiDays, aiHappenedLine, aiMove, aiStory, cap, caveatLines, executionLine, fundingFor, fundingLine, groupFor, happenedLine, judgedOnAi, learningRowOf, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, retiredChip, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } = RESULT_LINES;
+const { AI_MOVE, WHY_UNCONFIRMED, aiDays, aiHappenedLine, aiMove, aiStory, appliedWorkLabel, cap, caveatLines, executionLine, fundingFor, fundingLine, groupFor, happenedLine, judgedOnAi, learningRowOf, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, retiredChip, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } = RESULT_LINES;
 
 
 /** What one measured change carries on the Results surface. */
 export type ShipmentPresentation = {
   read: KernelRead;
+  /** Current tenant Website, rebound on each Results request. Missing identity withholds the outbound link. */
+  siteOrigin?: string | null;
   /** Whether a fair comparison exists for this one. Recording an implementation never waits on it. */
   measurement?: MeasurementState | null;
   /** The day the operator marked it done. Null on a record written before there was a stamp. */ implementedAt: string | null;
@@ -49,7 +51,7 @@ export type ShipmentPresentation = {
 export type ResultsGroup = "worked" | "down" | "flat" | "reading";
 
 type ResultsRow = {
-  id: string; path: string; url: string;
+  id: string; path: string; url: string | null;
   /** What the change was, said the way an operator would say it. */
   work: string;
   group: ResultsGroup;
@@ -107,6 +109,15 @@ export type ResultsView = {
 };
 
 const num = (n: number): string => Math.round(n).toLocaleString("en-US"), signed = (n: number): string => `${n > 0 ? "+" : n < 0 ? "-" : ""}${num(Math.abs(n))}`, quoted = (s: string): string => (s.trim().length > 160 ? `${s.trim().slice(0, 157)}...` : s.trim()); // a record may hold a whole section, and a row quoting one whole is a wall rather than a fact
+function pageLink(page: string, siteOrigin: string | null | undefined): string | null {
+  try {
+    if (!siteOrigin || !page || !/^(?:https?:\/\/|\/|(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?=[/?#]|$))/i.test(page)) return null;
+    const site = new URL(siteOrigin), raw = /^https?:\/\//i.test(page) || page.startsWith("/") ? page : `${site.protocol}//${page}`;
+    const target = new URL(raw, site);
+    return ["http:", "https:"].includes(target.protocol) && !target.username && !target.password && target.host.toLowerCase().replace(/^www\./, "") === site.host.toLowerCase().replace(/^www\./, "")
+      ? target.toString() : null;
+  } catch { return null; }
+}
 // -- the closed label maps (a slug never reaches the screen) -------------------
 
 /** ONE shared scale for every bar on the screen: a move of a quarter against this page's own  starting point fills the bar, and everything larger is held at the edge. */
@@ -244,35 +255,21 @@ function rowOf(p: ShipmentPresentation, now: Date, funding: ReadonlyMap<string, 
   return {
     id: r.id,
     path: r.path,
-    url: r.page,
-    work: workLabel(r.actionType),
+    url: pageLink(r.page, p.siteOrigin),
+    work: appliedWorkLabel(p) ?? workLabel(r.actionType),
     group,
-    // THE COLLAPSED ROW IS HONEST BEFORE ANYTHING IS OPENED (Codex, 2026-08-21): no clear movement, a split
-    // between assistants and a terminally unmeasurable result are three different silences, and only a real
-    // control-based flat result may say "No change".
-    // A READ AHEAD IS NOT A WIN (operator, 2026-09-01): every one of the six rows this surface once called "Worked" carried "Live page not
-    // read yet". The word is the row's ONE state, the same one the Brain above counts, so the list can never say what the belief denies.
     verdictWord: stateWord(p),
     liveConfirmed: liveConfirmed(p),
-    // COLOUR ONLY WHERE THE LIVE PAGE CONFIRMED THE CHANGE: a historical read ahead painted green reads as a win.
     dot: !liveConfirmed(p) ? "grey" : group === "worked" ? "emerald" : group === "down" ? "rose" : group === "flat" ? "grey" : "sky",
     bar,
-    // A Google confidence dims a GOOGLE bar only: dimmed to 0.4 under a won citation it printed a doubt no
-    // reading of that objective had expressed.
     barOpacity: onAi ? 1 : r.confidence === "high" ? 1 : r.confidence === "medium" ? 0.65 : 0.4,
-    // THE ONE VALUE THE COLLAPSED LINE SHOWS. It preferred the Google number over the verdict word, so a citation win printed
-    // "-30 clicks behind" in green under "Worked". The objective's own move is a word, never a click figure standing in for it.
     liftLabel: onAi ? (move ? `${aiStory(p)[0]} ${AI_MOVE[move].replace(/ (than|as) before$/, "")}` : null)
       : claimNumber ? liftLabel(r.metric, r.lift) : null,
     readLabel: onAi ? (aiDone >= 28 ? "28 day read done" : aiDone > 0 ? `${aiDone} of 28 days in` : "Nothing read yet")
       : done ? `${done.day} day read done` : "Nothing read yet",
-    // A page with no traffic on file before the change gets no delta at all: there is nothing to count from. Everything else prints what was read, and "Level" rather than a bare zero.
-    // EVERY COLLAPSED NUMBER CARRIES ITS UNIT (operator, 2026-08-21): a bare +1,119 answers nothing.
     impressionsLabel: onAi || !claimNumber || !showsImpressions(p) ? null
       : (Math.abs(r.impressionsLift) < 0.5 ? "Level" : `${signed(r.impressionsLift)} shown`),
     chip: chipOf(p), retired: retiredChip(p),
-    // The dots count down the read THIS row is judged over. A citation change one day in showed three filled dots and "Done May 29",
-    // because those are the Google windows, beside its own "Reading".
     pips: onAi ? [7, 14, 28].map((day) => ({ day, state: aiDone >= day ? "read" as const : "pending" as const }))
       : r.windows.filter((w) => w.day !== 56).map((w) => ({
         day: w.day,
@@ -283,7 +280,6 @@ function rowOf(p: ShipmentPresentation, now: Date, funding: ReadonlyMap<string, 
         : done ? `Done ${monthDayLabel(done.closesOn) ?? ""}`.trim() : null,
     execution: executionLine(p),
     happened: onAi ? aiHappenedLine(p) : happenedLine(p, now),
-    // GOOGLE STAYS ON THE ROW AND STOPS BEING THE ANSWER: same sentence, same before and after, under a heading that says whose they are.
     googleAside: onAi ? { heading: "Google search, for context", line: happenedLine(p, now) } : null,
     numbers,
     numbersNote: note,
@@ -291,9 +287,6 @@ function rowOf(p: ShipmentPresentation, now: Date, funding: ReadonlyMap<string, 
     /* THE OPERATOR'S OWN WORDING BESIDE THE PREPARED ONE, where the record holds both. The piece is named by its kind through the one work-label map, so a stored label that is really a writer's brief can never reach the screen as a name. */ appliedLines: (p.applied ?? []).map((c) => `${cap(workLabel(c.kind))}: your wording is on the page, "${quoted(c.operator)}"${c.prepared ? `, and the prepared wording was "${quoted(c.prepared)}"` : ""}. The live check read the page for yours.`),
     unadjustedNote: unadjustedLine(p), aiLine: p.ai?.line ?? null, yardstick: yardstickOf(p.judgedMetric),
     aiMetricLines: p.ai?.metricLines ?? [], aiBoundary: p.ai?.boundary ?? null,
-    // A WIN NOBODY VERIFIED SAYS SO ON THE ROW (operator, 2026-08-21): improvement after a marked change is a
-    // fact, and "the live implementation has not been verified" is the other fact that belongs beside it.
-    // THE CAVEAT NAMES THE YARDSTICK THAT MOVED AND WHY THE LIVE PAGE IS SILENT: "traffic improved" over a click-rate read whose impressions fell was a second claim, and "not verified yet" on a change that predates verification promised a check that will never run.
     caveats: [...(group === "worked" && !liveConfirmed(p)
       ? [`${onAi ? "This improved" : r.metric === "ctr" ? "The click rate read ahead" : r.metric === "position" ? "The position read ahead" : "Clicks read ahead"} after this marked change; ${p.implementedAt == null ? "the change predates live verification and was never checked on the page." : "the live implementation has not been verified yet."}`] : []),
     ...caveatLines(r, onAi), ...(p.verification?.components ?? []).filter((c) => c.state === "changed_differently" && !!c.note).map((c) => c.note!)].slice(0, 3),

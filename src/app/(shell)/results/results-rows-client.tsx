@@ -201,7 +201,7 @@ function Row({ row, group, open, onToggle }: { row: ResultsRow; group: ResultsGr
             ? <Link href="/changes" className={`mt-1 block text-[12px] font-medium text-accent-primary underline underline-offset-2 ${FOCUS}`}>{row.nextStep}</Link>
             : <p className="mt-1 text-[12px] font-medium text-foreground">{row.nextStep}</p>}
           <div className="mt-2 flex justify-end gap-4 text-[12px] font-medium">
-            <a href={row.url} target="_blank" rel="noreferrer" className={`text-accent-primary underline underline-offset-2 ${FOCUS}`}>Open page</a>
+            {row.url ? <a href={row.url} target="_blank" rel="noreferrer" className={`text-accent-primary underline underline-offset-2 ${FOCUS}`}>Open page</a> : null}
           </div>
         </div>
       ) : null}

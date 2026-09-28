@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { requireReadyAccount } from "@/domains/account";
+import { requireReadyAccount, websiteOf } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
 import { scheduleAutoMeasure } from "@/domains/measurement";
 import { loadResultsLedgerSurface } from "./results-ledger-data";
@@ -24,13 +24,16 @@ export default async function ProofPage({ searchParams }: { searchParams?: Promi
   const tenantId = await currentTenantId();
   const access = requireReadyAccount(tenantId).then(({ access }) => {
     if (access.kind === "suspended") redirect("/");
+    return access;
   });
   // Start the complete saved read now, including a snapshot miss; access gates both refresh and HTML.
   const pending = loadResultsLedgerSurface(undefined, access).catch(() => ({ shipments: [] as ShipmentPresentation[], computedAt: null, checkedAgo: null, unavailable: true }));
-  await access;
+  const { account } = await access;
   const release = loadWithDeadline(readCustomerSurface(tenantId), 1_500).then((r) => r.data).catch(() => null);
   const surface = await pending;
-  const shipments = surface.shipments, now = new Date();
+  // A saved Results snapshot cannot authorize a link to an account's former Website.
+  const siteOrigin = websiteOf(account).canonical_url;
+  const shipments = surface.shipments.map((p) => ({ ...p, siteOrigin })), now = new Date();
   const brain = buildResultsBrain(shipments, now), view = buildResultsView(shipments, now);
   const firstLive = monthDayLabel(shipments.map((p) => p.implementedAt).filter((d): d is string => !!d).sort()[0] ?? null);
   const anyClosed = shipments.some((s) => s.read.windows.some((w) => w.state === "closed"));

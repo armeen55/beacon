@@ -21,7 +21,7 @@ const isMature = (d: number | null): boolean => kernelIsMature(d as 7 | 14 | 28 
 
 /** What the change actually was, said the way an operator would say it. */
 const WORK_LABEL: Record<string, string> = {
-  title: "the page title", meta: "the search description", h1: "the page headline",
+  title: "the page title", meta: "the meta description", h1: "the page headline",
   opening_answer: "the answer at the top", answer_block: "the answer at the top",
   intro_answer_block: "the answer at the top",
   section: "a section", section_add: "a new section", section_remove: "a removed section",
@@ -53,6 +53,10 @@ const workLabel = (raw: string): string =>
   WORK_LABEL[(raw || "").toLowerCase()]
   ?? WORK_LABEL[(raw || "").toLowerCase().replace(/^(edit|change|add|fix|update|create)_/, "")]
   ?? "this change";
+const appliedWorkLabel = (p: ShipmentPresentation): string | null => {
+  const parts = p.learning?.componentsApplied, label = parts?.length === 1 ? workLabel(parts[0]!.kind) : null;
+  return label === "this change" ? null : label;
+};
 
 /** What the proposal said was wrong with the page. TOTAL OVER THE CAUSE LADDER, and the compiler is the pin: this map held thirteen of the sixteen causes, so `factual_error` (its own lever set, its own gap kind, its own entry in the Brain's treatment names, and the four name-meaning corrections this account is shipping right now) silently vanished out of every place a cause is named. The two that are not page defects map to nothing on purpose and drop out where causes are listed. */
 const CAUSE_LABEL: Record<CauseFinding["cause"], string> = {
@@ -352,7 +356,7 @@ function executionLine(p: ShipmentPresentation): string {
 function taughtLine(p: ShipmentPresentation): string {
   const r = p.read, l = r.learning;
   // A SCHEMA ROW IS STRUCTURED DATA ON THE ROW AS IT IS IN THE BRAIN: the technical family also holds forwards and canonicals.
-  const family = /schema|json.?ld|structured/i.test(r.actionType) ? "a structured data change" : FAMILY_LABEL[l.actionFamily];
+  const family = appliedWorkLabel(p) ?? (/schema|json.?ld|structured/i.test(r.actionType) ? "a structured data change" : FAMILY_LABEL[l.actionFamily]);
   const cause = causeWords(l.diagnosisCause);
   const ai = judgedOnAi(p) ? aiMove(p) : null;
   // SETTLED MEANS WHAT TRAINS: treatment-learning takes a closed 14 day window with a nonzero read, so the first reading carries forward on day 14 and a 7 day lean or a level read still carries nothing. The win itself is called at 28 and nowhere earlier. BLIND is the reading measured against the site's own movement: too few untouched pages matched, and on a day a whole family ships that comparison subtracts the shared gain from itself, so treatment-learning refuses it however long it ran and this row may not promise otherwise.
@@ -438,4 +442,4 @@ function caveatLines(r: KernelRead, judgedOnAi: boolean): string[] {
 }
 
 /** ONE module surface: the sentence layer exports itself once, not eighteen times. */
-export const RESULT_LINES = { AI_MOVE, WHY_UNCONFIRMED, betOf, causeWords, executionLine, fundingFor, fundingLine, learningRowOf, aiDays, aiHappenedLine, aiMove, aiStory, cap, caveatLines, groupFor, happenedLine, isRetired, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, rawMoveOf, reasonWords, receiptOf, retiredChip, rowState, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } as const;
+export const RESULT_LINES = { AI_MOVE, WHY_UNCONFIRMED, appliedWorkLabel, betOf, causeWords, executionLine, fundingFor, fundingLine, learningRowOf, aiDays, aiHappenedLine, aiMove, aiStory, cap, caveatLines, groupFor, happenedLine, isRetired, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, rawMoveOf, reasonWords, receiptOf, retiredChip, rowState, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } as const;
