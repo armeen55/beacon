@@ -211,7 +211,7 @@ async function currentMetaSuccessor(tenantId: string, oldId: string, basis: stri
   ]);
   const next = successor?.recommendedChange;
   if (retired.row?.proposal_version !== prior.row.proposal_version || retired.row?.terminal_disposition !== "superseded"
-    || retired.row.superseded_by !== successorId || JSON.stringify(oldAfter) !== JSON.stringify(old) || current.row?.proposal_version !== prior.row.proposal_version + 1
+    || retired.row.superseded_by !== successorId || JSON.stringify(oldAfter) !== JSON.stringify(old) || !current.row?.proposal_version || current.row.proposal_version <= prior.row.proposal_version
     || current.row?.terminal_disposition != null || successor?.id !== successorId || successor.tenantId !== tenantId || successor.basis !== basis || successor.status !== "needs_review"
     || successor.researchOnly !== true || !successor.workKey?.trim() || successor.obligation?.kind !== "draft" || successor.approval || successor.confirmedVersion || successor.redraftRequested
     || next?.kind !== "existing_edit" || next.field !== "meta" || next.before !== null || !successor.pageUrl || !sameDocument(successor.pageUrl, old.pageUrl!) || successor.pagePath !== old.pagePath
