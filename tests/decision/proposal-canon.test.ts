@@ -90,7 +90,7 @@ vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client
 const said = vi.hoisted(() => ({ errors: [] as string[] }));
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: (msg: string, detail?: unknown) => { said.errors.push(msg); if (detail) said.errors.push(JSON.stringify(detail)); } } }));
 import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, answerReviewedProposal, preflightReviewedProposal, saveChangeProposal, implementationGuard, withdrawChangeProposal } from "@/domains/decision/proposal-store"; import { loadProposalQueue } from "@/domains/decision/load-proposals";
-import { confirmedVersion, openHold } from "@/domains/decision/completeness"; import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof"; import { COPY_RULES } from "@/domains/decision/copy-sanitize"; import { nextObligation } from "@/domains/decision/obligation";
+import { confirmedVersion, openHold, preferFinished } from "@/domains/decision/completeness"; import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof"; import { COPY_RULES } from "@/domains/decision/copy-sanitize"; import { nextObligation } from "@/domains/decision/obligation";
 import { reconcileImplementedWithoutShipment } from "@/domains/decision/implemented-repair"; import { validateProposal } from "@/domains/decision/validate-proposal";
 import { componentIdOf, sameComponentId, deserializeChangeProposal, serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts"; import { supabaseFake, type Row } from "../helpers/supabase-fake";
 Object.assign(db.client, { from: supabaseFake({
@@ -510,6 +510,24 @@ describe("structured data answers to its own gate", () => {
   const COPY = "What are Persian numerals? Persian numerals are the symbols Iranians use to write numbers. The table below gives every digit.", SOLD = "Structured data makes a result eligible for a richer display, it never guarantees one.";
   const row = (after: string, over: Partial<ChangeProposal> = {}) => proposal({ recommendedChange: { kind: "existing_edit", field: "schema", before: null, after, where: "Add this block to the page head." }, ...over });
   const judge = async (p: ChangeProposal, opts: Record<string, unknown> = {}) => (await import("@/domains/decision/validate-proposal")).validateProposal(p, { now: new Date("2026-09-13T12:00:00Z"), pageBodyText: COPY, pageCapture: { url: p.pageUrl!, version: "current", contentHash: "h", fetchedAt: "2026-09-13T00:00:00Z", faqs: [{ question: "What are Persian numerals?", answer: "Persian numerals are the symbols Iranians use to write numbers.", source: "html_section", answerComplete: true }] }, ...opts });
+  it("keeps reviewed FAQ copy but saves current visible-pair source debt outside Ready", async () => {
+    const answer = "Persian numerals are the symbols Iranians use to write numbers.";
+    const ready = row(FAQ, { claims: [{ text: answer, supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: COPY }] });
+    expect(await saveChangeProposal(ready)).toBe("saved");
+    const prior = (await loadChangeProposal(T, ready.id))!;
+    expect([prior.status, prior.reviewedCaptures?.length, prior.claims?.length]).toEqual(["ready", 1, 1]);
+    const captured = { url: prior.pageUrl!, version: "current", completeness: "complete", contentHash: "h", fetchedAt: "2026-09-13T00:00:00Z", faqs: [] };
+    const judged = await judge(prior, { pageCapture: captured });
+    expect([judged.verdict, judged.need?.reasonCode]).toEqual(["needs_review", "schema_visible_pair_unconfirmed"]);
+    const need = judged.need!;
+    const incoming = { ...prior, status: "needs_review" as const, obligation: { kind: "evidence" as const, need } };
+    const merged = preferFinished(incoming, prior);
+    expect(merged.status).toBe("needs_review");
+    expect(await saveChangeProposal(incoming)).toBe("saved");
+    const saved = (await loadChangeProposal(T, ready.id))!;
+    expect([saved.status, saved.obligation, saved.recommendedChange, saved.claims, saved.supportFacts, saved.reviewedCaptures]).toEqual(["needs_review", { kind: "evidence", need }, prior.recommendedChange, prior.claims, prior.supportFacts, prior.reviewedCaptures]);
+    expect(nextObligation(saved)).toEqual({ kind: "evidence", need });
+  });
   it("repairs the pasted FAQ action metadata without changing its answers or buying a draft", async () => {
     const { SCHEMA } = await import("@/domains/evidence/pages/schema-validator"), { convertSectionToSchema } = await import("@/domains/decision/validate-proposal");
     const after = JSON.stringify({"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What are Persian numerals?","acceptedAnswer":{"@type":"Answer","text":"Persian numerals are the symbols Iranians use to write numbers in everyday life. They look slightly different from the English digits 0-9 but work the same way. For example, Persian ۱ equals 1 in English, and ۲ equals 2. These Persian numerals are used in books, signs, money, and all formal writing in Iran."}},{"@type":"Question","name":"What is the difference between Persian and Arabic numbers?","acceptedAnswer":{"@type":"Answer","text":"Persian and Eastern Arabic numerals are both derived from the Hindu-Arabic system, but the Persian set used in Iran has different symbols for digits four, five and six (۴, ۵, ۶) compared to Eastern Arabic (٤, ٥, ٦). Even though Persian script is right-to-left, numerals themselves are written left-to-right."}}]});
