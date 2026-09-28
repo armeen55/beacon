@@ -175,10 +175,11 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
       keep?.(proposal); return "saved";
     }
     const row = rowFor(proposal, ident, version);
+    if (!reviewOwner && exactExpected?.newPageDraft && proposal.newPageDraft && JSON.stringify(exactExpected.newPageDraft) === JSON.stringify(proposal.newPageDraft)) { const raw = mine?.payload as { proposal?: { newPageDraft?: unknown } } | null; if (raw?.proposal?.newPageDraft) (row.payload as { proposal: { newPageDraft: unknown } }).proposal.newPageDraft = raw.proposal.newPageDraft; } // An exact lifecycle hold keeps unchanged historical page-piece metadata the decoder cannot represent.
     assertRowsScopedToTenant([row as { tenant_id?: string | null }], proposal.tenantId, TABLE);
     const proof = exactExpected && !reviewOwner, args = { p_tenant_id: proposal.tenantId, p_row: row, p_expected_version: mine?.proposal_version ?? null, p_expected_status: mine ? String(mine.status) : null,
       p_expected_current: expectedCurrentPage(data).map(r => reviewOwner && r.id === proposal.id ? { ...r, payload: mine!.payload } : r),
-      ...(proof ? { p_expected_payload: JSON.parse(serializeChangeProposal(exactExpected)) as unknown } : { p_expect_absent: mine == null, p_expected_disposition: mine?.terminal_disposition ?? null }) };
+      ...(proof ? { p_expected_payload: mine?.payload ?? null } : { p_expect_absent: mine == null, p_expected_disposition: mine?.terminal_disposition ?? null }) };
     const { data: saved, error: saveError } = await sb.rpc(proof ? "save_change_proposal_proof_cas" : "save_change_proposal_cas", args);
     if (saveError || saved !== "saved") {
       log.error("[proposal-store] compare-and-set save did not land; a newer lifecycle decision stands", {
