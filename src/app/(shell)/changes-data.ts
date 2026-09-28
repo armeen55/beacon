@@ -237,16 +237,15 @@ export async function readChangesPage(
  *  research never erases a still-current Ready change. Show more reads the live ranking with its release cursor. */
 async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
   const t0 = Date.now();
-  const view = await readReleasedChanges(tenantId);
+  const { raw, view } = await readReleasedChanges(tenantId);
   if (!view.surfaceVersion || view.basisUnreadable) return view;
   // A verification can move between releases; Results reads these same persisted rows and counter.
   const joinBudget = Math.max(0, 4_400 - (Date.now() - t0));
   const [current, ledger] = await Promise.all([loadWithDeadline(loadChangeProposals(tenantId, { failClosed: true, canonicalOnly: true }), joinBudget).catch(() => null), loadWithDeadline(loadProofLedgerCached(tenantId), Math.min(joinBudget, 700)).catch(() => null)]);
   const counts = ledger && !ledger.timedOut ? countLedgerLifecycle(ledger.data) : null;
-  const live = counts ? { ...view, summary: { ...view.summary, measuring: counts.measuring, results: counts.decided }, measuringCountCanonical: counts.measuring, waitingLiveCountCanonical: counts.waiting, blockedCountCanonical: counts.blocked, decidedCountCanonical: counts.decided, wonCountCanonical: counts.won, countsUnavailable: false } : { ...view, countsUnavailable: true };
-  if (!current || current.timedOut) return live;
-  const basis = await currentBasisFast(tenantId);
-  return basis == null ? live : withCurrentBasisOnly(live, { tenantId, currentBasis: basis, currentRows: current.data });
+  const basis = current && !current.timedOut && current.data ? await currentBasisFast(tenantId) : null;
+  const reconciled = basis == null ? view : withCurrentBasisOnly(raw, { tenantId, currentBasis: basis, currentRows: current!.data! });
+  return counts ? { ...reconciled, summary: { ...reconciled.summary, measuring: counts.measuring, results: counts.decided }, measuringCountCanonical: counts.measuring, waitingLiveCountCanonical: counts.waiting, blockedCountCanonical: counts.blocked, decidedCountCanonical: counts.decided, wonCountCanonical: counts.won, countsUnavailable: false } : { ...reconciled, countsUnavailable: true };
 }
 
 /** A bounded release read serves the last good in-process release on failure; cold reads get one retry. */
@@ -281,7 +280,7 @@ async function readReleaseTwice(tenantId: string): Promise<{ s: CustomerSurface 
 }
 
 /** Serve the saved release first and schedule its one stored-only rebuild when stale. */
-async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
+async function readReleasedChanges(tenantId: string): Promise<{ raw: ChangesView; view: ChangesView }> {
   const scheduleReleaseRebuild = (action: string) =>
     after(async () => {
       try {
@@ -298,7 +297,7 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
   if (customer && changesShapeOk) {
     const stale = !read.fromMemory && isCustomerSurfaceStale(customer.computedAt, Date.now());
     if (stale) scheduleReleaseRebuild("background-refresh");
-    return withCurrentBasisOnly({
+    const raw: ChangesView = {
       ...customer.changes,
       stampRows: customer.manifest ?? customer.changes.stampRows,
       queueCursor: customer.manifest?.length ? releasedQueueCursors(customer.manifest, customer.changes) : customer.changes.queueCursor,
@@ -311,7 +310,8 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
       surfaceRefreshPending: stale,
       surfaceVersion: customer.releaseId,
       ...(read.fromMemory ? { releaseFromMemory: true } : {}),
-    }, { tenantId, currentBasis: await currentBasisFast(tenantId) });
+    };
+    return { raw, view: withCurrentBasisOnly(raw, { tenantId, currentBasis: await currentBasisFast(tenantId) }) };
   }
   // A FAILED READ SCHEDULES NO REBUILD: the heavy rebuild is owed when a release is genuinely absent or
   // stale, and firing it on every visit during a store outage is a rebuild loop on top of the outage
@@ -319,7 +319,8 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
   if (read.ok) scheduleReleaseRebuild("cold-rebuild");
   // A RELEASE I COULD NOT READ IS NOT A FIRST-EVER LOAD: claiming I am building their ranking for the first time during an outage is a
   // sentence an established customer knows is false the moment they read it.
-  return read.ok ? EMPTY_CHANGES_VIEW : { ...EMPTY_CHANGES_VIEW, surfaceBuilding: false, releaseUnreadable: true };
+  const raw = read.ok ? EMPTY_CHANGES_VIEW : { ...EMPTY_CHANGES_VIEW, surfaceBuilding: false, releaseUnreadable: true };
+  return { raw, view: raw };
 }
 
 /** THE heavy build body, called from refreshCustomerSurface AFTER proposal production has persisted this tenant's proposals. Reads the
