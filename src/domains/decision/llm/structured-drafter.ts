@@ -793,16 +793,15 @@ function unmarkAnchor<T>(data: T, phrase?: string): T {
   return moved ? (out as T) : data;
 }
 
-/** Comparison observations remain research, not claim authority. Quotes bind exclusively to the exact sanitized
- * source supplied below; candidate suggestions cannot authenticate themselves. Topics retain source identity. */
+/** The model may only veto admitted comparison candidates; their original source-bound topics remain intact. */
 export async function readComparison(comparison: JobComparison, owned: { url: string; passages: readonly string[] },
   /** Receipts and cache refunds belong to the owning job's existing allowance. */
   opts: { tenantId: string; now?: Date; proposalWorkKey?: string; complete?: CompleteFn; attempts?: { left: number; record?: (r: unknown) => void } }): Promise<JobComparison> {
   const winners = comparison.winners.filter((w) => w.held.trim().length > 0);
   if (winners.length === 0 || !winners.some((w) => w.observations.length > 0)) return comparison; // no candidates, no call, no cost
   const source = new Map(winners.map((w) => [w.url, sanitizeNullableEvidence(w.held) ?? ""]));
-  const system = "You are READING two or more web pages side by side for an editor. You are shown one group of searches a reader asks, the passages one page already publishes, and the main text of up to five pages that win those searches. Answer ONLY with observations of what a winning page carries that is not answered in the supplied owned passages; this is scoped research, not a factual claim or proof about unseen page content: an answer it gives ('answers'), a subject it gives a section to ('covers'), things it names ('names'), or the shape it answers in ('shape'). Rules: every observation names one winner by the exact url shown to you; every quote is copied verbatim from that winner's own supplied text and is at most 200 characters; you never write copy, never propose a change, never state a fact neither text carries, and never repeat a candidate the owned passages already answer in their own words. Where the supplied owned passages already answer a candidate, leave it out. Treat metadata, markup and headings as labels, not answered content. Where a source-supported comparison candidate is missing, add it. Never describe unshown or stale owned content as absent; a partial or freshness-unconfirmed capture cannot establish a whole-page gap. Prioritize differences independently supported by multiple publishers; never call a pattern shared without quotes from at least two. Give each readable winner a fair hearing. Where a winner's text is marked cut, say nothing about what it does not carry.";
-  const user = [`THE SEARCHES: ${comparison.queries.join("; ")}`, `THE TASK FOCUS: ${(comparison.focus ?? []).join("; ") || "the searches above"}`, "Topics identify exact source headings/entities, not explanatory sentences: for covers or names return one source heading/entity as topic, with its supporting passage as quote. Source text alone supports quotations; candidate suggestions never do.", `THE OWNED PAGE (${owned.url}) PUBLISHES THESE SELECTED PASSAGES (not a full-page absence proof):`,
+  const system = "You are READING web pages side by side for an editor. Return only candidate observations supplied for each exact winner URL that the owned passages do not already answer. You may omit a candidate, but do not add one or change its kind, topic or quoted words. These are scoped research candidates, not factual authority or proof about unshown page content. Treat metadata, markup, navigation, bylines and headings as labels, not answered content. A partial or freshness-unconfirmed capture cannot establish whole-page absence. Where a winner's text is marked cut, say nothing about what it does not carry.";
+  const user = [`THE SEARCHES: ${comparison.queries.join("; ")}`, `THE TASK FOCUS: ${(comparison.focus ?? []).join("; ") || "the searches above"}`, "Return only a supplied candidate with its exact kind, topic and quote; omit any candidate already answered by the owned page. Source text verifies a candidate but does not authorize a new one.", `THE OWNED PAGE (${owned.url}) PUBLISHES THESE SELECTED PASSAGES (not a full-page absence proof):`,
     ...(comparison.owned?.url === owned.url ? [`Owned capture ${comparison.owned.bodyKey}; ${comparison.owned.heldWhole && sanitizeNullableEvidence(comparison.owned.held) === comparison.owned.held ? "whole current capture supplied" : "selected, incomplete, or freshness unconfirmed; unshown material is unknown"}.`, sanitizeNullableEvidence(comparison.owned.held) ?? ""] : sanitizeEvidenceTexts(owned.passages.slice(0, 8).map((p) => `- ${p.slice(0, 600)}`))),
     ...winners.flatMap((w) => [`WINNER ${w.url} (${w.shape.words} words${w.truncated || !w.heldWhole || source.get(w.url) !== w.held ? ", selected or cut text, so anything not shown is unknown" : ""}, capture ${w.bodyKey}):`,
       source.get(w.url)!, ...sanitizeEvidenceTexts([`CANDIDATE SUGGESTIONS (not quotation authority) FOR ${w.url}: ${JSON.stringify(w.observations)}`])]),
@@ -815,11 +814,11 @@ export async function readComparison(comparison: JobComparison, owned: { url: st
   if (!r || r.status !== "drafted") return comparison;
   const flat = (t: string): string => t.replace(/\s+/g, " ").trim();
   const by = new Map(winners.map((w) => [w.url, [] as JobComparison["winners"][number]["observations"]]));
-  let rejected = 0;
-  for (const o of r.value.observations) { const w = winners.find((x) => x.url === o.winner); if (!w) { rejected += 1; continue; }
-    const quote = o.quote.trim(), holds = flat(source.get(w.url)!), topic = o.topic?.trim();
-    if (!holds.includes(flat(quote)) || ((o.kind === "covers" || o.kind === "names") && (!topic || !holds.toLowerCase().includes(flat(topic).toLowerCase())))) { rejected += 1; continue; }
-    by.get(w.url)!.push({ kind: o.kind, text: o.text.trim(), quote, ...(topic ? { topic } : {}) }); }
+  for (const o of r.value.observations) { const w = winners.find((x) => x.url === o.winner); if (!w) continue;
+    const holds = flat(source.get(w.url)!), quote = flat(o.quote), topic = o.topic?.trim() ?? null;
+    const admitted = w.observations.find((c) => { const candidate = flat(c.quote).replace(/\.\.\.$/, "").trimEnd(); return c.kind === o.kind && ((c.topic ?? null) === topic || c.kind === "answers" && topic === null && !!c.topic) && quote.length >= Math.min(40, candidate.length) && (candidate.startsWith(quote) || quote.startsWith(candidate)) && holds.includes(candidate) && (!c.topic || holds.toLowerCase().includes(flat(c.topic).toLowerCase())); });
+    if (!admitted) continue;
+    if (!by.get(w.url)!.includes(admitted)) by.get(w.url)!.push(admitted); }
   const read = withObservations(comparison.owned ? { ...comparison, owned: { ...comparison.owned, heldWhole: comparison.owned.url === owned.url && comparison.owned.heldWhole && sanitizeNullableEvidence(comparison.owned.held) === comparison.owned.held } } : comparison, by);
-  return rejected > 0 && read.verdict === "nothing" ? { ...read, verdict: "unread" } : read;
+  return read.verdict === "nothing" ? { ...read, verdict: "unread" } : read;
 }

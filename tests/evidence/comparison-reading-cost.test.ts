@@ -39,7 +39,7 @@ const research = (s: Site, prose: string) => ({
   serpEvidence: [{ query: s.queries[0]!, observedAt: null, organic: [{ rank: 1, url: s.win, domain: new URL(s.win).hostname, title: null }], aiOverview: [], aiMode: [], paa: [], related: [] }],
   winningPages: [{ url: s.win, domain: new URL(s.win).hostname, engines: [], examplePrompts: [], appearances: [{ query: s.queries[0]! }],
     extract: { title: "Winner", h1: null, wordCount: 2100, headings: [s.gap], faqCount: 0, entityNames: [], hasList: false, hasTable: false,
-      mainText: prose, truncated: false, heldChars: prose.length, totalChars: prose.length, h3s: [], schemaTypes: [] } }],
+      mainText: prose, openingSample: prose.slice(0, 600), truncated: false, heldChars: prose.length, totalChars: prose.length, h3s: [], schemaTypes: [] } }],
 }) as never;
 const owned = (s: Site) => ({ url: s.own, text: `${s.ownHeads.join(" ")} ${s.ownPassages.join(" ")}`, headings: s.ownHeads, passages: s.ownPassages, complete: true });
 /** ONE FUNDED JOB, drawn through the real money surface, so what the meter says is what a card's operator would read. */

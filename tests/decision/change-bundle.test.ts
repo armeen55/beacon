@@ -646,17 +646,17 @@ ${P3}
         await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(),
           budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }), complete: async ({ user }: { user: string }) => (asked.push(user), { value: publicationDraft(value) }) } as never); return asked.join(" "); };
       const seen = await run(withWinner, GOOD); expect(seen).toContain("rival-1"); // the acquisition reached the packet
-      expect(seen).toContain("Regional dialect variations"); // and as the SUBJECT this page is missing, not as prose to reword
+      expect(seen).not.toContain("Regional dialect variations"); // an unqualified heading is not a missing reader task
       expect(seen).toContain("rival.example"); // carrying its own address, so the writer knows whose page it is
       expect(seen).not.toContain('gives "Persian expressions that are playful" a section'); // a heading this page covers in its own words is not a gap, whatever the label says
-      expect(seen).toContain(JSON.stringify('gives "Regional dialect variations" a section of its own; its subject was not matched in the supplied owned text').slice(1, -1));
+      expect(seen).not.toContain(JSON.stringify('gives "Regional dialect variations" a section of its own; its subject was not matched in the supplied owned text').slice(1, -1));
       expect(seen).toContain("a site whose part here is not settled"); // and the publisher's class rides the line in plain words, never a raw slug
       const blind = await run({ ...withWinner, research: {} }, GOOD);
       expect(blind).not.toContain("rival-1"); // the same job with nothing acquired is handed nothing
-      const refusals = new Map<string, string>(); // an ADDITIVE claim standing on that rival now rides as a caveat instead of a refusal (operator, 2026-09-10, write first): the fetched winner is real read material for a new paragraph, and the card says so out loud
+      const refusals = new Map<string, string>(); // competitor text is research context and cannot support publication copy
       const rode = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: withWinner as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never, refusals,
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }), complete: async () => ({ value: publicationDraft({ ...GOOD, after: RIVAL_COPY, claims: [{ text: RIVAL_COPY, supportedBy: ["rival-1"] }] }) }) } as never);
-      expect([[...refusals.values()].join(" ").includes("stands on a rival"), JSON.stringify(rode[0]).includes("stands on a competitor page as it was read")], "the new paragraph lands and the card itself says a sentence stands on the competitor page as it was read, so the operator verifies before pasting").toEqual([false, true]);
+      expect([[...refusals.values()].join(" ").includes("stands on a rival"), rode[0]?.status === "ready"], "an additive claim standing only on a competitor is held before the operator sees copy").toEqual([true, false]);
       const veto = new Map<string, string>(); // a draft that EDITS existing words may still never stand on a rival's unchecked sentence
       bodyStore.map = new Map([["iranopedia.com/funny-farsi-phrases", BODY]]);
       await applyDraftedCopy([{ ...card, treatment: "rewrite_existing_section" }], { tenantId: TENANT, snapshot: withWinner as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never, refusals: veto,
@@ -1283,8 +1283,8 @@ describe("typed refusal contract", () => { // ── the typed refusal contract:
     const body = captured({ url: PAGE_URL, title: "Persian Female Names", h1: "Persian Female Names", metaDescription: null, vocabulary: "", completeness: "complete", version: "current",
       headings: ["Classic names"], passages: ["Classic names", "Darya and Afsaneh are classic Persian names for girls, each carrying its own meaning in everyday use."], sourceCapture: { version: 1 as const, complete: true as const, mainHtml: "<main><h1>Persian Female Names</h1><h2>Classic names</h2><p>Darya and Afsaneh are classic Persian names for girls, each carrying its own meaning in everyday use.</p></main>", jsonLd: [] } });
     const page = { url: PAGE_URL, content: { wordCount: 300, title: body.title, h1: body.h1, outline: body.headings }, search: { clicks90d: 20, impressions90d: 900, ctr90d: 20 / 900, position90d: 8, topQueries: [{ query: "darya meaning", clicks: 20, impressions: 900, position: 8 }] }, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } };
-    const rival = { url: "https://rival.example/persian-girl-names", domain: "rival.example", engines: [], examplePrompts: [], appearances: [{ query: "persian girl names" }],
-      extract: { title: "Persian Girl Names", h1: null, wordCount: 3000, headings: ["Classic names", "Pronunciation guide for parents"], faqCount: 0, entityNames: [], openingSample: "", mainText: "Families in the north keep an older list and add to it with each generation.", hasList: true } };
+    const CLAIM = "Persian girl names have pronunciations illustrated by Darya (dar-YAH) and Afsaneh (af-sah-NEH) in the saved guide.", rival = { url: "https://rival.example/persian-girl-names", domain: "rival.example", engines: [], examplePrompts: [], appearances: [{ query: "persian girl names" }],
+      extract: { title: "Persian Girl Names", h1: null, wordCount: 3000, headings: ["Classic names", "Pronunciation guide for parents"], faqCount: 0, entityNames: [], openingSample: CLAIM, mainText: CLAIM, hasList: true } };
     const research = { serpEvidence: [{ query: "persian girl names", organic: [{ rank: 1, url: rival.url }] }], winningPages: [rival] };
     const snapshot = { ownedPages: [page], research, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
     const card = prop({ id: `${TENANT}::/persian-female-first-names::existing_edit::ai_answer_gap`, pagePath: "/persian-female-first-names", pageUrl: PAGE_URL,
@@ -1293,28 +1293,27 @@ describe("typed refusal contract", () => { // ── the typed refusal contract:
       recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the question." } });
     const step = GAIN.resolution("none", snapshot as never, card, page as never, body as never, []);
     expect([step.resolution, step.need?.kind, step.need?.missingTopic, step.need?.reasonCode, step.need?.rivalUrl])
-      .toEqual(["acquire_factual_source", "factual_source", "Pronunciation guide for parents", "missing_information", rival.url]);
+      .toEqual(["acquire_factual_source", "factual_source", CLAIM, "missing_information", rival.url]);
     const unrelated = [{ subject: "Darya meaning", state: "checked" }];
-    expect(GAIN.resolution("none", snapshot as never, card, page as never, body as never, unrelated).need?.missingTopic).toBe("Pronunciation guide for parents");
-    const answered = [...unrelated, { subject: "Pronunciation guide for parents", state: "checked" }];
+    expect(GAIN.resolution("none", snapshot as never, card, page as never, body as never, unrelated).need?.missingTopic).toBe(CLAIM);
+    const answered = [...unrelated, { subject: CLAIM, state: "checked" }];
     expect(GAIN.resolution("none", snapshot as never, card, page as never, body as never, answered).need?.missingTopic).toBeUndefined();
     bodyStore.map = new Map([[ck5(PAGE_URL), body]]);
-    const FACT = { ...checkedAnswer("/persian-female-first-names", body, "Pronunciation guide for parents",
-      "Most classic Persian girls' names are pronounced with even stress, so Darya is dar-YAH and Afsaneh is af-sah-NEH."),
-      sources: [{ url: "https://en.wiktionary.org/x", kind: "dictionary", says: "dar-YAH" }] };
+    const FACT = { ...checkedAnswer("/persian-female-first-names", body, CLAIM, CLAIM),
+      sources: [{ url: "https://en.wiktionary.org/x", kind: "dictionary", says: CLAIM }] };
     if (aeo) {
       card.id += `@${card.primaryQuery}`; card.factIdentity = FACT.statementKey;
       card.causeFinding!.payload = { cause: "retrieved_not_cited", engine: "chatgpt", promptText: card.primaryQuery, aeoKind: "missing_information", missing: FACT.subject };
     }
     const other = checkedAnswer(card.pagePath!, body, "Darya meaning", "Darya means sea.");
-    factStore.rows = aeo ? [other, FACT] : [FACT]; const NEW_COPY = "Most classic Persian girls' names are pronounced with even stress. Darya is pronounced dar-YAH. Afsaneh is pronounced af-sah-NEH. These pronunciations help parents say each name aloud.";
+    factStore.rows = aeo ? [other, FACT] : [FACT]; const NEW_COPY = "Darya is pronounced dar-YAH. Afsaneh is pronounced af-sah-NEH. These pronunciations help readers say each name aloud.";
     const canon = vi.spyOn(proposalValidation, "validateProposal");
     const seen: string[] = []; const out2 = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never,
       judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ claims: d.claims.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })), pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" })) as never,
       budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/persian-female-first-names", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
       complete: async ({ user }: { user: string }) => (seen.push(user), { value: publicationDraft({ field: "answer_block", before: null, rationale: "grounded", ...TAIL, placementAnchor: "Persian Female Names",
         after: NEW_COPY, naturalHeading: "How are Persian girls' names pronounced?", claims: [{ text: NEW_COPY, supportedBy: ["fact-1"] }] }) }) } as never);
-    expect(seen.join(" ")).toContain(JSON.stringify("Most classic Persian girls' names are pronounced with even stress, so Darya is dar-YAH and Afsaneh is af-sah-NEH. This is about \"Pronunciation guide for parents\".").slice(1, -1)); // the researched fact reached the writer as citable evidence
+    expect(seen.join(" ")).toContain(`fact-1 says ${CLAIM}`); // the researched fact reached the writer as citable evidence
     expect(seen.join(" ")).toContain("rival-1"); // the rival stayed briefing beside it
     expect(out2[0]!.status).toBe("ready"); const done = out2[0]!; // THE READING REACHES THE FINISHED ROW, bound to the completed proposal and carrying the editor's own mapping, so the one canonical gate has something to trust instead of holding substantive work it just approved.
     expect(canon.mock.calls.flatMap(([, context]) => context?.sources ?? []).map((s) => s.url)).toEqual([FACT.sources[0]!.url]); canon.mockRestore();
