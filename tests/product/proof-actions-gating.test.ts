@@ -161,10 +161,9 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
     mocks.recordShipment.mockRejectedValue(new Error("relation change_proposals does not exist"));
     expect(await markProposalImplementedAction({ ...PRESS })).toEqual({ success: false, retryable: true, error: "Measuring this change could not start, so it is not recorded as done. Press it again in a moment." });});
   it("keeps the operator's own applied wording on the record beside the prepared one, and never lets a press stand in for a reading", async () => {
-    await markProposalImplementedAction({ ...PRESS, appliedText: "The words that are on my page." });
-    expect([facts().operatorNote, facts().componentsApplied.map((c: { appliedAfter?: string }) => c.appliedAfter), facts().after, "verification" in facts()], "a press recording SEVERAL pieces cannot say which one their line landed on, so it stays on the row, no piece claims it, and the prepared wording is untouched").toEqual(["The words that are on my page.", [undefined, undefined], "Nowruz Traditions and the Haft-Seen Table", false]);
-    mocks.recordShipment.mockClear();
-    await markProposalImplementedAction({ ...PRESS }); expect(facts().operatorNote).toBeNull();});
+    const refused = await markProposalImplementedAction({ ...PRESS, appliedText: "The words that are on my page." });
+    expect([refused.success, refused.retryable, mocks.recordShipment.mock.calls.length], "one ambiguous line cannot stand in for two exact applied components").toEqual([false, false, 0]);
+    await markProposalImplementedAction({ ...PRESS }); expect([facts().operatorNote, "verification" in facts()]).toEqual([null, false]);});
   it.each([
     ["a change whose page words are gone", () => mocks.loadChangeProposal.mockResolvedValue(proposal({ recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "The exact wording has not been written yet" } }))], // REPLACES "a change I set aside": a basis stamped in an earlier generation no longer refuses a press, so the row that is refused before anything is written is the one whose deliverable is not written
     ["a change I cannot find", () => mocks.loadChangeProposal.mockResolvedValue(null)],

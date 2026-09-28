@@ -80,7 +80,7 @@ function overlapAtShip(ledger: ReadonlyArray<{ id: string; proposalId: string | 
 /** Write the Shipment for one proposal. Idempotent: the id is derived from the proposal and the version applied, so a retry keeps the stamp and the starting numbers already on file, and the caller flips nothing when it did not land. A SECOND PRESS DOES NOTHING AT ALL: rebuilding the record erased the live check back to null, moved the ship date to today and recomputed the starting numbers over a window that now included days AFTER the change, so pressing twice quietly flattered its own result. */
 async function recordImplementation(tenantId: string, proposal: ChangeProposal,
   opts: { appliedIds: readonly string[]; appliedText?: string | null; liveUrl?: string; guard: { rowVersion: number; payload: unknown }; preloadedLedger?: Awaited<ReturnType<typeof loadShippedChanges>>; openPaths?: readonly string[]; invalidate?: boolean },
-): Promise<Shipped | { ok: false; error: string; retryable: true }> {
+): Promise<Shipped | { ok: false; error: string; retryable: boolean }> {
   const bundleIds = (proposal.bundle?.components ?? []).map(componentIdOf);
   const pageRef = (opts.liveUrl ?? proposal.pageUrl ?? proposal.pagePath ?? "").trim();
   const change = proposal.recommendedChange;
@@ -91,7 +91,9 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
       label: atomicLabel(proposal, change.kind === "existing_edit" && !!change.linkTo), after: change.kind === "existing_edit" ? change.after : null, units: change.kind === "existing_edit" ? change.units : undefined, target: change.kind === "existing_edit" ? change.target : undefined, before: change.kind === "existing_edit" ? change.before : null,
       page: pageRef, where: change.kind === "existing_edit" ? change.where ?? null : null, risk: null, redirectTo: change.kind === "existing_edit" ? change.linkTo ?? null : null,
       ...anchorFor(proposal, change.kind === "existing_edit" && change.linkTo ? "internal_link_add" : proposal.changeFamily) }];
-  const selected = all.filter((c) => c.id == null || opts.appliedIds.some((id) => sameComponentId(id, c.id!)));
+  const selected = all.filter((c) => c.id == null || opts.appliedIds.some((id) => sameComponentId(id, c.id!))), said = opts.appliedText?.trim() || undefined, appliedText = said === selected[0]?.after?.trim() ? undefined : said;
+  const field = proposal.bundle ? selected[0]?.kind : change.kind === "existing_edit" ? change.field : null;
+  if (said && (proposal.kind === "new_page" || selected.length !== 1 || !/^(title|meta|h1)$/.test(field ?? "") || !!selected[0]?.units?.length || !!selected[0]?.target)) return { ok: false, retryable: false, error: "Different wording can be recorded for one selected title, search description or headline. For this change, apply the prepared pieces or record each eligible field separately." };
   try {
     const ledger = opts.preloadedLedger ?? await loadShippedChanges();
     const already = new Set<string>();
@@ -99,7 +101,7 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
     let previous: (typeof mine)[number] | undefined;
     for (const r of mine) for (const c of r.componentsApplied ?? []) for (const current of all)
       if (sameComponentId(c.id ?? "", current.id ?? "", [{ ...c, before: c.before === undefined && r.componentsApplied?.length === 1 ? r.before : c.before, page: c.page ?? r.page }, current])
-        && (!opts.appliedText || selected.length !== 1 || !selected.includes(current) || (c.appliedAfter ?? c.after) === opts.appliedText)) { if (current.id) already.add(current.id); previous = r; }
+        && (!appliedText || selected.length !== 1 || !selected.includes(current) || (c.appliedAfter ?? c.after) === appliedText)) { if (current.id) already.add(current.id); previous = r; }
     const fresh = selected.filter((c) => c.id && !already.has(c.id)).map((c) => c.id!);
     const state = (recorded: number, shipmentId: string | null, shipmentVersion: string | null, measurement: MeasurementState, atomic = false): Shipped | { ok: false; error: string; retryable: true } => {
       const left = bundleIds.filter((id) => !already.has(id) && !(recorded > 0 && fresh.includes(id)));
@@ -118,9 +120,9 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
         priorShipmentIds: mine.map((r) => r.id), componentIds: bundleIds }, invalidate: false });
       return state(0, landed.shipmentId, previous.proposalVersion, landed.measurement, landed.proposalImplemented === true);
     }
-    const version = shippedVersionOf(proposal, fresh, opts.liveUrl, selected.length === 1 ? opts.appliedText : null);
+    const version = shippedVersionOf(proposal, fresh, opts.liveUrl, selected.length === 1 ? appliedText : null);
     const picked = bundleIds.length > 0 ? all.filter((c) => c.id != null && fresh.includes(c.id)) : all;
-    const componentsApplied = opts.appliedText && picked.length === 1 ? [{ ...picked[0]!, appliedAfter: opts.appliedText, appliedUnits: null, appliedTarget: null }] : picked;
+    const componentsApplied = appliedText && picked.length === 1 ? [{ ...picked[0]!, appliedAfter: appliedText, appliedUnits: null, appliedTarget: null }] : picked;
 
     const meta = pageRef ? await captureChangeMeta(tenantId, pageRef).catch(() => null) : null;
 
@@ -141,7 +143,7 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
       componentsApplied,
       treatmentStamp: { signature: treatmentSignatureOf(proposal), overlapAtShip: overlapAtShip(ledger, proposal, pageRef) },
       preChangeContentHash: meta?.contentHash ?? null,
-      operatorNote: opts.appliedText ?? null,
+      operatorNote: appliedText ?? null,
     }, { preloadedLedger: opts.preloadedLedger, openPaths: opts.openPaths, invalidate: opts.invalidate,
       proposal: { ...opts.guard, complete: bundleIds.every(id => already.has(id) || fresh.includes(id)), priorShipmentIds: mine.map((r) => r.id), componentIds: bundleIds } });
     return state(bundleIds.length ? fresh.length : 1, landed.shipmentId, version, landed.measurement, landed.proposalImplemented === true);
@@ -229,7 +231,7 @@ export async function markProposalImplementedAction(args: {
       liveUrl = checked.url;
     }
     const shipment = await recordImplementation(tenantId, stored, { appliedIds, appliedText: args.appliedText, liveUrl, guard: guard! });
-    if (!shipment.ok) return { success: false, retryable: true, error: shipment.error };
+    if (!shipment.ok) return { success: false, retryable: shipment.retryable, error: shipment.error };
     const n = shipment.recorded, left = shipment.remaining;
     const one = (a: string, b: string) => (left === 1 ? a : b);
     if (!shipment.complete) {

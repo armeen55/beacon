@@ -451,7 +451,7 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
       ) : null}
       {held && !research ? <p className="text-[13px] leading-relaxed text-foreground" data-held-reason="true">{held}{currentNext ? ` ${currentNext}` : ""}</p> : null}
       <div className="flex flex-wrap items-center gap-3">
-        {research || held ? null : <MarkImplemented proposalId={proposal.id} expectedVersion={confirmedVersion(proposal)} inPlaceLink={c.kind === "existing_edit" && c.linkMode === "in_place"} />}
+        {research || held ? null : <MarkImplemented proposalId={proposal.id} expectedVersion={confirmedVersion(proposal)} scalarField={c.kind === "existing_edit" ? c.field : undefined} inPlaceLink={c.kind === "existing_edit" && c.linkMode === "in_place"} />}
         <SetAsideChange proposalId={proposal.id} displayedVersion={confirmedVersion(proposal)} finishable={canFinish(proposal)} prepare={proposal.status === "needs_review"} />
       </div>
     </div>

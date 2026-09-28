@@ -252,7 +252,7 @@ export function ReviewAnswer({ proposalId, version, approvable }: { proposalId: 
 }
 
 /** Record only selected pieces of the displayed version; new pages and risky moves require their additional facts. */
-export function MarkImplemented({ proposalId, expectedVersion, label: idle = "Mark done", components, newPage = false, inPlaceLink = false, onRecorded }: {
+export function MarkImplemented({ proposalId, expectedVersion, label: idle = "Mark done", components, scalarField, newPage = false, inPlaceLink = false, onRecorded }: {
   proposalId: string;
   expectedVersion: string;
   label?: string;
@@ -262,6 +262,7 @@ export function MarkImplemented({ proposalId, expectedVersion, label: idle = "Ma
    *  two pieces of one kind are ticked apart. `moves` marks one that changes where the page lives;
    *  `recorded` marks one already on file. */
   components?: { id: string; kind: string; label: string; dependsOn?: readonly string[]; moves?: boolean; recorded?: boolean }[];
+  scalarField?: string;
   /** A page that did not exist has no address until they publish it, so the address has to be given here. */
   newPage?: boolean;
   inPlaceLink?: boolean;
@@ -273,30 +274,26 @@ export function MarkImplemented({ proposalId, expectedVersion, label: idle = "Ma
   // Recording measurement is a deliberate claim. A multi-piece change starts empty; the operator ticks only
   // what actually reached the site, and already-recorded pieces cannot be selected again.
   const [applied, setApplied] = useState<Set<string>>(() => new Set(pickable ? [] : (components ?? []).filter((c) => !c.recorded).map((c) => c.id)));
-  // THE EXACT WORDING THEY APPLIED, where it is not the prepared wording. Named as that and as nothing else: free text under a vague label reads as replacement copy and was recorded as a comment, so a page written the operator's own way was read back against words nobody put there.
+  // A field override names one scalar title, description or headline; body placement cannot be inferred from a text box.
   const [ownWording, setOwnWording] = useState(""), [liveUrl, setLiveUrl] = useState(""), [confirmed, setConfirmed] = useState(false);
   const label = useMemo(() => (state.done ? "Marked done" : idle), [state.done, idle]);
   const nothingPicked = pickable != null && applied.size === 0, addressOwed = newPage && liveUrl.trim().length === 0;
-  // THE DELIBERATE YES, asked only about the pieces they say they applied. The server asks again and refuses
-  // without it, so this box is the operator's act and never the gate.
+  // The server independently requires confirmation for a selected page move.
   const movesPage = (components ?? []).some((c) => c.moves && applied.has(c.id));
   const hasLinkedComponents = (components ?? []).some((c) => (c.dependsOn?.length ?? 0) > 0);
+  const chosen = components?.filter((c) => applied.has(c.id)) ?? [], ownAllowed = !newPage && !inPlaceLink && /^(title|meta|h1)$/.test(components ? chosen.length === 1 ? chosen[0]!.kind : "" : scalarField ?? "");
 
-  // A PLAIN WHOLE-CHANGE MARK is the only shape this device can re-send faithfully: nothing here narrows what
-  // was recorded, and nothing here is the operator's own words.
-  const queueable = !newPage && !movesPage && !(pickable && applied.size < pickable.length) && ownWording.trim().length === 0;
+  // Only a plain whole-change mark can be replayed from this device.
+  const queueable = !newPage && !movesPage && !(pickable && applied.size < pickable.length) && (!ownAllowed || ownWording.trim().length === 0);
 
   function onClick() {
     startTransition(async () => {
-      // A THROWN action is a FAILED action: a signed-out session made this reject silently and the press
-      // looked like it landed while the row never changed. Every ending now reaches the operator's eyes, and it
-      // is read by the SAME rule the flush reads, so a bad moment the server typed is kept here too instead of
-      // being printed once and lost.
+      // A failed press stays visible and is queued only when its plain payload can be replayed.
       const res = await markProposalImplementedAction({
         proposalId, expectedVersion,
         ...(newPage ? { liveUrl: liveUrl.trim() } : {}),
         ...(pickable && applied.size < pickable.length ? { componentIds: [...applied] } : {}),
-        ...(ownWording.trim() ? { appliedText: ownWording.trim() } : {}),
+        ...(ownAllowed && ownWording.trim() ? { appliedText: ownWording.trim() } : {}),
         ...(movesPage ? { destructiveConfirmed: confirmed } : {}),
       }).catch(() => null);
       const end = MARK_PRESS.fresh(res, { queueable });
@@ -316,13 +313,13 @@ export function MarkImplemented({ proposalId, expectedVersion, label: idle = "Ma
             <label key={c.id} className="flex min-h-11 items-center gap-2 text-[12px] text-muted-foreground">
               <input type="checkbox" checked={applied.has(c.id)} disabled={c.recorded} className="h-5 w-5 shrink-0"
                 data-linked-component={operatorUiPolicy.linkedComponentIds(pickable, c.id).size > 1 ? "true" : undefined}
-                onChange={(e) => setApplied((prev) => {
+                onChange={(e) => { setOwnWording(""); setApplied((prev) => {
                   const next = new Set(prev);
                   for (const id of operatorUiPolicy.linkedComponentIds(pickable, c.id)) {
                     if (e.target.checked) next.add(id); else next.delete(id);
                   }
                   return next;
-                })} />
+                }); }} />
               {c.label}{c.recorded ? " (already recorded)" : ""}
             </label>
           ))}
@@ -352,9 +349,9 @@ export function MarkImplemented({ proposalId, expectedVersion, label: idle = "Ma
           <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
           Confirmed: this moves or hides a page, and what it does to the site above has been read.
         </label>) : null}
-      {!inPlaceLink ? <div className="space-y-1.5" data-operator-note="true">
+      {ownAllowed ? <div className="space-y-1.5" data-operator-note="true">
         <label className="block text-[12px] text-muted-foreground" htmlFor={`note-${proposalId}`}>
-          Applied different wording? Paste the exact words that are on the page. Both are kept, and the page is read for yours.
+          Applied different title, search description or headline wording? Paste its exact live text. Beacon keeps both versions and checks yours.
         </label>
         <textarea id={`note-${proposalId}`} rows={3} value={ownWording} onChange={(e) => setOwnWording(e.target.value)}
           placeholder="Optional: the exact wording now on the page"
