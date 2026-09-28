@@ -192,9 +192,11 @@ export type DecidedTopic = {
  *  what the rest of the research is stuck on, and the EARLIEST date any of it may legally be read again.
  *  That last one is computed over the whole ranked walk, whatever the research budget was, because a
  *  surface that says "checking" while the next legal read is tomorrow is lying about a wait. */
-export type CoverageRead = { decided: DecidedTopic | null; needs: ResearchNeed[]; waitingUntil: string | null };
+export type CoverageRead = { decided: DecidedTopic | null; deferredNewPage?: DecidedTopic; rankedTopicKeys?: string[]; needs: ResearchNeed[]; waitingUntil: string | null };
 
 type ReadCoverageOptions = {
+  /** A producer may keep the first source-owed page as debt while admitting a later qualified page. */
+  newPageAdmission?: (topic: DecidedTopic) => "ready" | "source_owed" | "settled";
   /** Re-adjudicate one stored topic's current evidence without changing the account's ranked verdict. */
   onlyTopicKey?: string;
   /** How much research the caller may queue. 0 queues NOTHING, searches and comparison
@@ -254,12 +256,12 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
   let bodyReads = 0;
   let queries = 0;
   const nowMs = (opts.now ?? new Date()).getTime();
-  let decided: DecidedTopic | null = null;
+  let decided: DecidedTopic | null = null, deferredNewPage: DecidedTopic | null = null;
   let waitingUntil: string | null = null;
   // WHY A PAGE OF MINE IS UNREAD, off the research row Evidence persisted it to. Not a fetch, and not a guess.
   const ownedReads = new Map((snapshot.research.ownedReads ?? []).map((o) => [o.url, o]));
   const promoted = await promotedNeeds(tenantId, snapshot, nowMs);
-  for (const inv of rankInvestigations(topicsFor(snapshot, promoted), (i) => ownedOpportunity(snapshot, i, opts.curve?.expectedCtrAt))) {
+  const ranked = rankInvestigations(topicsFor(snapshot, promoted), (i) => ownedOpportunity(snapshot, i, opts.curve?.expectedCtrAt)); for (const inv of ranked) {
     if (opts.onlyTopicKey && inv.key !== opts.onlyTopicKey) continue;
     // STOPPING ON A PARK IS HOW THE RULE BELOW BECAME DEAD CODE: production reads this pass with no research budget, so the walk ended the moment ANY verdict landed, and a park ranks first.
     if (decided && ACTS.has(decided.decision.verdict) && queries >= max && (max <= 0 || needs.some((n) => n.comparison))) break;
@@ -298,11 +300,7 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
       reading = readComparison(held, candidates);
       ask = intersectionComparison(decision, inv, candidates);
     }
-    // A PARK MAY NEVER OUTRANK A DECISION: `decided` is the ONLY door to the new-page builder, so one parked topic taking it would starve every topic that could actually earn work. An actionable verdict always
-    // wins; a park is the answer only when nothing else is.
-    if (decision.verdict !== "research_needed" && (!decided || (ACTS.has(decision.verdict) && !ACTS.has(decided.decision.verdict)))) {
-      decided = { investigation: inv, candidates, decision, reading };
-    }
+    if (decision.verdict !== "research_needed") { const candidate = { investigation: inv, candidates, decision, reading }, admission = decision.verdict === "create_new" ? opts.newPageAdmission?.(candidate) : "ready"; if (admission === "source_owed") deferredNewPage ??= candidate; else if (admission !== "settled" && (!decided || (ACTS.has(decision.verdict) && !ACTS.has(decided.decision.verdict)))) decided = candidate; }
     const query = (nextResearchQuery(decision, inv) ?? "").trim();
     const comparison = max <= 0 || query || needs.some((n) => n.comparison) ? null : ask;
     // A CASE THAT CAN ONLY WAIT IS STILL A CASE, and the EARLIEST of those dates is the whole account's waiting truth, counted over every topic walked rather than only the ones inside the research budget.
@@ -315,7 +313,7 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
     seen.add(query.toLowerCase()); queries += 1;
     needs.push({ topicKey: inv.key, requirement: decision.missing[0]!, query: query || null, comparison, ownedUrl: owedBody ? ownedUrl : null, retryAfter });
   }
-  return { decided, needs, waitingUntil };
+  return { decided: decided && ACTS.has(decided.decision.verdict) ? decided : deferredNewPage ?? decided, ...(deferredNewPage ? { deferredNewPage } : {}), ...(opts.newPageAdmission ? { rankedTopicKeys: ranked.map(i => i.key) } : {}), needs, waitingUntil };
 }
 
 /** The exact search that closes what the verdict named, or null when no search can. An unsettled meaning is

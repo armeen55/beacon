@@ -519,25 +519,40 @@ The UI should be calm, premium, fast, and visually explanatory. Progressive disc
 simple decision first, full investigation on demand. A progress bar is used only when backed by persisted
 units of completed work.
 
-## MVP acceptance criteria
+## MVP acceptance criteria — recommendation delivery
+
+The operator narrowed the MVP finish line on September 28, 2026 to Beacon's recommendation engine and
+manual publication workflow. The full V1 product still includes verification, Results and learning below; elapsed measurement windows and a several-week manual pilot are not gates for this MVP.
 
 The MVP is complete only when a brand-new account can:
 
-1. Sign up and enter one website.
-2. Receive and confirm a structured Business Profile.
-3. Choose a goal.
-4. Approve Beacon's recommended 20 to 50 core prompts by topic group.
-5. Skip or connect customer-owned sources.
-6. See a real first finding and durable research progress.
-7. Be tracked every calendar day afterward without opening the app, with missed days visibly missing.
-8. Receive deeply researched existing-page and new-page Changes.
-9. Inspect why each Change outranks alternatives, and see where it stands in Visibility.
-10. Mark a Change Bundle implemented after applying it manually, and have Beacon verify the live result.
-11. See honest 7, 14, 28, and when needed 56-day Results.
-12. Remain fully isolated from every other account.
+1. Sign up with one website, confirm a structured Business Profile and goal, approve its core prompts, and
+   connect or skip customer-owned sources without another account's data appearing.
+2. See saved findings immediately while the one scheduled runtime continues research without a visit,
+   resumes interrupted work, and reports the stage, freshness, pause state and evidence debt honestly.
+3. Receive globally ranked, inspectable opportunities based on current owned-page content, search and AI
+   evidence, with a reason each recommendation outranks the next useful alternative.
+4. Receive complete, copy-ready existing-page Changes for every applicable family: titles, meta descriptions,
+   headings, direct answers, sections, paragraph improvements, FAQs, tables or lists, factual corrections,
+   citations, entity or topic improvements, internal links, appropriate schema, technical recommendations,
+   and preservation-aware whole-page improvements.
+5. Receive justified complete new pages, including their title, description, heading structure, body,
+   source support and any appropriate connected schema, rather than outlines or partly written bundles.
+6. Inspect the exact target, placement, before and after copy, retained material, claim-level sources,
+   dependencies and limitations for each Change. An operator can apply its complete components manually without researching or rewriting Beacon's work.
+7. Copy the intended plain and structured content and, when recording an application, bind that record to
+   the exact Change version and components shown. Publishing remains manual.
+8. See useful independent opportunities advance through research, writing and checking without an arbitrary
+   output quota, permanent waiting pool, repeated purchase of unchanged evidence, duplicate work, or
+   conflicting edits. Budgets, source freshness and quality gates still bound each run; no filler is made.
+9. Observe this same recommendation workflow producing distinct, useful production artifacts on repeated
+   passes for both a content-rich publisher and a local-service business, with tenant isolation and no
+   customer-specific product path.
 
-The MVP must prove this loop for both a content-rich publisher and a local-service business without
-hardcoding either business or creating separate product paths.
+Not every page needs every edit family. The applicable families must each be demonstrated on a justified
+case through the canonical workflow; absence of a suitable case is reported honestly rather than filled
+with manufactured copy. Complete verification, 7/14/28/56-day Results and a several-week manual pilot
+remain V1 work after this recommendation MVP.
 
 ## Explicit non-goals
 
