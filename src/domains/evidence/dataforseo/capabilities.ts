@@ -1,5 +1,5 @@
 import "server-only";
-import { PROOF_SPEND, spendingClosed } from "@/lib/spend-scope"; import { CREDIT_BREAKER } from "@/lib/cost/credit-breaker";
+import { PROOF_SPEND, runWithoutSpending, spendingClosed } from "@/lib/spend-scope"; import { CREDIT_BREAKER } from "@/lib/cost/credit-breaker";
 import { createHash } from "node:crypto";
 import { load as cheerioLoad } from "cheerio";
 import { isDataForSeoConfigured, runDataForSeoTransport } from "./client";
@@ -177,7 +177,7 @@ const REGISTRY: Registry = {
 };
 export const capabilityAskable = (capability: string): boolean => Object.hasOwn(REGISTRY, capability);
 export async function providerCall<K extends CapabilityKey>(
-  capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string; runId?: string; caseKey?: string; promptId?: string; bankedAfter?: string }, deps: FunnelBoundaryDeps = {},
+  capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string; runId?: string; caseKey?: string; promptId?: string; bankedAfter?: string; exactSerp?: boolean }, deps: FunnelBoundaryDeps = {},
 ): Promise<CachedCallResult> {
   const proof = PROOF_SPEND.externalClosed(ids.tenantId, { capability, url: String((input as { url?: string; keyword?: string }).url ?? (input as { keyword?: string }).keyword ?? "") });
   const paused = proof === true || proof == null && await spendingClosed(ids.tenantId);
@@ -188,7 +188,7 @@ export async function providerCall<K extends CapabilityKey>(
     : rawStop?.error_detail?.startsWith("raw_html_charge:") ? "Raw HTML reported an unexpected charge. Rendered page purchases are held for investigation."
     : await peek(ids.tenantId).catch(() => "clear" as const) === "held" ? CREDIT_BREAKER.sentence("openai")
     : await peek(ids.tenantId, {}, "dataforseo").catch(() => "clear" as const) === "held" ? CREDIT_BREAKER.sentence("dataforseo") : null;
-  if (blocked && capability !== "onpage_rendered_html") return { state: "capped", cacheKey: null, detail: blocked };
+  if (blocked && capability !== "onpage_rendered_html" && !(capability === "serp_organic" && ids.exactSerp === true && PROOF_SPEND.meter(ids.tenantId) !== null)) return { state: "capped", cacheKey: null, detail: blocked };
   const entry = REGISTRY[capability];
   let resolution: EngineModelResolution | null = null, modelRequested: string | null = null;
   if (entry.engine) { // ONE resolution: the method routes the call AND the model rides the request
@@ -196,8 +196,8 @@ export async function providerCall<K extends CapabilityKey>(
     if (!resolution) return { state: "not_configured", cacheKey: null, detail: `No usable ${entry.engine} model is available to ask right now. It is tried again on the next pass.` };
     modelRequested = resolution.model;
   }
-  const route = entry.route(resolution);
-  const ask = (entry.normalize ? entry.normalize(input) : input) as CapabilityInputByKey[K];
+  const ask = (entry.normalize ? entry.normalize(input) : input) as CapabilityInputByKey[K], serp = ask as { keyword?: string; depth?: number; loadAiOverview?: boolean }, liveSerp = capability === "serp_organic" && ids.exactSerp === true && ids.unitKey === `serps:${ids.tenantId}` && PROOF_SPEND.meter(ids.tenantId) !== null && (serp.depth ?? SERP_DEPTH) <= SERP_DEPTH && !serp.loadAiOverview, liveEstimate = 0.005 * 5 ** (serp.keyword?.match(/\b(?:allinanchor|allintext|allintitle|allinurl|cache|define|definition|filetype|id|inanchor|info|intext|intitle|inurl|link|site):/gi)?.length ?? 0);
+  const route: Route = liveSerp ? { mode: "live", postPath: "serp/google/organic/live/advanced", getPath: null, tasksReady: null } : entry.route(resolution);
   let payload: unknown[];
   try {
     payload = entry.build(ask, resolution);
@@ -218,13 +218,13 @@ export async function providerCall<K extends CapabilityKey>(
     cacheKey, endpoint: route.postPath, endpointVersion: "v3", postPath: route.postPath, getPath: route.getPath,
     tasksReadyPath: route.tasksReady,
     publicInput, locationCode: LOCATION_US, languageCode: LANG_EN, device, modelRequested: modelDim,
-    payload, ttlMs: entry.ttlMs, estCostUsd: entry.estCostUsd, mode: route.mode, tenantId: ids.tenantId,
+    payload, ttlMs: entry.ttlMs, estCostUsd: liveSerp ? liveEstimate : entry.estCostUsd, mode: route.mode, tenantId: ids.tenantId,
     requestTimeoutMs: entry.requestTimeoutMs,
     paidBlockedReason: ids.bankedAfter ? "Only the exact newer paid page task may be replayed; no new purchase is authorized." : blocked,
     purpose: ids.unitKey.startsWith("fact-check:") ? "fact_check" : "bulk", // the daily gate holds the fact-check reserve on it
     who: { unitKey: ids.unitKey, ...(ids.runId ? { runId: ids.runId } : {}), ...(ids.caseKey ? { caseKey: ids.caseKey } : {}), ...(ids.promptId ? { promptId: ids.promptId } : {}) },
   };
-  const result = await runResolvedCall(resolved, deps);
+  if (liveSerp) { const standard = entry.route(resolution), standardKey = identityCacheKey({ endpoint: standard.postPath, publicInput, providerPayload: payload, locationCode: LOCATION_US, languageCode: LANG_EN, device, modelRequested: modelDim }), bank = await runWithoutSpending(() => runResolvedCall({ ...resolved, cacheKey: standardKey, endpoint: standard.postPath, postPath: standard.postPath, getPath: standard.getPath, tasksReadyPath: standard.tasksReady, mode: standard.mode, paidBlockedReason: "The exact Standard bank is empty; only a separately authorized Live read may follow." }, deps)); if (bank.state !== "capped" && bank.state !== "not_configured") return bank; } const result = await runResolvedCall(resolved, deps);
   if (capability === "onpage_rendered_html" && (result.state === "ok" || result.state === "hit"))
     return hydrateRendered(result, canonicalUrl(String(publicInput.url ?? "")), ids.tenantId, deps);
   if (modelRequested && (result.state === "ok" || result.state === "waiting")) return { ...result, modelRequested };

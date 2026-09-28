@@ -3,6 +3,7 @@ import "server-only";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { globalMonthlyCapUsd as configuredGlobalMonthlyCapUsd } from "@/lib/cost/cost-breaker";
+import { reportingDay } from "@/lib/reporting-day";
 
 type Platform = "perplexity" | "openai" | "adjudicator-openai" |
   "onboarding-openai" | "dataforseo-serp" | "other";
@@ -24,7 +25,7 @@ type ReserveInput = {
 };
 type Reservation = {
   outcome: "reserved" | "resumed" | "replayed" | "conflict" | "refused_daily" | "refused_monthly" |
-    "refused_lifetime" | "refused_global" | "refused_cohort" | "refused_overrun" | "invalid";
+    "refused_lifetime" | "refused_global" | "refused_cohort" | "refused_overrun" | "refused_task" | "invalid";
   attemptId: string | null;
   attemptOrdinal: number | null;
   state: "reserved" | "transmitted" | "ambiguous" | "reconciled" | "released" | null;
@@ -50,6 +51,8 @@ const booleanRpc = async (name: string, args: Record<string, unknown>): Promise<
   const { data, error } = await getSupabaseAdmin().rpc(name, args);
   return error == null && data === true;
 };
+const taskRefusal = (error: { code?: string; message?: string } | null): boolean => error?.code === "P0001"
+  && /^task_spend_(cap_refused|policy_unreadable)$/.test(error.message ?? "");
 
 const reserve = async (input: ReserveInput): Promise<Reservation> => {
   const leaseSeconds = input.leaseSeconds ?? 900;
@@ -81,6 +84,8 @@ const reserve = async (input: ReserveInput): Promise<Reservation> => {
     p_research_run_owner: run?.owner ?? null,
     p_lease_seconds: leaseSeconds,
   });
+  if (taskRefusal(error)) return { outcome: "refused_task", attemptId: null, attemptOrdinal: null, state: null,
+    reportingDay: reportingDay(new Date()), estimatedUsd: input.estimatedUsd, providerTaskId: null };
   if (error) throw new Error(`Spend reservation failed: ${error.message}`);
   const row = one(data);
   if (row == null || typeof row.outcome !== "string" || typeof row.reporting_day !== "string")
@@ -135,6 +140,8 @@ const spendReservations = {
   claimTransmission: async (attemptId: string) => {
     if (!attemptId.trim()) return "unavailable" as const;
     const { data, error } = await getSupabaseAdmin().rpc("claim_spend_transmission", { p_attempt_id: attemptId });
+    if (taskRefusal(error)) return await booleanRpc("release_spend", { p_attempt_id: attemptId, p_zero_cost_proven: false })
+      ? "cap_refused" as const : "unavailable" as const;
     return error == null && (data === "claimed" || data === "already_started" || data === "cap_refused" || data === "work_retired" || data === "stale_day" || data === "run_inactive") ? data : "unavailable" as const;
   },
   markAmbiguous: (attemptId: string, providerTaskId?: string | null, resultPayload?: unknown) => !attemptId.trim()

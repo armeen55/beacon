@@ -38,7 +38,7 @@ import { loadFunnelState, saveFunnelState, type FunnelPair, type FunnelState, ty
  *  of the numbers, which is exactly how two of them drifted. Import freshnessMsFor / isCurrent from there. */
 
 export type FunnelDeps = {
-  callProvider?: <K extends CapabilityKey>(capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string; bankedAfter?: string }) => Promise<CachedCallResult>;
+  callProvider?: <K extends CapabilityKey>(capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string; bankedAfter?: string; exactSerp?: boolean }) => Promise<CachedCallResult>;
   collectTask?: (cacheKey: string, serpReplay?: { tenantId: string; query: string; maxAgeMs: number }) => Promise<CachedCallResult>;
   parse?: typeof parseCapability;
   readPageExtract?: typeof readPublicPageExtract;
@@ -168,6 +168,7 @@ export type SaveCtx = { rowVersion: number };
 export type Interp = {
   kind: "evidence" | "waiting" | "failed" | "soft";
   hit: boolean; payload?: unknown; cacheKey: string | null; costUsd: number;
+  providerTaskId?: string | null;
   modelServed: string | null; modelRequested: string | null;
   /** The boundary's structured failure vocabulary, carried through so an executor
    *  NEVER treats every failure identically: the disposition alone decides whether
@@ -184,7 +185,7 @@ export function interp(r: CachedCallResult): Interp {
   switch (r.state) {
     case "hit": return { kind: "evidence", hit: true, payload: r.envelope, cacheKey: r.cacheKey, costUsd: 0, modelServed: r.modelServed, modelRequested: null };
     case "ok": return { kind: "evidence", hit: false, payload: r.envelope, cacheKey: r.cacheKey, costUsd: r.costUsd, modelServed: r.modelServed, modelRequested: r.modelRequested ?? null };
-    case "waiting": return { kind: "waiting", hit: false, cacheKey: r.cacheKey, costUsd: r.costUsd, modelServed: null, modelRequested: r.modelRequested ?? null, detail: r.detail };
+    case "waiting": return { kind: "waiting", hit: false, cacheKey: r.cacheKey, costUsd: r.costUsd, providerTaskId: r.providerTaskId, modelServed: null, modelRequested: r.modelRequested ?? null, detail: r.detail };
     // A spend cap is a plain recoverable pause, never a dead task identity.
     case "capped": return { kind: "failed", hit: false, cacheKey: r.cacheKey, costUsd: 0, modelServed: null, modelRequested: null, disposition: "none", detail: r.detail };
     case "error": return { kind: "failed", hit: false, cacheKey: r.cacheKey, costUsd: 0, modelServed: null, modelRequested: null, disposition: r.disposition, detail: r.detail };

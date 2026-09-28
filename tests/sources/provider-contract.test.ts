@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { providerCall, keywordIdeasBatched, collectCapability, parseCapability, resolveEngineModel } from "@/domains/evidence/dataforseo/capabilities";
 import { identityCacheKey } from "@/domains/evidence/dataforseo/cached-call";
-import { comparePageCoverage, parsePageIntersection } from "@/domains/evidence/page-intersection"; import { runWithoutSpending } from "@/lib/spend-scope";
+import { comparePageCoverage, parsePageIntersection } from "@/domains/evidence/page-intersection"; import { PROOF_SPEND, runWithoutSpending } from "@/lib/spend-scope";
 import type { ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { classifyTaskStatus, classifyPaidResponse, type TaskStatusClass, type PaidResponseAction } from "@/domains/evidence/dataforseo/status-contract";
 import { labsKeywordsForSiteLive, serpTaskGetAdvanced, llmResponsesTaskPostAck, llmResponsesTaskGet, perplexityLive, chatgptModels, perplexityModels } from "../fixtures/dataforseo-envelopes";
@@ -225,7 +225,40 @@ describe("envelope parsing + method-aware resolution", () => {
     const { deps } = harness(llmResponsesTaskGet, { cacheRead: async () => taskRow("ai_optimization/chat_gpt/llm_responses/task_post", { cost_usd: 0 }) }); const res = await collectCapability("k", deps); if (res.state !== "ok") throw new Error(res.state); const ans = parseCapability("llm_chatgpt", res.envelope); expect([ans!.webSearchReported, ans!.citations?.map((c) => c.domain), ans!.fanOutQueries?.length]).toEqual([true, ["runnersworld.com", "wirecutter.com"], 2]); // An annotation knows WHICH WORDS it backs, and the ask's own token and money receipt rides home with it.
     expect(ans!.citations![0]).toMatchObject({ startIndex: 4, endIndex: 20, passage: "Brand X Runner" }); expect(ans!.usage).toEqual({ inputTokens: 12, outputTokens: 88, reasoningTokens: 0, moneySpentUsd: 0.03 });
     const bare = parseCapability("llm_chatgpt", { status_code: 20000, tasks: [{ result: [{ items: [{ type: "message", sections: [{ type: "text", text: "hi", annotations: [{ url: "https://x.example/a" }] }] }] }] }] }); // an envelope reporting none of it stores absence, never a zero
-    expect([bare!.usage, bare!.citations![0]!.startIndex, "passage" in bare!.citations![0]!]).toEqual([null, undefined, false]); });
+    expect([bare!.usage, bare!.citations![0]!.startIndex, "passage" in bare!.citations![0]!]).toEqual([null, undefined, false]); });   it("the focused exact SERP reuses keyed Standard and Live banks before a bounded Live read; broad work stays Standard", async () => {
+    const q = "persian swear words", ids = { tenantId: "t", unitKey: "serps:t", exactSerp: true };
+    const proof = { maxExternalCalls: 1, maxExternalUsd: 0.4, allowedExternal: [{ capability: "serp_organic", url: q }] };
+    const body = structuredClone(serpTaskGetAdvanced); body.cost = 0.004; body.tasks[0]!.cost = 0.004; body.tasks[0]!.result[0]!.keyword = q;
+    const claimed = { outcome: "claimed", payload: null, providerTaskId: null, modelServed: null, readyAt: null, costUsd: 0 };
+    const ready = { outcome: "ready", payload: body, providerTaskId: null, modelServed: null, readyAt: NOW.toISOString(), costUsd: 0.004 };
+    const noReserve = atomicSpend({ reserve: async () => { throw new Error("bank replay reserved money"); } });
+    const bare = harness(body), standard = await PROOF_SPEND.run("t", 1, 0.1, () => providerCall("serp_organic", { keyword: q }, { tenantId: "t", unitKey: "serps:t" }, bare.deps), proof);
+    expect([standard.state, bare.task()]).toEqual(["waiting", [`${BASE}serp/google/organic/task_post`]]);
+    const leased = harness(body, { claimEvidenceFetch: async (i: { cacheKey: string }) => i.cacheKey === standard.cacheKey ? { ...claimed, outcome: "pending" } : claimed, cacheRead: async (key: string) => key === standard.cacheKey ? taskRow("serp/google/organic/task_post", { cache_key: key, provider_task_id: null, spend_attempt_id: null, fetch_claimed_until: new Date(NOW.getTime() + 60_000).toISOString() }) : null, spend: noReserve });
+    const active = await PROOF_SPEND.run("t", 1, 0.1, () => providerCall("serp_organic", { keyword: q }, ids, leased.deps), proof);
+    expect([active.state, active.state === "waiting" && active.providerTaskId, leased.task()]).toEqual(["waiting", null, []]);
+    const durable = harness(body, { claimEvidenceFetch: async (i: { cacheKey: string }) => i.cacheKey === standard.cacheKey ? { ...claimed, outcome: "pending" } : claimed, cacheRead: async (key: string) => key === standard.cacheKey ? taskRow("serp/google/organic/task_post", { cache_key: key, provider_task_id: "task-1", spend_attempt_id: "attempt-1", next_poll_at: new Date(NOW.getTime() + 120_000).toISOString() }) : null, spend: noReserve });
+    const posted = await PROOF_SPEND.run("t", 1, 0.1, () => providerCall("serp_organic", { keyword: q }, ids, durable.deps), proof);
+    expect([posted.state, posted.state === "waiting" && posted.providerTaskId, durable.task()]).toEqual(["waiting", "task-1", []]);
+    let reserved = 0; const paid = harness(body, { spend: atomicSpend({ reserve: async (i: { estimatedUsd: number }) => (reserved = i.estimatedUsd, { outcome: "reserved", attemptId: "live-1", attemptOrdinal: 1, state: "reserved", reportingDay: "2026-07-25", estimatedUsd: i.estimatedUsd, actualUsd: null, providerTaskId: null }) }) });
+    const first = await PROOF_SPEND.run("t", 1, 0.1, () => providerCall("serp_organic", { keyword: q }, ids, paid.deps), proof);
+    expect([first.state, paid.task(), reserved]).toEqual(["ok", [`${BASE}serp/google/organic/live/advanced`], 0.005]); expect(first.cacheKey).not.toBe(standard.cacheKey);
+    const liveOnly = harness(body, { claimEvidenceFetch: async (i: { cacheKey: string }) => i.cacheKey === first.cacheKey ? ready : claimed, spend: noReserve });
+    const replay = await PROOF_SPEND.run("t", 1, 0.1, () => providerCall("serp_organic", { keyword: q }, ids, liveOnly.deps), proof);
+    const free = await PROOF_SPEND.run("t", 1, 0.1, () => runWithoutSpending(() => providerCall("serp_organic", { keyword: q }, ids, liveOnly.deps)), proof);
+    expect([replay.state, free.state, replay.cacheKey, free.cacheKey, liveOnly.task()]).toEqual(["hit", "hit", first.cacheKey, first.cacheKey, []]);
+    const standardOnly = harness(body, { claimEvidenceFetch: async (i: { cacheKey: string }) => i.cacheKey === standard.cacheKey ? ready : claimed, spend: noReserve });
+    const fallback = await PROOF_SPEND.run("t", 1, 0.1, () => providerCall("serp_organic", { keyword: q }, ids, standardOnly.deps), proof);
+    expect([fallback.state, fallback.cacheKey, standardOnly.task()]).toEqual(["hit", standard.cacheKey, []]);
+    const empty = harness(body, { spend: noReserve }), noBank = await PROOF_SPEND.run("t", 1, 0.1, () => runWithoutSpending(() => providerCall("serp_organic", { keyword: q }, ids, empty.deps)), proof);
+    expect([noBank.state, empty.task()]).toEqual(["capped", []]);
+    const broad = harness(body), broadResult = await PROOF_SPEND.run("t", 1, 0.1, () => providerCall("serp_organic", { keyword: q }, { tenantId: "t", unitKey: "serps:t" }, broad.deps), proof);
+    expect([broadResult.state, broad.task()]).toEqual(["waiting", [`${BASE}serp/google/organic/task_post`]]);
+    const expensive = "site:example.com persian words", opBody = structuredClone(body); opBody.tasks[0]!.result[0]!.keyword = expensive; let opReserve = 0;
+    const opHarness = harness(opBody, { spend: atomicSpend({ reserve: async (i: { estimatedUsd: number }) => (opReserve = i.estimatedUsd, { outcome: "reserved", attemptId: "operator-1", attemptOrdinal: 1, state: "reserved", reportingDay: "2026-07-25", estimatedUsd: i.estimatedUsd, actualUsd: null, providerTaskId: null }) }) });
+    const op = await PROOF_SPEND.run("t", 1, 0.1, () => providerCall("serp_organic", { keyword: expensive }, ids, opHarness.deps), { maxExternalCalls: 1, maxExternalUsd: 0.01, allowedExternal: [{ capability: "serp_organic", url: expensive }] });
+    expect([op.state, opReserve, opHarness.task()]).toEqual(["capped", 0.025, []]);
+  });
   it("resolution prefers Standard + web, fails closed when unavailable, and uses the unconfigured fallback", async () => {
     expect(await resolveEngineModel("chatgpt", harness(chatgptModels).deps)).toMatchObject({ model: "gpt-4o", method: "standard", webSearch: true }); // NOT gpt-5
     expect(await resolveEngineModel("perplexity", harness(perplexityModels).deps)).toMatchObject({ model: "sonar-reasoning-pro", method: "live", webSearch: true }); expect(await resolveEngineModel("chatgpt", harness({}, { fetchImpl: vi.fn(async () => { throw new Error("down"); }) as unknown as typeof fetch }).deps)).toBeNull(); // fail closed

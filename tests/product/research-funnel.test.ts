@@ -201,6 +201,15 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
     const out = await serpAnalysisUnit({ ...store.deps, ...serpBase, loadProfile: async () => { throw new Error("records down"); }, loadPageQueries: async () => null, callProvider: async () => { calls += 1; return waiting("ck"); } })("ts", cur(), 60_000);
     expect([out.status, calls, out.detail]).toEqual(["failed", 0, "No trusted starting point could be read this pass, so nothing was spent. The next visit will try again."]); // a failed read is never "you have nothing"
     expect(store.peek("ts", BASIS)!.discovery.retained).toHaveLength(1); }); // prior saved research untouched
+  it("keeps an exact SERP pending while another fetch has no paid task, then stamps a real posted task", async () => {
+    const store = memStore(retainedState([])); let taskId: string | null = null;
+    const unit = serpAnalysisUnit({ ...store.deps, ...serpBase, callProvider: async (_cap, _input, ids) => { expect(ids.exactSerp).toBe(true); return { state: "waiting", cacheKey: "standard-key", providerTaskId: taskId, costUsd: 0, detail: "A fetch is still in flight." }; } }, ["a query"], "exact");
+    expect((await unit("ts", cur(), 60_000)).status).toBe("waiting"); expect(store.peek("ts", BASIS)!.serps.queries[0]).toMatchObject({ query: "a query", status: "pending", cacheKey: null });
+    taskId = "paid-task-1"; expect((await unit("ts", cur(), 60_000)).status).toBe("waiting"); expect(store.peek("ts", BASIS)!.serps.queries[0]).toMatchObject({ query: "a query", status: "posted", cacheKey: "standard-key" });
+    const ghostSeed = retainedState([]); ghostSeed.serps.queries = [{ query: "a query", status: "posted", cacheKey: "old-ghost" }]; const ghost = memStore(ghostSeed);
+    await serpAnalysisUnit({ ...ghost.deps, ...serpBase, collectTask: async () => ({ ...waiting("old-ghost"), providerTaskId: null }), callProvider: async () => ({ ...waiting("old-ghost"), providerTaskId: null }) }, ["a query"], "exact")("ts", cur(), 60_000);
+    expect(ghost.peek("ts", BASIS)!.serps.queries[0]).toMatchObject({ query: "a query", status: "pending", cacheKey: null });
+  });
   it.each(["agenda", "exact"] as const)("resumes a posted %s SERP through collection and cache refusal without duplicate work", async (mode) => {
     const seed = retainedState(["a query"]); seed.serps.queries = [...(mode === "exact" ? [{ query: "query a", cacheKey: "ck-reversed", status: "posted" as const }] : []), { query: "a query", cacheKey: "ck-old", status: "posted" }, ...(mode === "exact" ? [{ query: "unrelated pending", cacheKey: null, status: "pending" as const }, { query: "unrelated posted", cacheKey: "ck-other", status: "posted" as const }] : [])];
     const store = memStore(seed); let posts = 0, collects = 0;

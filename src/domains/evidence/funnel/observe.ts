@@ -366,6 +366,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
         if (s.status === "posted" && s.cacheKey) {
           const r = interp(await d.collectTask(s.cacheKey, { tenantId, query: s.query, maxAgeMs: freshnessMsFor(hot.has(canonicalQueryKey(s.query)) ? "serp_hot" : "serp_cold") })); track(state, r);
           if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) { applySerp(s, parsed, nowIso(), r.payload, tenantId); reopenDue(s); } }
+          else if (r.kind === "waiting" && !r.providerTaskId) { s.status = "pending"; s.cacheKey = null; }
           else if (r.kind === "failed") {
             // daily_limit and blocked both STOP the batch (the row stays posted, so its collect is still free tomorrow); everything else stays posted, free.
             if (r.disposition === "daily_limit") limitDetail = r.detail ?? null;
@@ -396,8 +397,8 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
         if (s.status === "pending") {
           // THE OVERVIEW IS BOUGHT ONLY WHERE IT IS READ. `load_async_ai_overview` costs $0.0006 a request (refunded when the search has no async overview), so it rides exactly the searches an open investigation or a
           // funded row named, which is the same `hot` set the daily freshness window is granted to, and never the broad discovery agenda.
-          const r = interp(await d.callProvider("serp_organic", { keyword: s.query, ...(!exact && hot.has(canonicalQueryKey(s.query)) ? { loadAiOverview: true } : {}) }, ids)); track(state, r);
-          if (r.kind === "waiting") { s.status = "posted"; s.cacheKey = r.cacheKey; }
+          const r = interp(await d.callProvider("serp_organic", { keyword: s.query, ...(!exact && hot.has(canonicalQueryKey(s.query)) ? { loadAiOverview: true } : {}) }, exact ? { ...ids, exactSerp: true } : ids)); track(state, r);
+          if (r.kind === "waiting") { if (r.providerTaskId) { s.status = "posted"; s.cacheKey = r.cacheKey; } else failedDetail = r.detail ?? "A search fetch still owns its lease. It stays pending until a confirmed provider task or answer arrives."; }
           else if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) { applySerp(s, parsed, nowIso(), r.payload, tenantId); reopenDue(s); } }
           else if (r.kind === "failed") {
             // daily_limit and blocked are the stops; quarantined = explicit unavailable coverage; the rest continue.

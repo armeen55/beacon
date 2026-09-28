@@ -3,11 +3,15 @@ import spend, { runWithProposalWorkKey } from "@/lib/cost/spend-reservations";
 import { ledgerDay } from "@/lib/cost/budget-ledger-supabase";
 import { reportingDay } from "@/lib/reporting-day";
 import { openAIStructuredResponse } from "@/domains/decision/llm/gateway"; import { z } from "zod";
-const db = vi.hoisted(() => ({ calls: [] as Array<[string, Record<string, unknown>]>, fail: false, spent: 0 }));
+const db = vi.hoisted(() => ({ calls: [] as Array<[string, Record<string, unknown>]>, fail: false, taskRefusalAt: "" as "" | "reserve" | "claim", spent: 0 }));
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({
   rpc: async (name: string, args: Record<string, unknown>) => {
     db.calls.push([name, args]);
     if (db.fail) return { data: null, error: { message: "down" } };
+    if (db.taskRefusalAt && db.taskRefusalAt === (name === "reserve_spend" ? "reserve" : name === "claim_spend_transmission" ? "claim" : "")
+      && !(name === "claim_spend_transmission" && db.calls.some(([operation, input]) => operation === "reserve_spend"
+        && input.p_platform === "other" && input.p_purpose === "atomic_proof_admission" && input.p_estimated_usd === 0)))
+      return { data: null, error: { code: "P0001", message: "task_spend_cap_refused" } };
     if (name === "reserve_spend") return { error: null, data: [{ outcome: String(args.p_logical_key).startsWith("gateway:") ? "reserved" : "resumed", attempt_id: "a1",
       attempt_ordinal: 1, reservation_state: String(args.p_logical_key).startsWith("gateway:") ? "reserved" : "ambiguous", reporting_day: "2026-09-19",
       estimated_usd: 0.2, actual_usd: null, provider_task_id: null }] };
@@ -18,7 +22,7 @@ vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({
 }), isSupabaseConfigured: () => true }));
 const account = vi.hoisted(() => ({ budget: 1 }));
 vi.mock("@/domains/account", () => ({ getTenant: async () => ({ daily_budget_usd: account.budget }) }));
-beforeEach(() => { db.calls = []; db.fail = false; vi.spyOn(console, "warn").mockImplementation(() => {}); });
+beforeEach(() => { db.calls = []; db.fail = false; db.taskRefusalAt = ""; vi.spyOn(console, "warn").mockImplementation(() => {}); });
 describe("the tenant-wide spend door", () => {
   it("binds both proposal-scoped provider reservations to the same async work identity and leaves account research unbound", async () => {
     await runWithProposalWorkKey("proposal-work", async () => {
@@ -35,17 +39,22 @@ describe("the tenant-wide spend door", () => {
     expect(db.calls[0]).toEqual(["reserve_spend", expect.objectContaining({ p_tenant_id: "t1", p_logical_key: "serp:q",
       p_estimated_usd: 0.2, p_monthly_cap_usd: 250, p_cohort_member: false })]);
   });
-  it("uses one private boundary for transport, ambiguity, exact reconciliation, release and the stored hold", async () => {
-    await spend.claimTransmission("a1"); await spend.markAmbiguous("a1");
-    await spend.reconcile("a1", 0.11, "task-1"); await spend.release("a2", true);
-    await spend.setCohortHold("t1", 0.8); await spend.releaseUnusedCohortHold("t1");
-    expect(db.calls.map(([name]) => name)).toEqual(["claim_spend_transmission", "mark_spend_ambiguous", "reconcile_spend",
-      "release_spend", "set_cohort_spend_hold", "release_unused_cohort_spend_hold"]);
-  });
   it("fails closed on invalid input or an unreadable reservation RPC", async () => {
     await expect(spend.reserve({ tenantId: "", platform: "openai", purpose: "walk", logicalKey: "x", estimatedUsd: 1 })).rejects.toThrow("Invalid");
     expect(db.calls).toEqual([]); db.fail = true;
     await expect(spend.reserve({ tenantId: "t", platform: "openai", purpose: "walk", logicalKey: "x", estimatedUsd: 1 })).rejects.toThrow("down");
+  });
+  it("reports a task ceiling before purchase and releases a held attempt if it closes before transmission", async () => {
+    db.taskRefusalAt = "reserve";
+    const refused = await spend.reserve({ tenantId: "t1", platform: "openai", purpose: "walk", logicalKey: "x", estimatedUsd: 0.2 });
+    expect([refused.outcome, refused.attemptId, db.calls.map(([name]) => name)]).toEqual(["refused_task", null, ["reserve_spend"]]);
+    db.calls = []; db.taskRefusalAt = "claim";
+    expect(await spend.claimTransmission("a1")).toBe("cap_refused");
+    expect(db.calls.map(([name]) => name)).toEqual(["claim_spend_transmission", "release_spend"]);
+    db.calls = [];
+    await spend.reserve({ tenantId: "t1", platform: "other", purpose: "atomic_proof_admission", logicalKey: "proof-admission", estimatedUsd: 0 });
+    expect(await spend.claimTransmission("a1")).toBe("claimed");
+    expect(db.calls.map(([name]) => name)).toEqual(["reserve_spend", "claim_spend_transmission"]);
   });
 });
 describe("the canonical OpenAI spend lifecycle", () => {

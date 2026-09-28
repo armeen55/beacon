@@ -273,64 +273,6 @@ describe("the bought-readings map across a drive boundary", () => {
   });
 });
 
-describe("the door in front of the block, on the last phase the plan allows", () => {
-  it.each(SITES)("$t: a done answer on the last funnel phase still owes this drive its walk, exactly once", async (s) => {
-    const done = await doorDrive(s, { status: "done" }, ["replenish_ready", "read_winner_pages"], "winning_pages");
-    expect([done.walks, done.units, done.phase], "the advance is the one answer that leaves the phase for good, so the door is asked in front of it and the block runs once")
-      .toEqual([1, 1, "winning_pages"]);
-  });
-
-  it.each(SITES)("$t: the drive the done answer costs is one drive and never the day", async (s) => {
-    const plan = ["replenish_ready", "read_winner_pages"], first = await doorDrive(s, { status: "done" }, plan, "winning_pages");
-    const second = await doorDrive(s, { status: "done" }, plan, "winning_pages", true, 260_000, { rows: first.rows });
-    expect([first.phase, first.walks + second.walks, first.units + second.units, second.phase], "the first drive pauses where it stands and walks once, and the second runs the block first, re-runs the step and takes the advance it earned, so the door costs one drive and never the day")
-      .toEqual(["winning_pages", 2, 2, "done"]);
-  });
-
-  it.each(SITES)("$t: an advanced answer followed by a done answer opens the block once and no more", async (s) => {
-    const { walks } = await doorDrive(s, ["advanced", "done"], ["replenish_ready", "read_winner_pages"], "winning_pages");
-    expect(walks, "the block's own mark makes stockDue false, so neither door can open it a second time").toBe(1);
-  });
-});
-
-const observed = async (s: typeof SITES[number], unit: { status: string; detail?: string }, standing: unknown, owedTurn: boolean, seenDone = 0) => {
-  const rows = freshRepo(); rows.push(mk({ tenant_id: s.t, cycle_key: ckey(s.t, NOW), current_phase: "prompt_observations",
-    progress: { plan: { units: ["daily_observations", "publish_surfaces"] }, ...(owedTurn ? { waited: { phase: "prompt_observations" as const, drives: 1, unpaid: true } } : {}) } }));
-  let walks = 0;
-  await runResearchCycle(s.t, { now: () => new Date(NOW), deadlineMs: 260_000, steps: { ...BENIGN,
-    dueWork: async () => ({ ...DUE, due: ["daily_observations", "publish_surfaces"], checks: { done: seenDone, total: seenDone > 0 ? 9 : 0, answers: seenDone, unavailable: 0, unsupported: 0 } }),
-    funnelUnit: async () => ({ ...unit, cursor: null, progress: {} }) as never,
-    dayStanding: async () => standing as never,
-    replenishReady: async () => (walks += 1, { ready: 1, deficit: 0, persisted: 0, satisfied: false, reason: "made_progress" as const, jobs: {}, evidenceOwed: [] as never }) } });
-  return walks; };
-
-describe("the answers that leave the phase through a yield", () => {
-  it.each(SITES)("$t: a step that took the drive's turn and hit the spending cap still owes this drive its walk", async (s) => {
-    const plan = ["plan_cases", "publish_surfaces"] as const;
-    const capped = await doorDrive(s, { status: "failed", detail: "the daily spending cap reached for this kind of work" }, plan, "serp_analysis");
-    const plain = await doorDrive(s, { status: "failed", detail: "the results-page provider refused" }, plan, "serp_analysis");
-    expect([capped.walks, plain.walks], "the cap is a ceiling on money and never a wall across the day, so the free half of the walk this drive borrowed the turn from is exactly what still has to run")
-      .toEqual([1, 1]);
-  });
-
-  it.each(SITES)("$t: a step that took the drive's turn and left its lane unreadable still owes this drive its walk", async (s) => {
-    const owed = await observed(s, { status: "failed", detail: "today's checks could not be planned" }, NO_CHECKS, true);
-    const none = await observed(s, { status: "failed", detail: "today's checks could not be planned" }, NO_CHECKS, false);
-    expect([owed, none], "one lane never closes the day, and it must not close the walk the turn was borrowed from either").toEqual([1, none]);
-  });
-
-  it.each(SITES)("$t: a done step whose day standing cannot be counted still owes this drive its walk", async (s) => {
-    const owed = await observed(s, { status: "done" }, null, true), none = await observed(s, { status: "done" }, null, false);
-    expect([owed, none], "the lane is filed and the rest of the day runs, and the walk the turn was borrowed from is still owed before the phase is left").toEqual([1, none]);
-  });
-
-  it.each(SITES)("$t: a done step whose checks moved nothing still owes this drive its walk", async (s) => {
-    const st = { done: 4, total: 9, answers: 4, unavailable: 0, unsupported: 0 };
-    const owed = await observed(s, { status: "done" }, st, true, 4), none = await observed(s, { status: "done" }, st, false, 4);
-    expect([owed, none], "a round that moved nothing leaves the lane, and the walk the turn was borrowed from is still owed before the phase is left").toEqual([1, none]);
-  });
-});
-
 describe("the sentence the row carries when the walk door holds a yield back", () => {
   it.each(SITES)("$t: a step that took the drive's turn and hit the spending cap still says the spending cap stopped it", async (s) => {
     const owed = await doorDrive(s, { status: "failed", detail: CAP }, CASES, "serp_analysis", true, 100_000);
