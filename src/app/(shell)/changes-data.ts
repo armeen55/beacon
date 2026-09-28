@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { cache } from "react";
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
-import { actionableProposalFailures, loadChangeProposals, loadProposalQueue, nextObligation, openHold, readAiCaseDispositions, readQueuePage, resolveCurrentBasis } from "@/domains/decision";
+import { actionableProposalFailures, loadChangeProposals, loadProposalQueue, openHold, queueServable, readAiCaseDispositions, readQueuePage, resolveCurrentBasis } from "@/domains/decision";
 import type { AiCaseFile } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import { loadProofLedgerCached } from "@/domains/measurement";
@@ -115,8 +115,7 @@ const releasedRanking = (p: ChangeProposal, view: ChangesView | null, cards: Map
     : current;
 };
 
-const activeQueuedWork = (p: ChangeProposal): boolean => operatorUiPolicy.isManualEditProofWork(p)
-  && !(p.researchOnly === true && p.obligation?.kind === "terminal" && nextObligation(p)?.kind !== "evidence");
+const activeQueuedWork = (p: ChangeProposal): boolean => operatorUiPolicy.isManualEditProofWork(p) && queueServable(p);
 
 /** Revalidate the release against the current basis and proposal rows; an unreadable basis fails closed. */
 export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string; currentBasis: string | null; currentRows?: ReadonlyMap<string, ChangeProposal> }): ChangesView {

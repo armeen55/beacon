@@ -12,6 +12,7 @@ const decode = (payload: unknown): ChangeProposal | null => payload == null ? nu
 const laneOfRow = (p: ChangeProposal): Lane => { const hold = openHold(p);
   return p.status === "ready" && hold.lane === "review" && hold.defects.length === 0 ? "ready" : hold.lane === "research" ? "research" : "todo"; };
 const escaped = (value: string): string => value.replace(/[\\%_]/g, "\\$&");
+/** A settled row is history until current evidence is owed or reviewed copy is already Ready. */ export const queueServable = (p: ChangeProposal): boolean => { const owed = nextObligation(p); return p.obligation?.kind === "terminal" ? owed?.kind === "evidence" || p.researchOnly !== true && p.status === "ready" && owed == null && openHold(p).lane === "review" && openHold(p).defects.length === 0 : owed?.kind !== "terminal"; };
 
 /** One DB page of the stamped ranking. A later material write clears its stamp
  * atomically, so neither a changed proposal nor a source hold consumes a slot. */
@@ -35,7 +36,7 @@ export async function readQueuePage(tenantId: string, lane: Lane | "all", basis:
     if (page.error) throw new Error(page.error.message);
     const read = (page.data ?? []) as unknown as Array<{ payload: unknown; queue_rank: number; queue_lane: string | null }>;
     const kept = read.map(r => ({ p: decode(r.payload), rank: r.queue_rank, stamped: (r.queue_lane ?? "").split("::")[1] }))
-      .filter((r): r is { p: ChangeProposal; rank: number; stamped: string } => !!r.p && !(r.p.researchOnly === true && r.p.obligation?.kind === "terminal" && nextObligation(r.p)?.kind !== "evidence") && actionableProposalFailures(r.p, { tenantId, currentBasis: basis }).length === 0 && (eligible?.(r.p) ?? true) && (lane !== "ready" || laneOfRow(r.p) === "ready"));
+      .filter((r): r is { p: ChangeProposal; rank: number; stamped: string } => !!r.p && queueServable(r.p) && actionableProposalFailures(r.p, { tenantId, currentBasis: basis }).length === 0 && (eligible?.(r.p) ?? true) && (lane !== "ready" || laneOfRow(r.p) === "ready"));
     const rows = kept.map(r => r.p);
     return { rows, laneById: Object.fromEntries(kept.map(r => [r.p.id, laneOfRow(r.p)])),
       rankById: Object.fromEntries(kept.map(r => [r.p.id, r.rank])), stampedLaneById: Object.fromEntries(kept.map(r => [r.p.id, r.stamped])),

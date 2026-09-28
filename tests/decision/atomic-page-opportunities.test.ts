@@ -66,8 +66,6 @@ const card = (s: Site, id: string, query: string, over: Partial<ChangeProposal> 
   limitations: [], evidence: { query, hints: [], evidenceRefCount: 1 }, impactScore: 40, upsidePerMonth: null, basis: "basis_today::d6", publish: "manual", createdAt: NOW.toISOString(), ...over });
 
 beforeEach(() => { db.rows = []; db.filed = []; db.journeys = null; db.journeyError = false; db.journeyCalls = []; vi.doUnmock("@/domains/decision/proposal-store"); vi.doUnmock("@/domains/evidence/pages/owned-context"); vi.resetModules(); });
-
-
 describe("a page carries as many changes as it has searches it never answers", () => {
   it("keeps an exact paid SERP debt outside the four new groups and chooses a saved alias as the one grouped representative", async () => {
     const s = { ...SITES[0]!, path: "/winter-water", passage: "The winter water is cold, near four degrees from December to March." }, old = card(s, idOf(s, "@winter-water"), s.big, { changeFamily: "answer_block", researchOnly: true, demandImpressions90d: 200, obligation: { kind: "evidence", need: { kind: "serp", query: s.big, reasonCode: "no_winner_to_read" } } }); const seen = (q: string): EvidenceSnapshot["research"] => ({ ...emptyResearchEvidence(), serpEvidence: [{ query: q, observedAt: NOW.toISOString(), organic: [{ rank: 1, url: "https://winner.example/a", domain: "winner.example", title: null }], aiOverview: [], aiMode: [], paa: [], related: [] }] }); const others: Array<[string, number]> = [["how many crabs live in rock pools", 900], ["when do seals visit rock pools", 800], ["which birds nest beside rock pools", 700], ["why are mussels found in rock pools", 600]]; const fifth = await runFor(s, [...others, [s.big, 200]], [old], seen(s.big)); const exact = fifth.cards.find((c) => c.id === old.id); expect([exact?.primaryQuery, exact?.obligation?.kind === "evidence" && exact.obligation.need.kind, fifth.answerCaptures?.has(old.id)]).toEqual([s.big, "competitor_page", false]); const alias = { ...s, path: "/shabe-yalda", title: "Shabe Yalda", passage: "Shabe Yalda, also known as Shab e Yalda, is a winter solstice celebration observed by Iranian families." }, q1 = "shab e yalda", q2 = "shabe yalda", saved = card(alias, idOf(alias, `@${canon(q2)}`), q2, { changeFamily: "answer_block", researchOnly: true, obligation: { kind: "evidence", need: { kind: "serp", query: q2, reasonCode: "no_winner_to_read" } } }); const grouped = await runFor(alias, [[q1, 200], [q2, 90]], [saved], seen(q2)); const cards = grouped.cards.filter((c) => c.id.includes("::missing_answer")); expect(cards.map((c) => [c.id, c.primaryQuery, c.demandImpressions90d, c.obligation?.kind === "evidence" && c.obligation.need.kind])).toEqual([[saved.id, q2, 290, "competitor_page"]]); const leader = card(alias, idOf(alias), q1, { changeFamily: "answer_block", researchOnly: true }); const held = await runFor(alias, [[q1, 200], [q2, 90]], [leader, saved], seen(q2)); expect(held.cards.filter((c) => c.id.includes("::missing_answer")).map((c) => c.id)).toEqual([saved.id]); const stale = await runFor(alias, [[q1, 25], [q2, 90]], [leader, saved], seen(q2)); expect(stale.cards.filter((c) => c.id.includes("::missing_answer")).map((c) => c.id)).toEqual([saved.id]); // stale or weaker aliases cannot displace the exact paid source
@@ -140,7 +138,6 @@ describe("a page carries as many changes as it has searches it never answers", (
       .toEqual([[idOf(s), idOf(s, `@${canon(s.third)}`)], [s.big, s.third], [s.big, s.small, s.third]]);
   });
 });
-
 describe("two sections on one page stand together, and each opens at its own address", () => {
   it.each(SITES)("$t: files both changes as current work, serves both, and judges the second by the same doors", async (s) => {
     const { saveChangeProposal, loadChangeProposal, loadChangeProposals } = await import("@/domains/decision/proposal-store");
@@ -168,7 +165,6 @@ describe("two sections on one page stand together, and each opens at its own add
       "the narrower section writes part of what the live change writes, so it is blocked rather than stood beside it, and the live change keeps every piece of its work").toEqual(["saved", "blocked", [wide.id]]);
   });
 });
-
 describe("two audiences losing clicks on one page are two rows", () => {
   const unit = (label: string, recoverable: number, home: string) => ({ label, vocabulary: [label], queries: [], pages: [home],
     history: { earlyClicksPerDay: 4, recentClicksPerDay: 1, lostClicksPerMonth: 90, earlyImpressions: 4000, recentImpressions: 900,
@@ -200,15 +196,13 @@ describe("two audiences losing clicks on one page are two rows", () => {
       preloaded: { units: [{ ...unit(s.big, 60, url(s)), vocabulary: [s.big, s.small], ...(on == null ? {} : { serp: { winners: [], paa: [], related: [], observedAt: null } }) }], historyWindow: { earlyDays: 120, earlyFrom: "2026-04-01", earlyTo: "2026-07-01" } } as never })).cards[0]!;
     const owes = { kind: "evidence", need: { kind: "serp", query: s.big, reasonCode: "no_winner_to_read" } }, reads = { kind: "evidence", need: { kind: "competitor_page", query: s.big, reasonCode: "no_winner_to_read" } }, stands = { kind: "terminal", reason: "no substantive gap named" };
     const nothing = await mint(null), sibling = await mint(s.small), unreadOwn = await mint(s.big, false), own = await mint(s.big), settled = (c: ChangeProposal): ChangeProposal => ({ ...c, researchOnly: true, obligation: stands as never });
-    /* Settlement expiry reopens evaluation, never writing authority for a historical investigation. */
     const young = (c: ChangeProposal): ChangeProposal => ({ ...c, createdAt: new Date().toISOString() });
-    const expired = JSON.parse(JSON.stringify({ ...preferFinished(own, settled(own)), createdAt: new Date(Date.now() - 8 * 86_400_000).toISOString(), previousCopy: undefined })); expect([nextObligation(expired), writerKindOf(expired)], "expiry can reopen evaluation but never fund a historical-loss writer").toEqual([{ kind: "draft" }, null]);
+    const aged = JSON.parse(JSON.stringify({ ...preferFinished(own, settled(own)), createdAt: new Date(Date.now() - 8 * 86_400_000).toISOString(), previousCopy: undefined })), bodyMeta = { ...aged, newPageDraft: { brief: { kind: "body_meta", identity: "a".repeat(64), owed: [0, 1] }, pieces: [] } }; expect([nextObligation(aged), nextObligation(bodyMeta), writerKindOf(aged), nextObligation({ ...aged, winnersOnFile: "unread" })?.kind], "unchanged old work and its bank stay settled; a newly owed winner reading reopens at zero writer cost").toEqual([stands, stands, null, "evidence"]);
     expect([[nothing.winnersOnFile, sibling.winnersOnFile, unreadOwn.winnersOnFile, own.winnersOnFile], nextObligation(young(preferFinished(nothing, settled(nothing)))), nextObligation(young(preferFinished(sibling, settled(sibling)))), nextObligation(young(preferFinished(unreadOwn, settled(unreadOwn)))), nextObligation(young(preferFinished(own, settled(own)))), nextObligation(young(preferFinished({ ...nothing, winnersOnFile: undefined, obligation: undefined }, settled(nothing))))],
       "the mint says what is on file for THIS row's own search: nothing at all, a results page bought for a sibling phrasing of the group and none for this search, this search's own results page with nothing off it read, or a page winning this very search read whole. The sweep re-mints the settled row through that same comparison and the store's own recompute turns the first three settlements into the reading each one owes, named by what is already on file for THIS search: the results page where none was ever bought for it, and the winners themselves where that page is on file and nothing off it has been read, while the last keeps its honest refusal, and a row no producer ever stamped is left exactly as it was because absent decides nothing")
       .toEqual([["none", "none", "unread", "read"], owes, owes, reads, stands, stands]);
   });
 });
-
 describe("two questions the assistants answer elsewhere on one page are two changes", () => {
   const site = (s: Site): string => `${s.t}.example`;
   const answer = (prompt: string, promptId: string, i: number): unknown => ({ observationId: `${promptId}-${i}`, promptId, promptVersion: 1, promptText: prompt,

@@ -21,7 +21,7 @@ vi.mock("@/domains/measurement", () => ({
 vi.mock("@/domains/decision", () => ({
   splitLedgerLifecycle: () => ({ measuring: [], promising: [], won: [], learned: [] }),
   resolveCurrentBasis: async () => calls.basis,
-  actionableProposalFailures: () => [],
+  actionableProposalFailures: () => [], queueServable: () => true,
   openHold: () => ({ lane: "review", why: [], defects: [], blocking: null, faulted: false, safetyHold: false }),
   unsettledCause: () => null,
   countLedgerLifecycle: () => ({ measuring: 0, decided: 0 }),

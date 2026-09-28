@@ -73,6 +73,7 @@ export { compileCandidates, type QualifiedCandidate } from "./opportunities";
 export { causeLabel, type CauseFinding } from "./diagnosis";
 // The account's CURRENT evidence basis. Surfaces need it to refuse serving a stored release that was built under an older bar; they may not deep-import the kernel.
 export { resolveCurrentBasis } from "./load-proposals";
+export { queueServable } from "./queue-paging";
 
 // Proposing + ranking + validation entry points
 export type { ProposeOptions } from "./propose";

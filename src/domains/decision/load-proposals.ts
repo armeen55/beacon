@@ -7,7 +7,7 @@ import { loadChangeProposals } from "./proposal-store";
 import { rankProposals } from "./rank-proposals";
 import { actionableProposalFailures, validateProposal } from "./validate-proposal";
 import { openHold } from "./completeness";
-import { nextObligation } from "./obligation";
+import { queueServable } from "./queue-paging";
 import { footprintsOverlap, mutationFootprint } from "./mutation-footprint";
 import { DRAFT_BUDGET } from "./draft-budget";
 import type { ChangeProposal } from "./contracts";
@@ -138,10 +138,9 @@ export async function loadProposalQueue(
   const currentBasis =
     deps.currentBasis !== undefined ? deps.currentBasis : await resolveCurrentBasis(tenantId);
   const byId = deps.canonical ?? await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>());
-  // Scope and settled research are excluded before overlap, rank, and counts; saved history stays intact.
+  // Scope and settled work are excluded before overlap, rank, and counts; saved history stays intact.
   const deliveryScope = deps.deliveryScope ?? "all_changes";
-  const scoped = [...byId.values()].filter((p) => DRAFT_BUDGET.scopeAllows(deliveryScope, DRAFT_BUDGET.deliveryOf(p)) && (deps.eligible?.(p) ?? true)
-    && !(p.researchOnly === true && p.obligation?.kind === "terminal" && nextObligation(p)?.kind !== "evidence"));
+  const scoped = [...byId.values()].filter((p) => DRAFT_BUDGET.scopeAllows(deliveryScope, DRAFT_BUDGET.deliveryOf(p)) && (deps.eligible?.(p) ?? true) && queueServable(p));
   const live = scoped.filter((p) => p.status !== "implemented_pending_verification");
   // Your queue is CURRENT WORK ONLY. A proposal enters it only when I can show it was drafted under the basis this account holds right now. An older basis, no basis at all, and a current basis I could not read all SET THE ROW ASIDE. Unreadable fails closed: being unable to read the basis is not proof anything is current, it is proof I cannot tell, so I show you nothing rather than guess. A set-aside row keeps its words, its status and its history: no stored row is rewritten or deleted, it just stops presenting as work waiting on you, and it is counted below so I can say so. A NEW PAGE PASSES THE SAME BAR TWICE. Under generation 6 a page brief may be work again, but only one built to today's evidence contract: the earned verdict it came from, an outline, and every piece tracing to a receipt item. A brief carrying none of that is an older idea however current its basis looks, and reviving the ones that turned a rival's example question into an article is the worst thing this queue could do, so it is refused here and still COUNTED below. AND EVERY DEEP CHANGE PASSES ITS OWN RECEIPT AT READ TIME. A stored bundle whose claims stopped resolving kept rendering exactly as written until something re-selected its page, so the screen is the safety net: a row that cannot show its work is withheld here whatever the producer pass has had a chance to do.
   const standing = live.filter((p) => actionableProposalFailures(p, { tenantId, currentBasis, now }).length === 0
