@@ -94,8 +94,8 @@ export function ChangesListClient({ view, initialPicked = [], researchPaused = f
   const writtenCount = Math.max(0, (view.summary.todo ?? 0) - decisionRows.length), researchingCount = view.summary.research ?? 0;
   const loadedReady = useMemo(() => raw.filter((p) => laneOf(p) === "ready").length, [raw, laneOf]);
   const openTotal = Math.max(0, readyRows.filter((p) => !finished.includes(p.id)).length
-    + Math.max(0, (view.summary.ready ?? 0) - loadedReady - lost));
-  const remaining = Math.max(0, (moved?.total ?? view.summary.ready ?? 0) - loadedReady - lost);
+    + Math.max(0, (moved?.total ?? view.summary.ready ?? 0) - loadedReady - (moved ? 0 : lost)));
+  const remaining = Math.max(0, (moved?.total ?? view.summary.ready ?? 0) - loadedReady - (moved ? 0 : lost));
   const measuring = view.countsUnavailable ? null : view.measuringCountCanonical;
   const waiting = view.waitingLiveCountCanonical, blocked = view.blockedCountCanonical ?? 0;
   const wins = view.countsUnavailable || waiting == null ? null : view.wonCountCanonical ?? null;

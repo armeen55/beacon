@@ -351,7 +351,7 @@ export async function publishCustomerRelease(args: { tenantId: string; expectedP
   return String(data ?? args.release);
 }
 
-export { readQueuePage, queueLaneCounts } from "./queue-paging";
+export { readQueuePage } from "./queue-paging";
 
 /** Every proposal this account currently holds, keyed by id: the canonical current rows plus historical rows for ids the canonical table never held. THE CURRENT QUEUE IS NOT CAPPED. It used to stop at the first 500 rows, so an account with more current work than that silently lost the rest on every read that decides what is current, ranking included; the rows are PAGED here until the account is exhausted. `historyLimit` bounds HISTORY only, because history is not work. Fail-soft: a missing table shows history rather than  claiming this account has no changes at all. */
 export async function loadChangeProposals(tenantId: string, opts: { failClosed?: boolean; canonicalOnly?: true } = {}): Promise<Map<string, ChangeProposal>> {

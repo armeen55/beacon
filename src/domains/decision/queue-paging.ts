@@ -3,7 +3,6 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 import { deserializeChangeProposal, type ChangeProposal } from "./contracts";
 import { actionableProposalFailures } from "./validate-proposal"; import { openHold } from "./completeness";
-import { rankProposals } from "./rank-proposals";
 
 export const QUEUE_PAGE = 500, QUEUE_CEILING = 20_000;
 type Lane = "ready" | "todo" | "research";
@@ -36,8 +35,8 @@ export async function readQueuePage(tenantId: string, lane: Lane | "all", basis:
     const read = (page.data ?? []) as unknown as Array<{ payload: unknown; queue_rank: number; queue_lane: string | null }>;
     const kept = read.map(r => ({ p: decode(r.payload), rank: r.queue_rank, stamped: (r.queue_lane ?? "").split("::")[1] }))
       .filter((r): r is { p: ChangeProposal; rank: number; stamped: string } => !!r.p && actionableProposalFailures(r.p, { tenantId, currentBasis: basis }).length === 0 && (eligible?.(r.p) ?? true) && (lane !== "ready" || laneOfRow(r.p) === "ready"));
-    const rows = kept.map(r => r.p), fresh = new Map(rankProposals(rows).map(p => [p.id, p]));
-    return { rows: rows.map(p => fresh.get(p.id) ?? p), laneById: Object.fromEntries(kept.map(r => [r.p.id, laneOfRow(r.p)])),
+    const rows = kept.map(r => r.p);
+    return { rows, laneById: Object.fromEntries(kept.map(r => [r.p.id, laneOfRow(r.p)])),
       rankById: Object.fromEntries(kept.map(r => [r.p.id, r.rank])), stampedLaneById: Object.fromEntries(kept.map(r => [r.p.id, r.stamped])),
       total: Math.max(rows.length, (counted.count ?? rows.length) - (read.length - rows.length)), dropped: read.length - rows.length,
       release, nextRank: read.at(-1)?.queue_rank ?? at, more: read.length === limit };
@@ -45,25 +44,4 @@ export async function readQueuePage(tenantId: string, lane: Lane | "all", basis:
     log.error("[queue-paging] the ranked page could not be read", { tenantId, lane, error: e instanceof Error ? e.message : String(e) });
     return nothing;
   }
-}
-
-/** Count only stamped, currently eligible rows. The bounded scan already
- * existed for live lane correction; material writes now remove stale stamps. */
-export async function queueLaneCounts(tenantId: string, release: string, basis: string,
-  eligible?: (p: ChangeProposal) => boolean): Promise<{ ready: number; todo: number; research: number }> {
-  const out = { ready: 0, todo: 0, research: 0 }, counted = new Set<string>(); let after: string | null = null;
-  try {
-    for (let guard = 0; guard * 100 < QUEUE_CEILING; guard += 1) {
-      let q = getSupabaseAdmin().from("change_proposals").select("id, payload, queue_lane")
-        .eq("tenant_id", tenantId).like("queue_lane", `${escaped(release)}::%`).like("basis", `${escaped(basis.replace(/::d\d+$/, ""))}%`).is("terminal_disposition", null);
-      if (after) q = q.gt("id", after);
-      const { data, error } = await q.order("id", { ascending: true }).limit(100);
-      if (error) throw new Error(error.message);
-      const page = (data ?? []) as Array<{ id: string; payload: unknown; queue_lane: string | null }>;
-      for (const r of page) { if (counted.has(r.id)) continue; counted.add(r.id); const p = decode(r.payload); if (p && actionableProposalFailures(p, { tenantId, currentBasis: basis }).length === 0 && (eligible?.(p) ?? true)) out[laneOfRow(p)] += 1; }
-      if (page.length < 100) break;
-      after = page[page.length - 1]!.id;
-    }
-    return out;
-  } catch (e) { log.error("[queue-paging] lane counts could not be read", { tenantId, error: e instanceof Error ? e.message : String(e) }); return { ready: 0, todo: 0, research: 0 }; }
 }

@@ -1,4 +1,5 @@
 import "server-only";
+import { createHash } from "node:crypto";
 
 /** Canonical persisted Changes release: ranked, paged proposals plus ledger-derived lifecycle counts. Manual publishing only. */
 import { cache } from "react";
@@ -20,6 +21,7 @@ type ChangesSummary = { todo: number; ready: number; research: number; implement
 export type ChangesView = {
   /** THE ONE GLOBAL ORDER, every lane interleaved by worth: committed with the surface and used to reconcile off-page retirements. */
   stampRows?: ReadonlyArray<{ id: string; lane: "ready" | "todo" | "research" }>;
+  rankedReceipts?: Record<string, Pick<ChangeProposal, "rankingReceipt" | "whyRankedAboveNext"> & { material: string }>;
   /** The ranked pre-ship queue, cut to ONE page. `summary` carries the true totals, counted in the database. */
   proposals: ChangeProposal[];
   /** Validated-safe, exact-copy-ready proposals (the Ready tab). */
@@ -101,15 +103,28 @@ export function releasedQueueCursors(manifest: CustomerSurface["manifest"], view
     ready: Math.max(0, ...view.ready.map((p) => ranks.get(p.id) ?? 0)) };
 }
 
+const releasedCards = (view: ChangesView): Map<string, ChangeProposal> => new Map([...view.ready, ...view.toDo, ...(view.research ?? []), ...view.proposals].map((p) => [p.id, p]));
+const rankMaterial = (p: ChangeProposal): string => { const { rankingReceipt: _rank, whyRankedAboveNext: _next, createdAt: _clock, ...material } = p;
+  return createHash("sha256").update(JSON.stringify(material, (_key, value) => value && typeof value === "object" && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value)).digest("hex"); };
+const releasedRanking = (p: ChangeProposal, view: ChangesView | null, cards: Map<string, ChangeProposal>, allowOffCard = false): ChangeProposal => {
+  const { rankingReceipt: _rank, whyRankedAboveNext: _next, ...current } = p, card = cards.get(p.id);
+  const source = view ? card ?? (allowOffCard ? view.rankedReceipts?.[p.id] : undefined) : undefined;
+  return source && (card ? rankMaterial(card) === rankMaterial(p) : "material" in source && source.material === rankMaterial(p))
+    ? { ...current, ...(source.rankingReceipt ? { rankingReceipt: source.rankingReceipt } : {}), ...(source.whyRankedAboveNext ? { whyRankedAboveNext: source.whyRankedAboveNext } : {}) }
+    : current;
+};
+
 /** Revalidate the release against the current basis and proposal rows; an unreadable basis fails closed. */
 export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string; currentBasis: string | null; currentRows?: ReadonlyMap<string, ChangeProposal> }): ChangesView {
   const currentBasis = ctx.currentBasis;
   if (currentBasis == null) return { ...view, proposals: [], ready: [], toDo: [], research: [], laneById: {},
     summary: { ...view.summary, ready: 0, todo: 0, research: 0 }, basisUnreadable: true,
     readyZeroHint: setAsideHint() };
-  // Ready has its own page and can sit below the first global page. Recheck every
-  // lane the release carries, not only that global slice.
-  const all = new Map([...view.proposals, ...view.ready, ...view.toDo, ...(view.research ?? [])].map((p) => [p.id, ctx.currentRows ? ctx.currentRows.get(p.id) : p]));
+  // Recheck every released lane, including Ready below the global first page.
+  const cards = releasedCards(view), stamped = new Set(view.stampRows?.map((r) => r.id));
+  const all = new Map([...view.proposals, ...view.ready, ...view.toDo, ...(view.research ?? [])].map((p) => { const current = ctx.currentRows?.get(p.id);
+    return [p.id, ctx.currentRows ? current && releasedRanking(current, stamped.size === 0 || stamped.has(p.id) ? view : null, cards) : p] as const; }));
   const standing = new Set([...all].filter(([id, p]) => !!p && p.id === id && operatorUiPolicy.isManualEditProofWork(p)
     && actionableProposalFailures(p, ctx).length === 0).map(([id]) => id));
   // A PHOTOGRAPH IS RE-SORTED, NEVER EMPTIED. A blob published before a gate tightened can be carrying a row in
@@ -120,8 +135,7 @@ export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string;
   // THE SAME READY PREDICATE load-proposals applies: status, an open review lane and NO DEFECT under the one verdict (journey review, 2026-09-06: this read `blocking`, which is drawn from the hard arms alone, beside a second name for the same value, so a row held by a typed fault could re-sort into the released ready lane while the queue refused it).
   const ready = kept.filter((p) => p.status === "ready" && openHold(p).lane === "review" && openHold(p).defects.length === 0);
   const toDo = kept.filter((p) => !research.includes(p) && !ready.includes(p));
-  // Totals cover the whole tenant; lane arrays may carry only their first page.
-  // Move or remove only rows this release actually exposed to the recheck.
+  // Reconcile whole-tenant totals against only the released rows rechecked here.
   const oldLane = new Map<string, "ready" | "todo" | "research">([
     ...view.ready.map((p) => [p.id, "ready" as const] as const),
     ...view.toDo.map((p) => [p.id, "todo" as const] as const),
@@ -176,9 +190,7 @@ export type ChangesPage = {
    *  lowers the number the operator reads instead of inflating it. */ dropped: number;
 };
 
-/** ONE PAGE OF ONE LANE, CUT IN THE DATABASE. Rows come back keyed off the position stamped when the ranking was built, filtered at the
- *  query for this account, the bar it holds now, still waiting on the operator, and the lane, so page nineteen costs what page one costs.
- *  A CURSOR IS A POSITION IN A RANKING: a stale cursor is caught here and answered with the fresh first page. */
+/** Read one stamped database page, then bind it to the exact saved release and current proposal rows. */
 export async function readChangesPage(
   tenantId: string, lane: "ready" | "todo" | "all", cursor: number, releaseId?: string | null,
 ): Promise<ChangesPage> {
@@ -188,24 +200,33 @@ export async function readChangesPage(
   const asked = await readQueuePage(tenantId, lane, basis, cursor, CHANGES_PAGE_SIZE, operatorUiPolicy.isManualEditProofWork);
   const moved = releaseId != null && asked.release != null && releaseId !== asked.release;
   const page = moved ? await readQueuePage(tenantId, lane, basis, 0, CHANGES_PAGE_SIZE, operatorUiPolicy.isManualEditProofWork) : asked;
-  if (releaseId && !moved) {
-    const pending = (why: string): ChangesPage => ({ rows: [], laneById: {}, total: 0, cursor, releaseId, refreshed: null, more: true, dropped: 0, pending: why });
-    if (asked.release !== releaseId) return pending("The saved ranking is updating. Your changes remain above; try Show more again after it refreshes.");
+  const effectiveRelease = moved ? page.release : releaseId, start = moved ? 0 : cursor;
+  let confirmed: ChangesView | null = null, confirmedTotal: number | null = null, confirmedMore: boolean | null = null;
+  if (moved && !effectiveRelease) return { rows: [], laneById: {}, total: 0, cursor, releaseId: releaseId ?? null, refreshed: null, more: true, dropped: 0, pending: "The new ranking could not be checked just now. Your changes remain above; try Show more again." };
+  if (effectiveRelease) {
+    const pending = (why: string): ChangesPage => ({ rows: [], laneById: {}, total: 0, cursor, releaseId: releaseId ?? null, refreshed: null, more: true, dropped: 0, pending: why });
+    if (page.release !== effectiveRelease) return pending("The saved ranking is updating. Your changes remain above; try Show more again after it refreshes.");
     const [saved, current] = await Promise.all([readCustomerSurface(tenantId), loadChangeProposals(tenantId, { failClosed: true, canonicalOnly: true })]).catch(() => [null, null] as const);
-    if (!saved || saved.releaseId !== releaseId || !saved.manifest || !current) return pending("The saved ranking could not be checked just now. Your changes remain above; try Show more again.");
+    if (!saved || saved.releaseId !== effectiveRelease || !saved.manifest || !current) return pending("The saved ranking could not be checked just now. Your changes remain above; try Show more again.");
+    const cards = releasedCards(saved.changes), matches = (p: ChangeProposal): boolean => { const card = cards.get(p.id), digest = saved.changes.rankedReceipts?.[p.id]?.material;
+      return card ? rankMaterial(card) === rankMaterial(p) : digest == null || digest === rankMaterial(p); };
     const standing = (row: { id: string; lane: "ready" | "todo" | "research" }) => {
       const p = current.get(row.id);
       return (lane === "all" || row.lane === lane) && !!p && actionableProposalFailures(p, { tenantId, currentBasis: basis }).length === 0
         && operatorUiPolicy.isManualEditProofWork(p) && (lane !== "ready" || p.status === "ready" && p.researchOnly !== true && openHold(p).defects.length === 0);
     };
+    if (saved.manifest.some((r) => { const p = current.get(r.id); return p && standing(r) && !matches(p); })) return pending("The saved ranking is updating. Your changes remain above; try Show more again after it refreshes.");
     const ids = saved.manifest.filter(standing).map((r) => r.id);
-    const slice = saved.manifest.slice(Math.max(0, cursor), page.nextRank).filter(standing).map((r) => r.id);
+    const slice = saved.manifest.slice(Math.max(0, start), page.nextRank).filter(standing).map((r) => r.id);
     const exactStamp = page.rows.every((p) => { const rank = page.rankById[p.id], row = saved.manifest?.[rank - 1];
-      return Number.isInteger(rank) && rank > cursor && row?.id === p.id && row.lane === page.stampedLaneById[p.id]; });
-    if (ids.length !== page.total || !exactStamp || JSON.stringify(slice) !== JSON.stringify(page.rows.map((r) => r.id)))
+      return Number.isInteger(rank) && rank > start && row?.id === p.id && row.lane === page.stampedLaneById[p.id]; });
+    if (!exactStamp || page.rows.some((p) => !matches(p)) || JSON.stringify(slice) !== JSON.stringify(page.rows.map((r) => r.id)))
       return pending("The saved ranking is updating. Your changes remain above; try Show more again after it refreshes.");
+    confirmed = saved.changes; confirmedTotal = ids.length; confirmedMore = saved.manifest.slice(page.nextRank).some(standing);
+    if (confirmedMore && page.nextRank <= start) return pending("The saved ranking is updating. Your changes remain above; try Show more again after it refreshes.");
   }
-  return { rows: page.rows, laneById: page.laneById, total: page.total, cursor: page.nextRank, releaseId: page.release, more: page.more, dropped: page.dropped,
+  const cards = confirmed ? releasedCards(confirmed) : new Map<string, ChangeProposal>();
+  return { rows: page.rows.map((p) => releasedRanking(p, confirmed, cards, !!confirmed)), laneById: page.laneById, total: confirmedTotal ?? page.total, cursor: page.nextRank, releaseId: page.release, more: confirmedMore ?? page.more, dropped: page.dropped,
     refreshed: moved ? "The list moved under you while you were reading it, so here is the fresh first page." : null };
 }
 
@@ -337,6 +358,8 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
   const laneOf = (p: ChangeProposal): "ready" | "todo" | "research" =>
     queue.research.some((r) => r.id === p.id) ? "research" : queue.ready.some((r) => r.id === p.id) ? "ready" : "todo";
   const stampRows = queue.ranked.map((p) => ({ id: p.id, lane: laneOf(p) }));
+  const carried = new Set([...queue.ranked.slice(0, CHANGES_PAGE_SIZE), ...queue.ready.slice(0, CHANGES_PAGE_SIZE), ...queue.toDo.slice(0, CHANGES_PAGE_SIZE), ...queue.research].map((p) => p.id));
+  const omitted = queue.ranked.filter((p) => !carried.has(p.id));
   const receiptLine = buildReceiptLine({
     source: "your Search Console and AI demand data",
     checkedAt: new Date(nowMs).toISOString(),
@@ -347,6 +370,7 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
 
   return {
     stampRows,
+    ...(omitted.length ? { rankedReceipts: Object.fromEntries(omitted.map((p) => [p.id, { rankingReceipt: p.rankingReceipt, whyRankedAboveNext: p.whyRankedAboveNext, material: rankMaterial(p) }])) } : {}),
     proposals: queue.ranked.slice(0, CHANGES_PAGE_SIZE),
     ready: queue.ready.slice(0, CHANGES_PAGE_SIZE),
     toDo: queue.toDo.slice(0, CHANGES_PAGE_SIZE),

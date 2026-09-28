@@ -45,7 +45,6 @@ export {
   proposalDisposition,
   loadChangeProposals,
   dismissChangeProposal,
-  queueLaneCounts,
   readQueuePage,
   publishCustomerRelease,
 } from "./proposal-store";
