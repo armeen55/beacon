@@ -45,15 +45,37 @@ export function extractPageSnapshot(
   const $content = cheerioLoad(html);
   $content("nav, footer, aside, script, style, noscript, svg, iframe, template, [hidden], [aria-hidden=true]").remove();
   $content("header").filter((_, el) => !$content(el).parents("main, article").length).remove();
+  const hiddenVisibility = (style: string) => /(?:^|;)\s*visibility\s*:\s*hidden\s*(?:!important\s*)?(?:;|$)/i.test(style);
   $content("[style]").filter((_, el) => {
-    const node = $content(el), style = node.attr("style") ?? "", cards = node.children(".wixui-repeater__item");
-    const wixList = node.is("fluid-columns-repeater[role=list]") && node.parents(".wixui-repeater").length > 0
-      && /^\s*visibility\s*:\s*hidden\s*;?\s*$/i.test(style) && cards.length > 0 && cards.length === Number(node.attr("items"))
-      && cards.toArray().every((card) => normalizeExtractedText($content(card).text()).split(/\s+/).length >= 5);
-    return !wixList && /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important\s*)?(?:;|$)/i.test(style);
+    const node = $content(el), style = node.attr("style") ?? "";
+    return !(node.is("fluid-columns-repeater[role=list]") && node.parents(".wixui-repeater").length && hiddenVisibility(style) && !/(?:^|;)\s*display\s*:\s*none\s*(?:!important\s*)?(?:;|$)/i.test(style))
+      && /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important\s*)?(?:;|$)/i.test(style);
   }).remove();
   const mains = $content("main").filter((_, el) => $content(el).parents("main").length === 0), articles = $content("article");
   const contentRoot = mains.length ? mains : articles.length === 1 ? articles : $content("body");
+  let hiddenListUnqualified = false;
+  contentRoot.find("fluid-columns-repeater[role=list][style]").each((_, el) => {
+    const node = $content(el), style = node.attr("style") ?? "";
+    if (!hiddenVisibility(style) || !node.parents(".wixui-repeater").length) return;
+    if (!/^\s*visibility\s*:\s*hidden\s*;?\s*$/i.test(style)) { hiddenListUnqualified = true; node.remove(); return; }
+    const cards = node.children(".wixui-repeater__item").toArray(), exactCount = cards.length > 0 && cards.length === node.children().length && cards.length === Number(node.attr("items"));
+    const ownText = (s: string) => normalizeExtractedText(s).replace(/\s/g, "");
+    const compact: Array<{ tag: "h2" | "h3"; name: string; label: string; meaning: string }> = [];
+    const shortCards = exactCount && cards.every((el) => {
+      const card = $content(el), headings = card.find("h2,h3"), paragraphs = card.find("p");
+      if (headings.length !== 1 || paragraphs.length !== 2 || card.find("a,img,picture,svg,button,input,textarea,select,video,audio,iframe,canvas,form,details,summary,dialog,[role=button],[contenteditable]").length) return false;
+      if (card.find("*").addBack().toArray().some((part) => "attribs" in part && Object.keys(part.attribs).some((key) => /^on/i.test(key) || key === "tabindex"))) return false;
+      const name = normalizeExtractedText(headings.first().text()), label = normalizeExtractedText(paragraphs.first().text()), meaning = normalizeExtractedText(paragraphs.eq(1).text());
+      if (name.length < 2 || !/^Meaning\s*:$/.test(label) || meaning.length < 10 || meaning.split(/\s+/).length < 2 || ownText(card.text()) !== ownText(name + label + meaning)) return false;
+      compact.push({ tag: headings.first().is("h3") ? "h3" : "h2", name, label, meaning }); return true;
+    }) && ownText(node.text()) === cards.map((card) => ownText($content(card).text())).join("");
+    if (shortCards) {
+      const list = $content("<div></div>");
+      for (const part of compact) { const item = $content("<section></section>"); item.append($content(`<${part.tag}></${part.tag}>`).text(part.name)); item.append($content("<p></p>").text(part.label)); item.append($content("<p></p>").text(part.meaning)); list.append(item); }
+      node.replaceWith(list);
+    } else if (exactCount && cards.every((card) => normalizeExtractedText($content(card).text()).split(/\s+/).length >= 5)) node.removeAttr("style");
+    else { hiddenListUnqualified = true; node.remove(); }
+  });
   contentRoot.find("[data-testid],[data-motion-part]").addBack().removeAttr("data-testid").removeAttr("data-motion-part");
   contentRoot.find("br, p, div, section, article, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, pre, table, caption, tr, th, td, figure, figcaption, details, summary").each((_, el) => { $content(el).before(" ").after(" "); });
   const mainHtml = $content.html(contentRoot);
@@ -269,7 +291,7 @@ export function extractPageSnapshot(
   const heldMain = mainHtml.length <= BODY_TEXT_CEILING ? mainHtml : "";
   let captureRoom = BODY_TEXT_CEILING - heldMain.length;
   const heldJsonLd = jsonLd.filter((block) => { if (block.length > captureRoom) return false; captureRoom -= block.length; return true; });
-  const contentCapture = { version: 1 as const, mainHtml: heldMain, jsonLd: heldJsonLd, complete: !clientShell && heldMain === mainHtml && heldJsonLd.length === jsonLd.length };
+  const contentCapture = { version: 1 as const, mainHtml: heldMain, jsonLd: heldJsonLd, complete: !clientShell && !hiddenListUnqualified && heldMain === mainHtml && heldJsonLd.length === jsonLd.length };
   // Source revision includes observed client assets, so an unchanged shell cannot fund repeated rendered tasks.
   const assets = $("script[src],link[rel=stylesheet][href],link[rel=modulepreload][href]").toArray()
     .map((el) => $(el).attr("src") ?? $(el).attr("href") ?? "").filter(Boolean);
@@ -309,7 +331,7 @@ export function extractPageSnapshot(
   // so a client-rendered page with zero extracted words graded "confirmed" (the 500-surname page stored
   // as blank while ranking position 4.9): markup in the head proves nothing about the body a reader sees.
   const hasBodyContent = wordCount > 50;
-  const extractionCertainty: "confirmed" | "uncertain" = hasBodyContent && !clientShell ? "confirmed" : "uncertain";
+  const extractionCertainty: "confirmed" | "uncertain" = hasBodyContent && !clientShell && !hiddenListUnqualified ? "confirmed" : "uncertain";
 
   return {
     id: `snap-${pageId}-${Date.now()}`,
