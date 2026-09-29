@@ -260,7 +260,7 @@ export async function readWinningPattern(
   /** The shape the results ALREADY settled, counted in code one gate earlier. Supplied, it is told to the
    *  model AND enforced on the answer: the model repeats a settled shape, it never re-votes one. */
   /** THE PASS'S OWN HARD ATTEMPT BUDGET, decremented BEFORE the call below like every other charged call in the pass. This read used to be the one paid Decision call the pool never saw, so "one budget pays every attempt" was untrue by exactly this call every pass that reached a verdict. Absent = a reading standing on its own, which spends against the money caps alone. */
-  & { pageType?: SerpPageType | null; attempts?: { left: number; record?: (r: unknown) => void }; /** Told when a reading came back twice and Beacon's own checks kept none of it either time: the caller files a settled refusal, not a transport failure. */ refused?: () => void; /** Why the previous reading was thrown away, carried into one retry that has its own cache entry: the cache served the same refused reading at $0 on every walk. */ lesson?: string } = {},
+  & { pageType?: SerpPageType | null; attempts?: { left: number; record?: (r: unknown) => void }; /** The caller must distinguish missing evidence from a model or allowance that never answered. */ onOutcome?: (outcome: "insufficient_winners" | "allowance_exhausted" | "model_budget" | "model_off" | "model_failed" | "refused" | "accepted") => void; /** Told when a reading came back twice and Beacon's own checks kept none of it either time: the caller files a settled refusal, not a transport failure. */ refused?: () => void; /** Why the previous reading was thrown away, carried into one retry that has its own cache entry: the cache served the same refused reading at $0 on every walk. */ lesson?: string } = {},
 ): Promise<WinningPattern | null> {
   // Lexical relation matching is only a shortlist; held body evidence participates too.
   const relates = topicTokens(opts.label ?? "").filter((w) => RELATIONAL.test(w));
@@ -269,7 +269,7 @@ export async function readWinningPattern(
   // deterministic comparison. Partial/unknown reads are unknown, never a silent vote against a pattern.
   const matrix = COMPETITIVE_PATTERN.matrix(winners.filter(sameIntent), (f) => f.domain, (f) => readable(f) && f.scope === "complete", MAX_WINNERS);
   const pages = matrix.readable;
-  if (matrix.threshold == null) return null; // fewer than three complete publisher reads: no agreement is buyable, no call, no cent
+  if (matrix.threshold == null) { opts.onOutcome?.("insufficient_winners"); return null; } // fewer than three complete publisher reads: no agreement is buyable, no call, no cent
 
   // A SETTLED SHAPE IS PART OF THE ASK, so it rides the fingerprint too: the same pages under a shape that has since changed are a different question and must not be answered out of the old reading's cache.
   const settled = opts.pageType && opts.pageType !== "mixed" && opts.pageType !== "unknown" ? opts.pageType : null;
@@ -282,7 +282,7 @@ export async function readWinningPattern(
     owned?.scope === "complete" ? "Say what these winning pages have in common, and what my own page is missing against them." : "Say what these winning pages have in common. Owned content is absent or incomplete in this reading, so ownedGaps must be an empty list.", ...(opts.lesson ? [`A previous reading was thrown away because it ${opts.lesson}. Name only what these pages carry, in plain words, and repeat the settled shape.`] : []),
   ].join("\n");
 
-  if (opts.attempts && (opts.attempts.left -= 1) < 0) { log.info("[winning-pattern] the pass has spent its whole attempt budget, so the winners are not read", { tenantId }); return null; }
+  if (opts.attempts && (opts.attempts.left -= 1) < 0) { opts.onOutcome?.("allowance_exhausted"); log.info("[winning-pattern] the pass has spent its whole attempt budget, so the winners are not read", { tenantId }); return null; }
   const call = await callStructuredLLM({
     kind: "winning_pattern", tenantId, system: SYSTEM, user, grounded: lines.join(" "),
     projectedCostUsd: PATTERN_COST_USD, maxTokens: 1800,
@@ -290,6 +290,7 @@ export async function readWinningPattern(
   });
   opts.attempts?.record?.(call); DRAFT_BUDGET.refundIfNoCallMade(opts.attempts, call); // real requests and real dollars onto this page's own allowance, and the attempt back when the reading was served from the cache
   if (call.status !== "drafted") {
+    opts.onOutcome?.(call.status === "off" ? "model_off" : call.status === "blocked_budget" || call.failure === "budget" ? "model_budget" : "model_failed");
     log.info("[winning-pattern] no reading of the winning pages this pass", { tenantId, status: call.status });
     return null;
   }
@@ -331,7 +332,8 @@ export async function readWinningPattern(
     // ONE of these throws the WHOLE reading away. Keeping the half that checks out would file a real case under a pattern half of which was invented or copied, and no diagnosis is worth that. ONE UNCACHED RETRY CARRIES THE REASON (live 2026-09-02): the cache served the same refused reading at $0 on every walk, so the topic could never be read again.
     const why = [stray !== undefined ? `cited a page number that was not supplied (${String(stray)})` : "", copied ? `copied a heading word for word ("${copied.slice(0, 80)}")` : "", quoted ? `quoted a page's own line ("${quoted.slice(0, 80)}")` : "", invented ? `named something no page carries ("${invented.slice(0, 80)}")` : "", belowCommonBar ? `called something common below the ${matrix.threshold} of ${matrix.denominator} distinct-publisher bar` : "", blindGaps ? "listed gaps for a page it was never shown" : "", wrongShape ? `re-voted the settled shape (${settled})` : "", slugged ? "leaked an internal slug" : ""].filter(Boolean).join("; ");
     log.warn("[winning-pattern] the reading copied a page, named something no page carries, or overruled a settled shape, so none of it was kept", { tenantId, why, retry: !opts.lesson });
-    if (!opts.lesson) return readWinningPattern(winners, owned, tenantId, { ...opts, lesson: why }); opts.refused?.(); return null;
+    if (!opts.lesson) return readWinningPattern(winners, owned, tenantId, { ...opts, lesson: why }); opts.refused?.(); opts.onOutcome?.("refused"); return null;
   }
+  opts.onOutcome?.("accepted");
   return { ...v, winners: pages.length, publishers: pages.map((f) => f.domain), fingerprint, brief: competitiveBrief((opts.label ?? "").trim(), pages, owned, v, settled) };
 }

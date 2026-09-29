@@ -363,7 +363,7 @@ async function seedProposition(tenantId: string, pageUrl: string, proposition: s
   const b = bodies?.get?.(canonicalUrlKey(pageUrl)); if (!topic && (!b || b.version !== "current" || !b.contentHash)) return null;
   const body = b ? [b.title, b.h1, ...(b.headings ?? []), ...(b.passages ?? [])].filter(Boolean).join("\n") : "";
   const basis = topic ? currentBasis ?? null : await resolveCurrentBasis(tenantId).catch(() => null);
-  if (topic && !basis) return null;
+  if (!basis) return null;
   const path = topic?.key ?? pathOf(pageUrl), hash = topic ? null : pageHashOf(body), key = finding?.statementKey ?? atomKey ?? claimIdentity(proposition, "", "missing"), current = { pageContentHash: hash, evidenceBasis: basis };
   const held = await facts.readFactChecks(tenantId, path).catch(() => null); if (!held) return null;
   const mine = held.find((h) => h.statementKey === key), unread = !!mine && (owedOneAnchoredRead(mine) || owedOneSectionRead(mine)), astray = !!mine && mine.state === "checked" && mine.verdict === "undecidable" && !!mine.proposed?.trim(), rulesMoved = !!mine && mine.state === "checked" && mine.rulesVersion !== facts.rulesVersionFor(mine); // A CHECKED ROW HOLDING AN UNDECIDED STATEMENT ANSWERED A DIFFERENT SUBJECT (reviewer, 2026-09-02): live, "are there cobras in iran" came back "Iran has AH-1 Cobra attack helicopters." with the judge's own note saying the sources do not address snakes. ONCE: a re-researched row banks its statement only under `page_correct`, so this holds for rows banked before that rule and never again. AND A ROW JUDGED UNDER RULES SINCE REPLACED FOR ITS SHAPE IS NOT RESEARCHED AT THIS VERSION AT ALL: every question-shaped row checked before the rules that judge a missing answer moved reads as satisfied here, so nothing would ever re-judge it.
@@ -374,7 +374,7 @@ async function seedProposition(tenantId: string, pageUrl: string, proposition: s
     if (!basis || !b || b.tenantId !== tenantId || mine!.page !== path || mine!.subject !== proposition || !COPY_RULES.captureProof(b).length || COPY_RULES.captureAddress(b.url) !== COPY_RULES.captureAddress(pageUrl) || regions.filter(r => r.heading === proposition).length !== 1 || hits.length !== 1 || hits[0]!.heading !== proposition || hits[0]!.text.split(unit).length !== 2 || b.passages.filter((text, i) => text.includes(unit) && b.passageMeta?.[i]?.heading === proposition).length !== 1) return null;
   }
   if (topic && mine?.current.trim()) return null;
-  const scopeMoved = !!topic && !!mine && mine.evidenceBasis !== basis; // a topic row is scoped to its basis; a URL row is scoped to its page and is reopened only when that page moved
+  const scopeMoved = !!mine && mine.evidenceBasis !== basis; // A checked source at an older decision basis is not current authority, even when the page words are unchanged.
   if (mine?.state === "checked" && mine.pageContentHash === hash && !scopeMoved && !astray && !rulesMoved && !unread && !locatorMissing) return { ...current, searchQuery: "" };
   if (mine && (mine.state !== "owed" || mine.pageContentHash !== hash || scopeMoved || astray || rulesMoved || unread)) {
     const n0 = await facts.recordFactChecks(tenantId, path, [{ ...mine, state: "owed", rulesVersion: facts.rulesVersionFor(mine), pageContentHash: hash, evidenceBasis: basis, // the reopened row carries the version its shape is judged under, or the same rule would hand it back every drive
