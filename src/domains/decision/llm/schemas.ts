@@ -72,7 +72,7 @@ const AtomicEditDraftSchema = z.object({
   /** SELECTION, NOT INVENTION: for an internal link the writer is handed the exact editable spots that exist on the stored page and must name one by id. Free-text placement is how a link came to be offered after "Explore More". Empty for every other kind, and TRUNCATED rather than refused (live, 2026-08-31): the 8-character cap failed the WHOLE schema whenever a non-link draft stuffed prose here, killing real section candidates over a field code ignores for their kind; a link with a mangled id is still refused downstream, by the id check that owns that rule, and no transform rides here because the strict transport cannot represent one in JSON Schema. */
   placementId: z.string().max(400).default(""),
   naturalHeading: z.string().max(160).nullable().default(null),
-  claims: z.array(z.object({ text: z.string().min(1).max(400), supportedBy: z.array(z.string().min(1).max(80)).max(8).default([]) })).max(10).default([]),
+  claims: z.array(z.object({ text: z.string().min(1).max(400), supportedBy: z.array(z.string().min(1).max(80)).default([]) })).max(10).default([]),
   preservation: z.array(z.object({ text: z.string().min(1), disposition: z.enum(["kept", "corrected", "removed", "moved"]),
     why: z.string().optional(), to: z.string().optional(), basis: z.enum(["duplicate_of", "replaced_by", "unsupported", "obsolete", "owner_confirmed"]).optional(), by: z.array(z.string()).optional() })).default([]),
   implementationMinutes: z.number().int().min(0).max(600).default(0),

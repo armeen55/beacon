@@ -147,11 +147,15 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const record = seenFor(history, p), calibrated = record != null && record.readings >= CALIBRATION_MIN;
   const share = !sized ? 0 : calibrated ? clamp01(record!.netLift / Math.max(1, record!.readings) / 100 + 0.5)
     : addressed ? COLLECTS.diagnosed : COLLECTS.undiagnosed;
-  const priority = !sized ? null : Math.round(clicks! * share);
+  // A small but reported topic can carry less than one policy unit. Keep that fraction for ordering;
+  // rounding 140 monthly searches * one-percent proxy * 20-percent prior to zero buried a justified page.
+  const keywordOnly = keywordProxy != null && attributedClicks(p, now) == null;
+  const priority = !sized ? null : keywordOnly ? clicks! * share : Math.round(clicks! * share);
+  const priorityText = priority != null && priority > 0 && priority < 1 ? priority < 0.005 ? "<0.01" : priority.toFixed(2) : num(priority ?? 0);
   const basis = calibrated ? `a ${Math.round(share * 100)} percent share measured across ${num(record!.readings)} readings of ${RECORD_WORD[record!.of]} here, each closed at 14 days or later`
     : `an assumed ${Math.round(share * 100)} percent share, which is this product's policy and not a figure measured here`;
-  const proven = priority == null ? null : keywordProxy != null && attributedClicks(p, now) == null
-    ? { input: `${num(keywordVolumeMonthly)} reported monthly searches for this proposed topic; a one-percent policy proxy, then ${basis}, gives ${num(priority)} priority units, not observed clicks or an owned-page recovery`, value: Math.min(MAX.visibility / 2, priority / PER_POINT) }
+  const proven = priority == null ? null : keywordOnly
+    ? { input: `${num(keywordVolumeMonthly)} reported monthly searches for this proposed topic; a one-percent policy proxy, then ${basis}, gives ${priorityText} priority units, not observed clicks or an owned-page recovery`, value: Math.min(MAX.visibility / 2, priority / PER_POINT) }
     : addressed
     ? { input: `a directional CTR-curve gap of up to ${num(clicks!)} clicks per 28-day equivalent, modeled from this page's 90-day reader-task query group with the cause diagnosed; ${num(priority)} is a priority after ${basis}, not observed recovery`,
       value: Math.min(MAX.visibility, priority / PER_POINT) }
@@ -218,7 +222,10 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   // your day". They get a floor to be discounted FROM, small enough that the smallest opportunity this queue
   // will carry (MIN_RECOVERABLE_CLICKS at the undiagnosed share) still outranks every one of them.
   const markup = p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "schema"; /* STRUCTURED DATA CLAIMS NO VIEWS OF ITS OWN (operator walk, 2026-09-16): five FAQ blocks whose own caveat says "no ranking or citation gain is promised" sat at the top of the queue on the page's audience alone, above the one answer and the two links that can earn a click; markup is ordered like a card with no figure, below every change that claims one */
-  const base = markup ? ORDERING_FLOOR : shown?.value ?? ORDERING_FLOOR;
+  // Reported topic demand below the no-figure floor still orders above an otherwise identical unknown.
+  // Blend into the ordinary score by twice that floor: high-demand topics keep their exact prior order.
+  const base = markup ? ORDERING_FLOOR : keywordOnly && shown && shown.value < 2 * ORDERING_FLOOR
+    ? ORDERING_FLOOR + shown.value / 2 : shown?.value ?? ORDERING_FLOOR;
   add("visibility", markup ? "structured data claims no traffic or citation gain of its own, so it is ordered below every change that does" : shown?.input
     ?? (claimsAudience ? "no proven figure for what this wins back, so this sits below anything that has one"
       : "an accuracy fix with no traffic or citation gain claimed for it, so it is ordered below work that has one"),
@@ -368,7 +375,7 @@ function whyAbove(next: ChangeProposal, a: Receipt, b: Receipt): string {
  */
 export function rankProposals(proposals: readonly ChangeProposal[], ctx: Scoring = {}): ChangeProposal[] {
   const perPage = countPeers(ctx.batch ?? proposals); // the caller's own batch when it holds one for the whole drive, otherwise exactly the proposals handed in
-  const now = ctx.now ?? new Date(), scored = proposals.map((p, i) => ({ p, i, receipt: receiptFor(p, Math.max(0, (perPage.get(pageKeyOf(p)) ?? 1) - 1), measuredIn(p, ctx), ctx.familyHistory ?? null, ctx.accountGoal ?? "", now) }));
+  const now = ctx.now ?? new Date(), scored = proposals.map((p, i) => ({ p, i, receipt: receiptFor(p, Math.max(0, (perPage.get(pageKeyOf(p)) ?? 1) - 1), measuredIn(p, ctx), ctx.familyHistory ?? null, ctx.accountGoal ?? "", now, ctx.keywordVolumeMonthly ?? 0, ctx.planningPageAudience === true) }));
   scored.sort((a, b) => (b.receipt.score - a.receipt.score) || (a.i - b.i));
   return scored.map((row, idx) => {
     const next = scored[idx + 1];
