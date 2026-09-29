@@ -37,7 +37,7 @@ describe("the proof burden matches the promise, at the one door every surface re
     expect(evidenceShortfall(noor)).toBeNull(); expect(proofOf(noor).limits.join(" ")).toContain("the unsupported wording was narrowed");
     expect(unauthorizedReason({ subject: "Noor", current: "Meaning:Light.", proposed: "radiant and glowing", // 3. RICHER FACTUAL CONTEXT WITHOUT EVIDENCE STAYS REFUSED, by the quote-bound authority chain itself.
       sources: [{ kind: "encyclopedia", says: 'The name Noor means "light"' }] } as never)).toContain("do not carry every word");
-    const creative = row("title", { ...edit("title", "Persian Onager (Asiatic Wild Ass): Facts & Habitat", "Onager (Persian Wild Ass): What It Is and Where It Lives"), // 4. DEMAND NEVER CHOOSES WORDS: replacing a title that exists, on impressions and a page claim alone, is held until a diagnosis names the defect or a stored results page backs the shape.
+    const creative = row("title", { ...edit("title", "Persian Onager (Asiatic Wild Ass): Facts & Habitat", "Persian Onager (Asiatic Wild Ass): Facts, Habitat and Range"), // 4. DEMAND NEVER CHOOSES WORDS: replacing a title that exists, on impressions and a page claim alone, is held until a diagnosis names the defect or a stored results page backs the shape.
       changeFamily: "title-family", demandImpressions90d: 8112, claims: [{ text: "about the onager", supportedBy: ["page-copy-1"] }] });
     expect(evidenceShortfall(creative)).toContain("demand evidence alone");
     const fill = row("meta", { ...edit("meta", null, "Iran adopted a new flag in 1979 and redesigned it in 1980."), // 5. A MISSING FIELD FILLED WITH BANKED CLAIMS SURVIVES WITHOUT A RESULTS PAGE; with no claims it does not.

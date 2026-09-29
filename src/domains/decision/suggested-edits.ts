@@ -350,19 +350,16 @@ export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly 
     // is absent from every real search row this page holds.
     for (const q of page.search?.topQueries ?? []) if (q.impressions >= MIN_IMPRESSIONS)
       for (const w of words(q.query)) if (FILLER.has(w)) earnedWords.add(w);
-    // COUNT-LED, ONLY ON A REAL COUNT. The winners open with a number and this page runs a countable list,
-    // so its OWN count leads the line. No count on file keeps the plain merge and the note below.
-    const lead = listPage && (winners?.counted ?? 0) >= 2 ? items : null;
-    const s = mergeLine("title", content.title, query, earnedWords, modeled, lead)
-      ?? mergeLine("h1", content.h1, query, earnedWords, modeled, lead);
+    // An outline also contains page furniture, so it cannot authorize a numeric title promise.
+    const s = mergeLine("title", content.title, query, earnedWords, modeled, null)
+      ?? mergeLine("h1", content.h1, query, earnedWords, modeled, null);
     if (!s) continue;
     const limitations = [modeled
       ? "The pages Google currently ranks for this search put its words at the front of the line, and this merge is built to that shape."
       : read
         ? "This merge is built from the exact words people search for on this page and the words already in its own line, so read it before you use it."
         : "Google's results for this search have not been read yet, so this is a merge off this page's own numbers and its own line. It is safe to try and cheap to undo, and it sharpens the moment those results are read."];
-    if (lead != null) limitations.push(`The ${lead} at the front is the number of sections counted on this page itself, so check it against what the page actually lists before you publish it.`);
-    else if (winners?.note) limitations.push(winners.note);
+    if (winners?.note) limitations.push(winners.note);
     if (caution) limitations.push(caution);
     if (AEO.has(c.cause.cause)) limitations.push("An assistant answered this question without naming this page, and a sharper line is the cheapest thing to try first, not the whole answer to that.");
     const id = `${tenantId}::${path.toLowerCase()}::existing_edit::${s.field}`;
