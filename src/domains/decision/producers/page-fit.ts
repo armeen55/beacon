@@ -31,7 +31,7 @@ export type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1
   /** THE DIAGNOSED CAUSE, on the cards whose evidence names one. An AI absence card exists because a tracked
    *  question's stored answers credit rivals and never this site: that is a citation gap by name, and the card
    *  says so in the same currency the boundary and the ranking read everywhere else. */
-  cause?: CauseFinding };
+  /** null is an explicit current-capture no-gap verdict; absence means this pass did not decide the cause. */ cause?: CauseFinding | null };
 /** THE PAGES AN ESSAY NEVER GOES ON: the home page, and the shop rails. A storefront answers with products, so "add a section answering this question" there is work nobody would ever publish. */
 export const STOREFRONT = /(^|[/-])(explore|shop|store|categor(y|ies)|collections?|product|cart|checkout)([/-]|$)/i;
 /** A search asking WHICH SITES cover something wants a directory, and no page of this account is the answer to it. A question where somebody DESCRIBES THEMSELVES is their own situation, not a search. */
@@ -125,7 +125,7 @@ export function mint(tenantId: string, d: Draft, now: Date): ChangeProposal {
     ...(d.aiImpact ? { aiImpact: d.aiImpact } : {}),
     ...(d.factIdentity ? { factIdentity: d.factIdentity } : {}), ...(d.treatment ? { treatment: d.treatment } : {}), ...(d.obligation ? { obligation: d.obligation } : {}),
     ...(d.aiScope ? { aiScope: d.aiScope } : {}),
-    ...(d.cause ? { causeFinding: d.cause, diagnosisCause: d.cause.cause } : {}),
+    ...(d.cause === null ? { causeFinding: undefined, diagnosisCause: undefined } : d.cause ? { causeFinding: d.cause, diagnosisCause: d.cause.cause } : {}),
     publish: "manual", createdAt: now.toISOString(),
   };
 }
