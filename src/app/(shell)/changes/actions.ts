@@ -373,9 +373,9 @@ export async function reviewDraftAction(args: { proposalId: string; version: str
   }
 }
 
-export async function finishOneProposalAction(args: { prepareNext: true; proposalId?: never; prepare?: never; authorizationId?: never } | { proposalId: string; prepare?: boolean; authorizationId?: string; prepareNext?: false }): Promise<MarkProposalImplementedResponse> {
+export async function finishOneProposalAction(args: { prepareNext: true; proposalId?: never; prepare?: never; authorizationId?: never; limitToOneDollar?: never } | { proposalId: string; prepare: true; authorizationId?: string; prepareNext?: false; limitToOneDollar?: true } | { proposalId: string; prepare?: false; authorizationId?: string; prepareNext?: false; limitToOneDollar?: never }): Promise<MarkProposalImplementedResponse> {
   if (!(await canPublishForCurrentTenant())) return { success: false, error: "You do not have permission to finish this change." };
-  if (args.prepareNext === true ? "proposalId" in args || "prepare" in args || "authorizationId" in args : !args.proposalId || args.prepareNext !== undefined && args.prepareNext !== false) return { success: false, error: "Choose either the next change or one saved change." };
+  if (args.prepareNext === true ? "proposalId" in args || "prepare" in args || "authorizationId" in args || "limitToOneDollar" in args : !args.proposalId || args.prepareNext !== undefined && args.prepareNext !== false || "limitToOneDollar" in args && (args.prepare !== true || args.limitToOneDollar !== true)) return { success: false, error: "Choose either the next change or one saved change." };
   const tenantId = await currentTenantId();
   try {
     if (args.prepareNext === true) {
@@ -394,7 +394,7 @@ export async function finishOneProposalAction(args: { prepareNext: true; proposa
       const currentBasis = await resolveCurrentBasis(tenantId);
       const successor = await atomicProof.currentMetaSuccessor(tenantId, args.proposalId, currentBasis);
       if (!successor) { await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout"); return { success: false, error: "No current replacement is confirmed for this page. Changes was refreshed; no paid finishing attempt started." }; }
-      const result = await atomicProof.finishPage({ tenantId, proposalId: successor, currentBasis, maxOpenAiCalls: 8, maxOpenAiUsd: 2, maxDataForSeoCalls: 3, maxDataForSeoUsd: 0.4, ...(args.authorizationId !== undefined ? { authorizationId: args.authorizationId } : {}) });
+      const result = await atomicProof.finishPage({ tenantId, proposalId: successor, currentBasis, maxOpenAiCalls: 8, maxOpenAiUsd: args.limitToOneDollar === true ? 0.8 : 2, maxDataForSeoCalls: 3, maxDataForSeoUsd: args.limitToOneDollar === true ? 0.2 : 0.4, ...(args.authorizationId !== undefined ? { authorizationId: args.authorizationId } : {}) });
       const a = result.allowance, receipt = a ? ` Authorized request ceilings: OpenAI $${a.modelReservedUsd.toFixed(4)}, DataForSEO $${a.externalReservedUsd.toFixed(4)}. These are reservations, not invoices.` : " No paid request was authorized.";
       await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout");
       if (result.success) return { success: true, note: `A finished edit on this page is ready in Changes. Nothing was published.${receipt}` };
