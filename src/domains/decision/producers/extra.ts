@@ -312,14 +312,14 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   const cases = await aiCaseCards(bank, snapshot, pages, weak, earned, children, u, tenantId, input.units ?? [], windowObs, now, input.persist !== false, meter, universe?.keys ?? null, written, input.focusPage);
   const partial = new Map<string, string>(), drafts = [...cases.drafts,
     ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt, currentBodies, now), ...unansweredCards(snapshot, pages, expectedCtrAt, { bodies: currentBodies, misses, facts, saved: [...rows, ...recovered], recovered: new Set(recovered.map((p) => p.id)), partial, written, basis: input.basis ?? null, tenantId, now })]; // LAST, so an AI case about the same question keeps it: one question is one card
-  const out: ChangeProposal[] = [], recoveredPartial = new Map<string, PartialWinnerRecovery>();
+  const out: ChangeProposal[] = [], recoveredPartial = new Map<string, PartialWinnerRecovery>(), aeoHold = new Set<string>();
   const answered = new Set<string>();
   for (const d of drafts) {
     const asks = "asked" in d && d.asked ? [canonicalQueryKey(d.query), canonicalQueryKey(d.asked)].filter(Boolean) : [];
     if (asks.some((k) => answered.has(k))) continue;
-    let card = "page" in d ? mint(tenantId, d, now) : d;
+    let card = "page" in d ? mint(tenantId, d, now) : d; const wasHeld = cases.hold.has(card.id);
     const mutationKey = footprintKey(card), savedSeat = /::existing_edit::missing_answer(?:@[^:]*)?$/.test(card.id) ? [...rows, ...recovered].find((r) => !!input.basis && r.tenantId === tenantId && r.basis === input.basis && r.researchOnly === true && r.status === "needs_review" && r.changeFamily === card.changeFamily && /::existing_edit::missing_answer(?:@[^:]*)?$/.test(r.id) && r.primaryQuery === card.primaryQuery && canonicalUrlKey(r.pageUrl ?? "") === canonicalUrlKey(card.pageUrl ?? "") && footprintKey(r) === mutationKey) : null, id = proposalSeats.seatFor(savedSeat && rows.some((r) => r.id === savedSeat.id) ? savedSeat.id : card.id, mutationKey, seats);
-    if (id !== card.id) card = { ...card, id };
+    if (id !== card.id) { const old = card.id; card = { ...card, id, ...(card.obligation?.kind === "evidence" ? { obligation: { kind: "evidence" as const, need: { ...card.obligation.need, ...(card.obligation.need.proposalId === old ? { proposalId: id } : {}), ...(card.obligation.need.unlocks?.proposalId === old ? { unlocks: { ...card.obligation.need.unlocks, proposalId: id } } : {}) } } } : {}) }; }
     const prints = [...mutationFootprint(card)];
     if (prints.some((k) => taken.has(k)) && !mine.has(card.id)) {
       const owner = COPY_RULES.captureAddress(card.pageUrl ?? ""), page = pages.find(p => owner != null && COPY_RULES.captureAddress(p.url) === owner), body = currentBodies.get(canonicalUrlKey(page?.url ?? "")), overlaps = rows.filter(r => [...mutationFootprint(r)].some(k => prints.includes(k)));
@@ -329,12 +329,12 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
     for (const k of prints) taken.add(k);
     for (const k of asks) answered.add(k);
     seats.push({ id: card.id, mutationKey });
-    out.push(card); const page = canonicalUrlKey(card.pageUrl), query = canonicalQueryKey(card.primaryQuery), url = partial.get(`${page}::${query}`); if (url && card.researchOnly === true && card.obligation?.kind === "evidence" && card.obligation.need.kind === "competitor_page") recoveredPartial.set(card.id, { kind: "auto_swept_partial_winner", page, query, url });
+    out.push(card); if (wasHeld) aeoHold.add(card.id); const page = canonicalUrlKey(card.pageUrl), query = canonicalQueryKey(card.primaryQuery), url = partial.get(`${page}::${query}`); if (url && card.researchOnly === true && card.obligation?.kind === "evidence" && card.obligation.need.kind === "competitor_page") recoveredPartial.set(card.id, { kind: "auto_swept_partial_winner", page, query, url });
   }
   const families = [...(answersRead && cases.filed ? ["ai_answer_gap", "engine_followup"] : []), ...(links.complete ? ["internal_link"] : []), ...DEFECTS];
   if (families.length < DEFECTS.length + 3) log.warn("[extra] a source did not answer, so its families are held out of the sweep", { tenantId, families });
   log.info("[extra] the pass's AEO diagnosis purse", { tenantId, ...meter.spent(), refused: cases.hold.size });
-  return { cards: out, complete: families.length === DEFECTS.length + 3, families, answerCaptures, recoveredPartial, held: u.held, needsOwnPage: bank, aeoHold: cases.hold, aeoSpend: meter.spent() };
+  return { cards: out, complete: families.length === DEFECTS.length + 3, families, answerCaptures, recoveredPartial, held: u.held, needsOwnPage: bank, aeoHold, aeoSpend: meter.spent() };
 }
 
 /** THE ONE ENTRANCE FOR A PASS: loads the demand units once (both producers join the SAME audiences) and runs the $0 queue. The paid funnel's early return used to skip this producer entirely, so a paused quiet account never judged a single AI case (first canonical $0 acceptance run, 2026-08-21). */

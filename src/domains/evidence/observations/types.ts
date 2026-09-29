@@ -27,8 +27,7 @@ type ObservationRunType =
 type ObservationRunStatus = "completed" | "failed" | "partial";
 
 /**
- * Website observation row: persisted under `.data/observation-runs.json` (and legacy
- * `.data/scan-runs.json` merged in by `file-backend.getObservationRuns()`).
+ * Website observation row retained in the canonical observation store.
  * `run_id` matches `observation_run_id` on snapshots/guardrails from that pass.
  */
 export type ObservationRun = ObservationArtifactCounts & {
@@ -54,4 +53,3 @@ export type ObservationRun = ObservationArtifactCounts & {
   /** Owning tenant. */
   tenant_id: string;
 };
-

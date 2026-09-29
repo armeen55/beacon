@@ -1,6 +1,5 @@
 import type { Result } from "@/domains/measurement/results/types";
 import type { ChangelogEntry } from "@/domains/measurement/changelog/types";
-import type { Opportunity } from "@/domains/decision/opportunities/types";
 import type { ImportRun } from "@/lib/import/types";
 import type { Finding } from "@/domains/evidence/scanning/types";
 import type { ChangeContract } from "@/domains/measurement/changelog/change-contract";
@@ -9,7 +8,6 @@ import type {
   PageSnapshot,
 } from "@/domains/evidence/pages/types";
 import type { RobotsStateFile } from "@/domains/evidence/pages/robots-parser";
-import type { ObservationRun } from "@/domains/evidence/observations/types";
 import type { RecommendationResponse } from "@/domains/evidence/product/recommendation-response-store";
 import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapshots/types";
 import type { TrackedEntity } from "@/domains/evidence/ai-visibility/tracked-entities";
@@ -46,7 +44,6 @@ export interface SeedDataRepository {
   getImportRuns(): Promise<ImportRun[]>;
   getResults(): Promise<Result[]>;
   getChangelogEntries(): Promise<ChangelogEntry[]>;
-  getOpportunities(): Promise<Opportunity[]>;
 
   // Phase 1D — centralized store modules
   // (getEventDecisions / getCandidateLinks / getPageIssues removed
@@ -61,7 +58,6 @@ export interface SeedDataRepository {
 
   // Phase 7 — scan findings via repository
   getScanFindings(): Promise<Finding[]>;
-  getObservationRuns(): Promise<ObservationRun[]>;
 
   /**
    * json-store-backed operator / pages domain state — no Postgres tables yet.
@@ -166,10 +162,8 @@ export interface TenantRepository {
   // (Tenant-scoped getPageIssues / getEventDecisions / getCandidateLinks
   // and the citation/answer-intel index reads removed 2026-07-21,
   // CORE 100K Lane O: zero prod and zero test callers.)
-  getOpportunities(): Promise<Opportunity[]>;
   getChangelogEntries(): Promise<ChangelogEntry[]>;
   getScanFindings(): Promise<Finding[]>;
-  getObservationRuns(): Promise<ObservationRun[]>;
   getResults(): Promise<Result[]>;
   getImportRuns(): Promise<ImportRun[]>;
   /** E3 — accepts optional `{ since }` date window. Default: full history. */

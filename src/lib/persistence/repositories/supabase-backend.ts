@@ -6,14 +6,12 @@ import type { PageSnapshotLinkGraph, SeedDataRepository } from "./types";
 
 import type { Result } from "@/domains/measurement/results/types";
 import type { ChangelogEntry } from "@/domains/measurement/changelog/types";
-import type { Opportunity } from "@/domains/decision/opportunities/types";
 import type { ImportRun } from "@/lib/import/types";
 import type { ChangeContract } from "@/domains/measurement/changelog/change-contract";
 import type {
   PageEntity,
   PageSnapshot,
 } from "@/domains/evidence/pages/types";
-import type { ObservationRun } from "@/domains/evidence/observations/types";
 import type { Finding } from "@/domains/evidence/scanning/types";
 import type { RecommendationResponse } from "@/domains/evidence/product/recommendation-response-store";
 import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapshots/types";
@@ -215,7 +213,6 @@ export const supabaseBackend: SeedDataRepository = {
   // results: 1719 rows as of 2026-04-24 — past PostgREST's 1000-row cap.
   getResults: () => queryAllPaged<Result>("results"),
   getChangelogEntries: () => query<ChangelogEntry>("changelog_entries"),
-  getOpportunities: () => query<Opportunity>("opportunities"),
 
   // Phase 1D (getEventDecisions / getCandidateLinks / getPageIssues removed 2026-07-21, CORE 100K Lane O: zero callers.)
   getChangeContracts: () => queryMapped<ChangeContract>("change_contracts"),
@@ -225,7 +222,6 @@ export const supabaseBackend: SeedDataRepository = {
 
   getPageSnapshotLinkGraphs: async () => { throw new Error("page link graphs require forTenant"); },
   getPageSnapshots: async () => { throw new Error("page snapshots require forTenant"); },
-  getObservationRuns: () => query<ObservationRun>("observation_runs"),
 
   // (Dead columns removed 2026-07-21, CORE 100K Lane O: citation/answer-intel index reads, page-snapshot-diffs, render-checks, legacy-global sitemap-reconciliation, visibility runs, rollout/pattern/frontier/wave/ asset/outcome/truth-label reads, page summaries — zero callers. The tenant-scoped sitemap pair in forTenant below is LIVE and untouched.)
 
@@ -277,13 +273,9 @@ export const supabaseBackend: SeedDataRepository = {
       getImportRuns: () => selectScoped<ImportRun>("import_runs", tenantId),
       getChangelogEntries: () =>
         selectScoped<ChangelogEntry>("changelog_entries", tenantId),
-      getObservationRuns: () =>
-        selectScoped<ObservationRun>("observation_runs", tenantId),
       getChangeContracts: () =>
         queryMappedScoped<ChangeContract>("change_contracts", tenantId),
       // (Tenant-scoped getPageIssues / getEventDecisions / getCandidateLinks and the citation/answer-intel index reads removed 2026-07-21, CORE 100K Lane O: zero callers.)
-      getOpportunities: () =>
-        selectScoped<Opportunity>("opportunities", tenantId),
 
       // Paged reads — defeats PostgREST's default 1000-row cap and keeps the tenant filter in every page request.
       getResults: () => queryAllPagedScoped<Result>("results", tenantId),

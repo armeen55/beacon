@@ -1,16 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { EvidenceSnapshot, OwnedPageEvidence } from "@/domains/evidence/snapshot";
-import { emptyResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
-import { canonicalQueryKey as canon, topicTokens } from "@/domains/evidence/relevance-gate";
-import { answeredIn, substantiveGapOf } from "@/domains/decision/diagnosis";
-import { demandOf, writerKindOf } from "@/domains/decision/drafted-copy";
-import { footprintKey } from "@/domains/decision/mutation-footprint";
-import { deliverableGaps, preferFinished } from "@/domains/decision/completeness";
-import { nextObligation } from "@/domains/decision/obligation";
-import type { ChangeProposal } from "@/domains/decision/contracts";
-import { proposalStoreRpc, supabaseFake, type Row } from "../helpers/supabase-fake";
-const db = vi.hoisted(() => ({ rows: [] as Row[], filed: [] as Record<string, unknown>[], journeys: null as Record<string, unknown>[] | null,
-  journeyError: false, journeyCalls: [] as Record<string, unknown>[] }));
+import { describe, it, expect, vi, beforeEach } from "vitest"; import type { EvidenceSnapshot, OwnedPageEvidence } from "@/domains/evidence/snapshot";
+import { emptyResearchEvidence } from "@/domains/evidence/funnel/research-evidence"; import { canonicalQueryKey as canon, topicTokens } from "@/domains/evidence/relevance-gate";
+import { answeredIn, substantiveGapOf } from "@/domains/decision/diagnosis"; import { demandOf, writerKindOf } from "@/domains/decision/drafted-copy";
+import { footprintKey } from "@/domains/decision/mutation-footprint"; import { deliverableGaps, preferFinished } from "@/domains/decision/completeness";
+import { nextObligation } from "@/domains/decision/obligation"; import type { ChangeProposal } from "@/domains/decision/contracts"; import { proposalStoreRpc, supabaseFake, type Row } from "../helpers/supabase-fake";
+const db = vi.hoisted(() => ({ rows: [] as Row[], filed: [] as Record<string, unknown>[], journeys: null as Record<string, unknown>[] | null, journeyError: false, journeyCalls: [] as Record<string, unknown>[] }));
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => client }));
 const client = { ...supabaseFake({ rows: () => db.rows, insertDefaults: () => ({ created_at: "2026-08-01T00:00:00.000Z" }),
   clash: (row, rows) => (rows.some((r) => r.id !== row.id && r.terminal_disposition == null
@@ -19,8 +12,7 @@ const client = { ...supabaseFake({ rows: () => db.rows, insertDefaults: () => ({
   rpc: (name: string, args: { p_rows?: Record<string, unknown>[]; p_prompt_ids?: string[] } & Record<string, unknown>) => { if (name === "upsert_ai_case_dispositions") { db.filed.push(...(args.p_rows ?? [])); return Promise.resolve({ data: (args.p_rows ?? []).length, error: null }); }
     if (name === "read_answer_journeys_batch") { db.journeyCalls.push(args); return Promise.resolve(db.journeyError ? { data: null, error: { message: "statement timeout" } } : { data: db.journeys ?? (args.p_prompt_ids ?? []).map((id) => journeyRow(id)), error: null }); }
     return proposalStoreRpc(() => db.rows)(name, args); } };
-const NOW = new Date("2026-08-01T00:00:00.000Z");
-const journeyRow = (id: string, n = 0): Record<string, unknown> => ({ prompt_id: id, prompt_version: 1, engine: "chatgpt",
+const NOW = new Date("2026-08-01T00:00:00.000Z"); const journeyRow = (id: string, n = 0): Record<string, unknown> => ({ prompt_id: id, prompt_version: 1, engine: "chatgpt",
   completed_at: new Date(NOW.getTime() - n * 60_000).toISOString(), reporting_day: "2026-08-01", answer_text: `Banked passage for ${id} from rival.example`,
   journey: { cited_sources: [{ url: "https://rival.example/a", domain: "rival.example" }], retrieved_results: id === "prompt-4" ? [{ url: "https://tenant-one.example/a", domain: "tenant-one.example" }] : [] } });
 const SITES = [
@@ -64,7 +56,6 @@ const card = (s: Site, id: string, query: string, over: Partial<ChangeProposal> 
   recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `One section on ${s.path} that answers "${query}" in this page's own voice.` },
   whyItMatters: `Searchers ask "${query}" here and nothing on the page answers it.`, estimatedEffortMinutes: 30, riskLevel: "low", confidence: "medium",
   limitations: [], evidence: { query, hints: [], evidenceRefCount: 1 }, impactScore: 40, upsidePerMonth: null, basis: "basis_today::d6", publish: "manual", createdAt: NOW.toISOString(), ...over });
-
 beforeEach(() => { db.rows = []; db.filed = []; db.journeys = null; db.journeyError = false; db.journeyCalls = []; vi.doUnmock("@/domains/decision/proposal-store"); vi.doUnmock("@/domains/evidence/pages/owned-context"); vi.resetModules(); });
 describe("a page carries as many changes as it has searches it never answers", () => {
   it("keeps an exact paid SERP debt outside the four new groups and chooses a saved alias as the one grouped representative", async () => {
@@ -238,6 +229,13 @@ describe("two questions the assistants answer elsewhere on one page are two chan
       "the page's strongest question keeps the id every row on file already wears and the one behind it opens at its own search, and the hold that keeps each writer waiting names the card it is actually about")
       .toEqual([[s.aiBig, s.aiSmall], [aiId(s, `@${canon(s.aiBig)}`), aiId(s, `@${canon(s.aiSmall)}`)], [aiId(s, `@${canon(s.aiBig)}`), aiId(s, `@${canon(s.aiSmall)}`)]]);
     expect(out.filed.filter((r) => r.state === "actionable").map((r) => [r.query, r.proposalId])).toEqual([[s.aiBig, aiId(s, `@${canon(s.aiBig)}`)], [s.aiSmall, aiId(s, `@${canon(s.aiSmall)}`)]]);
+  });
+  it("keeps every held AEO source need on its final seated card when two mutations share a base ID", async () => {
+    const s = SITES[0]!, base = aiId(s), source = (query: string) => card(s, base, query, { researchOnly: true, obligation: { kind: "evidence", need: { kind: "factual_source", query, url: url(s), missingTopic: query, reasonCode: "source_support_unconfirmed", proposalId: base, unlocks: { proposalId: base, step: "draft" } } } });
+    vi.doMock("@/domains/decision/producers/ai-cases", async (orig) => ({ ...(await orig<Record<string, unknown>>()), aiCaseCards: async () => ({ drafts: [source(s.aiBig), source(s.aiSmall)], hold: new Set([base]), filed: true }) }));
+    const run = await runFor(s, [[s.big, 900], [s.small, 300]]); vi.doUnmock("@/domains/decision/producers/ai-cases");
+    const seated = run.cards.filter((c) => c.id.startsWith(base) && [s.aiBig, s.aiSmall].includes(c.primaryQuery));
+    expect([seated.length, new Set(seated.map((c) => c.id)).size, seated.some((c) => c.id !== base), seated.map((c) => [run.aeoHold?.has(c.id), c.obligation?.kind === "evidence" && c.obligation.need.proposalId === c.id, c.obligation?.kind === "evidence" && c.obligation.need.unlocks?.proposalId === c.id])]).toEqual([2, 2, true, [[true, true, true], [true, true, true]]]);
   });
   it("files a hold with no card when stored history cannot be read", async () => {
     const out = await casesFor(SITES[0]!, undefined, answersFor(SITES[0]!), undefined, true);

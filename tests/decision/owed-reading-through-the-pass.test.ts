@@ -1,11 +1,10 @@
-/** RV2 review: a settled row whose winners nobody has read, driven through the REAL pass, on two synthetic accounts with unrelated subjects. The row's own results page IS on file (that is what "unread" means: a results page bought for the group, nothing read off it), which is the production shape B5's due-work change is about. What the pass writes onto the row, and what reaches the runtime's buying list, is asked here. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { ChangeProposal } from "@/domains/decision/contracts";
-import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
+import type { ChangeProposal } from "@/domains/decision/contracts"; import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
 const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>(), withdrawn: new Set<string>() })); const env = vi.hoisted(() => ({ snap: null as unknown, calls: 0, checked: [] as unknown[], bodies: null as Map<string, unknown> | null, saves: 0, race: false }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) }));
 vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => store.rows,
+  loadChangeProposal: async (_tenantId: string, id: string) => store.rows.get(id) ?? null,
   terminalWorkKeys: async () => new Set<string>(), terminalProposalHistory: async () => ({ fingerprints: new Set<string>(), legacyMutationKeys: new Set<string>() }),
   saveChangeProposal: async (p: ChangeProposal, _t?: unknown, keep?: (r: ChangeProposal) => void, expected?: ChangeProposal) => { if (expected && env.race) { env.race = false; store.rows.set(p.id, { ...expected, status: "implemented_pending_verification" }); return "blocked"; } if (expected && store.rows.get(p.id) !== expected) return "blocked"; store.rows.set(p.id, p); env.saves++; keep?.(p); return "saved"; },
   withdrawnProposalIds: async () => store.withdrawn, withdrawChangeProposal: async () => "retired" as const }));
@@ -16,41 +15,42 @@ vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, get
 import { emptyResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
 import { shapeBackingOf, topicSourceFacts } from "@/domains/decision/drafted-copy"; import { DRAFT_BUDGET } from "@/domains/decision/draft-budget"; import { COPY_RULES } from "@/domains/decision/copy-sanitize"; import { claimIdentity, pageHashOf } from "@/domains/evidence/pages/fact-check-run"; import { claimTypeOf, deriveSupport } from "@/domains/evidence/pages/claim-support"; import { canonicalUrlKey } from "@/domains/evidence/snapshot"; import { authorizedCorrections, rulesVersionFor, type FactCheck } from "@/domains/evidence/pages/fact-checks";
 import { nextObligation } from "@/domains/decision/obligation"; const [{ produceProposalsForTenant: run }, recovery, extra] = await Promise.all([import("@/domains/decision/produce-proposals"), import("@/domains/decision/producers/demand-recovery"), import("@/domains/decision/producers/extra")]);
-const NOW = new Date("2026-09-06T09:00:00.000Z");
-const SITES = [
-  { t: "acct-reef", page: "/tide-pool-guide", q: "tide pool safety", lead: ["Tide pool safety for families", "Tide pool safety rules", "Tide pool safety and the rocks"] },
+import { defaultSteps } from "@/domains/runtime/ops/research-steps"; const NOW = new Date("2026-09-06T09:00:00.000Z");
+const SITES = [ { t: "acct-reef", page: "/tide-pool-guide", q: "tide pool safety", lead: ["Tide pool safety for families", "Tide pool safety rules", "Tide pool safety and the rocks"] },
   { t: "acct-loom", page: "/blackwork-stitches", q: "blackwork stitch order", lead: ["Blackwork stitch order explained", "Blackwork stitch order for beginners", "Blackwork stitch order and tension"] },
-] as const;
-const owned = (s: (typeof SITES)[number]) => ({ url: `${s.t}.example${s.page}`, content: { title: "Guide", metaDescription: null, h1: "Guide", h2: [], outline: ["What to bring"], schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 900, internalLinks: [], fetchedAt: "2026-09-01T00:00:00.000Z" },
+] as const; const owned = (s: (typeof SITES)[number]) => ({ url: `${s.t}.example${s.page}`, content: { title: "Guide", metaDescription: null, h1: "Guide", h2: [], outline: ["What to bring"], schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 900, internalLinks: [], fetchedAt: "2026-09-01T00:00:00.000Z" },
   search: { clicks90d: 40, impressions90d: 3000, ctr90d: 0.013, position90d: 9, topQueries: [{ query: s.q, impressions: 3000, clicks: 40, position: 9 }] }, engagement: null, friction: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } });
-const snapshot = (s: (typeof SITES)[number], titles: readonly string[]): EvidenceSnapshot => ({
-  scope: { tenantId: s.t, site: `${s.t}.example`, builtAt: NOW.toISOString() }, aiCitations: { ownedCited: 0, competitorCited: 0, engines: [], rowsScanned: 0 },
+const snapshot = (s: (typeof SITES)[number], titles: readonly string[]): EvidenceSnapshot => ({ scope: { tenantId: s.t, site: `${s.t}.example`, builtAt: NOW.toISOString() }, aiCitations: { ownedCited: 0, competitorCited: 0, engines: [], rowsScanned: 0 },
   sources: [], competitors: [], keywordDemand: [], questionDemand: [], intentClusters: [], cannibalization: [], contentGaps: [], internalLinkOpportunities: [], evidenceHash: "rv2",
   research: { ...emptyResearchEvidence(), serpEvidence: [{ query: s.q, observedAt: "2026-09-05T00:00:00.000Z", organic: titles.map((title, i) => ({ rank: i + 1, domain: `rival-${i + 1}.example`, url: `https://rival-${i + 1}.example/x`, title })), aiOverview: [], aiMode: [], paa: [], related: [] }] } as never,
-  ownedPages: [owned(s)] as never,
-} as never);
-/** The producer's own card, byte for byte the shape demand-recovery mints (producers/demand-recovery.ts:141). */
-const card = (s: (typeof SITES)[number], over: Partial<ChangeProposal> = {}): ChangeProposal => ({
-  id: `${s.t}::${s.page}::existing_edit::demand_recovery`, tenantId: s.t, kind: "existing_edit", pagePath: s.page,
-  pageUrl: `https://${s.t}.example${s.page}`, pageLabel: s.page, primaryQuery: s.q, opportunityType: "Rebuild lost ground",
+  ownedPages: [owned(s)] as never } as never);
+/** The producer's own card, byte for byte the shape demand-recovery mints (producers/demand-recovery.ts:141). */ const card = (s: (typeof SITES)[number], over: Partial<ChangeProposal> = {}): ChangeProposal => ({
+  id: `${s.t}::${s.page}::existing_edit::demand_recovery`, tenantId: s.t, kind: "existing_edit", pagePath: s.page, pageUrl: `https://${s.t}.example${s.page}`, pageLabel: s.page, primaryQuery: s.q, opportunityType: "Rebuild lost ground",
   changeFamily: "section", status: "needs_review", winnersOnFile: "unread", treatment: "add_answer_section",
   diagnosisCause: "ranking_loss", causeFinding: { cause: "ranking_loss", action: "act_existing_page", evidenceKeys: ["gsc"], competingExplanations: [{ cause: "ctr_snippet", reason: "the click rate held while the position fell" }], falsifier: "If the page returns to its old position and the clicks do not follow, the ground was not the cause.", explanation: "The page slid on its own results for this search.", notConsidered: [] } as never,
-  recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "The exact wording has not been written yet." },
-  researchOnly: true, research: { missing: "Strengthen this page's coverage of the search it lost.", next: "The exact wording lands here once the editor writes it." },
-  whyItMatters: "This page lost clicks on a search it used to earn.", operatorSteps: [], estimatedEffortMinutes: 30,
-  riskLevel: "low", confidence: "low", limitations: ["The loss is measured from this account's own history."],
-  evidence: { query: s.q, hints: [], evidenceRefCount: 1 }, impactScore: 400, upsidePerMonth: null,
-  basis: "basis_rv2", publish: "manual", createdAt: NOW.toISOString(), copyStamp: "Guide|Guide||What to bring", ...over });
+  recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "The exact wording has not been written yet." }, researchOnly: true, research: { missing: "Strengthen this page's coverage of the search it lost.", next: "The exact wording lands here once the editor writes it." },
+  whyItMatters: "This page lost clicks on a search it used to earn.", operatorSteps: [], estimatedEffortMinutes: 30, riskLevel: "low", confidence: "low", limitations: ["The loss is measured from this account's own history."],
+  evidence: { query: s.q, hints: [], evidenceRefCount: 1 }, impactScore: 400, upsidePerMonth: null, basis: "basis_rv2", publish: "manual", createdAt: NOW.toISOString(), copyStamp: "Guide|Guide||What to bring", ...over });
 const drive = async (s: (typeof SITES)[number], titles: readonly string[], unresolved = false, recoveryComplete = true) => {
   const recoverySpy = vi.spyOn(recovery, "demandRecoveryCards").mockImplementation(async () => ({ cards: recoveryComplete ? [card(s, unresolved ? { diagnosisCause: "no_problem", causeFinding: { ...card(s).causeFinding!, cause: "no_problem", action: null }, treatment: undefined, obligation: { kind: "evidence", need: { kind: "competitor_page", query: s.q, reasonCode: "no_winner_to_read" } } } : {})] : [], complete: recoveryComplete, window: { earlyDays: 400, earlyFrom: null, earlyTo: null }, losses: [] } as never));
   const other = card(s, { id: `${s.t}::${s.page}-two::existing_edit::ai_answer_gap`, pagePath: unresolved ? s.page : `${s.page}-two`, pageUrl: `https://${s.t}.example${s.page}${unresolved ? "" : "-two"}`, primaryQuery: `${s.q} at night`, winnersOnFile: undefined, obligation: undefined, impactScore: 10 });
   const extraSpy = vi.spyOn(extra, "extraQueuePass").mockImplementation(async () => ({ run: { cards: [other], complete: true, held: [], needsOwnPage: [], families: ["ai_answer_gap"] }, unitLoad: null } as never));
-  env.snap = snapshot(s, titles);
-  try { return await run(s.t, { now: NOW, bypassCache: true, produce: true, maxDrafts: unresolved ? 8 : 0, maxCalls: 20, persist: true, complete: async () => { env.calls++; return { value: {} }; } } as never); }
-  finally { recoverySpy.mockRestore(); extraSpy.mockRestore(); }
-};
-beforeEach(() => { store.rows.clear(); env.calls = 0; env.saves = 0; env.checked = []; env.bodies = null; env.race = false; });
-describe("the reading a settled row owes, through the pass that writes the row", () => {
+  env.snap = snapshot(s, titles); try { return await run(s.t, { now: NOW, bypassCache: true, produce: true, maxDrafts: unresolved ? 8 : 0, maxCalls: 20, persist: true, complete: async () => { env.calls++; return { value: {} }; } } as never); }
+  finally { recoverySpy.mockRestore(); extraSpy.mockRestore(); } };
+describe("the reading a settled row owes, through the pass that writes the row", () => { beforeEach(() => { store.rows.clear(); env.calls = 0; env.saves = 0; env.checked = []; env.bodies = null; env.race = false; });
+  it("persists the exact seated AEO source owner before manual delivery can buy it", async () => {
+    const s = SITES[0], proposition = "Which external websites identify safe tide pools?", id = `${s.t}::${s.page}::existing_edit::ai_answer_gap@external-websites`;
+    const need = { kind: "factual_source" as const, query: proposition, url: `https://${s.t}.example${s.page}`, missingTopic: proposition, proposalId: id, reasonCode: "source_support_unconfirmed" as const };
+    const held = card(s, { id, changeFamily: "ai_answer_gap", primaryQuery: proposition, basis: "basis_rv2::d9", factIdentity: claimIdentity(proposition, "", "missing"), obligation: { kind: "evidence", need }, causeFinding: { cause: "ai_citation_gap", action: "act_existing_page", payload: { cause: "ai_citation_gap", aeoKind: "missing_information", missing: proposition } } as never });
+    const secondId = `${id}@other-question`, secondQuestion = "Which websites explain the pool's opening hours?";
+    const second = { ...held, id: secondId, factIdentity: claimIdentity(secondQuestion, "", "missing"), obligation: { kind: "evidence" as const, need: { ...need, query: secondQuestion, missingTopic: secondQuestion, proposalId: secondId } }, causeFinding: { ...held.causeFinding!, payload: { cause: "ai_citation_gap", aeoKind: "missing_information", missing: secondQuestion } } };
+    const recoverySpy = vi.spyOn(recovery, "demandRecoveryCards").mockResolvedValue({ cards: [], complete: true, window: { earlyDays: 0, earlyFrom: null, earlyTo: null }, losses: [] } as never);
+    const extraSpy = vi.spyOn(extra, "extraQueuePass").mockResolvedValue({ run: { cards: [held, second], aeoHold: new Set([id, secondId]), complete: true, held: [], needsOwnPage: [], families: ["ai_answer_gap"] }, unitLoad: null } as never);
+    env.snap = snapshot(s, s.lead); try { const result = await run(s.t, { now: NOW, bypassCache: true, produce: true, maxDrafts: 0, maxCalls: 0, persist: true } as never); const owed = result.paid.evidenceOwed?.find(n => n.proposalId === id), saved = store.rows.get(id);
+      expect(saved).toMatchObject({ id, tenantId: s.t, status: "needs_review", researchOnly: true, obligation: { kind: "evidence", need: { proposalId: id, missingTopic: proposition } } }); expect(owed).toMatchObject({ proposalId: id, workKey: saved?.workKey, unlocks: { proposalId: id, step: "draft" } });
+      expect(result.paid.evidenceOwed?.filter(n => n.reasonCode === "source_support_unconfirmed").map(n => [n.proposalId, n.key])).toEqual([[id, expect.stringContaining(id)], [secondId, expect.stringContaining(secondId)]]);
+      expect([await defaultSteps.scopeOwner?.(s.t, owed!, "manual_delivery"), env.calls]).toEqual([true, 0]); } finally { recoverySpy.mockRestore(); extraSpy.mockRestore(); }
+  });
   it("does not advertise a new-basis factual source for an old owner", async () => {
     const s = SITES[0], sentence = "Iran's national animal is the Asiatic cheetah.", url = `https://${s.t}.example${s.page}`;
     const title = card(s, { id: `${s.t}::${s.page}::existing_edit::title_external`, changeFamily: "title", researchOnly: false,
@@ -62,12 +62,10 @@ describe("the reading a settled row owes, through the pass that writes the row",
     store.rows.set(title.id, title); const stale = await drive(s, s.lead); expect(stale.paid.evidenceOwed?.filter(n => n.reasonCode === "external_claim_unconfirmed") ?? []).toEqual([]);
     expect([store.rows.get(title.id)?.basis, store.rows.get(title.id)?.workKey, store.rows.get(title.id)?.obligation]).toEqual([title.basis, title.workKey, title.obligation]);
     const current = { ...title, basis: "basis_rv2::d9", workKey: "title::basis_rv2::d9::review" }; store.rows.set(title.id, current);
-    store.rows.set(`${title.id}@old`, { ...title, id: `${title.id}@old`, impactScore: 100_000 });
-    const pass = await drive(s, s.lead), owed = pass.paid.evidenceOwed?.filter(n => n.reasonCode === "external_claim_unconfirmed") ?? [];
+    store.rows.set(`${title.id}@old`, { ...title, id: `${title.id}@old`, impactScore: 100_000 }); const pass = await drive(s, s.lead), owed = pass.paid.evidenceOwed?.filter(n => n.reasonCode === "external_claim_unconfirmed") ?? [];
     expect(owed).toMatchObject([{ proposalId: title.id, workKey: current.workKey, rank: 1, unlocks: { proposalId: title.id } }]);
     const wrongOwner = { ...current, obligation: { kind: "evidence" as const, need: { kind: "page_source" as const, query: s.q, url, proposalId: url, reasonCode: "source_support_unconfirmed" } } };
-    store.rows.set(title.id, wrongOwner); const mismatched = await drive(s, s.lead);
-    expect(mismatched.paid.evidenceOwed?.filter(n => n.reasonCode === "source_support_unconfirmed") ?? []).toEqual([]);
+    store.rows.set(title.id, wrongOwner); const mismatched = await drive(s, s.lead); expect(mismatched.paid.evidenceOwed?.filter(n => n.reasonCode === "source_support_unconfirmed") ?? []).toEqual([]);
   });
   it("binds a newly checked external proposition to saved copy and invalidates its old review without replacing unrelated evidence", async () => { const s = SITES[0], sentence = "Iran's national animal is the Asiatic cheetah.", page = `https://${s.t}.example${s.page}`, body = { url: page, title: "Guide", h1: "Guide", headings: [], passages: [sentence], version: "current", completeness: "complete", contentHash: "capture-1", fetchedAt: NOW.toISOString() }, gapRow = card(s, { id: `${s.t}::${s.page}::existing_edit::title_external`, researchOnly: false, changeFamily: "title", recommendedChange: { kind: "existing_edit", field: "title", before: "Guide", after: "Asiatic Cheetah: Iran's National Animal" }, claims: [{ text: "The page is about Asiatic Cheetah and answers Iran's national animal.", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: sentence }], semanticReview: { version: 7, of: "old", claims: [], editor: { accepted: true } } as never, basis: "basis_rv2::d9", faults: ["it replaces a passage saying \"Guide\" and neither says it nor accounts for it: every original unit needs its own preservation disposition"], limitations: ["Preserve the old heading."] }); const gap = COPY_RULES.newExternalAuthorityGap(gapRow)!;
     const key = claimIdentity(gap.proposition, "", "missing"), url = "https://reference.example/asiatic-cheetah", support = deriveSupport({ tenantId: s.t, page: s.page, statementKey: key, pageLocator: "missing", subject: gap.proposition, claimKind: claimTypeOf(gap.proposition, sentence, "missing"), current: "", proposed: sentence, url, kind: "encyclopedia", quote: sentence, titleContext: null }); expect(support).not.toBeNull(); const fact: FactCheck = { page: s.page, statementKey: key, subject: gap.proposition, current: "", proposed: sentence, literal: null, usage: null, sources: [{ url, kind: "encyclopedia", says: sentence, support: support! }], agreement: "single_source", confidence: "likely", verdict: "page_correct", alsoAt: [], note: "", pageContentHash: pageHashOf([body.title, body.h1, ...body.headings, ...body.passages].join("\n")), pageLocator: "missing", sourceReadAt: NOW.toISOString(), state: "checked", rulesVersion: rulesVersionFor({ subject: gap.proposition, current: "" }), evidenceBasis: gapRow.basis ?? null, checkedAt: NOW.toISOString() };
@@ -98,10 +96,8 @@ describe("the reading a settled row owes, through the pass that writes the row",
     else { const owed = out.paid.evidenceOwed?.find((n) => n.kind === "competitor_page"), owner = store.rows.get(owed?.unlocks?.proposalId ?? ""); expect([owed?.workKey, owner?.workKey, owner?.basis, owner?.obligation]).toEqual([owner?.workKey, owed?.workKey, "basis_rv2::d9", { kind: "evidence", need: { kind: "competitor_page", query: s.q, reasonCode: "no_winner_to_read" } }]); }
   });
   it.each(SITES)("$t: and two passes over the same evidence leave the row saying the same thing", async (s) => {
-    const settled = card(s, { obligation: { kind: "terminal", reason: "no substantive gap named" } });
-    store.rows.set(settled.id, settled);
-    await drive(s, s.lead); const first = store.rows.get(settled.id)!.obligation;
-    await drive(s, s.lead); const second = store.rows.get(settled.id)!.obligation;
+    const settled = card(s, { obligation: { kind: "terminal", reason: "no substantive gap named" } }); store.rows.set(settled.id, settled);
+    await drive(s, s.lead); const first = store.rows.get(settled.id)!.obligation; await drive(s, s.lead); const second = store.rows.get(settled.id)!.obligation;
     expect([first, second], "nothing about this row's evidence moved between the two passes, so its typed next step may not move either").toEqual([second, second]);
   });
 });

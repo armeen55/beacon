@@ -7,8 +7,7 @@
  *
  * Sprint 7 Phase 7.8d-1 (2026-04-26) — flat fallback removed. Reads
  * for known stores resolve to their routed path or return null when
- * the file isn't on disk yet; reads for **unknown** stores throw
- * fail-loud with a message naming the classification module. Writes
+ * the file isn't on disk yet; unknown stores fail at path resolution. Writes
  * never fall back to flat (they always go to the routed path).
  *
  * **Allowed call sites:** `file-backend` / `supabase-backend` (supplementary blobs),
@@ -18,13 +17,7 @@
  */
 import "server-only";
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 
 import { resolveDataPath } from "./resolve-data-path";
 
@@ -39,13 +32,6 @@ import { resolveDataPath } from "./resolve-data-path";
  */
 export async function readDotDataJson<T>(baseName: string): Promise<T | null> {
   const resolved = await resolveDataPath(baseName);
-
-  if (resolved.scope === "unknown") {
-    throw new Error(
-      `[dotdata-json] unknown store '${baseName}'. Add it to TENANT_SCOPED_STORES, ` +
-        `SINGLETON_STORES, or GLOBAL_STORES in src/lib/persistence/store-classification.ts.`,
-    );
-  }
 
   try {
     if (existsSync(resolved.routedPath)) {
@@ -72,13 +58,6 @@ export async function writeDotDataJson<T>(
   if (process.env.VERCEL === "1") return;
 
   const resolved = await resolveDataPath(baseName);
-  if (resolved.scope === "unknown") {
-    throw new Error(
-      `[dotdata-json] unknown store '${baseName}'. Add it to TENANT_SCOPED_STORES, ` +
-        `SINGLETON_STORES, or GLOBAL_STORES in src/lib/persistence/store-classification.ts.`,
-    );
-  }
-
   if (!existsSync(resolved.routedDir)) {
     mkdirSync(resolved.routedDir, { recursive: true });
   }

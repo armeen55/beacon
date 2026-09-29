@@ -60,8 +60,6 @@ export function buildTenantRepo(
       filterByTenantId(await base.getChangelogEntries(), tenantId),
     getScanFindings: async () =>
       filterByTenantId(await base.getScanFindings(), tenantId),
-    getObservationRuns: async () =>
-      filterByTenantId(await base.getObservationRuns(), tenantId),
     getResults: async () => filterByTenantId(await base.getResults(), tenantId),
     getImportRuns: async () =>
       filterByTenantId(await base.getImportRuns(), tenantId),
@@ -93,8 +91,6 @@ export function buildTenantRepo(
     // read returns every tenant on hosted.
     getChangeContracts: async () =>
       filterByTenantId(await base.getChangeContracts(), tenantId),
-    getOpportunities: async () =>
-      filterByTenantId(await base.getOpportunities(), tenantId),
     // ─────────────────────────────────────────────────────────────────
     // Phase A.3 (post-A.3.5) — tenant-scoped robots-state. File-backend
     // routes it through dotdata-json's classification dispatch:

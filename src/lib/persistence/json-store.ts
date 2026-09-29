@@ -217,13 +217,6 @@ export async function releaseScope(name: string, key: string, owner: string): Pr
 export async function readStore<T>(name: string, fallback?: T[], opts: { tenantId?: string; forceRefresh?: boolean } = {}): Promise<T[]> {
   const resolved = await resolveDataPath(name, opts.tenantId);
 
-  if (resolved.scope === "unknown") {
-    throw new Error(
-      `[json-store] unknown store '${name}'. Add it to TENANT_SCOPED_STORES, ` +
-        `SINGLETON_STORES, or GLOBAL_STORES in src/lib/persistence/store-classification.ts.`,
-    );
-  }
-
   if (!opts.forceRefresh && warm(name, resolved.cacheKey)) return cache.get(resolved.cacheKey) as T[];
 
   // Mirrored stores: the durable Supabase blob wins when present (this is what makes
@@ -278,12 +271,6 @@ export async function writeStore<T>(name: string, data: T[], opts: { tenantId?: 
     throw new Error("[json-store] customer-surface writes require publishCustomerRelease so ranking and content commit atomically.");
   }
   const resolved = await resolveDataPath(name, opts.tenantId);
-  if (resolved.scope === "unknown") {
-    throw new Error(
-      `[json-store] unknown store '${name}'. Add it to TENANT_SCOPED_STORES, ` +
-        `SINGLETON_STORES, or GLOBAL_STORES in src/lib/persistence/store-classification.ts.`,
-    );
-  }
   const prev = writeLocks.get(resolved.cacheKey) ?? Promise.resolve();
   const next = prev.then(async () => {
     await atomicWrite(resolved, data);

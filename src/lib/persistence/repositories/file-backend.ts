@@ -4,14 +4,12 @@ import type { SeedDataRepository } from "./types";
 import { buildTenantRepo } from "./tenant-repo";
 import type { Result } from "@/domains/measurement/results/types";
 import type { ChangelogEntry } from "@/domains/measurement/changelog/types";
-import type { Opportunity } from "@/domains/decision/opportunities/types";
 import type { ImportRun } from "@/lib/import/types";
 import type { ChangeContract } from "@/domains/measurement/changelog/change-contract";
 import type {
   PageEntity,
   PageSnapshot,
 } from "@/domains/evidence/pages/types";
-import { readObservationRunsMergedSync } from "@/domains/evidence/observations/observation-runs-merge";
 import { getFindings } from "@/domains/evidence/scanning/findings-store";
 import type { RecommendationResponse } from "@/domains/evidence/product/recommendation-response-store";
 import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapshots/types";
@@ -29,8 +27,6 @@ export const fileBackend: SeedDataRepository = {
   getResults: async () => readStore<Result>("imported-results"),
   getChangelogEntries: async () =>
     readStore<ChangelogEntry>("imported-changes"),
-  getOpportunities: async () =>
-    readStore<Opportunity>("imported-opportunities"),
 
   // Phase 1D
   // (getEventDecisions / getCandidateLinks / getPageIssues removed
@@ -57,7 +53,6 @@ export const fileBackend: SeedDataRepository = {
         internal_links: s.internal_links!,
       })),
 
-  getObservationRuns: async () => await readObservationRunsMergedSync(),
 
   // (Dead columns removed 2026-07-21, CORE 100K Lane O: page-snapshot-diffs,
   // render-checks, legacy-global sitemap-reconciliation, visibility runs,
