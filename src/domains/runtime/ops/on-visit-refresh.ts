@@ -55,7 +55,7 @@ function nextPlanned(phase: ResearchPhase, allowed: Set<ResearchPhase>): Researc
   while (next !== "done" && !allowed.has(next)) next = nextPhase(next);
   return next;
 }
-type ResearchCycleOptions = { now?: () => Date; deadlineMs?: number; steps?: Partial<ResearchCycleSteps>; manualDelivery?: { currentBasis: string | null; eligible: (p: import("@/domains/decision").ChangeProposal) => boolean } };
+type ResearchCycleOptions = { now?: () => Date; deadlineMs?: number; steps?: Partial<ResearchCycleSteps>; manualDelivery?: { currentBasis: string | null; eligible: (p: import("@/domains/decision").ChangeProposal) => boolean; limitToOneDollar?: true } };
 type CycleReceipt = { success: boolean; reason: string; readySaved: number; run: ResearchRun | null; previousRun: ResearchRun | null; meter: ReturnType<typeof PROOF_SPEND.meter>; accountedUsd: number | null };
 type FactualNeed = import("@/domains/decision/producers/contract").EvidenceRequirement;
 type PhaseOutcome = { progress: ResearchRunProgress; /** The pages this phase banked evidence on, so the drive can hire the work that was waiting on one of them before the drive ends. */ banked?: readonly string[] };
@@ -459,7 +459,7 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
     }
     return answer(outcome);
   });
-  return manual ? PROOF_SPEND.run(tenantId, 24, 1, execute, { maxExternalCalls: source?.rivalUrl ? 1 : 0, maxExternalUsd: source?.rivalUrl ? .05 : 0, allowedExternal: source?.rivalUrl ? [{ capability: "onpage_content_parsing", url: source.rivalUrl }] : [], stopBy: deadline - 40_000, stopOnFailure: true, guard: inputsCurrent }) : execute();
+  return manual ? PROOF_SPEND.run(tenantId, 24, manual.limitToOneDollar === true ? .95 : 1, execute, { maxExternalCalls: source?.rivalUrl ? 1 : 0, maxExternalUsd: source?.rivalUrl ? .05 : 0, allowedExternal: source?.rivalUrl ? [{ capability: "onpage_content_parsing", url: source.rivalUrl }] : [], stopBy: deadline - 40_000, stopOnFailure: true, guard: inputsCurrent }) : execute();
 }
 
 export function ensureResearchRunOnVisit(tenantId: string, arrival: boolean): void {

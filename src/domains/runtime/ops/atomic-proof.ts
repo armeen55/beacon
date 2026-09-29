@@ -221,5 +221,5 @@ async function currentMetaSuccessor(tenantId: string, oldId: string, basis: stri
   return successorId;
 }
 
-const atomicProof = { run, finishPage, currentMetaSuccessor, prepareNext: (input: { tenantId: string; currentBasis: string | null; eligible: (p: ChangeProposal) => boolean }) => runResearchCycle(input.tenantId, { manualDelivery: { currentBasis: input.currentBasis, eligible: input.eligible } }) };
+const atomicProof = { run, finishPage, currentMetaSuccessor, prepareNext: (input: { tenantId: string; currentBasis: string | null; eligible: (p: ChangeProposal) => boolean; limitToOneDollar?: true }) => runResearchCycle(input.tenantId, { manualDelivery: { currentBasis: input.currentBasis, eligible: input.eligible, ...(input.limitToOneDollar === true ? { limitToOneDollar: true as const } : {}) } }) };
 export default atomicProof;
