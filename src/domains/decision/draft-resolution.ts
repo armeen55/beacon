@@ -126,10 +126,38 @@ function gainResolution(judge: DraftResolution, snapshot: EvidenceSnapshot, card
   if ((facts.length === 0 || judge === "acquire_factual_source") && /^(why|what|how|when|where|who)\b/i.test(q)) return { resolution: "acquire_factual_source", need: { kind: "factual_source", query: q, url: page.url, missingTopic: q, reasonCode: "facts_owed" } };
   return { resolution: "no_valid_treatment" };
 }
-/** THE PAGE'S OWN WORDS THAT WOULD STILL STAND UNDER AN EDIT: everything after the passage it replaces. Empty where nothing is replaced or the body is not on file, so the duplication reading above asks nothing rather than guessing. PURE. */
-const surviving = (passages: readonly string[], before: string | null): string => {
-  const whole = passages.join(" "), replaced = (before ?? "").trim(); if (replaced.length < 20) return "";
+/** An insertion removes no published words; a replacement is compared only with the words after its exact target. */
+const surviving = (passages: readonly string[], before: string | null, additive = false): string => {
+  const whole = passages.join(" "), replaced = (before ?? "").trim(); if (!replaced && additive) return whole; if (replaced.length < 20) return "";
   const cut = whole.indexOf(replaced.slice(0, 60)); return cut >= 0 ? whole.slice(cut + replaced.length) : "";
+};
+/** An aggregate membership claim needs a sentence joining each named member to the claimed category. Separate headings
+ * establish that the page mentions the names, not that all of them belong to that category. */
+const unsupportedAggregate = (claims: readonly { text: string; supportedBy: readonly string[] }[], evidence: Readonly<Record<string, string>>): string | null => {
+  for (const claim of claims) {
+    const match = /^(.+?)\b(?:include|includes|comprise|comprises)\s+(.+?)[.!?]?$/i.exec(claim.text.trim()); if (!match) continue;
+    const category = flatKey((match[1]!.split(/\s+on\s+/i)[0] ?? "").split(/\s+/).at(-1) ?? "").replace(/s$/, "");
+    const names = match[2]!.replace(/[.!?]$/, "").split(/,\s*|\s+and\s+/i).map(x => x.trim().replace(/^and\s+/i, "")).filter(x => x.split(/\s+/).length <= 5 && flatKey(x).length >= 4);
+    if (category.length < 4 || names.length < 3) continue;
+    const excerpts = claim.supportedBy.map(id => ({ id, text: evidence[id] ?? evidence[id.replace(/-\d+$/, "")] ?? "" })), sentences = excerpts.flatMap(x => x.text.split(/[.!?\n]+/));
+    if (!excerpts.some(({ id, text }) => /^fact-/.test(id) && flatKey(text).includes(category) && names.every(name => flatKey(text).includes(flatKey(name)))) && names.some(name => !sentences.some(sentence => flatKey(sentence).includes(flatKey(name)) && flatKey(sentence).includes(category) && /\b(?:is|was|are|were|include|includes|comprise|comprises)\b/i.test(sentence))))
+      return "it groups named subjects under a category its cited passages do not establish for every member";
+  }
+  return null;
+};
+/** A new sourced proposition across surviving subjects can be useful even when their profiles remain.
+ * Its distinctive words must occur together with those subjects in one cited sentence, but not together on the page. */
+const newRelation = (copy: string, remains: string, repeats: readonly string[], claims: readonly { text: string; supportedBy: readonly string[] }[], evidence: Readonly<Record<string, string>>): boolean => {
+  if (/^\s*[-*•]\s+/m.test(copy)) return false;
+  const covered = new Set<string>(); for (const claim of claims) { const pair = repeats.filter(name => flatKey(claim.text).includes(flatKey(name))); if (pair.length < 2) continue;
+    const subjectWords = new Set(pair.flatMap(name => topicTokens(name))), distinct = topicTokens(claim.text).filter(word => !subjectWords.has(word)); if (distinct.length < 2) continue;
+    const present = (text: string): boolean => pair.every(name => flatKey(text).includes(flatKey(name))) && distinct.filter(word => topicTokens(text).includes(word)).length / distinct.length >= 0.5;
+    const cited = claim.supportedBy.filter(id => /^(?:fact|owned-page)-/.test(id)).flatMap(id => (evidence[id] ?? "").split(/[.!?\n]+/));
+    if (cited.some(present) && !remains.split(/[.!?\n]+/).some(present)) pair.forEach(name => covered.add(name));
+  } return repeats.every(name => covered.has(name));
+};
+const repeated = (copy: string, remains: string, headings: readonly string[], claims: readonly { text: string; supportedBy: readonly string[] }[], evidence: Readonly<Record<string, string>>, before: string | null): { repeats: string[]; duplicate: boolean } => {
+  const repeats = absorption(copy, remains, headings).repeats; return { repeats, duplicate: repeats.length >= MIN_ABSORBED && !(before == null && newRelation(copy, remains, repeats, claims, evidence)) };
 };
 /** A why answer needs a current owned page and a checked explanation. An old draft or winner can name a question, never support its answer. */
 const causalNeed = (card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null, now: Date, qualified: boolean, gap: { owed?: Obligation; why?: string } | null): { obligation: Obligation; reason: string } | null => {
@@ -159,4 +187,4 @@ const wrongSubject = (page: OwnedPageEvidence, body: OwnedPageBody | null | unde
  *  set, the deterministic next-step ladder, and the duplication reading a replacement is held to. One symbol, because
  *  every caller that needs one of these needs the others in the same breath. */
 const causalAnswer = (answer: string, question: string): boolean => /^why\b/i.test(question) && answer.split(/[.!?]+/).some((sentence) => /\b(because|commemorat\w*|symboli[sz]\w*|signif\w*|represent\w*|to mark|in hono[u]?r of|in reference to|reminiscent of)\b/i.test(sentence) && (question.match(/\d+/g) ?? []).every((number) => new RegExp(`\\b${number}\\b`).test(sentence)));
-export const GAIN = { ...GAIN_TEXT, LINES: GAIN_LINES, MIN_ABSORBED, resolution: gainResolution, absorption, surviving, causalNeed, causalAnswer, metaSource, wrongSubject } as const;
+export const GAIN = { ...GAIN_TEXT, LINES: GAIN_LINES, MIN_ABSORBED, resolution: gainResolution, absorption, repeated, surviving, unsupportedAggregate, causalNeed, causalAnswer, metaSource, wrongSubject } as const;
