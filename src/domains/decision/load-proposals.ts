@@ -9,7 +9,7 @@ import { actionableProposalFailures, validateProposal } from "./validate-proposa
 import { openHold } from "./completeness";
 import { queueServable } from "./queue-paging";
 import { footprintsOverlap, mutationFootprint } from "./mutation-footprint";
-import { DRAFT_BUDGET } from "./draft-budget";
+import { DRAFT_BUDGET, type JobMemory } from "./draft-budget";
 import type { ChangeProposal } from "./contracts";
 
 /** The DECISION generation this kernel proposes under. It rides on the basis stamp, so every proposal manufactured under an earlier generation's rules is unsupported history the moment those rules change: it can never render Ready, it is demoted in presentation only, and no row is rewritten or deleted. Bump ONLY when the rules that decide WHAT earns a proposal change. 1 = every owned page over 20 impressions got a title and a description. 2 = a proposal exists only where exact query rows proved a recoverable gap. 3 = a proven gap is an INVESTIGATION until the live results page for that exact search is held; confidence follows evidence completeness, not the draft. 4 = holding that results page is not reading it. A change exists only where the page was DIAGNOSED off what those results actually say, so every proposal picked by whether the search words appeared in the stored title is history. 5 = no new page is proposed at all. Turning a competitor's example prompt into a page shipped duplicates of pages the account already owned, so generation is deleted until the evidence can prove a distinct page should exist. 6 = a new page is proposed again, and ONLY where the page by page comparison proved the winning pages share searches no page of this account reaches. Every page brief drafted under any earlier rule is history. 7 = what earns a change is picked against the account's own trusted curve, a proven fall reaches its own rung instead of falling through to more copy, a measured page earns nothing, and a split is settled off the words BOTH pages carry. 8 = a merge may move nothing. Winning ONE search never makes a page the home for a whole other page, so a redirect is earned only where the survivor already carries every section the loser carries; anything else is told apart instead. 9 = joined Persian ezafe spellings and the whole-page answer reader agree before an absence earns work; rows produced before that corrected verdict are history rather than duplicate sections waiting to be reworded. */
@@ -86,11 +86,11 @@ export function stockOf(ready: readonly ChangeProposal[]): number {
  *  own receipt and the day memory could repeat it. The row has to stand at or after the moment the caller names: its own update
  *  moment where the store carries one, and the moment it was created otherwise. A row that can say neither settles nothing. */
 export function settledByRows(
-  memory: Readonly<Record<string, { calls: number; last: string; settled: boolean }>>,
+  memory: Readonly<Record<string, JobMemory>>,
   rows: { ready: readonly ChangeProposal[]; toDo?: readonly ChangeProposal[] },
   /** THE MOMENT A ROW MUST STAND AT OR AFTER: the drive's own start where the caller holds one, and the start of the day this memory belongs to where it does not. Omitted, it is today's start, because a day memory is only ever read back on the day that wrote it. */
   since: Date | string | number = new Date().toISOString().slice(0, 10),
-): Record<string, { calls: number; last: string; settled: boolean }> {
+): Record<string, JobMemory> {
   const floor = new Date(since).getTime();
   const stood = (p: ChangeProposal): boolean => Date.parse((p as { updatedAt?: string }).updatedAt ?? p.createdAt) >= floor;
   const landed = new Map<string, string>();
