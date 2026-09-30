@@ -57,7 +57,7 @@ const drive = async (s: Site, onFile: "none" | "unread" | "read") => {
   vi.resetModules(); env.tenant = s.t; env.snap = snapshot(s, s.q);
   vi.doMock("@/domains/decision/producers/demand-recovery", () => ({ demandRecoveryCards: async () => ({ cards: [card(s, { winnersOnFile: onFile })], complete: true, window: { earlyDays: 400, earlyFrom: null, earlyTo: null }, losses: [] }) }));
   const other = card(s, { id: `${s.t}::${s.page}-two::existing_edit::ai_answer_gap`, pagePath: `${s.page}-two`, pageUrl: `https://${s.t}.example${s.page}-two`, primaryQuery: `${s.q} at night`, winnersOnFile: undefined, obligation: undefined, impactScore: 10 });
-  vi.doMock("@/domains/decision/producers/extra", () => ({ extraQueuePass: async () => ({ run: { cards: [other], complete: true, held: [], needsOwnPage: [], families: ["ai_answer_gap"] }, unitLoad: null }) }));
+  vi.doMock("@/domains/decision/producers/extra", async () => ({ ...await vi.importActual<typeof import("@/domains/decision/producers/extra")>("@/domains/decision/producers/extra"), extraQueuePass: async () => ({ run: { cards: [other], complete: true, held: [], needsOwnPage: [], families: ["ai_answer_gap"] }, unitLoad: null }) }));
   const { produceProposalsForTenant: run } = await import("@/domains/decision/produce-proposals");
   const out = await run(s.t, { now: NOW, bypassCache: true, produce: true, maxDrafts: 0, persist: true, complete: async () => ({ value: {} }) } as never);
   if (process.env.RV3_DEBUG) console.log("RV3", out.outcome, out.persisted, [...db.tables.keys()], JSON.stringify(db.tables.get("change_proposals") ?? []).slice(0, 400));

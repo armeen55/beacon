@@ -17,11 +17,11 @@ export const assignmentOf = (packet: SourcePacket, rewrite: { replaces: string; 
   const rivals = ids.filter((id) => id.startsWith("rival-"));
   const briefing = ids.filter((id) => id.startsWith("serp-"));
   const kind = packet.gap?.kind ?? "no_substantive_gap";
-  const standard: ReturnType<typeof editorialStandard> = WIDTH[field] ? "summary"
-    : kind === "false_page_promise" ? "repositioning"
+  const standard: ReturnType<typeof editorialStandard> = packet.standard ?? (WIDTH[field] ? "summary"
+    : kind === "false_page_promise" ? "missing_answer"
     : packet.treatment === "structural_synthesis" || kind === "scattered_answer" || kind === "weak_extractability" ? "restructuring"
     : kind === "stale_fact" ? "correction"
-    : "missing_answer";
+    : "missing_answer");
   const need = packet.informationNeed, atoms = packet.answerAtoms ?? [], complete = !!need && need.requiredAtomKeys.length > 0 && need.requiredAtomKeys.every((key) => { const found = atoms.filter((a) => a.key === key); return found.length > 0 && found.every((a) => a.polarity === need.polarity && a.voice === need.voice && !!packet.evidence[a.evidenceId]?.trim()); });
   if (!WIDTH[field] && !complete) return null;
   const briefTerms = new Set(topicTokens([need?.question ?? "", ...props].join(" ")));

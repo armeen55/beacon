@@ -165,9 +165,9 @@ export function SetAsideChange({ proposalId = "", finishable = false, prepare = 
         {finishable ? <button type="button" disabled={pending || prepareNext && (!Number.isFinite(Number(state.maxTotalUsd)) || Number(state.maxTotalUsd) <= 0 || Number(state.maxTotalUsd) > 1.05)} data-finish-one="true"
           onClick={() => { const authorizationId = prepare && !prepareNext ? crypto.randomUUID() : undefined;
             startTransition(async () => { const res = await finishOneProposalAction(prepareNext ? { prepareNext: true, maxTotalUsd: Number(state.maxTotalUsd) } : prepare ? { proposalId, prepare: true, authorizationId, ...(limitToOne ? { limitToOneDollar: true as const } : {}) } : { proposalId }).catch(() => null);
-            const message = res?.success ? res.note ?? "Finished. This change is ready to copy." : res?.error ?? (prepareNext ? "No finished change was confirmed. Saved work remains intact." : "This change could not be finished just now.");
+            const message = res?.success ? res.note ?? "Finished. This change is ready to copy." : res?.error ?? "The action response was unavailable; its outcome and charges are not confirmed here.";
             if (proposalId && displayedVersion) { try { window.sessionStorage.setItem(`beacon.finish-one.${proposalId}`, JSON.stringify({ proposalId, displayedVersion, message, success: res?.success === true })); window.dispatchEvent(new window.Event("beacon-finish-result")); } catch { /* The current response remains visible when browser storage is unavailable. */ } }
-            if (res?.success) onFinished?.();
+            onFinished?.();
             setState((s) => ({ ...s, finished: res?.success ? message : null, error: res?.success ? null : message })); }); }}
           className="min-h-11 rounded-md bg-accent-primary px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-60">
           {pending ? "Preparing the change…" : prepareNext ? "Prepare next change" : prepare ? "Prepare best edit on this page" : "Finish this one"}

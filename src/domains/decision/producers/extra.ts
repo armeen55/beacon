@@ -20,6 +20,7 @@ import { demandOf, winnersAgreeOn } from "../drafted-copy";
 import { articlePassages } from "../in-place-link";
 import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { GAIN } from "../draft-resolution"; import { COPY_RULES } from "../copy-sanitize";
+import { nextObligation } from "../obligation";
 import { selectPageVersion } from "@/domains/evidence/pages/page-version";
 import { count, labelOf, mint, pathOf, plain,
   STOREFRONT, subjectWords, type Draft, type Understanding } from "./page-fit";
@@ -355,3 +356,17 @@ export async function extraQueuePass(input: { tenantId: string; snapshot: Eviden
     .catch(() => ({ cards: [], complete: false, held: [], needsOwnPage: [], families: [] as string[], recoveredPartial: new Map<string, PartialWinnerRecovery>() }));
   return { run, unitLoad };
 }
+
+/** Only positive current-capture proof settles a saved task; absence of demand is never completion. */
+export const completedTasks = (input: { tenantId: string; basis: string; rows: readonly ChangeProposal[]; snapshot: EvidenceSnapshot; bodies: ReadonlyMap<string, OwnedPageBody>; checked: readonly FactCheck[]; now: Date }): { row: ChangeProposal; capture: Record<string, unknown>; reason: string }[] => {
+  const { tenantId, basis, snapshot, bodies, checked, now } = input, out: { row: ChangeProposal; capture: Record<string, unknown>; reason: string }[] = [];
+  for (const row of input.rows) {
+    const edit = row.recommendedChange, key = canonicalUrlKey(row.pageUrl), body = bodies.get(key), own = snapshot.ownedPages.find(p => canonicalUrlKey(p.url) === key), capture = body?.captureStates?.find(s => s.id === body.captureId);
+    if (row.tenantId !== tenantId || !row.id.startsWith(`${tenantId}::`) || row.basis !== basis || row.kind !== "existing_edit" || row.status !== "needs_review" || row.redraftRequested || row.approval || row.confirmedVersion || row.bundle || edit.kind !== "existing_edit" || row.obligation?.kind === "operator" || nextObligation(row)?.kind === "operator" || body?.tenantId !== tenantId || body.version !== "current" || body.completeness !== "complete" || body.sourceCapture?.complete !== true || !body.contentHash || !isCurrent("owned_page", body.fetchedAt, now.getTime()) || canonicalUrlKey(body.url) !== key || body.finalUrl && canonicalUrlKey(body.finalUrl) !== key || !own || own.content?.revision?.content_hash !== body.contentHash || !body.pageId || body.captureId !== body.latestCaptureId || !capture || capture.id !== body.captureId || capture.page_id !== body.pageId || capture.url !== body.url || capture.final_url !== (body.finalUrl ?? null) || capture.fetched_at !== body.fetchedAt || capture.content_hash !== body.contentHash || JSON.stringify(capture.content_capture) !== JSON.stringify(body.sourceCapture) || capture.extraction_certainty !== "confirmed" || typeof capture.body_text !== "string") continue;
+    const meta = /::existing_edit::missing_description(?:@[^:]*)?$/.test(row.id) && edit.field === "meta" && !(row.researchOnly === true && (row.obligation?.kind !== "terminal" || row.obligation.reason !== COPY_RULES.metaPredecessorGone)) && !!edit.after.trim() && edit.after.trim() !== edit.before?.trim() && edit.after === body.metaDescription && own.content?.metaDescription === edit.after && capture.meta_description === body.metaDescription;
+    const demand = demandOf(own, body, checked, basis, tenantId, snapshot, null, [], now), exact = { ...demand, rows: demand.rows.filter(r => canonicalQueryKey(r.query) === canonicalQueryKey(row.primaryQuery)) };
+    const answered = row.obligation?.kind !== "redraft" && !row.assignment && row.id.startsWith(`${tenantId}::${row.pagePath}::existing_edit::missing_answer@`) && ["section", "answer_block"].includes(row.changeFamily ?? "") && ["answer_block", "section"].includes(edit.field) && ["add_answer_section", "rewrite_existing_section"].includes(row.treatment ?? "") && row.causeFinding?.cause === "incomplete_coverage" && !row.causeFinding.payload && substantiveGapOf(row, exact) === null && substantiveGapOf(row, { ...exact, sourceCapture: undefined, sourceText: undefined }) !== null;
+    if (meta || answered) out.push({ row, capture, reason: meta ? "withdrawn: the exact proposed description is already on the current complete page" : "withdrawn: the current complete page already answers this exact search in its captured roster" });
+  }
+  return out;
+};

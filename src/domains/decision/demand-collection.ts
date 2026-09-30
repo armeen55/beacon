@@ -1,4 +1,5 @@
 /** A complete glossary can answer a bare collection search through its entries, without a redundant summary paragraph. */
+import { load } from "cheerio"; import { FURNITURE_LABEL } from "@/domains/evidence/relevance-gate";
 type Unit = { id: string; heading: string | null; text: string };
 const FURNITURE = /^(?:frequently asked questions|faqs?|explore more|related (?:posts|articles)|references|sources)$/i;
 const INTRO = /^(?:introduction|overview|about (?:these|this)|how to use (?:these|this))$/i;
@@ -23,3 +24,19 @@ export function collectionCoverage(bare: boolean, titleNamesTopic: boolean, h2: 
   if (entries.length < 2 || !entries.some((entry) => means(entry.text))) return null;
   return { missing: entries.find((entry) => !means(entry.text))?.heading ?? null };
 }
+
+collectionCoverage.rosters = (capture: { complete: boolean; mainHtml: string } | undefined, text: string | undefined, promise: string): { heading: string; entries: { heading: string; text: string }[] }[] => {
+  const captured = capture?.complete && text ? load(capture.mainHtml) : null;
+  const full = captured && captured.root().text().replace(/\s+/g, " ").trim() === text!.replace(/\s+/g, " ").trim() ? captured : null;
+  const rosters: { heading: string; entries: { heading: string; text: string }[] }[] = []; let owner = "";
+  if (full) full("h1,h2,h3,h4,h5,h6,ul,ol,[role=list]").each((_, node) => {
+    const element = full(node); if (/^h[1-6]$/.test(node.tagName)) { owner = element.text().replace(/\s+/g, " ").trim(); return; }
+    const items = element.children("li,article,[role=listitem],.wixui-repeater__item");
+    if (!owner || FURNITURE_LABEL.test(owner) || items.length < 2 || items.length !== element.children().length || element.parents("ul,ol,[role=list]").length) return;
+    const entries = items.toArray().map(item => { const held = full(item), name = held.find("h1,h2,h3,h4,h5,h6,p").first().text().replace(/\s+/g, " ").trim(), text = held.text().replace(/\s+/g, " ").trim(); return { heading: name, text: text.startsWith(name) ? text.slice(name.length).trim() : "" }; });
+    if (entries.every(e => e.heading && e.heading.length <= 90 && !/[.!?:]/.test(e.heading) && e.heading.split(/\s+/).every(w => /^\p{Lu}/u.test(w)) && !FURNITURE_LABEL.test(e.heading))) rosters.push({ heading: owner, entries });
+  });
+  const aliases = [...promise.matchAll(/(\p{L}+)\s*\((\p{L}+)\)/gu)];
+  const scope = (heading: string): string => aliases.reduce((text, [, a, b]) => text.replace(new RegExp(`\\b(?:${a}|${b})\\b`, "gi"), `${a} ${b}`), heading);
+  return rosters.map(row => ({ ...row, heading: scope(row.heading) }));
+};

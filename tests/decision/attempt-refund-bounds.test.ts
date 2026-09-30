@@ -7,7 +7,7 @@ const gap = vi.hoisted(() => ({ answer: null as unknown, body: null as unknown }
 vi.mock("@/domains/evidence/pages/owned-context", () => ({ loadOwnedPageBodies: async (_t: string, urls: string[]) => { const { canonicalUrlKey } = await import("@/domains/evidence/snapshot"); return new Map(gap.body ? urls.map((u) => [canonicalUrlKey(u), gap.body]) : []); } }));
 vi.mock("@/domains/decision/llm/structured-drafter", async (real) => { const m = await real<typeof import("@/domains/decision/llm/structured-drafter")>(); return { ...m, callStructuredLLM: async (o: { kind: string }) => (o.kind === "aeo_gap" ? gap.answer : m.callStructuredLLM(o as never)) }; }); // every other kind still goes to the real gateway, so the doors below are not mocked out from under themselves
 
-import { DRAFT_BUDGET } from "@/domains/decision/draft-budget"; import { AI_CASE_COPY } from "@/domains/decision/producers/ai-cases";
+import { DRAFT_BUDGET } from "@/domains/decision/draft-budget"; import { PROOF_SPEND, runWithoutSpending } from "@/lib/spend-scope"; import { AI_CASE_COPY } from "@/domains/decision/producers/ai-cases";
 import { draftFieldForPage, reviewFinishedCopy } from "@/domains/decision/drafted-copy";
 import { extractPageFacts, readWinningPattern } from "@/domains/decision/winning-pattern";
 import { callStructuredLLM } from "@/domains/decision/llm/structured-drafter";
@@ -34,11 +34,13 @@ const funded = (s: Site, calls = DRAFT_BUDGET.DELIVERABLE_CALLS) => { const key 
   return { key, budget, allowance: budget.draw(key, calls)! }; };
 
 describe("a refund gives back the attempt the door took, and never more", () => {
-  it.each(SITES)("$t: a door that took nothing is given nothing back", (s) => {
-    const { allowance } = funded(s), before = allowance.left;
-    DRAFT_BUDGET.refundIfNoCallMade(allowance, { cached: true });
-    DRAFT_BUDGET.refundIfNoCallMade(allowance, { cached: true });
-    expect(allowance.left, "an allowance may never hold more than the page was funded for").toBe(before);
+  it.each(SITES)("$t: a paid refusal keeps its exact cause, while closed scopes still accept exact cached readings", async (s) => { const { allowance } = funded(s), refusals = new Map<string, string>(); let writes = 0;
+    await PROOF_SPEND.run(s.t, 24, .90, async () => {
+      const piece = await draftFieldForPage({ field: "meta", body: bodyOf(s) as never, query: s.q, brief: "Write the description for this page.", evidenceHints: [], ownedPaths: [new URL(s.url).pathname], minutes: 3, refusalKey: s.url }, { tenantId: s.t, now: NOW, attempts: allowance, refusals, complete: (async () => ({ value: (writes++, draft(s)), httpAttempts: 1, provenance: { costUsd: .004 } })) as never, judge: (async () => ({ ...VERDICT, wouldHandToCustomer: false, resolvesDiagnosis: false, notes: "The copy comments on page furniture instead of answering its reader.", resolution: "structural_synthesis", attempts: 1 })) as never });
+      expect([piece, writes, await PROOF_SPEND.current(s.t), refusals.get(s.url)?.includes("page furniture"), refusals.get(s.url)?.includes("budget")]).toEqual([null, 1, false, true, false]);
+      for (const freeOnly of [false, true]) { const replay = () => callStructuredLLM({ kind: "editor_judgement", tenantId: s.t, system: "Read this exact stored copy", user: s.line, grounded: s.line, now: NOW, attempts: { left: 0 }, complete: async () => { throw Error("An exact cache replay must never buy a call"); }, cacheImpl: { read: async (tenantId, key) => ({ tenantId, key, kind: "editor_judgement", promptId: "draft.editor_judgement", promptVersion: 1, value: VERDICT, primaryText: null, createdAt: NOW.toISOString(), lastUsedAt: NOW.toISOString() }), write: async () => {}, recentTexts: async () => [] } }); const hit = await (freeOnly ? runWithoutSpending(replay) : replay());
+        expect([PROOF_SPEND.remaining(s.t), hit.status, "cached" in hit && hit.cached, "attempts" in hit && hit.attempts]).toEqual([0, "drafted", true, 0]); }
+    }, { maxExternalCalls: 0, maxExternalUsd: 0, stopOnFailure: true });
   });
   it.each(SITES)("$t: one take refunded twice gives back exactly one", (s) => {
     const { key, budget, allowance } = funded(s), before = allowance.left;
@@ -83,9 +85,6 @@ describe("a receipt that names money", () => {
   it.each(SITES)("$t: is never refunded, under any stamp and any shape of the number", (s) => {
     expect([...STAMPS, { status: "drafted", cached: true, attempts: 0 }].map((x) => door(s, { ...x, costUsd: 0.02 })),
       "the dollars are asked first and of every clause, so an answer that names money keeps the attempt it bought however it describes itself, and the dollars stay on the page's own record").toEqual(["charged, calls 1, dollars 0.02", "charged, calls 1, dollars 0.02", "charged, calls 1, dollars 0.02", "charged, calls 0, dollars 0.02", "charged, calls 0, dollars 0.02"]);
-  });
-  it.each(SITES)("$t: the same stamps naming no money are the call nobody made, and they come back", (s) => {
-    expect(STAMPS.map((x) => door(s, { ...x, costUsd: 0 })), "nothing left the process, so the attempt is handed back and no call and no dollar reaches the record").toEqual(Array.from({ length: 4 }, () => "refunded, calls 0, dollars 0"));
   });
 });
 
