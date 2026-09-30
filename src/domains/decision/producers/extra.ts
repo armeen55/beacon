@@ -1,6 +1,5 @@
 /** A FAN-OUT IS EVIDENCE, NEVER A PAGE TOPIC: turning one into a section shipped a search trace as a heading. Content off a fan-out is authorized only via parent prompt, intent cluster, business scope, and a page whose job fits; until then it mints nothing. The old producer is DELETED and its family stays in the sweep so its cards withdraw themselves. */
 import "server-only";
-import { load } from "cheerio";
 import { getRepository } from "@/lib/persistence/repositories";
 import { log } from "@/lib/logger";
 import { canonicalQueryKey, domainOf, FURNITURE_LABEL, topicTokens } from "@/domains/evidence/relevance-gate";
@@ -21,7 +20,6 @@ import { demandOf, winnersAgreeOn } from "../drafted-copy";
 import { articlePassages } from "../in-place-link";
 import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { GAIN } from "../draft-resolution"; import { COPY_RULES } from "../copy-sanitize";
-import { openHold } from "../completeness"; import { validateProposal } from "../validate-proposal";
 import { selectPageVersion } from "@/domains/evidence/pages/page-version";
 import { count, labelOf, mint, pathOf, plain,
   STOREFRONT, subjectWords, type Draft, type Understanding } from "./page-fit";
@@ -49,7 +47,7 @@ const identityOf = (p: OwnedPageEvidence): string =>
 import { aeoMeter, aiCaseCards, type AeoMeter } from "./ai-cases";
 /** What this producer did, whether it FINISHED, and what it refused to guess at: completeness is stated per family, so a dead source holds only its own out of the sweep, and `held` puts refusals on the receipt. */
 type PartialWinnerRecovery = { kind: "auto_swept_partial_winner"; page: string; query: string; url: string };
-type ExtraQueueRun = { cards: ChangeProposal[]; complete: boolean; families: string[]; held: { pageUrl: string; reason: string }[]; answerCaptures?: ReadonlyMap<string, Record<string, unknown>>; retiredCountTitles?: ReadonlyMap<string, Record<string, unknown>>; qualifiedOwners?: ReadonlyMap<string, { basis: string | null; workKey: string | null; contentHash: string }>; recoveredPartial?: ReadonlyMap<string, PartialWinnerRecovery>; aeoHold?: ReadonlySet<string>; aeoSpend?: { funded: number; attempted: number; givenBack: number; left: number }; needsOwnPage: { query: string; refusedPages?: string[] }[] };
+type ExtraQueueRun = { cards: ChangeProposal[]; complete: boolean; families: string[]; held: { pageUrl: string; reason: string }[]; answerCaptures?: ReadonlyMap<string, Record<string, unknown>>; qualifiedOwners?: ReadonlyMap<string, { basis: string | null; workKey: string | null; contentHash: string }>; recoveredPartial?: ReadonlyMap<string, PartialWinnerRecovery>; aeoHold?: ReadonlySet<string>; aeoSpend?: { funded: number; attempted: number; givenBack: number; left: number }; needsOwnPage: { query: string; refusedPages?: string[] }[] };
 import { linkFit, pageUnderstanding } from "./page-job";
 function recoverableClicks(p: OwnedPageEvidence, expectedCtrAt: (position: number) => number): number | null {
   const q = [...(p.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0];
@@ -117,40 +115,6 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
 }
 /** THE FINDING A SWEEP CARD ALREADY MADE, SAID IN THE LADDER'S OWN WORDS (operator, 2026-09-04). Thirty-two live descriptions were minted off a named defect in the page's own line and carried no cause at all: the detail page printed "No cause is named for it yet" over a finding the card's own headline states, and the wording gate went on holding every replacement "until a diagnosis names what is wrong with the current description" while that diagnosis sat unsaid in the same object. NO NEW VOCABULARY, because none is needed: a description missing or repeated across siblings IS the line Google displays for the page, a page missing what every winner covers IS incomplete coverage, and a page nothing links to IS where a reader gets sent next. `evidenceKeys` name the readings the card was actually made from. */
 const structural = (cause: CauseFinding["cause"], action: CauseFinding["action"], evidenceKeys: string[], explanation: string, falsifier: string): CauseFinding => ({ cause, action, evidenceKeys, competingExplanations: [], notConsidered: [], explanation, falsifier });
-/** A count is page structure, not a count of short outline headings. Require one complete sibling-card roster, with one named heading and substantial copy in every card. */
-function countPromiseTitle(tenantId: string, p: OwnedPageEvidence, body: OwnedPageBody | undefined, now: Date, basis: string | null): ChangeProposal | null {
-  const before = body?.title ?? "", promised = Number(/^Top\s+(\d{1,3})\s+/i.exec(before)?.[1]), after = before.replace(/^Top\s+\d{1,3}\s+/i, "").replace(/\s*:\s*/g, ": ").trim();
-  if (!promised || !body || before !== p.content?.title || !currentCapture(p, body, now, tenantId) || after === before) return null;
-  const captures = COPY_RULES.captureProof(body, now.getTime()); if (captures.length !== 1) return null;
-  const $ = load(body.sourceCapture!.mainHtml), groups = new Map<object, string[]>();
-  $("[class*='repeater__item'], article, li, section").each((_i, node) => {
-    const heads = $(node).find("h2,h3").toArray(), paragraphs = $(node).find("p").toArray().map(x => $(x).text().replace(/\s+/g, " ").trim());
-    if (heads.length !== 1 || !paragraphs.some(x => x.length >= 55) || !node.parent) return;
-    const name = $(heads[0]).text().replace(/\s+/g, " ").trim();
-    if (!name || name.split(/\s+/).length > 6 || FURNITURE_LABEL.test(name)) return;
-    groups.set(node.parent, [...(groups.get(node.parent) ?? []), name]);
-  });
-  const rosters = [...groups.entries()].filter(([parent, names]) => names.length >= 4 && names.length === $(parent as never).children().length && new Set(names.map(x => x.toLowerCase())).size === names.length);
-  if (groups.size !== 1 || rosters.length !== 1 || rosters[0]![1].length === promised) return null;
-  const rosterParent = rosters[0]![0];
-  const uncounted = $("h2,h3,h4,h5,h6").toArray().some(h => {
-    if ($(h).parents().toArray().includes(rosterParent as never)) return false;
-    const name = $(h).text().replace(/\s+/g, " ").trim();
-    if (!name || name.split(/\s+/).length > 6 || FURNITURE_LABEL.test(name)) return false;
-    if ($(h).nextUntil("h2,h3,h4,h5,h6").toArray().some(node => $(node).is("p") && $(node).text().replace(/\s+/g, " ").trim().length >= 55 || $(node).find("p").toArray().some(p => $(p).text().replace(/\s+/g, " ").trim().length >= 55))) return true;
-    for (let node = h.parent; node && "tagName" in node && !["main", "body", "html"].includes(node.tagName); node = node.parent) {
-      if ($(node).find("h2,h3,h4,h5,h6").length !== 1) break;
-      if ($(node).find("p").toArray().some(p => $(p).text().replace(/\s+/g, " ").trim().length >= 55)) return true;
-    }
-    return false;
-  });
-  if (uncounted) return null;
-  const names = rosters[0]![1], path = pathOf(p.url), query = topQueryOf(p), finding = structural("ctr_snippet", "title", [RECEIPT.copy], `The current SEO title promises ${promised} entries, but its complete page capture contains ${names.length} substantive sibling cards.`, "If a complete current capture contains the promised number of entries, this correction is no longer justified.");
-  const card: ChangeProposal = { id: `${tenantId}::${path}::existing_edit::title_count_recovery`, tenantId, kind: "existing_edit", pagePath: path, pageUrl: p.url, pageLabel: labelOf(p), primaryQuery: query, opportunityType: `Remove an unkept count from this page's search title`, changeFamily: "title", status: "needs_review", researchOnly: false, recommendedChange: { kind: "existing_edit", field: "title", before, after, where: "The SEO title field only" }, whyItMatters: `The current title promises ${promised} entries; the complete captured page contains ${names.length} substantive roster cards. The replacement removes that promise and keeps every other word of the title.`, operatorSteps: [`Open the SEO title field for ${path}`, `Replace the current title with the exact line shown here`, "Leave the page body and its headings unchanged"], estimatedEffortMinutes: 3, riskLevel: "low", confidence: "high", limitations: [], faults: [], evidence: { query, hints: [`Current title: ${before}`, `Complete captured roster: ${names.join("; ")}`], evidenceRefCount: 2 }, impactScore: null, upsidePerMonth: null, demandImpressions90d: p.search?.impressions90d ?? null, basis: basis ?? undefined, publish: "manual", createdAt: now.toISOString(), reviewedCaptures: captures, titleCountProof: { before, after, promised, observed: names.length, entries: names, captureId: captures[0]!.captureId, captureVersion: captures[0]!.captureVersion }, diagnosisCause: "ctr_snippet", causeFinding: finding };
-  const ownWords = [body.title, body.h1, body.vocabulary].filter(Boolean).join(" ");
-  const canon = validateProposal(card, { pageBodyText: ownWords, evidenceText: ownWords, now });
-  return canon.verdict === "ready" && openHold(card).defects.length === 0 ? { ...card, status: "ready" } : null;
-}
 /** 3. THE THREE DEFECTS WORTH A SWEEP, ONE CARD PER PAGE. A card that fixes one page and then says "repeat on nine more" cannot be done in one sitting, marked done, or measured, so each page with the defect gets its own card and figures and the class total rides along as context. */
 function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, expectedCtrAt: (position: number) => number, bodies: ReadonlyMap<string, OwnedPageBody>, now: Date): Draft[] {
   const impressions = (p: OwnedPageEvidence): number => p.search?.impressions90d ?? 0; /** A ZERO SUPPRESSES THE CLAUSE THAT RANKS IT (rendered app, 2026-09-05). A live description read "20 pages carry the same templated description ... and /california-persian-cities/berkeley is the busiest of them at 0 impressions in 90 days", which calls a page the busiest and then prints the figure that says it is not. A superlative is a claim about a figure, so where the figure is zero the claim is dropped and the sentence that survives is the one the evidence carries. */ const ranked = (p: OwnedPageEvidence): string => impressions(p) > 0 ? `, and ${pathOf(p.url)} is the busiest of them at ${count(impressions(p), "impression")} in 90 days` : "";
@@ -346,13 +310,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   const universe = await import("@/domains/evidence/readers/gsc-query-universe")
     .then((m) => m.loadGscQueryUniverse(tenantId, now)).catch(() => null);
   const cases = await aiCaseCards(bank, snapshot, pages, weak, earned, children, u, tenantId, input.units ?? [], windowObs, now, input.persist !== false, meter, universe?.keys ?? null, written, input.focusPage);
-  const countTitles = pages.flatMap(p => { const card = countPromiseTitle(tenantId, p, currentBodies.get(canonicalUrlKey(p.url)), now, input.basis ?? null); return card ? [card] : []; });
-  const countIds = new Set(countTitles.map(c => c.id)), retiredCountTitles = new Map<string, Record<string, unknown>>();
-  for (const old of rows) { if (!/::existing_edit::title_count_recovery$/.test(old.id) || !old.titleCountProof || !["ready", "needs_review"].includes(old.status) || countIds.has(old.id)) continue;
-    const p = byPage.get(canonicalUrlKey(old.pageUrl ?? "")), body = currentBodies.get(canonicalUrlKey(p?.url ?? "")), capture = p && currentCapture(p, body, now, tenantId);
-    if (capture && !COPY_RULES.sameCaptures(old.reviewedCaptures, COPY_RULES.captureProof(body, now.getTime()))) retiredCountTitles.set(old.id, capture);
-  }
-  const partial = new Map<string, string>(), drafts = [...countTitles, ...cases.drafts,
+  const partial = new Map<string, string>(), drafts = [...cases.drafts,
     ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt, currentBodies, now), ...unansweredCards(snapshot, pages, expectedCtrAt, { bodies: currentBodies, misses, facts, saved: [...rows, ...recovered], recovered: new Set(recovered.map((p) => p.id)), partial, written, basis: input.basis ?? null, tenantId, now })]; // LAST, so an AI case about the same question keeps it: one question is one card
   const out: ChangeProposal[] = [], recoveredPartial = new Map<string, PartialWinnerRecovery>(), aeoHold = new Set<string>();
   const answered = new Set<string>();
@@ -381,10 +339,10 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
     seats.push({ id: card.id, mutationKey });
     out.push(card); if (wasHeld) aeoHold.add(card.id); const page = canonicalUrlKey(card.pageUrl), query = canonicalQueryKey(card.primaryQuery), url = partial.get(`${page}::${query}`); if (url && card.researchOnly === true && card.obligation?.kind === "evidence" && card.obligation.need.kind === "competitor_page") recoveredPartial.set(card.id, { kind: "auto_swept_partial_winner", page, query, url });
   }
-  const families = [...(answersRead && cases.filed ? ["ai_answer_gap", "engine_followup"] : []), ...(links.complete ? ["internal_link"] : []), "title_count_recovery", ...DEFECTS];
-  if (families.length < DEFECTS.length + 4) log.warn("[extra] a source did not answer, so its families are held out of the sweep", { tenantId, families });
+  const families = [...(answersRead && cases.filed ? ["ai_answer_gap", "engine_followup"] : []), ...(links.complete ? ["internal_link"] : []), ...DEFECTS];
+  if (families.length < DEFECTS.length + 3) log.warn("[extra] a source did not answer, so its families are held out of the sweep", { tenantId, families });
   log.info("[extra] the pass's AEO diagnosis purse", { tenantId, ...meter.spent(), refused: cases.hold.size });
-  return { cards: out, complete: families.length === DEFECTS.length + 4, families, answerCaptures, retiredCountTitles, qualifiedOwners, recoveredPartial, held: u.held, needsOwnPage: bank, aeoHold, aeoSpend: meter.spent() };
+  return { cards: out, complete: families.length === DEFECTS.length + 3, families, answerCaptures, qualifiedOwners, recoveredPartial, held: u.held, needsOwnPage: bank, aeoHold, aeoSpend: meter.spent() };
 }
 
 /** THE ONE ENTRANCE FOR A PASS: loads the demand units once (both producers join the SAME audiences) and runs the $0 queue. The paid funnel's early return used to skip this producer entirely, so a paused quiet account never judged a single AI case (first canonical $0 acceptance run, 2026-08-21). */
