@@ -162,7 +162,7 @@ describe("the judging's own attempt", () => {
   it.each(SITES)("$t: an allowance with one attempt left buys the writing and answers spent for the reading, and the card is left unsettled", async (s) => {
     const { allowance } = funded(s, 1);
     const out = await pass(s, allowance, null);
-    expect([out.piece, allowance.left, out.unsettled.has(s.url)], "the pass ran out mid deliverable, so nothing is settled against these words").toEqual([null, 0, true]);
+    expect([out.piece?.after, out.piece?.editor, out.piece?.reviewOf, allowance.left, out.unsettled.has(s.url)], "the paid words survive privately without acceptance; the reading remains owed").toEqual([s.line, undefined, undefined, 0, true]);
   });
   it.each(SITES)("$t: the attempt is already taken when the reading starts and is back once it answers cached", async (s) => {
     const { allowance } = funded(s), before = allowance.left; let atCall = -1;

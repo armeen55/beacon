@@ -6,7 +6,7 @@ import { buildWinnerFewShots, buildWinnerFewShotsWithPattern } from "./winner-me
 import type { DraftPatternId } from "./draft-pattern";
 import { openAIStructuredResponse, estimateCost, llmFailureOf, type LlmFailure, type LlmProvenance, type StructuredCallArgs } from "./gateway";
 import { PROMPT_REGISTRY, type PromptId } from "./prompt-registry";
-import { llmCallCacheKey, resolveCacheImpl, type CacheImpl } from "./call-cache"; import { DRAFT_BUDGET } from "../draft-budget";
+import { llmCallCacheKey, resolveCacheImpl, type CacheImpl } from "./call-cache";
 import { looksTemplated, REPEAT_FLAG, REPEAT_HISTORY_SIZE, VARIATION_INSTRUCTION } from "./de-templating";
 import {
   allowNumbers,
@@ -704,7 +704,7 @@ export async function draftAtomicEditStructured(
     authoritativeSourceDomains?: readonly string[];
     sourceFetch?: SourceTextFetcher;
     proposalWorkKey?: string;
-  } = {},
+  } & Pick<StructuredDraftRequest<"atomic_edit">, "attempts" | "stopBy"> = {},
 ): Promise<StructuredDraftResult<AtomicEditDraft>> {
   const body = input.field === "answer_block", replaces = body ? input.replaces ?? input.currentValue : null;
   const currentValue = sanitizeNullableEvidence(body ? replaces : input.currentValue);
@@ -758,13 +758,8 @@ export async function draftAtomicEditStructured(
     ...(input.packet ? { citationIds: Object.keys(input.packet.evidence) } : {}),
     ...(input.packet ? { observationGrounded: [...Object.values(input.packet.evidence), ...(input.packet.demand.unanswered ?? [])].join("\n") } : {}),
     projectedCostUsd: 0.02,
-    ...(opts.proposalWorkKey ? { proposalWorkKey: opts.proposalWorkKey } : {}),
-    complete: opts.complete,
-    now: opts.now,
-    bypassCache: opts.bypassCache,
+    ...opts,
     fewShotProvenance,
-    authoritativeSourceDomains: opts.authoritativeSourceDomains,
-    sourceFetch: opts.sourceFetch,
   };
   const result: StructuredDraftResult<AtomicEditDraft> = body
     ? await callStructuredLLM({ ...request, kind: "body_edit" }).then((result) => result.status !== "drafted" ? result : { ...result, value: { ...result.value, before: replaces, after: COPY_RULES.bodyCopy(result.value.units) } })
@@ -795,8 +790,8 @@ function unmarkAnchor<T>(data: T, phrase?: string): T {
 
 /** The model may only veto admitted comparison candidates; their original source-bound topics remain intact. */
 export async function readComparison(comparison: JobComparison, owned: { url: string; passages: readonly string[] },
-  /** Receipts and cache refunds belong to the owning job's existing allowance. */
-  opts: { tenantId: string; now?: Date; proposalWorkKey?: string; complete?: CompleteFn; attempts?: { left: number; record?: (r: unknown) => void } }): Promise<JobComparison> {
+  /** Every request uses the owning job's existing allowance and deadline. */
+  opts: { tenantId: string; now?: Date; proposalWorkKey?: string; complete?: CompleteFn; attempts?: { left: number; record?: (r: unknown) => void }; stopBy?: number }): Promise<JobComparison> {
   const winners = comparison.winners.filter((w) => w.held.trim().length > 0);
   if (winners.length === 0 || !winners.some((w) => w.observations.length > 0)) return comparison; // no candidates, no call, no cost
   const source = new Map(winners.map((w) => [w.url, sanitizeNullableEvidence(w.held) ?? ""]));
@@ -808,9 +803,8 @@ export async function readComparison(comparison: JobComparison, owned: { url: st
     "Return the JSON now."].join("\n");
   const r = await callStructuredLLM({ kind: "competitor_comparison", tenantId: opts.tenantId, system, user, grounded: user,
     projectedCostUsd: 0.01, maxTokens: 1200, timeoutMs: 60_000, now: opts.now,
-    proposalWorkKey: opts.proposalWorkKey, complete: opts.complete }).catch(() => null);
+    proposalWorkKey: opts.proposalWorkKey, complete: opts.complete, attempts: opts.attempts, stopBy: opts.stopBy }).catch(() => null);
   opts.attempts?.record?.(r); // THE MONEY LANDS WHERE THE RESULT COMES BACK, whatever it says: a call that refused, blocked or threw was still made, and the page's meter is the only place the reading's cost can be read.
-  DRAFT_BUDGET.refundIfNoCallMade(opts.attempts, r); // A CACHED ANSWER COST NOTHING, SO IT COUNTS AS NOTHING, on the one rule beside the meter that every paid door now reads.
   if (!r || r.status !== "drafted") return comparison;
   const flat = (t: string): string => t.replace(/\s+/g, " ").trim();
   const by = new Map(winners.map((w) => [w.url, [] as JobComparison["winners"][number]["observations"]]));

@@ -1,11 +1,8 @@
-/** Comparison identity tracks changes anywhere in a held winner, not only its prompt excerpt.
- * Real receipts charge the owning job; validated cache reuse refunds its attempt at zero cost.
- * Two unrelated synthetic accounts protect both promises without provider calls. */
+/** Changed captures invalidate comparison readings; cached receipts preserve the owning allowance. */
 import { describe, it, expect, vi } from "vitest";
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
-/** ONE IN-MEMORY CACHE FOR THE WHOLE FILE, injected at the module boundary so production carries no test seam: the
- *  drafter resolves no cache under vitest, which is exactly why the hit-versus-miss economics were never pinned. */
+/** Inject the cache at its canonical module boundary without a production test seam. */
 const CACHE_ROWS = new Map<string, unknown>();
 vi.mock("@/domains/decision/llm/call-cache", async (orig) => {
   const actual = await orig<typeof import("@/domains/decision/llm/call-cache")>();
@@ -47,8 +44,7 @@ const funded = (key: string) => {
   const budget = DRAFT_BUDGET.plan({ jobs: [{ key, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 });
   return { budget, allowance: budget.draw(key, DRAFT_BUDGET.DELIVERABLE_CALLS)! };
 };
-/** A TRANSPORT THAT REPORTS WHAT IT REALLY DID, the way the gateway does: one request that left the process and what
- *  that request cost, so the meter under test is reading a receipt rather than an assumption. */
+/** A synthetic gateway receipt reports one transmission and its accounted cost. */
 const READING_USD = 0.0091;
 const answered = async () => ({ value: { observations: [] }, httpAttempts: 1, provenance: { costUsd: READING_USD } });
 
@@ -71,21 +67,26 @@ describe("the confirming reading is bought against the winner it read", () => {
     }
   });
 
-  it.each(SITES)("$t: a bought reading lands on the page's own meter, and a cached one costs nothing and gives the attempt back", async (s) => {
+  it.each(SITES)("$t: comparison requests obey their allowance and deadline while cached receipts remain free", async (s) => {
     CACHE_ROWS.clear();
     const key = `${s.own}::body`;
     const first = funded(key), before = first.allowance.left;
     const c = jobComparison(research(s, s.early), s.queries, owned(s));
-    first.allowance.left -= 1; // the caller pays before the call, exactly as the writer's door pays
     const paid = await readComparison(c, { url: s.own, passages: s.ownPassages }, { tenantId: `${s.t}::meter`, complete: answered as never, attempts: first.allowance });
     const bought = first.budget.meterOf(key)!;
     expect([bought.ops, bought.providerCalls, bought.costUsd, first.allowance.left], "one request, one provider call, its real dollars on the page's own meter, and the attempt stays spent").toEqual([1, 1, READING_USD, before - 1]);
 
     const second = funded(key), start = second.allowance.left;
-    second.allowance.left -= 1;
-    const again = await readComparison(c, { url: s.own, passages: s.ownPassages }, { tenantId: `${s.t}::meter`, complete: answered as never, attempts: second.allowance });
+    const again = await readComparison(c, { url: s.own, passages: s.ownPassages }, { tenantId: `${s.t}::meter`, complete: answered as never, attempts: second.allowance, stopBy: 0 });
     const hit = second.budget.meterOf(key)!;
     expect([hit.ops, hit.providerCalls, hit.costUsd, second.allowance.left], "the same reading again is one recorded request that reached no provider, cost nothing, and gave its attempt back").toEqual([1, 0, 0, start]);
     expect(JSON.stringify([again.verdict, again.winners.map((w) => w.observations)])).toBe(JSON.stringify([paid.verdict, paid.winners.map((w) => w.observations)])); // and what a cache hit serves is what the paid call served
+    for (const left of [1, 2]) {
+      const at = Date.now(), clock = vi.spyOn(Date, "now").mockReturnValue(at), attempts = { left }; let calls = 0;
+      try {
+        const failed = await readComparison(c, { url: s.own, passages: s.ownPassages }, { tenantId: `${s.t}::boundary-${left}`, attempts, stopBy: at + 1, complete: async () => { calls++; if (left === 2) clock.mockReturnValue(at + 2); return { error: "synthetic_500", retryable: true, failure: "transient", httpAttempts: 1 }; } });
+        expect([calls, attempts.left, failed]).toEqual([1, left - 1, c]);
+      } finally { clock.mockRestore(); }
+    }
   });
 });

@@ -11,7 +11,6 @@ import { draftFieldForPage, reviewFinishedCopy, topicSourceFacts } from "./draft
 import { callStructuredLLM, type CompleteFn } from "./llm/structured-drafter";
 import { SCHEMA_BY_KIND, type NewPageBrief } from "./llm/schemas";
 import { claimIdentity } from "@/domains/evidence/pages/fact-check-run";
-import { DRAFT_BUDGET } from "./draft-budget";
 import { deliverableGaps, PAGE_SUPPORT } from "./completeness";
 import { REVIEW_CONTRACT, copyKey } from "./proof";
 import { validateProposal } from "./validate-proposal";
@@ -72,7 +71,7 @@ export async function produceNewPage(input: Input): Promise<Result> {
     const context = { question: topic.label, queries: topic.queries, pageType: topic.pageType, verdict: decision.explanation, ruledOut: decision.alternativesRuledOut,
       pattern: decision.pattern.brief ?? decision.pattern, facts: factIndex.map(({ id: key, fact, sources }) => ({ key, fact, sources })), owned: snapshot.ownedPages.map(p => ({ url: p.url, title: p.content?.title ?? null })).slice(0, 20) };
     const ask = await callStructuredLLM({ kind: "new_page_brief", tenantId, proposalWorkKey: input.workKey, system: "Write one complete new-page plan for the earned reader task, including a publication title and explicit H1 page heading. Plan the entire earned reader task, including necessary sections whose sources are still owed. Use only supplied facts for factual publication claims. Cite exact fact-N keys when available; leave unsupported task keys empty and name precise source and fact requirements. Do not narrow the plan to the available facts. The supplied comparison justifies the page, but rival text does not support publication claims. Do not invent experience, claims, sources, or sections to fill a quota. Return no unwritten FAQ or link promises. Publication remains manual.", user: JSON.stringify(context), grounded: facts.map(f => f.proposed ?? "").join("\n"), complete: input.complete, bypassCache: input.bypassCache, now, attempts, stopBy: input.stopBy });
-    attempts.record?.(ask); DRAFT_BUDGET.refundIfNoCallMade(attempts, ask);
+    attempts.record?.(ask);
     if (ask.status !== "drafted") return { row: null, detail: `The page brief was not accepted (${ask.status}); no partial page was published.` };
     brief = ask.value;
     const allowed = new Set(factIndex.map(f => f.id)), keys = [...brief.headKeys, ...brief.sections.flatMap(s => s.evidenceKeys)];
@@ -88,7 +87,7 @@ export async function produceNewPage(input: Input): Promise<Result> {
     if (repair.targets.some(t => t.component < 3)) {
       if (attempts.left < 1 || input.stopBy != null && Date.now() >= input.stopBy) return { row: prior, detail: "The title or description repair waits for its funded turn." };
       const asked = await callStructuredLLM({ kind: "new_page_brief", tenantId, proposalWorkKey: input.workKey, system: "Correct only the named title, description or H1 in this existing page brief. Keep every section, opening, FAQ and link field unchanged. Cite only exact supplied fact-N keys. Do not replace approved body copy or invent a claim.", user: JSON.stringify({ brief, repairs: repair.targets.filter(t => t.component < 3), facts: factIndex }), grounded: facts.map(f => f.proposed).join("\n"), complete: input.complete, bypassCache: input.bypassCache, now, attempts, stopBy: input.stopBy });
-      attempts.record?.(asked); DRAFT_BUDGET.refundIfNoCallMade(attempts, asked);
+      attempts.record?.(asked);
       if (asked.status !== "drafted" || ["sections", "openingAnswer", "whyExistingPagesLose", "sourceRequirements", "factRequirements", "internalLinks", "faqQuestions"].some(k => JSON.stringify(asked.value[k as keyof NewPageBrief]) !== JSON.stringify(brief[k as keyof NewPageBrief])) || asked.value.headKeys.some(k => !factIndex.some(f => f.id === k)) || !repair.targets.some(t => t.component === 0) && asked.value.proposedTitle !== brief.proposedTitle || !repair.targets.some(t => t.component === 1) && asked.value.metaDescription !== brief.metaDescription || !repair.targets.some(t => t.component === 2) && asked.value.pageHeading !== brief.pageHeading) return { row: prior, detail: "The targeted head repair did not preserve the approved page plan." };
       brief = asked.value;
     }
@@ -124,7 +123,7 @@ export async function produceNewPage(input: Input): Promise<Result> {
       system: "Read the plan against the earned reader task and checked sources. Return one ruling for every numbered task. Supported means the supplied factual answers and their passages support the entire task, including each head claim and every named source/fact requirement. Reject a plan narrowed to the available facts or missing an earned reader subtask. Topic-word overlap, rival patterns, and generated copy are never claim support. One source can support several tasks when its content does so. Cite only supplied fact IDs. For unsupported tasks name one precise factual question to research, not instructions for writing. Do not write publication copy.",
       user: JSON.stringify({ question: topic.label, queries: topic.queries, pattern: decision.pattern.brief ?? decision.pattern, tasks: tasks.map((task, i) => ({ task: i, question: task })), facts: factIndex.map((f, i) => ({ ...f, passages: facts[i]!.sources.map(s => ({ url: s.url, says: s.says, support: s.support?.supportSpan ?? null })) })) }),
       grounded: JSON.stringify([tasks, factIndex, facts.map(f => f.sources)]), complete: input.complete, bypassCache: input.bypassCache, now, attempts, stopBy: input.stopBy, maxTokens: 1800 });
-    attempts.record?.(answer); DRAFT_BUDGET.refundIfNoCallMade(attempts, answer);
+    attempts.record?.(answer);
     if (answer.status !== "drafted") return { row: row(false), detail: `The saved plan's source-support reading is owed (${answer.status}); no piece was bought.` };
     support = PAGE_SUPPORT.read({ ...brief, material, supportContext, diagnosisFingerprint: digest(decision.evidence), support: { ...answer.value, of: PAGE_SUPPORT.key(brief, material, sourceFacts, digest(decision.evidence), supportContext) } }, sourceFacts, topic.label);
     if (!support) return holdSource("The source-support reading omitted a task or cited absent findings; no piece was bought.", false, factualNeed, row(false));

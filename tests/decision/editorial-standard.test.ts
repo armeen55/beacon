@@ -379,22 +379,21 @@ describe("the standard says what the work is, and the id says where the words ca
     for (const { name, change } of invalidations) { const checks = [{ ...quiet, ...change }], scoped = checks.filter(f => f.page === quiet.page); facts.rows = checks; const { authorizedCorrections } = await import("@/domains/evidence/pages/fact-checks"); expect(authorizedCorrections(scoped as never, { pageContentHash: quiet.pageContentHash, evidenceBasis: quiet.evidenceBasis }, s.t).some(f => f.proposed === quiet.proposed && f.sources.some(x => x.url === quiet.sources[0]!.url && x.says === quiet.sources[0]!.says)), name).toBe(name === "current support"); let calls = 0; const read = await reviewFinishedCopy(settled.row!, { tenantId: s.t, now: NOW, basis: null, judge: async () => { calls += 1; return { ...PASS, claims: rule(settled.row!.claims!) } as never; } }), writerInputs: string[] = [], pieceWhy = new Map<string, string>(), emitted = { field: "answer_block", before: null, ...TAIL, placementAnchor: s.h1, naturalHeading: s.ask, measurementTarget: s.q, claims: [{ text: s.answer, supportedBy: ["fact-1"] }] }; const piece = await draftFieldForPage({ field: "answer_block", body: bodyOf(s) as never, query: s.q, brief: "", evidenceHints: [], ownedPaths: [], minutes: 1, checked: (name === "unscoped wrong page owner" ? checks : scoped) as never, banked: name === "unscoped wrong page owner" ? [] : [banked!], refusalKey: name }, { tenantId: s.t, now: NOW, refusals: pieceWhy, complete: (async ({ user, kind }: { user: string; kind: string }) => { if (kind === "editor_judgement") return { value: { ...PASS, claims: rule(emitted.claims) } }; writerInputs.push(user); return { value: { ...emitted, units: [{ kind: "paragraph", text: s.answer }] } }; }) as never }); const input = writerInputs.length ? JSON.parse(/^SHARED EVIDENCE PACKET.*?: (.*)$/m.exec(writerInputs[0]!)![1]!) : { evidence: [] }; if (name === "unscoped wrong page owner") expect([COPY_RULES.accepted(piece?.editor), input.evidence.some((f: { id: string }) => f.id === "fact-1")], "a foreign-page finding is rejected by the actual writer even without a banked quotation").toEqual([false, false]); observations.push({ name, accepted: !!read.row?.semanticReview && COPY_RULES.accepted(read.row.semanticReview.editor), calls, next: nextObligation(read.row ?? settled.row!)?.kind ?? null, copyKept: COPY_RULES.recordKey(read.row?.recommendedChange) === COPY_RULES.recordKey(settled.row!.recommendedChange), pieceAccepted: COPY_RULES.accepted(piece?.editor), pieceReason: pieceWhy.get(name) ?? "", servingReasons: staleCopyReasons(read.row ?? settled.row!, new Map([[canonicalUrlKey(s.url), bodyOf(s) as never]]), [], null, false, [], [], undefined, { checked: checks as never, basis: null }), writerHasOldSupport: input.evidence.some((f: { id: string; role: string; text: string }) => f.id === banked!.id && f.role === "claim_support" && f.text === banked!.fact) }); }
     expect(observations, "saved approval and a fresh writer must not grandfather a revoked or differently owned current source; preserve paid copy without another provider call").toEqual(invalidations.map(({ name }) => ({ name, accepted: name === "current support", calls: 0, next: name === "current support" ? null : "evidence", copyKept: true, pieceAccepted: name === "current support", pieceReason: expect.any(String), servingReasons: name === "current support" ? [] : expect.arrayContaining([expect.any(String)]), writerHasOldSupport: name === "current support" }))); });
 });
-describe("the deadline the editor asks before it starts a call", () => {
-  for (const s of SITES) {
-    const draft = { field: "meta", before: "Old line.", after: `${s.lines[0]} ${s.lines[1]}`.slice(0, 150), ...TAIL, placementAnchor: s.h1, naturalHeading: null, measurementTarget: s.q, claims: [{ text: s.lines[0]!, supportedBy: ["page-copy-1"] }] };
-    const drive = async (stopBy: number, jump: number | null) => {
-      bodies.map = new Map([[canonicalUrlKey(s.url), bodyOf(s)]]); facts.rows = [];
-      const c = card(s), kinds: string[] = [], unsettled = new Set<string>(), why = new Map<string, string>();
-      await applyDraftedCopy([c], { tenantId: s.t, snapshot: snapOf(s) as never, now: NOW, stopBy, unsettled, refusals: why,
-        budget: DRAFT_BUDGET.plan({ jobs: [{ key: c.pagePath!, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
-        complete: async ({ kind }: { kind: string }) => { kinds.push(kind); if (jump != null && kinds.length === 1) vi.setSystemTime(jump);
-          return kind === "editor_judgement" ? { value: { ...PASS, claims: rule(draft.claims) } } : { value: draft }; } } as never);
-      return { kinds, unsettled: [...unsettled], why: [...why.values()].join(" ") };
-    };
-    it(`${s.t}: a box that closes while the writer is in flight buys no reading of the words, and the card is owed rather than refused`, async () => {
-      vi.useFakeTimers({ toFake: ["Date"] }); const at = Date.now();
-      const cut = await drive(at + 300_000, at + 600_000); vi.setSystemTime(at); const ran = await drive(at + 600_000, null); vi.useRealTimers();
-      expect([cut.kinds, cut.unsettled.length, cut.why.includes("time box ended before this call could start")], "the writer's call finished and the reading of meaning was never started, so nothing was bought past the box and the card is owed again at its own rank").toEqual([["atomic_edit"], 1, true]);
-      expect([ran.kinds, ran.unsettled], "a box with room ahead of it starts both calls exactly as before").toEqual([["atomic_edit", "editor_judgement"], []]); });
-  }
+it.each(SITES)("$t: writer retries and reviews obey the same allowance and deadline", async (s) => {
+  const draft = { field: "meta", before: "Old line.", after: `${s.lines[0]} ${s.lines[1]}`.slice(0, 150), ...TAIL, placementAnchor: s.h1, naturalHeading: null, measurementTarget: s.q, claims: [{ text: s.lines[0]!, supportedBy: ["page-copy-1"] }] }, at = Date.now();
+  const drive = async (left: number, jump: number | null, failed = false) => {
+    const attempts = { left }, kinds: string[] = [], unsettled = new Set<string>(), why = new Map<string, string>();
+    const row = await draftFieldForPage({ field: "meta", body: bodyOf(s), query: s.q, brief: "Summarize the supported page answer.", evidenceHints: [], ownedPaths: [], minutes: 1 },
+      { tenantId: s.t, now: NOW, attempts, stopBy: at + 300_000, unsettled, refusals: why, complete: async ({ kind }) => {
+        kinds.push(kind); if (jump != null && kinds.length === 1) vi.setSystemTime(jump);
+        return failed ? { error: "synthetic_500", retryable: true, failure: "transient", httpAttempts: 1 } : { value: kind === "editor_judgement" ? { ...PASS, claims: rule(draft.claims) } : draft, httpAttempts: 1 };
+      } });
+    return { row, kinds, left: attempts.left, unsettled: [...unsettled] };
+  };
+  const cut = await drive(2, at + 600_000); vi.setSystemTime(at); const capped = await drive(1, null, true), crossed = await drive(2, at + 600_000, true); vi.setSystemTime(at);
+  expect([cut.kinds, cut.unsettled.length, cut.row?.after]).toEqual([["atomic_edit"], 1, draft.after]);
+  expect([capped.kinds, capped.left, crossed.kinds, crossed.left]).toEqual([["atomic_edit"], 0, ["atomic_edit"], 1]);
+  const bank = new Map<string, LlmCallCacheEntry>(); fix.cache = { read: async (_t, key) => bank.get(key) ?? null, write: async (_t, entry) => { bank.set(entry.key, entry); }, recentTexts: async () => [] };
+  try { const ran = await drive(2, null), replay = await drive(2, null); expect([ran.kinds, ran.left, ran.unsettled, COPY_RULES.accepted(ran.row?.editor), replay.kinds, replay.left, replay.row?.after]).toEqual([["atomic_edit", "editor_judgement"], 0, [], true, [], 2, draft.after]); }
+  finally { fix.cache = null; }
 });
