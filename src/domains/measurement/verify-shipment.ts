@@ -67,7 +67,7 @@ const SITEMAP_PATH = "/sitemap.xml";
 const TEMPLATE_SLOT = /\b(NUMBER|YEAR|SOURCE|TODO|TBD)\b/; // COPY THAT IS STILL A TEMPLATE was applied to nothing: two answer blocks on file read "has a population of NUMBER as of YEAR (SOURCE)", and grading a page against an unfilled slot calls work undone that nobody was ever handed
 
 const norm = (s: string): string => s.normalize("NFKC").toLowerCase().replace(/[‘’“”]/g, "'").replace(/[^\p{L}\p{N}']+/gu, " ").trim();
-const copyText = (s: string): string => s.normalize("NFC").replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, " ").trim();
+const copyText = (s: string): string => loadOwnedPageBodies.publication.text(s);
 /** Opening-word checks are for Google's potentially rewritten display, never copy-delivery proof. */
 const opener = (s: string, words = 12): string => norm(s).split(" ").filter(Boolean).slice(0, words).join(" ");
 const firstLine = (s: string): string => s.split(/\r?\n/).map((l) => l.trim()).find((l) => !!l) ?? "";
@@ -93,11 +93,6 @@ const heldBodies = (urls: string[], tenantId: string): Promise<Map<string, Owned
 /** Visible body structure, metadata and live markup remain distinct evidence. */
 type LiveRead = { snap: PageSnapshot; text: string; opening: string; unrepresented: string; blocks: Array<{ tag: string; text: string; items?: string[]; columns?: string[]; rows?: string[][]; links: Array<{ href: string; text: string }> }>; schema: ReturnType<typeof SCHEMA.read>; markupBlind: boolean; finalUrl: string | null; requestedUrl: string; addressMatches: boolean; sitemap: string | null; blind: boolean };
 
-function publishedTextOf(mainHtml: string): Pick<LiveRead, "text" | "opening" | "blocks" | "unrepresented"> {
-  const $ = load(mainHtml), text = copyText($("body").text()), opening = copyText($("body").clone().find("h1").first().remove().end().text()); // the main text after the headline, which a flat opening answer must start
-  const blocks = $("h1,h2,h3,h4,h5,h6,p,ol,ul,table").filter((_, el) => !$(el).parents("ol,ul,table").length).toArray().map((el) => { const tableRows = el.tagName === "table" ? $(el).find("tr").toArray() : [], cells = (row: typeof tableRows[number]) => $(row).children("th,td").toArray().map((cell) => copyText($(cell).text())), hasHeader = tableRows[0] ? $(tableRows[0]).children("th").length > 0 : false; return { tag: el.tagName, text: copyText($(el).text()), links: $(el).find("a[href]").toArray().map((a) => ({ href: $(a).attr("href")!, text: copyText($(a).text()) })), ...(["ol", "ul"].includes(el.tagName) ? { items: $(el).children("li").toArray().map((li) => copyText($(li).text())) } : {}), ...(el.tagName === "table" ? { columns: hasHeader ? cells(tableRows[0]!) : [], rows: tableRows.slice(hasHeader ? 1 : 0).map(cells) } : {}) }; });
-  return { text, opening, blocks, unrepresented: copyText($("body").clone().find("h1,h2,h3,h4,h5,h6,p,ol,ul,table").remove().end().text()) };
-}
 
 /** A RECORD WITH NO SAVED STRUCTURE IS READ FOR ITS WORDS (2026-09-14): every body shipment before the units cutover and every wording the operator applied by hand carries flat copy only, and contract 5 had made all of them unverifiable for ever. Markdown heading and list markers are stripped from the expected copy, every block of it must be on the page's main content, and a held rendered capture answers from its stored passages; a page that could not be read completely is unknown, never a difference. */
 const flat = (s: string): string => s.normalize("NFKC").toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/\s+/g, " ").trim();
@@ -112,9 +107,7 @@ function wordingMatch(component: VerifiableShipment["components"][number], live:
 }
 function publicationMatch(component: VerifiableShipment["components"][number], live: LiveRead): ReturnType<typeof judged> {
   const units = component.units!, target = component.target!;
-  const matches = (u: typeof units[number], b: LiveRead["blocks"][number]) => u.kind === "heading" ? b.tag === `h${u.level}` && b.text === copyText(u.text) : u.kind === "paragraph" ? b.tag === "p" && b.text === copyText(u.text)
-    : u.kind === "table" ? b.tag === "table" && JSON.stringify([b.columns, b.rows]) === JSON.stringify([u.columns.map(copyText), u.rows.map((row) => row.map(copyText))])
-      : b.tag === (u.kind === "ordered_list" ? "ol" : "ul") && JSON.stringify(b.items) === JSON.stringify(u.items.map(copyText));
+  const matches = loadOwnedPageBodies.publication.matches;
   const starts = live.blocks.flatMap((b, i) => units.every((u, j) => live.blocks[i + j] && matches(u, live.blocks[i + j]!)) ? [i] : []);
   const heading = (b: LiveRead["blocks"][number]) => /^h[1-6]$/.test(b.tag), blocks = live.blocks;
   if (target.mode === "whole_body") { if (live.unrepresented) return judged("unverifiable", "This body contains visible material outside the saved publication-unit vocabulary, so a complete replacement cannot be certified from these blocks alone.", "rendered_content_gap"); const body = blocks.filter((b) => b.tag !== "h1"); return body.length === units.length && units.every((u, i) => matches(u, body[i]!)) ? judged("verified", "The complete replacement body is live in its saved structure; the page headline is outside this change.") : judged("not_verified", "The visible main-content body does not equal the complete saved replacement in its recorded structure.", "not_published_yet"); }
@@ -300,8 +293,8 @@ async function verifyShipmentReading(tenantId: string, shipment: VerifiableShipm
   const heldText = copyText(fresh?.passages.join(" ") ?? ""), heldH1 = copyText(fresh?.h1 ?? "");
   const captured = fresh?.sourceCapture;
   const structured = captured?.complete && fresh?.completeness === "complete" && load(captured.mainHtml).root().text().replace(/\s+/g, " ").trim() === fresh.vocabulary.trim()
-    ? publishedTextOf(captured.mainHtml) : null;
-  const live: LiveRead = { snap: asRead, ...(fresh ? structured ?? { text: heldText, opening: heldH1 && heldText.startsWith(`${heldH1} `) ? heldText.slice(heldH1.length).trim() : heldText, blocks: [], unrepresented: heldText } : publishedTextOf(mainHtml)), schema: SCHEMA.read(structured && captured ? captured.jsonLd.map((block) => `<script type="application/ld+json">${block}</script>`).join("") : res.html), markupBlind: !structured && snap.extraction_certainty === "uncertain", finalUrl: res.finalUrl ?? null, requestedUrl: requested, addressMatches, sitemap: got?.ok ? got.html : null, blind: fresh ? fresh.completeness !== "complete" : snap.extraction_certainty === "uncertain" };
+    ? loadOwnedPageBodies.publication.read(captured.mainHtml) : null;
+  const live: LiveRead = { snap: asRead, ...(fresh ? structured ?? { text: heldText, opening: heldH1 && heldText.startsWith(`${heldH1} `) ? heldText.slice(heldH1.length).trim() : heldText, blocks: [], unrepresented: heldText } : loadOwnedPageBodies.publication.read(mainHtml)), schema: SCHEMA.read(structured && captured ? captured.jsonLd.map((block) => `<script type="application/ld+json">${block}</script>`).join("") : res.html), markupBlind: !structured && snap.extraction_certainty === "uncertain", finalUrl: res.finalUrl ?? null, requestedUrl: requested, addressMatches, sitemap: got?.ok ? got.html : null, blind: fresh ? fresh.completeness !== "complete" : snap.extraction_certainty === "uncertain" };
   const pageOf = (c: VerifiableShipment["components"][number]) => { try { const raw = c.page || requested, site = new URL(requested), host = raw.match(/^(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d+)?(?=[/?#]|$)/i)?.[0]; if (!host) return new URL(raw, requested).toString(); const absolute = new URL(`${site.protocol}//${raw}`); return absolute.host.replace(/^www\./i, "") === site.host.replace(/^www\./i, "") ? new URL(`${absolute.pathname}${absolute.search}${absolute.hash}`, site.origin).toString() : null; } catch { return null; } }, pages = [...new Map(shipment.components.map(pageOf).filter((u): u is string => !!u && canonicalUrlKey(u) !== canonicalUrlKey(requested)).map((u) => [canonicalUrlKey(u), u])).values()];
   const extra = new Map<string, ShipmentVerification>();
   for (const page of pages.slice(0, MAX_VERIFICATIONS_PER_PASS - 1)) if (new URL(page).origin === new URL(requested).origin) extra.set(canonicalUrlKey(page), await verifyShipmentReading(tenantId, { ...shipment, url: page, targetQueries: [], components: shipment.components.filter((c) => !!pageOf(c) && canonicalUrlKey(pageOf(c)!) === canonicalUrlKey(page)) }, deps));

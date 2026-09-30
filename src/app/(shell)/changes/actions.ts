@@ -189,7 +189,8 @@ export async function markProposalImplementedAction(args: {
     }
     if (confirmedVersion(stored) !== args.expectedVersion) return { success: false, error: "This change has been rewritten since you saw it. Open it again and record only the version you applied." };
     if (stored.recommendedChange.kind === "existing_edit" && stored.recommendedChange.linkMode === "in_place" && args.appliedText?.trim()) return { success: false, error: "This link changes only the exact existing words. Remove the different wording before recording it." };
-    if (!operatorUiPolicy.isManualEditProofWork(stored)) return { success: false, error: "Whole-page work is outside the current manual-edit proof, so it cannot be recorded here." };
+    if (args.appliedText?.trim() && (stored.bundle?.components ?? []).some(c => c.kind === "full_rewrite" || c.target?.mode === "whole_body")) return { success: false, error: "Record the complete replacement with its saved publication structure; a text override cannot identify the body you applied." };
+    if (!operatorUiPolicy.isManualEditProofWork(stored)) return { success: false, error: "This page is not a complete publication, so it cannot be recorded here." };
     if (stored.status !== "implemented_pending_verification"
       && actionableProposalFailures(stored, { tenantId, currentBasis: basis }).length > 0) {
       return { success: false, error: "This change was skipped, so it is not being recorded. Open Changes for the work that stands today." };
@@ -276,7 +277,7 @@ export async function markManyImplementedAction(args: { proposals: { id: string;
       const row = guard?.proposal ?? null;
       if (!row) return { id, outcome: "failed", error: "That change could not be found or was rewritten since you selected it." };
       if (confirmedVersion(row) !== wanted.get(id)) return { id, outcome: "failed", error: "This change has been rewritten since you selected it. Open it again before recording." };
-      if (!operatorUiPolicy.isManualEditProofWork(row)) return { id, outcome: "failed", error: "Whole-page work is outside the current manual-edit proof." };
+      if (!operatorUiPolicy.isManualEditProofWork(row)) return { id, outcome: "failed", error: "This page is not a complete publication." };
       if (!operatorUiPolicy.isBulkRecordable(row)) return { id, outcome: "failed", error: "This change has several pieces or needs confirmation, so record it from its own change page." };
       if (row.status !== "implemented_pending_verification" && actionableProposalFailures(row, { tenantId, currentBasis: basis }).length > 0)
         return { id, outcome: "failed", error: "This change was skipped, so it is not being recorded." };
@@ -316,7 +317,7 @@ export async function confirmDangerousChangeAction(args: { proposalId: string; v
     const basis = await resolveCurrentBasis(tenantId).catch(() => null);
     const stored = await loadChangeProposal(tenantId, args.proposalId).catch(() => null);
     if (stored == null) return { success: false, error: "That change could not be found, so nothing was confirmed." };
-    if (!operatorUiPolicy.isManualEditProofWork(stored)) return { success: false, error: "Whole-page work is outside the current manual-edit proof, so it cannot be confirmed here." };
+    if (!operatorUiPolicy.isManualEditProofWork(stored)) return { success: false, error: "This page is not a complete publication, so it cannot be confirmed here." };
     if (stored.status !== "needs_review") return { success: false, error: "This one is not waiting for your confirmation. Open Changes for the work that stands today." };
     if (dangerousComponents(stored.bundle?.components ?? []).length === 0) return { success: false, error: "This one does not move or hide a page, so there is nothing here to confirm. It is being reviewed for another reason." };
     const stale = "This change has been rewritten since that screen was drawn, so your confirmation is not being applied to it. Open it again, read the new version, and confirm that one.";
@@ -343,7 +344,7 @@ export async function reviewDraftAction(args: { proposalId: string; version: str
     const basis = await resolveCurrentBasis(tenantId).catch(() => null);
     const stored = await loadChangeProposal(tenantId, args.proposalId).catch(() => null);
     if (stored == null) return { success: false, error: "That draft could not be found, so nothing was changed." };
-    if (!operatorUiPolicy.isManualEditProofWork(stored)) return { success: false, error: "Whole-page work is outside the current manual-edit proof, so it cannot be reviewed here." };
+    if (!operatorUiPolicy.isManualEditProofWork(stored)) return { success: false, error: "This page is not a complete publication, so it cannot be reviewed here." };
     if (stored.status !== "needs_review") return { success: false, error: "This one is not waiting on your review. Open Changes for the work that stands today." };
     const hold = openHold(stored);
     if (hold.lane === "research") return { success: false, error: "Nothing exact is written for this one yet, so there is no draft to answer. It is being researched and lands in your list as a change once the work is written." };
@@ -373,13 +374,14 @@ export async function reviewDraftAction(args: { proposalId: string; version: str
   }
 }
 
-export async function finishOneProposalAction(args: { prepareNext: true; proposalId?: never; prepare?: never; authorizationId?: never; limitToOneDollar?: true } | { proposalId: string; prepare: true; authorizationId?: string; prepareNext?: false; limitToOneDollar?: true } | { proposalId: string; prepare?: false; authorizationId?: string; prepareNext?: false; limitToOneDollar?: never }): Promise<MarkProposalImplementedResponse> {
+export async function finishOneProposalAction(args: { prepareNext: true; proposalId?: never; prepare?: never; authorizationId?: never; limitToOneDollar?: true; maxTotalUsd?: number } | { proposalId: string; prepare: true; authorizationId?: string; prepareNext?: false; limitToOneDollar?: true; maxTotalUsd?: never } | { proposalId: string; prepare?: false; authorizationId?: string; prepareNext?: false; limitToOneDollar?: never; maxTotalUsd?: never }): Promise<MarkProposalImplementedResponse> {
   if (!(await canPublishForCurrentTenant())) return { success: false, error: "You do not have permission to finish this change." };
+  if ("maxTotalUsd" in args && (args.prepareNext !== true || typeof args.maxTotalUsd !== "number" || !Number.isFinite(args.maxTotalUsd) || args.maxTotalUsd <= 0 || args.maxTotalUsd > (args.limitToOneDollar === true ? 1 : 1.05))) return { success: false, error: "Enter a total request ceiling greater than $0 and no more than $1.05." };
   if (args.prepareNext === true ? "proposalId" in args || "prepare" in args || "authorizationId" in args || "limitToOneDollar" in args && args.limitToOneDollar !== true : !args.proposalId || args.prepareNext !== undefined && args.prepareNext !== false || "limitToOneDollar" in args && (args.prepare !== true || args.limitToOneDollar !== true)) return { success: false, error: "Choose either the next change or one saved change." };
   const tenantId = await currentTenantId();
   try {
     if (args.prepareNext === true) {
-      const result = await atomicProof.prepareNext({ tenantId, currentBasis: await resolveCurrentBasis(tenantId), eligible: operatorUiPolicy.isManualEditProofWork, ...(args.limitToOneDollar === true ? { limitToOneDollar: true as const } : {}) });
+      const result = await atomicProof.prepareNext({ tenantId, currentBasis: await resolveCurrentBasis(tenantId), eligible: operatorUiPolicy.isManualEditProofWork, ...(args.limitToOneDollar === true ? { limitToOneDollar: true as const } : {}), ...(args.maxTotalUsd !== undefined ? { maxTotalUsd: args.maxTotalUsd } : {}) });
       const readySaved = result.readySaved, evidenceOwed = result.run?.progress.evidenceOwed?.length ?? 0;
       const receipt = { readySaved, evidenceOwed, run: result.run ? { id: result.run.id, status: result.run.status } : null, modelRequests: result.meter?.modelCalls ?? 0, reservedUsd: (result.meter?.modelReservedUsd ?? 0) + (result.meter?.externalReservedUsd ?? 0), sourceRequests: result.meter?.externalCalls ?? 0, sourceReservedUsd: result.meter?.externalReservedUsd ?? 0, reason: result.reason };
       const costs = ` Authorized request reservations: $${receipt.reservedUsd.toFixed(4)}; ${receipt.modelRequests} model requests authorized; source-read reservations $${receipt.sourceReservedUsd.toFixed(4)} for ${receipt.sourceRequests} authorized requests.${result.accountedUsd == null ? " Recorded conservative run total (may include unreconciled reservations; not an invoice) is unavailable." : ` Recorded conservative run total (may include unreconciled reservations; not an invoice): $${result.accountedUsd.toFixed(6)}.`}`;

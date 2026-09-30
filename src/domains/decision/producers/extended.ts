@@ -1,18 +1,11 @@
-/**
- * decision/producers/extended: the causes that could name a problem and never write the fix. A page that
- * strands its readers, an engine that read it and cited somebody else, an engine that never found it, two of the account's own pages splitting one search. Each producer below turns ONE of them into the exact
- * components an operator can act on, or into one honest refusal naming what is missing.
- *
- * THE RULES validate-proposal ENFORCES: every component here is outside the seven legacy kinds, so it carries
- * where, objective, mechanism and measurementPlan; a component changing factual content carries a source pack
- * built only from evidence already supplied; a change that moves or hides a page is dangerous; and every
- * component cites the finding's own receipt keys. PURE apart from the drafting calls handed in on the context.
+/** Cause-earned producers retain their receipt keys, exact publication structure and checked source packs.
+ * Destructive changes carry explicit preservation and risk; all copy uses the caller's canonical drafter.
  */
 
 import { topicTokens } from "@/domains/evidence/relevance-gate"; import { pageHashOf } from "@/domains/evidence/pages/fact-check-run";
 import { authorizedCorrections, readFactChecks } from "@/domains/evidence/pages/fact-checks";
 import { claimTypeOf, supportFailure } from "@/domains/evidence/pages/claim-support";
-import { classifyResult } from "@/domains/evidence/serp-shape"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
+import { classifyResult } from "@/domains/evidence/serp-shape"; import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { ChangeProposal } from "../contracts"; import { COPY_RULES } from "../copy-sanitize"; import { createHash } from "node:crypto"; import { canonicalUrlKey } from "@/domains/evidence/relevance-gate";
 import type { CauseFinding } from "../diagnosis"; import { RECEIPT } from "../diagnose";
 import { effortMinutesFor } from "./contract"; import type { Produced, Producer, ProducerCtx } from "./contract";
@@ -330,8 +323,8 @@ export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes:
   if (!keys) return refuse(NO_EVIDENCE);
   const structural = [...new Set(causes)].filter((c) => STRUCTURAL.has(c));
   if (structural.length < MIN_STRUCTURAL_CAUSES) return refuse("Only one thing about this page is wrong at the level a rebuild fixes, so rebuilding it is a bigger swing than the evidence pays for. Make that one change first and the page gets read again.");
-  if (!ctx.body || ctx.body.completeness !== "complete" || ctx.body.version !== "current" || !ctx.body.passages.join(" ").trim()) return { ...refuse("A whole-body replacement needs the complete current original page before any drafting; banked work stays intact."), requirement: { kind: "page_source", query: ctx.primary, url: ctx.page.url, reasonCode: "page_source_owed" } };
-  if (!ctx.draft.compose) return refuse("The drafting path cannot retain the exact publication structure and source receipts of a complete replacement, so no rewrite is bought.");
+  if (!ctx.body || ctx.body.completeness !== "complete" || ctx.body.version !== "current" || !COPY_RULES.captureProof(ctx.body).some(c => c.tenantId === ctx.tenantId) || !ctx.body.passages.join(" ").trim()) return { ...refuse("A whole-body replacement needs the complete current original page before any drafting; banked work stays intact."), requirement: { kind: "page_source", query: ctx.primary, url: ctx.page.url, reasonCode: "page_source_owed" } };
+  if (ctx.body.sourceCapture?.mainHtml && loadOwnedPageBodies.publication.read(ctx.body.sourceCapture.mainHtml).unrepresented) return refuse("The original body has visible material outside the replacement publication units; retain it through a smaller edit instead."); if (!ctx.draft.compose) return refuse("The drafting path cannot retain the exact publication structure and source receipts of a complete replacement, so no rewrite is bought.");
   const pattern = ctx.pattern;
   const headings = [...new Set((pattern?.commonHeadings ?? []).map((h) => h.heading.trim()).filter((h) => h.length > 0))];
   const questions = [...new Set((pattern?.brief?.deltas ?? []).filter((delta) => delta.dimension === "questions" && delta.sources.length > 0).map((delta) => delta.need.trim()).filter((q) => q.length > 0))];

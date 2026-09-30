@@ -35,13 +35,11 @@ function isDangerousComponent(c: BundleComponent): boolean {
     || (c.kind === "factual_correction" && HIGH_STAKES_CLAIM.test(`${c.before ?? ""} ${c.after}`));
 }
 
-/** The operator queue serves implementable existing edits and complete new pages. One predicate guards
- * presentation and action doors, including older unsafe whole-body rows. */
 function isManualEditProofWork(p: ChangeProposal): boolean {
   if (p.kind === "new_page") return p.researchOnly !== true && p.recommendedChange.kind === "new_page" && !!p.bundle && p.bundle.components.filter(c => c.kind === "section").length === p.recommendedChange.outline.length;
-  if (p.recommendedChange.kind === "new_page" || p.changeFamily === "full_rewrite") return false;
-  if (p.recommendedChange.target?.mode === "whole_body") return false;
-  return !(p.bundle?.components ?? []).some((c) => c.kind === "new_page" || c.kind === "full_rewrite" || c.target?.mode === "whole_body");
+  if (p.recommendedChange.kind === "new_page") return false;
+  const change = p.recommendedChange, parts = p.bundle?.components ?? [], whole = p.changeFamily === "full_rewrite" || p.recommendedChange.target?.mode === "whole_body" || parts.some(c => c.kind === "full_rewrite" || c.target?.mode === "whole_body");
+  return !parts.some(c => c.kind === "new_page") && (!whole || p.researchOnly !== true && p.recommendedChange.target?.mode === "whole_body" && parts.some(c => c.kind === "full_rewrite" && c.before === change.before && c.after === change.after && JSON.stringify(c.units) === JSON.stringify(change.units)) && parts.filter(c => c.kind === "full_rewrite" || c.target?.mode === "whole_body").length === 1 && parts.filter(c => c.kind === "full_rewrite" || c.target?.mode === "whole_body").every(c => c.kind === "full_rewrite" && !!c.before?.trim() && !!c.after.trim() && !!c.units?.length && c.target?.mode === "whole_body"));
 }
 
 function isMetaPredecessor(p: ChangeProposal): boolean {
@@ -49,12 +47,11 @@ function isMetaPredecessor(p: ChangeProposal): boolean {
     && p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "meta" && !!p.recommendedChange.before?.trim() && !p.bundle && !p.approval && !p.confirmedVersion;
 }
 
-/** Bulk recording carries no per-piece selection or destructive confirmation. It is therefore valid only
- * for one nondestructive existing-page deliverable; every bundle is recorded from its own detail. */
+/** Bulk recording excludes whole-body replacement and deliberate destructive confirmation. */
 function isBulkRecordable(p: ChangeProposal): boolean {
   if (!isManualEditProofWork(p) || p.kind !== "existing_edit" || p.recommendedChange.kind !== "existing_edit") return false;
   const components = p.bundle?.components ?? [];
-  return components.length <= 1 && !components.some(isDangerousComponent);
+  return p.changeFamily !== "full_rewrite" && p.recommendedChange.target?.mode !== "whole_body" && components.length <= 1 && !components.some(c => isDangerousComponent(c) || c.kind === "full_rewrite" || c.target?.mode === "whole_body");
 }
 
 /** Publication copy is allowlisted. Structural steps and any future/unknown kind fail closed as instructions. */

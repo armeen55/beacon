@@ -229,7 +229,7 @@ export function unreviewed(p: ChangeProposal, publication?: readonly BundleCompo
   const needsEditor = p.assignment != null || p.kind === "new_page" || p.changeFamily !== "factual_correction" && p.recommendedChange.kind === "existing_edit" && /^(answer_block|section)$/.test(p.recommendedChange.field) && !(p.recommendedChange.linkTo && !claims.some((c) => c.supportedBy.some((id) => id.startsWith("fact-")))) /* a link whose claims cite only the destination's own words (page and owned-page ids) asserts nothing about the world and owes no editor reading; a linked section that states a checked fact does (audit, 2026-09-14) */
     || (p.bundle?.components ?? []).some((part) => SUBSTANTIVE.has(part.kind) && !/^(paragraph_correction|factual_correction)$/.test(part.kind))
     || [...(p.faults ?? []), ...p.limitations].some(COPY_RULES.supersededEditorFinding);
-  if (needsEditor && (claims.length === 0 || !COPY_RULES.accepted(r?.editor) || !reviewFits(p, r?.of) || p.kind === "new_page" && r?.scope !== "whole_page")) return COPY_RULES.reviewHolds.acceptance;
+  if (needsEditor && (claims.length === 0 || !COPY_RULES.accepted(r?.editor) || !reviewFits(p, r?.of) || (p.kind === "new_page" || p.changeFamily === "full_rewrite" || (p.bundle?.components ?? []).some(part => part.kind === "full_rewrite" || part.target?.mode === "whole_body")) && r?.scope !== "whole_page")) return COPY_RULES.reviewHolds.acceptance;
   if (needsEditor && r?.version !== REVIEW_CONTRACT) return COPY_RULES.reviewHolds.contract;
   if (!(needsEditor || p.changeFamily === "factual_correction" || p.informationGain || claims.some((c) => c.supportedBy.some((id) => id.startsWith("fact-"))))) return null;
   if (!r || !reviewFits(p, r.of)) return COPY_RULES.reviewHolds.support;

@@ -197,3 +197,13 @@ export async function loadOwnedPageBodies(tenantId: string, urls: string[], miss
   if (misses) for (const key of wanted) if (!out.has(key)) misses.set(key, failed.has(key) ? "read_failed" : "no_capture");
   return out;
 }
+
+const copyText = (s: string): string => s.normalize("NFC").replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, " ").trim();
+function publicationRead(mainHtml: string) {
+  const $ = load(mainHtml), text = copyText($("body").text()), opening = copyText($("body").clone().find("h1").first().remove().end().text()); // the main text after the headline, which a flat opening answer must start
+  const blocks = $("h1,h2,h3,h4,h5,h6,p,ol,ul,table").filter((_, el) => !$(el).parents("ol,ul,table").length).toArray().map((el) => { const tableRows = el.tagName === "table" ? $(el).find("tr").toArray() : [], cells = (row: typeof tableRows[number]) => $(row).children("th,td").toArray().map((cell) => copyText($(cell).text())), hasHeader = tableRows[0] ? $(tableRows[0]).children("th").length > 0 : false; return { tag: el.tagName, text: copyText($(el).text()), links: $(el).find("a[href]").toArray().map((a) => ({ href: $(a).attr("href")!, text: copyText($(a).text()) })), ...(["ol", "ul"].includes(el.tagName) ? { items: $(el).children("li").toArray().map((li) => copyText($(li).text())) } : {}), ...(el.tagName === "table" ? { columns: hasHeader ? cells(tableRows[0]!) : [], rows: tableRows.slice(hasHeader ? 1 : 0).map(cells) } : {}) }; });
+  return { text, opening, blocks, unrepresented: copyText($("body").clone().find("h1,h2,h3,h4,h5,h6,p,ol,ul,table").remove().end().text()) || ($("img,video,audio,iframe,svg,canvas").length ? "Visible media has no saved publication unit." : "") };
+}
+loadOwnedPageBodies.publication = { read: publicationRead, text: copyText, matches: (u: { kind: string; text?: string; level?: number; items?: readonly string[]; columns?: readonly string[]; rows?: readonly (readonly string[])[] }, b: ReturnType<typeof publicationRead>["blocks"][number]) => u.kind === "heading" ? b.tag === `h${u.level}` && b.text === copyText(u.text ?? "") : u.kind === "paragraph" ? b.tag === "p" && b.text === copyText(u.text ?? "")
+  : u.kind === "table" ? b.tag === "table" && JSON.stringify([b.columns, b.rows]) === JSON.stringify([u.columns?.map(copyText), u.rows?.map(row => row.map(copyText))])
+    : (u.kind === "ordered_list" || u.kind === "unordered_list") && b.tag === (u.kind === "ordered_list" ? "ol" : "ul") && JSON.stringify(b.items) === JSON.stringify(u.items?.map(copyText)) };

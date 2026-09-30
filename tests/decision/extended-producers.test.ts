@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { DANGEROUS_COMPONENT_KINDS as DECISION_DANGEROUS, PublicationUnitsSchema, type BundleComponent, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
 import { DANGEROUS_COMPONENT_KINDS as MEASUREMENT_DANGEROUS } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import type { CauseFinding } from "@/domains/decision/diagnosis"; import { effortMinutesFor, fieldForComponent, type Produced, type ProducerCtx } from "@/domains/decision/producers/contract";
@@ -47,10 +47,10 @@ const duplicate = "Rain barrels catch what runs off a roof.", capture = { versio
 const BODIES = new Map([["fixture-content.example/rain-barrels", { ...ctxOf().body!, title: "Rain barrel sizing guide", h1: "Rain barrel sizing guide", completeness: "complete" as const, version: "current" as const, passages: [duplicate], answerPassages: [duplicate], internalLinks: [], sourceCapture: capture }],
   [OTHER_KEY, { ...ctxOf().body!, url: OTHER_URL, title: "Barrel sizes guide", h1: "Barrel sizes guide", headings: ["Barrel sizes"], completeness: "complete" as const, version: "current" as const, passages: [duplicate], answerPassages: [duplicate], internalLinks: [], sourceCapture: capture }]]);
 const OPENING = "Rain barrel sizing comes down to roof area and how much rain one storm brings.";
-const wholeCtx = (over: Partial<ProducerCtx> = {}): ProducerCtx => ctxOf({ body: { ...ctxOf().body!, completeness: "complete", version: "current" }, ...over });
+const wholeCtx = (over: Partial<ProducerCtx> = {}): ProducerCtx => ctxOf({ body: { ...ctxOf().body!, tenantId: TENANT, finalUrl: PAGE_URL, pageId: PAGE_URL, captureId: PAGE_URL, latestCaptureId: PAGE_URL, captureVersion: 1, sourceCapture: { version: 1, complete: true, mainHtml: `<main><p>${ctxOf().body!.passages.join(" ")}</p></main>`, jsonLd: [] }, fetchedAt: NOW.toISOString(), completeness: "complete", version: "current" }, ...over });
 it("binds each full-rewrite task to exact current page material before a paid writer", async () => {
   const ctx = wholeCtx({ body: { ...ctxOf().body!, tenantId: TENANT, finalUrl: PAGE_URL, pageId: PAGE_URL, captureId: PAGE_URL, latestCaptureId: PAGE_URL, captureVersion: 1, completeness: "complete", version: "current", fetchedAt: "2026-07-25T00:00:00.000Z", sourceCapture: { version: 1, complete: true, mainHtml: "<main><h1>Rain Barrels</h1><p>Rain barrels catch what runs off a roof.</p></main>", jsonLd: [] } } }), assigned: NonNullable<ChangeProposal["assignment"]>[] = []; await produceFullRewriteRecommendation({ ...ctx, draft: { ...whole(), section: async input => { assigned.push(input.assignment!); return null; } } }, ["weak_opening", "incomplete_coverage"]);
-  expect(assigned).toHaveLength(1); expect(assigned[0]?.atomBindings?.[0]?.evidenceId).toBe("page-title"); expect(assigned[0]?.pageHash).toBe(pageHashOf([ctx.body!.title, ctx.body!.h1, ...ctx.body!.headings, ...ctx.body!.passages].filter(Boolean).join("\n")));
+  const mediaDraft = vi.fn(async () => null); for (const asset of ['<img src="/material-diagram.png" alt="Rain collection diagram">', '<video src="/explanation.mp4"></video>']) { const media = await produceFullRewriteRecommendation({ ...ctx, body: { ...ctx.body!, sourceCapture: { ...ctx.body!.sourceCapture!, mainHtml: ctx.body!.sourceCapture!.mainHtml + asset } }, draft: { ...whole(), section: mediaDraft } }, ["weak_opening", "incomplete_coverage"]); expect(media.components).toEqual([]); } expect(mediaDraft).not.toHaveBeenCalled(); expect(assigned).toHaveLength(1); expect(assigned[0]?.atomBindings?.[0]?.evidenceId).toBe("page-title"); expect(assigned[0]?.pageHash).toBe(pageHashOf([ctx.body!.title, ctx.body!.h1, ...ctx.body!.headings, ...ctx.body!.passages].filter(Boolean).join("\n")));
   const tryBody = async (passages: string[]) => { let calls = 0; await draftFieldForPage({ field: "answer_block", body: { ...ctx.body!, passages }, query: QUERY, brief: "answer", evidenceHints: [], ownedPaths: [], minutes: 1, assignment: assigned[0] }, { tenantId: TENANT, now: NOW, complete: (async () => { calls++; return { error: "test stop", retryable: false }; }) as never }); return calls; };
   expect(await tryBody(ctx.body!.passages)).toBeGreaterThan(0); expect(await tryBody(["A different page now discusses only parking lots."])).toBe(0);
 });
@@ -62,7 +62,7 @@ const bundleOf = (components: BundleComponent[]): ChangeBundle => ({ objective: 
   metric: "Clicks over 28 days.", scope: { queries: [QUERY], prompts: [] }, components, alternatives: [], risks: [], confidenceReasons: [],
   receipt: { items: [...KEYS.map((key) => ({ key, kind: "gsc_demand" as const, fact: FACTS[0]!, observedAt: null })), ...COVERS], missing: [], freshestObservedAt: null },
   measurementPlan: "I will read clicks, views and average position at 7, 14 and 28 days." });
-const NOW = new Date("2026-07-25T00:00:00.000Z");
+const NOW = new Date("2026-07-25T00:00:00.000Z"); beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(NOW); }); afterEach(() => vi.useRealTimers());
 const OUTLINE = ["How much rain a roof collects", "Barrel sizes"];
 const RECEIPT_ONLY = [...FACTS, ...OUTLINE, "Rain Barrels"].join(" ");
 const GATE_OPTS = { pageBodyText: "Rain barrels catch what runs off a roof.", now: NOW,

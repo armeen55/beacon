@@ -98,9 +98,9 @@ export default async function ChangeDetailPage({
 
 function OutsideProofDetail() {
   return <div className="max-w-3xl"><section className="space-y-2 rounded-2xl border border-border bg-surface-raised p-5" data-outside-manual-proof="true">
-    <h2 className="text-[14px] font-semibold text-foreground">Kept for the later whole-page phase</h2>
-    <p className="text-[13px] leading-relaxed text-muted-foreground">The current proof is existing-page manual edits only. This whole-page opportunity stays on file, but it cannot be copied, confirmed, skipped, or marked done from Today or Changes.</p>
-    <Link href="/changes" className="inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2">Back to existing-page edits</Link>
+    <h2 className="text-[14px] font-semibold text-foreground">This page is still being completed</h2>
+    <p className="text-[13px] leading-relaxed text-muted-foreground">The saved draft stays on file while Beacon completes its copy, structure and checks. It becomes actionable when the entire publication is ready.</p>
+    <Link href="/changes" className="inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2">Back to Changes</Link>
   </section></div>;
 }
 

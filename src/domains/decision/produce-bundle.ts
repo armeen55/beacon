@@ -210,7 +210,7 @@ type ProduceBundleOptions = ProposeOptions & {
   technical?: readonly TechnicalFinding[];
   /** The account's own banned vocabulary, read once by the caller: no editor here writes a word this account does not publish. */ bannedTerms?: readonly string[];
   /** THE BASIS THIS PASS WORKS UNDER, so the page's checked readings are authorized against it exactly as the atomic editor authorizes them (journey review, 2026-09-06). */ basis?: string | null;
-  /** THE PASS'S SHARED ATTEMPT BUDGET (decision/drafted-copy). Every charged call any editor here makes comes off it, failures included. Absent = a bundle produced outside a pass, which spends against the money caps alone. */ attempts?: { left: number }; held?: ChangeProposal;
+  /** THE PASS'S SHARED ATTEMPT BUDGET (decision/drafted-copy). Every charged call any editor here makes comes off it, failures included. Absent = a bundle produced outside a pass, which spends against the money caps alone. */ attempts?: { left: number }; stopBy?: number; held?: ChangeProposal;
 };
 
 /** The door contract, structurally satisfied by a DeepCandidate. Only what this file has to check. */
@@ -262,7 +262,7 @@ const oneComponent = (c: BundleComponent, items: readonly BundleEvidenceItem[]):
 type AuthorizedPiece = NonNullable<Awaited<ReturnType<typeof draftFieldForPage>>>;
 /** THE DRAFTERS a producer may buy, wired once for the same firewall, budget, cache and fail-closed posture. THE SUBSTANTIVE ONES ARE THE ONE CANONICAL EDITOR (2026-08-30): a bundle's sections and openings used to come from a second drafter that declared no claim, named no evidence id and was read for sense by nobody, so the only thing behind a paragraph on a customer's page was a receipt saying why the WORK was chosen. They go through the same drafter, deterministic contract, evaluator and per-claim ruling as every other word Beacon writes, and each piece's authorization is kept under its own exact copy so no piece can borrow another's. */
 function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date, ownedPaths: readonly string[], held: OwnedPageBody | null, siblings: ReadonlyMap<string, OwnedPageBody>, authed: Map<string, AuthorizedPiece>, checked: readonly FactCheck[], compared: JobComparison | null): ProducerDraft {
-  let pending = false; const editor = { tenantId, now, complete: opts.complete, bypassCache: opts.bypassCache, ...(opts.attempts ? { attempts: opts.attempts } : {}), ...(opts.bannedTerms ? { bannedTerms: opts.bannedTerms } : {}) };
+  let pending = false; const editor = { tenantId, now, stopBy: opts.stopBy, complete: opts.complete, bypassCache: opts.bypassCache, ...(opts.attempts ? { attempts: opts.attempts } : {}), ...(opts.bannedTerms ? { bannedTerms: opts.bannedTerms } : {}) };
   // THE OTHER PAGES OF THIS ACCOUNT, under the one id a claim may cite: what a page cannot say about itself is what a sibling page carries, and it is the one route to information gain that costs nothing to read.
   const facts = [...siblings.values()].filter((b) => held == null || canonicalUrlKey(b.url) !== canonicalUrlKey(held.url)).flatMap((b) => (b.passages ?? []).slice(0, 2).map((text) => ({ fact: `${pathOf(b.url)}: ${text}`, sources: [{ url: b.url, kind: "owner" }] }))).slice(0, 6).map((fact, i) => ({ id: `owned-page-${i + 1}`, ...fact }));
   const address = (heading: string | null, after: string, assignment?: ChangeProposal["assignment"]): string => assignment ? JSON.stringify([heading, after, COPY_RULES.recordKey(assignment)]) : heading == null ? after : `${heading}\n\n${after}`;
@@ -386,7 +386,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     if (!held || !COPY_RULES.captureProof(held, now.getTime()).some(c => c.tenantId === tenantId)) return { status: "none", reason: COPY_RULES.pageState.capture };
     // Summary copy uses the same observed capture, allowance and review contract as body copy.
     const draft = await draftFieldForPage({ field: "title", body: held, query: primary, brief: diagnosis.explanation, evidenceHints: facts, ownedPaths: snapshot.ownedPages.map(p => pathOf(p.url)), minutes: 5, checked, basis: opts.basis ?? null },
-      { tenantId, now, complete: opts.complete, bypassCache: opts.bypassCache, attempts: opts.attempts, bannedTerms: opts.bannedTerms });
+      { tenantId, now, stopBy: opts.stopBy, complete: opts.complete, bypassCache: opts.bypassCache, attempts: opts.attempts, bannedTerms: opts.bannedTerms });
     if (draft) { authed.set(draft.after, draft); keep({ kind: "title", label: "Page title", before: draft.before, after: draft.after, evidenceKeys: diagnosis.evidenceKeys, risk: COPY_RULES.accepted(draft.editor) ? "safe" : "review" },
       { kind: "existing_edit", field: "title", before: draft.before, after: draft.after }); }
     if (components.length === 0) return { status: "none", reason: "No title for this page passed its own checks, so nothing is handed over rather than filler." };

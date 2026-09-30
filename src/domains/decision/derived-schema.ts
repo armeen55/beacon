@@ -19,7 +19,6 @@ const samePairs = (a: readonly Pair[], b: readonly Pair[]): boolean => a.length 
 const unitText = (part: BundleComponent): string => normalize((part.units ?? []).filter((u) => u.kind !== "heading")
   .flatMap((u) => u.kind === "paragraph" ? [u.text] : "items" in u ? u.items : []).join(" "));
 
-/** The same visible heading-question shape the crawler recognizes, over exact publication units. */
 function pairsFromUnits(part: BundleComponent): Pair[] | null {
   const out: Pair[] = []; let question: { text: string; level: number; answer: string[] } | null = null;
   const finish = (): void => { if (!question) return; const answer = normalize(question.answer.join(" ")); if (answer) out.push({ question: question.text, answer }); question = null; };
@@ -81,28 +80,30 @@ function asBundle(proposal: ChangeProposal): ChangeProposal | null {
       receipt: { items: receipt, missing: [], freshestObservedAt: null }, alternatives: [], risks: [...proposal.limitations], confidenceReasons: [], measurementPlan: "Read the page after manual implementation, then measure the recorded change at 7, 14 and 28 days." } };
 }
 
-/** Attach FAQPage markup only when exact finished visible copy changes exact complete visible FAQ pairs. New pages are deliberately excluded during the edits-only proof. */
+/** Attach FAQPage markup only when exact finished visible copy changes exact complete visible FAQ pairs. */
 function withDerivedFaqSchema(proposal: ChangeProposal, body: OwnedPageBody | null | undefined): ChangeProposal {
-  if (proposal.kind === "new_page" || proposal.recommendedChange.kind === "new_page" || !body || proposal.bundle?.components.some((part) => part.kind === "schema")) return proposal;
+  if (proposal.kind === "new_page" || proposal.recommendedChange.kind === "new_page" || !body) return proposal;
   if (body.version !== "current" || body.completeness !== "complete" || !body.contentHash || body.sourceCapture?.complete !== true || !proposal.pageUrl || canonicalUrlKey(body.url) !== canonicalUrlKey(proposal.pageUrl)) return proposal;
   const current = body.faqs.filter((pair) => pair.answerComplete === true).map(({ question, answer }) => ({ question: normalize(question), answer: normalize(answer) }));
   const bundled = asBundle(proposal); if (!bundled?.bundle) return proposal;
-  const projected = projectedPairs(current, bundled.bundle.components); if (!projected || projected.dependsOn.length === 0) return proposal;
-  const blocks = body.sourceCapture.jsonLd.map((raw) => ({ raw, graph: SCHEMA.read(raw) })).filter(({ graph }) => graph.nodes.some((node) => SCHEMA.types(node).includes("FAQPage")));
-  if (blocks.length > 1) return proposal;
+  const blocks = (body.sourceCapture.jsonLd ?? []).map((raw) => ({ raw, graph: SCHEMA.read(raw) })).filter(({ graph }) => graph.nodes.some((node) => SCHEMA.types(node).includes("FAQPage"))), provided = bundled.bundle.components.filter(part => part.kind === "schema" && (part.derivation?.rule === "visible_faq_pairs_v1" || [part.before ?? "", part.after].some(raw => SCHEMA.read(raw).nodes.some(node => SCHEMA.types(node).includes("FAQPage")))));
+  const whole = bundled.bundle.components.some(part => part.kind === "full_rewrite" || part.target?.mode === "whole_body"), hold = (): ChangeProposal => whole ? { ...proposal, status: "needs_review", semanticReview: undefined, faults: [...new Set([...(proposal.faults ?? []), "The replacement changes visible FAQs but their retained structured data cannot be reconciled."])], obligation: { kind: "redraft", attempt: 1, instruction: "Retain the current complete FAQ pairs in this replacement, or resolve their exact linked structured-data change before publication." } } : proposal;
+  const projected = projectedPairs(current, bundled.bundle.components); if (!projected) return blocks.length || provided.length ? hold() : proposal; if (whole && provided.length && (provided.length !== 1 || blocks.length > 1 || provided.some(part => part.before !== (blocks[0]?.raw ?? null) || samePairs(blocks[0] ? SCHEMA.pairs(blocks[0].graph) : [], projected.pairs) && part.after !== part.before || !samePairs(SCHEMA.pairs(SCHEMA.read(part.after)), projected.pairs) || SCHEMA.read(part.after).nodes.filter(node => SCHEMA.types(node).includes("FAQPage")).length > 1))) return hold(); if (projected.dependsOn.length === 0 && whole && blocks.some(block => !samePairs(SCHEMA.pairs(block.graph), projected.pairs))) projected.dependsOn.push(bundled.bundle.components.findIndex(part => part.kind === "full_rewrite" || part.target?.mode === "whole_body")); if (projected.dependsOn.length === 0) return proposal;
+  if (blocks.length > 1) return hold();
   const existing = blocks[0], held = existing ? SCHEMA.pairs(existing.graph) : [];
   if (samePairs(held, projected.pairs)) return proposal;
   let operation: "add" | "replace" | "remove", after: string;
   if (!existing) { if (!projected.pairs.length) return proposal; operation = "add"; after = JSON.stringify(faqNode(projected.pairs), null, 2); }
-  else if (!projected.pairs.length) { if (!directFaq(existing.raw)) return proposal; operation = "remove"; after = ""; }
-  else { const rewritten = SCHEMA.rewriteFaq(existing.raw, projected.pairs), direct = directFaq(existing.raw); if (!rewritten && !direct) return proposal; operation = "replace";
-    after = rewritten ?? JSON.stringify({ ...direct!, mainEntity: faqNode(projected.pairs).mainEntity }, null, 2); }
+  else if (!projected.pairs.length) { if (!directFaq(existing.raw)) return hold(); operation = "remove"; after = ""; }
+  else { const rewritten = SCHEMA.rewriteFaq(existing.raw, projected.pairs), direct = directFaq(existing.raw), exact = rewritten && samePairs(SCHEMA.pairs(SCHEMA.read(rewritten)), projected.pairs) ? rewritten : null; if (!exact && !direct) return hold(); operation = "replace";
+    after = exact ?? JSON.stringify({ ...direct!, mainEntity: faqNode(projected.pairs).mainEntity }, null, 2); }
   const dependencies = projected.dependsOn.map((index) => ({ componentId: componentIdOf(bundled.bundle!.components[index]!, index), revision: componentRevisionOf(bundled.bundle!.components[index]!) }));
   const pageKey = canonicalUrlKey(proposal.pageUrl), schemaHash = sha([...body.sourceCapture.jsonLd].sort()), baseFaqHash = visibleFaqHash(current), projectedHash = visibleFaqHash(projected.pairs);
   const evidenceKeys = [...new Set(projected.dependsOn.flatMap((index) => bundled.bundle!.components[index]!.evidenceKeys))]; if (!evidenceKeys.length) return proposal;
   const schema: BundleComponent = { kind: "schema", label: operation === "remove" ? "Remove the outdated FAQ structured data" : "FAQ structured data", before: existing?.raw ?? null, after, evidenceKeys, risk: "safe",
     where: "In this page's own JSON-LD in the page head.", objective: "Keep the page's FAQ structured data identical to its visible questions and answers.", mechanism: "The block is derived from the exact visible FAQ copy in this same change.", measurementPlan: "Read the live visible FAQ pairs and JSON-LD together after publication.",
     derivation: { rule: "visible_faq_pairs_v1", operation, source: { pageKey, contentHash: body.contentHash, schemaHash, visibleFaqHash: baseFaqHash, captureRevision: sha([pageKey, body.contentHash, schemaHash, baseFaqHash]) }, dependsOn: dependencies, projectedVisibleFaqHash: projectedHash } };
+  if (provided.length) return whole && (provided.length !== 1 || !provided.every(part => part.before === schema.before && part.after === schema.after && stable(part.derivation) === stable(schema.derivation))) ? hold() : proposal;
   return { ...bundled, id: bundled.id.endsWith("::faq-sync-v1") ? bundled.id : `${bundled.id}::faq-sync-v1`, bundle: { ...bundled.bundle, components: [...bundled.bundle.components, schema] } };
 }
 export default withDerivedFaqSchema;

@@ -65,7 +65,7 @@ export type FunnelDeps = {
    *  read of my own pages writes, so a body acquired here is the body Decision reads back. */
   writeOwnedPage?: (snapshot: PageSnapshot, tenantId: string) => Promise<void>;
   /** THE canonical read back of that same row, so a body I already hold is never re-fetched from the customer's website. */
-  readOwnedBodies?: typeof loadOwnedPageBodies;
+  readOwnedBodies?: (...args: Parameters<typeof loadOwnedPageBodies>) => ReturnType<typeof loadOwnedPageBodies>;
   /** Durable negative receipt, scoped to one owned page and observed source revision. A failed read must throw before any paid fallback. */
   readIncompleteAttempt?: (tenantId: string, pageId: string, sourceRevision: string, revision: string) => Promise<(NonNullable<NonNullable<PageSnapshot["content_capture"]>["renderedAttempt"]> & { fetchedAt: string }) | null>;
   keywordIdeas?: (seeds: string[], ids: { tenantId: string; unitKey: string }) => Promise<CachedCallResult[]>;

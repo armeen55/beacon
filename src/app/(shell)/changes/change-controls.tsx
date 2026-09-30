@@ -142,7 +142,7 @@ export function CopyButton({ text, units, link = null, label, onToast }: { text:
 export function SetAsideChange({ proposalId = "", finishable = false, prepare = false, prepareNext = false, displayedVersion, historyOnly = false, onFinished }: { proposalId?: string; finishable?: boolean; prepare?: boolean; prepareNext?: boolean; displayedVersion?: string; historyOnly?: boolean; onFinished?: () => void }) {
   const [pending, startTransition] = useTransition();
   const [limitToOne, setLimitToOne] = useState(false);
-  const [state, setState] = useState<{ done: boolean; asked: boolean; finished: string | null; error: string | null }>({ done: false, asked: false, finished: null, error: null });
+  const [state, setState] = useState<{ done: boolean; asked: boolean; finished: string | null; error: string | null; maxTotalUsd: string }>({ done: false, asked: false, finished: null, error: null, maxTotalUsd: "1.05" });
 
   const [receipt, setReceipt] = useState<{ proposalId: string; displayedVersion: string; message: string; success: boolean } | null>(null);
   useEffect(() => {
@@ -162,9 +162,9 @@ export function SetAsideChange({ proposalId = "", finishable = false, prepare = 
   if (!state.asked) {
     return (
       <div className="flex flex-wrap items-center gap-3">
-        {finishable ? <button type="button" disabled={pending} data-finish-one="true"
+        {finishable ? <button type="button" disabled={pending || prepareNext && (!Number.isFinite(Number(state.maxTotalUsd)) || Number(state.maxTotalUsd) <= 0 || Number(state.maxTotalUsd) > 1.05)} data-finish-one="true"
           onClick={() => { const authorizationId = prepare && !prepareNext ? crypto.randomUUID() : undefined;
-            startTransition(async () => { const res = await finishOneProposalAction(prepareNext ? { prepareNext: true, ...(limitToOne ? { limitToOneDollar: true as const } : {}) } : prepare ? { proposalId, prepare: true, authorizationId, ...(limitToOne ? { limitToOneDollar: true as const } : {}) } : { proposalId }).catch(() => null);
+            startTransition(async () => { const res = await finishOneProposalAction(prepareNext ? { prepareNext: true, maxTotalUsd: Number(state.maxTotalUsd) } : prepare ? { proposalId, prepare: true, authorizationId, ...(limitToOne ? { limitToOneDollar: true as const } : {}) } : { proposalId }).catch(() => null);
             const message = res?.success ? res.note ?? "Finished. This change is ready to copy." : res?.error ?? (prepareNext ? "No finished change was confirmed. Saved work remains intact." : "This change could not be finished just now.");
             if (proposalId && displayedVersion) { try { window.sessionStorage.setItem(`beacon.finish-one.${proposalId}`, JSON.stringify({ proposalId, displayedVersion, message, success: res?.success === true })); window.dispatchEvent(new window.Event("beacon-finish-result")); } catch { /* The current response remains visible when browser storage is unavailable. */ } }
             if (res?.success) onFinished?.();
@@ -172,8 +172,8 @@ export function SetAsideChange({ proposalId = "", finishable = false, prepare = 
           className="min-h-11 rounded-md bg-accent-primary px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-60">
           {pending ? "Preparing the change…" : prepareNext ? "Prepare next change" : prepare ? "Prepare best edit on this page" : "Finish this one"}
         </button> : null}
-        {finishable && (prepare || prepareNext) ? <label className="inline-flex min-h-11 items-center gap-2 text-[12px] font-medium text-foreground"><input type="checkbox" data-limit-one="true" checked={limitToOne} disabled={pending} onChange={(event) => setLimitToOne(event.target.checked)} className="size-4 accent-accent-primary" />Authorize up to $1 in requests</label> : null}
-        {finishable ? <span className="text-[12px] text-muted-foreground">{prepareNext ? limitToOne ? "Request reservation ceilings: $0.95 OpenAI and $0.05 DataForSEO. Provider charges may differ. Saved work stays intact. Research stays paused." : "Uses saved research and, when needed, checks one named source to prepare the strongest next change, including a new page when justified. Up to $1.05. Unfinished work stays saved. Research stays paused." : prepare ? limitToOne ? "Request reservation ceilings: $0.80 OpenAI and $0.20 DataForSEO. Provider charges may differ. Saved evidence and unfinished work stay intact. Research stays paused." : "Each attempt reuses saved evidence; up to $2 OpenAI and $0.40 DataForSEO. Unfinished work and previous receipts stay saved. Research stays paused." : "Free page and evidence checks run first. Only if they pass: one OpenAI review, capped at $0.05. DataForSEO $0. Research stays paused."}</span> : null}
+        {finishable && prepareNext ? <label className="inline-flex min-h-11 items-center gap-2 text-[12px] font-medium text-foreground">Maximum request total ($)<input type="number" data-max-total="true" min={0.01} max={1.05} step={0.01} required value={state.maxTotalUsd} disabled={pending} onInput={(event) => { const value = event.currentTarget.value; setState((s) => ({ ...s, maxTotalUsd: value })); }} className="w-20 rounded-md border border-border/60 bg-background px-2 py-1.5 text-[13px] text-foreground" /></label> : finishable && prepare ? <label className="inline-flex min-h-11 items-center gap-2 text-[12px] font-medium text-foreground"><input type="checkbox" data-limit-one="true" checked={limitToOne} disabled={pending} onChange={(event) => setLimitToOne(event.target.checked)} className="size-4 accent-accent-primary" />Authorize up to $1 in requests</label> : null}
+        {finishable ? <span className="text-[12px] text-muted-foreground">{prepareNext ? Number.isFinite(Number(state.maxTotalUsd)) && Number(state.maxTotalUsd) > 0 && Number(state.maxTotalUsd) <= 1.05 ? `Uses saved research and, when needed, checks one named source to prepare the strongest next change, including a new page when justified. Up to $${Number(state.maxTotalUsd)} in total request reservations, including up to $${Math.min(0.05, Number(state.maxTotalUsd))} for a source within that total. Provider charges may differ. Unfinished work stays saved. Research stays paused.` : "Choose a request total above $0 and no more than $1.05 before preparing." : prepare ? limitToOne ? "Request reservation ceilings: $0.80 OpenAI and $0.20 DataForSEO. Provider charges may differ. Saved evidence and unfinished work stay intact. Research stays paused." : "Each attempt reuses saved evidence; up to $2 OpenAI and $0.40 DataForSEO. Unfinished work and previous receipts stay saved. Research stays paused." : "Free page and evidence checks run first. Only if they pass: one OpenAI review, capped at $0.05. DataForSEO $0. Research stays paused."}</span> : null}
         {!prepareNext ? <button type="button" data-set-aside="true" onClick={() => setState((s) => ({ ...s, asked: true, error: null }))}
           className="inline-flex min-h-11 items-center text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">Skip</button> : null}
         {state.error ? <span className="text-[12px] text-red-500">{state.error}</span> : finishable && !receipt?.success && receipt?.displayedVersion === displayedVersion ? lastAction : null}
@@ -188,13 +188,13 @@ export function SetAsideChange({ proposalId = "", finishable = false, prepare = 
       <button type="button" disabled={pending}
         onClick={() => startTransition(async () => {
           const res = await dismissProposalAction({ proposalId });
-          if (res.success) setState({ done: true, asked: true, finished: null, error: null });
-          else setState({ done: false, asked: true, finished: null, error: res.error ?? "Something went wrong." });
+          if (res.success) setState((s) => ({ ...s, done: true, asked: true, finished: null, error: null }));
+          else setState((s) => ({ ...s, done: false, asked: true, finished: null, error: res.error ?? "Something went wrong." }));
         })}
         className="min-h-11 rounded-md border border-border px-3 py-1.5 text-[12px] font-semibold text-foreground disabled:opacity-60">
         {pending ? "Saving…" : "Yes, skip it"}
       </button>
-      <button type="button" onClick={() => setState({ done: false, asked: false, finished: null, error: null })}
+      <button type="button" onClick={() => setState((s) => ({ ...s, done: false, asked: false, finished: null, error: null }))}
         className="inline-flex min-h-11 items-center text-[12px] text-muted-foreground underline underline-offset-2">
         Keep it
       </button>
