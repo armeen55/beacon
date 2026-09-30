@@ -227,7 +227,7 @@ export function unreviewed(p: ChangeProposal, publication?: readonly BundleCompo
   const claims = p.claims ?? [], r = p.semanticReview; if (p.recommendedChange.kind === "existing_edit" && /^(title|h1|meta|answer_block|section|schema)$/.test(p.recommendedChange.field) && ([...(p.faults ?? []), ...p.limitations].some(why => why === COPY_RULES.reviewHolds.capture || why.endsWith(`: ${COPY_RULES.reviewHolds.capture}`)) || !p.reviewedCaptures?.length || p.reviewedCaptures.some(c => c.tenantId !== p.tenantId || !COPY_RULES.captureAddress(c.url) || c.captureId !== c.latestCaptureId) || new Set(p.reviewedCaptures.map(c => COPY_RULES.captureAddress(c.url))).size !== p.reviewedCaptures.length || COPY_RULES.captureUrls(p).some(url => !p.reviewedCaptures?.some(c => COPY_RULES.captureAddress(c.url) === COPY_RULES.captureAddress(url))))) return COPY_RULES.reviewHolds.capture;
   if (p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "schema") return null;
   const needsEditor = p.assignment != null || p.kind === "new_page" || p.changeFamily !== "factual_correction" && p.recommendedChange.kind === "existing_edit" && /^(answer_block|section)$/.test(p.recommendedChange.field) && !(p.recommendedChange.linkTo && !claims.some((c) => c.supportedBy.some((id) => id.startsWith("fact-")))) /* a link whose claims cite only the destination's own words (page and owned-page ids) asserts nothing about the world and owes no editor reading; a linked section that states a checked fact does (audit, 2026-09-14) */
-    || (p.bundle?.components ?? []).some((part) => SUBSTANTIVE.has(part.kind) && !/^(paragraph_correction|factual_correction)$/.test(part.kind))
+    || (p.bundle?.components ?? []).some((part) => COPY_RULES.bodyKinds.has(part.kind) && !/^(paragraph_correction|factual_correction)$/.test(part.kind))
     || [...(p.faults ?? []), ...p.limitations].some(COPY_RULES.supersededEditorFinding);
   if (needsEditor && (claims.length === 0 || !COPY_RULES.accepted(r?.editor) || !reviewFits(p, r?.of) || (p.kind === "new_page" || p.changeFamily === "full_rewrite" || (p.bundle?.components ?? []).some(part => part.kind === "full_rewrite" || part.target?.mode === "whole_body")) && r?.scope !== "whole_page")) return COPY_RULES.reviewHolds.acceptance;
   if (needsEditor && r?.version !== REVIEW_CONTRACT) return COPY_RULES.reviewHolds.contract;
@@ -240,12 +240,10 @@ export function unreviewed(p: ChangeProposal, publication?: readonly BundleCompo
   if (r.claims.length !== claims.length) return "the reading did not rule on every claim this change makes, and silence about one of them is not a pass";
   return claims.every((c, i) => COPY_RULES.ruling(c, r.claims, i) != null) ? (ledger ? preservationShortfall(p, publication) : null) : "a claim here was not shown to follow from the exact sources it names";
 }
-const BRIEFING = COPY_RULES.briefing;
 const QUALIFIED = /^fact-|^owned-page/;
-const SUBSTANTIVE = COPY_RULES.bodyKinds;
 
 function unauthorizedComponent(p: ChangeProposal): string | null {
-  const owed = (p.bundle?.components ?? []).map((c, i) => ({ c, id: componentIdOf(c, i) })).filter((x) => SUBSTANTIVE.has(x.c.kind));
+  const owed = (p.bundle?.components ?? []).map((c, i) => ({ c, id: componentIdOf(c, i) })).filter((x) => COPY_RULES.bodyKinds.has(x.c.kind));
   if (owed.length === 0) return null;
   const claims = p.claims ?? [], r = p.semanticReview, key = (xs: readonly string[]): string => [...xs].sort().join("|");
   if (!r || !reviewFits(p, r.of)) return COPY_RULES.reviewHolds.component;
@@ -263,7 +261,7 @@ export function evidenceShortfall(p: ChangeProposal): string | null { // ONE AUT
   const c = p.recommendedChange;
   if (p.researchOnly === true) return null;
   // A COMPETING PAGE EXPLAINS WHY THE WORK IS WORTH DOING AND NEVER WHETHER A SENTENCE IS TRUE. Asked of every row, before anything else, because rival and winner text reaches the writer as briefing on the deep-bundle and new-page paths and the only thing standing between it and a customer's page was a prompt asking the model not to use it (Codex, 2026-08-30).
-  const briefed = (p.claims ?? []).find((x) => x.supportedBy.length > 0 && x.supportedBy.every((id) => BRIEFING.test(id)));
+  const briefed = (p.claims ?? []).find((x) => x.supportedBy.length > 0 && x.supportedBy.every((id) => COPY_RULES.briefing.test(id)));
   if (briefed) return `it says "${cut(briefed.text)}" on the strength of a page that competes with this one, which says what rivals cover and never what is true, so it is held until a checked source carries it`;
   const unread = unreviewed(p); if (unread && c.kind === "existing_edit") return unread;
   const unauthorized = unauthorizedComponent(p); if (unauthorized) return unauthorized;

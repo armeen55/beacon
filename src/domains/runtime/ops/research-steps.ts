@@ -41,14 +41,14 @@ type RefreshSourcesResult = { attempted: number; succeeded: string[]; failures: 
 type BackfillChunkResult = { kind: "advanced"; complete?: boolean; daysPulled?: number } | { kind: "no_work" };
 export type ResearchCycleSteps = {
   deliveryScope?: Parameters<typeof DRAFT_BUDGET.scopeAllows>[0]; preferred?: { proposalId: string; workKey: string; strict?: true; version?: number };
-  factualTarget?: (tenantId: string, stopBy: number, shared?: Map<string, unknown>) => Promise<EvidenceRequirement | null>;
+  initialTarget?: (tenantId: string, stopBy: number, shared?: Map<string, unknown>, current?: Pick<OwedReading, "kind" | "key" | "workKey" | "ownerVersion">) => Promise<OwedReading | null>;
   scopeOwner?: (tenantId: string, need: ProposalAcquisitionNeed, scope: Parameters<typeof DRAFT_BUDGET.scopeAllows>[0]) => Promise<boolean>;
   refreshSources: (tenantId: string, now: Date, attemptKey: string) => Promise<RefreshSourcesResult>;
   backfillChunk: (tenantId: string, now: Date, attemptKey: string) => Promise<BackfillChunkResult>;
   crawlPages: (tenantId: string, now: Date, deadline: number) => Promise<number>;
   funnelUnit: (phase: ResearchPhase, tenantId: string, cursor: Record<string, unknown> | null, budgetMs: number, focus: ResearchFocus | null) => Promise<FunnelUnitOutcome>;
   investigationFocus: (tenantId: string, basis: string | null) => Promise<ResearchFocus | null>;
-  acquireEvidence: (tenantId: string, need: ProposalAcquisitionNeed, basis: string | null, budgetMs: number, review?: Pick<Parameters<typeof import("@/domains/decision/drafted-copy").reviewFinishedCopy>[1], "attempts" | "stopBy">, deliveryScope?: Parameters<typeof DRAFT_BUDGET.scopeAllows>[0], runReceipt?: { runId: string; cycle: string }) => Promise<{ acquired: boolean; detail: string;
+  acquireEvidence: (tenantId: string, need: ProposalAcquisitionNeed, basis: string | null, budgetMs: number, review?: Pick<Parameters<typeof import("@/domains/decision/drafted-copy").reviewFinishedCopy>[1], "attempts" | "stopBy">, deliveryScope?: Parameters<typeof DRAFT_BUDGET.scopeAllows>[0], runReceipt?: { runId: string; cycle: string }) => Promise<{ acquired: boolean; detail: string; factCheck?: Awaited<ReturnType<ResearchCycleSteps["factCheck"]>>;
     /** False only when an explicit preflight proves no provider was asked; never inferred from prose. */ attempted?: boolean; preflight?: "owner_unreadable" | "basis_unavailable" | "basis_mismatch" | "owner_changed" | "unchanged_incomplete";
     /** WHETHER THE OBLIGATION THIS PURCHASE WAS BOUGHT FOR CAN NOW BE MET, which is a different question from whether the reading landed (live 2026-09-05): a source read and banked below the confidence its consumer requires is a reading that happened and an obligation that did not move, and calling that acquired is how a row re-owed the same purchase every drive for two days. Absent means the two answers are the same. */ unlocked?: boolean; /** THE PROVIDER WAS POSTED FOR THIS READING AND HAS NOT ANSWERED YET (production run p3, 2026-09-06): the money moves at the post, the answer is collected with a free follow-up, and the drive that collects it therefore buys nothing. Present ONLY where there is a post to collect, so absent is the one answer for every reading that landed, failed or cannot post at all. */ posted?: boolean }>;
   collectBought: (budgetMs: number) => Promise<{ pending: number; ready: number }>;
@@ -292,8 +292,8 @@ export const defaultSteps: ResearchCycleSteps & {
           ? await PROOF_SPEND.withExternalTargets(tenantId, current.nominee ? [{ capability: "onpage_content_parsing", url: current.nominee }] : [{ capability: "serp_organic", url: current.searchQuery }], read) : await read();
         const settled = exactFinding && (out.status === "failed" || out.sourceVersion == null || !Number.isSafeInteger(out.sourceVersion) || out.sourceVersion <= 0) ? null : await propositionState(tenantId, prop.url, prop.subject, current, need.finding, atomKey, exactFinding ? out.sourceVersion : undefined).catch(() => null);
         const said = `${out.status}${out.failure ? ` (${out.failure})` : ""}, ${out.banked} banked`; // the failure rides in the detail, so a credit hold is read by the drive as nothing asked rather than an attempt spent
-        if (settled) return { acquired: settled.researched, unlocked: settled.usable, ...(exactFinding && out.status === "done" && out.banked === 0 ? { attempted: false as const } : {}), detail: `fact check of ${prop!.url}: ${said}; the answer to "${prop!.subject}" is ${settled.why}` };
-        return { acquired: !exactFinding && out.status !== "failed" && out.banked > 0, detail: `fact check of ${need.url ?? "the owed page"}: ${said}` };
+        if (settled) return { acquired: settled.researched, unlocked: settled.usable, factCheck: out, ...(exactFinding && out.status === "done" && out.banked === 0 ? { attempted: false as const } : {}), detail: `fact check of ${prop!.url}: ${said}; the answer to "${prop!.subject}" is ${settled.why}` };
+        return { acquired: !exactFinding && out.status !== "failed" && out.banked > 0, factCheck: out, detail: `fact check of ${need.url ?? "the owed page"}: ${said}` };
       }
       case "semantic_review": {
         if (!need.proposalId) return { acquired: false, detail: "a review requirement names no change, so there is nothing to read" }; // ONE ROW, BY ITS OWN ID: reading the whole account's queue to find one change is an egress bill for a lookup
@@ -343,11 +343,11 @@ export const defaultSteps: ResearchCycleSteps & {
   async verifyShipments(tenantId) { return verifyDueShipments(tenantId); },
   async measureShipments(tenantId, now) { return settleDueMeasurements(tenantId, { now }); },
   async publishSurface(tenantId) { await publishCustomerSurfaces(tenantId); },
-  async factualTarget(tenantId, stopBy, shared) {
+  async initialTarget(tenantId, stopBy, shared) {
     const snapshot = await loadEvidenceSnapshot(tenantId, shared ? { shared } : {}), facts = await import("@/domains/evidence/pages/fact-checks"), basis = await import("@/domains/decision/load-proposals").then(m => m.resolveCurrentBasis(tenantId));
     if (snapshot.scope.tenantId !== tenantId || !snapshot.scope.site || !basis || Date.now() >= stopBy) return null;
-    const owners = [...new Set(snapshot.ownedPages.map(p => pathOf(p.url)))];
-    return owners.length ? (await currentFactualTarget(tenantId, snapshot, await facts.readFactChecks(tenantId, owners), basis, stopBy))?.need ?? null : null;
+    const owners = [...new Set(snapshot.ownedPages.map(p => pathOf(p.url)))], fact = owners.length ? (await currentFactualTarget(tenantId, snapshot, await facts.readFactChecks(tenantId, owners), basis, stopBy))?.need : null;
+    return fact ? { ...fact, key: fact.finding!.page, reason: "The current named statement needs its nominated source.", workKey: JSON.stringify([basis, fact.finding, fact.rivalUrl]), ownerVersion: basis } : null;
   },
   async factCheck(tenantId, budgetMs, renew, firstPage, shared, finding) { return factCheckPass(tenantId, budgetMs, renew, firstPage ?? null, shared, undefined, undefined, undefined, finding); },
   async surfaceStale(tenantId, nowMs) {
