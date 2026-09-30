@@ -118,7 +118,6 @@ type ProposalStatus = "needs_review" | "ready" | "implemented_pending_verificati
 type ProposalRisk = "low" | "medium" | "high";
 type ProposalConfidence = "high" | "medium" | "low";
 
-/** The exact change: `existing_edit` carries a precise before/after field rewrite, `new_page` a build brief. */
 export type RecommendedChange =
   | { kind: "existing_edit"; field: "title" | "meta" | "h1" | "answer_block" | "section" | "schema"; before: string | null; after: string; units?: PublicationUnits; target?: PublicationTarget; where?: string | null; linkTo?: string | null; anchorText?: string | null; linkMode?: "in_place"; linkSourceHash?: string }
   | { kind: "new_page"; proposedTitle: string; metaDescription: string; openingAnswer: string; outline: string[]; faqQuestions: string[]; schemaTypes: string[] };
@@ -321,7 +320,6 @@ export type ChangeProposal = {
   informationGain?: { adds: string; by: readonly string[]; pageWhole: boolean; bodyHash?: string; targetHash?: string };
   preservationNotes?: BundleComponent["preserves"]; preservation?: readonly { text: string; disposition: "kept" | "corrected" | "removed" | "moved"; why?: string; to?: string; of?: string;
     basis?: "duplicate_of" | "replaced_by" | "unsupported" | "obsolete" | "owner_confirmed"; by?: readonly string[] }[];
-  /** STRUCTURAL: this is a proposal. The kernel never writes a live page. */
   publish: "manual";
   createdAt: string;
 };
@@ -330,8 +328,8 @@ const SupportFactSchema = z.object({ id: z.string().min(1), fact: z.string().min
 const RecommendedChangeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("existing_edit"), field: z.enum(["title", "meta", "h1", "answer_block", "section", "schema"]),
     before: z.string().nullable(), after: z.string().min(1), units: PublicationUnitsSchema.optional(), target: PublicationTargetSchema.optional(), where: z.string().nullable().optional(), linkTo: z.string().nullable().optional(), anchorText: z.string().nullable().optional(), linkMode: z.literal("in_place").optional(), linkSourceHash: z.string().optional() }),
-  z.object({ kind: z.literal("new_page"), proposedTitle: z.string().min(1), metaDescription: z.string().min(1),
-    openingAnswer: z.string().min(1), outline: z.array(z.string()), faqQuestions: z.array(z.string()),
+  z.object({ kind: z.literal("new_page"), proposedTitle: z.string(), metaDescription: z.string(),
+    openingAnswer: z.string(), outline: z.array(z.string()), faqQuestions: z.array(z.string()),
     schemaTypes: z.array(z.string()) }),
 ]);
 
@@ -449,6 +447,11 @@ const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   publish: z.literal("manual"),
   createdAt: z.string(),
 }).superRefine((p, ctx) => {
+  const c = p.recommendedChange, topicId = p.id.slice(`${p.tenantId}::`.length, -"::new_page".length);
+  const privateOwner = p.kind === "new_page" && p.id === `${p.tenantId}::${topicId}::new_page` && !!topicId && !topicId.includes("::") && p.pageUrl === null && p.pagePath === null && !!p.primaryQuery.trim() && p.evidence.query === p.primaryQuery && p.changeFamily === "new_page" && p.treatment === "new_page";
+  const privateState = p.status === "needs_review" && p.researchOnly === true && !p.bundle && !p.newPageDraft && !p.semanticReview && !p.approval && !p.confirmedVersion && !p.redraftRequested && !p.claims?.length && !!p.basis?.trim() && !!p.workKey?.trim();
+  const privateDebt = p.obligation?.kind === "draft" || p.obligation?.kind === "evidence" && p.obligation.need.kind === "factual_source" && p.obligation.need.proposalId === p.id && p.obligation.need.topic?.key === `topic:${topicId}` && p.obligation.need.ownerVersion === p.basis;
+  if (c.kind === "new_page" && [c.proposedTitle, c.metaDescription, c.openingAnswer].some(t => !t.trim()) && !(privateOwner && privateState && privateDebt && [c.proposedTitle, c.metaDescription, c.openingAnswer].every(t => t === "") && !c.outline.length && !c.faqQuestions.length && !c.schemaTypes.length)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Unwritten publication fields belong only to a private current new-page research proposal." });
   const pieces = [p.recommendedChange.kind === "existing_edit" ? p.recommendedChange : null, ...(p.bundle?.components ?? []), ...(p.newPageDraft?.pieces ?? []), ...(p.newPageDraft?.metadata?.map((m) => m.piece) ?? [])];
   for (const piece of pieces) if (piece?.units && piece.after !== COPY_RULES.bodyCopy(piece.units)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Publication text must be the exact projection of its saved units." });
   for (const piece of [p.recommendedChange.kind === "existing_edit" ? p.recommendedChange : null, ...(p.bundle?.components ?? [])]) if (piece?.target && piece.where !== COPY_RULES.where(piece.target)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Placement instructions must be the exact projection of the saved target." });
@@ -456,7 +459,6 @@ const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
 
 const PERSIST_VERSION = 1 as const;
 
-/** Serialize a proposal for the persistence layer (versioned envelope). `workKey` is projected beside the canonical proposal so database locks can read the generation without decoding the business record. */
 export function serializeChangeProposal(proposal: ChangeProposal): string { return JSON.stringify({ v: PERSIST_VERSION, workKey: proposal.workKey, proposal }); }
 
 /** Parse + RE-VALIDATE a persisted proposal: a hand-edited row that no longer satisfies the contract can never be served as a trusted proposal. Fail-soft to null. */
@@ -466,13 +468,11 @@ export function deserializeChangeProposal(content: string | null | undefined): C
     return res?.success ? res.data : null; } catch { return null; }
 }
 
-/** The coarse family used for identity + UI. */
 export function proposalFamily(input: EvidenceInput): string {
   if (input.opportunity.kind === "new_page") return "new_page";
   const f = (input.opportunity.field ?? "").toLowerCase();
   return f === "title" ? "title" : f === "meta" ? "meta" : "other"; }
 
-/** Stable proposal id from the evidence input. */
 export function proposalId(input: EvidenceInput): string {
   const isNew = input.opportunity.kind === "new_page";
   const pageKey = isNew ? `new::${input.opportunity.query.toLowerCase().trim()}` : (input.page.path ?? input.page.url ?? input.page.label).toLowerCase().trim();

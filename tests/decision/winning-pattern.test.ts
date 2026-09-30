@@ -56,9 +56,9 @@ describe("structural consensus is evidence, not a formatting preference", () => 
     expect(unknownOwned, "a partial owned page cannot prove the list absent and therefore cannot carry owned gaps at all").toBeNull();
   });
   it("gives one publisher one vote and lets no partial capture vote", async () => {
-    const duplicate = extractPageFacts([page("a.example", [CARE], { hasList: true }), page("www.a.example", [CARE], { hasList: true }), page("b.example", [CARE], { hasList: false }), page("c.example", [CARE], { hasList: false })]);
-    const once = await readWinningPattern(duplicate, ownedFacts(), "fixture", { complete: seam(listReading()).complete, label: "persian rug care", pageType: "list" });
-    expect([once?.winners, listDelta(once)], "two addresses from one publisher remain one vote").toEqual([3, undefined]);
+    const duplicate = extractPageFacts([{ ...page("a.example", [CARE]), extract: null }, page("a.example", [CARE], { hasList: true }), page("www.a.example", [CARE], { hasList: true }), page("b.example", [CARE], { hasList: false }), page("c.example", [CARE], { hasList: false })]);
+    const reader = seam(listReading()), once = await readWinningPattern(duplicate, ownedFacts(), "fixture", { complete: reader.complete, label: "persian rug care", pageType: "list" });
+    expect([once?.winners, once?.publishers, listDelta(once), reader.calls()], "unread captures and duplicate addresses cannot occupy publisher seats").toEqual([3, ["a.example", "b.example", "c.example"], undefined, 1]);
     const partial = extractPageFacts([page("a.example", [CARE], { hasList: true }), page("b.example", [CARE], { hasList: false }), page("c.example", [CARE], { hasList: false }), page("d.example", [CARE], { hasList: true, truncated: true }), page("e.example", [CARE], { hasList: true, truncated: true })]);
     const known = await readWinningPattern(partial, ownedFacts(), "fixture", { complete: seam(listReading()).complete, label: "persian rug care", pageType: "list" });
     expect([known?.winners, listDelta(known)], "partial captures never enter the denominator or the supporters").toEqual([3, undefined]);
@@ -115,21 +115,4 @@ describe("the one reading a case may buy", () => {
     expect([accepted?.winners, accepted?.commonHeadings[0]?.seenOn]).toEqual([3, [0, 1]]);
     expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(majority).complete }), "two of four publishers is not a strict majority and is never called common").toBeNull();
   });
-  it("does not let unread evidence occupy a publisher or comparison seat", async () => {
-    const unread = { ...page("a.example", [CARE]), extract: null };
-    const partial = page("b.example", [CARE], { truncated: true });
-    const completeA = page("a.example", [CARE]);
-    const completeC = page("c.example", [CARE]);
-    const completeD = page("d.example", [CARE]);
-    const reader = seam(reading({ commonHeadings: [{ heading: CARE, seenOn: [0, 1] }], commonEntities: [], ownedGaps: [] }));
-
-    const result = await readWinningPattern(
-      extractPageFacts([unread, partial, completeA, completeC, completeD]),
-      ownedFacts(),
-      "t_fixture",
-      { complete: reader.complete },
-    );
-
-    expect(reader.calls()).toBe(1);
-    expect(result?.publishers).toEqual(["a.example", "c.example", "d.example"]);
-  }); });
+});

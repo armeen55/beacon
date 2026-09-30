@@ -18,7 +18,6 @@ import { BundleDetail, SimpleDetail } from "./bundle-detail";
 import { SetAsideChange } from "../change-controls";
 type StoredDetail = Parameters<NonNullable<NonNullable<Parameters<typeof loadChangeProposal>[2]>["canonicalRow"]>>[0];
 
-// Force dynamic render so every request runs the fresh-repo-read pattern below. Matches /changes.
 export const dynamic = "force-dynamic";
 
 export default async function ChangeDetailPage({
@@ -58,7 +57,7 @@ export default async function ChangeDetailPage({
       return <BundleDetail proposal={found} bundle={found.bundle} recorded={recorded} returnTo={returnTo} />;
     }
     if (found) return <SimpleDetail proposal={found} returnTo={returnTo} />;
-    if (proposal && !inProof) return <OutsideProofDetail />;
+    if (proposal && !inProof) return <OutsideProofDetail proposal={proposal} version={proposal.kind === "new_page" && proposal.status === "needs_review" && proposal.basis === basis && canonical?.terminal_disposition == null && canonical && canonical.proposal_version > 0 && proposal.workKey?.trim() ? canonical.proposal_version : null} />;
     const stored = proposal ?? (await loadChangeProposal(tenantId, id, { retired: "include", canonicalOnly: true, canonicalRow: inspect }).catch(() => null));
     if (stored?.status === "implemented_pending_verification") {
       const row = (await loadProofLedgerPersisted(tenantId).catch(() => [])).find((r) => r.proposalId === stored.id);
@@ -96,10 +95,11 @@ export default async function ChangeDetailPage({
   }
 }
 
-function OutsideProofDetail() {
+function OutsideProofDetail({ proposal, version }: { proposal: ChangeProposal; version: number | null }) {
   return <div className="max-w-3xl"><section className="space-y-2 rounded-2xl border border-border bg-surface-raised p-5" data-outside-manual-proof="true">
-    <h2 className="text-[14px] font-semibold text-foreground">This page is still being completed</h2>
-    <p className="text-[13px] leading-relaxed text-muted-foreground">The saved draft stays on file while Beacon completes its copy, structure and checks. It becomes actionable when the entire publication is ready.</p>
+    <h2 className="text-[14px] font-semibold text-foreground">{proposal.primaryQuery || "This page is still being completed"}</h2>
+    <p className="text-[13px] leading-relaxed text-muted-foreground">The reader task and evidence stay saved while Beacon completes the copy, structure and checks. It becomes actionable when the entire publication is ready.</p>
+    {version ? <SetAsideChange proposalId={proposal.id} displayedVersion={String(version)} finishable prepare prepareNext /> : null}
     <Link href="/changes" className="inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2">Back to Changes</Link>
   </section></div>;
 }
