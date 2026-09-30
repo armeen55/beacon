@@ -299,7 +299,7 @@ export function canonTextOf(page: { content?: { title?: string | null; h1?: stri
 }
 
 type ValidateProposalOptions = {
-  /** The target page's own body text, which turns ON factual entailment. */
+  /** The target page's own captured body text for factual validation. */
   pageBodyText?: string | null;
   pageCapture?: Partial<Pick<OwnedPageBody, "url" | "faqs" | "version" | "contentHash" | "fetchedAt" | "completeness">> | null;
   /** Flattened evidence text the draft may cite (numbers/facts). */
@@ -312,11 +312,9 @@ type ValidateProposalOptions = {
   authoritativeSourceDomains?: readonly string[];
   /** Content-context vocabulary override (defaults to the gate's own). */
   contextTokens?: string[];
-  /** The sections this account's own page ACTUALLY carries, as held. A rebuild is checked against these:
-   *  absent means I hold no outline for the page, so nothing is checked rather than everything passing. */
+  /** Captured section headings; absent means outline preservation cannot be checked. */
   heldHeadings?: readonly string[];
-  /** The structured-data types the page ALREADY carries, off the caller's own snapshot. Absent means the row's
-   *  own banked page copy is the only witness, so a duplicate is caught only where the block was banked. */
+  /** Captured schema types; absent means only banked page copy can identify duplicate schema. */
   pageSchemaTypes?: readonly string[];
   now?: Date;
 };
@@ -329,6 +327,8 @@ export function validateProposal(
   const change = proposal.recommendedChange;
   if (proposal.researchOnly === true && change.kind === "existing_edit") return { verdict: "needs_review", qualityStatus: "useful_but_needs_review", reasons: ["the exact copy is not written yet, so there is nothing here for the canon to read"], factViolations: [], corrections: [], safetyFlags: [], limitations: [], confidence: "low" }; // A BRIEF IS NOT OPERATOR COPY (D-036; operator, 2026-09-02): a research row's `after` is the INSTRUCTION for the work, and pointing the copy gates at it rejected 79 of 90 briefs as thin, generic or off-topic writing, which is a verdict about words nobody has written. The canon abstains and the row waits for the draft it is owed. A new-page BRIEF keeps its own gate (evaluateNewPageBrief) and is deliberately not covered here.
   const inPlace = change.kind === "existing_edit" && change.linkMode === "in_place", texts = operatorFacingText(proposal).filter(t => !inPlace || t !== change.after), query = proposal.primaryQuery;
+  const citedSupport = (proposal.claims ?? []).flatMap((c) => c.supportedBy.filter((id) => /^fact-/.test(id)).map((id) => { const f = (proposal.supportFacts ?? []).find((x) => x.id === id); return { id, claim: c.text, fact: f?.fact ?? "", qualified: !!f && COPY_RULES.checkedExternalFact(proposal, f) }; })).filter((s) => s.fact !== "");
+  const evidenceText = opts.evidenceText ?? citedSupport.filter((s) => s.qualified).map((s) => s.fact).join(" ");
   // Structured data uses its own gate instead of prose quality rules.
   const schema = change.kind === "existing_edit" && change.field === "schema" ? schemaFailures(proposal, change, opts) : null;
 
@@ -353,7 +353,7 @@ export function validateProposal(
         draftText: change.after,
         query,
         pageBodyText: opts.pageBodyText ?? null,
-        evidenceText: opts.evidenceText ?? proposal.evidence.hints.join(" "),
+        evidenceText,
         authoritativeFacts: opts.authoritativeFacts,
         nowYear: (opts.now ?? new Date()).getFullYear(),
       })
@@ -376,10 +376,10 @@ export function validateProposal(
       query,
       contextTokens: opts.contextTokens,
       pageBodyText: opts.pageBodyText,
-      evidenceText: opts.evidenceText,
+      evidenceText,
       authoritativeFacts: opts.authoritativeFacts,
       sources: opts.sources,
-      authoritativeSourceDomains: opts.authoritativeSourceDomains, citedSupport: (proposal.claims ?? []).flatMap((c) => c.supportedBy.filter((id) => /^fact-/.test(id)).map((id) => { const f = (proposal.supportFacts ?? []).find((x) => x.id === id); return { id, claim: c.text, fact: f?.fact ?? "", qualified: !!f && COPY_RULES.checkedExternalFact(proposal, f) }; })).filter((s) => s.fact !== ""),
+      authoritativeSourceDomains: opts.authoritativeSourceDomains, citedSupport,
     });
   } else {
     quality = evaluateNewPageBrief(proposal, change, opts.evidenceText ?? null);

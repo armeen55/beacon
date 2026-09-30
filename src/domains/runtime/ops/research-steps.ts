@@ -457,7 +457,7 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
         if (left <= 0) return { hold: "unavailable" as const };
         const r = await callStructuredLLM({ kind: input.kind, tenantId, system: input.system, user: input.user,
           grounded: input.grounded, projectedCostUsd: input.projectedCostUsd, maxTokens: input.maxTokens,
-          timeoutMs: Math.max(5_000, Math.min(60_000, left)), now: new Date() }).catch(() => null);
+          timeoutMs: Math.max(5_000, Math.min(60_000, left)), stopBy: deadlineAt, now: new Date() }).catch(() => null);
         if (r?.status === "drafted") return { value: r.value as Record<string, unknown> };
         return { hold: r?.status === "blocked_budget" || (r?.status === "validation_failed" && r.failure === "credit_exhausted") ? "capped" as const : r?.status === "validation_failed" ? "refused" as const : "unavailable" as const }; // a door that trips mid-pass is an account-wide stop, never this claim's refusal
       };

@@ -55,7 +55,7 @@ function nextPlanned(phase: ResearchPhase, allowed: Set<ResearchPhase>): Researc
   while (next !== "done" && !allowed.has(next)) next = nextPhase(next);
   return next;
 }
-type ResearchCycleOptions = { now?: () => Date; deadlineMs?: number; steps?: Partial<ResearchCycleSteps>; manualDelivery?: { currentBasis: string | null; eligible: (p: import("@/domains/decision").ChangeProposal) => boolean; limitToOneDollar?: true } };
+type ResearchCycleOptions = { now?: () => Date; deadlineMs?: number; steps?: Partial<ResearchCycleSteps>; manualDelivery?: { currentBasis: string | null; eligible: (p: import("@/domains/decision").ChangeProposal) => boolean; limitToOneDollar?: true; maxTotalUsd?: number } };
 type CycleReceipt = { success: boolean; reason: string; readySaved: number; run: ResearchRun | null; previousRun: ResearchRun | null; meter: ReturnType<typeof PROOF_SPEND.meter>; accountedUsd: number | null };
 type FactualNeed = import("@/domains/decision/producers/contract").EvidenceRequirement;
 type PhaseOutcome = { progress: ResearchRunProgress; /** The pages this phase banked evidence on, so the drive can hire the work that was waiting on one of them before the drive ends. */ banked?: readonly string[] };
@@ -430,6 +430,7 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
     const queue = rows ? await decision!.loadProposalQueue(tenantId, { currentBasis: manual!.currentBasis, now: nowFn(), deliveryScope: "all_changes", eligible: manual!.eligible, canonical: rows }).catch(() => null) : null, readySaved = manual && !await inputsCurrent() ? 0 : queue?.ready.filter(p => !previousReady.has(p.id)).length ?? 0;
     return { success: readySaved > 0, reason, readySaved, run: held, previousRun: prior, meter: PROOF_SPEND.meter(tenantId), accountedUsd: accountedBefore != null && before != null && after != null ? accountedBefore + Math.max(0, after - before) : null };
   };
+  if (manual?.maxTotalUsd !== undefined && (!Number.isFinite(manual.maxTotalUsd) || manual.maxTotalUsd <= 0 || manual.maxTotalUsd > (manual.limitToOneDollar === true ? 1 : 1.05))) return answer("invalid_manual_spend_ceiling");
   const account = await getTenant(tenantId).catch(() => null);
   if (!account || account.status !== "active") return answer("account_not_active");
   if (await researchPermission(tenantId) !== (manual ? "paused" : "running")) return answer("research_permission_refused");
@@ -437,6 +438,8 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
   if (manual && !process.env.OPENAI_API_KEY?.trim()) return answer("openai_not_configured_in_this_runtime");
   if (manual && !initial) return answer("ready_baseline_unreadable");
   const source = manual ? await steps.factualTarget?.(tenantId, deadline - 40_000).catch(() => null) ?? null : null;
+  const externalUsd = source?.rivalUrl ? Math.min(.05, manual?.maxTotalUsd ?? .05) : 0, modelUsd = Math.min(manual?.limitToOneDollar === true ? .95 : 1, (manual?.maxTotalUsd ?? Infinity) - externalUsd);
+  if (manual && modelUsd <= 0) return answer("manual_spend_ceiling_below_source_allowance");
   const execute = () => runWithTenant(tenantId, async () => {
     const ownerToken = newOwnerToken(!!manual), now = nowFn();
     let run = await claimRun(tenantId, ownerToken).catch(() => "unavailable" as const);
@@ -459,7 +462,7 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
     }
     return answer(outcome);
   });
-  return manual ? PROOF_SPEND.run(tenantId, 24, manual.limitToOneDollar === true ? .95 : 1, execute, { maxExternalCalls: source?.rivalUrl ? 1 : 0, maxExternalUsd: source?.rivalUrl ? .05 : 0, allowedExternal: source?.rivalUrl ? [{ capability: "onpage_content_parsing", url: source.rivalUrl }] : [], stopBy: deadline - 40_000, stopOnFailure: true, guard: inputsCurrent }) : execute();
+  return manual ? PROOF_SPEND.run(tenantId, 24, modelUsd, execute, { maxExternalCalls: source?.rivalUrl ? 1 : 0, maxExternalUsd: externalUsd, allowedExternal: source?.rivalUrl ? [{ capability: "onpage_content_parsing", url: source.rivalUrl }] : [], stopBy: deadline - 40_000, stopOnFailure: true, guard: inputsCurrent }) : execute();
 }
 
 export function ensureResearchRunOnVisit(tenantId: string, arrival: boolean): void {
