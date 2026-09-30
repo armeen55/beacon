@@ -48,7 +48,6 @@ const MAX_PASSAGES = 200, MAX_PASSAGE_CHARS = 1_000;
 const MAX_OPENING_CHARS = 1200, MAX_OPENING_PARAGRAPHS = 8;
 const MAX_TITLE_CHARS = 200, MAX_META_CHARS = 320, MAX_ITEM_CHARS = 300;
 const MAX_HEADINGS = 60, MAX_FAQS = 20, MAX_ENTITIES = 12, MAX_LINKS = 12;
-const COLUMNS = "*";
 
 type Row = Partial<Record<keyof PageSnapshot, unknown>> & Pick<Partial<PageSnapshot>, "url" | "fetched_at">;
 
@@ -166,7 +165,7 @@ function bodyOf(row: Row): OwnedPageBody {
 }
 
 /** Page every tenant-scoped ask and distinguish absent captures from failed reads. */
-export async function loadOwnedPageBodies(tenantId: string, urls: string[], misses?: Map<string, "no_capture" | "read_failed">, reuse?: Map<string, readonly PageSnapshot[] | "no_capture" | "read_failed">): Promise<Map<string, OwnedPageBody>> {
+export async function loadOwnedPageBodies(tenantId: string, urls: string[], misses?: Map<string, "no_capture" | "read_failed">, reuse?: Map<string, readonly PageSnapshot[] | "no_capture" | "read_failed">, retained: readonly { captureId: PageSnapshot["id"]; url: PageSnapshot["url"] }[] = []): Promise<Map<string, OwnedPageBody>> {
   const out = new Map<string, OwnedPageBody>();
   // Deduplicate aliases before applying the per-query width.
   const seen = new Set<string>(), asked: string[] = [];
@@ -176,12 +175,13 @@ export async function loadOwnedPageBodies(tenantId: string, urls: string[], miss
   const captures = new Map<string, Row[]>();
   const failed = new Set<string>();
   for (let at = 0; at < asked.length; at += MAX_URLS) {
-    const slice = asked.slice(at, at + MAX_URLS), readKey = (u: string) => JSON.stringify([tenantId, variantsOf([u]).sort()]), fresh = slice.filter(u => !reuse?.has(readKey(u)));
+    const slice = asked.slice(at, at + MAX_URLS), pinsFor = (u: string) => [...new Set(retained.filter(c => canonicalUrlKey(c.url) === canonicalUrlKey(u)).map(c => c.captureId))].sort();
+    const readKey = (u: string) => JSON.stringify([tenantId, variantsOf([u]).sort(), ...(pinsFor(u).length ? [pinsFor(u)] : [])]), fresh = slice.filter(u => !reuse?.has(readKey(u)));
     const rows: PageSnapshot[] = []; // Reuse exact selected packets and typed misses within this one manifest, never across passes.
     for (const u of slice) { const held = reuse?.get(readKey(u)); if (held === "read_failed") failed.add(canonicalUrlKey(u)); else if (Array.isArray(held)) rows.push(...held); }
     try {
-      const loaded = fresh.length ? await selectedSnapshots<PageSnapshot>(tenantId, COLUMNS, variantsOf(fresh), { retainPreviousTrusted: true }) : [];
-      rows.push(...loaded); for (const u of fresh) { const own = loaded.filter(r => canonicalUrlKey(r.url) === canonicalUrlKey(u)); reuse?.set(readKey(u), own.length ? own : "no_capture"); }
+      const loaded = fresh.length ? await selectedSnapshots<PageSnapshot>(tenantId, "*", variantsOf(fresh), { retainPreviousTrusted: true, retainCaptureIds: [...new Set(fresh.flatMap(pinsFor))] }) : [];
+      rows.push(...loaded); for (const u of fresh) { const own = loaded.filter(r => canonicalUrlKey(r.url) === canonicalUrlKey(u)); reuse?.set(readKey(u), own.length ? own : "no_capture"); if (pinsFor(u).length) reuse?.set(JSON.stringify([tenantId, variantsOf([u]).sort()]), own.length ? own : "no_capture"); }
     } catch (e) {
       for (const u of fresh) { failed.add(canonicalUrlKey(u)); reuse?.set(readKey(u), "read_failed"); }
       log.warn("[owned-context] one page-body chunk could not be read; its pages are unknown and the rest still answer", { pages: fresh.length, error: e instanceof Error ? e.message.slice(0, 200) : String(e) });
