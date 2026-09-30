@@ -17,6 +17,7 @@ import { containsUuid, AUTOPUBLISH_RE, COPY_RULES, HOST_RE } from "./copy-saniti
 import type { BundleComponent, BundleComponentKind, ChangeProposal, RecommendedChange } from "./contracts";
 import { dangerousComponents, needsSourcePack } from "./contracts";
 import { confirmedVersion } from "./completeness";
+import withDerivedFaqSchema from "./derived-schema";
 
 /** Unsafe quality statuses reject; missing citation is a review debt. */
 const REJECT_STATUSES: ReadonlySet<DraftQualityStatus> = new Set<DraftQualityStatus>([
@@ -188,12 +189,12 @@ function evaluateNewPageBrief(
   }
   const grounding = [evidenceText ?? "", ...items.map((i) => i.fact), ...proposal.evidence.hints].join(" ").toLowerCase();
   const copy = [...operatorFacingText(proposal), ...bundle.components.map((c) => c.after)].join(" ");
-  if (AUTOPUBLISH_RE.test(copy) || COPY_RULES.proportion.test(copy) || proposal.publish !== "manual" || !MANUAL_RE.test([proposal.whyItMatters, ...bundle.risks].join(" "))) {
+  if (AUTOPUBLISH_RE.test(copy) || change.schemaTypes.includes("FAQPage") && RICH_CLAIM.test([proposal.opportunityType, proposal.whyItMatters, ...proposal.limitations, ...(proposal.operatorSteps ?? []), bundle.objective, ...bundle.risks, ...bundle.components.flatMap(part => [part.objective, part.mechanism, part.where])].join(" ")) || COPY_RULES.proportion.test(copy) || proposal.publish !== "manual" || !MANUAL_RE.test([proposal.whyItMatters, ...bundle.risks].join(" "))) {
     return bad("This page does not say plainly that you are the one who publishes it, so it stays held rather than offered.");
   }
   const grounded = new Set((grounding.match(NUMBER_RE) ?? []).map(digits));
   grounded.add(String(change.outline.length));
-  const copyProse = [...operatorFacingText(proposal), ...bundle.components.filter((c) => c.kind !== "source_pack").map((c) => c.after)].join(" ");
+  const copyProse = [...operatorFacingText(proposal), ...bundle.components.filter((c) => c.kind !== "source_pack" && c.kind !== "schema").map((c) => c.after)].join(" ");
   const stray = (copyProse.match(NUMBER_RE) ?? []).map(digits).find((n) => !grounded.has(n));
   if (stray) return bad(`This page quotes ${stray}, which no reading on file carries, so it stays held rather than offered.`);
   const strayHost = (copyProse.match(HOST_RE) ?? []).map((h) => h.toLowerCase()).filter((h) => !COPY_RULES.codeSuffix.test(h))
@@ -390,7 +391,7 @@ export function validateProposal(
 
   const components = proposal.bundle?.components ?? [];
   const componentFails = [...componentFailures(components, opts.heldHeadings ?? []),
-    ...receiptIntegrityFailures(proposal)];
+    ...receiptIntegrityFailures(proposal), ...(change.kind === "new_page" && COPY_RULES.recordKey(withDerivedFaqSchema(proposal, null)) !== COPY_RULES.recordKey(proposal) ? ["The complete visible questions and answers and their exact linked schema are not reconciled."] : [])];
   const dangerous = dangerousComponents(components);
 
   const reasons: string[] = [...(quality.status === "ready" ? [] : quality.reasons), ...dangerous.map((c) =>
@@ -418,7 +419,7 @@ export function validateProposal(
     factViolations,
     corrections,
     safetyFlags,
-    limitations: schema?.limitations ?? [],
+    limitations: schema?.limitations ?? (change.kind === "new_page" && change.schemaTypes.includes("FAQPage") ? [FAQ_SCHEMA_LIMIT] : []),
     confidence: quality.confidence,
     ...(schema?.need ? { need: schema.need } : {}),
     ...(schema?.schemaReplacement ? { schemaReplacement: schema.schemaReplacement } : {}),

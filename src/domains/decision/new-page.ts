@@ -13,6 +13,7 @@ import { claimIdentity } from "@/domains/evidence/pages/fact-check-run";
 import { deliverableGaps, PAGE_SUPPORT } from "./completeness";
 import { REVIEW_CONTRACT, copyKey } from "./proof";
 import { validateProposal } from "./validate-proposal";
+import withDerivedFaqSchema from "./derived-schema";
 import type { EvidenceRequirement } from "./producers/contract";
 import { isCurrent } from "@/domains/evidence/freshness";
 type Allowance = { left: number; record?: (value: unknown) => void };
@@ -111,7 +112,7 @@ export async function produceNewPage(input: Input): Promise<Result> {
       bundle: bundle(components), newPageDraft: { brief: { ...brief, supportContext, support: support ? { ...support, of: PAGE_SUPPORT.key(brief, material, sourceFacts, digest(decision.evidence), supportContext) } : undefined, kind: "new_page", identity, material, assignmentLineage, sourceIndex: sourceFacts, patternFingerprint: decision.pattern!.fingerprint, diagnosisFingerprint: digest(decision.evidence) }, pieces: [...pieces.values()].sort((a, b) => a.slot! - b.slot!) }, claims, supportFacts,
       ...(complete ? { informationGain: { adds: `A complete answer to ${topic.label} with ${brief.sections.map(s => s.heading).join(", ")}.`, by: [...used], pageWhole: true } } : {}),
       publish: "manual", createdAt: prior?.createdAt ?? now.toISOString(), basis, workKey: input.workKey };
-    return repair && correcting.size ? { ...base, newPageDraft: { ...base.newPageDraft!, repair: { ...repair, of: copyKey(base), targets: repair.targets.filter(t => correcting.has(t.component - 3)) } } } : base;
+    return withDerivedFaqSchema(repair && correcting.size ? { ...base, newPageDraft: { ...base.newPageDraft!, repair: { ...repair, of: copyKey(base), targets: repair.targets.filter(t => correcting.has(t.component - 3)) } } } : base, null);
   };
   if (!bank && !await input.save(row(false))) return { row: null, detail: "The brief could not be saved, so no section was bought." };
   if (!support) {

@@ -45,7 +45,7 @@ const need = (over: Row = {}): Row => ({ key: `${HUB}::body::${QUERY}`, kind: "s
   reason: "no results page for this search is on file", workKey: `${HUB}::body::${QUERY}::wc5::e1`, unlocks: { proposalId: `${T}::${HUB}::existing_edit::demand_recovery`, step: "draft" }, ...over });
 let basis = "";
 beforeEach(async () => {
-  reset(); clock.ms = new Date(clock.ms).setUTCHours(19, 0, 0, 0); installFetch();
+  reset(); installFetch();
   vi.stubEnv("DATAFORSEO_AUTH_B64", "harness-not-a-key");
   vi.stubEnv("OPENAI_API_KEY", "harness-not-a-key");
   vi.stubEnv("DATA_SOURCE", "supabase");
@@ -131,7 +131,7 @@ describe("a provider that is not configured at all", () => {
     const run = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need()] });
 
     expect([requestsOf("search"), spentOn("dataforseo")], "a DataForSEO provider with no credentials is asked nothing and charges nothing, independently of any OpenAI reasoning the same drive performs").toEqual([0, 0]);
-    expect(new Set(acquisitions(run).filter((a) => a.kind === "serp" && a.query === QUERY).map((a) => a.outcome)), "and the unconfigured results-page reading is still owed rather than confused with the independent editorial review on the same row").toEqual(new Set(["not_read"]));
+    expect(new Set(acquisitions(run).filter((a) => a.kind === "serp" && a.query === QUERY).map((a) => a.outcome)), "and the unconfigured results-page reading is deferred without counting a purchase or confusing it with independent editorial review").toEqual(new Set(["deferred"]));
   });
 });
 

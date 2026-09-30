@@ -33,7 +33,7 @@ export function deliverableGaps(p: ChangeProposal): string[] {
   const rewrite = COPY_RULES.pieceDebt(p); if (rewrite === null) gaps.push("the banked rewrite has an invalid plan or piece record"); else if (rewrite) gaps.push(`${rewrite} planned rewrite pieces have no copy written`); if (p.researchOnly === true) gaps.push(rewrite !== undefined ? "the rewrite is not yet qualified as complete publishable work" : p.kind === "new_page" && p.newPageDraft?.pieces.length ? "the new page is not yet qualified as complete publishable work" : "nothing has been written for it yet");
   const c = p.recommendedChange, parts = p.bundle?.components ?? [];
   if ((c.kind === "existing_edit" && c.units && COPY_RULES.duplicateHeadings(c.units)) || parts.some((part) => part.units && COPY_RULES.duplicateHeadings(part.units))) gaps.push("adjacent headings repeat the same words, so this copy is not ready to paste");
-  if (p.bundle && parts.length === 0 || parts.some((part) => noCopy(part.after) || notFinal(part.after))) gaps.push("a bundle component has no finished copy");
+  if (p.bundle && parts.length === 0 || parts.some((part) => noCopy(part.after) || !(c.kind === "new_page" && part.kind === "schema") && notFinal(part.after))) gaps.push("a bundle component has no finished copy");
   if (p.researchOnly !== true) { const numeric = COPY_RULES.newMetaQuantityGap(p), external = COPY_RULES.newExternalAuthorityGap(p); if (numeric) gaps.push(numeric); if (external) gaps.push(external.reason); }
   if (c.kind === "new_page") {
     const sourceReading = p.newPageDraft && COPY_RULES.newPageSourceBound(p.newPageDraft) && PAGE_SUPPORT.read(p.newPageDraft.brief, p.newPageDraft.brief.sourceIndex as NonNullable<ChangeProposal["supportFacts"]>, p.primaryQuery ?? "");

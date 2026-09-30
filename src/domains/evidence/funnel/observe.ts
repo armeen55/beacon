@@ -318,6 +318,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
     if (mode === "exact" && !exact) return { status: "failed", cursor, progress: {}, detail: "An exact results-page request must name one search." };
     const unitKey = `serps:${tenantId}`, ids = { tenantId, unitKey }, deadline = d.now() + Math.max(1000, budgetMs);
     const loaded = await d.loadState(tenantId, basis), state = loaded.state;
+    if (exact && d.now() > deadline) return { status: "failed", attempted: false, cursor, progress: serpProgress(state), detail: "Reading the saved search state used this exact source step’s deadline; no provider was called and saved research was preserved." };
     beginCycle(state, cursor, unitKey);
     const ctx: SaveCtx = { rowVersion: loaded.rowVersion }, retained = state.discovery.retained;
     // PRUNE to the CURRENT chosen set: an obsolete query can never satisfy a new one. The agenda is DECISION-scoped, never volume-ranked (my own page
@@ -348,7 +349,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
       const parent = agenda.parents[q]; return { ...row, query: q, ...(agenda.sources[q] ? { source: agenda.sources[q] } : {}), ...(parent ? { parentPromptId: parent } : {}) }; });
     const nowIso = () => new Date(d.now()).toISOString(), parseSerp = (payload: unknown) => d.parse("serp_organic", payload as never) as ParsedSerp | null;
     // A DAILY-LIMIT REFUSAL STOPS THE BATCH, exactly as it does on the AI-answer loops above: the provider answers 40203 the same way to every call it will take today, so carrying on asked it up to a hundred and four more times for a hundred and four identical refusals. A stopped row is still `pending`, which IS the owed state, so nothing is lost and nothing is re-bought: tomorrow's pass takes the same searches with a fresh limit.
-    let failedDetail: string | null = null, blockedDetail: string | null = null, limitDetail: string | null = null;
+    let failedDetail: string | null = null, blockedDetail: string | null = null, limitDetail: string | null = null, noAttempt = false;
     const hot = new Set((priorityQueries ?? []).map((q) => canonicalQueryKey(normalizeKeyword(q))).filter(Boolean));
     // Historical words survive; due results never enter current projections or poll their completed task.
     const reopenDue = (s: FunnelSerp) => {
@@ -400,7 +401,8 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
           const r = interp(await d.callProvider("serp_organic", { keyword: s.query, ...(!exact && hot.has(canonicalQueryKey(s.query)) ? { loadAiOverview: true } : {}) }, exact ? { ...ids, exactSerp: true } : ids)); track(state, r);
           if (r.kind === "waiting") { if (r.providerTaskId) { s.status = "posted"; s.cacheKey = r.cacheKey; } else failedDetail = r.detail ?? "A search fetch still owns its lease. It stays pending until a confirmed provider task or answer arrives."; }
           else if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) { applySerp(s, parsed, nowIso(), r.payload, tenantId); reopenDue(s); } }
-          else if (r.kind === "failed") {
+          else if (r.kind === "failed" || r.kind === "soft") {
+            noAttempt = r.kind === "soft";
             // daily_limit and blocked are the stops; quarantined = explicit unavailable coverage; the rest continue.
             if (r.disposition === "daily_limit") limitDetail = r.detail ?? null;
             else if (r.disposition === "blocked") blockedDetail = blockedNote(r);
@@ -439,15 +441,13 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
       const mismatched = serps.filter((s) => s.identityMismatch).length;
       if (mismatched > 0) failedDetail = `${mismatched} ${mismatched === 1 ? "search" : "searches"} came back for a different phrase than the one asked, so ${mismatched === 1 ? "it was" : "they were"} left out and will be checked again.`;
       // done = every CURRENT query freshly analyzed or explicitly unavailable, one real look minimum, no AI Mode live; unavailable is surfaced.
-      let status: FunnelUnitOutcome["status"];
-      if (selectedDone > 0 && selectedDone + unavailable >= chosen.length && !aiModeInFlight) { status = "done";
+      const status: FunnelUnitOutcome["status"] = selectedDone > 0 && selectedDone + unavailable >= chosen.length && !aiModeInFlight ? "done" : exact && noAttempt ? "failed" : anyPending ? "waiting" : "failed";
+      if (status === "done") {
         // A NAMED MISMATCH OUTRANKS BOTH counts below: it already says what happened, and reporting it as a provider outage would be the wrong claim.
         if (mismatched === 0 && unavailable > 0) failedDetail = `${unavailable} searches were unavailable from the provider; the rest are in.`;
         else if (mismatched === 0 && aiModeMissing > 0) failedDetail = `${aiModeMissing} AI Mode looks were unavailable from the provider; the search results themselves are in.`; }
-      else if (anyPending) status = "waiting";
-      else status = "failed";
       const detail = status === "failed" ? (failedDetail ?? "Some searches did not finish. The next pass will retry them.") : failedDetail;
-      return { status, cursor, progress: serpProgress(state), ...(detail ? { detail } : {}) };
+      return { status, ...(exact && noAttempt ? { attempted: false as const } : {}), cursor, progress: serpProgress(state), ...(detail ? { detail } : {}) };
     } catch (e) {
       if (e instanceof StateConflictError) return { status: "failed", code: "state_conflict", cursor, progress: serpProgress(state), detail: CONFLICT_DETAIL };
       throw e;
